@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m unittest tests.test_recolor -v)",
+      "Bash(python main.py -i photo.jpg -c \"emerald green\" --intensity dark --finish mirror --dry-run)",
+      "Bash(python -m unittest tests.test_search -v)",
+      "Bash(python catalog_manager.py validate)",
+      "Bash(python catalog_manager.py list)",
+      "Bash(python -m unittest tests.test_analysis -v)",
+      "Bash(python -m unittest tests.test_pipeline -v)",
+      "Bash(find C:/Users/Shay/PycharmProjects/lenses -type f -exec ls -lh {})",
+      "Bash(2)",
+      "Bash(grep -r \"^import\\\\|^from\" C:/Users/Shay/PycharmProjects/lenses --include=*.py)",
+      "Bash(cp main.py lens_recolor/main.py)",
+      "Bash(cp config.py lens_recolor/config.py)",
+      "Bash(cp utils.py lens_recolor/utils.py)",
+      "Bash(cp prompt_engine.py lens_recolor/prompt_engine.py)",
+      "Bash(cp recolor.py lens_recolor/recolor.py)",
+      "Bash(rm main.py config.py utils.py prompt_engine.py recolor.py)",
+      "Bash(rm -rf tests/)",
+      "Bash(rm -rf examples/)",
+      "Bash(rm -rf __pycache__/)",
+      "Bash(rm -rf optimal_configuration/__pycache__/)",
+      "Bash(ls C:/Users/Shay/PycharmProjects/lenses/face_analysis/*.png)",
+      "WebFetch(domain:erroca.co.il)",
+      "Bash(pip install:*)",
+      "Bash(python scrape_images.py)",
+      "Bash(python -c \":*)",
+      "Bash(python catalog_manager.py build)",
+      "Bash(echo $GEMINI_API_KEY)",
+      "Bash(python -c \"import os; k=os.environ.get\\(''GEMINI_API_KEY'',''''\\); print\\(f''Key length: {len\\(k\\)}'' if k else ''NOT SET''\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\(''''C:/Users/Shay/PycharmProjects/lenses/lenses/catalog/catalog.json''''\\)\\); print\\(len\\(d[''''products'''']\\)\\)\")",
+      "Bash(python -m unittest tests.test_recolor)",
+      "Bash(python -m unittest tests.test_search)",
+      "Bash(python -m unittest tests.test_pipeline)",
+      "Bash(gh auth:*)",
+      "Bash(git --version)"
+    ]
+  }
+}

@@ -1,0 +1,2029 @@
+{
+  "catalog_version": "2.0",
+  "last_updated": "2026-03-22T18:00:00Z",
+  "source": "erroca.co.il — Men's Eyeglasses",
+  "products": [
+    {
+      "id": "erroca_001",
+      "name": "Emporio Armani EA1041 Semi-Rimless",
+      "image": "images/erroca_mens_001.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "matte-black",
+            "silver"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "professional",
+            "modern",
+            "classic"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA1041",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA1041-3094"
+        }
+      },
+      "description_auto": "Emporio Armani EA1041 Semi-Rimless by Emporio Armani. These glasses feature a medium matte matte-black, silver metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, classic style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_002",
+      "name": "Emporio Armani EA1052 Semi-Rimless Gunmetal",
+      "image": "images/erroca_mens_002.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gunmetal"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "professional",
+            "modern",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA1052",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA1052-3094"
+        }
+      },
+      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gunmetal by Emporio Armani. These glasses feature a medium matte gunmetal metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_003",
+      "name": "Emporio Armani EA1052 Semi-Rimless Gray",
+      "image": "images/erroca_mens_003.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gunmetal"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "professional",
+            "modern",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA1052",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA1052-3155"
+        }
+      },
+      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gray by Emporio Armani. These glasses feature a medium matte gunmetal metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_004",
+      "name": "Emporio Armani EA1149 Semi-Rimless Black Green",
+      "image": "images/erroca_mens_004.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "matte-black",
+            "green"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA1149",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA1149-3001"
+        }
+      },
+      "description_auto": "Emporio Armani EA1149 Semi-Rimless Black Green by Emporio Armani. These glasses feature a medium matte matte-black, green metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, outdoor, fits oval, square, oblong face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_005",
+      "name": "Emporio Armani EA1162 Semi-Rimless Blue",
+      "image": "images/erroca_mens_005.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "blue",
+            "silver"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "professional",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA1162",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA1162-3050"
+        }
+      },
+      "description_auto": "Emporio Armani EA1162 Semi-Rimless Blue by Emporio Armani. These glasses feature a medium matte blue, silver metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_006",
+      "name": "Emporio Armani EA3147 Rectangular Blue",
+      "image": "images/erroca_mens_006.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "blue"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "casual",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA3147",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA3147-5754"
+        }
+      },
+      "description_auto": "Emporio Armani EA3147 Rectangular Blue by Emporio Armani. These glasses feature a medium matte blue acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, casual, bold style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_007",
+      "name": "Emporio Armani EA3237 Rectangular Gray",
+      "image": "images/erroca_mens_007.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "minimalist",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Emporio Armani",
+          "model_name": "EA3237",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "EA3237-6106"
+        }
+      },
+      "description_auto": "Emporio Armani EA3237 Rectangular Gray by Emporio Armani. These glasses feature a medium glossy transparent acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, minimalist, professional style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_008",
+      "name": "Ray-Ban RX5441 Round Aviator Black",
+      "image": "images/erroca_mens_008.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "retro",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX5441",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX5441-2000"
+        }
+      },
+      "description_auto": "Ray-Ban RX5441 Round Aviator Black by Ray-Ban. These glasses feature a thick glossy black acetate full-rim frame with a round shape. They have large round clear clear, prescription-ready lenses. The overall look is retro, bold, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_009",
+      "name": "Ray-Ban RX5441 Round Aviator Tortoiseshell",
+      "image": "images/erroca_mens_009.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "retro",
+            "vintage",
+            "bold"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX5441",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX5441-2012"
+        }
+      },
+      "description_auto": "Ray-Ban RX5441 Round Aviator Tortoiseshell by Ray-Ban. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a round shape. They have large round clear clear, prescription-ready lenses. The overall look is retro, vintage, bold style, designed for unisex, suitable for everyday, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_010",
+      "name": "Ray-Ban RX6494 Browline Black Silver",
+      "image": "images/erroca_mens_010.jpg",
+      "tags": {
+        "frame": {
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
+          "color": [
+            "black",
+            "silver"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6494",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6494-2861"
+        }
+      },
+      "description_auto": "Ray-Ban RX6494 Browline Black Silver by Ray-Ban. These glasses feature a medium glossy black, silver mixed-metal-acetate semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, vintage, professional style, designed for men, suitable for everyday, office, formal, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_011",
+      "name": "Ray-Ban RX6496 Geometric Black Gold",
+      "image": "images/erroca_mens_011.jpg",
+      "tags": {
+        "frame": {
+          "shape": "geometric",
+          "material": "metal",
+          "color": [
+            "black",
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "fashion-forward",
+            "artsy"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6496",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6496-3175"
+        }
+      },
+      "description_auto": "Ray-Ban RX6496 Geometric Black Gold by Ray-Ban. These glasses feature a thin glossy black, gold metal full-rim frame with a geometric shape. They have medium square clear clear, prescription-ready lenses. The overall look is modern, fashion-forward, artsy style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_012",
+      "name": "Ray-Ban RX6509 Round Gold",
+      "image": "images/erroca_mens_012.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "minimalist"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6509",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6509-2500"
+        }
+      },
+      "description_auto": "Ray-Ban RX6509 Round Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_013",
+      "name": "Ray-Ban RX6513 Semi-Rimless Black",
+      "image": "images/erroca_mens_013.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "professional",
+            "classic",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6513",
+          "price": 999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6513-2904"
+        }
+      },
+      "description_auto": "Ray-Ban RX6513 Semi-Rimless Black by Ray-Ban. These glasses feature a medium matte matte-black metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, classic, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_014",
+      "name": "Ray-Ban RX7199 Square Black Red",
+      "image": "images/erroca_mens_014.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "plastic",
+          "color": [
+            "matte-black",
+            "red"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7199",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7199-5915"
+        }
+      },
+      "description_auto": "Ray-Ban RX7199 Square Black Red by Ray-Ban. These glasses feature a medium matte matte-black, red plastic full-rim frame with a square shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, sport, outdoor, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_015",
+      "name": "Ray-Ban RX7208 Rectangular Matte Black",
+      "image": "images/erroca_mens_015.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "professional",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7208",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7208-5204"
+        }
+      },
+      "description_auto": "Ray-Ban RX7208 Rectangular Matte Black by Ray-Ban. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_016",
+      "name": "Ray-Ban RX7256 Square Bold Black",
+      "image": "images/erroca_mens_016.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "bold",
+            "streetwear",
+            "fashion-forward"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7256",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7256-8260"
+        }
+      },
+      "description_auto": "Ray-Ban RX7256 Square Bold Black by Ray-Ban. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square clear clear, prescription-ready lenses. The overall look is bold, streetwear, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_017",
+      "name": "Versace VE3363U Wayfarer Tortoiseshell",
+      "image": "images/erroca_mens_017.jpg",
+      "tags": {
+        "frame": {
+          "shape": "wayfarer",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3363U",
+          "price": 1099.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3363U-108"
+        }
+      },
+      "description_auto": "Versace VE3363U Wayfarer Tortoiseshell by Versace. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have large rectangular clear clear, prescription-ready lenses. The overall look is luxury, bold, fashion-forward style, designed for unisex, suitable for everyday, fashion, office, fits oval, round, heart face shapes. priced at 1099.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_018",
+      "name": "Versace VE3363U Wayfarer Black",
+      "image": "images/erroca_mens_018.jpg",
+      "tags": {
+        "frame": {
+          "shape": "wayfarer",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "classic"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3363U",
+          "price": 1099.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3363U-GB1"
+        }
+      },
+      "description_auto": "Versace VE3363U Wayfarer Black by Versace. These glasses feature a thick glossy black acetate full-rim frame with a wayfarer shape. They have large rectangular clear clear, prescription-ready lenses. The overall look is luxury, bold, classic style, designed for unisex, suitable for everyday, fashion, office, fits oval, round, heart face shapes. priced at 1099.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_019",
+      "name": "Vogue VO5326 Round Black",
+      "image": "images/erroca_mens_019.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "preppy"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Vogue",
+          "model_name": "VO5326",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5326-W44"
+        }
+      },
+      "description_auto": "Vogue VO5326 Round Black by Vogue. These glasses feature a medium glossy black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_020",
+      "name": "Ray-Ban RX3447V Round Metal Gunmetal",
+      "image": "images/erroca_mens_020.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "gunmetal"
+          ],
+          "thickness": "thin",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "classic",
+            "minimalist"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond",
+            "universal"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX3447V Round Metal",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX3447V-2620"
+        }
+      },
+      "description_auto": "Ray-Ban RX3447V Round Metal Gunmetal by Ray-Ban. These glasses feature a thin matte gunmetal metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_021",
+      "name": "Prada Linea Rossa PS01LV Rectangular Black",
+      "image": "images/erroca_mens_021.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 01LV Linea Rossa",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS01LV-DG0"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS01LV Rectangular Black by Prada. These glasses feature a medium matte matte-black metal full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_022",
+      "name": "Ray-Ban RX7047 Rectangular Black",
+      "image": "images/erroca_mens_022.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "professional",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7047",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7047-2000"
+        }
+      },
+      "description_auto": "Ray-Ban RX7047 Rectangular Black by Ray-Ban. These glasses feature a medium glossy black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_023",
+      "name": "Ray-Ban RX6335 Round Metal Black",
+      "image": "images/erroca_mens_023.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "thin",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "minimalist",
+            "modern"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6335",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6335-2503"
+        }
+      },
+      "description_auto": "Ray-Ban RX6335 Round Metal Black by Ray-Ban. These glasses feature a thin matte matte-black metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, minimalist, modern style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_024",
+      "name": "Ray-Ban RX8416 Semi-Rimless Carbon Black",
+      "image": "images/erroca_mens_024.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "carbon-fiber",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "industrial"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "sport"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX8416",
+          "price": 999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX8416-2503"
+        }
+      },
+      "description_auto": "Ray-Ban RX8416 Semi-Rimless Carbon Black by Ray-Ban. These glasses feature a medium matte matte-black carbon-fiber semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, industrial style, designed for men, suitable for everyday, office, sport, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_025",
+      "name": "Ray-Ban Browline Round Black",
+      "image": "images/erroca_mens_025.jpg",
+      "tags": {
+        "frame": {
+          "shape": "browline",
+          "material": "metal",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "retro",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "Browline Round",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB-BROW-BLK"
+        }
+      },
+      "description_auto": "Ray-Ban Browline Round Black by Ray-Ban. These glasses feature a medium matte matte-black metal semi-rimless frame with a browline shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, retro, professional style, designed for men, suitable for everyday, office, formal, fits oval, oblong, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_026",
+      "name": "Ray-Ban Semi-Rimless Rectangular Blue",
+      "image": "images/erroca_mens_026.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "blue"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "professional",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "Semi-Rimless",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB-SR-BLU"
+        }
+      },
+      "description_auto": "Ray-Ban Semi-Rimless Rectangular Blue by Ray-Ban. These glasses feature a medium matte blue metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_027",
+      "name": "Prada Linea Rossa PS50GV Rectangular Black",
+      "image": "images/erroca_mens_027.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 50GV Linea Rossa",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS50GV-DG0"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS50GV Rectangular Black by Prada. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_028",
+      "name": "Prada Linea Rossa PS50GV Rectangular Gray",
+      "image": "images/erroca_mens_028.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 50GV Linea Rossa",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS50GV-15C"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS50GV Rectangular Gray by Prada. These glasses feature a medium glossy transparent plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_029",
+      "name": "Prada Linea Rossa PS04IV Rectangular Black",
+      "image": "images/erroca_mens_029.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 04IV Linea Rossa",
+          "price": 1099.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS04IV-DG0"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS04IV Rectangular Black by Prada. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, casual style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_030",
+      "name": "Prada Linea Rossa PS04IV Rectangular Blue",
+      "image": "images/erroca_mens_030.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "blue"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 04IV Linea Rossa",
+          "price": 1099.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS04IV-TFY"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS04IV Rectangular Blue by Prada. These glasses feature a medium matte blue plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_031",
+      "name": "Ray-Ban RX7256 Square Transparent",
+      "image": "images/erroca_mens_031.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "minimalist",
+            "fashion-forward"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7256",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7256-TRANS"
+        }
+      },
+      "description_auto": "Ray-Ban RX7256 Square Transparent by Ray-Ban. These glasses feature a medium glossy transparent acetate full-rim frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is modern, minimalist, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_032",
+      "name": "Ray-Ban Hexagonal Black",
+      "image": "images/erroca_mens_032.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "Hexagonal",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB-HEX-BLK"
+        }
+      },
+      "description_auto": "Ray-Ban Hexagonal Black by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, casual style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_033",
+      "name": "Ray-Ban Hexagonal Tortoiseshell",
+      "image": "images/erroca_mens_033.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "preppy"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "Hexagonal",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB-HEX-TORT"
+        }
+      },
+      "description_auto": "Ray-Ban Hexagonal Tortoiseshell by Ray-Ban. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_034",
+      "name": "Ray-Ban RX7047 Rectangular Matte Black",
+      "image": "images/erroca_mens_034.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "matte-black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7047",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7047-5196"
+        }
+      },
+      "description_auto": "Ray-Ban RX7047 Rectangular Matte Black by Ray-Ban. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_035",
+      "name": "Vogue VO5519 Square Blue",
+      "image": "images/erroca_mens_035.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "blue"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "professional",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Vogue",
+          "model_name": "VO5519",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5519-BLU"
+        }
+      },
+      "description_auto": "Vogue VO5519 Square Blue by Vogue. These glasses feature a medium glossy blue acetate full-rim frame with a square shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_036",
+      "name": "Prada Linea Rossa PS50PV Semi-Rimless Black Red",
+      "image": "images/erroca_mens_036.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "matte-black",
+            "red"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "luxury",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "sport",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PS 50PV Linea Rossa",
+          "price": 1599.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PS50PV-DG0"
+        }
+      },
+      "description_auto": "Prada Linea Rossa PS50PV Semi-Rimless Black Red by Prada. These glasses feature a medium matte matte-black, red metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, bold style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1599.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_037",
+      "name": "Ray-Ban RX3447V Round Metal Gold",
+      "image": "images/erroca_mens_037.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "classic",
+            "minimalist"
+          ],
+          "gender_target": "unisex",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond",
+            "universal"
+          ],
+          "occasion": [
+            "everyday",
+            "office",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX3447V Round Metal",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX3447V-GOLD"
+        }
+      },
+      "description_auto": "Ray-Ban RX3447V Round Metal Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
+    }
+  ]
+}
