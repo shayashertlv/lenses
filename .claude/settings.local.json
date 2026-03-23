@@ -48,7 +48,14 @@
       "Bash(python -c \"import py_compile; py_compile.compile\\(''UI/app.py'', doraise=True\\)\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\(''face_analysis/analysis_prompt.py'', doraise=True\\); py_compile.compile\\(''face_analysis/face_analyzer.py'', doraise=True\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/app.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/app.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/app.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/templates.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''templates.py: Syntax OK''\\)\")",
+      "Bash(wc -l /c/Users/Shay/PycharmProjects/lenses/UI/templates.py /c/Users/Shay/PycharmProjects/lenses/face_analysis/*.py /c/Users/Shay/PycharmProjects/lenses/lens_recolor/*.py /c/Users/Shay/PycharmProjects/lenses/optimal_configuration/*.py)",
+      "Bash(grep -r 'from optimal_configuration' /c/Users/Shay/PycharmProjects/lenses --include=*.py)",
+      "Bash(python -m pytest optimal_configuration/tests/test_search.py -x -q)",
+      "Bash(python -m pytest face_analysis/tests/test_pipeline.py -x -q)",
+      "Bash(python -m pytest lens_recolor/tests/test_recolor.py -x -q)",
+      "Bash(python -m unittest optimal_configuration/tests/test_search.py)"
     ]
   }
 }

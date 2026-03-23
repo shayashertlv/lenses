@@ -1,6 +1,6 @@
 # Lenses — AI-Powered Glasses Tools
 
-Three Python CLI tools powered by Google Gemini for glasses-related image editing and recommendation.
+AI-powered glasses tools powered by Google Gemini — three CLI pipelines plus a web UI for glasses recommendation, virtual try-on, and lens recoloring.
 
 ## Prerequisites
 
@@ -35,20 +35,21 @@ lenses/
 ├── requirements.txt          # All dependencies (one for whole project)
 ├── README.md                 # This file
 │
-├── lenses/                   # Erroca Product Catalog & Scraping Tools
-│   ├── scrape_images.py      #   Scrape product image URLs from erroca.co.il
-│   ├── download_images.py    #   Download images as JPG with retry logic
-│   ├── run_all.py            #   Orchestrator: scrape → download
+├── lenses/                   # Shared Catalog & Utilities
 │   ├── catalog_manager.py    #   Build/validate/list catalog + embeddings
 │   ├── tag_schema.py         #   Product tag vocabulary + description gen
-│   ├── requirements.txt      #   Scraping dependencies
-│   ├── image_urls.txt        #   Discovered image URLs (auto-generated)
-│   ├── catalog/              #   Product database (shared by all features)
-│   │   ├── catalog.json      #     37 products — full tags + descriptions
-│   │   ├── embeddings.npy    #     Pre-computed embedding vectors (3072-dim)
-│   │   ├── embedding_index.json#   Index mapping
-│   │   └── images/           #     Product photos (erroca_mens_001.jpg, ...)
-│   └── downloaded_images/    #   Raw downloads (before catalog curation)
+│   └── catalog/              #   Product database (shared by all features)
+│       ├── catalog.json      #     37 products — full tags + descriptions
+│       ├── embeddings.npy    #     Pre-computed embedding vectors (3072-dim)
+│       ├── embedding_index.json#   Index mapping
+│       └── images/           #     Product photos (erroca_mens_001.jpg, ...)
+│
+├── UI/                       # Web Interface
+│   ├── app.py                #   HTTP server entry point (localhost:8080)
+│   ├── config.py             #   Paths, session store, constants
+│   ├── handler.py            #   HTTP request routing + multipart parsing
+│   ├── pipelines.py          #   Async pipeline execution (background threads)
+│   └── templates.py          #   HTML + JavaScript frontend
 │
 ├── lens_recolor/             # Feature 1: Lens Color Swap
 │   ├── main.py               #   CLI entry point
@@ -56,7 +57,6 @@ lenses/
 │   ├── recolor.py            #   Gemini API call logic
 │   ├── prompt_engine.py      #   Prompt builder for lens recoloring
 │   ├── utils.py              #   Image loading/saving/validation
-│   ├── examples/             #   Sample input/output images
 │   └── tests/
 │       └── test_recolor.py   #   19 tests
 │
@@ -65,8 +65,6 @@ lenses/
 │   ├── config.py             #   Model names, catalog paths → lenses/catalog/
 │   ├── search_engine.py      #   Embedding-based semantic search
 │   ├── query_interpreter.py  #   LLM query parsing (any language)
-│   ├── tag_schema.py         #   Product tag vocabulary + description gen
-│   ├── catalog_manager.py    #   Build/validate/list catalog
 │   ├── tryon_engine.py       #   Nano Banana 2-image try-on
 │   ├── tryon_prompt_builder.py#  Try-on prompt construction
 │   ├── utils.py              #   Image loading/saving/validation
@@ -163,7 +161,7 @@ python catalog_manager.py validate   # Verify images exist and tags are valid
 python catalog_manager.py list       # List all 37 products
 ```
 
-The catalog lives in `lenses/catalog/` and is shared by both Optimal Configuration and Face Analysis.
+The catalog lives in `lenses/catalog/` and is shared by Optimal Configuration, Face Analysis, and the Web UI.
 
 ### How to run
 
@@ -307,15 +305,34 @@ python -m unittest tests.test_pipeline -v   # 41 tests
 
 ---
 
+## Web UI
+
+**What it does:** Browser-based interface exposing two modes — **Smart Fit** (face analysis pipeline) and **Free Search** (text query pipeline). Upload a portrait, get results with progressive loading as each try-on finishes.
+
+### How to run
+
+```bash
+python -m UI.app
+```
+
+Open http://127.0.0.1:8080 in your browser.
+
+- **Smart Fit** (`/`) — Upload a portrait. Runs the full face analysis pipeline: analyze face, match against catalog, generate try-on images.
+- **Free Search** (`/free-search`) — Upload a portrait + describe what you want. Runs semantic search against the catalog and generates try-on images.
+
+Results stream in progressively via polling (`/api/status/<id>`).
+
+---
+
 ## Models Used
 
 | Model | Purpose | Used by |
 |---|---|---|
-| `gemini-3.1-flash-image-preview` (nano-banana-2) | Image generation — fast | All 3 features |
-| `gemini-3-pro-image-preview` (nano-banana-pro) | Image generation — high quality | All 3 features |
-| `gemini-2.5-flash` | Face analysis (vision + reasoning) | Face Analysis |
+| `gemini-3.1-flash-image-preview` (nano-banana-2) | Image generation — fast | All features + Web UI |
+| `gemini-3-pro-image-preview` (nano-banana-pro) | Image generation — high quality | All features + Web UI |
+| `gemini-2.5-flash` | Face analysis (vision + reasoning) | Face Analysis, Web UI (Smart Fit) |
 | `gemini-2.5-flash` | Query interpretation (text) | Optimal Configuration |
-| `gemini-embedding-001` | Text embedding (3072-dim, 100+ languages) | Optimal Config + Face Analysis |
+| `gemini-embedding-001` | Text embedding (3072-dim, 100+ languages) | Optimal Config, Face Analysis, Web UI |
 
 ## Troubleshooting
 

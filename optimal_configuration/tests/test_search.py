@@ -5,8 +5,9 @@ import os
 import sys
 import unittest
 
-# Add parent directory to path
+# Add parent directory and lenses/ to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lenses"))
 
 from tag_schema import generate_product_description, validate_tags, TAG_SCHEMA
 from tryon_prompt_builder import build_tryon_prompt
