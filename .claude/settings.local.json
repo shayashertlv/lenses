@@ -35,7 +35,20 @@
       "Bash(python -m unittest tests.test_search)",
       "Bash(python -m unittest tests.test_pipeline)",
       "Bash(gh auth:*)",
-      "Bash(git --version)"
+      "Bash(git --version)",
+      "Bash(python -c \"import json; d=json.load\\(open\\(''C:/Users/Shay/PycharmProjects/lenses/lenses/catalog/catalog.json''\\)\\); print\\(len\\(d[''products'']\\)\\)\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(find /c/Users/Shay/PycharmProjects/lenses/UI -type f -name *.py)",
+      "Bash(find /c/Users/Shay/PycharmProjects/lenses/lenses -name *.py)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''UI/app.py'', doraise=True\\); print\\(''Syntax OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''UI/app.py'', doraise=True\\); py_compile.compile\\(''face_analysis/analysis_prompt.py'', doraise=True\\); py_compile.compile\\(''face_analysis/face_analyzer.py'', doraise=True\\); print\\(''All files compile OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''UI/app.py'', doraise=True\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''face_analysis/analysis_prompt.py'', doraise=True\\); py_compile.compile\\(''face_analysis/face_analyzer.py'', doraise=True\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/app.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''UI/app.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")"
     ]
   }
 }

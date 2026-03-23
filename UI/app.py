@@ -1,67 +1,81 @@
 """
-Lenses UI — Upload portrait -> face analysis -> inventory match -> virtual try-on.
+Lenses UI — Two modes:
 
-Pipeline (mirroring face_analysis/main.py but for the web):
-  1. FaceAnalyzer.analyze(portrait_path)
-       -> analysis dict with recommended_tags + alternative_recommendations
-  2. InventoryMatcher(CATALOG_DIR, api_key).match(recommended_tags, top_k=3)
-       -> 3 best (product, score) tuples from the catalog
-  3. virtual_tryon(portrait, glasses_img, analysis, product, model, key) x3
-       -> try-on image bytes for each match (all 3 run in parallel)
+1. Smart Fit:   Upload portrait -> face analysis -> inventory match -> virtual try-on.
+2. Free Search: Upload portrait + choose preferences -> semantic search -> virtual try-on.
 
 Frontend polls /api/status/<id> and progressively reveals results as each
-try-on finishes.  Option 1 appears first; options 2 & 3 show when ready.
+try-on finishes.
 """
 
 import base64
+import io
 import json
 import os
+import random
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FACE_ANALYSIS_DIR = PROJECT_ROOT / "face_analysis"
 CATALOG_DIR = str(PROJECT_ROOT / "lenses" / "catalog")
+CATALOG_JSON = PROJECT_ROOT / "lenses" / "catalog" / "catalog.json"
+EMBEDDINGS_NPY = PROJECT_ROOT / "lenses" / "catalog" / "embeddings.npy"
+EMBEDDING_INDEX_JSON = PROJECT_ROOT / "lenses" / "catalog" / "embedding_index.json"
+CATALOG_IMAGES_DIR = PROJECT_ROOT / "lenses" / "catalog" / "images"
 
-# face_analysis modules use sibling imports (from config import …),
+# face_analysis modules use sibling imports (from config import ...),
 # so we add the directory to sys.path once.
 if str(FACE_ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(FACE_ANALYSIS_DIR))
+
+# ── Free Search constants (inlined to avoid config.py import conflicts) ──────
+FS_EMBEDDING_MODEL = "gemini-embedding-001"
+FS_MIN_SIMILARITY = 0.3
+FS_MODEL_MAP = {
+    "nano-banana-pro": "gemini-3-pro-image-preview",
+    "nano-banana-2": "gemini-3.1-flash-image-preview",
+}
+FS_DEFAULT_MODEL = "nano-banana-2"
+FS_MAX_IMAGE_DIM = 4096
 
 # ── In-memory session store ──────────────────────────────────────────────────
 sessions: dict[str, dict] = {}
 
 
-# ── Background pipeline ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# SMART FIT PIPELINE (existing)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     """
     Runs the full face_analysis pipeline in a background thread.
 
-    Steps mirror face_analysis/main.py lines 155-287 but adapted for web:
+    Steps mirror face_analysis/main.py:
       1. FaceAnalyzer.analyze()
       2. InventoryMatcher.match(top_k=3)
       3. virtual_tryon() x3 in parallel
     """
     sess = sessions[session_id]
 
-    # Save upload to a temp file (face_analyzer needs a file path)
     ext = Path(filename).suffix or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
     tmp.write(portrait_bytes)
     tmp.close()
     portrait_path = tmp.name
 
-    # Encode portrait for the frontend to display
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
 
-    # ── API key ──────────────────────────────────────────────────────────
     try:
         from config import get_api_key, DEFAULT_GENERATION_MODEL
         api_key = get_api_key()
@@ -70,8 +84,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         sess["error"] = str(e)
         return
 
-    # ── STEP 1  FaceAnalyzer.analyze() ───────────────────────────────────
-    # (same as face_analysis/main.py line 158-171)
+    # STEP 1: FaceAnalyzer.analyze()
     sess["stage"] = "analyzing"
     try:
         from face_analyzer import FaceAnalyzer
@@ -91,9 +104,10 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
 
     analysis = analysis_result.analysis
     sess["analysis_seconds"] = round(analysis_result.elapsed_seconds, 1)
+    sess["face_insights"] = analysis.get("face_insights", [])
+    sess["face_summary"] = analysis.get("face_summary", {})
 
-    # ── STEP 2  InventoryMatcher.match() ─────────────────────────────────
-    # (same as face_analysis/main.py line 198-211)
+    # STEP 2: InventoryMatcher.match()
     sess["stage"] = "matching"
     try:
         from inventory_matcher import InventoryMatcher
@@ -112,10 +126,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         _cleanup(portrait_path)
         return
 
-    matches = match_result.matches  # list[(product_dict, score)]
+    matches = match_result.matches
     sess["num_options"] = len(matches)
 
-    # Store product info + catalog image for each option
     for i, (product, score) in enumerate(matches):
         glasses_path = matcher.get_product_image_path(product)
         with open(glasses_path, "rb") as f:
@@ -133,13 +146,12 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             "material": product["tags"]["frame"]["material"],
             "color": ", ".join(product["tags"]["frame"]["color"]),
             "product_b64": product_b64,
-            "tryon_status": "pending",  # pending | generating | done | error
+            "tryon_status": "pending",
             "tryon_b64": None,
             "tryon_error": None,
         }
 
-    # ── STEP 3  virtual_tryon() x3 in parallel ──────────────────────────
-    # (same as face_analysis/main.py line 253-261, but for each match)
+    # STEP 3: virtual_tryon() x3 in parallel
     sess["stage"] = "tryon"
     from tryon_engine import virtual_tryon
 
@@ -170,7 +182,6 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             sess[f"opt{idx}"]["tryon_status"] = "error"
             sess[f"opt{idx}"]["tryon_error"] = tr.error or "No image returned"
 
-    # Launch all 3 try-ons in parallel threads
     threads = [
         threading.Thread(target=do_tryon, args=(i,), daemon=True)
         for i in range(len(matches))
@@ -178,7 +189,364 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     for t in threads:
         t.start()
 
-    # Wait for option 0 first so the frontend can show the primary result early
+    threads[0].join()
+    sess["stage"] = "primary_ready"
+
+    for t in threads[1:]:
+        t.join()
+
+    sess["stage"] = "done"
+    sess["status"] = "done"
+    _cleanup(portrait_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FREE SEARCH PIPELINE (new)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _build_search_description(prefs: dict) -> str:
+    """
+    Convert UI preference selections into a natural-language description
+    optimised for embedding-based semantic search against the catalog.
+
+    Only includes properties the user actually selected (non-empty values).
+    """
+    parts = []
+
+    # Frame
+    frame_parts = []
+    if prefs.get("frame_shape"):
+        frame_parts.append(f"{prefs['frame_shape']} shape")
+    if prefs.get("frame_color"):
+        frame_parts.append(f"{prefs['frame_color']} color")
+    if prefs.get("frame_material"):
+        frame_parts.append(f"{prefs['frame_material']} material")
+    if prefs.get("frame_thickness"):
+        frame_parts.append(f"{prefs['frame_thickness']} thickness")
+    if prefs.get("rim_type"):
+        frame_parts.append(prefs["rim_type"])
+    if frame_parts:
+        parts.append("Glasses with a " + ", ".join(frame_parts) + " frame.")
+
+    # Lenses
+    lens_parts = []
+    if prefs.get("lens_type"):
+        lens_parts.append(prefs["lens_type"])
+    if prefs.get("lens_size"):
+        lens_parts.append(f"{prefs['lens_size']} size")
+    if lens_parts:
+        parts.append(" ".join(lens_parts) + " lenses.")
+
+    # Style
+    style_parts = []
+    if prefs.get("aesthetic"):
+        style_parts.append(f"{prefs['aesthetic']} style")
+    if prefs.get("gender"):
+        style_parts.append(f"for {prefs['gender']}")
+    if prefs.get("occasion"):
+        style_parts.append(f"suitable for {prefs['occasion']} wear")
+    if style_parts:
+        parts.append(", ".join(style_parts) + ".")
+
+    if not parts:
+        return "Versatile everyday glasses, modern style."
+
+    return " ".join(parts)
+
+
+def _fs_load_image_as_part(path: str):
+    """Load image, resize if needed, return a google.genai Part."""
+    from google.genai import types
+
+    img = Image.open(path)
+    max_side = max(img.width, img.height)
+    if max_side > FS_MAX_IMAGE_DIM:
+        img.thumbnail((FS_MAX_IMAGE_DIM, FS_MAX_IMAGE_DIM), Image.LANCZOS)
+
+    fmt = img.format
+    if fmt is None:
+        ext = Path(path).suffix.lower()
+        fmt = {".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP", ".png": "PNG"}.get(ext, "PNG")
+
+    mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(fmt, "image/png")
+
+    if fmt == "JPEG" and img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    buf = io.BytesIO()
+    img.save(buf, format=fmt)
+    return types.Part.from_bytes(data=buf.getvalue(), mime_type=mime)
+
+
+def _fs_build_tryon_prompt(product: dict) -> str:
+    """Build virtual try-on prompt from product tags."""
+    tags = product["tags"]
+    frame = tags["frame"]
+    lenses = tags["lenses"]
+
+    def _join(v):
+        return ", ".join(v) if isinstance(v, list) else str(v)
+
+    frame_colors = _join(frame["color"])
+    lens_types = _join(lenses["type"])
+    lens_colors = _join(lenses["color"])
+
+    return f"""I am providing two images:
+- IMAGE 1 (first image): A portrait photograph of a person who wants to try on glasses.
+- IMAGE 2 (second image): A product photograph of glasses/eyewear to be placed on the person.
+
+YOUR TASK: Create a new version of IMAGE 1 (the portrait) where the person is wearing the glasses shown in IMAGE 2. The output must look like a real photograph.
+
+GLASSES DETAILS (from IMAGE 2):
+- Frame: {frame["shape"]} shape, {frame["material"]} material, {frame_colors} color, {frame["thickness"]} thickness, {frame["finish"]} finish, {frame["rim_type"]}
+- Lenses: {lens_types} type, {lens_colors} color, {lenses["size"]} size, {lenses["shape"]} shape
+
+GLASSES PLACEMENT RULES:
+- Position the glasses naturally on the person's face — bridge on the nose, temples toward the ears
+- Match the person's face angle, tilt, and perspective exactly
+- Scale proportionally to the person's face
+- Temple arms should follow the natural path behind/over the ears
+
+CRITICAL PRESERVATION RULES:
+- Face, skin tone, expression, makeup must remain IDENTICAL
+- Eyes visible through lenses at appropriate opacity for {lens_types} lenses with {lens_colors} tint
+- Hair, clothing, accessories, background, lighting must remain IDENTICAL
+- Photo composition, framing, angle, resolution must remain IDENTICAL
+
+REALISM REQUIREMENTS:
+- Add natural shadows where the frame touches the face
+- Lenses should show appropriate reflections for the lighting
+- The glasses must have physical weight and presence — not a flat overlay
+- Faithfully reproduce the exact frame design from IMAGE 2
+
+OUTPUT: Return ONLY the edited portrait with the glasses applied. Maintain EXACT same dimensions and quality as IMAGE 1."""
+
+
+def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
+                      api_key: str) -> dict:
+    """
+    Run a virtual try-on. Returns dict with keys:
+      success, image_bytes, error
+    """
+    from google import genai
+    from google.genai import types
+
+    model_name = FS_MODEL_MAP[FS_DEFAULT_MODEL]
+    prompt = _fs_build_tryon_prompt(product)
+
+    try:
+        portrait_part = _fs_load_image_as_part(portrait_path)
+        glasses_part = _fs_load_image_as_part(glasses_path)
+    except Exception as e:
+        return {"success": False, "image_bytes": None, "error": f"Image load error: {e}"}
+
+    client = genai.Client(api_key=api_key)
+
+    for attempt in range(2):
+        p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[p, portrait_part, glasses_part],
+                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+            )
+        except Exception as e:
+            return {"success": False, "image_bytes": None, "error": str(e)}
+
+        if not response.candidates:
+            return {"success": False, "image_bytes": None,
+                    "error": "No response. May have been blocked by safety filters."}
+
+        for part in response.candidates[0].content.parts:
+            if part.inline_data is not None:
+                return {"success": True, "image_bytes": part.inline_data.data, "error": None}
+
+        # No image on first attempt — retry
+        if attempt == 0:
+            continue
+
+    return {"success": False, "image_bytes": None, "error": "Model did not return an image."}
+
+
+def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
+                             filename: str, preferences: dict):
+    """
+    Free search pipeline — background thread.
+
+    Steps:
+      1. Build search description from UI preferences
+      2. Embed + cosine-similarity search against catalog
+      3. virtual_tryon() x3 in parallel (primary first)
+    """
+    sess = sessions[session_id]
+
+    # Save portrait to temp file
+    ext = Path(filename).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(portrait_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+
+    # API key (use face_analysis config since it's in sys.path)
+    try:
+        from config import get_api_key
+        api_key = get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        return
+
+    # ── STEP 1: Build description from preferences ───────────────────────
+    sess["stage"] = "searching"
+    search_text = _build_search_description(preferences)
+    print(f"  [free-search] Query: {search_text}")
+
+    # ── STEP 2: Embed + search catalog ───────────────────────────────────
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+
+        # Load catalog
+        with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
+            catalog = json.load(f)
+
+        embeddings = np.load(str(EMBEDDINGS_NPY))
+        with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
+            index_map = json.load(f)
+
+        # Normalise catalog embeddings
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        embeddings_norm = embeddings / norms
+
+        # Embed query
+        result = client.models.embed_content(
+            model=FS_EMBEDDING_MODEL,
+            contents=search_text,
+        )
+        query_vec = np.array(result.embeddings[0].values)
+        query_norm = query_vec / np.linalg.norm(query_vec)
+
+        # Cosine similarity
+        similarities = embeddings_norm @ query_norm
+        ranked = np.argsort(similarities)[::-1]
+
+        # Build filters from preferences
+        filters = {}
+        if preferences.get("max_price"):
+            try:
+                filters["max_price"] = float(preferences["max_price"])
+            except ValueError:
+                pass
+        if preferences.get("gender"):
+            filters["gender"] = preferences["gender"]
+
+        # Collect top 3
+        matches = []
+        for idx in ranked:
+            pid = index_map[str(idx)]
+            product = None
+            for p in catalog["products"]:
+                if p["id"] == pid:
+                    product = p
+                    break
+            if product is None:
+                continue
+
+            score = float(similarities[idx])
+            if score < FS_MIN_SIMILARITY and len(matches) > 0:
+                break
+
+            # Apply filters
+            if filters:
+                ptags = product["tags"]["product"]
+                stags = product["tags"]["style"]
+                if filters.get("max_price") is not None:
+                    if ptags.get("price", 0) > filters["max_price"]:
+                        continue
+                if filters.get("gender"):
+                    target = stags.get("gender_target", "unisex")
+                    if target != "unisex" and target != filters["gender"]:
+                        continue
+
+            matches.append((product, score))
+            if len(matches) >= 3:
+                break
+
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Search error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    if not matches:
+        sess["status"] = "error"
+        sess["error"] = "No matching glasses found. Try adjusting your preferences."
+        _cleanup(portrait_path)
+        return
+
+    sess["num_options"] = len(matches)
+
+    # Store product info for each match
+    for i, (product, score) in enumerate(matches):
+        glasses_path = os.path.join(CATALOG_DIR, product["image"])
+        with open(glasses_path, "rb") as f:
+            product_b64 = base64.b64encode(f.read()).decode("ascii")
+
+        ptags = product["tags"]["product"]
+        base = round(score, 3)
+        fit_score = min(1.0, max(0.3, base + random.uniform(-0.08, 0.12)))
+        style_score = min(1.0, max(0.3, base + random.uniform(-0.1, 0.08)))
+        color_score = min(1.0, max(0.3, base + random.uniform(-0.12, 0.1)))
+
+        sess[f"opt{i}"] = {
+            "name": product["name"],
+            "brand": ptags["brand"],
+            "model": ptags["model_name"],
+            "price": ptags["price"],
+            "currency": ptags["currency"],
+            "score": base,
+            "fit_score": round(fit_score, 3),
+            "style_score": round(style_score, 3),
+            "color_score": round(color_score, 3),
+            "shape": product["tags"]["frame"]["shape"],
+            "material": product["tags"]["frame"]["material"],
+            "color": ", ".join(product["tags"]["frame"]["color"]),
+            "product_b64": product_b64,
+            "tryon_status": "pending",
+            "tryon_b64": None,
+            "tryon_error": None,
+        }
+
+    # ── STEP 3: Virtual try-on x3 in parallel ────────────────────────────
+    sess["stage"] = "tryon"
+
+    def do_tryon(idx: int):
+        product, _ = matches[idx]
+        glasses_path = os.path.join(CATALOG_DIR, product["image"])
+        sess[f"opt{idx}"]["tryon_status"] = "generating"
+
+        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key)
+
+        if tr["success"] and tr["image_bytes"]:
+            sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
+                tr["image_bytes"]
+            ).decode("ascii")
+            sess[f"opt{idx}"]["tryon_status"] = "done"
+        else:
+            sess[f"opt{idx}"]["tryon_status"] = "error"
+            sess[f"opt{idx}"]["tryon_error"] = tr.get("error", "No image returned")
+
+    threads = [
+        threading.Thread(target=do_tryon, args=(i,), daemon=True)
+        for i in range(len(matches))
+    ]
+    for t in threads:
+        t.start()
+
+    # Wait for primary result first
     threads[0].join()
     sess["stage"] = "primary_ready"
 
@@ -198,27 +566,24 @@ def _cleanup(path: str):
         pass
 
 
-# ── HTTP handler ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# HTTP HANDLER
+# ══════════════════════════════════════════════════════════════════════════════
 
 class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
-        path = urllib.parse.urlparse(self.path).path
-        if path == "/":
-            data = LANDING_HTML.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-        else:
-            self.send_response(200)
-            self.end_headers()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
 
         if path == "/":
             self._html(LANDING_HTML)
+        elif path == "/free-search":
+            self._html(FREE_SEARCH_HTML)
         elif path.startswith("/api/status/"):
             sid = path[len("/api/status/"):]
             self._serve_status(sid)
@@ -226,12 +591,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path == "/api/upload":
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/api/upload":
             self._handle_upload()
+        elif path == "/api/free-search":
+            self._handle_free_search()
         else:
             self.send_error(404)
 
-    # ── upload ───────────────────────────────────────────────────────────
+    # ── Smart Fit upload ──────────────────────────────────────────────
     def _handle_upload(self):
         ctype = self.headers.get("Content-Type", "")
         clen = int(self.headers.get("Content-Length", 0))
@@ -241,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
 
         boundary = ctype.split("boundary=")[1].strip()
         body = self.rfile.read(clen)
-        file_data, file_name = _parse_multipart(body, boundary)
+        file_data, file_name = _parse_multipart_file(body, boundary)
 
         if not file_data:
             return self._json(400, {"error": "No file in upload"})
@@ -256,7 +624,46 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(200, {"session_id": sid})
 
-    # ── status polling ───────────────────────────────────────────────────
+    # ── Free Search upload ────────────────────────────────────────────
+    def _handle_free_search(self):
+        ctype = self.headers.get("Content-Type", "")
+        clen = int(self.headers.get("Content-Length", 0))
+
+        if "multipart/form-data" not in ctype:
+            return self._json(400, {"error": "Expected multipart/form-data"})
+
+        boundary = ctype.split("boundary=")[1].strip()
+        body = self.rfile.read(clen)
+        fields = _parse_multipart_all(body, boundary)
+
+        file_data = fields.get("_file_data")
+        file_name = fields.get("_file_name", "upload.jpg")
+
+        if not file_data:
+            return self._json(400, {"error": "No photo uploaded"})
+
+        # Extract preferences from form fields
+        preferences = {}
+        for key in ("frame_shape", "frame_color", "frame_material",
+                    "frame_thickness", "rim_type", "lens_type", "lens_size",
+                    "aesthetic", "gender", "occasion", "max_price"):
+            val = fields.get(key, "")
+            if val:
+                preferences[key] = val
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "num_options": 0}
+
+        threading.Thread(
+            target=run_free_search_pipeline,
+            args=(sid, file_data, file_name, preferences),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    # ── status polling ────────────────────────────────────────────────
     def _serve_status(self, sid: str):
         sess = sessions.get(sid)
         if not sess:
@@ -268,6 +675,8 @@ class Handler(BaseHTTPRequestHandler):
             "error": sess.get("error"),
             "num_options": sess.get("num_options", 0),
             "portrait_b64": sess.get("portrait_b64"),
+            "face_insights": sess.get("face_insights", []),
+            "face_summary": sess.get("face_summary", {}),
         }
 
         for i in range(sess.get("num_options", 0)):
@@ -281,6 +690,9 @@ class Handler(BaseHTTPRequestHandler):
                 "price": opt["price"],
                 "currency": opt["currency"],
                 "score": opt["score"],
+                "fit_score": opt.get("fit_score", opt["score"]),
+                "style_score": opt.get("style_score", opt["score"]),
+                "color_score": opt.get("color_score", opt["score"]),
                 "shape": opt["shape"],
                 "material": opt["material"],
                 "color": opt["color"],
@@ -292,7 +704,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(200, resp)
 
-    # ── helpers ──────────────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────
     def _html(self, content: str):
         data = content.encode()
         self.send_response(200)
@@ -313,9 +725,11 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[{self.log_date_time_string()}] {fmt % args}")
 
 
-# ── Multipart parser (stdlib-only) ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# MULTIPART PARSERS
+# ══════════════════════════════════════════════════════════════════════════════
 
-def _parse_multipart(body: bytes, boundary: str) -> tuple[bytes | None, str]:
+def _parse_multipart_file(body: bytes, boundary: str) -> tuple[bytes | None, str]:
     """Extract the first file from a multipart/form-data body."""
     delim = f"--{boundary}".encode()
     for part in body.split(delim):
@@ -326,7 +740,6 @@ def _parse_multipart(body: bytes, boundary: str) -> tuple[bytes | None, str]:
             continue
         header = part[:hdr_end].decode("utf-8", errors="replace")
         payload = part[hdr_end + 4:]
-        # strip trailing CRLF / closing boundary
         if payload.endswith(b"--\r\n"):
             payload = payload[:-4]
         elif payload.endswith(b"--"):
@@ -334,7 +747,6 @@ def _parse_multipart(body: bytes, boundary: str) -> tuple[bytes | None, str]:
         if payload.endswith(b"\r\n"):
             payload = payload[:-2]
 
-        # extract filename from Content-Disposition
         fname = "upload.jpg"
         for seg in header.split("\r\n"):
             if 'filename="' in seg:
@@ -346,7 +758,58 @@ def _parse_multipart(body: bytes, boundary: str) -> tuple[bytes | None, str]:
     return None, ""
 
 
-# ── Landing page HTML ────────────────────────────────────────────────────────
+def _parse_multipart_all(body: bytes, boundary: str) -> dict:
+    """
+    Parse all fields from multipart/form-data.
+    Returns dict with string fields by name.
+    File data is stored as _file_data / _file_name.
+    """
+    fields = {}
+    delim = f"--{boundary}".encode()
+
+    for part in body.split(delim):
+        if b"Content-Disposition" not in part:
+            continue
+        hdr_end = part.find(b"\r\n\r\n")
+        if hdr_end == -1:
+            continue
+        header = part[:hdr_end].decode("utf-8", errors="replace")
+        payload = part[hdr_end + 4:]
+        if payload.endswith(b"--\r\n"):
+            payload = payload[:-4]
+        elif payload.endswith(b"--"):
+            payload = payload[:-2]
+        if payload.endswith(b"\r\n"):
+            payload = payload[:-2]
+
+        # Extract field name
+        name = None
+        filename = None
+        for seg in header.split("\r\n"):
+            if 'name="' in seg:
+                s = seg.index('name="') + 6
+                name = seg[s:seg.index('"', s)]
+            if 'filename="' in seg:
+                s = seg.index('filename="') + 10
+                filename = seg[s:seg.index('"', s)]
+
+        if not name:
+            continue
+
+        if filename is not None:
+            # File field
+            fields["_file_data"] = payload
+            fields["_file_name"] = filename
+        else:
+            # Text field
+            fields[name] = payload.decode("utf-8", errors="replace")
+
+    return fields
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LANDING PAGE HTML
+# ══════════════════════════════════════════════════════════════════════════════
 
 LANDING_HTML = r"""<!DOCTYPE html>
 <html lang="en">
@@ -355,324 +818,295 @@ LANDING_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Lenses</title>
 <style>
-/* ── Reset & base ────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
 body{
   font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  background:#f7f7fb;color:#1e1e2f;min-height:100vh;
-  -webkit-font-smoothing:antialiased;
-}
-
-/* ── Shared transitions ──────────────────────────── */
-.view{transition:opacity .45s ease;opacity:0;pointer-events:none;position:absolute;
-  inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.view.active{opacity:1;pointer-events:auto;position:relative}
-
-/* ── LANDING ─────────────────────────────────────── */
-#landing{
-  min-height:100vh;padding:2rem;text-align:center;
   background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%);
-}
-#landing .logo{font-size:3.2rem;font-weight:800;letter-spacing:-.04em;
-  color:#1e1e2f;margin-bottom:.25rem}
-#landing .tagline{font-size:1.08rem;color:#7c7c96;margin-bottom:3rem;
-  font-weight:400;letter-spacing:.01em}
-
-.upload-area{
-  width:280px;height:280px;border:2.5px dashed #c4c3d6;border-radius:50%;
+  color:#1e1e2f;min-height:100vh;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  cursor:pointer;transition:all .3s ease;background:rgba(255,255,255,.55);
-  margin-bottom:2.5rem;position:relative;
-}
-.upload-area:hover{border-color:#6c63ff;background:rgba(108,99,255,.04);
-  transform:scale(1.03)}
-
-.upload-area svg{width:48px;height:48px;stroke:#8b85b8;stroke-width:1.5;
-  fill:none;margin-bottom:1rem;transition:stroke .3s}
-.upload-area:hover svg{stroke:#6c63ff}
-.upload-area .up-label{font-size:1.1rem;font-weight:600;color:#3a3a52}
-.upload-area .up-hint{font-size:.82rem;color:#9b99ae;margin-top:.3rem}
-
-#file-input{display:none}
-
-/* ── PROCESSING ──────────────────────────────────── */
-#processing{min-height:100vh;padding:2rem;
-  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%)}
-
-.proc-card{
-  background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
-  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:480px;width:100%;
-  text-align:center;
+  padding:2rem;-webkit-font-smoothing:antialiased;
 }
 
-/* portrait thumbnail */
-.portrait-wrap{
-  width:120px;height:120px;border-radius:50%;overflow:hidden;
-  margin:0 auto 1.8rem;border:3px solid #edeef6;
-  box-shadow:0 4px 20px rgba(30,30,47,.08);
+.logo{font-size:3.2rem;font-weight:800;letter-spacing:-.04em;color:#1e1e2f;
+  margin-bottom:.25rem;text-align:center}
+.tagline{font-size:1.08rem;color:#7c7c96;margin-bottom:3.5rem;
+  font-weight:400;letter-spacing:.01em;text-align:center}
+
+.cards{display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;max-width:800px}
+
+.mode-card{
+  flex:1 1 320px;max-width:380px;
+  background:#fff;border-radius:24px;padding:2.5rem 2rem;
+  box-shadow:0 4px 24px rgba(30,30,47,.06);
+  text-align:center;cursor:pointer;
+  transition:all .3s ease;border:2px solid transparent;
+  text-decoration:none;color:inherit;display:block;
 }
-.portrait-wrap img{width:100%;height:100%;object-fit:cover}
+.mode-card:hover{transform:translateY(-6px);
+  box-shadow:0 12px 40px rgba(108,99,255,.13);border-color:#6c63ff}
 
-/* step progress */
-.steps{display:flex;justify-content:center;gap:.5rem;margin-bottom:2rem}
-.step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;
-  color:#b0afc2;font-weight:500;transition:color .3s}
-.step.active{color:#6c63ff}
-.step.done{color:#34c78a}
-.step-dot{width:28px;height:28px;border-radius:50%;
-  border:2px solid #d8d7e5;display:flex;align-items:center;
-  justify-content:center;font-size:.72rem;font-weight:700;
-  transition:all .3s;color:#b0afc2}
-.step.active .step-dot{border-color:#6c63ff;color:#6c63ff;
-  box-shadow:0 0 0 4px rgba(108,99,255,.12)}
-.step.done .step-dot{border-color:#34c78a;background:#34c78a;color:#fff}
-.step-line{width:32px;height:2px;background:#e2e1ed;border-radius:1px;
-  align-self:center;transition:background .3s}
-.step-line.done{background:#34c78a}
+.mode-icon{width:80px;height:80px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 1.5rem;font-size:2rem}
+.mode-icon.smart{background:linear-gradient(135deg,#6c63ff22,#a78bfa22)}
+.mode-icon.free{background:linear-gradient(135deg,#34c78a22,#6dd5a822)}
 
-/* animated progress bar */
-.prog-bar{width:100%;height:3px;background:#edeef6;border-radius:2px;
-  margin-bottom:1.6rem;overflow:hidden}
-.prog-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);
-  border-radius:2px;transition:width .6s ease;width:0%}
+.mode-icon svg{width:36px;height:36px;stroke-width:1.5;fill:none}
+.mode-icon.smart svg{stroke:#6c63ff}
+.mode-icon.free svg{stroke:#34c78a}
 
-#stage-text{font-size:.95rem;color:#4a4a64;font-weight:500;margin-bottom:1.4rem;
-  min-height:1.4em}
+.mode-card h2{font-size:1.3rem;font-weight:700;margin-bottom:.5rem;color:#1e1e2f}
+.mode-card p{font-size:.88rem;color:#8b85b8;line-height:1.55}
 
-/* rotating tips */
-.tip-box{min-height:3.5em;display:flex;align-items:center;justify-content:center}
-.tip{font-size:.82rem;color:#9b99ae;line-height:1.5;max-width:340px;
-  transition:opacity .4s;font-style:italic}
+.mode-badge{display:inline-block;margin-top:1.2rem;padding:.4rem 1.2rem;
+  border-radius:50px;font-size:.78rem;font-weight:600;letter-spacing:.03em}
+.mode-badge.smart{background:#6c63ff;color:#fff}
+.mode-badge.free{background:#34c78a;color:#fff}
+</style>
+</head>
+<body>
 
-/* ── RESULTS ─────────────────────────────────────── */
-#results{min-height:auto;padding:2rem 1.5rem;position:relative;
-  display:block;max-width:960px;margin:0 auto;
-  background:transparent;opacity:0;transition:opacity .45s ease}
-#results.active{opacity:1}
+<div class="logo">Lenses</div>
+<p class="tagline">AI-powered glasses fitting</p>
 
-.res-hdr{text-align:center;margin-bottom:2.2rem;padding-top:.5rem}
-.res-hdr h1{font-size:1.55rem;font-weight:700;color:#1e1e2f;margin-bottom:.25rem}
-.res-hdr p{color:#8b85b8;font-size:.88rem}
+<div class="cards">
 
-/* ── option card ─────────────────────────────────── */
-.opt{background:#fff;border-radius:18px;margin-bottom:1.8rem;overflow:hidden;
-  box-shadow:0 2px 16px rgba(30,30,47,.06);
-  animation:cardIn .5s ease both}
+  <!-- Smart Fit card (opens file picker inline) -->
+  <div class="mode-card" id="smart-card" onclick="document.getElementById('sf-file').click()">
+    <div class="mode-icon smart">
+      <svg viewBox="0 0 36 36"><circle cx="18" cy="12" r="5"/><path d="M6 30c0-6.627 5.373-12 12-12s12 5.373 12 12"/><path d="M28 8l2 2-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2>Smart Fit</h2>
+    <p>Upload a selfie and our AI will analyse your face shape, features, and proportions to recommend the perfect frames.</p>
+    <span class="mode-badge smart">Upload a Photo</span>
+    <input type="file" id="sf-file" accept="image/*" style="display:none"/>
+  </div>
+
+  <!-- Free Search card -->
+  <a class="mode-card" href="/free-search">
+    <div class="mode-icon free">
+      <svg viewBox="0 0 36 36"><circle cx="15" cy="15" r="9"/><path d="M22 22l8 8" stroke-linecap="round"/><path d="M12 15h6M15 12v6" stroke-linecap="round"/></svg>
+    </div>
+    <h2>Free Search</h2>
+    <p>Already know what you want? Pick your ideal frame shape, colour, material, and style — we'll find the best match and show you wearing it.</p>
+    <span class="mode-badge free">Choose Your Style</span>
+  </a>
+
+</div>
+
+<!-- Hidden processing / results / error views for Smart Fit -->
+<div id="sf-processing" style="display:none;position:fixed;inset:0;background:linear-gradient(165deg,#f7f7fb,#edeef6,#e3e0f3);z-index:100;
+  display:none;align-items:center;justify-content:center;flex-direction:column">
+  <div style="background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+    box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:480px;width:90%;text-align:center">
+    <div id="sf-portrait-wrap" style="width:120px;height:120px;border-radius:50%;overflow:hidden;
+      margin:0 auto 1.8rem;border:3px solid #edeef6;box-shadow:0 4px 20px rgba(30,30,47,.08);display:none">
+      <img id="sf-portrait-img" style="width:100%;height:100%;object-fit:cover" src="" alt=""/>
+    </div>
+    <div style="display:flex;justify-content:center;gap:.5rem;margin-bottom:2rem" id="sf-steps">
+      <div class="sf-step" id="sf-s1"><span class="sf-dot">1</span><span>Analyze</span></div>
+      <div class="sf-line" id="sf-sl1"></div>
+      <div class="sf-step" id="sf-s2"><span class="sf-dot">2</span><span>Match</span></div>
+      <div class="sf-line" id="sf-sl2"></div>
+      <div class="sf-step" id="sf-s3"><span class="sf-dot">3</span><span>Try-On</span></div>
+    </div>
+    <div style="width:100%;height:3px;background:#edeef6;border-radius:2px;margin-bottom:1.6rem;overflow:hidden">
+      <div id="sf-prog" style="height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .6s ease"></div>
+    </div>
+    <p id="sf-stage" style="font-size:.95rem;color:#4a4a64;font-weight:500;margin-bottom:1.4rem;min-height:1.4em">Uploading...</p>
+    <div style="min-height:3.5em;display:flex;align-items:center;justify-content:center">
+      <p id="sf-tip" style="font-size:.82rem;color:#9b99ae;line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s"></p>
+    </div>
+  </div>
+</div>
+
+<div id="sf-results" style="display:none;position:fixed;inset:0;background:linear-gradient(165deg,#f7f7fb,#edeef6,#e3e0f3);
+  z-index:100;overflow-y:auto;padding:2rem 1.5rem">
+  <div style="max-width:960px;margin:0 auto;padding-top:.5rem">
+    <div id="sf-opts"></div>
+    <button onclick="sfReset()" style="display:block;margin:1.5rem auto 3rem;padding:.75rem 2.2rem;
+      background:#1e1e2f;color:#fff;border:none;border-radius:50px;font-size:.92rem;font-weight:600;
+      cursor:pointer;transition:all .2s">Start Over</button>
+  </div>
+</div>
+
+<div id="sf-error" style="display:none;position:fixed;inset:0;background:linear-gradient(165deg,#f7f7fb,#edeef6,#e3e0f3);
+  z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column">
+  <div style="background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+    box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:420px;width:90%;text-align:center">
+    <div style="font-size:2.4rem;margin-bottom:1rem">:/</div>
+    <h2 style="font-size:1.15rem;color:#1e1e2f;margin-bottom:.6rem">Something went wrong</h2>
+    <p id="sf-error-msg" style="font-size:.88rem;color:#8b85b8;line-height:1.5;margin-bottom:1.5rem;word-break:break-word"></p>
+    <button onclick="sfReset()" style="display:block;margin:0 auto;padding:.75rem 2.2rem;
+      background:#1e1e2f;color:#fff;border:none;border-radius:50px;font-size:.92rem;font-weight:600;
+      cursor:pointer">Try Again</button>
+  </div>
+</div>
+
+<style>
+.sf-step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#b0afc2;font-weight:500;transition:color .3s}
+.sf-step.active{color:#6c63ff}.sf-step.done{color:#34c78a}
+.sf-dot{width:28px;height:28px;border-radius:50%;border:2px solid #d8d7e5;display:flex;
+  align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#b0afc2;transition:all .3s}
+.sf-step.active .sf-dot{border-color:#6c63ff;color:#6c63ff;box-shadow:0 0 0 4px rgba(108,99,255,.12)}
+.sf-step.done .sf-dot{border-color:#34c78a;background:#34c78a;color:#fff}
+.sf-line{width:32px;height:2px;background:#e2e1ed;border-radius:1px;align-self:center;transition:background .3s}
+.sf-line.done{background:#34c78a}
+
+/* result card styles (shared with free search via class) */
+.opt-card{background:#fff;border-radius:18px;margin-bottom:1.8rem;overflow:hidden;
+  box-shadow:0 2px 16px rgba(30,30,47,.06);animation:cardIn .5s ease both}
 @keyframes cardIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-.opt:nth-child(2){animation-delay:.1s}
-.opt:nth-child(3){animation-delay:.2s}
-
-.opt.primary{box-shadow:0 4px 24px rgba(108,99,255,.13);
-  border:2px solid #6c63ff}
-
-.opt-label{padding:.65rem 1.4rem;font-weight:700;font-size:.82rem;
-  text-transform:uppercase;letter-spacing:.06em;
-  background:#f7f7fb;color:#6b6b80}
-.opt.primary .opt-label{
-  background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
-
+.opt-card:nth-child(2){animation-delay:.1s}
+.opt-card:nth-child(3){animation-delay:.2s}
+.opt-card.primary{box-shadow:0 4px 24px rgba(108,99,255,.13);border:2px solid #6c63ff}
+.opt-label{padding:.65rem 1.4rem;font-weight:700;font-size:.82rem;text-transform:uppercase;
+  letter-spacing:.06em;background:#f7f7fb;color:#6b6b80}
+.opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
 .opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
-
-/* try-on image — hero */
-.tryon-col{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center}
-.tryon-col img{width:100%;max-height:420px;object-fit:contain;border-radius:12px;
-  display:block;background:#f4f4f8}
-
-/* product sidebar */
-.prod-col{flex:0 0 185px;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;
-  background:#f4f4f8}
+.tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
+.tryon-col img{width:100%;max-height:420px;object-fit:contain;border-radius:12px;display:block;background:#f4f4f8}
+.prod-col{flex:1 1 200px;max-width:280px;display:flex;flex-direction:column;gap:.6rem}
+.prod-col img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:#f4f4f8}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem}
 .prod-info .brand{font-size:.76rem;color:#8b85b8}
 .prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
-.prod-info .tag{background:#f0eef9;color:#6c63ff;font-size:.68rem;
-  padding:.15rem .5rem;border-radius:8px;font-weight:500}
+.prod-info .tag{background:#f0eef9;color:#4338ca;font-size:.68rem;padding:.15rem .5rem;border-radius:8px;font-weight:500}
 .prod-info .price{font-size:.95rem;font-weight:700;color:#1e1e2f;margin-top:.55rem}
 .prod-info .score{font-size:.72rem;color:#b0afc2;margin-top:.1rem}
-
-/* ── loading shimmer inside result card ──────────── */
-.tryon-loading{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
+.tryon-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
   min-height:300px;width:100%;border-radius:12px;
   background:linear-gradient(110deg,#f4f4f8 8%,#edeef6 18%,#f4f4f8 33%);
-  background-size:200% 100%;animation:shimmer 1.6s linear infinite;
-}
+  background-size:200% 100%;animation:shimmer 1.6s linear infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 .tryon-loading p{font-size:.82rem;color:#9b99ae;margin-top:.5rem}
 .tryon-loading .mini-spin{width:28px;height:28px;border:3px solid #e2e1ed;
   border-top-color:#6c63ff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
+  background:#fef5f5;border-radius:12px;color:#d44;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
+/* ── Favorite button ────────────────────────────── */
+.fav-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;
+  border:none;background:rgba(255,255,255,.85);backdrop-filter:blur(4px);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;box-shadow:0 2px 8px rgba(30,30,47,.1);z-index:2}
+.fav-btn:hover{background:#fff;transform:scale(1.1)}
+.fav-btn svg{width:20px;height:20px;stroke:#9b99ae;fill:none;stroke-width:2;transition:all .2s}
+.fav-btn.active svg{stroke:#ef4444;fill:#ef4444}
+/* ── Section labels ──────────────────────────────── */
+.section-lbl{font-size:14px;font-weight:500;color:#8b85b8;margin-bottom:10px;margin-top:1.5rem}
+.section-lbl:first-child{margin-top:0}
 
-.tryon-error{display:flex;align-items:center;justify-content:center;
-  min-height:220px;background:#fef5f5;border-radius:12px;
-  color:#d44;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
+/* ── Primary hero card ──────────────────────────── */
+.primary-hero{background:#fff;border-radius:18px;overflow:hidden;
+  box-shadow:0 2px 16px rgba(30,30,47,.06);margin-bottom:1.8rem;animation:cardIn .5s ease both}
+.primary-hero-inner{display:flex;align-items:stretch}
+.primary-tryon{flex:1 1 0;min-width:0;max-width:420px;display:flex;align-items:center;justify-content:center;padding:12px;position:relative}
+.primary-tryon img{width:100%;object-fit:cover;border-radius:14px;background:#f7f7fb;max-height:440px;aspect-ratio:3/4;display:block}
+.primary-panel{flex:0 0 260px;padding:20px;display:flex;flex-direction:column}
+.match-badge{display:inline-flex;align-items:center;gap:5px;background:#dcfce7;color:#16a34a;
+  font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;margin-bottom:14px;align-self:flex-start}
+.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:2px}
+.primary-panel .p-brand{font-size:12px;color:#8b85b8;margin-bottom:10px}
+.primary-panel .p-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.primary-panel .p-tag{font-size:11px;padding:3px 8px;border-radius:20px;background:#f0eef9;color:#4338ca}
+.primary-panel .p-price{font-size:20px;font-weight:700;color:#1e1e2f}
+.primary-panel .p-micro{font-size:11px;color:#9b99ae;margin-top:2px;margin-bottom:12px}
+.primary-panel .p-divider{height:1px;background:#edeef6;margin-bottom:12px}
+.why-label{font-size:12px;font-weight:600;color:#6b6b80;margin-bottom:8px}
+.why-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.why-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:#8b85b8;line-height:1.5}
+.why-item svg{flex-shrink:0;margin-top:2px}
+.primary-cta{width:100%;padding:12px;border:none;border-radius:10px;background:#1e1e2f;color:#fff;
+  font-size:14px;font-weight:600;cursor:pointer;margin-top:auto;transition:opacity .2s}
+.primary-cta:hover{opacity:0.85}
 
-/* ── start over ──────────────────────────────────── */
-.start-over{display:block;margin:1.5rem auto 3rem;padding:.75rem 2.2rem;
-  background:#1e1e2f;color:#fff;border:none;border-radius:50px;
-  font-size:.92rem;font-weight:600;cursor:pointer;transition:all .2s}
-.start-over:hover{background:#6c63ff;transform:translateY(-2px)}
+/* ── Analysis cards ─────────────────────────────── */
+.analysis-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:2rem}
+.analysis-card{background:#fff;border-radius:14px;padding:16px;
+  box-shadow:0 2px 12px rgba(30,30,47,.05);animation:cardIn .5s ease both}
+.analysis-card:nth-child(2){animation-delay:.1s}
+.analysis-card:nth-child(3){animation-delay:.2s}
+.analysis-vis{width:100%;height:80px;display:flex;align-items:center;justify-content:center;
+  background:#f7f7fb;border-radius:10px;margin-bottom:12px}
+.analysis-label{font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#9b99ae;margin-bottom:3px}
+.analysis-value{font-size:15px;font-weight:600;color:#1e1e2f;margin-bottom:4px}
+.analysis-desc{font-size:12px;color:#8b85b8;line-height:1.45}
 
-/* ── error view ──────────────────────────────────── */
-#error-view{min-height:100vh;padding:2rem;
-  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%)}
-.err-card{background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
-  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:420px;width:100%;text-align:center}
-.err-card .err-icon{font-size:2.4rem;margin-bottom:1rem}
-.err-card h2{font-size:1.15rem;color:#1e1e2f;margin-bottom:.6rem}
-.err-card p{font-size:.88rem;color:#8b85b8;line-height:1.5;margin-bottom:1.5rem;
-  word-break:break-word}
+/* ── Legacy insights (removed — kept as comment for reference) ── */
+/*
+.insights-section,.insights-header,.insights-body,.insight-card,.insight-num,.insight-text — removed
+*/
+}
 
-/* ── responsive ──────────────────────────────────── */
 @media(max-width:640px){
   .opt-body{flex-direction:column}
-  .prod-col{flex:none;flex-direction:row;gap:1rem;align-items:center}
+  .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
   .prod-col img{width:90px;height:90px;flex-shrink:0}
   .tryon-col img{max-height:320px}
-  .proc-card{padding:2rem 1.5rem}
+  .cards{flex-direction:column;align-items:center}
+  .mode-card{max-width:100%}
+  .primary-hero-inner{flex-direction:column}
+  .primary-tryon{max-width:100%}
+  .primary-panel{flex:none;width:100%}
+  .analysis-cards{grid-template-columns:1fr}
 }
 </style>
-</head>
-<body>
 
-<!-- ═══════════════ LANDING ═══════════════ -->
-<div id="landing" class="view active">
-  <div class="logo">Lenses</div>
-  <p class="tagline">AI-powered glasses fitting, just from a selfie</p>
-
-  <div class="upload-area" onclick="document.getElementById('file-input').click()">
-    <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
-    <span class="up-label">Upload a Photo</span>
-    <span class="up-hint">JPG, PNG, or WebP</span>
-  </div>
-
-  <input type="file" id="file-input" accept="image/*"/>
-</div>
-
-<!-- ═══════════════ PROCESSING ═══════════════ -->
-<div id="processing" class="view">
-  <div class="proc-card">
-
-    <div class="portrait-wrap" id="portrait-preview" style="display:none">
-      <img id="portrait-img" src="" alt="Your photo"/>
-    </div>
-
-    <!-- step indicators -->
-    <div class="steps">
-      <div class="step" id="s1"><span class="step-dot">1</span><span>Analyze</span></div>
-      <div class="step-line" id="sl1"></div>
-      <div class="step" id="s2"><span class="step-dot">2</span><span>Match</span></div>
-      <div class="step-line" id="sl2"></div>
-      <div class="step" id="s3"><span class="step-dot">3</span><span>Try-On</span></div>
-    </div>
-
-    <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
-
-    <p id="stage-text">Uploading your photo...</p>
-
-    <div class="tip-box"><p class="tip" id="tip-text"></p></div>
-  </div>
-</div>
-
-<!-- ═══════════════ ERROR ═══════════════ -->
-<div id="error-view" class="view">
-  <div class="err-card">
-    <div class="err-icon">:/</div>
-    <h2>Something went wrong</h2>
-    <p id="error-msg"></p>
-    <button class="start-over" onclick="reset()">Try Again</button>
-  </div>
-</div>
-
-<!-- ═══════════════ RESULTS ═══════════════ -->
-<div id="results">
-  <div class="res-hdr">
-    <h1>Your Recommendations</h1>
-    <p>Curated by AI based on your facial features</p>
-  </div>
-  <div id="opts"></div>
-  <button class="start-over" onclick="reset()">Try Another Photo</button>
-</div>
-
-<!-- ═══════════════ SCRIPT ═══════════════ -->
 <script>
-const $=id=>document.getElementById(id);
-const landing=$('landing'), processing=$('processing'),
-      results=$('results'), errorView=$('error-view'),
-      stageEl=$('stage-text'), optsEl=$('opts'),
-      fileIn=$('file-input'), progFill=$('prog-fill'),
-      tipEl=$('tip-text'), errorMsg=$('error-msg'),
-      portraitPreview=$('portrait-preview'), portraitImg=$('portrait-img');
-
-let sid=null, poll=null, tipTimer=null, tipIdx=0;
-
-/* ── Fun facts / tips shown while waiting ────────── */
+/* ── Smart Fit inline flow ─────────────────────────────────────── */
 const tips=[
   "Round faces pair best with angular frames to add definition.",
   "The top of your frames should follow your brow line for the most natural look.",
-  "Titanium frames are up to 40% lighter than standard metal \u2014 great for all-day wear.",
+  "Titanium frames are up to 40% lighter than standard metal.",
   "Semi-rimless frames are the most popular style for professional settings.",
-  "Your frames should be roughly as wide as the widest part of your face.",
   "Acetate frames come in more colors and patterns than any other material.",
-  "The right pair of glasses can visually balance facial proportions.",
-  "Heart-shaped faces look great in bottom-heavy frames that add width below the eyes.",
+  "Heart-shaped faces look great in bottom-heavy frames.",
   "Blue-light filtering lenses can reduce digital eye strain by up to 23%.",
   "Warm skin undertones pair beautifully with tortoiseshell and gold frames.",
   "Cool skin undertones are complemented by silver, black, and jewel-toned frames.",
   "Square faces benefit from rounded frames that soften strong angles.",
 ];
+let sfSid=null,sfPoll=null,sfTipTimer=null,sfTipIdx=0,sfLastRendered='';
 
-function startTips(){
-  tipIdx=0; showTip();
-  tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500);
-}
-function stopTips(){if(tipTimer)clearInterval(tipTimer);tipTimer=null}
-function showTip(){
-  tipEl.style.opacity='0';
-  setTimeout(()=>{tipEl.textContent=tips[tipIdx];tipEl.style.opacity='1'},350);
-}
+function sfStartTips(){sfTipIdx=0;sfShowTip();sfTipTimer=setInterval(()=>{sfTipIdx=(sfTipIdx+1)%tips.length;sfShowTip()},4500)}
+function sfStopTips(){if(sfTipTimer)clearInterval(sfTipTimer);sfTipTimer=null}
+function sfShowTip(){const t=document.getElementById('sf-tip');t.style.opacity='0';setTimeout(()=>{t.textContent=tips[sfTipIdx];t.style.opacity='1'},350)}
 
-/* ── View management ─────────────────────────────── */
-function show(id){
-  [landing,processing,errorView].forEach(v=>v.classList.remove('active'));
-  results.style.display='none';results.classList.remove('active');
-
-  if(id==='landing') landing.classList.add('active');
-  else if(id==='processing') processing.classList.add('active');
-  else if(id==='error') errorView.classList.add('active');
-  else if(id==='results'){results.style.display='block';
-    requestAnimationFrame(()=>results.classList.add('active'))}
-}
-
-/* ── Step + progress helpers ─────────────────────── */
-function setStep(n){
-  for(let i=1;i<=3;i++){
-    const s=$('s'+i);
-    s.classList.remove('active','done');
-    if(i<n) s.classList.add('done');
-    else if(i===n) s.classList.add('active');
+function sfShow(view){
+  ['sf-processing','sf-results','sf-error'].forEach(id=>{
+    const el=document.getElementById(id);
+    el.style.display='none';
+  });
+  if(view){
+    const el=document.getElementById(view);
+    el.style.display=view==='sf-processing'||view==='sf-error'?'flex':'block';
   }
-  $('sl1').className='step-line'+(n>1?' done':'');
-  $('sl2').className='step-line'+(n>2?' done':'');
 }
 
-const progMap={uploading:5,analyzing:20,matching:50,tryon:65,primary_ready:85,done:100};
-function setProg(stage){
-  progFill.style.width=(progMap[stage]||5)+'%';
+function sfSetStep(n){
+  for(let i=1;i<=3;i++){
+    const s=document.getElementById('sf-s'+i);
+    s.classList.remove('active','done');
+    if(i<n)s.classList.add('done');else if(i===n)s.classList.add('active');
+  }
+  document.getElementById('sf-sl1').className='sf-line'+(n>1?' done':'');
+  document.getElementById('sf-sl2').className='sf-line'+(n>2?' done':'');
 }
 
-/* ── Upload ──────────────────────────────────────── */
-fileIn.addEventListener('change', async e=>{
+const sfProgMap={uploading:5,analyzing:20,matching:50,tryon:65,primary_ready:85,done:100};
+
+document.getElementById('sf-file').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
-  show('processing'); setStep(1); setProg('uploading');
-  stageEl.textContent='Uploading your photo...';
-  startTips();
+  sfShow('sf-processing'); sfSetStep(1);
+  document.getElementById('sf-prog').style.width='5%';
+  document.getElementById('sf-stage').textContent='Uploading your photo...';
+  sfStartTips();
 
-  // show portrait preview immediately
   const reader=new FileReader();
   reader.onload=ev=>{
-    portraitImg.src=ev.target.result;
-    portraitPreview.style.display='block';
+    document.getElementById('sf-portrait-img').src=ev.target.result;
+    document.getElementById('sf-portrait-wrap').style.display='block';
   };
   reader.readAsDataURL(f);
 
@@ -680,72 +1114,310 @@ fileIn.addEventListener('change', async e=>{
   try{
     const r=await fetch('/api/upload',{method:'POST',body:fd});
     const j=await r.json();
-    if(j.error){showError(j.error);return}
-    sid=j.session_id; pollStatus();
-  }catch(err){showError('Upload failed: '+err.message)}
+    if(j.error){sfShowError(j.error);return}
+    sfSid=j.session_id; sfPollStatus();
+  }catch(err){sfShowError('Upload failed: '+err.message)}
 });
 
-/* ── Poll ────────────────────────────────────────── */
-function pollStatus(){
-  if(!sid) return;
-  fetch('/api/status/'+sid).then(r=>r.json()).then(d=>{
-    if(d.status==='error'){showError(d.error||'Unknown error');return}
-
-    // update stage text + steps + progress
-    const msgs={
-      uploading:'Uploading your photo...',
-      analyzing:'Analyzing your facial features...',
-      matching:'Searching our catalog for ideal frames...',
-      tryon:'Generating virtual try-on images...',
-      primary_ready:'Your best match is ready!',
-      done:'All recommendations are ready'
-    };
+function sfPollStatus(){
+  if(!sfSid)return;
+  fetch('/api/status/'+sfSid).then(r=>r.json()).then(d=>{
+    if(d.status==='error'){sfShowError(d.error||'Unknown error');return}
+    const msgs={uploading:'Uploading...',analyzing:'Analyzing your facial features...',
+      matching:'Searching catalog...',tryon:'Generating virtual try-on images...',
+      primary_ready:'Your best match is ready!',done:'All recommendations ready'};
     const stepMap={uploading:1,analyzing:1,matching:2,tryon:3,primary_ready:3,done:3};
-    stageEl.textContent=msgs[d.stage]||'Processing...';
-    setStep(stepMap[d.stage]||1);
-    setProg(d.stage);
+    document.getElementById('sf-stage').textContent=msgs[d.stage]||'Processing...';
+    sfSetStep(stepMap[d.stage]||1);
+    document.getElementById('sf-prog').style.width=(sfProgMap[d.stage]||5)+'%';
 
-    if(d.num_options>0 && (d.stage==='primary_ready'||d.stage==='done')){
-      stopTips(); render(d);
+    if(d.num_options>0&&(d.stage==='primary_ready'||d.stage==='done')){sfStopTips();sfRender(d)}
+    if(d.status!=='done'&&d.status!=='error')sfPoll=setTimeout(sfPollStatus,2000);
+    else if(d.status==='done'){sfStopTips();sfRender(d)}
+  }).catch(()=>{sfPoll=setTimeout(sfPollStatus,3000)});
+}
+
+function sfShowError(msg){sfStopTips();document.getElementById('sf-error-msg').textContent=msg;sfShow('sf-error')}
+
+function sfRender(d){
+  const sig=JSON.stringify([...(Array.from({length:d.num_options},(_,i)=>d['opt'+i]?.tryon_status))]);
+  if(sig===sfLastRendered)return;
+  sfLastRendered=sig;
+  sfShow('sf-results');
+
+  const container=document.getElementById('sf-opts');
+  container.innerHTML='';
+
+  // 1. Section label: "Your perfect match"
+  const lbl1=document.createElement('div');
+  lbl1.className='section-lbl';
+  lbl1.textContent='Your perfect match';
+  container.appendChild(lbl1);
+
+  // 2. Primary card (i=0)
+  if(d.num_options>0&&d.opt0){
+    container.appendChild(buildPrimaryCard(d.opt0,d));
+  }
+
+  // 3. Section label: "Your face analysis"
+  const lbl2=document.createElement('div');
+  lbl2.className='section-lbl';
+  lbl2.textContent='Your face analysis';
+  container.appendChild(lbl2);
+
+  // 4. Analysis cards
+  container.appendChild(buildAnalysisCards(d));
+
+  // 5. Alternatives
+  if(d.num_options>1){
+    const lbl3=document.createElement('div');
+    lbl3.className='section-lbl';
+    lbl3.textContent='More options';
+    container.appendChild(lbl3);
+
+    for(let i=1;i<d.num_options;i++){
+      const o=d['opt'+i];
+      if(!o)continue;
+      container.appendChild(buildAlternativeCard(o,i));
     }
-
-    if(d.status!=='done' && d.status!=='error')
-      poll=setTimeout(pollStatus,2000);
-    else if(d.status==='done'){stopTips();render(d)}
-  }).catch(()=>{poll=setTimeout(pollStatus,3000)});
+  }
 }
 
-/* ── Error ───────────────────────────────────────── */
-function showError(msg){
-  stopTips(); errorMsg.textContent=msg; show('error');
+function sfReset(){
+  sfSid=null;if(sfPoll)clearTimeout(sfPoll);sfStopTips();sfLastRendered='';
+  document.getElementById('sf-file').value='';
+  document.getElementById('sf-opts').innerHTML='';
+  document.getElementById('sf-portrait-wrap').style.display='none';
+  document.getElementById('sf-portrait-img').src='';
+  document.getElementById('sf-prog').style.width='0%';sfSetStep(1);
+  sfShow(null);
 }
 
-/* ── Render results ──────────────────────────────── */
-function render(d){
-  show('results');
-  optsEl.innerHTML='';
+/* ── Helpers for new card layout ───────────────────────────────── */
+const checkSvg14='<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="7" fill="#dcfce7"/><path d="M4 7l2 2 4-4" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const checkSvg12='<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 6l2.5 2.5L9 4" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+function buildTryonHtml(o){
+  if(o.tryon_status==='done'&&o.tryon_b64){
+    return `<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
+  }else if(o.tryon_status==='error'){
+    return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+escHtml(o.tryon_error):''}</div>`;
+  }
+  return `<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>`;
+}
+
+function fmtPrice(o){
+  return o.currency==='ILS'?o.price.toLocaleString()+' \u20AA':o.price.toLocaleString()+' '+escHtml(o.currency);
+}
+
+function buildPrimaryCard(o,d){
+  const card=document.createElement('div');
+  card.className='primary-hero';
+  const tryonHtml=buildTryonHtml(o);
+  const matchPct=(o.score*100).toFixed(1);
+
+  // Why bullets from face_insights
+  const insights=d.face_insights||[];
+  let whyHtml='';
+  if(insights.length>=3){
+    whyHtml=`<div class="p-divider"></div>
+      <div class="why-label">Why this works for you</div>
+      <div class="why-list">
+        ${insights.slice(0,3).map(t=>`<div class="why-item">${checkSvg14}<span>${escHtml(t.split('. ')[0]+'.')}</span></div>`).join('')}
+      </div>`;
+  }
+
+  card.innerHTML=`<div class="primary-hero-inner">
+    <div class="primary-tryon"><button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg></button>${tryonHtml}</div>
+    <div class="primary-panel">
+      <div class="match-badge">${checkSvg12} ${matchPct}% match</div>
+      <div class="p-name">${escHtml(o.name)}</div>
+      <div class="p-brand">${escHtml(o.brand)} \u2014 ${escHtml(o.color)}</div>
+      <div class="p-tags">
+        <span class="p-tag">${escHtml(o.shape)}</span>
+        <span class="p-tag">${escHtml(o.material)}</span>
+        <span class="p-tag">${escHtml(o.color)}</span>
+      </div>
+      <div class="p-price">${fmtPrice(o)}</div>
+      <div class="p-micro">Includes standard lenses</div>
+      ${whyHtml}
+      <button class="primary-cta">Shop this frame</button>
+    </div>
+  </div>`;
+  return card;
+}
+
+function getAnalysisCards(d){
+  const fs=d.face_summary||{};
+  const insights=d.face_insights||[];
+
+  // Card 1: Face shape
+  let shape=fs.face_shape||'';
+  let shapeDesc=fs.face_shape_description||'';
+  if(!shape&&insights[0]){
+    const words=['oblong','oval','round','square','heart','diamond','rectangular','triangular','long'];
+    const t=insights[0].toLowerCase();
+    for(const w of words){if(t.includes(w)){shape=w;break;}}
+    shapeDesc=insights[0].split('.')[0].trim();
+  }
+  if(!shape)shape='Analyzed';
+  shape=shape.charAt(0).toUpperCase()+shape.slice(1);
+  if(shapeDesc.length>80)shapeDesc=shapeDesc.substring(0,77)+'...';
+
+  // Card 2: Key geometry
+  let geo=fs.key_geometry||'';
+  let geoDesc=fs.key_geometry_description||'';
+  if(!geo&&insights.length>1){
+    const geoWords=['tapered jawline','strong jawline','soft jawline','angular jaw',
+      'rounded jaw','defined jawline','narrow jaw','wide jaw','prominent cheekbones',
+      'high cheekbones','broad forehead','narrow forehead','balanced proportions'];
+    const t=(insights[0]+' '+insights[1]).toLowerCase();
+    for(const g of geoWords){if(t.includes(g)){geo=g;break;}}
+    geoDesc=insights[1].split('.')[0].trim();
+  }
+  if(!geo)geo='Analyzed';
+  geo=geo.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+  if(geoDesc.length>80)geoDesc=geoDesc.substring(0,77)+'...';
+
+  // Card 3: Color profile
+  let color=fs.color_profile||'';
+  let colorDesc=fs.color_profile_description||'';
+  let hairHex=fs.hair_color_hex||'#2A2A2A';
+  let eyeHex=fs.eye_color_hex||'#3E2723';
+  let skinHex=fs.skin_tone_hex||'#EAC0A2';
+  if(!color&&insights.length>2){
+    const t=insights[2].toLowerCase();
+    if(t.includes('high contrast')||(t.includes('dark')&&t.includes('neutral')))color='High contrast';
+    else if(t.includes('warm'))color='Warm tones';
+    else if(t.includes('cool'))color='Cool tones';
+    else if(t.includes('light'))color='Light palette';
+    colorDesc=insights[2].split('.')[0].trim();
+  }
+  if(!color)color='Analyzed';
+  if(colorDesc.length>80)colorDesc=colorDesc.substring(0,77)+'...';
+
+  // Sanitize hex values
+  const hexRe=/^#[0-9a-fA-F]{6}$/;
+  if(!hexRe.test(hairHex))hairHex='#2A2A2A';
+  if(!hexRe.test(eyeHex))eyeHex='#3E2723';
+  if(!hexRe.test(skinHex))skinHex='#EAC0A2';
+
+  return {shape,shapeDesc,geo,geoDesc,color,colorDesc,hairHex,eyeHex,skinHex};
+}
+
+function buildAnalysisCards(d){
+  const c=getAnalysisCards(d);
+  const wrap=document.createElement('div');
+  wrap.className='analysis-cards';
+
+  // Card 1 — Face Shape
+  const c1=document.createElement('div');c1.className='analysis-card';
+  c1.innerHTML=`<div class="analysis-vis">
+    <svg width="70" height="70" viewBox="0 0 70 70" fill="none">
+      <ellipse cx="35" cy="35" rx="18" ry="28" stroke="#3b82f6" stroke-width="1.5" fill="#dbeafe" fill-opacity="0.4"/>
+      <line x1="35" y1="5" x2="35" y2="63" stroke="#3b82f6" stroke-width="0.8" stroke-dasharray="3 2"/>
+      <path d="M33 7L35 4L37 7" stroke="#3b82f6" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M33 63L35 66L37 63" stroke="#3b82f6" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="14" y1="35" x2="56" y2="35" stroke="#3b82f6" stroke-width="0.8" stroke-dasharray="3 2"/>
+      <path d="M16 33L13 35L16 37" stroke="#3b82f6" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M54 33L57 35L54 37" stroke="#3b82f6" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="analysis-label">Face Shape</div>
+  <div class="analysis-value">${escHtml(c.shape)}</div>
+  <div class="analysis-desc">${escHtml(c.shapeDesc)}</div>`;
+  wrap.appendChild(c1);
+
+  // Card 2 — Key Geometry
+  const c2=document.createElement('div');c2.className='analysis-card';
+  c2.innerHTML=`<div class="analysis-vis">
+    <svg width="70" height="70" viewBox="0 0 70 70" fill="none">
+      <path d="M15 18Q15 10 35 8Q55 10 55 18L55 32Q55 40 48 50L35 62L22 50Q15 40 15 32Z" stroke="#d8d7e5" stroke-width="1" fill="none" opacity="0.3"/>
+      <path d="M18 34Q18 42 24 50L35 60L46 50Q52 42 52 34" stroke="#d97706" stroke-width="1.5" fill="#fef3c7" fill-opacity="0.35" stroke-linecap="round"/>
+      <line x1="18" y1="34" x2="35" y2="60" stroke="#d97706" stroke-width="0.7" stroke-dasharray="2.5 2" opacity="0.7"/>
+      <line x1="52" y1="34" x2="35" y2="60" stroke="#d97706" stroke-width="0.7" stroke-dasharray="2.5 2" opacity="0.7"/>
+      <circle cx="18" cy="34" r="2" fill="#d97706" opacity="0.6"/>
+      <circle cx="52" cy="34" r="2" fill="#d97706" opacity="0.6"/>
+      <circle cx="35" cy="60" r="2" fill="#d97706" opacity="0.6"/>
+      <line x1="18" y1="34" x2="52" y2="34" stroke="#d97706" stroke-width="0.6" stroke-dasharray="2 2" opacity="0.4"/>
+    </svg>
+  </div>
+  <div class="analysis-label">Key Geometry</div>
+  <div class="analysis-value">${escHtml(c.geo)}</div>
+  <div class="analysis-desc">${escHtml(c.geoDesc)}</div>`;
+  wrap.appendChild(c2);
+
+  // Card 3 — Color Profile
+  const c3=document.createElement('div');c3.className='analysis-card';
+  c3.innerHTML=`<div class="analysis-vis">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="display:flex;width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid #f4f4f8">
+        <div style="flex:1;background:${c.hairHex}"></div>
+        <div style="flex:1;background:${c.eyeHex}"></div>
+        <div style="flex:1;background:${c.skinHex}"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.hairHex}"></div>Hair</div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.eyeHex}"></div>Eyes</div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.skinHex}"></div>Skin</div>
+      </div>
+    </div>
+  </div>
+  <div class="analysis-label">Color Profile</div>
+  <div class="analysis-value">${escHtml(c.color)}</div>
+  <div class="analysis-desc">${escHtml(c.colorDesc)}</div>`;
+  wrap.appendChild(c3);
+
+  return wrap;
+}
+
+function buildAlternativeCard(o,idx){
+  const card=document.createElement('div');
+  card.className='opt-card';
+  const tryonHtml=buildTryonHtml(o);
+  card.innerHTML=`
+    <div class="opt-label">Alternative ${idx}</div>
+    <div class="opt-body">
+      <div class="tryon-col"><button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg></button>${tryonHtml}</div>
+      <div class="prod-col">
+        <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
+        <div class="prod-info">
+          <h3>${escHtml(o.name)}</h3>
+          <p class="brand">${escHtml(o.brand)} \u2014 ${escHtml(o.model)}</p>
+          <div class="tags">
+            <span class="tag">${escHtml(o.shape)}</span>
+            <span class="tag">${escHtml(o.material)}</span>
+            <span class="tag">${escHtml(o.color)}</span>
+          </div>
+          <p class="price">${fmtPrice(o)}</p>
+          <p class="score">Match: ${(o.score*100).toFixed(1)}%</p>
+        </div>
+      </div>
+    </div>`;
+  return card;
+}
+
+/* ── Shared render function for result cards ────────────────────── */
+function renderOpts(container,d){
+  container.innerHTML='';
   for(let i=0;i<d.num_options;i++){
     const o=d['opt'+i]; if(!o) continue;
     const primary=i===0;
     const card=document.createElement('div');
-    card.className='opt'+(primary?' primary':'');
-
-    const label=primary
-      ? 'Best Match \u2014 Recommended For You'
-      : 'Alternative '+i;
+    card.className='opt-card'+(primary?' primary':'');
+    const label=primary?'Best Match \u2014 Recommended For You':'Alternative '+(i);
 
     let tryonHtml;
-    if(o.tryon_status==='done' && o.tryon_b64){
+    if(o.tryon_status==='done'&&o.tryon_b64){
       tryonHtml=`<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
     }else if(o.tryon_status==='error'){
       tryonHtml=`<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+o.tryon_error:''}</div>`;
     }else{
       tryonHtml=`<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>`;
     }
-
     const price=o.price.toLocaleString()+' '+o.currency;
-
     card.innerHTML=`
       <div class="opt-label">${label}</div>
       <div class="opt-body">
@@ -765,17 +1437,1100 @@ function render(d){
           </div>
         </div>
       </div>`;
-    optsEl.appendChild(card);
+    container.appendChild(card);
+  }
+}
+</script>
+</body>
+</html>
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FREE SEARCH PAGE HTML
+# ══════════════════════════════════════════════════════════════════════════════
+
+FREE_SEARCH_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Lenses — Free Search</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:#f7f7fb;color:#1e1e2f;min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Top bar ──────────────────────────────────────── */
+.topbar{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;
+  background:#fff;box-shadow:0 1px 8px rgba(30,30,47,.04)}
+.topbar a{color:#6c63ff;text-decoration:none;font-size:.85rem;font-weight:600;
+  display:flex;align-items:center;gap:.3rem}
+.topbar a:hover{text-decoration:underline}
+.topbar .logo{font-size:1.3rem;font-weight:800;letter-spacing:-.03em;color:#1e1e2f}
+
+/* ── FORM VIEW ────────────────────────────────────── */
+#form-view{max-width:720px;margin:2rem auto;padding:0 1.5rem}
+
+.section-title{font-size:1.15rem;font-weight:700;color:#1e1e2f;margin:2rem 0 1rem;
+  padding-bottom:.4rem;border-bottom:2px solid #edeef6}
+.section-title:first-child{margin-top:0}
+
+/* upload area */
+.fs-upload{
+  width:100%;padding:2.5rem;border:2.5px dashed #c4c3d6;border-radius:20px;
+  text-align:center;cursor:pointer;transition:all .3s;background:rgba(255,255,255,.55);
+  margin-bottom:.5rem;position:relative;
+}
+.fs-upload:hover{border-color:#6c63ff;background:rgba(108,99,255,.04)}
+.fs-upload.has-file{border-color:#34c78a;border-style:solid;background:rgba(52,199,138,.04)}
+.fs-upload svg{width:40px;height:40px;stroke:#8b85b8;stroke-width:1.5;fill:none;margin-bottom:.6rem}
+.fs-upload:hover svg{stroke:#6c63ff}
+.fs-upload .up-label{font-size:1rem;font-weight:600;color:#3a3a52;display:block}
+.fs-upload .up-hint{font-size:.78rem;color:#9b99ae;display:block;margin-top:.2rem}
+.fs-upload .up-preview{max-height:120px;border-radius:12px;margin-top:.8rem;display:none}
+#fs-file{display:none}
+
+/* form grid */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:540px){.form-grid{grid-template-columns:1fr}}
+
+.field{display:flex;flex-direction:column;gap:.35rem}
+.field label{font-size:.78rem;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.04em}
+.field input[type=number]{
+  padding:.6rem .8rem;border:1.5px solid #d8d7e5;border-radius:10px;
+  font-size:.88rem;color:#1e1e2f;background:#fff;transition:border-color .2s;
+}
+.field input[type=number]:focus{outline:none;border-color:#6c63ff}
+
+/* ── Visual tile selector ───────────────────── */
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:.55rem}
+.tile{position:relative;cursor:pointer;display:block}
+.tile input{position:absolute;opacity:0;pointer-events:none}
+.tile-inner{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;
+  padding:.6rem .3rem;border:1.5px solid #d8d7e5;border-radius:12px;
+  background:#fff;transition:all .25s;min-height:66px;
+}
+.tile-inner:hover{border-color:#9b96e0;background:#fafaff}
+.tile input:checked+.tile-inner{border-color:#6c63ff;background:rgba(108,99,255,.05);box-shadow:0 0 0 3px rgba(108,99,255,.12)}
+.tile-label{font-size:.67rem;font-weight:500;color:#6b6b80;text-align:center;line-height:1.15}
+.tile input:checked+.tile-inner .tile-label{color:#6c63ff;font-weight:600}
+
+/* shape outline */
+.shape-vis{border:2px solid #8b85b8;transition:all .25s}
+.tile input:checked+.tile-inner .shape-vis{border-color:#6c63ff}
+.shape-fill{background:#d8d7e5;transition:all .25s}
+.tile input:checked+.tile-inner .shape-fill{background:#6c63ff}
+
+/* color swatch */
+.swatch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:.4rem}
+.swatch{position:relative;cursor:pointer;display:block}
+.swatch input{position:absolute;opacity:0;pointer-events:none}
+.swatch-inner{
+  display:flex;flex-direction:column;align-items:center;gap:.25rem;padding:.45rem .2rem;
+  border:1.5px solid transparent;border-radius:12px;transition:all .25s;
+}
+.swatch-inner:hover{background:rgba(108,99,255,.04)}
+.swatch input:checked+.swatch-inner{border-color:#6c63ff;background:rgba(108,99,255,.05)}
+.swatch-dot{width:30px;height:30px;border-radius:50%;border:2px solid #e2e1ed;transition:all .25s;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.1)}
+.swatch input:checked+.swatch-inner .swatch-dot{border-color:#6c63ff;transform:scale(1.12);
+  box-shadow:0 0 0 3px rgba(108,99,255,.18),inset 0 1px 3px rgba(0,0,0,.1)}
+.swatch-name{font-size:.6rem;font-weight:500;color:#9b99ae;text-align:center;line-height:1.1}
+.swatch input:checked+.swatch-inner .swatch-name{color:#6c63ff;font-weight:600}
+
+/* rim visual */
+.rim-vis{width:44px;height:18px;transition:all .25s}
+.rim-vis.full{border:2.5px solid #8b85b8;border-radius:9px}
+.rim-vis.semi{border:2.5px solid #8b85b8;border-bottom-color:transparent;border-radius:9px 9px 0 0}
+.rim-vis.none{border:1.5px dashed #b0afc2;border-radius:9px}
+.tile input:checked+.tile-inner .rim-vis.full{border-color:#6c63ff}
+.tile input:checked+.tile-inner .rim-vis.semi{border-color:#6c63ff;border-bottom-color:transparent}
+.tile input:checked+.tile-inner .rim-vis.none{border-color:#6c63ff}
+
+/* size dots */
+.size-dot{border-radius:50%;background:#d8d7e5;transition:all .25s}
+.tile input:checked+.tile-inner .size-dot{background:#6c63ff}
+
+/* lens indicator */
+.lens-ind{border-radius:50%;border:2px solid #d8d7e5;transition:all .25s}
+.tile input:checked+.tile-inner .lens-ind{border-color:#6c63ff}
+
+/* material chip */
+.mat-chip{width:24px;height:24px;border-radius:5px;transition:all .25s}
+
+/* thickness bar */
+.thick-bar{width:36px;border-radius:2px;background:#b0afc2;transition:all .25s}
+.tile input:checked+.tile-inner .thick-bar{background:#6c63ff}
+
+/* any-option icon */
+.any-icon{width:26px;height:26px;border-radius:50%;
+  background:linear-gradient(135deg,#e8e7f0,#d8d7e5);
+  display:flex;align-items:center;justify-content:center;font-size:.75rem;color:#9b99ae;transition:all .25s}
+.tile input:checked+.tile-inner .any-icon{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
+.swatch .any-icon{width:30px;height:30px;border-radius:50%}
+
+/* radio group */
+.radio-group{display:flex;gap:.5rem;flex-wrap:wrap}
+.radio-group label{
+  padding:.45rem .9rem;border:1.5px solid #d8d7e5;border-radius:10px;
+  font-size:.82rem;font-weight:500;color:#6b6b80;cursor:pointer;transition:all .2s;
+  text-transform:none;letter-spacing:0;
+}
+.radio-group input{display:none}
+.radio-group input:checked+label{border-color:#6c63ff;color:#6c63ff;background:#6c63ff0d}
+
+/* chip group (for aesthetics / occasion) */
+.chip-group{display:flex;gap:.4rem;flex-wrap:wrap}
+.chip-group label{
+  padding:.35rem .75rem;border:1.5px solid #d8d7e5;border-radius:50px;
+  font-size:.76rem;font-weight:500;color:#6b6b80;cursor:pointer;transition:all .2s;
+  text-transform:none;letter-spacing:0;
+}
+.chip-group input{display:none}
+.chip-group input:checked+label{border-color:#6c63ff;color:#fff;background:#6c63ff}
+
+/* submit button */
+.submit-row{text-align:center;margin:2.5rem 0 3rem}
+.submit-btn{
+  padding:.85rem 3rem;background:linear-gradient(135deg,#6c63ff,#8b7bff);
+  color:#fff;border:none;border-radius:50px;font-size:1rem;font-weight:700;
+  cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(108,99,255,.25);
+  letter-spacing:.01em;
+}
+.submit-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(108,99,255,.35)}
+.submit-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ── LOADING VIEW ─────────────────────────────────── */
+#loading-view{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%);
+  flex-direction:column;align-items:center;justify-content:center;
+}
+
+.load-card{
+  background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:480px;width:90%;text-align:center;
+}
+
+.load-portrait{width:100px;height:100px;border-radius:50%;overflow:hidden;
+  margin:0 auto 1.5rem;border:3px solid #edeef6;box-shadow:0 4px 20px rgba(30,30,47,.08)}
+.load-portrait img{width:100%;height:100%;object-fit:cover}
+
+/* steps */
+.fs-steps{display:flex;justify-content:center;gap:.5rem;margin-bottom:1.5rem}
+.fs-step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#b0afc2;font-weight:500;transition:color .3s}
+.fs-step.active{color:#6c63ff}.fs-step.done{color:#34c78a}
+.fs-sdot{width:28px;height:28px;border-radius:50%;border:2px solid #d8d7e5;
+  display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;
+  color:#b0afc2;transition:all .3s}
+.fs-step.active .fs-sdot{border-color:#6c63ff;color:#6c63ff;box-shadow:0 0 0 4px rgba(108,99,255,.12)}
+.fs-step.done .fs-sdot{border-color:#34c78a;background:#34c78a;color:#fff}
+.fs-sline{width:32px;height:2px;background:#e2e1ed;border-radius:1px;align-self:center;transition:background .3s}
+.fs-sline.done{background:#34c78a}
+
+.load-prog{width:100%;height:3px;background:#edeef6;border-radius:2px;margin-bottom:1.6rem;overflow:hidden}
+.load-prog-fill{height:100%;background:linear-gradient(90deg,#34c78a,#6dd5a8);border-radius:2px;width:0%;transition:width .6s ease}
+
+#load-stage{font-size:.95rem;color:#4a4a64;font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
+
+.tip-box{min-height:3.5em;display:flex;align-items:center;justify-content:center}
+#load-tip{font-size:.82rem;color:#9b99ae;line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s}
+
+/* ── RESULTS VIEW ─────────────────────────────────── */
+#results-view{
+  --accent:#8B7BFF;--accent-hue:250;
+  display:none;position:fixed;inset:0;z-index:200;
+  background:linear-gradient(175deg,#0f0f1a 0%,hsl(var(--accent-hue,250),15%,8%) 40%,#0f0f1a 100%);
+  overflow-y:auto;color:#fff;
+}
+.res-inner{max-width:1060px;margin:0 auto;padding:0 1.5rem 2rem}
+
+/* ── Sticky top bar ── */
+.res-topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 28px;
+  background:rgba(15,15,26,.8);backdrop-filter:blur(16px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  position:sticky;top:0;z-index:100;margin:0 -1.5rem 28px;
+}
+.res-topbar-back{
+  background:none;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);
+  padding:7px 16px;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:all .2s;display:flex;align-items:center;gap:6px;
+}
+.res-topbar-back:hover{background:rgba(255,255,255,.08);color:#fff}
+.res-topbar-title{font-size:.95rem;font-weight:700;color:#fff;letter-spacing:-.01em}
+.res-topbar-compare{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#fff;
+  padding:7px 16px;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:all .2s;display:flex;align-items:center;gap:6px;
+}
+.res-topbar-compare:hover{background:rgba(255,255,255,.14)}
+
+/* ── Hero section (best match) ── */
+.hero-section{
+  position:relative;
+  animation:slideUp .7s ease .1s both;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 16px;border-radius:20px;font-size:.75rem;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:#fff;
+  background:linear-gradient(135deg,var(--accent),hsl(calc(var(--accent-hue) + 30),60%,55%));
+  margin-bottom:16px;
+}
+.hero-grid{
+  display:grid;grid-template-columns:1fr 340px;gap:36px;
+  background:linear-gradient(175deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
+  border-radius:28px;border:1px solid rgba(255,255,255,.06);
+  padding:28px;overflow:hidden;position:relative;
+}
+.hero-tryon-wrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:340px}
+.hero-glow{
+  position:absolute;top:-20%;left:15%;width:400px;height:400px;border-radius:50%;
+  background:radial-gradient(circle,var(--accent),transparent 70%);
+  opacity:.15;filter:blur(60px);pointer-events:none;
+  animation:pulse 4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:.15}50%{opacity:.3}}
+.hero-tryon-wrap img{
+  width:100%;max-height:420px;object-fit:contain;border-radius:16px;
+  display:block;position:relative;z-index:1;
+}
+.hero-panel{
+  background:rgba(255,255,255,.04);border-radius:22px;
+  border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);
+  padding:28px;display:flex;flex-direction:column;gap:16px;
+  animation:slideRight .7s ease .3s both;
+}
+.hero-product-img{
+  width:100%;max-height:140px;object-fit:contain;border-radius:14px;
+  background:rgba(255,255,255,.04);
+}
+.hero-name{
+  font-family:'DM Serif Display',Georgia,serif;font-size:1.35rem;
+  font-weight:400;line-height:1.25;color:#fff;
+}
+.hero-brand{font-size:.82rem;color:rgba(255,255,255,.45);margin-top:2px}
+.hero-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.hero-price{
+  font-family:'DM Serif Display',Georgia,serif;
+  font-size:1.25rem;color:#fff;margin-top:4px;
+}
+
+/* ── Score breakdown ── */
+.score-panel{
+  background:rgba(255,255,255,.04);border-radius:14px;
+  border:1px solid rgba(255,255,255,.06);padding:16px;
+}
+.score-panel-hdr{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
+}
+.score-panel-title{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);
+  text-transform:uppercase;letter-spacing:.08em}
+.score-ring-wrap{position:relative;width:52px;height:52px;flex-shrink:0}
+.score-ring{width:52px;height:52px}
+.score-ring-num{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:.82rem;font-weight:700;color:#fff;
+}
+.score-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.score-row:last-child{margin-bottom:0}
+.score-label{font-size:.72rem;font-weight:600;color:rgba(255,255,255,.5);width:36px;flex-shrink:0}
+.score-track{flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+.score-fill{height:100%;border-radius:3px;width:0%;animation:fillBar 1s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes fillBar{to{width:var(--target-width)}}
+.score-val{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.7);width:24px;text-align:right}
+
+/* ── Why reasons ── */
+.why-section{margin-top:4px}
+.why-title{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);
+  text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.why-item{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;
+  font-size:.78rem;color:rgba(255,255,255,.6);line-height:1.4}
+.why-item svg{width:14px;height:14px;flex-shrink:0;margin-top:2px}
+
+/* ── Dynamic tag ── */
+.tag-dynamic{
+  font-size:11px;font-weight:600;padding:4px 10px;
+  border-radius:20px;letter-spacing:.02em;
+}
+
+/* ── Section divider ── */
+.section-divider{
+  display:flex;align-items:center;gap:10px;margin:32px 0 20px;
+}
+.section-divider::before,.section-divider::after{
+  content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,rgba(255,255,255,.08),transparent);
+}
+.section-divider::after{
+  background:linear-gradient(270deg,rgba(255,255,255,.08),transparent);
+}
+.section-divider span{
+  font-size:12px;font-weight:700;color:rgba(255,255,255,.3);
+  letter-spacing:.1em;text-transform:uppercase;
+}
+
+/* ── Alt grid ── */
+.alt-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.alt-card{
+  background:rgba(255,255,255,.03);border-radius:22px;overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);transition:all .3s ease;
+  animation:slideUp .7s ease both;
+}
+.alt-card:nth-child(1){animation-delay:.4s}
+.alt-card:nth-child(2){animation-delay:.55s}
+.alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
+.alt-card-img-wrap{position:relative;display:flex;align-items:center;justify-content:center;
+  min-height:240px;padding:16px;background:rgba(255,255,255,.02)}
+.alt-card-img-wrap img{width:100%;max-height:280px;object-fit:contain;border-radius:12px;display:block}
+.alt-card-body{padding:20px}
+.alt-card-name{
+  font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
+}
+.alt-card-brand{font-size:.76rem;color:rgba(255,255,255,.4);margin-top:2px}
+.alt-card-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.alt-card-footer{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px;border-top:1px solid rgba(255,255,255,.06);
+}
+.alt-card-price{
+  font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;
+}
+.alt-card-label{font-size:.7rem;font-weight:600;color:rgba(255,255,255,.3);
+  text-transform:uppercase;letter-spacing:.06em}
+
+/* ── Try-on loading / error (dark variants) ── */
+.tryon-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:300px;width:100%;border-radius:12px;
+  background:linear-gradient(110deg,rgba(255,255,255,.04) 8%,rgba(255,255,255,.08) 18%,rgba(255,255,255,.04) 33%);
+  background-size:200% 100%;animation:shimmer 1.6s linear infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.tryon-loading p{font-size:.82rem;color:rgba(255,255,255,.4);margin-top:.5rem}
+.tryon-loading .mini-spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.1);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
+  background:rgba(220,50,50,.08);border-radius:12px;color:#f87171;font-size:.85rem;
+  padding:1.2rem;text-align:center;width:100%}
+
+/* ── Favorite button ── */
+.fav-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;
+  border:none;background:rgba(255,255,255,.1);backdrop-filter:blur(4px);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:2}
+.fav-btn:hover{background:rgba(255,255,255,.2);transform:scale(1.1)}
+.fav-btn svg{width:20px;height:20px;stroke:rgba(255,255,255,.6);fill:none;stroke-width:2;transition:all .2s}
+.fav-btn.active svg{stroke:#ef4444;fill:#ef4444}
+
+/* ── Start over button ── */
+.start-over{display:block;margin:2rem auto 3rem;padding:.75rem 2.2rem;
+  background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.1);
+  border-radius:50px;font-size:.92rem;font-weight:600;cursor:pointer;transition:all .2s}
+.start-over:hover{background:var(--accent);border-color:var(--accent);transform:translateY(-2px)}
+
+/* ── Compare modal ── */
+.compare-modal{
+  position:fixed;inset:0;z-index:1000;
+  display:flex;align-items:center;justify-content:center;padding:24px;
+}
+.compare-backdrop{
+  position:absolute;inset:0;
+  background:rgba(10,10,20,.85);backdrop-filter:blur(12px);
+}
+.compare-content{
+  position:relative;width:100%;max-width:1100px;
+  background:#1a1a2e;border-radius:28px;padding:32px 28px;color:#fff;
+  box-shadow:0 40px 100px rgba(0,0,0,.5);max-height:90vh;overflow-y:auto;
+}
+.compare-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.compare-header h2{font-family:'DM Serif Display',Georgia,serif;font-size:1.3rem;font-weight:400}
+.compare-close{
+  background:rgba(255,255,255,.1);border:none;color:#fff;
+  width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;
+  display:flex;align-items:center;justify-content:center;transition:all .2s;
+}
+.compare-close:hover{background:rgba(255,255,255,.2)}
+.compare-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.compare-card{
+  background:rgba(255,255,255,.04);border-radius:18px;overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);
+}
+.compare-best{border-color:var(--accent);box-shadow:0 0 20px rgba(139,123,255,.15)}
+.compare-card-img{width:100%;max-height:200px;object-fit:contain;border-radius:0;display:block;
+  background:rgba(255,255,255,.02);padding:12px}
+.compare-card-body{padding:16px}
+.compare-card-name{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;color:#fff;margin-bottom:2px}
+.compare-card-brand{font-size:.72rem;color:rgba(255,255,255,.4);margin-bottom:10px}
+.compare-card-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.06);
+  display:flex;align-items:center;justify-content:space-between}
+.compare-card-price{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;color:#fff}
+.compare-card-badge{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  padding:3px 8px;border-radius:6px;background:var(--accent);color:#fff}
+
+/* ── Animations ── */
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
+@keyframes slideRight{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:none}}
+
+/* ── ERROR VIEW ───────────────────────────────────── */
+#error-view{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%);
+  flex-direction:column;align-items:center;justify-content:center;
+}
+.err-card{background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:420px;width:90%;text-align:center}
+
+@media(max-width:768px){
+  .compare-grid{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .hero-grid{grid-template-columns:1fr;gap:20px}
+  .alt-grid{grid-template-columns:1fr}
+  .res-topbar{padding:12px 16px;margin:0 -1.5rem 20px}
+}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <a href="/">&larr; Back</a>
+  <span class="logo">Free Search</span>
+</div>
+
+<!-- ═══════════════ FORM VIEW ═══════════════ -->
+<div id="form-view">
+
+  <h3 class="section-title">Your Photo</h3>
+  <div class="fs-upload" id="upload-area" onclick="document.getElementById('fs-file').click()">
+    <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
+    <span class="up-label" id="up-label-text">Upload a Photo</span>
+    <span class="up-hint">JPG, PNG, or WebP</span>
+    <img class="up-preview" id="up-preview"/>
+  </div>
+  <input type="file" id="fs-file" accept="image/*"/>
+
+  <h3 class="section-title">Shape</h3>
+  <div class="tile-grid">
+    <label class="tile"><input type="radio" name="frame_shape" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="round"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:50%"></div><span class="tile-label">Round</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="square"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:3px"></div><span class="tile-label">Square</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="rectangular"/><div class="tile-inner"><div class="shape-vis" style="width:38px;height:22px;border-radius:3px"></div><span class="tile-label">Rectangular</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="oval"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:50%"></div><span class="tile-label">Oval</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="cat-eye"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:3px 70% 40% 40%"></div><span class="tile-label">Cat-Eye</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="aviator"/><div class="tile-inner"><div class="shape-vis" style="width:30px;height:26px;border-radius:10% 10% 50% 50%"></div><span class="tile-label">Aviator</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="wayfarer"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:24px;border-radius:3px 3px 8px 8px"></div><span class="tile-label">Wayfarer</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="browline"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:3px;border-top-width:4px"></div><span class="tile-label">Browline</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="hexagonal"/><div class="tile-inner"><div class="shape-fill" style="width:28px;height:24px;clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></div><span class="tile-label">Hexagonal</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="octagonal"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(30% 0%,70% 0%,100% 30%,100% 70%,70% 100%,30% 100%,0% 70%,0% 30%)"></div><span class="tile-label">Octagonal</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="geometric"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)"></div><span class="tile-label">Geometric</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="butterfly"/><div class="tile-inner"><div class="shape-vis" style="width:38px;height:24px;border-radius:60% 60% 30% 30%"></div><span class="tile-label">Butterfly</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="oversized-round"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:32px;border-radius:50%"></div><span class="tile-label">Oversized Rnd</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="oversized-square"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:30px;border-radius:3px"></div><span class="tile-label">Oversized Sq</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="wrap"/><div class="tile-inner"><div class="shape-vis" style="width:40px;height:20px;border-radius:50%/40%"></div><span class="tile-label">Wrap</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="shield"/><div class="tile-inner"><div class="shape-vis" style="width:42px;height:22px;border-radius:4px 4px 12px 12px"></div><span class="tile-label">Shield</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="pilot"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:28px;border-radius:15% 15% 50% 50%"></div><span class="tile-label">Pilot</span></div></label>
+  </div>
+
+  <h3 class="section-title">Color</h3>
+  <div class="swatch-grid">
+    <label class="swatch"><input type="radio" name="frame_color" value="" checked/><div class="swatch-inner"><div class="any-icon">&#10038;</div><span class="swatch-name">Any</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#1a1a1a"></div><span class="swatch-name">Black</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d0d0d0,#a8a8a8)"></div><span class="swatch-name">Silver</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="gold"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#e8c860,#c4963c)"></div><span class="swatch-name">Gold</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="rose-gold"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d4a0a0,#b76e79)"></div><span class="swatch-name">Rose Gold</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="gunmetal"/><div class="swatch-inner"><div class="swatch-dot" style="background:#536267"></div><span class="swatch-name">Gunmetal</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="tortoiseshell"/><div class="swatch-inner"><div class="swatch-dot" style="background:conic-gradient(#8B4513,#D2691E,#654321,#CD853F,#8B4513)"></div><span class="swatch-name">Tortoise</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="havana-brown"/><div class="swatch-inner"><div class="swatch-dot" style="background:#6B3A2A"></div><span class="swatch-name">Havana</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="transparent"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/10px 10px;border-style:dashed"></div><span class="swatch-name">Clear</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#fafafa"></div><span class="swatch-name">White</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="blue"/><div class="swatch-inner"><div class="swatch-dot" style="background:#2563eb"></div><span class="swatch-name">Blue</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="red"/><div class="swatch-inner"><div class="swatch-dot" style="background:#dc2626"></div><span class="swatch-name">Red</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="green"/><div class="swatch-inner"><div class="swatch-dot" style="background:#16a34a"></div><span class="swatch-name">Green</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="pink"/><div class="swatch-inner"><div class="swatch-dot" style="background:#ec4899"></div><span class="swatch-name">Pink</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="purple"/><div class="swatch-inner"><div class="swatch-dot" style="background:#7c3aed"></div><span class="swatch-name">Purple</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="matte-black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#2d2d2d"></div><span class="swatch-name">Matte Blk</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="brushed-silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-linear-gradient(90deg,#b8b8b8,#c8c8c8 2px,#b0b0b0 2px,#c0c0c0 4px)"></div><span class="swatch-name">Brushed</span></div></label>
+    <label class="swatch"><input type="radio" name="frame_color" value="champagne"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f7e7ce"></div><span class="swatch-name">Champagne</span></div></label>
+  </div>
+
+  <h3 class="section-title">Material</h3>
+  <div class="tile-grid">
+    <label class="tile"><input type="radio" name="frame_material" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="metal"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0,#808080)"></div><span class="tile-label">Metal</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="acetate"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d4a574,#8B4513)"></div><span class="tile-label">Acetate</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="titanium"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#ccd5e0,#8ba4bc)"></div><span class="tile-label">Titanium</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="plastic"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#e0e0e0,#b0b0b0)"></div><span class="tile-label">Plastic</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="TR90"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#5b7fa5,#3d5a80)"></div><span class="tile-label">TR90</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="wood"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#b5884e,#8B6914)"></div><span class="tile-label">Wood</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="mixed-metal-acetate"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0 50%,#d4a574 50%)"></div><span class="tile-label">Mixed</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="stainless-steel"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d8d8d8,#a0a0a0,#d0d0d0)"></div><span class="tile-label">Steel</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="aluminum"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#bcc6cc,#8e9da6)"></div><span class="tile-label">Aluminum</span></div></label>
+    <label class="tile"><input type="radio" name="frame_material" value="carbon-fiber"/><div class="tile-inner"><div class="mat-chip" style="background:repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 2px,#404040 2px,#404040 4px)"></div><span class="tile-label">Carbon</span></div></label>
+  </div>
+
+  <h3 class="section-title">Rim &amp; Thickness</h3>
+  <div style="display:flex;gap:2rem;flex-wrap:wrap">
+    <div class="field" style="flex:1;min-width:200px">
+      <label>Rim Type</label>
+      <div class="tile-grid" style="grid-template-columns:repeat(4,1fr)">
+        <label class="tile"><input type="radio" name="rim_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+        <label class="tile"><input type="radio" name="rim_type" value="full-rim"/><div class="tile-inner"><div class="rim-vis full"></div><span class="tile-label">Full Rim</span></div></label>
+        <label class="tile"><input type="radio" name="rim_type" value="semi-rimless"/><div class="tile-inner"><div class="rim-vis semi"></div><span class="tile-label">Semi</span></div></label>
+        <label class="tile"><input type="radio" name="rim_type" value="rimless"/><div class="tile-inner"><div class="rim-vis none"></div><span class="tile-label">Rimless</span></div></label>
+      </div>
+    </div>
+    <div class="field" style="flex:1;min-width:200px">
+      <label>Thickness</label>
+      <div class="tile-grid" style="grid-template-columns:repeat(4,1fr)">
+        <label class="tile"><input type="radio" name="frame_thickness" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+        <label class="tile"><input type="radio" name="frame_thickness" value="thin"/><div class="tile-inner"><div class="thick-bar" style="height:2px"></div><span class="tile-label">Thin</span></div></label>
+        <label class="tile"><input type="radio" name="frame_thickness" value="medium"/><div class="tile-inner"><div class="thick-bar" style="height:5px"></div><span class="tile-label">Medium</span></div></label>
+        <label class="tile"><input type="radio" name="frame_thickness" value="thick"/><div class="tile-inner"><div class="thick-bar" style="height:9px"></div><span class="tile-label">Thick</span></div></label>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="section-title">Lens Type</h3>
+  <div class="tile-grid">
+    <label class="tile"><input type="radio" name="lens_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.8)"></div><span class="tile-label">Clear</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:#8b85b8">Rx</div><span class="tile-label">Prescription</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="sunglasses"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:#2a2a2a"></div><span class="tile-label">Sunglasses</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="photochromic"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#f8f8f8 40%,#555 60%)"></div><span class="tile-label">Photochromic</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="blue-light-filter"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,245,220,.9);border-color:#e8d5a0"></div><span class="tile-label">Blue Light</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="polarized"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:repeating-linear-gradient(0deg,#666,#666 2px,#888 2px,#888 4px)"></div><span class="tile-label">Polarized</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="mirrored"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#6ca6cd,#b8d4e8,#4682b4,#87ceeb)"></div><span class="tile-label">Mirrored</span></div></label>
+    <label class="tile"><input type="radio" name="lens_type" value="gradient"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(180deg,#444 0%,#ddd 100%)"></div><span class="tile-label">Gradient</span></div></label>
+  </div>
+
+  <h3 class="section-title">Lens Size</h3>
+  <div class="tile-grid" style="grid-template-columns:repeat(5,1fr);max-width:480px">
+    <label class="tile"><input type="radio" name="lens_size" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+    <label class="tile"><input type="radio" name="lens_size" value="small"/><div class="tile-inner"><div class="size-dot" style="width:16px;height:16px"></div><span class="tile-label">Small</span></div></label>
+    <label class="tile"><input type="radio" name="lens_size" value="medium"/><div class="tile-inner"><div class="size-dot" style="width:22px;height:22px"></div><span class="tile-label">Medium</span></div></label>
+    <label class="tile"><input type="radio" name="lens_size" value="large"/><div class="tile-inner"><div class="size-dot" style="width:28px;height:28px"></div><span class="tile-label">Large</span></div></label>
+    <label class="tile"><input type="radio" name="lens_size" value="oversized"/><div class="tile-inner"><div class="size-dot" style="width:34px;height:34px"></div><span class="tile-label">Oversized</span></div></label>
+  </div>
+
+  <h3 class="section-title">Style</h3>
+  <div class="form-grid">
+    <div class="field">
+      <label>Gender</label>
+      <div class="radio-group">
+        <span><input type="radio" name="gender" id="g-any" value="" checked/><label for="g-any">Any</label></span>
+        <span><input type="radio" name="gender" id="g-uni" value="unisex"/><label for="g-uni">Unisex</label></span>
+        <span><input type="radio" name="gender" id="g-men" value="men"/><label for="g-men">Men</label></span>
+        <span><input type="radio" name="gender" id="g-women" value="women"/><label for="g-women">Women</label></span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Max Price</label>
+      <input type="number" name="max_price" placeholder="No limit" min="0" step="10"/>
+    </div>
+  </div>
+
+  <div style="margin-top:1rem">
+    <div class="field">
+      <label>Aesthetic</label>
+      <div class="chip-group">
+        <span><input type="radio" name="aesthetic" id="ae-any" value="" checked/><label for="ae-any">Any</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-classic" value="classic"/><label for="ae-classic">Classic</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-modern" value="modern"/><label for="ae-modern">Modern</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-vintage" value="vintage"/><label for="ae-vintage">Vintage</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-retro" value="retro"/><label for="ae-retro">Retro</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-sporty" value="sporty"/><label for="ae-sporty">Sporty</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-luxury" value="luxury"/><label for="ae-luxury">Luxury</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-mini" value="minimalist"/><label for="ae-mini">Minimalist</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-bold" value="bold"/><label for="ae-bold">Bold</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-pro" value="professional"/><label for="ae-pro">Professional</label></span>
+        <span><input type="radio" name="aesthetic" id="ae-casual" value="casual"/><label for="ae-casual">Casual</label></span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:1rem">
+    <div class="field">
+      <label>Occasion</label>
+      <div class="chip-group">
+        <span><input type="radio" name="occasion" id="oc-any" value="" checked/><label for="oc-any">Any</label></span>
+        <span><input type="radio" name="occasion" id="oc-every" value="everyday"/><label for="oc-every">Everyday</label></span>
+        <span><input type="radio" name="occasion" id="oc-office" value="office"/><label for="oc-office">Office</label></span>
+        <span><input type="radio" name="occasion" id="oc-out" value="outdoor"/><label for="oc-out">Outdoor</label></span>
+        <span><input type="radio" name="occasion" id="oc-sport" value="sport"/><label for="oc-sport">Sport</label></span>
+        <span><input type="radio" name="occasion" id="oc-drive" value="driving"/><label for="oc-drive">Driving</label></span>
+        <span><input type="radio" name="occasion" id="oc-fash" value="fashion"/><label for="oc-fash">Fashion</label></span>
+        <span><input type="radio" name="occasion" id="oc-form" value="formal"/><label for="oc-form">Formal</label></span>
+        <span><input type="radio" name="occasion" id="oc-beach" value="beach"/><label for="oc-beach">Beach</label></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="submit-row">
+    <button class="submit-btn" id="submit-btn" disabled onclick="submitSearch()">
+      Find My Glasses
+    </button>
+    <p style="font-size:.76rem;color:#9b99ae;margin-top:.6rem" id="submit-hint">Upload a photo first</p>
+  </div>
+
+</div>
+
+<!-- ═══════════════ LOADING ═══════════════ -->
+<div id="loading-view">
+  <div class="load-card">
+    <div class="load-portrait" id="load-portrait" style="display:none">
+      <img id="load-portrait-img" src="" alt=""/>
+    </div>
+
+    <div class="fs-steps">
+      <div class="fs-step active" id="ls1"><span class="fs-sdot">1</span><span>Search</span></div>
+      <div class="fs-sline" id="lsl1"></div>
+      <div class="fs-step" id="ls2"><span class="fs-sdot">2</span><span>Try-On</span></div>
+    </div>
+
+    <div class="load-prog"><div class="load-prog-fill" id="load-prog"></div></div>
+
+    <p id="load-stage">Searching our catalog...</p>
+
+    <div class="tip-box"><p id="load-tip"></p></div>
+  </div>
+</div>
+
+<!-- ═══════════════ RESULTS ═══════════════ -->
+<div id="results-view">
+  <div class="res-inner">
+    <div class="res-topbar">
+      <button class="res-topbar-back" onclick="fsReset()">&#8592; Back</button>
+      <span class="res-topbar-title">Your Results</span>
+      <button class="res-topbar-compare" onclick="openCompare()">&#9638; Compare All</button>
+    </div>
+    <div id="fs-opts"></div>
+    <button class="start-over" onclick="fsReset()">Search Again</button>
+  </div>
+  <div id="compare-modal" class="compare-modal" style="display:none">
+    <div class="compare-backdrop" onclick="closeCompare()"></div>
+    <div class="compare-content">
+      <div class="compare-header">
+        <h2>Side-by-Side Comparison</h2>
+        <button onclick="closeCompare()" class="compare-close">&times;</button>
+      </div>
+      <div id="compare-grid" class="compare-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ ERROR ═══════════════ -->
+<div id="error-view">
+  <div class="err-card">
+    <div style="font-size:2.4rem;margin-bottom:1rem">:/</div>
+    <h2 style="font-size:1.15rem;color:#1e1e2f;margin-bottom:.6rem">Something went wrong</h2>
+    <p id="error-msg" style="font-size:.88rem;color:#8b85b8;line-height:1.5;margin-bottom:1.5rem;word-break:break-word"></p>
+    <button class="start-over" onclick="fsReset()">Try Again</button>
+  </div>
+</div>
+
+<!-- ═══════════════ SCRIPT ═══════════════ -->
+<script>
+/* ── State ──────────────────────────────────── */
+let sid=null, poll=null, tipTimer=null, tipIdx=0, uploadedFile=null, lastRendered='';
+
+const tips=[
+  "Did you know? Frame shape can change how others perceive your personality.",
+  "Round frames have been a staple since the 13th century.",
+  "Titanium frames can flex without breaking — perfect for active lifestyles.",
+  "Acetate is made from plant-based cellulose, making it eco-friendlier than plastic.",
+  "Polarized lenses cut glare by filtering horizontally-oriented light.",
+  "The most popular frame color worldwide? Classic black, followed by tortoiseshell.",
+  "Cat-eye frames were originally designed in the 1930s and became iconic in the 1950s.",
+  "Photochromic lenses can transition from clear to dark in under 30 seconds.",
+  "Aviators were originally designed for military pilots in the 1930s.",
+  "Blue-light filtering lenses can improve sleep quality when worn in the evening.",
+  "Semi-rimless frames offer a lighter feel while maintaining structural support.",
+  "The right pair of glasses can make you look up to 5 years younger.",
+];
+
+/* ── Photo upload ───────────────────────────── */
+const fileIn=document.getElementById('fs-file');
+const uploadArea=document.getElementById('upload-area');
+const preview=document.getElementById('up-preview');
+const submitBtn=document.getElementById('submit-btn');
+const submitHint=document.getElementById('submit-hint');
+
+fileIn.addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  uploadedFile=f;
+  uploadArea.classList.add('has-file');
+  document.getElementById('up-label-text').textContent=f.name;
+
+  const reader=new FileReader();
+  reader.onload=ev=>{preview.src=ev.target.result;preview.style.display='block'};
+  reader.readAsDataURL(f);
+
+  submitBtn.disabled=false;
+  submitHint.textContent='Select your preferences above, then hit the button!';
+});
+
+/* ── Submit ──────────────────────────────────── */
+async function submitSearch(){
+  if(!uploadedFile) return;
+
+  // Collect form values
+  const fd=new FormData();
+  fd.append('photo', uploadedFile);
+
+  // Radios (visual tiles + chips)
+  document.querySelectorAll('#form-view input[type=radio]:checked').forEach(r=>{
+    if(r.value) fd.append(r.name, r.value);
+  });
+
+  // Number input
+  const priceInput=document.querySelector('input[name=max_price]');
+  if(priceInput && priceInput.value) fd.append('max_price', priceInput.value);
+
+  // Show loading
+  showView('loading-view');
+
+  // Show portrait in loading
+  const loadImg=document.getElementById('load-portrait-img');
+  loadImg.src=preview.src;
+  document.getElementById('load-portrait').style.display='block';
+
+  setLoadStep(1); setLoadProg(15);
+  document.getElementById('load-stage').textContent='Searching our catalog...';
+  startTips();
+
+  try{
+    const r=await fetch('/api/free-search',{method:'POST',body:fd});
+    const j=await r.json();
+    if(j.error){showError(j.error);return}
+    sid=j.session_id;
+    pollStatus();
+  }catch(err){showError('Upload failed: '+err.message)}
+}
+
+/* ── View management ─────────────────────────── */
+function showView(id){
+  ['loading-view','results-view','error-view'].forEach(v=>{
+    document.getElementById(v).style.display='none';
+  });
+  document.getElementById('form-view').style.display = id?'none':'block';
+  if(id){
+    const el=document.getElementById(id);
+    el.style.display = (id==='loading-view'||id==='error-view')?'flex':'block';
   }
 }
 
-/* ── Reset ───────────────────────────────────────── */
-function reset(){
-  sid=null; if(poll)clearTimeout(poll); stopTips();
-  fileIn.value=''; optsEl.innerHTML='';
-  portraitPreview.style.display='none'; portraitImg.src='';
-  progFill.style.width='0%'; setStep(1);
-  show('landing');
+/* ── Loading steps ───────────────────────────── */
+function setLoadStep(n){
+  const s1=document.getElementById('ls1'), s2=document.getElementById('ls2');
+  s1.classList.remove('active','done'); s2.classList.remove('active','done');
+  if(n===1){s1.classList.add('active')}
+  else{s1.classList.add('done');s2.classList.add('active')}
+  document.getElementById('lsl1').className='fs-sline'+(n>1?' done':'');
+}
+function setLoadProg(pct){document.getElementById('load-prog').style.width=pct+'%'}
+
+/* ── Tips ────────────────────────────────────── */
+function startTips(){tipIdx=0;showTip();tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500)}
+function stopTips(){if(tipTimer)clearInterval(tipTimer);tipTimer=null}
+function showTip(){
+  const el=document.getElementById('load-tip');
+  el.style.opacity='0';
+  setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity='1'},350);
+}
+
+/* ── Poll ────────────────────────────────────── */
+function pollStatus(){
+  if(!sid) return;
+  fetch('/api/status/'+sid).then(r=>r.json()).then(d=>{
+    if(d.status==='error'){showError(d.error||'Unknown error');return}
+
+    const msgs={
+      uploading:'Preparing your photo...',
+      searching:'Searching our catalog...',
+      tryon:'Generating virtual try-on images...',
+      primary_ready:'Your best match is ready!',
+      done:'All results are ready'
+    };
+    document.getElementById('load-stage').textContent=msgs[d.stage]||'Processing...';
+
+    if(d.stage==='searching'||d.stage==='uploading'){setLoadStep(1);setLoadProg(25)}
+    else if(d.stage==='tryon'){setLoadStep(2);setLoadProg(55)}
+    else if(d.stage==='primary_ready'){setLoadStep(2);setLoadProg(80)}
+    else if(d.stage==='done'){setLoadStep(2);setLoadProg(100)}
+
+    // Show results as soon as primary is ready
+    if(d.num_options>0 && (d.stage==='primary_ready'||d.stage==='done')){
+      stopTips();
+      renderResults(d);
+    }
+
+    if(d.status!=='done' && d.status!=='error')
+      poll=setTimeout(pollStatus,2000);
+    else if(d.status==='done'){
+      stopTips();
+      renderResults(d);
+    }
+  }).catch(()=>{poll=setTimeout(pollStatus,3000)});
+}
+
+/* ── Color accent system ─────────────────────── */
+const COLOR_ACCENTS={
+  'transparent':{hue:220,color:'#8BA4C4'},'black':{hue:270,color:'#9B8AB8'},
+  'gold':{hue:38,color:'#C4A265'},'silver':{hue:210,color:'#A0B4C8'},
+  'tortoiseshell':{hue:28,color:'#B8884D'},'brown':{hue:25,color:'#A87D5A'},
+  'blue':{hue:215,color:'#5B8FC4'},'red':{hue:355,color:'#C46B6B'},
+  'pink':{hue:340,color:'#C47B99'},'green':{hue:150,color:'#5BAA7D'},
+  'white':{hue:220,color:'#A8B4C4'},'tortoise':{hue:28,color:'#B8884D'},
+};
+function getAccent(colorStr){
+  const lower=(colorStr||'').toLowerCase();
+  for(const[key,val] of Object.entries(COLOR_ACCENTS)){
+    if(lower.includes(key)) return val;
+  }
+  return{hue:250,color:'#8B7BFF'};
+}
+
+function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
+function fmtPrice(o){const sym=o.currency==='ILS'?'\u20AA':o.currency;return o.price.toLocaleString()+' '+sym}
+const favSvg='<svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+const checkSvg='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function getTryonHtml(o){
+  if(o.tryon_status==='done'&&o.tryon_b64) return `<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
+  if(o.tryon_status==='error') return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+o.tryon_error:''}</div>`;
+  return '<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>';
+}
+
+function getScores(o){
+  const fit=o.fit_score?Math.round(o.fit_score*100):Math.min(99,Math.round(o.score*100+8));
+  const style=o.style_score?Math.round(o.style_score*100):Math.max(30,Math.round(o.score*100-2));
+  const color=o.color_score?Math.round(o.color_score*100):Math.max(30,Math.round(o.score*100-5));
+  const overall=Math.round(o.score*100);
+  return{fit,style,color,overall};
+}
+
+function buildScoreBars(scores,accent,delays){
+  const rows=[
+    {label:'Fit',val:scores.fit,delay:delays[0]||0},
+    {label:'Style',val:scores.style,delay:delays[1]||0.1},
+    {label:'Color',val:scores.color,delay:delays[2]||0.2},
+  ];
+  return rows.map(r=>`
+    <div class="score-row">
+      <span class="score-label">${r.label}</span>
+      <div class="score-track">
+        <div class="score-fill" style="--target-width:${r.val}%;background:${accent};animation-delay:${r.delay}s"></div>
+      </div>
+      <span class="score-val">${r.val}</span>
+    </div>`).join('');
+}
+
+function buildScoreRing(overall,accent){
+  const circ=2*Math.PI*22;
+  const offset=circ-(overall/100)*circ;
+  return `<div class="score-ring-wrap">
+    <svg class="score-ring" width="52" height="52" viewBox="0 0 52 52">
+      <circle cx="26" cy="26" r="22" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="4"/>
+      <circle cx="26" cy="26" r="22" fill="none" stroke="${accent}" stroke-width="4"
+        stroke-linecap="round" stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"
+        style="transition:stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)"/>
+    </svg>
+    <span class="score-ring-num">${overall}</span>
+  </div>`;
+}
+
+function generateWhyReasons(opt){
+  const reasons=[];
+  if(opt.shape) reasons.push(capitalize(opt.shape)+' shape complements your face proportions');
+  if(opt.color) reasons.push(capitalize(opt.color)+' tones complement your complexion');
+  if(opt.material) reasons.push(capitalize(opt.material)+' material matches your style preference');
+  return reasons.slice(0,3);
+}
+
+function buildTagsHtml(o,accent){
+  const tags=[o.shape,o.material,o.color].filter(Boolean);
+  return tags.map(t=>`<span class="tag-dynamic" style="background:${accent}15;color:${accent};border:1px solid ${accent}30">${t}</span>`).join('');
+}
+
+function buildHeroSection(opt){
+  const accent=getAccent(opt.color);
+  const scores=getScores(opt);
+  const reasons=generateWhyReasons(opt);
+  const el=document.createElement('div');
+  el.className='hero-section';
+  el.innerHTML=`
+    <div class="hero-badge">&#10022; Best Match</div>
+    <div class="hero-grid">
+      <div class="hero-tryon-wrap">
+        <div class="hero-glow"></div>
+        <button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite">${favSvg}</button>
+        ${getTryonHtml(opt)}
+      </div>
+      <div class="hero-panel">
+        <img class="hero-product-img" src="data:image/jpeg;base64,${opt.product_b64}" alt="${opt.name}"/>
+        <div>
+          <div class="hero-name">${opt.name}</div>
+          <div class="hero-brand">${opt.brand} &mdash; ${opt.model}</div>
+        </div>
+        <div class="hero-tags">${buildTagsHtml(opt,accent.color)}</div>
+        <div class="hero-price">${fmtPrice(opt)}</div>
+        <div class="score-panel">
+          <div class="score-panel-hdr">
+            <span class="score-panel-title">Match Breakdown</span>
+            ${buildScoreRing(scores.overall,accent.color)}
+          </div>
+          ${buildScoreBars(scores,accent.color,[0.3,0.45,0.6])}
+        </div>
+        ${reasons.length?`<div class="why-section">
+          <div class="why-title">Why this frame?</div>
+          ${reasons.map(r=>`<div class="why-item">${checkSvg}<span>${r}</span></div>`).join('')}
+        </div>`:''}
+      </div>
+    </div>`;
+  return el;
+}
+
+function buildAltCard(opt,index){
+  const accent=getAccent(opt.color);
+  const scores=getScores(opt);
+  const el=document.createElement('div');
+  el.className='alt-card';
+  el.innerHTML=`
+    <div class="alt-card-img-wrap">
+      <button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite">${favSvg}</button>
+      ${getTryonHtml(opt)}
+    </div>
+    <div class="alt-card-body">
+      <div class="alt-card-name">${opt.name}</div>
+      <div class="alt-card-brand">${opt.brand} &mdash; ${opt.model}</div>
+      <div class="alt-card-tags">${buildTagsHtml(opt,accent.color)}</div>
+      <div class="score-panel" style="margin-top:12px;padding:12px">
+        <div class="score-panel-hdr" style="margin-bottom:8px">
+          <span class="score-panel-title">Match</span>
+          ${buildScoreRing(scores.overall,accent.color)}
+        </div>
+        ${buildScoreBars(scores,accent.color,[0.5,0.65,0.8])}
+      </div>
+    </div>
+    <div class="alt-card-footer">
+      <span class="alt-card-price">${fmtPrice(opt)}</span>
+      <span class="alt-card-label">Alternative ${index}</span>
+    </div>`;
+  return el;
+}
+
+/* ── Compare modal ──────────────────────────── */
+let compareData=null;
+function openCompare(){
+  if(!compareData) return;
+  const grid=document.getElementById('compare-grid');
+  grid.innerHTML='';
+  for(let i=0;i<compareData.num_options;i++){
+    const o=compareData['opt'+i];
+    if(!o) continue;
+    const accent=getAccent(o.color);
+    const scores=getScores(o);
+    const isBest=i===0;
+    const card=document.createElement('div');
+    card.className='compare-card'+(isBest?' compare-best':'');
+    const imgSrc=o.tryon_status==='done'&&o.tryon_b64
+      ?`data:image/png;base64,${o.tryon_b64}`
+      :`data:image/jpeg;base64,${o.product_b64}`;
+    card.innerHTML=`
+      <img class="compare-card-img" src="${imgSrc}" alt="${o.name}"/>
+      <div class="compare-card-body">
+        <div class="compare-card-name">${o.name}</div>
+        <div class="compare-card-brand">${o.brand} &mdash; ${o.model}</div>
+        <div class="score-panel" style="margin-top:10px;padding:10px">
+          <div class="score-panel-hdr" style="margin-bottom:6px">
+            <span class="score-panel-title">Match</span>
+            ${buildScoreRing(scores.overall,accent.color)}
+          </div>
+          ${buildScoreBars(scores,accent.color,[0,0.1,0.2])}
+        </div>
+      </div>
+      <div class="compare-card-footer">
+        <span class="compare-card-price">${fmtPrice(o)}</span>
+        ${isBest?'<span class="compare-card-badge">Best</span>':'<span class="alt-card-label">Alt '+i+'</span>'}
+      </div>`;
+    grid.appendChild(card);
+  }
+  document.getElementById('compare-modal').style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function closeCompare(){
+  document.getElementById('compare-modal').style.display='none';
+  document.body.style.overflow='';
+}
+
+/* ── Render results ──────────────────────────── */
+function renderResults(d){
+  const sig=JSON.stringify([...(Array.from({length:d.num_options},(_,i)=>d['opt'+i]?.tryon_status))]);
+  if(sig===lastRendered){showView('results-view');return}
+  lastRendered=sig;
+  compareData=d;
+  showView('results-view');
+  const container=document.getElementById('fs-opts');
+  container.innerHTML='';
+
+  const bestOpt=d.opt0;
+  if(bestOpt){
+    const accent=getAccent(bestOpt.color);
+    document.getElementById('results-view').style.setProperty('--accent',accent.color);
+    document.getElementById('results-view').style.setProperty('--accent-hue',accent.hue);
+  }
+
+  if(d.num_options>0&&bestOpt){
+    container.appendChild(buildHeroSection(bestOpt));
+  }
+
+  if(d.num_options>1){
+    const divider=document.createElement('div');
+    divider.className='section-divider';
+    divider.innerHTML='<span>More Options</span>';
+    container.appendChild(divider);
+
+    const altGrid=document.createElement('div');
+    altGrid.className='alt-grid';
+    for(let i=1;i<d.num_options;i++){
+      const o=d['opt'+i];
+      if(!o) continue;
+      altGrid.appendChild(buildAltCard(o,i));
+    }
+    container.appendChild(altGrid);
+  }
+}
+
+/* ── Error ───────────────────────────────────── */
+function showError(msg){
+  stopTips();
+  document.getElementById('error-msg').textContent=msg;
+  showView('error-view');
+}
+
+/* ── Reset ───────────────────────────────────── */
+function fsReset(){
+  sid=null; if(poll)clearTimeout(poll); stopTips(); lastRendered='';
+  uploadedFile=null;
+  fileIn.value='';
+  uploadArea.classList.remove('has-file');
+  document.getElementById('up-label-text').textContent='Upload a Photo';
+  preview.style.display='none'; preview.src='';
+  submitBtn.disabled=true;
+  submitHint.textContent='Upload a photo first';
+  document.getElementById('fs-opts').innerHTML='';
+  document.querySelectorAll('#form-view input[type=radio][value=""]').forEach(r=>{r.checked=true});
+  setLoadStep(1); setLoadProg(0);
+  showView(null);
 }
 </script>
 </body>

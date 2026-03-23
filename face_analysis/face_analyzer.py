@@ -222,4 +222,24 @@ class FaceAnalyzer:
         reasoning = rec["reasoning"]
         reasoning.setdefault("lens_logic", "")
 
+        # Fill optional face_insights with defaults if missing
+        if "face_insights" not in analysis:
+            analysis["face_insights"] = []
+        elif not isinstance(analysis["face_insights"], list):
+            analysis["face_insights"] = []
+
+        # Fill optional face_summary with defaults if missing
+        if "face_summary" not in analysis or not isinstance(analysis["face_summary"], dict):
+            analysis["face_summary"] = {}
+        fs = analysis["face_summary"]
+        fs.setdefault("face_shape", "")
+        fs.setdefault("face_shape_description", "")
+        fs.setdefault("key_geometry", "")
+        fs.setdefault("key_geometry_description", "")
+        fs.setdefault("color_profile", "")
+        fs.setdefault("color_profile_description", "")
+        fs.setdefault("hair_color_hex", "#2A2A2A")
+        fs.setdefault("eye_color_hex", "#3E2723")
+        fs.setdefault("skin_tone_hex", "#EAC0A2")
+
         return None

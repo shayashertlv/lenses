@@ -139,7 +139,25 @@ Respond ONLY with a JSON object. No markdown backticks, no explanation outside t
             "brief_description": "<string>",
             "why_also_works": "<string>"
         }
-    ]
+    ],
+
+    "face_insights": [
+        "<string: paragraph 1 — an intriguing, specific observation about the user's facial geometry or features that most people would not notice about themselves. Be personal, specific, and genuinely interesting — not generic compliments. Reference actual measurements or proportions you observed.>",
+        "<string: paragraph 2 — explain WHY specific glasses features (frame shape, material, color, bridge type) are particularly well-suited to THIS face, referencing concrete facial properties like nose bridge width, cheekbone prominence, jawline shape, or eye spacing. Make the user understand the science behind the recommendation.>",
+        "<string: paragraph 3 — a deeper insight connecting facial features to frame aesthetics — for example, how their face's unique proportions create certain visual effects with different frame styles, or how their coloring interacts with frame colors. This should feel like advice from a world-class stylist who truly sees the person.>"
+    ],
+
+    "face_summary": {
+        "face_shape": "<single word: oblong, oval, round, square, heart, diamond, rectangular, triangular>",
+        "face_shape_description": "<one short sentence explaining the shape, max 80 chars>",
+        "key_geometry": "<2-3 word phrase: e.g. 'Tapered jawline', 'High cheekbones', 'Broad forehead'>",
+        "key_geometry_description": "<one short sentence explaining the geometry, max 80 chars>",
+        "color_profile": "<short phrase: e.g. 'High contrast', 'Warm tones', 'Cool tones', 'Light palette'>",
+        "color_profile_description": "<one short sentence explaining the coloring, max 80 chars>",
+        "hair_color_hex": "<hex color approximating the user's hair, e.g. '#2A2A2A'>",
+        "eye_color_hex": "<hex color approximating the user's eye color, e.g. '#3E2723'>",
+        "skin_tone_hex": "<hex color approximating the user's skin tone, e.g. '#EAC0A2'>"
+    }
 }
 
 IMPORTANT RULES:
@@ -153,6 +171,8 @@ IMPORTANT RULES:
 - For round faces, recommend angular frames. For square faces, recommend rounder frames. For oval faces, most shapes work — pick what enhances their best features.
 - Consider nose bridge width when choosing frame material (wider bridges suit acetate; narrow bridges suit metal with adjustable nose pads).
 - Consider skin undertone for frame color (warm undertone → gold, tortoiseshell, warm tones; cool undertone → silver, black, cool tones; neutral → either).
-- Provide 2-3 alternative_recommendations."""
+- Provide 2-3 alternative_recommendations.
+- The face_summary object must contain all 9 fields. face_shape must be one of: oblong, oval, round, square, heart, diamond, rectangular, triangular. All hex color values must be valid 6-digit hex codes (e.g. '#2A2A2A'). Descriptions must be max 80 characters.
+- The face_insights array must contain exactly 3 paragraphs. Each paragraph should be 2-4 sentences. Write in second person ("you", "your"). Be specific to THIS face — never give generic advice that could apply to anyone. The tone should be warm, knowledgeable, and genuinely intriguing — like a master optician sharing fascinating observations they've made about the person's unique features."""
 
     return prompt

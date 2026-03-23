@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Lenses UI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["ui/app.py"],
+      "port": 8080
+    }
+  ]
+}
