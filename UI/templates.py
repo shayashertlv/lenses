@@ -1122,18 +1122,10 @@ body{
     <label class="tile"><input type="radio" name="frame_shape" value="square"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:3px"></div><span class="tile-label">Square</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="rectangular"/><div class="tile-inner"><div class="shape-vis" style="width:38px;height:22px;border-radius:3px"></div><span class="tile-label">Rectangular</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="oval"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:50%"></div><span class="tile-label">Oval</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="cat-eye"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:3px 70% 40% 40%"></div><span class="tile-label">Cat-Eye</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="aviator"/><div class="tile-inner"><div class="shape-vis" style="width:30px;height:26px;border-radius:10% 10% 50% 50%"></div><span class="tile-label">Aviator</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="wayfarer"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:24px;border-radius:3px 3px 8px 8px"></div><span class="tile-label">Wayfarer</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="browline"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:3px;border-top-width:4px"></div><span class="tile-label">Browline</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="hexagonal"/><div class="tile-inner"><div class="shape-fill" style="width:28px;height:24px;clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></div><span class="tile-label">Hexagonal</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="octagonal"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(30% 0%,70% 0%,100% 30%,100% 70%,70% 100%,30% 100%,0% 70%,0% 30%)"></div><span class="tile-label">Octagonal</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="geometric"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)"></div><span class="tile-label">Geometric</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="butterfly"/><div class="tile-inner"><div class="shape-vis" style="width:38px;height:24px;border-radius:60% 60% 30% 30%"></div><span class="tile-label">Butterfly</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="oversized-round"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:32px;border-radius:50%"></div><span class="tile-label">Oversized Rnd</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="oversized-square"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:30px;border-radius:3px"></div><span class="tile-label">Oversized Sq</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="wrap"/><div class="tile-inner"><div class="shape-vis" style="width:40px;height:20px;border-radius:50%/40%"></div><span class="tile-label">Wrap</span></div></label>
-    <label class="tile"><input type="radio" name="frame_shape" value="shield"/><div class="tile-inner"><div class="shape-vis" style="width:42px;height:22px;border-radius:4px 4px 12px 12px"></div><span class="tile-label">Shield</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="pilot"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:28px;border-radius:15% 15% 50% 50%"></div><span class="tile-label">Pilot</span></div></label>
   </div>
 
@@ -1143,20 +1135,14 @@ body{
     <label class="swatch"><input type="radio" name="frame_color" value="black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#1a1a1a"></div><span class="swatch-name">Black</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d0d0d0,#a8a8a8)"></div><span class="swatch-name">Silver</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="gold"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#e8c860,#c4963c)"></div><span class="swatch-name">Gold</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="rose-gold"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d4a0a0,#b76e79)"></div><span class="swatch-name">Rose Gold</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="gunmetal"/><div class="swatch-inner"><div class="swatch-dot" style="background:#536267"></div><span class="swatch-name">Gunmetal</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="tortoiseshell"/><div class="swatch-inner"><div class="swatch-dot" style="background:conic-gradient(#8B4513,#D2691E,#654321,#CD853F,#8B4513)"></div><span class="swatch-name">Tortoise</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="havana-brown"/><div class="swatch-inner"><div class="swatch-dot" style="background:#6B3A2A"></div><span class="swatch-name">Havana</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="transparent"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/10px 10px;border-style:dashed"></div><span class="swatch-name">Clear</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#fafafa"></div><span class="swatch-name">White</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="blue"/><div class="swatch-inner"><div class="swatch-dot" style="background:#2563eb"></div><span class="swatch-name">Blue</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="red"/><div class="swatch-inner"><div class="swatch-dot" style="background:#dc2626"></div><span class="swatch-name">Red</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="green"/><div class="swatch-inner"><div class="swatch-dot" style="background:#16a34a"></div><span class="swatch-name">Green</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="pink"/><div class="swatch-inner"><div class="swatch-dot" style="background:#ec4899"></div><span class="swatch-name">Pink</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="purple"/><div class="swatch-inner"><div class="swatch-dot" style="background:#7c3aed"></div><span class="swatch-name">Purple</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="matte-black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#2d2d2d"></div><span class="swatch-name">Matte Blk</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="brushed-silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-linear-gradient(90deg,#b8b8b8,#c8c8c8 2px,#b0b0b0 2px,#c0c0c0 4px)"></div><span class="swatch-name">Brushed</span></div></label>
-    <label class="swatch"><input type="radio" name="frame_color" value="champagne"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f7e7ce"></div><span class="swatch-name">Champagne</span></div></label>
   </div>
 
   <h3 class="section-title">Material</h3>
@@ -1164,13 +1150,8 @@ body{
     <label class="tile"><input type="radio" name="frame_material" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
     <label class="tile"><input type="radio" name="frame_material" value="metal"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0,#808080)"></div><span class="tile-label">Metal</span></div></label>
     <label class="tile"><input type="radio" name="frame_material" value="acetate"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d4a574,#8B4513)"></div><span class="tile-label">Acetate</span></div></label>
-    <label class="tile"><input type="radio" name="frame_material" value="titanium"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#ccd5e0,#8ba4bc)"></div><span class="tile-label">Titanium</span></div></label>
     <label class="tile"><input type="radio" name="frame_material" value="plastic"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#e0e0e0,#b0b0b0)"></div><span class="tile-label">Plastic</span></div></label>
-    <label class="tile"><input type="radio" name="frame_material" value="TR90"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#5b7fa5,#3d5a80)"></div><span class="tile-label">TR90</span></div></label>
-    <label class="tile"><input type="radio" name="frame_material" value="wood"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#b5884e,#8B6914)"></div><span class="tile-label">Wood</span></div></label>
     <label class="tile"><input type="radio" name="frame_material" value="mixed-metal-acetate"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0 50%,#d4a574 50%)"></div><span class="tile-label">Mixed</span></div></label>
-    <label class="tile"><input type="radio" name="frame_material" value="stainless-steel"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d8d8d8,#a0a0a0,#d0d0d0)"></div><span class="tile-label">Steel</span></div></label>
-    <label class="tile"><input type="radio" name="frame_material" value="aluminum"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#bcc6cc,#8e9da6)"></div><span class="tile-label">Aluminum</span></div></label>
     <label class="tile"><input type="radio" name="frame_material" value="carbon-fiber"/><div class="tile-inner"><div class="mat-chip" style="background:repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 2px,#404040 2px,#404040 4px)"></div><span class="tile-label">Carbon</span></div></label>
   </div>
 
@@ -1182,7 +1163,6 @@ body{
         <label class="tile"><input type="radio" name="rim_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
         <label class="tile"><input type="radio" name="rim_type" value="full-rim"/><div class="tile-inner"><div class="rim-vis full"></div><span class="tile-label">Full Rim</span></div></label>
         <label class="tile"><input type="radio" name="rim_type" value="semi-rimless"/><div class="tile-inner"><div class="rim-vis semi"></div><span class="tile-label">Semi</span></div></label>
-        <label class="tile"><input type="radio" name="rim_type" value="rimless"/><div class="tile-inner"><div class="rim-vis none"></div><span class="tile-label">Rimless</span></div></label>
       </div>
     </div>
     <div class="field" style="flex:1;min-width:200px">
@@ -1202,17 +1182,12 @@ body{
     <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.2)"></div><span class="tile-label">Clear</span></div></label>
     <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:rgba(255,255,255,.6)">Rx</div><span class="tile-label">Prescription</span></div></label>
     <label class="tile"><input type="radio" name="lens_type" value="sunglasses"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:#2a2a2a"></div><span class="tile-label">Sunglasses</span></div></label>
-    <label class="tile"><input type="radio" name="lens_type" value="photochromic"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#f8f8f8 40%,#555 60%)"></div><span class="tile-label">Photochromic</span></div></label>
-    <label class="tile"><input type="radio" name="lens_type" value="blue-light-filter"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,245,220,.2);border-color:rgba(232,213,160,.4)"></div><span class="tile-label">Blue Light</span></div></label>
     <label class="tile"><input type="radio" name="lens_type" value="polarized"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:repeating-linear-gradient(0deg,#666,#666 2px,#888 2px,#888 4px)"></div><span class="tile-label">Polarized</span></div></label>
-    <label class="tile"><input type="radio" name="lens_type" value="mirrored"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#6ca6cd,#b8d4e8,#4682b4,#87ceeb)"></div><span class="tile-label">Mirrored</span></div></label>
-    <label class="tile"><input type="radio" name="lens_type" value="gradient"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(180deg,#444 0%,#ddd 100%)"></div><span class="tile-label">Gradient</span></div></label>
   </div>
 
   <h3 class="section-title">Lens Size</h3>
   <div class="tile-grid" style="grid-template-columns:repeat(5,1fr);max-width:480px">
     <label class="tile"><input type="radio" name="lens_size" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
-    <label class="tile"><input type="radio" name="lens_size" value="small"/><div class="tile-inner"><div class="size-dot" style="width:16px;height:16px"></div><span class="tile-label">Small</span></div></label>
     <label class="tile"><input type="radio" name="lens_size" value="medium"/><div class="tile-inner"><div class="size-dot" style="width:22px;height:22px"></div><span class="tile-label">Medium</span></div></label>
     <label class="tile"><input type="radio" name="lens_size" value="large"/><div class="tile-inner"><div class="size-dot" style="width:28px;height:28px"></div><span class="tile-label">Large</span></div></label>
     <label class="tile"><input type="radio" name="lens_size" value="oversized"/><div class="tile-inner"><div class="size-dot" style="width:34px;height:34px"></div><span class="tile-label">Oversized</span></div></label>
@@ -1226,7 +1201,6 @@ body{
         <span><input type="radio" name="gender" id="g-any" value="" checked/><label for="g-any">Any</label></span>
         <span><input type="radio" name="gender" id="g-uni" value="unisex"/><label for="g-uni">Unisex</label></span>
         <span><input type="radio" name="gender" id="g-men" value="men"/><label for="g-men">Men</label></span>
-        <span><input type="radio" name="gender" id="g-women" value="women"/><label for="g-women">Women</label></span>
       </div>
     </div>
     <div class="field">
