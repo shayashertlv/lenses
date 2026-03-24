@@ -2508,6 +2508,17 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
   background-size:200% 100%;animation:shimmer 1.6s linear infinite;border-radius:8px}
 @keyframes shimmer{to{background-position:-200% 0}}
 
+/* ── Gender filter strip ──────────────────── */
+.filter-strip{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.5rem}
+.filter-pill{padding:.45rem 1.15rem;border-radius:20px;border:1.5px solid #e5e5e5;background:#fff;
+  font-size:.82rem;font-weight:500;cursor:pointer;transition:all .18s;color:#666;line-height:1}
+.filter-pill:hover{border-color:#999;color:#333}
+.filter-pill.active{border-color:transparent;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.filter-pill[data-gender="all"].active{background:#1a1a1a}
+.filter-pill[data-gender="men"].active{background:#4338ca}
+.filter-pill[data-gender="women"].active{background:#be185d}
+.filter-pill[data-gender="unisex"].active{background:#059669}
+
 @media(max-width:640px){
   .product-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}
   .hero{padding:2rem 1.5rem}
@@ -2538,6 +2549,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
   <div class="grid-header">
     <h2>All Eyewear</h2>
     <span class="count" id="product-count"></span>
+  </div>
+  <div class="filter-strip">
+    <button class="filter-pill active" data-gender="all"    onclick="setGenderFilter('all')">All</button>
+    <button class="filter-pill"        data-gender="men"    onclick="setGenderFilter('men')">Men</button>
+    <button class="filter-pill"        data-gender="women"  onclick="setGenderFilter('women')">Women</button>
+    <button class="filter-pill"        data-gender="unisex" onclick="setGenderFilter('unisex')">Unisex</button>
   </div>
   <div class="product-grid" id="product-grid">
     <!-- Skeleton cards while loading -->
@@ -2604,44 +2621,61 @@ let pollTimer = null;
 let cachedFile = null;
 let cachedPreviewSrc = null;
 
-/* ── Load catalog ─────────────────────────── */
+/* ── Catalog + gender filter ──────────────── */
+let allProducts = [];
+let activeGender = 'all';
+
+function renderProducts() {
+  const list = activeGender === 'all' ? allProducts : allProducts.filter(p => p.gender === activeGender);
+  const grid = document.getElementById('product-grid');
+  grid.innerHTML = '';
+  document.getElementById('product-count').textContent = list.length + ' products';
+
+  list.forEach(p => {
+    const genderClass = p.gender === 'men' ? 'men' : p.gender === 'women' ? 'women' : 'unisex';
+    const genderLabel = p.gender === 'men' ? 'Men' : p.gender === 'women' ? 'Women' : 'Unisex';
+    const imgSrc = '/api/catalog-image/' + p.image.replace('images/', '');
+
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    card.innerHTML = `
+      <div class="img-wrap">
+        <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
+        <span class="badge ${genderClass}">${genderLabel}</span>
+      </div>
+      <div class="product-info">
+        <div class="brand-name">${p.brand}</div>
+        <div class="prod-name">${p.name}</div>
+        <div class="prod-tags">
+          <span class="prod-tag">${p.shape}</span>
+          <span class="prod-tag">${p.material}</span>
+          <span class="prod-tag">${p.rim_type}</span>
+        </div>
+        <div class="price-row">
+          <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${p.currency}</span></div>
+          <button class="tryon-btn" onclick="openTryon('${p.id}','${p.name.replace(/'/g,"\\'")}')">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3 14c0-2.761 2.239-5 5-5s5 2.239 5 5"/></svg>
+            Try On
+          </button>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function setGenderFilter(gender) {
+  activeGender = gender;
+  document.querySelectorAll('.filter-pill').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.gender === gender)
+  );
+  renderProducts();
+}
+
 fetch('/api/catalog')
   .then(r => r.json())
   .then(products => {
-    const grid = document.getElementById('product-grid');
-    grid.innerHTML = '';
-    document.getElementById('product-count').textContent = products.length + ' products';
-
-    products.forEach(p => {
-      const genderClass = p.gender === 'men' ? 'men' : p.gender === 'women' ? 'women' : 'unisex';
-      const genderLabel = p.gender === 'men' ? 'Men' : p.gender === 'women' ? 'Women' : 'Unisex';
-      const imgSrc = '/api/catalog-image/' + p.image.replace('images/', '');
-
-      const card = document.createElement('div');
-      card.className = 'product-card';
-      card.innerHTML = `
-        <div class="img-wrap">
-          <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
-          <span class="badge ${genderClass}">${genderLabel}</span>
-        </div>
-        <div class="product-info">
-          <div class="brand-name">${p.brand}</div>
-          <div class="prod-name">${p.name}</div>
-          <div class="prod-tags">
-            <span class="prod-tag">${p.shape}</span>
-            <span class="prod-tag">${p.material}</span>
-            <span class="prod-tag">${p.rim_type}</span>
-          </div>
-          <div class="price-row">
-            <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${p.currency}</span></div>
-            <button class="tryon-btn" onclick="openTryon('${p.id}','${p.name.replace(/'/g,"\\'")}')">
-              <svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3 14c0-2.761 2.239-5 5-5s5 2.239 5 5"/></svg>
-              Try On
-            </button>
-          </div>
-        </div>`;
-      grid.appendChild(card);
-    });
+    allProducts = products;
+    renderProducts();
   });
 
 /* ── Modal logic ──────────────────────────── */
