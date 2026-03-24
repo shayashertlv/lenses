@@ -542,6 +542,8 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 pass
         if preferences.get("gender"):
             filters["gender"] = preferences["gender"]
+        if preferences.get("lens_type"):
+            filters["lens_type"] = preferences["lens_type"]
 
         # Collect top 3
         matches = []
@@ -563,12 +565,19 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
             if filters:
                 ptags = product["tags"]["product"]
                 stags = product["tags"]["style"]
+                ltags = product["tags"].get("lenses", {})
                 if filters.get("max_price") is not None:
                     if ptags.get("price", 0) > filters["max_price"]:
                         continue
                 if filters.get("gender"):
                     target = stags.get("gender_target", "unisex")
                     if target != "unisex" and target != filters["gender"]:
+                        continue
+                if filters.get("lens_type"):
+                    product_lens_types = ltags.get("type", [])
+                    if isinstance(product_lens_types, str):
+                        product_lens_types = [product_lens_types]
+                    if filters["lens_type"] not in product_lens_types:
                         continue
 
             matches.append((product, score))
