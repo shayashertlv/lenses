@@ -186,9 +186,9 @@ body{
 .opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
 .opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
 .tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
-.tryon-col img{width:100%;max-height:420px;object-fit:contain;border-radius:12px;display:block;background:rgba(255,255,255,.03)}
+.tryon-col img{width:100%;height:auto;border-radius:12px;display:block}
 .prod-col{flex:1 1 200px;max-width:280px;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:rgba(255,255,255,.03)}
+.prod-col img{width:100%;height:auto;object-fit:contain;border-radius:12px;display:block}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
 .prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
 .prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
@@ -215,7 +215,7 @@ body{
   box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
 .primary-hero-inner{display:flex;align-items:stretch}
 .primary-tryon{flex:1 1 0;min-width:0;max-width:420px;display:flex;align-items:center;justify-content:center;padding:12px;position:relative}
-.primary-tryon img{width:100%;object-fit:cover;border-radius:14px;background:rgba(255,255,255,.03);max-height:440px;aspect-ratio:3/4;display:block}
+.primary-tryon img{width:100%;height:auto;object-fit:contain;border-radius:14px;display:block}
 .primary-panel{flex:0 0 260px;padding:20px;display:flex;flex-direction:column}
 .match-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(22,163,74,.15);color:#4ade80;
   font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;margin-bottom:14px;align-self:flex-start}
@@ -230,10 +230,6 @@ body{
 .why-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
 .why-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:rgba(255,255,255,.5);line-height:1.5}
 .why-item svg{flex-shrink:0;margin-top:2px}
-.primary-cta{width:100%;padding:12px;border:none;border-radius:10px;background:rgba(255,255,255,.08);color:#fff;
-  border:1px solid rgba(255,255,255,.1);
-  font-size:14px;font-weight:600;cursor:pointer;margin-top:auto;transition:all .2s}
-.primary-cta:hover{background:rgba(255,255,255,.14)}
 
 /* ── Analysis cards ─────────────────────────────── */
 .analysis-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:2rem}
@@ -464,7 +460,6 @@ function buildPrimaryCard(o,d){
       <div class="p-price">${fmtPrice(o)}</div>
       <div class="p-micro">Includes standard lenses</div>
       ${whyHtml}
-      <button class="primary-cta">Shop this frame</button>
     </div>
   </div>`;
   return card;
