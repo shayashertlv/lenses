@@ -1,7 +1,7 @@
 {
   "catalog_version": "2.0",
-  "last_updated": "2026-03-22T18:00:00Z",
-  "source": "erroca.co.il — Men's Eyeglasses",
+  "last_updated": "2026-03-24T18:00:00Z",
+  "source": "erroca.co.il — Men's Eyeglasses & Sunglasses",
   "products": [
     {
       "id": "erroca_001",
@@ -2024,6 +2024,2010 @@
         }
       },
       "description_auto": "Ray-Ban RX3447V Round Metal Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_038",
+      "name": "Versace VE2289 Gold Pilot Sunglasses",
+      "image": "images/erroca_mens_038.jpg",
+      "tags": {
+        "frame": {
+          "shape": "pilot",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2289",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2289-GOLD"
+        }
+      },
+      "description_auto": "Versace VE2289 Gold Pilot Sunglasses by Versace. These glasses feature a thin glossy gold metal full-rim frame with a pilot shape. They have large teardrop gray sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for everyday, driving, fashion, fits oval, square, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_039",
+      "name": "Versace VE2287 Black Oval Sunglasses",
+      "image": "images/erroca_mens_039.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2287",
+          "price": 1119.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2287-BLK"
+        }
+      },
+      "description_auto": "Versace VE2287 Black Oval Sunglasses by Versace. These glasses feature a medium glossy black metal full-rim frame with a oval shape. They have medium oval gray sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1119.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_040",
+      "name": "Versace VE2290 Black Square Sunglasses",
+      "image": "images/erroca_mens_040.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2290",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2290-BLK"
+        }
+      },
+      "description_auto": "Versace VE2290 Black Square Sunglasses by Versace. These glasses feature a medium glossy black metal full-rim frame with a square shape. They have medium square gray sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for everyday, fashion, driving, fits oval, round, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_041",
+      "name": "Versace VE2290 Gold Rectangular Sunglasses",
+      "image": "images/erroca_mens_041.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2290",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2290-GOLD"
+        }
+      },
+      "description_auto": "Versace VE2290 Gold Rectangular Sunglasses by Versace. These glasses feature a medium glossy gold metal full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for everyday, fashion, driving, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_042",
+      "name": "Versace VE2289 Gold Pilot Sunglasses Dark",
+      "image": "images/erroca_mens_042.jpg",
+      "tags": {
+        "frame": {
+          "shape": "pilot",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "smoke"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart"
+          ],
+          "occasion": [
+            "driving",
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2289",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2289-GOLD-DK"
+        }
+      },
+      "description_auto": "Versace VE2289 Gold Pilot Sunglasses Dark by Versace. These glasses feature a thin glossy gold metal full-rim frame with a pilot shape. They have large teardrop smoke sunglasses lenses. The overall look is luxury, classic style, designed for men, suitable for driving, everyday, fashion, fits oval, square, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_043",
+      "name": "Versace VE2291 Gold Rectangular Sunglasses",
+      "image": "images/erroca_mens_043.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "square"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2291",
+          "price": 1189.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2291-GOLD"
+        }
+      },
+      "description_auto": "Versace VE2291 Gold Rectangular Sunglasses by Versace. These glasses feature a medium glossy gold metal full-rim frame with a rectangular shape. They have large rectangular brown sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, square face shapes. priced at 1189.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_044",
+      "name": "Ray-Ban RB3767 Silver Oval Sunglasses",
+      "image": "images/erroca_mens_044.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "green"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "retro",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "heart",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3767",
+          "price": 584.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3767-SLV"
+        }
+      },
+      "description_auto": "Ray-Ban RB3767 Silver Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy silver metal full-rim frame with a oval shape. They have medium oval green sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 584.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_045",
+      "name": "Ray-Ban RB3768 Gold Oval Sunglasses",
+      "image": "images/erroca_mens_045.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "heart",
+            "oval"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3768",
+          "price": 584.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3768-GOLD"
+        }
+      },
+      "description_auto": "Ray-Ban RB3768 Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, oval face shapes. priced at 584.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_046",
+      "name": "Prada PRC50S Gray Square Sunglasses",
+      "image": "images/erroca_mens_046.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRC50S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRC50S-GRY"
+        }
+      },
+      "description_auto": "Prada PRC50S Gray Square Sunglasses by Prada. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_047",
+      "name": "Prada PRC50S Gold Square Sunglasses",
+      "image": "images/erroca_mens_047.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "mixed-metal-acetate",
+          "color": [
+            "gold",
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRC50S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRC50S-GOLD"
+        }
+      },
+      "description_auto": "Prada PRC50S Gold Square Sunglasses by Prada. These glasses feature a medium glossy gold, havana-brown mixed-metal-acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_048",
+      "name": "Ray-Ban RB3832 Black Rectangular Sunglasses",
+      "image": "images/erroca_mens_048.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "green"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3832",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3832-BLK-POL"
+        }
+      },
+      "description_auto": "Ray-Ban RB3832 Black Rectangular Sunglasses by Ray-Ban. These glasses feature a medium glossy black metal full-rim frame with a rectangular shape. They have medium rectangular green sunglasses, polarized lenses. The overall look is classic, modern, casual style, designed for men, suitable for everyday, driving, outdoor, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_049",
+      "name": "Ray-Ban RB3832 Black Rectangular Sunglasses Classic",
+      "image": "images/erroca_mens_049.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "minimalist"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3832",
+          "price": 584.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3832-BLK"
+        }
+      },
+      "description_auto": "Ray-Ban RB3832 Black Rectangular Sunglasses Classic by Ray-Ban. These glasses feature a medium glossy black metal full-rim frame with a rectangular shape. They have medium rectangular G-15-green sunglasses lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, outdoor, driving, fits round, oval, heart face shapes. priced at 584.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_050",
+      "name": "Ray-Ban RB3775M Black Oval Sunglasses",
+      "image": "images/erroca_mens_050.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "thin",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "retro",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3775M",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3775M-BLK"
+        }
+      },
+      "description_auto": "Ray-Ban RB3775M Black Oval Sunglasses by Ray-Ban. These glasses feature a thin matte black metal full-rim frame with a oval shape. They have medium oval gray sunglasses, polarized lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, driving, outdoor, fits square, oblong, diamond face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_051",
+      "name": "Ray-Ban RB3774D Gold Oval Sunglasses",
+      "image": "images/erroca_mens_051.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "B-15-brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "classic",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3774D",
+          "price": 649.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3774D-GOLD"
+        }
+      },
+      "description_auto": "Ray-Ban RB3774D Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval B-15-brown sunglasses lenses. The overall look is vintage, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, heart face shapes. priced at 649.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_052",
+      "name": "Ray-Ban RB3770 Silver Oval Sunglasses",
+      "image": "images/erroca_mens_052.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "blue"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "classic",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "heart",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3770",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3770-SLV"
+        }
+      },
+      "description_auto": "Ray-Ban RB3770 Silver Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy silver metal full-rim frame with a oval shape. They have medium oval blue sunglasses lenses. The overall look is modern, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_053",
+      "name": "Ray-Ban RB3770 Gold Oval Sunglasses",
+      "image": "images/erroca_mens_053.jpg",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "heart",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3770",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3770-GOLD"
+        }
+      },
+      "description_auto": "Ray-Ban RB3770 Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, driving, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_054",
+      "name": "Ray-Ban RB3735 Gray Rectangular Sunglasses",
+      "image": "images/erroca_mens_054.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gunmetal"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "sporty",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "driving",
+            "everyday",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3735",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3735-GRY"
+        }
+      },
+      "description_auto": "Ray-Ban RB3735 Gray Rectangular Sunglasses by Ray-Ban. These glasses feature a medium matte gunmetal metal full-rim frame with a rectangular shape. They have medium rectangular gray sunglasses, polarized lenses. The overall look is modern, sporty, casual style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_055",
+      "name": "Ray-Ban RB3671CH Black Chromance Sunglasses",
+      "image": "images/erroca_mens_055.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "blue"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "oblong"
+          ],
+          "occasion": [
+            "driving",
+            "outdoor",
+            "sport"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3671CH",
+          "price": 979.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3671CH-BLK"
+        }
+      },
+      "description_auto": "Ray-Ban RB3671CH Black Chromance Sunglasses by Ray-Ban. These glasses feature a medium matte black metal full-rim frame with a rectangular shape. They have medium rectangular blue sunglasses, polarized lenses. The overall look is sporty, modern, casual style, designed for men, suitable for driving, outdoor, sport, fits round, oval, oblong face shapes. priced at 979.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_056",
+      "name": "Ray-Ban RB2232 Brown Rectangular Sunglasses",
+      "image": "images/erroca_mens_056.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "B-15-brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "retro",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2232",
+          "price": 899.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2232-BRN"
+        }
+      },
+      "description_auto": "Ray-Ban RB2232 Brown Rectangular Sunglasses by Ray-Ban. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular B-15-brown sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 899.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_057",
+      "name": "Ray-Ban RB3025 Aviator Gold Sunglasses",
+      "image": "images/erroca_mens_057.jpg",
+      "tags": {
+        "frame": {
+          "shape": "aviator",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart",
+            "universal"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3025",
+          "price": 584.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3025-GOLD"
+        }
+      },
+      "description_auto": "Ray-Ban RB3025 Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, driving, outdoor, beach, fits oval, square, heart, universal face shapes. priced at 584.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_058",
+      "name": "Ray-Ban RB2222 Brown Round Sunglasses",
+      "image": "images/erroca_mens_058.jpg",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "retro",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "square",
+            "oblong",
+            "diamond"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2222",
+          "price": 584.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2222-BRN"
+        }
+      },
+      "description_auto": "Ray-Ban RB2222 Brown Round Sunglasses by Ray-Ban. These glasses feature a medium glossy havana-brown acetate full-rim frame with a round shape. They have medium round brown sunglasses lenses. The overall look is retro, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, diamond face shapes. priced at 584.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_059",
+      "name": "Prada PRA16S Black Square Sunglasses",
+      "image": "images/erroca_mens_059.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA16S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA16S-BLK"
+        }
+      },
+      "description_auto": "Prada PRA16S Black Square Sunglasses by Prada. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_060",
+      "name": "Prada PRA08S Brown Sunglasses",
+      "image": "images/erroca_mens_060.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA08S",
+          "price": 1119.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA08S-BRN"
+        }
+      },
+      "description_auto": "Prada PRA08S Brown Sunglasses by Prada. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, heart face shapes. priced at 1119.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_061",
+      "name": "Prada PRA16S Brown Blue-Lens Sunglasses",
+      "image": "images/erroca_mens_061.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "blue"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA16S",
+          "price": 1679.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA16S-BRN-BLU"
+        }
+      },
+      "description_auto": "Prada PRA16S Brown Blue-Lens Sunglasses by Prada. These glasses feature a thick glossy havana-brown acetate full-rim frame with a square shape. They have large square blue sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, beach, fits oval, round, heart face shapes. priced at 1679.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_062",
+      "name": "Prada PRA17S Brown Sunglasses",
+      "image": "images/erroca_mens_062.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA17S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA17S-BRN"
+        }
+      },
+      "description_auto": "Prada PRA17S Brown Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, oblong face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_063",
+      "name": "Prada PRA17S Brown Polarized Sunglasses",
+      "image": "images/erroca_mens_063.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "oblong"
+          ],
+          "occasion": [
+            "driving",
+            "everyday",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA17S",
+          "price": 1679.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA17S-BRN-POL"
+        }
+      },
+      "description_auto": "Prada PRA17S Brown Polarized Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses, polarized lenses. The overall look is luxury, classic, professional style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, oblong face shapes. priced at 1679.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_064",
+      "name": "Tom Ford FT1178 Black Sunglasses",
+      "image": "images/erroca_mens_064.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Tom Ford",
+          "model_name": "FT1178",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "FT1178-BLK"
+        }
+      },
+      "description_auto": "Tom Ford FT1178 Black Sunglasses by Tom Ford. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_065",
+      "name": "Tom Ford FT1119 Brown Green-Lens Sunglasses",
+      "image": "images/erroca_mens_065.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "green"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "square"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Tom Ford",
+          "model_name": "FT1119",
+          "price": 1889.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "FT1119-BRN-GRN"
+        }
+      },
+      "description_auto": "Tom Ford FT1119 Brown Green-Lens Sunglasses by Tom Ford. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have large rectangular green sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_066",
+      "name": "Tom Ford FT1119 Brown Sunglasses",
+      "image": "images/erroca_mens_066.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "square"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Tom Ford",
+          "model_name": "FT1119",
+          "price": 1889.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "FT1119-BRN"
+        }
+      },
+      "description_auto": "Tom Ford FT1119 Brown Sunglasses by Tom Ford. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have large rectangular brown sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, formal, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_067",
+      "name": "Prada PRA05S Brown Square Sunglasses",
+      "image": "images/erroca_mens_067.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRA05S",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA05S-BRN"
+        }
+      },
+      "description_auto": "Prada PRA05S Brown Square Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_068",
+      "name": "Ray-Ban RB0840S Brown Square Sunglasses",
+      "image": "images/erroca_mens_068.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "green"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "retro",
+            "classic",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB0840S",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB0840S-BRN"
+        }
+      },
+      "description_auto": "Ray-Ban RB0840S Brown Square Sunglasses by Ray-Ban. These glasses feature a thick glossy havana-brown acetate full-rim frame with a square shape. They have medium square green sunglasses lenses. The overall look is retro, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_069",
+      "name": "David Beckham DB1139 Yellow Aviator Sunglasses",
+      "image": "images/erroca_mens_069.jpg",
+      "tags": {
+        "frame": {
+          "shape": "aviator",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "blue"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "David Beckham",
+          "model_name": "DB1139",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DB1139-YLW"
+        }
+      },
+      "description_auto": "David Beckham DB1139 Yellow Aviator Sunglasses by David Beckham. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop blue sunglasses lenses. The overall look is classic, fashion-forward, bold style, designed for men, suitable for fashion, everyday, beach, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_070",
+      "name": "David Beckham DB1139 Clear Aviator Sunglasses",
+      "image": "images/erroca_mens_070.jpg",
+      "tags": {
+        "frame": {
+          "shape": "aviator",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "minimalist",
+            "casual"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "outdoor"
+          ]
+        },
+        "product": {
+          "brand": "David Beckham",
+          "model_name": "DB1139",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DB1139-CLR"
+        }
+      },
+      "description_auto": "David Beckham DB1139 Clear Aviator Sunglasses by David Beckham. These glasses feature a thin glossy silver metal full-rim frame with a aviator shape. They have large teardrop gray sunglasses lenses. The overall look is classic, minimalist, casual style, designed for men, suitable for everyday, driving, outdoor, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_071",
+      "name": "David Beckham DB1007 Black Green-Lens Sunglasses",
+      "image": "images/erroca_mens_071.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "green"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "bold",
+            "professional"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "driving",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "David Beckham",
+          "model_name": "DB1007",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DB1007-BLK"
+        }
+      },
+      "description_auto": "David Beckham DB1007 Black Green-Lens Sunglasses by David Beckham. These glasses feature a thick glossy black acetate full-rim frame with a rectangular shape. They have medium rectangular green sunglasses lenses. The overall look is classic, bold, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, heart face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_072",
+      "name": "David Beckham DB1160 Brown Blue-Lens Sunglasses",
+      "image": "images/erroca_mens_072.jpg",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "blue"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "casual",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "round",
+            "oval",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "outdoor",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "David Beckham",
+          "model_name": "DB1160",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DB1160-BRN"
+        }
+      },
+      "description_auto": "David Beckham DB1160 Brown Blue-Lens Sunglasses by David Beckham. These glasses feature a medium glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular blue sunglasses lenses. The overall look is modern, casual, fashion-forward style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_073",
+      "name": "Gucci SL738S Black Sunglasses",
+      "image": "images/erroca_mens_073.jpg",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Gucci",
+          "model_name": "SL738S",
+          "price": 1959.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "SL738S-BLK"
+        }
+      },
+      "description_auto": "Gucci SL738S Black Sunglasses by Gucci. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1959.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_074",
+      "name": "Balenciaga BB0328S Gold Sunglasses",
+      "image": "images/erroca_mens_074.jpg",
+      "tags": {
+        "frame": {
+          "shape": "aviator",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "teardrop",
+          "size": "oversized"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward",
+            "streetwear"
+          ],
+          "gender_target": "men",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Balenciaga",
+          "model_name": "BB0328S",
+          "price": 1539.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "BB0328S-GOLD"
+        }
+      },
+      "description_auto": "Balenciaga BB0328S Gold Sunglasses by Balenciaga. These glasses feature a medium glossy gold metal full-rim frame with a aviator shape. They have oversized teardrop brown sunglasses lenses. The overall look is luxury, bold, fashion-forward, streetwear style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1539.0 ILS, currently in stock."
     }
   ]
 }
