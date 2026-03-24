@@ -2756,7 +2756,7 @@ function pollTryon(sid) {
 
 function showTryonResult(b64) {
   document.getElementById('modal-progress').style.display = 'none';
-  document.getElementById('modal-result').style.display = '';
+  document.getElementById('modal-result').style.display = 'block';
   document.getElementById('modal-result-img').src = 'data:image/png;base64,' + b64;
 }
 
