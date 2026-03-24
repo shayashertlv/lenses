@@ -5,3 +5,10 @@ __pycache__/
 dist/
 build/
 .idea/
+
+# Binary files
+*.jpg
+*.jpeg
+*.png
+*.npy
+*.log

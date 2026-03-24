@@ -31,9 +31,9 @@ class AnalysisResult:
 
 class FaceAnalyzer:
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", client=None):
         from google import genai
-        self.client = genai.Client(api_key=api_key)
+        self.client = client if client is not None else genai.Client(api_key=api_key)
         self.model = resolve_analysis_model(model)
 
     def analyze(self, portrait_path: str) -> AnalysisResult:

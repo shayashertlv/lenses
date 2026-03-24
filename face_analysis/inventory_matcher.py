@@ -34,35 +34,48 @@ class MatchResult:
 
 class InventoryMatcher:
 
-    def __init__(self, catalog_dir: str, api_key: str):
+    def __init__(self, catalog_dir: str, api_key: str, *,
+                 client=None, catalog_data: dict | None = None,
+                 embeddings_normalized: np.ndarray | None = None,
+                 index_map: dict | None = None):
         """
         Load the existing catalog, embeddings, and index from optimal_configuration.
 
         Args:
             catalog_dir: Path to optimal_configuration/catalog/
             api_key: Gemini API key
+            client: Pre-created genai.Client (skips creating a new one if provided).
+            catalog_data: Pre-loaded catalog dict (skips loading from disk if provided).
+            embeddings_normalized: Pre-normalized embeddings array (skips loading if provided).
+            index_map: Pre-loaded index mapping (skips loading from disk if provided).
         """
         from google import genai
 
-        self.client = genai.Client(api_key=api_key)
+        self.client = client if client is not None else genai.Client(api_key=api_key)
         self.catalog_dir = catalog_dir
 
-        # Load catalog
-        catalog_path = os.path.join(catalog_dir, "catalog.json")
-        with open(catalog_path, "r", encoding="utf-8") as f:
-            catalog_data = json.load(f)
-        self.products = {p["id"]: p for p in catalog_data["products"]}
+        if catalog_data is not None:
+            self.products = {p["id"]: p for p in catalog_data["products"]}
+        else:
+            catalog_path = os.path.join(catalog_dir, "catalog.json")
+            with open(catalog_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            self.products = {p["id"]: p for p in raw["products"]}
 
-        # Load embeddings
-        embeddings_path = os.path.join(catalog_dir, "embeddings.npy")
-        self.embeddings = np.load(embeddings_path)
-        norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
-        self.embeddings_normalized = self.embeddings / norms
+        if embeddings_normalized is not None:
+            self.embeddings_normalized = embeddings_normalized
+        else:
+            embeddings_path = os.path.join(catalog_dir, "embeddings.npy")
+            embeddings = np.load(embeddings_path)
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            self.embeddings_normalized = embeddings / norms
 
-        # Load index mapping
-        index_path = os.path.join(catalog_dir, "embedding_index.json")
-        with open(index_path, "r", encoding="utf-8") as f:
-            self.index_map = json.load(f)
+        if index_map is not None:
+            self.index_map = index_map
+        else:
+            index_path = os.path.join(catalog_dir, "embedding_index.json")
+            with open(index_path, "r", encoding="utf-8") as f:
+                self.index_map = json.load(f)
 
     def match(self, recommended_tags: dict, top_k: int = 3) -> MatchResult:
         """

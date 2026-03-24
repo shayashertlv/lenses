@@ -38,6 +38,8 @@ def virtual_tryon(
     matched_product: dict,
     model_alias: str,
     api_key: str,
+    portrait_part=None,
+    client=None,
 ) -> TryOnResult:
     """
     Send portrait + glasses photo to Nano Banana for virtual try-on.
@@ -49,12 +51,13 @@ def virtual_tryon(
         matched_product: Matched product dict (used for glasses description).
         model_alias: "nano-banana-2" or "nano-banana-pro".
         api_key: Gemini API key.
+        portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
+        client: Pre-created genai.Client (skips creating a new one if provided).
 
     Returns:
         TryOnResult with the try-on image bytes on success.
     """
     from google import genai
-    from google.genai import types
 
     try:
         model_name = resolve_generation_model(model_alias)
@@ -64,14 +67,16 @@ def virtual_tryon(
     # Build prompt from analysis + matched product
     prompt = build_tryon_prompt(analysis, matched_product)
 
-    # Load images
+    # Load images (skip portrait if pre-loaded)
     try:
-        portrait_part = load_image_as_part(portrait_path)
+        if portrait_part is None:
+            portrait_part = load_image_as_part(portrait_path)
         glasses_part = load_image_as_part(glasses_image_path)
     except (ValueError, FileNotFoundError) as e:
         return TryOnResult(success=False, error=f"Image loading error: {e}")
 
-    client = genai.Client(api_key=api_key)
+    if client is None:
+        client = genai.Client(api_key=api_key)
 
     # First attempt — full detailed prompt
     result = _call_nano_banana(

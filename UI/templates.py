@@ -2205,6 +2205,16 @@ document.getElementById('submit-btn').addEventListener('click',function(){
 });
 
 /* ── Polling ── */
+let resultsShown=false;
+
+function collectResults(data){
+  colorResults=[];
+  for(let i=0;i<(data.num_colors||0);i++){
+    const c=data['color'+i];
+    if(c){colorResults.push({name:c.name,b64:c.b64,error:c.error,status:c.status});}
+  }
+}
+
 function pollStatus(){
   if(!sessionId) return;
   fetch('/api/recolor-status/'+sessionId)
@@ -2216,40 +2226,45 @@ function pollStatus(){
         return;
       }
 
-      // Update loading stage
-      const stage=data.stage||'';
-      if(stage==='uploading'){
-        document.getElementById('load-stage').textContent='Uploading your photo...';
-        document.getElementById('load-prog-fill').style.width='15%';
-      } else if(stage==='recoloring'){
-        document.getElementById('load-stage').textContent='Nano Banana Pro is recoloring your lenses...';
-        document.getElementById('load-prog-fill').style.width='40%';
-      } else if(stage==='primary_ready'){
-        document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
-        document.getElementById('load-prog-fill').style.width='70%';
+      // Update loading stage (only while loading screen is visible)
+      if(!resultsShown){
+        const stage=data.stage||'';
+        if(stage==='uploading'){
+          document.getElementById('load-stage').textContent='Uploading your photo...';
+          document.getElementById('load-prog-fill').style.width='15%';
+        } else if(stage==='recoloring'){
+          document.getElementById('load-stage').textContent='Nano Banana Pro is recoloring your lenses...';
+          document.getElementById('load-prog-fill').style.width='40%';
+        } else if(stage==='primary_ready'){
+          document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
+          document.getElementById('load-prog-fill').style.width='70%';
+        }
+
+        // Show portrait in loading
+        if(data.portrait_b64){
+          const img=document.getElementById('load-portrait-img');
+          if(!img.src || img.src===''){
+            img.src='data:image/jpeg;base64,'+data.portrait_b64;
+            document.getElementById('load-portrait').style.display='block';
+          }
+        }
       }
 
-      // Show portrait in loading
-      if(data.portrait_b64){
-        const img=document.getElementById('load-portrait-img');
-        if(!img.src || img.src===''){
-          img.src='data:image/jpeg;base64,'+data.portrait_b64;
-          document.getElementById('load-portrait').style.display='block';
+      // Show results as soon as at least one color is ready
+      const hasAnyResult=(data.num_colors||0)>0 &&
+        (data.stage==='primary_ready'||data.stage==='done');
+      if(hasAnyResult){
+        collectResults(data);
+        if(!resultsShown){
+          resultsShown=true;
+          renderResults();
+        } else {
+          updateProgressiveResults();
         }
       }
 
       if(data.status==='done'){
         clearInterval(pollTimer);
-        document.getElementById('load-prog-fill').style.width='100%';
-
-        // Collect results
-        colorResults=[];
-        for(let i=0;i<(data.num_colors||0);i++){
-          const c=data['color'+i];
-          if(c){colorResults.push({name:c.name,b64:c.b64,error:c.error,status:c.status});}
-        }
-
-        setTimeout(()=>renderResults(),400);
       }
     })
     .catch(()=>{});
@@ -2267,6 +2282,20 @@ function renderResults(){
   showView('results-view');
 }
 
+function updateProgressiveResults(){
+  // Re-render alt cards to replace spinners with newly arrived images
+  // Only update hero if current hero has no image yet and a new one arrived
+  const cur=colorResults[mainIdx];
+  if(cur && !cur.b64 && !cur.error){
+    // Current hero is still loading — check if it arrived
+    for(let i=0;i<colorResults.length;i++){
+      if(colorResults[i].b64){mainIdx=i;break;}
+    }
+    updateHero();
+  }
+  renderAlts();
+}
+
 function updateHero(){
   const r=colorResults[mainIdx];
   const heroImg=document.getElementById('hero-img');
@@ -2274,13 +2303,14 @@ function updateHero(){
   const label=document.getElementById('hero-color-label');
 
   if(r && r.b64){
-    heroImg.src='data:image/png;base64,'+r.b64;
-    heroImg.style.display='block';
+    heroWrap.innerHTML='<div class="hero-glow"></div><img id="hero-img" src="data:image/png;base64,'+r.b64+'" alt="Recolored lens" style="display:block"/>';
     label.textContent=r.name;
   } else if(r && r.error){
-    heroImg.style.display='none';
     heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-error">'+escHtml(r.error)+'</div>';
     label.textContent=r.name+' (failed)';
+  } else if(r){
+    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-loading" style="padding:3rem 0"><div class="mini-spin" style="width:48px;height:48px;border-width:4px"></div><p style="margin-top:1rem;color:#bbb">Generating '+escHtml(r.name)+'...</p></div>';
+    label.textContent=r.name+' (generating...)';
   }
   renderAlts();
 }
@@ -2322,26 +2352,7 @@ function switchTo(idx){
   hero.offsetHeight; // force reflow
   hero.style.animation='slideUp .5s ease both';
 
-  // Rebuild hero content
-  const r=colorResults[mainIdx];
-  const heroWrap=document.getElementById('hero-img-wrap');
-  const heroImg=document.getElementById('hero-img');
-  const label=document.getElementById('hero-color-label');
-
-  heroWrap.innerHTML='<div class="hero-glow"></div><img id="hero-img" src="" alt="Recolored lens"/>';
-  const newImg=document.getElementById('hero-img');
-
-  if(r && r.b64){
-    newImg.src='data:image/png;base64,'+r.b64;
-    newImg.style.display='block';
-    label.textContent=r.name;
-  } else if(r && r.error){
-    newImg.style.display='none';
-    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-error">'+escHtml(r.error)+'</div>';
-    label.textContent=r.name+' (failed)';
-  }
-
-  renderAlts();
+  updateHero();
 }
 
 /* ── Helpers ── */
@@ -2360,6 +2371,7 @@ function rcReset(){
   chosenFile=null;
   colorResults=[];
   mainIdx=0;
+  resultsShown=false;
   document.getElementById('rc-file').value='';
   document.getElementById('upload-area').classList.remove('has-file');
   document.getElementById('up-label-text').textContent='Upload a Photo';

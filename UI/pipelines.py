@@ -31,6 +31,32 @@ from UI.config import (
 )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PRE-LOADED CATALOG DATA (loaded once at import time, reused by all pipelines)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _preload_catalog():
+    """Load catalog, embeddings, and index from disk once."""
+    try:
+        with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
+            catalog_data = json.load(f)
+
+        embeddings = np.load(str(EMBEDDINGS_NPY))
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        embeddings_normalized = embeddings / norms
+
+        with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
+            index_map = json.load(f)
+
+        return catalog_data, embeddings_normalized, index_map
+    except Exception as e:
+        print(f"  [pipelines] Warning: Could not preload catalog: {e}")
+        return None, None, None
+
+
+_CATALOG_DATA, _EMBEDDINGS_NORM, _INDEX_MAP = _preload_catalog()
+
+
 def _get_api_key() -> str:
     """Get the Gemini API key directly from os.environ (no sys.path dependency)."""
     key = os.environ.get("GEMINI_API_KEY", "")
@@ -83,11 +109,15 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         sess["error"] = str(e)
         return
 
+    # Create a single client to reuse across all API calls in this pipeline
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
     # STEP 1: FaceAnalyzer.analyze()
     sess["stage"] = "analyzing"
     try:
         from face_analyzer import FaceAnalyzer
-        analyzer = FaceAnalyzer(api_key=api_key)
+        analyzer = FaceAnalyzer(api_key=api_key, client=client)
         analysis_result = analyzer.analyze(portrait_path)
     except Exception as e:
         sess["status"] = "error"
@@ -106,11 +136,17 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     sess["face_insights"] = analysis.get("face_insights", [])
     sess["face_summary"] = analysis.get("face_summary", {})
 
-    # STEP 2: InventoryMatcher.match()
+    # STEP 2: InventoryMatcher.match() — use pre-loaded catalog data
     sess["stage"] = "matching"
     try:
         from inventory_matcher import InventoryMatcher
-        matcher = InventoryMatcher(CATALOG_DIR, api_key)
+        matcher = InventoryMatcher(
+            CATALOG_DIR, api_key,
+            client=client,
+            catalog_data=_CATALOG_DATA,
+            embeddings_normalized=_EMBEDDINGS_NORM,
+            index_map=_INDEX_MAP,
+        )
         recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
         match_result = matcher.match(recommended_tags, top_k=3)
     except Exception as e:
@@ -151,8 +187,17 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         }
 
     # STEP 3: virtual_tryon() x3 in parallel
+    # Pre-load portrait image once and reuse across all try-ons
     sess["stage"] = "tryon"
     from tryon_engine import virtual_tryon
+    from utils import load_image_as_part
+    try:
+        portrait_part = load_image_as_part(portrait_path)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Portrait load error: {e}"
+        _cleanup(portrait_path)
+        return
 
     def do_tryon(idx: int):
         product, _ = matches[idx]
@@ -166,6 +211,8 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
                 matched_product=product,
                 model_alias=DEFAULT_GENERATION_MODEL,
                 api_key=api_key,
+                portrait_part=portrait_part,
+                client=client,
             )
         except Exception as e:
             sess[f"opt{idx}"]["tryon_status"] = "error"
@@ -322,10 +369,14 @@ OUTPUT: Return ONLY the edited portrait with the glasses applied. Maintain EXACT
 
 
 def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
-                      api_key: str) -> dict:
+                      api_key: str, portrait_part=None, client=None) -> dict:
     """
     Run a virtual try-on. Returns dict with keys:
       success, image_bytes, error
+
+    Args:
+        portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
+        client: Pre-created genai.Client (skips creating a new one if provided).
     """
     from google import genai
     from google.genai import types
@@ -334,12 +385,14 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
     prompt = _fs_build_tryon_prompt(product)
 
     try:
-        portrait_part = _fs_load_image_as_part(portrait_path)
+        if portrait_part is None:
+            portrait_part = _fs_load_image_as_part(portrait_path)
         glasses_part = _fs_load_image_as_part(glasses_path)
     except Exception as e:
         return {"success": False, "image_bytes": None, "error": f"Image load error: {e}"}
 
-    client = genai.Client(api_key=api_key)
+    if client is None:
+        client = genai.Client(api_key=api_key)
 
     for attempt in range(2):
         p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
@@ -395,28 +448,30 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         sess["error"] = str(e)
         return
 
+    # Create a single client to reuse across all API calls in this pipeline
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
     # ── STEP 1: Build description from preferences ───────────────────────
     sess["stage"] = "searching"
     search_text = _build_search_description(preferences)
     print(f"  [free-search] Query: {search_text}")
 
-    # ── STEP 2: Embed + search catalog ───────────────────────────────────
+    # ── STEP 2: Embed + search catalog (using pre-loaded data) ───────────
     try:
-        from google import genai
+        catalog = _CATALOG_DATA
+        embeddings_norm = _EMBEDDINGS_NORM
+        index_map = _INDEX_MAP
 
-        client = genai.Client(api_key=api_key)
-
-        # Load catalog
-        with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
-            catalog = json.load(f)
-
-        embeddings = np.load(str(EMBEDDINGS_NPY))
-        with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
-            index_map = json.load(f)
-
-        # Normalise catalog embeddings
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings_norm = embeddings / norms
+        # Fallback: load from disk if preload failed
+        if catalog is None or embeddings_norm is None or index_map is None:
+            with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
+                catalog = json.load(f)
+            embeddings = np.load(str(EMBEDDINGS_NPY))
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            embeddings_norm = embeddings / norms
+            with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
+                index_map = json.load(f)
 
         # Embed query
         result = client.models.embed_content(
@@ -518,14 +573,23 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         }
 
     # ── STEP 3: Virtual try-on x3 in parallel ────────────────────────────
+    # Pre-load portrait image once and reuse across all try-ons
     sess["stage"] = "tryon"
+    try:
+        portrait_part = _fs_load_image_as_part(portrait_path)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Portrait load error: {e}"
+        _cleanup(portrait_path)
+        return
 
     def do_tryon(idx: int):
         product, _ = matches[idx]
         glasses_path = os.path.join(CATALOG_DIR, product["image"])
         sess[f"opt{idx}"]["tryon_status"] = "generating"
 
-        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key)
+        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
+                               portrait_part=portrait_part, client=client)
 
         if tr["success"] and tr["image_bytes"]:
             sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
@@ -603,10 +667,15 @@ LENS COLOR APPLICATION GUIDANCE:
 OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
 
 
-def _recolor_single(portrait_path: str, target_color: str, api_key: str) -> dict:
+def _recolor_single(portrait_path: str, target_color: str, api_key: str,
+                    portrait_part=None, client=None) -> dict:
     """
     Call Nano Banana Pro to recolor lenses to the target color.
     Returns dict with keys: success, image_bytes, error.
+
+    Args:
+        portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
+        client: Pre-created genai.Client (skips creating a new one if provided).
     """
     from google import genai
     from google.genai import types
@@ -614,11 +683,13 @@ def _recolor_single(portrait_path: str, target_color: str, api_key: str) -> dict
     prompt = _build_recolor_prompt(target_color)
 
     try:
-        portrait_part = _fs_load_image_as_part(portrait_path)
+        if portrait_part is None:
+            portrait_part = _fs_load_image_as_part(portrait_path)
     except Exception as e:
         return {"success": False, "image_bytes": None, "error": f"Image load error: {e}"}
 
-    client = genai.Client(api_key=api_key)
+    if client is None:
+        client = genai.Client(api_key=api_key)
 
     for attempt in range(2):
         p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
@@ -670,6 +741,19 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
         sess["error"] = str(e)
         return
 
+    # Create a single client to reuse across all API calls in this pipeline
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
+    # Pre-load portrait image once and reuse across all recolors
+    try:
+        portrait_part = _fs_load_image_as_part(portrait_path)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Portrait load error: {e}"
+        _cleanup(portrait_path)
+        return
+
     sess["stage"] = "recoloring"
     sess["num_colors"] = len(colors)
 
@@ -686,7 +770,8 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
         sess[f"color{idx}"]["status"] = "generating"
         print(f"  [recolor] Generating {color} (slot {idx}) via nano-banana-pro ...")
 
-        result = _recolor_single(portrait_path, color, api_key)
+        result = _recolor_single(portrait_path, color, api_key,
+                                 portrait_part=portrait_part, client=client)
 
         if result["success"] and result["image_bytes"]:
             sess[f"color{idx}"]["b64"] = base64.b64encode(
