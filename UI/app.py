@@ -8,6 +8,7 @@ Frontend polls /api/status/<id> and progressively reveals results as each
 try-on finishes.
 """
 
+import os
 from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 
@@ -19,7 +20,8 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
-    host, port = "127.0.0.1", 8080
+    host = "0.0.0.0"
+    port = int(os.environ.get("PORT", 8080))
     server = ThreadedHTTPServer((host, port), Handler)
     print(f"Lenses UI running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")

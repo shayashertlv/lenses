@@ -11,4 +11,5 @@ build/
 *.jpeg
 *.png
 *.npy
+!lenses/catalog/embeddings.npy
 *.log
