@@ -49,7 +49,8 @@ lenses/
 │   ├── config.py             #   Paths, session store, constants
 │   ├── handler.py            #   HTTP request routing + multipart parsing
 │   ├── pipelines.py          #   Async pipeline execution (background threads)
-│   └── templates.py          #   HTML + JavaScript frontend
+│   ├── templates.py          #   HTML + JavaScript frontend
+│   └── test_pipeline_concurrency.py  #   Concurrency tests
 │
 ├── lens_recolor/             # Feature 1: Lens Color Swap
 │   ├── main.py               #   CLI entry point
@@ -307,7 +308,7 @@ python -m unittest tests.test_pipeline -v   # 41 tests
 
 ## Web UI
 
-**What it does:** Browser-based interface exposing two modes — **Smart Fit** (face analysis pipeline) and **Free Search** (text query pipeline). Upload a portrait, get results with progressive loading as each try-on finishes.
+**What it does:** Browser-based interface exposing three modes — **Smart Fit** (face analysis pipeline), **Free Search** (preference-based search pipeline), and **Lens Recolor** (lens color swap pipeline). Upload a portrait, get results with progressive loading as each try-on finishes.
 
 ### How to run
 
@@ -318,9 +319,10 @@ python -m UI.app
 Open http://127.0.0.1:8080 in your browser.
 
 - **Smart Fit** (`/`) — Upload a portrait. Runs the full face analysis pipeline: analyze face, match against catalog, generate try-on images.
-- **Free Search** (`/free-search`) — Upload a portrait + describe what you want. Runs semantic search against the catalog and generates try-on images.
+- **Free Search** (`/free-search`) — Upload a portrait + choose preferences (frame shape, color, material, thickness, rim type, lens type, lens size, aesthetic, gender, occasion, max price). Runs semantic search against the catalog and generates try-on images.
+- **Lens Recolor** (`/lens-recolor`) — Upload a photo of someone wearing glasses + pick 3 lens colors. Generates recolored versions for each color using Nano Banana Pro.
 
-Results stream in progressively via polling (`/api/status/<id>`).
+Results stream in progressively via polling (`/api/status/<id>` and `/api/recolor-status/<id>`).
 
 ---
 
