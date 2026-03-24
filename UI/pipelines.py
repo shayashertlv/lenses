@@ -533,6 +533,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         similarities = embeddings_norm @ query_norm
         ranked = np.argsort(similarities)[::-1]
 
+        # Build product lookup dict for O(1) access instead of linear scan
+        product_by_id = {p["id"]: p for p in catalog["products"]}
+
         # Build filters from preferences
         filters = {}
         if preferences.get("max_price"):
@@ -549,11 +552,7 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         matches = []
         for idx in ranked:
             pid = index_map[str(idx)]
-            product = None
-            for p in catalog["products"]:
-                if p["id"] == pid:
-                    product = p
-                    break
+            product = product_by_id.get(pid)
             if product is None:
                 continue
 
@@ -598,7 +597,37 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
 
     sess["num_options"] = len(matches)
 
-    # Store product info for each match
+    # ── STEP 3: Store product info + launch try-ons immediately ───────────
+    # Wait for portrait pre-loading (started before search, should be done by now)
+    sess["stage"] = "tryon"
+    portrait_thread.join()
+    if _portrait_result[1] is not None:
+        sess["status"] = "error"
+        sess["error"] = f"Portrait load error: {_portrait_result[1]}"
+        _cleanup(portrait_path)
+        return
+    portrait_part = _portrait_result[0]
+
+    def do_tryon(idx: int):
+        product, _ = matches[idx]
+        glasses_path = os.path.join(CATALOG_DIR, product["image"])
+        sess[f"opt{idx}"]["tryon_status"] = "generating"
+
+        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
+                               portrait_part=portrait_part, client=client)
+
+        if tr["success"] and tr["image_bytes"]:
+            sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
+                tr["image_bytes"]
+            ).decode("ascii")
+            sess[f"opt{idx}"]["tryon_status"] = "done"
+        else:
+            sess[f"opt{idx}"]["tryon_status"] = "error"
+            sess[f"opt{idx}"]["tryon_error"] = tr.get("error", "No image returned")
+
+    # Store each match and fire its try-on thread immediately — don't wait
+    # for all matches to be stored before starting try-ons.
+    threads = []
     for i, (product, score) in enumerate(matches):
         glasses_path = os.path.join(CATALOG_DIR, product["image"])
         with open(glasses_path, "rb") as f:
@@ -629,40 +658,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
             "tryon_error": None,
         }
 
-    # ── STEP 3: Virtual try-on x3 in parallel ────────────────────────────
-    # Wait for portrait pre-loading to complete (started before search)
-    sess["stage"] = "tryon"
-    portrait_thread.join()
-    if _portrait_result[1] is not None:
-        sess["status"] = "error"
-        sess["error"] = f"Portrait load error: {_portrait_result[1]}"
-        _cleanup(portrait_path)
-        return
-    portrait_part = _portrait_result[0]
-
-    def do_tryon(idx: int):
-        product, _ = matches[idx]
-        glasses_path = os.path.join(CATALOG_DIR, product["image"])
-        sess[f"opt{idx}"]["tryon_status"] = "generating"
-
-        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                               portrait_part=portrait_part, client=client)
-
-        if tr["success"] and tr["image_bytes"]:
-            sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
-                tr["image_bytes"]
-            ).decode("ascii")
-            sess[f"opt{idx}"]["tryon_status"] = "done"
-        else:
-            sess[f"opt{idx}"]["tryon_status"] = "error"
-            sess[f"opt{idx}"]["tryon_error"] = tr.get("error", "No image returned")
-
-    threads = [
-        threading.Thread(target=do_tryon, args=(i,), daemon=True)
-        for i in range(len(matches))
-    ]
-    for t in threads:
+        t = threading.Thread(target=do_tryon, args=(i,), daemon=True)
         t.start()
+        threads.append(t)
 
     # Wait for primary result first
     threads[0].join()
