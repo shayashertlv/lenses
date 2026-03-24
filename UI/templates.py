@@ -144,10 +144,14 @@ body{
 <div id="sf-results" style="display:none;position:fixed;inset:0;background:#0b0b14;
   z-index:100;overflow-y:auto;padding:2rem 1.5rem;color:#fff">
   <div style="max-width:960px;margin:0 auto;padding-top:.5rem">
+    <button onclick="sfReset()" style="display:inline-flex;align-items:center;gap:.4rem;margin-bottom:1.4rem;
+      padding:.45rem 1rem;background:rgba(255,255,255,.07);color:rgba(255,255,255,.6);
+      border:1px solid rgba(255,255,255,.1);border-radius:50px;font-size:.82rem;font-weight:500;
+      cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(255,255,255,.12)'" onmouseout="this.style.background='rgba(255,255,255,.07)'">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11L5 7l4-4"/></svg>
+      Start Over
+    </button>
     <div id="sf-opts"></div>
-    <button onclick="sfReset()" style="display:block;margin:1.5rem auto 3rem;padding:.75rem 2.2rem;
-      background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.1);border-radius:50px;font-size:.92rem;font-weight:600;
-      cursor:pointer;transition:all .2s">Start Over</button>
   </div>
 </div>
 
@@ -188,7 +192,7 @@ body{
 .tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
 .tryon-col img{width:100%;height:auto;border-radius:12px;display:block}
 .prod-col{flex:1 1 200px;max-width:280px;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{width:100%;height:auto;object-fit:contain;border-radius:12px;display:block}
+.prod-col img{width:100%;max-height:180px;object-fit:contain;border-radius:12px;display:block}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
 .prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
 .prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
@@ -216,7 +220,7 @@ body{
 .primary-hero-inner{display:flex;align-items:stretch}
 .primary-tryon{flex:1 1 0;min-width:0;max-width:420px;display:flex;align-items:center;justify-content:center;padding:12px;position:relative}
 .primary-tryon img{width:100%;height:auto;object-fit:contain;border-radius:14px;display:block}
-.primary-panel{flex:0 0 260px;padding:20px;display:flex;flex-direction:column}
+.primary-panel{flex:1 1 0;min-width:220px;padding:20px;display:flex;flex-direction:column}
 .match-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(22,163,74,.15);color:#4ade80;
   font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;margin-bottom:14px;align-self:flex-start}
 .primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:2px;color:#fff}
