@@ -10,13 +10,13 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
             "matte-black",
             "silver"
           ],
           "thickness": "medium",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -56,7 +56,7 @@
           "sku": "EA1041-3094"
         }
       },
-      "description_auto": "Emporio Armani EA1041 Semi-Rimless by Emporio Armani. These glasses feature a medium matte matte-black, silver metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, classic style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA1041 Semi-Rimless by Emporio Armani. These glasses feature a medium glossy matte-black, silver mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, classic style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_002",
@@ -65,7 +65,7 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
             "gunmetal"
           ],
@@ -110,7 +110,7 @@
           "sku": "EA1052-3094"
         }
       },
-      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gunmetal by Emporio Armani. These glasses feature a medium matte gunmetal metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gunmetal by Emporio Armani. These glasses feature a medium matte gunmetal mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_003",
@@ -119,7 +119,7 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
             "gunmetal"
           ],
@@ -164,7 +164,7 @@
           "sku": "EA1052-3155"
         }
       },
-      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gray by Emporio Armani. These glasses feature a medium matte gunmetal metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA1052 Semi-Rimless Gray by Emporio Armani. These glasses feature a medium matte gunmetal mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, modern, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_004",
@@ -173,7 +173,7 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
             "matte-black",
             "green"
@@ -219,7 +219,7 @@
           "sku": "EA1149-3001"
         }
       },
-      "description_auto": "Emporio Armani EA1149 Semi-Rimless Black Green by Emporio Armani. These glasses feature a medium matte matte-black, green metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, outdoor, fits oval, square, oblong face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA1149 Semi-Rimless Black Green by Emporio Armani. These glasses feature a medium matte matte-black, green mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, outdoor, fits oval, square, oblong face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_005",
@@ -228,7 +228,7 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
             "blue",
             "silver"
@@ -274,7 +274,7 @@
           "sku": "EA1162-3050"
         }
       },
-      "description_auto": "Emporio Armani EA1162 Semi-Rimless Blue by Emporio Armani. These glasses feature a medium matte blue, silver metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA1162 Semi-Rimless Blue by Emporio Armani. These glasses feature a medium matte blue, silver mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_006",
@@ -287,8 +287,8 @@
           "color": [
             "blue"
           ],
-          "thickness": "medium",
-          "finish": "matte",
+          "thickness": "thick",
+          "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -328,21 +328,21 @@
           "sku": "EA3147-5754"
         }
       },
-      "description_auto": "Emporio Armani EA3147 Rectangular Blue by Emporio Armani. These glasses feature a medium matte blue acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, casual, bold style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA3147 Rectangular Blue by Emporio Armani. These glasses feature a thick glossy blue acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, casual, bold style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_007",
-      "name": "Emporio Armani EA3237 Rectangular Gray",
+      "name": "Emporio Armani EA3237 Round Gray",
       "image": "images/erroca_mens_007.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "round",
           "material": "acetate",
           "color": [
-            "transparent"
+            "matte-black"
           ],
-          "thickness": "medium",
-          "finish": "glossy",
+          "thickness": "thick",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -353,7 +353,7 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -382,7 +382,7 @@
           "sku": "EA3237-6106"
         }
       },
-      "description_auto": "Emporio Armani EA3237 Rectangular Gray by Emporio Armani. These glasses feature a medium glossy transparent acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, minimalist, professional style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Emporio Armani EA3237 Round Gray by Emporio Armani. These glasses feature a thick matte matte-black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is modern, minimalist, professional style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_008",
@@ -391,11 +391,11 @@
       "tags": {
         "frame": {
           "shape": "round",
-          "material": "acetate",
+          "material": "metal",
           "color": [
             "black"
           ],
-          "thickness": "thick",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -436,7 +436,7 @@
           "sku": "RX5441-2000"
         }
       },
-      "description_auto": "Ray-Ban RX5441 Round Aviator Black by Ray-Ban. These glasses feature a thick glossy black acetate full-rim frame with a round shape. They have large round clear clear, prescription-ready lenses. The overall look is retro, bold, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX5441 Round Aviator Black by Ray-Ban. These glasses feature a thin glossy black metal full-rim frame with a round shape. They have large round clear clear, prescription-ready lenses. The overall look is retro, bold, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_009",
@@ -550,11 +550,11 @@
     },
     {
       "id": "erroca_011",
-      "name": "Ray-Ban RX6496 Geometric Black Gold",
+      "name": "Ray-Ban RX6496 Hexagonal Black Gold",
       "image": "images/erroca_mens_011.jpg",
       "tags": {
         "frame": {
-          "shape": "geometric",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "black",
@@ -572,7 +572,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -601,15 +601,15 @@
           "sku": "RX6496-3175"
         }
       },
-      "description_auto": "Ray-Ban RX6496 Geometric Black Gold by Ray-Ban. These glasses feature a thin glossy black, gold metal full-rim frame with a geometric shape. They have medium square clear clear, prescription-ready lenses. The overall look is modern, fashion-forward, artsy style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX6496 Hexagonal Black Gold by Ray-Ban. These glasses feature a thin glossy black, gold metal full-rim frame with a hexagonal shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, fashion-forward, artsy style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_012",
-      "name": "Ray-Ban RX6509 Round Gold",
+      "name": "Ray-Ban RX6509 Hexagonal Gold",
       "image": "images/erroca_mens_012.jpg",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "gold"
@@ -626,7 +626,7 @@
           "color": [
             "clear"
           ],
-          "shape": "round",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -656,7 +656,7 @@
           "sku": "RX6509-2500"
         }
       },
-      "description_auto": "Ray-Ban RX6509 Round Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX6509 Hexagonal Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a hexagonal shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, vintage, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_013",
@@ -667,10 +667,10 @@
           "shape": "rectangular",
           "material": "metal",
           "color": [
-            "matte-black"
+            "black"
           ],
           "thickness": "medium",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -710,22 +710,22 @@
           "sku": "RX6513-2904"
         }
       },
-      "description_auto": "Ray-Ban RX6513 Semi-Rimless Black by Ray-Ban. These glasses feature a medium matte matte-black metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, classic, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX6513 Semi-Rimless Black by Ray-Ban. These glasses feature a medium glossy black metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is professional, classic, minimalist style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
     },
     {
       "id": "erroca_014",
-      "name": "Ray-Ban RX7199 Square Black Red",
+      "name": "Ray-Ban RX7199 Rectangular Black Red",
       "image": "images/erroca_mens_014.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "plastic",
+          "shape": "rectangular",
+          "material": "mixed-metal-acetate",
           "color": [
-            "matte-black",
+            "black",
             "red"
           ],
-          "thickness": "medium",
-          "finish": "matte",
+          "thickness": "thick",
+          "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -766,7 +766,7 @@
           "sku": "RX7199-5915"
         }
       },
-      "description_auto": "Ray-Ban RX7199 Square Black Red by Ray-Ban. These glasses feature a medium matte matte-black, red plastic full-rim frame with a square shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, sport, outdoor, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX7199 Rectangular Black Red by Ray-Ban. These glasses feature a thick glossy black, red mixed-metal-acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, casual style, designed for men, suitable for everyday, sport, outdoor, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_015",
@@ -775,13 +775,13 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "plastic",
+          "material": "metal",
           "color": [
             "matte-black"
           ],
           "thickness": "medium",
           "finish": "matte",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -820,7 +820,7 @@
           "sku": "RX7208-5204"
         }
       },
-      "description_auto": "Ray-Ban RX7208 Rectangular Matte Black by Ray-Ban. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX7208 Rectangular Matte Black by Ray-Ban. These glasses feature a medium matte matte-black metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_016",
@@ -997,7 +997,7 @@
           "color": [
             "black"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -1038,21 +1038,21 @@
           "sku": "VO5326-W44"
         }
       },
-      "description_auto": "Vogue VO5326 Round Black by Vogue. These glasses feature a medium glossy black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 499.0 ILS, currently in stock."
+      "description_auto": "Vogue VO5326 Round Black by Vogue. These glasses feature a thick glossy black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 499.0 ILS, currently in stock."
     },
     {
       "id": "erroca_020",
-      "name": "Ray-Ban RX3447V Round Metal Gunmetal",
+      "name": "Ray-Ban RX3447V Round Transparent",
       "image": "images/erroca_mens_020.jpg",
       "tags": {
         "frame": {
           "shape": "round",
-          "material": "metal",
+          "material": "acetate",
           "color": [
-            "gunmetal"
+            "transparent"
           ],
-          "thickness": "thin",
-          "finish": "matte",
+          "thickness": "thick",
+          "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -1094,22 +1094,22 @@
           "sku": "RX3447V-2620"
         }
       },
-      "description_auto": "Ray-Ban RX3447V Round Metal Gunmetal by Ray-Ban. These glasses feature a thin matte gunmetal metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX3447V Round Transparent by Ray-Ban. These glasses feature a thick glossy transparent acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_021",
-      "name": "Prada Linea Rossa PS01LV Rectangular Black",
+      "name": "Prada Linea Rossa PS01LV Browline Black",
       "image": "images/erroca_mens_021.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "browline",
           "material": "metal",
           "color": [
-            "matte-black"
+            "black"
           ],
           "thickness": "medium",
-          "finish": "matte",
-          "rim_type": "full-rim"
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -1149,22 +1149,23 @@
           "sku": "PS01LV-DG0"
         }
       },
-      "description_auto": "Prada Linea Rossa PS01LV Rectangular Black by Prada. These glasses feature a medium matte matte-black metal full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS01LV Browline Black by Prada. These glasses feature a medium glossy black metal semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
     },
     {
       "id": "erroca_022",
-      "name": "Ray-Ban RX7047 Rectangular Black",
+      "name": "Ray-Ban RX7047 Browline Black Red",
       "image": "images/erroca_mens_022.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "plastic",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "black"
+            "black",
+            "red"
           ],
           "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -1203,22 +1204,22 @@
           "sku": "RX7047-2000"
         }
       },
-      "description_auto": "Ray-Ban RX7047 Rectangular Black by Ray-Ban. These glasses feature a medium glossy black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX7047 Browline Black Red by Ray-Ban. These glasses feature a medium glossy black, red mixed-metal-acetate semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_023",
-      "name": "Ray-Ban RX6335 Round Metal Black",
+      "name": "Ray-Ban RX6335 Browline Black",
       "image": "images/erroca_mens_023.jpg",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "browline",
           "material": "metal",
           "color": [
-            "matte-black"
+            "black"
           ],
-          "thickness": "thin",
-          "finish": "matte",
-          "rim_type": "full-rim"
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -1228,7 +1229,7 @@
           "color": [
             "clear"
           ],
-          "shape": "round",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -1257,21 +1258,22 @@
           "sku": "RX6335-2503"
         }
       },
-      "description_auto": "Ray-Ban RX6335 Round Metal Black by Ray-Ban. These glasses feature a thin matte matte-black metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, minimalist, modern style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX6335 Browline Black by Ray-Ban. These glasses feature a medium glossy black metal semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, minimalist, modern style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_024",
-      "name": "Ray-Ban RX8416 Semi-Rimless Carbon Black",
+      "name": "Ray-Ban RX8416 Browline Blue Silver Semi-Rimless",
       "image": "images/erroca_mens_024.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "carbon-fiber",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "matte-black"
+            "blue",
+            "silver"
           ],
           "thickness": "medium",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -1312,7 +1314,7 @@
           "sku": "RX8416-2503"
         }
       },
-      "description_auto": "Ray-Ban RX8416 Semi-Rimless Carbon Black by Ray-Ban. These glasses feature a medium matte matte-black carbon-fiber semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, industrial style, designed for men, suitable for everyday, office, sport, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX8416 Browline Blue Silver Semi-Rimless by Ray-Ban. These glasses feature a medium glossy blue, silver mixed-metal-acetate semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, modern, industrial style, designed for men, suitable for everyday, office, sport, fits oval, round, heart face shapes. priced at 999.0 ILS, currently in stock."
     },
     {
       "id": "erroca_025",
@@ -1321,12 +1323,13 @@
       "tags": {
         "frame": {
           "shape": "browline",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
-            "matte-black"
+            "black",
+            "red"
           ],
           "thickness": "medium",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -1367,21 +1370,22 @@
           "sku": "RB-BROW-BLK"
         }
       },
-      "description_auto": "Ray-Ban Browline Round Black by Ray-Ban. These glasses feature a medium matte matte-black metal semi-rimless frame with a browline shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, retro, professional style, designed for men, suitable for everyday, office, formal, fits oval, oblong, heart face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban Browline Round Black by Ray-Ban. These glasses feature a medium glossy black, red mixed-metal-acetate semi-rimless frame with a browline shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, retro, professional style, designed for men, suitable for everyday, office, formal, fits oval, oblong, heart face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_026",
-      "name": "Ray-Ban Semi-Rimless Rectangular Blue",
+      "name": "Ray-Ban Browline Blue Red Semi-Rimless",
       "image": "images/erroca_mens_026.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "metal",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "blue"
+            "blue",
+            "red"
           ],
           "thickness": "medium",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -1421,22 +1425,23 @@
           "sku": "RB-SR-BLU"
         }
       },
-      "description_auto": "Ray-Ban Semi-Rimless Rectangular Blue by Ray-Ban. These glasses feature a medium matte blue metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban Browline Blue Red Semi-Rimless by Ray-Ban. These glasses feature a medium glossy blue, red mixed-metal-acetate semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_027",
-      "name": "Prada Linea Rossa PS50GV Rectangular Black",
+      "name": "Prada Linea Rossa PS50GV Browline Black Red",
       "image": "images/erroca_mens_027.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "plastic",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "matte-black"
+            "black",
+            "red"
           ],
           "thickness": "medium",
-          "finish": "matte",
-          "rim_type": "full-rim"
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -1476,21 +1481,21 @@
           "sku": "PS50GV-DG0"
         }
       },
-      "description_auto": "Prada Linea Rossa PS50GV Rectangular Black by Prada. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS50GV Browline Black Red by Prada. These glasses feature a medium glossy black, red mixed-metal-acetate semi-rimless frame with a browline shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
     },
     {
       "id": "erroca_028",
-      "name": "Prada Linea Rossa PS50GV Rectangular Gray",
+      "name": "Prada Linea Rossa PS50GV Wayfarer Blue",
       "image": "images/erroca_mens_028.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "plastic",
           "color": [
-            "transparent"
+            "blue"
           ],
           "thickness": "medium",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -1531,18 +1536,18 @@
           "sku": "PS50GV-15C"
         }
       },
-      "description_auto": "Prada Linea Rossa PS50GV Rectangular Gray by Prada. These glasses feature a medium glossy transparent plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS50GV Wayfarer Blue by Prada. These glasses feature a medium matte blue plastic full-rim frame with a wayfarer shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
     },
     {
       "id": "erroca_029",
-      "name": "Prada Linea Rossa PS04IV Rectangular Black",
+      "name": "Prada Linea Rossa PS04IV Wayfarer Black",
       "image": "images/erroca_mens_029.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "plastic",
           "color": [
-            "matte-black"
+            "black"
           ],
           "thickness": "medium",
           "finish": "matte",
@@ -1586,15 +1591,15 @@
           "sku": "PS04IV-DG0"
         }
       },
-      "description_auto": "Prada Linea Rossa PS04IV Rectangular Black by Prada. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, casual style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS04IV Wayfarer Black by Prada. These glasses feature a medium matte black plastic full-rim frame with a wayfarer shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, casual style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
     },
     {
       "id": "erroca_030",
-      "name": "Prada Linea Rossa PS04IV Rectangular Blue",
+      "name": "Prada Linea Rossa PS04IV Wayfarer Blue",
       "image": "images/erroca_mens_030.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "plastic",
           "color": [
             "blue"
@@ -1641,15 +1646,15 @@
           "sku": "PS04IV-TFY"
         }
       },
-      "description_auto": "Prada Linea Rossa PS04IV Rectangular Blue by Prada. These glasses feature a medium matte blue plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS04IV Wayfarer Blue by Prada. These glasses feature a medium matte blue plastic full-rim frame with a wayfarer shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, modern style, designed for men, suitable for everyday, sport, office, fits oval, round, diamond face shapes. priced at 1099.0 ILS, currently in stock."
     },
     {
       "id": "erroca_031",
-      "name": "Ray-Ban RX7256 Square Transparent",
+      "name": "Ray-Ban RX7256 Wayfarer Transparent",
       "image": "images/erroca_mens_031.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
             "transparent"
@@ -1666,7 +1671,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -1695,7 +1700,7 @@
           "sku": "RX7256-TRANS"
         }
       },
-      "description_auto": "Ray-Ban RX7256 Square Transparent by Ray-Ban. These glasses feature a medium glossy transparent acetate full-rim frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is modern, minimalist, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX7256 Wayfarer Transparent by Ray-Ban. These glasses feature a medium glossy transparent acetate full-rim frame with a wayfarer shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, minimalist, fashion-forward style, designed for unisex, suitable for everyday, fashion, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_032",
@@ -1704,12 +1709,12 @@
       "tags": {
         "frame": {
           "shape": "round",
-          "material": "acetate",
+          "material": "plastic",
           "color": [
             "black"
           ],
           "thickness": "medium",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -1749,7 +1754,7 @@
           "sku": "RB-HEX-BLK"
         }
       },
-      "description_auto": "Ray-Ban Hexagonal Black by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, casual style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban Hexagonal Black by Ray-Ban. These glasses feature a medium matte black plastic full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, casual style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_033",
@@ -1758,12 +1763,13 @@
       "tags": {
         "frame": {
           "shape": "round",
-          "material": "acetate",
+          "material": "plastic",
           "color": [
+            "black",
             "tortoiseshell"
           ],
           "thickness": "medium",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -1803,15 +1809,15 @@
           "sku": "RB-HEX-TORT"
         }
       },
-      "description_auto": "Ray-Ban Hexagonal Tortoiseshell by Ray-Ban. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban Hexagonal Tortoiseshell by Ray-Ban. These glasses feature a medium matte black, tortoiseshell plastic full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is classic, vintage, preppy style, designed for unisex, suitable for everyday, office, fits square, oblong, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_034",
-      "name": "Ray-Ban RX7047 Rectangular Matte Black",
+      "name": "Ray-Ban RX7047 Square Matte Black",
       "image": "images/erroca_mens_034.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "square",
           "material": "plastic",
           "color": [
             "matte-black"
@@ -1828,7 +1834,7 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -1857,7 +1863,7 @@
           "sku": "RX7047-5196"
         }
       },
-      "description_auto": "Ray-Ban RX7047 Rectangular Matte Black by Ray-Ban. These glasses feature a medium matte matte-black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX7047 Square Matte Black by Ray-Ban. These glasses feature a medium matte matte-black plastic full-rim frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, office, fits oval, round, diamond face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_035",
@@ -1866,12 +1872,12 @@
       "tags": {
         "frame": {
           "shape": "square",
-          "material": "acetate",
+          "material": "plastic",
           "color": [
             "blue"
           ],
           "thickness": "medium",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -1911,18 +1917,18 @@
           "sku": "VO5519-BLU"
         }
       },
-      "description_auto": "Vogue VO5519 Square Blue by Vogue. These glasses feature a medium glossy blue acetate full-rim frame with a square shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 499.0 ILS, currently in stock."
+      "description_auto": "Vogue VO5519 Square Blue by Vogue. These glasses feature a medium matte blue plastic full-rim frame with a square shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is modern, professional, casual style, designed for men, suitable for everyday, office, fits oval, round, heart face shapes. priced at 499.0 ILS, currently in stock."
     },
     {
       "id": "erroca_036",
-      "name": "Prada Linea Rossa PS50PV Semi-Rimless Black Red",
+      "name": "Prada Linea Rossa PS50PV Square Black Red Semi-Rimless",
       "image": "images/erroca_mens_036.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "metal",
+          "shape": "square",
+          "material": "mixed-metal-acetate",
           "color": [
-            "matte-black",
+            "black",
             "red"
           ],
           "thickness": "medium",
@@ -1937,7 +1943,7 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -1967,7 +1973,7 @@
           "sku": "PS50PV-DG0"
         }
       },
-      "description_auto": "Prada Linea Rossa PS50PV Semi-Rimless Black Red by Prada. These glasses feature a medium matte matte-black, red metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is sporty, luxury, bold style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1599.0 ILS, currently in stock."
+      "description_auto": "Prada Linea Rossa PS50PV Square Black Red Semi-Rimless by Prada. These glasses feature a medium matte black, red mixed-metal-acetate semi-rimless frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is sporty, luxury, bold style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1599.0 ILS, currently in stock."
     },
     {
       "id": "erroca_037",
@@ -1982,7 +1988,7 @@
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -2023,7 +2029,7 @@
           "sku": "RX3447V-GOLD"
         }
       },
-      "description_auto": "Ray-Ban RX3447V Round Metal Gold by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RX3447V Round Metal Gold by Ray-Ban. These glasses feature a thin glossy gold metal semi-rimless frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
     },
     {
       "id": "erroca_038",
@@ -2081,16 +2087,16 @@
     },
     {
       "id": "erroca_039",
-      "name": "Versace VE2287 Black Oval Sunglasses",
+      "name": "Versace VE2287 Aviator Gold Sunglasses",
       "image": "images/erroca_mens_039.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "black"
+            "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2099,9 +2105,9 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "amber"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2130,22 +2136,22 @@
           "sku": "VE2287-BLK"
         }
       },
-      "description_auto": "Versace VE2287 Black Oval Sunglasses by Versace. These glasses feature a medium glossy black metal full-rim frame with a oval shape. They have medium oval gray sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1119.0 ILS, currently in stock."
+      "description_auto": "Versace VE2287 Aviator Gold Sunglasses by Versace. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop amber sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1119.0 ILS, currently in stock."
     },
     {
       "id": "erroca_040",
-      "name": "Versace VE2290 Black Square Sunglasses",
+      "name": "Versace VE2290 Rectangular Black Sunglasses",
       "image": "images/erroca_mens_040.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "metal",
+          "shape": "rectangular",
+          "material": "mixed-metal-acetate",
           "color": [
             "black"
           ],
           "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -2154,7 +2160,7 @@
           "color": [
             "gray"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -2184,29 +2190,30 @@
           "sku": "VE2290-BLK"
         }
       },
-      "description_auto": "Versace VE2290 Black Square Sunglasses by Versace. These glasses feature a medium glossy black metal full-rim frame with a square shape. They have medium square gray sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for everyday, fashion, driving, fits oval, round, heart face shapes. priced at 909.0 ILS, currently in stock."
+      "description_auto": "Versace VE2290 Rectangular Black Sunglasses by Versace. These glasses feature a medium glossy black mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular gray sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for everyday, fashion, driving, fits oval, round, heart face shapes. priced at 909.0 ILS, currently in stock."
     },
     {
       "id": "erroca_041",
-      "name": "Versace VE2290 Gold Rectangular Sunglasses",
+      "name": "Versace VE2290 Rectangular Blue Sunglasses",
       "image": "images/erroca_mens_041.jpg",
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "mixed-metal-acetate",
           "color": [
-            "gold"
+            "blue",
+            "white"
           ],
           "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "blue"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2238,31 +2245,31 @@
           "sku": "VE2290-GOLD"
         }
       },
-      "description_auto": "Versace VE2290 Gold Rectangular Sunglasses by Versace. These glasses feature a medium glossy gold metal full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for everyday, fashion, driving, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
+      "description_auto": "Versace VE2290 Rectangular Blue Sunglasses by Versace. These glasses feature a medium glossy blue, white mixed-metal-acetate semi-rimless frame with a rectangular shape. They have medium rectangular blue sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for everyday, fashion, driving, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
     },
     {
       "id": "erroca_042",
-      "name": "Versace VE2289 Gold Pilot Sunglasses Dark",
+      "name": "Versace VE2289 Rectangular Gold Sunglasses Dark",
       "image": "images/erroca_mens_042.jpg",
       "tags": {
         "frame": {
-          "shape": "pilot",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "gold"
           ],
-          "thickness": "thin",
+          "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "smoke"
+            "green"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -2291,20 +2298,20 @@
           "sku": "VE2289-GOLD-DK"
         }
       },
-      "description_auto": "Versace VE2289 Gold Pilot Sunglasses Dark by Versace. These glasses feature a thin glossy gold metal full-rim frame with a pilot shape. They have large teardrop smoke sunglasses lenses. The overall look is luxury, classic style, designed for men, suitable for driving, everyday, fashion, fits oval, square, heart face shapes. priced at 909.0 ILS, currently in stock."
+      "description_auto": "Versace VE2289 Rectangular Gold Sunglasses Dark by Versace. These glasses feature a medium glossy gold metal semi-rimless frame with a rectangular shape. They have large rectangular green sunglasses lenses. The overall look is luxury, classic style, designed for men, suitable for driving, everyday, fashion, fits oval, square, heart face shapes. priced at 909.0 ILS, currently in stock."
     },
     {
       "id": "erroca_043",
-      "name": "Versace VE2291 Gold Rectangular Sunglasses",
+      "name": "Versace VE2291 Aviator Gold Sunglasses",
       "image": "images/erroca_mens_043.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2313,9 +2320,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "gradient-brown"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {
@@ -2345,18 +2352,18 @@
           "sku": "VE2291-GOLD"
         }
       },
-      "description_auto": "Versace VE2291 Gold Rectangular Sunglasses by Versace. These glasses feature a medium glossy gold metal full-rim frame with a rectangular shape. They have large rectangular brown sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, square face shapes. priced at 1189.0 ILS, currently in stock."
+      "description_auto": "Versace VE2291 Aviator Gold Sunglasses by Versace. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop gradient-brown sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, square face shapes. priced at 1189.0 ILS, currently in stock."
     },
     {
       "id": "erroca_044",
-      "name": "Ray-Ban RB3767 Silver Oval Sunglasses",
+      "name": "Ray-Ban RB3767 Aviator Gold Sunglasses",
       "image": "images/erroca_mens_044.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "silver"
+            "gold"
           ],
           "thickness": "thin",
           "finish": "glossy",
@@ -2367,9 +2374,9 @@
             "sunglasses"
           ],
           "color": [
-            "green"
+            "G-15-green"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2399,20 +2406,21 @@
           "sku": "RB3767-SLV"
         }
       },
-      "description_auto": "Ray-Ban RB3767 Silver Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy silver metal full-rim frame with a oval shape. They have medium oval green sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 584.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3767 Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop G-15-green sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 584.0 ILS, currently in stock."
     },
     {
       "id": "erroca_045",
-      "name": "Ray-Ban RB3768 Gold Oval Sunglasses",
+      "name": "Ray-Ban RB3768 Hexagonal Black Gold Sunglasses",
       "image": "images/erroca_mens_045.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
-          "material": "metal",
+          "shape": "hexagonal",
+          "material": "mixed-metal-acetate",
           "color": [
+            "black",
             "gold"
           ],
-          "thickness": "thin",
+          "thickness": "medium",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2421,9 +2429,9 @@
             "sunglasses"
           ],
           "color": [
-            "G-15-green"
+            "gray"
           ],
-          "shape": "oval",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -2453,20 +2461,20 @@
           "sku": "RB3768-GOLD"
         }
       },
-      "description_auto": "Ray-Ban RB3768 Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, oval face shapes. priced at 584.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3768 Hexagonal Black Gold Sunglasses by Ray-Ban. These glasses feature a medium glossy black, gold mixed-metal-acetate full-rim frame with a hexagonal shape. They have medium rectangular gray sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, oval face shapes. priced at 584.0 ILS, currently in stock."
     },
     {
       "id": "erroca_046",
-      "name": "Prada PRC50S Gray Square Sunglasses",
+      "name": "Prada PRC50S Aviator Silver Sunglasses",
       "image": "images/erroca_mens_046.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "acetate",
+          "shape": "aviator",
+          "material": "metal",
           "color": [
-            "black"
+            "silver"
           ],
-          "thickness": "thick",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2475,9 +2483,9 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "blue"
           ],
-          "shape": "square",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {
@@ -2507,21 +2515,20 @@
           "sku": "PRC50S-GRY"
         }
       },
-      "description_auto": "Prada PRC50S Gray Square Sunglasses by Prada. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+      "description_auto": "Prada PRC50S Aviator Silver Sunglasses by Prada. These glasses feature a thin glossy silver metal full-rim frame with a aviator shape. They have large teardrop blue sunglasses lenses. The overall look is luxury, modern, bold style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
     },
     {
       "id": "erroca_047",
-      "name": "Prada PRC50S Gold Square Sunglasses",
+      "name": "Prada PRC50S Aviator Gold Sunglasses",
       "image": "images/erroca_mens_047.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "mixed-metal-acetate",
+          "shape": "aviator",
+          "material": "metal",
           "color": [
-            "gold",
-            "havana-brown"
+            "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2530,9 +2537,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "amber"
           ],
-          "shape": "square",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {
@@ -2562,20 +2569,20 @@
           "sku": "PRC50S-GOLD"
         }
       },
-      "description_auto": "Prada PRC50S Gold Square Sunglasses by Prada. These glasses feature a medium glossy gold, havana-brown mixed-metal-acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+      "description_auto": "Prada PRC50S Aviator Gold Sunglasses by Prada. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop amber sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
     },
     {
       "id": "erroca_048",
-      "name": "Ray-Ban RB3832 Black Rectangular Sunglasses",
+      "name": "Ray-Ban RB3832 Aviator Gold Sunglasses",
       "image": "images/erroca_mens_048.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "black"
+            "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2585,9 +2592,9 @@
             "polarized"
           ],
           "color": [
-            "green"
+            "gradient-brown"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2617,20 +2624,20 @@
           "sku": "RB3832-BLK-POL"
         }
       },
-      "description_auto": "Ray-Ban RB3832 Black Rectangular Sunglasses by Ray-Ban. These glasses feature a medium glossy black metal full-rim frame with a rectangular shape. They have medium rectangular green sunglasses, polarized lenses. The overall look is classic, modern, casual style, designed for men, suitable for everyday, driving, outdoor, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3832 Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop gradient-brown sunglasses, polarized lenses. The overall look is classic, modern, casual style, designed for men, suitable for everyday, driving, outdoor, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_049",
-      "name": "Ray-Ban RB3832 Black Rectangular Sunglasses Classic",
+      "name": "Ray-Ban RB3832 Aviator Gold Classic Sunglasses",
       "image": "images/erroca_mens_049.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "black"
+            "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2641,7 +2648,7 @@
           "color": [
             "G-15-green"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2671,21 +2678,21 @@
           "sku": "RB3832-BLK"
         }
       },
-      "description_auto": "Ray-Ban RB3832 Black Rectangular Sunglasses Classic by Ray-Ban. These glasses feature a medium glossy black metal full-rim frame with a rectangular shape. They have medium rectangular G-15-green sunglasses lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, outdoor, driving, fits round, oval, heart face shapes. priced at 584.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3832 Aviator Gold Classic Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop G-15-green sunglasses lenses. The overall look is classic, casual, minimalist style, designed for men, suitable for everyday, outdoor, driving, fits round, oval, heart face shapes. priced at 584.0 ILS, currently in stock."
     },
     {
       "id": "erroca_050",
-      "name": "Ray-Ban RB3775M Black Oval Sunglasses",
+      "name": "Ray-Ban RB3775M Aviator Black Sunglasses",
       "image": "images/erroca_mens_050.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "black"
           ],
           "thickness": "thin",
-          "finish": "matte",
+          "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -2696,7 +2703,7 @@
           "color": [
             "gray"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2726,15 +2733,15 @@
           "sku": "RB3775M-BLK"
         }
       },
-      "description_auto": "Ray-Ban RB3775M Black Oval Sunglasses by Ray-Ban. These glasses feature a thin matte black metal full-rim frame with a oval shape. They have medium oval gray sunglasses, polarized lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, driving, outdoor, fits square, oblong, diamond face shapes. priced at 909.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3775M Aviator Black Sunglasses by Ray-Ban. These glasses feature a thin glossy black metal full-rim frame with a aviator shape. They have medium teardrop gray sunglasses, polarized lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, driving, outdoor, fits square, oblong, diamond face shapes. priced at 909.0 ILS, currently in stock."
     },
     {
       "id": "erroca_051",
-      "name": "Ray-Ban RB3774D Gold Oval Sunglasses",
+      "name": "Ray-Ban RB3774D Aviator Gold Sunglasses",
       "image": "images/erroca_mens_051.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
@@ -2748,9 +2755,9 @@
             "sunglasses"
           ],
           "color": [
-            "B-15-brown"
+            "G-15-green"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2780,18 +2787,18 @@
           "sku": "RB3774D-GOLD"
         }
       },
-      "description_auto": "Ray-Ban RB3774D Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval B-15-brown sunglasses lenses. The overall look is vintage, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, heart face shapes. priced at 649.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3774D Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop G-15-green sunglasses lenses. The overall look is vintage, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, heart face shapes. priced at 649.0 ILS, currently in stock."
     },
     {
       "id": "erroca_052",
-      "name": "Ray-Ban RB3770 Silver Oval Sunglasses",
+      "name": "Ray-Ban RB3770 Aviator Black Sunglasses",
       "image": "images/erroca_mens_052.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "silver"
+            "black"
           ],
           "thickness": "thin",
           "finish": "glossy",
@@ -2802,9 +2809,9 @@
             "sunglasses"
           ],
           "color": [
-            "blue"
+            "gray"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2834,18 +2841,18 @@
           "sku": "RB3770-SLV"
         }
       },
-      "description_auto": "Ray-Ban RB3770 Silver Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy silver metal full-rim frame with a oval shape. They have medium oval blue sunglasses lenses. The overall look is modern, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3770 Aviator Black Sunglasses by Ray-Ban. These glasses feature a thin glossy black metal full-rim frame with a aviator shape. They have medium teardrop gray sunglasses lenses. The overall look is modern, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
     },
     {
       "id": "erroca_053",
-      "name": "Ray-Ban RB3770 Gold Oval Sunglasses",
+      "name": "Ray-Ban RB3770 Aviator Silver Blue Sunglasses",
       "image": "images/erroca_mens_053.jpg",
       "tags": {
         "frame": {
-          "shape": "oval",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "gold"
+            "silver"
           ],
           "thickness": "thin",
           "finish": "glossy",
@@ -2856,9 +2863,9 @@
             "sunglasses"
           ],
           "color": [
-            "G-15-green"
+            "blue"
           ],
-          "shape": "oval",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2888,7 +2895,7 @@
           "sku": "RB3770-GOLD"
         }
       },
-      "description_auto": "Ray-Ban RB3770 Gold Oval Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, driving, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3770 Aviator Silver Blue Sunglasses by Ray-Ban. These glasses feature a thin glossy silver metal full-rim frame with a aviator shape. They have medium teardrop blue sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, outdoor, driving, fits square, heart, diamond face shapes. priced at 769.0 ILS, currently in stock."
     },
     {
       "id": "erroca_054",
@@ -2899,11 +2906,11 @@
           "shape": "rectangular",
           "material": "metal",
           "color": [
-            "gunmetal"
+            "black"
           ],
           "thickness": "medium",
-          "finish": "matte",
-          "rim_type": "full-rim"
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
@@ -2911,7 +2918,7 @@
             "polarized"
           ],
           "color": [
-            "gray"
+            "mirrored-silver"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2943,21 +2950,21 @@
           "sku": "RB3735-GRY"
         }
       },
-      "description_auto": "Ray-Ban RB3735 Gray Rectangular Sunglasses by Ray-Ban. These glasses feature a medium matte gunmetal metal full-rim frame with a rectangular shape. They have medium rectangular gray sunglasses, polarized lenses. The overall look is modern, sporty, casual style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3735 Gray Rectangular Sunglasses by Ray-Ban. These glasses feature a medium glossy black metal semi-rimless frame with a rectangular shape. They have medium rectangular mirrored-silver sunglasses, polarized lenses. The overall look is modern, sporty, casual style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, heart face shapes. priced at 909.0 ILS, currently in stock."
     },
     {
       "id": "erroca_055",
-      "name": "Ray-Ban RB3671CH Black Chromance Sunglasses",
+      "name": "Ray-Ban RB3671CH Tortoiseshell Chromance Sunglasses",
       "image": "images/erroca_mens_055.jpg",
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "metal",
+          "material": "acetate",
           "color": [
-            "black"
+            "tortoiseshell"
           ],
-          "thickness": "medium",
-          "finish": "matte",
+          "thickness": "thick",
+          "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -2966,7 +2973,7 @@
             "polarized"
           ],
           "color": [
-            "blue"
+            "gray"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2998,20 +3005,20 @@
           "sku": "RB3671CH-BLK"
         }
       },
-      "description_auto": "Ray-Ban RB3671CH Black Chromance Sunglasses by Ray-Ban. These glasses feature a medium matte black metal full-rim frame with a rectangular shape. They have medium rectangular blue sunglasses, polarized lenses. The overall look is sporty, modern, casual style, designed for men, suitable for driving, outdoor, sport, fits round, oval, oblong face shapes. priced at 979.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3671CH Tortoiseshell Chromance Sunglasses by Ray-Ban. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular gray sunglasses, polarized lenses. The overall look is sporty, modern, casual style, designed for men, suitable for driving, outdoor, sport, fits round, oval, oblong face shapes. priced at 979.0 ILS, currently in stock."
     },
     {
       "id": "erroca_056",
-      "name": "Ray-Ban RB2232 Brown Rectangular Sunglasses",
+      "name": "Ray-Ban RB2232 Aviator Gold Sunglasses",
       "image": "images/erroca_mens_056.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "acetate",
+          "shape": "aviator",
+          "material": "metal",
           "color": [
-            "havana-brown"
+            "gold"
           ],
-          "thickness": "thick",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3020,9 +3027,9 @@
             "sunglasses"
           ],
           "color": [
-            "B-15-brown"
+            "brown"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -3052,20 +3059,20 @@
           "sku": "RB2232-BRN"
         }
       },
-      "description_auto": "Ray-Ban RB2232 Brown Rectangular Sunglasses by Ray-Ban. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular B-15-brown sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 899.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB2232 Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have medium teardrop brown sunglasses lenses. The overall look is classic, retro, casual style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 899.0 ILS, currently in stock."
     },
     {
       "id": "erroca_057",
-      "name": "Ray-Ban RB3025 Aviator Gold Sunglasses",
+      "name": "Ray-Ban RB3025 Wayfarer Tortoiseshell Sunglasses",
       "image": "images/erroca_mens_057.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
-          "material": "metal",
+          "shape": "wayfarer",
+          "material": "acetate",
           "color": [
-            "gold"
+            "tortoiseshell"
           ],
-          "thickness": "thin",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3074,9 +3081,9 @@
             "sunglasses"
           ],
           "color": [
-            "G-15-green"
+            "blue"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -3108,20 +3115,20 @@
           "sku": "RB3025-GOLD"
         }
       },
-      "description_auto": "Ray-Ban RB3025 Aviator Gold Sunglasses by Ray-Ban. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop G-15-green sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, driving, outdoor, beach, fits oval, square, heart, universal face shapes. priced at 584.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB3025 Wayfarer Tortoiseshell Sunglasses by Ray-Ban. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have large rectangular blue sunglasses lenses. The overall look is classic, vintage, casual style, designed for men, suitable for everyday, driving, outdoor, beach, fits oval, square, heart, universal face shapes. priced at 584.0 ILS, currently in stock."
     },
     {
       "id": "erroca_058",
-      "name": "Ray-Ban RB2222 Brown Round Sunglasses",
+      "name": "Ray-Ban RB2222 Square Black Sunglasses",
       "image": "images/erroca_mens_058.jpg",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "square",
           "material": "acetate",
           "color": [
-            "havana-brown"
+            "black"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3130,9 +3137,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "gray"
           ],
-          "shape": "round",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -3162,18 +3169,18 @@
           "sku": "RB2222-BRN"
         }
       },
-      "description_auto": "Ray-Ban RB2222 Brown Round Sunglasses by Ray-Ban. These glasses feature a medium glossy havana-brown acetate full-rim frame with a round shape. They have medium round brown sunglasses lenses. The overall look is retro, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, diamond face shapes. priced at 584.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB2222 Square Black Sunglasses by Ray-Ban. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have medium square gray sunglasses lenses. The overall look is retro, vintage, casual style, designed for men, suitable for everyday, outdoor, beach, fits square, oblong, diamond face shapes. priced at 584.0 ILS, currently in stock."
     },
     {
       "id": "erroca_059",
-      "name": "Prada PRA16S Black Square Sunglasses",
+      "name": "Prada PRA16S Rectangular Tortoiseshell Sunglasses",
       "image": "images/erroca_mens_059.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "rectangular",
           "material": "acetate",
           "color": [
-            "black"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3186,7 +3193,7 @@
           "color": [
             "gray"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -3216,18 +3223,19 @@
           "sku": "PRA16S-BLK"
         }
       },
-      "description_auto": "Prada PRA16S Black Square Sunglasses by Prada. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+      "description_auto": "Prada PRA16S Rectangular Tortoiseshell Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have large rectangular gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
     },
     {
       "id": "erroca_060",
-      "name": "Prada PRA08S Brown Sunglasses",
+      "name": "Prada PRA08S Square Green Sunglasses",
       "image": "images/erroca_mens_060.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "square",
           "material": "acetate",
           "color": [
-            "havana-brown"
+            "green",
+            "black"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3238,9 +3246,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "amber"
           ],
-          "shape": "rectangular",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -3270,18 +3278,18 @@
           "sku": "PRA08S-BRN"
         }
       },
-      "description_auto": "Prada PRA08S Brown Sunglasses by Prada. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, heart face shapes. priced at 1119.0 ILS, currently in stock."
+      "description_auto": "Prada PRA08S Square Green Sunglasses by Prada. These glasses feature a thick glossy green, black acetate full-rim frame with a square shape. They have medium square amber sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, heart face shapes. priced at 1119.0 ILS, currently in stock."
     },
     {
       "id": "erroca_061",
-      "name": "Prada PRA16S Brown Blue-Lens Sunglasses",
+      "name": "Prada PRA16S Wayfarer Tortoiseshell Blue-Lens Sunglasses",
       "image": "images/erroca_mens_061.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3294,7 +3302,7 @@
           "color": [
             "blue"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -3324,15 +3332,15 @@
           "sku": "PRA16S-BRN-BLU"
         }
       },
-      "description_auto": "Prada PRA16S Brown Blue-Lens Sunglasses by Prada. These glasses feature a thick glossy havana-brown acetate full-rim frame with a square shape. They have large square blue sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, beach, fits oval, round, heart face shapes. priced at 1679.0 ILS, currently in stock."
+      "description_auto": "Prada PRA16S Wayfarer Tortoiseshell Blue-Lens Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have large rectangular blue sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, beach, fits oval, round, heart face shapes. priced at 1679.0 ILS, currently in stock."
     },
     {
       "id": "erroca_062",
-      "name": "Prada PRA17S Brown Sunglasses",
+      "name": "Prada PRA17S Wayfarer Tortoiseshell Sunglasses",
       "image": "images/erroca_mens_062.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
             "tortoiseshell"
@@ -3378,15 +3386,15 @@
           "sku": "PRA17S-BRN"
         }
       },
-      "description_auto": "Prada PRA17S Brown Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, oblong face shapes. priced at 1469.0 ILS, currently in stock."
+      "description_auto": "Prada PRA17S Wayfarer Tortoiseshell Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have medium rectangular brown sunglasses lenses. The overall look is luxury, classic, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, oblong face shapes. priced at 1469.0 ILS, currently in stock."
     },
     {
       "id": "erroca_063",
-      "name": "Prada PRA17S Brown Polarized Sunglasses",
+      "name": "Prada PRA17S Wayfarer Tortoiseshell Polarized Sunglasses",
       "image": "images/erroca_mens_063.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
             "tortoiseshell"
@@ -3401,7 +3409,7 @@
             "polarized"
           ],
           "color": [
-            "brown"
+            "blue"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -3433,20 +3441,20 @@
           "sku": "PRA17S-BRN-POL"
         }
       },
-      "description_auto": "Prada PRA17S Brown Polarized Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses, polarized lenses. The overall look is luxury, classic, professional style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, oblong face shapes. priced at 1679.0 ILS, currently in stock."
+      "description_auto": "Prada PRA17S Wayfarer Tortoiseshell Polarized Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have medium rectangular blue sunglasses, polarized lenses. The overall look is luxury, classic, professional style, designed for men, suitable for driving, everyday, outdoor, fits round, oval, oblong face shapes. priced at 1679.0 ILS, currently in stock."
     },
     {
       "id": "erroca_064",
-      "name": "Tom Ford FT1178 Black Sunglasses",
+      "name": "Tom Ford FT1178 Aviator Black Sunglasses",
       "image": "images/erroca_mens_064.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "acetate",
+          "shape": "aviator",
+          "material": "metal",
           "color": [
             "black"
           ],
-          "thickness": "thick",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3457,7 +3465,7 @@
           "color": [
             "gray"
           ],
-          "shape": "square",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {
@@ -3487,29 +3495,30 @@
           "sku": "FT1178-BLK"
         }
       },
-      "description_auto": "Tom Ford FT1178 Black Sunglasses by Tom Ford. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+      "description_auto": "Tom Ford FT1178 Aviator Black Sunglasses by Tom Ford. These glasses feature a thin glossy black metal full-rim frame with a aviator shape. They have large teardrop gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
     },
     {
       "id": "erroca_065",
-      "name": "Tom Ford FT1119 Brown Green-Lens Sunglasses",
+      "name": "Tom Ford FT1119 Browline Tortoiseshell Rose-Gold Sunglasses",
       "image": "images/erroca_mens_065.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "acetate",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell",
+            "rose-gold"
           ],
-          "thickness": "thick",
+          "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "green"
+            "blue"
           ],
           "shape": "rectangular",
           "size": "large"
@@ -3541,29 +3550,30 @@
           "sku": "FT1119-BRN-GRN"
         }
       },
-      "description_auto": "Tom Ford FT1119 Brown Green-Lens Sunglasses by Tom Ford. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have large rectangular green sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
+      "description_auto": "Tom Ford FT1119 Browline Tortoiseshell Rose-Gold Sunglasses by Tom Ford. These glasses feature a medium glossy tortoiseshell, rose-gold mixed-metal-acetate semi-rimless frame with a browline shape. They have large rectangular blue sunglasses lenses. The overall look is luxury, classic, fashion-forward style, designed for men, suitable for fashion, everyday, driving, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
     },
     {
       "id": "erroca_066",
-      "name": "Tom Ford FT1119 Brown Sunglasses",
+      "name": "Tom Ford FT1119 Browline Tortoiseshell Rose-Gold Sunglasses Light",
       "image": "images/erroca_mens_066.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "acetate",
+          "shape": "browline",
+          "material": "mixed-metal-acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell",
+            "rose-gold"
           ],
-          "thickness": "thick",
+          "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "clear"
           ],
           "shape": "rectangular",
           "size": "large"
@@ -3595,7 +3605,7 @@
           "sku": "FT1119-BRN"
         }
       },
-      "description_auto": "Tom Ford FT1119 Brown Sunglasses by Tom Ford. These glasses feature a thick glossy havana-brown acetate full-rim frame with a rectangular shape. They have large rectangular brown sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, formal, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
+      "description_auto": "Tom Ford FT1119 Browline Tortoiseshell Rose-Gold Sunglasses Light by Tom Ford. These glasses feature a medium glossy tortoiseshell, rose-gold mixed-metal-acetate semi-rimless frame with a browline shape. They have large rectangular clear sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, formal, fits round, oval, square face shapes. priced at 1889.0 ILS, currently in stock."
     },
     {
       "id": "erroca_067",
@@ -3606,7 +3616,8 @@
           "shape": "square",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "tortoiseshell",
+            "black"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3617,7 +3628,7 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "amber"
           ],
           "shape": "square",
           "size": "large"
@@ -3649,18 +3660,18 @@
           "sku": "PRA05S-BRN"
         }
       },
-      "description_auto": "Prada PRA05S Brown Square Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1399.0 ILS, currently in stock."
+      "description_auto": "Prada PRA05S Brown Square Sunglasses by Prada. These glasses feature a thick glossy tortoiseshell, black acetate full-rim frame with a square shape. They have large square amber sunglasses lenses. The overall look is luxury, classic, bold style, designed for men, suitable for fashion, everyday, driving, fits oval, round, heart face shapes. priced at 1399.0 ILS, currently in stock."
     },
     {
       "id": "erroca_068",
-      "name": "Ray-Ban RB0840S Brown Square Sunglasses",
+      "name": "Ray-Ban RB0840S Wayfarer Tortoiseshell Sunglasses",
       "image": "images/erroca_mens_068.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3671,9 +3682,9 @@
             "sunglasses"
           ],
           "color": [
-            "green"
+            "brown"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -3703,20 +3714,20 @@
           "sku": "RB0840S-BRN"
         }
       },
-      "description_auto": "Ray-Ban RB0840S Brown Square Sunglasses by Ray-Ban. These glasses feature a thick glossy havana-brown acetate full-rim frame with a square shape. They have medium square green sunglasses lenses. The overall look is retro, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "Ray-Ban RB0840S Wayfarer Tortoiseshell Sunglasses by Ray-Ban. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a wayfarer shape. They have medium rectangular brown sunglasses lenses. The overall look is retro, classic, casual style, designed for men, suitable for everyday, outdoor, beach, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_069",
-      "name": "David Beckham DB1139 Yellow Aviator Sunglasses",
+      "name": "David Beckham DB1139 Round Tortoiseshell Sunglasses",
       "image": "images/erroca_mens_069.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
-          "material": "metal",
+          "shape": "round",
+          "material": "acetate",
           "color": [
-            "gold"
+            "tortoiseshell"
           ],
-          "thickness": "thin",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3727,7 +3738,7 @@
           "color": [
             "blue"
           ],
-          "shape": "teardrop",
+          "shape": "round",
           "size": "large"
         },
         "style": {
@@ -3757,15 +3768,15 @@
           "sku": "DB1139-YLW"
         }
       },
-      "description_auto": "David Beckham DB1139 Yellow Aviator Sunglasses by David Beckham. These glasses feature a thin glossy gold metal full-rim frame with a aviator shape. They have large teardrop blue sunglasses lenses. The overall look is classic, fashion-forward, bold style, designed for men, suitable for fashion, everyday, beach, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
+      "description_auto": "David Beckham DB1139 Round Tortoiseshell Sunglasses by David Beckham. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a round shape. They have large round blue sunglasses lenses. The overall look is classic, fashion-forward, bold style, designed for men, suitable for fashion, everyday, beach, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
     },
     {
       "id": "erroca_070",
-      "name": "David Beckham DB1139 Clear Aviator Sunglasses",
+      "name": "David Beckham DB1139 Round Silver Sunglasses",
       "image": "images/erroca_mens_070.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "round",
           "material": "metal",
           "color": [
             "silver"
@@ -3779,9 +3790,9 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "brown"
           ],
-          "shape": "teardrop",
+          "shape": "round",
           "size": "large"
         },
         "style": {
@@ -3811,20 +3822,21 @@
           "sku": "DB1139-CLR"
         }
       },
-      "description_auto": "David Beckham DB1139 Clear Aviator Sunglasses by David Beckham. These glasses feature a thin glossy silver metal full-rim frame with a aviator shape. They have large teardrop gray sunglasses lenses. The overall look is classic, minimalist, casual style, designed for men, suitable for everyday, driving, outdoor, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
+      "description_auto": "David Beckham DB1139 Round Silver Sunglasses by David Beckham. These glasses feature a thin glossy silver metal full-rim frame with a round shape. They have large round brown sunglasses lenses. The overall look is classic, minimalist, casual style, designed for men, suitable for everyday, driving, outdoor, fits oval, square, heart face shapes. priced at 769.0 ILS, currently in stock."
     },
     {
       "id": "erroca_071",
-      "name": "David Beckham DB1007 Black Green-Lens Sunglasses",
+      "name": "David Beckham DB1007 Round Black Gold Sunglasses",
       "image": "images/erroca_mens_071.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "acetate",
+          "shape": "round",
+          "material": "mixed-metal-acetate",
           "color": [
-            "black"
+            "black",
+            "gold"
           ],
-          "thickness": "thick",
+          "thickness": "medium",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3833,9 +3845,9 @@
             "sunglasses"
           ],
           "color": [
-            "green"
+            "gradient-gray"
           ],
-          "shape": "rectangular",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -3865,17 +3877,18 @@
           "sku": "DB1007-BLK"
         }
       },
-      "description_auto": "David Beckham DB1007 Black Green-Lens Sunglasses by David Beckham. These glasses feature a thick glossy black acetate full-rim frame with a rectangular shape. They have medium rectangular green sunglasses lenses. The overall look is classic, bold, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, heart face shapes. priced at 769.0 ILS, currently in stock."
+      "description_auto": "David Beckham DB1007 Round Black Gold Sunglasses by David Beckham. These glasses feature a medium glossy black, gold mixed-metal-acetate full-rim frame with a round shape. They have medium round gradient-gray sunglasses lenses. The overall look is classic, bold, professional style, designed for men, suitable for everyday, driving, formal, fits round, oval, heart face shapes. priced at 769.0 ILS, currently in stock."
     },
     {
       "id": "erroca_072",
-      "name": "David Beckham DB1160 Brown Blue-Lens Sunglasses",
+      "name": "David Beckham DB1160 Round Black Brown Sunglasses",
       "image": "images/erroca_mens_072.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
-          "material": "acetate",
+          "shape": "round",
+          "material": "mixed-metal-acetate",
           "color": [
+            "black",
             "havana-brown"
           ],
           "thickness": "medium",
@@ -3889,7 +3902,7 @@
           "color": [
             "blue"
           ],
-          "shape": "rectangular",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -3919,31 +3932,32 @@
           "sku": "DB1160-BRN"
         }
       },
-      "description_auto": "David Beckham DB1160 Brown Blue-Lens Sunglasses by David Beckham. These glasses feature a medium glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular blue sunglasses lenses. The overall look is modern, casual, fashion-forward style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
+      "description_auto": "David Beckham DB1160 Round Black Brown Sunglasses by David Beckham. These glasses feature a medium glossy black, havana-brown mixed-metal-acetate full-rim frame with a round shape. They have medium round blue sunglasses lenses. The overall look is modern, casual, fashion-forward style, designed for men, suitable for everyday, outdoor, beach, fits round, oval, heart face shapes. priced at 699.0 ILS, currently in stock."
     },
     {
       "id": "erroca_073",
-      "name": "Gucci SL738S Black Sunglasses",
+      "name": "Gucci SL738S Rectangular Silver Sunglasses",
       "image": "images/erroca_mens_073.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
-          "material": "acetate",
+          "shape": "rectangular",
+          "material": "mixed-metal-acetate",
           "color": [
-            "black"
+            "white",
+            "silver"
           ],
-          "thickness": "thick",
+          "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "mirrored-silver"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -3973,20 +3987,20 @@
           "sku": "SL738S-BLK"
         }
       },
-      "description_auto": "Gucci SL738S Black Sunglasses by Gucci. These glasses feature a thick glossy black acetate full-rim frame with a square shape. They have large square brown sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1959.0 ILS, currently in stock."
+      "description_auto": "Gucci SL738S Rectangular Silver Sunglasses by Gucci. These glasses feature a medium glossy white, silver mixed-metal-acetate semi-rimless frame with a rectangular shape. They have large rectangular mirrored-silver sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for men, suitable for fashion, everyday, formal, fits oval, round, heart face shapes. priced at 1959.0 ILS, currently in stock."
     },
     {
       "id": "erroca_074",
-      "name": "Balenciaga BB0328S Gold Sunglasses",
+      "name": "Balenciaga BB0328S Rectangular Green Sunglasses",
       "image": "images/erroca_mens_074.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
-          "material": "metal",
+          "shape": "rectangular",
+          "material": "acetate",
           "color": [
-            "gold"
+            "green"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3995,9 +4009,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "green"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "oversized"
         },
         "style": {
@@ -4027,7 +4041,7 @@
           "sku": "BB0328S-GOLD"
         }
       },
-      "description_auto": "Balenciaga BB0328S Gold Sunglasses by Balenciaga. These glasses feature a medium glossy gold metal full-rim frame with a aviator shape. They have oversized teardrop brown sunglasses lenses. The overall look is luxury, bold, fashion-forward, streetwear style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1539.0 ILS, currently in stock."
+      "description_auto": "Balenciaga BB0328S Rectangular Green Sunglasses by Balenciaga. These glasses feature a thick glossy green acetate full-rim frame with a rectangular shape. They have oversized rectangular green sunglasses lenses. The overall look is luxury, bold, fashion-forward, streetwear style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1539.0 ILS, currently in stock."
     },
     {
       "id": "erroca_075",
