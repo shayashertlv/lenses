@@ -17,8 +17,10 @@ from PIL import Image
 from UI.config import (
     CATALOG_DIR,
     CATALOG_JSON,
+    DEFAULT_GENERATION_MODEL,
     EMBEDDINGS_NPY,
     EMBEDDING_INDEX_JSON,
+    FACE_ANALYSIS_DIR,
     FS_EMBEDDING_MODEL,
     FS_MIN_SIMILARITY,
     FS_MODEL_MAP,
@@ -26,6 +28,28 @@ from UI.config import (
     FS_MAX_IMAGE_DIM,
     sessions,
 )
+
+
+def _get_api_key() -> str:
+    """Get the Gemini API key directly from os.environ (no sys.path dependency)."""
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            load_dotenv(FACE_ANALYSIS_DIR.parent / ".env")
+            key = os.environ.get("GEMINI_API_KEY", "")
+        except ImportError:
+            pass
+    if not key:
+        raise RuntimeError(
+            "GEMINI_API_KEY environment variable is not set.\n"
+            "Get your API key from: https://aistudio.google.com/apikey\n"
+            "Then set it:\n"
+            "  export GEMINI_API_KEY='your-key-here'  (Linux/Mac)\n"
+            "  set GEMINI_API_KEY=your-key-here       (Windows)"
+        )
+    return key
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -52,8 +76,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
 
     try:
-        from config import get_api_key, DEFAULT_GENERATION_MODEL
-        api_key = get_api_key()
+        api_key = _get_api_key()
     except Exception as e:
         sess["status"] = "error"
         sess["error"] = str(e)
@@ -364,10 +387,8 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
 
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
 
-    # API key (use face_analysis config since it's in sys.path)
     try:
-        from config import get_api_key
-        api_key = get_api_key()
+        api_key = _get_api_key()
     except Exception as e:
         sess["status"] = "error"
         sess["error"] = str(e)

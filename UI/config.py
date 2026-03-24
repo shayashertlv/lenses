@@ -29,5 +29,8 @@ FS_MODEL_MAP = {
 FS_DEFAULT_MODEL = "nano-banana-2"
 FS_MAX_IMAGE_DIM = 4096
 
+# Default generation model alias (used by Smart Fit pipeline)
+DEFAULT_GENERATION_MODEL = "nano-banana-pro"
+
 # ── In-memory session store ──────────────────────────────────────────────────
 sessions: dict[str, dict] = {}
