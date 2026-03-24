@@ -1,7 +1,7 @@
 {
   "catalog_version": "2.0",
-  "last_updated": "2026-03-24T18:00:00Z",
-  "source": "erroca.co.il — Men's Eyeglasses & Sunglasses",
+  "last_updated": "2026-03-24T17:05:30Z",
+  "source": "erroca.co.il — Men's & Women's Eyeglasses & Sunglasses",
   "products": [
     {
       "id": "erroca_001",
@@ -4028,6 +4028,4040 @@
         }
       },
       "description_auto": "Balenciaga BB0328S Gold Sunglasses by Balenciaga. These glasses feature a medium glossy gold metal full-rim frame with a aviator shape. They have oversized teardrop brown sunglasses lenses. The overall look is luxury, bold, fashion-forward, streetwear style, designed for men, suitable for fashion, everyday, fits oval, square, oblong face shapes. priced at 1539.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_075",
+      "name": "Vogue Eyewear VO5603 Cat-Eye",
+      "image": "images/erroca_womens_eyeglasses_001.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "fashion-forward",
+            "casual",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "square"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO5603",
+          "price": 399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5603-W44"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO5603 Cat-Eye by Vogue Eyewear. These glasses feature a thin glossy transparent acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is fashion-forward, casual, modern style, designed for women, suitable for everyday, fashion, fits oval, heart, square face shapes. priced at 399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_076",
+      "name": "Vogue Eyewear VO5518 Rectangular",
+      "image": "images/erroca_womens_eyeglasses_002.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "modern",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO5518",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5518-2942"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO5518 Rectangular by Vogue Eyewear. These glasses feature a thin glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, modern, professional style, designed for women, suitable for everyday, office, fits oval, round, heart face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_077",
+      "name": "Vogue Eyewear VO5563 Cat-Eye Pink",
+      "image": "images/erroca_womens_eyeglasses_003.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "pink",
+            "transparent"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "fashion-forward",
+            "bohemian",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO5563",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5563-W44"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO5563 Cat-Eye Pink by Vogue Eyewear. These glasses feature a thin glossy pink, transparent acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is fashion-forward, bohemian, casual style, designed for women, suitable for everyday, fashion, fits oval, heart, oblong face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_078",
+      "name": "Vogue Eyewear VO4333 Round Gold",
+      "image": "images/erroca_womens_eyeglasses_004.webp",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "small"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "bohemian",
+            "retro"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO4333",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO4333-848"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO4333 Round Gold by Vogue Eyewear. These glasses feature a thin brushed gold metal full-rim frame with a round shape. They have small round clear clear, prescription-ready lenses. The overall look is vintage, bohemian, retro style, designed for women, suitable for everyday, fashion, fits oval, square, oblong face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_079",
+      "name": "Vogue Eyewear VO5239 Cat-Eye Multicolor",
+      "image": "images/erroca_womens_eyeglasses_005.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "multicolor"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "fashion-forward",
+            "bold",
+            "artsy"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "square"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO5239",
+          "price": 599.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5239-2735"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO5239 Cat-Eye Multicolor by Vogue Eyewear. These glasses feature a thin glossy multicolor acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is fashion-forward, bold, artsy style, designed for women, suitable for everyday, fashion, fits oval, heart, square face shapes. priced at 599.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_080",
+      "name": "Prada PR A57V Rectangular Luxury",
+      "image": "images/erroca_womens_eyeglasses_006.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black",
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "professional",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR A57V",
+          "price": 1499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA57V"
+        }
+      },
+      "description_auto": "Prada PR A57V Rectangular Luxury by Prada. These glasses feature a medium glossy black, tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, professional, modern style, designed for women, suitable for office, formal, everyday, fits oval, round, heart face shapes. priced at 1499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_081",
+      "name": "Vogue Eyewear VO5632B Butterfly",
+      "image": "images/erroca_womens_eyeglasses_007.webp",
+      "tags": {
+        "frame": {
+          "shape": "butterfly",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "fashion-forward",
+            "vintage",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO5632B",
+          "price": 599.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO5632B-2990"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO5632B Butterfly by Vogue Eyewear. These glasses feature a thin glossy tortoiseshell acetate full-rim frame with a butterfly shape. They have medium oval clear clear, prescription-ready lenses. The overall look is fashion-forward, vintage, bold style, designed for women, suitable for everyday, fashion, fits oval, square, oblong face shapes. priced at 599.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_082",
+      "name": "Vogue Eyewear VO4333 Round Rose Gold",
+      "image": "images/erroca_womens_eyeglasses_008.webp",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "rose-gold"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "small"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "bohemian",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO4333",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO4333-5138"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO4333 Round Rose Gold by Vogue Eyewear. These glasses feature a thin brushed rose-gold metal full-rim frame with a round shape. They have small round clear clear, prescription-ready lenses. The overall look is vintage, bohemian, casual style, designed for women, suitable for everyday, fashion, fits oval, square, oblong face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_083",
+      "name": "Prada PR A16V Cat-Eye Black",
+      "image": "images/erroca_womens_eyeglasses_009.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR A16V",
+          "price": 1499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRA16V"
+        }
+      },
+      "description_auto": "Prada PR A16V Cat-Eye Black by Prada. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, fashion-forward, bold style, designed for women, suitable for fashion, formal, everyday, fits oval, round, oblong face shapes. priced at 1499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_084",
+      "name": "Vogue Eyewear VO4334 Round Gold",
+      "image": "images/erroca_womens_eyeglasses_010.webp",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "round",
+          "size": "small"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "minimalist",
+            "classic"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Vogue Eyewear",
+          "model_name": "VO4334",
+          "price": 499.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VO4334-5210"
+        }
+      },
+      "description_auto": "Vogue Eyewear VO4334 Round Gold by Vogue Eyewear. These glasses feature a thin brushed gold metal full-rim frame with a round shape. They have small round clear clear, prescription-ready lenses. The overall look is vintage, minimalist, classic style, designed for women, suitable for everyday, office, fits oval, square, oblong face shapes. priced at 499.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_085",
+      "name": "Ray-Ban RX6513 Rectangular Metal",
+      "image": "images/erroca_womens_eyeglasses_011.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "minimalist",
+            "professional",
+            "classic"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6513",
+          "price": 999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6513-2904"
+        }
+      },
+      "description_auto": "Ray-Ban RX6513 Rectangular Metal by Ray-Ban. These glasses feature a thin brushed silver metal semi-rimless frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is minimalist, professional, classic style, designed for women, suitable for office, everyday, fits oval, heart, oblong face shapes. priced at 999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_086",
+      "name": "Prada PR 02ZV Rectangular Black",
+      "image": "images/erroca_womens_eyeglasses_012.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "professional",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR 02ZV",
+          "price": 1099.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR02ZV"
+        }
+      },
+      "description_auto": "Prada PR 02ZV Rectangular Black by Prada. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, professional, modern style, designed for women, suitable for office, formal, everyday, fits oval, round, heart face shapes. priced at 1099.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_087",
+      "name": "Prada PR 11YV Cat-Eye Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_013.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "classic"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR 11YV",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR11YV-v1"
+        }
+      },
+      "description_auto": "Prada PR 11YV Cat-Eye Tortoiseshell by Prada. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, fashion-forward, classic style, designed for women, suitable for fashion, everyday, office, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_088",
+      "name": "Prada PR 15ZV Cat-Eye Black",
+      "image": "images/erroca_womens_eyeglasses_014.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "fashion",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR 15ZV",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR15ZV-v1"
+        }
+      },
+      "description_auto": "Prada PR 15ZV Cat-Eye Black by Prada. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, bold, modern style, designed for women, suitable for fashion, formal, everyday, fits oval, heart, round face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_089",
+      "name": "Prada PR 11YV Cat-Eye Transparent",
+      "image": "images/erroca_womens_eyeglasses_015.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "minimalist",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR 11YV",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR11YV-v2"
+        }
+      },
+      "description_auto": "Prada PR 11YV Cat-Eye Transparent by Prada. These glasses feature a medium glossy transparent acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, minimalist, modern style, designed for women, suitable for everyday, fashion, fits oval, square, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_090",
+      "name": "Prada PR 15ZV Cat-Eye Silver",
+      "image": "images/erroca_womens_eyeglasses_016.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "mixed-metal-acetate",
+          "color": [
+            "silver",
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR 15ZV",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR15ZV-v2"
+        }
+      },
+      "description_auto": "Prada PR 15ZV Cat-Eye Silver by Prada. These glasses feature a medium matte silver, transparent mixed-metal-acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, modern, fashion-forward style, designed for women, suitable for fashion, everyday, fits oval, heart, round face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_091",
+      "name": "Versace VE3367U Cat-Eye Gold",
+      "image": "images/erroca_womens_eyeglasses_017.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3367U",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3367U-GB1"
+        }
+      },
+      "description_auto": "Versace VE3367U Cat-Eye Gold by Versace. These glasses feature a thin glossy gold metal full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, fashion-forward, bold style, designed for women, suitable for fashion, formal, everyday, fits oval, round, oblong face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_092",
+      "name": "Versace VE1247 Oval Gold",
+      "image": "images/erroca_womens_eyeglasses_018.webp",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE1247",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE1247-1252"
+        }
+      },
+      "description_auto": "Versace VE1247 Oval Gold by Versace. These glasses feature a thin glossy gold metal full-rim frame with a oval shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, classic, professional style, designed for women, suitable for office, formal, everyday, fits oval, square, heart face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_093",
+      "name": "Versace VE1298 Rectangular Gold",
+      "image": "images/erroca_womens_eyeglasses_019.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gold",
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE1298",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE1298-1252"
+        }
+      },
+      "description_auto": "Versace VE1298 Rectangular Gold by Versace. These glasses feature a medium glossy gold, black metal full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, bold, modern style, designed for women, suitable for office, formal, everyday, fits oval, round, heart face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_094",
+      "name": "Dolce & Gabbana DG1346 Cat-Eye Black Gold",
+      "image": "images/erroca_womens_eyeglasses_020.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black",
+            "gold"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Dolce & Gabbana",
+          "model_name": "DG1346",
+          "price": 1199.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DG1346-1311"
+        }
+      },
+      "description_auto": "Dolce & Gabbana DG1346 Cat-Eye Black Gold by Dolce & Gabbana. These glasses feature a medium glossy black, gold acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for fashion, formal, everyday, fits oval, round, heart face shapes. priced at 1199.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_095",
+      "name": "Miu Miu MU 04WV Cat-Eye Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_021.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "vintage"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 04WV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU04WV-brown"
+        }
+      },
+      "description_auto": "Miu Miu MU 04WV Cat-Eye Tortoiseshell by Miu Miu. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, fashion-forward, vintage style, designed for women, suitable for fashion, everyday, fits oval, heart, oblong face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_096",
+      "name": "Versace VE3353 Rectangular Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_022.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3353",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3353-108"
+        }
+      },
+      "description_auto": "Versace VE3353 Rectangular Tortoiseshell by Versace. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, classic, professional style, designed for women, suitable for office, everyday, fits oval, round, heart face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_097",
+      "name": "Versace VE3294 Cat-Eye Gold",
+      "image": "images/erroca_womens_eyeglasses_023.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3294",
+          "price": 999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3294"
+        }
+      },
+      "description_auto": "Versace VE3294 Cat-Eye Gold by Versace. These glasses feature a thin glossy gold metal full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, fashion-forward, modern style, designed for women, suitable for fashion, everyday, fits oval, round, oblong face shapes. priced at 999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_098",
+      "name": "Versace VE3347 Cat-Eye Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_024.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE3347",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE3347-5435"
+        }
+      },
+      "description_auto": "Versace VE3347 Cat-Eye Tortoiseshell by Versace. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, classic, bold style, designed for women, suitable for fashion, everyday, office, fits oval, heart, oblong face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_099",
+      "name": "Dolce & Gabbana DG3360 Oval Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_025.webp",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "vintage"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Dolce & Gabbana",
+          "model_name": "DG3360",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DG3360-3246"
+        }
+      },
+      "description_auto": "Dolce & Gabbana DG3360 Oval Tortoiseshell by Dolce & Gabbana. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a oval shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, classic, vintage style, designed for women, suitable for everyday, office, fits oval, square, oblong face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_100",
+      "name": "Ray-Ban RX6335 Rectangular Metal Silver",
+      "image": "images/erroca_womens_eyeglasses_026.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "minimalist",
+            "professional",
+            "classic"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX6335",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX6335"
+        }
+      },
+      "description_auto": "Ray-Ban RX6335 Rectangular Metal Silver by Ray-Ban. These glasses feature a thin brushed silver metal full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is minimalist, professional, classic style, designed for women, suitable for office, everyday, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_101",
+      "name": "Ray-Ban RX8416 Titanium Rectangular",
+      "image": "images/erroca_womens_eyeglasses_027.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "titanium",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "minimalist",
+            "professional",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX8416",
+          "price": 999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX8416"
+        }
+      },
+      "description_auto": "Ray-Ban RX8416 Titanium Rectangular by Ray-Ban. These glasses feature a thin brushed silver titanium full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is minimalist, professional, modern style, designed for women, suitable for office, everyday, fits oval, heart, round face shapes. priced at 999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_102",
+      "name": "Ray-Ban RX7047 Rectangular Black",
+      "image": "images/erroca_womens_eyeglasses_028.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "plastic",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "office"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX7047",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX7047"
+        }
+      },
+      "description_auto": "Ray-Ban RX7047 Rectangular Black by Ray-Ban. These glasses feature a medium glossy black plastic full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, casual, professional style, designed for women, suitable for everyday, office, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_103",
+      "name": "Ray-Ban RX5441 Rectangular Acetate Black",
+      "image": "images/erroca_womens_eyeglasses_029.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RX5441",
+          "price": 699.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RX5441-2000"
+        }
+      },
+      "description_auto": "Ray-Ban RX5441 Rectangular Acetate Black by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is classic, casual, modern style, designed for women, suitable for everyday, casual, fits oval, round, heart face shapes. priced at 699.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_104",
+      "name": "Miu Miu MU 53WV Square Acetate Black",
+      "image": "images/erroca_womens_eyeglasses_030.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 53WV",
+          "price": 1999.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU53WV"
+        }
+      },
+      "description_auto": "Miu Miu MU 53WV Square Acetate Black by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is luxury, bold, modern style, designed for women, suitable for fashion, everyday, fits oval, oblong, heart face shapes. priced at 1999.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_105",
+      "name": "Miu Miu MU 03WV Cat-Eye Tortoiseshell",
+      "image": "images/erroca_womens_eyeglasses_031.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "vintage",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 03WV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU03WV"
+        }
+      },
+      "description_auto": "Miu Miu MU 03WV Cat-Eye Tortoiseshell by Miu Miu. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, vintage, fashion-forward style, designed for women, suitable for fashion, everyday, fits oval, heart, oblong face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_106",
+      "name": "Miu Miu MU 07XV Rectangular Havana",
+      "image": "images/erroca_womens_eyeglasses_032.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 07XV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU07XV-brown"
+        }
+      },
+      "description_auto": "Miu Miu MU 07XV Rectangular Havana by Miu Miu. These glasses feature a medium glossy havana-brown acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, classic, professional style, designed for women, suitable for office, everyday, fits oval, round, heart face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_107",
+      "name": "Miu Miu MU 07XV Rectangular Black",
+      "image": "images/erroca_womens_eyeglasses_033.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "minimalist",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 07XV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU07XV-black"
+        }
+      },
+      "description_auto": "Miu Miu MU 07XV Rectangular Black by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, minimalist, modern style, designed for women, suitable for office, everyday, fits oval, round, heart face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_108",
+      "name": "Miu Miu MU 04UV Oval Transparent",
+      "image": "images/erroca_womens_eyeglasses_034.webp",
+      "tags": {
+        "frame": {
+          "shape": "oval",
+          "material": "acetate",
+          "color": [
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "minimalist",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 04UV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU04UV"
+        }
+      },
+      "description_auto": "Miu Miu MU 04UV Oval Transparent by Miu Miu. These glasses feature a medium glossy transparent acetate full-rim frame with a oval shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, minimalist, modern style, designed for women, suitable for everyday, fashion, fits oval, square, oblong face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_109",
+      "name": "Miu Miu MU 02WV Cat-Eye Black",
+      "image": "images/erroca_womens_eyeglasses_035.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "fashion",
+            "formal",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 02WV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU02WV"
+        }
+      },
+      "description_auto": "Miu Miu MU 02WV Cat-Eye Black by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for fashion, formal, everyday, fits oval, heart, round face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_110",
+      "name": "Miu Miu MU 09XV Rectangular Silver",
+      "image": "images/erroca_womens_eyeglasses_036.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "mixed-metal-acetate",
+          "color": [
+            "silver",
+            "transparent"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "minimalist"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "office",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 09XV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU09XV"
+        }
+      },
+      "description_auto": "Miu Miu MU 09XV Rectangular Silver by Miu Miu. These glasses feature a medium glossy silver, transparent mixed-metal-acetate full-rim frame with a rectangular shape. They have medium rectangular clear clear, prescription-ready lenses. The overall look is luxury, modern, minimalist style, designed for women, suitable for office, fashion, fits oval, round, heart face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_111",
+      "name": "Miu Miu MU 04WV Cat-Eye Black",
+      "image": "images/erroca_womens_eyeglasses_037.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "clear",
+            "prescription-ready"
+          ],
+          "color": [
+            "clear"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU 04WV",
+          "price": 1799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU04WV-black"
+        }
+      },
+      "description_auto": "Miu Miu MU 04WV Cat-Eye Black by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval clear clear, prescription-ready lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for fashion, everyday, fits oval, heart, oblong face shapes. priced at 1799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_112",
+      "name": "Prada PRS C05S Cat-Eye Sunglasses Black",
+      "image": "images/erroca_womens_sunglasses_001.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRS C05S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRSC05S-v1"
+        }
+      },
+      "description_auto": "Prada PRS C05S Cat-Eye Sunglasses Black by Prada. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval brown sunglasses, polarized lenses. The overall look is luxury, fashion-forward, bold style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, oblong face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_113",
+      "name": "Miu Miu MUA56S Cat-Eye Gold Sunglasses",
+      "image": "images/erroca_womens_sunglasses_002.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "vintage"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MUA56S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MUA56S-v1"
+        }
+      },
+      "description_auto": "Miu Miu MUA56S Cat-Eye Gold Sunglasses by Miu Miu. These glasses feature a thin glossy gold metal full-rim frame with a cat-eye shape. They have medium oval brown sunglasses, gradient lenses. The overall look is luxury, fashion-forward, vintage style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, round face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_114",
+      "name": "Miu Miu MUA56S Cat-Eye Gold Brown Sunglasses",
+      "image": "images/erroca_womens_sunglasses_003.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "metal",
+          "color": [
+            "gold",
+            "tortoiseshell"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bohemian"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MUA56S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MUA56S-v2"
+        }
+      },
+      "description_auto": "Miu Miu MUA56S Cat-Eye Gold Brown Sunglasses by Miu Miu. These glasses feature a thin glossy gold, tortoiseshell metal full-rim frame with a cat-eye shape. They have medium oval gradient-brown sunglasses, gradient lenses. The overall look is luxury, fashion-forward, bohemian style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, oblong face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_115",
+      "name": "Miu Miu MUA56S Cat-Eye Gold Rose Sunglasses",
+      "image": "images/erroca_womens_sunglasses_004.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "metal",
+          "color": [
+            "rose-gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "rose"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "preppy"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MUA56S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MUA56S-v3"
+        }
+      },
+      "description_auto": "Miu Miu MUA56S Cat-Eye Gold Rose Sunglasses by Miu Miu. These glasses feature a thin glossy rose-gold metal full-rim frame with a cat-eye shape. They have medium oval rose sunglasses, gradient lenses. The overall look is luxury, fashion-forward, preppy style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, round face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_116",
+      "name": "Versace VE2274 Square Gold Sunglasses",
+      "image": "images/erroca_womens_sunglasses_005.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2274",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2274-gold"
+        }
+      },
+      "description_auto": "Versace VE2274 Square Gold Sunglasses by Versace. These glasses feature a thin glossy gold metal full-rim frame with a square shape. They have large square gradient-gray sunglasses, gradient lenses. The overall look is luxury, bold, modern style, designed for women, suitable for outdoor, fashion, beach, fits oval, oblong, heart face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_117",
+      "name": "Versace VE4501 Rectangular Havana Sunglasses",
+      "image": "images/erroca_womens_sunglasses_006.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "classic",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "driving",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE4501",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE4501"
+        }
+      },
+      "description_auto": "Versace VE4501 Rectangular Havana Sunglasses by Versace. These glasses feature a medium glossy havana-brown acetate full-rim frame with a rectangular shape. They have large rectangular brown sunglasses, polarized lenses. The overall look is luxury, classic, casual style, designed for women, suitable for outdoor, driving, everyday, fits oval, round, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_118",
+      "name": "Versace VE4504D Rectangular Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_007.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE4504D",
+          "price": 769.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE4504D"
+        }
+      },
+      "description_auto": "Versace VE4504D Rectangular Black Sunglasses by Versace. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have large rectangular gray sunglasses lenses. The overall look is luxury, modern, casual style, designed for women, suitable for outdoor, everyday, driving, fits oval, round, heart face shapes. priced at 769.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_119",
+      "name": "Versace VE4497U Square Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_008.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "streetwear"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE4497U",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE4497U"
+        }
+      },
+      "description_auto": "Versace VE4497U Square Black Sunglasses by Versace. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, streetwear style, designed for women, suitable for outdoor, everyday, casual, fits oval, oblong, heart face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_120",
+      "name": "Versace VE2274 Square Silver Sunglasses",
+      "image": "images/erroca_womens_sunglasses_009.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "mirrored"
+          ],
+          "color": [
+            "mirrored-silver"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Versace",
+          "model_name": "VE2274",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "VE2274-silver"
+        }
+      },
+      "description_auto": "Versace VE2274 Square Silver Sunglasses by Versace. These glasses feature a thin brushed silver metal full-rim frame with a square shape. They have large square mirrored-silver sunglasses, mirrored lenses. The overall look is luxury, modern, bold style, designed for women, suitable for outdoor, fashion, beach, fits oval, oblong, heart face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_121",
+      "name": "Ray-Ban RB3767 Rectangular Metal Sunglasses",
+      "image": "images/erroca_womens_sunglasses_010.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "minimalist",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3767",
+          "price": 899.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3767"
+        }
+      },
+      "description_auto": "Ray-Ban RB3767 Rectangular Metal Sunglasses by Ray-Ban. These glasses feature a thin brushed silver metal full-rim frame with a rectangular shape. They have medium rectangular gray sunglasses lenses. The overall look is classic, minimalist, casual style, designed for women, suitable for outdoor, everyday, driving, fits oval, heart, oblong face shapes. priced at 899.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_122",
+      "name": "Prada PRS C05S Cat-Eye Tortoiseshell Sunglasses",
+      "image": "images/erroca_womens_sunglasses_011.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "vintage",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRS C05S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRSC05S-v2"
+        }
+      },
+      "description_auto": "Prada PRS C05S Cat-Eye Tortoiseshell Sunglasses by Prada. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a cat-eye shape. They have medium oval brown sunglasses, polarized lenses. The overall look is luxury, vintage, fashion-forward style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, round face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_123",
+      "name": "Prada PRS C04S Rectangular Sunglasses",
+      "image": "images/erroca_womens_sunglasses_012.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "minimalist"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "driving",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PRS C04S",
+          "price": 1469.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PRSC04S"
+        }
+      },
+      "description_auto": "Prada PRS C04S Rectangular Sunglasses by Prada. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have large rectangular gray sunglasses lenses. The overall look is luxury, modern, minimalist style, designed for women, suitable for outdoor, driving, everyday, fits oval, round, heart face shapes. priced at 1469.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_124",
+      "name": "Ray-Ban RB4454 Round Tortoiseshell Sunglasses",
+      "image": "images/erroca_womens_sunglasses_013.webp",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "bohemian",
+            "retro"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "fashion"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB4454",
+          "price": 839.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB4454"
+        }
+      },
+      "description_auto": "Ray-Ban RB4454 Round Tortoiseshell Sunglasses by Ray-Ban. These glasses feature a thin glossy tortoiseshell acetate full-rim frame with a round shape. They have medium round brown sunglasses lenses. The overall look is vintage, bohemian, retro style, designed for women, suitable for outdoor, casual, fashion, fits oval, square, oblong face shapes. priced at 839.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_125",
+      "name": "Oakley OO9517 Sport Wrap Sunglasses Black",
+      "image": "images/erroca_womens_sunglasses_014.webp",
+      "tags": {
+        "frame": {
+          "shape": "wrap",
+          "material": "TR90",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "curved-wrap",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "universal"
+          ],
+          "occasion": [
+            "sport",
+            "outdoor",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Oakley",
+          "model_name": "OO9517",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "OO9517"
+        }
+      },
+      "description_auto": "Oakley OO9517 Sport Wrap Sunglasses Black by Oakley. These glasses feature a thick matte black TR90 full-rim frame with a wrap shape. They have large curved-wrap gray sunglasses, polarized lenses. The overall look is sporty, modern, casual style, designed for women, suitable for sport, outdoor, driving, fits oval, oblong, universal face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_126",
+      "name": "Oakley OO9463 Sport Wrap Sunglasses",
+      "image": "images/erroca_womens_sunglasses_015.webp",
+      "tags": {
+        "frame": {
+          "shape": "wrap",
+          "material": "TR90",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "curved-wrap",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "casual",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "universal"
+          ],
+          "occasion": [
+            "sport",
+            "outdoor",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Oakley",
+          "model_name": "OO9463",
+          "price": 839.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "OO9463"
+        }
+      },
+      "description_auto": "Oakley OO9463 Sport Wrap Sunglasses by Oakley. These glasses feature a medium matte black TR90 full-rim frame with a wrap shape. They have medium curved-wrap gray sunglasses, polarized lenses. The overall look is sporty, casual, modern style, designed for women, suitable for sport, outdoor, driving, fits oval, oblong, universal face shapes. priced at 839.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_127",
+      "name": "Dolce & Gabbana DG4519 Cat-Eye Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_016.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-gray"
+          ],
+          "shape": "oval",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Dolce & Gabbana",
+          "model_name": "DG4519",
+          "price": 1119.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "DG4519"
+        }
+      },
+      "description_auto": "Dolce & Gabbana DG4519 Cat-Eye Black Sunglasses by Dolce & Gabbana. These glasses feature a thick glossy black acetate full-rim frame with a cat-eye shape. They have large oval gradient-gray sunglasses, gradient lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, oblong face shapes. priced at 1119.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_128",
+      "name": "Oakley OO9518 Sport Wrap Sunglasses",
+      "image": "images/erroca_womens_sunglasses_017.webp",
+      "tags": {
+        "frame": {
+          "shape": "wrap",
+          "material": "TR90",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "matte",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "curved-wrap",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "sporty",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "universal"
+          ],
+          "occasion": [
+            "sport",
+            "outdoor",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Oakley",
+          "model_name": "OO9518",
+          "price": 909.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "OO9518"
+        }
+      },
+      "description_auto": "Oakley OO9518 Sport Wrap Sunglasses by Oakley. These glasses feature a thick matte black TR90 full-rim frame with a wrap shape. They have large curved-wrap gray sunglasses, polarized lenses. The overall look is sporty, modern, casual style, designed for women, suitable for sport, outdoor, driving, fits oval, oblong, universal face shapes. priced at 909.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_129",
+      "name": "Miu Miu MU52YS Square Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_018.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU52YS",
+          "price": 1329.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU52YS"
+        }
+      },
+      "description_auto": "Miu Miu MU52YS Square Black Sunglasses by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for women, suitable for outdoor, fashion, everyday, fits oval, oblong, heart face shapes. priced at 1329.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_130",
+      "name": "Ray-Ban RB3735 Rectangular Gold Sunglasses",
+      "image": "images/erroca_womens_sunglasses_019.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "minimalist",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "driving"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3735",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3735"
+        }
+      },
+      "description_auto": "Ray-Ban RB3735 Rectangular Gold Sunglasses by Ray-Ban. These glasses feature a thin brushed gold metal full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is classic, minimalist, casual style, designed for women, suitable for outdoor, everyday, driving, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_131",
+      "name": "Ray-Ban RB3671CH Chromance Rectangular Sunglasses",
+      "image": "images/erroca_womens_sunglasses_020.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "metal",
+          "color": [
+            "gold"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "minimalist",
+            "professional"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "driving",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3671CH",
+          "price": 899.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3671CH"
+        }
+      },
+      "description_auto": "Ray-Ban RB3671CH Chromance Rectangular Sunglasses by Ray-Ban. These glasses feature a thin brushed gold metal semi-rimless frame with a rectangular shape. They have medium rectangular G-15-green sunglasses, polarized lenses. The overall look is classic, minimalist, professional style, designed for women, suitable for outdoor, driving, everyday, fits oval, heart, oblong face shapes. priced at 899.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_132",
+      "name": "Ray-Ban RB2232 Square Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_021.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "bold",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2232",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2232"
+        }
+      },
+      "description_auto": "Ray-Ban RB2232 Square Black Sunglasses by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is classic, bold, casual style, designed for women, suitable for outdoor, casual, everyday, fits oval, oblong, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_133",
+      "name": "Ray-Ban RB3025 Aviator Classic Sunglasses",
+      "image": "images/erroca_womens_sunglasses_022.webp",
+      "tags": {
+        "frame": {
+          "shape": "aviator",
+          "material": "metal",
+          "color": [
+            "silver"
+          ],
+          "thickness": "thin",
+          "finish": "brushed",
+          "rim_type": "semi-rimless"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "polarized"
+          ],
+          "color": [
+            "G-15-green"
+          ],
+          "shape": "teardrop",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "vintage",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "driving",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB3025",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB3025"
+        }
+      },
+      "description_auto": "Ray-Ban RB3025 Aviator Classic Sunglasses by Ray-Ban. These glasses feature a thin brushed silver metal semi-rimless frame with a aviator shape. They have large teardrop G-15-green sunglasses, polarized lenses. The overall look is classic, vintage, casual style, designed for women, suitable for outdoor, driving, everyday, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_134",
+      "name": "Ray-Ban RB2222 Square Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_023.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "modern",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2222",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2222"
+        }
+      },
+      "description_auto": "Ray-Ban RB2222 Square Black Sunglasses by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have medium square gray sunglasses lenses. The overall look is classic, modern, casual style, designed for women, suitable for outdoor, casual, everyday, fits oval, oblong, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_135",
+      "name": "Ray-Ban RB2221 Wayfarer Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_024.webp",
+      "tags": {
+        "frame": {
+          "shape": "wayfarer",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "retro",
+            "casual"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2221",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2221"
+        }
+      },
+      "description_auto": "Ray-Ban RB2221 Wayfarer Black Sunglasses by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a wayfarer shape. They have medium rectangular gray sunglasses lenses. The overall look is classic, retro, casual style, designed for women, suitable for outdoor, casual, everyday, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_136",
+      "name": "Ray-Ban RB0840S Rectangular Tortoiseshell Sunglasses",
+      "image": "images/erroca_womens_sunglasses_025.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "vintage"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB0840S",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB0840S"
+        }
+      },
+      "description_auto": "Ray-Ban RB0840S Rectangular Tortoiseshell Sunglasses by Ray-Ban. These glasses feature a medium glossy tortoiseshell acetate full-rim frame with a rectangular shape. They have medium rectangular brown sunglasses lenses. The overall look is classic, casual, vintage style, designed for women, suitable for outdoor, everyday, casual, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_137",
+      "name": "Prada PR65ZS Round Tortoiseshell Sunglasses",
+      "image": "images/erroca_womens_sunglasses_026.webp",
+      "tags": {
+        "frame": {
+          "shape": "round",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "round",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "vintage",
+            "bohemian"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "square",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR65ZS",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR65ZS"
+        }
+      },
+      "description_auto": "Prada PR65ZS Round Tortoiseshell Sunglasses by Prada. These glasses feature a thin glossy tortoiseshell acetate full-rim frame with a round shape. They have medium round brown sunglasses lenses. The overall look is luxury, vintage, bohemian style, designed for women, suitable for outdoor, fashion, casual, fits oval, square, oblong face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_138",
+      "name": "Prada PR17 Cat-Eye Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_027.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Prada",
+          "model_name": "PR17",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "PR17"
+        }
+      },
+      "description_auto": "Prada PR17 Cat-Eye Black Sunglasses by Prada. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval gray sunglasses lenses. The overall look is luxury, fashion-forward, bold style, designed for women, suitable for outdoor, fashion, everyday, fits oval, heart, round face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_139",
+      "name": "Miu Miu MU11ZS Rectangular Sunglasses",
+      "image": "images/erroca_womens_sunglasses_028.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-gray"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "modern",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Miu Miu",
+          "model_name": "MU11ZS",
+          "price": 1399.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "MU11ZS"
+        }
+      },
+      "description_auto": "Miu Miu MU11ZS Rectangular Sunglasses by Miu Miu. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have large rectangular gradient-gray sunglasses, gradient lenses. The overall look is luxury, modern, bold style, designed for women, suitable for outdoor, fashion, everyday, fits oval, round, heart face shapes. priced at 1399.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_140",
+      "name": "Jimmy Choo JC4004HB Cat-Eye Gold Sunglasses",
+      "image": "images/erroca_womens_sunglasses_029.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "mixed-metal-acetate",
+          "color": [
+            "gold",
+            "havana-brown"
+          ],
+          "thickness": "thin",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-brown"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "luxury"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Jimmy Choo",
+          "model_name": "JC4004HB",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "JC4004HB"
+        }
+      },
+      "description_auto": "Jimmy Choo JC4004HB Cat-Eye Gold Sunglasses by Jimmy Choo. These glasses feature a thin glossy gold, havana-brown mixed-metal-acetate full-rim frame with a cat-eye shape. They have medium oval gradient-brown sunglasses, gradient lenses. The overall look is luxury, fashion-forward, glamorous style, designed for women, suitable for outdoor, fashion, beach, fits oval, heart, oblong face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_141",
+      "name": "Jimmy Choo JM4004 Cat-Eye Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_030.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "round"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Jimmy Choo",
+          "model_name": "JM4004",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "JM4004"
+        }
+      },
+      "description_auto": "Jimmy Choo JM4004 Cat-Eye Black Sunglasses by Jimmy Choo. These glasses feature a medium glossy black acetate full-rim frame with a cat-eye shape. They have medium oval gray sunglasses lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for outdoor, fashion, everyday, fits oval, heart, round face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_142",
+      "name": "Jimmy Choo JM4005 Oversized Tortoiseshell Sunglasses",
+      "image": "images/erroca_womens_sunglasses_031.webp",
+      "tags": {
+        "frame": {
+          "shape": "oversized-square",
+          "material": "acetate",
+          "color": [
+            "tortoiseshell"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-brown"
+          ],
+          "shape": "square",
+          "size": "oversized"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "fashion-forward"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Jimmy Choo",
+          "model_name": "JM4005",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "JM4005-v1"
+        }
+      },
+      "description_auto": "Jimmy Choo JM4005 Oversized Tortoiseshell Sunglasses by Jimmy Choo. These glasses feature a thick glossy tortoiseshell acetate full-rim frame with a oversized-square shape. They have oversized square gradient-brown sunglasses, gradient lenses. The overall look is luxury, bold, fashion-forward style, designed for women, suitable for outdoor, fashion, beach, fits oval, oblong, heart face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_143",
+      "name": "Jimmy Choo JM4005 Oversized Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_032.webp",
+      "tags": {
+        "frame": {
+          "shape": "oversized-square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "thick",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "oversized"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "bold",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "beach"
+          ]
+        },
+        "product": {
+          "brand": "Jimmy Choo",
+          "model_name": "JM4005",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "JM4005-v2"
+        }
+      },
+      "description_auto": "Jimmy Choo JM4005 Oversized Black Sunglasses by Jimmy Choo. These glasses feature a thick glossy black acetate full-rim frame with a oversized-square shape. They have oversized square gray sunglasses lenses. The overall look is luxury, bold, modern style, designed for women, suitable for outdoor, fashion, beach, fits oval, oblong, heart face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_144",
+      "name": "Jimmy Choo JM4002 Cat-Eye Black Gold Sunglasses",
+      "image": "images/erroca_womens_sunglasses_033.webp",
+      "tags": {
+        "frame": {
+          "shape": "cat-eye",
+          "material": "acetate",
+          "color": [
+            "black",
+            "gold"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses",
+            "gradient"
+          ],
+          "color": [
+            "gradient-gray"
+          ],
+          "shape": "oval",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "fashion-forward",
+            "bold"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "formal"
+          ]
+        },
+        "product": {
+          "brand": "Jimmy Choo",
+          "model_name": "JM4002",
+          "price": 1299.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "JM4002"
+        }
+      },
+      "description_auto": "Jimmy Choo JM4002 Cat-Eye Black Gold Sunglasses by Jimmy Choo. These glasses feature a medium glossy black, gold acetate full-rim frame with a cat-eye shape. They have medium oval gradient-gray sunglasses, gradient lenses. The overall look is luxury, fashion-forward, bold style, designed for women, suitable for outdoor, fashion, formal, fits oval, heart, oblong face shapes. priced at 1299.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_145",
+      "name": "Ray-Ban RB2203 Wayfarer Havana Sunglasses",
+      "image": "images/erroca_womens_sunglasses_034.webp",
+      "tags": {
+        "frame": {
+          "shape": "wayfarer",
+          "material": "acetate",
+          "color": [
+            "havana-brown"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "brown"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "vintage",
+            "casual",
+            "retro"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2203",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2203-brown"
+        }
+      },
+      "description_auto": "Ray-Ban RB2203 Wayfarer Havana Sunglasses by Ray-Ban. These glasses feature a medium glossy havana-brown acetate full-rim frame with a wayfarer shape. They have medium rectangular brown sunglasses lenses. The overall look is vintage, casual, retro style, designed for women, suitable for outdoor, casual, everyday, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_146",
+      "name": "Ray-Ban RB2203 Wayfarer Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_035.webp",
+      "tags": {
+        "frame": {
+          "shape": "wayfarer",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "medium"
+        },
+        "style": {
+          "aesthetic": [
+            "classic",
+            "casual",
+            "retro"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "heart",
+            "oblong"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB2203",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB2203-black"
+        }
+      },
+      "description_auto": "Ray-Ban RB2203 Wayfarer Black Sunglasses by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a wayfarer shape. They have medium rectangular gray sunglasses lenses. The overall look is classic, casual, retro style, designed for women, suitable for outdoor, casual, everyday, fits oval, heart, oblong face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_147",
+      "name": "Ray-Ban RB4458 Rectangular Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_036.webp",
+      "tags": {
+        "frame": {
+          "shape": "rectangular",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "rectangular",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "modern",
+            "casual",
+            "minimalist"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "round",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "everyday",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Ray-Ban",
+          "model_name": "RB4458",
+          "price": 799.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "RB4458"
+        }
+      },
+      "description_auto": "Ray-Ban RB4458 Rectangular Black Sunglasses by Ray-Ban. These glasses feature a medium glossy black acetate full-rim frame with a rectangular shape. They have large rectangular gray sunglasses lenses. The overall look is modern, casual, minimalist style, designed for women, suitable for outdoor, everyday, casual, fits oval, round, heart face shapes. priced at 799.0 ILS, currently in stock."
+    },
+    {
+      "id": "erroca_148",
+      "name": "Saint Laurent SL801S Square Black Sunglasses",
+      "image": "images/erroca_womens_sunglasses_037.webp",
+      "tags": {
+        "frame": {
+          "shape": "square",
+          "material": "acetate",
+          "color": [
+            "black"
+          ],
+          "thickness": "medium",
+          "finish": "glossy",
+          "rim_type": "full-rim"
+        },
+        "lenses": {
+          "type": [
+            "sunglasses"
+          ],
+          "color": [
+            "gray"
+          ],
+          "shape": "square",
+          "size": "large"
+        },
+        "style": {
+          "aesthetic": [
+            "luxury",
+            "minimalist",
+            "modern"
+          ],
+          "gender_target": "women",
+          "face_shape_fit": [
+            "oval",
+            "oblong",
+            "heart"
+          ],
+          "occasion": [
+            "outdoor",
+            "fashion",
+            "everyday"
+          ]
+        },
+        "product": {
+          "brand": "Saint Laurent",
+          "model_name": "SL801S",
+          "price": 1819.0,
+          "currency": "ILS",
+          "in_stock": true,
+          "sku": "SL801S"
+        }
+      },
+      "description_auto": "Saint Laurent SL801S Square Black Sunglasses by Saint Laurent. These glasses feature a medium glossy black acetate full-rim frame with a square shape. They have large square gray sunglasses lenses. The overall look is luxury, minimalist, modern style, designed for women, suitable for outdoor, fashion, everyday, fits oval, oblong, heart face shapes. priced at 1819.0 ILS, currently in stock."
     }
   ]
 }

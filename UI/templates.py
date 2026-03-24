@@ -1215,6 +1215,7 @@ body{
         <span><input type="radio" name="gender" id="g-any" value="" checked/><label for="g-any">Any</label></span>
         <span><input type="radio" name="gender" id="g-uni" value="unisex"/><label for="g-uni">Unisex</label></span>
         <span><input type="radio" name="gender" id="g-men" value="men"/><label for="g-men">Men</label></span>
+        <span><input type="radio" name="gender" id="g-women" value="women"/><label for="g-women">Women</label></span>
       </div>
     </div>
     <div class="field">
