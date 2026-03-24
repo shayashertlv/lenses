@@ -709,7 +709,7 @@ body{
 .fs-upload:hover svg{stroke:#6c63ff}
 .fs-upload .up-label{font-size:1rem;font-weight:600;color:rgba(255,255,255,.7);display:block}
 .fs-upload .up-hint{font-size:.78rem;color:rgba(255,255,255,.35);display:block;margin-top:.2rem}
-.fs-upload .up-preview{max-height:120px;border-radius:12px;margin-top:.8rem;display:none}
+.fs-upload .up-preview{max-height:120px;border-radius:12px;margin:.8rem auto 0;display:none}
 #fs-file{display:none}
 
 /* form grid */
@@ -1780,7 +1780,7 @@ body{
 .rc-upload:hover svg{stroke:#e8a838}
 .rc-upload .up-label{font-size:1rem;font-weight:600;color:rgba(255,255,255,.7);display:block}
 .rc-upload .up-hint{font-size:.78rem;color:rgba(255,255,255,.35);display:block;margin-top:.2rem}
-.rc-upload .up-preview{max-height:120px;border-radius:12px;margin-top:.8rem;display:none}
+.rc-upload .up-preview{max-height:120px;border-radius:12px;margin:.8rem auto 0;display:none}
 #rc-file{display:none}
 
 /* color picker grid */
