@@ -26,6 +26,7 @@ from UI.config import (
     FS_MODEL_MAP,
     FS_DEFAULT_MODEL,
     FS_MAX_IMAGE_DIM,
+    RECOLOR_MODEL_NAME,
     sessions,
 )
 
@@ -560,3 +561,158 @@ def _cleanup(path: str):
         os.unlink(path)
     except OSError:
         pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LENS RECOLOR PIPELINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _build_recolor_prompt(target_color: str) -> str:
+    """
+    Build a recolor prompt for Nano Banana Pro.
+
+    The model independently determines the most realistic way to change the
+    glasses lens color. The output must be the exact same photo with only
+    the lens color changed, blended naturally.
+    """
+    return f"""Edit this photo by changing ONLY the color of the glasses lenses. Apply the following lens modification:
+
+TARGET LENS COLOR: {target_color}
+TINT INTENSITY: a balanced, medium tint — approximately 50-60% opacity, like standard sunglasses where the eyes are partially visible
+LENS FINISH STYLE: a uniform, smooth color tint across the entire lens surface
+
+If the original lenses have natural light reflections, glare spots, or environmental reflections visible on the lens surface, preserve them naturally on top of the new color tint. The reflections should interact realistically with the new lens color.
+
+CRITICAL PRESERVATION RULES — do NOT change any of the following:
+- The person's face, skin tone, skin texture, facial features, expression, and makeup must remain IDENTICAL
+- The person's hair (color, style, texture, stray hairs) must remain IDENTICAL
+- The glasses FRAME (shape, color, material, thickness, temple arms, nose pads, any frame details) must remain COMPLETELY UNCHANGED — only the lens area inside the frame changes
+- The person's clothing, accessories, jewelry must remain IDENTICAL
+- The background (color, texture, bokeh, lighting, objects) must remain IDENTICAL
+- The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
+- The photo composition, framing, and resolution must remain IDENTICAL
+- Any text, logos, or watermarks present must remain IDENTICAL
+
+LENS COLOR APPLICATION GUIDANCE:
+- Apply the {target_color} tint ONLY to the transparent/semi-transparent lens area bounded by the glasses frame
+- The tint should look like a real, physical lens — it should follow the curvature and shape of the lens
+- Where the lens overlaps the person's eyes and face, the {target_color} tint should blend naturally, as real tinted glass does — the skin and eye features behind the lens should show through at the appropriate opacity level
+- The edge of the color change must PRECISELY follow the inner edge of the glasses frame — no color bleeding onto the frame or face
+- Both lenses must have the SAME color treatment applied consistently
+
+OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
+
+
+def _recolor_single(portrait_path: str, target_color: str, api_key: str) -> dict:
+    """
+    Call Nano Banana Pro to recolor lenses to the target color.
+    Returns dict with keys: success, image_bytes, error.
+    """
+    from google import genai
+    from google.genai import types
+
+    prompt = _build_recolor_prompt(target_color)
+
+    try:
+        portrait_part = _fs_load_image_as_part(portrait_path)
+    except Exception as e:
+        return {"success": False, "image_bytes": None, "error": f"Image load error: {e}"}
+
+    client = genai.Client(api_key=api_key)
+
+    for attempt in range(2):
+        p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
+        try:
+            response = client.models.generate_content(
+                model=RECOLOR_MODEL_NAME,
+                contents=[p, portrait_part],
+                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+            )
+        except Exception as e:
+            return {"success": False, "image_bytes": None, "error": str(e)}
+
+        if not response.candidates:
+            return {"success": False, "image_bytes": None,
+                    "error": "No response. May have been blocked by safety filters."}
+
+        for part in response.candidates[0].content.parts:
+            if part.inline_data is not None:
+                return {"success": True, "image_bytes": part.inline_data.data, "error": None}
+
+        if attempt == 0:
+            continue
+
+    return {"success": False, "image_bytes": None, "error": "Model did not return an image."}
+
+
+def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
+                         filename: str, colors: list[str]):
+    """
+    Lens recolor pipeline — background thread.
+
+    Takes a user photo and 3 chosen lens colors, calls Nano Banana Pro
+    for each color in parallel, stores results in session.
+    """
+    sess = sessions[session_id]
+
+    ext = Path(filename).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(portrait_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+
+    try:
+        api_key = _get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        return
+
+    sess["stage"] = "recoloring"
+    sess["num_colors"] = len(colors)
+
+    for i, color in enumerate(colors):
+        sess[f"color{i}"] = {
+            "name": color,
+            "status": "pending",
+            "b64": None,
+            "error": None,
+        }
+
+    def do_recolor(idx: int):
+        color = colors[idx]
+        sess[f"color{idx}"]["status"] = "generating"
+        print(f"  [recolor] Generating {color} (slot {idx}) via nano-banana-pro ...")
+
+        result = _recolor_single(portrait_path, color, api_key)
+
+        if result["success"] and result["image_bytes"]:
+            sess[f"color{idx}"]["b64"] = base64.b64encode(
+                result["image_bytes"]
+            ).decode("ascii")
+            sess[f"color{idx}"]["status"] = "done"
+            print(f"  [recolor] {color} done.")
+        else:
+            sess[f"color{idx}"]["status"] = "error"
+            sess[f"color{idx}"]["error"] = result.get("error", "No image returned")
+            print(f"  [recolor] {color} error: {result.get('error')}")
+
+    threads = [
+        threading.Thread(target=do_recolor, args=(i,), daemon=True)
+        for i in range(len(colors))
+    ]
+    for t in threads:
+        t.start()
+
+    # Wait for the first result so we can show it immediately
+    threads[0].join()
+    sess["stage"] = "primary_ready"
+
+    for t in threads[1:]:
+        t.join()
+
+    sess["stage"] = "done"
+    sess["status"] = "done"
+    _cleanup(portrait_path)

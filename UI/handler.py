@@ -9,8 +9,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 
 from UI.config import sessions
-from UI.pipelines import run_pipeline, run_free_search_pipeline
-from UI.templates import LANDING_HTML, FREE_SEARCH_HTML
+from UI.pipelines import run_pipeline, run_free_search_pipeline, run_recolor_pipeline
+from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -27,9 +27,14 @@ class Handler(BaseHTTPRequestHandler):
             self._html(LANDING_HTML)
         elif path == "/free-search":
             self._html(FREE_SEARCH_HTML)
+        elif path == "/lens-recolor":
+            self._html(LENS_RECOLOR_HTML)
         elif path.startswith("/api/status/"):
             sid = path[len("/api/status/"):]
             self._serve_status(sid)
+        elif path.startswith("/api/recolor-status/"):
+            sid = path[len("/api/recolor-status/"):]
+            self._serve_recolor_status(sid)
         else:
             self.send_error(404)
 
@@ -39,6 +44,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_upload()
         elif path == "/api/free-search":
             self._handle_free_search()
+        elif path == "/api/lens-recolor":
+            self._handle_lens_recolor()
         else:
             self.send_error(404)
 
@@ -105,6 +112,72 @@ class Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._json(200, {"session_id": sid})
+
+    # ── Lens Recolor upload ──────────────────────────────────────────
+    def _handle_lens_recolor(self):
+        ctype = self.headers.get("Content-Type", "")
+        clen = int(self.headers.get("Content-Length", 0))
+
+        if "multipart/form-data" not in ctype:
+            return self._json(400, {"error": "Expected multipart/form-data"})
+
+        boundary = ctype.split("boundary=")[1].strip()
+        body = self.rfile.read(clen)
+        fields = _parse_multipart_all(body, boundary)
+
+        file_data = fields.get("_file_data")
+        file_name = fields.get("_file_name", "upload.jpg")
+
+        if not file_data:
+            return self._json(400, {"error": "No photo uploaded"})
+
+        colors = []
+        for key in ("color1", "color2", "color3"):
+            val = fields.get(key, "").strip()
+            if val:
+                colors.append(val)
+
+        if len(colors) < 3:
+            return self._json(400, {"error": "Please select exactly 3 lens colors"})
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "num_colors": 0}
+
+        threading.Thread(
+            target=run_recolor_pipeline,
+            args=(sid, file_data, file_name, colors),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    # ── recolor status polling ─────────────────────────────────────────
+    def _serve_recolor_status(self, sid: str):
+        sess = sessions.get(sid)
+        if not sess:
+            return self._json(404, {"error": "Unknown session"})
+
+        resp = {
+            "status": sess["status"],
+            "stage": sess.get("stage", ""),
+            "error": sess.get("error"),
+            "num_colors": sess.get("num_colors", 0),
+            "portrait_b64": sess.get("portrait_b64"),
+        }
+
+        for i in range(sess.get("num_colors", 0)):
+            c = sess.get(f"color{i}")
+            if not c:
+                continue
+            resp[f"color{i}"] = {
+                "name": c["name"],
+                "status": c["status"],
+                "b64": c["b64"],
+                "error": c.get("error"),
+            }
+
+        self._json(200, resp)
 
     # ── status polling ────────────────────────────────────────────────
     def _serve_status(self, sid: str):

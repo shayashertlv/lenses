@@ -32,5 +32,9 @@ FS_MAX_IMAGE_DIM = 4096
 # Default generation model alias (used by Smart Fit pipeline)
 DEFAULT_GENERATION_MODEL = "nano-banana-pro"
 
+# ── Lens Recolor constants ───────────────────────────────────────────────────
+RECOLOR_MODEL_ALIAS = "nano-banana-pro"
+RECOLOR_MODEL_NAME = "gemini-3-pro-image-preview"
+
 # ── In-memory session store ──────────────────────────────────────────────────
 sessions: dict[str, dict] = {}

@@ -41,10 +41,12 @@ body{
   margin:0 auto 1.5rem;font-size:2rem}
 .mode-icon.smart{background:linear-gradient(135deg,#6c63ff22,#a78bfa22)}
 .mode-icon.free{background:linear-gradient(135deg,#34c78a22,#6dd5a822)}
+.mode-icon.recolor{background:linear-gradient(135deg,#e8a83822,#f0c06022)}
 
 .mode-icon svg{width:36px;height:36px;stroke-width:1.5;fill:none}
 .mode-icon.smart svg{stroke:#6c63ff}
 .mode-icon.free svg{stroke:#34c78a}
+.mode-icon.recolor svg{stroke:#e8a838}
 
 .mode-card h2{font-size:1.3rem;font-weight:700;margin-bottom:.5rem;color:#1e1e2f}
 .mode-card p{font-size:.88rem;color:#8b85b8;line-height:1.55}
@@ -53,6 +55,7 @@ body{
   border-radius:50px;font-size:.78rem;font-weight:600;letter-spacing:.03em}
 .mode-badge.smart{background:#6c63ff;color:#fff}
 .mode-badge.free{background:#34c78a;color:#fff}
+.mode-badge.recolor{background:#e8a838;color:#fff}
 </style>
 </head>
 <body>
@@ -81,6 +84,16 @@ body{
     <h2>Free Search</h2>
     <p>Already know what you want? Pick your ideal frame shape, colour, material, and style — we'll find the best match and show you wearing it.</p>
     <span class="mode-badge free">Choose Your Style</span>
+  </a>
+
+  <!-- Switch Lens Color card -->
+  <a class="mode-card" href="/lens-recolor">
+    <div class="mode-icon recolor">
+      <svg viewBox="0 0 36 36"><circle cx="12" cy="18" r="7" /><circle cx="24" cy="18" r="7" /><path d="M19 18h-2" stroke-linecap="round"/><path d="M5 18H2M34 18h-3" stroke-linecap="round"/></svg>
+    </div>
+    <h2>Switch Lens Color</h2>
+    <p>Upload a photo of yourself wearing glasses and pick three lens colours — our AI will create realistic recoloured versions of your lenses.</p>
+    <span class="mode-badge recolor">Recolor Lenses</span>
   </a>
 
 </div>
@@ -1699,6 +1712,636 @@ function fsReset(){
   setLoadStep(1); setLoadProg(0);
   showView(null);
 }
+</script>
+</body>
+</html>
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LENS RECOLOR PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+LENS_RECOLOR_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Lenses — Switch Lens Color</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:#f7f7fb;color:#1e1e2f;min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Top bar ── */
+.topbar{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;
+  background:#fff;box-shadow:0 1px 8px rgba(30,30,47,.04)}
+.topbar a{color:#e8a838;text-decoration:none;font-size:.85rem;font-weight:600;
+  display:flex;align-items:center;gap:.3rem}
+.topbar a:hover{text-decoration:underline}
+.topbar .logo{font-size:1.3rem;font-weight:800;letter-spacing:-.03em;color:#1e1e2f}
+
+/* ── FORM VIEW ── */
+#form-view{max-width:640px;margin:2rem auto;padding:0 1.5rem}
+
+.section-title{font-size:1.15rem;font-weight:700;color:#1e1e2f;margin:2rem 0 1rem;
+  padding-bottom:.4rem;border-bottom:2px solid #edeef6}
+.section-title:first-child{margin-top:0}
+
+/* upload area */
+.rc-upload{
+  width:100%;padding:2.5rem;border:2.5px dashed #c4c3d6;border-radius:20px;
+  text-align:center;cursor:pointer;transition:all .3s;background:rgba(255,255,255,.55);
+  margin-bottom:.5rem;position:relative;
+}
+.rc-upload:hover{border-color:#e8a838;background:rgba(232,168,56,.04)}
+.rc-upload.has-file{border-color:#34c78a;border-style:solid;background:rgba(52,199,138,.04)}
+.rc-upload svg{width:40px;height:40px;stroke:#8b85b8;stroke-width:1.5;fill:none;margin-bottom:.6rem}
+.rc-upload:hover svg{stroke:#e8a838}
+.rc-upload .up-label{font-size:1rem;font-weight:600;color:#3a3a52;display:block}
+.rc-upload .up-hint{font-size:.78rem;color:#9b99ae;display:block;margin-top:.2rem}
+.rc-upload .up-preview{max-height:120px;border-radius:12px;margin-top:.8rem;display:none}
+#rc-file{display:none}
+
+/* color picker grid */
+.color-pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:.65rem}
+.color-pick{position:relative;cursor:pointer;display:block}
+.color-pick input{position:absolute;opacity:0;pointer-events:none}
+.color-pick-inner{
+  display:flex;flex-direction:column;align-items:center;gap:.35rem;
+  padding:.65rem .3rem;border:1.5px solid transparent;border-radius:14px;transition:all .25s;
+}
+.color-pick-inner:hover{background:rgba(232,168,56,.06)}
+.color-pick input:checked+.color-pick-inner{border-color:#e8a838;background:rgba(232,168,56,.08);
+  box-shadow:0 0 0 3px rgba(232,168,56,.15)}
+.color-swatch{width:36px;height:36px;border-radius:50%;border:2px solid #e2e1ed;transition:all .25s;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+.color-pick input:checked+.color-pick-inner .color-swatch{border-color:#e8a838;transform:scale(1.1);
+  box-shadow:0 0 0 3px rgba(232,168,56,.2),inset 0 1px 3px rgba(0,0,0,.12)}
+.color-pick-name{font-size:.68rem;font-weight:500;color:#6b6b80;text-align:center;line-height:1.15}
+.color-pick input:checked+.color-pick-inner .color-pick-name{color:#e8a838;font-weight:700}
+
+.color-counter{font-size:.82rem;color:#9b99ae;margin-top:.5rem;text-align:center;
+  transition:color .2s}
+.color-counter.full{color:#e8a838;font-weight:600}
+.color-counter.over{color:#e74c3c;font-weight:600}
+
+/* submit */
+.submit-row{text-align:center;margin:2.5rem 0 3rem}
+.submit-btn{
+  padding:.85rem 3rem;background:linear-gradient(135deg,#e8a838,#f0c060);
+  color:#fff;border:none;border-radius:50px;font-size:1rem;font-weight:700;
+  cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(232,168,56,.25);
+  letter-spacing:.01em;
+}
+.submit-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(232,168,56,.35)}
+.submit-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ── LOADING VIEW ── */
+#loading-view{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%);
+  flex-direction:column;align-items:center;justify-content:center;
+}
+.load-card{
+  background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:480px;width:90%;text-align:center;
+}
+.load-portrait{width:100px;height:100px;border-radius:50%;overflow:hidden;
+  margin:0 auto 1.5rem;border:3px solid #edeef6;box-shadow:0 4px 20px rgba(30,30,47,.08)}
+.load-portrait img{width:100%;height:100%;object-fit:cover}
+.load-prog{width:100%;height:3px;background:#edeef6;border-radius:2px;margin-bottom:1.6rem;overflow:hidden}
+.load-prog-fill{height:100%;background:linear-gradient(90deg,#e8a838,#f0c060);border-radius:2px;width:0%;transition:width .6s ease}
+#load-stage{font-size:.95rem;color:#4a4a64;font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
+.tip-box{min-height:3.5em;display:flex;align-items:center;justify-content:center}
+#load-tip{font-size:.82rem;color:#9b99ae;line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s}
+
+/* ── RESULTS VIEW (dark theme, single-column centered) ── */
+#results-view{
+  --accent:#E8A838;--accent-hue:38;
+  display:none;position:fixed;inset:0;z-index:200;
+  background:#0b0b14;
+  overflow-y:auto;color:#fff;
+}
+
+/* ── Top navigation bar ── */
+.res-topbar{
+  display:flex;align-items:center;
+  padding:14px 28px;
+  background:rgba(11,11,20,.85);backdrop-filter:blur(16px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  position:sticky;top:0;z-index:100;
+}
+.res-topbar-back{
+  background:none;border:1px solid rgba(255,255,255,.10);color:rgba(255,255,255,.65);
+  padding:7px 18px;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:all .2s;display:flex;align-items:center;gap:6px;
+}
+.res-topbar-back:hover{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.18)}
+
+/* ── Centered content column ── */
+.res-inner{max-width:760px;margin:0 auto;padding:0 1.5rem 3rem}
+
+/* ── Page heading ── */
+.res-page-title{
+  text-align:center;padding:36px 0 8px;
+  font-family:'DM Serif Display',Georgia,serif;font-size:1.75rem;
+  font-weight:400;color:#fff;letter-spacing:-.01em;
+  animation:fadeDown .6s ease both;
+}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+
+/* ── Hero (selected image) ── */
+.hero-section{
+  position:relative;margin-top:24px;
+  animation:slideUp .7s ease .1s both;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 14px;border-radius:8px;font-size:.7rem;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;
+  color:#fff;background:#6b5a20;
+  margin-bottom:14px;
+}
+.hero-img-wrap{
+  position:relative;display:flex;align-items:center;justify-content:center;
+  min-height:380px;
+  background:rgba(255,255,255,.025);
+  border-radius:24px;border:1px solid rgba(255,255,255,.07);
+  padding:24px;overflow:hidden;
+}
+.hero-glow{
+  position:absolute;top:50%;left:50%;width:480px;height:480px;border-radius:50%;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(circle,var(--accent),transparent 70%);
+  opacity:.10;filter:blur(80px);pointer-events:none;
+  animation:pulse 4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:.10}50%{opacity:.22}}
+.hero-img-wrap img{
+  width:100%;max-height:500px;object-fit:contain;border-radius:14px;
+  display:block;position:relative;z-index:1;
+}
+.hero-color-label{
+  text-align:center;margin-top:20px;padding-bottom:4px;
+  font-family:'DM Serif Display',Georgia,serif;font-size:1.5rem;
+  color:#fff;line-height:1.3;
+}
+
+/* ── Section divider (contained within column) ── */
+.section-divider{
+  display:flex;align-items:center;gap:12px;
+  margin:36px 0 24px;
+}
+.section-divider::before,.section-divider::after{
+  content:'';flex:1;height:1px;
+  background:rgba(255,255,255,.07);
+}
+.section-divider span{
+  font-size:11px;font-weight:700;color:rgba(255,255,255,.28);
+  letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;
+}
+
+/* ── Alt grid (responsive 1-col / 2-col) ── */
+.alt-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.alt-card{
+  background:rgba(255,255,255,.03);border-radius:20px;overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);transition:all .3s ease;cursor:pointer;
+  animation:slideUp .7s ease both;
+}
+.alt-card:nth-child(1){animation-delay:.35s}
+.alt-card:nth-child(2){animation-delay:.50s}
+.alt-card:hover{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.055)}
+.alt-card-img-wrap{
+  position:relative;display:flex;align-items:center;justify-content:center;
+  min-height:200px;padding:14px;background:rgba(255,255,255,.015);
+}
+.alt-card-img-wrap img{width:100%;max-height:240px;object-fit:contain;border-radius:10px;display:block}
+.alt-card-body{padding:14px 16px 0}
+.alt-card-name{
+  font-family:'DM Serif Display',Georgia,serif;font-size:1rem;color:#fff;
+  line-height:1.3;text-align:center;
+}
+
+/* ── View Full Size button ── */
+.alt-card-switch{
+  display:block;width:100%;padding:12px 16px;border:none;
+  border-top:1px solid rgba(255,255,255,.06);
+  margin-top:14px;
+  background:rgba(255,255,255,.04);color:rgba(255,255,255,.45);
+  font-size:.75rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  cursor:pointer;transition:all .2s;
+}
+.alt-card-switch:hover{background:rgba(255,255,255,.09);color:rgba(255,255,255,.8)}
+
+/* ── Loading shimmer / error states ── */
+.tryon-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:200px;width:100%;border-radius:10px;
+  background:linear-gradient(110deg,rgba(255,255,255,.04) 8%,rgba(255,255,255,.08) 18%,rgba(255,255,255,.04) 33%);
+  background-size:200% 100%;animation:shimmer 1.6s linear infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.tryon-loading p{font-size:.82rem;color:rgba(255,255,255,.4);margin-top:.5rem}
+.tryon-loading .mini-spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.1);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tryon-error{display:flex;align-items:center;justify-content:center;min-height:200px;
+  background:rgba(220,50,50,.08);border-radius:10px;color:#f87171;font-size:.85rem;
+  padding:1.2rem;text-align:center;width:100%}
+
+/* ── ERROR VIEW ── */
+#error-view{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:linear-gradient(165deg,#f7f7fb 0%,#edeef6 40%,#e3e0f3 100%);
+  flex-direction:column;align-items:center;justify-content:center;
+}
+.err-card{background:#fff;border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(30,30,47,.07);max-width:420px;width:90%;text-align:center}
+
+/* animations */
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
+
+@media(max-width:640px){
+  .alt-grid{grid-template-columns:1fr}
+  .res-topbar{padding:12px 16px}
+  .res-page-title{font-size:1.35rem;padding-top:28px}
+  .hero-img-wrap{padding:16px;min-height:280px}
+}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <a href="/">&larr; Back</a>
+  <span class="logo">Switch Lens Color</span>
+</div>
+
+<!-- ═══════════════ FORM VIEW ═══════════════ -->
+<div id="form-view">
+
+  <h3 class="section-title">Your Photo</h3>
+  <p style="font-size:.84rem;color:#9b99ae;margin-bottom:1rem">Upload a photo of yourself <strong>wearing glasses</strong>. The AI will change only the lens colour.</p>
+  <div class="rc-upload" id="upload-area" onclick="document.getElementById('rc-file').click()">
+    <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
+    <span class="up-label" id="up-label-text">Upload a Photo</span>
+    <span class="up-hint">JPG, PNG, or WebP</span>
+    <img class="up-preview" id="up-preview"/>
+  </div>
+  <input type="file" id="rc-file" accept="image/*"/>
+
+  <h3 class="section-title">Choose 3 Lens Colors</h3>
+  <p style="font-size:.84rem;color:#9b99ae;margin-bottom:1rem">Select exactly <strong>3 colours</strong> you'd like to see on your lenses.</p>
+
+  <div class="color-pick-grid" id="color-grid">
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Ocean Blue"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="color-pick-name">Ocean Blue</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Classic Green (G-15)"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="color-pick-name">Classic Green</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Amber Brown (B-15)"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="color-pick-name">Amber Brown</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Rose Gold"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="color-pick-name">Rose Gold</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Smoke Gray"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="color-pick-name">Smoke Gray</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Sunset Orange"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#e65100,#ff9800)"></div><span class="color-pick-name">Sunset Orange</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Deep Purple"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="color-pick-name">Deep Purple</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Emerald Green"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#00695c,#26a69a)"></div><span class="color-pick-name">Emerald Green</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Midnight Blue"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="color-pick-name">Midnight Blue</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Yellow Night-Driving"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="color-pick-name">Yellow</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Ruby Red"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="color-pick-name">Ruby Red</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Champagne Gold"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="color-pick-name">Champagne Gold</span></div></label>
+  </div>
+  <p class="color-counter" id="color-counter">0 of 3 selected</p>
+
+  <div class="submit-row">
+    <button class="submit-btn" id="submit-btn" disabled>Generate Recolored Lenses</button>
+  </div>
+</div>
+
+<!-- ═══════════════ LOADING VIEW ═══════════════ -->
+<div id="loading-view">
+  <div class="load-card">
+    <div class="load-portrait" id="load-portrait" style="display:none">
+      <img id="load-portrait-img" src="" alt=""/>
+    </div>
+    <div class="load-prog"><div class="load-prog-fill" id="load-prog-fill"></div></div>
+    <p id="load-stage">Uploading your photo...</p>
+    <div class="tip-box"><p id="load-tip">Nano Banana Pro is crafting your new lens colours...</p></div>
+  </div>
+</div>
+
+<!-- ═══════════════ RESULTS VIEW ═══════════════ -->
+<div id="results-view">
+  <div class="res-topbar">
+    <button class="res-topbar-back" onclick="rcReset()">&larr; New Photo</button>
+  </div>
+  <div class="res-inner">
+    <h1 class="res-page-title">Your Lens Colors</h1>
+
+    <!-- Hero (main selected image) -->
+    <div class="hero-section" id="hero-section">
+      <div class="hero-badge">Selected Color</div>
+      <div class="hero-img-wrap" id="hero-img-wrap">
+        <div class="hero-glow"></div>
+        <img id="hero-img" src="" alt="Recolored lens"/>
+      </div>
+      <h2 class="hero-color-label" id="hero-color-label"></h2>
+    </div>
+
+    <!-- Divider -->
+    <div class="section-divider"><span>Other Colors</span></div>
+
+    <!-- Alt cards -->
+    <div class="alt-grid" id="alt-grid"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ ERROR VIEW ═══════════════ -->
+<div id="error-view">
+  <div class="err-card">
+    <div style="font-size:2.4rem;margin-bottom:1rem">:/</div>
+    <h2 style="font-size:1.15rem;color:#1e1e2f;margin-bottom:.6rem">Something went wrong</h2>
+    <p id="error-msg" style="font-size:.88rem;color:#8b85b8;line-height:1.5;margin-bottom:1.5rem;word-break:break-word"></p>
+    <button onclick="rcReset()" style="display:block;margin:0 auto;padding:.75rem 2.2rem;
+      background:#1e1e2f;color:#fff;border:none;border-radius:50px;font-size:.92rem;font-weight:600;
+      cursor:pointer">Try Again</button>
+  </div>
+</div>
+
+<script>
+/* ── State ── */
+let chosenFile = null;
+let sessionId = null;
+let pollTimer = null;
+let mainIdx = 0;               // which color is in the hero
+let colorResults = [];          // [{name, b64, error, status}]
+
+/* ── View switching ── */
+function showView(v){
+  ['form-view','loading-view','results-view','error-view'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(id===v){
+      // results-view is a block scroll layout; loading/error use flex centering
+      el.style.display=(id==='results-view'||id==='form-view')?'block':'flex';
+    } else {
+      el.style.display='none';
+    }
+  });
+  if(v===null){
+    document.getElementById('form-view').style.display='block';
+  }
+}
+
+/* ── File picker ── */
+document.getElementById('rc-file').addEventListener('change',function(e){
+  const f=e.target.files[0]; if(!f) return;
+  chosenFile=f;
+  const area=document.getElementById('upload-area');
+  area.classList.add('has-file');
+  document.getElementById('up-label-text').textContent=f.name;
+  const prev=document.getElementById('up-preview');
+  prev.src=URL.createObjectURL(f); prev.style.display='block';
+  checkReady();
+});
+
+/* ── Color checkbox logic ── */
+const MAX_COLORS=3;
+function getCheckedColors(){
+  return Array.from(document.querySelectorAll('input[name="lens_color"]:checked')).map(c=>c.value);
+}
+document.querySelectorAll('input[name="lens_color"]').forEach(cb=>{
+  cb.addEventListener('change',function(){
+    const checked=getCheckedColors();
+    if(checked.length>MAX_COLORS){
+      this.checked=false; return;
+    }
+    updateCounter();
+    checkReady();
+  });
+});
+function updateCounter(){
+  const n=getCheckedColors().length;
+  const el=document.getElementById('color-counter');
+  el.textContent=n+' of 3 selected';
+  el.className='color-counter'+(n===3?' full':'')+(n>3?' over':'');
+}
+function checkReady(){
+  document.getElementById('submit-btn').disabled=!(chosenFile && getCheckedColors().length===3);
+}
+
+/* ── Submit ── */
+document.getElementById('submit-btn').addEventListener('click',function(){
+  if(!chosenFile || getCheckedColors().length!==3) return;
+  const colors=getCheckedColors();
+  const fd=new FormData();
+  fd.append('photo',chosenFile);
+  fd.append('color1',colors[0]);
+  fd.append('color2',colors[1]);
+  fd.append('color3',colors[2]);
+
+  showView('loading-view');
+  document.getElementById('load-stage').textContent='Uploading your photo...';
+  document.getElementById('load-prog-fill').style.width='10%';
+
+  // Show portrait preview in loading
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    document.getElementById('load-portrait-img').src=ev.target.result;
+    document.getElementById('load-portrait').style.display='block';
+  };
+  reader.readAsDataURL(chosenFile);
+
+  fetch('/api/lens-recolor',{method:'POST',body:fd})
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.error){showError(data.error);return}
+      sessionId=data.session_id;
+      pollTimer=setInterval(pollStatus,2000);
+    })
+    .catch(e=>showError(e.message));
+});
+
+/* ── Polling ── */
+function pollStatus(){
+  if(!sessionId) return;
+  fetch('/api/recolor-status/'+sessionId)
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.status==='error'){
+        clearInterval(pollTimer);
+        showError(data.error||'An error occurred');
+        return;
+      }
+
+      // Update loading stage
+      const stage=data.stage||'';
+      if(stage==='uploading'){
+        document.getElementById('load-stage').textContent='Uploading your photo...';
+        document.getElementById('load-prog-fill').style.width='15%';
+      } else if(stage==='recoloring'){
+        document.getElementById('load-stage').textContent='Nano Banana Pro is recoloring your lenses...';
+        document.getElementById('load-prog-fill').style.width='40%';
+      } else if(stage==='primary_ready'){
+        document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
+        document.getElementById('load-prog-fill').style.width='70%';
+      }
+
+      // Show portrait in loading
+      if(data.portrait_b64){
+        const img=document.getElementById('load-portrait-img');
+        if(!img.src || img.src===''){
+          img.src='data:image/jpeg;base64,'+data.portrait_b64;
+          document.getElementById('load-portrait').style.display='block';
+        }
+      }
+
+      if(data.status==='done'){
+        clearInterval(pollTimer);
+        document.getElementById('load-prog-fill').style.width='100%';
+
+        // Collect results
+        colorResults=[];
+        for(let i=0;i<(data.num_colors||0);i++){
+          const c=data['color'+i];
+          if(c){colorResults.push({name:c.name,b64:c.b64,error:c.error,status:c.status});}
+        }
+
+        setTimeout(()=>renderResults(),400);
+      }
+    })
+    .catch(()=>{});
+}
+
+/* ── Render results ── */
+function renderResults(){
+  // Find first successful result for hero
+  mainIdx=0;
+  for(let i=0;i<colorResults.length;i++){
+    if(colorResults[i].b64){mainIdx=i;break;}
+  }
+  updateHero();
+  renderAlts();
+  showView('results-view');
+}
+
+function updateHero(){
+  const r=colorResults[mainIdx];
+  const heroImg=document.getElementById('hero-img');
+  const heroWrap=document.getElementById('hero-img-wrap');
+  const label=document.getElementById('hero-color-label');
+
+  if(r && r.b64){
+    heroImg.src='data:image/png;base64,'+r.b64;
+    heroImg.style.display='block';
+    label.textContent=r.name;
+  } else if(r && r.error){
+    heroImg.style.display='none';
+    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-error">'+escHtml(r.error)+'</div>';
+    label.textContent=r.name+' (failed)';
+  }
+  renderAlts();
+}
+
+function renderAlts(){
+  const grid=document.getElementById('alt-grid');
+  grid.innerHTML='';
+  for(let i=0;i<colorResults.length;i++){
+    if(i===mainIdx) continue;
+    const r=colorResults[i];
+    const card=document.createElement('div');
+    card.className='alt-card'+(i===mainIdx?' active':'');
+    card.onclick=function(){switchTo(i)};
+    card.style.cursor='pointer';
+
+    let imgHtml='';
+    if(r.b64){
+      imgHtml='<img src="data:image/png;base64,'+r.b64+'" alt="'+escHtml(r.name)+'"/>';
+    } else if(r.error){
+      imgHtml='<div class="tryon-error">'+escHtml(r.error)+'</div>';
+    } else {
+      imgHtml='<div class="tryon-loading"><div class="mini-spin"></div><p>Generating...</p></div>';
+    }
+
+    card.innerHTML=
+      '<div class="alt-card-img-wrap">'+imgHtml+'</div>'+
+      '<div class="alt-card-body"><p class="alt-card-name">'+escHtml(r.name)+'</p></div>'+
+      '<button class="alt-card-switch">View Full Size</button>';
+
+    grid.appendChild(card);
+  }
+}
+
+function switchTo(idx){
+  mainIdx=idx;
+  // Re-render hero with animation
+  const hero=document.getElementById('hero-section');
+  hero.style.animation='none';
+  hero.offsetHeight; // force reflow
+  hero.style.animation='slideUp .5s ease both';
+
+  // Rebuild hero content
+  const r=colorResults[mainIdx];
+  const heroWrap=document.getElementById('hero-img-wrap');
+  const heroImg=document.getElementById('hero-img');
+  const label=document.getElementById('hero-color-label');
+
+  heroWrap.innerHTML='<div class="hero-glow"></div><img id="hero-img" src="" alt="Recolored lens"/>';
+  const newImg=document.getElementById('hero-img');
+
+  if(r && r.b64){
+    newImg.src='data:image/png;base64,'+r.b64;
+    newImg.style.display='block';
+    label.textContent=r.name;
+  } else if(r && r.error){
+    newImg.style.display='none';
+    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-error">'+escHtml(r.error)+'</div>';
+    label.textContent=r.name+' (failed)';
+  }
+
+  renderAlts();
+}
+
+/* ── Helpers ── */
+function showError(msg){
+  document.getElementById('error-msg').textContent=msg;
+  showView('error-view');
+}
+
+function escHtml(s){
+  const d=document.createElement('div');d.textContent=s;return d.innerHTML;
+}
+
+function rcReset(){
+  sessionId=null;
+  if(pollTimer) clearInterval(pollTimer);
+  chosenFile=null;
+  colorResults=[];
+  mainIdx=0;
+  document.getElementById('rc-file').value='';
+  document.getElementById('upload-area').classList.remove('has-file');
+  document.getElementById('up-label-text').textContent='Upload a Photo';
+  document.getElementById('up-preview').style.display='none';
+  document.querySelectorAll('input[name="lens_color"]').forEach(c=>{c.checked=false});
+  updateCounter();
+  document.getElementById('submit-btn').disabled=true;
+  document.getElementById('load-prog-fill').style.width='0%';
+  document.getElementById('load-portrait').style.display='none';
+  showView(null);
+}
+
+/* ── Loading tips rotation ── */
+const tips=[
+  'Nano Banana Pro analyses the lens area and applies the new colour with photorealistic precision.',
+  'Only the lens colour changes — frame, face, and background remain untouched.',
+  'Each colour is generated independently for the most realistic result.',
+  'The AI preserves natural reflections and blends the tint to match the lens curvature.',
+];
+let tipIdx=0;
+setInterval(()=>{
+  tipIdx=(tipIdx+1)%tips.length;
+  const el=document.getElementById('load-tip');
+  el.style.opacity=0;
+  setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity=1;},300);
+},4500);
 </script>
 </body>
 </html>
