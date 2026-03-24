@@ -24,14 +24,17 @@ def main():
     port = int(os.environ.get("PORT", 8080))
 
     # ── Startup: ensure GEMINI_API_KEY is available ──────────────────
+    import sys
+    print(f"[startup] Python: {sys.version}", flush=True)
+    print(f"[startup] Env var names: {sorted(os.environ.keys())}", flush=True)
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if api_key:
         masked = api_key[:4] + "…" + api_key[-4:]
-        print(f"[startup] GEMINI_API_KEY is set ({len(api_key)} chars: {masked})")
+        print(f"[startup] GEMINI_API_KEY is set ({len(api_key)} chars: {masked})", flush=True)
     else:
-        print("[startup] WARNING: GEMINI_API_KEY is NOT set in the environment.")
-        print("[startup] All pipeline features will fail until the variable is set.")
-        print("[startup] On Railway: set it in Service → Variables, then redeploy.")
+        print("[startup] WARNING: GEMINI_API_KEY is NOT set in the environment.", flush=True)
+        print("[startup] All pipeline features will fail until the variable is set.", flush=True)
+        print("[startup] On Railway: set it in Service → Variables, then redeploy.", flush=True)
 
     server = ThreadedHTTPServer((host, port), Handler)
     print(f"Lenses UI running at http://{host}:{port}")
