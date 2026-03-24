@@ -11,5 +11,11 @@ build/
 *.jpeg
 *.png
 *.npy
-!lenses/catalog/embeddings.npy
 *.log
+
+# Whitelist catalog assets required at runtime
+!lenses/catalog/embeddings.npy
+!lenses/catalog/images/
+!lenses/catalog/images/*.jpg
+!lenses/catalog/images/*.jpeg
+!lenses/catalog/images/*.png
