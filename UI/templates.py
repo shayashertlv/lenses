@@ -2499,7 +2499,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 
 /* ── Try-on result area inside modal ──────── */
 .tryon-result{display:none;text-align:center}
-.tryon-result img{width:100%;max-height:450px;object-fit:contain;border-radius:14px;margin-bottom:1rem;background:#f5f5f5}
+.tryon-result img{display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem}
 .tryon-progress{margin:2rem 0}
 .tryon-progress .bar-bg{width:100%;height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin-bottom:.8rem}
 .tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .5s}
