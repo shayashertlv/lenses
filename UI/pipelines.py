@@ -680,7 +680,7 @@ def get_catalog_products() -> list[dict]:
     if _CATALOG_DATA is None:
         return []
     products = []
-    for p in _CATALOG_DATA:
+    for p in _CATALOG_DATA["products"]:
         tags = p["tags"]
         ptags = tags["product"]
         products.append({
@@ -717,7 +717,7 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
 
     # Find product by ID
     product = None
-    for p in _CATALOG_DATA:
+    for p in _CATALOG_DATA["products"]:
         if p["id"] == product_id:
             product = p
             break
