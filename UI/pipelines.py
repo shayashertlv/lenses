@@ -113,7 +113,28 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     from google import genai
     client = genai.Client(api_key=api_key)
 
-    # STEP 1: FaceAnalyzer.analyze()
+    # Pre-load portrait Part in background thread (runs during face analysis + matching)
+    from utils import load_image_as_part
+    _portrait_result = [None, None]  # [part, error]
+    def _preload_portrait():
+        try:
+            _portrait_result[0] = load_image_as_part(portrait_path)
+        except Exception as e:
+            _portrait_result[1] = e
+    portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+    portrait_thread.start()
+
+    # Pre-create InventoryMatcher with pre-loaded catalog data (near-instant)
+    from inventory_matcher import InventoryMatcher
+    matcher = InventoryMatcher(
+        CATALOG_DIR, api_key,
+        client=client,
+        catalog_data=_CATALOG_DATA,
+        embeddings_normalized=_EMBEDDINGS_NORM,
+        index_map=_INDEX_MAP,
+    )
+
+    # STEP 1: FaceAnalyzer.analyze() — portrait pre-loading runs concurrently
     sess["stage"] = "analyzing"
     try:
         from face_analyzer import FaceAnalyzer
@@ -136,17 +157,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     sess["face_insights"] = analysis.get("face_insights", [])
     sess["face_summary"] = analysis.get("face_summary", {})
 
-    # STEP 2: InventoryMatcher.match() — use pre-loaded catalog data
+    # STEP 2: InventoryMatcher.match() — matcher pre-created, call immediately
     sess["stage"] = "matching"
     try:
-        from inventory_matcher import InventoryMatcher
-        matcher = InventoryMatcher(
-            CATALOG_DIR, api_key,
-            client=client,
-            catalog_data=_CATALOG_DATA,
-            embeddings_normalized=_EMBEDDINGS_NORM,
-            index_map=_INDEX_MAP,
-        )
         recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
         match_result = matcher.match(recommended_tags, top_k=3)
     except Exception as e:
@@ -187,17 +200,16 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         }
 
     # STEP 3: virtual_tryon() x3 in parallel
-    # Pre-load portrait image once and reuse across all try-ons
+    # Wait for portrait pre-loading to complete (started before face analysis)
     sess["stage"] = "tryon"
     from tryon_engine import virtual_tryon
-    from utils import load_image_as_part
-    try:
-        portrait_part = load_image_as_part(portrait_path)
-    except Exception as e:
+    portrait_thread.join()
+    if _portrait_result[1] is not None:
         sess["status"] = "error"
-        sess["error"] = f"Portrait load error: {e}"
+        sess["error"] = f"Portrait load error: {_portrait_result[1]}"
         _cleanup(portrait_path)
         return
+    portrait_part = _portrait_result[0]
 
     def do_tryon(idx: int):
         product, _ = matches[idx]
@@ -452,6 +464,16 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     from google import genai
     client = genai.Client(api_key=api_key)
 
+    # Pre-load portrait Part in background thread (runs during search + matching)
+    _portrait_result = [None, None]  # [part, error]
+    def _preload_portrait():
+        try:
+            _portrait_result[0] = _fs_load_image_as_part(portrait_path)
+        except Exception as e:
+            _portrait_result[1] = e
+    portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+    portrait_thread.start()
+
     # ── STEP 1: Build description from preferences ───────────────────────
     sess["stage"] = "searching"
     search_text = _build_search_description(preferences)
@@ -573,15 +595,15 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         }
 
     # ── STEP 3: Virtual try-on x3 in parallel ────────────────────────────
-    # Pre-load portrait image once and reuse across all try-ons
+    # Wait for portrait pre-loading to complete (started before search)
     sess["stage"] = "tryon"
-    try:
-        portrait_part = _fs_load_image_as_part(portrait_path)
-    except Exception as e:
+    portrait_thread.join()
+    if _portrait_result[1] is not None:
         sess["status"] = "error"
-        sess["error"] = f"Portrait load error: {e}"
+        sess["error"] = f"Portrait load error: {_portrait_result[1]}"
         _cleanup(portrait_path)
         return
+    portrait_part = _portrait_result[0]
 
     def do_tryon(idx: int):
         product, _ = matches[idx]

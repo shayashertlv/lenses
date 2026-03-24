@@ -906,6 +906,7 @@ body{
   width:100%;max-height:420px;object-fit:contain;border-radius:16px;
   display:block;position:relative;z-index:1;
 }
+.hero-tryon-wrap button{position:relative;z-index:2}
 .hero-panel{
   background:rgba(255,255,255,.04);border-radius:22px;
   border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);
