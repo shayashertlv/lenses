@@ -192,7 +192,7 @@ body{
 .tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
 .tryon-col img{width:100%;height:auto;border-radius:12px;display:block}
 .prod-col{flex:1 1 200px;max-width:280px;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{width:100%;max-height:180px;object-fit:contain;border-radius:12px;display:block}
+.prod-col img{display:block;width:auto;max-width:100%;height:auto;max-height:160px;border-radius:12px;margin:0 auto}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
 .prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
 .prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
