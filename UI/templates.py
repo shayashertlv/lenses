@@ -705,11 +705,12 @@ body{
 }
 .fs-upload:hover{border-color:#6c63ff;background:rgba(108,99,255,.06)}
 .fs-upload.has-file{border-color:#34c78a;border-style:solid;background:rgba(52,199,138,.06)}
+.fs-upload.has-file svg,.fs-upload.has-file .up-hint{display:none}
 .fs-upload svg{width:40px;height:40px;stroke:rgba(255,255,255,.35);stroke-width:1.5;fill:none;margin-bottom:.6rem}
 .fs-upload:hover svg{stroke:#6c63ff}
 .fs-upload .up-label{font-size:1rem;font-weight:600;color:rgba(255,255,255,.7);display:block}
 .fs-upload .up-hint{font-size:.78rem;color:rgba(255,255,255,.35);display:block;margin-top:.2rem}
-.fs-upload .up-preview{max-height:120px;border-radius:12px;margin:.8rem auto 0;display:none}
+.fs-upload .up-preview{max-height:200px;border-radius:12px;margin:.8rem auto 0;display:none}
 #fs-file{display:none}
 
 /* form grid */
@@ -1776,11 +1777,12 @@ body{
 }
 .rc-upload:hover{border-color:#e8a838;background:rgba(232,168,56,.06)}
 .rc-upload.has-file{border-color:#34c78a;border-style:solid;background:rgba(52,199,138,.06)}
+.rc-upload.has-file svg,.rc-upload.has-file .up-hint{display:none}
 .rc-upload svg{width:40px;height:40px;stroke:rgba(255,255,255,.35);stroke-width:1.5;fill:none;margin-bottom:.6rem}
 .rc-upload:hover svg{stroke:#e8a838}
 .rc-upload .up-label{font-size:1rem;font-weight:600;color:rgba(255,255,255,.7);display:block}
 .rc-upload .up-hint{font-size:.78rem;color:rgba(255,255,255,.35);display:block;margin-top:.2rem}
-.rc-upload .up-preview{max-height:120px;border-radius:12px;margin:.8rem auto 0;display:none}
+.rc-upload .up-preview{max-height:200px;border-radius:12px;margin:.8rem auto 0;display:none}
 #rc-file{display:none}
 
 /* color picker grid */
