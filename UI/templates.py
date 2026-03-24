@@ -395,9 +395,20 @@ const checkSvg12='<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><p
 
 function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 
+const _recolorStore={};let _recolorIdx=0;
+function goRecolor(key){
+  sessionStorage.setItem('recolor_preload',_recolorStore[key]);
+  window.location.href='/lens-recolor';
+}
+
 function buildTryonHtml(o){
   if(o.tryon_status==='done'&&o.tryon_b64){
-    return `<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
+    const key='rc'+(++_recolorIdx);
+    _recolorStore[key]=o.tryon_b64;
+    return `<div style="position:relative;display:inline-block;width:100%">
+      <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
+      <button onclick="event.stopPropagation();goRecolor('${key}')" style="position:absolute;bottom:10px;left:10px;padding:5px 12px;background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
+    </div>`;
   }else if(o.tryon_status==='error'){
     return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+escHtml(o.tryon_error):''}</div>`;
   }
@@ -1486,8 +1497,21 @@ function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
 function fmtPrice(o){const sym=o.currency==='ILS'?'\u20AA':o.currency;return o.price.toLocaleString()+' '+sym}
 const checkSvg='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+const _recolorStore={};let _recolorIdx=0;
+function goRecolor(key){
+  sessionStorage.setItem('recolor_preload',_recolorStore[key]);
+  window.location.href='/lens-recolor';
+}
+
 function getTryonHtml(o){
-  if(o.tryon_status==='done'&&o.tryon_b64) return `<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
+  if(o.tryon_status==='done'&&o.tryon_b64){
+    const key='rc'+(++_recolorIdx);
+    _recolorStore[key]=o.tryon_b64;
+    return `<div style="position:relative;display:inline-block;width:100%">
+      <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
+      <button onclick="event.stopPropagation();goRecolor('${key}')" style="position:absolute;bottom:10px;left:10px;padding:5px 12px;background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
+    </div>`;
+  }
   if(o.tryon_status==='error') return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+o.tryon_error:''}</div>`;
   return '<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>';
 }
@@ -2102,6 +2126,26 @@ document.getElementById('rc-file').addEventListener('change',function(e){
   prev.src=URL.createObjectURL(f); prev.style.display='block';
   checkReady();
 });
+
+/* ── Preload image from Smart Fit / Free Search ── */
+(function(){
+  const b64=sessionStorage.getItem('recolor_preload');
+  if(!b64) return;
+  sessionStorage.removeItem('recolor_preload');
+  // Convert base64 to File object
+  const byteStr=atob(b64);
+  const ab=new ArrayBuffer(byteStr.length);
+  const ia=new Uint8Array(ab);
+  for(let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+  const blob=new Blob([ab],{type:'image/png'});
+  chosenFile=new File([blob],'tryon-photo.png',{type:'image/png'});
+  const area=document.getElementById('upload-area');
+  area.classList.add('has-file');
+  document.getElementById('up-label-text').textContent='Photo from try-on';
+  const prev=document.getElementById('up-preview');
+  prev.src='data:image/png;base64,'+b64; prev.style.display='block';
+  checkReady();
+})();
 
 /* ── Color checkbox logic ── */
 const MAX_COLORS=3;
