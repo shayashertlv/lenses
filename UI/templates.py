@@ -1299,7 +1299,7 @@ body{
       <button class="res-topbar-compare" onclick="openCompare()">&#9638; Compare All</button>
     </div>
     <div id="fs-opts"></div>
-    <button class="start-over" onclick="fsReset()">Search Again</button>
+
   </div>
   <div id="compare-modal" class="compare-modal" style="display:none">
     <div class="compare-backdrop" onclick="closeCompare()"></div>
