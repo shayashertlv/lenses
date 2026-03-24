@@ -176,14 +176,6 @@ body{
 @keyframes spin{to{transform:rotate(360deg)}}
 .tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
   background:#fef5f5;border-radius:12px;color:#d44;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
-/* ── Favorite button ────────────────────────────── */
-.fav-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;
-  border:none;background:rgba(255,255,255,.85);backdrop-filter:blur(4px);
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all .2s;box-shadow:0 2px 8px rgba(30,30,47,.1);z-index:2}
-.fav-btn:hover{background:#fff;transform:scale(1.1)}
-.fav-btn svg{width:20px;height:20px;stroke:#9b99ae;fill:none;stroke-width:2;transition:all .2s}
-.fav-btn.active svg{stroke:#ef4444;fill:#ef4444}
 /* ── Section labels ──────────────────────────────── */
 .section-lbl{font-size:14px;font-weight:500;color:#8b85b8;margin-bottom:10px;margin-top:1.5rem}
 .section-lbl:first-child{margin-top:0}
@@ -421,7 +413,7 @@ function buildPrimaryCard(o,d){
   }
 
   card.innerHTML=`<div class="primary-hero-inner">
-    <div class="primary-tryon"><button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg></button>${tryonHtml}</div>
+    <div class="primary-tryon">${tryonHtml}</div>
     <div class="primary-panel">
       <div class="match-badge">${checkSvg12} ${matchPct}% match</div>
       <div class="p-name">${escHtml(o.name)}</div>
@@ -571,7 +563,7 @@ function buildAlternativeCard(o,idx){
   card.innerHTML=`
     <div class="opt-label">Alternative ${idx}</div>
     <div class="opt-body">
-      <div class="tryon-col"><button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg></button>${tryonHtml}</div>
+      <div class="tryon-col">${tryonHtml}</div>
       <div class="prod-col">
         <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
         <div class="prod-info">
@@ -1007,15 +999,6 @@ body{
 .tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
   background:rgba(220,50,50,.08);border-radius:12px;color:#f87171;font-size:.85rem;
   padding:1.2rem;text-align:center;width:100%}
-
-/* ── Favorite button ── */
-.fav-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;
-  border:none;background:rgba(255,255,255,.1);backdrop-filter:blur(4px);
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all .2s;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:2}
-.fav-btn:hover{background:rgba(255,255,255,.2);transform:scale(1.1)}
-.fav-btn svg{width:20px;height:20px;stroke:rgba(255,255,255,.6);fill:none;stroke-width:2;transition:all .2s}
-.fav-btn.active svg{stroke:#ef4444;fill:#ef4444}
 
 /* ── Start over button ── */
 .start-over{display:block;margin:2rem auto 3rem;padding:.75rem 2.2rem;
@@ -1488,7 +1471,6 @@ function getAccent(colorStr){
 
 function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
 function fmtPrice(o){const sym=o.currency==='ILS'?'\u20AA':o.currency;return o.price.toLocaleString()+' '+sym}
-const favSvg='<svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 const checkSvg='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function getTryonHtml(o){
@@ -1559,7 +1541,6 @@ function buildHeroSection(opt){
     <div class="hero-grid">
       <div class="hero-tryon-wrap">
         <div class="hero-glow"></div>
-        <button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite">${favSvg}</button>
         ${getTryonHtml(opt)}
       </div>
       <div class="hero-panel">
@@ -1593,7 +1574,6 @@ function buildAltCard(opt,index){
   el.className='alt-card';
   el.innerHTML=`
     <div class="alt-card-img-wrap">
-      <button class="fav-btn" onclick="this.classList.toggle('active')" aria-label="Favorite">${favSvg}</button>
       ${getTryonHtml(opt)}
     </div>
     <div class="alt-card-body">
