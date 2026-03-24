@@ -2486,8 +2486,10 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 .upload-zone p{font-size:.85rem;color:#999}
 .upload-zone .small{font-size:.72rem;color:#ccc;margin-top:.3rem}
 
-.upload-preview{display:none;width:100px;height:100px;border-radius:50%;object-fit:cover;
-  margin:0 auto .8rem;border:3px solid #6c63ff}
+.upload-preview{width:110px;height:110px;border-radius:50%;object-fit:cover;
+  display:block;margin:0 auto .6rem;border:3px solid #6c63ff}
+.change-photo-btn{display:block;margin:.1rem auto 1.2rem;background:none;border:none;
+  font-size:.78rem;color:#6c63ff;cursor:pointer;text-decoration:underline;padding:0}
 
 .modal-submit{width:100%;padding:.85rem;border:none;border-radius:12px;
   background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff;font-size:.95rem;font-weight:600;
@@ -2574,11 +2576,16 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
       <div id="modal-upload">
         <h3 id="modal-product-name"></h3>
         <p class="modal-subtitle">Upload a selfie to see how these frames look on you</p>
-        <img class="upload-preview" id="modal-preview"/>
-        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('modal-file').click()">
+        <!-- Empty state -->
+        <div id="upload-empty" class="upload-zone" onclick="document.getElementById('modal-file').click()">
           <svg viewBox="0 0 36 36"><path d="M18 8v20M8 18h20" stroke-linecap="round"/></svg>
           <p>Click to upload your photo</p>
           <p class="small">JPG, PNG or WebP</p>
+        </div>
+        <!-- Photo-ready state -->
+        <div id="upload-ready" style="display:none;text-align:center">
+          <img class="upload-preview" id="modal-preview" src="" alt="Your photo"/>
+          <button type="button" class="change-photo-btn" onclick="document.getElementById('modal-file').click()">Change photo</button>
         </div>
         <input type="file" id="modal-file" accept="image/*" style="display:none"/>
         <button class="modal-submit" id="modal-go" disabled onclick="startTryon()">Try On</button>
@@ -2689,12 +2696,7 @@ function openTryon(productId, productName) {
   /* Restore cached photo if available */
   if (cachedFile) {
     currentFile = cachedFile;
-    const preview = document.getElementById('modal-preview');
-    preview.src = cachedPreviewSrc;
-    preview.style.display = 'block';
-    document.getElementById('upload-zone').classList.add('has-photo');
-    document.getElementById('upload-zone').querySelector('p').textContent = 'Photo ready — click to change';
-    document.getElementById('modal-go').disabled = false;
+    showPhotoReady(cachedPreviewSrc);
   }
 }
 
@@ -2703,15 +2705,25 @@ function closeModal() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+function showPhotoReady(src) {
+  document.getElementById('upload-empty').style.display = 'none';
+  document.getElementById('upload-ready').style.display = '';
+  document.getElementById('modal-preview').src = src;
+  document.getElementById('modal-go').disabled = false;
+}
+
 function resetModal() {
   document.getElementById('modal-upload').style.display = '';
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-result').style.display = 'none';
   document.getElementById('modal-error').style.display = 'none';
-  /* Keep cached photo for convenience */
   if (cachedFile) {
     currentFile = cachedFile;
-    document.getElementById('modal-go').disabled = false;
+    showPhotoReady(cachedPreviewSrc);
+  } else {
+    document.getElementById('upload-empty').style.display = '';
+    document.getElementById('upload-ready').style.display = 'none';
+    document.getElementById('modal-go').disabled = true;
   }
 }
 
@@ -2723,14 +2735,9 @@ document.getElementById('modal-file').addEventListener('change', e => {
   const reader = new FileReader();
   reader.onload = ev => {
     cachedPreviewSrc = ev.target.result;
-    const preview = document.getElementById('modal-preview');
-    preview.src = cachedPreviewSrc;
-    preview.style.display = 'block';
+    showPhotoReady(cachedPreviewSrc);
   };
   reader.readAsDataURL(f);
-  document.getElementById('upload-zone').classList.add('has-photo');
-  document.getElementById('upload-zone').querySelector('p').textContent = 'Photo ready — click to change';
-  document.getElementById('modal-go').disabled = false;
 });
 
 function startTryon() {
