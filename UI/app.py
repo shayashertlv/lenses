@@ -9,13 +9,18 @@ try-on finishes.
 """
 
 from http.server import HTTPServer
+from socketserver import ThreadingMixIn
 
 from UI.handler import Handler
 
 
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
 def main():
     host, port = "127.0.0.1", 8080
-    server = HTTPServer((host, port), Handler)
+    server = ThreadedHTTPServer((host, port), Handler)
     print(f"Lenses UI running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:

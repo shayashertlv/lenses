@@ -55,7 +55,29 @@
       "Bash(python -m pytest optimal_configuration/tests/test_search.py -x -q)",
       "Bash(python -m pytest face_analysis/tests/test_pipeline.py -x -q)",
       "Bash(python -m pytest lens_recolor/tests/test_recolor.py -x -q)",
-      "Bash(python -m unittest optimal_configuration/tests/test_search.py)"
+      "Bash(python -m unittest optimal_configuration/tests/test_search.py)",
+      "Bash(python -c \"from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML; print\\(''All templates imported successfully''\\); print\\(''LANDING_HTML length:'', len\\(LANDING_HTML\\)\\); print\\(''FREE_SEARCH_HTML length:'', len\\(FREE_SEARCH_HTML\\)\\); print\\(''LENS_RECOLOR_HTML length:'', len\\(LENS_RECOLOR_HTML\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8080/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8080/free-search)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8080/lens-recolor)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(python -c \"from UI.handler import Handler; print\\(''Handler OK''\\)\")",
+      "Bash(curl -s -o /dev/null -w \"Landing: %{http_code}\\\\n\" http://127.0.0.1:8080/)",
+      "Bash(curl -s -o /dev/null -w \"Free Search: %{http_code}\\\\n\" http://127.0.0.1:8080/free-search)",
+      "Bash(curl -s -o /dev/null -w \"Lens Recolor: %{http_code}\\\\n\" http://127.0.0.1:8080/lens-recolor)",
+      "Bash(curl -s -o /dev/null -w \"\\\\nHTTP: %{http_code}\" http://127.0.0.1:8080/)",
+      "Bash(curl -s http://127.0.0.1:8080/free-search)",
+      "Bash(curl --max-time 10 -s http://127.0.0.1:8080/free-search)",
+      "Bash(curl --max-time 30 -s http://127.0.0.1:8080/free-search)",
+      "Bash(curl -s http://127.0.0.1:8080/)",
+      "Bash(curl -s http://127.0.0.1:8080/api/status/8ac01792f0b1)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s -X POST http://127.0.0.1:8080/api/upload -F \"photo=@C:/Users/Shay/PycharmProjects/lenses/test_upload.jpg\")",
+      "Bash(curl -s http://127.0.0.1:8080/api/status/40d9d4f1fb76)",
+      "Bash(curl -s http://127.0.0.1:8080/api/debug-env)",
+      "Bash(while read:*)",
+      "Bash(do file:*)",
+      "Bash(done)"
     ]
   }
 }

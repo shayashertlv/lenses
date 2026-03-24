@@ -58,8 +58,32 @@ _CATALOG_DATA, _EMBEDDINGS_NORM, _INDEX_MAP = _preload_catalog()
 
 
 def _get_api_key() -> str:
-    """Get the Gemini API key directly from os.environ (no sys.path dependency)."""
+    """Get the Gemini API key from os.environ, Windows registry, or .env file."""
     key = os.environ.get("GEMINI_API_KEY", "")
+
+    # Fallback: on Windows, read from user/system env vars in the registry.
+    # Env vars set via `setx` or System Properties aren't inherited by processes
+    # spawned from a different process tree (e.g. preview tools, IDEs).
+    if not key and os.name == "nt":
+        try:
+            import winreg
+            # Try user environment first
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as rk:
+                key, _ = winreg.QueryValueEx(rk, "GEMINI_API_KEY")
+        except (FileNotFoundError, OSError):
+            try:
+                # Try system environment
+                with winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+                ) as rk:
+                    key, _ = winreg.QueryValueEx(rk, "GEMINI_API_KEY")
+            except (FileNotFoundError, OSError):
+                pass
+        if key:
+            os.environ["GEMINI_API_KEY"] = key
+
+    # Fallback: try .env file
     if not key:
         try:
             from dotenv import load_dotenv
@@ -68,13 +92,14 @@ def _get_api_key() -> str:
             key = os.environ.get("GEMINI_API_KEY", "")
         except ImportError:
             pass
+
     if not key:
         raise RuntimeError(
             "GEMINI_API_KEY environment variable is not set.\n"
             "Get your API key from: https://aistudio.google.com/apikey\n"
             "Then set it:\n"
-            "  export GEMINI_API_KEY='your-key-here'  (Linux/Mac)\n"
-            "  set GEMINI_API_KEY=your-key-here       (Windows)"
+            "  setx GEMINI_API_KEY your-key-here       (Windows — permanent)\n"
+            "  export GEMINI_API_KEY='your-key-here'    (Linux/Mac)"
         )
     return key
 
