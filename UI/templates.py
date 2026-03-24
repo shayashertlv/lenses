@@ -2412,51 +2412,55 @@ STOREFRONT_HTML = r"""<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  background:#fafafa;color:#1a1a1a;-webkit-font-smoothing:antialiased}
+  background:#0b0b14;color:#fff;-webkit-font-smoothing:antialiased}
 
 /* ── Top bar ───────────────────────────────── */
-.topbar{background:#fff;border-bottom:1px solid #e5e5e5;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;
+.topbar{background:rgba(11,11,20,.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid rgba(255,255,255,.06);padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;
   position:sticky;top:0;z-index:50}
-.topbar .brand{font-family:'DM Serif Display',Georgia,serif;font-size:1.6rem;color:#1a1a1a;text-decoration:none}
-.topbar .back-btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;color:#666;text-decoration:none;
-  padding:.45rem 1rem;border-radius:8px;border:1px solid #ddd;transition:all .2s}
-.topbar .back-btn:hover{background:#f0f0f0;color:#333}
-.topbar .powered{font-size:.72rem;color:#999;display:flex;align-items:center;gap:.4rem}
+.topbar .brand{font-family:'DM Serif Display',Georgia,serif;font-size:1.6rem;color:#fff;text-decoration:none}
+.topbar .back-btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;color:rgba(255,255,255,.5);text-decoration:none;
+  padding:.45rem 1rem;border-radius:8px;border:1px solid rgba(255,255,255,.12);transition:all .2s}
+.topbar .back-btn:hover{background:rgba(255,255,255,.06);color:rgba(255,255,255,.8)}
+.topbar .powered{font-size:.72rem;color:rgba(255,255,255,.35);display:flex;align-items:center;gap:.4rem}
 .topbar .powered span{background:linear-gradient(135deg,#6c63ff,#34c78a);-webkit-background-clip:text;
   -webkit-text-fill-color:transparent;font-weight:600}
 
 /* ── Hero ──────────────────────────────────── */
-.hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#fff;padding:3rem 2rem;text-align:center}
+.hero{background:linear-gradient(175deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
+  border-bottom:1px solid rgba(255,255,255,.06);color:#fff;padding:3rem 2rem;text-align:center}
 .hero h1{font-family:'DM Serif Display',Georgia,serif;font-size:2.4rem;font-weight:400;margin-bottom:.5rem}
-.hero p{font-size:1rem;color:rgba(255,255,255,.6);max-width:500px;margin:0 auto}
+.hero p{font-size:1rem;color:rgba(255,255,255,.45);max-width:500px;margin:0 auto}
 
 /* ── Product grid ─────────────────────────── */
 .container{max-width:1200px;margin:0 auto;padding:2rem 1.5rem 4rem}
 .grid-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
-.grid-header h2{font-size:1.1rem;font-weight:600;color:#333}
-.grid-header .count{font-size:.85rem;color:#999}
+.grid-header h2{font-size:1.1rem;font-weight:600;color:rgba(255,255,255,.85)}
+.grid-header .count{font-size:.85rem;color:rgba(255,255,255,.35)}
 .product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.5rem}
 
-.product-card{background:#fff;border-radius:16px;overflow:hidden;border:1px solid #eee;
+.product-card{background:rgba(255,255,255,.03);border-radius:22px;overflow:hidden;border:1px solid rgba(255,255,255,.06);
   transition:all .25s ease;display:flex;flex-direction:column}
-.product-card:hover{transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.08)}
-.product-card .img-wrap{position:relative;aspect-ratio:1/1;background:#f5f5f5;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.product-card:hover{transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.3);border-color:rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05)}
+.product-card .img-wrap{position:relative;aspect-ratio:1/1;background:rgba(255,255,255,.02);overflow:hidden;display:flex;align-items:center;justify-content:center}
 .product-card .img-wrap img{width:85%;height:85%;object-fit:contain;transition:transform .3s}
 .product-card:hover .img-wrap img{transform:scale(1.05)}
 .product-card .badge{position:absolute;top:.75rem;left:.75rem;font-size:.65rem;font-weight:600;padding:.25rem .6rem;
   border-radius:6px;text-transform:uppercase;letter-spacing:.04em}
-.badge.men{background:#e0e7ff;color:#4338ca}
-.badge.women{background:#fce7f3;color:#be185d}
-.badge.unisex{background:#ecfdf5;color:#059669}
+.badge.men{background:rgba(67,56,202,.2);color:#818cf8}
+.badge.women{background:rgba(190,24,93,.2);color:#f472b6}
+.badge.unisex{background:rgba(5,150,105,.2);color:#34d399}
 
 .product-info{padding:1rem 1.2rem;flex:1;display:flex;flex-direction:column}
-.product-info .brand-name{font-size:.72rem;color:#999;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem}
-.product-info .prod-name{font-size:.92rem;font-weight:600;color:#1a1a1a;line-height:1.35;margin-bottom:.5rem}
+.product-info .brand-name{font-size:.72rem;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem}
+.product-info .prod-name{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;font-weight:400;color:#fff;line-height:1.35;margin-bottom:.5rem}
 .product-info .prod-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.75rem}
-.product-info .prod-tag{font-size:.65rem;padding:.2rem .5rem;border-radius:6px;background:#f3f4f6;color:#666;font-weight:500}
+.product-info .prod-tag{font-size:.65rem;padding:.2rem .5rem;border-radius:6px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.45);font-weight:500;
+  border:1px solid rgba(255,255,255,.06)}
 .product-info .price-row{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:.5rem}
-.product-info .price{font-size:1.1rem;font-weight:700;color:#1a1a1a}
-.product-info .currency{font-size:.75rem;color:#999;font-weight:400;margin-left:.15rem}
+.product-info .price{font-family:'DM Serif Display',Georgia,serif;font-size:1.1rem;font-weight:400;color:#fff}
+.product-info .currency{font-size:.75rem;color:rgba(255,255,255,.35);font-weight:400;margin-left:.15rem}
 
 .tryon-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:10px;
   background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff;font-size:.78rem;font-weight:600;
@@ -2465,62 +2469,62 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 .tryon-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
 
 /* ── Modal ─────────────────────────────────── */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;
-  align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(10,10,20,.85);z-index:100;
+  align-items:center;justify-content:center;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .modal-overlay.active{display:flex}
-.modal{background:#fff;border-radius:20px;max-width:560px;width:92%;max-height:90vh;overflow-y:auto;
-  box-shadow:0 24px 60px rgba(0,0,0,.2);position:relative}
+.modal{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:24px;max-width:560px;width:92%;max-height:90vh;overflow-y:auto;
+  box-shadow:0 24px 60px rgba(0,0,0,.4);position:relative;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
 .modal-close{position:absolute;top:1rem;right:1rem;width:32px;height:32px;border-radius:50%;border:none;
-  background:#f3f4f6;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  font-size:1.1rem;color:#666;transition:all .2s;z-index:2}
-.modal-close:hover{background:#e5e7eb;color:#333}
+  background:rgba(255,255,255,.08);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:1.1rem;color:rgba(255,255,255,.5);transition:all .2s;z-index:2}
+.modal-close:hover{background:rgba(255,255,255,.15);color:#fff}
 
 .modal-body{padding:2rem}
-.modal-body h3{font-size:1.15rem;font-weight:600;margin-bottom:.3rem}
-.modal-body .modal-subtitle{font-size:.85rem;color:#999;margin-bottom:1.5rem}
+.modal-body h3{font-size:1.15rem;font-weight:600;color:#fff;margin-bottom:.3rem}
+.modal-body .modal-subtitle{font-size:.85rem;color:rgba(255,255,255,.4);margin-bottom:1.5rem}
 
-.upload-zone{border:2px dashed #ddd;border-radius:14px;padding:2rem;text-align:center;cursor:pointer;
-  transition:all .2s;margin-bottom:1rem}
-.upload-zone:hover{border-color:#6c63ff;background:rgba(108,99,255,.03)}
-.upload-zone.has-photo{border-style:solid;border-color:#6c63ff;background:rgba(108,99,255,.03)}
-.upload-zone svg{width:36px;height:36px;stroke:#bbb;fill:none;stroke-width:1.5;margin-bottom:.5rem}
-.upload-zone p{font-size:.85rem;color:#999}
-.upload-zone .small{font-size:.72rem;color:#ccc;margin-top:.3rem}
+.upload-zone{border:2px dashed rgba(255,255,255,.15);border-radius:14px;padding:2rem;text-align:center;cursor:pointer;
+  transition:all .2s;margin-bottom:1rem;background:rgba(255,255,255,.03)}
+.upload-zone:hover{border-color:#6c63ff;background:rgba(108,99,255,.06)}
+.upload-zone.has-photo{border-style:solid;border-color:#34c78a;background:rgba(52,199,138,.06)}
+.upload-zone svg{width:36px;height:36px;stroke:rgba(255,255,255,.3);fill:none;stroke-width:1.5;margin-bottom:.5rem}
+.upload-zone p{font-size:.85rem;color:rgba(255,255,255,.4)}
+.upload-zone .small{font-size:.72rem;color:rgba(255,255,255,.25);margin-top:.3rem}
 
 .upload-preview{width:110px;height:110px;border-radius:50%;object-fit:cover;
-  display:block;margin:0 auto .6rem;border:3px solid #6c63ff}
+  display:block;margin:0 auto .6rem;border:3px solid #6c63ff;box-shadow:0 4px 20px rgba(0,0,0,.3)}
 .change-photo-btn{display:block;margin:.1rem auto 1.2rem;background:none;border:none;
   font-size:.78rem;color:#6c63ff;cursor:pointer;text-decoration:underline;padding:0}
 
-.modal-submit{width:100%;padding:.85rem;border:none;border-radius:12px;
+.modal-submit{width:100%;padding:.85rem;border:none;border-radius:50px;
   background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff;font-size:.95rem;font-weight:600;
-  cursor:pointer;transition:all .2s;margin-top:.5rem}
-.modal-submit:hover{box-shadow:0 6px 20px rgba(108,99,255,.3)}
-.modal-submit:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+  cursor:pointer;transition:all .2s;margin-top:.5rem;box-shadow:0 4px 16px rgba(108,99,255,.25)}
+.modal-submit:hover{box-shadow:0 6px 20px rgba(108,99,255,.35);transform:translateY(-1px)}
+.modal-submit:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
 
 /* ── Try-on result area inside modal ──────── */
 .tryon-result{display:none;text-align:center}
 .tryon-result img{display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem}
 .tryon-progress{margin:2rem 0}
-.tryon-progress .bar-bg{width:100%;height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin-bottom:.8rem}
-.tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .5s}
-.tryon-progress p{font-size:.85rem;color:#999}
+.tryon-progress .bar-bg{width:100%;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;margin-bottom:.8rem}
+.tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#34c78a,#6dd5a8);border-radius:2px;width:0%;transition:width .6s}
+.tryon-progress p{font-size:.85rem;color:rgba(255,255,255,.4)}
 
 /* ── Loading skeleton ─────────────────────── */
-.skeleton{background:linear-gradient(110deg,#f0f0f0 8%,#f8f8f8 18%,#f0f0f0 33%);
+.skeleton{background:linear-gradient(110deg,rgba(255,255,255,.03) 8%,rgba(255,255,255,.06) 18%,rgba(255,255,255,.03) 33%);
   background-size:200% 100%;animation:shimmer 1.6s linear infinite;border-radius:8px}
 @keyframes shimmer{to{background-position:-200% 0}}
 
 /* ── Gender filter strip ──────────────────── */
 .filter-strip{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.5rem}
-.filter-pill{padding:.45rem 1.15rem;border-radius:20px;border:1.5px solid #e5e5e5;background:#fff;
-  font-size:.82rem;font-weight:500;cursor:pointer;transition:all .18s;color:#666;line-height:1}
-.filter-pill:hover{border-color:#999;color:#333}
-.filter-pill.active{border-color:transparent;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-.filter-pill[data-gender="all"].active{background:#1a1a1a}
-.filter-pill[data-gender="men"].active{background:#4338ca}
-.filter-pill[data-gender="women"].active{background:#be185d}
-.filter-pill[data-gender="unisex"].active{background:#059669}
+.filter-pill{padding:.45rem 1.15rem;border-radius:20px;border:1.5px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);
+  font-size:.82rem;font-weight:500;cursor:pointer;transition:all .18s;color:rgba(255,255,255,.45);line-height:1}
+.filter-pill:hover{border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.7)}
+.filter-pill.active{border-color:transparent;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.filter-pill[data-gender="all"].active{background:rgba(255,255,255,.12)}
+.filter-pill[data-gender="men"].active{background:rgba(67,56,202,.5)}
+.filter-pill[data-gender="women"].active{background:rgba(190,24,93,.5)}
+.filter-pill[data-gender="unisex"].active{background:rgba(5,150,105,.5)}
 
 @media(max-width:640px){
   .product-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}
@@ -2612,7 +2616,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 
       <!-- Error step -->
       <div id="modal-error" style="display:none;text-align:center">
-        <div style="font-size:2rem;margin-bottom:.8rem">:/</div>
+        <div style="font-size:2rem;margin-bottom:.8rem;color:rgba(255,255,255,.5)">:/</div>
         <h3>Something went wrong</h3>
         <p class="modal-subtitle" id="modal-error-msg"></p>
         <button class="modal-submit" onclick="resetModal()">Try Again</button>
