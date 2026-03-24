@@ -62,6 +62,7 @@ def get_api_key() -> str:
             "GEMINI_API_KEY environment variable is not set.\n"
             "Get your API key from: https://aistudio.google.com/apikey\n"
             "Then set it:\n"
+            "  Railway/Render: add GEMINI_API_KEY in the service's Variables tab, then redeploy.\n"
             "  setx GEMINI_API_KEY your-key-here       (Windows — permanent)\n"
             "  export GEMINI_API_KEY='your-key-here'    (Linux/Mac)"
         )

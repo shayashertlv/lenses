@@ -22,6 +22,17 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 def main():
     host = "0.0.0.0"
     port = int(os.environ.get("PORT", 8080))
+
+    # ── Startup: ensure GEMINI_API_KEY is available ──────────────────
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if api_key:
+        masked = api_key[:4] + "…" + api_key[-4:]
+        print(f"[startup] GEMINI_API_KEY is set ({len(api_key)} chars: {masked})")
+    else:
+        print("[startup] WARNING: GEMINI_API_KEY is NOT set in the environment.")
+        print("[startup] All pipeline features will fail until the variable is set.")
+        print("[startup] On Railway: set it in Service → Variables, then redeploy.")
+
     server = ThreadedHTTPServer((host, port), Handler)
     print(f"Lenses UI running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
