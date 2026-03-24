@@ -675,6 +675,124 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     _cleanup(portrait_path)
 
 
+def get_catalog_products() -> list[dict]:
+    """Return a list of product summaries for the storefront."""
+    if _CATALOG_DATA is None:
+        return []
+    products = []
+    for p in _CATALOG_DATA:
+        tags = p["tags"]
+        ptags = tags["product"]
+        products.append({
+            "id": p["id"],
+            "name": p["name"],
+            "image": p["image"],
+            "brand": ptags.get("brand", ""),
+            "model": ptags.get("model_name", ""),
+            "price": ptags.get("price", 0),
+            "currency": ptags.get("currency", "ILS"),
+            "in_stock": ptags.get("in_stock", True),
+            "shape": tags["frame"].get("shape", ""),
+            "material": tags["frame"].get("material", ""),
+            "color": ", ".join(tags["frame"]["color"]) if isinstance(tags["frame"].get("color"), list) else str(tags["frame"].get("color", "")),
+            "rim_type": tags["frame"].get("rim_type", ""),
+            "lens_type": ", ".join(tags["lenses"]["type"]) if isinstance(tags["lenses"].get("type"), list) else str(tags["lenses"].get("type", "")),
+            "gender": tags["style"].get("gender_target", "unisex"),
+        })
+    return products
+
+
+def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
+                                  filename: str, product_id: str):
+    """
+    Storefront try-on pipeline — single product virtual try-on.
+    Reuses the free-search try-on engine.
+    """
+    sess = sessions[session_id]
+
+    if _CATALOG_DATA is None:
+        sess["status"] = "error"
+        sess["error"] = "Catalog not loaded"
+        return
+
+    # Find product by ID
+    product = None
+    for p in _CATALOG_DATA:
+        if p["id"] == product_id:
+            product = p
+            break
+
+    if product is None:
+        sess["status"] = "error"
+        sess["error"] = f"Product '{product_id}' not found"
+        return
+
+    ext = Path(filename).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(portrait_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    sess["stage"] = "tryon"
+
+    try:
+        api_key = _get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        _cleanup(portrait_path)
+        return
+
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
+    # Load product image
+    glasses_path = os.path.join(CATALOG_DIR, product["image"])
+    try:
+        with open(glasses_path, "rb") as f:
+            product_b64 = base64.b64encode(f.read()).decode("ascii")
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Product image error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    ptags = product["tags"]["product"]
+    sess["num_options"] = 1
+    sess["opt0"] = {
+        "name": product["name"],
+        "brand": ptags.get("brand", ""),
+        "model": ptags.get("model_name", ""),
+        "price": ptags.get("price", 0),
+        "currency": ptags.get("currency", "ILS"),
+        "score": 1.0,
+        "shape": product["tags"]["frame"].get("shape", ""),
+        "material": product["tags"]["frame"].get("material", ""),
+        "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else "",
+        "product_b64": product_b64,
+        "tryon_status": "generating",
+        "tryon_b64": None,
+        "tryon_error": None,
+    }
+
+    tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
+                           client=client)
+
+    if tr["success"] and tr["image_bytes"]:
+        sess["opt0"]["tryon_b64"] = base64.b64encode(
+            tr["image_bytes"]
+        ).decode("ascii")
+        sess["opt0"]["tryon_status"] = "done"
+    else:
+        sess["opt0"]["tryon_status"] = "error"
+        sess["opt0"]["tryon_error"] = tr.get("error", "No image returned")
+
+    sess["stage"] = "done"
+    sess["status"] = "done"
+    _cleanup(portrait_path)
+
+
 def _cleanup(path: str):
     try:
         os.unlink(path)

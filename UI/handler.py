@@ -9,8 +9,12 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 
 from UI.config import sessions
-from UI.pipelines import run_pipeline, run_free_search_pipeline, run_recolor_pipeline
-from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML
+from UI.config import CATALOG_IMAGES_DIR
+from UI.pipelines import (
+    run_pipeline, run_free_search_pipeline, run_recolor_pipeline,
+    run_storefront_tryon_pipeline, get_catalog_products,
+)
+from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -29,6 +33,13 @@ class Handler(BaseHTTPRequestHandler):
             self._html(FREE_SEARCH_HTML)
         elif path == "/lens-recolor":
             self._html(LENS_RECOLOR_HTML)
+        elif path == "/storefront":
+            self._html(STOREFRONT_HTML)
+        elif path == "/api/catalog":
+            self._json(200, get_catalog_products())
+        elif path.startswith("/api/catalog-image/"):
+            fname = path[len("/api/catalog-image/"):]
+            self._serve_catalog_image(fname)
         elif path.startswith("/api/status/"):
             sid = path[len("/api/status/"):]
             self._serve_status(sid)
@@ -46,6 +57,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_free_search()
         elif path == "/api/lens-recolor":
             self._handle_lens_recolor()
+        elif path == "/api/storefront-tryon":
+            self._handle_storefront_tryon()
         else:
             self.send_error(404)
 
@@ -151,6 +164,60 @@ class Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._json(200, {"session_id": sid})
+
+    # ── Storefront try-on ───────────────────────────────────────────────
+    def _handle_storefront_tryon(self):
+        ctype = self.headers.get("Content-Type", "")
+        clen = int(self.headers.get("Content-Length", 0))
+
+        if "multipart/form-data" not in ctype:
+            return self._json(400, {"error": "Expected multipart/form-data"})
+
+        boundary = ctype.split("boundary=")[1].strip()
+        body = self.rfile.read(clen)
+        fields = _parse_multipart_all(body, boundary)
+
+        file_data = fields.get("_file_data")
+        file_name = fields.get("_file_name", "upload.jpg")
+        product_id = fields.get("product_id", "").strip()
+
+        if not file_data:
+            return self._json(400, {"error": "No photo uploaded"})
+        if not product_id:
+            return self._json(400, {"error": "No product_id provided"})
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "num_options": 0}
+
+        threading.Thread(
+            target=run_storefront_tryon_pipeline,
+            args=(sid, file_data, file_name, product_id),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    # ── Catalog image serving ─────────────────────────────────────────
+    def _serve_catalog_image(self, filename: str):
+        import os
+        # Sanitize filename to prevent directory traversal
+        safe_name = os.path.basename(filename)
+        img_path = CATALOG_IMAGES_DIR / safe_name
+        if not img_path.is_file():
+            return self.send_error(404)
+
+        ext = img_path.suffix.lower()
+        mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".webp": "image/webp"}.get(ext, "image/jpeg")
+
+        data = img_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
 
     # ── recolor status polling ─────────────────────────────────────────
     def _serve_recolor_status(self, sid: str):

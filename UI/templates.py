@@ -1,5 +1,6 @@
 """
-HTML templates for the landing page and free search page.
+HTML templates for the landing page, free search page, lens recolor page,
+and storefront demo page.
 """
 
 LANDING_HTML = r"""<!DOCTYPE html>
@@ -25,7 +26,7 @@ body{
 .tagline{font-size:1.08rem;color:rgba(255,255,255,.4);margin-bottom:3.5rem;
   font-weight:400;letter-spacing:.01em;text-align:center}
 
-.cards{display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;max-width:800px}
+.cards{display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;max-width:900px}
 
 .mode-card{
   flex:1 1 320px;max-width:380px;
@@ -50,6 +51,8 @@ body{
 .mode-icon.smart svg{stroke:#6c63ff}
 .mode-icon.free svg{stroke:#34c78a}
 .mode-icon.recolor svg{stroke:#e8a838}
+.mode-icon.store{background:rgba(236,72,153,.12)}
+.mode-icon.store svg{stroke:#ec4899}
 
 .mode-card h2{font-size:1.3rem;font-weight:700;margin-bottom:.5rem;color:#fff}
 .mode-card p{font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.55}
@@ -59,6 +62,7 @@ body{
 .mode-badge.smart{background:#6c63ff;color:#fff}
 .mode-badge.free{background:#34c78a;color:#fff}
 .mode-badge.recolor{background:#e8a838;color:#fff}
+.mode-badge.store{background:#ec4899;color:#fff}
 </style>
 </head>
 <body>
@@ -97,6 +101,16 @@ body{
     <h2>Switch Lens Color</h2>
     <p>Upload a photo of yourself wearing glasses and pick three lens colours — our AI will create realistic recoloured versions of your lenses.</p>
     <span class="mode-badge recolor">Recolor Lenses</span>
+  </a>
+
+  <!-- Storefront Demo card -->
+  <a class="mode-card" href="/storefront">
+    <div class="mode-icon store">
+      <svg viewBox="0 0 36 36"><path d="M4 14V30a2 2 0 002 2h24a2 2 0 002-2V14" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 8l4 6h24l4-6H2z" stroke-linejoin="round"/><path d="M14 22h8v10h-8z" stroke-linejoin="round"/></svg>
+    </div>
+    <h2>Use on Your Site</h2>
+    <p>See how virtual try-on looks inside a real e-commerce store. Browse the full catalogue and try any frame on yourself.</p>
+    <span class="mode-badge store">View Demo Store</span>
   </a>
 
 </div>
@@ -2376,6 +2390,387 @@ setInterval(()=>{
   el.style.opacity=0;
   setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity=1;},300);
 },4500);
+</script>
+</body>
+</html>
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STOREFRONT DEMO PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+STOREFRONT_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Optique — Eyewear Store</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:#fafafa;color:#1a1a1a;-webkit-font-smoothing:antialiased}
+
+/* ── Top bar ───────────────────────────────── */
+.topbar{background:#fff;border-bottom:1px solid #e5e5e5;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:50}
+.topbar .brand{font-family:'DM Serif Display',Georgia,serif;font-size:1.6rem;color:#1a1a1a;text-decoration:none}
+.topbar .back-btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;color:#666;text-decoration:none;
+  padding:.45rem 1rem;border-radius:8px;border:1px solid #ddd;transition:all .2s}
+.topbar .back-btn:hover{background:#f0f0f0;color:#333}
+.topbar .powered{font-size:.72rem;color:#999;display:flex;align-items:center;gap:.4rem}
+.topbar .powered span{background:linear-gradient(135deg,#6c63ff,#34c78a);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;font-weight:600}
+
+/* ── Hero ──────────────────────────────────── */
+.hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#fff;padding:3rem 2rem;text-align:center}
+.hero h1{font-family:'DM Serif Display',Georgia,serif;font-size:2.4rem;font-weight:400;margin-bottom:.5rem}
+.hero p{font-size:1rem;color:rgba(255,255,255,.6);max-width:500px;margin:0 auto}
+
+/* ── Product grid ─────────────────────────── */
+.container{max-width:1200px;margin:0 auto;padding:2rem 1.5rem 4rem}
+.grid-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+.grid-header h2{font-size:1.1rem;font-weight:600;color:#333}
+.grid-header .count{font-size:.85rem;color:#999}
+.product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.5rem}
+
+.product-card{background:#fff;border-radius:16px;overflow:hidden;border:1px solid #eee;
+  transition:all .25s ease;display:flex;flex-direction:column}
+.product-card:hover{transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.08)}
+.product-card .img-wrap{position:relative;aspect-ratio:1/1;background:#f5f5f5;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.product-card .img-wrap img{width:85%;height:85%;object-fit:contain;transition:transform .3s}
+.product-card:hover .img-wrap img{transform:scale(1.05)}
+.product-card .badge{position:absolute;top:.75rem;left:.75rem;font-size:.65rem;font-weight:600;padding:.25rem .6rem;
+  border-radius:6px;text-transform:uppercase;letter-spacing:.04em}
+.badge.men{background:#e0e7ff;color:#4338ca}
+.badge.women{background:#fce7f3;color:#be185d}
+.badge.unisex{background:#ecfdf5;color:#059669}
+
+.product-info{padding:1rem 1.2rem;flex:1;display:flex;flex-direction:column}
+.product-info .brand-name{font-size:.72rem;color:#999;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem}
+.product-info .prod-name{font-size:.92rem;font-weight:600;color:#1a1a1a;line-height:1.35;margin-bottom:.5rem}
+.product-info .prod-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.75rem}
+.product-info .prod-tag{font-size:.65rem;padding:.2rem .5rem;border-radius:6px;background:#f3f4f6;color:#666;font-weight:500}
+.product-info .price-row{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:.5rem}
+.product-info .price{font-size:1.1rem;font-weight:700;color:#1a1a1a}
+.product-info .currency{font-size:.75rem;color:#999;font-weight:400;margin-left:.15rem}
+
+.tryon-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border:none;border-radius:10px;
+  background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff;font-size:.78rem;font-weight:600;
+  cursor:pointer;transition:all .2s;white-space:nowrap}
+.tryon-btn:hover{transform:scale(1.05);box-shadow:0 4px 16px rgba(108,99,255,.3)}
+.tryon-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
+
+/* ── Modal ─────────────────────────────────── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;
+  align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay.active{display:flex}
+.modal{background:#fff;border-radius:20px;max-width:560px;width:92%;max-height:90vh;overflow-y:auto;
+  box-shadow:0 24px 60px rgba(0,0,0,.2);position:relative}
+.modal-close{position:absolute;top:1rem;right:1rem;width:32px;height:32px;border-radius:50%;border:none;
+  background:#f3f4f6;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:1.1rem;color:#666;transition:all .2s;z-index:2}
+.modal-close:hover{background:#e5e7eb;color:#333}
+
+.modal-body{padding:2rem}
+.modal-body h3{font-size:1.15rem;font-weight:600;margin-bottom:.3rem}
+.modal-body .modal-subtitle{font-size:.85rem;color:#999;margin-bottom:1.5rem}
+
+.upload-zone{border:2px dashed #ddd;border-radius:14px;padding:2rem;text-align:center;cursor:pointer;
+  transition:all .2s;margin-bottom:1rem}
+.upload-zone:hover{border-color:#6c63ff;background:rgba(108,99,255,.03)}
+.upload-zone.has-photo{border-style:solid;border-color:#6c63ff;background:rgba(108,99,255,.03)}
+.upload-zone svg{width:36px;height:36px;stroke:#bbb;fill:none;stroke-width:1.5;margin-bottom:.5rem}
+.upload-zone p{font-size:.85rem;color:#999}
+.upload-zone .small{font-size:.72rem;color:#ccc;margin-top:.3rem}
+
+.upload-preview{display:none;width:100px;height:100px;border-radius:50%;object-fit:cover;
+  margin:0 auto .8rem;border:3px solid #6c63ff}
+
+.modal-submit{width:100%;padding:.85rem;border:none;border-radius:12px;
+  background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff;font-size:.95rem;font-weight:600;
+  cursor:pointer;transition:all .2s;margin-top:.5rem}
+.modal-submit:hover{box-shadow:0 6px 20px rgba(108,99,255,.3)}
+.modal-submit:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+
+/* ── Try-on result area inside modal ──────── */
+.tryon-result{display:none;text-align:center}
+.tryon-result img{width:100%;max-height:450px;object-fit:contain;border-radius:14px;margin-bottom:1rem;background:#f5f5f5}
+.tryon-progress{margin:2rem 0}
+.tryon-progress .bar-bg{width:100%;height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin-bottom:.8rem}
+.tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .5s}
+.tryon-progress p{font-size:.85rem;color:#999}
+
+/* ── Loading skeleton ─────────────────────── */
+.skeleton{background:linear-gradient(110deg,#f0f0f0 8%,#f8f8f8 18%,#f0f0f0 33%);
+  background-size:200% 100%;animation:shimmer 1.6s linear infinite;border-radius:8px}
+@keyframes shimmer{to{background-position:-200% 0}}
+
+@media(max-width:640px){
+  .product-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}
+  .hero{padding:2rem 1.5rem}
+  .hero h1{font-size:1.8rem}
+  .product-info{padding:.8rem}
+  .product-info .prod-name{font-size:.82rem}
+  .tryon-btn{padding:.4rem .8rem;font-size:.72rem}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-btn">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 12L6 8l4-4"/></svg>
+    Back to Lenses
+  </a>
+  <a href="/storefront" class="brand">Optique</a>
+  <div class="powered">Virtual try-on by <span>Lenses AI</span></div>
+</div>
+
+<div class="hero">
+  <h1>Find Your Perfect Pair</h1>
+  <p>Browse our collection and try any frame on yourself instantly with AI-powered virtual try-on.</p>
+</div>
+
+<div class="container">
+  <div class="grid-header">
+    <h2>All Eyewear</h2>
+    <span class="count" id="product-count"></span>
+  </div>
+  <div class="product-grid" id="product-grid">
+    <!-- Skeleton cards while loading -->
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+  </div>
+</div>
+
+<!-- Try-on modal -->
+<div class="modal-overlay" id="tryon-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-body">
+      <!-- Upload step -->
+      <div id="modal-upload">
+        <h3 id="modal-product-name"></h3>
+        <p class="modal-subtitle">Upload a selfie to see how these frames look on you</p>
+        <img class="upload-preview" id="modal-preview"/>
+        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('modal-file').click()">
+          <svg viewBox="0 0 36 36"><path d="M18 8v20M8 18h20" stroke-linecap="round"/></svg>
+          <p>Click to upload your photo</p>
+          <p class="small">JPG, PNG or WebP</p>
+        </div>
+        <input type="file" id="modal-file" accept="image/*" style="display:none"/>
+        <button class="modal-submit" id="modal-go" disabled onclick="startTryon()">Try On</button>
+      </div>
+
+      <!-- Progress step -->
+      <div id="modal-progress" style="display:none">
+        <h3>Creating your try-on...</h3>
+        <p class="modal-subtitle" id="modal-progress-product"></p>
+        <div class="tryon-progress">
+          <div class="bar-bg"><div class="bar-fill" id="modal-bar"></div></div>
+          <p id="modal-status-text">Preparing your photo...</p>
+        </div>
+      </div>
+
+      <!-- Result step -->
+      <div class="tryon-result" id="modal-result">
+        <h3>Here's how you look!</h3>
+        <p class="modal-subtitle" id="modal-result-product"></p>
+        <img id="modal-result-img" src="" alt="Virtual try-on result"/>
+        <button class="modal-submit" onclick="resetModal()">Try Another Photo</button>
+      </div>
+
+      <!-- Error step -->
+      <div id="modal-error" style="display:none;text-align:center">
+        <div style="font-size:2rem;margin-bottom:.8rem">:/</div>
+        <h3>Something went wrong</h3>
+        <p class="modal-subtitle" id="modal-error-msg"></p>
+        <button class="modal-submit" onclick="resetModal()">Try Again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentProductId = null;
+let currentFile = null;
+let pollTimer = null;
+/* Cache the user's last uploaded photo so they only upload once per session */
+let cachedFile = null;
+let cachedPreviewSrc = null;
+
+/* ── Load catalog ─────────────────────────── */
+fetch('/api/catalog')
+  .then(r => r.json())
+  .then(products => {
+    const grid = document.getElementById('product-grid');
+    grid.innerHTML = '';
+    document.getElementById('product-count').textContent = products.length + ' products';
+
+    products.forEach(p => {
+      const genderClass = p.gender === 'men' ? 'men' : p.gender === 'women' ? 'women' : 'unisex';
+      const genderLabel = p.gender === 'men' ? 'Men' : p.gender === 'women' ? 'Women' : 'Unisex';
+      const imgSrc = '/api/catalog-image/' + p.image.replace('images/', '');
+
+      const card = document.createElement('div');
+      card.className = 'product-card';
+      card.innerHTML = `
+        <div class="img-wrap">
+          <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
+          <span class="badge ${genderClass}">${genderLabel}</span>
+        </div>
+        <div class="product-info">
+          <div class="brand-name">${p.brand}</div>
+          <div class="prod-name">${p.name}</div>
+          <div class="prod-tags">
+            <span class="prod-tag">${p.shape}</span>
+            <span class="prod-tag">${p.material}</span>
+            <span class="prod-tag">${p.rim_type}</span>
+          </div>
+          <div class="price-row">
+            <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${p.currency}</span></div>
+            <button class="tryon-btn" onclick="openTryon('${p.id}','${p.name.replace(/'/g,"\\'")}')">
+              <svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3 14c0-2.761 2.239-5 5-5s5 2.239 5 5"/></svg>
+              Try On
+            </button>
+          </div>
+        </div>`;
+      grid.appendChild(card);
+    });
+  });
+
+/* ── Modal logic ──────────────────────────── */
+function openTryon(productId, productName) {
+  currentProductId = productId;
+  document.getElementById('modal-product-name').textContent = productName;
+  document.getElementById('modal-progress-product').textContent = productName;
+  document.getElementById('modal-result-product').textContent = productName;
+  document.getElementById('tryon-modal').classList.add('active');
+
+  /* Restore cached photo if available */
+  if (cachedFile) {
+    currentFile = cachedFile;
+    const preview = document.getElementById('modal-preview');
+    preview.src = cachedPreviewSrc;
+    preview.style.display = 'block';
+    document.getElementById('upload-zone').classList.add('has-photo');
+    document.getElementById('upload-zone').querySelector('p').textContent = 'Photo ready — click to change';
+    document.getElementById('modal-go').disabled = false;
+  }
+}
+
+function closeModal() {
+  document.getElementById('tryon-modal').classList.remove('active');
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function resetModal() {
+  document.getElementById('modal-upload').style.display = '';
+  document.getElementById('modal-progress').style.display = 'none';
+  document.getElementById('modal-result').style.display = 'none';
+  document.getElementById('modal-error').style.display = 'none';
+  /* Keep cached photo for convenience */
+  if (cachedFile) {
+    currentFile = cachedFile;
+    document.getElementById('modal-go').disabled = false;
+  }
+}
+
+document.getElementById('modal-file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  currentFile = f;
+  cachedFile = f;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    cachedPreviewSrc = ev.target.result;
+    const preview = document.getElementById('modal-preview');
+    preview.src = cachedPreviewSrc;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(f);
+  document.getElementById('upload-zone').classList.add('has-photo');
+  document.getElementById('upload-zone').querySelector('p').textContent = 'Photo ready — click to change';
+  document.getElementById('modal-go').disabled = false;
+});
+
+function startTryon() {
+  if (!currentFile || !currentProductId) return;
+
+  document.getElementById('modal-upload').style.display = 'none';
+  document.getElementById('modal-progress').style.display = '';
+  document.getElementById('modal-bar').style.width = '10%';
+  document.getElementById('modal-status-text').textContent = 'Uploading your photo...';
+
+  const fd = new FormData();
+  fd.append('photo', currentFile);
+  fd.append('product_id', currentProductId);
+
+  fetch('/api/storefront-tryon', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { showModalError(data.error); return; }
+      pollTryon(data.session_id);
+    })
+    .catch(err => showModalError(err.message));
+}
+
+function pollTryon(sid) {
+  document.getElementById('modal-bar').style.width = '30%';
+  document.getElementById('modal-status-text').textContent = 'AI is generating your try-on...';
+
+  pollTimer = setInterval(() => {
+    fetch('/api/status/' + sid)
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'error') {
+          clearInterval(pollTimer); pollTimer = null;
+          showModalError(data.error || 'Processing failed');
+          return;
+        }
+
+        const stageMap = { uploading: 20, tryon: 50, primary_ready: 85, done: 100 };
+        const pct = stageMap[data.stage] || 30;
+        document.getElementById('modal-bar').style.width = pct + '%';
+
+        if (data.stage === 'tryon') {
+          document.getElementById('modal-status-text').textContent = 'AI is trying on the frames...';
+        }
+
+        if (data.status === 'done' && data.opt0) {
+          clearInterval(pollTimer); pollTimer = null;
+          if (data.opt0.tryon_status === 'done' && data.opt0.tryon_b64) {
+            showTryonResult(data.opt0.tryon_b64);
+          } else {
+            showModalError(data.opt0.tryon_error || 'Try-on generation failed');
+          }
+        }
+      })
+      .catch(() => {});
+  }, 2000);
+}
+
+function showTryonResult(b64) {
+  document.getElementById('modal-progress').style.display = 'none';
+  document.getElementById('modal-result').style.display = '';
+  document.getElementById('modal-result-img').src = 'data:image/png;base64,' + b64;
+}
+
+function showModalError(msg) {
+  document.getElementById('modal-upload').style.display = 'none';
+  document.getElementById('modal-progress').style.display = 'none';
+  document.getElementById('modal-error').style.display = '';
+  document.getElementById('modal-error-msg').textContent = msg;
+}
+
+/* Close modal on overlay click */
+document.getElementById('tryon-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
 </script>
 </body>
 </html>
