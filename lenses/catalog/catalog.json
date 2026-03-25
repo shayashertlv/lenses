@@ -7167,25 +7167,26 @@
       "image": "images/erroca_womens_sunglasses_020.webp",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "black"
           ],
           "thickness": "thin",
-          "finish": "brushed",
-          "rim_type": "semi-rimless"
+          "finish": "matte",
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
             "sunglasses",
-            "polarized"
+            "polarized",
+            "mirrored"
           ],
           "color": [
             "mirrored-silver"
           ],
-          "shape": "teardrop",
-          "size": "medium"
+          "shape": "rectangular",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -7193,11 +7194,11 @@
             "minimalist",
             "professional"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
-            "heart",
-            "oblong"
+            "oblong",
+            "heart"
           ],
           "occasion": [
             "outdoor",
@@ -7225,7 +7226,7 @@
           "shape": "rectangular",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -7239,15 +7240,15 @@
             "gray"
           ],
           "shape": "rectangular",
-          "size": "large"
+          "size": "medium"
         },
         "style": {
           "aesthetic": [
             "classic",
-            "vintage",
+            "retro",
             "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "oblong",
@@ -7256,7 +7257,7 @@
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -7282,13 +7283,12 @@
             "gold"
           ],
           "thickness": "thin",
-          "finish": "brushed",
-          "rim_type": "rimless"
+          "finish": "glossy",
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
-            "sunglasses",
-            "polarized"
+            "sunglasses"
           ],
           "color": [
             "brown"
@@ -7302,7 +7302,7 @@
             "vintage",
             "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "heart",
@@ -7331,24 +7331,25 @@
       "image": "images/erroca_womens_sunglasses_023.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "square",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
-            "blue"
+            "gradient-gray"
           ],
-          "shape": "rectangular",
-          "size": "medium"
+          "shape": "square",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -7356,7 +7357,7 @@
             "modern",
             "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "oblong",
@@ -7365,7 +7366,7 @@
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -7388,9 +7389,9 @@
           "shape": "oval",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -7407,19 +7408,19 @@
         "style": {
           "aesthetic": [
             "vintage",
-            "bohemian",
-            "retro"
+            "retro",
+            "casual"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
-            "heart",
+            "square",
             "oblong"
           ],
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -7439,40 +7440,42 @@
       "image": "images/erroca_womens_sunglasses_025.webp",
       "tags": {
         "frame": {
-          "shape": "wrap",
-          "material": "acetate",
+          "shape": "shield",
+          "material": "TR90",
           "color": [
-            "black"
+            "matte-black",
+            "gold"
           ],
           "thickness": "medium",
-          "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "finish": "matte",
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "mirrored"
           ],
           "color": [
-            "blue"
+            "mirrored-blue"
           ],
           "shape": "curved-wrap",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "sporty",
             "modern",
-            "casual"
+            "bold"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "round",
-            "heart"
+            "square"
           ],
           "occasion": [
             "outdoor",
-            "everyday",
+            "sport",
             "everyday"
           ]
         },
@@ -7493,14 +7496,15 @@
       "image": "images/erroca_womens_sunglasses_026.webp",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "havana-brown"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -7509,13 +7513,13 @@
           "color": [
             "green"
           ],
-          "shape": "teardrop",
-          "size": "medium"
+          "shape": "oval",
+          "size": "small"
         },
         "style": {
           "aesthetic": [
             "luxury",
-            "classic",
+            "vintage",
             "minimalist"
           ],
           "gender_target": "women",
@@ -7547,12 +7551,12 @@
       "image": "images/erroca_womens_sunglasses_027.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "geometric",
           "material": "acetate",
           "color": [
             "white"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -7569,8 +7573,8 @@
         "style": {
           "aesthetic": [
             "luxury",
-            "minimalist",
-            "modern"
+            "bold",
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -7581,7 +7585,7 @@
           "occasion": [
             "outdoor",
             "fashion",
-            "everyday"
+            "beach"
           ]
         },
         "product": {
@@ -7612,14 +7616,13 @@
         },
         "lenses": {
           "type": [
-            "sunglasses",
-            "gradient"
+            "sunglasses"
           ],
           "color": [
-            "yellow"
+            "amber"
           ],
           "shape": "rectangular",
-          "size": "large"
+          "size": "medium"
         },
         "style": {
           "aesthetic": [
@@ -7657,14 +7660,14 @@
       "tags": {
         "frame": {
           "shape": "butterfly",
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
             "gold",
-            "havana-brown"
+            "black"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "rimless"
         },
         "lenses": {
           "type": [
@@ -7674,14 +7677,14 @@
           "color": [
             "gradient-brown"
           ],
-          "shape": "oval",
-          "size": "medium"
+          "shape": "flat-top",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "fashion-forward",
-            "luxury"
+            "classic"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -7713,40 +7716,42 @@
       "tags": {
         "frame": {
           "shape": "butterfly",
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "black"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "rimless"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
-            "gradient-brown"
+            "gradient-gray"
           ],
-          "shape": "oval",
-          "size": "medium"
+          "shape": "flat-top",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "fashion-forward",
-            "bold"
+            "classic"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
             "heart",
-            "round"
+            "oblong"
           ],
           "occasion": [
             "outdoor",
             "fashion",
-            "everyday"
+            "beach"
           ]
         },
         "product": {
@@ -7766,24 +7771,23 @@
       "image": "images/erroca_womens_sunglasses_031.webp",
       "tags": {
         "frame": {
-          "shape": "geometric",
+          "shape": "square",
           "material": "metal",
           "color": [
             "gold"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
-            "sunglasses",
-            "gradient"
+            "sunglasses"
           ],
           "color": [
             "gray"
           ],
-          "shape": "rectangular",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -7801,7 +7805,7 @@
           "occasion": [
             "outdoor",
             "fashion",
-            "beach"
+            "everyday"
           ]
         },
         "product": {
@@ -7821,14 +7825,15 @@
       "image": "images/erroca_womens_sunglasses_032.webp",
       "tags": {
         "frame": {
-          "shape": "geometric",
+          "shape": "square",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "havana-brown"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -7837,7 +7842,7 @@
           "color": [
             "brown"
           ],
-          "shape": "rectangular",
+          "shape": "square",
           "size": "medium"
         },
         "style": {
@@ -7855,7 +7860,7 @@
           "occasion": [
             "outdoor",
             "fashion",
-            "beach"
+            "everyday"
           ]
         },
         "product": {
@@ -7875,30 +7880,29 @@
       "image": "images/erroca_womens_sunglasses_033.webp",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
           "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
-            "sunglasses",
-            "gradient"
+            "sunglasses"
           ],
           "color": [
             "gray"
           ],
-          "shape": "round",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
           "aesthetic": [
             "luxury",
-            "vintage",
+            "classic",
             "fashion-forward"
           ],
           "gender_target": "women",
@@ -7910,7 +7914,7 @@
           "occasion": [
             "outdoor",
             "fashion",
-            "formal"
+            "everyday"
           ]
         },
         "product": {
@@ -7933,7 +7937,7 @@
           "shape": "square",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -7941,7 +7945,8 @@
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
             "gradient-brown"
@@ -7953,9 +7958,9 @@
           "aesthetic": [
             "classic",
             "vintage",
-            "retro"
+            "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "heart",
@@ -7964,7 +7969,7 @@
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -7995,7 +8000,8 @@
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
             "gradient-gray"
@@ -8007,9 +8013,9 @@
           "aesthetic": [
             "classic",
             "casual",
-            "retro"
+            "minimalist"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "heart",
@@ -8018,7 +8024,7 @@
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -8041,15 +8047,17 @@
           "shape": "square",
           "material": "acetate",
           "color": [
+            "havana-brown",
             "black"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
             "gradient-brown"
@@ -8060,10 +8068,10 @@
         "style": {
           "aesthetic": [
             "modern",
-            "casual",
-            "minimalist"
+            "bold",
+            "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "round",
@@ -8072,7 +8080,7 @@
           "occasion": [
             "outdoor",
             "everyday",
-            "everyday"
+            "fashion"
           ]
         },
         "product": {
@@ -8092,12 +8100,12 @@
       "image": "images/erroca_womens_sunglasses_037.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "wayfarer",
           "material": "acetate",
           "color": [
             "black"
           ],
-          "thickness": "medium",
+          "thickness": "thick",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -8114,10 +8122,10 @@
         "style": {
           "aesthetic": [
             "luxury",
-            "minimalist",
+            "bold",
             "modern"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "oblong",
