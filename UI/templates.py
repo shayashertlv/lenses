@@ -15,22 +15,22 @@ LANDING_HTML = r"""<!DOCTYPE html>
 body{
   font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   background:#0b0b14;
-  color:#fff;min-height:100vh;
+  color:#fff;height:100vh;height:100dvh;overflow:hidden;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:2rem;-webkit-font-smoothing:antialiased;
+  padding:1.5rem 2rem;-webkit-font-smoothing:antialiased;
 }
 
 .logo{font-size:3.2rem;font-weight:400;letter-spacing:-.02em;color:#fff;
   font-family:'DM Serif Display',Georgia,serif;
   margin-bottom:.25rem;text-align:center}
-.tagline{font-size:1.08rem;color:rgba(255,255,255,.4);margin-bottom:3.5rem;
+.tagline{font-size:1.08rem;color:rgba(255,255,255,.4);margin-bottom:2.5rem;
   font-weight:400;letter-spacing:.01em;text-align:center}
 
-.cards{display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;max-width:900px}
+.cards{display:flex;gap:1.5rem;flex-wrap:wrap;justify-content:center;max-width:900px}
 
 .mode-card{
   flex:1 1 320px;max-width:380px;
-  background:rgba(255,255,255,.03);border-radius:24px;padding:2.5rem 2rem;
+  background:rgba(255,255,255,.03);border-radius:24px;padding:2rem 2rem;
   box-shadow:none;
   text-align:center;cursor:pointer;
   transition:all .3s ease;border:1px solid rgba(255,255,255,.06);
@@ -63,6 +63,61 @@ body{
 .mode-badge.free{background:#34c78a;color:#fff}
 .mode-badge.recolor{background:#e8a838;color:#fff}
 .mode-badge.store{background:#ec4899;color:#fff}
+
+/* ── Tablet ── */
+@media(max-width:1024px){
+  .cards{gap:1.2rem;max-width:780px}
+  .mode-card{flex:1 1 280px;max-width:340px;padding:1.8rem 1.4rem;border-radius:20px}
+  .mode-icon{width:64px;height:64px;margin-bottom:1rem}
+  .mode-icon svg{width:30px;height:30px}
+  .mode-card h2{font-size:1.15rem;margin-bottom:.35rem}
+  .mode-card p{font-size:.82rem;line-height:1.45}
+  .mode-badge{margin-top:.9rem;padding:.35rem 1rem;font-size:.74rem}
+  .logo{font-size:2.6rem}
+  .tagline{font-size:.95rem;margin-bottom:2.5rem}
+}
+
+/* ── Mobile landscape / small tablet ── */
+@media(max-width:768px){
+  body{padding:.8rem .6rem;height:100vh;height:100dvh}
+  .logo{font-size:1.8rem;margin-bottom:0}
+  .tagline{font-size:.82rem;margin-bottom:1rem}
+  .cards{flex-direction:row;flex-wrap:wrap;gap:.6rem;max-width:100%}
+  .mode-card{flex:1 1 calc(50% - .3rem);max-width:calc(50% - .3rem);padding:1rem .8rem;border-radius:16px}
+  .mode-icon{width:44px;height:44px;margin-bottom:.5rem}
+  .mode-icon svg{width:22px;height:22px}
+  .mode-card h2{font-size:.95rem;margin-bottom:.2rem}
+  .mode-card p{font-size:.7rem;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mode-badge{margin-top:.5rem;padding:.28rem .8rem;font-size:.68rem}
+}
+
+/* ── Phone portrait ── */
+@media(max-width:480px){
+  body{padding:.5rem;gap:0}
+  .logo{font-size:1.5rem;margin-bottom:0}
+  .tagline{font-size:.72rem;margin-bottom:.6rem}
+  .cards{gap:.45rem}
+  .mode-card{padding:.6rem .5rem;border-radius:12px}
+  .mode-icon{width:32px;height:32px;margin-bottom:.25rem}
+  .mode-icon svg{width:16px;height:16px}
+  .mode-card h2{font-size:.78rem;margin-bottom:.1rem}
+  .mode-card p{display:none}
+  .mode-badge{margin-top:.25rem;padding:.2rem .55rem;font-size:.6rem}
+}
+
+/* ── Landscape mobile (short viewport) ── */
+@media(max-height:600px){
+  body{padding:.5rem .8rem}
+  .logo{font-size:1.5rem;margin-bottom:0}
+  .tagline{font-size:.75rem;margin-bottom:.7rem}
+  .cards{gap:.5rem}
+  .mode-card{padding:.7rem .6rem;border-radius:12px}
+  .mode-icon{width:32px;height:32px;margin-bottom:.4rem}
+  .mode-icon svg{width:18px;height:18px}
+  .mode-card h2{font-size:.82rem;margin-bottom:.15rem}
+  .mode-card p{font-size:.65rem;-webkit-line-clamp:2}
+  .mode-badge{margin-top:.4rem;padding:.2rem .6rem;font-size:.62rem}
+}
 </style>
 </head>
 <body>
@@ -249,17 +304,23 @@ body{
 
 }
 
-@media(max-width:640px){
+@media(max-width:768px){
   .opt-body{flex-direction:column}
   .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
   .prod-col img{width:90px;height:90px;flex-shrink:0}
   .tryon-col img{max-height:320px}
-  .cards{flex-direction:column;align-items:center}
-  .mode-card{max-width:100%}
   .primary-hero-inner{flex-direction:column}
   .primary-tryon{max-width:100%}
   .primary-panel{flex:none;width:100%}
   .analysis-cards{grid-template-columns:1fr}
+  .uptip-box{max-width:92%;padding:1.5rem 1.2rem 1.2rem}
+}
+@media(max-width:480px){
+  .opt-body{padding:1rem}
+  .prod-col img{width:70px;height:70px}
+  .tryon-col img{max-height:260px}
+  .tryon-loading{min-height:200px}
+  .tryon-error{min-height:160px}
 }
 /* upload-tip popup */
 .uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
@@ -1130,11 +1191,39 @@ body{
 
 @media(max-width:768px){
   .compare-grid{grid-template-columns:1fr}
-}
-@media(max-width:640px){
+  .compare-content{padding:20px 16px;border-radius:20px}
   .hero-grid{grid-template-columns:1fr;gap:20px}
+  .hero-panel{padding:20px}
   .alt-grid{grid-template-columns:1fr}
   .res-topbar{padding:12px 16px;margin:0 -1.5rem 20px}
+  .topbar{padding:.75rem 1rem}
+  #form-view{padding:0 1rem;margin:1.5rem auto}
+  .tile-grid{grid-template-columns:repeat(auto-fill,minmax(72px,1fr))}
+  .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(52px,1fr))}
+  .tile-inner{min-height:52px;padding:.5rem .2rem}
+  .swatch-dot{width:34px;height:34px}
+  .swatch .any-icon{width:34px;height:34px}
+  .chip-group label{min-height:44px;display:inline-flex;align-items:center}
+  .radio-group label{min-height:44px;display:inline-flex;align-items:center}
+  .submit-btn{min-height:48px;width:100%;max-width:400px}
+  .fs-upload{padding:1.8rem 1rem}
+  .uptip-box{max-width:92%;padding:1.5rem 1.2rem 1.2rem}
+}
+@media(max-width:480px){
+  .hero-grid{padding:16px}
+  .hero-tryon-wrap{min-height:240px}
+  .hero-name{font-size:1.1rem}
+  .hero-price{font-size:1.05rem}
+  .alt-card-img-wrap{min-height:180px;padding:10px}
+  .alt-card-body{padding:14px}
+  .compare-content{padding:16px 12px}
+  .res-topbar{padding:10px 12px}
+  .filter-pill{min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center}
+  .tryon-loading{min-height:200px}
+  .score-panel{padding:12px}
+}
+@media(max-height:500px){
+  .topbar{padding:.5rem 1rem;position:sticky;top:0;z-index:50}
 }
 /* upload-tip popup */
 .uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
@@ -2040,11 +2129,31 @@ body{
 /* animations */
 @keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
 
-@media(max-width:640px){
+@media(max-width:768px){
+  .topbar{padding:.75rem 1rem}
+  #form-view{padding:0 1rem;margin:1.5rem auto}
+  .color-pick-grid{grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:.5rem}
+  .color-swatch{width:40px;height:40px}
+  .color-pick-inner{padding:.5rem .2rem}
+  .submit-btn{min-height:48px;width:100%;max-width:400px}
+  .rc-upload{padding:1.8rem 1rem}
   .alt-grid{grid-template-columns:1fr}
   .res-topbar{padding:12px 16px}
   .res-page-title{font-size:1.35rem;padding-top:28px}
   .hero-img-wrap{padding:16px;min-height:280px}
+  .uptip-box{max-width:92%;padding:1.5rem 1.2rem 1.2rem}
+}
+@media(max-width:480px){
+  .alt-grid{grid-template-columns:1fr}
+  .hero-img-wrap{padding:12px;min-height:220px}
+  .res-page-title{font-size:1.15rem;padding-top:20px}
+  .alt-card-img-wrap{min-height:160px;padding:10px}
+  .color-pick-grid{grid-template-columns:repeat(auto-fill,minmax(68px,1fr))}
+  .section-divider{margin:24px 0 16px}
+  .load-card{padding:1.8rem 1.4rem}
+}
+@media(max-height:500px){
+  .topbar{padding:.5rem 1rem;position:sticky;top:0;z-index:50}
 }
 /* upload-tip popup */
 .uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
@@ -2633,13 +2742,50 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 .filter-pill[data-gender="women"].active{background:rgba(190,24,93,.5)}
 .filter-pill[data-gender="unisex"].active{background:rgba(5,150,105,.5)}
 
-@media(max-width:640px){
-  .product-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}
+/* ── Tablet ── */
+@media(max-width:768px){
+  .topbar{padding:.75rem 1rem}
+  .topbar .brand{font-size:1.3rem}
+  .topbar .powered{display:none}
   .hero{padding:2rem 1.5rem}
   .hero h1{font-size:1.8rem}
-  .product-info{padding:.8rem}
+  .container{padding:1.5rem 1rem 3rem}
+  .product-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1.2rem}
+  .filter-pill{min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center}
+  .tryon-btn{min-height:44px;padding:.5rem 1rem}
+  .modal{width:95%;max-height:90vh;overflow-y:auto;border-radius:20px}
+  .modal-body{padding:1.5rem}
+  .upload-zone{padding:1.5rem}
+  .rc-color-grid{grid-template-columns:repeat(4,1fr);gap:.4rem}
+  .rc-color-opt{padding:.35rem}
+  .rc-swatch{width:28px;height:28px}
+  .uptip-box{max-width:92%;padding:1.5rem 1.2rem 1.2rem}
+}
+/* ── Phone ── */
+@media(max-width:480px){
+  .topbar{padding:.6rem .8rem}
+  .topbar .back-btn{font-size:.78rem;padding:.35rem .7rem}
+  .topbar .brand{font-size:1.1rem}
+  .hero{padding:1.5rem 1rem}
+  .hero h1{font-size:1.5rem}
+  .hero p{font-size:.88rem}
+  .container{padding:1rem .75rem 2rem}
+  .product-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem}
+  .product-info{padding:.7rem}
   .product-info .prod-name{font-size:.82rem}
-  .tryon-btn{padding:.4rem .8rem;font-size:.72rem}
+  .product-info .brand-name{font-size:.65rem}
+  .tryon-btn{padding:.4rem .7rem;font-size:.72rem}
+  .modal{width:98%;border-radius:16px}
+  .modal-body{padding:1.2rem}
+  .modal-close{top:.7rem;right:.7rem}
+  .rc-color-grid{grid-template-columns:repeat(4,1fr);gap:.3rem}
+  .rc-swatch{width:24px;height:24px}
+  .rc-cname{font-size:.58rem}
+  .filter-strip{gap:.35rem}
+}
+@media(max-height:500px){
+  .topbar{padding:.5rem 1rem}
+  .hero{padding:1rem 1.5rem}
 }
 /* upload-tip popup */
 .uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
