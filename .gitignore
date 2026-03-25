@@ -19,3 +19,13 @@ build/
 !lenses/catalog/images/*.jpg
 !lenses/catalog/images/*.jpeg
 !lenses/catalog/images/*.png
+
+# Test output / results
+**/results/
+downloaded_images/
+
+# Windows shortcuts
+*.lnk
+
+# pip artifacts
+=*

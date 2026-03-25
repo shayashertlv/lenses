@@ -4,7 +4,7 @@ import time
 
 from config import get_api_key, resolve_model
 from prompt_engine import build_lens_recolor_prompt
-from utils import load_image_bytes, save_image
+from utils import load_image_bytes
 
 
 class RecolorResult:

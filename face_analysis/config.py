@@ -14,9 +14,6 @@ EMBEDDINGS_NPY = os.path.join(CATALOG_DIR, "embeddings.npy")
 EMBEDDING_INDEX = os.path.join(CATALOG_DIR, "embedding_index.json")
 CATALOG_IMAGES_DIR = os.path.join(CATALOG_DIR, "images")
 
-# Analysis model (text/vision — NOT image generation)
-ANALYSIS_MODEL = "gemini-2.5-flash"
-
 # Embedding model
 EMBEDDING_MODEL = "gemini-embedding-001"
 

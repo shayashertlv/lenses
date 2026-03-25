@@ -2,7 +2,6 @@
 
 import argparse
 import sys
-import time
 
 from config import MODEL_MAP, DEFAULT_MODEL, DEFAULT_INTENSITY, DEFAULT_FINISH
 from prompt_engine import build_lens_recolor_prompt
