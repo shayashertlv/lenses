@@ -27,5 +27,9 @@ downloaded_images/
 # Windows shortcuts
 *.lnk
 
+# Build-time tools (local only)
+/catalog_manager.py
+/tag_schema.py
+
 # pip artifacts
 =*
