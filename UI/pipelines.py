@@ -11,18 +11,13 @@ import tempfile
 import threading
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 from UI.config import (
     CATALOG_DIR,
     CATALOG_JSON,
     DEFAULT_GENERATION_MODEL,
-    EMBEDDINGS_NPY,
-    EMBEDDING_INDEX_JSON,
     FACE_ANALYSIS_DIR,
-    FS_EMBEDDING_MODEL,
-    FS_MIN_SIMILARITY,
     FS_MODEL_MAP,
     FS_DEFAULT_MODEL,
     FS_MAX_IMAGE_DIM,
@@ -30,31 +25,25 @@ from UI.config import (
     sessions,
 )
 
+from tag_matcher import preferences_to_query_tags, rank_products
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PRE-LOADED CATALOG DATA (loaded once at import time, reused by all pipelines)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _preload_catalog():
-    """Load catalog, embeddings, and index from disk once."""
+    """Load catalog from disk once."""
     try:
         with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
             catalog_data = json.load(f)
-
-        embeddings = np.load(str(EMBEDDINGS_NPY))
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings_normalized = embeddings / norms
-
-        with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
-            index_map = json.load(f)
-
-        return catalog_data, embeddings_normalized, index_map
+        return catalog_data
     except Exception as e:
         print(f"  [pipelines] Warning: Could not preload catalog: {e}")
-        return None, None, None
+        return None
 
 
-_CATALOG_DATA, _EMBEDDINGS_NORM, _INDEX_MAP = _preload_catalog()
+_CATALOG_DATA = _preload_catalog()
 
 
 def _get_api_key() -> str:
@@ -153,11 +142,8 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     # Pre-create InventoryMatcher with pre-loaded catalog data (near-instant)
     from inventory_matcher import InventoryMatcher
     matcher = InventoryMatcher(
-        CATALOG_DIR, api_key,
-        client=client,
+        CATALOG_DIR,
         catalog_data=_CATALOG_DATA,
-        embeddings_normalized=_EMBEDDINGS_NORM,
-        index_map=_INDEX_MAP,
     )
 
     # STEP 1: FaceAnalyzer.analyze() — portrait pre-loading runs concurrently
@@ -291,54 +277,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
 # FREE SEARCH PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_search_description(prefs: dict) -> str:
-    """
-    Convert UI preference selections into a natural-language description
-    optimised for embedding-based semantic search against the catalog.
-
-    Only includes properties the user actually selected (non-empty values).
-    """
-    parts = []
-
-    # Frame
-    frame_parts = []
-    if prefs.get("frame_shape"):
-        frame_parts.append(f"{prefs['frame_shape']} shape")
-    if prefs.get("frame_color"):
-        frame_parts.append(f"{prefs['frame_color']} color")
-    if prefs.get("frame_material"):
-        frame_parts.append(f"{prefs['frame_material']} material")
-    if prefs.get("frame_thickness"):
-        frame_parts.append(f"{prefs['frame_thickness']} thickness")
-    if prefs.get("rim_type"):
-        frame_parts.append(prefs["rim_type"])
-    if frame_parts:
-        parts.append("Glasses with a " + ", ".join(frame_parts) + " frame.")
-
-    # Lenses
-    lens_parts = []
-    if prefs.get("lens_type"):
-        lens_parts.append(prefs["lens_type"])
-    if prefs.get("lens_size"):
-        lens_parts.append(f"{prefs['lens_size']} size")
-    if lens_parts:
-        parts.append(" ".join(lens_parts) + " lenses.")
-
-    # Style
-    style_parts = []
-    if prefs.get("aesthetic"):
-        style_parts.append(f"{prefs['aesthetic']} style")
-    if prefs.get("gender"):
-        style_parts.append(f"for {prefs['gender']}")
-    if prefs.get("occasion"):
-        style_parts.append(f"suitable for {prefs['occasion']} wear")
-    if style_parts:
-        parts.append(", ".join(style_parts) + ".")
-
-    if not parts:
-        return "Versatile everyday glasses, modern style."
-
-    return " ".join(parts)
+def _build_query_tags(prefs: dict) -> dict:
+    """Convert UI preference selections into structured query tags for tag matching."""
+    return preferences_to_query_tags(prefs)
 
 
 def _fs_load_image_as_part(path: str):
@@ -503,44 +444,22 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
     portrait_thread.start()
 
-    # ── STEP 1: Build description from preferences ───────────────────────
+    # ── STEP 1: Build query tags from preferences ───────────────────────
     sess["stage"] = "searching"
-    search_text = _build_search_description(preferences)
-    print(f"  [free-search] Query: {search_text}")
+    query_tags = _build_query_tags(preferences)
+    print(f"  [free-search] Query tags: {query_tags}")
 
-    # ── STEP 2: Embed + search catalog (using pre-loaded data) ───────────
+    # ── STEP 2: Tag-based search against catalog ─────────────────────────
     try:
         catalog = _CATALOG_DATA
-        embeddings_norm = _EMBEDDINGS_NORM
-        index_map = _INDEX_MAP
 
         # Fallback: load from disk if preload failed
-        if catalog is None or embeddings_norm is None or index_map is None:
+        if catalog is None:
             with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
                 catalog = json.load(f)
-            embeddings = np.load(str(EMBEDDINGS_NPY))
-            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            embeddings_norm = embeddings / norms
-            with open(str(EMBEDDING_INDEX_JSON), "r", encoding="utf-8") as f:
-                index_map = json.load(f)
-
-        # Embed query
-        result = client.models.embed_content(
-            model=FS_EMBEDDING_MODEL,
-            contents=search_text,
-        )
-        query_vec = np.array(result.embeddings[0].values)
-        query_norm = query_vec / np.linalg.norm(query_vec)
-
-        # Cosine similarity
-        similarities = embeddings_norm @ query_norm
-        ranked = np.argsort(similarities)[::-1]
-
-        # Build product lookup dict for O(1) access instead of linear scan
-        product_by_id = {p["id"]: p for p in catalog["products"]}
 
         # Build filters from preferences
-        filters = {}
+        filters = {"in_stock_only": True}
         if preferences.get("max_price"):
             try:
                 filters["max_price"] = float(preferences["max_price"])
@@ -551,40 +470,12 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         if preferences.get("lens_type"):
             filters["lens_type"] = preferences["lens_type"]
 
-        # Collect top 3
-        matches = []
-        for idx in ranked:
-            pid = index_map[str(idx)]
-            product = product_by_id.get(pid)
-            if product is None:
-                continue
-
-            score = float(similarities[idx])
-            if score < FS_MIN_SIMILARITY and len(matches) > 0:
-                break
-
-            # Apply filters
-            if filters:
-                ptags = product["tags"]["product"]
-                stags = product["tags"]["style"]
-                ltags = product["tags"].get("lenses", {})
-                if filters.get("max_price") is not None:
-                    if ptags.get("price", 0) > filters["max_price"]:
-                        continue
-                if filters.get("gender"):
-                    target = stags.get("gender_target", "unisex")
-                    if target != "unisex" and target != filters["gender"]:
-                        continue
-                if filters.get("lens_type"):
-                    product_lens_types = ltags.get("type", [])
-                    if isinstance(product_lens_types, str):
-                        product_lens_types = [product_lens_types]
-                    if filters["lens_type"] not in product_lens_types:
-                        continue
-
-            matches.append((product, score))
-            if len(matches) >= 3:
-                break
+        matches = rank_products(
+            query_tags=query_tags,
+            products=catalog["products"],
+            top_k=3,
+            filters=filters,
+        )
 
     except Exception as e:
         sess["status"] = "error"

@@ -5,8 +5,7 @@ import sys
 
 from config import (
     MODEL_MAP, DEFAULT_MODEL, DEFAULT_TOP_K,
-    CATALOG_JSON, EMBEDDINGS_NPY, EMBEDDING_INDEX_JSON,
-    CATALOG_IMAGES_DIR, get_api_key,
+    CATALOG_JSON, CATALOG_IMAGES_DIR, get_api_key,
 )
 
 
@@ -133,9 +132,9 @@ def main() -> None:
 
     print(f"Portrait: {args.portrait} ({info['width']}x{info['height']})")
 
-    # Check embeddings exist
-    if not EMBEDDINGS_NPY.exists() or not EMBEDDING_INDEX_JSON.exists():
-        print("\nError: Embeddings not built yet.")
+    # Check catalog exists
+    if not CATALOG_JSON.exists():
+        print("\nError: Catalog not found.")
         print("Run: cd ../lenses && python catalog_manager.py build")
         sys.exit(1)
 
@@ -154,21 +153,23 @@ def main() -> None:
     intent = interpret_query(args.query, api_key)
 
     print(f"  Language: {intent.get('original_language', '?')}")
-    print(f"  Search text: {intent['search_text']}")
+    print(f"  Search text: {intent.get('search_text', '?')}")
+    search_tags = intent.get("search_tags", {})
+    if search_tags:
+        for cat in ("frame", "lenses", "style"):
+            if search_tags.get(cat):
+                print(f"  Tags [{cat}]: {search_tags[cat]}")
     if intent["filters"].get("max_price"):
         print(f"  Max price: ${intent['filters']['max_price']}")
     if intent.get("priorities"):
         print(f"  Priorities: {', '.join(intent['priorities'])}")
 
-    # Step 2: Semantic search
+    # Step 2: Tag-based search
     print("\nSearching catalog...")
 
     from search_engine import GlassesSearchEngine
     engine = GlassesSearchEngine(
         catalog_path=str(CATALOG_JSON),
-        embeddings_path=str(EMBEDDINGS_NPY),
-        index_path=str(EMBEDDING_INDEX_JSON),
-        api_key=api_key,
     )
 
     filters = {}
@@ -180,7 +181,7 @@ def main() -> None:
         filters["gender"] = intent["filters"]["gender"]
 
     results = engine.search(
-        query=intent["search_text"],
+        query_tags=search_tags,
         top_k=args.top_k,
         filters=filters if filters else None,
     )

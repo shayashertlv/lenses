@@ -10,12 +10,7 @@ BASE_DIR = Path(__file__).parent
 # Path to lenses catalog (relative to face_analysis/)
 CATALOG_DIR = os.path.join(os.path.dirname(__file__), "..", "lenses", "catalog")
 CATALOG_JSON = os.path.join(CATALOG_DIR, "catalog.json")
-EMBEDDINGS_NPY = os.path.join(CATALOG_DIR, "embeddings.npy")
-EMBEDDING_INDEX = os.path.join(CATALOG_DIR, "embedding_index.json")
 CATALOG_IMAGES_DIR = os.path.join(CATALOG_DIR, "images")
-
-# Embedding model
-EMBEDDING_MODEL = "gemini-embedding-001"
 
 # Generation models (image generation — Nano Banana)
 GENERATION_MODEL_MAP = {
@@ -105,10 +100,6 @@ def validate_catalog_exists() -> str | None:
     missing = []
     if not os.path.isfile(CATALOG_JSON):
         missing.append("catalog.json")
-    if not os.path.isfile(EMBEDDINGS_NPY):
-        missing.append("embeddings.npy")
-    if not os.path.isfile(EMBEDDING_INDEX):
-        missing.append("embedding_index.json")
     if not os.path.isdir(CATALOG_IMAGES_DIR):
         missing.append("images/")
 
@@ -116,8 +107,7 @@ def validate_catalog_exists() -> str | None:
         return (
             f"Inventory catalog not found or incomplete. "
             f"Missing: {', '.join(missing)} in {CATALOG_DIR}\n"
-            f"Make sure lenses/catalog/ contains catalog.json, "
-            f"embeddings.npy, and embedding_index.json.\n"
+            f"Make sure lenses/catalog/ contains catalog.json and images/.\n"
             f"Run: cd ../lenses && python catalog_manager.py build"
         )
     return None
