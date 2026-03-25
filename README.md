@@ -31,26 +31,27 @@ Or create a `.env` file in this directory (copy from `.env.example`).
 
 ```
 lenses/
-├── .env.example              # API key template (one for whole project)
-├── requirements.txt          # All dependencies (one for whole project)
+├── .env.example              # API key template
+├── requirements.txt          # All dependencies
 ├── README.md                 # This file
+├── Procfile                  # Deployment entry point (web: python -m UI.app)
 │
-├── lenses/                   # Shared Catalog & Utilities
-│   ├── catalog_manager.py    #   Build/validate/list catalog + embeddings
-│   ├── tag_schema.py         #   Product tag vocabulary + description gen
+├── catalog_manager.py        # Build/validate/list catalog + embeddings (build-time, gitignored)
+├── tag_schema.py             # Product tag vocabulary + description generator (build-time, gitignored)
+│
+├── lenses/                   # Shared Catalog
 │   └── catalog/              #   Product database (shared by all features)
-│       ├── catalog.json      #     37 products — full tags + descriptions
+│       ├── catalog.json      #     Products — full tags + descriptions
 │       ├── embeddings.npy    #     Pre-computed embedding vectors (3072-dim)
 │       ├── embedding_index.json#   Index mapping
-│       └── images/           #     Product photos (erroca_mens_001.jpg, ...)
+│       └── images/           #     Product photos
 │
 ├── UI/                       # Web Interface
 │   ├── app.py                #   HTTP server entry point (localhost:8080)
 │   ├── config.py             #   Paths, session store, constants
 │   ├── handler.py            #   HTTP request routing + multipart parsing
 │   ├── pipelines.py          #   Async pipeline execution (background threads)
-│   ├── templates.py          #   HTML + JavaScript frontend
-│   └── test_pipeline_concurrency.py  #   Concurrency tests
+│   └── templates.py          #   HTML + JavaScript frontend
 │
 ├── lens_recolor/             # Feature 1: Lens Color Swap
 │   ├── main.py               #   CLI entry point
@@ -63,7 +64,7 @@ lenses/
 │
 ├── optimal_configuration/    # Feature 2: Optimal Configuration
 │   ├── main.py               #   CLI entry point
-│   ├── config.py             #   Model names, catalog paths → lenses/catalog/
+│   ├── config.py             #   Model names, catalog paths
 │   ├── search_engine.py      #   Embedding-based semantic search
 │   ├── query_interpreter.py  #   LLM query parsing (any language)
 │   ├── tryon_engine.py       #   Nano Banana 2-image try-on
@@ -74,9 +75,9 @@ lenses/
 │
 └── face_analysis/            # Feature 3: Face Analysis
     ├── main.py               #   CLI entry point
-    ├── config.py             #   Model names, paths → lenses/catalog/
+    ├── config.py             #   Model names, paths
     ├── face_analyzer.py      #   Gemini 2.5 Flash face analysis
-    ├── analysis_prompt.py    #   Face analysis prompt (outputs tags)
+    ├── analysis_prompt.py    #   Face analysis prompt (outputs tags + gender)
     ├── inventory_matcher.py  #   Embed tags → match against catalog
     ├── tryon_engine.py       #   Nano Banana 2-image try-on
     ├── tryon_prompt.py       #   Try-on prompt with face placement data
@@ -156,10 +157,10 @@ python -m unittest tests.test_recolor -v   # 19 tests
 Before using this feature, you must build the embedding index from the shared catalog:
 
 ```bash
-cd lenses
+# Run from project root (catalog_manager.py is a build-time tool, gitignored)
 python catalog_manager.py build      # Generates descriptions + embeddings (requires API)
 python catalog_manager.py validate   # Verify images exist and tags are valid
-python catalog_manager.py list       # List all 37 products
+python catalog_manager.py list       # List all products
 ```
 
 The catalog lives in `lenses/catalog/` and is shared by Optimal Configuration, Face Analysis, and the Web UI.
@@ -213,7 +214,7 @@ python main.py -p selfie.jpg -q "round gold frames" --auto -m nano-banana-pro
 
 1. Add product image to `lenses/catalog/images/` (front-facing, clean background, JPG/PNG/WEBP)
 2. Add product entry to `lenses/catalog/catalog.json` with full tags
-3. Run `cd lenses && python catalog_manager.py build` to rebuild embeddings
+3. Run `python catalog_manager.py build` from the project root to rebuild embeddings
 
 ### Tests
 
@@ -226,11 +227,11 @@ python -m unittest tests.test_search -v   # 24 tests
 
 ## Feature 3: Face Analysis
 
-**What it does:** Analyzes facial features from a portrait, recommends the optimal glasses based on optician-grade face-shape-to-frame rules, matches the recommendation against the real product catalog, and generates a try-on image.
+**What it does:** Analyzes facial features from a portrait, recommends the optimal glasses based on optician-grade face-shape-to-frame rules, matches the recommendation against the real product catalog, and generates a try-on image. Gender is detected and used to filter the catalog to relevant products.
 
-**Pipeline:** `Portrait → Gemini 2.5 Flash (analyze face + recommend tags) → Embed tags → Match against catalog → Nano Banana (try-on with real product photo) → Output Image` (3 API calls + local cosine similarity)
+**Pipeline:** `Portrait → Gemini 2.5 Flash (analyze face + recommend tags + detect gender) → Embed tags → Filter by gender → Match against catalog → Nano Banana (try-on with real product photo) → Output Image` (3 API calls + local cosine similarity)
 
-**Depends on:** `lenses/catalog/` must be set up with embeddings built (`cd lenses && python catalog_manager.py build`).
+**Depends on:** `lenses/catalog/` must be set up with embeddings built (`python catalog_manager.py build` from project root).
 
 ### How to run
 
@@ -275,6 +276,7 @@ python main.py -p selfie.jpg -o result_pro.png -m nano-banana-pro --auto
 
 The face analysis extracts:
 - **Face shape** — oval, round, square, heart, diamond, oblong, rectangular, triangle
+- **Gender** — detected from the portrait; used to filter catalog to relevant products
 - **Forehead** — width, height, hairline shape
 - **Cheekbones** — prominence, width relative to jaw
 - **Jawline** — shape, definition, width relative to forehead
@@ -308,7 +310,7 @@ python -m unittest tests.test_pipeline -v   # 41 tests
 
 ## Web UI
 
-**What it does:** Browser-based interface exposing three modes — **Smart Fit** (face analysis pipeline), **Free Search** (preference-based search pipeline), and **Lens Recolor** (lens color swap pipeline). Upload a portrait, get results with progressive loading as each try-on finishes.
+**What it does:** Browser-based interface with four modes — **Smart Fit** (face analysis pipeline), **Free Search** (preference-based search pipeline), **Lens Recolor** (lens color swap pipeline), and **Storefront** (browse the full product catalog and try on any product). Results load progressively as each try-on finishes.
 
 ### How to run
 
@@ -318,11 +320,33 @@ python -m UI.app
 
 Open http://127.0.0.1:8080 in your browser.
 
-- **Smart Fit** (`/`) — Upload a portrait. Runs the full face analysis pipeline: analyze face, match against catalog, generate try-on images.
-- **Free Search** (`/free-search`) — Upload a portrait + choose preferences (frame shape, color, material, thickness, rim type, lens type, lens size, aesthetic, gender, occasion, max price). Runs semantic search against the catalog and generates try-on images.
-- **Lens Recolor** (`/lens-recolor`) — Upload a photo of someone wearing glasses + pick 3 lens colors. Generates recolored versions for each color using Nano Banana Pro.
+### Modes
 
-Results stream in progressively via polling (`/api/status/<id>` and `/api/recolor-status/<id>`).
+- **Smart Fit** (`/`) — Upload a portrait. Analyzes facial features and gender, matches against the catalog (filtered by gender), and generates try-on images for the top 3 recommended products.
+- **Free Search** (`/free-search`) — Upload a portrait + choose preferences (frame shape, color, material, thickness, rim type, lens type, lens size, aesthetic, gender, occasion, max price). Runs semantic search against the catalog and generates try-on images.
+- **Lens Recolor** (`/lens-recolor`) — Upload a photo of someone wearing glasses + pick up to 3 lens colors from a 16-color palette. Generates recolored versions for each color.
+- **Storefront** (`/storefront`) — Browse the full product catalog in a grid. Click any product to upload a portrait and get a virtual try-on. Click a color swatch to recolor the lenses on a product photo.
+
+Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-status/<id>`, `/api/storefront-recolor-status/<id>`).
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Smart Fit / landing page |
+| `GET` | `/free-search` | Free Search page |
+| `GET` | `/lens-recolor` | Lens Recolor page |
+| `GET` | `/storefront` | Storefront catalog page |
+| `GET` | `/api/catalog` | JSON list of all products |
+| `GET` | `/api/catalog-image/<filename>` | Serve a product image |
+| `GET` | `/api/status/<id>` | Poll Smart Fit / Free Search result |
+| `GET` | `/api/recolor-status/<id>` | Poll Lens Recolor result |
+| `GET` | `/api/storefront-recolor-status/<id>` | Poll Storefront recolor result |
+| `POST` | `/api/upload` | Start Smart Fit pipeline |
+| `POST` | `/api/free-search` | Start Free Search pipeline |
+| `POST` | `/api/lens-recolor` | Start Lens Recolor pipeline |
+| `POST` | `/api/storefront-tryon` | Start Storefront try-on |
+| `POST` | `/api/storefront-recolor` | Start Storefront single-color recolor |
 
 ---
 
@@ -333,7 +357,7 @@ Results stream in progressively via polling (`/api/status/<id>` and `/api/recolo
 | `gemini-3.1-flash-image-preview` (nano-banana-2) | Image generation — fast | All features + Web UI |
 | `gemini-3-pro-image-preview` (nano-banana-pro) | Image generation — high quality | All features + Web UI |
 | `gemini-2.5-flash` | Face analysis (vision + reasoning) | Face Analysis, Web UI (Smart Fit) |
-| `gemini-2.5-flash` | Query interpretation (text) | Optimal Configuration |
+| `gemini-2.5-flash` | Query interpretation (text) | Optimal Configuration, Free Search |
 | `gemini-embedding-001` | Text embedding (3072-dim, 100+ languages) | Optimal Config, Face Analysis, Web UI |
 
 ## Troubleshooting
@@ -345,7 +369,7 @@ Results stream in progressively via polling (`/api/status/<id>` and `/api/recolo
 | `Safety filter blocked` | The image was flagged — try a different photo |
 | `No image in response` | Tools retry automatically. If persistent, try a different portrait or model |
 | `API key issue / 403` | Ensure your key has image generation enabled (paid plan) |
-| `Catalog not found` | Run `cd lenses && python catalog_manager.py build` |
+| `Catalog not found` | Run `python catalog_manager.py build` from the project root |
 | `embeddings.npy not found` | Same — build the catalog first |
 | `Low match scores` | Add more diverse products to the catalog |
 
