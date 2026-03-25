@@ -77,7 +77,8 @@ class InventoryMatcher:
             with open(index_path, "r", encoding="utf-8") as f:
                 self.index_map = json.load(f)
 
-    def match(self, recommended_tags: dict, top_k: int = 3) -> MatchResult:
+    def match(self, recommended_tags: dict, top_k: int = 3,
+              gender: str | None = None) -> MatchResult:
         """
         Find the best matching products for the recommended glasses tags.
 
@@ -85,6 +86,8 @@ class InventoryMatcher:
             recommended_tags: The recommended_tags dict from face analysis
                               (contains frame, lenses, style sub-dicts).
             top_k: Number of top matches to return.
+            gender: If provided ('men' or 'women'), only return products
+                    whose gender_target matches or is 'unisex'.
 
         Returns:
             MatchResult with list of (product_dict, similarity_score) tuples.
@@ -127,6 +130,12 @@ class InventoryMatcher:
             # Skip out-of-stock products
             if not product["tags"]["product"].get("in_stock", False):
                 continue
+
+            # Skip products that don't match the detected gender
+            if gender:
+                product_gender = product["tags"]["style"].get("gender_target", "unisex")
+                if product_gender not in (gender, "unisex"):
+                    continue
 
             # Skip if product image is missing
             image_path = self.get_product_image_path(product)

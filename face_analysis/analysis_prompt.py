@@ -147,6 +147,8 @@ Respond ONLY with a JSON object. No markdown backticks, no explanation outside t
         "<string: paragraph 3 — a deeper insight connecting facial features to frame aesthetics — for example, how their face's unique proportions create certain visual effects with different frame styles, or how their coloring interacts with frame colors. This should feel like advice from a world-class stylist who truly sees the person.>"
     ],
 
+    "gender": "<men|women — based on your facial analysis, classify the person's apparent gender for product matching purposes. Use 'men' for masculine-presenting faces and 'women' for feminine-presenting faces. This determines which product catalog section to search.>",
+
     "face_summary": {
         "face_shape": "<single word: oblong, oval, round, square, heart, diamond, rectangular, triangular>",
         "face_shape_description": "<one short sentence explaining the shape, max 80 chars>",
