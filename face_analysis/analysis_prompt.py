@@ -147,7 +147,7 @@ Respond ONLY with a JSON object. No markdown backticks, no explanation outside t
         "<string: paragraph 3 — a deeper insight connecting facial features to frame aesthetics — for example, how their face's unique proportions create certain visual effects with different frame styles, or how their coloring interacts with frame colors. This should feel like advice from a world-class stylist who truly sees the person.>"
     ],
 
-    "gender": "<men|women — based on your facial analysis, classify the person's apparent gender for product matching purposes. Use 'men' for masculine-presenting faces and 'women' for feminine-presenting faces. This determines which product catalog section to search.>",
+    "gender": "<REQUIRED — must be exactly 'men' or 'women'. Based on your facial analysis, determine the person's apparent gender. You MUST choose one — there is no third option. This field controls which product inventory is searched, so it must always be present.>",
 
     "face_summary": {
         "face_shape": "<single word: oblong, oval, round, square, heart, diamond, rectangular, triangular>",
@@ -175,6 +175,7 @@ IMPORTANT RULES:
 - Consider skin undertone for frame color (warm undertone → gold, tortoiseshell, warm tones; cool undertone → silver, black, cool tones; neutral → either).
 - Provide 2-3 alternative_recommendations.
 - The face_summary object must contain all 9 fields. face_shape must be one of: oblong, oval, round, square, heart, diamond, rectangular, triangular. All hex color values must be valid 6-digit hex codes (e.g. '#2A2A2A'). Descriptions must be max 80 characters.
+- The "gender" field is MANDATORY. You must always return either "men" or "women" — never omit it, never return any other value. Make your best determination from the face.
 - The face_insights array must contain exactly 3 paragraphs. Each paragraph should be 2-4 sentences. Write in second person ("you", "your"). Be specific to THIS face — never give generic advice that could apply to anyone. The tone should be warm, knowledgeable, and genuinely intriguing — like a master optician sharing fascinating observations they've made about the person's unique features."""
 
     return prompt

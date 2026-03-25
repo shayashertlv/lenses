@@ -187,7 +187,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     sess["stage"] = "matching"
     try:
         recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
-        detected_gender = analysis.get("gender")  # "men" or "women"
+        detected_gender = analysis["gender"]  # "men" or "women" — always present
         match_result = matcher.match(recommended_tags, top_k=3, gender=detected_gender)
     except Exception as e:
         sess["status"] = "error"
