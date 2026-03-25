@@ -2,6 +2,7 @@
 HTTP request handler and multipart form-data parsers.
 """
 
+import base64
 import json
 import threading
 import urllib.parse
@@ -12,7 +13,8 @@ from UI.config import sessions
 from UI.config import CATALOG_IMAGES_DIR
 from UI.pipelines import (
     run_pipeline, run_free_search_pipeline, run_recolor_pipeline,
-    run_storefront_tryon_pipeline, get_catalog_products,
+    run_storefront_tryon_pipeline, run_single_recolor_pipeline,
+    get_catalog_products,
 )
 from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
 
@@ -46,6 +48,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/recolor-status/"):
             sid = path[len("/api/recolor-status/"):]
             self._serve_recolor_status(sid)
+        elif path.startswith("/api/storefront-recolor-status/"):
+            sid = path[len("/api/storefront-recolor-status/"):]
+            self._serve_storefront_recolor_status(sid)
         else:
             self.send_error(404)
 
@@ -59,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_lens_recolor()
         elif path == "/api/storefront-tryon":
             self._handle_storefront_tryon()
+        elif path == "/api/storefront-recolor":
+            self._handle_storefront_recolor()
         else:
             self.send_error(404)
 
@@ -197,6 +204,51 @@ class Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._json(200, {"session_id": sid})
+
+    # ── Storefront single-color recolor ──────────────────────────────
+    def _handle_storefront_recolor(self):
+        clen = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(clen)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            return self._json(400, {"error": "Invalid JSON"})
+
+        image_b64 = data.get("image_b64", "")
+        color = data.get("color", "").strip()
+
+        if not image_b64:
+            return self._json(400, {"error": "No image provided"})
+        if not color:
+            return self._json(400, {"error": "No color selected"})
+
+        try:
+            image_bytes = base64.b64decode(image_b64)
+        except Exception:
+            return self._json(400, {"error": "Invalid base64 image"})
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "result_b64": None}
+
+        threading.Thread(
+            target=run_single_recolor_pipeline,
+            args=(sid, image_bytes, color),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    def _serve_storefront_recolor_status(self, sid: str):
+        sess = sessions.get(sid)
+        if not sess:
+            return self._json(404, {"error": "Unknown session"})
+        self._json(200, {
+            "status": sess["status"],
+            "stage": sess.get("stage", ""),
+            "error": sess.get("error"),
+            "result_b64": sess.get("result_b64"),
+        })
 
     # ── Catalog image serving ─────────────────────────────────────────
     def _serve_catalog_image(self, filename: str):

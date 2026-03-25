@@ -974,3 +974,42 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
     sess["stage"] = "done"
     sess["status"] = "done"
     _cleanup(portrait_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SINGLE-COLOR RECOLOR (for storefront inline recolor)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_single_recolor_pipeline(session_id: str, image_bytes: bytes, color: str):
+    """Single-color lens recolor for storefront try-on results."""
+    sess = sessions[session_id]
+
+    ext = ".png"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(image_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    try:
+        api_key = _get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        return
+
+    sess["stage"] = "recoloring"
+    print(f"  [storefront-recolor] Generating {color} ...")
+
+    result = _recolor_single(portrait_path, color, api_key)
+
+    if result["success"] and result["image_bytes"]:
+        sess["result_b64"] = base64.b64encode(result["image_bytes"]).decode("ascii")
+        sess["status"] = "done"
+        sess["stage"] = "done"
+        print(f"  [storefront-recolor] {color} done.")
+    else:
+        sess["status"] = "error"
+        sess["error"] = result.get("error", "Recolor failed")
+        print(f"  [storefront-recolor] {color} error: {result.get('error')}")
+
+    _cleanup(portrait_path)

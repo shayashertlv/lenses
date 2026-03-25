@@ -2592,6 +2592,22 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
 /* ── Try-on result area inside modal ──────── */
 .tryon-result{display:none;text-align:center}
 .tryon-result img{display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem}
+.recolor-btn{width:100%;padding:.75rem;border:none;border-radius:50px;
+  background:linear-gradient(135deg,#e8a838,#f0c060);color:#1a1200;font-size:.9rem;font-weight:600;
+  cursor:pointer;transition:all .2s;margin-bottom:.5rem;box-shadow:0 4px 16px rgba(232,168,56,.25)}
+.recolor-btn:hover{box-shadow:0 6px 20px rgba(232,168,56,.35);transform:translateY(-1px)}
+
+/* ── Recolor color picker inside modal ──── */
+.rc-color-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.55rem;margin:1rem 0 1.2rem}
+.rc-color-opt{display:flex;flex-direction:column;align-items:center;gap:.3rem;cursor:pointer;
+  padding:.45rem;border-radius:12px;border:2px solid transparent;transition:all .15s;background:rgba(255,255,255,.03)}
+.rc-color-opt:hover{background:rgba(255,255,255,.06)}
+.rc-color-opt.selected{border-color:#e8a838;background:rgba(232,168,56,.1)}
+.rc-swatch{width:30px;height:30px;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.rc-cname{font-size:.65rem;color:rgba(255,255,255,.45);text-align:center;line-height:1.2}
+.rc-back-btn{display:block;margin:.6rem auto 0;background:none;border:none;
+  font-size:.8rem;color:rgba(255,255,255,.4);cursor:pointer;text-decoration:underline;padding:0}
+.rc-back-btn:hover{color:rgba(255,255,255,.6)}
 .tryon-progress{margin:2rem 0}
 .tryon-progress .bar-bg{width:100%;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;margin-bottom:.8rem}
 .tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#34c78a,#6dd5a8);border-radius:2px;width:0%;transition:width .6s}
@@ -2714,7 +2730,48 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
         <h3>Here's how you look!</h3>
         <p class="modal-subtitle" id="modal-result-product"></p>
         <img id="modal-result-img" src="" alt="Virtual try-on result"/>
+        <button class="recolor-btn" onclick="showRecolorPicker()">Recolor Lenses</button>
         <button class="modal-submit" onclick="resetModal()">Try Another Photo</button>
+      </div>
+
+      <!-- Recolor: pick color -->
+      <div id="modal-recolor-pick" style="display:none;text-align:center">
+        <h3>Recolor Lenses</h3>
+        <p class="modal-subtitle">Choose a lens color</p>
+        <div class="rc-color-grid" id="rc-color-grid">
+          <div class="rc-color-opt" data-color="Ocean Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="rc-cname">Ocean Blue</span></div>
+          <div class="rc-color-opt" data-color="Classic Green (G-15)" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="rc-cname">Classic Green</span></div>
+          <div class="rc-color-opt" data-color="Amber Brown (B-15)" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="rc-cname">Amber Brown</span></div>
+          <div class="rc-color-opt" data-color="Rose Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="rc-cname">Rose Gold</span></div>
+          <div class="rc-color-opt" data-color="Smoke Gray" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="rc-cname">Smoke Gray</span></div>
+          <div class="rc-color-opt" data-color="Clear (Transparent)" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="rc-cname">Clear</span></div>
+          <div class="rc-color-opt" data-color="Deep Purple" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="rc-cname">Deep Purple</span></div>
+          <div class="rc-color-opt" data-color="Emerald Green" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#00695c,#26a69a)"></div><span class="rc-cname">Emerald Green</span></div>
+          <div class="rc-color-opt" data-color="Midnight Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="rc-cname">Midnight Blue</span></div>
+          <div class="rc-color-opt" data-color="Yellow Night-Driving" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="rc-cname">Yellow</span></div>
+          <div class="rc-color-opt" data-color="Ruby Red" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="rc-cname">Ruby Red</span></div>
+          <div class="rc-color-opt" data-color="Champagne Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="rc-cname">Champagne Gold</span></div>
+        </div>
+        <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply Color</button>
+        <button class="rc-back-btn" onclick="backToResult()">Back</button>
+      </div>
+
+      <!-- Recolor: loading -->
+      <div id="modal-recolor-progress" style="display:none;text-align:center">
+        <h3>Recoloring lenses...</h3>
+        <p class="modal-subtitle" id="rc-progress-color"></p>
+        <div class="tryon-progress">
+          <div class="bar-bg"><div class="bar-fill" id="rc-bar" style="width:0%"></div></div>
+          <p id="rc-status-text">Preparing...</p>
+        </div>
+      </div>
+
+      <!-- Recolor: result -->
+      <div id="modal-recolor-result" style="display:none;text-align:center">
+        <h3>Recolored!</h3>
+        <p class="modal-subtitle" id="rc-result-color"></p>
+        <img id="rc-result-img" src="" alt="Recolored result" style="display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem"/>
+        <button class="rc-back-btn" onclick="backToResult()">Back to Try-On</button>
       </div>
 
       <!-- Error step -->
@@ -2735,6 +2792,7 @@ let pollTimer = null;
 /* Cache the user's last uploaded photo so they only upload once per session */
 let cachedFile = null;
 let cachedPreviewSrc = null;
+let rcPollTimer = null;
 
 /* ── Catalog + gender filter ──────────────── */
 let allProducts = [];
@@ -2806,6 +2864,9 @@ function openTryon(productId, productName) {
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-result').style.display = 'none';
   document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('modal-recolor-pick').style.display = 'none';
+  document.getElementById('modal-recolor-progress').style.display = 'none';
+  document.getElementById('modal-recolor-result').style.display = 'none';
 
   document.getElementById('tryon-modal').classList.add('active');
 
@@ -2823,6 +2884,7 @@ function openTryon(productId, productName) {
 function closeModal() {
   document.getElementById('tryon-modal').classList.remove('active');
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (rcPollTimer) { clearInterval(rcPollTimer); rcPollTimer = null; }
 }
 
 function showPhotoReady(src) {
@@ -2837,6 +2899,9 @@ function resetModal() {
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-result').style.display = 'none';
   document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('modal-recolor-pick').style.display = 'none';
+  document.getElementById('modal-recolor-progress').style.display = 'none';
+  document.getElementById('modal-recolor-result').style.display = 'none';
   if (cachedFile) {
     currentFile = cachedFile;
     showPhotoReady(cachedPreviewSrc);
@@ -2916,7 +2981,9 @@ function pollTryon(sid) {
   }, 2000);
 }
 
+let lastTryonB64 = null;
 function showTryonResult(b64) {
+  lastTryonB64 = b64;
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-result').style.display = 'block';
   document.getElementById('modal-result-img').src = 'data:image/png;base64,' + b64;
@@ -2927,6 +2994,81 @@ function showModalError(msg) {
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-error').style.display = '';
   document.getElementById('modal-error-msg').textContent = msg;
+}
+
+/* ── Recolor flow inside modal ────────────── */
+let rcSelectedColor = null;
+
+function showRecolorPicker() {
+  document.getElementById('modal-result').style.display = 'none';
+  document.getElementById('modal-recolor-pick').style.display = '';
+  rcSelectedColor = null;
+  document.getElementById('rc-apply-btn').disabled = true;
+  document.querySelectorAll('.rc-color-opt').forEach(o => o.classList.remove('selected'));
+}
+
+function pickRcColor(el) {
+  document.querySelectorAll('.rc-color-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  rcSelectedColor = el.getAttribute('data-color');
+  document.getElementById('rc-apply-btn').disabled = false;
+}
+
+function backToResult() {
+  document.getElementById('modal-recolor-pick').style.display = 'none';
+  document.getElementById('modal-recolor-progress').style.display = 'none';
+  document.getElementById('modal-recolor-result').style.display = 'none';
+  document.getElementById('modal-result').style.display = 'block';
+  if (rcPollTimer) { clearInterval(rcPollTimer); rcPollTimer = null; }
+}
+
+function startRecolor() {
+  if (!rcSelectedColor || !lastTryonB64) return;
+
+  document.getElementById('modal-recolor-pick').style.display = 'none';
+  document.getElementById('modal-recolor-progress').style.display = '';
+  document.getElementById('rc-progress-color').textContent = rcSelectedColor;
+  document.getElementById('rc-bar').style.width = '10%';
+  document.getElementById('rc-status-text').textContent = 'Sending image...';
+
+  fetch('/api/storefront-recolor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_b64: lastTryonB64, color: rcSelectedColor })
+  })
+    .then(r => r.json())
+    .then(j => {
+      if (j.error) { showModalError(j.error); return; }
+      document.getElementById('rc-bar').style.width = '25%';
+      document.getElementById('rc-status-text').textContent = 'Recoloring lenses...';
+      rcPollTimer = setInterval(() => pollRecolor(j.session_id), 2000);
+    })
+    .catch(() => showModalError('Network error'));
+}
+
+function pollRecolor(sid) {
+  fetch('/api/storefront-recolor-status/' + sid)
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'error') {
+        clearInterval(rcPollTimer); rcPollTimer = null;
+        showModalError(d.error || 'Recolor failed');
+        return;
+      }
+      if (d.stage === 'recoloring') {
+        document.getElementById('rc-bar').style.width = '55%';
+        document.getElementById('rc-status-text').textContent = 'AI is recoloring the lenses...';
+      }
+      if (d.status === 'done' && d.result_b64) {
+        clearInterval(rcPollTimer); rcPollTimer = null;
+        document.getElementById('rc-bar').style.width = '100%';
+        document.getElementById('modal-recolor-progress').style.display = 'none';
+        document.getElementById('modal-recolor-result').style.display = '';
+        document.getElementById('rc-result-color').textContent = rcSelectedColor;
+        document.getElementById('rc-result-img').src = 'data:image/png;base64,' + d.result_b64;
+      }
+    })
+    .catch(() => {});
 }
 
 /* Close modal on overlay click */
