@@ -73,7 +73,7 @@ body{
 <div class="cards">
 
   <!-- Smart Fit card (opens file picker inline) -->
-  <div class="mode-card" id="smart-card" onclick="document.getElementById('sf-file').click()">
+  <div class="mode-card" id="smart-card" onclick="openPickerWithTip('sf-file')">
     <div class="mode-icon smart">
       <svg viewBox="0 0 36 36"><circle cx="18" cy="12" r="5"/><path d="M6 30c0-6.627 5.373-12 12-12s12 5.373 12 12"/><path d="M28 8l2 2-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
@@ -261,6 +261,22 @@ body{
   .primary-panel{flex:none;width:100%}
   .analysis-cards{grid-template-columns:1fr}
 }
+/* upload-tip popup */
+.uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:9999;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.uptip-overlay.visible{opacity:1;pointer-events:auto}
+.uptip-box{background:rgba(20,20,38,.96);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:2rem 1.8rem 1.6rem;max-width:330px;width:90%;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center}
+.uptip-icon{margin-bottom:.9rem}
+.uptip-icon svg{width:44px;height:44px;stroke:#6c63ff;fill:none;stroke-width:1.6}
+.uptip-box h3{font-size:1.05rem;font-weight:700;color:#fff;margin:0 0 .55rem}
+.uptip-box p{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;margin:0 0 1.4rem}
+.uptip-ok{background:#6c63ff;color:#fff;border:none;border-radius:12px;
+  padding:.72rem 0;font-size:.95rem;font-weight:600;cursor:pointer;width:100%;
+  transition:opacity .15s}
+.uptip-ok:hover{opacity:.85}
 </style>
 
 <script>
@@ -660,7 +676,20 @@ function renderOpts(container,d){
     container.appendChild(card);
   }
 }
+/* ── Upload-tip popup ── */
+let _uptipTarget=null;
+function openPickerWithTip(id){_uptipTarget=id;document.getElementById('uptip').classList.add('visible')}
+function uptipOk(){document.getElementById('uptip').classList.remove('visible');if(_uptipTarget){document.getElementById(_uptipTarget).click();_uptipTarget=null}}
 </script>
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear selfie with your face mostly visible and well-lit. Avoid group shots, sunglasses, or blurry images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
 </body>
 </html>
 """
@@ -1107,6 +1136,22 @@ body{
   .alt-grid{grid-template-columns:1fr}
   .res-topbar{padding:12px 16px;margin:0 -1.5rem 20px}
 }
+/* upload-tip popup */
+.uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:9999;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.uptip-overlay.visible{opacity:1;pointer-events:auto}
+.uptip-box{background:rgba(20,20,38,.96);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:2rem 1.8rem 1.6rem;max-width:330px;width:90%;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center}
+.uptip-icon{margin-bottom:.9rem}
+.uptip-icon svg{width:44px;height:44px;stroke:#6c63ff;fill:none;stroke-width:1.6}
+.uptip-box h3{font-size:1.05rem;font-weight:700;color:#fff;margin:0 0 .55rem}
+.uptip-box p{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;margin:0 0 1.4rem}
+.uptip-ok{background:#6c63ff;color:#fff;border:none;border-radius:12px;
+  padding:.72rem 0;font-size:.95rem;font-weight:600;cursor:pointer;width:100%;
+  transition:opacity .15s}
+.uptip-ok:hover{opacity:.85}
 </style>
 </head>
 <body>
@@ -1121,7 +1166,7 @@ body{
 <div id="form-view">
 
   <h3 class="section-title">Your Photo</h3>
-  <div class="fs-upload" id="upload-area" onclick="document.getElementById('fs-file').click()">
+  <div class="fs-upload" id="upload-area" onclick="openPickerWithTip('fs-file')">
     <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
     <span class="up-label" id="up-label-text">Upload a Photo</span>
     <span class="up-hint">JPG, PNG, or WebP</span>
@@ -1728,7 +1773,20 @@ function fsReset(){
   setLoadStep(1); setLoadProg(0);
   showView(null);
 }
+/* ── Upload-tip popup ── */
+let _uptipTarget=null;
+function openPickerWithTip(id){_uptipTarget=id;document.getElementById('uptip').classList.add('visible')}
+function uptipOk(){document.getElementById('uptip').classList.remove('visible');if(_uptipTarget){document.getElementById(_uptipTarget).click();_uptipTarget=null}}
 </script>
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear selfie with your face mostly visible and well-lit. Avoid group shots, sunglasses, or blurry images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
 </body>
 </html>
 """
@@ -1988,6 +2046,22 @@ body{
   .res-page-title{font-size:1.35rem;padding-top:28px}
   .hero-img-wrap{padding:16px;min-height:280px}
 }
+/* upload-tip popup */
+.uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:9999;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.uptip-overlay.visible{opacity:1;pointer-events:auto}
+.uptip-box{background:rgba(20,20,38,.96);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:2rem 1.8rem 1.6rem;max-width:330px;width:90%;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center}
+.uptip-icon{margin-bottom:.9rem}
+.uptip-icon svg{width:44px;height:44px;stroke:#e8a838;fill:none;stroke-width:1.6}
+.uptip-box h3{font-size:1.05rem;font-weight:700;color:#fff;margin:0 0 .55rem}
+.uptip-box p{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;margin:0 0 1.4rem}
+.uptip-ok{background:#e8a838;color:#1a1200;border:none;border-radius:12px;
+  padding:.72rem 0;font-size:.95rem;font-weight:600;cursor:pointer;width:100%;
+  transition:opacity .15s}
+.uptip-ok:hover{opacity:.85}
 </style>
 </head>
 <body>
@@ -2003,7 +2077,7 @@ body{
 
   <h3 class="section-title">Your Photo</h3>
   <p style="font-size:.84rem;color:rgba(255,255,255,.4);margin-bottom:1rem">Upload a photo of yourself <strong style="color:rgba(255,255,255,.6)">wearing glasses</strong>. The AI will change only the lens colour.</p>
-  <div class="rc-upload" id="upload-area" onclick="document.getElementById('rc-file').click()">
+  <div class="rc-upload" id="upload-area" onclick="openPickerWithTip('rc-file')">
     <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
     <span class="up-label" id="up-label-text">Upload a Photo</span>
     <span class="up-hint">JPG, PNG, or WebP</span>
@@ -2392,7 +2466,20 @@ setInterval(()=>{
   el.style.opacity=0;
   setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity=1;},300);
 },4500);
+/* ── Upload-tip popup ── */
+let _uptipTarget=null;
+function openPickerWithTip(id){_uptipTarget=id;document.getElementById('uptip').classList.add('visible')}
+function uptipOk(){document.getElementById('uptip').classList.remove('visible');if(_uptipTarget){document.getElementById(_uptipTarget).click();_uptipTarget=null}}
 </script>
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear photo of yourself wearing glasses, with your face mostly visible and well-lit. Avoid blurry or poorly lit images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
 </body>
 </html>
 """
@@ -2534,6 +2621,22 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
   .product-info .prod-name{font-size:.82rem}
   .tryon-btn{padding:.4rem .8rem;font-size:.72rem}
 }
+/* upload-tip popup */
+.uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:9999;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.uptip-overlay.visible{opacity:1;pointer-events:auto}
+.uptip-box{background:rgba(20,20,38,.96);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:2rem 1.8rem 1.6rem;max-width:330px;width:90%;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center}
+.uptip-icon{margin-bottom:.9rem}
+.uptip-icon svg{width:44px;height:44px;stroke:#6c63ff;fill:none;stroke-width:1.6}
+.uptip-box h3{font-size:1.05rem;font-weight:700;color:#fff;margin:0 0 .55rem}
+.uptip-box p{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;margin:0 0 1.4rem}
+.uptip-ok{background:#6c63ff;color:#fff;border:none;border-radius:12px;
+  padding:.72rem 0;font-size:.95rem;font-weight:600;cursor:pointer;width:100%;
+  transition:opacity .15s}
+.uptip-ok:hover{opacity:.85}
 </style>
 </head>
 <body>
@@ -2582,7 +2685,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
         <h3 id="modal-product-name"></h3>
         <p class="modal-subtitle">Upload a selfie to see how these frames look on you</p>
         <!-- Empty state -->
-        <div id="upload-empty" class="upload-zone" onclick="document.getElementById('modal-file').click()">
+        <div id="upload-empty" class="upload-zone" onclick="openPickerWithTip('modal-file')">
           <svg viewBox="0 0 36 36"><path d="M18 8v20M8 18h20" stroke-linecap="round"/></svg>
           <p>Click to upload your photo</p>
           <p class="small">JPG, PNG or WebP</p>
@@ -2590,7 +2693,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans
         <!-- Photo-ready state -->
         <div id="upload-ready" style="display:none;text-align:center">
           <img class="upload-preview" id="modal-preview" src="" alt="Your photo"/>
-          <button type="button" class="change-photo-btn" onclick="document.getElementById('modal-file').click()">Change photo</button>
+          <button type="button" class="change-photo-btn" onclick="openPickerWithTip('modal-file')">Change photo</button>
         </div>
         <input type="file" id="modal-file" accept="image/*" style="display:none"/>
         <button class="modal-submit" id="modal-go" disabled onclick="startTryon()">Try On</button>
@@ -2818,7 +2921,20 @@ function showModalError(msg) {
 document.getElementById('tryon-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
+/* ── Upload-tip popup ── */
+let _uptipTarget=null;
+function openPickerWithTip(id){_uptipTarget=id;document.getElementById('uptip').classList.add('visible')}
+function uptipOk(){document.getElementById('uptip').classList.remove('visible');if(_uptipTarget){document.getElementById(_uptipTarget).click();_uptipTarget=null}}
 </script>
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear selfie with your face mostly visible and well-lit. Avoid group shots, sunglasses, or blurry images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
 </body>
 </html>
 """
