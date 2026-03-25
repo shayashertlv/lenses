@@ -26,7 +26,7 @@ FS_MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
     "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
-FS_DEFAULT_MODEL = "nano-banana-2"
+FS_DEFAULT_MODEL = "nano-banana-pro"
 FS_MAX_IMAGE_DIM = 4096
 
 # Default generation model alias (used by Smart Fit pipeline)

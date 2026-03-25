@@ -24,7 +24,7 @@ EMBEDDING_MODEL = "gemini-embedding-001"
 QUERY_INTERPRETER_MODEL = "gemini-2.5-flash"
 
 # Defaults
-DEFAULT_MODEL = "nano-banana-2"
+DEFAULT_MODEL = "nano-banana-pro"
 DEFAULT_TOP_K = 3
 MAX_IMAGE_DIMENSION = 4096
 MIN_SIMILARITY_THRESHOLD = 0.3

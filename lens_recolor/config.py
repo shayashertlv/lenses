@@ -11,7 +11,7 @@ MODEL_MAP = {
     "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
 
-DEFAULT_MODEL = "nano-banana-2"
+DEFAULT_MODEL = "nano-banana-pro"
 DEFAULT_INTENSITY = "medium"
 DEFAULT_FINISH = "standard"
 DEFAULT_PRESERVE_REFLECTIONS = True

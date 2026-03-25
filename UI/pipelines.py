@@ -242,6 +242,8 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         product, _ = matches[idx]
         glasses_path = matcher.get_product_image_path(product)
         sess[f"opt{idx}"]["tryon_status"] = "generating"
+        # Each thread gets its own client to avoid HTTP connection serialisation.
+        tryon_client = genai.Client(api_key=api_key)
         try:
             tr = virtual_tryon(
                 portrait_path=portrait_path,
@@ -251,7 +253,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
                 model_alias=DEFAULT_GENERATION_MODEL,
                 api_key=api_key,
                 portrait_part=portrait_part,
-                client=client,
+                client=tryon_client,
             )
         except Exception as e:
             sess[f"opt{idx}"]["tryon_status"] = "error"
