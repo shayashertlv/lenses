@@ -2047,7 +2047,7 @@
       "image": "images/erroca_mens_038.jpg",
       "tags": {
         "frame": {
-          "shape": "pilot",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
@@ -2061,7 +2061,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "amber"
           ],
           "shape": "teardrop",
           "size": "large"
@@ -2101,13 +2101,13 @@
       "image": "images/erroca_mens_039.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
-          "material": "metal",
+          "shape": "rectangular",
+          "material": "mixed-metal-acetate",
           "color": [
-            "gold"
+            "black"
           ],
-          "thickness": "thin",
-          "finish": "glossy",
+          "thickness": "thick",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -2115,9 +2115,9 @@
             "sunglasses"
           ],
           "color": [
-            "amber"
+            "gray"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -2126,7 +2126,7 @@
             "bold",
             "fashion-forward"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "square",
@@ -2155,20 +2155,21 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
+            "silver",
             "black"
           ],
           "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "blue"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2209,21 +2210,21 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
-            "blue",
-            "white"
+            "gold",
+            "black"
           ],
           "thickness": "medium",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "blue"
+            "gray"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2263,23 +2264,23 @@
       "image": "images/erroca_mens_042.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "green"
+            "gray"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {
@@ -2316,24 +2317,25 @@
       "image": "images/erroca_mens_043.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "black"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "gradient-brown"
+            "gray"
           ],
-          "shape": "teardrop",
-          "size": "large"
+          "shape": "rectangular",
+          "size": "medium"
         },
         "style": {
           "aesthetic": [
@@ -2341,7 +2343,7 @@
             "bold",
             "fashion-forward"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "round",
@@ -2370,24 +2372,25 @@
       "image": "images/erroca_mens_044.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
-            "gold"
+            "silver"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "semi-rimless"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
-            "G-15-green"
+            "pink"
           ],
-          "shape": "teardrop",
-          "size": "medium"
+          "shape": "oval",
+          "size": "small"
         },
         "style": {
           "aesthetic": [
@@ -2395,7 +2398,7 @@
             "retro",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "square",
             "heart",
@@ -2424,22 +2427,21 @@
       "image": "images/erroca_mens_045.jpg",
       "tags": {
         "frame": {
-          "shape": "hexagonal",
-          "material": "mixed-metal-acetate",
+          "shape": "rectangular",
+          "material": "metal",
           "color": [
-            "black",
             "gold"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "rimless"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "green"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2447,7 +2449,7 @@
         "style": {
           "aesthetic": [
             "classic",
-            "vintage",
+            "minimalist",
             "casual"
           ],
           "gender_target": "men",
@@ -2459,7 +2461,7 @@
           "occasion": [
             "everyday",
             "outdoor",
-            "beach"
+            "driving"
           ]
         },
         "product": {
@@ -2479,7 +2481,7 @@
       "image": "images/erroca_mens_046.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "square",
           "material": "metal",
           "color": [
             "silver"
@@ -2490,19 +2492,20 @@
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "gradient"
           ],
           "color": [
             "blue"
           ],
-          "shape": "teardrop",
-          "size": "large"
+          "shape": "square",
+          "size": "medium"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "modern",
-            "bold"
+            "professional"
           ],
           "gender_target": "men",
           "face_shape_fit": [
@@ -2533,10 +2536,11 @@
       "image": "images/erroca_mens_047.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "square",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "havana-brown"
           ],
           "thickness": "thin",
           "finish": "glossy",
@@ -2549,8 +2553,8 @@
           "color": [
             "amber"
           ],
-          "shape": "teardrop",
-          "size": "large"
+          "shape": "square",
+          "size": "medium"
         },
         "style": {
           "aesthetic": [
@@ -2587,7 +2591,7 @@
       "image": "images/erroca_mens_048.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "gold"
@@ -2599,21 +2603,21 @@
         "lenses": {
           "type": [
             "sunglasses",
-            "polarized"
+            "gradient"
           ],
           "color": [
             "gradient-brown"
           ],
-          "shape": "teardrop",
-          "size": "medium"
+          "shape": "rectangular",
+          "size": "small"
         },
         "style": {
           "aesthetic": [
             "classic",
-            "modern",
+            "retro",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "round",
             "oval",
@@ -2642,7 +2646,7 @@
       "image": "images/erroca_mens_049.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "gold"
@@ -2658,16 +2662,16 @@
           "color": [
             "G-15-green"
           ],
-          "shape": "teardrop",
-          "size": "medium"
+          "shape": "rectangular",
+          "size": "small"
         },
         "style": {
           "aesthetic": [
             "classic",
-            "casual",
+            "retro",
             "minimalist"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "round",
             "oval",
@@ -2696,13 +2700,13 @@
       "image": "images/erroca_mens_050.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
-            "black"
+            "matte-black"
           ],
           "thickness": "thin",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
@@ -2713,7 +2717,7 @@
           "color": [
             "gray"
           ],
-          "shape": "teardrop",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
@@ -2751,23 +2755,25 @@
       "image": "images/erroca_mens_051.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "havana-brown"
           ],
           "thickness": "thin",
-          "finish": "glossy",
+          "finish": "matte",
           "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "sunglasses",
+            "polarized"
           ],
           "color": [
             "G-15-green"
           ],
-          "shape": "teardrop",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
@@ -2776,7 +2782,7 @@
             "classic",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "square",
             "oblong",
@@ -2805,9 +2811,10 @@
       "image": "images/erroca_mens_052.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
+            "silver",
             "black"
           ],
           "thickness": "thin",
@@ -2821,16 +2828,16 @@
           "color": [
             "gray"
           ],
-          "shape": "teardrop",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
           "aesthetic": [
             "modern",
-            "classic",
+            "retro",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "square",
             "heart",
@@ -2859,10 +2866,11 @@
       "image": "images/erroca_mens_053.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "oval",
           "material": "metal",
           "color": [
-            "silver"
+            "gold",
+            "havana-brown"
           ],
           "thickness": "thin",
           "finish": "glossy",
@@ -2873,9 +2881,9 @@
             "sunglasses"
           ],
           "color": [
-            "blue"
+            "G-15-green"
           ],
-          "shape": "teardrop",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
@@ -2884,7 +2892,7 @@
             "vintage",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "square",
             "heart",
@@ -2913,14 +2921,15 @@
       "image": "images/erroca_mens_054.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
-            "black"
+            "silver",
+            "blue"
           ],
-          "thickness": "medium",
+          "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -2928,15 +2937,15 @@
             "polarized"
           ],
           "color": [
-            "mirrored-silver"
+            "blue"
           ],
-          "shape": "rectangular",
-          "size": "medium"
+          "shape": "teardrop",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "modern",
-            "sporty",
+            "classic",
             "casual"
           ],
           "gender_target": "men",
@@ -2971,9 +2980,9 @@
           "shape": "rectangular",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
-          "thickness": "thick",
+          "thickness": "medium",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -2983,7 +2992,7 @@
             "polarized"
           ],
           "color": [
-            "gray"
+            "blue"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -2994,7 +3003,7 @@
             "modern",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "round",
             "oval",
@@ -3023,12 +3032,12 @@
       "image": "images/erroca_mens_056.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
-          "material": "metal",
+          "shape": "rectangular",
+          "material": "acetate",
           "color": [
-            "gold"
+            "havana-brown"
           ],
-          "thickness": "thin",
+          "thickness": "medium",
           "finish": "glossy",
           "rim_type": "full-rim"
         },
@@ -3037,9 +3046,9 @@
             "sunglasses"
           ],
           "color": [
-            "brown"
+            "blue"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -3048,7 +3057,7 @@
             "retro",
             "casual"
           ],
-          "gender_target": "men",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "round",
             "oval",
