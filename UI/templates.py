@@ -80,7 +80,7 @@ body{
     <h2>Smart Fit</h2>
     <p>Upload a selfie and our AI will analyse your face shape, features, and proportions to recommend the perfect frames.</p>
     <span class="mode-badge smart">Upload a Photo</span>
-    <input type="file" id="sf-file" accept="image/*" style="display:none"/>
+    <input type="file" id="sf-file" accept="image/*" style="display:none" onclick="event.stopPropagation()"/>
   </div>
 
   <!-- Free Search card -->
