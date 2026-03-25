@@ -2293,11 +2293,15 @@ body{
   .color-pick-inner{padding:.45rem .15rem}
   .color-pick-name{font-size:.7rem}
   .submit-btn{min-height:52px;width:100%;border-radius:16px;font-size:1rem}
-  .alt-grid{grid-template-columns:1fr}
+  .alt-grid{grid-template-columns:repeat(2,1fr);gap:12px}
   .res-topbar{padding:10px 14px}
   .res-page-title{font-size:1.2rem;padding-top:24px}
   .hero-img-wrap{padding:12px;min-height:240px}
-  .alt-card-img-wrap{min-height:180px;padding:12px}
+  .alt-card-img-wrap{min-height:120px;padding:8px}
+  .alt-card-img-wrap img{max-height:160px}
+  .alt-card-body{padding:8px 10px 0}
+  .alt-card-name{font-size:.85rem}
+  .alt-card-switch{padding:8px 10px;font-size:.68rem;margin-top:8px}
   .section-divider{margin:20px 0 14px}
   .load-card{padding:2rem 1.2rem}
   .tryon-loading{min-height:180px}
