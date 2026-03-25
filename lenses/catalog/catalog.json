@@ -5065,7 +5065,7 @@
       "image": "images/erroca_womens_eyeglasses_019.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "oval",
           "material": "mixed-metal-acetate",
           "color": [
             "gold",
@@ -5073,7 +5073,7 @@
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -5083,25 +5083,27 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
           "aesthetic": [
             "luxury",
-            "bold",
+            "classic",
             "modern"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
             "round",
-            "heart"
+            "heart",
+            "oblong"
           ],
           "occasion": [
             "office",
             "formal",
-            "everyday"
+            "everyday",
+            "fashion"
           ]
         },
         "product": {
@@ -5121,14 +5123,15 @@
       "image": "images/erroca_womens_eyeglasses_020.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "butterfly",
           "material": "metal",
           "color": [
+            "black",
             "gold"
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -5138,14 +5141,14 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
-          "size": "medium"
+          "shape": "square",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
-            "minimalist",
-            "professional"
+            "bold",
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -5176,10 +5179,10 @@
       "image": "images/erroca_womens_eyeglasses_021.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "rectangular",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5193,8 +5196,8 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
-          "size": "medium"
+          "shape": "rectangular",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -5210,7 +5213,8 @@
           ],
           "occasion": [
             "fashion",
-            "everyday"
+            "everyday",
+            "office"
           ]
         },
         "product": {
@@ -5230,10 +5234,11 @@
       "image": "images/erroca_womens_eyeglasses_022.webp",
       "tags": {
         "frame": {
-          "shape": "round",
-          "material": "acetate",
+          "shape": "cat-eye",
+          "material": "mixed-metal-acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown",
+            "gold"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -5247,24 +5252,26 @@
           "color": [
             "clear"
           ],
-          "shape": "round",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "vintage",
-            "classic"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
-            "round",
-            "heart"
+            "heart",
+            "oblong",
+            "square"
           ],
           "occasion": [
             "office",
-            "everyday"
+            "everyday",
+            "fashion"
           ]
         },
         "product": {
@@ -5284,10 +5291,11 @@
       "image": "images/erroca_womens_eyeglasses_023.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "cat-eye",
           "material": "acetate",
           "color": [
-            "black"
+            "black",
+            "gold"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5302,13 +5310,13 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "bold",
-            "streetwear"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -5318,7 +5326,8 @@
           ],
           "occasion": [
             "fashion",
-            "everyday"
+            "everyday",
+            "formal"
           ]
         },
         "product": {
@@ -5338,11 +5347,12 @@
       "image": "images/erroca_womens_eyeglasses_024.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "cat-eye",
           "material": "acetate",
           "color": [
+            "transparent",
             "pink",
-            "tortoiseshell"
+            "gold"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5357,7 +5367,7 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -5394,7 +5404,7 @@
       "image": "images/erroca_womens_eyeglasses_025.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "cat-eye",
           "material": "acetate",
           "color": [
             "black"
@@ -5412,23 +5422,24 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "bold",
-            "modern"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
-            "square",
+            "round",
             "oblong"
           ],
           "occasion": [
             "everyday",
-            "office"
+            "office",
+            "fashion"
           ]
         },
         "product": {
@@ -5449,12 +5460,12 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
             "blue"
           ],
           "thickness": "thin",
-          "finish": "brushed",
+          "finish": "matte",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -5472,9 +5483,9 @@
           "aesthetic": [
             "minimalist",
             "professional",
-            "classic"
+            "casual"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "heart",
@@ -5503,12 +5514,12 @@
       "tags": {
         "frame": {
           "shape": "rectangular",
-          "material": "titanium",
+          "material": "carbon-fiber",
           "color": [
-            "black"
+            "matte-black"
           ],
           "thickness": "thin",
-          "finish": "brushed",
+          "finish": "matte",
           "rim_type": "semi-rimless"
         },
         "lenses": {
@@ -5528,11 +5539,11 @@
             "professional",
             "modern"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "heart",
-            "round"
+            "oblong"
           ],
           "occasion": [
             "office",
@@ -5582,7 +5593,7 @@
             "casual",
             "professional"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
             "round",
@@ -5636,15 +5647,17 @@
             "vintage",
             "retro"
           ],
-          "gender_target": "women",
+          "gender_target": "unisex",
           "face_shape_fit": [
             "oval",
-            "round",
-            "heart"
+            "square",
+            "oblong",
+            "diamond"
           ],
           "occasion": [
             "everyday",
-            "everyday"
+            "casual",
+            "office"
           ]
         },
         "product": {
@@ -5667,10 +5680,11 @@
           "shape": "oval",
           "material": "metal",
           "color": [
-            "gold"
+            "gold",
+            "tortoiseshell"
           ],
           "thickness": "thin",
-          "finish": "brushed",
+          "finish": "glossy",
           "rim_type": "rimless"
         },
         "lenses": {
@@ -5682,13 +5696,13 @@
             "clear"
           ],
           "shape": "oval",
-          "size": "medium"
+          "size": "small"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "minimalist",
-            "modern"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -5698,7 +5712,8 @@
           ],
           "occasion": [
             "fashion",
-            "everyday"
+            "everyday",
+            "formal"
           ]
         },
         "product": {
@@ -5718,7 +5733,7 @@
       "image": "images/erroca_womens_eyeglasses_031.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "oval",
           "material": "acetate",
           "color": [
             "black"
@@ -5735,14 +5750,14 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "oval",
           "size": "medium"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "bold",
-            "modern"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
@@ -5752,7 +5767,8 @@
           ],
           "occasion": [
             "fashion",
-            "everyday"
+            "everyday",
+            "office"
           ]
         },
         "product": {
@@ -5775,7 +5791,7 @@
           "shape": "square",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5790,7 +5806,7 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -5806,7 +5822,8 @@
           ],
           "occasion": [
             "office",
-            "everyday"
+            "everyday",
+            "fashion"
           ]
         },
         "product": {
@@ -5844,7 +5861,7 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -5860,7 +5877,8 @@
           ],
           "occasion": [
             "office",
-            "everyday"
+            "everyday",
+            "fashion"
           ]
         },
         "product": {
@@ -5898,23 +5916,24 @@
             "clear"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
             "luxury",
             "bold",
-            "modern"
+            "fashion-forward"
           ],
           "gender_target": "women",
           "face_shape_fit": [
             "oval",
-            "square",
-            "oblong"
+            "oblong",
+            "heart"
           ],
           "occasion": [
             "everyday",
-            "fashion"
+            "fashion",
+            "office"
           ]
         },
         "product": {
@@ -5937,7 +5956,7 @@
           "shape": "round",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -5964,12 +5983,13 @@
           "face_shape_fit": [
             "oval",
             "heart",
-            "round"
+            "square",
+            "oblong"
           ],
           "occasion": [
             "fashion",
-            "formal",
-            "everyday"
+            "everyday",
+            "office"
           ]
         },
         "product": {
@@ -5992,7 +6012,7 @@
           "shape": "oval",
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "havana-brown"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -6019,11 +6039,13 @@
           "face_shape_fit": [
             "oval",
             "round",
-            "heart"
+            "heart",
+            "square"
           ],
           "occasion": [
             "office",
-            "fashion"
+            "fashion",
+            "everyday"
           ]
         },
         "product": {
@@ -6043,7 +6065,7 @@
       "image": "images/erroca_womens_eyeglasses_037.webp",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "rectangular",
           "material": "acetate",
           "color": [
             "black"
@@ -6060,8 +6082,8 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
-          "size": "medium"
+          "shape": "rectangular",
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -6077,7 +6099,8 @@
           ],
           "occasion": [
             "fashion",
-            "everyday"
+            "everyday",
+            "office"
           ]
         },
         "product": {
