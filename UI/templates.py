@@ -360,76 +360,76 @@ body{
 .analysis-value{font-size:15px;font-weight:600;color:#fff;margin-bottom:4px}
 .analysis-desc{font-size:12px;color:rgba(255,255,255,.45);line-height:1.45}
 
-}
+/* ── Color profile vis ── */
+.color-vis-wrap{display:flex;align-items:center;gap:10px}
+.color-circle{display:flex;width:48px;height:48px;border-radius:50%;overflow:hidden;border:2px solid #f4f4f8;flex-shrink:0}
+.color-legend{display:flex;flex-direction:column;gap:2px}
+.color-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#8b85b8}
+.color-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 
 /* ── Smart Fit results: tablet ── */
 @media(max-width:900px){
   .primary-hero-inner{flex-direction:column}
-  .primary-tryon{max-width:100%;padding:12px}
+  .primary-tryon{max-width:100%;padding:10px}
   .primary-panel{flex:none;width:100%;padding:14px 16px}
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:8px}
   .opt-body{flex-direction:column}
   .tryon-col{max-width:100%;margin-bottom:.3rem}
-  .tryon-col img{max-height:340px}
   .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
   .prod-col img{width:80px;height:80px;flex-shrink:0;max-height:80px}
 }
 /* ── Smart Fit results: mobile ── */
 @media(max-width:600px){
-  /* Primary hero — compact text, let image breathe */
-  .primary-tryon{padding:8px}
-  .primary-panel{padding:10px 12px}
-  .primary-panel .p-name{font-size:13px;line-height:1.25;margin-bottom:1px}
-  .primary-panel .p-brand{font-size:10px;margin-bottom:6px}
+  /* Primary hero — image full width, text compact below */
+  .primary-tryon{padding:6px}
+  .primary-panel{padding:12px 14px}
+  .primary-panel .p-name{font-size:14px}
+  .primary-panel .p-brand{font-size:11px;margin-bottom:6px}
   .primary-panel .p-tags{gap:4px;margin-bottom:8px}
-  .primary-panel .p-tag{font-size:9px;padding:2px 6px}
-  .primary-panel .p-price{font-size:16px}
+  .primary-panel .p-tag{font-size:10px;padding:2px 7px}
+  .primary-panel .p-price{font-size:17px}
   .primary-panel .p-micro{font-size:10px;margin-bottom:8px}
-  .primary-panel .p-divider{margin-bottom:8px}
   .match-badge{font-size:10px;padding:3px 8px;margin-bottom:8px}
-  /* "Why this works" — truncate each item to 2 lines */
-  .why-label{font-size:10px;margin-bottom:5px}
-  .why-item{font-size:10px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .why-list{gap:4px;margin-bottom:8px}
-  /* Analysis cards — stay 3-across but shrink */
+  /* "Why this works" — smaller but NO truncation */
+  .why-label{font-size:11px;margin-bottom:5px}
+  .why-item{font-size:11px;line-height:1.4}
+  .why-list{gap:5px;margin-bottom:10px}
+  /* Analysis cards — 3-across, compact, smaller color circle */
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:1.2rem}
-  .analysis-card{padding:8px;border-radius:10px}
-  .analysis-vis{height:44px;margin-bottom:6px;border-radius:6px}
-  .analysis-vis svg{width:40px;height:40px}
-  .analysis-label{font-size:9px;margin-bottom:1px}
+  .analysis-card{padding:10px 8px;border-radius:10px}
+  .analysis-vis{height:50px;margin-bottom:6px;border-radius:6px}
+  .analysis-vis svg{width:44px;height:44px}
+  .analysis-label{font-size:9px;margin-bottom:2px}
   .analysis-value{font-size:11px;margin-bottom:2px}
-  .analysis-desc{font-size:9px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  /* Alternative cards — compact */
-  .opt-card{margin-bottom:1rem}
-  .opt-label{font-size:.7rem;padding:6px 12px}
-  .opt-body{padding:.6rem;gap:.5rem}
-  .tryon-col img{max-height:240px}
-  .tryon-loading{min-height:160px}
-  .tryon-error{min-height:100px;font-size:.72rem}
-  .prod-col{gap:.5rem}
-  .prod-col img{width:60px;height:60px;max-height:60px}
-  .prod-info .prod-name{font-size:.75rem}
-  .prod-info .prod-brand{font-size:.6rem}
-  .prod-info .prod-tags{gap:3px;margin-bottom:3px}
-  .prod-info .prod-tag{font-size:.55rem;padding:2px 5px}
-  .prod-info .prod-price{font-size:.85rem}
-  .prod-info .prod-match{font-size:.6rem}
+  .analysis-desc{font-size:9.5px;line-height:1.35}
+  /* Color circle smaller on mobile */
+  .color-circle{width:36px;height:36px}
+  .color-vis-wrap{gap:6px}
+  .color-legend-item{font-size:9px;gap:3px}
+  .color-dot{width:6px;height:6px}
+  /* Alternative cards */
+  .opt-card{margin-bottom:1.2rem}
+  .opt-label{font-size:.72rem;padding:8px 14px}
+  .opt-body{padding:.75rem;gap:.6rem}
+  .tryon-loading{min-height:180px}
+  .tryon-error{min-height:120px;font-size:.75rem}
+  .prod-col{gap:.6rem}
+  .prod-col img{width:70px;height:70px;max-height:70px}
+  .prod-info h3{font-size:.8rem}
+  .prod-info .brand{font-size:.65rem}
+  .prod-info .tags{gap:3px}
+  .prod-info .tag{font-size:.6rem;padding:2px 6px}
+  .prod-info .price{font-size:.88rem}
+  .prod-info .score{font-size:.65rem}
   /* Recolor button — smaller on mobile */
-  .recolor-overlay-btn{padding:3px 8px;font-size:.6rem;bottom:6px;left:6px;border-radius:14px}
+  .recolor-overlay-btn{padding:3px 9px;font-size:.62rem;bottom:6px;left:6px;border-radius:14px}
   .uptip-box{max-width:92%;padding:1.5rem 1.2rem 1.2rem}
 }
 @media(max-width:380px){
-  .tryon-col img{max-height:200px}
-  .prod-col img{width:50px;height:50px;max-height:50px}
-  .opt-body{padding:.5rem}
-  .primary-panel .p-name{font-size:12px}
-  .primary-panel .p-price{font-size:14px}
-  .why-item{-webkit-line-clamp:1}
-  .analysis-vis{height:36px}
-  .analysis-vis svg{width:32px;height:32px}
-  .analysis-value{font-size:10px}
-  .analysis-desc{display:none}
-  .recolor-overlay-btn{padding:2px 6px;font-size:.55rem}
+  .prod-col img{width:60px;height:60px;max-height:60px}
+  .opt-body{padding:.6rem}
+  .primary-panel .p-name{font-size:13px}
+  .primary-panel .p-price{font-size:15px}
 }
 /* upload-tip popup */
 .uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
@@ -758,16 +758,16 @@ function buildAnalysisCards(d){
   // Card 3 — Color Profile
   const c3=document.createElement('div');c3.className='analysis-card';
   c3.innerHTML=`<div class="analysis-vis">
-    <div style="display:flex;align-items:center;gap:12px">
-      <div style="display:flex;width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid #f4f4f8">
+    <div class="color-vis-wrap">
+      <div class="color-circle">
         <div style="flex:1;background:${c.hairHex}"></div>
         <div style="flex:1;background:${c.eyeHex}"></div>
         <div style="flex:1;background:${c.skinHex}"></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.hairHex}"></div>Hair</div>
-        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.eyeHex}"></div>Eyes</div>
-        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b85b8"><div style="width:8px;height:8px;border-radius:50%;background:${c.skinHex}"></div>Skin</div>
+      <div class="color-legend">
+        <div class="color-legend-item"><div class="color-dot" style="background:${c.hairHex}"></div>Hair</div>
+        <div class="color-legend-item"><div class="color-dot" style="background:${c.eyeHex}"></div>Eyes</div>
+        <div class="color-legend-item"><div class="color-dot" style="background:${c.skinHex}"></div>Skin</div>
       </div>
     </div>
   </div>
