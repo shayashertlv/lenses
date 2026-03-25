@@ -17,20 +17,20 @@ body{
   background:#0b0b14;
   color:#fff;height:100vh;height:100dvh;overflow:hidden;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:1.5rem 2rem;-webkit-font-smoothing:antialiased;
+  padding:4.5rem 2rem 4rem;-webkit-font-smoothing:antialiased;
 }
 
-.logo{font-size:3.2rem;font-weight:400;letter-spacing:-.02em;color:#fff;
+.logo{font-size:2.8rem;font-weight:400;letter-spacing:-.02em;color:#fff;
   font-family:'DM Serif Display',Georgia,serif;
-  margin-bottom:.25rem;text-align:center}
-.tagline{font-size:1.08rem;color:rgba(255,255,255,.4);margin-bottom:2.5rem;
+  margin-bottom:.3rem;text-align:center}
+.tagline{font-size:1rem;color:rgba(255,255,255,.4);margin-bottom:2.2rem;
   font-weight:400;letter-spacing:.01em;text-align:center}
 
-.cards{display:flex;gap:1.5rem;flex-wrap:wrap;justify-content:center;max-width:900px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;max-width:700px;width:100%}
 
 .mode-card{
-  flex:1 1 320px;max-width:380px;
-  background:rgba(255,255,255,.03);border-radius:24px;padding:2rem 2rem;
+  max-width:100%;
+  background:rgba(255,255,255,.03);border-radius:20px;padding:1.3rem 1.4rem;
   box-shadow:none;
   text-align:center;cursor:pointer;
   transition:all .3s ease;border:1px solid rgba(255,255,255,.06);
@@ -40,25 +40,25 @@ body{
   box-shadow:0 12px 40px rgba(0,0,0,.3);border-color:rgba(255,255,255,.15);
   background:rgba(255,255,255,.06)}
 
-.mode-icon{width:80px;height:80px;border-radius:50%;
+.mode-icon{width:56px;height:56px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
-  margin:0 auto 1.5rem;font-size:2rem}
+  margin:0 auto 1rem;font-size:1.6rem}
 .mode-icon.smart{background:rgba(108,99,255,.12)}
 .mode-icon.free{background:rgba(52,199,138,.12)}
 .mode-icon.recolor{background:rgba(232,168,56,.12)}
 
-.mode-icon svg{width:36px;height:36px;stroke-width:1.5;fill:none}
+.mode-icon svg{width:26px;height:26px;stroke-width:1.5;fill:none}
 .mode-icon.smart svg{stroke:#6c63ff}
 .mode-icon.free svg{stroke:#34c78a}
 .mode-icon.recolor svg{stroke:#e8a838}
 .mode-icon.store{background:rgba(236,72,153,.12)}
 .mode-icon.store svg{stroke:#ec4899}
 
-.mode-card h2{font-size:1.3rem;font-weight:700;margin-bottom:.5rem;color:#fff}
-.mode-card p{font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.55}
+.mode-card h2{font-size:1.1rem;font-weight:700;margin-bottom:.35rem;color:#fff}
+.mode-card p{font-size:.8rem;color:rgba(255,255,255,.45);line-height:1.45}
 
-.mode-badge{display:inline-block;margin-top:1.2rem;padding:.4rem 1.2rem;
-  border-radius:50px;font-size:.78rem;font-weight:600;letter-spacing:.03em}
+.mode-badge{display:inline-block;margin-top:.8rem;padding:.32rem 1rem;
+  border-radius:50px;font-size:.75rem;font-weight:600;letter-spacing:.03em}
 .mode-badge.smart{background:#6c63ff;color:#fff}
 .mode-badge.free{background:#34c78a;color:#fff}
 .mode-badge.recolor{background:#e8a838;color:#fff}
@@ -67,8 +67,8 @@ body{
 /* ── Tablet (up to 1024px): tighten desktop layout ── */
 @media(max-width:1024px){
   body{padding:1.2rem 1.5rem}
-  .cards{gap:1.2rem;max-width:760px}
-  .mode-card{flex:1 1 260px;max-width:340px;padding:1.6rem 1.4rem;border-radius:20px}
+  .cards{gap:1rem;max-width:660px}
+  .mode-card{padding:1.4rem 1.3rem;border-radius:18px}
   .mode-icon{width:64px;height:64px;margin-bottom:1rem}
   .mode-icon svg{width:28px;height:28px}
   .mode-card h2{font-size:1.1rem}
@@ -88,14 +88,13 @@ body{
   .logo{font-size:2.2rem;margin-bottom:.1rem}
   .tagline{font-size:.9rem;margin-bottom:1.8rem}
   .cards{
-    flex-direction:column;
+    grid-template-columns:1fr;
     gap:.7rem;
     max-width:100%;
     width:100%;
   }
   /* Redesign card as horizontal list item */
   .mode-card{
-    flex:none;
     max-width:100%;
     width:100%;
     display:grid;
@@ -159,9 +158,8 @@ body{
   body{padding:.6rem 1rem}
   .logo{font-size:1.5rem;margin-bottom:0}
   .tagline{font-size:.75rem;margin-bottom:.8rem}
-  .cards{flex-direction:row;flex-wrap:wrap;gap:.55rem}
+  .cards{grid-template-columns:1fr 1fr;gap:.55rem}
   .mode-card{
-    flex:1 1 calc(50% - .3rem);max-width:calc(50% - .3rem);
     display:grid;grid-template-columns:38px 1fr;column-gap:.7rem;
     padding:.7rem .9rem;border-radius:14px;
   }
