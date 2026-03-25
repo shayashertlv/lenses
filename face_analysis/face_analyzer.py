@@ -59,12 +59,18 @@ class FaceAnalyzer:
 
         # Send to Gemini 2.5 Flash (vision)
         # Image first, then text prompt — this order works best for analysis
+        # Disable thinking: structured JSON output doesn't benefit from it,
+        # and the default "auto" budget adds 10-30s of unnecessary latency.
+        from google.genai import types as genai_types
         start_time = time.time()
 
         try:
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=[portrait_part, prompt],
+                config=genai_types.GenerateContentConfig(
+                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                ),
             )
         except Exception as e:
             elapsed = time.time() - start_time
@@ -110,6 +116,9 @@ class FaceAnalyzer:
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents=[portrait_part, retry_prompt],
+                    config=genai_types.GenerateContentConfig(
+                        thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                    ),
                 )
                 raw_text = response.text
                 analysis, parse_error = self._parse_json_response(raw_text)
