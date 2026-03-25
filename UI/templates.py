@@ -2795,16 +2795,28 @@ fetch('/api/catalog')
 
 /* ── Modal logic ──────────────────────────── */
 function openTryon(productId, productName) {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   currentProductId = productId;
   document.getElementById('modal-product-name').textContent = productName;
   document.getElementById('modal-progress-product').textContent = productName;
   document.getElementById('modal-result-product').textContent = productName;
+
+  /* Always reset to upload step for a fresh start */
+  document.getElementById('modal-upload').style.display = '';
+  document.getElementById('modal-progress').style.display = 'none';
+  document.getElementById('modal-result').style.display = 'none';
+  document.getElementById('modal-error').style.display = 'none';
+
   document.getElementById('tryon-modal').classList.add('active');
 
-  /* Restore cached photo if available */
+  /* Restore cached photo if available so they don't need to re-upload */
   if (cachedFile) {
     currentFile = cachedFile;
     showPhotoReady(cachedPreviewSrc);
+  } else {
+    document.getElementById('upload-empty').style.display = '';
+    document.getElementById('upload-ready').style.display = 'none';
+    document.getElementById('modal-go').disabled = true;
   }
 }
 
