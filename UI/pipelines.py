@@ -492,81 +492,104 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     sess["num_options"] = len(matches)
 
     # ── STEP 3: Store product info + launch try-ons immediately ───────────
-    # Wait for portrait pre-loading (started before search, should be done by now)
-    sess["stage"] = "tryon"
-    portrait_thread.join()
-    if _portrait_result[1] is not None:
+    _TRYON_TIMEOUT = 120  # seconds – max wait per try-on thread
+
+    try:
+        # Wait for portrait pre-loading (started before search, should be done by now)
+        sess["stage"] = "tryon"
+        portrait_thread.join(timeout=30)
+        if portrait_thread.is_alive():
+            sess["status"] = "error"
+            sess["error"] = "Portrait loading timed out."
+            _cleanup(portrait_path)
+            return
+        if _portrait_result[1] is not None:
+            sess["status"] = "error"
+            sess["error"] = f"Portrait load error: {_portrait_result[1]}"
+            _cleanup(portrait_path)
+            return
+        portrait_part = _portrait_result[0]
+
+        def do_tryon(idx: int):
+            try:
+                product, _ = matches[idx]
+                glasses_path = os.path.join(CATALOG_DIR, product["image"])
+                sess[f"opt{idx}"]["tryon_status"] = "generating"
+
+                tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
+                                       portrait_part=portrait_part, client=client)
+
+                if tr["success"] and tr["image_bytes"]:
+                    sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
+                        tr["image_bytes"]
+                    ).decode("ascii")
+                    sess[f"opt{idx}"]["tryon_status"] = "done"
+                else:
+                    sess[f"opt{idx}"]["tryon_status"] = "error"
+                    sess[f"opt{idx}"]["tryon_error"] = tr.get("error", "No image returned")
+            except Exception as e:
+                sess[f"opt{idx}"]["tryon_status"] = "error"
+                sess[f"opt{idx}"]["tryon_error"] = f"Try-on failed: {e}"
+
+        # Store each match and fire its try-on thread immediately — don't wait
+        # for all matches to be stored before starting try-ons.
+        threads = []
+        for i, (product, score) in enumerate(matches):
+            glasses_path = os.path.join(CATALOG_DIR, product["image"])
+            with open(glasses_path, "rb") as f:
+                product_b64 = base64.b64encode(f.read()).decode("ascii")
+
+            ptags = product["tags"]["product"]
+            base = round(score, 3)
+            fit_score = min(1.0, max(0.3, base + random.uniform(-0.08, 0.12)))
+            style_score = min(1.0, max(0.3, base + random.uniform(-0.1, 0.08)))
+            color_score = min(1.0, max(0.3, base + random.uniform(-0.12, 0.1)))
+
+            sess[f"opt{i}"] = {
+                "name": product["name"],
+                "brand": ptags["brand"],
+                "model": ptags["model_name"],
+                "price": ptags["price"],
+                "currency": ptags["currency"],
+                "score": base,
+                "fit_score": round(fit_score, 3),
+                "style_score": round(style_score, 3),
+                "color_score": round(color_score, 3),
+                "shape": product["tags"]["frame"]["shape"],
+                "material": product["tags"]["frame"]["material"],
+                "color": ", ".join(product["tags"]["frame"]["color"]),
+                "product_b64": product_b64,
+                "tryon_status": "pending",
+                "tryon_b64": None,
+                "tryon_error": None,
+            }
+
+            t = threading.Thread(target=do_tryon, args=(i,), daemon=True)
+            t.start()
+            threads.append(t)
+
+        # Wait for primary result first (with timeout)
+        threads[0].join(timeout=_TRYON_TIMEOUT)
+        if threads[0].is_alive():
+            sess[f"opt0"]["tryon_status"] = "error"
+            sess[f"opt0"]["tryon_error"] = "Try-on timed out"
+        sess["stage"] = "primary_ready"
+
+        # Then wait for the rest (with timeout)
+        for i, t in enumerate(threads[1:], start=1):
+            t.join(timeout=_TRYON_TIMEOUT)
+            if t.is_alive():
+                sess[f"opt{i}"]["tryon_status"] = "error"
+                sess[f"opt{i}"]["tryon_error"] = "Try-on timed out"
+
+        sess["stage"] = "done"
+        sess["status"] = "done"
+
+    except Exception as e:
         sess["status"] = "error"
-        sess["error"] = f"Portrait load error: {_portrait_result[1]}"
+        sess["error"] = f"Pipeline error: {e}"
+    finally:
         _cleanup(portrait_path)
-        return
-    portrait_part = _portrait_result[0]
-
-    def do_tryon(idx: int):
-        product, _ = matches[idx]
-        glasses_path = os.path.join(CATALOG_DIR, product["image"])
-        sess[f"opt{idx}"]["tryon_status"] = "generating"
-
-        tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                               portrait_part=portrait_part, client=client)
-
-        if tr["success"] and tr["image_bytes"]:
-            sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
-                tr["image_bytes"]
-            ).decode("ascii")
-            sess[f"opt{idx}"]["tryon_status"] = "done"
-        else:
-            sess[f"opt{idx}"]["tryon_status"] = "error"
-            sess[f"opt{idx}"]["tryon_error"] = tr.get("error", "No image returned")
-
-    # Store each match and fire its try-on thread immediately — don't wait
-    # for all matches to be stored before starting try-ons.
-    threads = []
-    for i, (product, score) in enumerate(matches):
-        glasses_path = os.path.join(CATALOG_DIR, product["image"])
-        with open(glasses_path, "rb") as f:
-            product_b64 = base64.b64encode(f.read()).decode("ascii")
-
-        ptags = product["tags"]["product"]
-        base = round(score, 3)
-        fit_score = min(1.0, max(0.3, base + random.uniform(-0.08, 0.12)))
-        style_score = min(1.0, max(0.3, base + random.uniform(-0.1, 0.08)))
-        color_score = min(1.0, max(0.3, base + random.uniform(-0.12, 0.1)))
-
-        sess[f"opt{i}"] = {
-            "name": product["name"],
-            "brand": ptags["brand"],
-            "model": ptags["model_name"],
-            "price": ptags["price"],
-            "currency": ptags["currency"],
-            "score": base,
-            "fit_score": round(fit_score, 3),
-            "style_score": round(style_score, 3),
-            "color_score": round(color_score, 3),
-            "shape": product["tags"]["frame"]["shape"],
-            "material": product["tags"]["frame"]["material"],
-            "color": ", ".join(product["tags"]["frame"]["color"]),
-            "product_b64": product_b64,
-            "tryon_status": "pending",
-            "tryon_b64": None,
-            "tryon_error": None,
-        }
-
-        t = threading.Thread(target=do_tryon, args=(i,), daemon=True)
-        t.start()
-        threads.append(t)
-
-    # Wait for primary result first
-    threads[0].join()
-    sess["stage"] = "primary_ready"
-
-    # Then wait for the rest
-    for t in threads[1:]:
-        t.join()
-
-    sess["stage"] = "done"
-    sess["status"] = "done"
-    _cleanup(portrait_path)
 
 
 def get_catalog_products() -> list[dict]:
