@@ -100,7 +100,7 @@ def _apply_filter_stage(products: list[dict], stage: list[tuple[str, str]],
 
 def compute_tag_score(query_tags: dict, product_tags: dict) -> float:
     """
-    Score a product on soft fields only (0–100).
+    Score a product on soft fields only (0.0–1.0).
 
     Filter fields (gender, shapes, lens type, lens color) are NOT scored
     here — they are handled by the filter pipeline.  This scores how well
@@ -133,9 +133,9 @@ def compute_tag_score(query_tags: dict, product_tags: dict) -> float:
             weighted_score += weight * (overlap / len(q_set))
 
     if total_weight == 0.0:
-        return 100.0  # no soft fields specified → all filtered products equal
+        return 1.0  # no soft fields specified → all filtered products equal
 
-    return (weighted_score / total_weight) * 100
+    return weighted_score / total_weight
 
 
 def rank_products(query_tags: dict, products: list[dict],
