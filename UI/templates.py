@@ -1430,6 +1430,8 @@ body{
     <label class="tile"><input type="radio" name="frame_shape" value="geometric"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)"></div><span class="tile-label">Geometric</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="hexagonal"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></div><span class="tile-label">Hexagonal</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="pilot"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:28px;border-radius:15% 15% 50% 50%"></div><span class="tile-label">Pilot</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="butterfly"/><div class="tile-inner"><div class="shape-fill" style="width:34px;height:22px;clip-path:polygon(0% 50%,15% 0%,50% 30%,85% 0%,100% 50%,85% 100%,50% 70%,15% 100%)"></div><span class="tile-label">Butterfly</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="irregular"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(20% 0%,80% 5%,100% 40%,85% 95%,15% 100%,0% 60%)"></div><span class="tile-label">Irregular</span></div></label>
   </div>
 
   <h3 class="section-title">Color</h3>
