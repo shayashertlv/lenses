@@ -2,10 +2,10 @@
 
 Pipeline:
   1. Filter by gender
-  2. Filter by frame.shape + lenses.shape
+  2. Filter by lenses.shape
   3. Filter by lenses.type
   4. Filter by lenses.color
-  5. Score remaining pool on soft fields (0–100)
+  5. Score remaining pool on soft fields (0.0–1.0)
 
 If a query doesn't specify a filter field, that stage is skipped.
 If a filter stage would eliminate ALL remaining products, it is relaxed
@@ -36,7 +36,7 @@ SCORE_WEIGHTS = {
 # Each entry is (category, field).  Stage 2 groups two fields together.
 FILTER_STAGES = [
     [("style", "gender_target")],           # Stage 1: gender
-    [("frame", "shape"), ("lenses", "shape")],  # Stage 2: shapes
+    [("lenses", "shape")],                       # Stage 2: lens shape
     [("lenses", "type")],                   # Stage 3: lens type
     [("lenses", "color")],                  # Stage 4: lens color
 ]
@@ -203,7 +203,7 @@ def preferences_to_query_tags(prefs: dict) -> dict:
     tags: dict = {"frame": {}, "lenses": {}, "style": {}}
 
     if prefs.get("frame_shape"):
-        tags["frame"]["shape"] = prefs["frame_shape"]
+        tags["lenses"]["shape"] = prefs["frame_shape"]
     if prefs.get("frame_color"):
         tags["frame"]["color"] = prefs["frame_color"]
     if prefs.get("frame_material"):
