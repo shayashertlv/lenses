@@ -11,7 +11,6 @@
         "frame": {
           "material": "stainless-steel",
           "color": [
-            "matte-green",
             "black",
             "gunmetal"
           ],
@@ -121,7 +120,7 @@
           "material": "stainless-steel",
           "color": [
             "gunmetal",
-            "blue"
+            "black"
           ],
           "thickness": "thin",
           "finish": "matte",
@@ -244,7 +243,7 @@
           "color": [
             "clear"
           ],
-          "shape": "irregular",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -385,7 +384,7 @@
     },
     {
       "id": "erroca_008",
-      "name": "Ray-Ban RX5441 Square Black",
+      "name": "Ray-Ban RX5441 Black",
       "image": "images/erroca_mens_008.jpg",
       "tags": {
         "frame": {
@@ -405,7 +404,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "round",
           "size": "large"
         },
         "style": {
@@ -458,7 +457,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "round",
           "size": "large"
         },
         "style": {
@@ -600,7 +599,7 @@
     },
     {
       "id": "erroca_012",
-      "name": "Ray-Ban RX6509 Hexagonal Gold",
+      "name": "Ray-Ban RX6509 Gold",
       "image": "images/erroca_mens_012.jpg",
       "tags": {
         "frame": {
@@ -620,7 +619,7 @@
           "color": [
             "clear"
           ],
-          "shape": "hexagonal",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -714,7 +713,8 @@
         "frame": {
           "material": "plastic",
           "color": [
-            "matte-black"
+            "matte-black",
+            "red"
           ],
           "thickness": "medium",
           "finish": "matte",
@@ -1195,7 +1195,7 @@
     },
     {
       "id": "erroca_023",
-      "name": "Ray-Ban RX6335 Browline Black",
+      "name": "Ray-Ban RX6355 Rectangular Black",
       "image": "images/erroca_mens_023.jpg",
       "tags": {
         "frame": {
@@ -1205,7 +1205,7 @@
           ],
           "thickness": "thin",
           "finish": "matte",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -1215,7 +1215,7 @@
           "color": [
             "clear"
           ],
-          "shape": "rectangular",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -1248,13 +1248,14 @@
     },
     {
       "id": "erroca_024",
-      "name": "Ray-Ban RX8416 Rectangular Blue Silver",
+      "name": "Ray-Ban RX8416 Rectangular Blue Black Silver",
       "image": "images/erroca_mens_024.jpg",
       "tags": {
         "frame": {
           "material": "mixed-metal-carbon",
           "color": [
             "blue",
+            "black",
             "silver"
           ],
           "thickness": "medium",
@@ -1303,11 +1304,11 @@
     },
     {
       "id": "erroca_025",
-      "name": "Ray-Ban Browline Round Black",
+      "name": "Ray-Ban RB6375 Browline Black",
       "image": "images/erroca_mens_025.jpg",
       "tags": {
         "frame": {
-          "material": "mixed-metal-acetate",
+          "material": "metal",
           "color": [
             "matte-black"
           ],
@@ -1358,7 +1359,7 @@
     },
     {
       "id": "erroca_026",
-      "name": "Ray-Ban Browline Blue Red Semi-Rimless",
+      "name": "Ray-Ban RX6335 Rectangular Blue Red",
       "image": "images/erroca_mens_026.jpg",
       "tags": {
         "frame": {
@@ -1472,7 +1473,8 @@
         "frame": {
           "material": "mixed-metal-nylon",
           "color": [
-            "blue"
+            "blue",
+            "red"
           ],
           "thickness": "medium",
           "finish": "matte",
@@ -1955,60 +1957,6 @@
       "description_auto": "Prada Linea Rossa PS50PV Square Black Red Semi-Rimless by Prada. These glasses feature a medium matte black, red mixed-metal-acetate semi-rimless frame with a square shape. They have medium square clear clear, prescription-ready lenses. The overall look is sporty, luxury, bold style, designed for men, suitable for everyday, sport, office, fits oval, round, oblong face shapes. priced at 1599.0 ILS, currently in stock."
     },
     {
-      "id": "erroca_037",
-      "name": "Ray-Ban RX3447V Round Metal Gold",
-      "image": "images/erroca_mens_037.jpg",
-      "tags": {
-        "frame": {
-          "material": "metal",
-          "color": [
-            "gold"
-          ],
-          "thickness": "thin",
-          "finish": "glossy",
-          "rim_type": "full-rim"
-        },
-        "lenses": {
-          "type": [
-            "clear",
-            "prescription-ready"
-          ],
-          "color": [
-            "clear"
-          ],
-          "shape": "round",
-          "size": "medium"
-        },
-        "style": {
-          "aesthetic": [
-            "vintage",
-            "classic",
-            "minimalist"
-          ],
-          "gender_target": "unisex",
-          "face_shape_fit": [
-            "square",
-            "oblong",
-            "diamond"
-          ],
-          "occasion": [
-            "everyday",
-            "office",
-            "fashion"
-          ]
-        },
-        "product": {
-          "brand": "Ray-Ban",
-          "model_name": "RX3447V Round Metal",
-          "price": 799.0,
-          "currency": "ILS",
-          "in_stock": true,
-          "sku": "RX3447V-GOLD"
-        }
-      },
-      "description_auto": "Ray-Ban RX3447V Round Metal Gold by Ray-Ban. These glasses feature a thin glossy gold metal semi-rimless frame with a round shape. They have medium round clear clear, prescription-ready lenses. The overall look is vintage, classic, minimalist style, designed for unisex, suitable for everyday, office, fashion, fits square, oblong, diamond, universal face shapes. priced at 799.0 ILS, currently in stock."
-    },
-    {
       "id": "erroca_038",
       "name": "Versace VE2289 Gold Pilot Sunglasses",
       "image": "images/erroca_mens_038.jpg",
@@ -2063,13 +2011,13 @@
     },
     {
       "id": "erroca_039",
-      "name": "Versace VE2287 Aviator Gold Sunglasses",
+      "name": "Versace VE2287 Aviator Sunglasses",
       "image": "images/erroca_mens_039.jpg",
       "tags": {
         "frame": {
           "material": "metal",
           "color": [
-            "gold"
+            "black"
           ],
           "thickness": "thick",
           "finish": "matte",
@@ -2080,10 +2028,10 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "irregular",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -2115,13 +2063,13 @@
     },
     {
       "id": "erroca_040",
-      "name": "Versace VE2290 Square Black Sunglasses",
+      "name": "Versace VE2290 Square Sunglasses Black",
       "image": "images/erroca_mens_040.jpg",
       "tags": {
         "frame": {
           "material": "metal",
           "color": [
-            "black"
+            "silver"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -2132,10 +2080,10 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-blue"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "large"
         },
         "style": {
           "aesthetic": [
@@ -2168,7 +2116,7 @@
     },
     {
       "id": "erroca_041",
-      "name": "Versace VE2290 Square Blue Sunglasses",
+      "name": "Versace VE2290 Square Sunglasses Gold",
       "image": "images/erroca_mens_041.jpg",
       "tags": {
         "frame": {
@@ -2185,10 +2133,10 @@
             "sunglasses"
           ],
           "color": [
-            "blue"
+            "dark-gray"
           ],
           "shape": "square",
-          "size": "medium"
+          "size": "extra-large"
         },
         "style": {
           "aesthetic": [
@@ -2452,7 +2400,7 @@
             "gradient"
           ],
           "color": [
-            "blue"
+            "gray"
           ],
           "shape": "cat-eye",
           "size": "large"
@@ -2666,7 +2614,7 @@
             "polarized"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "oval",
           "size": "large"
@@ -2917,13 +2865,13 @@
     },
     {
       "id": "erroca_055",
-      "name": "Ray-Ban RB3671CH Chromance Rectangular Tortoiseshell Sunglasses",
+      "name": "Ray-Ban RB3671CH Chromance Rectangular Sunglasses",
       "image": "images/erroca_mens_055.jpg",
       "tags": {
         "frame": {
           "material": "metal",
           "color": [
-            "havana-brown"
+            "black"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -2936,7 +2884,7 @@
             "chromance"
           ],
           "color": [
-            "blue"
+            "dark-gray"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -3079,13 +3027,13 @@
     },
     {
       "id": "erroca_058",
-      "name": "Ray-Ban RB2222 Square Black Sunglasses",
+      "name": "Ray-Ban RB2222 Square Sunglasses",
       "image": "images/erroca_mens_058.jpg",
       "tags": {
         "frame": {
           "material": "acetate",
           "color": [
-            "black"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3139,7 +3087,7 @@
         "frame": {
           "material": "acetate",
           "color": [
-            "tortoiseshell"
+            "black"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -3150,7 +3098,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "oval",
           "size": "medium"
@@ -3186,13 +3134,13 @@
     },
     {
       "id": "erroca_060",
-      "name": "Prada PRA08S Square Green Sunglasses",
+      "name": "Prada Linea Rossa PS A08S Sunglasses",
       "image": "images/erroca_mens_060.jpg",
       "tags": {
         "frame": {
           "material": "acetate",
           "color": [
-            "green"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "matte",
@@ -3292,7 +3240,7 @@
     },
     {
       "id": "erroca_062",
-      "name": "Prada PRA17S Wayfarer Tortoiseshell Sunglasses",
+      "name": "Prada PRA17S",
       "image": "images/erroca_mens_062.jpg",
       "tags": {
         "frame": {
@@ -3346,7 +3294,7 @@
     },
     {
       "id": "erroca_063",
-      "name": "Prada PRA17S Wayfarer Tortoiseshell Polarized Sunglasses",
+      "name": "Prada PRA17S Tortoiseshell Polarized Sunglasses",
       "image": "images/erroca_mens_063.jpg",
       "tags": {
         "frame": {
@@ -3363,7 +3311,7 @@
             "sunglasses"
           ],
           "color": [
-            "blue"
+            "green"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -3666,7 +3614,7 @@
     },
     {
       "id": "erroca_069",
-      "name": "David Beckham DB1139 Round Tortoiseshell Sunglasses",
+      "name": "David Beckham DB1139 Sunglasses",
       "image": "images/erroca_mens_069.jpg",
       "tags": {
         "frame": {
@@ -3684,7 +3632,7 @@
             "gradient"
           ],
           "color": [
-            "gradient-gray"
+            "blue"
           ],
           "shape": "round",
           "size": "medium"
@@ -3720,13 +3668,13 @@
     },
     {
       "id": "erroca_070",
-      "name": "David Beckham DB1139 Round Transparent Sunglasses",
+      "name": "David Beckham DB1139 Sunglasses",
       "image": "images/erroca_mens_070.jpg",
       "tags": {
         "frame": {
           "material": "acetate",
           "color": [
-            "transparent"
+            "gray"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -3828,7 +3776,7 @@
     },
     {
       "id": "erroca_072",
-      "name": "David Beckham DB1160 Square Round Black Brown Sunglasses",
+      "name": "David Beckham DB1160 Sunglasses",
       "image": "images/erroca_mens_072.jpg",
       "tags": {
         "frame": {
@@ -3847,7 +3795,7 @@
             "gradient"
           ],
           "color": [
-            "gradient-gray"
+            "blue"
           ],
           "shape": "square",
           "size": "medium"
@@ -4434,7 +4382,7 @@
         "frame": {
           "material": "acetate",
           "color": [
-            "cognac"
+            "black"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -4598,7 +4546,8 @@
         "frame": {
           "material": "mixed-metal-plastic",
           "color": [
-            "black"
+            "black",
+            "silver"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -4876,7 +4825,7 @@
           ],
           "thickness": "thick",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
@@ -4996,7 +4945,7 @@
           "color": [
             "clear"
           ],
-          "shape": "oval",
+          "shape": "irregular",
           "size": "medium"
         },
         "style": {
@@ -5050,7 +4999,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "clear"
           ],
           "shape": "butterfly",
           "size": "large"
@@ -5092,7 +5041,7 @@
         "frame": {
           "material": "mixed-metal-acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5146,7 +5095,7 @@
         "frame": {
           "material": "acetate",
           "color": [
-            "havana-brown",
+            "tortoiseshell",
             "gold"
           ],
           "thickness": "medium",
@@ -5251,13 +5200,12 @@
     },
     {
       "id": "erroca_098",
-      "name": "Versace VE3347 Pillow Pink Tortoiseshell",
+      "name": "Versace VE3347 Pillow Pink",
       "image": "images/erroca_womens_eyeglasses_024.webp",
       "tags": {
         "frame": {
           "material": "acetate",
           "color": [
-            "transparent",
             "pink",
             "gold"
           ],
@@ -5321,10 +5269,11 @@
         },
         "lenses": {
           "type": [
-            "sunglasses"
+            "clear",
+            "prescription-ready"
           ],
           "color": [
-            "gray"
+            "clear"
           ],
           "shape": "cat-eye",
           "size": "large"
@@ -5519,7 +5468,7 @@
     },
     {
       "id": "erroca_103",
-      "name": "Ray-Ban RX5441 Square Black",
+      "name": "Ray-Ban RX5441 Black",
       "image": "images/erroca_womens_eyeglasses_029.webp",
       "tags": {
         "frame": {
@@ -5539,7 +5488,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "round",
           "size": "medium"
         },
         "style": {
@@ -5585,7 +5534,7 @@
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "full-rim"
+          "rim_type": "rimless"
         },
         "lenses": {
           "type": [
@@ -5689,7 +5638,7 @@
         "frame": {
           "material": "mixed-metal-acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell"
           ],
           "thickness": "thick",
           "finish": "glossy",
@@ -5851,7 +5800,7 @@
         "frame": {
           "material": "mixed-metal-acetate",
           "color": [
-            "havana-brown"
+            "tortoiseshell"
           ],
           "thickness": "medium",
           "finish": "glossy",
@@ -6293,7 +6242,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "cat-eye",
           "size": "medium"
@@ -6347,7 +6296,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "rectangular",
           "size": "large"
@@ -6401,7 +6350,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "rectangular",
           "size": "large"
@@ -6455,7 +6404,7 @@
             "mirrored"
           ],
           "color": [
-            "mirrored-silver"
+            "dark-gray"
           ],
           "shape": "irregular",
           "size": "medium"
@@ -6561,7 +6510,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "irregular",
           "size": "large"
@@ -6668,9 +6617,9 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
-          "shape": "square",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -6719,6 +6668,7 @@
         "lenses": {
           "type": [
             "sunglasses",
+            "sport",
             "prizm",
             "mirrored"
           ],
@@ -6774,6 +6724,7 @@
         "lenses": {
           "type": [
             "sunglasses",
+            "sport",
             "prizm"
           ],
           "color": [
@@ -6831,7 +6782,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "oval",
           "size": "large"
@@ -6882,6 +6833,7 @@
         "lenses": {
           "type": [
             "sunglasses",
+            "sport",
             "prizm",
             "mirrored"
           ],
@@ -7315,6 +7267,7 @@
         "lenses": {
           "type": [
             "sunglasses",
+            "sport",
             "mirrored"
           ],
           "color": [
@@ -7478,7 +7431,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "yellow"
           ],
           "shape": "rectangular",
           "size": "medium"
@@ -7641,7 +7594,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "geometric",
           "size": "medium"
@@ -7741,14 +7694,14 @@
           ],
           "thickness": "thin",
           "finish": "glossy",
-          "rim_type": "semi-rimless"
+          "rim_type": "full-rim"
         },
         "lenses": {
           "type": [
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "round",
           "size": "medium"
@@ -7892,7 +7845,7 @@
     },
     {
       "id": "erroca_147",
-      "name": "Ray-Ban RB4458 Square Black Sunglasses",
+      "name": "Ray-Ban RB4458 Black Sunglasses",
       "image": "images/erroca_womens_sunglasses_036.webp",
       "tags": {
         "frame": {
@@ -7910,7 +7863,7 @@
             "gradient"
           ],
           "color": [
-            "gray"
+            "dark-gray"
           ],
           "shape": "square",
           "size": "large"
@@ -7963,7 +7916,7 @@
             "sunglasses"
           ],
           "color": [
-            "gray"
+            "black"
           ],
           "shape": "rectangular",
           "size": "large"
