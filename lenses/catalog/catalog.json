@@ -556,7 +556,7 @@
       "image": "images/erroca_mens_011.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "black",
@@ -574,7 +574,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -611,7 +611,7 @@
       "image": "images/erroca_mens_012.jpg",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "gold"
@@ -628,7 +628,7 @@
           "color": [
             "clear"
           ],
-          "shape": "round",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -1217,7 +1217,7 @@
       "image": "images/erroca_mens_023.jpg",
       "tags": {
         "frame": {
-          "shape": "round",
+          "shape": "browline",
           "material": "metal",
           "color": [
             "matte-black"
@@ -1716,7 +1716,7 @@
       "image": "images/erroca_mens_032.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "hexagonal",
           "material": "acetate",
           "color": [
             "black"
@@ -1733,7 +1733,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -1771,7 +1771,7 @@
       "image": "images/erroca_mens_033.jpg",
       "tags": {
         "frame": {
-          "shape": "square",
+          "shape": "hexagonal",
           "material": "acetate",
           "color": [
             "tortoiseshell"
@@ -1788,7 +1788,7 @@
           "color": [
             "clear"
           ],
-          "shape": "square",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -2317,7 +2317,7 @@
       "image": "images/erroca_mens_043.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold",
@@ -2334,7 +2334,7 @@
           "color": [
             "gray"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -2427,7 +2427,7 @@
       "image": "images/erroca_mens_045.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "gold"
@@ -2443,7 +2443,7 @@
           "color": [
             "green"
           ],
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -2591,7 +2591,7 @@
       "image": "images/erroca_mens_048.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
@@ -2608,7 +2608,7 @@
           "color": [
             "gradient-brown"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "small"
         },
         "style": {
@@ -2646,7 +2646,7 @@
       "image": "images/erroca_mens_049.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "gold"
@@ -2662,7 +2662,7 @@
           "color": [
             "G-15-green"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "small"
         },
         "style": {
@@ -2921,7 +2921,7 @@
       "image": "images/erroca_mens_054.jpg",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "silver",
@@ -2939,7 +2939,7 @@
           "color": [
             "blue"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "large"
         },
         "style": {
@@ -2977,7 +2977,7 @@
       "image": "images/erroca_mens_055.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "acetate",
           "color": [
             "havana-brown"
@@ -2994,7 +2994,7 @@
           "color": [
             "blue"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "medium"
         },
         "style": {
@@ -3032,7 +3032,7 @@
       "image": "images/erroca_mens_056.jpg",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "material": "acetate",
           "color": [
             "havana-brown"
@@ -3048,7 +3048,7 @@
           "color": [
             "blue"
           ],
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -6346,7 +6346,7 @@
       "image": "images/erroca_womens_sunglasses_005.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "gold"
@@ -6362,7 +6362,7 @@
           "color": [
             "green"
           ],
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -6565,7 +6565,7 @@
       "image": "images/erroca_womens_sunglasses_009.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "material": "metal",
           "color": [
             "gunmetal"
@@ -6582,7 +6582,7 @@
           "color": [
             "mirrored-silver"
           ],
-          "shape": "rectangular",
+          "shape": "hexagonal",
           "size": "medium"
         },
         "style": {
@@ -7111,7 +7111,7 @@
       "image": "images/erroca_womens_sunglasses_019.webp",
       "tags": {
         "frame": {
-          "shape": "aviator",
+          "shape": "rectangular",
           "material": "metal",
           "color": [
             "silver",
@@ -7129,7 +7129,7 @@
           "color": [
             "blue"
           ],
-          "shape": "teardrop",
+          "shape": "rectangular",
           "size": "medium"
         },
         "style": {
@@ -7167,7 +7167,7 @@
       "image": "images/erroca_womens_sunglasses_020.webp",
       "tags": {
         "frame": {
-          "shape": "rectangular",
+          "shape": "aviator",
           "material": "metal",
           "color": [
             "black"
@@ -7185,7 +7185,7 @@
           "color": [
             "mirrored-silver"
           ],
-          "shape": "rectangular",
+          "shape": "teardrop",
           "size": "large"
         },
         "style": {

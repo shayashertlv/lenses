@@ -1428,6 +1428,7 @@ body{
     <label class="tile"><input type="radio" name="frame_shape" value="wayfarer"/><div class="tile-inner"><div class="shape-vis" style="width:32px;height:24px;border-radius:3px 3px 8px 8px"></div><span class="tile-label">Wayfarer</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="browline"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:22px;border-radius:3px;border-top-width:4px"></div><span class="tile-label">Browline</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="geometric"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)"></div><span class="tile-label">Geometric</span></div></label>
+    <label class="tile"><input type="radio" name="frame_shape" value="hexagonal"/><div class="tile-inner"><div class="shape-fill" style="width:26px;height:26px;clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></div><span class="tile-label">Hexagonal</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="pilot"/><div class="tile-inner"><div class="shape-vis" style="width:34px;height:28px;border-radius:15% 15% 50% 50%"></div><span class="tile-label">Pilot</span></div></label>
   </div>
 
