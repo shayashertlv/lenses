@@ -203,9 +203,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             "price": p["price"],
             "currency": p["currency"],
             "score": round(score, 3),
-            "shape": product["tags"]["frame"]["shape"],
-            "material": product["tags"]["frame"]["material"],
-            "color": ", ".join(product["tags"]["frame"]["color"]),
+            "shape": product["tags"]["frame"].get("shape", ""),
+            "material": product["tags"]["frame"].get("material", ""),
+            "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
             "product_b64": product_b64,
             "tryon_status": "pending",
             "tryon_b64": None,
@@ -326,8 +326,8 @@ def _fs_build_tryon_prompt(product: dict) -> str:
 YOUR TASK: Create a new version of IMAGE 1 (the portrait) where the person is wearing the glasses shown in IMAGE 2. The output must look like a real photograph.
 
 GLASSES DETAILS (from IMAGE 2):
-- Frame: {frame["shape"]} shape, {frame["material"]} material, {frame_colors} color, {frame["thickness"]} thickness, {frame["finish"]} finish, {frame["rim_type"]}
-- Lenses: {lens_types} type, {lens_colors} color, {lenses["size"]} size, {lenses["shape"]} shape
+- Frame: {frame.get("shape", "classic")} shape, {frame.get("material", "")} material, {frame_colors} color, {frame.get("thickness", "")} thickness, {frame.get("finish", "")} finish, {frame.get("rim_type", "")}
+- Lenses: {lens_types} type, {lens_colors} color, {lenses.get("size", "")} size, {lenses.get("shape", "")} shape
 
 GLASSES PLACEMENT RULES:
 - Position the glasses naturally on the person's face — bridge on the nose, temples toward the ears
@@ -555,9 +555,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 "fit_score": round(fit_score, 3),
                 "style_score": round(style_score, 3),
                 "color_score": round(color_score, 3),
-                "shape": product["tags"]["frame"]["shape"],
-                "material": product["tags"]["frame"]["material"],
-                "color": ", ".join(product["tags"]["frame"]["color"]),
+                "shape": product["tags"]["frame"].get("shape", ""),
+                "material": product["tags"]["frame"].get("material", ""),
+                "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
                 "product_b64": product_b64,
                 "tryon_status": "pending",
                 "tryon_b64": None,
