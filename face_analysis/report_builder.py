@@ -113,9 +113,9 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
     ts = tags["style"]
 
     report.append(
-        f"\nFrame: {tf['shape']}, {tf['material']}, "
-        f"{_join(tf['color'])}, {tf['thickness']}, "
-        f"{tf['finish']}, {tf['rim_type']}"
+        f"\nFrame: {tf.get('shape', '')}, {tf.get('material', '')}, "
+        f"{_join(tf.get('color', []))}, {tf.get('thickness', '')}, "
+        f"{tf.get('finish', '')}, {tf.get('rim_type', '')}"
     )
     report.append(
         f"Lenses: {_join(tl['type'])}, {_join(tl['color'])}, "
@@ -152,8 +152,8 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
             stock = "In stock" if p.get("in_stock") else "Out of stock"
             report.append(
                 f"\n#{i} [{score:.3f}] {product['name']}"
-                f"\n    {f['shape']}, {_join(f['color'])}, "
-                f"{f['material']}, {f['thickness']}"
+                f"\n    {f.get('shape', '')}, {_join(f.get('color', []))}, "
+                f"{f.get('material', '')}, {f.get('thickness', '')}"
                 f"\n    ${p['price']:.2f} — {stock}"
             )
 

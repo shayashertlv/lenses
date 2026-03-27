@@ -68,8 +68,8 @@ def build_tryon_prompt(analysis: dict, matched_product: dict) -> str:
 YOUR TASK: Create a new version of IMAGE 1 where the person is wearing the glasses from IMAGE 2. The output must look like a real photograph — as if the person was actually wearing these exact glasses when the photo was taken.
 
 GLASSES DETAILS (from IMAGE 2 — reproduce these faithfully):
-- Frame: {pf["shape"]} shape, {pf["material"]} material, {pf_colors} color, {pf["thickness"]} thickness, {pf["finish"]} finish, {pf["rim_type"]}
-- Lenses: {pl_types} type, {pl_colors} color, {pl["size"]} size, {pl["shape"]} lens shape
+- Frame: {pf.get("shape", "classic")} shape, {pf.get("material", "")} material, {pf_colors} color, {pf.get("thickness", "")} thickness, {pf.get("finish", "")} finish, {pf.get("rim_type", "")}
+- Lenses: {pl_types} type, {pl_colors} color, {pl.get("size", "")} size, {pl.get("shape", "")} lens shape
 
 FACE-SPECIFIC PLACEMENT (based on facial analysis of this person):
 - This person has a {nose_bridge} nose bridge with {nose_height} bridge height — position the glasses bridge accordingly, ensuring natural contact

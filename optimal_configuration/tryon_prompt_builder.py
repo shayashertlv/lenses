@@ -33,8 +33,8 @@ def build_tryon_prompt(product: dict) -> str:
 YOUR TASK: Create a new version of IMAGE 1 (the portrait) where the person is wearing the glasses shown in IMAGE 2. The output must look like a real photograph — as if the person was actually wearing these glasses when the photo was taken.
 
 GLASSES DETAILS (from IMAGE 2 — faithfully reproduce these):
-- Frame: {frame["shape"]} shape, {frame["material"]} material, {frame_colors} color, {frame["thickness"]} thickness, {frame["finish"]} finish, {frame["rim_type"]}
-- Lenses: {lens_types} type, {lens_colors} color, {lenses["size"]} size, {lenses["shape"]} shape
+- Frame: {frame.get("shape", "classic")} shape, {frame.get("material", "")} material, {frame_colors} color, {frame.get("thickness", "")} thickness, {frame.get("finish", "")} finish, {frame.get("rim_type", "")}
+- Lenses: {lens_types} type, {lens_colors} color, {lenses.get("size", "")} size, {lenses.get("shape", "")} shape
 
 GLASSES PLACEMENT RULES:
 - Position the glasses naturally on the person's face — bridge of the nose, temples extending toward or behind the ears

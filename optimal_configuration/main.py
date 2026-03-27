@@ -90,7 +90,7 @@ def display_results(results: list[tuple[dict, float]]) -> None:
 
         print(f"  #{i}  {product['name']}  (score: {score:.3f})")
         print(f"      Brand: {prod.get('brand', '?')} | ${prod['price']:.2f} | {stock}")
-        print(f"      Frame: {frame['shape']}, {frame_colors}, {frame['material']}, {frame['rim_type']}")
+        print(f"      Frame: {frame.get('shape', '?')}, {frame_colors}, {frame.get('material', '?')}, {frame.get('rim_type', '?')}")
         print(f"      Lenses: {lens_types}")
         print(f"      Style: {aesthetics}")
         print()
