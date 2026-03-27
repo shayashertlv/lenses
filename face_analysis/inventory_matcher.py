@@ -81,9 +81,8 @@ class InventoryMatcher:
             if os.path.isfile(self.get_product_image_path(p))
         ]
 
-        # Inject gender into query tags if provided
-        if gender and not recommended_tags.get("style", {}).get("gender_target"):
-            recommended_tags.setdefault("style", {})["gender_target"] = gender
+        # Gender is passed via filters — rank_products handles injection
+        # without mutating recommended_tags.
 
         # Cascading filter → soft score via tag_matcher
         matches = rank_products(

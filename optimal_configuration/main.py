@@ -185,18 +185,16 @@ def main() -> None:
         catalog_path=str(CATALOG_JSON),
     )
 
-    filters = {}
+    filters = {"in_stock_only": True}   # always exclude out-of-stock by default
     if intent["filters"].get("max_price"):
         filters["max_price"] = intent["filters"]["max_price"]
-    if intent["filters"].get("in_stock_only"):
-        filters["in_stock_only"] = True
     if intent["filters"].get("gender"):
         filters["gender"] = intent["filters"]["gender"]
 
     results = engine.search(
         query_tags=search_tags,
         top_k=args.top_k,
-        filters=filters if filters else None,
+        filters=filters,
     )
 
     if not results:

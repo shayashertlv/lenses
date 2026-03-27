@@ -6,7 +6,6 @@ import base64
 import io
 import json
 import os
-import random
 import tempfile
 import threading
 from pathlib import Path
@@ -25,7 +24,7 @@ from UI.config import (
     sessions,
 )
 
-from tag_matcher import preferences_to_query_tags, rank_products
+from tag_matcher import compute_component_scores, preferences_to_query_tags, rank_products
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -542,9 +541,10 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
 
             ptags = product["tags"]["product"]
             base = round(score, 3)
-            fit_score = min(1.0, max(0.3, base + random.uniform(-0.08, 0.12)))
-            style_score = min(1.0, max(0.3, base + random.uniform(-0.1, 0.08)))
-            color_score = min(1.0, max(0.3, base + random.uniform(-0.12, 0.1)))
+            sub = compute_component_scores(query_tags, product["tags"])
+            fit_score = round(sub["fit"], 3)
+            style_score = round(sub["style"], 3)
+            color_score = round(sub["color"], 3)
 
             sess[f"opt{i}"] = {
                 "name": product["name"],

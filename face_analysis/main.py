@@ -211,7 +211,8 @@ def main() -> None:
     from inventory_matcher import InventoryMatcher
     matcher = InventoryMatcher(CATALOG_DIR, api_key)
     recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
-    match_result = matcher.match(recommended_tags, top_k=args.top_k)
+    detected_gender = analysis.get("gender")  # "men" or "women" — from face analysis
+    match_result = matcher.match(recommended_tags, top_k=args.top_k, gender=detected_gender)
 
     if not match_result.success:
         print(f"\nMatching failed: {match_result.error}")
