@@ -501,6 +501,7 @@ document.getElementById('sf-file').addEventListener('change', async e=>{
   reader.onload=ev=>{
     document.getElementById('sf-portrait-img').src=ev.target.result;
     document.getElementById('sf-portrait-wrap').style.display='block';
+    try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}
   };
   reader.readAsDataURL(f);
 
@@ -1669,12 +1670,28 @@ fileIn.addEventListener('change', e=>{
   document.getElementById('up-label-text').textContent=f.name;
 
   const reader=new FileReader();
-  reader.onload=ev=>{preview.src=ev.target.result;preview.style.display='block'};
+  reader.onload=ev=>{preview.src=ev.target.result;preview.style.display='block';try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}};
   reader.readAsDataURL(f);
 
   submitBtn.disabled=false;
   submitHint.textContent='Select your preferences above, then hit the button!';
 });
+
+/* ── Restore cached portrait from another page ── */
+(function(){
+  const cached=sessionStorage.getItem('cached_portrait');
+  if(!cached || uploadedFile) return;
+  // Convert data URL to File
+  const arr=cached.split(','), mime=arr[0].match(/:(.*?);/)[1];
+  const bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
+  for(let i=0;i<n;i++) u8[i]=bstr.charCodeAt(i);
+  uploadedFile=new File([u8],'cached-photo.jpg',{type:mime});
+  uploadArea.classList.add('has-file');
+  document.getElementById('up-label-text').textContent='Photo from previous session';
+  preview.src=cached; preview.style.display='block';
+  submitBtn.disabled=false;
+  submitHint.textContent='Select your preferences above, then hit the button!';
+})();
 
 /* ── Submit ──────────────────────────────────── */
 async function submitSearch(){
@@ -2503,7 +2520,9 @@ document.getElementById('rc-file').addEventListener('change',function(e){
   area.classList.add('has-file');
   document.getElementById('up-label-text').textContent=f.name;
   const prev=document.getElementById('up-preview');
-  prev.src=URL.createObjectURL(f); prev.style.display='block';
+  const rcReader=new FileReader();
+  rcReader.onload=ev=>{prev.src=ev.target.result;prev.style.display='block';try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}};
+  rcReader.readAsDataURL(f);
   checkReady();
 });
 
@@ -2524,6 +2543,23 @@ document.getElementById('rc-file').addEventListener('change',function(e){
   document.getElementById('up-label-text').textContent='Photo from try-on';
   const prev=document.getElementById('up-preview');
   prev.src='data:image/png;base64,'+b64; prev.style.display='block';
+  checkReady();
+})();
+
+/* ── Restore cached portrait from another page (fallback if no recolor_preload) ── */
+(function(){
+  if(chosenFile) return; // already loaded via recolor_preload
+  const cached=sessionStorage.getItem('cached_portrait');
+  if(!cached) return;
+  const arr=cached.split(','), mime=arr[0].match(/:(.*?);/)[1];
+  const bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
+  for(let i=0;i<n;i++) u8[i]=bstr.charCodeAt(i);
+  chosenFile=new File([u8],'cached-photo.jpg',{type:mime});
+  const area=document.getElementById('upload-area');
+  area.classList.add('has-file');
+  document.getElementById('up-label-text').textContent='Photo from previous session';
+  const prev=document.getElementById('up-preview');
+  prev.src=cached; prev.style.display='block';
   checkReady();
 })();
 
@@ -3239,9 +3275,21 @@ function openTryon(productId, productName) {
     currentFile = cachedFile;
     showPhotoReady(cachedPreviewSrc);
   } else {
-    document.getElementById('upload-empty').style.display = '';
-    document.getElementById('upload-ready').style.display = 'none';
-    document.getElementById('modal-go').disabled = true;
+    // Try restoring from cross-page portrait cache
+    const cached = sessionStorage.getItem('cached_portrait');
+    if (cached) {
+      const arr=cached.split(','), mime=arr[0].match(/:(.*?);/)[1];
+      const bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
+      for(let i=0;i<n;i++) u8[i]=bstr.charCodeAt(i);
+      cachedFile=new File([u8],'cached-photo.jpg',{type:mime});
+      cachedPreviewSrc=cached;
+      currentFile=cachedFile;
+      showPhotoReady(cachedPreviewSrc);
+    } else {
+      document.getElementById('upload-empty').style.display = '';
+      document.getElementById('upload-ready').style.display = 'none';
+      document.getElementById('modal-go').disabled = true;
+    }
   }
 }
 
@@ -3285,6 +3333,7 @@ document.getElementById('modal-file').addEventListener('change', e => {
   reader.onload = ev => {
     cachedPreviewSrc = ev.target.result;
     showPhotoReady(cachedPreviewSrc);
+    try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}
   };
   reader.readAsDataURL(f);
 });

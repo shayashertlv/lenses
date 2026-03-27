@@ -516,8 +516,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 glasses_path = os.path.join(CATALOG_DIR, product["image"])
                 sess[f"opt{idx}"]["tryon_status"] = "generating"
 
+                tryon_client = genai.Client(api_key=api_key)
                 tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                                       portrait_part=portrait_part, client=client)
+                                       portrait_part=portrait_part, client=tryon_client)
 
                 if tr["success"] and tr["image_bytes"]:
                     sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
@@ -860,8 +861,9 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
         sess[f"color{idx}"]["status"] = "generating"
         print(f"  [recolor] Generating {color} (slot {idx}) via nano-banana-pro ...")
 
+        recolor_client = genai.Client(api_key=api_key)
         result = _recolor_single(portrait_path, color, api_key,
-                                 portrait_part=portrait_part, client=client)
+                                 portrait_part=portrait_part, client=recolor_client)
 
         if result["success"] and result["image_bytes"]:
             sess[f"color{idx}"]["b64"] = base64.b64encode(
@@ -917,7 +919,16 @@ def run_single_recolor_pipeline(session_id: str, image_bytes: bytes, color: str)
     sess["stage"] = "recoloring"
     print(f"  [storefront-recolor] Generating {color} ...")
 
-    result = _recolor_single(portrait_path, color, api_key)
+    try:
+        portrait_part = _fs_load_image_as_part(portrait_path)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Portrait load error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    result = _recolor_single(portrait_path, color, api_key,
+                             portrait_part=portrait_part)
 
     if result["success"] and result["image_bytes"]:
         sess["result_b64"] = base64.b64encode(result["image_bytes"]).decode("ascii")
