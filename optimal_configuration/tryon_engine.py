@@ -34,6 +34,7 @@ def virtual_tryon(
     model_alias: str,
     api_key: str,
     retry_on_text_only: bool = True,
+    portrait_part=None,
 ) -> TryOnResult:
     """
     Send portrait + glasses image to Nano Banana for virtual try-on.
@@ -45,6 +46,7 @@ def virtual_tryon(
         model_alias: "nano-banana-2" or "nano-banana-pro".
         api_key: Gemini API key.
         retry_on_text_only: Retry once if model returns text only.
+        portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
 
     Returns:
         TryOnResult with the try-on image bytes on success.
@@ -62,7 +64,8 @@ def virtual_tryon(
 
     # Load images
     try:
-        portrait_part = load_image_as_part(portrait_path)
+        if portrait_part is None:
+            portrait_part = load_image_as_part(portrait_path)
         glasses_part = load_image_as_part(glasses_image_path)
     except (ValueError, FileNotFoundError) as e:
         return TryOnResult(success=False, error=f"Image loading error: {e}")

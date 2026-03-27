@@ -145,6 +145,19 @@ def main() -> None:
         print(f"\nError: {e}")
         sys.exit(1)
 
+    # Pre-load portrait image in background (runs during query interpretation + search)
+    import threading
+    _portrait_result = [None, None]  # [part, error]
+    if not args.dry_run:
+        from utils import load_image_as_part
+        def _preload_portrait():
+            try:
+                _portrait_result[0] = load_image_as_part(args.portrait)
+            except Exception as e:
+                _portrait_result[1] = e
+        portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+        portrait_thread.start()
+
     # Step 1: Interpret user query
     print(f"\nQuery: \"{args.query}\"")
     print("Interpreting query...")
@@ -215,6 +228,12 @@ def main() -> None:
         print(f"\nError: Product image not found: {glasses_image_path}")
         sys.exit(1)
 
+    # Wait for portrait pre-loading (started before query interpretation)
+    portrait_thread.join()
+    if _portrait_result[1] is not None:
+        print(f"\nPortrait load error: {_portrait_result[1]}")
+        sys.exit(1)
+
     print(f"\nRunning virtual try-on with {args.model}...")
     print(f"  Glasses: {product['name']}")
 
@@ -225,6 +244,7 @@ def main() -> None:
         product=product,
         model_alias=args.model,
         api_key=api_key,
+        portrait_part=_portrait_result[0],
     )
 
     if not result.success:

@@ -136,7 +136,7 @@ def main() -> None:
         f"({info['width']}x{info['height']}, {info['format']})"
     )
     if info["needs_resize"]:
-        print(f"  Note: Image will be resized to fit 4096px max side.")
+        print(f"  Note: Image will be resized to fit 1536px max side.")
 
     # Step 2: Validate catalog exists (unless dry-run)
     if not args.dry_run:
@@ -151,6 +151,19 @@ def main() -> None:
     except RuntimeError as e:
         print(f"\nError: {e}")
         sys.exit(1)
+
+    # Pre-load portrait image in background (runs during face analysis)
+    import threading
+    _portrait_result = [None, None]  # [part, error]
+    if not args.dry_run and not args.report_only:
+        from utils import load_image_as_part
+        def _preload_portrait():
+            try:
+                _portrait_result[0] = load_image_as_part(args.portrait)
+            except Exception as e:
+                _portrait_result[1] = e
+        portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+        portrait_thread.start()
 
     # ─── STEP 1: Face analysis ───
     print(f"\nAnalyzing facial features with {args.analysis_model}...")
@@ -245,6 +258,12 @@ def main() -> None:
     glasses_image_path = matcher.get_product_image_path(product)
 
     # ─── STEP 4: Virtual try-on ───
+    # Wait for portrait pre-loading (started before face analysis)
+    portrait_thread.join()
+    if _portrait_result[1] is not None:
+        print(f"\nPortrait load error: {_portrait_result[1]}")
+        sys.exit(1)
+
     print(
         f"\nGenerating try-on with {product['name']} "
         f"using {args.model}..."
@@ -258,6 +277,7 @@ def main() -> None:
         matched_product=product,
         model_alias=args.model,
         api_key=api_key,
+        portrait_part=_portrait_result[0],
     )
 
     if not tryon_result.success:

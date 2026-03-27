@@ -5,7 +5,7 @@ import sys
 
 from config import MODEL_MAP, DEFAULT_MODEL, DEFAULT_INTENSITY, DEFAULT_FINISH
 from prompt_engine import build_lens_recolor_prompt
-from utils import validate_input_image, save_image, generate_output_path, create_comparison_image
+from utils import validate_input_image, save_image, generate_output_path
 from recolor import recolor_lenses
 
 
@@ -18,7 +18,6 @@ Examples:
   python main.py -i photo.jpg -c "ocean blue"
   python main.py -i photo.jpg -c "rose gold" --intensity light --finish gradient
   python main.py -i photo.jpg -c "emerald green" --intensity dark --finish mirror -m nano-banana-pro
-  python main.py -i photo.jpg -c "amber" --compare
   python main.py -i photo.jpg -c "emerald green" --dry-run
         """,
     )
@@ -63,12 +62,6 @@ Examples:
         help="Preserve natural lens reflections (default: True)",
     )
     parser.add_argument(
-        "--compare",
-        action="store_true",
-        default=False,
-        help="Run BOTH models and create a side-by-side comparison",
-    )
-    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
@@ -108,42 +101,6 @@ def run_single(args: argparse.Namespace) -> None:
         print(f"  Model note: {result.text_response}")
 
 
-def run_comparison(args: argparse.Namespace) -> None:
-    """Run recolor with BOTH models and create comparison."""
-    print(f"Running comparison mode — recoloring lenses to '{args.color}' with both models...\n")
-
-    results = []
-    for model_alias in MODEL_MAP:
-        print(f"  Running {model_alias}...")
-        result = recolor_lenses(
-            image_path=args.input,
-            target_color=args.color,
-            model_alias=model_alias,
-            intensity=args.intensity,
-            finish=args.finish,
-            preserve_reflections=args.preserve_reflections,
-        )
-
-        if result.success:
-            # Save individual result
-            individual_path = f"output_{model_alias}.png"
-            save_image(result.image_bytes, individual_path)
-            print(f"    Saved: {individual_path} ({result.elapsed_seconds:.1f}s)")
-            results.append((model_alias, model_alias, result.image_bytes))
-        else:
-            print(f"    Failed: {result.error}")
-
-    if not results:
-        print("\nBoth models failed. No comparison to create.")
-        sys.exit(1)
-
-    # Create comparison image
-    if len(results) >= 1:
-        comparison_path = args.output or "comparison.png"
-        create_comparison_image(args.input, results, comparison_path)
-        print(f"\nComparison saved: {comparison_path}")
-
-
 def run_dry_run(args: argparse.Namespace) -> None:
     """Print the prompt without calling the API."""
     # Validate image exists
@@ -153,7 +110,7 @@ def run_dry_run(args: argparse.Namespace) -> None:
     else:
         print(f"Input image: {args.input} ({info['width']}x{info['height']} {info['format']}, {info['file_size_mb']}MB)")
         if info["needs_resize"]:
-            print(f"  Note: Image will be resized (>{4096}px on one side)")
+            print(f"  Note: Image will be resized (>{1536}px on one side)")
 
     print(f"\nModel: {args.model}")
     print(f"Color: {args.color}")
@@ -186,8 +143,6 @@ def main() -> None:
 
     if args.dry_run:
         run_dry_run(args)
-    elif args.compare:
-        run_comparison(args)
     else:
         run_single(args)
 
