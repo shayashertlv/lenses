@@ -1122,7 +1122,7 @@ body{
 }
 .hero-tryon-wrap{
   position:relative;overflow:hidden;border-radius:16px;
-  background:rgba(0,0,0,.15);width:340px;height:440px;
+  background:rgba(0,0,0,.15);width:260px;height:340px;
 }
 .hero-glow{
   position:absolute;top:-20%;left:15%;width:400px;height:400px;border-radius:50%;
@@ -1150,30 +1150,6 @@ body{
   font-family:'DM Serif Display',Georgia,serif;
   font-size:1.25rem;color:#fff;margin-top:4px;
 }
-
-/* ── Score breakdown ── */
-.score-panel{
-  background:rgba(255,255,255,.04);border-radius:14px;
-  border:1px solid rgba(255,255,255,.06);padding:16px;
-}
-.score-panel-hdr{
-  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
-}
-.score-panel-title{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.35);
-  text-transform:uppercase;letter-spacing:.08em}
-.score-ring-wrap{position:relative;width:52px;height:52px;flex-shrink:0}
-.score-ring{width:52px;height:52px}
-.score-ring-num{
-  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:.82rem;font-weight:700;color:#fff;
-}
-.score-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.score-row:last-child{margin-bottom:0}
-.score-label{font-size:.72rem;font-weight:600;color:rgba(255,255,255,.5);width:36px;flex-shrink:0}
-.score-track{flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
-.score-fill{height:100%;border-radius:3px;width:0%;animation:fillBar 1s cubic-bezier(.4,0,.2,1) forwards}
-@keyframes fillBar{to{width:var(--target-width)}}
-.score-val{font-size:.72rem;font-weight:700;color:rgba(255,255,255,.7);width:24px;text-align:right}
 
 /* ── Why reasons ── */
 .why-section{margin-top:4px}
@@ -1216,7 +1192,7 @@ body{
 .alt-card:nth-child(2){animation-delay:.55s}
 .alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
 .alt-card-img-wrap{position:relative;overflow:hidden;background:rgba(255,255,255,.02);
-  aspect-ratio:4/5}
+  height:300px}
 .alt-card-body{padding:20px}
 .alt-card-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
@@ -1346,10 +1322,8 @@ body{
   .hero-name{font-size:.92rem}
   .hero-price{font-size:.88rem}
   .hero-tags{gap:4px;margin-top:2px}
-  .score-panel{padding:10px}
-  .score-panel-hdr{margin-bottom:6px}
   .alt-grid{grid-template-columns:1fr}
-  .alt-card-img-wrap{aspect-ratio:4/5}
+  .alt-card-img-wrap{height:280px}
   .alt-card-footer{padding:12px 16px}
   .res-topbar{padding:10px 14px;margin:0 -.9rem 20px}
   .res-topbar-back{padding:6px 14px;font-size:.78rem}
@@ -1376,7 +1350,7 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
   .swatch-dot{width:28px;height:28px}
   .hero-grid{padding:16px;gap:14px}
-  .alt-card-img-wrap{aspect-ratio:4/5}
+  .alt-card-img-wrap{height:220px}
 }
 /* ── Landscape mobile ── */
 @media(max-height:500px) and (max-width:900px){
