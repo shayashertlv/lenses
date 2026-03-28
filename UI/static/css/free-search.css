@@ -159,7 +159,7 @@ body{min-height:100vh}
 .fs-sline{width:32px;height:2px;background:rgba(255,255,255,.1);border-radius:1px;align-self:center;transition:background .3s}
 .fs-sline.done{background:#34c78a}
 
-.load-prog-fill{height:100%;background:linear-gradient(90deg,#34c78a,#6dd5a8);border-radius:2px;width:0%;transition:width .6s ease}
+.load-prog-fill{background:linear-gradient(90deg,#34c78a,#6dd5a8)}
 
 #load-stage{font-size:.95rem;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
 

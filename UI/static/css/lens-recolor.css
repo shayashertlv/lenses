@@ -67,7 +67,7 @@ body{min-height:100vh}
   background:#0b0b14;
   flex-direction:column;align-items:center;justify-content:center;
 }
-.load-prog-fill{height:100%;background:linear-gradient(90deg,#e8a838,#f0c060);border-radius:2px;width:0%;transition:width .6s ease}
+.load-prog-fill{background:linear-gradient(90deg,#e8a838,#f0c060)}
 #load-stage{font-size:.95rem;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
 #load-tip{font-size:.82rem;color:rgba(255,255,255,.35);line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s}
 
