@@ -463,7 +463,7 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
             response = client.models.generate_content(
                 model=model_name,
                 contents=[p, portrait_part, glasses_part],
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(temperature=0, response_modalities=["TEXT", "IMAGE"]),
             )
         except Exception as e:
             return {"success": False, "image_bytes": None, "error": str(e)}
@@ -880,7 +880,7 @@ def _recolor_single(portrait_path: str, target_color: str, api_key: str,
             response = client.models.generate_content(
                 model=RECOLOR_MODEL_NAME,
                 contents=[p, portrait_part],
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(temperature=0, response_modalities=["TEXT", "IMAGE"]),
             )
         except Exception as e:
             return {"success": False, "image_bytes": None, "error": str(e)}

@@ -287,9 +287,10 @@ def main() -> None:
             print(f"Model response: {tryon_result.text_response}")
         sys.exit(1)
 
-    # Save output image
-    from utils import save_image
-    save_image(tryon_result.image_bytes, args.output)
+    # Normalize aspect ratio to match the input portrait, then save
+    from utils import normalize_tryon_aspect, save_image
+    normalized = normalize_tryon_aspect(tryon_result.image_bytes, args.portrait)
+    save_image(normalized, args.output)
 
     # Summary
     print(f"\nDone!")

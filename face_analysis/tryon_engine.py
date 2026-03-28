@@ -129,6 +129,7 @@ def _call_nano_banana(
             model=model_name,
             contents=[prompt, portrait_part, glasses_part],
             config=types.GenerateContentConfig(
+                temperature=0,
                 response_modalities=["TEXT", "IMAGE"],
             ),
         )

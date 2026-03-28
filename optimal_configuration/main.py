@@ -256,8 +256,9 @@ def main() -> None:
     os.makedirs(args.results_dir, exist_ok=True)
     output_path = os.path.join(args.results_dir, args.output)
 
-    from utils import save_image
-    save_image(result.image_bytes, output_path)
+    from utils import normalize_tryon_aspect, save_image
+    normalized = normalize_tryon_aspect(result.image_bytes, args.portrait)
+    save_image(normalized, output_path)
 
     print(f"\nDone!")
     print(f"  Output: {output_path}")

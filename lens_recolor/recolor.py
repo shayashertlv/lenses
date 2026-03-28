@@ -116,7 +116,8 @@ def _call_api(
             model=model_name,
             contents=[prompt_text, image_part],
             config=types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"]
+                temperature=0,
+                response_modalities=["TEXT", "IMAGE"],
             ),
         )
     except Exception as e:
@@ -182,9 +183,10 @@ def _call_api(
     # No image in response — retry once with modified prompt
     if retry_on_text_only and not is_retry:
         print("  Model returned text only. Retrying with image-focused prompt...")
-        retry_prompt = prompt_text + "\n\nReturn ONLY the edited image, no text explanation needed."
-        retry_part = types.Part.from_text(retry_prompt)
-        # Rebuild contents with the modified prompt
+        retry_prompt = prompt_text + (
+            "\n\nIMPORTANT: Return ONLY the edited image with the recolored "
+            "lenses applied. Do not include any text in your response."
+        )
         return _call_api(
             client=client,
             model_name=model_name,

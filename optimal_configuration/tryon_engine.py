@@ -105,6 +105,7 @@ def _call_tryon_api(
             model=model_name,
             contents=[prompt, portrait_part, glasses_part],
             config=types.GenerateContentConfig(
+                temperature=0,
                 response_modalities=["TEXT", "IMAGE"],
             ),
         )
@@ -167,7 +168,10 @@ def _call_tryon_api(
     # No image — retry once with simplified prompt
     if retry_on_text_only and not is_retry:
         print("  Model returned text only. Retrying...")
-        retry_prompt = prompt + "\n\nReturn ONLY the edited image, no text explanation needed."
+        retry_prompt = prompt + (
+            "\n\nIMPORTANT: Return ONLY the edited portrait image with the "
+            "glasses applied. Do not include any text in your response."
+        )
         return _call_tryon_api(
             client=client,
             model_name=model_name,

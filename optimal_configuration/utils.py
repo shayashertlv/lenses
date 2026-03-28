@@ -94,6 +94,47 @@ def load_image_as_part(path: str):
     return types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
 
+def normalize_tryon_aspect(tryon_bytes: bytes, portrait_path: str) -> bytes:
+    """Resize a try-on image to match the portrait's aspect ratio.
+
+    Nano Banana Pro often returns images at its native resolution (e.g.
+    1024×1024) regardless of the input portrait dimensions.  If the aspect
+    ratios differ significantly the result looks stretched / squished.
+
+    Centre-crops the try-on output to the portrait's aspect ratio, then
+    scales it to the portrait's pixel size.
+    """
+    try:
+        portrait = Image.open(portrait_path)
+        tryon = Image.open(io.BytesIO(tryon_bytes))
+
+        pw, ph = portrait.size
+        tw, th = tryon.size
+
+        target_ratio = pw / ph
+        tryon_ratio = tw / th
+
+        if abs(target_ratio - tryon_ratio) / max(target_ratio, tryon_ratio) < 0.05:
+            return tryon_bytes
+
+        if tryon_ratio > target_ratio:
+            new_w = int(th * target_ratio)
+            left = (tw - new_w) // 2
+            tryon = tryon.crop((left, 0, left + new_w, th))
+        else:
+            new_h = int(tw / target_ratio)
+            top = (th - new_h) // 2
+            tryon = tryon.crop((0, top, tw, top + new_h))
+
+        tryon = tryon.resize((pw, ph), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        tryon.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return tryon_bytes
+
+
 def save_image(data: bytes, output_path: str) -> str:
     """Save raw image bytes to file."""
     out_dir = os.path.dirname(output_path)

@@ -2154,7 +2154,7 @@ body{
 }
 .hero-img-wrap{
   position:relative;display:flex;align-items:center;justify-content:center;
-  min-height:380px;
+  min-height:240px;max-height:480px;
   background:rgba(255,255,255,.025);
   border-radius:24px;border:1px solid rgba(255,255,255,.07);
   padding:24px;overflow:hidden;
@@ -2168,7 +2168,7 @@ body{
 }
 @keyframes pulse{0%,100%{opacity:.10}50%{opacity:.22}}
 .hero-img-wrap img{
-  width:100%;max-height:500px;object-fit:contain;border-radius:14px;
+  max-width:100%;max-height:460px;width:auto;height:auto;object-fit:contain;border-radius:14px;
   display:block;position:relative;z-index:1;
 }
 .hero-color-label{
