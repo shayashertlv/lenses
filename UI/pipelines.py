@@ -93,54 +93,6 @@ def _get_api_key() -> str:
     return key
 
 
-def _normalize_tryon_aspect(tryon_bytes: bytes, portrait_bytes: bytes) -> bytes:
-    """Resize a try-on image to match the portrait's aspect ratio.
-
-    Nano Banana Pro often returns images at its native resolution (e.g.
-    1024×1024) regardless of the input portrait dimensions.  If the aspect
-    ratios differ significantly the result looks stretched / squished.
-
-    This function centre-crops the try-on output to the portrait's aspect
-    ratio, then scales it to the portrait's pixel size so the frontend
-    always receives images that match the original photo proportions.
-    """
-    try:
-        portrait = Image.open(io.BytesIO(portrait_bytes))
-        tryon = Image.open(io.BytesIO(tryon_bytes))
-
-        pw, ph = portrait.size
-        tw, th = tryon.size
-
-        target_ratio = pw / ph
-        tryon_ratio = tw / th
-
-        # Only correct if aspect ratios differ by more than 5 %
-        if abs(target_ratio - tryon_ratio) / max(target_ratio, tryon_ratio) < 0.05:
-            return tryon_bytes
-
-        # Centre-crop the try-on to the portrait's aspect ratio
-        if tryon_ratio > target_ratio:
-            # Try-on is too wide → crop sides
-            new_w = int(th * target_ratio)
-            left = (tw - new_w) // 2
-            tryon = tryon.crop((left, 0, left + new_w, th))
-        else:
-            # Try-on is too tall → crop top/bottom
-            new_h = int(tw / target_ratio)
-            top = (th - new_h) // 2
-            tryon = tryon.crop((0, top, tw, top + new_h))
-
-        # Scale to portrait dimensions
-        tryon = tryon.resize((pw, ph), Image.LANCZOS)
-
-        buf = io.BytesIO()
-        tryon.save(buf, format="PNG")
-        return buf.getvalue()
-    except Exception:
-        # If anything fails, return the original bytes untouched
-        return tryon_bytes
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # SMART FIT PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -308,9 +260,8 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             return
 
         if tr.success and tr.image_bytes:
-            normalized = _normalize_tryon_aspect(tr.image_bytes, portrait_bytes)
             sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
-                normalized
+                tr.image_bytes
             ).decode("ascii")
             sess[f"opt{idx}"]["tryon_status"] = "done"
         else:
@@ -588,9 +539,8 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                                        portrait_part=_portrait_parts[idx], client=tryon_client)
 
                 if tr["success"] and tr["image_bytes"]:
-                    normalized = _normalize_tryon_aspect(tr["image_bytes"], portrait_bytes)
                     sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
-                        normalized
+                        tr["image_bytes"]
                     ).decode("ascii")
                     sess[f"opt{idx}"]["tryon_status"] = "done"
                 else:
