@@ -20,7 +20,7 @@ body{
   display:flex;align-items:center;gap:.3rem}
 .topbar a:hover{text-decoration:underline}
 .topbar .logo{font-size:1.3rem;font-weight:400;letter-spacing:-.01em;color:#fff;
-  font-family:'Playfair Display',Georgia,serif}
+  font-family:'Lora',Georgia,serif}
 
 /* ── Shared animations ── */
 @keyframes shimmer{to{background-position:-200% 0}}
