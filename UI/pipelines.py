@@ -382,61 +382,30 @@ def _fs_build_tryon_prompt(product: dict) -> str:
     lens_colors = _join(lenses["color"])
 
     return f"""I am providing two images:
-- IMAGE 1 (first image): A portrait photograph of a person who wants to try on glasses.
-- IMAGE 2 (second image): A product photograph of glasses/eyewear to be placed on the person.
+- IMAGE 1: A portrait photo of a person.
+- IMAGE 2: A product photo of glasses.
 
-YOUR TASK: Create a new version of IMAGE 1 (the portrait) where the person is wearing the glasses shown in IMAGE 2. The output must look like a real photograph — as if the person was actually wearing these glasses when the photo was taken.
+YOUR TASK: Create the EXACT same photo as IMAGE 1, but with the person wearing the glasses from IMAGE 2. The result must look like a real photograph — as if the person was already wearing these glasses when the photo was taken.
 
-GLASSES DETAILS (from IMAGE 2 — faithfully reproduce these):
-- Frame: {frame.get("shape", "classic")} shape, {frame.get("material", "")} material, {frame_colors} color, {frame.get("thickness", "")} thickness, {frame.get("finish", "")} finish, {frame.get("rim_type", "")}
-- Lenses: {lens_types} type, {lens_colors} color, {lenses.get("size", "")} size, {lenses.get("shape", "")} shape
+GLASSES FROM IMAGE 2:
+- Frame: {frame.get("shape", "classic")}, {frame.get("material", "")}, {frame_colors}, {frame.get("rim_type", "")}
+- Lenses: {lens_types}, {lens_colors}
+- Reproduce the glasses from IMAGE 2 faithfully — same design, proportions, and details.
 
-GLASSES PLACEMENT RULES:
-- Position the glasses naturally on the person's face — bridge of the nose, temples extending toward or behind the ears
-- The glasses must match the person's face angle, tilt, and perspective EXACTLY — if the face is slightly turned, the glasses must follow the same 3D rotation
-- Scale the glasses proportionally to the person's face — they should look like they genuinely fit
-- The temple arms should follow the natural path behind/over the ears, partially hidden by hair if applicable
-- If the person's ears are visible, the temple arms should rest naturally on them
+PLACEMENT:
+- Position naturally on the face — bridge on nose, temples toward ears
+- Match the person's face angle and perspective exactly
+- Scale proportionally to the face
+- Eyes visible through lenses at appropriate opacity for {lens_types} lenses with {lens_colors} tint
 
-CRITICAL PRESERVATION RULES FOR THE PORTRAIT (IMAGE 1):
-- The person's face, skin tone, skin texture, facial features, expression, and makeup must remain COMPLETELY IDENTICAL
-- The person's eyes should be visible through the lenses at the appropriate opacity for {lens_types} lenses with {lens_colors} tint
-- The person's hair (color, style, texture, position, stray hairs) must remain IDENTICAL — where hair overlaps the temple arms, render this naturally
-- The person's clothing, accessories, jewelry must remain IDENTICAL
-- The background must remain COMPLETELY IDENTICAL
-- The overall lighting, shadows, and color grading must remain IDENTICAL
+CRITICAL RULES:
+- The output must be a 1:1 compositional match to IMAGE 1 — same head size, crop, zoom, framing, and camera distance
+- Do NOT crop, zoom in/out, re-center, or change what is visible at the edges
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
+- Do NOT alter, smooth, or enhance any facial features
+- Add realistic shadows from the glasses consistent with the existing lighting
 
-FRAMING / ZOOM — THIS IS CRITICAL:
-- Maintain the exact same head size, framing, zoom level, and camera distance as IMAGE 1
-- Do not crop, zoom in, or re-center the subject's face
-- Do NOT zoom out, pull back, or reveal more of the scene than IMAGE 1 shows
-- The person's head, shoulders, and body must occupy the EXACT same area and proportion of the frame as in IMAGE 1
-- If IMAGE 1 shows the person from the chest up, the output must show the person from the chest up at the same scale
-- The edges of the frame must show the same content as IMAGE 1 — do not add extra background, body, or space
-- The output must be a 1:1 compositional match to the original image, only applying the described glasses
-
-REALISM REQUIREMENTS:
-- Add natural shadows where the glasses frame touches the face (bridge of nose, temples)
-- If there is directional lighting in the portrait, the glasses should cast consistent shadows
-- The lenses should show appropriate reflections based on the lighting conditions in the portrait
-- Where the frame overlaps skin, render the boundary cleanly and naturally
-- The glasses should look like they have physical weight and presence — not like a flat overlay
-
-VISUAL FIDELITY TO IMAGE 2 — THIS IS CRITICAL:
-- The glasses in the output must be a faithful reproduction of the EXACT glasses shown in IMAGE 2 — use IMAGE 2 as your primary visual reference, not just the text description above
-- Copy the frame design, proportions, decorative details, temple arm style, and nose pad type directly from IMAGE 2
-- Frame color, material texture, and finish must match IMAGE 2 exactly
-- Lens color, tint level, and finish type must match IMAGE 2 exactly
-- Do NOT redesign, simplify, or stylize the glasses — they must look like the same physical pair from IMAGE 2
-- If IMAGE 2 shows specific details (brand logos, hinge style, screw details, engraving), reproduce them
-
-IDENTITY PRESERVATION — DO NOT ALTER THE PERSON:
-- Do NOT smooth, beautify, reshape, or enhance the person's facial features in any way
-- The person's face must be pixel-identical to IMAGE 1 in every area not occluded by the glasses
-- Skin texture, pores, blemishes, wrinkles, and any imperfections must remain exactly as they are
-- Do NOT change eye color, lip color, eyebrow shape, or any other feature
-
-OUTPUT: Return ONLY the edited portrait photograph with the glasses applied. Maintain the EXACT same dimensions, quality, and format as IMAGE 1. The result must be completely photorealistic."""
+OUTPUT: Return ONLY the edited photo. Same dimensions and quality as IMAGE 1. Photorealistic."""
 
 
 def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
@@ -830,38 +799,24 @@ def _build_recolor_prompt(target_color: str) -> str:
     glasses lens color. The output must be the exact same photo with only
     the lens color changed, blended naturally.
     """
-    return f"""Edit this photo by changing ONLY the color of the glasses lenses. Apply the following lens modification:
+    return f"""Create the EXACT same photo, but change ONLY the glasses lens color.
 
-TARGET LENS COLOR: {target_color}
-TINT INTENSITY: a balanced, medium tint — approximately 50-60% opacity, like standard sunglasses where the eyes are partially visible
-LENS FINISH STYLE: a uniform, smooth color tint across the entire lens surface
+TARGET: {target_color}, medium tint (~50-60% opacity, eyes partially visible), uniform smooth tint
+Preserve any existing lens reflections naturally on top of the new color.
 
-If the original lenses have natural light reflections, glare spots, or environmental reflections visible on the lens surface, preserve them naturally on top of the new color tint. The reflections should interact realistically with the new lens color.
+WHAT TO CHANGE:
+- Apply {target_color} tint only to the lens area inside the glasses frame
+- Both lenses must have the same color treatment
+- The tint should look like real tinted glass — eyes and face visible through at appropriate opacity
+- Color edges must follow the inner frame edge precisely — no bleeding onto frame or skin
 
-CRITICAL PRESERVATION RULES — do NOT change any of the following:
-- The person's face, skin tone, skin texture, facial features, expression, and makeup must remain IDENTICAL
-- The person's hair (color, style, texture, stray hairs) must remain IDENTICAL
-- The glasses FRAME (shape, color, material, thickness, temple arms, nose pads, any frame details) must remain COMPLETELY UNCHANGED — only the lens area inside the frame changes
-- The person's clothing, accessories, jewelry must remain IDENTICAL
-- The background (color, texture, bokeh, lighting, objects) must remain IDENTICAL
-- The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
-- Any text, logos, or watermarks present must remain IDENTICAL
+CRITICAL RULES:
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
+- Do NOT crop, zoom in/out, re-center, or change what is visible at the edges
+- The glasses FRAME must remain completely unchanged — only the lens color changes
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
 
-LENS COLOR APPLICATION GUIDANCE:
-- Apply the {target_color} tint ONLY to the transparent/semi-transparent lens area bounded by the glasses frame
-- The tint should look like a real, physical lens — it should follow the curvature and shape of the lens
-- Where the lens overlaps the person's eyes and face, the {target_color} tint should blend naturally, as real tinted glass does — the skin and eye features behind the lens should show through at the appropriate opacity level
-- The edge of the color change must PRECISELY follow the inner edge of the glasses frame — no color bleeding onto the frame or face
-- Both lenses must have the SAME color treatment applied consistently
-
-FRAMING / ZOOM — THIS IS CRITICAL:
-- Maintain the exact same head size, framing, zoom level, and camera distance as the original photo
-- Do not crop, zoom in, or re-center the subject's face
-- Do NOT zoom out, pull back, or reveal more of the scene than the original shows
-- Do NOT change what is visible at the edges of the frame
-- The output must be a 1:1 compositional match to the original image, only changing the lens color
-
-OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
+OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real tinted glasses, not a digital overlay."""
 
 
 def _recolor_single(portrait_path: str, target_color: str, api_key: str,

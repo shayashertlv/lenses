@@ -21,87 +21,45 @@ def build_lens_recolor_prompt(
         The full prompt string to send to the model.
     """
 
-    # Map intensity to descriptive opacity language
     intensity_map = {
-        "light": (
-            "a subtle, light tint — approximately 25-30% opacity, like lightly "
-            "tinted fashion lenses where you can clearly see the eyes through them"
-        ),
-        "medium": (
-            "a balanced, medium tint — approximately 50-60% opacity, like standard "
-            "sunglasses where the eyes are partially visible"
-        ),
-        "dark": (
-            "a deep, rich tint — approximately 80-90% opacity, like dark sunglasses "
-            "where the eyes are barely visible through the lenses"
-        ),
+        "light": "light tint (~25-30% opacity, eyes clearly visible)",
+        "medium": "medium tint (~50-60% opacity, eyes partially visible)",
+        "dark": "dark tint (~80-90% opacity, eyes barely visible)",
     }
 
-    # Map finish to descriptive lens style
     finish_map = {
-        "standard": "a uniform, smooth color tint across the entire lens surface",
-        "gradient": (
-            "a gradient tint that is darker at the top of each lens and gradually "
-            "fades to lighter/clearer toward the bottom — a classic gradient sunglass look"
-        ),
-        "mirror": (
-            "a reflective, mirrored finish that shows subtle environmental reflections "
-            "on the lens surface while maintaining the base color — like mirrored aviator "
-            "sunglasses"
-        ),
-        "polarized": (
-            "a slightly reflective, polarized appearance with a subtle sheen on the "
-            "lens surface while maintaining the base color"
-        ),
+        "standard": "uniform smooth tint",
+        "gradient": "gradient tint, darker at top fading to lighter at bottom",
+        "mirror": "reflective mirrored finish with subtle environmental reflections",
+        "polarized": "slightly reflective polarized sheen",
     }
 
     intensity_desc = intensity_map.get(intensity, intensity_map["medium"])
     finish_desc = finish_map.get(finish, finish_map["standard"])
 
-    if preserve_reflections:
-        reflection_instruction = (
-            "If the original lenses have natural light reflections, glare spots, "
-            "or environmental reflections visible on the lens surface, preserve them "
-            "naturally on top of the new color tint. The reflections should interact "
-            "realistically with the new lens color."
-        )
-    else:
-        reflection_instruction = (
-            "Apply a clean tint without additional reflections — just the pure color "
-            "on the lens surface."
-        )
+    reflection_note = (
+        "Preserve any existing lens reflections naturally on top of the new color."
+        if preserve_reflections
+        else "Apply a clean tint without additional reflections."
+    )
 
-    prompt = f"""Edit this photo by changing ONLY the color of the glasses lenses. Apply the following lens modification:
+    prompt = f"""Create the EXACT same photo, but change ONLY the glasses lens color.
 
-TARGET LENS COLOR: {target_color}
-TINT INTENSITY: {intensity_desc}
-LENS FINISH STYLE: {finish_desc}
+TARGET: {target_color}, {intensity_desc}, {finish_desc}
+{reflection_note}
 
-{reflection_instruction}
+WHAT TO CHANGE:
+- Apply {target_color} tint only to the lens area inside the glasses frame
+- Both lenses must have the same color treatment
+- The tint should look like real tinted glass — eyes and face visible through at appropriate opacity
+- Color edges must follow the inner frame edge precisely — no bleeding onto frame or skin
 
-CRITICAL PRESERVATION RULES — do NOT change any of the following:
-- The person's face, skin tone, skin texture, facial features, expression, and makeup must remain IDENTICAL
-- The person's hair (color, style, texture, stray hairs) must remain IDENTICAL
-- The glasses FRAME (shape, color, material, thickness, temple arms, nose pads, any frame details) must remain COMPLETELY UNCHANGED — only the lens area inside the frame changes
-- The person's clothing, accessories, jewelry must remain IDENTICAL
-- The background (color, texture, bokeh, lighting, objects) must remain IDENTICAL
-- The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
-- Any text, logos, or watermarks present must remain IDENTICAL
+CRITICAL RULES:
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
+- Do NOT crop, zoom in/out, re-center, or change what is visible at the edges
+- The glasses FRAME must remain completely unchanged — only the lens color changes
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
 
-LENS COLOR APPLICATION GUIDANCE:
-- Apply the {target_color} tint ONLY to the transparent/semi-transparent lens area bounded by the glasses frame
-- The tint should look like a real, physical lens — it should follow the curvature and shape of the lens
-- Where the lens overlaps the person's eyes and face, the {target_color} tint should blend naturally, as real tinted glass does — the skin and eye features behind the lens should show through at the appropriate opacity level
-- The edge of the color change must PRECISELY follow the inner edge of the glasses frame — no color bleeding onto the frame or face
-- Both lenses must have the SAME color treatment applied consistently
-
-FRAMING / ZOOM — THIS IS CRITICAL:
-- Maintain the exact same head size, framing, zoom level, and camera distance as the original photo
-- Do not crop, zoom in, or re-center the subject's face
-- Do NOT zoom out, pull back, or reveal more of the scene than the original shows
-- Do NOT change what is visible at the edges of the frame
-- The output must be a 1:1 compositional match to the original image, only changing the lens color
-
-OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
+OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real tinted glasses, not a digital overlay."""
 
     return prompt
