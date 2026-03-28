@@ -182,30 +182,25 @@ function getTryonHtml(o){
 function fsBuildCard(opt,index){
   const el=document.createElement('div');
   el.className='result-card';
-  const label=index===0?'Best Match':'Alternative '+index;
-
-  let extraHtml='';
-  if(index===0){
-    const reasons=[];
-    if(opt.shape)reasons.push(capitalize(opt.shape)+' shape');
-    if(opt.color)reasons.push(capitalize(opt.color)+' tones');
-    if(opt.material)reasons.push(capitalize(opt.material));
-    if(reasons.length)extraHtml='<div class="result-extra">'+reasons.join(' &middot; ')+'</div>';
-  }
+  const labelText=index===0?'Best Match':'Alt '+index;
+  const labelCls=index===0?'result-label':'result-label alt';
 
   el.innerHTML=`
-    <div class="result-label">${label}</div>
     <div class="result-img-wrap">${getTryonHtml(opt)}</div>
-    <div class="result-text">
-      <div class="result-name">${escHtml(opt.name)}</div>
-      <div class="result-tags">
-        ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
+    <div class="result-info">
+      <div class="result-thumb">
+        <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${escHtml(opt.name)}"/>
       </div>
-      <div class="result-price">${fmtPrice(opt)}</div>
-      ${extraHtml}
-    </div>
-    <div class="result-img-wrap result-product-bg">
-      <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${escHtml(opt.name)}"/>
+      <div class="result-meta">
+        <div class="result-head">
+          <span class="${labelCls}">${labelText}</span>
+          <span class="result-name">${escHtml(opt.name)}</span>
+        </div>
+        <div class="result-tags">
+          ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
+        </div>
+        <div class="result-price">${fmtPrice(opt)}</div>
+      </div>
     </div>`;
   return el;
 }

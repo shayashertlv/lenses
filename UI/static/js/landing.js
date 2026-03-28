@@ -134,33 +134,54 @@ function sfFmtPrice(o){
   return o.currency==='ILS'?o.price.toLocaleString()+' \u20AA':o.price.toLocaleString()+' '+escHtml(o.currency);
 }
 
+function sfBuildChips(o,fs){
+  const chips=[];
+  /* face shape */
+  if(fs.face_shape){
+    chips.push(`<span class="result-chip"><svg viewBox="0 0 16 16"><path d="M8 1L14 5v6l-6 4-6-4V5z"/></svg>${escHtml(fs.face_shape)}</span>`);
+  }
+  /* color profile */
+  if(fs.color_profile){
+    chips.push(`<span class="result-chip"><svg viewBox="0 0 16 16"><circle cx="5" cy="11" r="3"/><circle cx="11" cy="11" r="3"/><circle cx="8" cy="5" r="3"/></svg>${escHtml(fs.color_profile)}</span>`);
+  }
+  /* key geometry */
+  if(fs.key_geometry){
+    chips.push(`<span class="result-chip"><svg viewBox="0 0 16 16"><path d="M1 15L8 1l7 14H1z"/></svg>${escHtml(fs.key_geometry)}</span>`);
+  }
+  /* color dots: hair, eye, skin */
+  const dots=[];
+  if(fs.hair_color_hex)dots.push(`<span class="color-dot" style="background:${escHtml(fs.hair_color_hex)}" title="Hair"></span>`);
+  if(fs.eye_color_hex)dots.push(`<span class="color-dot" style="background:${escHtml(fs.eye_color_hex)}" title="Eyes"></span>`);
+  if(fs.skin_tone_hex)dots.push(`<span class="color-dot" style="background:${escHtml(fs.skin_tone_hex)}" title="Skin"></span>`);
+  if(dots.length)chips.push(`<span class="result-chip">${dots.join('')}</span>`);
+
+  return chips.length?'<div class="result-chips">'+chips.join('')+'</div>':'';
+}
+
 function sfBuildCard(o,idx,fs){
   const card=document.createElement('div');
   card.className='result-card';
-  const label=idx===0?'Best Match':'Alternative '+idx;
-
-  let extraHtml='';
-  if(idx===0){
-    const reasons=[];
-    if(fs.face_shape&&o.shape)reasons.push(escHtml(fs.face_shape)+' face \u2192 '+escHtml(o.shape)+' frames');
-    if(fs.color_profile&&o.color)reasons.push(escHtml(fs.color_profile)+' \u2192 '+escHtml(o.color));
-    if(fs.key_geometry)reasons.push(escHtml(fs.key_geometry));
-    if(reasons.length)extraHtml='<div class="result-extra">'+reasons.join(' &middot; ')+'</div>';
-  }
+  const labelText=idx===0?'Best Match':'Alt '+(idx);
+  const labelCls=idx===0?'result-label':'result-label alt';
+  const chipsHtml=idx===0?sfBuildChips(o,fs):'';
 
   card.innerHTML=`
-    <div class="result-label">${label}</div>
     <div class="result-img-wrap">${buildTryonHtml(o)}</div>
-    <div class="result-text">
-      <div class="result-name">${escHtml(o.name)}</div>
-      <div class="result-tags">
-        ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
+    <div class="result-info">
+      <div class="result-thumb">
+        <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
       </div>
-      <div class="result-price">${sfFmtPrice(o)}</div>
-      ${extraHtml}
-    </div>
-    <div class="result-img-wrap result-product-bg">
-      <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
+      <div class="result-meta">
+        <div class="result-head">
+          <span class="${labelCls}">${labelText}</span>
+          <span class="result-name">${escHtml(o.name)}</span>
+        </div>
+        <div class="result-tags">
+          ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
+        </div>
+        <div class="result-price">${sfFmtPrice(o)}</div>
+        ${chipsHtml}
+      </div>
     </div>`;
   return card;
 }
