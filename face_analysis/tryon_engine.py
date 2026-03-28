@@ -91,12 +91,12 @@ def virtual_tryon(
     if result.success:
         return result
 
-    # If no image returned, retry with simplified prompt
+    # If no image returned, retry — keep the full prompt for quality but add
+    # a stronger "image-only" directive so the model doesn't return text again.
     if result.error and "No image returned" in result.error:
-        retry_prompt = (
-            "Place the glasses from the second image onto the person in "
-            "the first image. Make it look like a real photo. Do not change "
-            "anything else. Return ONLY the image."
+        retry_prompt = prompt + (
+            "\n\nIMPORTANT: Return ONLY the edited portrait image with the "
+            "glasses applied. Do not include any text in your response."
         )
         result = _call_nano_banana(
             client=client,

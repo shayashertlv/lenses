@@ -100,7 +100,18 @@ REALISM REQUIREMENTS:
 - Frame material must look realistic: {pf["material"]} with {pf["finish"]} finish should show appropriate surface properties
 - Lenses must interact with light realistically for {pl_types} lenses
 - The glasses must appear to have physical weight and three-dimensional presence
-- Faithfully reproduce the exact frame design, proportions, and details from IMAGE 2
+
+VISUAL FIDELITY TO IMAGE 2 — THIS IS CRITICAL:
+- The glasses in the output must be a faithful reproduction of the EXACT glasses shown in IMAGE 2 — use IMAGE 2 as your primary visual reference, not just the text description above
+- Copy the frame design, proportions, decorative details, temple arm style, and nose pad type directly from IMAGE 2
+- Do NOT redesign, simplify, or stylize the glasses — they must look like the same physical pair from IMAGE 2
+- If IMAGE 2 shows specific details (brand logos, hinge style, screw details, engraving), reproduce them
+
+IDENTITY PRESERVATION — DO NOT ALTER THE PERSON:
+- Do NOT smooth, beautify, reshape, or enhance the person's facial features in any way
+- The person's face must be pixel-identical to IMAGE 1 in every area not occluded by the glasses
+- Skin texture, pores, blemishes, wrinkles, and any imperfections must remain exactly as they are
+- Do NOT change eye color, lip color, eyebrow shape, or any other feature
 
 OUTPUT: Return ONLY the edited portrait with the glasses applied. Maintain the EXACT same dimensions, quality, and format as IMAGE 1. The result must be photorealistic — indistinguishable from a real photograph."""
 

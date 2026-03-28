@@ -59,11 +59,19 @@ REALISM REQUIREMENTS:
 - Where the frame overlaps skin, render the boundary cleanly and naturally
 - The glasses should look like they have physical weight and presence — not like a flat overlay
 
-CRITICAL DETAIL PRESERVATION FROM IMAGE 2:
-- The frame shape, proportions, and details from IMAGE 2 must be faithfully reproduced
+VISUAL FIDELITY TO IMAGE 2 — THIS IS CRITICAL:
+- The glasses in the output must be a faithful reproduction of the EXACT glasses shown in IMAGE 2 — use IMAGE 2 as your primary visual reference, not just the text description above
+- Copy the frame design, proportions, decorative details, temple arm style, and nose pad type directly from IMAGE 2
 - Frame color, material texture, and finish must match IMAGE 2 exactly
 - Lens color, tint level, and finish type must match IMAGE 2 exactly
-- Any distinctive design elements (nose pads, decorative elements, logo placement) should be preserved
+- Do NOT redesign, simplify, or stylize the glasses — they must look like the same physical pair from IMAGE 2
+- If IMAGE 2 shows specific details (brand logos, hinge style, screw details, engraving), reproduce them
+
+IDENTITY PRESERVATION — DO NOT ALTER THE PERSON:
+- Do NOT smooth, beautify, reshape, or enhance the person's facial features in any way
+- The person's face must be pixel-identical to IMAGE 1 in every area not occluded by the glasses
+- Skin texture, pores, blemishes, wrinkles, and any imperfections must remain exactly as they are
+- Do NOT change eye color, lip color, eyebrow shape, or any other feature
 
 OUTPUT: Return ONLY the edited portrait photograph with the glasses applied. Maintain the EXACT same dimensions, quality, and format as IMAGE 1. The result must be completely photorealistic."""
 
