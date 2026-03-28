@@ -129,6 +129,28 @@ body{min-height:100vh}
 .chip-group input{display:none}
 .chip-group input:checked+label{border-color:#6c63ff;color:#fff;background:#6c63ff}
 
+/* ── Advanced options toggle ── */
+.advanced-toggle{
+  display:flex;align-items:center;justify-content:center;gap:.45rem;
+  width:100%;padding:.7rem 0;margin:1.5rem 0 .5rem;
+  background:none;border:1px solid rgba(255,255,255,.1);border-radius:12px;
+  color:rgba(255,255,255,.5);font-size:.82rem;font-weight:500;cursor:pointer;
+  transition:all .2s;
+}
+.advanced-toggle:hover{border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.7)}
+.advanced-toggle #adv-arrow{transition:transform .25s;font-size:.7rem}
+.advanced-toggle.open #adv-arrow{transform:rotate(180deg)}
+
+/* advanced section — hidden by default */
+#advanced-section{display:none}
+#advanced-section.open{display:block}
+
+/* ── Dimmed options — still clickable, just visually muted ── */
+.tile.dimmed .tile-inner,
+.swatch.dimmed .swatch-inner{opacity:.35;transition:opacity .25s}
+.chip-group .dimmed label,
+.radio-group .dimmed label{opacity:.35;transition:opacity .25s}
+
 /* submit button */
 .submit-row{text-align:center;margin:2.5rem 0 3rem}
 .submit-btn{

@@ -476,11 +476,19 @@ def rank_products(query_tags: dict, products: list[dict],
 
     # ── Sport isolation (HARD filter — no graceful fallback) ─────────────
     # Products tagged 'sport' are shown ONLY when the user explicitly
-    # requests sport.  If the user didn't request sport, they are excluded
-    # entirely so lifestyle frames aren't polluted with sport frames.
-    q_lens_type_raw  = query_tags.get("lenses", {}).get("type")
-    q_lens_type_set  = _to_set(q_lens_type_raw)
-    user_wants_sport = "sport" in q_lens_type_set
+    # requests sport (or a sport-adjacent type like prizm/chromance, or
+    # a sport-only shape like shield).  Otherwise they are excluded so
+    # lifestyle frames aren't polluted with sport frames.
+    _SPORT_ADJACENT_TYPES = {"prizm", "chromance"}
+    _SPORT_ONLY_SHAPES = {"shield"}
+
+    q_lens_type_set  = _to_set(query_tags.get("lenses", {}).get("type"))
+    q_shape_set      = _to_set(query_tags.get("lenses", {}).get("shape"))
+    user_wants_sport = (
+        "sport" in q_lens_type_set
+        or bool(q_lens_type_set & _SPORT_ADJACENT_TYPES)
+        or bool(q_shape_set & _SPORT_ONLY_SHAPES)
+    )
 
     sport_pool     = [p for p in pool if "sport" in _to_set(p["tags"].get("lenses", {}).get("type"))]
     non_sport_pool = [p for p in pool if "sport" not in _to_set(p["tags"].get("lenses", {}).get("type"))]
@@ -505,6 +513,18 @@ def rank_products(query_tags: dict, products: list[dict],
             scored.append((product, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Fallback: if all products scored below min_score, return the best
+    # available rather than an empty list.
+    if not scored and pool:
+        fallback = [
+            (p, compute_tag_score(query_tags, p["tags"],
+                                  extra_fields=relaxed_fields))
+            for p in pool
+        ]
+        fallback.sort(key=lambda x: x[1], reverse=True)
+        return fallback[:top_k]
+
     return scored[:top_k]
 
 

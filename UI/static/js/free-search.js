@@ -4,6 +4,7 @@
 
 /* ── State ──────────────────────────────────── */
 let sid=null, poll=null, tipTimer=null, tipIdx=0, uploadedFile=null, lastRendered='';
+let catalogProducts=null; // loaded from /api/catalog for faceting
 
 const tips=[
   "Did you know? Frame shape can change how others perceive your personality.",
@@ -272,4 +273,113 @@ function fsReset(){
   document.querySelectorAll('#form-view input[type=radio][value=""]').forEach(r=>{r.checked=true});
   setLoadStep(1); setLoadProg(0);
   showView(null);
+  updateFacets();
 }
+
+/* ══════════════════════════════════════════════════
+   Advanced Options toggle
+   ══════════════════════════════════════════════════ */
+function toggleAdvanced(){
+  const sec=document.getElementById('advanced-section');
+  const btn=document.getElementById('advanced-toggle');
+  sec.classList.toggle('open');
+  btn.classList.toggle('open');
+}
+
+/* ══════════════════════════════════════════════════
+   Client-side faceting — dim unavailable options
+   ══════════════════════════════════════════════════ */
+
+// Map UI input names → catalog endpoint field names
+const FIELD_MAP={
+  gender:'gender', frame_shape:'shape', lens_type:'lens_type',
+  frame_color:'color', frame_material:'material', rim_type:'rim_type',
+  frame_thickness:'thickness', lens_size:'lens_size',
+  aesthetic:'aesthetic', occasion:'occasion'
+};
+
+// Primary filter fields (drive dimming for all others)
+const PRIMARY_FIELDS=['gender','frame_shape','lens_type'];
+
+// Split comma-separated catalog values into a lowercase set
+function catVals(product,catField){
+  const v=product[catField];
+  if(Array.isArray(v)) return v.map(s=>s.toLowerCase());
+  if(typeof v==='string'&&v) return v.split(/,\s*/).map(s=>s.toLowerCase());
+  return [];
+}
+
+// Check if a product matches a single filter {inputName, value}
+function productMatches(p,inputName,value){
+  const catField=FIELD_MAP[inputName];
+  if(!catField||!value) return true;
+  const vals=catVals(p,catField);
+  const q=value.toLowerCase();
+  // Gender: unisex products match any gender selection
+  if(inputName==='gender'){
+    return vals.includes(q)||vals.includes('unisex');
+  }
+  return vals.includes(q);
+}
+
+function updateFacets(){
+  if(!catalogProducts) return;
+
+  // Collect current primary filter selections
+  const filters={};
+  PRIMARY_FIELDS.forEach(name=>{
+    const el=document.querySelector(`input[name="${name}"]:checked`);
+    if(el&&el.value) filters[name]=el.value;
+  });
+
+  // For each field, compute available values by applying
+  // all OTHER active primary filters (exclude the field itself)
+  const allFields=Object.keys(FIELD_MAP);
+  allFields.forEach(inputName=>{
+    // Build filtered pool: apply all primary filters except this field
+    const pool=catalogProducts.filter(p=>{
+      if(!p.in_stock) return false;
+      for(const [f,v] of Object.entries(filters)){
+        if(f===inputName) continue;
+        if(!productMatches(p,f,v)) return false;
+      }
+      return true;
+    });
+
+    // Collect all values present in the pool for this field
+    const catField=FIELD_MAP[inputName];
+    const available=new Set();
+    pool.forEach(p=>{
+      catVals(p,catField).forEach(v=>available.add(v));
+    });
+    // "unisex" products contribute to both "men" and "women" availability
+    if(inputName==='gender'&&available.has('unisex')){
+      available.add('men');
+      available.add('women');
+    }
+
+    // Apply dimmed class to options not in the available set
+    document.querySelectorAll(`input[name="${inputName}"]`).forEach(radio=>{
+      if(!radio.value) return; // skip "Any"
+      const label=radio.closest('label')||radio.closest('span');
+      if(!label) return;
+      const dimmed=!available.has(radio.value.toLowerCase());
+      label.classList.toggle('dimmed',dimmed);
+    });
+  });
+}
+
+// Load catalog on page init and wire up faceting
+(function initFaceting(){
+  fetch('/api/catalog').then(r=>r.json()).then(data=>{
+    catalogProducts=data;
+    updateFacets();
+  }).catch(()=>{});
+
+  // Re-run facets whenever any primary filter changes
+  PRIMARY_FIELDS.forEach(name=>{
+    document.querySelectorAll(`input[name="${name}"]`).forEach(radio=>{
+      radio.addEventListener('change',updateFacets);
+    });
+  });
+})();

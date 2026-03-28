@@ -157,7 +157,10 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
 
     # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
-    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    try:
+        portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    except Exception:
+        portrait_aspect = "1:1"
 
     try:
         api_key = _get_api_key()
@@ -491,7 +494,10 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
 
     # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
-    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    try:
+        portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    except Exception:
+        portrait_aspect = "1:1"
 
     try:
         api_key = _get_api_key()
@@ -535,10 +541,6 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 filters["max_price"] = float(preferences["max_price"])
             except ValueError:
                 pass
-        if preferences.get("gender"):
-            filters["gender"] = preferences["gender"]
-        if preferences.get("lens_type"):
-            filters["lens_type"] = preferences["lens_type"]
 
         matches = rank_products(
             query_tags=query_tags,
@@ -691,12 +693,16 @@ def get_catalog_products() -> list[dict]:
             "price": ptags.get("price", 0),
             "currency": ptags.get("currency", "ILS"),
             "in_stock": ptags.get("in_stock", True),
-            "shape": tags["frame"].get("shape", ""),
+            "shape": tags["lenses"].get("shape", ""),
             "material": tags["frame"].get("material", ""),
             "color": ", ".join(tags["frame"]["color"]) if isinstance(tags["frame"].get("color"), list) else str(tags["frame"].get("color", "")),
             "rim_type": tags["frame"].get("rim_type", ""),
             "lens_type": ", ".join(tags["lenses"]["type"]) if isinstance(tags["lenses"].get("type"), list) else str(tags["lenses"].get("type", "")),
             "gender": tags["style"].get("gender_target", "unisex"),
+            "thickness": tags["frame"].get("thickness", ""),
+            "lens_size": tags["lenses"].get("size", ""),
+            "aesthetic": tags["style"].get("aesthetic", []),
+            "occasion": tags["style"].get("occasion", []),
         })
     return products
 
@@ -733,7 +739,10 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
     portrait_path = tmp.name
 
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
-    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    try:
+        portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    except Exception:
+        portrait_aspect = "1:1"
     sess["stage"] = "tryon"
 
     try:
