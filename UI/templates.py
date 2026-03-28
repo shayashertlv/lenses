@@ -296,7 +296,7 @@ body{
 .opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
 .opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
 .tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
-.tryon-col img{width:100%;height:auto;border-radius:12px;display:block}
+.tryon-col img{width:100%;height:auto;object-fit:contain;border-radius:12px;display:block}
 .prod-col{flex:1 1 200px;display:flex;flex-direction:column;gap:.6rem}
 .prod-col img{display:block;width:100%;max-height:200px;object-fit:contain;border-radius:12px;background:#fff}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
@@ -2446,7 +2446,7 @@ body{
     </div>
     <div class="load-prog"><div class="load-prog-fill" id="load-prog-fill"></div></div>
     <p id="load-stage">Uploading your photo...</p>
-    <div class="tip-box"><p id="load-tip">Nano Banana Pro is crafting your new lens colours...</p></div>
+    <div class="tip-box"><p id="load-tip">Crafting your new lens colours...</p></div>
   </div>
 </div>
 
@@ -2649,7 +2649,7 @@ function pollStatus(){
           document.getElementById('load-stage').textContent='Uploading your photo...';
           document.getElementById('load-prog-fill').style.width='15%';
         } else if(stage==='recoloring'){
-          document.getElementById('load-stage').textContent='Nano Banana Pro is recoloring your lenses...';
+          document.getElementById('load-stage').textContent='Recoloring your lenses...';
           document.getElementById('load-prog-fill').style.width='40%';
         } else if(stage==='primary_ready'){
           document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
@@ -2802,7 +2802,7 @@ function rcReset(){
 
 /* ── Loading tips rotation ── */
 const tips=[
-  'Nano Banana Pro analyses the lens area and applies the new colour with photorealistic precision.',
+  'Our AI analyses the lens area and applies the new colour with photorealistic precision.',
   'Only the lens colour changes — frame, face, and background remain untouched.',
   'Each colour is generated independently for the most realistic result.',
   'The AI preserves natural reflections and blends the tint to match the lens curvature.',
