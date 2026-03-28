@@ -295,11 +295,11 @@ body{
   letter-spacing:.06em;background:rgba(255,255,255,.04);color:rgba(255,255,255,.4)}
 .opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
 .opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
-.tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative;
-  max-height:360px;overflow:hidden;border-radius:12px}
-.tryon-col img{max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain;border-radius:12px;display:block}
-.prod-col{flex:1 1 200px;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{display:block;width:100%;max-height:200px;object-fit:contain;border-radius:12px;background:#fff}
+.tryon-col{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;position:relative;
+  overflow:hidden;border-radius:12px}
+.tryon-col img{width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
+.prod-col{flex:1 1 0;display:flex;flex-direction:column;gap:.6rem}
+.prod-col img{display:block;width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#fff}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
 .prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
 .prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
@@ -324,14 +324,11 @@ body{
 /* ── Primary hero card ──────────────────────────── */
 .primary-hero{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;overflow:hidden;
   box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
-.primary-hero-inner{display:flex;align-items:stretch;max-height:520px}
-.primary-tryon{flex:0 1 auto;min-width:0;max-width:50%;display:flex;align-items:center;justify-content:center;padding:12px;position:relative;overflow:hidden}
-.primary-tryon img{max-width:100%;max-height:490px;width:auto;height:auto;object-fit:contain;border-radius:14px;display:block}
-.primary-panel{flex:1 1 0;min-width:280px;padding:24px 28px;display:flex;flex-direction:column;overflow-y:auto}
-.match-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(22,163,74,.15);color:#4ade80;
-  font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;margin-bottom:14px;align-self:flex-start}
-.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:2px;color:#fff}
-.primary-panel .p-brand{font-size:12px;color:rgba(255,255,255,.4);margin-bottom:10px}
+.primary-hero-inner{display:flex;align-items:stretch}
+.primary-tryon{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;padding:12px;position:relative;overflow:hidden}
+.primary-tryon img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
+.primary-panel{flex:1 1 0;min-width:0;padding:24px 28px;display:flex;flex-direction:column;justify-content:center}
+.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:6px;color:#fff}
 .primary-panel .p-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
 .primary-panel .p-tag{font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(108,99,255,.15);color:#a78bfa}
 .primary-panel .p-price{font-size:20px;font-weight:700;color:#fff}
@@ -368,13 +365,14 @@ body{
 
 /* ── Smart Fit results: tablet ── */
 @media(max-width:900px){
-  .primary-hero-inner{flex-direction:column;max-height:none}
-  .primary-tryon{max-width:100%;padding:16px}
-  .primary-tryon img{max-height:400px}
-  .primary-panel{flex:none;width:100%;padding:16px;min-width:0;overflow-y:visible}
+  .primary-hero-inner{flex-direction:column}
+  .primary-tryon{flex:none;max-width:100%;padding:16px}
+  .primary-tryon img{width:100%;height:auto;max-height:400px;object-fit:contain}
+  .primary-panel{flex:none;width:100%;padding:16px;min-width:0;justify-content:flex-start}
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:8px}
   .opt-body{flex-direction:column}
-  .tryon-col{max-width:100%;margin-bottom:.3rem}
+  .tryon-col{flex:none;max-width:100%;margin-bottom:.3rem}
+  .tryon-col img{width:100%;height:auto;max-height:360px;object-fit:contain}
   .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
   .prod-col img{width:80px;height:80px;flex-shrink:0;max-height:80px}
 }
@@ -385,12 +383,10 @@ body{
   .primary-tryon img{max-height:320px}
   .primary-panel{padding:12px 14px}
   .primary-panel .p-name{font-size:14px}
-  .primary-panel .p-brand{font-size:11px;margin-bottom:6px}
   .primary-panel .p-tags{gap:4px;margin-bottom:8px}
   .primary-panel .p-tag{font-size:10px;padding:2px 7px}
   .primary-panel .p-price{font-size:17px}
   .primary-panel .p-micro{font-size:10px;margin-bottom:8px}
-  .match-badge{font-size:10px;padding:3px 8px;margin-bottom:8px}
   /* "Why this works" — smaller but NO truncation */
   .why-label{font-size:11px;margin-bottom:5px}
   .why-item{font-size:11px;line-height:1.4}
@@ -625,29 +621,39 @@ function buildPrimaryCard(o,d){
   const card=document.createElement('div');
   card.className='primary-hero';
   const tryonHtml=buildTryonHtml(o);
-  const matchPct=(o.score*100).toFixed(1);
 
-  // Why bullets from face_insights
-  const insights=d.face_insights||[];
+  // Why bullets — product-aware (built from face_summary + actual product)
+  const fs=d.face_summary||{};
+  let whyBullets=[];
+  if(fs.face_shape&&o.shape){
+    whyBullets.push('For your '+fs.face_shape+' face, '+o.shape+' frames '+
+      ((['round','oval'].includes(fs.face_shape.toLowerCase()))?'maintain balance and complement your natural proportions.':
+       (['square','rectangular'].includes(fs.face_shape.toLowerCase()))?'add contrast and soften your strong angles.':
+       'work harmoniously with your facial structure.'));
+  }
+  if(fs.color_profile){
+    const warm=fs.color_profile.toLowerCase().includes('warm');
+    const cool=fs.color_profile.toLowerCase().includes('cool');
+    whyBullets.push('Your '+(fs.color_profile||'coloring').toLowerCase()+' pairs naturally with '+escHtml(o.color)+' '+escHtml(o.material)+' frames'+(warm?' — warm tones echo your skin undertone and hair color.':cool?' — cool tones complement your complexion beautifully.':'.'));
+  }
+  if(fs.key_geometry){
+    whyBullets.push('Your '+fs.key_geometry.toLowerCase()+' is balanced by the '+escHtml(o.shape)+' silhouette, creating a polished, well-proportioned look.');
+  }
   let whyHtml='';
-  if(insights.length>=3){
+  if(whyBullets.length){
     whyHtml=`<div class="p-divider"></div>
       <div class="why-label">Why this works for you</div>
       <div class="why-list">
-        ${insights.slice(0,3).map(t=>`<div class="why-item">${checkSvg14}<span>${escHtml(t.split('. ')[0]+'.')}</span></div>`).join('')}
+        ${whyBullets.map(t=>`<div class="why-item">${checkSvg14}<span>${t}</span></div>`).join('')}
       </div>`;
   }
 
   card.innerHTML=`<div class="primary-hero-inner">
     <div class="primary-tryon">${tryonHtml}</div>
     <div class="primary-panel">
-      <div class="match-badge">${checkSvg12} ${matchPct}% match</div>
       <div class="p-name">${escHtml(o.name)}</div>
-      <div class="p-brand">${escHtml(o.brand)} \u2014 ${escHtml(o.color)}</div>
       <div class="p-tags">
-        <span class="p-tag">${escHtml(o.shape)}</span>
-        <span class="p-tag">${escHtml(o.material)}</span>
-        <span class="p-tag">${escHtml(o.color)}</span>
+        ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="p-tag">${escHtml(t)}</span>`).join('')}
       </div>
       <div class="p-price">${fmtPrice(o)}</div>
       <div class="p-micro">Includes standard lenses</div>
@@ -793,14 +799,10 @@ function buildAlternativeCard(o,idx){
         <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
         <div class="prod-info">
           <h3>${escHtml(o.name)}</h3>
-          <p class="brand">${escHtml(o.brand)} \u2014 ${escHtml(o.model)}</p>
           <div class="tags">
-            <span class="tag">${escHtml(o.shape)}</span>
-            <span class="tag">${escHtml(o.material)}</span>
-            <span class="tag">${escHtml(o.color)}</span>
+            ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}
           </div>
           <p class="price">${fmtPrice(o)}</p>
-          <p class="score">Match: ${(o.score*100).toFixed(1)}%</p>
         </div>
       </div>
     </div>`;
@@ -834,15 +836,11 @@ function renderOpts(container,d){
           <img src="data:image/jpeg;base64,${o.product_b64}" alt="${o.name}"/>
           <div class="prod-info">
             <h3>${o.name}</h3>
-            <p class="brand">${o.brand} \u2014 ${o.model}</p>
             <div class="tags">
-              <span class="tag">${o.shape}</span>
-              <span class="tag">${o.material}</span>
-              <span class="tag">${o.color}</span>
+              ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}
             </div>
             <p class="price">${price}</p>
-            <p class="score">Match: ${(o.score*100).toFixed(1)}%</p>
-          </div>
+            </div>
         </div>
       </div>`;
     container.appendChild(card);
