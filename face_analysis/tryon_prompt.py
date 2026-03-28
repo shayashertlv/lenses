@@ -94,6 +94,14 @@ CRITICAL PRESERVATION RULES — DO NOT CHANGE ANY OF THE FOLLOWING:
 - The overall lighting ({lighting.replace("_", " ")}), shadows, and color grading must remain IDENTICAL
 - The photo composition, framing, angle, and resolution must remain IDENTICAL
 
+FRAMING / ZOOM — THIS IS CRITICAL:
+- The output image MUST have the EXACT same crop, zoom level, and framing as IMAGE 1
+- Do NOT zoom out, pull back, or reveal more of the scene than IMAGE 1 shows
+- Do NOT zoom in or crop tighter than IMAGE 1
+- The person's head, shoulders, and body must occupy the EXACT same area and proportion of the frame as in IMAGE 1
+- If IMAGE 1 shows the person from the chest up, the output must show the person from the chest up at the same scale
+- The edges of the frame must show the same content as IMAGE 1 — do not add extra background, body, or space
+
 REALISM REQUIREMENTS:
 - Add natural shadows where the glasses frame contacts the face — subtle shadow under the bridge on the nose, faint shadow from frame on cheeks
 - The shadow direction must be consistent with the existing lighting in the photo ({lighting.replace("_", " ")})

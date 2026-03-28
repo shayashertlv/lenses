@@ -407,6 +407,14 @@ CRITICAL PRESERVATION RULES FOR THE PORTRAIT (IMAGE 1):
 - The overall lighting, shadows, and color grading must remain IDENTICAL
 - The photo composition, framing, angle, and resolution must remain IDENTICAL
 
+FRAMING / ZOOM — THIS IS CRITICAL:
+- The output image MUST have the EXACT same crop, zoom level, and framing as IMAGE 1
+- Do NOT zoom out, pull back, or reveal more of the scene than IMAGE 1 shows
+- Do NOT zoom in or crop tighter than IMAGE 1
+- The person's head, shoulders, and body must occupy the EXACT same area and proportion of the frame as in IMAGE 1
+- If IMAGE 1 shows the person from the chest up, the output must show the person from the chest up at the same scale
+- The edges of the frame must show the same content as IMAGE 1 — do not add extra background, body, or space
+
 REALISM REQUIREMENTS:
 - Add natural shadows where the glasses frame touches the face (bridge of nose, temples)
 - If there is directional lighting in the portrait, the glasses should cast consistent shadows
@@ -839,6 +847,7 @@ CRITICAL PRESERVATION RULES — do NOT change any of the following:
 - The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
 - The photo composition, framing, and resolution must remain IDENTICAL
 - Any text, logos, or watermarks present must remain IDENTICAL
+- The output MUST have the EXACT same crop, zoom level, and framing — do NOT zoom out, pull back, zoom in, or change what is visible at the edges of the frame
 
 LENS COLOR APPLICATION GUIDANCE:
 - Apply the {target_color} tint ONLY to the transparent/semi-transparent lens area bounded by the glasses frame

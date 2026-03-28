@@ -175,7 +175,7 @@ function getTryonHtml(o){
       <button class="recolor-overlay-btn" onclick="event.stopPropagation();goRecolor('${key}')" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
     </div>`;
   }
-  if(o.tryon_status==='error') return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+o.tryon_error:''}</div>`;
+  if(o.tryon_status==='error') return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+escHtml(o.tryon_error):''}</div>`;
   return '<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>';
 }
 
@@ -197,15 +197,15 @@ function fsBuildCard(opt,index){
     <div class="result-label">${label}</div>
     <div class="result-img-wrap">${getTryonHtml(opt)}</div>
     <div class="result-text">
-      <div class="result-name">${opt.name}</div>
+      <div class="result-name">${escHtml(opt.name)}</div>
       <div class="result-tags">
-        ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+t+'</span>').join('')}
+        ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
       </div>
       <div class="result-price">${fmtPrice(opt)}</div>
       ${extraHtml}
     </div>
     <div class="result-img-wrap result-product-bg">
-      <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${opt.name}"/>
+      <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${escHtml(opt.name)}"/>
     </div>`;
   return el;
 }
