@@ -1139,7 +1139,7 @@ body{
 }
 .hero-product-img{
   width:100%;max-height:180px;object-fit:contain;border-radius:14px;
-  background:rgba(255,255,255,.04);
+  background:transparent;
 }
 .hero-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.35rem;
