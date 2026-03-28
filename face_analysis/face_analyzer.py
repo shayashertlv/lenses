@@ -69,6 +69,7 @@ class FaceAnalyzer:
                 model=self.model,
                 contents=[portrait_part, prompt],
                 config=genai_types.GenerateContentConfig(
+                    temperature=0,
                     thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
                 ),
             )
@@ -117,6 +118,7 @@ class FaceAnalyzer:
                     model=self.model,
                     contents=[portrait_part, retry_prompt],
                     config=genai_types.GenerateContentConfig(
+                        temperature=0,
                         thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
                     ),
                 )

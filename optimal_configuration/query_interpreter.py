@@ -81,9 +81,13 @@ IMPORTANT:
 - All tag values MUST come from the allowed lists above — do not invent values.
 - For fields that accept lists (color, type, aesthetic, etc.), use a JSON array even for single values."""
 
+    from google.genai import types as genai_types
     response = client.models.generate_content(
         model=QUERY_INTERPRETER_MODEL,
         contents=[prompt],
+        config=genai_types.GenerateContentConfig(
+            temperature=0,
+        ),
     )
 
     raw_text = response.text.strip()
