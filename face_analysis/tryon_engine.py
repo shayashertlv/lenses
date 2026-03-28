@@ -40,6 +40,7 @@ def virtual_tryon(
     api_key: str,
     portrait_part=None,
     client=None,
+    aspect_ratio: str | None = None,
 ) -> TryOnResult:
     """
     Send portrait + glasses photo to Nano Banana for virtual try-on.
@@ -86,6 +87,7 @@ def virtual_tryon(
         portrait_part=portrait_part,
         glasses_part=glasses_part,
         model_alias=model_alias,
+        aspect_ratio=aspect_ratio,
     )
 
     if result.success:
@@ -105,6 +107,7 @@ def virtual_tryon(
             portrait_part=portrait_part,
             glasses_part=glasses_part,
             model_alias=model_alias,
+            aspect_ratio=aspect_ratio,
         )
 
     return result
@@ -117,14 +120,21 @@ def _call_nano_banana(
     portrait_part,
     glasses_part,
     model_alias: str,
+    aspect_ratio: str | None = None,
 ) -> TryOnResult:
     """Make the actual Nano Banana API call."""
     from google.genai import types
 
     start_time = time.time()
 
+    # Build config — pin aspect ratio when provided so the model can't
+    # pick its own framing.
+    img_cfg = None
+    if aspect_ratio:
+        img_cfg = types.ImageConfig(aspect_ratio=aspect_ratio)
+
     try:
-        # Order: prompt, glasses (IMAGE 2), portrait (IMAGE 1) last so the
+        # Order: prompt, glasses (IMAGE 1), portrait (IMAGE 2) last so the
         # model adopts the portrait's aspect ratio for its output.
         response = client.models.generate_content(
             model=model_name,
@@ -132,6 +142,7 @@ def _call_nano_banana(
             config=types.GenerateContentConfig(
                 temperature=0,
                 response_modalities=["TEXT", "IMAGE"],
+                image_config=img_cfg,
             ),
         )
     except Exception as e:

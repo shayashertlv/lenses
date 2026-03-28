@@ -35,6 +35,7 @@ def virtual_tryon(
     api_key: str,
     retry_on_text_only: bool = True,
     portrait_part=None,
+    aspect_ratio: str | None = None,
 ) -> TryOnResult:
     """
     Send portrait + glasses image to Nano Banana for virtual try-on.
@@ -73,7 +74,7 @@ def virtual_tryon(
     # Initialize client
     client = genai.Client(api_key=api_key)
 
-    # Make API call — order: prompt, portrait (image 1), glasses (image 2)
+    # Make API call
     return _call_tryon_api(
         client=client,
         model_name=model_name,
@@ -82,6 +83,7 @@ def virtual_tryon(
         glasses_part=glasses_part,
         model_alias=model_alias,
         retry_on_text_only=retry_on_text_only,
+        aspect_ratio=aspect_ratio,
     )
 
 
@@ -94,11 +96,16 @@ def _call_tryon_api(
     model_alias: str,
     retry_on_text_only: bool,
     is_retry: bool = False,
+    aspect_ratio: str | None = None,
 ) -> TryOnResult:
     """Make the actual API call with retry logic."""
     from google.genai import types
 
     start_time = time.time()
+
+    img_cfg = None
+    if aspect_ratio:
+        img_cfg = types.ImageConfig(aspect_ratio=aspect_ratio)
 
     try:
         response = client.models.generate_content(
@@ -108,6 +115,7 @@ def _call_tryon_api(
             config=types.GenerateContentConfig(
                 temperature=0,
                 response_modalities=["TEXT", "IMAGE"],
+                image_config=img_cfg,
             ),
         )
     except Exception as e:
@@ -182,6 +190,7 @@ def _call_tryon_api(
             model_alias=model_alias,
             retry_on_text_only=False,
             is_retry=True,
+            aspect_ratio=aspect_ratio,
         )
 
     return TryOnResult(

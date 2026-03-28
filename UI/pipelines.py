@@ -94,6 +94,46 @@ def _get_api_key() -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ASPECT RATIO SNAPPING
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Gemini adopts the aspect ratio of the LAST image in the contents array.
+# To guarantee consistent output we also pass an explicit aspect_ratio via
+# ImageConfig, snapped to the nearest supported preset.
+
+_SUPPORTED_RATIOS = [
+    ("1:1",  1.0),
+    ("2:3",  2 / 3),
+    ("3:4",  3 / 4),
+    ("9:16", 9 / 16),
+    ("3:2",  3 / 2),
+    ("4:3",  4 / 3),
+    ("16:9", 16 / 9),
+    ("21:9", 21 / 9),
+]
+
+
+def _snap_aspect_ratio(width: int, height: int) -> str:
+    """Return the nearest Gemini-supported aspect ratio string for the given dimensions."""
+    ratio = width / height
+    best_label = "1:1"
+    best_dist = float("inf")
+    for label, value in _SUPPORTED_RATIOS:
+        # Use log-space distance so portrait vs landscape errors are symmetric
+        dist = abs(ratio - value) / max(ratio, value)
+        if dist < best_dist:
+            best_dist = dist
+            best_label = label
+    return best_label
+
+
+def _detect_portrait_ratio(portrait_bytes: bytes) -> str:
+    """Open portrait bytes just enough to read dimensions and snap to a preset."""
+    img = Image.open(io.BytesIO(portrait_bytes))
+    return _snap_aspect_ratio(img.width, img.height)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SMART FIT PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -115,6 +155,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     portrait_path = tmp.name
 
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+
+    # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
+    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
 
     try:
         api_key = _get_api_key()
@@ -253,6 +296,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
                 api_key=api_key,
                 portrait_part=_portrait_parts[idx],
                 client=tryon_client,
+                aspect_ratio=portrait_aspect,
             )
         except Exception as e:
             sess[f"opt{idx}"]["tryon_status"] = "error"
@@ -363,7 +407,8 @@ OUTPUT: Return ONLY the edited photo. Same dimensions and quality as IMAGE 2. Ph
 
 
 def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
-                      api_key: str, portrait_part=None, client=None) -> dict:
+                      api_key: str, portrait_part=None, client=None,
+                      aspect_ratio: str | None = None) -> dict:
     """
     Run a virtual try-on. Returns dict with keys:
       success, image_bytes, error
@@ -371,6 +416,7 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
     Args:
         portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
         client: Pre-created genai.Client (skips creating a new one if provided).
+        aspect_ratio: Gemini-supported aspect ratio string to pin output framing.
     """
     from google import genai
     from google.genai import types
@@ -388,6 +434,10 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
     if client is None:
         client = genai.Client(api_key=api_key)
 
+    img_cfg = None
+    if aspect_ratio:
+        img_cfg = types.ImageConfig(aspect_ratio=aspect_ratio)
+
     for attempt in range(2):
         p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
         try:
@@ -395,7 +445,11 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
                 model=model_name,
                 # Glasses first, portrait last — model adopts last image's aspect ratio
                 contents=[p, glasses_part, portrait_part],
-                config=types.GenerateContentConfig(temperature=0, response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(
+                    temperature=0,
+                    response_modalities=["TEXT", "IMAGE"],
+                    image_config=img_cfg,
+                ),
             )
         except Exception as e:
             return {"success": False, "image_bytes": None, "error": str(e)}
@@ -435,6 +489,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     portrait_path = tmp.name
 
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+
+    # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
+    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
 
     try:
         api_key = _get_api_key()
@@ -540,7 +597,8 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
 
                 tryon_client = genai.Client(api_key=api_key)
                 tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                                       portrait_part=_portrait_parts[idx], client=tryon_client)
+                                       portrait_part=_portrait_parts[idx], client=tryon_client,
+                                       aspect_ratio=portrait_aspect)
 
                 if tr["success"] and tr["image_bytes"]:
                     sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
@@ -675,6 +733,7 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
     portrait_path = tmp.name
 
     sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    portrait_aspect = _detect_portrait_ratio(portrait_bytes)
     sess["stage"] = "tryon"
 
     try:
@@ -718,7 +777,7 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
     }
 
     tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                           client=client)
+                           client=client, aspect_ratio=portrait_aspect)
 
     if tr["success"] and tr["image_bytes"]:
         sess["opt0"]["tryon_b64"] = base64.b64encode(
