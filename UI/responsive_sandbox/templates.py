@@ -297,8 +297,9 @@ body{
   letter-spacing:.06em;background:rgba(255,255,255,.04);color:rgba(255,255,255,.4)}
 .opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
 .opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
-.tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative}
-.tryon-col img{width:100%;height:auto;object-fit:contain;border-radius:12px;display:block}
+.tryon-col{flex:1 1 0;min-width:0;max-width:55%;display:flex;align-items:center;justify-content:center;position:relative;
+  max-height:360px;overflow:hidden;border-radius:12px}
+.tryon-col img{max-width:100%;max-height:360px;width:auto;height:auto;object-fit:contain;border-radius:12px;display:block}
 .prod-col{flex:1 1 200px;display:flex;flex-direction:column;gap:.6rem}
 .prod-col img{display:block;width:100%;max-height:200px;object-fit:contain;border-radius:12px;background:#fff}
 .prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
@@ -562,7 +563,7 @@ function buildTryonHtml(o){
   if(o.tryon_status==='done'&&o.tryon_b64){
     const key='rc'+(++_recolorIdx);
     _recolorStore[key]=o.tryon_b64;
-    return `<div style="position:relative;display:inline-block;width:100%">
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center">
       <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
       <button onclick="event.stopPropagation();goRecolor('${key}')" style="position:absolute;bottom:10px;left:10px;padding:5px 12px;background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
     </div>`;
@@ -1066,7 +1067,12 @@ body{
   border-radius:28px;border:1px solid rgba(255,255,255,.06);
   padding:28px;overflow:hidden;position:relative;
 }
-.hero-tryon-wrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:340px}
+.hero-tryon-wrap{
+  position:relative;display:flex;align-items:center;justify-content:center;
+  min-height:240px;max-height:480px;overflow:hidden;border-radius:16px;
+  background:rgba(0,0,0,.15);
+}
+.hero-tryon-wrap>div{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 .hero-glow{
   position:absolute;top:-20%;left:15%;width:400px;height:400px;border-radius:50%;
   background:radial-gradient(circle,var(--accent),transparent 70%);
@@ -1075,7 +1081,8 @@ body{
 }
 @keyframes pulse{0%,100%{opacity:.15}50%{opacity:.3}}
 .hero-tryon-wrap img{
-  width:100%;max-height:420px;object-fit:contain;border-radius:16px;
+  max-width:100%;max-height:480px;width:auto;height:auto;
+  object-fit:contain;border-radius:16px;
   display:block;position:relative;z-index:1;
 }
 .hero-tryon-wrap button{position:relative;z-index:2}
@@ -1165,8 +1172,8 @@ body{
 .alt-card:nth-child(2){animation-delay:.55s}
 .alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
 .alt-card-img-wrap{position:relative;display:flex;align-items:center;justify-content:center;
-  min-height:240px;padding:16px;background:rgba(255,255,255,.02)}
-.alt-card-img-wrap img{width:100%;max-height:280px;object-fit:contain;border-radius:12px;display:block}
+  min-height:200px;max-height:320px;padding:16px;overflow:hidden;background:rgba(255,255,255,.02);border-radius:12px}
+.alt-card-img-wrap img{max-width:100%;max-height:300px;width:auto;height:auto;object-fit:contain;border-radius:12px;display:block}
 .alt-card-body{padding:20px}
 .alt-card-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
@@ -1297,8 +1304,8 @@ body{
   .submit-row{margin:2rem 0 3rem}
   /* Results */
   .hero-grid{gap:10px;padding:14px;border-radius:18px}
-  .hero-tryon-wrap{min-height:0;max-height:160px}
-  .hero-tryon-wrap img{max-height:160px}
+  .hero-tryon-wrap{min-height:0;max-height:280px}
+  .hero-tryon-wrap img{max-height:280px}
   .hero-product-img{max-height:58px}
   .hero-panel{padding:12px;gap:8px;border-radius:16px}
   .hero-name{font-size:.92rem}
@@ -1307,7 +1314,7 @@ body{
   .score-panel{padding:10px}
   .score-panel-hdr{margin-bottom:6px}
   .alt-grid{grid-template-columns:1fr}
-  .alt-card-img-wrap{min-height:200px;padding:12px}
+  .alt-card-img-wrap{min-height:160px;max-height:260px;padding:12px}
   .alt-card-footer{padding:12px 16px}
   .res-topbar{padding:10px 14px;margin:0 -.9rem 20px}
   .res-topbar-back{padding:6px 14px;font-size:.78rem}
@@ -1331,7 +1338,7 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
   .swatch-dot{width:28px;height:28px}
   .hero-grid{padding:16px;gap:14px}
-  .alt-card-img-wrap{min-height:170px}
+  .alt-card-img-wrap{min-height:140px;max-height:220px}
 }
 /* ── Landscape mobile ── */
 @media(max-height:500px) and (max-width:900px){
@@ -1746,7 +1753,7 @@ function getTryonHtml(o){
   if(o.tryon_status==='done'&&o.tryon_b64){
     const key='rc'+(++_recolorIdx);
     _recolorStore[key]=o.tryon_b64;
-    return `<div style="position:relative;display:inline-block;width:100%">
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center">
       <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
       <button onclick="event.stopPropagation();goRecolor('${key}')" style="position:absolute;bottom:10px;left:10px;padding:5px 12px;background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
     </div>`;
