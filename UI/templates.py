@@ -324,10 +324,10 @@ body{
 /* ── Primary hero card ──────────────────────────── */
 .primary-hero{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;overflow:hidden;
   box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
-.primary-hero-inner{display:flex;align-items:stretch}
-.primary-tryon{flex:1 1 0;min-width:0;max-width:420px;display:flex;align-items:center;justify-content:center;padding:12px;position:relative}
-.primary-tryon img{width:100%;height:auto;object-fit:contain;border-radius:14px;display:block}
-.primary-panel{flex:1 1 0;min-width:220px;padding:20px;display:flex;flex-direction:column}
+.primary-hero-inner{display:flex;align-items:stretch;max-height:520px}
+.primary-tryon{flex:0 1 auto;min-width:0;max-width:50%;display:flex;align-items:center;justify-content:center;padding:12px;position:relative;overflow:hidden}
+.primary-tryon img{max-width:100%;max-height:490px;width:auto;height:auto;object-fit:contain;border-radius:14px;display:block}
+.primary-panel{flex:1 1 0;min-width:280px;padding:24px 28px;display:flex;flex-direction:column;overflow-y:auto}
 .match-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(22,163,74,.15);color:#4ade80;
   font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;margin-bottom:14px;align-self:flex-start}
 .primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:2px;color:#fff}
@@ -368,9 +368,10 @@ body{
 
 /* ── Smart Fit results: tablet ── */
 @media(max-width:900px){
-  .primary-hero-inner{flex-direction:column}
-  .primary-tryon{max-width:100%;padding:10px}
-  .primary-panel{flex:none;width:100%;padding:14px 16px}
+  .primary-hero-inner{flex-direction:column;max-height:none}
+  .primary-tryon{max-width:100%;padding:16px}
+  .primary-tryon img{max-height:400px}
+  .primary-panel{flex:none;width:100%;padding:16px;min-width:0;overflow-y:visible}
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:8px}
   .opt-body{flex-direction:column}
   .tryon-col{max-width:100%;margin-bottom:.3rem}
@@ -381,6 +382,7 @@ body{
 @media(max-width:600px){
   /* Primary hero — image full width, text compact below */
   .primary-tryon{padding:6px}
+  .primary-tryon img{max-height:320px}
   .primary-panel{padding:12px 14px}
   .primary-panel .p-name{font-size:14px}
   .primary-panel .p-brand{font-size:11px;margin-bottom:6px}
