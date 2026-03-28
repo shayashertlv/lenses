@@ -333,15 +333,15 @@ def _fs_build_tryon_prompt(product: dict) -> str:
     lens_colors = _join(lenses["color"])
 
     return f"""I am providing two images:
-- IMAGE 1: A portrait photo of a person.
-- IMAGE 2: A product photo of glasses.
+- IMAGE 1: A product photo of glasses.
+- IMAGE 2: A portrait photo of a person.
 
-YOUR TASK: Create the EXACT same photo as IMAGE 1, but with the person wearing the glasses from IMAGE 2. The result must look like a real photograph — as if the person was already wearing these glasses when the photo was taken.
+YOUR TASK: Create the EXACT same photo as IMAGE 2, but with the person wearing the glasses from IMAGE 1. The result must look like a real photograph — as if the person was already wearing these glasses when the photo was taken.
 
-GLASSES FROM IMAGE 2:
+GLASSES FROM IMAGE 1:
 - Frame: {frame.get("shape", "classic")}, {frame.get("material", "")}, {frame_colors}, {frame.get("rim_type", "")}
 - Lenses: {lens_types}, {lens_colors}
-- Reproduce the glasses from IMAGE 2 faithfully — same design, proportions, and details.
+- Reproduce the glasses from IMAGE 1 faithfully — same design, proportions, and details.
 
 PLACEMENT:
 - Position naturally on the face — bridge on nose, temples toward ears
@@ -350,16 +350,16 @@ PLACEMENT:
 - Eyes visible through lenses at appropriate opacity for {lens_types} lenses with {lens_colors} tint
 
 CRITICAL RULES:
-- The output must be a 1:1 compositional match to IMAGE 1 — same head size, crop, zoom, framing, and camera distance
-- Do NOT change the aspect ratio of IMAGE 1 — the output must have the same aspect ratio as IMAGE 1
+- The output must be a 1:1 compositional match to IMAGE 2 — same head size, crop, zoom, framing, and camera distance
+- Do NOT change the aspect ratio of IMAGE 2 — the output must have the same aspect ratio as IMAGE 2
 - Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
-- The edges of the output must show the EXACT same content as IMAGE 1 — same background, same body parts visible, same space above/below/around the head
+- The edges of the output must show the EXACT same content as IMAGE 2 — same background, same body parts visible, same space above/below/around the head
 - Keep everything else in the image exactly the same, preserving the original style, lighting, and composition
 - The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
 - Do NOT alter, smooth, or enhance any facial features
 - Add realistic shadows from the glasses consistent with the existing lighting
 
-OUTPUT: Return ONLY the edited photo. Same dimensions and quality as IMAGE 1. Photorealistic."""
+OUTPUT: Return ONLY the edited photo. Same dimensions and quality as IMAGE 2. Photorealistic."""
 
 
 def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
@@ -393,7 +393,8 @@ def _fs_virtual_tryon(portrait_path: str, glasses_path: str, product: dict,
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=[p, portrait_part, glasses_part],
+                # Glasses first, portrait last — model adopts last image's aspect ratio
+                contents=[p, glasses_part, portrait_part],
                 config=types.GenerateContentConfig(temperature=0, response_modalities=["TEXT", "IMAGE"]),
             )
         except Exception as e:

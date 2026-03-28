@@ -124,10 +124,11 @@ def _call_nano_banana(
     start_time = time.time()
 
     try:
-        # Order: prompt first, then portrait (IMAGE 1), then glasses (IMAGE 2)
+        # Order: prompt, glasses (IMAGE 2), portrait (IMAGE 1) last so the
+        # model adopts the portrait's aspect ratio for its output.
         response = client.models.generate_content(
             model=model_name,
-            contents=[prompt, portrait_part, glasses_part],
+            contents=[prompt, glasses_part, portrait_part],
             config=types.GenerateContentConfig(
                 temperature=0,
                 response_modalities=["TEXT", "IMAGE"],

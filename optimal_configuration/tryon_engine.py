@@ -103,7 +103,8 @@ def _call_tryon_api(
     try:
         response = client.models.generate_content(
             model=model_name,
-            contents=[prompt, portrait_part, glasses_part],
+            # Glasses first, portrait last — model adopts last image's aspect ratio
+            contents=[prompt, glasses_part, portrait_part],
             config=types.GenerateContentConfig(
                 temperature=0,
                 response_modalities=["TEXT", "IMAGE"],
