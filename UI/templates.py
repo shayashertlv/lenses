@@ -1106,14 +1106,14 @@ body{
   margin-bottom:16px;
 }
 .hero-grid{
-  display:grid;grid-template-columns:1fr 340px;gap:36px;
+  display:grid;grid-template-columns:1.2fr 1fr;gap:28px;
   background:linear-gradient(175deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
   border-radius:28px;border:1px solid rgba(255,255,255,.06);
   padding:28px;overflow:hidden;position:relative;
 }
 .hero-tryon-wrap{
   position:relative;display:flex;align-items:center;justify-content:center;
-  min-height:240px;max-height:480px;overflow:hidden;border-radius:16px;
+  overflow:hidden;border-radius:16px;
   background:rgba(0,0,0,.15);
 }
 .hero-tryon-wrap>div{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
@@ -1125,15 +1125,15 @@ body{
 }
 @keyframes pulse{0%,100%{opacity:.15}50%{opacity:.3}}
 .hero-tryon-wrap img{
-  max-width:100%;max-height:480px;width:auto;height:auto;
-  object-fit:contain;border-radius:16px;
+  width:100%;height:100%;
+  object-fit:cover;border-radius:16px;
   display:block;position:relative;z-index:1;
 }
 .hero-tryon-wrap button{position:relative;z-index:2}
 .hero-panel{
   background:rgba(255,255,255,.04);border-radius:22px;
   border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);
-  padding:28px;display:flex;flex-direction:column;gap:16px;
+  padding:28px;display:flex;flex-direction:column;gap:16px;justify-content:center;
   animation:slideRight .7s ease .3s both;
 }
 .hero-product-img{
@@ -1144,7 +1144,6 @@ body{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.35rem;
   font-weight:400;line-height:1.25;color:#fff;
 }
-.hero-brand{font-size:.82rem;color:rgba(255,255,255,.45);margin-top:2px}
 .hero-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .hero-price{
   font-family:'DM Serif Display',Georgia,serif;
@@ -1216,13 +1215,12 @@ body{
 .alt-card:nth-child(2){animation-delay:.55s}
 .alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
 .alt-card-img-wrap{position:relative;display:flex;align-items:center;justify-content:center;
-  min-height:200px;max-height:320px;padding:16px;overflow:hidden;background:rgba(255,255,255,.02);border-radius:12px}
-.alt-card-img-wrap img{max-width:100%;max-height:300px;width:auto;height:auto;object-fit:contain;border-radius:12px;display:block}
+  min-height:200px;max-height:320px;overflow:hidden;background:rgba(255,255,255,.02);border-radius:12px}
+.alt-card-img-wrap img{width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
 .alt-card-body{padding:20px}
 .alt-card-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
 }
-.alt-card-brand{font-size:.76rem;color:rgba(255,255,255,.4);margin-top:2px}
 .alt-card-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .alt-card-footer{
   display:flex;align-items:center;justify-content:space-between;
@@ -1290,7 +1288,6 @@ body{
 }
 .compare-card-body{grid-column:2;grid-row:1;padding:14px 14px 6px}
 .compare-card-name{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;color:#fff;margin-bottom:2px}
-.compare-card-brand{font-size:.72rem;color:rgba(255,255,255,.4);margin-bottom:10px}
 .compare-card-footer{
   grid-column:2;grid-row:2;
   padding:8px 14px 12px;border-top:1px solid rgba(255,255,255,.06);
@@ -1349,7 +1346,7 @@ body{
   /* Results */
   .hero-grid{gap:10px;padding:14px;border-radius:18px}
   .hero-tryon-wrap{min-height:0;max-height:280px}
-  .hero-tryon-wrap img{max-height:280px}
+  .hero-tryon-wrap img{width:100%;height:auto;max-height:280px;object-fit:contain}
   .hero-product-img{max-height:58px}
   .hero-panel{padding:12px;gap:8px;border-radius:16px}
   .hero-name{font-size:.92rem}
@@ -1358,7 +1355,8 @@ body{
   .score-panel{padding:10px}
   .score-panel-hdr{margin-bottom:6px}
   .alt-grid{grid-template-columns:1fr}
-  .alt-card-img-wrap{min-height:160px;max-height:260px;padding:12px}
+  .alt-card-img-wrap{min-height:160px;max-height:260px}
+  .alt-card-img-wrap img{width:100%;height:auto;max-height:260px;object-fit:contain}
   .alt-card-footer{padding:12px 16px}
   .res-topbar{padding:10px 14px;margin:0 -.9rem 20px}
   .res-topbar-back{padding:6px 14px;font-size:.78rem}
@@ -1891,7 +1889,7 @@ function generateWhyReasons(opt){
 }
 
 function buildTagsHtml(o,accent){
-  const tags=[o.shape,o.material,o.color].filter(Boolean);
+  const tags=[o.material,o.color].filter(t=>t&&t.trim());
   return tags.map(t=>`<span class="tag-dynamic" style="background:${accent}15;color:${accent};border:1px solid ${accent}30">${t}</span>`).join('');
 }
 
@@ -1912,17 +1910,9 @@ function buildHeroSection(opt){
         <img class="hero-product-img" src="data:image/jpeg;base64,${opt.product_b64}" alt="${opt.name}"/>
         <div>
           <div class="hero-name">${opt.name}</div>
-          <div class="hero-brand">${opt.brand} &mdash; ${opt.model}</div>
         </div>
         <div class="hero-tags">${buildTagsHtml(opt,accent.color)}</div>
         <div class="hero-price">${fmtPrice(opt)}</div>
-        <div class="score-panel">
-          <div class="score-panel-hdr">
-            <span class="score-panel-title">Match Breakdown</span>
-            ${buildScoreRing(scores.overall,accent.color)}
-          </div>
-          ${buildScoreBars(scores,accent.color,[0.3,0.45,0.6])}
-        </div>
         ${reasons.length?`<div class="why-section">
           <div class="why-title">Why this frame?</div>
           ${reasons.map(r=>`<div class="why-item">${checkSvg}<span>${r}</span></div>`).join('')}
@@ -1943,15 +1933,7 @@ function buildAltCard(opt,index){
     </div>
     <div class="alt-card-body">
       <div class="alt-card-name">${opt.name}</div>
-      <div class="alt-card-brand">${opt.brand} &mdash; ${opt.model}</div>
       <div class="alt-card-tags">${buildTagsHtml(opt,accent.color)}</div>
-      <div class="score-panel" style="margin-top:12px;padding:12px">
-        <div class="score-panel-hdr" style="margin-bottom:8px">
-          <span class="score-panel-title">Match</span>
-          ${buildScoreRing(scores.overall,accent.color)}
-        </div>
-        ${buildScoreBars(scores,accent.color,[0.5,0.65,0.8])}
-      </div>
     </div>
     <div class="alt-card-footer">
       <span class="alt-card-price">${fmtPrice(opt)}</span>
@@ -1981,14 +1963,6 @@ function openCompare(){
       <img class="compare-card-img" src="${imgSrc}" alt="${o.name}"/>
       <div class="compare-card-body">
         <div class="compare-card-name">${o.name}</div>
-        <div class="compare-card-brand">${o.brand} &mdash; ${o.model}</div>
-        <div class="score-panel" style="margin-top:10px;padding:10px">
-          <div class="score-panel-hdr" style="margin-bottom:6px">
-            <span class="score-panel-title">Match</span>
-            ${buildScoreRing(scores.overall,accent.color)}
-          </div>
-          ${buildScoreBars(scores,accent.color,[0,0.1,0.2])}
-        </div>
       </div>
       <div class="compare-card-footer">
         <span class="compare-card-price">${fmtPrice(o)}</span>
