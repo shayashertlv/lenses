@@ -113,18 +113,21 @@ function sfRender(d){
   // 4. Analysis cards
   container.appendChild(buildAnalysisCards(d));
 
-  // 5. Alternatives
+  // 5. Alternatives in a grid
   if(d.num_options>1){
     const lbl3=document.createElement('div');
     lbl3.className='section-lbl';
     lbl3.textContent='More options';
     container.appendChild(lbl3);
 
+    const altGrid=document.createElement('div');
+    altGrid.className='alt-grid';
     for(let i=1;i<d.num_options;i++){
       const o=d['opt'+i];
       if(!o)continue;
-      container.appendChild(buildAlternativeCard(o,i));
+      altGrid.appendChild(buildAlternativeCard(o,i));
     }
+    container.appendChild(altGrid);
   }
 }
 
@@ -197,18 +200,24 @@ function buildPrimaryCard(o,d){
       </div>`;
   }
 
-  card.innerHTML=`<div class="primary-hero-inner">
+  card.innerHTML=`
     <div class="primary-tryon">${tryonHtml}</div>
     <div class="primary-panel">
-      <div class="p-name">${escHtml(o.name)}</div>
-      <div class="p-tags">
-        ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="p-tag">${escHtml(t)}</span>`).join('')}
+      <div class="p-product-row">
+        <img class="p-thumb" src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
+        <div class="p-details">
+          <div class="p-name">${escHtml(o.name)}</div>
+          <div class="p-tags">
+            ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="p-tag">${escHtml(t)}</span>`).join('')}
+          </div>
+        </div>
       </div>
-      <div class="p-price">${sfFmtPrice(o)}</div>
-      <div class="p-micro">Includes standard lenses</div>
+      <div class="p-price-row">
+        <div class="p-price">${sfFmtPrice(o)}</div>
+        <div class="p-micro">Includes standard lenses</div>
+      </div>
       ${whyHtml}
-    </div>
-  </div>`;
+    </div>`;
   return card;
 }
 
@@ -338,60 +347,21 @@ function buildAnalysisCards(d){
 
 function buildAlternativeCard(o,idx){
   const card=document.createElement('div');
-  card.className='opt-card';
+  card.className='alt-card';
   const tryonHtml=buildTryonHtml(o);
   card.innerHTML=`
-    <div class="opt-label">Alternative ${idx}</div>
-    <div class="opt-body">
-      <div class="tryon-col">${tryonHtml}</div>
-      <div class="prod-col">
-        <img src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
-        <div class="prod-info">
-          <h3>${escHtml(o.name)}</h3>
-          <div class="tags">
-            ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}
-          </div>
-          <p class="price">${sfFmtPrice(o)}</p>
+    <div class="alt-card-label">Alternative ${idx}</div>
+    <div class="alt-card-tryon">${tryonHtml}</div>
+    <div class="alt-card-info">
+      <img class="alt-thumb" src="data:image/jpeg;base64,${o.product_b64}" alt="${escHtml(o.name)}"/>
+      <div class="alt-meta">
+        <h3>${escHtml(o.name)}</h3>
+        <div class="alt-tags">
+          ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="alt-tag">${escHtml(t)}</span>`).join('')}
         </div>
+        <div class="alt-price">${sfFmtPrice(o)}</div>
       </div>
     </div>`;
   return card;
 }
 
-/* ── Shared render function for result cards ── */
-function renderOpts(container,d){
-  container.innerHTML='';
-  for(let i=0;i<d.num_options;i++){
-    const o=d['opt'+i]; if(!o) continue;
-    const primary=i===0;
-    const card=document.createElement('div');
-    card.className='opt-card'+(primary?' primary':'');
-    const label=primary?'Best Match \u2014 Recommended For You':'Alternative '+(i);
-
-    let tryonHtml;
-    if(o.tryon_status==='done'&&o.tryon_b64){
-      tryonHtml=`<img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>`;
-    }else if(o.tryon_status==='error'){
-      tryonHtml=`<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+o.tryon_error:''}</div>`;
-    }else{
-      tryonHtml=`<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>`;
-    }
-    const price=o.price.toLocaleString()+' '+o.currency;
-    card.innerHTML=`
-      <div class="opt-label">${label}</div>
-      <div class="opt-body">
-        <div class="tryon-col">${tryonHtml}</div>
-        <div class="prod-col">
-          <img src="data:image/jpeg;base64,${o.product_b64}" alt="${o.name}"/>
-          <div class="prod-info">
-            <h3>${o.name}</h3>
-            <div class="tags">
-              ${[o.material,o.color].filter(t=>t&&t.trim()).map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}
-            </div>
-            <p class="price">${price}</p>
-            </div>
-        </div>
-      </div>`;
-    container.appendChild(card);
-  }
-}

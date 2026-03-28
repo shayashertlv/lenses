@@ -60,58 +60,63 @@ body{
 .sf-line{width:32px;height:2px;background:rgba(255,255,255,.1);border-radius:1px;align-self:center;transition:background .3s}
 .sf-line.done{background:#34c78a}
 
-/* ── Result card styles ── */
-.opt-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;margin-bottom:1.8rem;overflow:hidden;
-  box-shadow:none;animation:cardIn .5s ease both}
-.opt-card:nth-child(2){animation-delay:.1s}
-.opt-card:nth-child(3){animation-delay:.2s}
-.opt-card.primary{box-shadow:0 0 20px rgba(108,99,255,.15);border:1px solid #6c63ff}
-.opt-label{padding:.65rem 1.4rem;font-weight:700;font-size:.82rem;text-transform:uppercase;
-  letter-spacing:.06em;background:rgba(255,255,255,.04);color:rgba(255,255,255,.4)}
-.opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
-.opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
-.tryon-col{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;position:relative;
-  overflow:hidden;border-radius:12px}
-.tryon-col img{width:100%;height:auto;object-fit:contain;border-radius:12px;display:block}
-.prod-col{flex:1 1 0;display:flex;flex-direction:column;gap:.6rem}
-.prod-col img{display:block;width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#fff}
-.prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
-.prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
-.prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
-.prod-info .tag{background:rgba(108,99,255,.15);color:#a78bfa;font-size:.68rem;padding:.15rem .5rem;border-radius:8px;font-weight:500}
-.prod-info .price{font-size:.95rem;font-weight:700;color:#fff;margin-top:.55rem}
-.prod-info .score{font-size:.72rem;color:rgba(255,255,255,.35);margin-top:.1rem}
+/* ── Section labels ── */
+.section-lbl{font-size:14px;font-weight:500;color:rgba(255,255,255,.35);margin-bottom:10px;margin-top:1.5rem}
+.section-lbl:first-child{margin-top:0}
+
+/* ── Primary hero card (stacked: image on top, info below) ── */
+.primary-hero{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;overflow:hidden;
+  box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
+.primary-tryon{position:relative;overflow:hidden;background:rgba(0,0,0,.1);
+  display:flex;align-items:center;justify-content:center}
+.primary-tryon img{width:100%;height:auto;display:block;border-radius:0}
+.primary-panel{padding:20px 24px;display:flex;flex-direction:column}
+.primary-panel .p-product-row{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.primary-panel .p-thumb{width:64px;height:64px;object-fit:contain;border-radius:10px;background:#fff;flex-shrink:0}
+.primary-panel .p-details{flex:1;min-width:0}
+.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:4px;color:#fff}
+.primary-panel .p-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:0}
+.primary-panel .p-tag{font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(108,99,255,.15);color:#a78bfa}
+.primary-panel .p-price-row{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.primary-panel .p-price{font-size:20px;font-weight:700;color:#fff}
+.primary-panel .p-micro{font-size:11px;color:rgba(255,255,255,.35)}
+.primary-panel .p-divider{height:1px;background:rgba(255,255,255,.08);margin:12px 0}
+.why-label{font-size:12px;font-weight:600;color:rgba(255,255,255,.4);margin-bottom:8px}
+.why-list{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.why-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:rgba(255,255,255,.5);line-height:1.5}
+.why-item svg{flex-shrink:0;margin-top:2px}
+
+/* ── Alternative cards (2-col grid, vertical card: image top, info bottom) ── */
+.alt-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.8rem}
+.alt-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;
+  overflow:hidden;animation:cardIn .5s ease both;transition:all .25s}
+.alt-card:nth-child(2){animation-delay:.1s}
+.alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
+.alt-card-label{padding:.5rem 1rem;font-weight:700;font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.06em;background:rgba(255,255,255,.04);color:rgba(255,255,255,.35)}
+.alt-card-tryon{position:relative;overflow:hidden;background:rgba(0,0,0,.08);
+  display:flex;align-items:center;justify-content:center}
+.alt-card-tryon img{width:100%;height:auto;display:block}
+.alt-card-info{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  border-top:1px solid rgba(255,255,255,.06)}
+.alt-card-info .alt-thumb{width:48px;height:48px;object-fit:contain;border-radius:8px;background:#fff;flex-shrink:0}
+.alt-card-info .alt-meta{flex:1;min-width:0}
+.alt-card-info .alt-meta h3{font-size:.82rem;font-weight:600;line-height:1.3;color:#fff;margin-bottom:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alt-card-info .alt-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:3px}
+.alt-card-info .alt-tag{background:rgba(108,99,255,.15);color:#a78bfa;font-size:.6rem;padding:2px 6px;border-radius:6px;font-weight:500}
+.alt-card-info .alt-price{font-size:.88rem;font-weight:700;color:#fff}
+
+/* ── Shared loading / error for try-on slots ── */
 .tryon-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:300px;width:100%;border-radius:12px;
+  min-height:240px;width:100%;
   background:linear-gradient(110deg,rgba(255,255,255,.04) 8%,rgba(255,255,255,.08) 18%,rgba(255,255,255,.04) 33%);
   background-size:200% 100%;animation:shimmer 1.6s linear infinite}
 .tryon-loading p{font-size:.82rem;color:rgba(255,255,255,.4);margin-top:.5rem}
 .tryon-loading .mini-spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.1);
   border-top-color:#6c63ff;border-radius:50%;animation:spin .7s linear infinite}
-.tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
-  background:rgba(220,50,50,.08);border-radius:12px;color:#f87171;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
-
-/* ── Section labels ── */
-.section-lbl{font-size:14px;font-weight:500;color:rgba(255,255,255,.35);margin-bottom:10px;margin-top:1.5rem}
-.section-lbl:first-child{margin-top:0}
-
-/* ── Primary hero card ── */
-.primary-hero{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;overflow:hidden;
-  box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
-.primary-hero-inner{display:flex;align-items:stretch}
-.primary-tryon{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;padding:12px;position:relative;overflow:hidden}
-.primary-tryon img{width:100%;height:auto;object-fit:contain;border-radius:14px;display:block}
-.primary-panel{flex:1 1 0;min-width:0;padding:24px 28px;display:flex;flex-direction:column;justify-content:center}
-.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:6px;color:#fff}
-.primary-panel .p-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
-.primary-panel .p-tag{font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(108,99,255,.15);color:#a78bfa}
-.primary-panel .p-price{font-size:20px;font-weight:700;color:#fff}
-.primary-panel .p-micro{font-size:11px;color:rgba(255,255,255,.35);margin-top:2px;margin-bottom:12px}
-.primary-panel .p-divider{height:1px;background:rgba(255,255,255,.08);margin-bottom:12px}
-.why-label{font-size:12px;font-weight:600;color:rgba(255,255,255,.4);margin-bottom:8px}
-.why-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
-.why-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:rgba(255,255,255,.5);line-height:1.5}
-.why-item svg{flex-shrink:0;margin-top:2px}
+.tryon-error{display:flex;align-items:center;justify-content:center;min-height:180px;
+  background:rgba(220,50,50,.08);color:#f87171;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
 
 /* ── Recolor overlay button on try-on images ── */
 .recolor-overlay-btn{position:absolute;bottom:10px;left:10px;padding:5px 12px;
@@ -245,34 +250,27 @@ body{
 
 /* ── Smart Fit results: tablet ── */
 @media(max-width:900px){
-  .primary-hero-inner{flex-direction:column}
-  .primary-tryon{flex:none;max-width:100%;padding:16px}
-  .primary-tryon img{width:100%;height:auto;max-height:400px;object-fit:contain}
-  .primary-panel{flex:none;width:100%;padding:16px;min-width:0;justify-content:flex-start}
+  .primary-panel{padding:16px}
+  .primary-panel .p-thumb{width:56px;height:56px}
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:8px}
-  .opt-body{flex-direction:column}
-  .tryon-col{flex:none;max-width:100%;margin-bottom:.3rem}
-  .tryon-col img{width:100%;height:auto;max-height:360px;object-fit:contain}
-  .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
-  .prod-col img{width:80px;height:80px;flex-shrink:0;max-height:80px}
+  .alt-grid{grid-template-columns:1fr 1fr;gap:1rem}
 }
 
 /* ── Smart Fit results: mobile ── */
 @media(max-width:600px){
-  /* Primary hero -- image full width, text compact below */
-  .primary-tryon{padding:6px}
-  .primary-tryon img{max-height:320px}
+  /* Primary hero */
   .primary-panel{padding:12px 14px}
+  .primary-panel .p-product-row{gap:10px;margin-bottom:10px}
+  .primary-panel .p-thumb{width:48px;height:48px;border-radius:8px}
   .primary-panel .p-name{font-size:14px}
-  .primary-panel .p-tags{gap:4px;margin-bottom:8px}
+  .primary-panel .p-tags{gap:4px}
   .primary-panel .p-tag{font-size:10px;padding:2px 7px}
   .primary-panel .p-price{font-size:17px}
-  .primary-panel .p-micro{font-size:10px;margin-bottom:8px}
-  /* "Why this works" -- smaller but NO truncation */
+  .primary-panel .p-micro{font-size:10px}
   .why-label{font-size:11px;margin-bottom:5px}
   .why-item{font-size:11px;line-height:1.4}
-  .why-list{gap:5px;margin-bottom:10px}
-  /* Analysis cards -- 3-across, compact, smaller color circle */
+  .why-list{gap:5px;margin-bottom:8px}
+  /* Analysis cards */
   .analysis-cards{grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:1.2rem}
   .analysis-card{padding:10px 8px;border-radius:10px}
   .analysis-vis{height:50px;margin-bottom:6px;border-radius:6px}
@@ -280,32 +278,22 @@ body{
   .analysis-label{font-size:9px;margin-bottom:2px}
   .analysis-value{font-size:11px;margin-bottom:2px}
   .analysis-desc{font-size:9.5px;line-height:1.35}
-  /* Color circle smaller on mobile */
   .color-circle{width:36px;height:36px}
   .color-vis-wrap{gap:6px}
   .color-legend-item{font-size:9px;gap:3px}
   .color-dot{width:6px;height:6px}
-  /* Alternative cards */
-  .opt-card{margin-bottom:1.2rem}
-  .opt-label{font-size:.72rem;padding:8px 14px}
-  .opt-body{padding:.75rem;gap:.6rem}
+  /* Alt cards — single column on phone */
+  .alt-grid{grid-template-columns:1fr;gap:.9rem}
+  .alt-card-info{gap:8px;padding:10px 12px}
+  .alt-card-info .alt-thumb{width:40px;height:40px}
+  .alt-card-info .alt-meta h3{font-size:.78rem}
+  .alt-card-info .alt-price{font-size:.82rem}
   .tryon-loading{min-height:180px}
   .tryon-error{min-height:120px;font-size:.75rem}
-  .prod-col{gap:.6rem}
-  .prod-col img{width:70px;height:70px;max-height:70px}
-  .prod-info h3{font-size:.8rem}
-  .prod-info .brand{font-size:.65rem}
-  .prod-info .tags{gap:3px}
-  .prod-info .tag{font-size:.6rem;padding:2px 6px}
-  .prod-info .price{font-size:.88rem}
-  .prod-info .score{font-size:.65rem}
-  /* Recolor button -- smaller on mobile */
   .recolor-overlay-btn{padding:3px 9px;font-size:.62rem;bottom:6px;left:6px;border-radius:14px}
 }
 
 @media(max-width:380px){
-  .prod-col img{width:60px;height:60px;max-height:60px}
-  .opt-body{padding:.6rem}
   .primary-panel .p-name{font-size:13px}
   .primary-panel .p-price{font-size:15px}
 }
