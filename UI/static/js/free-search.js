@@ -102,8 +102,7 @@ function showView(id){
   });
   document.getElementById('form-view').style.display = id?'none':'block';
   if(id){
-    const el=document.getElementById(id);
-    el.style.display = (id==='loading-view'||id==='error-view')?'flex':'block';
+    document.getElementById(id).style.display='flex';
   }
 }
 
@@ -161,25 +160,6 @@ function pollStatus(){
   }).catch(()=>{poll=setTimeout(pollStatus,3000)});
 }
 
-/* ── Color accent system ─────────────────────── */
-const COLOR_ACCENTS={
-  'transparent':{hue:220,color:'#8BA4C4'},'black':{hue:270,color:'#9B8AB8'},
-  'gold':{hue:38,color:'#C4A265'},'silver':{hue:210,color:'#A0B4C8'},
-  'tortoiseshell':{hue:28,color:'#B8884D'},'brown':{hue:25,color:'#A87D5A'},
-  'blue':{hue:215,color:'#5B8FC4'},'red':{hue:355,color:'#C46B6B'},
-  'pink':{hue:340,color:'#C47B99'},'green':{hue:150,color:'#5BAA7D'},
-  'white':{hue:220,color:'#A8B4C4'},'tortoise':{hue:28,color:'#B8884D'},
-};
-function getAccent(colorStr){
-  const lower=(colorStr||'').toLowerCase();
-  for(const[key,val] of Object.entries(COLOR_ACCENTS)){
-    if(lower.includes(key)) return val;
-  }
-  return{hue:250,color:'#8B7BFF'};
-}
-
-const checkSvg='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
 const _recolorStore={};let _recolorIdx=0;
 function goRecolor(key){
   sessionStorage.setItem('recolor_preload',_recolorStore[key]);
@@ -199,102 +179,33 @@ function getTryonHtml(o){
   return '<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>';
 }
 
-function getScores(o){
-  const fit=o.fit_score?Math.round(o.fit_score*100):Math.min(99,Math.round(o.score*100+8));
-  const style=o.style_score?Math.round(o.style_score*100):Math.max(30,Math.round(o.score*100-2));
-  const color=o.color_score?Math.round(o.color_score*100):Math.max(30,Math.round(o.score*100-5));
-  const overall=Math.round(o.score*100);
-  return{fit,style,color,overall};
-}
-
-function buildScoreBars(scores,accent,delays){
-  const rows=[
-    {label:'Fit',val:scores.fit,delay:delays[0]||0},
-    {label:'Style',val:scores.style,delay:delays[1]||0.1},
-    {label:'Color',val:scores.color,delay:delays[2]||0.2},
-  ];
-  return rows.map(r=>`
-    <div class="score-row">
-      <span class="score-label">${r.label}</span>
-      <div class="score-track">
-        <div class="score-fill" style="--target-width:${r.val}%;background:${accent};animation-delay:${r.delay}s"></div>
-      </div>
-      <span class="score-val">${r.val}</span>
-    </div>`).join('');
-}
-
-function buildScoreRing(overall,accent){
-  const circ=2*Math.PI*22;
-  const offset=circ-(overall/100)*circ;
-  return `<div class="score-ring-wrap">
-    <svg class="score-ring" width="52" height="52" viewBox="0 0 52 52">
-      <circle cx="26" cy="26" r="22" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="4"/>
-      <circle cx="26" cy="26" r="22" fill="none" stroke="${accent}" stroke-width="4"
-        stroke-linecap="round" stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"
-        style="transition:stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)"/>
-    </svg>
-    <span class="score-ring-num">${overall}</span>
-  </div>`;
-}
-
-function generateWhyReasons(opt){
-  const reasons=[];
-  if(opt.shape) reasons.push(capitalize(opt.shape)+' shape complements your face proportions');
-  if(opt.color) reasons.push(capitalize(opt.color)+' tones complement your complexion');
-  if(opt.material) reasons.push(capitalize(opt.material)+' material matches your style preference');
-  return reasons.slice(0,3);
-}
-
-function buildTagsHtml(o,accent){
-  const tags=[o.material,o.color].filter(t=>t&&t.trim());
-  return tags.map(t=>`<span class="tag-dynamic" style="background:${accent}15;color:${accent};border:1px solid ${accent}30">${t}</span>`).join('');
-}
-
-function buildHeroSection(opt){
-  const accent=getAccent(opt.color);
-  const scores=getScores(opt);
-  const reasons=generateWhyReasons(opt);
+function fsBuildCard(opt,index){
   const el=document.createElement('div');
-  el.className='hero-section';
-  el.innerHTML=`
-    <div class="hero-badge">&#10022; Best Match</div>
-    <div class="hero-grid">
-      <div class="hero-tryon-wrap">
-        <div class="hero-glow"></div>
-        ${getTryonHtml(opt)}
-      </div>
-      <div class="hero-panel">
-        <img class="hero-product-img" src="data:image/jpeg;base64,${opt.product_b64}" alt="${opt.name}"/>
-        <div>
-          <div class="hero-name">${opt.name}</div>
-        </div>
-        <div class="hero-tags">${buildTagsHtml(opt,accent.color)}</div>
-        <div class="hero-price">${fmtPrice(opt)}</div>
-        ${reasons.length?`<div class="why-section">
-          <div class="why-title">Why this frame?</div>
-          ${reasons.map(r=>`<div class="why-item">${checkSvg}<span>${r}</span></div>`).join('')}
-        </div>`:''}
-      </div>
-    </div>`;
-  return el;
-}
+  el.className='result-card';
+  const label=index===0?'Best Match':'Alternative '+index;
 
-function buildAltCard(opt,index){
-  const accent=getAccent(opt.color);
-  const scores=getScores(opt);
-  const el=document.createElement('div');
-  el.className='alt-card';
+  let extraHtml='';
+  if(index===0){
+    const reasons=[];
+    if(opt.shape)reasons.push(capitalize(opt.shape)+' shape');
+    if(opt.color)reasons.push(capitalize(opt.color)+' tones');
+    if(opt.material)reasons.push(capitalize(opt.material));
+    if(reasons.length)extraHtml='<div class="result-extra">'+reasons.join(' &middot; ')+'</div>';
+  }
+
   el.innerHTML=`
-    <div class="alt-card-img-wrap">
-      ${getTryonHtml(opt)}
+    <div class="result-label">${label}</div>
+    <div class="result-img-wrap">${getTryonHtml(opt)}</div>
+    <div class="result-text">
+      <div class="result-name">${opt.name}</div>
+      <div class="result-tags">
+        ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+t+'</span>').join('')}
+      </div>
+      <div class="result-price">${fmtPrice(opt)}</div>
+      ${extraHtml}
     </div>
-    <div class="alt-card-body">
-      <div class="alt-card-name">${opt.name}</div>
-      <div class="alt-card-tags">${buildTagsHtml(opt,accent.color)}</div>
-    </div>
-    <div class="alt-card-footer">
-      <span class="alt-card-price">${fmtPrice(opt)}</span>
-      <span class="alt-card-label">Alternative ${index}</span>
+    <div class="result-img-wrap result-product-bg">
+      <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${opt.name}"/>
     </div>`;
   return el;
 }
@@ -308,9 +219,6 @@ function openCompare(){
   for(let i=0;i<compareData.num_options;i++){
     const o=compareData['opt'+i];
     if(!o) continue;
-    const accent=getAccent(o.color);
-    const scores=getScores(o);
-    const isBest=i===0;
     const card=document.createElement('div');
     card.className='compare-card';
     const imgSrc=o.tryon_status==='done'&&o.tryon_b64
@@ -341,31 +249,10 @@ function renderResults(d){
   const container=document.getElementById('fs-opts');
   container.innerHTML='';
 
-  const bestOpt=d.opt0;
-  if(bestOpt){
-    const accent=getAccent(bestOpt.color);
-    document.getElementById('results-view').style.setProperty('--accent',accent.color);
-    document.getElementById('results-view').style.setProperty('--accent-hue',accent.hue);
-  }
-
-  if(d.num_options>0&&bestOpt){
-    container.appendChild(buildHeroSection(bestOpt));
-  }
-
-  if(d.num_options>1){
-    const divider=document.createElement('div');
-    divider.className='section-divider';
-    divider.innerHTML='<span>More Options</span>';
-    container.appendChild(divider);
-
-    const altGrid=document.createElement('div');
-    altGrid.className='alt-grid';
-    for(let i=1;i<d.num_options;i++){
-      const o=d['opt'+i];
-      if(!o) continue;
-      altGrid.appendChild(buildAltCard(o,i));
-    }
-    container.appendChild(altGrid);
+  for(let i=0;i<Math.min(d.num_options,3);i++){
+    const o=d['opt'+i];
+    if(!o)continue;
+    container.appendChild(fsBuildCard(o,i));
   }
 }
 
