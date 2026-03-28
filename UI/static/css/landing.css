@@ -50,7 +50,18 @@ body{
 .mode-badge.recolor{background:#e8a838;color:#fff}
 .mode-badge.store{background:#ec4899;color:#fff}
 
+/* ── Smart Fit loading / error views ── */
+#sf-processing,#sf-error{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:#0b0b14;
+  flex-direction:column;align-items:center;justify-content:center;
+}
+#sf-stage{font-size:.95rem;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
+#sf-tip{font-size:.82rem;color:rgba(255,255,255,.35);line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s}
+.sf-prog-fill{background:linear-gradient(90deg,#6c63ff,#a78bfa)}
+
 /* ── Smart Fit step indicators ── */
+.sf-steps{display:flex;justify-content:center;gap:.5rem;margin-bottom:1.5rem}
 .sf-step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:rgba(255,255,255,.3);font-weight:500;transition:color .3s}
 .sf-step.active{color:#6c63ff}.sf-step.done{color:#34c78a}
 .sf-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.15);display:flex;

@@ -59,25 +59,21 @@
 </div>
 
 <!-- Hidden processing / results / error views for Smart Fit -->
-<div id="sf-processing" style="display:none;position:fixed;inset:0;background:#0b0b14;z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column">
-  <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:2.5rem 2.8rem;box-shadow:0 8px 40px rgba(0,0,0,.3);max-width:480px;width:90%;text-align:center">
-    <div id="sf-portrait-wrap" style="width:120px;height:120px;border-radius:50%;overflow:hidden;margin:0 auto 1.8rem;border:3px solid rgba(255,255,255,.1);box-shadow:0 4px 20px rgba(0,0,0,.3);display:none">
-      <img id="sf-portrait-img" style="width:100%;height:100%;object-fit:cover" src="" alt=""/>
+<div id="sf-processing">
+  <div class="load-card">
+    <div class="load-portrait" id="sf-portrait-wrap" style="display:none">
+      <img id="sf-portrait-img" src="" alt=""/>
     </div>
-    <div style="display:flex;justify-content:center;gap:.5rem;margin-bottom:2rem" id="sf-steps">
+    <div class="sf-steps" id="sf-steps">
       <div class="sf-step" id="sf-s1"><span class="sf-dot">1</span><span>Analyze</span></div>
       <div class="sf-line" id="sf-sl1"></div>
       <div class="sf-step" id="sf-s2"><span class="sf-dot">2</span><span>Match</span></div>
       <div class="sf-line" id="sf-sl2"></div>
       <div class="sf-step" id="sf-s3"><span class="sf-dot">3</span><span>Try-On</span></div>
     </div>
-    <div style="width:100%;height:3px;background:rgba(255,255,255,.08);border-radius:2px;margin-bottom:1.6rem;overflow:hidden">
-      <div id="sf-prog" style="height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .6s ease"></div>
-    </div>
-    <p id="sf-stage" style="font-size:.95rem;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:1.4rem;min-height:1.4em">Uploading...</p>
-    <div style="min-height:3.5em;display:flex;align-items:center;justify-content:center">
-      <p id="sf-tip" style="font-size:.82rem;color:rgba(255,255,255,.35);line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s"></p>
-    </div>
+    <div class="load-prog"><div class="load-prog-fill sf-prog-fill" id="sf-prog"></div></div>
+    <p id="sf-stage">Uploading...</p>
+    <div class="tip-box"><p id="sf-tip"></p></div>
   </div>
 </div>
 
@@ -91,8 +87,8 @@
   <div id="sf-opts" class="results-row"></div>
 </div>
 
-<div id="sf-error" style="display:none;position:fixed;inset:0;background:#0b0b14;z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column">
-  <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:2.5rem 2.8rem;box-shadow:0 8px 40px rgba(0,0,0,.3);max-width:420px;width:90%;text-align:center">
+<div id="sf-error">
+  <div class="err-card">
     <div style="font-size:2.4rem;margin-bottom:1rem">:/</div>
     <h2 style="font-size:1.15rem;color:#fff;margin-bottom:.6rem">Something went wrong</h2>
     <p id="sf-error-msg" style="font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.5;margin-bottom:1.5rem;word-break:break-word"></p>
