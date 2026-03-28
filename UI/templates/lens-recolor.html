@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Lenses — Switch Lens Color</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/css/common.css"/>
+<link rel="stylesheet" href="/static/css/lens-recolor.css"/>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <a href="/">&larr; Back</a>
+  <span class="logo">Switch Lens Color</span>
+</div>
+
+<!-- ═══════════════ FORM VIEW ═══════════════ -->
+<div id="form-view">
+
+  <h3 class="section-title">Your Photo</h3>
+  <p style="font-size:.84rem;color:rgba(255,255,255,.4);margin-bottom:1rem">Upload a photo of yourself <strong style="color:rgba(255,255,255,.6)">wearing glasses</strong>. The AI will change only the lens colour.</p>
+  <div class="rc-upload" id="upload-area" onclick="openPickerWithTip('rc-file')">
+    <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
+    <span class="up-label" id="up-label-text">Upload a Photo</span>
+    <span class="up-hint">JPG, PNG, or WebP</span>
+    <img class="up-preview" id="up-preview"/>
+  </div>
+  <input type="file" id="rc-file" accept="image/*"/>
+
+  <h3 class="section-title">Choose 3 Lens Colors</h3>
+  <p style="font-size:.84rem;color:rgba(255,255,255,.4);margin-bottom:1rem">Select exactly <strong style="color:rgba(255,255,255,.6)">3 colours</strong> you'd like to see on your lenses.</p>
+
+  <div class="color-pick-grid" id="color-grid">
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Clear"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="color-pick-name">Clear</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Soft Black"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="color-pick-name">Soft Black</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Smoke Gray"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="color-pick-name">Smoke Gray</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Amber Brown"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="color-pick-name">Amber Brown</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Classic Green"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="color-pick-name">Classic Green</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Ice Silver"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#b8c6d4,#dce6ef)"></div><span class="color-pick-name">Ice Silver</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Ocean Blue"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="color-pick-name">Ocean Blue</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Midnight Blue"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="color-pick-name">Midnight Blue</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Ruby Red"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="color-pick-name">Ruby Red</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Rose Gold"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="color-pick-name">Rose Gold</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Aqua Teal"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#00838f,#4dd0e1)"></div><span class="color-pick-name">Aqua Teal</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Shooter Yellow"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="color-pick-name">Shooter Yellow</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Champagne Gold"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="color-pick-name">Champagne Gold</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Copper Bronze"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#8d4e2a,#cd7f50)"></div><span class="color-pick-name">Copper Bronze</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Deep Purple"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="color-pick-name">Deep Purple</span></div></label>
+    <label class="color-pick"><input type="checkbox" name="lens_color" value="Magenta Pink"/><div class="color-pick-inner"><div class="color-swatch" style="background:linear-gradient(135deg,#c2185b,#f06292)"></div><span class="color-pick-name">Magenta Pink</span></div></label>
+  </div>
+  <p class="color-counter" id="color-counter">0 of 3 selected</p>
+
+  <div class="submit-row">
+    <button class="submit-btn" id="submit-btn" disabled>Generate Recolored Lenses</button>
+  </div>
+</div>
+
+<!-- ═══════════════ LOADING VIEW ═══════════════ -->
+<div id="loading-view">
+  <div class="load-card">
+    <div class="load-portrait" id="load-portrait" style="display:none">
+      <img id="load-portrait-img" src="" alt=""/>
+    </div>
+    <div class="load-prog"><div class="load-prog-fill" id="load-prog-fill"></div></div>
+    <p id="load-stage">Uploading your photo...</p>
+    <div class="tip-box"><p id="load-tip">Crafting your new lens colours...</p></div>
+  </div>
+</div>
+
+<!-- ═══════════════ RESULTS VIEW ═══════════════ -->
+<div id="results-view">
+  <div class="res-topbar">
+    <button class="res-topbar-back" onclick="rcReset()">&larr; New Photo</button>
+  </div>
+  <div class="res-inner">
+    <h1 class="res-page-title">Your Lens Colors</h1>
+
+    <!-- Hero (main selected image) -->
+    <div class="hero-section" id="hero-section">
+      <div class="hero-badge">Selected Color</div>
+      <div class="hero-img-wrap" id="hero-img-wrap">
+        <div class="hero-glow"></div>
+        <img id="hero-img" src="" alt="Recolored lens"/>
+      </div>
+      <h2 class="hero-color-label" id="hero-color-label"></h2>
+    </div>
+
+    <!-- Divider -->
+    <div class="section-divider"><span>Other Colors</span></div>
+
+    <!-- Alt cards -->
+    <div class="alt-grid" id="alt-grid"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ ERROR VIEW ═══════════════ -->
+<div id="error-view">
+  <div class="err-card">
+    <div style="font-size:2.4rem;margin-bottom:1rem">:/</div>
+    <h2 style="font-size:1.15rem;color:#fff;margin-bottom:.6rem">Something went wrong</h2>
+    <p id="error-msg" style="font-size:.88rem;color:rgba(255,255,255,.45);line-height:1.5;margin-bottom:1.5rem;word-break:break-word"></p>
+    <button onclick="rcReset()" style="display:block;margin:0 auto;padding:.75rem 2.2rem;
+      background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.1);border-radius:50px;font-size:.92rem;font-weight:600;
+      cursor:pointer">Try Again</button>
+  </div>
+</div>
+
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear photo of yourself wearing glasses, with your face mostly visible and well-lit. Avoid blurry or poorly lit images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
+
+<script src="/static/js/common.js"></script>
+<script src="/static/js/lens-recolor.js"></script>
+</body>
+</html>

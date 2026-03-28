@@ -1,0 +1,82 @@
+/* ══════════════════════════════════════════════════
+   Common styles shared across all Lenses UI pages
+   ══════════════════════════════════════════════════ */
+
+/* ── Reset ── */
+*{margin:0;padding:0;box-sizing:border-box}
+
+/* ── Base body ── */
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:#0b0b14;
+  color:#fff;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Top bar (shared by free-search, lens-recolor, storefront) ── */
+.topbar{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;
+  background:rgba(11,11,20,.85);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,.06)}
+.topbar a{text-decoration:none;font-size:.85rem;font-weight:600;
+  display:flex;align-items:center;gap:.3rem}
+.topbar a:hover{text-decoration:underline}
+.topbar .logo{font-size:1.3rem;font-weight:400;letter-spacing:-.01em;color:#fff;
+  font-family:'DM Serif Display',Georgia,serif}
+
+/* ── Shared animations ── */
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+/* ── Upload-tip popup ── */
+.uptip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:9999;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.uptip-overlay.visible{opacity:1;pointer-events:auto}
+.uptip-box{background:rgba(20,20,38,.96);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:2rem 1.8rem 1.6rem;max-width:330px;width:90%;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center}
+.uptip-icon{margin-bottom:.9rem}
+.uptip-icon svg{width:44px;height:44px;fill:none;stroke-width:1.6}
+.uptip-box h3{font-size:1.05rem;font-weight:700;color:#fff;margin:0 0 .55rem}
+.uptip-box p{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;margin:0 0 1.4rem}
+.uptip-ok{border:none;border-radius:12px;
+  padding:.72rem 0;font-size:.95rem;font-weight:600;cursor:pointer;width:100%;
+  transition:opacity .15s}
+.uptip-ok:hover{opacity:.85}
+
+/* ── Shared loading states ── */
+.tryon-loading p{font-size:.82rem;color:rgba(255,255,255,.4);margin-top:.5rem}
+.tryon-loading .mini-spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.1);
+  border-radius:50%;animation:spin .7s linear infinite}
+
+/* ── Shared error card ── */
+.err-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(0,0,0,.3);max-width:420px;width:90%;text-align:center;color:#fff}
+
+/* ── Shared load-card ── */
+.load-card{
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:2.5rem 2.8rem;
+  box-shadow:0 8px 40px rgba(0,0,0,.3);max-width:480px;width:90%;text-align:center;
+}
+.load-portrait{width:100px;height:100px;border-radius:50%;overflow:hidden;
+  margin:0 auto 1.5rem;border:3px solid rgba(255,255,255,.1);box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.load-portrait img{width:100%;height:100%;object-fit:cover}
+.load-prog{width:100%;height:3px;background:rgba(255,255,255,.08);border-radius:2px;margin-bottom:1.6rem;overflow:hidden}
+.tip-box{min-height:3.5em;display:flex;align-items:center;justify-content:center}
+
+/* ── Section title ── */
+.section-title{font-size:1.15rem;font-weight:700;color:#fff;margin:2rem 0 1rem;
+  padding-bottom:.4rem;border-bottom:1px solid rgba(255,255,255,.08)}
+.section-title:first-child{margin-top:0}
+
+/* ── Responsive: tablet ── */
+@media(max-width:900px){
+  .topbar{padding:.75rem 1.2rem}
+}
+/* ── Responsive: mobile ── */
+@media(max-width:600px){
+  .topbar{padding:.6rem 1rem}
+  .uptip-box{max-width:92%;padding:1.5rem 1.1rem 1.2rem}
+  .load-card{padding:2rem 1.4rem}
+}

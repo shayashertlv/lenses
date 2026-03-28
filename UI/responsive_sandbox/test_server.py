@@ -2,6 +2,7 @@
 import sys
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -14,6 +15,13 @@ PAGES = {
     "storefront":   STOREFRONT_HTML,
 }
 
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+_MIME = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+}
+
 
 class PreviewHandler(BaseHTTPRequestHandler):
     default_page = "landing"   # overridden per-instance via class var
@@ -23,7 +31,9 @@ class PreviewHandler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         page = qs.get("p", [self.default_page])[0]
 
-        if parsed.path in ("/", ""):
+        if parsed.path.startswith("/static/"):
+            self._serve_static(parsed.path)
+        elif parsed.path in ("/", ""):
             html = PAGES.get(page, LANDING_HTML)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -37,6 +47,27 @@ class PreviewHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _serve_static(self, url_path):
+        rel = url_path[len("/static/"):]
+        safe = os.path.normpath(rel)
+        if safe.startswith("..") or os.path.isabs(safe):
+            self.send_response(403)
+            self.end_headers()
+            return
+        file_path = _STATIC_DIR / safe
+        if not file_path.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = file_path.suffix.lower()
+        mime = _MIME.get(ext, "application/octet-stream")
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, format, *args):
         pass

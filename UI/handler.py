@@ -4,10 +4,12 @@ HTTP request handler and multipart form-data parsers.
 
 import base64
 import json
+import os
 import threading
 import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 
 from UI.config import sessions
 from UI.config import CATALOG_IMAGES_DIR
@@ -17,6 +19,19 @@ from UI.pipelines import (
     get_catalog_products,
 )
 from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
+
+_STATIC_DIR = Path(__file__).parent / "static"
+
+_STATIC_MIME = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -37,6 +52,8 @@ class Handler(BaseHTTPRequestHandler):
             self._html(LENS_RECOLOR_HTML)
         elif path == "/storefront":
             self._html(STOREFRONT_HTML)
+        elif path.startswith("/static/"):
+            self._serve_static(path)
         elif path == "/api/catalog":
             self._json(200, get_catalog_products())
         elif path.startswith("/api/catalog-image/"):
@@ -249,6 +266,28 @@ class Handler(BaseHTTPRequestHandler):
             "error": sess.get("error"),
             "result_b64": sess.get("result_b64"),
         })
+
+    # ── Static file serving ──────────────────────────────────────────
+    def _serve_static(self, url_path: str):
+        # /static/css/common.css -> static/css/common.css
+        rel = url_path[len("/static/"):]
+        # Prevent directory traversal
+        safe = os.path.normpath(rel)
+        if safe.startswith("..") or os.path.isabs(safe):
+            return self.send_error(403)
+        file_path = _STATIC_DIR / safe
+        if not file_path.is_file():
+            return self.send_error(404)
+
+        ext = file_path.suffix.lower()
+        mime = _STATIC_MIME.get(ext, "application/octet-stream")
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
 
     # ── Catalog image serving ─────────────────────────────────────────
     def _serve_catalog_image(self, filename: str):

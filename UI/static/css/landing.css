@@ -1,0 +1,311 @@
+/* ── Landing page styles ── */
+
+body{
+  height:100vh;height:100dvh;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:4.5rem 2rem 4rem;
+}
+
+.logo{font-size:2.8rem;font-weight:400;letter-spacing:-.02em;color:#fff;
+  font-family:'DM Serif Display',Georgia,serif;
+  margin-bottom:.3rem;text-align:center}
+.tagline{font-size:1rem;color:rgba(255,255,255,.4);margin-bottom:2.2rem;
+  font-weight:400;letter-spacing:.01em;text-align:center}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;max-width:700px;width:100%}
+
+.mode-card{
+  max-width:100%;
+  background:rgba(255,255,255,.03);border-radius:20px;padding:1.3rem 1.4rem;
+  box-shadow:none;
+  text-align:center;cursor:pointer;
+  transition:all .3s ease;border:1px solid rgba(255,255,255,.06);
+  text-decoration:none;color:inherit;display:block;
+}
+.mode-card:hover{transform:translateY(-6px);
+  box-shadow:0 12px 40px rgba(0,0,0,.3);border-color:rgba(255,255,255,.15);
+  background:rgba(255,255,255,.06)}
+
+.mode-icon{width:56px;height:56px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 1rem;font-size:1.6rem}
+.mode-icon.smart{background:rgba(108,99,255,.12)}
+.mode-icon.free{background:rgba(52,199,138,.12)}
+.mode-icon.recolor{background:rgba(232,168,56,.12)}
+
+.mode-icon svg{width:26px;height:26px;stroke-width:1.5;fill:none}
+.mode-icon.smart svg{stroke:#6c63ff}
+.mode-icon.free svg{stroke:#34c78a}
+.mode-icon.recolor svg{stroke:#e8a838}
+.mode-icon.store{background:rgba(236,72,153,.12)}
+.mode-icon.store svg{stroke:#ec4899}
+
+.mode-card h2{font-size:1.1rem;font-weight:700;margin-bottom:.35rem;color:#fff}
+.mode-card p{font-size:.8rem;color:rgba(255,255,255,.45);line-height:1.45}
+
+.mode-badge{display:inline-block;margin-top:.8rem;padding:.32rem 1rem;
+  border-radius:50px;font-size:.75rem;font-weight:600;letter-spacing:.03em}
+.mode-badge.smart{background:#6c63ff;color:#fff}
+.mode-badge.free{background:#34c78a;color:#fff}
+.mode-badge.recolor{background:#e8a838;color:#fff}
+.mode-badge.store{background:#ec4899;color:#fff}
+
+/* ── Smart Fit step indicators ── */
+.sf-step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:rgba(255,255,255,.3);font-weight:500;transition:color .3s}
+.sf-step.active{color:#6c63ff}.sf-step.done{color:#34c78a}
+.sf-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.15);display:flex;
+  align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:rgba(255,255,255,.3);transition:all .3s}
+.sf-step.active .sf-dot{border-color:#6c63ff;color:#6c63ff;box-shadow:0 0 0 4px rgba(108,99,255,.12)}
+.sf-step.done .sf-dot{border-color:#34c78a;background:#34c78a;color:#fff}
+.sf-line{width:32px;height:2px;background:rgba(255,255,255,.1);border-radius:1px;align-self:center;transition:background .3s}
+.sf-line.done{background:#34c78a}
+
+/* ── Result card styles ── */
+.opt-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;margin-bottom:1.8rem;overflow:hidden;
+  box-shadow:none;animation:cardIn .5s ease both}
+.opt-card:nth-child(2){animation-delay:.1s}
+.opt-card:nth-child(3){animation-delay:.2s}
+.opt-card.primary{box-shadow:0 0 20px rgba(108,99,255,.15);border:1px solid #6c63ff}
+.opt-label{padding:.65rem 1.4rem;font-weight:700;font-size:.82rem;text-transform:uppercase;
+  letter-spacing:.06em;background:rgba(255,255,255,.04);color:rgba(255,255,255,.4)}
+.opt-card.primary .opt-label{background:linear-gradient(135deg,#6c63ff,#8b7bff);color:#fff}
+.opt-body{display:flex;gap:1.5rem;padding:1.4rem;align-items:stretch}
+.tryon-col{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;position:relative;
+  overflow:hidden;border-radius:12px}
+.tryon-col img{width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
+.prod-col{flex:1 1 0;display:flex;flex-direction:column;gap:.6rem}
+.prod-col img{display:block;width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#fff}
+.prod-info h3{font-size:.88rem;font-weight:600;line-height:1.3;margin-bottom:.15rem;color:#fff}
+.prod-info .brand{font-size:.76rem;color:rgba(255,255,255,.4)}
+.prod-info .tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
+.prod-info .tag{background:rgba(108,99,255,.15);color:#a78bfa;font-size:.68rem;padding:.15rem .5rem;border-radius:8px;font-weight:500}
+.prod-info .price{font-size:.95rem;font-weight:700;color:#fff;margin-top:.55rem}
+.prod-info .score{font-size:.72rem;color:rgba(255,255,255,.35);margin-top:.1rem}
+.tryon-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:300px;width:100%;border-radius:12px;
+  background:linear-gradient(110deg,rgba(255,255,255,.04) 8%,rgba(255,255,255,.08) 18%,rgba(255,255,255,.04) 33%);
+  background-size:200% 100%;animation:shimmer 1.6s linear infinite}
+.tryon-loading p{font-size:.82rem;color:rgba(255,255,255,.4);margin-top:.5rem}
+.tryon-loading .mini-spin{width:28px;height:28px;border:3px solid rgba(255,255,255,.1);
+  border-top-color:#6c63ff;border-radius:50%;animation:spin .7s linear infinite}
+.tryon-error{display:flex;align-items:center;justify-content:center;min-height:220px;
+  background:rgba(220,50,50,.08);border-radius:12px;color:#f87171;font-size:.85rem;padding:1.2rem;text-align:center;width:100%}
+
+/* ── Section labels ── */
+.section-lbl{font-size:14px;font-weight:500;color:rgba(255,255,255,.35);margin-bottom:10px;margin-top:1.5rem}
+.section-lbl:first-child{margin-top:0}
+
+/* ── Primary hero card ── */
+.primary-hero{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:18px;overflow:hidden;
+  box-shadow:none;margin-bottom:1.8rem;animation:cardIn .5s ease both}
+.primary-hero-inner{display:flex;align-items:stretch}
+.primary-tryon{flex:0 0 40%;max-width:40%;display:flex;align-items:center;justify-content:center;padding:12px;position:relative;overflow:hidden}
+.primary-tryon img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
+.primary-panel{flex:1 1 0;min-width:0;padding:24px 28px;display:flex;flex-direction:column;justify-content:center}
+.primary-panel .p-name{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:6px;color:#fff}
+.primary-panel .p-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.primary-panel .p-tag{font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(108,99,255,.15);color:#a78bfa}
+.primary-panel .p-price{font-size:20px;font-weight:700;color:#fff}
+.primary-panel .p-micro{font-size:11px;color:rgba(255,255,255,.35);margin-top:2px;margin-bottom:12px}
+.primary-panel .p-divider{height:1px;background:rgba(255,255,255,.08);margin-bottom:12px}
+.why-label{font-size:12px;font-weight:600;color:rgba(255,255,255,.4);margin-bottom:8px}
+.why-list{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.why-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:rgba(255,255,255,.5);line-height:1.5}
+.why-item svg{flex-shrink:0;margin-top:2px}
+
+/* ── Recolor overlay button on try-on images ── */
+.recolor-overlay-btn{position:absolute;bottom:10px;left:10px;padding:5px 12px;
+  background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;
+  font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s}
+
+/* ── Analysis cards ── */
+.analysis-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:2rem}
+.analysis-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:16px;
+  box-shadow:none;animation:cardIn .5s ease both}
+.analysis-card:nth-child(2){animation-delay:.1s}
+.analysis-card:nth-child(3){animation-delay:.2s}
+.analysis-vis{width:100%;height:80px;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.04);border-radius:10px;margin-bottom:12px}
+.analysis-label{font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:3px}
+.analysis-value{font-size:15px;font-weight:600;color:#fff;margin-bottom:4px}
+.analysis-desc{font-size:12px;color:rgba(255,255,255,.45);line-height:1.45}
+
+/* ── Color profile vis ── */
+.color-vis-wrap{display:flex;align-items:center;gap:10px}
+.color-circle{display:flex;width:48px;height:48px;border-radius:50%;overflow:hidden;border:2px solid #f4f4f8;flex-shrink:0}
+.color-legend{display:flex;flex-direction:column;gap:2px}
+.color-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#8b85b8}
+.color-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
+/* ── Tablet (up to 1024px) ── */
+@media(max-width:1024px){
+  body{padding:1.2rem 1.5rem}
+  .cards{gap:1rem;max-width:660px}
+  .mode-card{padding:1.4rem 1.3rem;border-radius:18px}
+  .mode-icon{width:64px;height:64px;margin-bottom:1rem}
+  .mode-icon svg{width:28px;height:28px}
+  .mode-card h2{font-size:1.1rem}
+  .mode-card p{font-size:.82rem}
+  .mode-badge{margin-top:.8rem}
+  .logo{font-size:2.6rem}
+  .tagline{margin-bottom:2rem}
+}
+
+/* ── Mobile portrait ── */
+@media(max-width:600px){
+  body{
+    padding:1.8rem 1rem;
+    height:100dvh;height:100vh;
+    justify-content:center;
+  }
+  .logo{font-size:2.2rem;margin-bottom:.1rem}
+  .tagline{font-size:.9rem;margin-bottom:1.8rem}
+  .cards{
+    grid-template-columns:1fr;
+    gap:.7rem;
+    max-width:100%;
+    width:100%;
+  }
+  /* Redesign card as horizontal list item */
+  .mode-card{
+    max-width:100%;
+    width:100%;
+    display:grid;
+    grid-template-columns:56px 1fr;
+    grid-template-rows:auto auto auto;
+    column-gap:1rem;
+    row-gap:.1rem;
+    text-align:left;
+    padding:1rem 1.2rem;
+    border-radius:18px;
+    align-items:center;
+  }
+  .mode-icon{
+    grid-row:1/4;
+    width:52px;height:52px;
+    margin:0;
+    align-self:center;
+    flex-shrink:0;
+  }
+  .mode-icon svg{width:24px;height:24px}
+  .mode-card h2{
+    grid-column:2;
+    font-size:1rem;
+    margin-bottom:0;
+    align-self:end;
+  }
+  .mode-card p{
+    grid-column:2;
+    font-size:.78rem;
+    line-height:1.4;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+  .mode-badge{
+    grid-column:2;
+    margin-top:.3rem;
+    padding:.28rem .85rem;
+    font-size:.72rem;
+    align-self:start;
+  }
+}
+
+/* ── Small phones (<380px) ── */
+@media(max-width:380px){
+  body{padding:1.4rem .8rem}
+  .logo{font-size:1.9rem}
+  .tagline{font-size:.82rem;margin-bottom:1.4rem}
+  .cards{gap:.55rem}
+  .mode-card{padding:.9rem 1rem;grid-template-columns:48px 1fr}
+  .mode-icon{width:44px;height:44px}
+  .mode-icon svg{width:20px;height:20px}
+  .mode-card h2{font-size:.92rem}
+  .mode-card p{font-size:.73rem}
+  .mode-badge{font-size:.68rem;padding:.24rem .75rem}
+}
+
+/* ── Landscape mobile (short viewport) ── */
+@media(max-height:500px) and (max-width:900px){
+  body{padding:.6rem 1rem}
+  .logo{font-size:1.5rem;margin-bottom:0}
+  .tagline{font-size:.75rem;margin-bottom:.8rem}
+  .cards{grid-template-columns:1fr 1fr;gap:.55rem}
+  .mode-card{
+    display:grid;grid-template-columns:38px 1fr;column-gap:.7rem;
+    padding:.7rem .9rem;border-radius:14px;
+  }
+  .mode-icon{width:34px;height:34px}
+  .mode-icon svg{width:16px;height:16px}
+  .mode-card h2{font-size:.82rem}
+  .mode-card p{-webkit-line-clamp:1;font-size:.68rem}
+  .mode-badge{font-size:.62rem;padding:.18rem .6rem}
+}
+
+/* ── Smart Fit results: tablet ── */
+@media(max-width:900px){
+  .primary-hero-inner{flex-direction:column}
+  .primary-tryon{flex:none;max-width:100%;padding:16px}
+  .primary-tryon img{width:100%;height:auto;max-height:400px;object-fit:contain}
+  .primary-panel{flex:none;width:100%;padding:16px;min-width:0;justify-content:flex-start}
+  .analysis-cards{grid-template-columns:repeat(3,1fr);gap:8px}
+  .opt-body{flex-direction:column}
+  .tryon-col{flex:none;max-width:100%;margin-bottom:.3rem}
+  .tryon-col img{width:100%;height:auto;max-height:360px;object-fit:contain}
+  .prod-col{flex:none;max-width:100%;flex-direction:row;gap:1rem;align-items:center}
+  .prod-col img{width:80px;height:80px;flex-shrink:0;max-height:80px}
+}
+
+/* ── Smart Fit results: mobile ── */
+@media(max-width:600px){
+  /* Primary hero -- image full width, text compact below */
+  .primary-tryon{padding:6px}
+  .primary-tryon img{max-height:320px}
+  .primary-panel{padding:12px 14px}
+  .primary-panel .p-name{font-size:14px}
+  .primary-panel .p-tags{gap:4px;margin-bottom:8px}
+  .primary-panel .p-tag{font-size:10px;padding:2px 7px}
+  .primary-panel .p-price{font-size:17px}
+  .primary-panel .p-micro{font-size:10px;margin-bottom:8px}
+  /* "Why this works" -- smaller but NO truncation */
+  .why-label{font-size:11px;margin-bottom:5px}
+  .why-item{font-size:11px;line-height:1.4}
+  .why-list{gap:5px;margin-bottom:10px}
+  /* Analysis cards -- 3-across, compact, smaller color circle */
+  .analysis-cards{grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:1.2rem}
+  .analysis-card{padding:10px 8px;border-radius:10px}
+  .analysis-vis{height:50px;margin-bottom:6px;border-radius:6px}
+  .analysis-vis svg{width:44px;height:44px}
+  .analysis-label{font-size:9px;margin-bottom:2px}
+  .analysis-value{font-size:11px;margin-bottom:2px}
+  .analysis-desc{font-size:9.5px;line-height:1.35}
+  /* Color circle smaller on mobile */
+  .color-circle{width:36px;height:36px}
+  .color-vis-wrap{gap:6px}
+  .color-legend-item{font-size:9px;gap:3px}
+  .color-dot{width:6px;height:6px}
+  /* Alternative cards */
+  .opt-card{margin-bottom:1.2rem}
+  .opt-label{font-size:.72rem;padding:8px 14px}
+  .opt-body{padding:.75rem;gap:.6rem}
+  .tryon-loading{min-height:180px}
+  .tryon-error{min-height:120px;font-size:.75rem}
+  .prod-col{gap:.6rem}
+  .prod-col img{width:70px;height:70px;max-height:70px}
+  .prod-info h3{font-size:.8rem}
+  .prod-info .brand{font-size:.65rem}
+  .prod-info .tags{gap:3px}
+  .prod-info .tag{font-size:.6rem;padding:2px 6px}
+  .prod-info .price{font-size:.88rem}
+  .prod-info .score{font-size:.65rem}
+  /* Recolor button -- smaller on mobile */
+  .recolor-overlay-btn{padding:3px 9px;font-size:.62rem;bottom:6px;left:6px;border-radius:14px}
+}
+
+@media(max-width:380px){
+  .prod-col img{width:60px;height:60px;max-height:60px}
+  .opt-body{padding:.6rem}
+  .primary-panel .p-name{font-size:13px}
+  .primary-panel .p-price{font-size:15px}
+}

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Optique — Eyewear Store</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/css/common.css"/>
+<link rel="stylesheet" href="/static/css/storefront.css"/>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-btn">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 12L6 8l4-4"/></svg>
+    Back to Lenses
+  </a>
+  <a href="/storefront" class="brand">Optique</a>
+  <div class="powered">Virtual try-on by <span>Lenses AI</span></div>
+</div>
+
+<div class="hero">
+  <h1>Find Your Perfect Pair</h1>
+  <p>Browse our collection and try any frame on yourself instantly with AI-powered virtual try-on.</p>
+</div>
+
+<div class="container">
+  <div class="grid-header">
+    <h2>All Eyewear</h2>
+    <span class="count" id="product-count"></span>
+  </div>
+  <div class="filter-strip">
+    <button class="filter-pill active" data-gender="all"    onclick="setGenderFilter('all')">All</button>
+    <button class="filter-pill"        data-gender="men"    onclick="setGenderFilter('men')">Men</button>
+    <button class="filter-pill"        data-gender="women"  onclick="setGenderFilter('women')">Women</button>
+    <button class="filter-pill"        data-gender="unisex" onclick="setGenderFilter('unisex')">Unisex</button>
+  </div>
+  <div class="product-grid" id="product-grid">
+    <!-- Skeleton cards while loading -->
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+  </div>
+</div>
+
+<!-- Try-on modal -->
+<div class="modal-overlay" id="tryon-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-body">
+      <!-- Upload step -->
+      <div id="modal-upload">
+        <h3 id="modal-product-name"></h3>
+        <p class="modal-subtitle">Upload a selfie to see how these frames look on you</p>
+        <!-- Empty state -->
+        <div id="upload-empty" class="upload-zone" onclick="openPickerWithTip('modal-file')">
+          <svg viewBox="0 0 36 36"><path d="M18 8v20M8 18h20" stroke-linecap="round"/></svg>
+          <p>Click to upload your photo</p>
+          <p class="small">JPG, PNG or WebP</p>
+        </div>
+        <!-- Photo-ready state -->
+        <div id="upload-ready" style="display:none;text-align:center">
+          <img class="upload-preview" id="modal-preview" src="" alt="Your photo"/>
+          <button type="button" class="change-photo-btn" onclick="openPickerWithTip('modal-file')">Change photo</button>
+        </div>
+        <input type="file" id="modal-file" accept="image/*" style="display:none"/>
+        <button class="modal-submit" id="modal-go" disabled onclick="startTryon()">Try On</button>
+      </div>
+
+      <!-- Progress step -->
+      <div id="modal-progress" style="display:none">
+        <h3>Creating your try-on...</h3>
+        <p class="modal-subtitle" id="modal-progress-product"></p>
+        <div class="tryon-progress">
+          <div class="bar-bg"><div class="bar-fill" id="modal-bar"></div></div>
+          <p id="modal-status-text">Preparing your photo...</p>
+        </div>
+      </div>
+
+      <!-- Result step -->
+      <div class="tryon-result" id="modal-result">
+        <h3>Here's how you look!</h3>
+        <p class="modal-subtitle" id="modal-result-product"></p>
+        <img id="modal-result-img" src="" alt="Virtual try-on result"/>
+        <button class="recolor-btn" onclick="showRecolorPicker()">Recolor Lenses</button>
+        <button class="modal-submit" onclick="resetModal()">Try Another Photo</button>
+      </div>
+
+      <!-- Recolor: pick color -->
+      <div id="modal-recolor-pick" style="display:none;text-align:center">
+        <h3>Recolor Lenses</h3>
+        <p class="modal-subtitle">Choose a lens color</p>
+        <div class="rc-color-grid" id="rc-color-grid">
+          <div class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="rc-cname">Clear</span></div>
+          <div class="rc-color-opt" data-color="Soft Black" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="rc-cname">Soft Black</span></div>
+          <div class="rc-color-opt" data-color="Smoke Gray" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="rc-cname">Smoke Gray</span></div>
+          <div class="rc-color-opt" data-color="Amber Brown" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="rc-cname">Amber Brown</span></div>
+          <div class="rc-color-opt" data-color="Classic Green" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="rc-cname">Classic Green</span></div>
+          <div class="rc-color-opt" data-color="Ice Silver" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b8c6d4,#dce6ef)"></div><span class="rc-cname">Ice Silver</span></div>
+          <div class="rc-color-opt" data-color="Ocean Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="rc-cname">Ocean Blue</span></div>
+          <div class="rc-color-opt" data-color="Midnight Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="rc-cname">Midnight Blue</span></div>
+          <div class="rc-color-opt" data-color="Ruby Red" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="rc-cname">Ruby Red</span></div>
+          <div class="rc-color-opt" data-color="Rose Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="rc-cname">Rose Gold</span></div>
+          <div class="rc-color-opt" data-color="Aqua Teal" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#00838f,#4dd0e1)"></div><span class="rc-cname">Aqua Teal</span></div>
+          <div class="rc-color-opt" data-color="Shooter Yellow" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="rc-cname">Shooter Yellow</span></div>
+          <div class="rc-color-opt" data-color="Champagne Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="rc-cname">Champagne Gold</span></div>
+          <div class="rc-color-opt" data-color="Copper Bronze" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d4e2a,#cd7f50)"></div><span class="rc-cname">Copper Bronze</span></div>
+          <div class="rc-color-opt" data-color="Deep Purple" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="rc-cname">Deep Purple</span></div>
+          <div class="rc-color-opt" data-color="Magenta Pink" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c2185b,#f06292)"></div><span class="rc-cname">Magenta Pink</span></div>
+        </div>
+        <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply Color</button>
+        <button class="rc-back-btn" onclick="backToResult()">Back</button>
+      </div>
+
+      <!-- Recolor: loading -->
+      <div id="modal-recolor-progress" style="display:none;text-align:center">
+        <h3>Recoloring lenses...</h3>
+        <p class="modal-subtitle" id="rc-progress-color"></p>
+        <div class="tryon-progress">
+          <div class="bar-bg"><div class="bar-fill" id="rc-bar" style="width:0%"></div></div>
+          <p id="rc-status-text">Preparing...</p>
+        </div>
+      </div>
+
+      <!-- Recolor: result -->
+      <div id="modal-recolor-result" style="display:none;text-align:center">
+        <h3>Recolored!</h3>
+        <p class="modal-subtitle" id="rc-result-color"></p>
+        <img id="rc-result-img" src="" alt="Recolored result" style="display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem"/>
+        <button class="rc-back-btn" onclick="backToResult()">Back to Try-On</button>
+      </div>
+
+      <!-- Error step -->
+      <div id="modal-error" style="display:none;text-align:center">
+        <div style="font-size:2rem;margin-bottom:.8rem;color:rgba(255,255,255,.5)">:/</div>
+        <h3>Something went wrong</h3>
+        <p class="modal-subtitle" id="modal-error-msg"></p>
+        <button class="modal-submit" onclick="resetModal()">Try Again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- upload tip popup -->
+<div id="uptip" class="uptip-overlay">
+  <div class="uptip-box">
+    <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
+    <h3>Photo Tips</h3>
+    <p>For best results, upload a clear selfie with your face mostly visible and well-lit. Avoid group shots, sunglasses, or blurry images.</p>
+    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+  </div>
+</div>
+
+<script src="/static/js/common.js"></script>
+<script src="/static/js/storefront.js"></script>
+</body>
+</html>
