@@ -1093,6 +1093,11 @@ body{
 }
 .res-topbar-compare:hover{background:rgba(255,255,255,.14)}
 
+/* ── Recolor overlay button ── */
+.recolor-overlay-btn{position:absolute;bottom:10px;left:10px;padding:5px 12px;
+  background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;
+  font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s;z-index:2}
+
 /* ── Hero section (best match) ── */
 .hero-section{
   position:relative;
@@ -1106,17 +1111,18 @@ body{
   margin-bottom:16px;
 }
 .hero-grid{
-  display:grid;grid-template-columns:1.2fr 1fr;gap:28px;
+  display:grid;grid-template-columns:1fr 1fr;gap:28px;
   background:linear-gradient(175deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
   border-radius:28px;border:1px solid rgba(255,255,255,.06);
   padding:28px;overflow:hidden;position:relative;
+  max-height:520px;
 }
 .hero-tryon-wrap{
   position:relative;display:flex;align-items:center;justify-content:center;
   overflow:hidden;border-radius:16px;
-  background:rgba(0,0,0,.15);
+  background:rgba(0,0,0,.15);max-height:460px;
 }
-.hero-tryon-wrap>div{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
+.hero-tryon-wrap>div{display:flex;align-items:center;justify-content:center;width:100%;height:100%;position:relative}
 .hero-glow{
   position:absolute;top:-20%;left:15%;width:400px;height:400px;border-radius:50%;
   background:radial-gradient(circle,var(--accent),transparent 70%);
@@ -1129,15 +1135,14 @@ body{
   object-fit:cover;border-radius:16px;
   display:block;position:relative;z-index:1;
 }
-.hero-tryon-wrap button{position:relative;z-index:2}
 .hero-panel{
   background:rgba(255,255,255,.04);border-radius:22px;
   border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);
-  padding:28px;display:flex;flex-direction:column;gap:16px;justify-content:center;
+  padding:28px;display:flex;flex-direction:column;gap:12px;justify-content:center;
   animation:slideRight .7s ease .3s both;
 }
 .hero-product-img{
-  width:100%;max-height:140px;object-fit:contain;border-radius:14px;
+  width:100%;max-height:180px;object-fit:contain;border-radius:14px;
   background:rgba(255,255,255,.04);
 }
 .hero-name{
@@ -1215,8 +1220,9 @@ body{
 .alt-card:nth-child(2){animation-delay:.55s}
 .alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
 .alt-card-img-wrap{position:relative;display:flex;align-items:center;justify-content:center;
-  min-height:200px;max-height:320px;overflow:hidden;background:rgba(255,255,255,.02);border-radius:12px}
-.alt-card-img-wrap img{width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
+  height:320px;overflow:hidden;background:rgba(255,255,255,.02)}
+.alt-card-img-wrap>div{width:100%;height:100%}
+.alt-card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
 .alt-card-body{padding:20px}
 .alt-card-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
@@ -1274,28 +1280,23 @@ body{
   display:flex;align-items:center;justify-content:center;transition:all .2s;
 }
 .compare-close:hover{background:rgba(255,255,255,.2)}
-.compare-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.compare-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .compare-card{
-  display:grid;grid-template-columns:130px 1fr;grid-template-rows:1fr auto;
+  display:flex;flex-direction:column;
   background:rgba(255,255,255,.04);border-radius:18px;overflow:hidden;
   border:1px solid rgba(255,255,255,.06);
 }
 .compare-best{border-color:var(--accent);box-shadow:0 0 20px rgba(139,123,255,.15)}
 .compare-card-img{
-  grid-column:1;grid-row:1/3;
-  width:130px;height:100%;object-fit:contain;display:block;
-  background:rgba(255,255,255,.02);padding:12px;min-height:120px;
+  width:100%;aspect-ratio:3/4;object-fit:cover;display:block;
+  background:rgba(255,255,255,.02);
 }
-.compare-card-body{grid-column:2;grid-row:1;padding:14px 14px 6px}
-.compare-card-name{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;color:#fff;margin-bottom:2px}
 .compare-card-footer{
-  grid-column:2;grid-row:2;
-  padding:8px 14px 12px;border-top:1px solid rgba(255,255,255,.06);
+  padding:12px 16px;
   display:flex;align-items:center;justify-content:space-between;
 }
+.compare-card-name{font-family:'DM Serif Display',Georgia,serif;font-size:.85rem;color:#fff}
 .compare-card-price{font-family:'DM Serif Display',Georgia,serif;font-size:.95rem;color:#fff}
-.compare-card-badge{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  padding:3px 8px;border-radius:6px;background:var(--accent);color:#fff}
 
 /* ── Animations ── */
 @keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}
@@ -1319,7 +1320,9 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(58px,1fr))}
   .submit-btn{min-height:50px;width:100%;max-width:420px;font-size:.95rem}
   /* Results */
-  .hero-grid{grid-template-columns:1fr;gap:20px}
+  .hero-grid{grid-template-columns:1fr;gap:20px;max-height:none}
+  .hero-tryon-wrap{max-height:380px}
+  .hero-tryon-wrap img{object-fit:contain}
   .hero-panel{padding:20px}
   .alt-grid{grid-template-columns:1fr 1fr}
   .res-topbar{padding:12px 20px;margin:0 -1.5rem 24px}
@@ -1346,7 +1349,7 @@ body{
   /* Results */
   .hero-grid{gap:10px;padding:14px;border-radius:18px}
   .hero-tryon-wrap{min-height:0;max-height:280px}
-  .hero-tryon-wrap img{width:100%;height:auto;max-height:280px;object-fit:contain}
+  .hero-tryon-wrap img{width:100%;height:auto;object-fit:contain}
   .hero-product-img{max-height:58px}
   .hero-panel{padding:12px;gap:8px;border-radius:16px}
   .hero-name{font-size:.92rem}
@@ -1355,8 +1358,7 @@ body{
   .score-panel{padding:10px}
   .score-panel-hdr{margin-bottom:6px}
   .alt-grid{grid-template-columns:1fr}
-  .alt-card-img-wrap{min-height:160px;max-height:260px}
-  .alt-card-img-wrap img{width:100%;height:auto;max-height:260px;object-fit:contain}
+  .alt-card-img-wrap{height:260px}
   .alt-card-footer{padding:12px 16px}
   .res-topbar{padding:10px 14px;margin:0 -.9rem 20px}
   .res-topbar-back{padding:6px 14px;font-size:.78rem}
@@ -1364,7 +1366,10 @@ body{
   .res-topbar-compare{padding:6px 14px;font-size:.78rem}
   /* Compare modal */
   .compare-content{padding:16px 12px;border-radius:20px;max-height:85vh}
-  .compare-grid{grid-template-columns:1fr}
+  .compare-grid{grid-template-columns:repeat(3,1fr);gap:10px}
+  .compare-card-name{font-size:.72rem}
+  .compare-card-price{font-size:.82rem}
+  .compare-card-footer{padding:8px 10px}
   .compare-header h2{font-size:1.1rem}
   .tryon-loading{min-height:200px}
   .filter-pill{min-height:44px;min-width:44px;padding:.45rem 1rem;display:inline-flex;align-items:center;justify-content:center}
@@ -1380,7 +1385,7 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
   .swatch-dot{width:28px;height:28px}
   .hero-grid{padding:16px;gap:14px}
-  .alt-card-img-wrap{min-height:140px;max-height:220px}
+  .alt-card-img-wrap{height:220px}
 }
 /* ── Landscape mobile ── */
 @media(max-height:500px) and (max-width:900px){
@@ -1961,12 +1966,8 @@ function openCompare(){
       :`data:image/jpeg;base64,${o.product_b64}`;
     card.innerHTML=`
       <img class="compare-card-img" src="${imgSrc}" alt="${o.name}"/>
-      <div class="compare-card-body">
-        <div class="compare-card-name">${o.name}</div>
-      </div>
       <div class="compare-card-footer">
         <span class="compare-card-price">${fmtPrice(o)}</span>
-        ${isBest?'<span class="compare-card-badge">Best</span>':'<span class="alt-card-label">Alt '+i+'</span>'}
       </div>`;
     grid.appendChild(card);
   }
