@@ -1098,6 +1098,10 @@ body{
   background:rgba(232,168,56,.92);color:#fff;border:none;border-radius:20px;
   font-size:.72rem;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s;z-index:2}
 
+/* ── Tryon image wrapper (shared) ── */
+.tryon-done-wrap{position:relative;width:100%;height:100%}
+.tryon-done-wrap img{width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit}
+
 /* ── Hero section (best match) ── */
 .hero-section{
   position:relative;
@@ -1111,18 +1115,15 @@ body{
   margin-bottom:16px;
 }
 .hero-grid{
-  display:grid;grid-template-columns:1fr 1fr;gap:28px;
+  display:grid;grid-template-columns:auto 1fr;gap:28px;
   background:linear-gradient(175deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
   border-radius:28px;border:1px solid rgba(255,255,255,.06);
   padding:28px;overflow:hidden;position:relative;
-  max-height:520px;
 }
 .hero-tryon-wrap{
-  position:relative;display:flex;align-items:center;justify-content:center;
-  overflow:hidden;border-radius:16px;
-  background:rgba(0,0,0,.15);max-height:460px;
+  position:relative;overflow:hidden;border-radius:16px;
+  background:rgba(0,0,0,.15);width:340px;height:440px;
 }
-.hero-tryon-wrap>div{display:flex;align-items:center;justify-content:center;width:100%;height:100%;position:relative}
 .hero-glow{
   position:absolute;top:-20%;left:15%;width:400px;height:400px;border-radius:50%;
   background:radial-gradient(circle,var(--accent),transparent 70%);
@@ -1130,11 +1131,6 @@ body{
   animation:pulse 4s ease-in-out infinite;
 }
 @keyframes pulse{0%,100%{opacity:.15}50%{opacity:.3}}
-.hero-tryon-wrap img{
-  width:100%;height:100%;
-  object-fit:cover;border-radius:16px;
-  display:block;position:relative;z-index:1;
-}
 .hero-panel{
   background:rgba(255,255,255,.04);border-radius:22px;
   border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);
@@ -1219,10 +1215,8 @@ body{
 .alt-card:nth-child(1){animation-delay:.4s}
 .alt-card:nth-child(2){animation-delay:.55s}
 .alt-card:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
-.alt-card-img-wrap{position:relative;display:flex;align-items:center;justify-content:center;
-  height:320px;overflow:hidden;background:rgba(255,255,255,.02)}
-.alt-card-img-wrap>div{width:100%;height:100%}
-.alt-card-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.alt-card-img-wrap{position:relative;overflow:hidden;background:rgba(255,255,255,.02);
+  aspect-ratio:4/5}
 .alt-card-body{padding:20px}
 .alt-card-name{
   font-family:'DM Serif Display',Georgia,serif;font-size:1.05rem;color:#fff;line-height:1.3;
@@ -1284,9 +1278,8 @@ body{
 .compare-card{
   display:flex;flex-direction:column;
   background:rgba(255,255,255,.04);border-radius:18px;overflow:hidden;
-  border:1px solid rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);
 }
-.compare-best{border-color:var(--accent);box-shadow:0 0 20px rgba(139,123,255,.15)}
 .compare-card-img{
   width:100%;aspect-ratio:3/4;object-fit:cover;display:block;
   background:rgba(255,255,255,.02);
@@ -1320,9 +1313,8 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(58px,1fr))}
   .submit-btn{min-height:50px;width:100%;max-width:420px;font-size:.95rem}
   /* Results */
-  .hero-grid{grid-template-columns:1fr;gap:20px;max-height:none}
-  .hero-tryon-wrap{max-height:380px}
-  .hero-tryon-wrap img{object-fit:contain}
+  .hero-grid{grid-template-columns:1fr;gap:20px}
+  .hero-tryon-wrap{width:100%;height:auto;aspect-ratio:3/4;max-height:400px}
   .hero-panel{padding:20px}
   .alt-grid{grid-template-columns:1fr 1fr}
   .res-topbar{padding:12px 20px;margin:0 -1.5rem 24px}
@@ -1348,8 +1340,7 @@ body{
   .submit-row{margin:2rem 0 3rem}
   /* Results */
   .hero-grid{gap:10px;padding:14px;border-radius:18px}
-  .hero-tryon-wrap{min-height:0;max-height:280px}
-  .hero-tryon-wrap img{width:100%;height:auto;object-fit:contain}
+  .hero-tryon-wrap{width:100%;height:auto;max-height:320px}
   .hero-product-img{max-height:58px}
   .hero-panel{padding:12px;gap:8px;border-radius:16px}
   .hero-name{font-size:.92rem}
@@ -1358,7 +1349,7 @@ body{
   .score-panel{padding:10px}
   .score-panel-hdr{margin-bottom:6px}
   .alt-grid{grid-template-columns:1fr}
-  .alt-card-img-wrap{height:260px}
+  .alt-card-img-wrap{aspect-ratio:4/5}
   .alt-card-footer{padding:12px 16px}
   .res-topbar{padding:10px 14px;margin:0 -.9rem 20px}
   .res-topbar-back{padding:6px 14px;font-size:.78rem}
@@ -1385,7 +1376,7 @@ body{
   .swatch-grid{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
   .swatch-dot{width:28px;height:28px}
   .hero-grid{padding:16px;gap:14px}
-  .alt-card-img-wrap{height:220px}
+  .alt-card-img-wrap{aspect-ratio:4/5}
 }
 /* ── Landscape mobile ── */
 @media(max-height:500px) and (max-width:900px){
@@ -1838,8 +1829,8 @@ function getTryonHtml(o){
   if(o.tryon_status==='done'&&o.tryon_b64){
     const key='rc'+(++_recolorIdx);
     _recolorStore[key]=o.tryon_b64;
-    return `<div style="position:relative;display:flex;align-items:center;justify-content:center">
-      <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on" style="max-width:100%;display:block"/>
+    return `<div class="tryon-done-wrap">
+      <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
       <button class="recolor-overlay-btn" onclick="event.stopPropagation();goRecolor('${key}')" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
     </div>`;
   }
@@ -1960,7 +1951,7 @@ function openCompare(){
     const scores=getScores(o);
     const isBest=i===0;
     const card=document.createElement('div');
-    card.className='compare-card'+(isBest?' compare-best':'');
+    card.className='compare-card';
     const imgSrc=o.tryon_status==='done'&&o.tryon_b64
       ?`data:image/png;base64,${o.tryon_b64}`
       :`data:image/jpeg;base64,${o.product_b64}`;
