@@ -223,7 +223,21 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         return
     portrait_part = _portrait_result[0]
 
+    # Build per-thread portrait Parts so each thread serialises its own copy.
+    # Sharing a single protobuf Part across concurrent API calls can cause the
+    # later requests to send corrupt / partially-serialised image data, which
+    # consistently degrades alt-2 quality.
+    import copy as _copy
+    _portrait_parts = [_copy.deepcopy(portrait_part) for _ in matches]
+
+    import time as _time
+
     def do_tryon(idx: int):
+        # Stagger alt requests by ~1 s to avoid Gemini rate-limit pressure on
+        # concurrent image-generation calls (alt-2 was consistently degraded).
+        if idx > 0:
+            _time.sleep(idx * 1.0)
+
         product, _ = matches[idx]
         glasses_path = matcher.get_product_image_path(product)
         sess[f"opt{idx}"]["tryon_status"] = "generating"
@@ -237,7 +251,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
                 matched_product=product,
                 model_alias=DEFAULT_GENERATION_MODEL,
                 api_key=api_key,
-                portrait_part=portrait_part,
+                portrait_part=_portrait_parts[idx],
                 client=tryon_client,
             )
         except Exception as e:
@@ -509,15 +523,24 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
             return
         portrait_part = _portrait_result[0]
 
+        # Build per-thread portrait Parts — same fix as smart-fit pipeline.
+        import copy as _copy
+        import time as _time
+        _portrait_parts = [_copy.deepcopy(portrait_part) for _ in matches]
+
         def do_tryon(idx: int):
             try:
+                # Stagger alt requests to avoid Gemini rate-limit pressure.
+                if idx > 0:
+                    _time.sleep(idx * 1.0)
+
                 product, _ = matches[idx]
                 glasses_path = os.path.join(CATALOG_DIR, product["image"])
                 sess[f"opt{idx}"]["tryon_status"] = "generating"
 
                 tryon_client = genai.Client(api_key=api_key)
                 tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
-                                       portrait_part=portrait_part, client=tryon_client)
+                                       portrait_part=_portrait_parts[idx], client=tryon_client)
 
                 if tr["success"] and tr["image_bytes"]:
                     sess[f"opt{idx}"]["tryon_b64"] = base64.b64encode(
@@ -859,7 +882,7 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
     def do_recolor(idx: int):
         color = colors[idx]
         sess[f"color{idx}"]["status"] = "generating"
-        print(f"  [recolor] Generating {color} (slot {idx}) via nano-banana-pro ...")
+        print(f"  [recolor] Generating {color} (slot {idx}) ...")
 
         recolor_client = genai.Client(api_key=api_key)
         result = _recolor_single(portrait_path, color, api_key,
