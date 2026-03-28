@@ -405,15 +405,15 @@ CRITICAL PRESERVATION RULES FOR THE PORTRAIT (IMAGE 1):
 - The person's clothing, accessories, jewelry must remain IDENTICAL
 - The background must remain COMPLETELY IDENTICAL
 - The overall lighting, shadows, and color grading must remain IDENTICAL
-- The photo composition, framing, angle, and resolution must remain IDENTICAL
 
 FRAMING / ZOOM — THIS IS CRITICAL:
-- The output image MUST have the EXACT same crop, zoom level, and framing as IMAGE 1
+- Maintain the exact same head size, framing, zoom level, and camera distance as IMAGE 1
+- Do not crop, zoom in, or re-center the subject's face
 - Do NOT zoom out, pull back, or reveal more of the scene than IMAGE 1 shows
-- Do NOT zoom in or crop tighter than IMAGE 1
 - The person's head, shoulders, and body must occupy the EXACT same area and proportion of the frame as in IMAGE 1
 - If IMAGE 1 shows the person from the chest up, the output must show the person from the chest up at the same scale
 - The edges of the frame must show the same content as IMAGE 1 — do not add extra background, body, or space
+- The output must be a 1:1 compositional match to the original image, only applying the described glasses
 
 REALISM REQUIREMENTS:
 - Add natural shadows where the glasses frame touches the face (bridge of nose, temples)
@@ -845,9 +845,7 @@ CRITICAL PRESERVATION RULES — do NOT change any of the following:
 - The person's clothing, accessories, jewelry must remain IDENTICAL
 - The background (color, texture, bokeh, lighting, objects) must remain IDENTICAL
 - The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
-- The photo composition, framing, and resolution must remain IDENTICAL
 - Any text, logos, or watermarks present must remain IDENTICAL
-- The output MUST have the EXACT same crop, zoom level, and framing — do NOT zoom out, pull back, zoom in, or change what is visible at the edges of the frame
 
 LENS COLOR APPLICATION GUIDANCE:
 - Apply the {target_color} tint ONLY to the transparent/semi-transparent lens area bounded by the glasses frame
@@ -855,6 +853,13 @@ LENS COLOR APPLICATION GUIDANCE:
 - Where the lens overlaps the person's eyes and face, the {target_color} tint should blend naturally, as real tinted glass does — the skin and eye features behind the lens should show through at the appropriate opacity level
 - The edge of the color change must PRECISELY follow the inner edge of the glasses frame — no color bleeding onto the frame or face
 - Both lenses must have the SAME color treatment applied consistently
+
+FRAMING / ZOOM — THIS IS CRITICAL:
+- Maintain the exact same head size, framing, zoom level, and camera distance as the original photo
+- Do not crop, zoom in, or re-center the subject's face
+- Do NOT zoom out, pull back, or reveal more of the scene than the original shows
+- Do NOT change what is visible at the edges of the frame
+- The output must be a 1:1 compositional match to the original image, only changing the lens color
 
 OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
 

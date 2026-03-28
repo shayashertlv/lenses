@@ -86,7 +86,6 @@ CRITICAL PRESERVATION RULES — do NOT change any of the following:
 - The person's clothing, accessories, jewelry must remain IDENTICAL
 - The background (color, texture, bokeh, lighting, objects) must remain IDENTICAL
 - The overall lighting, shadows, and color grading of the photo must remain IDENTICAL
-- The photo composition, framing, and resolution must remain IDENTICAL
 - Any text, logos, or watermarks present must remain IDENTICAL
 
 LENS COLOR APPLICATION GUIDANCE:
@@ -95,6 +94,13 @@ LENS COLOR APPLICATION GUIDANCE:
 - Where the lens overlaps the person's eyes and face, the {target_color} tint should blend naturally, as real tinted glass does — the skin and eye features behind the lens should show through at the appropriate opacity level
 - The edge of the color change must PRECISELY follow the inner edge of the glasses frame — no color bleeding onto the frame or face
 - Both lenses must have the SAME color treatment applied consistently
+
+FRAMING / ZOOM — THIS IS CRITICAL:
+- Maintain the exact same head size, framing, zoom level, and camera distance as the original photo
+- Do not crop, zoom in, or re-center the subject's face
+- Do NOT zoom out, pull back, or reveal more of the scene than the original shows
+- Do NOT change what is visible at the edges of the frame
+- The output must be a 1:1 compositional match to the original image, only changing the lens color
 
 OUTPUT: Return the edited photo maintaining the EXACT same dimensions, quality, and format as the input. The result must be photorealistic — it should look like an actual photograph of someone wearing {target_color} tinted glasses, NOT like a digital color overlay was applied."""
 

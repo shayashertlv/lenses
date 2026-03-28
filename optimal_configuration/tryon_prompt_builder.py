@@ -50,7 +50,15 @@ CRITICAL PRESERVATION RULES FOR THE PORTRAIT (IMAGE 1):
 - The person's clothing, accessories, jewelry must remain IDENTICAL
 - The background must remain COMPLETELY IDENTICAL
 - The overall lighting, shadows, and color grading must remain IDENTICAL
-- The photo composition, framing, angle, and resolution must remain IDENTICAL
+
+FRAMING / ZOOM — THIS IS CRITICAL:
+- Maintain the exact same head size, framing, zoom level, and camera distance as IMAGE 1
+- Do not crop, zoom in, or re-center the subject's face
+- Do NOT zoom out, pull back, or reveal more of the scene than IMAGE 1 shows
+- The person's head, shoulders, and body must occupy the EXACT same area and proportion of the frame as in IMAGE 1
+- If IMAGE 1 shows the person from the chest up, the output must show the person from the chest up at the same scale
+- The edges of the frame must show the same content as IMAGE 1 — do not add extra background, body, or space
+- The output must be a 1:1 compositional match to the original image, only applying the described glasses
 
 REALISM REQUIREMENTS:
 - Add natural shadows where the glasses frame touches the face (bridge of nose, temples)

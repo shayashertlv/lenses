@@ -16,7 +16,7 @@ DEFAULT_FINISH = "standard"
 DEFAULT_PRESERVE_REFLECTIONS = True
 
 # Image constraints
-MAX_IMAGE_DIMENSION = 1536
+MAX_IMAGE_DIMENSION = 2048
 
 # API key
 def get_api_key() -> str:
