@@ -56,7 +56,9 @@ WHAT TO CHANGE:
 
 CRITICAL RULES:
 - The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
-- Do NOT crop, zoom in/out, re-center, or change what is visible at the edges
+- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
+- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
+- The edges of the output must show the EXACT same content as the input — same background, same body parts visible
 - The glasses FRAME must remain completely unchanged — only the lens color changes
 - The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
 

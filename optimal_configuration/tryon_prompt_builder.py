@@ -45,7 +45,10 @@ PLACEMENT:
 
 CRITICAL RULES:
 - The output must be a 1:1 compositional match to IMAGE 1 — same head size, crop, zoom, framing, and camera distance
-- Do NOT crop, zoom in/out, re-center, or change what is visible at the edges
+- Do NOT change the aspect ratio of IMAGE 1 — the output must have the same aspect ratio as IMAGE 1
+- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
+- The edges of the output must show the EXACT same content as IMAGE 1 — same background, same body parts visible, same space above/below/around the head
+- Keep everything else in the image exactly the same, preserving the original style, lighting, and composition
 - The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
 - Do NOT alter, smooth, or enhance any facial features
 - Add realistic shadows from the glasses consistent with the existing lighting
