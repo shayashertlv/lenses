@@ -20,7 +20,6 @@ if str(FACE_ANALYSIS_DIR) not in sys.path:
 # ── Free Search constants (inlined to avoid config.py import conflicts) ──────
 FS_MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
-    "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
 FS_DEFAULT_MODEL = "nano-banana-pro"
 FS_MAX_IMAGE_DIM = 1536

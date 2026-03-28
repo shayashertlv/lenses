@@ -43,7 +43,7 @@ def virtual_tryon(
         portrait_path: Path to user's portrait photo.
         glasses_image_path: Path to product glasses image.
         product: Product dict with tags for prompt building.
-        model_alias: "nano-banana-2" or "nano-banana-pro".
+        model_alias: "nano-banana-pro".
         api_key: Gemini API key.
         retry_on_text_only: Retry once if model returns text only.
         portrait_part: Pre-loaded portrait Part (skips loading from path if provided).

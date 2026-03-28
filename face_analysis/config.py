@@ -15,8 +15,10 @@ CATALOG_IMAGES_DIR = os.path.join(CATALOG_DIR, "images")
 # Generation models (image generation — Nano Banana)
 GENERATION_MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
-    "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
+
+# Embedding model (shared across modules for consistent embeddings)
+EMBEDDING_MODEL = "gemini-embedding-001"
 
 # Defaults
 DEFAULT_ANALYSIS_MODEL = "gemini-2.5-flash"

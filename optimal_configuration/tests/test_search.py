@@ -168,10 +168,9 @@ class TestConfig(unittest.TestCase):
 
     def test_model_map(self):
         self.assertIn("nano-banana-pro", MODEL_MAP)
-        self.assertIn("nano-banana-2", MODEL_MAP)
+        self.assertNotIn("nano-banana-2", MODEL_MAP)
 
     def test_resolve_model(self):
-        self.assertEqual(resolve_model("nano-banana-2"), "gemini-3.1-flash-image-preview")
         self.assertEqual(resolve_model("nano-banana-pro"), "gemini-3-pro-image-preview")
 
     def test_resolve_invalid_model(self):
@@ -188,7 +187,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(EMBEDDING_MODEL, "gemini-embedding-001")
 
     def test_defaults(self):
-        self.assertEqual(DEFAULT_MODEL, "nano-banana-2")
+        self.assertEqual(DEFAULT_MODEL, "nano-banana-pro")
 
 
 if __name__ == "__main__":

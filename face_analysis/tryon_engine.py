@@ -49,7 +49,7 @@ def virtual_tryon(
         glasses_image_path: Path to matched product's glasses photo.
         analysis: Full analysis dict (used for placement precision in prompt).
         matched_product: Matched product dict (used for glasses description).
-        model_alias: "nano-banana-2" or "nano-banana-pro".
+        model_alias: "nano-banana-pro".
         api_key: Gemini API key.
         portrait_part: Pre-loaded portrait Part (skips loading from path if provided).
         client: Pre-created genai.Client (skips creating a new one if provided).

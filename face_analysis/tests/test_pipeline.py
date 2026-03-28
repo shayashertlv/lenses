@@ -437,11 +437,7 @@ class TestConfig(unittest.TestCase):
 
     def test_generation_model_map(self):
         self.assertIn("nano-banana-pro", GENERATION_MODEL_MAP)
-        self.assertIn("nano-banana-2", GENERATION_MODEL_MAP)
-        self.assertEqual(
-            GENERATION_MODEL_MAP["nano-banana-2"],
-            "gemini-3.1-flash-image-preview",
-        )
+        self.assertNotIn("nano-banana-2", GENERATION_MODEL_MAP)
         self.assertEqual(
             GENERATION_MODEL_MAP["nano-banana-pro"],
             "gemini-3-pro-image-preview",
@@ -449,8 +445,8 @@ class TestConfig(unittest.TestCase):
 
     def test_resolve_generation_model(self):
         self.assertEqual(
-            resolve_generation_model("nano-banana-2"),
-            "gemini-3.1-flash-image-preview",
+            resolve_generation_model("nano-banana-pro"),
+            "gemini-3-pro-image-preview",
         )
 
     def test_resolve_generation_model_raw(self):
@@ -474,7 +470,7 @@ class TestConfig(unittest.TestCase):
             resolve_analysis_model("invalid-model")
 
     def test_defaults(self):
-        self.assertEqual(DEFAULT_GENERATION_MODEL, "nano-banana-2")
+        self.assertEqual(DEFAULT_GENERATION_MODEL, "nano-banana-pro")
         self.assertEqual(DEFAULT_ANALYSIS_MODEL, "gemini-2.5-flash")
 
     def test_embedding_model(self):

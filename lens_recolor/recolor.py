@@ -30,7 +30,7 @@ class RecolorResult:
 def recolor_lenses(
     image_path: str,
     target_color: str,
-    model_alias: str = "nano-banana-2",
+    model_alias: str = "nano-banana-pro",
     intensity: str = "medium",
     finish: str = "standard",
     preserve_reflections: bool = True,
@@ -42,7 +42,7 @@ def recolor_lenses(
     Args:
         image_path: Path to the input image.
         target_color: Desired lens color (natural language).
-        model_alias: Model to use ("nano-banana-2" or "nano-banana-pro").
+        model_alias: Model to use ("nano-banana-pro").
         intensity: Tint level — "light", "medium", "dark".
         finish: Lens style — "standard", "gradient", "mirror", "polarized".
         preserve_reflections: Keep natural reflections on lenses.

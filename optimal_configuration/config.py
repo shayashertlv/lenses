@@ -14,7 +14,6 @@ CATALOG_IMAGES_DIR = CATALOG_DIR / "images"
 # Model name mapping (Nano Banana)
 MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
-    "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
 
 # Embedding model

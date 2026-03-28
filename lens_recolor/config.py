@@ -8,7 +8,6 @@ BASE_DIR = Path(__file__).parent
 # Model name mapping
 MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
-    "nano-banana-2": "gemini-3.1-flash-image-preview",
 }
 
 DEFAULT_MODEL = "nano-banana-pro"

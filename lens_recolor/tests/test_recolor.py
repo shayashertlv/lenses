@@ -88,11 +88,10 @@ class TestConfig(unittest.TestCase):
 
     def test_model_map_has_expected_models(self):
         self.assertIn("nano-banana-pro", MODEL_MAP)
-        self.assertIn("nano-banana-2", MODEL_MAP)
+        self.assertNotIn("nano-banana-2", MODEL_MAP)
 
     def test_resolve_model_alias(self):
         self.assertEqual(resolve_model("nano-banana-pro"), "gemini-3-pro-image-preview")
-        self.assertEqual(resolve_model("nano-banana-2"), "gemini-3.1-flash-image-preview")
 
     def test_resolve_model_raw_string(self):
         self.assertEqual(resolve_model("gemini-3-pro-image-preview"), "gemini-3-pro-image-preview")
@@ -102,7 +101,7 @@ class TestConfig(unittest.TestCase):
             resolve_model("invalid-model")
 
     def test_defaults(self):
-        self.assertEqual(DEFAULT_MODEL, "nano-banana-2")
+        self.assertEqual(DEFAULT_MODEL, "nano-banana-pro")
         self.assertEqual(DEFAULT_INTENSITY, "medium")
         self.assertEqual(DEFAULT_FINISH, "standard")
 
