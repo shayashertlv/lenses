@@ -63,45 +63,59 @@ PollRetry.prototype.reset=function(){
 };
 
 /* ── Progress bar creep ──
-   Smoothly inches a progress bar forward between poll updates
-   so it never looks frozen. Call set() on each poll response,
-   and stop() when done.
+   Uses an asymptotic curve so the bar NEVER freezes — it always
+   drifts forward, fast at first then gradually decelerating.
+
+   The math:  displayed = base + headroom * (1 - e^(-elapsed / tau))
+     - base     = last value from set() (snaps instantly)
+     - headroom = 80% of the gap between base and 99%
+     - tau      = time constant (seconds) — controls how fast we
+                  eat into the headroom. ~8s feels natural: bar
+                  covers ~63% of headroom in 8s, ~86% in 16s,
+                  ~95% in 24s — always moving, never reaching 99%.
+
    Usage:
-     const creep = new ProgressCreep(el)   // el = the .fill element
-     creep.set(40)   // jump to 40%, then slowly creep toward 40 + ceiling gap
-     creep.set(80)   // snap to 80%, creep again
-     creep.stop()    // clear interval
+     const creep = new ProgressCreep(el)
+     creep.set(20)   // snap to 20%, start drifting toward ~83%
+     creep.set(55)   // snap to 55%, restart drift toward ~90%
+     creep.finish()  // snap to 100%, stop animation
+     creep.stop()    // reset to 0, stop animation
 */
-function ProgressCreep(fillEl, ceilingGap){
+function ProgressCreep(fillEl, tau){
   this.el=fillEl;
-  this.current=0;
-  this.target=0;
-  this.ceiling=0;
-  this.gap=ceilingGap||12; // max % to creep beyond target
+  this.base=0;          // last set() value
+  this.displayed=0;     // what's currently shown
+  this.t0=0;            // timestamp of last set()
+  this.tau=(tau||8)*1000; // time constant in ms
   this.raf=null;
   var self=this;
-  function tick(){
-    if(self.current<self.ceiling){
-      self.current=Math.min(self.current+0.15, self.ceiling);
-      self.el.style.width=self.current.toFixed(1)+'%';
+  function tick(now){
+    var elapsed=now-self.t0;
+    var headroom=(99-self.base)*0.8;
+    var next=self.base+headroom*(1-Math.exp(-elapsed/self.tau));
+    // Never go backwards
+    next=Math.max(next, self.displayed);
+    if(next!==self.displayed){
+      self.displayed=next;
+      self.el.style.width=next.toFixed(1)+'%';
     }
     self.raf=requestAnimationFrame(tick);
   }
   this._tick=tick;
 }
 ProgressCreep.prototype.set=function(pct){
-  this.target=pct;
-  this.current=Math.max(this.current, pct);
-  this.ceiling=Math.min(pct+this.gap, 99);
-  this.el.style.width=this.current.toFixed(1)+'%';
+  this.base=Math.max(pct, this.displayed);
+  this.displayed=this.base;
+  this.t0=performance.now();
+  this.el.style.width=this.base.toFixed(1)+'%';
   if(!this.raf) this.raf=requestAnimationFrame(this._tick);
 };
 ProgressCreep.prototype.stop=function(){
   if(this.raf){cancelAnimationFrame(this.raf);this.raf=null}
-  this.current=0;this.target=0;this.ceiling=0;
+  this.base=0;this.displayed=0;
 };
 ProgressCreep.prototype.finish=function(){
   if(this.raf){cancelAnimationFrame(this.raf);this.raf=null}
   this.el.style.width='100%';
-  this.current=100;this.target=100;this.ceiling=100;
+  this.displayed=100;this.base=100;
 };
