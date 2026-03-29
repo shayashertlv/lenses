@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from config import MAX_IMAGE_DIMENSION
 
@@ -69,6 +69,7 @@ def load_image_bytes(path: str) -> tuple[bytes, str]:
         raise ValueError(info["error"])
 
     img = Image.open(path)
+    img = ImageOps.exif_transpose(img)
 
     if info["needs_resize"]:
         print(f"  Image is {info['width']}x{info['height']} — resizing to fit {MAX_IMAGE_DIMENSION}px max side.")

@@ -4,7 +4,7 @@ import io
 import os
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from config import MAX_IMAGE_DIMENSION
 
@@ -60,6 +60,7 @@ def load_image_bytes(path: str) -> tuple[bytes, str]:
         raise ValueError(info["error"])
 
     img = Image.open(path)
+    img = ImageOps.exif_transpose(img)
 
     if info["needs_resize"]:
         print(f"  Resizing {info['width']}x{info['height']} to fit {MAX_IMAGE_DIMENSION}px max side.")
@@ -105,7 +106,7 @@ def normalize_tryon_aspect(tryon_bytes: bytes, portrait_path: str) -> bytes:
     scales it to the portrait's pixel size.
     """
     try:
-        portrait = Image.open(portrait_path)
+        portrait = ImageOps.exif_transpose(Image.open(portrait_path))
         tryon = Image.open(io.BytesIO(tryon_bytes))
 
         pw, ph = portrait.size

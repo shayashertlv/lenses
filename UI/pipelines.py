@@ -10,7 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from UI.config import (
     CATALOG_DIR,
@@ -130,6 +130,7 @@ def _snap_aspect_ratio(width: int, height: int) -> str:
 def _detect_portrait_ratio(portrait_bytes: bytes) -> str:
     """Open portrait bytes just enough to read dimensions and snap to a preset."""
     img = Image.open(io.BytesIO(portrait_bytes))
+    img = ImageOps.exif_transpose(img)
     return _snap_aspect_ratio(img.width, img.height)
 
 
@@ -154,7 +155,13 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     tmp.close()
     portrait_path = tmp.name
 
-    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
 
     # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
     try:
@@ -347,6 +354,7 @@ def _fs_load_image_as_part(path: str):
     from google.genai import types
 
     img = Image.open(path)
+    img = ImageOps.exif_transpose(img)
     max_side = max(img.width, img.height)
     if max_side > FS_MAX_IMAGE_DIM:
         img.thumbnail((FS_MAX_IMAGE_DIM, FS_MAX_IMAGE_DIM), Image.LANCZOS)
@@ -491,7 +499,13 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     tmp.close()
     portrait_path = tmp.name
 
-    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
 
     # Detect portrait aspect ratio and snap to nearest Gemini-supported preset
     try:
@@ -740,7 +754,13 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
     tmp.close()
     portrait_path = tmp.name
 
-    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
     try:
         portrait_aspect = _detect_portrait_ratio(portrait_bytes)
     except Exception:
@@ -910,7 +930,13 @@ def run_recolor_pipeline(session_id: str, portrait_bytes: bytes,
     tmp.close()
     portrait_path = tmp.name
 
-    sess["portrait_b64"] = base64.b64encode(portrait_bytes).decode("ascii")
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
 
     try:
         api_key = _get_api_key()

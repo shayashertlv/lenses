@@ -157,7 +157,7 @@ body{
 
 /* Text block next to thumbnail */
 .result-meta{flex:1;min-width:0}
-.result-head{display:flex;align-items:baseline;gap:6px;margin-bottom:2px}
+.result-head{display:flex;align-items:baseline;gap:6px;margin-bottom:2px;min-width:0;overflow:hidden}
 .result-label{
   font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
   padding:2px 6px;border-radius:4px;flex-shrink:0;
@@ -200,17 +200,18 @@ body{
 
 /* ── Mobile: single column, horizontal card layout ── */
 @media(max-width:768px){
-  .results-row{grid-template-columns:1fr;gap:8px;padding:8px;overflow-y:auto}
+  .results-row{grid-template-columns:1fr;gap:6px;padding:8px;overflow-y:auto}
   .results-controls{padding:6px 12px}
   .results-back,.results-compare{padding:4px 10px;font-size:.72rem}
   .results-title{font-size:.82rem}
 
   .result-card{
     grid-template-rows:1fr;grid-template-columns:1fr 1fr;
-    max-height:min(45vh,320px);
+    max-height:min(38vh,280px);
   }
   .result-info{
-    flex-direction:column;padding:8px 10px;gap:6px;
+    flex-direction:column;padding:8px 10px;gap:6px;overflow:hidden;
+    justify-content:center;
     border-top:none;border-left:1px solid rgba(255,255,255,.06);
   }
   .result-thumb{width:40px;height:40px;border-radius:6px}
@@ -222,7 +223,7 @@ body{
 
 /* ── Small phones ── */
 @media(max-width:380px){
-  .result-card{max-height:min(40vh,260px)}
+  .result-card{max-height:min(35vh,240px)}
   .result-info{padding:6px 8px;gap:4px}
   .result-thumb{width:36px;height:36px}
   .result-name{font-size:.7rem}
