@@ -209,7 +209,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         analysis = cached
         sess["analysis_seconds"] = 0
     else:
-        seed = int.from_bytes(bytes.fromhex(image_hash)[:8], "big")
+        seed = int.from_bytes(bytes.fromhex(image_hash)[:4], "big") & 0x7FFFFFFF
         try:
             from face_analyzer import FaceAnalyzer
             analyzer = FaceAnalyzer(api_key=api_key, client=client)
