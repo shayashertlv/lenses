@@ -198,37 +198,26 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         catalog_data=_CATALOG_DATA,
     )
 
-    # STEP 1: FaceAnalyzer.analyze() — with cache for consistent results
+    # STEP 1: FaceAnalyzer.analyze() — portrait pre-loading runs concurrently
     sess["stage"] = "analyzing"
-    from analysis_cache import compute_image_hash, get_cached_analysis, put_analysis
+    try:
+        from face_analyzer import FaceAnalyzer
+        analyzer = FaceAnalyzer(api_key=api_key, client=client)
+        analysis_result = analyzer.analyze(portrait_path)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Analysis error: {e}"
+        _cleanup(portrait_path)
+        return
 
-    image_hash = compute_image_hash(portrait_bytes)
-    cached = get_cached_analysis(image_hash)
+    if not analysis_result.success:
+        sess["status"] = "error"
+        sess["error"] = f"Analysis failed: {analysis_result.error}"
+        _cleanup(portrait_path)
+        return
 
-    if cached:
-        analysis = cached
-        sess["analysis_seconds"] = 0
-    else:
-        seed = int.from_bytes(bytes.fromhex(image_hash)[:8], "big")
-        try:
-            from face_analyzer import FaceAnalyzer
-            analyzer = FaceAnalyzer(api_key=api_key, client=client)
-            analysis_result = analyzer.analyze(portrait_path, seed=seed)
-        except Exception as e:
-            sess["status"] = "error"
-            sess["error"] = f"Analysis error: {e}"
-            _cleanup(portrait_path)
-            return
-
-        if not analysis_result.success:
-            sess["status"] = "error"
-            sess["error"] = f"Analysis failed: {analysis_result.error}"
-            _cleanup(portrait_path)
-            return
-
-        analysis = analysis_result.analysis
-        sess["analysis_seconds"] = round(analysis_result.elapsed_seconds, 1)
-        put_analysis(image_hash, analysis)
+    analysis = analysis_result.analysis
+    sess["analysis_seconds"] = round(analysis_result.elapsed_seconds, 1)
     sess["face_insights"] = analysis.get("face_insights", [])
     sess["face_summary"] = analysis.get("face_summary", {})
 

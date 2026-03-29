@@ -36,7 +36,7 @@ class FaceAnalyzer:
         self.client = client if client is not None else genai.Client(api_key=api_key)
         self.model = resolve_analysis_model(model)
 
-    def analyze(self, portrait_path: str, seed: int | None = None) -> AnalysisResult:
+    def analyze(self, portrait_path: str) -> AnalysisResult:
         """
         Send portrait to Gemini 2.5 Flash for face analysis + tag-based recommendation.
 
@@ -70,7 +70,6 @@ class FaceAnalyzer:
                 contents=[portrait_part, prompt],
                 config=genai_types.GenerateContentConfig(
                     temperature=0,
-                    seed=seed,
                     thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
                 ),
             )
@@ -120,7 +119,6 @@ class FaceAnalyzer:
                     contents=[portrait_part, retry_prompt],
                     config=genai_types.GenerateContentConfig(
                         temperature=0,
-                        seed=seed,
                         thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
                     ),
                 )
