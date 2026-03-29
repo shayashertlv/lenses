@@ -63,36 +63,43 @@ PollRetry.prototype.reset=function(){
 };
 
 /* ── Progress bar creep ──
-   Uses an asymptotic curve so the bar NEVER freezes — it always
-   drifts forward, fast at first then gradually decelerating.
+   Uses a hyperbolic curve so the bar NEVER freezes — it always
+   drifts forward, fast at first then gradually decelerating,
+   with a fat tail that sustains visible movement for 30-60s+.
 
-   The math:  displayed = base + headroom * (1 - e^(-elapsed / tau))
+   The math:  displayed = base + headroom * (t / (t + k))
      - base     = last value from set() (snaps instantly)
-     - headroom = 80% of the gap between base and 99%
-     - tau      = time constant (seconds) — controls how fast we
-                  eat into the headroom. ~8s feels natural: bar
-                  covers ~63% of headroom in 8s, ~86% in 16s,
-                  ~95% in 24s — always moving, never reaching 99%.
+     - headroom = 85% of the gap between base and 99%
+     - k        = half-life (seconds) — at t=k, bar has covered
+                  50% of headroom. k=15s is tuned for AI pipelines
+                  where the last stage can take 30-50+ seconds.
+
+   Example with base=55%, headroom=37%:
+     2s  → 59%   (+4, snappy start)
+     10s → 70%   (solid movement)
+     20s → 76%   (still clearly moving)
+     30s → 79%   (visible progress even late)
+     50s → 83%   (still drifting, never stuck)
 
    Usage:
      const creep = new ProgressCreep(el)
-     creep.set(20)   // snap to 20%, start drifting toward ~83%
-     creep.set(55)   // snap to 55%, restart drift toward ~90%
+     creep.set(20)   // snap to 20%, start drifting
+     creep.set(55)   // snap to 55%, restart drift
      creep.finish()  // snap to 100%, stop animation
      creep.stop()    // reset to 0, stop animation
 */
-function ProgressCreep(fillEl, tau){
+function ProgressCreep(fillEl, halfLife){
   this.el=fillEl;
   this.base=0;          // last set() value
   this.displayed=0;     // what's currently shown
   this.t0=0;            // timestamp of last set()
-  this.tau=(tau||8)*1000; // time constant in ms
+  this.k=(halfLife||15)*1000; // half-life in ms
   this.raf=null;
   var self=this;
   function tick(now){
     var elapsed=now-self.t0;
-    var headroom=(99-self.base)*0.8;
-    var next=self.base+headroom*(1-Math.exp(-elapsed/self.tau));
+    var headroom=(99-self.base)*0.85;
+    var next=self.base+headroom*(elapsed/(elapsed+self.k));
     // Never go backwards
     next=Math.max(next, self.displayed);
     if(next!==self.displayed){
