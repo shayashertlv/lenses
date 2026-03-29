@@ -293,13 +293,41 @@ function toggleAdvanced(){
 // Map UI input names → catalog endpoint field names
 const FIELD_MAP={
   gender:'gender', frame_shape:'shape', lens_type:'lens_type',
-  frame_color:'color', frame_material:'material', rim_type:'rim_type',
+  frame_color:'color', lens_color:'lens_color', frame_material:'material', rim_type:'rim_type',
   frame_thickness:'thickness', lens_size:'lens_size',
   aesthetic:'aesthetic', occasion:'occasion'
 };
 
 // Primary filter fields (drive dimming for all others)
 const PRIMARY_FIELDS=['gender','frame_shape','lens_type'];
+
+// Color fields that need normalization before facet comparison
+const COLOR_FIELDS=new Set(['frame_color','lens_color']);
+
+// Lightweight color normalizer matching backend _norm_color()
+const _COLOR_ALIAS={
+  'dark-grey':'black','dark-gray':'black','dark grey':'black','jet-black':'black',
+  'havana-brown':'tortoiseshell','havana':'tortoiseshell',
+  'amber':'brown','cognac':'brown','caramel':'brown','chocolate':'brown',
+  'espresso':'brown','tan':'brown','bronze':'brown','copper':'brown',
+  'gunmetal':'silver','grey':'gray','charcoal':'gray','slate':'gray',
+  'pewter':'silver','chrome':'silver','steel':'silver',
+  'champagne':'gold','brass':'gold',
+  'navy':'blue','navy-blue':'blue','dark-blue':'blue','cobalt':'blue','teal':'blue',
+  'olive':'green','dark-green':'green','forest-green':'green','emerald':'green',
+  'burgundy':'red','wine':'red','maroon':'red','dark-red':'red',
+  'coral':'pink','salmon':'pink','blush':'pink','fuchsia':'pink',
+  'ivory':'white','cream':'white','crystal':'transparent','clear':'transparent',
+  'g-15-green':'green'
+};
+const _ADJ_RE=/^(?:matte[-\s]|gradient[-\s]|mirrored[-\s]|polarized[-\s]|polished[-\s]|glossy[-\s]|rubber[-\s]|solid[-\s]|bright[-\s]|deep[-\s]|satin[-\s]|g-15[-\s])/i;
+function normColor(raw){
+  const lc=raw.toLowerCase().trim();
+  if(_COLOR_ALIAS[lc]) return _COLOR_ALIAS[lc];
+  const stripped=lc.replace(_ADJ_RE,'');
+  if(_COLOR_ALIAS[stripped]) return _COLOR_ALIAS[stripped];
+  return stripped;
+}
 
 // Split comma-separated catalog values into a lowercase set
 function catVals(product,catField){
@@ -313,12 +341,14 @@ function catVals(product,catField){
 function productMatches(p,inputName,value){
   const catField=FIELD_MAP[inputName];
   if(!catField||!value) return true;
-  const vals=catVals(p,catField);
+  let vals=catVals(p,catField);
   const q=value.toLowerCase();
   // Gender: unisex products match any gender selection
   if(inputName==='gender'){
     return vals.includes(q)||vals.includes('unisex');
   }
+  // Normalize color values before comparison
+  if(COLOR_FIELDS.has(inputName)) vals=vals.map(normColor);
   return vals.includes(q);
 }
 
@@ -349,8 +379,9 @@ function updateFacets(){
     // Collect all values present in the pool for this field
     const catField=FIELD_MAP[inputName];
     const available=new Set();
+    const isColor=COLOR_FIELDS.has(inputName);
     pool.forEach(p=>{
-      catVals(p,catField).forEach(v=>available.add(v));
+      catVals(p,catField).forEach(v=>available.add(isColor?normColor(v):v));
     });
     // "unisex" products contribute to both "men" and "women" availability
     if(inputName==='gender'&&available.has('unisex')){

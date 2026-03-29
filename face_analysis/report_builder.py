@@ -151,7 +151,7 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
             f = product["tags"]["frame"]
             stock = "In stock" if p.get("in_stock") else "Out of stock"
             report.append(
-                f"\n#{i} [{score:.3f}] {product['name']}"
+                f"\n#{i} [{score:.1f}] {product['name']}"
                 f"\n    {f.get('shape', '')}, {_join(f.get('color', []))}, "
                 f"{f.get('material', '')}, {f.get('thickness', '')}"
                 f"\n    ${p['price']:.2f} — {stock}"

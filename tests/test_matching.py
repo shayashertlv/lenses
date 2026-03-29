@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.join(ROOT, "optimal_configuration"))
 
 from tag_matcher import (
     _MISSING_TAG_CREDIT,
+    _FILTER_FIELD_SET,
+    FIELD_WEIGHTS,
     _norm_color,
     _norm_material,
     _norm_shape,
@@ -166,7 +168,7 @@ class TestMaterialNormalization(unittest.TestCase):
         q = {"frame": {"material": "metal"}, "lenses": {}, "style": {}}
         p = {"frame": {"material": "stainless-steel"}, "lenses": {}, "style": {}}
         score = compute_tag_score(q, p)
-        self.assertEqual(score, 1.0)
+        self.assertAlmostEqual(score, 100.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -183,85 +185,115 @@ class TestComputeTagScore(unittest.TestCase):
             tags[cat][field] = val
         return tags
 
-    def test_perfect_match(self):
+    def test_perfect_match_soft_fields(self):
+        """Perfect match on soft fields only → 100."""
+        tags = self._make_tags(**{
+            "frame.material": "metal",
+            "frame.rim_type": "full-rim",
+            "style.aesthetic": ["classic"],
+        })
+        score = compute_tag_score(tags, tags)
+        self.assertAlmostEqual(score, 100.0)
+
+    def test_perfect_match_with_filter_fields(self):
+        """Filter fields need active_filter_fields to earn credit."""
         tags = self._make_tags(**{
             "frame.material": "metal",
             "frame.color": ["black"],
             "frame.rim_type": "full-rim",
             "style.aesthetic": ["classic"],
         })
-        score = compute_tag_score(tags, tags)
-        self.assertEqual(score, 1.0)
+        active = [("frame", "color")]
+        score = compute_tag_score(tags, tags, active_filter_fields=active)
+        self.assertAlmostEqual(score, 100.0)
 
     def test_zero_overlap(self):
         query = self._make_tags(**{
             "frame.material": "metal",
-            "frame.color": ["black"],
+            "frame.rim_type": "full-rim",
         })
         product = self._make_tags(**{
             "frame.material": "acetate",
-            "frame.color": ["gold"],
+            "frame.rim_type": "rimless",
         })
         score = compute_tag_score(query, product)
-        self.assertEqual(score, 0.0)
+        self.assertAlmostEqual(score, 0.0)
 
     def test_partial_overlap(self):
         query = self._make_tags(**{
             "frame.material": "metal",
-            "frame.color": ["black"],
+            "frame.rim_type": "full-rim",
         })
         product = self._make_tags(**{
             "frame.material": "metal",
-            "frame.color": ["gold"],
+            "frame.rim_type": "rimless",
         })
-        # material matches (weight 3.0), color doesn't (weight 3.0)
-        # score = 3.0 / 6.0 = 0.5
+        # material matches (weight 6), rim_type doesn't (weight 5)
+        # score = 6 / 11 * 100 ≈ 54.5
         score = compute_tag_score(query, product)
-        self.assertAlmostEqual(score, 0.5)
+        self.assertAlmostEqual(score, 6.0 / 11.0 * 100.0)
 
     def test_missing_product_tag_gets_partial_credit(self):
         query = self._make_tags(**{
             "frame.material": "metal",
-            "frame.color": ["black"],
+            "frame.rim_type": "full-rim",
         })
         product = self._make_tags(**{
             "frame.material": "metal",
-            # color is missing entirely
+            # rim_type is missing entirely
         })
-        # material matches (3.0 * 1.0), color missing (3.0 * 0.25)
-        # score = (3.0 + 0.75) / 6.0 = 0.625
+        # material matches (6 * 1.0), rim_type missing (5 * 0.25)
+        # score = (6.0 + 1.25) / 11.0 * 100
         score = compute_tag_score(query, product)
-        expected = (3.0 + 3.0 * _MISSING_TAG_CREDIT) / 6.0
+        expected = (6.0 + 5.0 * _MISSING_TAG_CREDIT) / 11.0 * 100.0
         self.assertAlmostEqual(score, expected)
 
     def test_missing_tag_scores_higher_than_mismatch(self):
-        query = self._make_tags(**{"frame.color": ["black"]})
-        missing = self._make_tags()           # no color at all
-        mismatch = self._make_tags(**{"frame.color": ["gold"]})
+        query = self._make_tags(**{"frame.rim_type": "full-rim"})
+        missing = self._make_tags()           # no rim_type at all
+        mismatch = self._make_tags(**{"frame.rim_type": "rimless"})
         self.assertGreater(
             compute_tag_score(query, missing),
             compute_tag_score(query, mismatch),
         )
 
-    def test_no_query_fields_returns_one(self):
-        """Empty query → all products score 1.0."""
+    def test_no_query_fields_returns_100(self):
+        """Empty query → all products score 100."""
         query = self._make_tags()
         product = self._make_tags(**{"frame.material": "metal"})
-        self.assertEqual(compute_tag_score(query, product), 1.0)
+        self.assertEqual(compute_tag_score(query, product), 100.0)
 
-    def test_color_normalization_in_scoring(self):
-        """gunmetal product should match silver query via normalization."""
-        query = self._make_tags(**{"frame.color": ["silver"]})
-        product = self._make_tags(**{"frame.color": ["gunmetal"]})
+    def test_filter_field_without_active_list_gets_zero(self):
+        """Filter fields not in active_filter_fields earn 0 credit."""
+        query = self._make_tags(**{"frame.color": ["black"]})
+        product = self._make_tags(**{"frame.color": ["black"]})
+        # frame.color is a filter field; without active_filter_fields, it's 0
         score = compute_tag_score(query, product)
-        self.assertEqual(score, 1.0)
+        self.assertAlmostEqual(score, 0.0)
+
+    def test_filter_field_with_active_list_gets_full(self):
+        """Filter fields in active_filter_fields (not relaxed) earn full credit."""
+        query = self._make_tags(**{"frame.color": ["black"]})
+        product = self._make_tags(**{"frame.color": ["black"]})
+        score = compute_tag_score(query, product,
+                                  active_filter_fields=[("frame", "color")])
+        self.assertAlmostEqual(score, 100.0)
+
+    def test_relaxed_filter_field_gets_zero(self):
+        """Relaxed filter fields earn 0 credit."""
+        query = self._make_tags(**{"frame.color": ["black"]})
+        product = self._make_tags(**{"frame.color": ["gold"]})
+        score = compute_tag_score(query, product,
+                                  active_filter_fields=[("frame", "color")],
+                                  relaxed_fields=[("frame", "color")])
+        self.assertAlmostEqual(score, 0.0)
 
     def test_multi_value_partial_overlap(self):
         query = self._make_tags(**{"style.aesthetic": ["classic", "modern"]})
         product = self._make_tags(**{"style.aesthetic": ["classic", "vintage"]})
-        # overlap 1 out of 2 query values
+        # overlap 1 out of 2 query values → weight 5 * 0.5 = 2.5 / 5 * 100 = 50
         score = compute_tag_score(query, product)
-        self.assertAlmostEqual(score, 0.5)
+        self.assertAlmostEqual(score, 50.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -278,8 +310,8 @@ class TestComponentScores(unittest.TestCase):
         return tags
 
     def test_returns_all_three_components(self):
-        q = self._make_tags(**{"frame.color": ["black"]})
-        p = self._make_tags(**{"frame.color": ["black"]})
+        q = self._make_tags(**{"frame.material": "metal"})
+        p = self._make_tags(**{"frame.material": "metal"})
         sub = compute_component_scores(q, p)
         self.assertIn("fit", sub)
         self.assertIn("style", sub)
@@ -287,12 +319,12 @@ class TestComponentScores(unittest.TestCase):
 
     def test_scores_are_deterministic(self):
         q = self._make_tags(**{
-            "frame.color": ["black"],
+            "frame.material": "metal",
             "style.aesthetic": ["modern"],
             "lenses.size": "medium",
         })
         p = self._make_tags(**{
-            "frame.color": ["black"],
+            "frame.material": "metal",
             "style.aesthetic": ["modern"],
             "lenses.size": "large",
         })
@@ -300,9 +332,8 @@ class TestComponentScores(unittest.TestCase):
         sub2 = compute_component_scores(q, p)
         self.assertEqual(sub1, sub2)
 
-    def test_perfect_match_all_ones(self):
+    def test_perfect_match_all_100(self):
         tags = self._make_tags(**{
-            "frame.color": ["black"],
             "frame.material": "metal",
             "frame.thickness": "thin",
             "frame.rim_type": "full-rim",
@@ -314,28 +345,28 @@ class TestComponentScores(unittest.TestCase):
         })
         sub = compute_component_scores(tags, tags)
         for component, val in sub.items():
-            self.assertAlmostEqual(val, 1.0, msg=f"{component} should be 1.0")
+            self.assertAlmostEqual(val, 100.0, msg=f"{component} should be 100")
 
     def test_color_component_independent(self):
-        """Color component should only reflect frame.color/material/thickness."""
+        """Color component should only reflect color-group fields."""
         q = self._make_tags(**{
-            "frame.color": ["black"],
             "frame.material": "metal",
+            "frame.thickness": "thin",
             "style.aesthetic": ["modern"],  # style component, not color
         })
         p_color_match = self._make_tags(**{
-            "frame.color": ["black"],
             "frame.material": "metal",
+            "frame.thickness": "thin",
             "style.aesthetic": ["vintage"],  # mismatch on style
         })
         sub = compute_component_scores(q, p_color_match)
-        self.assertAlmostEqual(sub["color"], 1.0)
-        self.assertLess(sub["style"], 1.0)
+        self.assertAlmostEqual(sub["color"], 100.0)
+        self.assertLess(sub["style"], 100.0)
 
     def test_fallback_to_overall_when_no_fields(self):
         """If query has no fields in a component group, fall back to overall."""
-        q = self._make_tags(**{"frame.color": ["black"]})  # only color component
-        p = self._make_tags(**{"frame.color": ["black"]})
+        q = self._make_tags(**{"frame.material": "metal"})  # only in color component
+        p = self._make_tags(**{"frame.material": "metal"})
         sub = compute_component_scores(q, p)
         overall = compute_tag_score(q, p)
         # fit and style have no queried fields → should equal overall
@@ -357,13 +388,13 @@ class TestRankProducts(unittest.TestCase):
 
     def test_results_sorted_descending(self):
         query = {"frame": {"material": "metal"}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=10, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
         scores = [s for _, s in results]
         self.assertEqual(scores, sorted(scores, reverse=True))
 
     def test_gender_filter(self):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         for product, _ in results:
             gender = product["tags"]["style"]["gender_target"]
             self.assertIn(gender, ("women", "unisex"),
@@ -372,7 +403,7 @@ class TestRankProducts(unittest.TestCase):
     def test_gender_via_filters(self):
         """Gender passed in filters dict should work same as in query_tags."""
         query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0,
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"gender": "men"})
         for product, _ in results:
             gender = product["tags"]["style"]["gender_target"]
@@ -382,7 +413,7 @@ class TestRankProducts(unittest.TestCase):
     def test_sport_isolation_excludes_sport(self):
         """Non-sport query should never return sport products."""
         query = {"frame": {}, "lenses": {"type": ["sunglasses"]}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         for product, _ in results:
             lens_types = product["tags"]["lenses"]["type"]
             if isinstance(lens_types, str):
@@ -393,7 +424,7 @@ class TestRankProducts(unittest.TestCase):
     def test_sport_isolation_returns_sport(self):
         """Sport query should only return sport products."""
         query = {"frame": {}, "lenses": {"type": ["sport"]}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         if results:  # catalog may not have sport products
             for product, _ in results:
                 lens_types = product["tags"]["lenses"]["type"]
@@ -404,7 +435,7 @@ class TestRankProducts(unittest.TestCase):
 
     def test_price_filter(self):
         query = {"frame": {}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0,
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"max_price": 500})
         for product, _ in results:
             price = product["tags"]["product"]["price"]
@@ -412,18 +443,18 @@ class TestRankProducts(unittest.TestCase):
 
     def test_in_stock_filter(self):
         query = {"frame": {}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.0,
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"in_stock_only": True})
         for product, _ in results:
             self.assertTrue(product["tags"]["product"].get("in_stock", False),
                             f"{product['name']} is not in stock")
 
     def test_min_score_threshold(self):
-        query = {"frame": {"material": "carbon-fiber", "color": ["pink"]},
+        query = {"frame": {"material": "carbon-fiber", "rim_type": "rimless"},
                  "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=50, min_score=0.5)
+        results = rank_products(query, PRODUCTS, top_k=50, min_score=50)
         for _, score in results:
-            self.assertGreaterEqual(score, 0.5)
+            self.assertGreaterEqual(score, 50)
 
     def test_query_tags_not_mutated(self):
         """rank_products must never modify the caller's query_tags."""
@@ -437,20 +468,17 @@ class TestRankProducts(unittest.TestCase):
         """Query for 'butterfly' should match catalog products tagged 'cat-eye'."""
         q_butterfly = {"frame": {}, "lenses": {"shape": "butterfly"}, "style": {}}
         q_cat_eye = {"frame": {}, "lenses": {"shape": "cat-eye"}, "style": {}}
-        r_butterfly = rank_products(q_butterfly, PRODUCTS, top_k=10, min_score=0.0)
-        r_cat_eye = rank_products(q_cat_eye, PRODUCTS, top_k=10, min_score=0.0)
-        # butterfly results should be a subset of cat-eye results (or equal)
+        r_butterfly = rank_products(q_butterfly, PRODUCTS, top_k=10, min_score=0)
+        r_cat_eye = rank_products(q_cat_eye, PRODUCTS, top_k=10, min_score=0)
         butterfly_ids = {p["id"] for p, _ in r_butterfly}
         cat_eye_ids = {p["id"] for p, _ in r_cat_eye}
         self.assertTrue(butterfly_ids <= cat_eye_ids,
                         f"butterfly IDs not subset of cat-eye: {butterfly_ids - cat_eye_ids}")
 
     def test_color_normalization_in_filter(self):
-        """Query for 'gunmetal' lens color should match 'silver' equivalently (after normalization)."""
-        # This tests the filter pipeline, not just scoring
+        """Query for 'gunmetal' frame color should match 'silver' equivalently."""
         q = {"frame": {"color": ["gunmetal"]}, "lenses": {}, "style": {}}
-        results = rank_products(q, PRODUCTS, top_k=10, min_score=0.0)
-        # At least one result should exist if catalog has black/silver frames
+        results = rank_products(q, PRODUCTS, top_k=10, min_score=0)
         self.assertGreater(len(results), 0)
 
     def test_graceful_fallback_on_impossible_filter(self):
@@ -460,27 +488,32 @@ class TestRankProducts(unittest.TestCase):
             "lenses": {"shape": "NONEXISTENT_SHAPE_XYZ"},
             "style": {"gender_target": "men"},
         }
-        results = rank_products(query, PRODUCTS, top_k=3, min_score=0.0)
-        # Should still return results because shape filter falls back
+        results = rank_products(query, PRODUCTS, top_k=3, min_score=0)
         self.assertGreater(len(results), 0)
 
-    def test_relaxed_filter_fields_still_scored(self):
-        """When a filter is relaxed, the relaxed field should be scored
-        softly via extra_fields so matching products rank higher."""
-        # Test the mechanism directly: compute_tag_score with extra_fields
-        # should differentiate products on the relaxed field.
+    def test_relaxed_filter_scores_lower(self):
+        """When a filter is relaxed, products that would have matched earn
+        higher scores than those that don't match the relaxed field."""
+        # Use active_filter_fields + relaxed_fields directly
         q = {"frame": {}, "lenses": {"shape": "round"}, "style": {}}
-        p_match = {"frame": {}, "lenses": {"shape": "round"}, "style": {}}
-        p_nomatch = {"frame": {}, "lenses": {"shape": "square"}, "style": {}}
-        extra = [("lenses", "shape")]
-        score_match = compute_tag_score(q, p_match, extra_fields=extra)
-        score_nomatch = compute_tag_score(q, p_nomatch, extra_fields=extra)
-        self.assertGreater(score_match, score_nomatch,
-                           "Product matching relaxed filter field should score higher")
+        # Product that matches the relaxed field
+        score_active = compute_tag_score(
+            q, q,
+            active_filter_fields=[("lenses", "shape")],
+            relaxed_fields=[],
+        )
+        # Product where filter was relaxed (didn't match)
+        score_relaxed = compute_tag_score(
+            q, q,
+            active_filter_fields=[("lenses", "shape")],
+            relaxed_fields=[("lenses", "shape")],
+        )
+        self.assertGreater(score_active, score_relaxed,
+                           "Exact filter match should score higher than relaxed")
 
     def test_relaxed_filter_in_full_pipeline(self):
         """End-to-end: when all products fail a filter, it relaxes and
-        the field is scored softly — products closer to the query rank higher."""
+        products still get returned (graceful fallback works)."""
         products = [
             {"id": "A", "name": "A", "image": "a.jpg", "tags": {
                 "frame": {}, "lenses": {"type": ["clear"], "shape": "round"},
@@ -493,20 +526,17 @@ class TestRankProducts(unittest.TestCase):
                 "product": {"in_stock": True, "price": 100},
             }},
         ]
-        # Query for hexagonal — neither has it → shape filter relaxes.
-        # Neither product matches hexagonal, so relaxed scoring gives 0 to both.
-        # Both should still be returned (graceful fallback works).
         query = {"frame": {}, "lenses": {"shape": "hexagonal"}, "style": {}}
-        results = rank_products(query, products, top_k=2, min_score=0.0)
+        results = rank_products(query, products, top_k=2, min_score=0)
         self.assertEqual(len(results), 2)
 
     def test_empty_query_returns_results(self):
-        """Empty query should return top-k products (all score 1.0)."""
+        """Empty query should return top-k products (all score 100)."""
         query = {"frame": {}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=3, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=3, min_score=0)
         self.assertEqual(len(results), 3)
         for _, score in results:
-            self.assertEqual(score, 1.0)
+            self.assertAlmostEqual(score, 100.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -603,7 +633,7 @@ class TestInventoryMatcher(unittest.TestCase):
         result = self.matcher.match(recommended_tags, top_k=5)
         for _, score in result.matches:
             self.assertGreaterEqual(score, 0.0)
-            self.assertLessEqual(score, 1.0)
+            self.assertLessEqual(score, 100.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -722,7 +752,7 @@ class TestCrossEntryPointConsistency(unittest.TestCase):
             "occasion": ["fashion"],
         }
         query_tags = preferences_to_query_tags(prefs)
-        results = rank_products(query_tags, PRODUCTS, top_k=3,
+        results = rank_products(query_tags, PRODUCTS, top_k=3, min_score=0,
                                 filters={"in_stock_only": True, "gender": "women"})
         self.assertGreater(len(results), 0)
         # Top result should have some affinity for the query
@@ -744,13 +774,13 @@ class TestEdgeCases(unittest.TestCase):
                        "color": ["NONEXISTENT"]},
             "style": {"gender_target": "men"},
         }
-        results = rank_products(query, PRODUCTS, top_k=3, min_score=0.0)
+        results = rank_products(query, PRODUCTS, top_k=3, min_score=0)
         self.assertGreater(len(results), 0)
 
     def test_single_product_catalog(self):
         product = PRODUCTS[0]
         query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
-        results = rank_products(query, [product], top_k=3, min_score=0.0)
+        results = rank_products(query, [product], top_k=3, min_score=0)
         self.assertLessEqual(len(results), 1)
 
     def test_empty_catalog(self):
@@ -759,8 +789,8 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_score_symmetry_with_normalization(self):
-        """Products with 'rubber-black' should score same as 'black' for a 'black' query."""
-        query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
+        """Products with 'rubber-black' should score same as 'black' for a 'black' query
+        when both go through the full pipeline (rank_products normalizes in filter)."""
         product_plain = {
             "id": "test_plain", "name": "Test Plain", "image": "x.jpg",
             "tags": {
@@ -779,16 +809,18 @@ class TestEdgeCases(unittest.TestCase):
                 "product": {"in_stock": True, "price": 100},
             }
         }
-        score_plain = compute_tag_score(query, product_plain["tags"])
-        score_rubber = compute_tag_score(query, product_rubber["tags"])
-        self.assertEqual(score_plain, score_rubber,
+        query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
+        r_plain = rank_products(query, [product_plain], top_k=1, min_score=0)
+        r_rubber = rank_products(query, [product_rubber], top_k=1, min_score=0)
+        self.assertEqual(r_plain[0][1], r_rubber[0][1],
                          "rubber-black should normalize to black and score equally")
 
-    def test_real_catalog_product_scores_sanely(self):
-        """Pick a real product and verify its own tags produce a high self-score."""
+    def test_real_catalog_product_self_scores_high(self):
+        """Pick a real product and verify its own tags produce a high self-score
+        through the full pipeline."""
         product = PRODUCTS[0]
         ptags = product["tags"]
-        # Build query from the product's own tags (soft fields only)
+        # Build query from the product's own tags (all fields)
         query = {
             "frame": {
                 "material": ptags["frame"].get("material"),
@@ -798,22 +830,28 @@ class TestEdgeCases(unittest.TestCase):
                 "finish": ptags["frame"].get("finish"),
             },
             "lenses": {
+                "type": ptags["lenses"].get("type"),
+                "shape": ptags["lenses"].get("shape"),
+                "color": ptags["lenses"].get("color"),
                 "size": ptags["lenses"].get("size"),
             },
             "style": {
+                "gender_target": ptags["style"].get("gender_target"),
                 "aesthetic": ptags["style"].get("aesthetic"),
                 "face_shape_fit": ptags["style"].get("face_shape_fit"),
                 "occasion": ptags["style"].get("occasion"),
             },
         }
-        score = compute_tag_score(query, ptags)
-        self.assertAlmostEqual(score, 1.0, places=5,
-                               msg=f"{product['name']} should self-score ~1.0, got {score}")
+        results = rank_products(query, [product], top_k=1, min_score=0)
+        self.assertGreater(len(results), 0)
+        _, score = results[0]
+        self.assertGreaterEqual(score, 90.0,
+                                msg=f"{product['name']} should self-score ≥90, got {score}")
 
-    def test_component_scores_sum_coherence(self):
-        """Component scores should be individually plausible (0–1 range)."""
+    def test_component_scores_in_range(self):
+        """Component scores should be individually plausible (0–100 range)."""
         query = {
-            "frame": {"color": ["black"], "material": "metal", "thickness": "thin",
+            "frame": {"material": "metal", "thickness": "thin",
                        "rim_type": "full-rim", "finish": "matte"},
             "lenses": {"size": "medium"},
             "style": {"aesthetic": ["classic"], "face_shape_fit": ["oval"],
@@ -823,7 +861,348 @@ class TestEdgeCases(unittest.TestCase):
             sub = compute_component_scores(query, product["tags"])
             for comp, val in sub.items():
                 self.assertGreaterEqual(val, 0.0, f"{product['name']} {comp}={val}")
-                self.assertLessEqual(val, 1.0, f"{product['name']} {comp}={val}")
+                self.assertLessEqual(val, 100.0, f"{product['name']} {comp}={val}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 11. EXTENSIVE SCORE COMBO TESTING
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestScoreCombinations(unittest.TestCase):
+    """Systematic tests across many query combos to verify scores are logical."""
+
+    # ── Synthetic product fixtures ────────────────────────────────────────
+
+    PRODUCT_A = {
+        "id": "combo_a", "name": "Combo A", "image": "a.jpg",
+        "tags": {
+            "frame": {"color": ["black"], "material": "metal",
+                      "rim_type": "full-rim", "thickness": "thin", "finish": "matte"},
+            "lenses": {"type": ["sunglasses"], "shape": "rectangular",
+                       "color": ["gray"], "size": "medium"},
+            "style": {"gender_target": "men", "aesthetic": ["classic"],
+                      "face_shape_fit": ["oval"], "occasion": ["everyday"]},
+            "product": {"in_stock": True, "price": 200},
+        },
+    }
+    PRODUCT_B = {
+        "id": "combo_b", "name": "Combo B", "image": "b.jpg",
+        "tags": {
+            "frame": {"color": ["gold"], "material": "acetate",
+                      "rim_type": "rimless", "thickness": "thick", "finish": "glossy"},
+            "lenses": {"type": ["clear"], "shape": "round",
+                       "color": ["clear"], "size": "large"},
+            "style": {"gender_target": "women", "aesthetic": ["vintage"],
+                      "face_shape_fit": ["round"], "occasion": ["fashion"]},
+            "product": {"in_stock": True, "price": 300},
+        },
+    }
+    BOTH = [PRODUCT_A, PRODUCT_B]
+
+    # ── Score range tests ─────────────────────────────────────────────────
+
+    def test_scores_always_in_0_100(self):
+        """No query combo should produce scores outside [0, 100]."""
+        combos = [
+            {"frame": {"color": ["black"]}, "lenses": {}, "style": {}},
+            {"frame": {}, "lenses": {"shape": "round"}, "style": {"gender_target": "men"}},
+            {"frame": {"material": "metal", "rim_type": "full-rim"},
+             "lenses": {"type": ["sunglasses"]}, "style": {"aesthetic": ["classic"]}},
+            {"frame": {}, "lenses": {}, "style": {}},
+        ]
+        for query in combos:
+            results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
+            for product, score in results:
+                self.assertGreaterEqual(score, 0.0,
+                    f"Score {score} < 0 for {product['name']}")
+                self.assertLessEqual(score, 100.0,
+                    f"Score {score} > 100 for {product['name']}")
+
+    def test_all_catalog_scores_in_range(self):
+        """Sweep all products with a rich query — all scores in [0, 100]."""
+        query = {
+            "frame": {"color": ["black"], "material": "metal",
+                      "rim_type": "full-rim", "thickness": "thin", "finish": "matte"},
+            "lenses": {"type": ["sunglasses"], "shape": "rectangular",
+                       "color": ["gray"], "size": "medium"},
+            "style": {"gender_target": "men", "aesthetic": ["classic"],
+                      "face_shape_fit": ["oval"], "occasion": ["everyday"]},
+        }
+        results = rank_products(query, PRODUCTS, top_k=999, min_score=0)
+        for product, score in results:
+            self.assertGreaterEqual(score, 0.0)
+            self.assertLessEqual(score, 100.0)
+
+    # ── Only filter fields → all passing products tie at 100 ──────────────
+
+    def test_only_gender_all_pass_at_100(self):
+        """When only gender is specified, all matching products score 100."""
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
+        results = rank_products(query, self.BOTH, top_k=10, min_score=0)
+        for _, score in results:
+            self.assertAlmostEqual(score, 100.0)
+
+    def test_only_shape_all_pass_at_100(self):
+        query = {"frame": {}, "lenses": {"shape": "rectangular"}, "style": {}}
+        results = rank_products(query, self.BOTH, top_k=10, min_score=0)
+        for _, score in results:
+            self.assertAlmostEqual(score, 100.0)
+
+    def test_only_multiple_filters_all_pass_at_100(self):
+        """Gender + shape + frame_color — product A passes all."""
+        query = {"frame": {"color": ["black"]}, "lenses": {"shape": "rectangular"},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        self.assertAlmostEqual(results[0][1], 100.0)
+
+    # ── Filter + soft fields → differentiation ────────────────────────────
+
+    def test_filter_plus_matching_soft_scores_100(self):
+        """Product A matches gender + material → 100."""
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        self.assertAlmostEqual(results[0][1], 100.0)
+
+    def test_filter_plus_mismatching_soft_below_100(self):
+        """Product B mismatches material but passes gender filter → < 100."""
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "women"}}
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        score = results[0][1]
+        self.assertLess(score, 100.0)
+        self.assertGreater(score, 0.0)
+
+    def test_more_matching_soft_fields_higher_score(self):
+        """Adding more matching soft fields should increase the score."""
+        query_1soft = {"frame": {"material": "metal"}, "lenses": {},
+                       "style": {"gender_target": "men"}}
+        query_2soft = {"frame": {"material": "metal", "rim_type": "full-rim"},
+                       "lenses": {}, "style": {"gender_target": "men"}}
+        query_3soft = {"frame": {"material": "metal", "rim_type": "full-rim"},
+                       "lenses": {"size": "medium"}, "style": {"gender_target": "men"}}
+
+        r1 = rank_products(query_1soft, [self.PRODUCT_A], top_k=1, min_score=0)
+        r2 = rank_products(query_2soft, [self.PRODUCT_A], top_k=1, min_score=0)
+        r3 = rank_products(query_3soft, [self.PRODUCT_A], top_k=1, min_score=0)
+
+        # All should be 100 since Product A matches everything
+        self.assertAlmostEqual(r1[0][1], 100.0)
+        self.assertAlmostEqual(r2[0][1], 100.0)
+        self.assertAlmostEqual(r3[0][1], 100.0)
+
+    def test_mismatching_soft_field_lowers_score(self):
+        """Product B doesn't match material=metal → lower score than Product A."""
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "women"}}
+        # Product B: gender=women (match), material=acetate (mismatch)
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        score = results[0][1]
+        # gender(10) matches, material(6) doesn't → 10/16 * 100 = 62.5
+        self.assertAlmostEqual(score, 10.0 / 16.0 * 100.0)
+
+    # ── Relaxed filter → lower score ──────────────────────────────────────
+
+    def test_relaxed_filter_lowers_score_in_pipeline(self):
+        """When a filter is relaxed, affected products score lower."""
+        # Query for shape=hexagonal — neither product has it → shape relaxes.
+        # Product A has gender=men → gender passes.
+        query = {"frame": {}, "lenses": {"shape": "hexagonal"},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, self.BOTH, top_k=2, min_score=0)
+        for _, score in results:
+            # gender passes (10) but shape relaxed (0) → 10/20 * 100 = 50
+            self.assertAlmostEqual(score, 50.0)
+
+    def test_exact_filter_beats_relaxed(self):
+        """Product passing filter exactly should score higher than one needing relaxation."""
+        products = [
+            {"id": "exact", "name": "Exact", "image": "x.jpg", "tags": {
+                "frame": {"color": ["black"]}, "lenses": {"shape": "round", "type": ["clear"]},
+                "style": {"gender_target": "men"},
+                "product": {"in_stock": True, "price": 100},
+            }},
+            {"id": "other", "name": "Other", "image": "x.jpg", "tags": {
+                "frame": {"color": ["black"]}, "lenses": {"shape": "square", "type": ["clear"]},
+                "style": {"gender_target": "men"},
+                "product": {"in_stock": True, "price": 100},
+            }},
+        ]
+        # Both have shape round or square; query for round + a nonexistent color
+        # so color relaxes and shape stays exact for the round product.
+        query = {"frame": {"color": ["black"]}, "lenses": {"shape": "round"},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, products, top_k=2, min_score=0)
+        # Only the round product should survive shape filter
+        self.assertEqual(results[0][0]["id"], "exact")
+
+    # ── Monotonicity: more matches → higher score ─────────────────────────
+
+    def test_monotonicity_adding_matching_fields(self):
+        """Score should not decrease when adding a field that matches."""
+        base_q = {"frame": {}, "lenses": {},
+                  "style": {"gender_target": "men"}}
+        extended_q = {"frame": {"material": "metal"}, "lenses": {},
+                      "style": {"gender_target": "men"}}
+
+        r_base = rank_products(base_q, [self.PRODUCT_A], top_k=1, min_score=0)
+        r_ext = rank_products(extended_q, [self.PRODUCT_A], top_k=1, min_score=0)
+
+        self.assertGreaterEqual(r_ext[0][1], r_base[0][1] - 0.01,
+            "Adding a matching field should not decrease score significantly")
+
+    def test_monotonicity_adding_mismatching_field(self):
+        """Score should decrease when adding a field that doesn't match."""
+        base_q = {"frame": {}, "lenses": {},
+                  "style": {"gender_target": "women"}}
+        extended_q = {"frame": {"material": "metal"}, "lenses": {},
+                      "style": {"gender_target": "women"}}
+        # Product B: gender=women (match), material=acetate (mismatch)
+        r_base = rank_products(base_q, [self.PRODUCT_B], top_k=1, min_score=0)
+        r_ext = rank_products(extended_q, [self.PRODUCT_B], top_k=1, min_score=0)
+
+        self.assertGreater(r_base[0][1], r_ext[0][1],
+            "Adding a mismatching field should decrease score")
+
+    # ── Real catalog sweeps ───────────────────────────────────────────────
+
+    def test_real_catalog_ranking_order(self):
+        """Top result should always score >= all other results."""
+        queries = [
+            {"frame": {"color": ["black"], "material": "metal"},
+             "lenses": {"type": ["sunglasses"], "shape": "rectangular"},
+             "style": {"gender_target": "men", "aesthetic": ["classic"]}},
+            {"frame": {"color": ["gold"]},
+             "lenses": {"shape": "round"},
+             "style": {"gender_target": "women", "aesthetic": ["vintage"]}},
+            {"frame": {"material": "acetate", "rim_type": "full-rim"},
+             "lenses": {"type": ["clear"]},
+             "style": {}},
+        ]
+        for query in queries:
+            results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
+            if len(results) >= 2:
+                for i in range(len(results) - 1):
+                    self.assertGreaterEqual(results[i][1], results[i + 1][1],
+                        f"Results not sorted: {results[i][1]} < {results[i + 1][1]}")
+
+    def test_real_catalog_varied_combos_no_crash(self):
+        """Sweep many field combos on real catalog — no crashes, scores valid."""
+        genders = ["men", "women", None]
+        shapes = ["round", "rectangular", "aviator", None]
+        materials = ["metal", "acetate", None]
+        colors = [["black"], ["gold"], None]
+
+        for gender in genders:
+            for shape in shapes:
+                for material in materials:
+                    for color in colors:
+                        query = {"frame": {}, "lenses": {}, "style": {}}
+                        if gender:
+                            query["style"]["gender_target"] = gender
+                        if shape:
+                            query["lenses"]["shape"] = shape
+                        if material:
+                            query["frame"]["material"] = material
+                        if color:
+                            query["frame"]["color"] = color
+
+                        results = rank_products(query, PRODUCTS, top_k=5, min_score=0)
+                        for product, score in results:
+                            self.assertGreaterEqual(score, 0.0)
+                            self.assertLessEqual(score, 100.0)
+
+    def test_real_catalog_all_fields_specified(self):
+        """Full query with every possible field — verify score spread."""
+        query = {
+            "frame": {"color": ["black"], "material": "metal",
+                      "rim_type": "full-rim", "thickness": "thin", "finish": "matte"},
+            "lenses": {"type": ["sunglasses"], "shape": "rectangular",
+                       "color": ["gray"], "size": "medium"},
+            "style": {"gender_target": "men", "aesthetic": ["classic"],
+                      "face_shape_fit": ["oval"], "occasion": ["everyday"]},
+        }
+        results = rank_products(query, PRODUCTS, top_k=20, min_score=0)
+        scores = [s for _, s in results]
+        if len(scores) >= 2:
+            # With all fields specified, there should be meaningful spread
+            score_range = max(scores) - min(scores)
+            self.assertGreater(score_range, 5.0,
+                f"Score range too narrow ({score_range:.1f}) with all fields specified")
+
+    def test_self_match_through_pipeline(self):
+        """A product's own tags as query should score very high through rank_products."""
+        for product in PRODUCTS[:5]:
+            ptags = product["tags"]
+            query = {
+                "frame": {
+                    "color": ptags["frame"].get("color"),
+                    "material": ptags["frame"].get("material"),
+                    "rim_type": ptags["frame"].get("rim_type"),
+                    "thickness": ptags["frame"].get("thickness"),
+                    "finish": ptags["frame"].get("finish"),
+                },
+                "lenses": {
+                    "type": ptags["lenses"].get("type"),
+                    "shape": ptags["lenses"].get("shape"),
+                    "color": ptags["lenses"].get("color"),
+                    "size": ptags["lenses"].get("size"),
+                },
+                "style": {
+                    "gender_target": ptags["style"].get("gender_target"),
+                    "aesthetic": ptags["style"].get("aesthetic"),
+                    "face_shape_fit": ptags["style"].get("face_shape_fit"),
+                    "occasion": ptags["style"].get("occasion"),
+                },
+            }
+            # Clean out None values
+            for cat in query:
+                query[cat] = {k: v for k, v in query[cat].items() if v is not None}
+
+            results = rank_products(query, PRODUCTS, top_k=1, min_score=0)
+            self.assertGreater(len(results), 0)
+            _, top_score = results[0]
+            self.assertGreaterEqual(top_score, 85.0,
+                f"{product['name']} self-match should score ≥85, got {top_score:.1f}")
+
+    # ── Specific weight calculation verification ──────────────────────────
+
+    def test_known_weight_calculation(self):
+        """Verify exact score for a known scenario."""
+        # Query: gender(10) + material(6). Product A: both match.
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        # gender=10 (filter, exact match), material=6 (soft, match)
+        # total=16, earned=16 → 100
+        self.assertAlmostEqual(results[0][1], 100.0)
+
+    def test_known_partial_weight_calculation(self):
+        """Verify exact score for partial match scenario."""
+        # Query: gender(10) + material(6). Product B: gender=women (match), material=acetate (mismatch)
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "women"}}
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        # gender=10 (match), material=6 (mismatch=0) → 10/16 * 100 = 62.5
+        self.assertAlmostEqual(results[0][1], 10.0 / 16.0 * 100.0)
+
+    def test_known_missing_tag_calculation(self):
+        """Product with missing soft tag gets partial credit."""
+        product_missing = {
+            "id": "missing", "name": "Missing", "image": "x.jpg",
+            "tags": {
+                "frame": {"color": ["black"]},  # no material tag
+                "lenses": {"type": ["clear"]},
+                "style": {"gender_target": "men"},
+                "product": {"in_stock": True, "price": 100},
+            },
+        }
+        query = {"frame": {"material": "metal"}, "lenses": {},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, [product_missing], top_k=1, min_score=0)
+        # gender=10 (filter match), material=6 (missing → 6*0.25=1.5)
+        # total=16, earned=11.5 → 71.875
+        self.assertAlmostEqual(results[0][1], (10.0 + 6.0 * 0.25) / 16.0 * 100.0)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ EMBEDDING_MODEL = "gemini-embedding-001"
 DEFAULT_ANALYSIS_MODEL = "gemini-2.5-flash"
 DEFAULT_GENERATION_MODEL = "nano-banana-pro"
 MAX_IMAGE_DIMENSION = 2048
-MIN_SIMILARITY_THRESHOLD = 0.3
+MIN_SIMILARITY_THRESHOLD = 30
 
 
 def get_api_key() -> str:

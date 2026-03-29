@@ -1,4 +1,4 @@
-"""Tag-based matching engine — cascading filter + weighted scoring.
+"""Tag-based matching engine — cascading filter + unified weighted scoring.
 
 Pipeline:
   1. Business pre-filters (in_stock, max_price)
@@ -8,8 +8,9 @@ Pipeline:
      b. lenses.shape
      c. lenses.type
      d. lenses.color
-  4. Soft scoring on remaining pool (0.0–1.0)
-  5. Minimum score gate (default 0.15)
+     e. frame.color
+  4. Unified scoring on remaining pool (0–100)
+  5. Minimum score gate (default 15)
 
 If a query doesn't specify a filter field, that stage is skipped.
 If a filter stage (except the sport filter) would eliminate ALL remaining
@@ -24,7 +25,12 @@ Value normalisation (applied to both query AND product tags before comparison):
               recycled-acetate→acetate, bio-nylon→nylon, propionate→plastic, etc.)
 
 Scoring details:
+  - All user-specified fields (filter + soft) contribute to one unified score.
+  - Filter fields that passed exactly earn full weight; relaxed ones earn 0.
+  - Soft fields earn proportional credit based on tag overlap.
   - Missing product tags receive partial credit (0.25) rather than zero.
+  - Final score = earned_weight / active_weight × 100 (range 0–100).
+  - Fields left as "any" (not specified) are excluded from scoring entirely.
   - compute_component_scores() provides per-dimension sub-scores
     (fit, style, color) for UI display.
   - query_tags are never mutated (defensive deep-copy).
@@ -33,23 +39,23 @@ Scoring details:
 import copy
 import re
 
-# ── Soft-scoring weights (only fields NOT used as filters) ───────────────
-SCORE_WEIGHTS = {
-    "frame": {
-        "material": 3.0,
-        "color":    3.0,
-        "thickness": 1.5,
-        "finish":   1.0,
-        "rim_type": 2.5,
-    },
-    "lenses": {
-        "size": 2.0,
-    },
-    "style": {
-        "aesthetic":      2.5,
-        "face_shape_fit": 1.5,
-        "occasion":       1.5,
-    },
+# ── Unified field weights (filter + soft, used for scoring) ──────────────
+FIELD_WEIGHTS: dict[tuple[str, str], int] = {
+    # Filter fields (high weight — primary user selections)
+    ("style",  "gender_target"): 10,
+    ("lenses", "shape"):         10,
+    ("lenses", "type"):          8,
+    ("lenses", "color"):         7,
+    ("frame",  "color"):         7,
+    # Soft fields (lower weight — secondary preferences)
+    ("frame",  "material"):       6,
+    ("frame",  "rim_type"):       5,
+    ("style",  "aesthetic"):      5,
+    ("lenses", "size"):           4,
+    ("style",  "face_shape_fit"): 3,
+    ("style",  "occasion"):       3,
+    ("frame",  "thickness"):      3,
+    ("frame",  "finish"):         2,
 }
 
 # ── Filter stages (applied in order, with graceful fallback) ─────────────
@@ -58,7 +64,15 @@ FILTER_STAGES = [
     [("lenses", "shape")],           # Stage 2: lens shape
     [("lenses", "type")],            # Stage 3: lens type
     [("lenses", "color")],           # Stage 4: lens color
+    [("frame",  "color")],           # Stage 5: frame color
 ]
+
+# Set of all fields that participate in hard filtering (for scoring logic)
+_FILTER_FIELD_SET: set[tuple[str, str]] = {
+    (cat, field)
+    for stage in FILTER_STAGES
+    for cat, field in stage
+}
 
 # ── Value normalisation ───────────────────────────────────────────────────
 
@@ -300,63 +314,49 @@ def _apply_filter_stage(
 _MISSING_TAG_CREDIT = 0.25
 
 
-# Default weight used when a relaxed filter field is scored softly.
-# Filter fields aren't in SCORE_WEIGHTS (they're normally hard-filtered),
-# so we assign them a weight when they fall back to soft scoring.
-_RELAXED_FILTER_WEIGHT = 2.0
-
-
-def compute_tag_score(query_tags: dict, product_tags: dict,
-                      extra_fields: list[tuple[str, str]] | None = None) -> float:
+def compute_tag_score(
+    query_tags: dict,
+    product_tags: dict,
+    active_filter_fields: list[tuple[str, str]] | None = None,
+    relaxed_fields: list[tuple[str, str]] | None = None,
+) -> float:
     """
-    Score a product on soft fields (0.0–1.0).
+    Unified score across all user-specified fields (0–100).
 
-    By default, only fields listed in SCORE_WEIGHTS are scored.  When a
-    hard-filter stage is relaxed (graceful fallback), the caller passes
-    those fields via *extra_fields* so they contribute to the score too.
+    Every field in FIELD_WEIGHTS that the user specified contributes:
+      - Filter fields that passed exactly → full weight earned.
+      - Filter fields that were relaxed (graceful fallback) → 0 earned.
+      - Soft fields → proportional overlap × weight.
+      - Missing product tags on soft fields → partial credit (0.25 × weight).
+      - Fields the user left as "any" → excluded from both numerator & denominator.
 
-    Missing product tags receive partial credit (_MISSING_TAG_CREDIT) rather
-    than a full zero, since missing data != known mismatch.
+    Returns score in range [0, 100].  100 = perfect match on all specified fields.
     """
+    active_filters = set(active_filter_fields or [])
+    relaxed = set(relaxed_fields or [])
+
     total_weight   = 0.0
-    weighted_score = 0.0
+    earned_weight  = 0.0
 
-    for category, fields in SCORE_WEIGHTS.items():
-        q_cat = query_tags.get(category, {})
-        p_cat = product_tags.get(category, {})
-
-        for field, weight in fields.items():
-            q_val = q_cat.get(field)
-            if q_val is None or q_val == "" or q_val == []:
-                continue
-
-            total_weight += weight
-
-            p_val = p_cat.get(field)
-            if p_val is None or p_val == "" or p_val == []:
-                weighted_score += weight * _MISSING_TAG_CREDIT
-                continue
-
-            q_set = _to_set_norm(category, field, q_val)
-            p_set = _to_set_norm(category, field, p_val)
-            if not q_set:
-                continue
-
-            overlap = len(q_set & p_set)
-            weighted_score += weight * (overlap / len(q_set))
-
-    # Score relaxed filter fields (normally hard-filtered, but fell back)
-    for category, field in (extra_fields or []):
+    for (category, field), weight in FIELD_WEIGHTS.items():
         q_val = query_tags.get(category, {}).get(field)
         if q_val is None or q_val == "" or q_val == []:
-            continue
+            continue  # user didn't specify → skip
 
-        weight = _RELAXED_FILTER_WEIGHT
         total_weight += weight
 
+        # ── Filter field scoring ──────────────────────────────────────
+        if (category, field) in _FILTER_FIELD_SET:
+            if (category, field) in active_filters and (category, field) not in relaxed:
+                # Product passed this filter exactly → full credit
+                earned_weight += weight
+            # else: relaxed or not in active_filters → 0 credit
+            continue
+
+        # ── Soft field scoring ────────────────────────────────────────
         p_val = product_tags.get(category, {}).get(field)
         if p_val is None or p_val == "" or p_val == []:
-            weighted_score += weight * _MISSING_TAG_CREDIT
+            earned_weight += weight * _MISSING_TAG_CREDIT
             continue
 
         q_set = _to_set_norm(category, field, q_val)
@@ -365,12 +365,12 @@ def compute_tag_score(query_tags: dict, product_tags: dict,
             continue
 
         overlap = len(q_set & p_set)
-        weighted_score += weight * (overlap / len(q_set))
+        earned_weight += weight * (overlap / len(q_set))
 
     if total_weight == 0.0:
-        return 1.0   # no soft fields → all filtered products equal
+        return 100.0  # no fields specified → all products equally valid
 
-    return weighted_score / total_weight
+    return (earned_weight / total_weight) * 100.0
 
 
 # ── Component sub-score groups ───────────────────────────────────────────
@@ -380,32 +380,39 @@ _COMPONENT_GROUPS: dict[str, list[tuple[str, str]]] = {
     "fit":   [("lenses", "size"), ("style", "face_shape_fit")],
     "style": [("style", "aesthetic"), ("style", "occasion"),
               ("frame", "rim_type"), ("frame", "finish")],
-    "color": [("frame", "color"), ("frame", "material"),
-              ("frame", "thickness")],
+    "color": [("lenses", "color"), ("frame", "color"),
+              ("frame", "material"), ("frame", "thickness")],
 }
 
 
-def compute_component_scores(query_tags: dict,
-                             product_tags: dict) -> dict[str, float]:
+def compute_component_scores(
+    query_tags: dict,
+    product_tags: dict,
+    active_filter_fields: list[tuple[str, str]] | None = None,
+    relaxed_fields: list[tuple[str, str]] | None = None,
+) -> dict[str, float]:
     """
     Compute per-component sub-scores (fit, style, color) for a product.
 
-    Each component aggregates weights from a specific subset of scored
-    fields.  If a component has no active query fields, it falls back to
-    the overall score to avoid returning 1.0 for "no data".
+    Each component aggregates weights from a specific subset of fields
+    in FIELD_WEIGHTS.  If a component has no active query fields, it
+    falls back to the overall score to avoid returning 100 for "no data".
 
     Returns:
-        Dict with keys "fit", "style", "color" — each 0.0–1.0.
+        Dict with keys "fit", "style", "color" — each 0–100.
     """
-    overall = compute_tag_score(query_tags, product_tags)
+    overall = compute_tag_score(query_tags, product_tags,
+                                active_filter_fields, relaxed_fields)
+    active_filters = set(active_filter_fields or [])
+    relaxed = set(relaxed_fields or [])
     result: dict[str, float] = {}
 
     for component, fields in _COMPONENT_GROUPS.items():
         total_w = 0.0
-        scored  = 0.0
+        earned  = 0.0
 
         for category, field in fields:
-            weight = SCORE_WEIGHTS.get(category, {}).get(field)
+            weight = FIELD_WEIGHTS.get((category, field))
             if weight is None:
                 continue
 
@@ -415,9 +422,16 @@ def compute_component_scores(query_tags: dict,
 
             total_w += weight
 
+            # Filter field scoring
+            if (category, field) in _FILTER_FIELD_SET:
+                if (category, field) in active_filters and (category, field) not in relaxed:
+                    earned += weight
+                continue
+
+            # Soft field scoring
             p_val = product_tags.get(category, {}).get(field)
             if p_val is None or p_val == "" or p_val == []:
-                scored += weight * _MISSING_TAG_CREDIT
+                earned += weight * _MISSING_TAG_CREDIT
                 continue
 
             q_set = _to_set_norm(category, field, q_val)
@@ -425,28 +439,28 @@ def compute_component_scores(query_tags: dict,
             if not q_set:
                 continue
             overlap = len(q_set & p_set)
-            scored += weight * (overlap / len(q_set))
+            earned += weight * (overlap / len(q_set))
 
         # Fall back to overall score when no fields in this group were queried
-        result[component] = (scored / total_w) if total_w > 0.0 else overall
+        result[component] = (earned / total_w * 100.0) if total_w > 0.0 else overall
 
     return result
 
 
 def rank_products(query_tags: dict, products: list[dict],
-                  top_k: int = 3, min_score: float = 0.15,
+                  top_k: int = 3, min_score: float = 15,
                   filters: dict | None = None) -> list[tuple[dict, float]]:
     """
     Filter then score products.
 
     Hard filters (in_stock, max_price, sport isolation) are applied first,
-    then the cascading tag filter pipeline, then soft scoring.
+    then the cascading tag filter pipeline, then unified scoring (0–100).
 
     Args:
         query_tags: Structured query tags (frame/lenses/style dicts).
         products:   List of product dicts from catalog.
         top_k:      Max results to return.
-        min_score:  Minimum score threshold.
+        min_score:  Minimum score threshold (0–100).
         filters:    Business filters: {"in_stock_only", "max_price", "gender"}.
 
     Returns:
@@ -497,18 +511,23 @@ def rank_products(query_tags: dict, products: list[dict],
     # Intentionally NO fallback: sport products must stay isolated.
 
     # ── Cascading tag filters (with graceful fallback) ────────────────────
+    active_filter_fields: list[tuple[str, str]] = []
     relaxed_fields: list[tuple[str, str]] = []
     for stage in FILTER_STAGES:
+        # Track which filter fields the user actually specified
+        for category, field in stage:
+            q_val = query_tags.get(category, {}).get(field)
+            if q_val is not None and q_val != "" and q_val != []:
+                active_filter_fields.append((category, field))
         pool, relaxed = _apply_filter_stage(pool, stage, query_tags)
         relaxed_fields.extend(relaxed)
 
-    # ── Soft scoring ─────────────────────────────────────────────────────
-    # Relaxed filter fields (if any) are included in soft scoring so that
-    # products matching the original filter intent still rank higher.
+    # ── Unified scoring (0–100) ──────────────────────────────────────────
     scored: list[tuple[dict, float]] = []
     for product in pool:
         score = compute_tag_score(query_tags, product["tags"],
-                                  extra_fields=relaxed_fields)
+                                  active_filter_fields=active_filter_fields,
+                                  relaxed_fields=relaxed_fields)
         if score >= min_score:
             scored.append((product, score))
 
@@ -519,7 +538,8 @@ def rank_products(query_tags: dict, products: list[dict],
     if not scored and pool:
         fallback = [
             (p, compute_tag_score(query_tags, p["tags"],
-                                  extra_fields=relaxed_fields))
+                                  active_filter_fields=active_filter_fields,
+                                  relaxed_fields=relaxed_fields))
             for p in pool
         ]
         fallback.sort(key=lambda x: x[1], reverse=True)

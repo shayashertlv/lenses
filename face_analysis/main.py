@@ -230,7 +230,7 @@ def main() -> None:
     if best_score < MIN_SIMILARITY_THRESHOLD:
         print(
             f"\n  Warning: No glasses in inventory closely match the recommendation. "
-            f"Best score: {best_score:.3f}. Showing best available."
+            f"Best score: {best_score:.1f}. Showing best available."
         )
 
     # Build and print full report with match results
@@ -295,7 +295,7 @@ def main() -> None:
     # Summary
     print(f"\nDone!")
     print(f"  Output: {args.output}")
-    print(f"  Selected: {product['name']} (score: {score:.3f})")
+    print(f"  Selected: {product['name']} (score: {score:.1f})")
     print(f"  Analysis model: {result.model_used}")
     print(f"  Generation model: {tryon_result.model_used}")
     print(f"  Analysis time: {result.elapsed_seconds:.1f}s")

@@ -131,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # Extract preferences from form fields
         preferences = {}
-        for key in ("frame_shape", "frame_color", "frame_material",
+        for key in ("frame_shape", "frame_color", "lens_color", "frame_material",
                     "frame_thickness", "rim_type", "lens_type", "lens_size",
                     "aesthetic", "gender", "occasion", "max_price"):
             val = fields.get(key, "")

@@ -247,7 +247,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             "model": p["model_name"],
             "price": p["price"],
             "currency": p["currency"],
-            "score": round(score, 3),
+            "score": round(score, 1),
             "shape": product["tags"]["frame"].get("shape", ""),
             "material": product["tags"]["frame"].get("material", ""),
             "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
@@ -623,11 +623,11 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 product_b64 = base64.b64encode(f.read()).decode("ascii")
 
             ptags = product["tags"]["product"]
-            base = round(score, 3)
+            base = round(score, 1)
             sub = compute_component_scores(query_tags, product["tags"])
-            fit_score = round(sub["fit"], 3)
-            style_score = round(sub["style"], 3)
-            color_score = round(sub["color"], 3)
+            fit_score = round(sub["fit"], 1)
+            style_score = round(sub["style"], 1)
+            color_score = round(sub["color"], 1)
 
             sess[f"opt{i}"] = {
                 "name": product["name"],
@@ -636,9 +636,9 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 "price": ptags["price"],
                 "currency": ptags["currency"],
                 "score": base,
-                "fit_score": round(fit_score, 3),
-                "style_score": round(style_score, 3),
-                "color_score": round(color_score, 3),
+                "fit_score": round(fit_score, 1),
+                "style_score": round(style_score, 1),
+                "color_score": round(color_score, 1),
                 "shape": product["tags"]["frame"].get("shape", ""),
                 "material": product["tags"]["frame"].get("material", ""),
                 "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
@@ -698,6 +698,7 @@ def get_catalog_products() -> list[dict]:
             "color": ", ".join(tags["frame"]["color"]) if isinstance(tags["frame"].get("color"), list) else str(tags["frame"].get("color", "")),
             "rim_type": tags["frame"].get("rim_type", ""),
             "lens_type": ", ".join(tags["lenses"]["type"]) if isinstance(tags["lenses"].get("type"), list) else str(tags["lenses"].get("type", "")),
+            "lens_color": ", ".join(tags["lenses"]["color"]) if isinstance(tags["lenses"].get("color"), list) else str(tags["lenses"].get("color", "")),
             "gender": tags["style"].get("gender_target", "unisex"),
             "thickness": tags["frame"].get("thickness", ""),
             "lens_size": tags["lenses"].get("size", ""),

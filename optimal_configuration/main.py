@@ -88,7 +88,7 @@ def display_results(results: list[tuple[dict, float]]) -> None:
 
         stock = "In Stock" if prod.get("in_stock") else "Out of Stock"
 
-        print(f"  #{i}  {product['name']}  (score: {score:.3f})")
+        print(f"  #{i}  {product['name']}  (score: {score:.1f})")
         print(f"      Brand: {prod.get('brand', '?')} | ${prod['price']:.2f} | {stock}")
         print(f"      Frame: {frame.get('shape', '?')}, {frame_colors}, {frame.get('material', '?')}, {frame.get('rim_type', '?')}")
         print(f"      Lenses: {lens_types}")
