@@ -450,18 +450,13 @@ class TestRankProducts(unittest.TestCase):
                             f"{product['name']} is not in stock")
 
     def test_min_score_threshold(self):
+        """Results are sorted by score descending."""
         query = {"frame": {"material": "carbon-fiber", "rim_type": "rimless"},
                  "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=50)
-        # Above-threshold products come first, sorted by score descending
-        above = [(p, s) for p, s in results if s >= 50]
-        below = [(p, s) for p, s in results if s < 50]
-        self.assertEqual(results[:len(above)], above,
-                         "Above-threshold results must come first")
-        # Below-threshold products are only included as fallback to fill top_k
-        if above:
-            for _, score in below:
-                self.assertLess(score, 50)
+        scores = [s for _, s in results]
+        self.assertEqual(scores, sorted(scores, reverse=True),
+                         "Results must be sorted by score descending")
 
     def test_query_tags_not_mutated(self):
         """rank_products must never modify the caller's query_tags."""

@@ -273,13 +273,15 @@ def _apply_filter_stage(
     products: list[dict],
     stage: list[tuple[str, str]],
     query_tags: dict,
+    min_pool: int = 1,
 ) -> tuple[list[dict], list[tuple[str, str]]]:
     """
     Apply one filter stage.  A product passes if it matches ALL fields
     in the stage that the query specifies.
 
     If the query doesn't specify any field in this stage → pool unchanged.
-    If filtering would empty the pool → pool unchanged (graceful fallback).
+    If filtering would reduce the pool below min_pool → pool unchanged
+    (graceful fallback).
 
     Returns:
         (filtered_products, relaxed_fields) — relaxed_fields lists
@@ -308,7 +310,10 @@ def _apply_filter_stage(
         if passes:
             filtered.append(product)
 
-    if not filtered:
+    # Relax filter if it would reduce pool below min_pool, but only when
+    # the input pool is large enough to satisfy min_pool in the first place.
+    effective_min = min_pool if len(products) >= min_pool else 1
+    if len(filtered) < effective_min:
         return products, active_fields   # fallback → score these fields softly
 
     return filtered, []
@@ -524,7 +529,8 @@ def rank_products(query_tags: dict, products: list[dict],
             q_val = query_tags.get(category, {}).get(field)
             if q_val is not None and q_val != "" and q_val != []:
                 active_filter_fields.append((category, field))
-        pool, relaxed = _apply_filter_stage(pool, stage, query_tags)
+        pool, relaxed = _apply_filter_stage(pool, stage, query_tags,
+                                            min_pool=3)
         relaxed_fields.extend(relaxed)
 
     # ── Unified scoring (0–100) ──────────────────────────────────────────
@@ -533,23 +539,9 @@ def rank_products(query_tags: dict, products: list[dict],
         score = compute_tag_score(query_tags, product["tags"],
                                   active_filter_fields=active_filter_fields,
                                   relaxed_fields=relaxed_fields)
-        if score >= min_score:
-            scored.append((product, score))
+        scored.append((product, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
-
-    # Fallback: if fewer than top_k products scored above min_score,
-    # fill remaining slots from below-threshold products (best first).
-    if len(scored) < top_k and len(pool) > len(scored):
-        above_ids = {id(p) for p, _ in scored}
-        below = [
-            (p, compute_tag_score(query_tags, p["tags"],
-                                  active_filter_fields=active_filter_fields,
-                                  relaxed_fields=relaxed_fields))
-            for p in pool if id(p) not in above_ids
-        ]
-        below.sort(key=lambda x: x[1], reverse=True)
-        scored.extend(below[:top_k - len(scored)])
 
     return scored[:top_k]
 
