@@ -299,25 +299,42 @@ const FIELD_MAP={
 };
 
 // Primary filter fields (drive dimming for all others)
-const PRIMARY_FIELDS=['gender','frame_shape','lens_type'];
+const PRIMARY_FIELDS=['gender','frame_shape','lens_type','frame_color','lens_color'];
 
 // Color fields that need normalization before facet comparison
 const COLOR_FIELDS=new Set(['frame_color','lens_color']);
 
-// Lightweight color normalizer matching backend _norm_color()
+// Lightweight color normalizer — kept in sync with backend _norm_color()
 const _COLOR_ALIAS={
-  'dark-grey':'black','dark-gray':'black','dark grey':'black','jet-black':'black',
+  // Black family
+  'dark-grey':'black','dark-gray':'black','dark grey':'black','dark gray':'black',
+  'jet-black':'black','jet black':'black','dark-black':'black',
+  // Tortoiseshell
   'havana-brown':'tortoiseshell','havana':'tortoiseshell',
+  // Brown family
   'amber':'brown','cognac':'brown','caramel':'brown','chocolate':'brown',
   'espresso':'brown','tan':'brown','bronze':'brown','copper':'brown',
+  'beige':'brown','mocha':'brown','honey':'brown','chestnut':'brown','walnut':'brown',
+  // Silver / gray family
   'gunmetal':'silver','grey':'gray','charcoal':'gray','slate':'gray',
-  'pewter':'silver','chrome':'silver','steel':'silver',
-  'champagne':'gold','brass':'gold',
-  'navy':'blue','navy-blue':'blue','dark-blue':'blue','cobalt':'blue','teal':'blue',
-  'olive':'green','dark-green':'green','forest-green':'green','emerald':'green',
-  'burgundy':'red','wine':'red','maroon':'red','dark-red':'red',
-  'coral':'pink','salmon':'pink','blush':'pink','fuchsia':'pink',
-  'ivory':'white','cream':'white','crystal':'transparent','clear':'transparent',
+  'pewter':'silver','chrome':'silver','steel':'silver','dark-silver':'silver',
+  'light-gray':'gray','light-grey':'gray','light gray':'gray','light grey':'gray',
+  // Gold family
+  'champagne':'gold','brass':'gold','antique-gold':'gold','light-gold':'gold',
+  // Blue family
+  'navy':'blue','navy-blue':'blue','navy blue':'blue',
+  'dark-blue':'blue','dark blue':'blue',
+  'cobalt':'blue','teal':'blue','royal-blue':'blue','sky-blue':'blue',
+  // Green family
+  'olive':'green','dark-green':'green','dark green':'green',
+  'forest-green':'green','emerald':'green','sage':'green','khaki':'green',
+  // Red / pink family
+  'burgundy':'red','wine':'red','maroon':'red','dark-red':'red','crimson':'red',
+  'coral':'pink','salmon':'pink','blush':'pink','fuchsia':'pink','magenta':'pink',
+  // Other
+  'ivory':'white','cream':'white','bone':'white','off-white':'white',
+  'crystal':'transparent','clear':'transparent','nude':'transparent',
+  'violet':'purple','lavender':'purple','plum':'purple',
   'g-15-green':'green'
 };
 const _ADJ_RE=/^(?:matte[-\s]|gradient[-\s]|mirrored[-\s]|polarized[-\s]|polished[-\s]|glossy[-\s]|rubber[-\s]|solid[-\s]|bright[-\s]|deep[-\s]|satin[-\s]|g-15[-\s])/i;
@@ -328,6 +345,25 @@ function normColor(raw){
   if(_COLOR_ALIAS[stripped]) return _COLOR_ALIAS[stripped];
   return stripped;
 }
+
+// Shape normalizer — kept in sync with backend _norm_shape()
+const _SHAPE_ALIAS={
+  'butterfly':'cat-eye','oversized-round':'round','oversized-square':'square',
+  'pilot':'aviator','teardrop':'aviator','flat-top':'square',
+  'curved-wrap':'wrap','shield':'wrap'
+};
+function normShape(raw){ const lc=raw.toLowerCase().trim(); return _SHAPE_ALIAS[lc]||lc; }
+
+// Material normalizer — kept in sync with backend _norm_material()
+const _MATERIAL_ALIAS={
+  'stainless-steel':'metal','mixed-metal':'metal','mixed-metal-acetate':'metal',
+  'mixed-metal-plastic':'metal','mixed-metal-nylon':'metal',
+  'mixed-metal-carbon':'metal','mixed-metal-injected':'metal',
+  'propionate':'plastic','bio-injected':'plastic',
+  'recycled-injected':'plastic','o-matter':'plastic',
+  'recycled-acetate':'acetate','bio-nylon':'nylon'
+};
+function normMaterial(raw){ const lc=raw.toLowerCase().trim(); return _MATERIAL_ALIAS[lc]||lc; }
 
 // Split comma-separated catalog values into a lowercase set
 function catVals(product,catField){
@@ -342,13 +378,15 @@ function productMatches(p,inputName,value){
   const catField=FIELD_MAP[inputName];
   if(!catField||!value) return true;
   let vals=catVals(p,catField);
-  const q=value.toLowerCase();
+  let q=value.toLowerCase();
   // Gender: unisex products match any gender selection
   if(inputName==='gender'){
     return vals.includes(q)||vals.includes('unisex');
   }
-  // Normalize color values before comparison
-  if(COLOR_FIELDS.has(inputName)) vals=vals.map(normColor);
+  // Normalize both sides for color, shape, material
+  if(COLOR_FIELDS.has(inputName)){ vals=vals.map(normColor); q=normColor(q); }
+  else if(inputName==='frame_shape'){ vals=vals.map(normShape); q=normShape(q); }
+  else if(inputName==='frame_material'){ vals=vals.map(normMaterial); q=normMaterial(q); }
   return vals.includes(q);
 }
 
@@ -380,8 +418,15 @@ function updateFacets(){
     const catField=FIELD_MAP[inputName];
     const available=new Set();
     const isColor=COLOR_FIELDS.has(inputName);
+    const isShape=inputName==='frame_shape';
+    const isMaterial=inputName==='frame_material';
     pool.forEach(p=>{
-      catVals(p,catField).forEach(v=>available.add(isColor?normColor(v):v));
+      catVals(p,catField).forEach(v=>{
+        if(isColor) available.add(normColor(v));
+        else if(isShape) available.add(normShape(v));
+        else if(isMaterial) available.add(normMaterial(v));
+        else available.add(v);
+      });
     });
     // "unisex" products contribute to both "men" and "women" availability
     if(inputName==='gender'&&available.has('unisex')){
@@ -394,7 +439,11 @@ function updateFacets(){
       if(!radio.value) return; // skip "Any"
       const label=radio.closest('label')||radio.closest('span');
       if(!label) return;
-      const dimmed=!available.has(radio.value.toLowerCase());
+      let rv=radio.value.toLowerCase();
+      if(isColor) rv=normColor(rv);
+      else if(isShape) rv=normShape(rv);
+      else if(isMaterial) rv=normMaterial(rv);
+      const dimmed=!available.has(rv);
       label.classList.toggle('dimmed',dimmed);
     });
   });

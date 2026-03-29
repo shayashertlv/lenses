@@ -1205,5 +1205,381 @@ class TestScoreCombinations(unittest.TestCase):
         self.assertAlmostEqual(results[0][1], (10.0 + 6.0 * 0.25) / 16.0 * 100.0)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 12. GENDER / UNISEX MATCHING
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestGenderUnisexMatching(unittest.TestCase):
+    """Verify that unisex products always appear for men/women queries."""
+
+    def test_men_query_includes_unisex(self):
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
+        results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
+        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        self.assertIn("unisex", genders, "Unisex products missing from men query")
+        self.assertNotIn("women", genders, "Women-only products in men query")
+
+    def test_women_query_includes_unisex(self):
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}}
+        results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
+        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        self.assertIn("unisex", genders, "Unisex products missing from women query")
+        self.assertNotIn("men", genders, "Men-only products in women query")
+
+    def test_unisex_query_matches_all_genders(self):
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "unisex"}}
+        results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
+        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        self.assertTrue(len(genders) >= 2, f"Unisex query should match broadly, got {genders}")
+
+    def test_men_pool_larger_than_men_only(self):
+        """Men query pool should include unisex → bigger than strict men-only count."""
+        men_only = sum(1 for p in PRODUCTS
+                       if p["tags"]["style"].get("gender_target") == "men"
+                       and p["tags"]["product"].get("in_stock"))
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
+        results = rank_products(query, PRODUCTS, top_k=200, min_score=0,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), men_only)
+
+    def test_women_pool_larger_than_women_only(self):
+        women_only = sum(1 for p in PRODUCTS
+                         if p["tags"]["style"].get("gender_target") == "women"
+                         and p["tags"]["product"].get("in_stock"))
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}}
+        results = rank_products(query, PRODUCTS, top_k=200, min_score=0,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), women_only)
+
+    def test_gender_plus_shape_finds_unisex(self):
+        """men+square should find unisex square products, not only men-only."""
+        query = {"frame": {}, "lenses": {"shape": "square"},
+                 "style": {"gender_target": "men"}}
+        results = rank_products(query, PRODUCTS, top_k=20, min_score=0)
+        unisex_results = [p for p, _ in results
+                          if p["tags"]["style"]["gender_target"] == "unisex"]
+        self.assertGreater(len(unisex_results), 0,
+                           "No unisex products in men+square query")
+
+    def test_gender_plus_all_filters_finds_unisex(self):
+        """men + square + black + clear should return unisex products."""
+        prefs = {"gender": "men", "frame_shape": "square",
+                 "frame_color": "black", "lens_type": "clear"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=5,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), 0)
+        # At least one should be unisex (RX7256 is unisex)
+        has_unisex = any(p["tags"]["style"]["gender_target"] == "unisex"
+                         for p, _ in results)
+        self.assertTrue(has_unisex, "No unisex products for men+square+black+clear")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 13. PER-FILTER-FIELD VALIDATION — every hard filter value returns matches
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEveryFilterValueReturnsResults(unittest.TestCase):
+    """For each hard filter field, every UI option value should produce
+    at least one result when it's the only filter specified."""
+
+    FILTER_OPTIONS = {
+        "gender": ["men", "women", "unisex"],
+        "frame_shape": ["round", "square", "rectangular", "oval", "cat-eye",
+                        "teardrop", "geometric", "hexagonal", "irregular", "shield"],
+        "lens_type": ["clear", "prescription-ready", "sunglasses", "polarized",
+                      "gradient", "mirrored", "chromance", "prizm", "sport"],
+        "frame_color": ["black", "silver", "gold", "rose-gold", "tortoiseshell",
+                        "transparent", "gray", "blue", "green", "red", "pink", "white"],
+        "lens_color": ["transparent", "gray", "brown", "green", "blue", "gold",
+                       "yellow", "pink", "red", "black", "silver"],
+    }
+
+    PREF_KEY_MAP = {
+        "gender": "gender",
+        "frame_shape": "frame_shape",
+        "lens_type": "lens_type",
+        "frame_color": "frame_color",
+        "lens_color": "lens_color",
+    }
+
+    def test_each_filter_value_standalone(self):
+        """Every single option value returns ≥1 result when used alone."""
+        for field, values in self.FILTER_OPTIONS.items():
+            for val in values:
+                pref_key = self.PREF_KEY_MAP[field]
+                prefs = {pref_key: val}
+                qt = preferences_to_query_tags(prefs)
+                results = rank_products(qt, PRODUCTS, top_k=5, min_score=0,
+                                        filters={"in_stock_only": True})
+                self.assertGreater(
+                    len(results), 0,
+                    f"No results for {field}={val}")
+
+    def test_each_filter_value_with_gender_men(self):
+        """Each filter value + gender=men returns results."""
+        for field, values in self.FILTER_OPTIONS.items():
+            if field == "gender":
+                continue
+            for val in values:
+                pref_key = self.PREF_KEY_MAP[field]
+                prefs = {"gender": "men", pref_key: val}
+                qt = preferences_to_query_tags(prefs)
+                results = rank_products(qt, PRODUCTS, top_k=5, min_score=0,
+                                        filters={"in_stock_only": True})
+                # Graceful fallback ensures we always get results
+                self.assertGreater(
+                    len(results), 0,
+                    f"No results for men + {field}={val}")
+
+    def test_each_filter_value_with_gender_women(self):
+        """Each filter value + gender=women returns results."""
+        for field, values in self.FILTER_OPTIONS.items():
+            if field == "gender":
+                continue
+            for val in values:
+                pref_key = self.PREF_KEY_MAP[field]
+                prefs = {"gender": "women", pref_key: val}
+                qt = preferences_to_query_tags(prefs)
+                results = rank_products(qt, PRODUCTS, top_k=5, min_score=0,
+                                        filters={"in_stock_only": True})
+                self.assertGreater(
+                    len(results), 0,
+                    f"No results for women + {field}={val}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 14. LENS COLOR HARD FILTER — brown, transparent, etc. never return wrong colors
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestLensColorFiltering(unittest.TestCase):
+    """Verify the lens color hard filter never returns mismatched lens colors
+    (the reported bug: brown lens query returning clear-lens products)."""
+
+    def _norm_lc_set(self, lc_val):
+        """Normalize lens color values to canonical set."""
+        if isinstance(lc_val, list):
+            return {_norm_color(v) for v in lc_val}
+        return {_norm_color(str(lc_val))}
+
+    def test_brown_lens_no_clear(self):
+        prefs = {"lens_color": "brown"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            lc = p["tags"]["lenses"].get("color", [])
+            norm_colors = self._norm_lc_set(lc)
+            self.assertNotIn("transparent", norm_colors,
+                             f"{p['name']} has clear lenses: {lc}")
+            self.assertIn("brown", norm_colors,
+                          f"{p['name']} doesn't have brown lenses: {lc}")
+
+    def test_gray_lens_no_clear(self):
+        prefs = {"lens_color": "gray"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            lc = p["tags"]["lenses"].get("color", [])
+            norm_colors = self._norm_lc_set(lc)
+            self.assertIn("gray", norm_colors,
+                          f"{p['name']} doesn't have gray lenses: {lc}")
+
+    def test_transparent_lens_only_clear(self):
+        prefs = {"lens_color": "transparent"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            lc = p["tags"]["lenses"].get("color", [])
+            norm_colors = self._norm_lc_set(lc)
+            self.assertIn("transparent", norm_colors,
+                          f"{p['name']} doesn't have clear lenses: {lc}")
+
+    def test_blue_lens_only_blue(self):
+        prefs = {"lens_color": "blue"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            lc = p["tags"]["lenses"].get("color", [])
+            norm_colors = self._norm_lc_set(lc)
+            self.assertIn("blue", norm_colors,
+                          f"{p['name']} doesn't have blue lenses: {lc}")
+
+    def test_green_lens_only_green(self):
+        prefs = {"lens_color": "green"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            lc = p["tags"]["lenses"].get("color", [])
+            norm_colors = self._norm_lc_set(lc)
+            self.assertIn("green", norm_colors,
+                          f"{p['name']} doesn't have green lenses: {lc}")
+
+    def test_every_lens_color_option_returns_matching(self):
+        """Every lens color option: products scoring 100 must have that color.
+        Lower-scoring products may not match (graceful fallback)."""
+        lens_colors = ["transparent", "gray", "brown", "green", "blue",
+                       "gold", "yellow", "pink", "red", "black", "silver"]
+        for color in lens_colors:
+            prefs = {"lens_color": color}
+            qt = preferences_to_query_tags(prefs)
+            results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
+                                    filters={"in_stock_only": True})
+            for p, score in results:
+                if score < 100.0:
+                    continue  # filter was relaxed — fallback product
+                lc = p["tags"]["lenses"].get("color", [])
+                norm_colors = self._norm_lc_set(lc)
+                self.assertIn(color, norm_colors,
+                    f"lens_color={color}: {p['name']} scores 100 but lc={lc} (norm={norm_colors})")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 15. FRAME COLOR HARD FILTER — same validation
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFrameColorFiltering(unittest.TestCase):
+    """Verify frame color filter returns only matching products."""
+
+    def _norm_fc_set(self, fc_val):
+        if isinstance(fc_val, list):
+            return {_norm_color(v) for v in fc_val}
+        return {_norm_color(str(fc_val))}
+
+    def test_every_frame_color_option_returns_matching(self):
+        """Every frame color option: products scoring 100 must have that color."""
+        frame_colors = ["black", "silver", "gold", "rose-gold", "tortoiseshell",
+                        "transparent", "gray", "blue", "green", "red", "pink", "white"]
+        for color in frame_colors:
+            prefs = {"frame_color": color}
+            qt = preferences_to_query_tags(prefs)
+            results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
+                                    filters={"in_stock_only": True})
+            for p, score in results:
+                if score < 100.0:
+                    continue  # filter was relaxed — fallback product
+                fc = p["tags"]["frame"].get("color", [])
+                norm_colors = self._norm_fc_set(fc)
+                self.assertIn(color, norm_colors,
+                    f"frame_color={color}: {p['name']} scores 100 but fc={fc} (norm={norm_colors})")
+
+    def test_black_frame_no_gold_only(self):
+        """Querying black frames should not return gold-only products."""
+        prefs = {"frame_color": "black"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            fc = p["tags"]["frame"].get("color", [])
+            norm_colors = self._norm_fc_set(fc)
+            self.assertIn("black", norm_colors,
+                          f"{p['name']} has only {fc}, no black")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 16. COMBINED HARD FILTER VALIDATION — multi-field combos
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestCombinedFilterValidation(unittest.TestCase):
+    """Test that combined filter selections produce coherent results."""
+
+    def test_men_round_black_clear(self):
+        """Previously broken combo: should return unisex square black clear products."""
+        prefs = {"gender": "men", "frame_shape": "square",
+                 "frame_color": "black", "lens_type": "clear"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=5,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), 0)
+        # Top result should be a perfect match (score 100)
+        top_score = results[0][1]
+        self.assertEqual(top_score, 100.0,
+                         f"Expected 100 for perfect match, got {top_score}")
+
+    def test_women_round_brown_lens(self):
+        prefs = {"gender": "women", "frame_shape": "round",
+                 "lens_color": "brown"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=5,
+                                filters={"in_stock_only": True})
+        for p, _ in results:
+            gender = p["tags"]["style"]["gender_target"]
+            self.assertIn(gender, ("women", "unisex"))
+
+    def test_all_five_hard_filters(self):
+        """Specify all 5 hard filters with values that exist together."""
+        prefs = {"gender": "men", "frame_shape": "rectangular",
+                 "frame_color": "black", "lens_type": "clear",
+                 "lens_color": "transparent"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=5,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), 0)
+        for p, s in results:
+            # If score is 100, all filters passed exactly
+            if s == 100.0:
+                t = p["tags"]
+                self.assertIn(t["style"]["gender_target"], ("men", "unisex"))
+
+    def test_impossible_combo_still_returns_via_fallback(self):
+        """Completely impossible combo still returns results (graceful fallback)."""
+        prefs = {"gender": "women", "frame_shape": "hexagonal",
+                 "frame_color": "red", "lens_type": "chromance",
+                 "lens_color": "pink"}
+        qt = preferences_to_query_tags(prefs)
+        results = rank_products(qt, PRODUCTS, top_k=3, min_score=0,
+                                filters={"in_stock_only": True})
+        self.assertGreater(len(results), 0, "Even impossible combos should return fallback results")
+        # Score should be low since everything relaxed
+        self.assertLess(results[0][1], 50.0)
+
+    def test_broad_sweep_all_filter_pairs(self):
+        """Test every pair of hard filter fields with sample values."""
+        fields = {
+            "gender": "women",
+            "frame_shape": "round",
+            "lens_type": "sunglasses",
+            "frame_color": "black",
+            "lens_color": "brown",
+        }
+        field_names = list(fields.keys())
+        for i in range(len(field_names)):
+            for j in range(i + 1, len(field_names)):
+                f1, f2 = field_names[i], field_names[j]
+                prefs = {f1: fields[f1], f2: fields[f2]}
+                qt = preferences_to_query_tags(prefs)
+                results = rank_products(qt, PRODUCTS, top_k=5, min_score=0,
+                                        filters={"in_stock_only": True})
+                self.assertGreater(
+                    len(results), 0,
+                    f"No results for {f1}={fields[f1]} + {f2}={fields[f2]}")
+
+    def test_triple_filter_combos(self):
+        """Test all triples of hard filter fields."""
+        fields = {
+            "gender": "men",
+            "frame_shape": "rectangular",
+            "lens_type": "clear",
+            "frame_color": "black",
+            "lens_color": "transparent",
+        }
+        field_names = list(fields.keys())
+        for i in range(len(field_names)):
+            for j in range(i + 1, len(field_names)):
+                for k in range(j + 1, len(field_names)):
+                    f1, f2, f3 = field_names[i], field_names[j], field_names[k]
+                    prefs = {f1: fields[f1], f2: fields[f2], f3: fields[f3]}
+                    qt = preferences_to_query_tags(prefs)
+                    results = rank_products(qt, PRODUCTS, top_k=5, min_score=0,
+                                            filters={"in_stock_only": True})
+                    self.assertGreater(
+                        len(results), 0,
+                        f"No results for {f1}+{f2}+{f3}")
+
+
 if __name__ == "__main__":
     unittest.main()
