@@ -31,5 +31,8 @@ downloaded_images/
 /catalog_manager.py
 /tag_schema.py
 
+# Analysis cache (Smart Fit consistency)
+face_analysis/.analysis_cache/
+
 # pip artifacts
 =*
