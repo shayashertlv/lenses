@@ -261,6 +261,11 @@ def _field_matches_norm(category: str, field: str,
     p = _to_set_norm(category, field, product_val)
     if not q:
         return True   # query doesn't specify → automatic pass
+    # Gender: "unisex" products match any gender query, and a "unisex"
+    # query matches any product gender.
+    if field == "gender_target":
+        if "unisex" in p or "unisex" in q:
+            return True
     return bool(q & p)
 
 

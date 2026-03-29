@@ -522,6 +522,7 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
 
     # ── STEP 1: Build query tags from preferences ───────────────────────
     sess["stage"] = "searching"
+    print(f"  [free-search] Raw preferences: {preferences}")
     query_tags = _build_query_tags(preferences)
     print(f"  [free-search] Query tags: {query_tags}")
 
