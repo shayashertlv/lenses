@@ -538,17 +538,18 @@ def rank_products(query_tags: dict, products: list[dict],
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
-    # Fallback: if all products scored below min_score, return the best
-    # available rather than an empty list.
-    if not scored and pool:
-        fallback = [
+    # Fallback: if fewer than top_k products scored above min_score,
+    # fill remaining slots from below-threshold products (best first).
+    if len(scored) < top_k and len(pool) > len(scored):
+        above_ids = {id(p) for p, _ in scored}
+        below = [
             (p, compute_tag_score(query_tags, p["tags"],
                                   active_filter_fields=active_filter_fields,
                                   relaxed_fields=relaxed_fields))
-            for p in pool
+            for p in pool if id(p) not in above_ids
         ]
-        fallback.sort(key=lambda x: x[1], reverse=True)
-        return fallback[:top_k]
+        below.sort(key=lambda x: x[1], reverse=True)
+        scored.extend(below[:top_k - len(scored)])
 
     return scored[:top_k]
 
