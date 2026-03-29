@@ -110,7 +110,7 @@
 .rc-back-btn:hover{color:rgba(255,255,255,.6)}
 .tryon-progress{margin:2rem 0}
 .tryon-progress .bar-bg{width:100%;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;margin-bottom:.8rem}
-.tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#34c78a,#6dd5a8);border-radius:2px;width:0%;transition:width .6s}
+.tryon-progress .bar-fill{height:100%;background:linear-gradient(90deg,#6c63ff,#a78bfa);border-radius:2px;width:0%;transition:width .15s linear}
 .tryon-progress p{font-size:.85rem;color:rgba(255,255,255,.4)}
 
 /* ── Loading skeleton ─────────────────────── */

@@ -67,7 +67,17 @@ body{min-height:100vh}
   background:#0b0b14;
   flex-direction:column;align-items:center;justify-content:center;
 }
-.load-prog-fill{background:linear-gradient(90deg,#e8a838,#f0c060)}
+.rc-steps{display:flex;justify-content:center;gap:.5rem;margin-bottom:1.5rem}
+.rc-step{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:rgba(255,255,255,.3);font-weight:500;transition:color .3s}
+.rc-step.active{color:#6c63ff}.rc-step.done{color:#34c78a}
+.rc-sdot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.15);
+  display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;
+  color:rgba(255,255,255,.3);transition:all .3s}
+.rc-step.active .rc-sdot{border-color:#6c63ff;color:#6c63ff;box-shadow:0 0 0 4px rgba(108,99,255,.12)}
+.rc-step.done .rc-sdot{border-color:#34c78a;background:#34c78a;color:#fff}
+.rc-sline{width:32px;height:2px;background:rgba(255,255,255,.1);border-radius:1px;align-self:center;transition:background .3s}
+.rc-sline.done{background:#34c78a}
+.load-prog-fill{background:linear-gradient(90deg,#6c63ff,#a78bfa)}
 #load-stage{font-size:.95rem;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:1.4rem;min-height:1.4em}
 #load-tip{font-size:.82rem;color:rgba(255,255,255,.35);line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s}
 

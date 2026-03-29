@@ -10,6 +10,28 @@ let pollTimer = null;
 let cachedFile = null;
 let cachedPreviewSrc = null;
 let rcPollTimer = null;
+let sfTryonCreep = null;
+let sfRecolorCreep = null;
+let sfTryonRetry = null;
+let sfRecolorRetry = null;
+
+/* ── Tips for storefront modal ── */
+const sfTips=[
+  "Virtual try-on uses AI to map frames to your face shape.",
+  "The more centered your face is in the photo, the better the result.",
+  "Front-facing photos with even lighting work best.",
+  "Each try-on is generated uniquely for your facial geometry.",
+  "Frames are scaled to match your actual face proportions.",
+];
+let sfTipIdx=0, sfTipTimer=null;
+function sfStartTips(){sfTipIdx=0;sfShowTip();sfTipTimer=setInterval(()=>{sfTipIdx=(sfTipIdx+1)%sfTips.length;sfShowTip()},4500)}
+function sfStopTips(){if(sfTipTimer)clearInterval(sfTipTimer);sfTipTimer=null}
+function sfShowTip(){
+  const el=document.getElementById('modal-tip');
+  if(!el)return;
+  el.style.opacity='0';
+  setTimeout(()=>{el.textContent=sfTips[sfTipIdx];el.style.opacity='1'},350);
+}
 
 /* ── Catalog + gender filter ──────────────── */
 let allProducts = [];
@@ -114,6 +136,9 @@ function closeModal() {
   document.getElementById('tryon-modal').classList.remove('active');
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (rcPollTimer) { clearInterval(rcPollTimer); rcPollTimer = null; }
+  if (sfTryonCreep) { sfTryonCreep.stop(); sfTryonCreep = null; }
+  if (sfRecolorCreep) { sfRecolorCreep.stop(); sfRecolorCreep = null; }
+  sfStopTips();
 }
 
 function showPhotoReady(src) {
@@ -160,8 +185,11 @@ function startTryon() {
 
   document.getElementById('modal-upload').style.display = 'none';
   document.getElementById('modal-progress').style.display = '';
-  document.getElementById('modal-bar').style.width = '10%';
+  sfTryonCreep = new ProgressCreep(document.getElementById('modal-bar'));
+  sfTryonCreep.set(10);
+  sfTryonRetry = new PollRetry('modal-status-text', showModalError);
   document.getElementById('modal-status-text').textContent = 'Uploading your photo...';
+  sfStartTips();
 
   const fd = new FormData();
   fd.append('photo', currentFile);
@@ -177,7 +205,7 @@ function startTryon() {
 }
 
 function pollTryon(sid) {
-  document.getElementById('modal-bar').style.width = '30%';
+  if(sfTryonCreep) sfTryonCreep.set(30);
   document.getElementById('modal-status-text').textContent = 'AI is generating your try-on...';
 
   pollTimer = setInterval(() => {
@@ -186,13 +214,15 @@ function pollTryon(sid) {
       .then(data => {
         if (data.status === 'error') {
           clearInterval(pollTimer); pollTimer = null;
+          if(sfTryonCreep) sfTryonCreep.stop();
           showModalError(data.error || 'Processing failed');
           return;
         }
+        if(sfTryonRetry) sfTryonRetry.reset();
 
         const stageMap = { uploading: 20, tryon: 50, primary_ready: 85, done: 100 };
         const pct = stageMap[data.stage] || 30;
-        document.getElementById('modal-bar').style.width = pct + '%';
+        if(sfTryonCreep) sfTryonCreep.set(pct);
 
         if (data.stage === 'tryon') {
           document.getElementById('modal-status-text').textContent = 'AI is trying on the frames...';
@@ -200,6 +230,7 @@ function pollTryon(sid) {
 
         if (data.status === 'done' && data.opt0) {
           clearInterval(pollTimer); pollTimer = null;
+          if(sfTryonCreep) sfTryonCreep.finish();
           if (data.opt0.tryon_status === 'done' && data.opt0.tryon_b64) {
             showTryonResult(data.opt0.tryon_b64);
           } else {
@@ -207,12 +238,13 @@ function pollTryon(sid) {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {if(sfTryonRetry)sfTryonRetry.fail()});
   }, 2000);
 }
 
 let lastTryonB64 = null;
 function showTryonResult(b64) {
+  sfStopTips();
   lastTryonB64 = b64;
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-result').style.display = 'block';
@@ -220,6 +252,7 @@ function showTryonResult(b64) {
 }
 
 function showModalError(msg) {
+  sfStopTips();
   document.getElementById('modal-upload').style.display = 'none';
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-error').style.display = '';
@@ -258,7 +291,9 @@ function startRecolor() {
   document.getElementById('modal-recolor-pick').style.display = 'none';
   document.getElementById('modal-recolor-progress').style.display = '';
   document.getElementById('rc-progress-color').textContent = rcSelectedColor;
-  document.getElementById('rc-bar').style.width = '10%';
+  sfRecolorCreep = new ProgressCreep(document.getElementById('rc-bar'));
+  sfRecolorCreep.set(10);
+  sfRecolorRetry = new PollRetry('rc-status-text', showModalError);
   document.getElementById('rc-status-text').textContent = 'Sending image...';
 
   fetch('/api/storefront-recolor', {
@@ -269,7 +304,7 @@ function startRecolor() {
     .then(r => r.json())
     .then(j => {
       if (j.error) { showModalError(j.error); return; }
-      document.getElementById('rc-bar').style.width = '25%';
+      if(sfRecolorCreep) sfRecolorCreep.set(25);
       document.getElementById('rc-status-text').textContent = 'Recoloring lenses...';
       rcPollTimer = setInterval(() => pollRecolor(j.session_id), 2000);
     })
@@ -285,20 +320,21 @@ function pollRecolor(sid) {
         showModalError(d.error || 'Recolor failed');
         return;
       }
+      if(sfRecolorRetry) sfRecolorRetry.reset();
       if (d.stage === 'recoloring') {
-        document.getElementById('rc-bar').style.width = '55%';
+        if(sfRecolorCreep) sfRecolorCreep.set(55);
         document.getElementById('rc-status-text').textContent = 'AI is recoloring the lenses...';
       }
       if (d.status === 'done' && d.result_b64) {
         clearInterval(rcPollTimer); rcPollTimer = null;
-        document.getElementById('rc-bar').style.width = '100%';
+        if(sfRecolorCreep) sfRecolorCreep.finish();
         document.getElementById('modal-recolor-progress').style.display = 'none';
         document.getElementById('modal-recolor-result').style.display = '';
         document.getElementById('rc-result-color').textContent = rcSelectedColor;
         document.getElementById('rc-result-img').src = 'data:image/png;base64,' + d.result_b64;
       }
     })
-    .catch(() => {});
+    .catch(() => {if(sfRecolorRetry)sfRecolorRetry.fail()});
 }
 
 /* Close modal on overlay click */

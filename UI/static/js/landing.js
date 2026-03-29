@@ -12,6 +12,8 @@ const tips=[
   "Square faces benefit from rounded frames that soften strong angles.",
 ];
 let sfSid=null,sfPoll=null,sfTipTimer=null,sfTipIdx=0,sfLastRendered='';
+let sfCreep=null;
+let sfRetry=null;
 
 function sfStartTips(){sfTipIdx=0;sfShowTip();sfTipTimer=setInterval(()=>{sfTipIdx=(sfTipIdx+1)%tips.length;sfShowTip()},4500)}
 function sfStopTips(){if(sfTipTimer)clearInterval(sfTipTimer);sfTipTimer=null}
@@ -41,8 +43,10 @@ const sfProgMap={uploading:5,analyzing:20,matching:50,tryon:65,primary_ready:85,
 document.getElementById('sf-file').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   sfShow('sf-processing'); sfSetStep(1);
-  document.getElementById('sf-prog').style.width='5%';
+  sfCreep=new ProgressCreep(document.getElementById('sf-prog'));
+  sfCreep.set(5);
   document.getElementById('sf-stage').textContent='Uploading your photo...';
+  sfRetry=new PollRetry('sf-stage', sfShowError);
   sfStartTips();
 
   const reader=new FileReader();
@@ -65,6 +69,7 @@ document.getElementById('sf-file').addEventListener('change', async e=>{
 function sfPollStatus(){
   if(!sfSid)return;
   fetch('/api/status/'+sfSid).then(r=>r.json()).then(d=>{
+    if(sfRetry) sfRetry.reset();
     if(d.status==='error'){sfShowError(d.error||'Unknown error');return}
     const msgs={uploading:'Uploading...',analyzing:'Analyzing your facial features...',
       matching:'Searching catalog...',tryon:'Generating virtual try-on images...',
@@ -72,15 +77,15 @@ function sfPollStatus(){
     const stepMap={uploading:1,analyzing:1,matching:2,tryon:3,primary_ready:3,done:3};
     document.getElementById('sf-stage').textContent=msgs[d.stage]||'Processing...';
     sfSetStep(stepMap[d.stage]||1);
-    document.getElementById('sf-prog').style.width=(sfProgMap[d.stage]||5)+'%';
+    if(sfCreep) sfCreep.set(sfProgMap[d.stage]||5);
 
-    if(d.num_options>0&&(d.stage==='primary_ready'||d.stage==='done')){sfStopTips();sfRender(d)}
+    if(d.num_options>0&&(d.stage==='primary_ready'||d.stage==='done')){sfStopTips();if(sfCreep)sfCreep.finish();sfRender(d)}
     if(d.status!=='done'&&d.status!=='error')sfPoll=setTimeout(sfPollStatus,2000);
-    else if(d.status==='done'){sfStopTips();sfRender(d)}
-  }).catch(()=>{sfPoll=setTimeout(sfPollStatus,3000)});
+    else if(d.status==='done'){sfStopTips();if(sfCreep)sfCreep.finish();sfRender(d)}
+  }).catch(()=>{if(sfRetry)sfRetry.fail();sfPoll=setTimeout(sfPollStatus,3000)});
 }
 
-function sfShowError(msg){sfStopTips();document.getElementById('sf-error-msg').textContent=msg;sfShow('sf-error')}
+function sfShowError(msg){sfStopTips();if(sfCreep)sfCreep.stop();document.getElementById('sf-error-msg').textContent=msg;sfShow('sf-error')}
 
 function sfRender(d){
   const sig=JSON.stringify([...(Array.from({length:d.num_options},(_,i)=>d['opt'+i]?.tryon_status))]);
@@ -105,6 +110,7 @@ function sfReset(){
   document.getElementById('sf-opts').innerHTML='';
   document.getElementById('sf-portrait-wrap').style.display='none';
   document.getElementById('sf-portrait-img').src='';
+  if(sfCreep){sfCreep.stop();sfCreep=null}
   document.getElementById('sf-prog').style.width='0%';sfSetStep(1);
   sfShow(null);
 }

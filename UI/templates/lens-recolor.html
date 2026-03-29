@@ -63,9 +63,15 @@
     <div class="load-portrait" id="load-portrait" style="display:none">
       <img id="load-portrait-img" src="" alt=""/>
     </div>
+    <div class="rc-steps">
+      <div class="rc-step active" id="rc-s1"><span class="rc-sdot">1</span><span>Upload</span></div>
+      <div class="rc-sline" id="rc-sl1"></div>
+      <div class="rc-step" id="rc-s2"><span class="rc-sdot">2</span><span>Recolor</span></div>
+    </div>
     <div class="load-prog"><div class="load-prog-fill" id="load-prog-fill"></div></div>
     <p id="load-stage">Uploading your photo...</p>
     <div class="tip-box"><p id="load-tip">Crafting your new lens colours...</p></div>
+    <button class="load-cancel" onclick="rcReset()">Cancel</button>
   </div>
 </div>
 

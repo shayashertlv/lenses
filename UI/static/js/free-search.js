@@ -5,6 +5,8 @@
 /* ── State ──────────────────────────────────── */
 let sid=null, poll=null, tipTimer=null, tipIdx=0, uploadedFile=null, lastRendered='';
 let catalogProducts=null; // loaded from /api/catalog for faceting
+let fsCreep=null;
+let fsRetry=null;
 
 const tips=[
   "Did you know? Frame shape can change how others perceive your personality.",
@@ -83,8 +85,11 @@ async function submitSearch(){
   loadImg.src=preview.src;
   document.getElementById('load-portrait').style.display='block';
 
-  setLoadStep(1); setLoadProg(15);
+  setLoadStep(1);
+  fsCreep=new ProgressCreep(document.getElementById('load-prog'));
+  fsCreep.set(15);
   document.getElementById('load-stage').textContent='Searching our catalog...';
+  fsRetry=new PollRetry('load-stage', showError);
   startTips();
 
   try{
@@ -115,7 +120,7 @@ function setLoadStep(n){
   else{s1.classList.add('done');s2.classList.add('active')}
   document.getElementById('lsl1').className='fs-sline'+(n>1?' done':'');
 }
-function setLoadProg(pct){document.getElementById('load-prog').style.width=pct+'%'}
+function setLoadProg(pct){if(fsCreep)fsCreep.set(pct);else document.getElementById('load-prog').style.width=pct+'%'}
 
 /* ── Tips ────────────────────────────────────── */
 function startTips(){tipIdx=0;showTip();tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500)}
@@ -130,6 +135,7 @@ function showTip(){
 function pollStatus(){
   if(!sid) return;
   fetch('/api/status/'+sid).then(r=>r.json()).then(d=>{
+    if(fsRetry) fsRetry.reset();
     if(d.status==='error'){showError(d.error||'Unknown error');return}
 
     const msgs={
@@ -148,17 +154,17 @@ function pollStatus(){
 
     // Show results as soon as primary is ready
     if(d.num_options>0 && (d.stage==='primary_ready'||d.stage==='done')){
-      stopTips();
+      stopTips();if(fsCreep)fsCreep.finish();
       renderResults(d);
     }
 
     if(d.status!=='done' && d.status!=='error')
       poll=setTimeout(pollStatus,2000);
     else if(d.status==='done'){
-      stopTips();
+      stopTips();if(fsCreep)fsCreep.finish();
       renderResults(d);
     }
-  }).catch(()=>{poll=setTimeout(pollStatus,3000)});
+  }).catch(()=>{if(fsRetry)fsRetry.fail();poll=setTimeout(pollStatus,3000)});
 }
 
 const _recolorStore={};let _recolorIdx=0;
@@ -254,7 +260,7 @@ function renderResults(d){
 
 /* ── Error ───────────────────────────────────── */
 function showError(msg){
-  stopTips();
+  stopTips();if(fsCreep)fsCreep.stop();
   document.getElementById('error-msg').textContent=msg;
   showView('error-view');
 }
@@ -271,6 +277,7 @@ function fsReset(){
   submitHint.textContent='Upload a photo first';
   document.getElementById('fs-opts').innerHTML='';
   document.querySelectorAll('#form-view input[type=radio][value=""]').forEach(r=>{r.checked=true});
+  if(fsCreep){fsCreep.stop();fsCreep=null}
   setLoadStep(1); setLoadProg(0);
   showView(null);
   updateFacets();

@@ -9,6 +9,17 @@ let sessionId = null;
 let pollTimer = null;
 let mainIdx = 0;               // which color is in the hero
 let colorResults = [];          // [{name, b64, error, status}]
+let rcCreep = null;
+let rcRetry = null;
+
+/* ── Step indicators ── */
+function rcSetStep(n){
+  const s1=document.getElementById('rc-s1'), s2=document.getElementById('rc-s2');
+  s1.classList.remove('active','done'); s2.classList.remove('active','done');
+  if(n===1){s1.classList.add('active')}
+  else{s1.classList.add('done');s2.classList.add('active')}
+  document.getElementById('rc-sl1').className='rc-sline'+(n>1?' done':'');
+}
 
 /* ── View switching ── */
 function showView(v){
@@ -114,7 +125,11 @@ document.getElementById('submit-btn').addEventListener('click',function(){
 
   showView('loading-view');
   document.getElementById('load-stage').textContent='Uploading your photo...';
-  document.getElementById('load-prog-fill').style.width='10%';
+  rcSetStep(1);
+  rcCreep=new ProgressCreep(document.getElementById('load-prog-fill'));
+  rcCreep.set(10);
+  rcRetry=new PollRetry('load-stage', showError);
+  startTips();
 
   // Show portrait preview in loading
   const reader=new FileReader();
@@ -155,19 +170,23 @@ function pollStatus(){
         showError(data.error||'An error occurred');
         return;
       }
+      if(rcRetry) rcRetry.reset();
 
       // Update loading stage (only while loading screen is visible)
       if(!resultsShown){
         const stage=data.stage||'';
         if(stage==='uploading'){
           document.getElementById('load-stage').textContent='Uploading your photo...';
-          document.getElementById('load-prog-fill').style.width='15%';
+          rcSetStep(1);
+          if(rcCreep) rcCreep.set(15);
         } else if(stage==='recoloring'){
           document.getElementById('load-stage').textContent='Recoloring your lenses...';
-          document.getElementById('load-prog-fill').style.width='40%';
+          rcSetStep(2);
+          if(rcCreep) rcCreep.set(40);
         } else if(stage==='primary_ready'){
           document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
-          document.getElementById('load-prog-fill').style.width='70%';
+          rcSetStep(2);
+          if(rcCreep) rcCreep.set(70);
         }
 
         // Show portrait in loading
@@ -187,6 +206,7 @@ function pollStatus(){
         collectResults(data);
         if(!resultsShown){
           resultsShown=true;
+          stopTips();if(rcCreep)rcCreep.finish();
           renderResults();
         } else {
           updateProgressiveResults();
@@ -197,7 +217,7 @@ function pollStatus(){
         clearInterval(pollTimer);
       }
     })
-    .catch(()=>{});
+    .catch(()=>{if(rcRetry)rcRetry.fail()});
 }
 
 /* ── Render results ── */
@@ -287,6 +307,7 @@ function switchTo(idx){
 
 /* ── Helpers ── */
 function showError(msg){
+  stopTips();if(rcCreep)rcCreep.stop();
   document.getElementById('error-msg').textContent=msg;
   showView('error-view');
 }
@@ -294,6 +315,7 @@ function showError(msg){
 function rcReset(){
   sessionId=null;
   if(pollTimer) clearInterval(pollTimer);
+  stopTips();if(rcCreep){rcCreep.stop();rcCreep=null}
   chosenFile=null;
   colorResults=[];
   mainIdx=0;
@@ -317,10 +339,11 @@ const tips=[
   'Each colour is generated independently for the most realistic result.',
   'The AI preserves natural reflections and blends the tint to match the lens curvature.',
 ];
-let tipIdx=0;
-setInterval(()=>{
-  tipIdx=(tipIdx+1)%tips.length;
+let tipIdx=0,tipTimer=null;
+function startTips(){tipIdx=0;showTip();tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500)}
+function stopTips(){if(tipTimer)clearInterval(tipTimer);tipTimer=null}
+function showTip(){
   const el=document.getElementById('load-tip');
   el.style.opacity=0;
   setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity=1;},300);
-},4500);
+}
