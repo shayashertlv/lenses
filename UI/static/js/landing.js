@@ -112,7 +112,7 @@ function sfReset(){
 /* ── Helpers ── */
 const _recolorStore={};let _recolorIdx=0;
 function goRecolor(key){
-  sessionStorage.setItem('recolor_preload',_recolorStore[key]);
+  try{sessionStorage.setItem('recolor_preload',_recolorStore[key])}catch(e){}
   window.location.href='/lens-recolor';
 }
 

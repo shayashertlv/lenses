@@ -209,7 +209,7 @@ body{min-height:100vh}
   box-shadow:0 40px 100px rgba(0,0,0,.5);max-height:90vh;overflow-y:auto;
 }
 .compare-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-.compare-header h2{font-family:'Lora',Georgia,serif;font-size:1.2rem;font-weight:400}
+.compare-header h2{font-family:inherit;font-size:1.2rem;font-weight:400}
 .compare-close{
   background:rgba(255,255,255,.1);border:none;color:#fff;
   width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;
@@ -224,7 +224,7 @@ body{min-height:100vh}
 }
 .compare-card-img{width:100%;height:240px;object-fit:contain;display:block;background:rgba(0,0,0,.3)}
 .compare-card-footer{padding:10px 14px;text-align:center}
-.compare-card-price{font-family:'Lora',Georgia,serif;font-size:.95rem;color:#fff}
+.compare-card-price{font-family:inherit;font-size:.95rem;color:#fff}
 
 /* ── Animations ── */
 @keyframes slideRight{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:none}}
