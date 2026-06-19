@@ -8,11 +8,9 @@ let currentFile = null;
 let cachedFile = null;
 let cachedPreviewSrc = null;
 
-/* ── Recolor (foreground flow, tied to whichever result is open) ── */
-let rcPollTimer = null;
-let sfRecolorCreep = null;
-let sfRecolorRetry = null;
+/* ── Recolor selection (used when spawning a recolor circle) ── */
 let rcSelectedColor = null;
+let rcSelectedBg = null;        // css background of the picked swatch (for the dot)
 let lastTryonB64 = null;
 let currentProductId = null;
 
@@ -31,6 +29,54 @@ const RING_C = 2 * Math.PI * RING_R;     // circumference (dash length)
 function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
+
+/* ── Accelerating ring pace ────────────────────────────────
+   A time-based fill whose SPEED increases over time: slow for the
+   first ~10s, faster 10-15s, even faster 15-20s, fastest 20-40s.
+   Keyframes are [seconds, percent] interpolated linearly; past the
+   last one it drifts asymptotically toward 99% so it never sticks and
+   never reaches 100% until finish(). Numbers are tunable.
+     slopes (%/s): 0.8 -> 2.0 -> 2.4 -> 3.05  (monotonically faster) */
+const RING_KEYFRAMES = [[0, 4], [10, 12], [15, 22], [20, 34], [40, 95]];
+
+function RingPace(applyFn) {
+  this.apply = applyFn;
+  this.displayed = 0;
+  this.t0 = 0;
+  this.raf = null;
+  const self = this;
+  function pctAt(ms) {
+    const t = ms / 1000, kf = RING_KEYFRAMES;
+    if (t <= 0) return kf[0][1];
+    for (let i = 1; i < kf.length; i++) {
+      if (t <= kf[i][0]) {
+        const [t0, p0] = kf[i - 1], [t1, p1] = kf[i];
+        return p0 + (p1 - p0) * (t - t0) / (t1 - t0);
+      }
+    }
+    const last = kf[kf.length - 1], dt = t - last[0];
+    return Math.min(99, last[1] + (99 - last[1]) * (dt / (dt + 20)));
+  }
+  function tick(now) {
+    const p = pctAt(now - self.t0);
+    if (p > self.displayed) { self.displayed = p; self.apply(p); }
+    self.raf = requestAnimationFrame(tick);
+  }
+  this._tick = tick;
+}
+RingPace.prototype.start = function () {
+  this.t0 = performance.now();
+  this.apply(this.displayed);
+  if (!this.raf) this.raf = requestAnimationFrame(this._tick);
+};
+RingPace.prototype.finish = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+  this.displayed = 100;
+  this.apply(100);
+};
+RingPace.prototype.stop = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+};
 
 /* ── Catalog + gender filter ──────────────── */
 let allProducts = [];
@@ -164,8 +210,6 @@ function showPhotoReady(src) {
 function closeModal() {
   document.getElementById('tryon-modal').classList.remove('active');
   document.getElementById('tryon-modal').classList.remove('closing');
-  if (rcPollTimer) { clearInterval(rcPollTimer); rcPollTimer = null; }
-  if (sfRecolorCreep) { sfRecolorCreep.stop(); sfRecolorCreep = null; }
   clearModalTransform();
 }
 
@@ -198,7 +242,7 @@ document.getElementById('modal-file').addEventListener('change', e => {
 function startTryon() {
   if (!currentFile || !pendingProduct) return;
   const file = currentFile;
-  const job = createJob(pendingProduct);
+  const job = createJob({ ...pendingProduct, kind: 'tryon' });
   spawnCircle(job);
 
   if (prefersReducedMotion()) {
@@ -216,17 +260,21 @@ function startTryon() {
    Per-job lifecycle
    ══════════════════════════════════════════════════ */
 
-function createJob(prod) {
+function createJob(opts) {
   const job = {
     id: 'job_' + (++jobSeq),
-    productId: prod.productId,
-    productName: prod.productName,
-    thumbSrc: prod.thumbSrc,
+    kind: opts.kind || 'tryon',          // 'tryon' | 'recolor'
+    productId: opts.productId,
+    productName: opts.productName,
+    thumbSrc: opts.thumbSrc,
+    sourceB64: opts.sourceB64 || null,   // recolor: image to recolor
+    color: opts.color || null,           // recolor: color name
+    colorBg: opts.colorBg || null,       // recolor: swatch css background (for the dot)
     sessionId: null,
     status: 'loading',     // 'loading' | 'done' | 'error'
     b64: null,
     pollTimer: null,
-    creep: null,
+    pace: null,
     failCount: 0,
     el: null,
   };
@@ -235,30 +283,34 @@ function createJob(prod) {
 }
 
 function spawnCircle(job) {
+  const isRecolor = job.kind === 'recolor';
   const btn = document.createElement('button');
-  btn.className = 'sf-circle is-loading';
+  btn.className = 'sf-circle is-loading' + (isRecolor ? ' is-recolor' : '');
   btn.dataset.job = job.id;
-  btn.setAttribute('aria-label', 'Try-on for ' + job.productName + ' — generating');
+  btn.setAttribute('aria-label', isRecolor
+    ? 'Recoloring ' + job.productName + ' in ' + job.color
+    : 'Try-on for ' + job.productName + ' — generating');
   btn.innerHTML =
     '<svg class="sf-ring" viewBox="0 0 60 60">' +
       '<circle class="sf-circ-bg" cx="30" cy="30" r="' + RING_R + '"/>' +
       '<circle class="sf-circ-fg" cx="30" cy="30" r="' + RING_R + '"/>' +
     '</svg>' +
     '<img class="sf-thumb" src="' + job.thumbSrc + '" alt=""/>' +
+    (isRecolor ? '<span class="sf-color-dot" style="background:' + (job.colorBg || '#fff') + '"></span>' : '') +
     '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
     '<span class="sf-badge sf-badge-err">!</span>' +
     '<span class="sf-dismiss" aria-hidden="true">&times;</span>' +
     '<span class="sf-tooltip">Still creating…</span>';
   job.el = btn;
 
-  /* Wire the progress ring to the shared ProgressCreep (never-freeze curve) */
+  /* Drive the progress ring with the accelerating RingPace */
   const ringFg = btn.querySelector('.sf-circ-fg');
   ringFg.style.strokeDasharray = RING_C.toFixed(2);
   ringFg.style.strokeDashoffset = RING_C.toFixed(2);     // start empty
-  job.creep = new ProgressCreep(ringFg, 15, function (pct, el) {
-    el.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(2);
+  job.pace = new RingPace(function (pct) {
+    ringFg.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(2);
   });
-  job.creep.set(10);
+  job.pace.start();
 
   btn.addEventListener('click', function (e) {
     if (e.target.closest('.sf-dismiss')) { e.stopPropagation(); dismissJob(job); return; }
@@ -272,12 +324,20 @@ function spawnCircle(job) {
 }
 
 function startJob(job, file) {
-  const fd = new FormData();
-  fd.append('photo', file);
-  fd.append('product_id', job.productId);
-
-  fetch('/api/storefront-tryon', { method: 'POST', body: fd })
-    .then(r => r.json())
+  let req;
+  if (job.kind === 'recolor') {
+    req = fetch('/api/storefront-recolor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_b64: job.sourceB64, color: job.color })
+    });
+  } else {
+    const fd = new FormData();
+    fd.append('photo', file);
+    fd.append('product_id', job.productId);
+    req = fetch('/api/storefront-tryon', { method: 'POST', body: fd });
+  }
+  req.then(r => r.json())
     .then(d => {
       if (d.error) { markJobError(job, d.error); return; }
       job.sessionId = d.session_id;
@@ -287,17 +347,18 @@ function startJob(job, file) {
 }
 
 function pollJob(job) {
-  if (job.creep) job.creep.set(30);
+  const statusUrl = (job.kind === 'recolor' ? '/api/storefront-recolor-status/' : '/api/status/');
   job.pollTimer = setInterval(() => {
-    fetch('/api/status/' + job.sessionId)
+    fetch(statusUrl + job.sessionId)
       .then(r => r.json())
       .then(d => {
         job.failCount = 0;
         if (d.status === 'error') { markJobError(job, d.error || 'Processing failed'); return; }
 
-        const pct = ({ uploading: 20, tryon: 50, primary_ready: 85, done: 100 })[d.stage] || 30;
-        if (job.creep) job.creep.set(pct);
-
+        if (job.kind === 'recolor') {
+          if (d.status === 'done' && d.result_b64) markJobDone(job, d.result_b64);
+          return;
+        }
         if (d.status === 'done' && d.opt0) {
           if (d.opt0.tryon_status === 'done' && d.opt0.tryon_b64) {
             markJobDone(job, d.opt0.tryon_b64);
@@ -317,24 +378,26 @@ function markJobDone(job, b64) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
   job.status = 'done';
   job.b64 = b64;
-  if (job.creep) job.creep.finish();
+  if (job.pace) job.pace.finish();
   job.el.style.transform = '';                 // drop any leftover fly transform
   job.el.style.opacity = '';
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-done');
-  job.el.setAttribute('aria-label', 'Try-on ready for ' + job.productName + ' — tap to view');
+  job.el.setAttribute('aria-label',
+    (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
 }
 
 function markJobError(job, msg) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
-  if (job.creep) job.creep.stop();
+  if (job.pace) job.pace.stop();
   job.status = 'error';
   job.el.dataset.error = msg || 'Something went wrong';
   job.el.style.transform = '';
   job.el.style.opacity = '';
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-error');
-  job.el.setAttribute('aria-label', 'Try-on failed for ' + job.productName + ' — tap for details');
+  job.el.setAttribute('aria-label',
+    (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
 }
 
 function onCircleClick(job) {
@@ -377,7 +440,7 @@ function openJobResult(job) {
 
 function dismissJob(job) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
-  if (job.creep) { job.creep.stop(); job.creep = null; }
+  if (job.pace) { job.pace.stop(); job.pace = null; }
   const el = job.el;
   el.classList.add('is-removing');
   let removed = false;
@@ -481,17 +544,13 @@ function morphFromCircle(circleEl) {
 }
 
 /* ══════════════════════════════════════════════════
-   Recolor flow inside the result modal (foreground)
+   Recolor: pick a color, then collapse into its own dock circle
    ══════════════════════════════════════════════════ */
-
-function showModalErrorStep(msg) {
-  showModalStep('modal-error');
-  document.getElementById('modal-error-msg').textContent = msg;
-}
 
 function showRecolorPicker() {
   showModalStep('modal-recolor-pick');
   rcSelectedColor = null;
+  rcSelectedBg = null;
   document.getElementById('rc-apply-btn').disabled = true;
   document.querySelectorAll('.rc-color-opt').forEach(o => o.classList.remove('selected'));
 }
@@ -500,62 +559,38 @@ function pickRcColor(el) {
   document.querySelectorAll('.rc-color-opt').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
   rcSelectedColor = el.getAttribute('data-color');
+  const sw = el.querySelector('.rc-swatch');
+  rcSelectedBg = sw ? sw.style.background : null;
   document.getElementById('rc-apply-btn').disabled = false;
 }
 
 function backToResult() {
   showModalStep('modal-result');
-  if (rcPollTimer) { clearInterval(rcPollTimer); rcPollTimer = null; }
 }
 
+/* Apply Color: spawn a non-blocking recolor circle (same collapse as try-on). */
 function startRecolor() {
   if (!rcSelectedColor || !lastTryonB64) return;
+  const job = createJob({
+    kind: 'recolor',
+    productId: currentProductId,
+    productName: (pendingProduct && pendingProduct.productName) || 'Lenses',
+    thumbSrc: (pendingProduct && pendingProduct.thumbSrc) || '',
+    sourceB64: lastTryonB64,
+    color: rcSelectedColor,
+    colorBg: rcSelectedBg,
+  });
+  spawnCircle(job);
 
-  showModalStep('modal-recolor-progress');
-  document.getElementById('rc-progress-color').textContent = rcSelectedColor;
-  sfRecolorCreep = new ProgressCreep(document.getElementById('rc-bar'));
-  sfRecolorCreep.set(10);
-  sfRecolorRetry = new PollRetry('rc-status-text', showModalErrorStep);
-  document.getElementById('rc-status-text').textContent = 'Sending image...';
-
-  fetch('/api/storefront-recolor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image_b64: lastTryonB64, color: rcSelectedColor })
-  })
-    .then(r => r.json())
-    .then(j => {
-      if (j.error) { showModalErrorStep(j.error); return; }
-      if (sfRecolorCreep) sfRecolorCreep.set(25);
-      document.getElementById('rc-status-text').textContent = 'Recoloring lenses...';
-      rcPollTimer = setInterval(() => pollRecolor(j.session_id), 2000);
-    })
-    .catch(() => showModalErrorStep('Network error'));
-}
-
-function pollRecolor(sid) {
-  fetch('/api/storefront-recolor-status/' + sid)
-    .then(r => r.json())
-    .then(d => {
-      if (d.status === 'error') {
-        clearInterval(rcPollTimer); rcPollTimer = null;
-        showModalErrorStep(d.error || 'Recolor failed');
-        return;
-      }
-      if (sfRecolorRetry) sfRecolorRetry.reset();
-      if (d.stage === 'recoloring') {
-        if (sfRecolorCreep) sfRecolorCreep.set(55);
-        document.getElementById('rc-status-text').textContent = 'AI is recoloring the lenses...';
-      }
-      if (d.status === 'done' && d.result_b64) {
-        clearInterval(rcPollTimer); rcPollTimer = null;
-        if (sfRecolorCreep) sfRecolorCreep.finish();
-        showModalStep('modal-recolor-result');
-        document.getElementById('rc-result-color').textContent = rcSelectedColor;
-        document.getElementById('rc-result-img').src = 'data:image/png;base64,' + d.result_b64;
-      }
-    })
-    .catch(() => { if (sfRecolorRetry) sfRecolorRetry.fail(); });
+  if (prefersReducedMotion()) {
+    document.getElementById('tryon-modal').classList.remove('active');
+    clearModalTransform();
+  } else {
+    const modalEl = document.querySelector('#tryon-modal .modal');
+    flyToDock(modalEl, job.el);
+    collapseModal(job.el);
+  }
+  startJob(job);
 }
 
 /* Close modal on overlay click (background jobs keep running) */

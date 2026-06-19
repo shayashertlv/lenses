@@ -181,6 +181,16 @@
   transition:opacity .15s ease,background .15s ease;z-index:3}
 .sf-circle:hover .sf-dismiss,.sf-circle:focus-visible .sf-dismiss{opacity:1}
 .sf-dismiss:hover{background:rgba(239,83,80,.9);color:#fff}
+/* Larger invisible hit-area so the × is easy to tap */
+.sf-dismiss::before{content:'';position:absolute;inset:-9px;border-radius:50%}
+/* Touch devices have no hover — keep the × always visible and a bit larger */
+@media (hover:none){
+  .sf-circle .sf-dismiss{opacity:1;width:22px;height:22px;font-size:.82rem;top:-6px;right:-6px}
+}
+
+/* Recolor circles carry a small color dot (top-left) to set them apart */
+.sf-color-dot{position:absolute;top:-2px;left:-2px;width:16px;height:16px;border-radius:50%;
+  border:2px solid rgba(11,11,20,.92);box-shadow:0 1px 5px rgba(0,0,0,.45);z-index:2}
 
 /* "Still creating…" tooltip */
 .sf-tooltip{position:absolute;bottom:calc(100% + 9px);left:50%;
@@ -269,14 +279,12 @@ body.dock-active .container{padding-bottom:7rem}
   .rc-cname{font-size:.6rem}
   .filter-strip{gap:.35rem}
   .filter-pill{font-size:.78rem;padding:.4rem .8rem}
-  /* Dock becomes a scrollable bottom bar */
-  .tryon-dock{right:0;left:0;bottom:0;max-width:none;gap:.5rem;padding:.55rem .7rem;
-    flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;justify-content:flex-end;
-    background:linear-gradient(0deg,rgba(11,11,20,.92),rgba(11,11,20,0));
-    -webkit-overflow-scrolling:touch}
+  /* Clean, content-sized cluster bottom-right (no full-width black fade);
+     extra circles wrap upward like on desktop, so nothing is clipped. */
+  .tryon-dock{right:.6rem;left:auto;bottom:.6rem;gap:.5rem;max-width:calc(100vw - 1.2rem)}
   .sf-circle{width:54px;height:54px}
   .sf-thumb{width:38px;height:38px}
-  body.dock-active .container{padding-bottom:6rem}
+  body.dock-active .container{padding-bottom:4.5rem}
 }
 @media(max-width:380px){
   .product-grid{grid-template-columns:repeat(2,1fr);gap:.55rem}
