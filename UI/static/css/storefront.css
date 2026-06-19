@@ -132,6 +132,104 @@
 .uptip-icon svg{stroke:#6c63ff}
 .uptip-ok{background:#6c63ff;color:#fff}
 
+/* ══════════════════════════════════════════════════
+   Floating try-on dock — non-blocking loading circles
+   ══════════════════════════════════════════════════ */
+:root{
+  --sf-ease:cubic-bezier(.34,1.4,.64,1);
+  --sf-ease-in:cubic-bezier(.4,0,1,1);
+  --sf-accent:#6c63ff;
+  --sf-green:#34c78a;
+  --sf-red:#ef5350;
+}
+
+/* The dock is click-through except on the circles themselves, so it
+   never blocks the catalog underneath. */
+.tryon-dock{position:fixed;right:1.25rem;bottom:1.25rem;z-index:90;
+  display:flex;flex-wrap:wrap-reverse;align-items:flex-end;justify-content:flex-end;
+  gap:.7rem;max-width:min(60vw,460px);pointer-events:none}
+
+.sf-circle{position:relative;flex:0 0 auto;width:60px;height:60px;border-radius:50%;
+  border:none;padding:0;background:rgba(20,20,32,.82);cursor:pointer;pointer-events:auto;
+  box-shadow:0 6px 22px rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:transform .2s var(--sf-ease),box-shadow .2s ease;outline:none}
+.sf-circle:hover{transform:scale(1.07)}
+.sf-circle:focus-visible{box-shadow:0 6px 22px rgba(0,0,0,.45),0 0 0 3px rgba(108,99,255,.6)}
+
+.sf-ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+.sf-circ-bg{fill:none;stroke:rgba(255,255,255,.14);stroke-width:4}
+.sf-circ-fg{fill:none;stroke:var(--sf-accent);stroke-width:4;stroke-linecap:round;transition:stroke .4s ease}
+
+.sf-thumb{position:absolute;top:50%;left:50%;width:42px;height:42px;border-radius:50%;
+  transform:translate(-50%,-50%);object-fit:contain;background:rgba(255,255,255,.92);
+  transition:opacity .3s ease}
+.sf-circle.is-loading .sf-thumb{opacity:.82}
+
+/* Status badges — check (done) / ! (error) */
+.sf-badge{position:absolute;right:-3px;bottom:-3px;width:22px;height:22px;border-radius:50%;
+  display:grid;place-items:center;opacity:0;transform:scale(0);pointer-events:none;
+  box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.sf-badge-check{background:var(--sf-green)}
+.sf-badge-check svg{width:13px;height:13px;fill:none;stroke:#04130c;stroke-width:3;
+  stroke-linecap:round;stroke-linejoin:round}
+.sf-badge-err{background:var(--sf-red);color:#fff;font-weight:800;font-size:.82rem;line-height:1}
+
+/* Dismiss (×) — appears on hover / focus */
+.sf-dismiss{position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;
+  background:rgba(10,10,18,.95);border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.75);
+  font-size:.72rem;line-height:1;display:grid;place-items:center;opacity:0;
+  transition:opacity .15s ease,background .15s ease;z-index:3}
+.sf-circle:hover .sf-dismiss,.sf-circle:focus-visible .sf-dismiss{opacity:1}
+.sf-dismiss:hover{background:rgba(239,83,80,.9);color:#fff}
+
+/* "Still creating…" tooltip */
+.sf-tooltip{position:absolute;bottom:calc(100% + 9px);left:50%;
+  transform:translateX(-50%) translateY(4px);
+  background:rgba(20,20,34,.97);color:#fff;font-size:.72rem;font-weight:500;white-space:nowrap;
+  padding:.35rem .6rem;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;z-index:4}
+.sf-tooltip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:rgba(20,20,34,.97)}
+
+/* ── DONE ── */
+.sf-circle.is-done .sf-circ-fg{stroke:var(--sf-green)}
+.sf-circle.is-done .sf-thumb{opacity:1}
+.sf-circle.is-done .sf-badge-check{opacity:1;animation:sfBadgeIn .4s var(--sf-ease) .05s both}
+.sf-circle.is-done{animation:sfPop .45s var(--sf-ease),sfPulse 2.6s ease-in-out 1.1s infinite}
+
+/* ── ERROR ── */
+.sf-circle.is-error .sf-circ-fg{stroke:var(--sf-red);stroke-dashoffset:0!important}
+.sf-circle.is-error .sf-badge-err{opacity:1;animation:sfBadgeIn .35s var(--sf-ease) both}
+
+/* ── tap-while-loading ── */
+.sf-circle.is-wobble{animation:sfWobble .5s ease}
+.sf-circle.is-wobble .sf-tooltip{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── removing ── */
+.sf-circle.is-removing{opacity:0;transform:scale(.4);pointer-events:none;
+  transition:opacity .25s ease,transform .25s ease;animation:none}
+
+@keyframes sfPop{0%{transform:scale(1)}40%{transform:scale(1.16)}100%{transform:scale(1)}}
+@keyframes sfBadgeIn{0%{opacity:0;transform:scale(0) rotate(-30deg)}
+  60%{transform:scale(1.2) rotate(6deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+@keyframes sfPulse{0%,100%{box-shadow:0 6px 22px rgba(0,0,0,.45),0 0 0 0 rgba(52,199,138,0)}
+  50%{box-shadow:0 6px 22px rgba(0,0,0,.45),0 0 0 7px rgba(52,199,138,.16)}}
+@keyframes sfWobble{0%,100%{transform:rotate(0)}18%{transform:rotate(-8deg)}
+  38%{transform:rotate(6deg)}58%{transform:rotate(-4deg)}78%{transform:rotate(2deg)}}
+
+/* Keep the corner dock from ever hiding catalog cards */
+body.dock-active .container{padding-bottom:7rem}
+
+/* Modal backdrop fades out while the window collapses into a circle */
+.modal-overlay.closing{opacity:0;transition:opacity .35s ease}
+
+@media (prefers-reduced-motion: reduce){
+  .sf-circle,.sf-circ-fg,.sf-thumb,.sf-dismiss,.sf-tooltip,.modal{transition:none!important}
+  .sf-circle.is-done,.sf-circle.is-wobble,
+  .sf-circle.is-done .sf-badge-check,.sf-circle.is-error .sf-badge-err{animation:none!important}
+  .sf-circle.is-done .sf-badge-check,.sf-circle.is-error .sf-badge-err{opacity:1;transform:scale(1)}
+}
+
 /* ── Tablet ── */
 @media(max-width:900px){
   .topbar .powered{display:none}
@@ -171,6 +269,14 @@
   .rc-cname{font-size:.6rem}
   .filter-strip{gap:.35rem}
   .filter-pill{font-size:.78rem;padding:.4rem .8rem}
+  /* Dock becomes a scrollable bottom bar */
+  .tryon-dock{right:0;left:0;bottom:0;max-width:none;gap:.5rem;padding:.55rem .7rem;
+    flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;justify-content:flex-end;
+    background:linear-gradient(0deg,rgba(11,11,20,.92),rgba(11,11,20,0));
+    -webkit-overflow-scrolling:touch}
+  .sf-circle{width:54px;height:54px}
+  .sf-thumb{width:38px;height:38px}
+  body.dock-active .container{padding-bottom:6rem}
 }
 @media(max-width:380px){
   .product-grid{grid-template-columns:repeat(2,1fr);gap:.55rem}
@@ -178,6 +284,8 @@
   .hero h1{font-size:1.25rem}
   .rc-color-grid{grid-template-columns:repeat(4,1fr);gap:.25rem}
   .rc-swatch{width:22px;height:22px}
+  .sf-circle{width:50px;height:50px}
+  .sf-thumb{width:34px;height:34px}
 }
 @media(max-height:500px) and (max-width:900px){
   .topbar{padding:.4rem 1rem;position:sticky;top:0;z-index:50}
@@ -186,4 +294,5 @@
   .hero p{display:none}
   .container{padding:.75rem .75rem 2rem}
   .modal{max-height:88vh}
+  .tryon-dock{padding:.4rem .6rem}
 }

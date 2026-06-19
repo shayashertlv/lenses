@@ -88,8 +88,12 @@ PollRetry.prototype.reset=function(){
      creep.finish()  // snap to 100%, stop animation
      creep.stop()    // reset to 0, stop animation
 */
-function ProgressCreep(fillEl, halfLife){
+function ProgressCreep(fillEl, halfLife, applyFn){
   this.el=fillEl;
+  /* applyFn(pct, el) renders the progress value. Defaults to a width bar
+     so every existing call site is unchanged; the storefront dock passes
+     a custom fn to drive a circular SVG ring (stroke-dashoffset) instead. */
+  this.apply=applyFn||function(pct,el){el.style.width=pct.toFixed(1)+'%';};
   this.base=0;          // last set() value
   this.displayed=0;     // what's currently shown
   this.t0=0;            // timestamp of last set()
@@ -104,7 +108,7 @@ function ProgressCreep(fillEl, halfLife){
     next=Math.max(next, self.displayed);
     if(next!==self.displayed){
       self.displayed=next;
-      self.el.style.width=next.toFixed(1)+'%';
+      self.apply(next, self.el);
     }
     self.raf=requestAnimationFrame(tick);
   }
@@ -114,7 +118,7 @@ ProgressCreep.prototype.set=function(pct){
   this.base=Math.max(pct, this.displayed);
   this.displayed=this.base;
   this.t0=performance.now();
-  this.el.style.width=this.base.toFixed(1)+'%';
+  this.apply(this.base, this.el);
   if(!this.raf) this.raf=requestAnimationFrame(this._tick);
 };
 ProgressCreep.prototype.stop=function(){
@@ -123,6 +127,6 @@ ProgressCreep.prototype.stop=function(){
 };
 ProgressCreep.prototype.finish=function(){
   if(this.raf){cancelAnimationFrame(this.raf);this.raf=null}
-  this.el.style.width='100%';
+  this.apply(100, this.el);
   this.displayed=100;this.base=100;
 };
