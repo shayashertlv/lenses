@@ -32,12 +32,12 @@ function prefersReducedMotion() {
 
 /* ── Ring pace ─────────────────────────────────────────────
    A time-based fill: fast for the first ~10s, a brief slow stretch
-   10-13s, then very fast 13-30s. Keyframes are [seconds, percent]
+   10-13s, then very fast 13-25s. Keyframes are [seconds, percent]
    interpolated linearly; past the last one it drifts asymptotically
    toward 99% so it never sticks and never reaches 100% until finish().
    Numbers are tunable.
-     slopes (%/s): 3.0 (fast) -> 0.67 (slow) -> 3.76 (very fast) */
-const RING_KEYFRAMES = [[0, 0], [10, 30], [13, 32], [30, 96]];
+     slopes (%/s): 3.0 (fast) -> 0.67 (slow) -> 5.33 (very fast) */
+const RING_KEYFRAMES = [[0, 0], [10, 30], [13, 32], [25, 96]];
 
 function RingPace(applyFn) {
   this.apply = applyFn;
