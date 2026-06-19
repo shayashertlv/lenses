@@ -30,14 +30,14 @@ function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
-/* ── Accelerating ring pace ────────────────────────────────
-   A time-based fill whose SPEED increases over time: slow for the
-   first ~10s, faster 10-15s, even faster 15-20s, fastest 20-40s.
-   Keyframes are [seconds, percent] interpolated linearly; past the
-   last one it drifts asymptotically toward 99% so it never sticks and
-   never reaches 100% until finish(). Numbers are tunable.
-     slopes (%/s): 0.8 -> 2.0 -> 2.4 -> 3.05  (monotonically faster) */
-const RING_KEYFRAMES = [[0, 4], [10, 12], [15, 22], [20, 34], [40, 95]];
+/* ── Ring pace ─────────────────────────────────────────────
+   A time-based fill: fast for the first ~10s, a brief slow stretch
+   10-13s, then very fast 13-30s. Keyframes are [seconds, percent]
+   interpolated linearly; past the last one it drifts asymptotically
+   toward 99% so it never sticks and never reaches 100% until finish().
+   Numbers are tunable.
+     slopes (%/s): 3.0 (fast) -> 0.67 (slow) -> 3.76 (very fast) */
+const RING_KEYFRAMES = [[0, 0], [10, 30], [13, 32], [30, 96]];
 
 function RingPace(applyFn) {
   this.apply = applyFn;
