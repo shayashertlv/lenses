@@ -12,6 +12,32 @@ def _join(value) -> str:
     return str(value)
 
 
+_CLEAR_LENS_COLORS = {"clear", "transparent", "none", "no tint", "untinted", "n/a", "na", ""}
+_TINTED_LENS_TYPES = {"sunglasses", "gradient", "mirrored", "polarized", "prizm", "chromance", "sport", "tinted"}
+
+
+def _lens_clauses(lens_types: str, lens_colors: str):
+    """Return (lens_description, optical_instruction).
+
+    Clear / untinted lenses get an explicit 'no tint, fully see-through'
+    instruction so the model never renders them as smoke-grey sunglasses.
+    """
+    type_tokens = [t.strip().lower() for t in str(lens_types or "").split(",") if t.strip()]
+    color_tokens = [c.strip().lower() for c in str(lens_colors or "").split(",") if c.strip()]
+    has_tinted_type = any(t in _TINTED_LENS_TYPES for t in type_tokens)
+    color_is_clear = (not color_tokens) or all(t in _CLEAR_LENS_COLORS for t in color_tokens)
+    if color_is_clear and not has_tinted_type:
+        desc = (lens_types + ", fully clear and transparent (no tint)") if lens_types else "clear, transparent (no tint)"
+        optical = ("The lenses are COMPLETELY CLEAR and transparent — plain prescription glass, fully "
+                   "see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses. Keep the "
+                   "eyes, eyebrows and skin fully visible through the lenses with zero darkening.")
+    else:
+        desc = f"{lens_types}, {lens_colors}"
+        optical = ("Eyes visible through the lenses at the appropriate opacity for "
+                   f"{lens_types} lenses with {lens_colors} tint")
+    return desc, optical
+
+
 def build_tryon_prompt(analysis: dict, matched_product: dict) -> str:
     """
     Build the Nano Banana try-on prompt using:
@@ -34,6 +60,7 @@ def build_tryon_prompt(analysis: dict, matched_product: dict) -> str:
     pf_colors = _join(pf["color"])
     pl_types = _join(pl["type"])
     pl_colors = _join(pl["color"])
+    lens_desc, lens_optical = _lens_clauses(pl_types, pl_colors)
 
     nose_bridge = fa["nose"]["bridge_width"]
     eye_spacing = fa["eyes"]["spacing"]
@@ -54,13 +81,13 @@ YOUR TASK: Create the EXACT same photo as IMAGE 2, but with the person wearing t
 
 GLASSES FROM IMAGE 1:
 - Frame: {pf.get("shape", "classic")}, {pf.get("material", "")}, {pf_colors}, {pf.get("rim_type", "")}
-- Lenses: {pl_types}, {pl_colors}
+- Lenses: {lens_desc}
 - Reproduce the glasses from IMAGE 1 faithfully — same design, proportions, and details.
 
 PLACEMENT:
 - Nose bridge: {nose_bridge}, eye spacing: {eye_spacing} — fit the glasses naturally to this face
 - Scale proportionally to the face, bridge on nose, temples toward ears
-- Eyes visible through lenses at appropriate opacity for {pl_types} lenses with {pl_colors} tint{angle_note}
+- {lens_optical}{angle_note}
 
 CRITICAL RULES:
 - The output must be a 1:1 compositional match to IMAGE 2 — same head size, crop, zoom, framing, and camera distance

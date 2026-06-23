@@ -21,6 +21,22 @@ def build_lens_recolor_prompt(
         The full prompt string to send to the model.
     """
 
+    if (target_color or "").strip().lower() in {"clear", "transparent", "none", "no tint", "untinted", "n/a", "na"}:
+        return """Create the EXACT same photo, but make the glasses lenses COMPLETELY CLEAR.
+
+WHAT TO CHANGE:
+- Remove ALL tint and colour from the lens area inside the glasses frame.
+- Make the lenses fully clear, transparent, plain prescription glass — 100% see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses.
+- Keep only subtle natural glass reflections; add no colour.
+
+CRITICAL RULES:
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
+- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
+- The glasses FRAME must remain completely unchanged — only the lens tint is removed
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
+
+OUTPUT: Return the edited photo. Photorealistic — real clear prescription lenses, not a digital overlay."""
+
     intensity_map = {
         "light": "light tint (~25-30% opacity, eyes clearly visible)",
         "medium": "medium tint (~50-60% opacity, eyes partially visible)",

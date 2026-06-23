@@ -386,6 +386,32 @@ def _fs_load_image_as_part(path: str):
     return types.Part.from_bytes(data=buf.getvalue(), mime_type=mime)
 
 
+_CLEAR_LENS_COLORS = {"clear", "transparent", "none", "no tint", "untinted", "n/a", "na", ""}
+_TINTED_LENS_TYPES = {"sunglasses", "gradient", "mirrored", "polarized", "prizm", "chromance", "sport", "tinted"}
+
+
+def _lens_clauses(lens_types: str, lens_colors: str):
+    """Return (lens_description, optical_instruction) for a try-on prompt.
+
+    Clear / untinted lenses get an explicit 'no tint, fully see-through'
+    instruction so the model never renders them as smoke-grey sunglasses.
+    """
+    type_tokens = [t.strip().lower() for t in str(lens_types or "").split(",") if t.strip()]
+    color_tokens = [c.strip().lower() for c in str(lens_colors or "").split(",") if c.strip()]
+    has_tinted_type = any(t in _TINTED_LENS_TYPES for t in type_tokens)
+    color_is_clear = (not color_tokens) or all(t in _CLEAR_LENS_COLORS for t in color_tokens)
+    if color_is_clear and not has_tinted_type:
+        desc = (lens_types + ", fully clear and transparent (no tint)") if lens_types else "clear, transparent (no tint)"
+        optical = ("The lenses are COMPLETELY CLEAR and transparent — plain prescription glass, fully "
+                   "see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses. Keep the "
+                   "eyes, eyebrows and skin fully visible through the lenses with zero darkening.")
+    else:
+        desc = f"{lens_types}, {lens_colors}"
+        optical = ("Eyes visible through the lenses at the appropriate opacity for "
+                   f"{lens_types} lenses with {lens_colors} tint")
+    return desc, optical
+
+
 def _fs_build_tryon_prompt(product: dict) -> str:
     """Build virtual try-on prompt from product tags."""
     tags = product["tags"]
@@ -398,6 +424,7 @@ def _fs_build_tryon_prompt(product: dict) -> str:
     frame_colors = _join(frame["color"])
     lens_types = _join(lenses["type"])
     lens_colors = _join(lenses["color"])
+    lens_desc, lens_optical = _lens_clauses(lens_types, lens_colors)
 
     return f"""I am providing two images:
 - IMAGE 1: A product photo of glasses.
@@ -407,14 +434,14 @@ YOUR TASK: Create the EXACT same photo as IMAGE 2, but with the person wearing t
 
 GLASSES FROM IMAGE 1:
 - Frame: {frame.get("shape", "classic")}, {frame.get("material", "")}, {frame_colors}, {frame.get("rim_type", "")}
-- Lenses: {lens_types}, {lens_colors}
+- Lenses: {lens_desc}
 - Reproduce the glasses from IMAGE 1 faithfully — same design, proportions, and details.
 
 PLACEMENT:
 - Position naturally on the face — bridge on nose, temples toward ears
 - Match the person's face angle and perspective exactly
 - Scale proportionally to the face
-- Eyes visible through lenses at appropriate opacity for {lens_types} lenses with {lens_colors} tint
+- {lens_optical}
 
 CRITICAL RULES:
 - The output must be a 1:1 compositional match to IMAGE 2 — same head size, crop, zoom, framing, and camera distance
@@ -1147,6 +1174,27 @@ def _cleanup(path: str):
 # LENS RECOLOR PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _build_clear_lens_prompt() -> str:
+    """Recolor prompt for the 'Clear' option — REMOVE all tint, don't add one."""
+    return """Create the EXACT same photo, but make the glasses lenses COMPLETELY CLEAR.
+
+WHAT TO CHANGE:
+- Remove ALL tint and colour from the lens area inside the glasses frame.
+- Make the lenses fully clear, transparent, plain prescription glass — 100% see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses.
+- Both lenses identical. Keep only subtle natural glass reflections; add no colour.
+- The eyes, eyebrows and skin must be fully visible through the lenses with zero darkening.
+
+CRITICAL RULES:
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
+- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
+- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
+- The edges of the output must show the EXACT same content as the input — same background, same body parts visible
+- The glasses FRAME must remain completely unchanged — only the lens tint is removed
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
+
+OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real clear prescription lenses, not a digital overlay."""
+
+
 def _build_recolor_prompt(target_color: str) -> str:
     """
     Build a recolor prompt for Nano Banana Pro.
@@ -1155,6 +1203,8 @@ def _build_recolor_prompt(target_color: str) -> str:
     glasses lens color. The output must be the exact same photo with only
     the lens color changed, blended naturally.
     """
+    if (target_color or "").strip().lower() in _CLEAR_LENS_COLORS:
+        return _build_clear_lens_prompt()
     return f"""Create the EXACT same photo, but change ONLY the glasses lens color.
 
 TARGET: {target_color}, medium tint (~50-60% opacity, eyes partially visible), uniform smooth tint
