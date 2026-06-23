@@ -16,6 +16,7 @@ from UI.config import CATALOG_IMAGES_DIR
 from UI.pipelines import (
     run_pipeline, run_free_search_pipeline, run_recolor_pipeline,
     run_storefront_tryon_pipeline, run_single_recolor_pipeline,
+    run_storefront_smartfit_pipeline, run_storefront_freesearch_pipeline,
     get_catalog_products,
 )
 from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
@@ -83,6 +84,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_storefront_tryon()
         elif path == "/api/storefront-recolor":
             self._handle_storefront_recolor()
+        elif path == "/api/storefront-smartfit":
+            self._handle_storefront_smartfit()
+        elif path == "/api/storefront-freesearch":
+            self._handle_storefront_freesearch()
         else:
             self.send_error(404)
 
@@ -217,6 +222,74 @@ class Handler(BaseHTTPRequestHandler):
         threading.Thread(
             target=run_storefront_tryon_pipeline,
             args=(sid, file_data, file_name, product_id),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    # ── Storefront Smart Fit (single best match) ─────────────────────
+    def _handle_storefront_smartfit(self):
+        ctype = self.headers.get("Content-Type", "")
+        clen = int(self.headers.get("Content-Length", 0))
+
+        if "multipart/form-data" not in ctype:
+            return self._json(400, {"error": "Expected multipart/form-data"})
+
+        boundary = ctype.split("boundary=")[1].strip()
+        body = self.rfile.read(clen)
+        fields = _parse_multipart_all(body, boundary)
+
+        file_data = fields.get("_file_data")
+        file_name = fields.get("_file_name", "upload.jpg")
+
+        if not file_data:
+            return self._json(400, {"error": "No photo uploaded"})
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "num_options": 0}
+
+        threading.Thread(
+            target=run_storefront_smartfit_pipeline,
+            args=(sid, file_data, file_name),
+            daemon=True,
+        ).start()
+
+        self._json(200, {"session_id": sid})
+
+    # ── Storefront Free Search (single best match) ───────────────────
+    def _handle_storefront_freesearch(self):
+        ctype = self.headers.get("Content-Type", "")
+        clen = int(self.headers.get("Content-Length", 0))
+
+        if "multipart/form-data" not in ctype:
+            return self._json(400, {"error": "Expected multipart/form-data"})
+
+        boundary = ctype.split("boundary=")[1].strip()
+        body = self.rfile.read(clen)
+        fields = _parse_multipart_all(body, boundary)
+
+        file_data = fields.get("_file_data")
+        file_name = fields.get("_file_name", "upload.jpg")
+
+        if not file_data:
+            return self._json(400, {"error": "No photo uploaded"})
+
+        preferences = {}
+        for key in ("frame_shape", "frame_color", "lens_color", "frame_material",
+                    "frame_thickness", "rim_type", "lens_type", "lens_size",
+                    "aesthetic", "gender", "occasion", "max_price"):
+            val = fields.get(key, "")
+            if val:
+                preferences[key] = val
+
+        sid = uuid.uuid4().hex[:12]
+        sessions[sid] = {"status": "processing", "stage": "uploading",
+                         "error": None, "num_options": 0}
+
+        threading.Thread(
+            target=run_storefront_freesearch_pipeline,
+            args=(sid, file_data, file_name, preferences),
             daemon=True,
         ).start()
 
@@ -371,6 +444,7 @@ class Handler(BaseHTTPRequestHandler):
                 "material": opt["material"],
                 "color": opt["color"],
                 "product_b64": opt["product_b64"],
+                "product_id": opt.get("product_id"),
                 "tryon_status": opt["tryon_status"],
                 "tryon_b64": opt["tryon_b64"],
                 "tryon_error": opt.get("tryon_error"),

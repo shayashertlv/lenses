@@ -22,6 +22,7 @@ let currentProductId = null;
 const jobs = new Map();
 let jobSeq = 0;
 let pendingProduct = null;   // product whose modal is currently open
+let storeAction = 'tryon';   // 'tryon' | 'smartfit' (drives the modal generate button)
 
 const RING_R = 26;                       // ring radius in the 60x60 viewBox
 const RING_C = 2 * Math.PI * RING_R;     // circumference (dash length)
@@ -95,6 +96,7 @@ function renderProducts() {
 
     const card = document.createElement('div');
     card.className = 'product-card';
+    card.dataset.id = p.id;
     card.innerHTML = `
       <div class="img-wrap">
         <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
@@ -133,6 +135,7 @@ fetch('/api/catalog')
   .then(products => {
     allProducts = products;
     renderProducts();
+    sfInitFaceting();
   });
 
 /* ══════════════════════════════════════════════════
@@ -161,21 +164,44 @@ function clearModalTransform() {
 }
 
 function openTryon(productId, productName, thumbSrc) {
+  storeAction = 'tryon';
   pendingProduct = { productId, productName, thumbSrc };
   clearModalTransform();
 
   document.getElementById('modal-product-name').textContent = productName;
   document.getElementById('modal-progress-product').textContent = productName;
   document.getElementById('modal-result-product').textContent = productName;
+  document.getElementById('modal-go').textContent = 'Try On';
 
   showModalStep('modal-upload');
   document.getElementById('tryon-modal').classList.add('active');
+  restoreCachedSelfie();
+}
 
-  /* Restore a cached photo so the user only uploads once per session */
+/* Smart Fit: AI picks the single best frame from just a selfie. */
+function openSmartFit() {
+  storeAction = 'smartfit';
+  pendingProduct = null;
+  clearModalTransform();
+  document.getElementById('modal-product-name').textContent = 'Smart Fit';
+  document.getElementById('modal-go').textContent = 'Find my best frame';
+  showModalStep('modal-upload');
+  document.getElementById('tryon-modal').classList.add('active');
+  restoreCachedSelfie();
+}
+
+/* The modal generate button dispatches by the current action. */
+function modalGenerate() {
+  if (storeAction === 'smartfit') startSmartFit();
+  else startTryon();
+}
+
+/* Restore a cached selfie so the user only uploads once per session. */
+function restoreCachedSelfie() {
   if (cachedFile) {
     currentFile = cachedFile;
     showPhotoReady(cachedPreviewSrc);
-    return;
+    return true;
   }
   const cached = sessionStorage.getItem('cached_portrait');
   if (cached) {
@@ -187,10 +213,11 @@ function openTryon(productId, productName, thumbSrc) {
       cachedPreviewSrc = cached;
       currentFile = cachedFile;
       showPhotoReady(cachedPreviewSrc);
-      return;
+      return true;
     } catch (e) { /* fall through to empty state */ }
   }
   showUploadEmpty();
+  return false;
 }
 
 function showUploadEmpty() {
@@ -244,7 +271,22 @@ function startTryon() {
   const file = currentFile;
   const job = createJob({ ...pendingProduct, kind: 'tryon' });
   spawnCircle(job);
+  collapseModalToCircle(job);
+  startJob(job, file);
+}
 
+/* Smart Fit generate: collapse the modal into an AI-pick circle. */
+function startSmartFit() {
+  if (!currentFile) return;
+  const file = currentFile;
+  const job = createJob({ kind: 'smartfit', productName: 'Finding your best match', thumbSrc: null });
+  spawnCircle(job);
+  collapseModalToCircle(job);
+  startJob(job, file);
+}
+
+/* Shared collapse: window shrinks into the dock while the circle flies in. */
+function collapseModalToCircle(job) {
   if (prefersReducedMotion()) {
     document.getElementById('tryon-modal').classList.remove('active');
     clearModalTransform();
@@ -253,7 +295,6 @@ function startTryon() {
     flyToDock(modalEl, job.el);   // circle materialises out of the window…
     collapseModal(job.el);        // …while the window shrinks into the dock
   }
-  startJob(job, file);
 }
 
 /* ══════════════════════════════════════════════════
@@ -263,13 +304,16 @@ function startTryon() {
 function createJob(opts) {
   const job = {
     id: 'job_' + (++jobSeq),
-    kind: opts.kind || 'tryon',          // 'tryon' | 'recolor'
-    productId: opts.productId,
-    productName: opts.productName,
-    thumbSrc: opts.thumbSrc,
+    kind: opts.kind || 'tryon',          // 'tryon' | 'recolor' | 'smartfit' | 'freesearch'
+    productId: opts.productId || null,
+    productName: opts.productName || null,
+    thumbSrc: opts.thumbSrc || null,
     sourceB64: opts.sourceB64 || null,   // recolor: image to recolor
     color: opts.color || null,           // recolor: color name
     colorBg: opts.colorBg || null,       // recolor: swatch css background (for the dot)
+    prefs: opts.prefs || null,           // freesearch: preference key/values
+    opt0: null,                          // smartfit/freesearch: picked product payload
+    picked: false,
     sessionId: null,
     status: 'loading',     // 'loading' | 'done' | 'error'
     b64: null,
@@ -284,18 +328,25 @@ function createJob(opts) {
 
 function spawnCircle(job) {
   const isRecolor = job.kind === 'recolor';
+  const isAI = (job.kind === 'smartfit' || job.kind === 'freesearch');
   const btn = document.createElement('button');
-  btn.className = 'sf-circle is-loading' + (isRecolor ? ' is-recolor' : '');
+  btn.className = 'sf-circle is-loading' + (isRecolor ? ' is-recolor' : '') + (isAI ? ' is-ai' : '');
   btn.dataset.job = job.id;
-  btn.setAttribute('aria-label', isRecolor
-    ? 'Recoloring ' + job.productName + ' in ' + job.color
+  btn.setAttribute('aria-label',
+    isRecolor ? 'Recoloring ' + job.productName + ' in ' + job.color
+    : isAI ? (job.kind === 'smartfit' ? 'Smart Fit — finding your best frame' : 'Free Search — finding your best match')
     : 'Try-on for ' + job.productName + ' — generating');
+  const thumbHtml = job.thumbSrc
+    ? '<img class="sf-thumb" src="' + job.thumbSrc + '" alt=""/>'
+    : (isAI
+        ? '<div class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 24 24" fill="none" stroke="#2a2a3a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18.5 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></div>'
+        : '<img class="sf-thumb" src="" alt=""/>');
   btn.innerHTML =
     '<svg class="sf-ring" viewBox="0 0 60 60">' +
       '<circle class="sf-circ-bg" cx="30" cy="30" r="' + RING_R + '"/>' +
       '<circle class="sf-circ-fg" cx="30" cy="30" r="' + RING_R + '"/>' +
     '</svg>' +
-    '<img class="sf-thumb" src="' + job.thumbSrc + '" alt=""/>' +
+    thumbHtml +
     (isRecolor ? '<span class="sf-color-dot" style="background:' + (job.colorBg || '#fff') + '"></span>' : '') +
     '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
     '<span class="sf-badge sf-badge-err">!</span>' +
@@ -323,6 +374,18 @@ function spawnCircle(job) {
   document.body.classList.add('dock-active');
 }
 
+/* Swap an AI-pick circle's placeholder thumb for the chosen frame image. */
+function updateCircleThumb(job) {
+  if (!job.el || !job.thumbSrc) return;
+  const old = job.el.querySelector('.sf-thumb');
+  if (!old) return;
+  const img = document.createElement('img');
+  img.className = 'sf-thumb';
+  img.src = job.thumbSrc;
+  img.alt = '';
+  old.replaceWith(img);
+}
+
 function startJob(job, file) {
   let req;
   if (job.kind === 'recolor') {
@@ -331,6 +394,15 @@ function startJob(job, file) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_b64: job.sourceB64, color: job.color })
     });
+  } else if (job.kind === 'smartfit') {
+    const fd = new FormData();
+    fd.append('photo', file);
+    req = fetch('/api/storefront-smartfit', { method: 'POST', body: fd });
+  } else if (job.kind === 'freesearch') {
+    const fd = new FormData();
+    fd.append('photo', file);
+    if (job.prefs) Object.keys(job.prefs).forEach(k => fd.append(k, job.prefs[k]));
+    req = fetch('/api/storefront-freesearch', { method: 'POST', body: fd });
   } else {
     const fd = new FormData();
     fd.append('photo', file);
@@ -358,6 +430,19 @@ function pollJob(job) {
         if (job.kind === 'recolor') {
           if (d.status === 'done' && d.result_b64) markJobDone(job, d.result_b64);
           return;
+        }
+        /* Smart Fit / Free Search: the AI picks the frame, so capture its
+           metadata + show its image the moment matching finishes (well before
+           the try-on completes). */
+        if ((job.kind === 'smartfit' || job.kind === 'freesearch') && d.opt0 && !job.picked) {
+          job.picked = true;
+          job.opt0 = d.opt0;
+          job.productId = d.opt0.product_id || job.productId;
+          job.productName = d.opt0.name || job.productName;
+          if (d.opt0.product_b64) {
+            job.thumbSrc = 'data:image/jpeg;base64,' + d.opt0.product_b64;
+            updateCircleThumb(job);
+          }
         }
         if (d.status === 'done' && d.opt0) {
           if (d.opt0.tryon_status === 'done' && d.opt0.tryon_b64) {
@@ -430,12 +515,33 @@ function openJobResult(job) {
   lastTryonB64 = job.b64;
   currentProductId = job.productId;
   pendingProduct = { productId: job.productId, productName: job.productName, thumbSrc: job.thumbSrc };
-  document.getElementById('modal-result-product').textContent = job.productName;
+  let label = job.productName || '';
+  if (job.opt0 && (job.opt0.price || job.opt0.price === 0)) {
+    label += ' · ' + Number(job.opt0.price).toLocaleString() + ' ' + (job.opt0.currency || '');
+  }
+  document.getElementById('modal-result-product').textContent = label;
   document.getElementById('modal-result-img').src = 'data:image/png;base64,' + job.b64;
+  const shopBtn = document.getElementById('modal-shop-btn');
+  if (shopBtn) shopBtn.style.display = job.productId ? '' : 'none';
 
   showModalStep('modal-result');
   document.getElementById('tryon-modal').classList.add('active');
   if (!prefersReducedMotion()) morphFromCircle(job.el);
+}
+
+/* "Shop this frame" — close the result and scroll to / highlight its catalog card. */
+function shopThisFrame() {
+  const pid = currentProductId;
+  if (!pid) return;
+  closeModal();
+  const find = () => document.querySelector('.product-card[data-id="' + pid + '"]');
+  let card = find();
+  if (!card) { setGenderFilter('all'); card = find(); }
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('sf-highlight');
+    setTimeout(() => { if (card) card.classList.remove('sf-highlight'); }, 2200);
+  }
 }
 
 function dismissJob(job) {
@@ -591,6 +697,244 @@ function startRecolor() {
     collapseModal(job.el);
   }
   startJob(job);
+}
+
+/* ══════════════════════════════════════════════════
+   Free Search: full options overlay -> single-result circle
+   ══════════════════════════════════════════════════ */
+
+function fsClearPanelTransform() {
+  const p = document.querySelector('#fs-overlay .fs-panel');
+  if (!p) return;
+  p.style.transition = ''; p.style.transform = ''; p.style.opacity = ''; p.style.transformOrigin = '';
+}
+
+function openFreeSearch() {
+  const overlay = document.getElementById('fs-overlay');
+  fsClearPanelTransform();
+  overlay.classList.add('active');
+  overlay.querySelector('.fs-panel').scrollTop = 0;
+  fsRestoreSelfie();
+  updateFacets();
+}
+
+function closeFreeSearch() {
+  const overlay = document.getElementById('fs-overlay');
+  overlay.classList.remove('active', 'closing');
+  fsClearPanelTransform();
+}
+
+function fsToggleAdvanced() {
+  document.getElementById('sf-advanced-section').classList.toggle('open');
+  document.getElementById('sf-advanced-toggle').classList.toggle('open');
+}
+
+function fsShowSelfie(src) {
+  const area = document.getElementById('sf-fs-upload');
+  const prev = document.getElementById('sf-fs-preview');
+  area.classList.add('has-file');
+  document.getElementById('sf-fs-up-label').textContent = 'Photo ready';
+  prev.src = src; prev.style.display = 'block';
+  document.getElementById('sf-fs-submit').disabled = false;
+  document.getElementById('sf-fs-hint').textContent = 'Pick any options (all optional), then find your match';
+}
+
+function fsRestoreSelfie() {
+  if (cachedFile && cachedPreviewSrc) {
+    currentFile = cachedFile;
+    fsShowSelfie(cachedPreviewSrc);
+    return;
+  }
+  const cached = sessionStorage.getItem('cached_portrait');
+  if (cached) {
+    try {
+      const arr = cached.split(','), mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
+      for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
+      cachedFile = new File([u8], 'cached-photo.jpg', { type: mime });
+      cachedPreviewSrc = cached;
+      currentFile = cachedFile;
+      fsShowSelfie(cached);
+      return;
+    } catch (e) { /* fall through */ }
+  }
+  document.getElementById('sf-fs-submit').disabled = true;
+  document.getElementById('sf-fs-hint').textContent = 'Upload a photo first';
+}
+
+document.getElementById('sf-fs-file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  currentFile = f;
+  cachedFile = f;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    cachedPreviewSrc = ev.target.result;
+    fsShowSelfie(ev.target.result);
+    try { sessionStorage.setItem('cached_portrait', ev.target.result); } catch (e) {}
+  };
+  reader.readAsDataURL(f);
+});
+
+/* Collect the overlay's preference selections (only the non-empty ones). */
+function fsCollectPrefs() {
+  const root = document.getElementById('fs-overlay');
+  const prefs = {};
+  root.querySelectorAll('input[type=radio]:checked').forEach(r => {
+    if (r.value) prefs[r.name] = r.value;
+  });
+  const price = root.querySelector('input[name=max_price]');
+  if (price && price.value) prefs.max_price = price.value;
+  return prefs;
+}
+
+function startFreeSearchFromOverlay() {
+  const file = currentFile || cachedFile;
+  if (!file) return;
+  const prefs = fsCollectPrefs();
+  const job = createJob({ kind: 'freesearch', productName: 'Finding your best match', thumbSrc: null, prefs });
+  spawnCircle(job);
+  collapseOverlayToCircle(job);
+  startJob(job, file);
+}
+
+/* The overlay shrinks into the dock while the circle flies in. */
+function collapseOverlayToCircle(job) {
+  const overlay = document.getElementById('fs-overlay');
+  if (prefersReducedMotion()) {
+    overlay.classList.remove('active');
+    fsClearPanelTransform();
+    return;
+  }
+  const panel = overlay.querySelector('.fs-panel');
+  flyToDock(panel, job.el);
+  const c = job.el.getBoundingClientRect(), m = panel.getBoundingClientRect();
+  const dx = (c.left + c.width / 2) - (m.left + m.width / 2);
+  const dy = (c.top + c.height / 2) - (m.top + m.height / 2);
+  overlay.classList.add('closing');
+  panel.style.transformOrigin = 'center';
+  panel.style.transition = 'transform .4s cubic-bezier(.4,0,1,1), opacity .35s ease';
+  panel.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(.16)';
+  panel.style.opacity = '0';
+  let done = false;
+  const finish = function () {
+    if (done) return; done = true;
+    overlay.classList.remove('active', 'closing');
+    fsClearPanelTransform();
+  };
+  panel.addEventListener('transitionend', function te(e) {
+    if (e.propertyName !== 'transform') return;
+    panel.removeEventListener('transitionend', te);
+    finish();
+  });
+  setTimeout(finish, 600);
+}
+
+/* Close the overlay when clicking the dim backdrop. */
+document.getElementById('fs-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeFreeSearch();
+});
+
+/* ── Faceting: dim catalog-unavailable options (ported from free-search) ── */
+const FIELD_MAP = {
+  gender: 'gender', frame_shape: 'shape', lens_type: 'lens_type',
+  frame_color: 'color', lens_color: 'lens_color', frame_material: 'material', rim_type: 'rim_type',
+  frame_thickness: 'thickness', lens_size: 'lens_size', aesthetic: 'aesthetic', occasion: 'occasion'
+};
+const PRIMARY_FIELDS = ['gender', 'frame_shape', 'lens_type', 'frame_color', 'lens_color'];
+const COLOR_FIELDS = new Set(['frame_color', 'lens_color']);
+const _COLOR_ALIAS = {
+  'dark-grey': 'black', 'dark-gray': 'black', 'jet-black': 'black',
+  'havana-brown': 'tortoiseshell', 'havana': 'tortoiseshell',
+  'amber': 'brown', 'cognac': 'brown', 'caramel': 'brown', 'chocolate': 'brown', 'espresso': 'brown',
+  'tan': 'brown', 'bronze': 'brown', 'copper': 'brown', 'beige': 'brown', 'mocha': 'brown', 'honey': 'brown', 'chestnut': 'brown', 'walnut': 'brown',
+  'gunmetal': 'silver', 'grey': 'gray', 'charcoal': 'gray', 'slate': 'gray', 'pewter': 'silver', 'chrome': 'silver', 'steel': 'silver',
+  'champagne': 'gold', 'brass': 'gold', 'antique-gold': 'gold',
+  'navy': 'blue', 'navy-blue': 'blue', 'dark-blue': 'blue', 'cobalt': 'blue', 'teal': 'blue', 'royal-blue': 'blue', 'sky-blue': 'blue',
+  'olive': 'green', 'dark-green': 'green', 'forest-green': 'green', 'emerald': 'green', 'sage': 'green', 'khaki': 'green',
+  'burgundy': 'red', 'wine': 'red', 'maroon': 'red', 'crimson': 'red',
+  'coral': 'pink', 'salmon': 'pink', 'blush': 'pink', 'fuchsia': 'pink', 'magenta': 'pink',
+  'ivory': 'white', 'cream': 'white', 'bone': 'white', 'off-white': 'white',
+  'crystal': 'transparent', 'clear': 'transparent', 'nude': 'transparent',
+  'violet': 'purple', 'lavender': 'purple', 'plum': 'purple', 'g-15-green': 'green'
+};
+const _ADJ_RE = /^(?:matte[-\s]|gradient[-\s]|mirrored[-\s]|polarized[-\s]|polished[-\s]|glossy[-\s]|rubber[-\s]|solid[-\s]|bright[-\s]|deep[-\s]|satin[-\s]|g-15[-\s])/i;
+function normColor(raw) {
+  const lc = raw.toLowerCase().trim();
+  if (_COLOR_ALIAS[lc]) return _COLOR_ALIAS[lc];
+  const stripped = lc.replace(_ADJ_RE, '');
+  if (_COLOR_ALIAS[stripped]) return _COLOR_ALIAS[stripped];
+  return stripped;
+}
+const _SHAPE_ALIAS = { 'butterfly': 'cat-eye', 'oversized-round': 'round', 'oversized-square': 'square', 'pilot': 'aviator', 'teardrop': 'aviator', 'flat-top': 'square', 'curved-wrap': 'wrap', 'shield': 'wrap' };
+function normShape(raw) { const lc = raw.toLowerCase().trim(); return _SHAPE_ALIAS[lc] || lc; }
+const _MATERIAL_ALIAS = { 'stainless-steel': 'metal', 'mixed-metal': 'metal', 'propionate': 'plastic', 'bio-injected': 'plastic', 'recycled-injected': 'plastic', 'o-matter': 'plastic', 'recycled-acetate': 'acetate', 'bio-nylon': 'nylon' };
+function normMaterial(raw) { const lc = raw.toLowerCase().trim(); return _MATERIAL_ALIAS[lc] || lc; }
+function catVals(product, catField) {
+  const v = product[catField];
+  if (Array.isArray(v)) return v.map(s => s.toLowerCase());
+  if (typeof v === 'string' && v) return v.split(/,\s*/).map(s => s.toLowerCase());
+  return [];
+}
+function productMatches(p, inputName, value) {
+  const catField = FIELD_MAP[inputName];
+  if (!catField || !value) return true;
+  let vals = catVals(p, catField);
+  let q = value.toLowerCase();
+  if (inputName === 'gender') return vals.includes(q) || vals.includes('unisex');
+  if (COLOR_FIELDS.has(inputName)) { vals = vals.map(normColor); q = normColor(q); }
+  else if (inputName === 'frame_shape') { vals = vals.map(normShape); q = normShape(q); }
+  else if (inputName === 'frame_material') { vals = vals.map(normMaterial); q = normMaterial(q); }
+  return vals.includes(q);
+}
+function updateFacets() {
+  const root = document.getElementById('fs-overlay');
+  if (!root || !allProducts || !allProducts.length) return;
+  const filters = {};
+  PRIMARY_FIELDS.forEach(name => {
+    const el = root.querySelector('input[name="' + name + '"]:checked');
+    if (el && el.value) filters[name] = el.value;
+  });
+  Object.keys(FIELD_MAP).forEach(inputName => {
+    const pool = allProducts.filter(p => {
+      if (!p.in_stock) return false;
+      for (const f in filters) {
+        if (f === inputName) continue;
+        if (!productMatches(p, f, filters[f])) return false;
+      }
+      return true;
+    });
+    const catField = FIELD_MAP[inputName];
+    const available = new Set();
+    const isColor = COLOR_FIELDS.has(inputName), isShape = inputName === 'frame_shape', isMaterial = inputName === 'frame_material';
+    pool.forEach(p => {
+      catVals(p, catField).forEach(v => {
+        if (isColor) available.add(normColor(v));
+        else if (isShape) available.add(normShape(v));
+        else if (isMaterial) available.add(normMaterial(v));
+        else available.add(v);
+      });
+    });
+    if (inputName === 'gender' && available.has('unisex')) { available.add('men'); available.add('women'); }
+    root.querySelectorAll('input[name="' + inputName + '"]').forEach(radio => {
+      if (!radio.value) return;
+      const label = radio.closest('label') || radio.closest('span');
+      if (!label) return;
+      let rv = radio.value.toLowerCase();
+      if (isColor) rv = normColor(rv); else if (isShape) rv = normShape(rv); else if (isMaterial) rv = normMaterial(rv);
+      label.classList.toggle('dimmed', !available.has(rv));
+    });
+  });
+}
+function sfInitFaceting() {
+  const root = document.getElementById('fs-overlay');
+  if (!root) return;
+  PRIMARY_FIELDS.forEach(name => {
+    root.querySelectorAll('input[name="' + name + '"]').forEach(radio => {
+      radio.addEventListener('change', updateFacets);
+    });
+  });
+  updateFacets();
 }
 
 /* Close modal on overlay click (background jobs keep running) */

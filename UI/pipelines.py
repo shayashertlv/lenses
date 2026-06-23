@@ -836,6 +836,306 @@ def run_storefront_tryon_pipeline(session_id: str, portrait_bytes: bytes,
     _cleanup(portrait_path)
 
 
+def run_storefront_smartfit_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
+    """
+    Storefront Smart Fit — analyse the face, pick the single best frame, one try-on.
+    Mirrors run_pipeline but capped to top_k=1 (one result, ~3x faster), writing the
+    same opt0 shape the storefront circle poller already consumes (+ product_id).
+    """
+    sess = sessions[session_id]
+
+    ext = Path(filename).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(portrait_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
+
+    try:
+        portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    except Exception:
+        portrait_aspect = "1:1"
+
+    try:
+        api_key = _get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        _cleanup(portrait_path)
+        return
+
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
+    # Pre-load portrait Part concurrently with face analysis
+    from utils import load_image_as_part
+    _portrait_result = [None, None]
+
+    def _preload_portrait():
+        try:
+            _portrait_result[0] = load_image_as_part(portrait_path)
+        except Exception as e:
+            _portrait_result[1] = e
+
+    portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+    portrait_thread.start()
+
+    from inventory_matcher import InventoryMatcher
+    matcher = InventoryMatcher(CATALOG_DIR, catalog_data=_CATALOG_DATA)
+
+    # STEP 1: face analysis (cached by image hash)
+    sess["stage"] = "analyzing"
+    from analysis_cache import compute_image_hash, get_cached_analysis, put_analysis, derive_seed
+    image_hash = compute_image_hash(portrait_bytes)
+    cached = get_cached_analysis(image_hash)
+    if cached:
+        analysis = cached
+    else:
+        try:
+            from face_analyzer import FaceAnalyzer
+            seed = derive_seed(image_hash)
+            analyzer = FaceAnalyzer(api_key=api_key, client=client)
+            analysis_result = analyzer.analyze(portrait_path, seed=seed)
+        except Exception as e:
+            sess["status"] = "error"
+            sess["error"] = f"Analysis error: {e}"
+            _cleanup(portrait_path)
+            return
+        if not analysis_result.success:
+            sess["status"] = "error"
+            sess["error"] = f"Analysis failed: {analysis_result.error}"
+            _cleanup(portrait_path)
+            return
+        analysis = analysis_result.analysis
+        put_analysis(image_hash, analysis)
+
+    sess["face_insights"] = analysis.get("face_insights", [])
+    sess["face_summary"] = analysis.get("face_summary", {})
+
+    # STEP 2: pick the single best match
+    sess["stage"] = "matching"
+    try:
+        recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
+        detected_gender = analysis["gender"]
+        match_result = matcher.match(recommended_tags, top_k=1, gender=detected_gender)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Matching error: {e}"
+        _cleanup(portrait_path)
+        return
+    if not match_result.success or not match_result.matches:
+        sess["status"] = "error"
+        sess["error"] = "No matching products found."
+        _cleanup(portrait_path)
+        return
+
+    product, score = match_result.matches[0]
+    glasses_path = matcher.get_product_image_path(product)
+    try:
+        with open(glasses_path, "rb") as f:
+            product_b64 = base64.b64encode(f.read()).decode("ascii")
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Product image error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    p = product["tags"]["product"]
+    sess["num_options"] = 1
+    sess["opt0"] = {
+        "name": product["name"],
+        "brand": p.get("brand", ""),
+        "model": p.get("model_name", ""),
+        "price": p.get("price", 0),
+        "currency": p.get("currency", "ILS"),
+        "score": round(score, 1),
+        "shape": product["tags"]["frame"].get("shape", ""),
+        "material": product["tags"]["frame"].get("material", ""),
+        "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
+        "product_b64": product_b64,
+        "product_id": product["id"],
+        "tryon_status": "generating",
+        "tryon_b64": None,
+        "tryon_error": None,
+    }
+
+    # STEP 3: single try-on (Smart Fit engine, uses the analysis for placement)
+    sess["stage"] = "tryon"
+    from tryon_engine import virtual_tryon
+    portrait_thread.join(timeout=30)
+    portrait_part = _portrait_result[0]  # None is fine — virtual_tryon loads from path
+    try:
+        tr = virtual_tryon(
+            portrait_path=portrait_path,
+            glasses_image_path=glasses_path,
+            analysis=analysis,
+            matched_product=product,
+            model_alias=DEFAULT_GENERATION_MODEL,
+            api_key=api_key,
+            portrait_part=portrait_part,
+            client=client,
+            aspect_ratio=portrait_aspect,
+        )
+    except Exception as e:
+        sess["opt0"]["tryon_status"] = "error"
+        sess["opt0"]["tryon_error"] = str(e)
+        sess["stage"] = "done"
+        sess["status"] = "done"
+        _cleanup(portrait_path)
+        return
+
+    if tr.success and tr.image_bytes:
+        sess["opt0"]["tryon_b64"] = base64.b64encode(tr.image_bytes).decode("ascii")
+        sess["opt0"]["tryon_status"] = "done"
+    else:
+        sess["opt0"]["tryon_status"] = "error"
+        sess["opt0"]["tryon_error"] = tr.error or "No image returned"
+
+    sess["stage"] = "done"
+    sess["status"] = "done"
+    _cleanup(portrait_path)
+
+
+def run_storefront_freesearch_pipeline(session_id: str, portrait_bytes: bytes,
+                                       filename: str, preferences: dict):
+    """
+    Storefront Free Search — rank by preferences, take the single best match, one try-on.
+    Mirrors run_free_search_pipeline but capped to top_k=1, writing the same opt0 shape
+    the storefront circle poller consumes (+ product_id + fit/style/color subscores).
+    """
+    sess = sessions[session_id]
+
+    ext = Path(filename).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    tmp.write(portrait_bytes)
+    tmp.close()
+    portrait_path = tmp.name
+
+    _pimg = Image.open(io.BytesIO(portrait_bytes))
+    _pimg = ImageOps.exif_transpose(_pimg)
+    if _pimg.mode in ("RGBA", "P"):
+        _pimg = _pimg.convert("RGB")
+    _pbuf = io.BytesIO()
+    _pimg.save(_pbuf, format="JPEG")
+    sess["portrait_b64"] = base64.b64encode(_pbuf.getvalue()).decode("ascii")
+
+    try:
+        portrait_aspect = _detect_portrait_ratio(portrait_bytes)
+    except Exception:
+        portrait_aspect = "1:1"
+
+    try:
+        api_key = _get_api_key()
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = str(e)
+        _cleanup(portrait_path)
+        return
+
+    from google import genai
+    client = genai.Client(api_key=api_key)
+
+    _portrait_result = [None, None]
+
+    def _preload_portrait():
+        try:
+            _portrait_result[0] = _fs_load_image_as_part(portrait_path)
+        except Exception as e:
+            _portrait_result[1] = e
+
+    portrait_thread = threading.Thread(target=_preload_portrait, daemon=True)
+    portrait_thread.start()
+
+    # STEP 1: build query tags from preferences
+    sess["stage"] = "searching"
+    query_tags = _build_query_tags(preferences)
+
+    # STEP 2: rank — single best match
+    try:
+        catalog = _CATALOG_DATA
+        if catalog is None:
+            with open(str(CATALOG_JSON), "r", encoding="utf-8") as f:
+                catalog = json.load(f)
+        filters = {"in_stock_only": True}
+        if preferences.get("max_price"):
+            try:
+                filters["max_price"] = float(preferences["max_price"])
+            except ValueError:
+                pass
+        matches = rank_products(query_tags=query_tags, products=catalog["products"],
+                                top_k=1, filters=filters)
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Search error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    if not matches:
+        sess["status"] = "error"
+        sess["error"] = "No matching glasses found. Try adjusting your preferences."
+        _cleanup(portrait_path)
+        return
+
+    product, score = matches[0]
+    glasses_path = os.path.join(CATALOG_DIR, product["image"])
+    try:
+        with open(glasses_path, "rb") as f:
+            product_b64 = base64.b64encode(f.read()).decode("ascii")
+    except Exception as e:
+        sess["status"] = "error"
+        sess["error"] = f"Product image error: {e}"
+        _cleanup(portrait_path)
+        return
+
+    ptags = product["tags"]["product"]
+    sub = compute_component_scores(query_tags, product["tags"])
+    sess["num_options"] = 1
+    sess["opt0"] = {
+        "name": product["name"],
+        "brand": ptags.get("brand", ""),
+        "model": ptags.get("model_name", ""),
+        "price": ptags.get("price", 0),
+        "currency": ptags.get("currency", "ILS"),
+        "score": round(score, 1),
+        "fit_score": round(sub["fit"], 1),
+        "style_score": round(sub["style"], 1),
+        "color_score": round(sub["color"], 1),
+        "shape": product["tags"]["frame"].get("shape", ""),
+        "material": product["tags"]["frame"].get("material", ""),
+        "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
+        "product_b64": product_b64,
+        "product_id": product["id"],
+        "tryon_status": "generating",
+        "tryon_b64": None,
+        "tryon_error": None,
+    }
+
+    # STEP 3: single try-on (free-search engine)
+    sess["stage"] = "tryon"
+    portrait_thread.join(timeout=30)
+    portrait_part = _portrait_result[0]
+    tr = _fs_virtual_tryon(portrait_path, glasses_path, product, api_key,
+                           portrait_part=portrait_part, client=client,
+                           aspect_ratio=portrait_aspect)
+    if tr["success"] and tr["image_bytes"]:
+        sess["opt0"]["tryon_b64"] = base64.b64encode(tr["image_bytes"]).decode("ascii")
+        sess["opt0"]["tryon_status"] = "done"
+    else:
+        sess["opt0"]["tryon_status"] = "error"
+        sess["opt0"]["tryon_error"] = tr.get("error", "No image returned")
+
+    sess["stage"] = "done"
+    sess["status"] = "done"
+    _cleanup(portrait_path)
+
+
 def _cleanup(path: str):
     try:
         os.unlink(path)
