@@ -1,34 +1,41 @@
 """Tag-based matching engine — cascading filter + unified weighted scoring.
 
 Pipeline:
-  1. Business pre-filters (in_stock, max_price)
-  2. Sport isolation (hard filter — no graceful fallback)
-  3. Cascading tag filters with graceful fallback:
-     a. gender
+  1. Shape fold: query frame.shape → lenses.shape (this catalog stores the
+     silhouette under lenses.shape; the query producers emit it under
+     frame.shape, so we fold it in or the shape signal is lost).
+  2. Business pre-filters (in_stock, max_price)
+  3. Sport isolation (hard filter — no graceful fallback) keyed on
+     style.occasion == "sport".
+  4. Cascading tag filters with graceful fallback (see FILTER_STAGES):
+     a. style.gender_target
      b. lenses.shape
      c. lenses.type
      d. lenses.color
      e. frame.color
-  4. Unified scoring on remaining pool (0–100)
-  5. Minimum score gate (default 15)
+  5. Unified scoring on remaining pool (0–100)
+  6. Per-model + visual-signature dedup, with low-confidence fallback
+     (including a pre-business-filter fallback) so we never return empty.
 
 If a query doesn't specify a filter field, that stage is skipped.
-If a filter stage (except the sport filter) would eliminate ALL remaining
-products, it is relaxed (skipped) so we still return results.
+If a filter stage (except the sport filter) would reduce the pool below
+min_pool, it is relaxed (skipped) so we still return results.
 
 Value normalisation (applied to both query AND product tags before comparison):
   Colours:    70+ aliases mapped to canonical names
               (e.g. navy→blue, charcoal→gray, havana→tortoiseshell)
-              Adjective prefixes stripped (matte-black→black, etc.)
+              Adjective prefixes stripped (matte-black→black, brushed-silver→silver, etc.)
   Shapes:     variant→canonical (butterfly→cat-eye, pilot→aviator, etc.)
   Materials:  family grouping (stainless-steel→metal, mixed-metal-*→metal,
               recycled-acetate→acetate, bio-nylon→nylon, propionate→plastic, etc.)
 
 Scoring details:
   - All user-specified fields (filter + soft) contribute to one unified score.
-  - Filter fields that passed exactly earn full weight; relaxed ones earn 0.
+  - Filter fields: products that match earn full weight, whether the filter
+    was strictly enforced or relaxed for the pool.  Products that don't match
+    earn 0 on that field.
   - Soft fields earn proportional credit based on tag overlap.
-  - Missing product tags receive partial credit (0.25) rather than zero.
+  - Missing product tags on soft fields receive partial credit (0.25× weight).
   - Final score = earned_weight / active_weight × 100 (range 0–100).
   - Fields left as "any" (not specified) are excluded from scoring entirely.
   - compute_component_scores() provides per-dimension sub-scores
@@ -164,7 +171,7 @@ _EXPLICIT_COLOR_MAP: dict[str, str] = {
 
 # Adjective prefixes that don't change the base colour identity
 _ADJ_PREFIX = re.compile(
-    r"^(?:matte[-\s]|gradient[-\s]|mirrored[-\s]|polarized[-\s]|"
+    r"^(?:matte[-\s]|brushed[-\s]|gradient[-\s]|mirrored[-\s]|polarized[-\s]|"
     r"polished[-\s]|glossy[-\s]|rubber[-\s]|solid[-\s]|bright[-\s]|"
     r"deep[-\s]|satin[-\s]|G-15[-\s]|g-15[-\s])",
     re.IGNORECASE,
@@ -252,6 +259,36 @@ def _to_set_norm(category: str, field: str, value) -> set[str]:
     if isinstance(value, list):
         return {_norm(category, field, str(v)) for v in value}
     return {_norm(category, field, str(value))}
+
+
+def _visual_signature(product: dict) -> tuple:
+    """Finish-blind visual fingerprint used for cross-model dedup in top-K.
+
+    Two products with the same signature render near-identically in the virtual
+    try-on UI, so we want at most one of each signature in any result page.
+    `finish` (matte vs glossy) is excluded because it collapses in face-render.
+    `rim_type` is included because rimless vs full-rim is a major visual
+    difference even after rendering.  In this catalog the silhouette lives in
+    `lenses.shape` (frame has no shape field), so that is the shape key.  Shape,
+    material and colours are normalized to canonical form so havana-brown/
+    tortoiseshell and gunmetal/silver collapse correctly regardless of catalog
+    drift; the remaining raw fields are lowercased/stripped for the same reason.
+    Brand and model_name are excluded — the whole point is to catch cross-model
+    twins (a tortoiseshell rectangular acetate appearing in two model lines).
+    """
+    f = product.get("tags", {}).get("frame", {}) or {}
+    l = product.get("tags", {}).get("lenses", {}) or {}
+    fc = tuple(sorted(_to_set_norm("frame", "color", f.get("color"))))
+    lc = tuple(sorted(_to_set_norm("lenses", "color", l.get("color"))))
+    return (
+        _norm_shape(str(l.get("shape", ""))),
+        _norm_material(str(f.get("material", ""))),
+        str(f.get("thickness", "")).lower().strip(),
+        str(f.get("rim_type", "")).lower().strip(),
+        fc,
+        lc,
+        str(l.get("size", "")).lower().strip(),
+    )
 
 
 def _field_matches_norm(category: str, field: str,
@@ -357,10 +394,15 @@ def compute_tag_score(
 
         # ── Filter field scoring ──────────────────────────────────────
         if (category, field) in _FILTER_FIELD_SET:
-            if (category, field) in active_filters and (category, field) not in relaxed:
-                # Product passed this filter exactly → full credit
-                earned_weight += weight
-            # else: relaxed or not in active_filters → 0 credit
+            if (category, field) in active_filters:
+                # Whether the cascade enforced this filter or relaxed it for
+                # the pool, check THIS product: if it matches, credit the full
+                # weight; otherwise 0.  This preserves "perfect match → 100"
+                # for individual products even when the filter relaxed pool-wide.
+                p_val = product_tags.get(category, {}).get(field)
+                if _field_matches_norm(category, field, q_val, p_val):
+                    earned_weight += weight
+            # else: filter field not active for this query → 0 credit
             continue
 
         # ── Soft field scoring ────────────────────────────────────────
@@ -432,10 +474,12 @@ def compute_component_scores(
 
             total_w += weight
 
-            # Filter field scoring
+            # Filter field scoring (relaxed filters still credit matches)
             if (category, field) in _FILTER_FIELD_SET:
-                if (category, field) in active_filters and (category, field) not in relaxed:
-                    earned += weight
+                if (category, field) in active_filters:
+                    p_val = product_tags.get(category, {}).get(field)
+                    if _field_matches_norm(category, field, q_val, p_val):
+                        earned += weight
                 continue
 
             # Soft field scoring
@@ -457,27 +501,77 @@ def compute_component_scores(
     return result
 
 
+# Occasions that mark a versatile lifestyle frame.  A frame tagged "sport"
+# alongside any of these is sport-SUITABLE, not a dedicated performance frame.
+_LIFESTYLE_OCCASIONS: set[str] = {"everyday", "office", "formal", "fashion"}
+
+
+def _is_dedicated_sport(product: dict) -> bool:
+    """True for a dedicated performance/sport frame, as opposed to a versatile
+    everyday frame that merely also suits sport.
+
+    Used only as a tie-break within a sports query so real sports glasses
+    (sport lens tech, a wrap/shield silhouette, or a sport-only occasion) rank
+    ahead of versatile everyday-and-sport frames when their scores tie.
+    """
+    tags = product.get("tags", {})
+    occ = _to_set(tags.get("style", {}).get("occasion"))
+    ltype = _to_set(tags.get("lenses", {}).get("type"))
+    shape = {_norm_shape(s) for s in _to_set(tags.get("lenses", {}).get("shape"))}
+    return (
+        "sport" in ltype
+        or bool(shape & {"wrap"})  # shield / curved-wrap → wrap (sport silhouette)
+        or ("sport" in occ and occ.isdisjoint(_LIFESTYLE_OCCASIONS))
+    )
+
+
 def rank_products(query_tags: dict, products: list[dict],
-                  top_k: int = 3, min_score: float = 15,
+                  top_k: int = 3,
+                  max_per_model: int = 2,
+                  min_score: float = 15,
                   filters: dict | None = None) -> list[tuple[dict, float]]:
     """
     Filter then score products.
 
     Hard filters (in_stock, max_price, sport isolation) are applied first,
-    then the cascading tag filter pipeline, then unified scoring (0–100).
+    then the cascading tag filter pipeline, then unified scoring (0–100),
+    then per-model + visual-signature dedup with low-confidence fallback.
 
     Args:
-        query_tags: Structured query tags (frame/lenses/style dicts).
-        products:   List of product dicts from catalog.
-        top_k:      Max results to return.
-        min_score:  Minimum score threshold (0–100).
-        filters:    Business filters: {"in_stock_only", "max_price", "gender"}.
+        query_tags:     Structured query tags (frame/lenses/style dicts).
+        products:       List of product dicts from catalog.
+        top_k:          Max results to return.
+        max_per_model:  Max results sharing the same model_name (default 2).
+        min_score:      Accepted for backward compatibility; NOT applied as a
+                        hard cutoff (result quality is handled by the dedup +
+                        fallback passes instead).
+        filters:        Business filters: {"in_stock_only", "max_price", "gender"}.
 
     Returns:
         List of (product, score) sorted by score descending.
     """
+    # Short-circuit pathological top_k values before doing any work
+    if top_k <= 0:
+        return []
+
     # ── Defensive copy — never mutate the caller's query_tags ───────────
     query_tags = copy.deepcopy(query_tags)
+
+    # ── Shape fold: query frame.shape → lenses.shape ─────────────────────
+    # This catalog stores the silhouette under lenses.shape (frame has no shape
+    # field), but the query producers (query_interpreter, face-analysis
+    # recommended_tags) emit the chosen silhouette under frame.shape.  Fold it
+    # in (frame.shape wins) or the shape signal is silently dropped.  The
+    # preferences_to_query_tags path writes lenses.shape and leaves frame.shape
+    # empty, so it is unaffected.
+    q_frame_shape = query_tags.get("frame", {}).get("shape")
+    if q_frame_shape is not None and q_frame_shape != "" and q_frame_shape != []:
+        query_tags.setdefault("lenses", {})["shape"] = q_frame_shape
+
+    # ── Snapshot the full catalog before business filters ────────────────
+    # Used by the ultimate fallback (Pass 5) so an over-tight max_price /
+    # in_stock_only can never leave the user with an empty page.
+    pool_unfiltered = list(products)
 
     # ── Pre-filter: business rules (stock, price) ────────────────────────
     pool: list[dict] = []
@@ -494,31 +588,50 @@ def rank_products(query_tags: dict, products: list[dict],
 
         pool.append(product)
 
-    # Inject gender from filters into query_tags (after copy, safe)
-    if filters and filters.get("gender") and not query_tags.get("style", {}).get("gender_target"):
+    # Force the detected gender onto query_tags (after copy, safe).  The
+    # caller's `gender` filter — typically the gender detected from the
+    # portrait — MUST win over whatever recommended_tags.style.gender_target
+    # the LLM wrote, which is often "unisex" for a man (a styling suggestion)
+    # that silently neutralises the filter (gender matching auto-passes when
+    # "unisex" is on either side).  Overriding restricts the pool to
+    # (men + unisex) for a male, (women + unisex) for a female.
+    if filters and filters.get("gender"):
         query_tags.setdefault("style", {})["gender_target"] = filters["gender"]
 
     # ── Sport isolation (HARD filter — no graceful fallback) ─────────────
-    # Products tagged 'sport' are shown ONLY when the user explicitly
-    # requests sport (or a sport-adjacent type like prizm/chromance, or
-    # a sport-only shape like shield).  Otherwise they are excluded so
-    # lifestyle frames aren't polluted with sport frames.
+    # Products are 'sport' when style.occasion contains "sport".  They are
+    # shown ONLY when the user explicitly requests sport (a sport lens type, a
+    # sport-adjacent type like prizm/chromance, or a sport-only shape like
+    # shield).  Otherwise they are excluded so lifestyle results aren't polluted.
     _SPORT_ADJACENT_TYPES = {"prizm", "chromance"}
     _SPORT_ONLY_SHAPES = {"shield"}
 
+    q_occasion_set   = _to_set(query_tags.get("style", {}).get("occasion"))
     q_lens_type_set  = _to_set(query_tags.get("lenses", {}).get("type"))
     q_shape_set      = _to_set(query_tags.get("lenses", {}).get("shape"))
     user_wants_sport = (
-        "sport" in q_lens_type_set
+        "sport" in q_occasion_set            # primary signal — Free Search and
+                                             # face-analysis emit sport here, and
+                                             # it matches the membership predicate
+        or "sport" in q_lens_type_set
         or bool(q_lens_type_set & _SPORT_ADJACENT_TYPES)
         or bool(q_shape_set & _SPORT_ONLY_SHAPES)
     )
 
-    sport_pool     = [p for p in pool if "sport" in _to_set(p["tags"].get("lenses", {}).get("type"))]
-    non_sport_pool = [p for p in pool if "sport" not in _to_set(p["tags"].get("lenses", {}).get("type"))]
+    # Sport membership uses style.occasion (canonical for this catalog) — the
+    # lens-type "sport" tag is sparse here, while occasion="sport" reliably
+    # marks sport-suitable frames.
+    def _is_sport(p):
+        return "sport" in _to_set(p["tags"].get("style", {}).get("occasion"))
+    sport_pool     = [p for p in pool if _is_sport(p)]
+    non_sport_pool = [p for p in pool if not _is_sport(p)]
 
+    # Save the post-business pool for the low-confidence fallback (Pass 4),
+    # used when the chosen pool collapses (e.g. sport isolation emptied it).
+    pool_before_sport_isolation = pool
     pool = sport_pool if user_wants_sport else non_sport_pool
-    # Intentionally NO fallback: sport products must stay isolated.
+    # Intentionally NO graceful fallback for the sport/lifestyle split; Pass 4/5
+    # below recover if the chosen pool can't fill top_k.
 
     # ── Cascading tag filters (with graceful fallback) ────────────────────
     active_filter_fields: list[tuple[str, str]] = []
@@ -541,9 +654,108 @@ def rank_products(query_tags: dict, products: list[dict],
                                   relaxed_fields=relaxed_fields)
         scored.append((product, score))
 
-    scored.sort(key=lambda x: x[1], reverse=True)
+    if user_wants_sport:
+        # Tie-break: dedicated performance frames lead versatile (everyday-and-
+        # sport) frames at equal score, so a sports search surfaces real sports
+        # glasses first.  (score dominates; this only orders ties.)  This order
+        # propagates through the dedup passes and the final stable re-sort.
+        scored.sort(key=lambda x: (x[1], _is_dedicated_sport(x[0])), reverse=True)
+    else:
+        scored.sort(key=lambda x: x[1], reverse=True)
 
-    return scored[:top_k]
+    def _score_all(source):
+        return sorted(
+            [
+                (p, compute_tag_score(query_tags, p["tags"],
+                                      active_filter_fields=active_filter_fields,
+                                      relaxed_fields=relaxed_fields))
+                for p in source
+            ],
+            key=lambda x: x[1], reverse=True,
+        )
+
+    # ── Pass 1: per-model dedup, over-produce candidates ────────────────
+    # Allow up to 3*top_k so the visual-diversity pass has options to pick from.
+    candidates: list[tuple[dict, float]] = []
+    model_counts: dict[str, int] = {}
+    for product, score in scored:
+        model = product["tags"].get("product", {}).get("model_name", "")
+        if model_counts.get(model, 0) >= max_per_model:
+            continue
+        candidates.append((product, score))
+        model_counts[model] = model_counts.get(model, 0) + 1
+        if len(candidates) >= top_k * 3:
+            break
+
+    # ── Pass 2: visual-signature dedup across the top candidates ─────────
+    # Products sharing a visual signature render near-identically in face-
+    # rendered try-on.  Keep only the highest-scoring representative (candidates
+    # are pre-sorted descending, so the first seen per signature is the best).
+    results: list[tuple[dict, float]] = []
+    seen_sigs: set = set()
+    for product, score in candidates:
+        sig = _visual_signature(product)
+        if sig in seen_sigs:
+            continue
+        results.append((product, score))
+        seen_sigs.add(sig)
+        if len(results) == top_k:
+            break
+
+    # ── Pass 3: fill remaining slots ignoring the visual constraint ──────
+    if len(results) < top_k:
+        selected_ids = {p["id"] for p, _ in results}
+        for product, score in candidates:
+            if product["id"] in selected_ids:
+                continue
+            results.append((product, score))
+            selected_ids.add(product["id"])
+            if len(results) == top_k:
+                break
+
+    # ── Pass 4: low-confidence fallback from the scored / post-business pool
+    # If still short (e.g. sport isolation or the per-model cap collapsed the
+    # candidate pool), pull the next-best products, flagged low_confidence.
+    if len(results) < top_k:
+        selected_ids = {p["id"] for p, _ in results}
+        fallback_source = scored if scored else _score_all(pool_before_sport_isolation)
+        for product, score in fallback_source:
+            if product["id"] in selected_ids:
+                continue
+            product_copy = copy.deepcopy(product)
+            product_copy["_low_confidence"] = True
+            results.append((product_copy, score))
+            selected_ids.add(product["id"])
+            if len(results) == top_k:
+                break
+
+    # ── Pass 5: ultimate fallback — relax the business filters ───────────
+    # Only when business pre-filters (max_price / in_stock_only) left NOTHING
+    # at all: score the unfiltered catalog and surface the closest matches,
+    # flagged low_confidence plus WHY they were excluded so the UI can label
+    # them ("closest match, above budget / unavailable").  Guarded on an empty
+    # result so an under-budget pool of fewer than top_k is returned as-is
+    # rather than padded with budget/stock violations.
+    if not results:
+        max_price = filters.get("max_price") if filters else None
+        in_stock_only = filters.get("in_stock_only") if filters else False
+        for product, score in _score_all(pool_unfiltered):
+            product_copy = copy.deepcopy(product)
+            product_copy["_low_confidence"] = True
+            prod_meta = product.get("tags", {}).get("product", {})
+            if max_price is not None and prod_meta.get("price", 0) > max_price:
+                product_copy["_over_budget"] = True
+            if in_stock_only and not prod_meta.get("in_stock", False):
+                product_copy["_out_of_stock"] = True
+            results.append((product_copy, score))
+            if len(results) == top_k:
+                break
+
+    # Passes 3-5 can append a higher-scoring product after a lower-scoring one
+    # already claimed a slot.  Re-sort so the final list is monotonically
+    # descending by score regardless of which pass produced each entry.
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
 
 
 def preferences_to_query_tags(prefs: dict) -> dict:

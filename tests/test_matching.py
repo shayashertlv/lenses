@@ -24,6 +24,8 @@ from tag_matcher import (
     _norm_color,
     _norm_material,
     _norm_shape,
+    _visual_signature,
+    _is_dedicated_sport,
     compute_component_scores,
     compute_tag_score,
     preferences_to_query_tags,
@@ -411,26 +413,28 @@ class TestRankProducts(unittest.TestCase):
                           f"{product['name']} has gender_target={gender}")
 
     def test_sport_isolation_excludes_sport(self):
-        """Non-sport query should never return sport products."""
+        """Non-sport query should never return sport products.
+
+        Sport membership is keyed on style.occasion == "sport" (not lenses.type)."""
         query = {"frame": {}, "lenses": {"type": ["sunglasses"]}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         for product, _ in results:
-            lens_types = product["tags"]["lenses"]["type"]
-            if isinstance(lens_types, str):
-                lens_types = [lens_types]
-            self.assertNotIn("sport", lens_types,
+            occasion = product["tags"]["style"].get("occasion", [])
+            if isinstance(occasion, str):
+                occasion = [occasion]
+            self.assertNotIn("sport", occasion,
                              f"{product['name']} is a sport product but was returned")
 
     def test_sport_isolation_returns_sport(self):
-        """Sport query should only return sport products."""
+        """Sport query should only return sport products (by style.occasion)."""
         query = {"frame": {}, "lenses": {"type": ["sport"]}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         if results:  # catalog may not have sport products
             for product, _ in results:
-                lens_types = product["tags"]["lenses"]["type"]
-                if isinstance(lens_types, str):
-                    lens_types = [lens_types]
-                self.assertIn("sport", lens_types,
+                occasion = product["tags"]["style"].get("occasion", [])
+                if isinstance(occasion, str):
+                    occasion = [occasion]
+                self.assertIn("sport", occasion,
                               f"{product['name']} is not a sport product")
 
     def test_price_filter(self):
@@ -494,24 +498,26 @@ class TestRankProducts(unittest.TestCase):
         self.assertGreater(len(results), 0)
 
     def test_relaxed_filter_scores_lower(self):
-        """When a filter is relaxed, products that would have matched earn
-        higher scores than those that don't match the relaxed field."""
-        # Use active_filter_fields + relaxed_fields directly
+        """When a filter is relaxed for the pool, a product that STILL matches
+        the relaxed field earns full credit while one that does NOT match earns
+        zero — so the matching product scores higher.  (Per-product credit is
+        preserved regardless of pool-wide relaxation.)"""
         q = {"frame": {}, "lenses": {"shape": "round"}, "style": {}}
-        # Product that matches the relaxed field
-        score_active = compute_tag_score(
-            q, q,
-            active_filter_fields=[("lenses", "shape")],
-            relaxed_fields=[],
-        )
-        # Product where filter was relaxed (didn't match)
-        score_relaxed = compute_tag_score(
-            q, q,
+        match = {"frame": {}, "lenses": {"shape": "round"}, "style": {}}
+        no_match = {"frame": {}, "lenses": {"shape": "square"}, "style": {}}
+        # Filter was relaxed pool-wide; score each product individually.
+        score_match = compute_tag_score(
+            q, match,
             active_filter_fields=[("lenses", "shape")],
             relaxed_fields=[("lenses", "shape")],
         )
-        self.assertGreater(score_active, score_relaxed,
-                           "Exact filter match should score higher than relaxed")
+        score_no_match = compute_tag_score(
+            q, no_match,
+            active_filter_fields=[("lenses", "shape")],
+            relaxed_fields=[("lenses", "shape")],
+        )
+        self.assertGreater(score_match, score_no_match,
+                           "Relaxed filter: matching product should score higher")
 
     def test_relaxed_filter_in_full_pipeline(self):
         """End-to-end: when all products fail a filter, it relaxes and
@@ -1581,6 +1587,121 @@ class TestCombinedFilterValidation(unittest.TestCase):
                     self.assertGreater(
                         len(results), 0,
                         f"No results for {f1}+{f2}+{f3}")
+
+
+class TestV2PortFeatures(unittest.TestCase):
+    """Behaviors ported (and catalog-adapted) from the lenses_v2 matcher:
+    frame.shape fold, per-model + visual-signature dedup, never-empty fallback,
+    and the top_k guard."""
+
+    def test_top_k_zero_returns_empty(self):
+        query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
+        self.assertEqual(rank_products(query, PRODUCTS, top_k=0), [])
+        self.assertEqual(rank_products(query, PRODUCTS, top_k=-5), [])
+
+    def test_frame_shape_fold_drives_matching(self):
+        """A shape supplied under frame.shape (as query_interpreter and the
+        face-analysis recommended_tags emit it) must match the same products as
+        the equivalent lenses.shape query — i.e. it is no longer dropped."""
+        q_frame = {"frame": {"shape": "cat-eye"}, "lenses": {}, "style": {}}
+        q_lens = {"frame": {}, "lenses": {"shape": "cat-eye"}, "style": {}}
+        r_frame = rank_products(q_frame, PRODUCTS, top_k=10, min_score=0)
+        r_lens = rank_products(q_lens, PRODUCTS, top_k=10, min_score=0)
+        self.assertGreater(len(r_frame), 0, "frame.shape query returned nothing")
+        self.assertEqual({p["id"] for p, _ in r_frame},
+                         {p["id"] for p, _ in r_lens},
+                         "frame.shape should fold into lenses.shape and match identically")
+
+    def test_frame_shape_fold_does_not_clobber_explicit_lens_shape_path(self):
+        """preferences_to_query_tags writes lenses.shape (not frame.shape); the
+        fold must leave that path untouched."""
+        qt = preferences_to_query_tags({"frame_shape": "round"})
+        self.assertEqual(qt["lenses"].get("shape"), "round")
+        self.assertNotIn("shape", qt["frame"])
+        self.assertGreater(len(rank_products(qt, PRODUCTS, top_k=5, min_score=0)), 0)
+
+    def test_per_model_dedup(self):
+        """No model_name appears more than max_per_model times among the
+        confident (non-fallback) results."""
+        query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
+        results = rank_products(query, PRODUCTS, top_k=10, max_per_model=2,
+                                min_score=0)
+        counts: dict[str, int] = {}
+        for product, _ in results:
+            if product.get("_low_confidence"):
+                continue
+            model = product["tags"].get("product", {}).get("model_name", "")
+            counts[model] = counts.get(model, 0) + 1
+        for model, n in counts.items():
+            self.assertLessEqual(n, 2, f"model {model!r} appears {n} times (>2)")
+
+    def test_visual_signature_dedup(self):
+        """Confident results never share a visual signature (no near-identical
+        twins on the same result page)."""
+        query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
+        results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
+        sigs = [
+            _visual_signature(p) for p, _ in results
+            if not p.get("_low_confidence")
+        ]
+        self.assertEqual(len(sigs), len(set(sigs)),
+                         "two confident results share a visual signature")
+
+    def test_never_empty_when_over_budget(self):
+        """A max_price below the catalog minimum still returns top_k results,
+        flagged low-confidence + over-budget rather than an empty page."""
+        query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
+        results = rank_products(query, PRODUCTS, top_k=3,
+                                filters={"max_price": 100, "in_stock_only": True})
+        self.assertEqual(len(results), 3, "over-tight budget should still fill top_k")
+        for product, _ in results:
+            self.assertTrue(product.get("_low_confidence"),
+                            "fallback result should be flagged low_confidence")
+            self.assertTrue(product.get("_over_budget"),
+                            "fallback result should be flagged over_budget")
+
+    def test_free_search_sport_query_returns_sport(self):
+        """A realistic Free Search 'sports' query lands sport in style.occasion
+        (the only place query_interpreter/analysis_prompt emit it), NOT in
+        lenses.type.  user_wants_sport must trigger on occasion so the user gets
+        sport frames, not the inverted non-sport pool."""
+        query = {"frame": {}, "lenses": {}, "style": {"occasion": ["sport"]}}
+        results = rank_products(query, PRODUCTS, top_k=5, min_score=0)
+        self.assertGreater(len(results), 0)
+        for product, _ in results:
+            occasion = product["tags"]["style"].get("occasion", [])
+            if isinstance(occasion, str):
+                occasion = [occasion]
+            self.assertIn("sport", occasion,
+                          f"{product['name']} is not sport but a sport query returned it")
+
+    def test_sport_query_prioritizes_dedicated(self):
+        """Within a sports search, dedicated performance frames rank ahead of
+        versatile everyday-and-sport frames (so a sports search surfaces real
+        sports glasses first, not office frames that merely also list sport)."""
+        query = {"frame": {}, "lenses": {}, "style": {"occasion": ["sport"]}}
+        results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
+        flags = [_is_dedicated_sport(p) for p, _ in results]
+        self.assertIn(True, flags, "expected at least one dedicated sport frame")
+        if False in flags:  # both kinds present → all dedicated must come first
+            last_dedicated = max(i for i, f in enumerate(flags) if f)
+            first_versatile = min(i for i, f in enumerate(flags) if not f)
+            self.assertLess(last_dedicated, first_versatile,
+                            "dedicated sport frames should rank before versatile ones")
+        # The very top result must be a dedicated sports frame.
+        self.assertTrue(flags[0], "top sports result should be a dedicated sport frame")
+
+    def test_under_budget_pool_not_padded_with_violations(self):
+        """When SOME products fit the budget, results stay within budget and are
+        not padded with over-budget items (Pass 5 only fires on an empty pool)."""
+        results = rank_products({"frame": {}, "lenses": {}, "style": {}}, PRODUCTS,
+                                top_k=50, min_score=0,
+                                filters={"max_price": 500, "in_stock_only": True})
+        self.assertGreater(len(results), 0)
+        for product, _ in results:
+            self.assertFalse(product.get("_over_budget"),
+                             f"{product['name']} is over budget but was padded in")
+            self.assertLessEqual(product["tags"]["product"]["price"], 500)
 
 
 if __name__ == "__main__":
