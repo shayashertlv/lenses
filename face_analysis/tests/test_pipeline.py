@@ -19,7 +19,7 @@ from inventory_matcher import InventoryMatcher
 from config import (
     GENERATION_MODEL_MAP,
     DEFAULT_GENERATION_MODEL, DEFAULT_ANALYSIS_MODEL,
-    EMBEDDING_MODEL, MIN_SIMILARITY_THRESHOLD,
+    MIN_SIMILARITY_THRESHOLD,
     resolve_generation_model, resolve_analysis_model,
     validate_catalog_exists,
 )
@@ -472,9 +472,6 @@ class TestConfig(unittest.TestCase):
     def test_defaults(self):
         self.assertEqual(DEFAULT_GENERATION_MODEL, "nano-banana-pro")
         self.assertEqual(DEFAULT_ANALYSIS_MODEL, "gemini-2.5-flash")
-
-    def test_embedding_model(self):
-        self.assertEqual(EMBEDDING_MODEL, "gemini-embedding-001")
 
     def test_similarity_threshold(self):
         self.assertIsInstance(MIN_SIMILARITY_THRESHOLD, float)

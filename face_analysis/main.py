@@ -209,7 +209,7 @@ def main() -> None:
     print("\nMatching against inventory...")
 
     from inventory_matcher import InventoryMatcher
-    matcher = InventoryMatcher(CATALOG_DIR, api_key)
+    matcher = InventoryMatcher(CATALOG_DIR)
     recommended_tags = analysis["glasses_recommendation"]["recommended_tags"]
     detected_gender = analysis.get("gender")  # "men" or "women" — from face analysis
     match_result = matcher.match(recommended_tags, top_k=args.top_k, gender=detected_gender)

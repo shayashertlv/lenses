@@ -79,12 +79,9 @@ def _join(value) -> str:
 
 def generate_product_description(product: dict) -> str:
     """
-    Convert structured product tags into a rich, natural-language description
-    optimized for embedding-based semantic search.
+    Convert structured product tags into a rich, natural-language description.
 
-    The description captures EVERY searchable attribute in natural language so
-    that a user's freeform query (in any phrasing) will have high cosine
-    similarity with the right products.
+    Stored on each product as a human-readable summary of its attributes.
     """
     tags = product["tags"]
     frame = tags["frame"]

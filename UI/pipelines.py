@@ -525,8 +525,8 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
     Free search pipeline — background thread.
 
     Steps:
-      1. Build search description from UI preferences
-      2. Embed + cosine-similarity search against catalog
+      1. Build query tags from UI preferences
+      2. Tag-based search against catalog
       3. virtual_tryon() x3 in parallel (primary first)
     """
     sess = sessions[session_id]

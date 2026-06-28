@@ -36,14 +36,12 @@ lenses/
 ├── README.md                 # This file
 ├── Procfile                  # Deployment entry point (web: python -m UI.app)
 │
-├── catalog_manager.py        # Build/validate/list catalog + embeddings (build-time, gitignored)
+├── catalog_manager.py        # Build/validate/list catalog descriptions (build-time, gitignored)
 ├── tag_schema.py             # Product tag vocabulary + description generator (build-time, gitignored)
 │
 ├── lenses/                   # Shared Catalog
 │   └── catalog/              #   Product database (shared by all features)
 │       ├── catalog.json      #     Products — full tags + descriptions
-│       ├── embeddings.npy    #     Pre-computed embedding vectors (3072-dim)
-│       ├── embedding_index.json#   Index mapping
 │       └── images/           #     Product photos
 │
 ├── UI/                       # Web Interface
@@ -65,26 +63,26 @@ lenses/
 ├── optimal_configuration/    # Feature 2: Optimal Configuration
 │   ├── main.py               #   CLI entry point
 │   ├── config.py             #   Model names, catalog paths
-│   ├── search_engine.py      #   Embedding-based semantic search
+│   ├── search_engine.py      #   Tag-overlap catalog search
 │   ├── query_interpreter.py  #   LLM query parsing (any language)
 │   ├── tryon_engine.py       #   Nano Banana 2-image try-on
 │   ├── tryon_prompt_builder.py#  Try-on prompt construction
 │   ├── utils.py              #   Image loading/saving/validation
 │   └── tests/
-│       └── test_search.py    #   24 tests
+│       └── test_search.py    #   23 tests
 │
 └── face_analysis/            # Feature 3: Face Analysis
     ├── main.py               #   CLI entry point
     ├── config.py             #   Model names, paths
     ├── face_analyzer.py      #   Gemini 2.5 Flash face analysis
     ├── analysis_prompt.py    #   Face analysis prompt (outputs tags + gender)
-    ├── inventory_matcher.py  #   Embed tags → match against catalog
+    ├── inventory_matcher.py  #   Tag-overlap match against catalog
     ├── tryon_engine.py       #   Nano Banana 2-image try-on
     ├── tryon_prompt.py       #   Try-on prompt with face placement data
     ├── report_builder.py     #   Human-readable analysis report
     ├── utils.py              #   Image loading/saving/validation
     └── tests/
-        └── test_pipeline.py  #   41 tests
+        └── test_pipeline.py  #   40 tests
 ```
 
 ---
@@ -148,17 +146,17 @@ python -m unittest tests.test_recolor -v   # 19 tests
 
 ## Feature 2: Optimal Configuration
 
-**What it does:** Takes a text query describing the glasses you want (in any language) + your portrait, finds the best-matching glasses from a product catalog using semantic search, then generates a virtual try-on image.
+**What it does:** Takes a text query describing the glasses you want (in any language) + your portrait, finds the best-matching glasses from a product catalog using tag-based search, then generates a virtual try-on image.
 
-**Pipeline:** `Query + Portrait → Gemini Flash (parse query) → Embed → Cosine similarity → Best match → Nano Banana (try-on) → Output Image` (3 API calls)
+**Pipeline:** `Query + Portrait → Gemini Flash (parse query → tags) → Tag-overlap ranking → Best match → Nano Banana (try-on) → Output Image` (2 API calls)
 
-### First-Time Setup — Build the Catalog Index
+### First-Time Setup — The Shared Catalog
 
-Before using this feature, you must build the embedding index from the shared catalog:
+The catalog ships ready to use (`lenses/catalog/catalog.json` + `images/`). `catalog_manager.py` is an optional build-time helper:
 
 ```bash
 # Run from project root (catalog_manager.py is a build-time tool, gitignored)
-python catalog_manager.py build      # Generates descriptions + embeddings (requires API)
+python catalog_manager.py build      # Regenerate product descriptions from tags (offline, no API)
 python catalog_manager.py validate   # Verify images exist and tags are valid
 python catalog_manager.py list       # List all products
 ```
@@ -205,16 +203,15 @@ python main.py -p selfie.jpg -q "round gold frames" --auto -m nano-banana-pro
 
 ### How Search Works
 
-1. **Query Interpretation** — Gemini Flash parses your freeform text (any language) into structured search intent + optional filters (price, gender)
-2. **Embedding** — Your parsed query is embedded with `gemini-embedding-001` (supports 100+ languages)
-3. **Cosine Similarity** — Compared against pre-computed product embeddings (instant, local numpy)
-4. **Ranking** — Top-K results shown with similarity scores, filtered by stock status
+1. **Query Interpretation** — Gemini Flash parses your freeform text (any language) into structured query tags + optional filters (price, gender)
+2. **Tag-Overlap Ranking** — Your query tags are scored against each product's tags via weighted overlap (instant, local, no API)
+3. **Ranking** — Top-K results shown with match scores, filtered by stock status
 
 ### Adding Products to the Catalog
 
 1. Add product image to `lenses/catalog/images/` (front-facing, clean background, JPG/PNG/WEBP)
 2. Add product entry to `lenses/catalog/catalog.json` with full tags
-3. Run `python catalog_manager.py build` from the project root to rebuild embeddings
+3. Run `python catalog_manager.py build` from the project root to regenerate descriptions (optional)
 
 ### Tests
 
@@ -229,9 +226,9 @@ python -m unittest tests.test_search -v   # 24 tests
 
 **What it does:** Analyzes facial features from a portrait, recommends the optimal glasses based on optician-grade face-shape-to-frame rules, matches the recommendation against the real product catalog, and generates a try-on image. Gender is detected and used to filter the catalog to relevant products.
 
-**Pipeline:** `Portrait → Gemini 2.5 Flash (analyze face + recommend tags + detect gender) → Embed tags → Filter by gender → Match against catalog → Nano Banana (try-on with real product photo) → Output Image` (3 API calls + local cosine similarity)
+**Pipeline:** `Portrait → Gemini 2.5 Flash (analyze face + recommend tags + detect gender) → Filter by gender → Tag-overlap match against catalog → Nano Banana (try-on with real product photo) → Output Image` (2 API calls + local tag-overlap ranking)
 
-**Depends on:** `lenses/catalog/` must be set up with embeddings built (`python catalog_manager.py build` from project root).
+**Depends on:** `lenses/catalog/` (ships ready to use — `catalog.json` + `images/`).
 
 ### How to run
 
@@ -297,7 +294,7 @@ The recommendation applies optician rules:
 
 ### How the Pipeline Connects to the Catalog
 
-The face analysis outputs `recommended_tags` using the **exact same tag vocabulary** as the product catalog (`lenses/catalog/catalog.json`). These tags are converted into a natural-language description using the same template as catalog products, embedded with the same model (`gemini-embedding-001`), and compared via cosine similarity. This ensures the recommendation and catalog live in the **same semantic space**.
+The face analysis outputs `recommended_tags` using the **exact same tag vocabulary** as the product catalog (`lenses/catalog/catalog.json`). The recommended tags are scored directly against each product's tags via weighted overlap. Because both sides share one vocabulary, the recommendation and catalog match on **identical structured attributes** — no embeddings or external API needed.
 
 ### Tests
 
@@ -358,7 +355,6 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 | `gemini-3-pro-image-preview` (nano-banana-pro) | Image generation — high quality | All features + Web UI |
 | `gemini-2.5-flash` | Face analysis (vision + reasoning) | Face Analysis, Web UI (Smart Fit) |
 | `gemini-2.5-flash` | Query interpretation (text) | Optimal Configuration, Free Search |
-| `gemini-embedding-001` | Text embedding (3072-dim, 100+ languages) | Optimal Config, Face Analysis, Web UI |
 
 ## Troubleshooting
 
@@ -369,8 +365,7 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 | `Safety filter blocked` | The image was flagged — try a different photo |
 | `No image in response` | Tools retry automatically. If persistent, try a different portrait or model |
 | `API key issue / 403` | Ensure your key has image generation enabled (paid plan) |
-| `Catalog not found` | Run `python catalog_manager.py build` from the project root |
-| `embeddings.npy not found` | Same — build the catalog first |
+| `Catalog not found` | Ensure `lenses/catalog/catalog.json` and `images/` are present |
 | `Low match scores` | Add more diverse products to the catalog |
 
 ## Running All Tests
@@ -379,4 +374,4 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 cd lens_recolor && python -m unittest tests.test_recolor -v && cd ../optimal_configuration && python -m unittest tests.test_search -v && cd ../face_analysis && python -m unittest tests.test_pipeline -v
 ```
 
-All 84 tests should pass (19 + 24 + 41).
+All 82 tests should pass (19 + 23 + 40).

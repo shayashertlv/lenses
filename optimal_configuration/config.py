@@ -7,17 +7,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 CATALOG_DIR = BASE_DIR.parent / "lenses" / "catalog"
 CATALOG_JSON = CATALOG_DIR / "catalog.json"
-EMBEDDINGS_NPY = CATALOG_DIR / "embeddings.npy"
-EMBEDDING_INDEX_JSON = CATALOG_DIR / "embedding_index.json"
 CATALOG_IMAGES_DIR = CATALOG_DIR / "images"
 
 # Model name mapping (Nano Banana)
 MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
 }
-
-# Embedding model
-EMBEDDING_MODEL = "gemini-embedding-001"
 
 # Query interpreter model
 QUERY_INTERPRETER_MODEL = "gemini-2.5-flash"

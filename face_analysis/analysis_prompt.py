@@ -2,13 +2,13 @@
 
 Constructs the prompt sent to Gemini 2.5 Flash along with the portrait image.
 The prompt extracts facial features and outputs structured TAGS matching the
-optimal_configuration tag schema, so they can be embedded and compared against
-the product catalog.
+optimal_configuration tag schema, so they can be compared against the product
+catalog via tag-overlap matching.
 
 KEY DIFFERENCE FROM PREVIOUS VERSION:
 The glasses_recommendation now outputs structured tags (recommended_tags),
-NOT a visual_description_for_generation. These tags will be converted to a
-description and embedded for inventory search.
+NOT a visual_description_for_generation. These tags are scored directly
+against catalog product tags for inventory search.
 """
 
 

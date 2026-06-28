@@ -1,7 +1,7 @@
 """Inventory matcher — find best catalog products by tag matching.
 
 Takes the recommended_tags from face analysis and scores each catalog product
-using weighted tag overlap (no embeddings needed).
+using weighted tag overlap.
 """
 
 import json
@@ -32,19 +32,13 @@ class MatchResult:
 
 class InventoryMatcher:
 
-    def __init__(self, catalog_dir: str, api_key: str = "", *,
-                 client=None, catalog_data: dict | None = None,
-                 embeddings_normalized=None, index_map=None):
+    def __init__(self, catalog_dir: str, *, catalog_data: dict | None = None):
         """
         Load the existing catalog.
 
         Args:
             catalog_dir: Path to catalog/ directory.
-            api_key: Kept for backward compat (unused — no embeddings).
-            client: Kept for backward compat (unused).
             catalog_data: Pre-loaded catalog dict (skips loading from disk).
-            embeddings_normalized: Ignored (kept for backward compat).
-            index_map: Ignored (kept for backward compat).
         """
         self.catalog_dir = catalog_dir
 

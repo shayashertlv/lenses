@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from tag_schema import generate_product_description, validate_tags, TAG_SCHEMA
 from tryon_prompt_builder import build_tryon_prompt
-from config import MODEL_MAP, resolve_model, DEFAULT_MODEL, EMBEDDING_MODEL
+from config import MODEL_MAP, resolve_model, DEFAULT_MODEL
 
 
 # Sample product for testing
@@ -182,9 +182,6 @@ class TestConfig(unittest.TestCase):
             resolve_model("gemini-3-pro-image-preview"),
             "gemini-3-pro-image-preview",
         )
-
-    def test_embedding_model(self):
-        self.assertEqual(EMBEDDING_MODEL, "gemini-embedding-001")
 
     def test_defaults(self):
         self.assertEqual(DEFAULT_MODEL, "nano-banana-pro")

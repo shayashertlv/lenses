@@ -17,9 +17,6 @@ GENERATION_MODEL_MAP = {
     "nano-banana-pro": "gemini-3-pro-image-preview",
 }
 
-# Embedding model (shared across modules for consistent embeddings)
-EMBEDDING_MODEL = "gemini-embedding-001"
-
 # Defaults
 DEFAULT_ANALYSIS_MODEL = "gemini-2.5-flash"
 DEFAULT_GENERATION_MODEL = "nano-banana-pro"

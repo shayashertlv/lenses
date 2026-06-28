@@ -11,14 +11,8 @@ from tag_matcher import rank_products
 
 class GlassesSearchEngine:
 
-    def __init__(self, catalog_path, embeddings_path=None, index_path=None,
-                 api_key=None):
-        """
-        Load the catalog for tag-based search.
-
-        embeddings_path, index_path, and api_key are kept for backward compat
-        but are no longer used (no embeddings).
-        """
+    def __init__(self, catalog_path):
+        """Load the catalog for tag-based search."""
         self.catalog = self._load_catalog(catalog_path)
 
     def _load_catalog(self, path) -> dict:
