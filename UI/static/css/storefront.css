@@ -243,7 +243,7 @@ body.dock-active .container{padding-bottom:7rem}
 /* ══════════════════════════════════════════════════
    AI actions (Smart Fit / Free Search) + shop-this
    ══════════════════════════════════════════════════ */
-.ai-actions{max-width:1200px;margin:-.25rem auto .25rem;padding:0 1.5rem;display:flex;gap:1rem;flex-wrap:wrap}
+.ai-actions{max-width:1200px;margin:1.5rem auto .25rem;padding:0 1.5rem;display:flex;gap:1rem;flex-wrap:wrap}
 .ai-action-btn{flex:1;min-width:240px;display:flex;align-items:center;gap:.85rem;padding:.85rem 1.1rem;border-radius:16px;
   border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#fff;cursor:pointer;text-align:left;transition:all .2s}
 .ai-action-btn:hover{border-color:rgba(108,99,255,.55);background:rgba(108,99,255,.08);transform:translateY(-2px)}
