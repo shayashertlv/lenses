@@ -32,21 +32,59 @@ function prefersReducedMotion() {
 }
 
 /* ══════════════════════════════════════════════════
-   Stage-aware loading pace (Steady)
-   Each circle's ring is driven by the shared ProgressCreep (common.js):
-   snap to a floor on every REAL backend signal, then creep smoothly toward
-   that phase's ceiling. Ceilings sit below the next phase's floor, so a real
-   signal (face analysed → frame found → done) lands as a visible jump rather
-   than a wall. Captions narrate each phase above the circle; the chosen frame
-   appears IN the circle the instant matching finishes.
+   Loading pace (Steady)
+   The ring runs on a smooth, duration-aware RingTimer: it starts at 0% and
+   eases toward ~90% exactly at the feature's expected time, so it's near the
+   finish when the result lands — no mid-load jumps. Captions narrate the real
+   backend stages above the circle, and the chosen frame appears IN the circle
+   the instant matching finishes (a caption/visual beat only — the ring never
+   jumps for it).
    ══════════════════════════════════════════════════ */
 const KIND_CFG = {
-  smartfit:   { halfLife: 15, floor: 8,  ceiling: 34, spawn: 'Smart Fit · ~20–30s',      stageMsg: 'Analyzing your face…',     revealFloor: 46 },
-  freesearch: { halfLife: 14, floor: 8,  ceiling: 20, spawn: 'Finding your match · ~20s',     stageMsg: 'Searching the collection…', revealFloor: 32 },
-  tryon:      { halfLife: 16, floor: 10, ceiling: 92, spawn: 'Try-on · ~20s',                 stageMsg: 'Creating your try-on…' },
-  recolor:    { halfLife: 16, floor: 10, ceiling: 92, spawn: 'Recoloring · ~20s',             stageMsg: 'Recoloring the lenses…' },
+  smartfit:   { dur: 30, spawn: 'Smart Fit · ~30s',          stageMsg: 'Analyzing your face…' },
+  freesearch: { dur: 20, spawn: 'Finding your match · ~20s', stageMsg: 'Searching the collection…' },
+  tryon:      { dur: 20, spawn: 'Try-on · ~20s',             stageMsg: 'Creating your try-on…' },
+  recolor:    { dur: 20, spawn: 'Recoloring · ~20s',         stageMsg: 'Recoloring the lenses…' },
 };
-const RENDER_CEILING = 92;
+
+/* ── RingTimer — smooth, duration-aware progress ───────────────────────────
+   Starts at 0% and eases toward ~90% exactly at the feature's expected
+   duration, so the ring is near the finish right when the result lands. On
+   overrun it drifts gently 90→97 (never a hard wall, never reaches 100 until
+   finish()). One continuous monotonic timer — no mid-load jumps, ever. */
+function RingTimer(applyFn, durationSec) {
+  this.apply = applyFn;
+  this.D = Math.max(1, durationSec) * 1000;
+  this.t0 = 0;
+  this.displayed = 0;
+  this.raf = null;
+  const self = this;
+  function pctAt(ms) {
+    const x = ms / self.D;
+    let p;
+    if (x <= 1) p = 90 * (1 - Math.pow(1 - x, 1.7));         // ease-out to 90% at D
+    else p = 90 + 7 * (1 - Math.exp(-(ms - self.D) / 8000)); // gentle drift toward ~97%
+    return Math.min(p, 97);
+  }
+  function tick(now) {
+    const p = pctAt(now - self.t0);
+    if (p > self.displayed) { self.displayed = p; self.apply(p); }
+    self.raf = requestAnimationFrame(tick);
+  }
+  this._tick = tick;
+}
+RingTimer.prototype.start = function () {
+  this.t0 = performance.now();
+  this.apply(0);
+  if (!this.raf) this.raf = requestAnimationFrame(this._tick);
+};
+RingTimer.prototype.finish = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+  this.displayed = 100; this.apply(100);
+};
+RingTimer.prototype.stop = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+};
 
 /* One shared pair of screen-reader live regions for the whole dock. */
 function ensureLiveRegions() {
@@ -74,11 +112,11 @@ function updateDockMulti() {
   if (dock) dock.classList.toggle('sf-multi', dock.children.length > 1);
 }
 
-/* Set a circle's caption (+ optionally snap/creep the ring). opts:
+/* Set a circle's caption (the ring runs independently on its own timer). opts:
    {lock} hold this caption 2.5s (the reveal beat), {force} override a lock,
    {announce}/{assertive} mirror to the live region, {transient} don't record
    it as the restore point for a connection-retry blip. */
-function setJobStatus(job, msg, floor, ceiling, opts) {
+function setJobStatus(job, msg, opts) {
   opts = opts || {};
   const now = Date.now();
   if (!opts.force && now < job.captionLockUntil) return;
@@ -89,7 +127,6 @@ function setJobStatus(job, msg, floor, ceiling, opts) {
     if (!opts.transient) job._stableMsg = msg;
   }
   if (opts.announce && msg) announce(msg, opts.assertive);
-  if (floor != null && job.pace) job.pace.set(floor, ceiling);
 }
 
 /* The chosen frame appears IN the circle the moment matching finishes —
@@ -358,7 +395,7 @@ function createJob(opts) {
     pollTimer: null,
     pace: null,
     failCount: 0,
-    halfLife: (KIND_CFG[opts.kind || 'tryon'] || {}).halfLife || 15,
+    dur: (KIND_CFG[opts.kind || 'tryon'] || {}).dur || 20,
     stageSeen: {},         // one-shot guard per real backend signal
     captionLockUntil: 0,   // hold the reveal caption against being overwritten
     tailTimer: null,       // single-phase "Almost there…" beat
@@ -398,13 +435,14 @@ function spawnCircle(job) {
     '<span class="sf-caption"></span>';
   job.el = btn;
 
-  /* Drive the progress ring with the stage-aware ProgressCreep */
+  /* Drive the progress ring with the smooth, duration-aware RingTimer */
   const ringFg = btn.querySelector('.sf-circ-fg');
   ringFg.style.strokeDasharray = RING_C.toFixed(2);
-  ringFg.style.strokeDashoffset = RING_C.toFixed(2);     // start empty
-  job.pace = new ProgressCreep(ringFg, job.halfLife, function (pct) {
+  ringFg.style.strokeDashoffset = RING_C.toFixed(2);     // start empty (0%)
+  job.pace = new RingTimer(function (pct) {
     ringFg.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(2);
-  });
+  }, job.dur);
+  job.pace.start();
 
   btn.addEventListener('click', function (e) {
     if (e.target.closest('.sf-dismiss')) { e.stopPropagation(); dismissJob(job); return; }
@@ -417,13 +455,13 @@ function spawnCircle(job) {
   document.body.classList.add('dock-active');
   updateDockMulti();
 
-  /* Spawn caption + expectation, and snap the ring to its starting floor. */
+  /* Spawn caption + expectation (the ring already started at 0% above). */
   ensureLiveRegions();
   const cfg = KIND_CFG[job.kind] || KIND_CFG.tryon;
-  setJobStatus(job, cfg.spawn, cfg.floor, cfg.ceiling, { force: true });
+  setJobStatus(job, cfg.spawn, { force: true });
   /* Single-phase jobs have no mid signal — add one gentle late beat. */
   if (job.kind === 'tryon' || job.kind === 'recolor') {
-    job.tailTimer = setTimeout(function () { setJobStatus(job, 'Almost there…'); }, 10000);
+    job.tailTimer = setTimeout(function () { setJobStatus(job, 'Almost there…'); }, job.dur * 600);
   }
 }
 
@@ -508,12 +546,11 @@ function pollJob(job) {
           job.opt0 = d.opt0;
           job.productId = d.opt0.product_id || job.productId;
           job.productName = d.opt0.name || job.productName;
-          const cfg = KIND_CFG[job.kind];
-          setJobStatus(job, 'Found it ✓ ' + job.productName, cfg.revealFloor, RENDER_CEILING,
-            { lock: true, force: true, announce: true });
+          /* Caption + frame reveal only — the ring keeps its smooth pace (no jump). */
+          setJobStatus(job, 'Found it ✓ ' + job.productName, { lock: true, force: true, announce: true });
           if (d.opt0.product_b64) revealFrame(job, d.opt0.product_b64);
           setTimeout(function () {
-            if (job.status === 'loading') setJobStatus(job, 'Creating your try-on…', null, null, { force: true });
+            if (job.status === 'loading') setJobStatus(job, 'Creating your try-on…', { force: true });
           }, 2600);
         }
 
@@ -561,7 +598,7 @@ function markJobDone(job, b64) {
   job.el.style.opacity = '';
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-done');
-  setJobStatus(job, 'Ready — tap to view', null, null, { force: true });
+  setJobStatus(job, 'Ready — tap to view', { force: true });
   announce((job.productName ? job.productName + ': ' : '') + 'ready — tap to view');
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
@@ -578,7 +615,7 @@ function markJobError(job, msg) {
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-error');
   /* Error always wins the caption (force) and announces assertively. */
-  setJobStatus(job, "Couldn't finish — tap for details", null, null, { force: true });
+  setJobStatus(job, "Couldn't finish — tap for details", { force: true });
   announce((job.productName ? job.productName + ': ' : '') + "couldn't finish — tap for details", true);
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
