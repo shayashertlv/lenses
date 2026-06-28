@@ -31,53 +31,91 @@ function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
-/* ── Ring pace ─────────────────────────────────────────────
-   A time-based fill: fast for the first ~10s, a brief slow stretch
-   10-13s, then very fast 13-25s. Keyframes are [seconds, percent]
-   interpolated linearly; past the last one it drifts asymptotically
-   toward 99% so it never sticks and never reaches 100% until finish().
-   Numbers are tunable.
-     slopes (%/s): 3.0 (fast) -> 0.67 (slow) -> 5.33 (very fast) */
-const RING_KEYFRAMES = [[0, 0], [10, 30], [13, 32], [25, 96]];
+/* ══════════════════════════════════════════════════
+   Stage-aware loading pace (Steady)
+   Each circle's ring is driven by the shared ProgressCreep (common.js):
+   snap to a floor on every REAL backend signal, then creep smoothly toward
+   that phase's ceiling. Ceilings sit below the next phase's floor, so a real
+   signal (face analysed → frame found → done) lands as a visible jump rather
+   than a wall. Captions narrate each phase above the circle; the chosen frame
+   appears IN the circle the instant matching finishes.
+   ══════════════════════════════════════════════════ */
+const KIND_CFG = {
+  smartfit:   { halfLife: 15, floor: 8,  ceiling: 34, spawn: 'Smart Fit · ~20–30s',      stageMsg: 'Analyzing your face…',     revealFloor: 46 },
+  freesearch: { halfLife: 14, floor: 8,  ceiling: 20, spawn: 'Finding your match · ~20s',     stageMsg: 'Searching the collection…', revealFloor: 32 },
+  tryon:      { halfLife: 16, floor: 10, ceiling: 92, spawn: 'Try-on · ~20s',                 stageMsg: 'Creating your try-on…' },
+  recolor:    { halfLife: 16, floor: 10, ceiling: 92, spawn: 'Recoloring · ~20s',             stageMsg: 'Recoloring the lenses…' },
+};
+const RENDER_CEILING = 92;
 
-function RingPace(applyFn) {
-  this.apply = applyFn;
-  this.displayed = 0;
-  this.t0 = 0;
-  this.raf = null;
-  const self = this;
-  function pctAt(ms) {
-    const t = ms / 1000, kf = RING_KEYFRAMES;
-    if (t <= 0) return kf[0][1];
-    for (let i = 1; i < kf.length; i++) {
-      if (t <= kf[i][0]) {
-        const [t0, p0] = kf[i - 1], [t1, p1] = kf[i];
-        return p0 + (p1 - p0) * (t - t0) / (t1 - t0);
-      }
-    }
-    const last = kf[kf.length - 1], dt = t - last[0];
-    return Math.min(99, last[1] + (99 - last[1]) * (dt / (dt + 20)));
+/* One shared pair of screen-reader live regions for the whole dock. */
+function ensureLiveRegions() {
+  if (!document.getElementById('sf-live')) {
+    const l = document.createElement('div');
+    l.id = 'sf-live'; l.className = 'sf-live'; l.setAttribute('aria-live', 'polite');
+    document.body.appendChild(l);
   }
-  function tick(now) {
-    const p = pctAt(now - self.t0);
-    if (p > self.displayed) { self.displayed = p; self.apply(p); }
-    self.raf = requestAnimationFrame(tick);
+  if (!document.getElementById('sf-alert')) {
+    const a = document.createElement('div');
+    a.id = 'sf-alert'; a.className = 'sf-live'; a.setAttribute('role', 'alert');
+    document.body.appendChild(a);
   }
-  this._tick = tick;
 }
-RingPace.prototype.start = function () {
-  this.t0 = performance.now();
-  this.apply(this.displayed);
-  if (!this.raf) this.raf = requestAnimationFrame(this._tick);
-};
-RingPace.prototype.finish = function () {
-  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
-  this.displayed = 100;
-  this.apply(100);
-};
-RingPace.prototype.stop = function () {
-  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
-};
+function announce(msg, assertive) {
+  ensureLiveRegions();
+  const el = document.getElementById(assertive ? 'sf-alert' : 'sf-live');
+  if (el) el.textContent = msg;
+}
+
+/* Hide per-circle captions once the dock holds more than one circle, so
+   captions never overlap on the tight wrap-reverse layout. */
+function updateDockMulti() {
+  const dock = document.getElementById('tryon-dock');
+  if (dock) dock.classList.toggle('sf-multi', dock.children.length > 1);
+}
+
+/* Set a circle's caption (+ optionally snap/creep the ring). opts:
+   {lock} hold this caption 2.5s (the reveal beat), {force} override a lock,
+   {announce}/{assertive} mirror to the live region, {transient} don't record
+   it as the restore point for a connection-retry blip. */
+function setJobStatus(job, msg, floor, ceiling, opts) {
+  opts = opts || {};
+  const now = Date.now();
+  if (!opts.force && now < job.captionLockUntil) return;
+  if (opts.lock) job.captionLockUntil = now + 2500;
+  if (job.el && msg != null) {
+    const cap = job.el.querySelector('.sf-caption');
+    if (cap) cap.textContent = msg;
+    if (!opts.transient) job._stableMsg = msg;
+  }
+  if (opts.announce && msg) announce(msg, opts.assertive);
+  if (floor != null && job.pace) job.pace.set(floor, ceiling);
+}
+
+/* The chosen frame appears IN the circle the moment matching finishes —
+   crossfading/deblurring the AI placeholder into opt0's product image. */
+function revealFrame(job, b64) {
+  if (!job.el) return;
+  const src = 'data:image/jpeg;base64,' + b64;
+  job.thumbSrc = src;
+  const old = job.el.querySelector('.sf-thumb');
+  const img = document.createElement('img');
+  img.className = 'sf-thumb';
+  img.alt = '';
+  if (prefersReducedMotion()) {
+    img.src = src;
+    if (old) old.replaceWith(img); else job.el.appendChild(img);
+    return;
+  }
+  img.style.opacity = '0';
+  img.style.filter = 'blur(10px)';
+  img.style.transition = 'opacity .35s ease, filter .35s ease';
+  img.onload = function () {
+    requestAnimationFrame(function () { img.style.opacity = '1'; img.style.filter = 'none'; });
+  };
+  img.src = src;
+  if (old) old.replaceWith(img); else job.el.appendChild(img);
+}
 
 /* ── Catalog + gender filter ──────────────── */
 let allProducts = [];
@@ -320,6 +358,12 @@ function createJob(opts) {
     pollTimer: null,
     pace: null,
     failCount: 0,
+    halfLife: (KIND_CFG[opts.kind || 'tryon'] || {}).halfLife || 15,
+    stageSeen: {},         // one-shot guard per real backend signal
+    captionLockUntil: 0,   // hold the reveal caption against being overwritten
+    tailTimer: null,       // single-phase "Almost there…" beat
+    _stableMsg: '',        // caption to restore after a connection blip
+    _retrying: false,
     el: null,
   };
   jobs.set(job.id, job);
@@ -351,17 +395,16 @@ function spawnCircle(job) {
     '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
     '<span class="sf-badge sf-badge-err">!</span>' +
     '<span class="sf-dismiss" aria-hidden="true">&times;</span>' +
-    '<span class="sf-tooltip">Still creating…</span>';
+    '<span class="sf-caption"></span>';
   job.el = btn;
 
-  /* Drive the progress ring with the accelerating RingPace */
+  /* Drive the progress ring with the stage-aware ProgressCreep */
   const ringFg = btn.querySelector('.sf-circ-fg');
   ringFg.style.strokeDasharray = RING_C.toFixed(2);
   ringFg.style.strokeDashoffset = RING_C.toFixed(2);     // start empty
-  job.pace = new RingPace(function (pct) {
+  job.pace = new ProgressCreep(ringFg, job.halfLife, function (pct) {
     ringFg.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(2);
   });
-  job.pace.start();
 
   btn.addEventListener('click', function (e) {
     if (e.target.closest('.sf-dismiss')) { e.stopPropagation(); dismissJob(job); return; }
@@ -372,6 +415,16 @@ function spawnCircle(job) {
   dock.appendChild(btn);
   dock.scrollLeft = dock.scrollWidth;          // keep newest visible on the mobile bar
   document.body.classList.add('dock-active');
+  updateDockMulti();
+
+  /* Spawn caption + expectation, and snap the ring to its starting floor. */
+  ensureLiveRegions();
+  const cfg = KIND_CFG[job.kind] || KIND_CFG.tryon;
+  setJobStatus(job, cfg.spawn, cfg.floor, cfg.ceiling, { force: true });
+  /* Single-phase jobs have no mid signal — add one gentle late beat. */
+  if (job.kind === 'tryon' || job.kind === 'recolor') {
+    job.tailTimer = setTimeout(function () { setJobStatus(job, 'Almost there…'); }, 10000);
+  }
 }
 
 /* Swap an AI-pick circle's placeholder thumb for the chosen frame image. */
@@ -424,26 +477,60 @@ function pollJob(job) {
     fetch(statusUrl + job.sessionId)
       .then(r => r.json())
       .then(d => {
+        /* Recovered from a transient connection blip — restore the caption. */
+        if (job._retrying) {
+          job._retrying = false;
+          const cap = job.el && job.el.querySelector('.sf-caption');
+          if (cap && job._stableMsg) cap.textContent = job._stableMsg;
+        }
         job.failCount = 0;
         if (d.status === 'error') { markJobError(job, d.error || 'Processing failed'); return; }
 
+        /* Recolor: single phase on its own endpoint. */
         if (job.kind === 'recolor') {
+          if (d.stage === 'recoloring' && !job.stageSeen.recoloring) {
+            job.stageSeen.recoloring = true;
+            setJobStatus(job, KIND_CFG.recolor.stageMsg);
+          }
           if (d.status === 'done' && d.result_b64) markJobDone(job, d.result_b64);
           return;
         }
-        /* Smart Fit / Free Search: the AI picks the frame, so capture its
-           metadata + show its image the moment matching finishes (well before
-           the try-on completes). */
-        if ((job.kind === 'smartfit' || job.kind === 'freesearch') && d.opt0 && !job.picked) {
+
+        /* Smart Fit / Free Search — THE REVEAL. The AI picks the frame, and
+           opt0 lands well before the try-on finishes. The instant it does, we
+           call out the frame by name and show it IN the circle. The try-on
+           stage co-arrives in the same tick, so we mark it seen here and let
+           the render phase carry on. */
+        if ((job.kind === 'smartfit' || job.kind === 'freesearch') && d.opt0 && !job.stageSeen.reveal) {
+          job.stageSeen.reveal = true;
+          job.stageSeen.tryon = true;
           job.picked = true;
           job.opt0 = d.opt0;
           job.productId = d.opt0.product_id || job.productId;
           job.productName = d.opt0.name || job.productName;
-          if (d.opt0.product_b64) {
-            job.thumbSrc = 'data:image/jpeg;base64,' + d.opt0.product_b64;
-            updateCircleThumb(job);
-          }
+          const cfg = KIND_CFG[job.kind];
+          setJobStatus(job, 'Found it ✓ ' + job.productName, cfg.revealFloor, RENDER_CEILING,
+            { lock: true, force: true, announce: true });
+          if (d.opt0.product_b64) revealFrame(job, d.opt0.product_b64);
+          setTimeout(function () {
+            if (job.status === 'loading') setJobStatus(job, 'Creating your try-on…', null, null, { force: true });
+          }, 2600);
         }
+
+        /* Pre-reveal stage captions (one-shot each; ring already creeping). */
+        if (job.kind === 'smartfit' && d.stage === 'analyzing' && !job.stageSeen.analyzing) {
+          job.stageSeen.analyzing = true;
+          setJobStatus(job, KIND_CFG.smartfit.stageMsg);
+        }
+        if (job.kind === 'freesearch' && d.stage === 'searching' && !job.stageSeen.searching) {
+          job.stageSeen.searching = true;
+          setJobStatus(job, KIND_CFG.freesearch.stageMsg);
+        }
+        if (job.kind === 'tryon' && d.stage === 'tryon' && !job.stageSeen.tryon) {
+          job.stageSeen.tryon = true;
+          setJobStatus(job, KIND_CFG.tryon.stageMsg);
+        }
+
         if (d.status === 'done' && d.opt0) {
           if (d.opt0.tryon_status === 'done' && d.opt0.tryon_b64) {
             markJobDone(job, d.opt0.tryon_b64);
@@ -454,6 +541,11 @@ function pollJob(job) {
       })
       .catch(() => {
         job.failCount++;
+        if (job.failCount === 3 && !job._retrying) {
+          job._retrying = true;
+          const cap = job.el && job.el.querySelector('.sf-caption');
+          if (cap) cap.textContent = 'Connection issue — retrying…';
+        }
         if (job.failCount >= 10) markJobError(job, 'Connection lost');
       });
   }, 2000);
@@ -461,6 +553,7 @@ function pollJob(job) {
 
 function markJobDone(job, b64) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
+  if (job.tailTimer) { clearTimeout(job.tailTimer); job.tailTimer = null; }
   job.status = 'done';
   job.b64 = b64;
   if (job.pace) job.pace.finish();
@@ -468,12 +561,15 @@ function markJobDone(job, b64) {
   job.el.style.opacity = '';
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-done');
+  setJobStatus(job, 'Ready — tap to view', null, null, { force: true });
+  announce((job.productName ? job.productName + ': ' : '') + 'ready — tap to view');
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
 }
 
 function markJobError(job, msg) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
+  if (job.tailTimer) { clearTimeout(job.tailTimer); job.tailTimer = null; }
   if (job.pace) job.pace.stop();
   job.status = 'error';
   job.el.dataset.error = msg || 'Something went wrong';
@@ -481,6 +577,9 @@ function markJobError(job, msg) {
   job.el.style.opacity = '';
   job.el.classList.remove('is-loading');
   job.el.classList.add('is-error');
+  /* Error always wins the caption (force) and announces assertively. */
+  setJobStatus(job, "Couldn't finish — tap for details", null, null, { force: true });
+  announce((job.productName ? job.productName + ': ' : '') + "couldn't finish — tap for details", true);
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
 }
@@ -520,7 +619,16 @@ function openJobResult(job) {
     label += ' · ' + Number(job.opt0.price).toLocaleString() + ' ' + (job.opt0.currency || '');
   }
   document.getElementById('modal-result-product').textContent = label;
-  document.getElementById('modal-result-img').src = 'data:image/png;base64,' + job.b64;
+  const rimg = document.getElementById('modal-result-img');
+  rimg.src = 'data:image/png;base64,' + job.b64;
+  /* Reveal the finished try-on with a quick blur→sharp focus-in. */
+  if (!prefersReducedMotion()) {
+    rimg.style.filter = 'blur(14px)';
+    rimg.style.transition = 'filter .35s ease';
+    rimg.onload = function () { requestAnimationFrame(function () { rimg.style.filter = 'none'; }); };
+  } else {
+    rimg.style.filter = 'none';
+  }
   const shopBtn = document.getElementById('modal-shop-btn');
   if (shopBtn) shopBtn.style.display = job.productId ? '' : 'none';
 
@@ -546,6 +654,7 @@ function shopThisFrame() {
 
 function dismissJob(job) {
   if (job.pollTimer) { clearInterval(job.pollTimer); job.pollTimer = null; }
+  if (job.tailTimer) { clearTimeout(job.tailTimer); job.tailTimer = null; }
   if (job.pace) { job.pace.stop(); job.pace = null; }
   const el = job.el;
   el.classList.add('is-removing');
@@ -558,6 +667,7 @@ function dismissJob(job) {
     if (document.getElementById('tryon-dock').children.length === 0) {
       document.body.classList.remove('dock-active');
     }
+    updateDockMulti();
   };
   el.addEventListener('transitionend', remove, { once: true });
   setTimeout(remove, 400);         // fallback if transitionend never fires

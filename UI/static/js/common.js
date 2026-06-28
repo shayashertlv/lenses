@@ -98,11 +98,18 @@ function ProgressCreep(fillEl, halfLife, applyFn){
   this.displayed=0;     // what's currently shown
   this.t0=0;            // timestamp of last set()
   this.k=(halfLife||15)*1000; // half-life in ms
+  /* ceiling: when null, use the legacy asymptote (99% with 0.85 damping) so
+     existing call sites are unchanged. When set() is given a ceiling, the
+     creep drifts toward EXACTLY that value — letting the storefront park each
+     phase below the next phase's floor so a real signal is a visible jump. */
+  this.ceiling=null;
   this.raf=null;
   var self=this;
+  function reduced(){return !!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);}
+  this._reduced=reduced;
   function tick(now){
     var elapsed=now-self.t0;
-    var headroom=(99-self.base)*0.85;
+    var headroom=(self.ceiling==null)?(99-self.base)*0.85:(self.ceiling-self.base);
     var next=self.base+headroom*(elapsed/(elapsed+self.k));
     // Never go backwards
     next=Math.max(next, self.displayed);
@@ -114,11 +121,14 @@ function ProgressCreep(fillEl, halfLife, applyFn){
   }
   this._tick=tick;
 }
-ProgressCreep.prototype.set=function(pct){
+ProgressCreep.prototype.set=function(pct, ceiling){
+  if(ceiling!=null) this.ceiling=ceiling;
   this.base=Math.max(pct, this.displayed);
   this.displayed=this.base;
   this.t0=performance.now();
   this.apply(this.base, this.el);
+  // Reduced motion: snap to each signal, no continuous creep between them.
+  if(this._reduced()){ if(this.raf){cancelAnimationFrame(this.raf);this.raf=null;} return; }
   if(!this.raf) this.raf=requestAnimationFrame(this._tick);
 };
 ProgressCreep.prototype.stop=function(){
