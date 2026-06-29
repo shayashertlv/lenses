@@ -35,3 +35,12 @@ face_analysis/.analysis_cache/
 
 # pip artifacts
 =*
+
+# Local Claude Code settings (machine-specific, never commit)
+.claude/settings.local.json
+
+# Claude Code worktrees (each is its own working tree, never a submodule)
+.claude/worktrees/
+
+# Generated output (decks, build scripts, pricing maps)
+out/
