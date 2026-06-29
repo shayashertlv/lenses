@@ -21,21 +21,26 @@ def build_lens_recolor_prompt(
         The full prompt string to send to the model.
     """
 
-    if (target_color or "").strip().lower() in {"clear", "transparent", "none", "no tint", "untinted", "n/a", "na"}:
+    if (target_color or "").strip().lower() in {"", "clear", "transparent", "none", "no tint", "untinted", "n/a", "na"}:
         return """Create the EXACT same photo, but make the glasses lenses COMPLETELY CLEAR.
 
 WHAT TO CHANGE:
 - Remove ALL tint and colour from the lens area inside the glasses frame.
 - Make the lenses fully clear, transparent, plain prescription glass — 100% see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses.
-- Keep only subtle natural glass reflections; add no colour.
+- Both lenses identical. Keep only subtle natural glass reflections; add no colour.
+- The eyes, eyebrows and skin must be fully visible through the lenses with zero darkening.
 
-CRITICAL RULES:
-- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
-- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
-- The glasses FRAME must remain completely unchanged — only the lens tint is removed
-- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
+CRITICAL PRESERVATION RULES:
+- Change ONLY the lens tint. Nothing else in the image may change.
+- The glasses FRAME must remain COMPLETELY UNCHANGED — do NOT change the frame colour, material, finish, texture, or thickness in any way.
+- Do NOT change the SHAPE, size, outline, contour, curvature, edges, or position of the FRAME or the LENSES. The geometry of the glasses must be pixel-for-pixel identical to the input.
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance.
+- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input.
+- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up.
+- The edges of the output must show the EXACT same content as the input — same background, same body parts visible.
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL.
 
-OUTPUT: Return the edited photo. Photorealistic — real clear prescription lenses, not a digital overlay."""
+OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real clear prescription lenses, not a digital overlay."""
 
     intensity_map = {
         "light": "light tint (~25-30% opacity, eyes clearly visible)",
@@ -70,13 +75,15 @@ WHAT TO CHANGE:
 - The tint should look like real tinted glass — eyes and face visible through at appropriate opacity
 - Color edges must follow the inner frame edge precisely — no bleeding onto frame or skin
 
-CRITICAL RULES:
-- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
-- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
-- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
-- The edges of the output must show the EXACT same content as the input — same background, same body parts visible
-- The glasses FRAME must remain completely unchanged — only the lens color changes
-- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
+CRITICAL PRESERVATION RULES:
+- Change ONLY the lens colour. Nothing else in the image may change.
+- The glasses FRAME must remain COMPLETELY UNCHANGED — do NOT change the frame colour, material, finish, texture, or thickness in any way. Only the lens colour changes.
+- Do NOT change the SHAPE, size, outline, contour, curvature, edges, or position of the FRAME or the LENSES. The geometry of the glasses must be pixel-for-pixel identical to the input.
+- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance.
+- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input.
+- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up.
+- The edges of the output must show the EXACT same content as the input — same background, same body parts visible.
+- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL.
 
 OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real tinted glasses, not a digital overlay."""
 

@@ -13,7 +13,8 @@ import unittest
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_ROOT, "face_analysis"))
 
-from UI.pipelines import _fs_build_tryon_prompt, _build_recolor_prompt, _lens_clauses
+from UI.pipelines import _fs_build_tryon_prompt, _lens_clauses
+from lens_recolor.prompt_engine import build_lens_recolor_prompt
 from tryon_prompt import build_tryon_prompt as fa_build_tryon_prompt
 
 
@@ -81,14 +82,17 @@ class TestSmartFitTryonPrompt(unittest.TestCase):
 
 
 class TestRecolorPrompt(unittest.TestCase):
+    """The UI recolor uses the shared canonical builder with its hardcoded
+    medium / standard / preserve-reflections settings."""
+
     def test_clear_removes_tint(self):
         for c in ("Clear", "clear", "transparent", "none"):
-            p = _build_recolor_prompt(c)
+            p = build_lens_recolor_prompt(c, "medium", "standard", True)
             self.assertIn("COMPLETELY CLEAR", p, c)
             self.assertNotIn("medium tint", p, c)
 
     def test_color_keeps_tint(self):
-        p = _build_recolor_prompt("Ocean Blue")
+        p = build_lens_recolor_prompt("Ocean Blue", "medium", "standard", True)
         self.assertIn("Ocean Blue", p)
         self.assertIn("medium tint", p)
 

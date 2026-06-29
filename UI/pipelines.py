@@ -26,6 +26,10 @@ from UI.config import (
 
 from tag_matcher import compute_component_scores, preferences_to_query_tags, rank_products
 
+# Single source of truth for the lens-recolor prompt — shared with the root
+# lens_recolor/ feature so the two recolor paths can never diverge again.
+from lens_recolor.prompt_engine import build_lens_recolor_prompt
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PRE-LOADED CATALOG DATA (loaded once at import time, reused by all pipelines)
@@ -1174,59 +1178,6 @@ def _cleanup(path: str):
 # LENS RECOLOR PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_clear_lens_prompt() -> str:
-    """Recolor prompt for the 'Clear' option — REMOVE all tint, don't add one."""
-    return """Create the EXACT same photo, but make the glasses lenses COMPLETELY CLEAR.
-
-WHAT TO CHANGE:
-- Remove ALL tint and colour from the lens area inside the glasses frame.
-- Make the lenses fully clear, transparent, plain prescription glass — 100% see-through with NO tint, NO colour and NO darkening. These are NOT sunglasses.
-- Both lenses identical. Keep only subtle natural glass reflections; add no colour.
-- The eyes, eyebrows and skin must be fully visible through the lenses with zero darkening.
-
-CRITICAL RULES:
-- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
-- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
-- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
-- The edges of the output must show the EXACT same content as the input — same background, same body parts visible
-- The glasses FRAME must remain completely unchanged — only the lens tint is removed
-- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
-
-OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real clear prescription lenses, not a digital overlay."""
-
-
-def _build_recolor_prompt(target_color: str) -> str:
-    """
-    Build a recolor prompt for Nano Banana Pro.
-
-    The model independently determines the most realistic way to change the
-    glasses lens color. The output must be the exact same photo with only
-    the lens color changed, blended naturally.
-    """
-    if (target_color or "").strip().lower() in _CLEAR_LENS_COLORS:
-        return _build_clear_lens_prompt()
-    return f"""Create the EXACT same photo, but change ONLY the glasses lens color.
-
-TARGET: {target_color}, medium tint (~50-60% opacity, eyes partially visible), uniform smooth tint
-Preserve any existing lens reflections naturally on top of the new color.
-
-WHAT TO CHANGE:
-- Apply {target_color} tint only to the lens area inside the glasses frame
-- Both lenses must have the same color treatment
-- The tint should look like real tinted glass — eyes and face visible through at appropriate opacity
-- Color edges must follow the inner frame edge precisely — no bleeding onto frame or skin
-
-CRITICAL RULES:
-- The output must be a 1:1 compositional match — same head size, crop, zoom, framing, and camera distance
-- Do NOT change the aspect ratio — the output must have the same aspect ratio as the input
-- Do NOT crop, zoom in/out, re-center, reframe, or change what is visible at the edges — no close-up
-- The edges of the output must show the EXACT same content as the input — same background, same body parts visible
-- The glasses FRAME must remain completely unchanged — only the lens color changes
-- The person's face, skin, hair, expression, clothing, background, and lighting must remain IDENTICAL
-
-OUTPUT: Return the edited photo. Same dimensions and quality as the input. Photorealistic — real tinted glasses, not a digital overlay."""
-
-
 def _recolor_single(portrait_path: str, target_color: str, api_key: str,
                     portrait_part=None, client=None) -> dict:
     """
@@ -1240,7 +1191,9 @@ def _recolor_single(portrait_path: str, target_color: str, api_key: str,
     from google import genai
     from google.genai import types
 
-    prompt = _build_recolor_prompt(target_color)
+    prompt = build_lens_recolor_prompt(
+        target_color, intensity="medium", finish="standard", preserve_reflections=True,
+    )
 
     try:
         if portrait_part is None:
@@ -1252,7 +1205,10 @@ def _recolor_single(portrait_path: str, target_color: str, api_key: str,
         client = genai.Client(api_key=api_key)
 
     for attempt in range(2):
-        p = prompt if attempt == 0 else prompt + "\n\nReturn ONLY the edited image, no text."
+        p = prompt if attempt == 0 else prompt + (
+            "\n\nIMPORTANT: Return ONLY the edited image with the recolored "
+            "lenses applied. Do not include any text in your response."
+        )
         try:
             response = client.models.generate_content(
                 model=RECOLOR_MODEL_NAME,

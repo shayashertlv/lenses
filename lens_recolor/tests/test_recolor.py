@@ -16,7 +16,7 @@ class TestPromptEngine(unittest.TestCase):
     def test_basic_prompt_contains_color(self):
         prompt = build_lens_recolor_prompt("ocean blue")
         self.assertIn("ocean blue", prompt)
-        self.assertIn("TARGET LENS COLOR: ocean blue", prompt)
+        self.assertIn("TARGET: ocean blue", prompt)
 
     def test_intensity_light(self):
         prompt = build_lens_recolor_prompt("red", intensity="light")
@@ -33,12 +33,12 @@ class TestPromptEngine(unittest.TestCase):
 
     def test_finish_standard(self):
         prompt = build_lens_recolor_prompt("blue", finish="standard")
-        self.assertIn("uniform, smooth color tint", prompt)
+        self.assertIn("uniform smooth tint", prompt)
 
     def test_finish_gradient(self):
         prompt = build_lens_recolor_prompt("blue", finish="gradient")
         self.assertIn("gradient tint", prompt)
-        self.assertIn("darker at the top", prompt)
+        self.assertIn("darker at top", prompt)
 
     def test_finish_mirror(self):
         prompt = build_lens_recolor_prompt("blue", finish="mirror")
@@ -46,11 +46,11 @@ class TestPromptEngine(unittest.TestCase):
 
     def test_finish_polarized(self):
         prompt = build_lens_recolor_prompt("blue", finish="polarized")
-        self.assertIn("polarized appearance", prompt)
+        self.assertIn("polarized sheen", prompt)
 
     def test_preserve_reflections_true(self):
         prompt = build_lens_recolor_prompt("green", preserve_reflections=True)
-        self.assertIn("preserve them naturally", prompt)
+        self.assertIn("Preserve any existing lens reflections naturally", prompt)
 
     def test_preserve_reflections_false(self):
         prompt = build_lens_recolor_prompt("green", preserve_reflections=False)
@@ -61,7 +61,7 @@ class TestPromptEngine(unittest.TestCase):
         self.assertIn("CRITICAL PRESERVATION RULES", prompt)
         self.assertIn("glasses FRAME", prompt)
         self.assertIn("COMPLETELY UNCHANGED", prompt)
-        self.assertIn("photorealistic", prompt)
+        self.assertIn("Photorealistic", prompt)
 
     def test_creative_color_passthrough(self):
         colors = [
@@ -81,7 +81,33 @@ class TestPromptEngine(unittest.TestCase):
 
     def test_invalid_finish_falls_back_to_standard(self):
         prompt = build_lens_recolor_prompt("blue", finish="holographic")
-        self.assertIn("uniform, smooth color tint", prompt)
+        self.assertIn("uniform smooth tint", prompt)
+
+    def test_frame_colour_preservation_clause(self):
+        # Both the tinted and the clear prompt must forbid any frame change.
+        for color in ("ocean blue", "clear"):
+            prompt = build_lens_recolor_prompt(color)
+            self.assertIn("do NOT change the frame colour", prompt, color)
+            self.assertIn("material", prompt, color)
+            self.assertIn("thickness", prompt, color)
+
+    def test_shape_geometry_preservation_clause(self):
+        # Both prompts must forbid any change to frame/lens shape or geometry.
+        for color in ("ocean blue", "clear"):
+            prompt = build_lens_recolor_prompt(color)
+            self.assertIn("Do NOT change the SHAPE", prompt, color)
+            self.assertIn("FRAME or the LENSES", prompt, color)
+            self.assertIn("pixel-for-pixel identical", prompt, color)
+
+    def test_empty_color_returns_clear_prompt(self):
+        prompt = build_lens_recolor_prompt("")
+        self.assertIn("COMPLETELY CLEAR", prompt)
+        self.assertNotIn("medium tint", prompt)
+
+    def test_identical_inputs_give_identical_prompt(self):
+        a = build_lens_recolor_prompt("ocean blue")
+        b = build_lens_recolor_prompt("ocean blue")
+        self.assertEqual(a, b)
 
 
 class TestConfig(unittest.TestCase):
