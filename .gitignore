@@ -57,3 +57,6 @@ node_modules/
 .impeccable/sketches/
 .impeccable/screenshots/
 .impeccable/config.local.json
+
+# Commercial proposal (local only, never commit)
+lenses_erroca_proposal.*
