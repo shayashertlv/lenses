@@ -361,3 +361,34 @@ Recorded so the next pass does not mistake them for system:
 - `.sg-display`, `.sg-label`, `.sg-figure` and `.sg-price` in `tokens.css` are real utilities but only partially adopted; most surfaces restate the same declarations locally. The shared classes are the intended path.
 - Facet geometry (clip-path silhouettes, indicator sizing) and swatch colours are still inline `style` attributes in the templates — 186 of them, budgeted and ratcheting down. They are product data that has not been extracted into the token layer. This is where the system currently stops.
 - The `1280` breakpoint named in the `tokens.css` header comment does not exist in any stylesheet. The comment is stale; the code is the record.
+
+## Product colour vocabulary
+
+These are **product data, not design tokens**. The catalogue names sixteen lens
+tints and eighteen frame colours; the swatch that represents each one has to be
+that colour, so they live inline on the control and are deliberately outside the
+`tokens.css` palette. A future surface inherits the *mechanism* (a swatch shows
+its own colour) and never these values as UI colours.
+
+The tint values currently shipped, harvested from the templates:
+
+```
+  #00838f  #16a34a  #1a1a1a  #1a237e  #1a2a3a  #1a73e8
+  #20a040  #2563eb  #2a2a2a  #2a3a4a  #2e7d32  #3a3a3a
+  #3f51b5  #404040  #4060c0  #4caf50  #4dd0e1  #4fc3f7
+  #587848  #607840  #616161  #654321  #688058  #6a1b9a
+  #6b4226  #6b7280  #709060  #808080  #8090a0  #8090a8
+  #8b4513  #8d4e2a  #8d6e3f  #9098a8  #9888b0  #98c090
+  #9ca3af  #9e9e9e  #a040a0  #a0724a  #a0a8b0  #a8a8a8
+  #a8c090  #a8c8a0  #ab47bc  #b0b0b0  #b0d0a0  #b71c1c
+  #b8c6d4  #c04010  #c06020  #c09050  #c0c0c0  #c2185b
+  #c47860  #c4963c  #c8d0d8  #c9a84c  #cd7f50  #cd853f
+  #d0c8e0  #d0d0d0  #d0d8e0  #d2691e  #d4a0a0  #d4a574
+  #dc2626  #dce6ef  #e08020  #e0e0e0  #e0e8f0  #e8b4a0
+  #e8b4b4  #e8c860  #e8d48b  #eab308  #ec4899  #ef5350
+  #f06292  #f8f8f8  #f9a825  #f9a8d4  #ffee58
+```
+
+They are recorded here so the detector can tell a product swatch from an
+undocumented UI colour. Extracting them into `data-color` rules driven by a
+named map remains the open work noted in Known Gaps.

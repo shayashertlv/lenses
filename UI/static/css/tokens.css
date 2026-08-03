@@ -138,6 +138,16 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* Form controls do not inherit colour or font from the page. Converting the
+   upload trays from <div> to <button> for keyboard reachability made them
+   fall back to the UA's ButtonText, which is pure black and outside this
+   system. Inherit both, once, here. */
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
 body {
   margin: 0;
   font-family: var(--font);

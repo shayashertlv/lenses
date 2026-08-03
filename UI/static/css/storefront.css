@@ -626,12 +626,25 @@
 .rc-swatch { width: 32px; height: 32px; border-radius: var(--r-tag); border: 1px solid var(--rule); }
 .rc-cname { font-size: var(--t-2xs); letter-spacing: var(--tr-label); text-transform: uppercase; text-align: center; line-height: 1.2; }
 
+/* The overlay's facet bands. These lived in free-search.css, which the
+   storefront does not load, so without them the band had no field background
+   and its white count sat on white. */
 .section-title {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-3);
+  margin: var(--s-5) 0 var(--s-3);
+  padding: 6px var(--s-3);
+  background-color: var(--field);
+  color: var(--on-field);
+  border-radius: var(--r-tag) var(--r-tag) 0 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
 }
+.fs-panel-body > .section-title:first-of-type { margin-top: 0; }
 .section-count { color: var(--on-field-2); font-weight: 400; }
 
 /* ══════════════════════════════════════════════════
