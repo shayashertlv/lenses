@@ -53,9 +53,12 @@
 /* ── Form ─────────────────────────────────────── */
 #form-view { max-width: 940px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-7); }
 
-/* Every group heading is a signage band. */
+/* Every group heading is a signage band: name left, live count right. */
 .section-title {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
   margin: var(--s-5) 0 var(--s-3);
   padding: 6px var(--s-3);
   background-color: var(--field);
@@ -67,7 +70,6 @@
   text-transform: uppercase;
 }
 #form-view > .section-title:first-of-type { margin-top: 0; }
-.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
 .section-count { color: var(--on-field-2); font-weight: 400; }
 
 /* ── The dispensing tray ── */
@@ -278,7 +280,8 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-.results-back:hover, .results-compare:hover { background-color: var(--field-deep); }
+.results-back:hover, .results-compare:hover { background-color: var(--field-hi); }
+.results-back:active, .results-compare:active { background-color: var(--field-deep); }
 
 .results-row {
   display: grid;
@@ -333,7 +336,8 @@
   cursor: pointer;
   border-radius: var(--r-ctl);
 }
-.compare-close:hover { background-color: var(--field-deep); }
+.compare-close:hover { background-color: var(--field-hi); }
+.compare-close:active { background-color: var(--field-deep); }
 .compare-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

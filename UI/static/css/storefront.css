@@ -106,7 +106,11 @@
   font-family: inherit;
   transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
 }
-.ai-action-btn:hover { background-color: var(--ink); color: var(--paper); }
+.ai-action-btn:hover {
+  background-color: var(--ink);
+  color: var(--paper);
+  box-shadow: var(--sh-lift);
+}
 .ai-action-btn .ai-ico { flex: none; width: 34px; height: 34px; display: grid; place-items: center; }
 .ai-action-btn .ai-ico svg { width: 30px; height: 30px; }
 .ai-action-btn .ai-txt { display: flex; flex-direction: column; gap: 2px; }
@@ -200,7 +204,11 @@
   overflow: hidden;
   transition: border-color var(--d-base) var(--ease), transform var(--d-base) var(--ease);
 }
-.product-card:hover { border-color: var(--ink); transform: translateY(-2px); }
+.product-card:hover {
+  border-color: var(--ink);
+  transform: translateY(-2px);
+  box-shadow: var(--sh-lift);
+}
 
 .product-card .img-wrap {
   position: relative;
@@ -349,7 +357,7 @@
   overflow: hidden;
   transition: transform var(--d-base) var(--ease), border-color var(--d-base) var(--ease);
 }
-.sf-ticket:hover { transform: translateY(-2px); }
+.sf-ticket:hover { transform: translateY(-2px); box-shadow: var(--sh-modal); }
 
 .sf-tk-head {
   display: flex;

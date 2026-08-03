@@ -386,7 +386,8 @@ body.sf-open { overflow: hidden; }
   text-transform: uppercase;
   cursor: pointer;
 }
-.results-back:hover { background-color: var(--field-deep); }
+.results-back:hover { background-color: var(--field-hi); }
+.results-back:active { background-color: var(--field-deep); }
 
 .results-inner {
   display: grid;

@@ -11,9 +11,6 @@
   gap: var(--s-3);
   align-content: start;
 }
-.result-card.is-primary { grid-column: 1 / -1; }
-.result-card.is-primary .result-img { max-height: 58vh; }
-
 .result-card {
   display: flex;
   flex-direction: column;
@@ -22,7 +19,13 @@
   overflow: hidden;
   background-color: var(--paper);
 }
-.result-card.is-primary { border-color: var(--ink); }
+/* The first render arrives across the full row; the alternates settle in
+   beneath it. One block, so the two halves of this rule cannot drift apart. */
+.result-card.is-primary {
+  grid-column: 1 / -1;
+  border-color: var(--ink);
+}
+.result-card.is-primary .result-img { max-height: 58vh; }
 .result-img { background-color: var(--card); display: grid; place-items: center; min-height: 180px; }
 .result-img img { display: block; width: 100%; height: auto; max-height: 58vh; object-fit: contain; }
 .tryon-done { position: relative; width: 100%; }

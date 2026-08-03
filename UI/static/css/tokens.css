@@ -66,9 +66,6 @@
   /* ── Type. Archivo variable: weight 400-800, width 62-125%.
      Display uses the condensed axis; body stays at normal width. */
   --font:         'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --wd-display:   70;
-  --wd-tight:     85;
-  --wd-normal:    100;
 
   /* 11px is the functional floor. Nothing readable goes below it. */
   --t-2xs:  0.6875rem;  /* 11px — signage labels, spec rows */
@@ -82,7 +79,6 @@
   --t-3xl:  clamp(2.75rem, 0.6rem + 9.5vw, 6.5rem);   /* display max 6.5rem */
 
   --lh-tight:  0.92;
-  --lh-snug:   1.25;
   --lh-body:   1.6;
   --tr-display: -0.02em;   /* tracking floor is -0.04em; nothing goes past it */
   --tr-label:    0.08em;
