@@ -161,7 +161,7 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
-.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 .submit-hint { margin: var(--s-2) 0 0; font-size: var(--t-2xs); color: var(--ink-3); text-align: center; }
 
 /* ══════════════════════════════════════════════════

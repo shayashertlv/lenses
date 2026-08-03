@@ -179,6 +179,17 @@
   display: grid; place-items: center;
 }
 
+/* Sport lenses: a solid field surface from the token layer rather than a raw
+   hex gradient, so the caption's contrast is verifiable (9.4:1) instead of
+   hidden inside a gradient no checker can read. */
+.lens-ind--sport {
+  background-color: var(--field);
+  border-color: var(--field);
+  color: var(--on-field);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+}
+
 .rim-vis { width: 44px; height: 20px; border-radius: 3px; }
 .rim-vis.full    { border: 2px solid currentColor; }
 .rim-vis.semi    { border: 2px solid currentColor; border-bottom-color: transparent; }
@@ -195,7 +206,8 @@
 }
 .swatch:has(input:checked) .swatch-inner .swatch-dot { border-color: rgba(255, 255, 255, .5); }
 
-.any-icon { font-size: var(--t-sm); font-weight: 700; }
+.any-icon { display: grid; place-items: center; }
+.any-mark { width: 22px; height: 22px; }
 
 @media (max-width: 560px) {
   .tile-grid   { grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); }

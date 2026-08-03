@@ -10,19 +10,7 @@
    before its image exists.
    ══════════════════════════════════════════════════ */
 
-const tips = [
-  "Round faces pair best with angular frames to add definition.",
-  "The top of your frames should follow your brow line for the most natural look.",
-  "Titanium frames are up to 40% lighter than standard metal.",
-  "Semi-rimless frames are the most popular style for professional settings.",
-  "Acetate frames come in more colours and patterns than any other material.",
-  "Heart-shaped faces look great in bottom-heavy frames.",
-  "Warm skin undertones pair beautifully with tortoiseshell and gold frames.",
-  "Cool skin undertones are complemented by silver, black and jewel-toned frames.",
-  "Square faces benefit from rounded frames that soften strong angles.",
-];
-
-let sfSid = null, sfPoll = null, sfTipTimer = null, sfTipIdx = 0, sfLastRendered = '';
+let sfSid = null, sfPoll = null, sfLastRendered = '';
 let sfPace = null, sfRetry = null;
 let sfProfileDone = false, sfFrameNamed = false;
 let sfNotes = [], sfNoteIdx = 0, sfNoteTimer = null;
@@ -41,17 +29,6 @@ function sfStartPace() {
   sfPace.start();
 }
 
-function sfStartTips() {
-  sfTipIdx = 0; sfShowTip();
-  sfTipTimer = setInterval(() => { sfTipIdx = (sfTipIdx + 1) % tips.length; sfShowTip(); }, 6000);
-}
-function sfStopTips() { if (sfTipTimer) clearInterval(sfTipTimer); sfTipTimer = null; }
-function sfShowTip() {
-  const t = document.getElementById('sf-tip');
-  if (!t) return;
-  t.style.opacity = '0';
-  setTimeout(() => { t.textContent = tips[sfTipIdx]; t.style.opacity = '1'; }, 320);
-}
 
 function sfShow(view) {
   ['sf-processing', 'sf-results', 'sf-error'].forEach(id => {
@@ -155,7 +132,6 @@ document.getElementById('sf-file').addEventListener('change', async e => {
   sfStartPace();
   document.getElementById('sf-stage').textContent = 'Reading your face';
   sfRetry = new PollRetry('sf-stage', sfShowError);
-  sfStartTips();
 
   const reader = new FileReader();
   reader.onload = ev => {
@@ -203,7 +179,6 @@ function sfPollStatus() {
 
     const ready = d.num_options > 0 && (d.stage === 'primary_ready' || d.stage === 'done');
     if (ready || d.status === 'done') {
-      sfStopTips();
       if (sfPace) sfPace.finish();
       sfRender(d);
     }
@@ -215,7 +190,6 @@ function sfPollStatus() {
 }
 
 function sfShowError(msg) {
-  sfStopTips();
   if (sfPace) sfPace.stop();
   document.getElementById('sf-error-msg').textContent = msg;
   sfShow('sf-error');
@@ -268,7 +242,6 @@ function sfResetState() {
 function sfReset() {
   sfSid = null;
   if (sfPoll) clearTimeout(sfPoll);
-  sfStopTips();
   sfResetState();
   document.getElementById('sf-file').value = '';
   document.getElementById('sf-opts').innerHTML = '';

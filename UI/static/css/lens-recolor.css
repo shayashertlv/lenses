@@ -188,7 +188,7 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
-.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 
 /* ══════════════════════════════════════════════════
    Loading / results / error screens

@@ -181,12 +181,13 @@
 }
 .filter-pill:hover { border-color: var(--rule-strong); background-color: var(--card); }
 .filter-pill.active { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pill-count { opacity: .62; }
 
 /* ── The shelf run ────────────────────────────── */
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--s-3);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-4);
 }
 
 .product-card {
@@ -237,9 +238,9 @@
   border: 1px solid var(--rule);
   color: var(--ink-2);
 }
-.product-card .badge.men    { border-color: var(--field); color: var(--field); }
-.product-card .badge.women  { border-color: var(--signal); color: var(--signal-ink); }
-.product-card .badge.unisex { border-color: var(--rule-strong); }
+.product-card .badge.men,
+.product-card .badge.women,
+.product-card .badge.unisex { border-color: var(--rule-strong); color: var(--ink-2); }
 
 .product-info {
   display: flex;
@@ -275,6 +276,13 @@
   padding-top: var(--s-3);
 }
 .product-info .price { font-size: var(--t-sm); }
+.shelf-ix {
+  margin-right: auto;
+  padding-left: var(--s-2);
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  color: var(--ink-3);
+}
 
 .tryon-btn {
   min-height: 36px;
@@ -292,7 +300,7 @@
 /* Scroll-to highlight when "Shop this frame" is used. */
 @keyframes sfCardPulse {
   0%, 100% { border-color: var(--rule); }
-  35%      { border-color: var(--signal); }
+  35%      { border-color: var(--ink); }
 }
 .product-card.sf-highlight { animation: sfCardPulse 1.6s var(--ease) 2; }
 
@@ -438,7 +446,8 @@
   font-weight: 700;
   color: var(--danger);
 }
-.sf-badge svg { width: 11px; height: 11px; fill: none; stroke: var(--field); stroke-width: 3; }
+.sf-badge svg { width: 11px; height: 11px; }
+.sf-badge-err svg { color: var(--danger); }
 .sf-ticket.is-done  .sf-badge-check { display: grid; }
 .sf-ticket.is-error .sf-badge-err   { display: grid; }
 
@@ -456,6 +465,7 @@
   border-radius: var(--r-tag);
 }
 .sf-ticket.is-done .sf-dismiss { color: var(--signal-ink); }
+.sf-dismiss svg { width: 12px; height: 12px; }
 .sf-dismiss:hover { color: var(--on-field); }
 
 /* Tapped while still working. Mechanical nudge, no bounce. */
@@ -544,7 +554,7 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .modal-submit:hover:not(:disabled) { filter: brightness(1.06); }
-.modal-submit:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.modal-submit:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 
 .shop-btn, .recolor-btn, .rc-back-btn, .change-photo-btn {
   width: 100%;
@@ -665,7 +675,7 @@
   font-weight: 700;
   cursor: pointer;
 }
-.fs-panel-body .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.fs-panel-body .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 #sf-fs-file { display: none; }
 
 /* ══════════════════════════════════════════════════
@@ -722,7 +732,7 @@
    ══════════════════════════════════════════════════ */
 @media (max-width: 900px) {
   .hero, .ai-actions, .container { padding-left: var(--s-4); padding-right: var(--s-4); }
-  .product-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {

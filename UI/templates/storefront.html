@@ -71,16 +71,7 @@
     <button class="filter-pill"        type="button" data-gender="women"  onclick="setGenderFilter('women')">Women</button>
     <button class="filter-pill"        type="button" data-gender="unisex" onclick="setGenderFilter('unisex')">Unisex</button>
   </div>
-  <div class="product-grid" id="product-grid">
-    <!-- Skeleton cards while loading -->
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
-    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+  <div class="product-grid" id="product-grid" aria-busy="true">
   </div>
 </div>
 
@@ -90,7 +81,7 @@
 <!-- Free Search overlay: full options form -> single best-match circle -->
 <div id="fs-overlay" class="fs-overlay">
   <div class="fs-panel">
-    <button class="modal-close" onclick="closeFreeSearch()">&times;</button>
+    <button class="modal-close" onclick="closeFreeSearch()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="fs-panel-body">
       <h2 class="fs-panel-title">Free Search</h2>
       <p class="fs-panel-sub">Tell us what you're after — AI finds your single best match and tries it on.</p>
@@ -113,7 +104,7 @@
 
       <h3 class="section-title">Shape</h3>
       <div class="tile-grid">
-        <label class="tile"><input type="radio" name="frame_shape" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+        <label class="tile"><input type="radio" name="frame_shape" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
         <label class="tile"><input type="radio" name="frame_shape" value="round"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:50%"></div><span class="tile-label">Round</span></div></label>
         <label class="tile"><input type="radio" name="frame_shape" value="square"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:3px"></div><span class="tile-label">Square</span></div></label>
         <label class="tile"><input type="radio" name="frame_shape" value="rectangular"/><div class="tile-inner"><div class="shape-vis" style="width:38px;height:22px;border-radius:3px"></div><span class="tile-label">Rectangular</span></div></label>
@@ -128,21 +119,21 @@
 
       <h3 class="section-title">Lens Type</h3>
       <div class="tile-grid">
-        <label class="tile"><input type="radio" name="lens_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
-        <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.2)"></div><span class="tile-label">Clear</span></div></label>
-        <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.6875rem;font-weight:700;color:rgba(255,255,255,.6)">Rx</div><span class="tile-label">Prescription</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;"></div><span class="tile-label">Clear</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.6875rem;font-weight:700;">Rx</div><span class="tile-label">Prescription</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="sunglasses"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:#2a2a2a"></div><span class="tile-label">Sunglasses</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="polarized"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:repeating-linear-gradient(0deg,#666,#666 2px,#888 2px,#888 4px)"></div><span class="tile-label">Polarized</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="gradient"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(180deg,#333,#999)"></div><span class="tile-label">Gradient</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="mirrored"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#e0e8f0,#8090a8,#e0e8f0)"></div><span class="tile-label">Mirrored</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="chromance"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#4060c0,#a040a0,#c06020)"></div><span class="tile-label">Chromance</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="prizm"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#c04010,#e08020,#20a040)"></div><span class="tile-label">Prizm</span></div></label>
-        <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#1a3a5c,#2060a0);display:flex;align-items:center;justify-content:center;font-size:.6875rem;font-weight:700;color:#fff">SPT</div><span class="tile-label">Sport</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind lens-ind--sport">SPT</div><span class="tile-label">Sport</span></div></label>
       </div>
 
       <h3 class="section-title">Frame Color</h3>
       <div class="swatch-grid">
-        <label class="swatch"><input type="radio" name="frame_color" value="" checked/><div class="swatch-inner"><div class="any-icon">&#10038;</div><span class="swatch-name">Any</span></div></label>
+        <label class="swatch"><input type="radio" name="frame_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#1a1a1a"></div><span class="swatch-name">Black</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d0d0d0,#a8a8a8)"></div><span class="swatch-name">Silver</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="gold"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#e8c860,#c4963c)"></div><span class="swatch-name">Gold</span></div></label>
@@ -154,12 +145,12 @@
         <label class="swatch"><input type="radio" name="frame_color" value="green"/><div class="swatch-inner"><div class="swatch-dot" style="background:#16a34a"></div><span class="swatch-name">Green</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="red"/><div class="swatch-inner"><div class="swatch-dot" style="background:#dc2626"></div><span class="swatch-name">Red</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="pink"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#f9a8d4,#ec4899)"></div><span class="swatch-name">Pink</span></div></label>
-        <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f8f8f8;border:1px solid rgba(255,255,255,.3)"></div><span class="swatch-name">White</span></div></label>
+        <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f8f8f8;"></div><span class="swatch-name">White</span></div></label>
       </div>
 
       <h3 class="section-title">Lens Color</h3>
       <div class="swatch-grid">
-        <label class="swatch"><input type="radio" name="lens_color" value="" checked/><div class="swatch-inner"><div class="any-icon">&#10038;</div><span class="swatch-name">Any</span></div></label>
+        <label class="swatch"><input type="radio" name="lens_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
         <label class="swatch"><input type="radio" name="lens_color" value="transparent"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/10px 10px;border-style:dashed"></div><span class="swatch-name">Clear</span></div></label>
         <label class="swatch"><input type="radio" name="lens_color" value="gray"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#9ca3af,#6b7280)"></div><span class="swatch-name">Gray</span></div></label>
         <label class="swatch"><input type="radio" name="lens_color" value="brown"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#a0724a,#6b4226)"></div><span class="swatch-name">Brown</span></div></label>
@@ -180,7 +171,7 @@
       <div id="sf-advanced-section">
         <h3 class="section-title">Material</h3>
         <div class="tile-grid">
-          <label class="tile"><input type="radio" name="frame_material" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+          <label class="tile"><input type="radio" name="frame_material" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
           <label class="tile"><input type="radio" name="frame_material" value="metal"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0,#808080)"></div><span class="tile-label">Metal</span></div></label>
           <label class="tile"><input type="radio" name="frame_material" value="stainless-steel"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d0d8e0,#8090a0)"></div><span class="tile-label">Steel</span></div></label>
           <label class="tile"><input type="radio" name="frame_material" value="acetate"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#d4a574,#8B4513)"></div><span class="tile-label">Acetate</span></div></label>
@@ -195,7 +186,7 @@
           <div class="field" style="flex:1;min-width:200px">
             <label>Rim Type</label>
             <div class="tile-grid" style="grid-template-columns:repeat(4,1fr)">
-              <label class="tile"><input type="radio" name="rim_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+              <label class="tile"><input type="radio" name="rim_type" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
               <label class="tile"><input type="radio" name="rim_type" value="full-rim"/><div class="tile-inner"><div class="rim-vis full"></div><span class="tile-label">Full Rim</span></div></label>
               <label class="tile"><input type="radio" name="rim_type" value="semi-rimless"/><div class="tile-inner"><div class="rim-vis semi"></div><span class="tile-label">Semi</span></div></label>
               <label class="tile"><input type="radio" name="rim_type" value="rimless"/><div class="tile-inner"><div class="rim-vis rimless"></div><span class="tile-label">Rimless</span></div></label>
@@ -204,7 +195,7 @@
           <div class="field" style="flex:1;min-width:200px">
             <label>Thickness</label>
             <div class="tile-grid" style="grid-template-columns:repeat(4,1fr)">
-              <label class="tile"><input type="radio" name="frame_thickness" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+              <label class="tile"><input type="radio" name="frame_thickness" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
               <label class="tile"><input type="radio" name="frame_thickness" value="thin"/><div class="tile-inner"><div class="thick-bar" style="height:2px"></div><span class="tile-label">Thin</span></div></label>
               <label class="tile"><input type="radio" name="frame_thickness" value="medium"/><div class="tile-inner"><div class="thick-bar" style="height:5px"></div><span class="tile-label">Medium</span></div></label>
               <label class="tile"><input type="radio" name="frame_thickness" value="thick"/><div class="tile-inner"><div class="thick-bar" style="height:9px"></div><span class="tile-label">Thick</span></div></label>
@@ -214,7 +205,7 @@
 
         <h3 class="section-title">Lens Size</h3>
         <div class="tile-grid" style="grid-template-columns:repeat(5,1fr);max-width:480px">
-          <label class="tile"><input type="radio" name="lens_size" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
+          <label class="tile"><input type="radio" name="lens_size" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
           <label class="tile"><input type="radio" name="lens_size" value="small"/><div class="tile-inner"><div class="size-dot" style="width:16px;height:16px"></div><span class="tile-label">Small</span></div></label>
           <label class="tile"><input type="radio" name="lens_size" value="medium"/><div class="tile-inner"><div class="size-dot" style="width:22px;height:22px"></div><span class="tile-label">Medium</span></div></label>
           <label class="tile"><input type="radio" name="lens_size" value="large"/><div class="tile-inner"><div class="size-dot" style="width:28px;height:28px"></div><span class="tile-label">Large</span></div></label>
@@ -261,7 +252,7 @@
 
       <div class="submit-row">
         <button class="submit-btn" id="sf-fs-submit" disabled onclick="startFreeSearchFromOverlay()">Find My Match</button>
-        <p style="font-size:.76rem;color:rgba(255,255,255,.35);margin-top:.6rem" id="sf-fs-hint">Upload a photo first</p>
+        <p class="submit-hint" id="sf-fs-hint">Upload a photo first</p>
       </div>
     </div>
   </div>
@@ -270,7 +261,7 @@
 <!-- Try-on modal -->
 <div class="modal-overlay" id="tryon-modal">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <button class="modal-close" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="modal-body">
       <!-- Upload step -->
       <div id="modal-upload">
@@ -306,7 +297,7 @@
         <h3>Recolor Lenses</h3>
         <p class="modal-subtitle">Choose a lens color</p>
         <div class="rc-color-grid" id="rc-color-grid">
-          <button type="button" class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="rc-cname">Clear</span></button>
+          <button type="button" class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" data-clear="1"></div><span class="rc-cname">Clear</span></button>
           <button type="button" class="rc-color-opt" data-color="Soft Black" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="rc-cname">Soft Black</span></button>
           <button type="button" class="rc-color-opt" data-color="Smoke Gray" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="rc-cname">Smoke Gray</span></button>
           <button type="button" class="rc-color-opt" data-color="Amber Brown" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="rc-cname">Amber Brown</span></button>
@@ -329,7 +320,7 @@
 
       <!-- Error step -->
       <div id="modal-error" style="display:none;text-align:center">
-        <div style="font-size:2rem;margin-bottom:.8rem;color:rgba(255,255,255,.5)">:/</div>
+        <span class="error-mark">Not dispensed</span>
         <h3>Something went wrong</h3>
         <p class="modal-subtitle" id="modal-error-msg"></p>
         <button class="modal-submit" onclick="resetModal()">Try Again</button>

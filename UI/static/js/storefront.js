@@ -51,12 +51,12 @@ const KIND_CFG = {
 function ensureLiveRegions() {
   if (!document.getElementById('sf-live')) {
     const l = document.createElement('div');
-    l.id = 'sf-live'; l.className = 'sf-live'; l.setAttribute('aria-live', 'polite');
+    l.id = 'sf-live'; l.className = 'sr-only'; l.setAttribute('aria-live', 'polite');
     document.body.appendChild(l);
   }
   if (!document.getElementById('sf-alert')) {
     const a = document.createElement('div');
-    a.id = 'sf-alert'; a.className = 'sf-live'; a.setAttribute('role', 'alert');
+    a.id = 'sf-alert'; a.className = 'sr-only'; a.setAttribute('role', 'alert');
     document.body.appendChild(a);
   }
 }
@@ -119,10 +119,18 @@ function revealFrame(job, b64) {
 let allProducts = [];
 let activeGender = 'all';
 
+/* Shelf index: the label's position in the run, tabular so a column of them
+   aligns. Derived from the catalogue id, which is stable. */
+function shelfIndex(p) {
+  const m = String(p.id || '').match(/(\d+)\s*$/);
+  return m ? m[1].padStart(3, '0') : '';
+}
+
 function renderProducts() {
   const list = activeGender === 'all' ? allProducts : allProducts.filter(p => p.gender === activeGender);
   const grid = document.getElementById('product-grid');
   grid.innerHTML = '';
+  grid.removeAttribute('aria-busy');
   document.getElementById('product-count').textContent = list.length + ' products';
 
   const frag = document.createDocumentFragment();
@@ -156,6 +164,7 @@ function renderProducts() {
         </div>
         <div class="price-row">
           <span class="price sg-price">${escHtml(p.currency === 'ILS' ? '₪' : p.currency)}${p.price.toLocaleString()}</span>
+          <span class="shelf-ix sg-figure">${escHtml(shelfIndex(p))}</span>
           <button class="tryon-btn sg-label" type="button">Try on</button>
         </div>
       </div>`;
@@ -166,6 +175,18 @@ function renderProducts() {
   });
 
   grid.appendChild(frag);
+}
+
+/* Category signage carries a live count: the contract's band is
+   "name left, count right", and the filter strip is the same component. */
+function updateGenderCounts() {
+  const n = g => g === 'all' ? allProducts.length : allProducts.filter(p => p.gender === g).length;
+  document.querySelectorAll('.filter-pill').forEach(btn => {
+    const g = btn.dataset.gender;
+    let c = btn.querySelector('.pill-count');
+    if (!c) { c = document.createElement('span'); c.className = 'pill-count sg-figure'; btn.appendChild(c); }
+    c.textContent = ' ' + n(g);
+  });
 }
 
 function setGenderFilter(gender) {
@@ -180,6 +201,7 @@ fetch('/api/catalog')
   .then(r => r.json())
   .then(products => {
     allProducts = products;
+    updateGenderCounts();
     renderProducts();
     sfInitFaceting();
   });
@@ -405,8 +427,8 @@ function spawnCircle(job) {
       '<span class="sf-tk-foot"><span class="sf-tk-state">Working</span><span class="sf-pct sg-figure">0%</span></span>' +
     '</span>' +
     '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
-    '<span class="sf-badge sf-badge-err">!</span>' +
-    '<span class="sf-dismiss" aria-hidden="true">&times;</span>';
+    '<span class="sf-badge sf-badge-err"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M12 6v8\"/><path d=\"M12 18h.01\"/></svg></span>' +
+    '<span class="sf-dismiss" aria-hidden="true"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></span>';
   job.el = btn;
 
   /* Same RingTimer, same pacing maths, painting a bar instead of a ring.
@@ -522,7 +544,7 @@ function pollJob(job) {
           job.productId = d.opt0.product_id || job.productId;
           job.productName = d.opt0.name || job.productName;
           /* Caption + frame reveal only — the ring keeps its smooth pace (no jump). */
-          setJobStatus(job, 'Found it ✓ ' + job.productName, { lock: true, force: true, announce: true });
+          setJobStatus(job, 'Found it: ' + job.productName, { lock: true, force: true, announce: true });
           if (d.opt0.product_b64) revealFrame(job, d.opt0.product_b64);
           setTimeout(function () {
             if (job.status === 'loading') setJobStatus(job, 'Creating your try-on…', { force: true });
