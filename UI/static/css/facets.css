@@ -73,12 +73,17 @@
 .tile-inner:hover, .swatch-inner:hover { border-color: var(--rule-strong); background-color: var(--card); }
 
 .tile-label, .swatch-name {
+  max-width: 100%;
   font-size: var(--t-2xs);
   font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
   line-height: 1.25;
+  /* "Prescription", "Fashion-forward" and friends are longer than the
+     narrowest tile; let them break rather than push the tag past its box. */
+  overflow-wrap: anywhere;
 }
+.tile-inner > *, .swatch-inner > * { max-width: 100%; }
 
 /* ── Selected: ink fill, reversed mark, one signal dot ── */
 .tile:has(input:checked) .tile-inner,
