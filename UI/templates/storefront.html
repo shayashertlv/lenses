@@ -96,12 +96,11 @@
       <p class="fs-panel-sub">Tell us what you're after — AI finds your single best match and tries it on.</p>
 
       <h3 class="section-title">Your Photo</h3>
-      <div class="fs-upload" id="sf-fs-upload" onclick="openPickerWithTip('sf-fs-file')">
+      <button type="button" class="fs-upload" id="sf-fs-upload" onclick="openPickerWithTip('sf-fs-file')">
         <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
         <span class="up-label" id="sf-fs-up-label">Upload a Photo</span>
         <span class="up-hint">JPG, PNG, or WebP</span>
-        <img class="up-preview" id="sf-fs-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/>
-      </div>
+        <img class="up-preview" id="sf-fs-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></button>
       <input type="file" id="sf-fs-file" accept="image/*"/>
 
       <h3 class="section-title">Gender</h3>
@@ -278,11 +277,11 @@
         <h3 id="modal-product-name"></h3>
         <p class="modal-subtitle">Upload a selfie to see how these frames look on you</p>
         <!-- Empty state -->
-        <div id="upload-empty" class="upload-zone" onclick="openPickerWithTip('modal-file')">
+        <button type="button" id="upload-empty" class="upload-zone" onclick="openPickerWithTip('modal-file')">
           <svg viewBox="0 0 36 36"><path d="M18 8v20M8 18h20" stroke-linecap="round"/></svg>
           <p>Click to upload your photo</p>
           <p class="small">JPG, PNG or WebP</p>
-        </div>
+        </button>
         <!-- Photo-ready state -->
         <div id="upload-ready" style="display:none;text-align:center">
           <img class="upload-preview" id="modal-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Your photo"/>
@@ -307,22 +306,22 @@
         <h3>Recolor Lenses</h3>
         <p class="modal-subtitle">Choose a lens color</p>
         <div class="rc-color-grid" id="rc-color-grid">
-          <div class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="rc-cname">Clear</span></div>
-          <div class="rc-color-opt" data-color="Soft Black" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="rc-cname">Soft Black</span></div>
-          <div class="rc-color-opt" data-color="Smoke Gray" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="rc-cname">Smoke Gray</span></div>
-          <div class="rc-color-opt" data-color="Amber Brown" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="rc-cname">Amber Brown</span></div>
-          <div class="rc-color-opt" data-color="Classic Green" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="rc-cname">Classic Green</span></div>
-          <div class="rc-color-opt" data-color="Ice Silver" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b8c6d4,#dce6ef)"></div><span class="rc-cname">Ice Silver</span></div>
-          <div class="rc-color-opt" data-color="Ocean Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="rc-cname">Ocean Blue</span></div>
-          <div class="rc-color-opt" data-color="Midnight Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="rc-cname">Midnight Blue</span></div>
-          <div class="rc-color-opt" data-color="Ruby Red" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="rc-cname">Ruby Red</span></div>
-          <div class="rc-color-opt" data-color="Rose Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="rc-cname">Rose Gold</span></div>
-          <div class="rc-color-opt" data-color="Aqua Teal" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#00838f,#4dd0e1)"></div><span class="rc-cname">Aqua Teal</span></div>
-          <div class="rc-color-opt" data-color="Shooter Yellow" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="rc-cname">Shooter Yellow</span></div>
-          <div class="rc-color-opt" data-color="Champagne Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="rc-cname">Champagne Gold</span></div>
-          <div class="rc-color-opt" data-color="Copper Bronze" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d4e2a,#cd7f50)"></div><span class="rc-cname">Copper Bronze</span></div>
-          <div class="rc-color-opt" data-color="Deep Purple" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="rc-cname">Deep Purple</span></div>
-          <div class="rc-color-opt" data-color="Magenta Pink" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c2185b,#f06292)"></div><span class="rc-cname">Magenta Pink</span></div>
+          <button type="button" class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.35));border:2px dashed rgba(255,255,255,.4)"></div><span class="rc-cname">Clear</span></button>
+          <button type="button" class="rc-color-opt" data-color="Soft Black" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="rc-cname">Soft Black</span></button>
+          <button type="button" class="rc-color-opt" data-color="Smoke Gray" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#616161,#9e9e9e)"></div><span class="rc-cname">Smoke Gray</span></button>
+          <button type="button" class="rc-color-opt" data-color="Amber Brown" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d6e3f,#c09050)"></div><span class="rc-cname">Amber Brown</span></button>
+          <button type="button" class="rc-color-opt" data-color="Classic Green" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#2e7d32,#4caf50)"></div><span class="rc-cname">Classic Green</span></button>
+          <button type="button" class="rc-color-opt" data-color="Ice Silver" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b8c6d4,#dce6ef)"></div><span class="rc-cname">Ice Silver</span></button>
+          <button type="button" class="rc-color-opt" data-color="Ocean Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a73e8,#4fc3f7)"></div><span class="rc-cname">Ocean Blue</span></button>
+          <button type="button" class="rc-color-opt" data-color="Midnight Blue" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a237e,#3f51b5)"></div><span class="rc-cname">Midnight Blue</span></button>
+          <button type="button" class="rc-color-opt" data-color="Ruby Red" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#b71c1c,#ef5350)"></div><span class="rc-cname">Ruby Red</span></button>
+          <button type="button" class="rc-color-opt" data-color="Rose Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#d4a0a0,#e8b4b4)"></div><span class="rc-cname">Rose Gold</span></button>
+          <button type="button" class="rc-color-opt" data-color="Aqua Teal" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#00838f,#4dd0e1)"></div><span class="rc-cname">Aqua Teal</span></button>
+          <button type="button" class="rc-color-opt" data-color="Shooter Yellow" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#f9a825,#ffee58)"></div><span class="rc-cname">Shooter Yellow</span></button>
+          <button type="button" class="rc-color-opt" data-color="Champagne Gold" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c9a84c,#e8d48b)"></div><span class="rc-cname">Champagne Gold</span></button>
+          <button type="button" class="rc-color-opt" data-color="Copper Bronze" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#8d4e2a,#cd7f50)"></div><span class="rc-cname">Copper Bronze</span></button>
+          <button type="button" class="rc-color-opt" data-color="Deep Purple" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="rc-cname">Deep Purple</span></button>
+          <button type="button" class="rc-color-opt" data-color="Magenta Pink" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c2185b,#f06292)"></div><span class="rc-cname">Magenta Pink</span></button>
         </div>
         <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply Color</button>
         <button class="rc-back-btn" onclick="backToResult()">Back</button>

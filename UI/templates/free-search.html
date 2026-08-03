@@ -28,12 +28,11 @@
 <div id="form-view">
 
   <h3 class="section-title sg-label">Your Photo</h3>
-  <div class="fs-upload" id="upload-area" onclick="openPickerWithTip('fs-file')">
+  <button type="button" class="fs-upload" id="upload-area" onclick="openPickerWithTip('fs-file')">
     <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
     <span class="up-label" id="up-label-text">Hand over a photo</span>
     <span class="up-hint">JPG, PNG, or WebP</span>
-    <img class="up-preview" id="up-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/>
-  </div>
+    <img class="up-preview" id="up-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></button>
   <input type="file" id="fs-file" accept="image/*"/>
 
   <!-- ── Primary filters ────────────────────────── -->
@@ -252,7 +251,7 @@
   </div>
   <div id="fs-opts" class="results-row"></div>
   <div id="compare-modal" class="compare-modal" style="display:none">
-    <div class="compare-backdrop" onclick="closeCompare()"></div>
+    <button type="button" class="compare-backdrop" aria-label="Close comparison" onclick="closeCompare()"></button>
     <div class="compare-content">
       <div class="compare-header">
         <h2>Side by side</h2>

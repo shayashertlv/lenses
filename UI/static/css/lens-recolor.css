@@ -131,13 +131,12 @@
 .color-pick:has(input:checked) .color-pick-inner::after {
   content: "";
   position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 15px;
-  height: 15px;
+  top: 4px;
+  right: 4px;
+  width: 13px;
+  height: 13px;
   border-radius: var(--r-pill);
   background-color: var(--signal);
-  border: 2px solid var(--paper);
 }
 .color-pick:has(input:focus-visible) .color-pick-inner {
   outline: 2px solid var(--field);

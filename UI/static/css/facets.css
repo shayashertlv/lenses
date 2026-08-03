@@ -91,13 +91,12 @@
 .swatch:has(input:checked) .swatch-inner::after {
   content: "";
   position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 15px;
-  height: 15px;
+  top: 4px;
+  right: 4px;
+  width: 13px;
+  height: 13px;
   border-radius: var(--r-pill);
   background-color: var(--signal);
-  border: 2px solid var(--paper);
 }
 
 .tile:has(input:focus-visible) .tile-inner,
@@ -172,7 +171,13 @@
 }
 .shape-fill { width: 46px; height: 22px; background: currentColor; }
 
-.lens-ind { width: 40px; height: 20px; border-radius: 3px; border: 1.4px solid currentColor; }
+.lens-ind {
+  width: 40px; height: 20px;
+  border-radius: 3px;
+  border: 1.4px solid currentColor;
+  background-color: var(--card);
+  display: grid; place-items: center;
+}
 
 .rim-vis { width: 44px; height: 20px; border-radius: 3px; }
 .rim-vis.full    { border: 2px solid currentColor; }

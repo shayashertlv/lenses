@@ -23,12 +23,11 @@
 
   <h3 class="section-title sg-label">Your Photo</h3>
   <p style="font-size:.84rem;margin-bottom:1rem">Upload a photo of yourself <strong style="">wearing glasses</strong>. The AI will change only the lens colour.</p>
-  <div class="rc-upload" id="upload-area" onclick="openPickerWithTip('rc-file')">
+  <button type="button" class="rc-upload" id="upload-area" onclick="openPickerWithTip('rc-file')">
     <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
     <span class="up-label" id="up-label-text">Hand over a photo</span>
     <span class="up-hint">JPG, PNG, or WebP</span>
-    <img class="up-preview" id="up-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/>
-  </div>
+    <img class="up-preview" id="up-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></button>
   <input type="file" id="rc-file" accept="image/*"/>
 
   <h3 class="section-title sg-label">Choose 3 Lens Colors</h3>
