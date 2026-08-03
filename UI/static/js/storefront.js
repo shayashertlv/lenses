@@ -164,6 +164,8 @@ function renderProducts() {
   grid.innerHTML = '';
   document.getElementById('product-count').textContent = list.length + ' products';
 
+  const frag = document.createDocumentFragment();
+
   list.forEach(p => {
     const genderClass = p.gender === 'men' ? 'men' : p.gender === 'women' ? 'women' : 'unisex';
     const genderLabel = p.gender === 'men' ? 'Men' : p.gender === 'women' ? 'Women' : 'Unisex';
@@ -174,27 +176,32 @@ function renderProducts() {
     card.dataset.id = p.id;
     card.innerHTML = `
       <div class="img-wrap">
-        <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
+        <img src="${escHtml(imgSrc)}" alt="${escHtml(p.name)}" loading="lazy"/>
         <span class="badge ${genderClass}">${genderLabel}</span>
       </div>
       <div class="product-info">
-        <div class="brand-name">${p.brand}</div>
-        <div class="prod-name">${p.name}</div>
+        <div class="brand-name">${escHtml(p.brand)}</div>
+        <div class="prod-name">${escHtml(p.name)}</div>
         <div class="prod-tags">
-          <span class="prod-tag">${p.shape}</span>
-          <span class="prod-tag">${p.material}</span>
-          <span class="prod-tag">${p.rim_type}</span>
+          <span class="prod-tag">${escHtml(p.shape)}</span>
+          <span class="prod-tag">${escHtml(p.material)}</span>
+          <span class="prod-tag">${escHtml(p.rim_type)}</span>
         </div>
         <div class="price-row">
-          <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${p.currency}</span></div>
-          <button class="tryon-btn" onclick="openTryon('${p.id}','${p.name.replace(/'/g,"\\'")}','${imgSrc}')">
+          <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${escHtml(p.currency)}</span></div>
+          <button class="tryon-btn" type="button">
             <svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3 14c0-2.761 2.239-5 5-5s5 2.239 5 5"/></svg>
             Try On
           </button>
         </div>
       </div>`;
-    grid.appendChild(card);
+    /* Listener, not an interpolated onclick: product names carry quotes and
+       ampersands that no amount of hand-escaping survives inside an attribute. */
+    card.querySelector('.tryon-btn').addEventListener('click', () => openTryon(p.id, p.name, imgSrc));
+    frag.appendChild(card);
   });
+
+  grid.appendChild(frag);
 }
 
 function setGenderFilter(gender) {
@@ -217,8 +224,7 @@ fetch('/api/catalog')
    Modal: pick / confirm photo, then hit generate
    ══════════════════════════════════════════════════ */
 
-const MODAL_STEPS = ['modal-upload', 'modal-progress', 'modal-result', 'modal-error',
-  'modal-recolor-pick', 'modal-recolor-progress', 'modal-recolor-result'];
+const MODAL_STEPS = ['modal-upload', 'modal-result', 'modal-error', 'modal-recolor-pick'];
 
 /* Show exactly one modal sub-step, hide the rest. */
 function showModalStep(id) {
@@ -244,7 +250,6 @@ function openTryon(productId, productName, thumbSrc) {
   clearModalTransform();
 
   document.getElementById('modal-product-name').textContent = productName;
-  document.getElementById('modal-progress-product').textContent = productName;
   document.getElementById('modal-result-product').textContent = productName;
   document.getElementById('modal-go').textContent = 'Try On';
 

@@ -2,6 +2,6 @@
 Responsive sandbox templates — re-exports from the main UI templates.
 """
 
-from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
+from UI.templates import TEMPLATE_FILES, get_template
 
-__all__ = ["LANDING_HTML", "FREE_SEARCH_HTML", "LENS_RECOLOR_HTML", "STOREFRONT_HTML"]
+__all__ = ["TEMPLATE_FILES", "get_template"]

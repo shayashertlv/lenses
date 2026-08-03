@@ -269,17 +269,6 @@
         <button class="modal-submit" id="modal-go" disabled onclick="modalGenerate()">Try On</button>
       </div>
 
-      <!-- Progress step -->
-      <div id="modal-progress" style="display:none">
-        <h3>Creating your try-on...</h3>
-        <p class="modal-subtitle" id="modal-progress-product"></p>
-        <div class="tryon-progress">
-          <div class="bar-bg"><div class="bar-fill" id="modal-bar"></div></div>
-          <p id="modal-status-text">Preparing your photo...</p>
-        </div>
-        <div class="tip-box" style="margin-top:.6rem"><p id="modal-tip" style="font-size:.82rem;color:rgba(255,255,255,.35);line-height:1.5;max-width:340px;font-style:italic;transition:opacity .4s"></p></div>
-      </div>
-
       <!-- Result step -->
       <div class="tryon-result" id="modal-result">
         <h3>Here's how you look!</h3>
@@ -314,24 +303,6 @@
         </div>
         <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply Color</button>
         <button class="rc-back-btn" onclick="backToResult()">Back</button>
-      </div>
-
-      <!-- Recolor: loading -->
-      <div id="modal-recolor-progress" style="display:none;text-align:center">
-        <h3>Recoloring lenses...</h3>
-        <p class="modal-subtitle" id="rc-progress-color"></p>
-        <div class="tryon-progress">
-          <div class="bar-bg"><div class="bar-fill" id="rc-bar" style="width:0%"></div></div>
-          <p id="rc-status-text">Preparing...</p>
-        </div>
-      </div>
-
-      <!-- Recolor: result -->
-      <div id="modal-recolor-result" style="display:none;text-align:center">
-        <h3>Recolored!</h3>
-        <p class="modal-subtitle" id="rc-result-color"></p>
-        <img id="rc-result-img" src="" alt="Recolored result" style="display:block;max-width:100%;height:auto;border-radius:14px;margin:0 auto 1rem"/>
-        <button class="rc-back-btn" onclick="backToResult()">Back to Try-On</button>
       </div>
 
       <!-- Error step -->

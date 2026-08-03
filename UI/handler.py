@@ -19,7 +19,7 @@ from UI.pipelines import (
     run_storefront_smartfit_pipeline, run_storefront_freesearch_pipeline,
     get_catalog_products,
 )
-from UI.templates import LANDING_HTML, FREE_SEARCH_HTML, LENS_RECOLOR_HTML, STOREFRONT_HTML
+from UI.templates import get_template
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -46,13 +46,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
 
         if path == "/":
-            self._html(LANDING_HTML)
+            self._html(get_template("landing"))
         elif path == "/free-search":
-            self._html(FREE_SEARCH_HTML)
+            self._html(get_template("free-search"))
         elif path == "/lens-recolor":
-            self._html(LENS_RECOLOR_HTML)
+            self._html(get_template("lens-recolor"))
         elif path == "/storefront":
-            self._html(STOREFRONT_HTML)
+            self._html(get_template("storefront"))
         elif path.startswith("/static/"):
             self._serve_static(path)
         elif path == "/api/catalog":
