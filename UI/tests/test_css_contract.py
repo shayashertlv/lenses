@@ -81,7 +81,12 @@ class TestColourDiscipline(unittest.TestCase):
         )
 
     def test_no_new_important(self):
-        total = sum(_read(f).count("!important") for f in _css_files())
+        """!important inside a prefers-reduced-motion block is the correct idiom
+        and is exempt; everywhere else it is a specificity failure."""
+        total = 0
+        for f in _css_files():
+            text = re.sub(r"@media[^{]*prefers-reduced-motion[^{]*\{(?:[^{}]|\{[^{}]*\})*\}", "", _read(f))
+            total += text.count("!important")
         self.assertLessEqual(total, IMPORTANT_BUDGET, f"{total} !important (budget {IMPORTANT_BUDGET})")
 
 
