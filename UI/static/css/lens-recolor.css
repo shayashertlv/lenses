@@ -15,7 +15,7 @@
   align-items: center;
   gap: var(--s-4);
   padding: var(--s-3) var(--s-5);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
 }
 .topbar .back-btn {
@@ -55,7 +55,7 @@
   display: block;
   margin: var(--s-5) 0 var(--s-3);
   padding: 6px var(--s-3);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   border-radius: var(--r-tag) var(--r-tag) 0 0;
   font-size: var(--t-2xs);
@@ -70,14 +70,14 @@
   gap: var(--s-2);
   min-height: 140px;
   padding: var(--s-4);
-  background: var(--card);
+  background-color: var(--card);
   border: 1.5px dashed var(--rule-strong);
   border-radius: var(--r-ctl);
   cursor: pointer;
   text-align: center;
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.rc-upload:hover { border-color: var(--field); background: var(--paper); }
+.rc-upload:hover { border-color: var(--field); background-color: var(--paper); }
 .rc-upload.has-file { border-style: solid; border-color: var(--field); }
 .rc-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
 .up-label { font-size: var(--t-base); font-weight: 700; }
@@ -114,17 +114,17 @@
   gap: var(--s-2);
   min-height: 88px;
   padding: var(--s-2) 6px;
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.color-pick-inner:hover { border-color: var(--rule-strong); background: var(--card); }
+.color-pick-inner:hover { border-color: var(--rule-strong); background-color: var(--card); }
 
 /* Selection is :has(), not an adjacent-sibling rule, so restructuring the
    markup cannot silently stop the selected state from rendering. */
 .color-pick:has(input:checked) .color-pick-inner {
-  background: var(--ink);
+  background-color: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
 }
@@ -136,7 +136,7 @@
   width: 15px;
   height: 15px;
   border-radius: var(--r-pill);
-  background: var(--signal);
+  background-color: var(--signal);
   border: 2px solid var(--paper);
 }
 .color-pick:has(input:focus-visible) .color-pick-inner {
@@ -152,7 +152,7 @@
 }
 /* "Clear" is the absence of a tint: a dashed outline on paper, never a
    white-on-white gradient. */
-.color-swatch[data-clear] { background: var(--paper); border: 2px dashed var(--rule-strong); }
+.color-swatch[data-clear] { background-color: var(--paper); border: 2px dashed var(--rule-strong); }
 .color-pick-name {
   font-size: var(--t-2xs);
   font-weight: 500;
@@ -178,7 +178,7 @@
 .submit-btn {
   width: 100%;
   min-height: 54px;
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -189,7 +189,7 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
-.submit-btn:disabled { background: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
 
 /* ══════════════════════════════════════════════════
    Loading / results / error screens
@@ -199,7 +199,7 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: var(--paper);
+  background-color: var(--paper);
   overflow-y: auto;
 }
 #loading-view, #error-view { align-items: center; justify-content: center; padding: var(--s-4); }
@@ -236,13 +236,13 @@
   font-variant-numeric: tabular-nums;
 }
 .rc-step.active { color: var(--ink); }
-.rc-step.active .rc-sdot { background: var(--field); border-color: var(--field); color: var(--on-field); }
-.rc-step.done .rc-sdot { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.rc-sline { width: 56px; height: 2px; background: var(--card-sunk); }
-.rc-sline.done { background: var(--field); }
+.rc-step.active .rc-sdot { background-color: var(--field); border-color: var(--field); color: var(--on-field); }
+.rc-step.done .rc-sdot { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.rc-sline { width: 56px; height: 2px; background-color: var(--card-sunk); }
+.rc-sline.done { background-color: var(--field); }
 
-.load-prog { height: 6px; background: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
-.load-prog-fill { display: block; height: 100%; width: 0; background: var(--field); }
+.load-prog { height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
+.load-prog-fill { display: block; height: 100%; width: 0; background-color: var(--field); }
 #load-stage { margin: 0; font-size: var(--t-base); font-weight: 500; }
 .tip-box { margin-top: var(--s-4); }
 .tip-box p { margin: 0; font-size: var(--t-xs); color: var(--ink-3); transition: opacity var(--d-slow) var(--ease); }
@@ -268,7 +268,7 @@
   justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   position: sticky;
   top: 0;
@@ -288,7 +288,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-.res-back:hover { background: var(--field-deep); }
+.res-back:hover { background-color: var(--field-deep); }
 
 .res-inner { max-width: 1100px; width: 100%; margin: 0 auto; padding: var(--s-5); }
 .res-page-title {
@@ -307,14 +307,14 @@
   margin-bottom: var(--s-2);
   padding: 3px 8px;
   border-radius: var(--r-tag);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   font-size: var(--t-2xs);
   font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
 }
-#hero-img-wrap { position: relative; background: var(--card); border-radius: var(--r-ctl); overflow: hidden; }
+#hero-img-wrap { position: relative; background-color: var(--card); border-radius: var(--r-ctl); overflow: hidden; }
 #hero-img { display: block; width: 100%; height: auto; max-height: 62vh; object-fit: contain; margin: 0 auto; }
 .hero-color-label {
   display: block;
@@ -338,7 +338,7 @@
 }
 #alt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--s-3); }
 .alt-card {
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   overflow: hidden;
@@ -346,7 +346,7 @@
   transition: border-color var(--d-base) var(--ease), transform var(--d-base) var(--ease);
 }
 .alt-card:hover { border-color: var(--ink); transform: translateY(-2px); }
-.alt-card img { display: block; width: 100%; height: auto; background: var(--card); }
+.alt-card img { display: block; width: 100%; height: auto; background-color: var(--card); }
 .alt-card .alt-name {
   display: block;
   padding: var(--s-2) var(--s-3);
@@ -378,7 +378,7 @@
   display: inline-block;
   padding: 3px 8px;
   border-radius: var(--r-tag);
-  background: var(--danger);
+  background-color: var(--danger);
   color: var(--paper);
   font-size: var(--t-2xs);
   font-weight: 500;
@@ -397,7 +397,7 @@
 .start-over {
   min-height: 48px;
   padding: 0 var(--s-5);
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -425,7 +425,7 @@
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);
-  background: var(--paper);
+  background-color: var(--paper);
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
   text-align: center;
@@ -443,7 +443,7 @@
 .uptip-ok {
   width: 100%;
   min-height: 44px;
-  background: var(--field);
+  background-color: var(--field);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--on-field);

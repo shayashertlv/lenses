@@ -85,6 +85,55 @@ class TestIdContract(unittest.TestCase):
                 self.assertTrue((css_dir / name).is_file(), f"{tpl.name} loads missing stylesheet {name}")
 
 
+class TestSelectionSelectorsMatchMarkup(unittest.TestCase):
+    """:has() must take the right subject for each markup shape.
+
+    Two shapes exist. Tiles, swatches and colour picks nest the input inside
+    the <label>, so `label:has(input:checked)` works. Chips and radios put the
+    input as a SIBLING of the label inside a wrapping <span>, so that selector
+    can never match and selection silently stops rendering -- which is exactly
+    what happened, across 37 controls, until it was caught in the browser.
+
+    This asserts the CSS carries a rule whose subject actually contains the
+    input for every group present in the markup.
+    """
+
+    _CSS = _UI / "static" / "css"
+
+    def _all_css(self):
+        return "\n".join(_read(f) for f in sorted(self._CSS.glob("*.css")))
+
+    def test_sibling_input_groups_have_a_wrapper_scoped_rule(self):
+        css = self._all_css()
+        offenders = []
+        for tpl in sorted(_TEMPLATES.glob("*.html")):
+            html = _read(tpl)
+            for group in ("chip-group", "radio-group"):
+                # <span><input …/><label …>text</label></span> is the sibling shape.
+                if re.search(r'<span>\s*<input[^>]*>\s*<label', html) and group in html:
+                    needed = f".{group} span:has(input:checked) label"
+                    if needed not in css:
+                        offenders.append(f"{tpl.name}: .{group} uses sibling markup but "
+                                         f"no rule `{needed}` exists")
+        self.assertEqual(offenders, [], "Selection will not render:\n" + "\n".join(offenders))
+
+    def test_nested_input_groups_have_a_label_scoped_rule(self):
+        css = self._all_css()
+        for subject, inner in ((".tile", ".tile-inner"),
+                               (".swatch", ".swatch-inner"),
+                               (".color-pick", ".color-pick-inner")):
+            if any(subject.lstrip(".") in _read(t) for t in _TEMPLATES.glob("*.html")):
+                rule = f"{subject}:has(input:checked) {inner}"
+                self.assertIn(rule, css, f"missing selected-state rule `{rule}`")
+
+    def test_selected_state_uses_the_background_color_longhand(self):
+        """`background: var(--x)` is a shorthand carrying a pending-substitution
+        value. The longhand is unambiguous and is what these rules use."""
+        css = self._all_css()
+        self.assertNotIn("background: var(--", css,
+                         "use background-color for single-token colour values")
+
+
 class TestSelectionInvariant(unittest.TestCase):
     """The facet controls' selected state depends on markup order.
 

@@ -145,7 +145,7 @@ body {
   font-weight: 400;
   line-height: var(--lh-body);
   color: var(--ink);
-  background: var(--paper);
+  background-color: var(--paper);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -175,7 +175,7 @@ body {
 /* The price block. --signal appears here and on one primary action, nowhere else. */
 .sg-price {
   display: inline-block;
-  background: var(--signal);
+  background-color: var(--signal);
   color: var(--signal-ink);
   font-weight: 700;
   font-variant-numeric: tabular-nums;

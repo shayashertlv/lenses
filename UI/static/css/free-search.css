@@ -18,7 +18,7 @@
   align-items: center;
   gap: var(--s-4);
   padding: var(--s-3) var(--s-5);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
 }
 .topbar .back-btn {
@@ -58,7 +58,7 @@
   display: block;
   margin: var(--s-5) 0 var(--s-3);
   padding: 6px var(--s-3);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   border-radius: var(--r-tag) var(--r-tag) 0 0;
   font-size: var(--t-2xs);
@@ -75,14 +75,14 @@
   gap: var(--s-2);
   min-height: 140px;
   padding: var(--s-4);
-  background: var(--card);
+  background-color: var(--card);
   border: 1.5px dashed var(--rule-strong);
   border-radius: var(--r-ctl);
   cursor: pointer;
   text-align: center;
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.fs-upload:hover { border-color: var(--field); background: var(--paper); }
+.fs-upload:hover { border-color: var(--field); background-color: var(--paper); }
 .fs-upload.has-file { border-style: solid; border-color: var(--field); }
 .fs-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
 .up-label { font-size: var(--t-base); font-weight: 700; }
@@ -106,7 +106,7 @@
   min-height: 48px;
   margin: var(--s-5) 0 0;
   padding: 0 var(--s-3);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -117,7 +117,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-#advanced-toggle:hover { background: var(--card); }
+#advanced-toggle:hover { background-color: var(--card); }
 #advanced-section { display: none; margin-top: var(--s-4); }
 #advanced-section.open { display: block; }
 
@@ -135,7 +135,7 @@
   width: 100%;
   min-height: 48px;
   padding: 0 var(--s-3);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -150,7 +150,7 @@
 .submit-btn {
   width: 100%;
   min-height: 54px;
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -161,7 +161,7 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
-.submit-btn:disabled { background: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
 .submit-hint { margin: var(--s-2) 0 0; font-size: var(--t-2xs); color: var(--ink-3); text-align: center; }
 
 /* ══════════════════════════════════════════════════
@@ -172,7 +172,7 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: var(--paper);
+  background-color: var(--paper);
   overflow-y: auto;
 }
 #loading-view, #error-view { align-items: center; justify-content: center; padding: var(--s-4); }
@@ -209,13 +209,13 @@
   font-variant-numeric: tabular-nums;
 }
 .fs-step.active { color: var(--ink); }
-.fs-step.active .fs-sdot { background: var(--field); border-color: var(--field); color: var(--on-field); }
-.fs-step.done .fs-sdot { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.fs-sline { width: 56px; height: 2px; background: var(--card-sunk); }
-.fs-sline.done { background: var(--field); }
+.fs-step.active .fs-sdot { background-color: var(--field); border-color: var(--field); color: var(--on-field); }
+.fs-step.done .fs-sdot { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.fs-sline { width: 56px; height: 2px; background-color: var(--card-sunk); }
+.fs-sline.done { background-color: var(--field); }
 
-.load-prog { height: 6px; background: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
-.load-prog-fill { display: block; height: 100%; width: 0; background: var(--field); }
+.load-prog { height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
+.load-prog-fill { display: block; height: 100%; width: 0; background-color: var(--field); }
 #load-stage { margin: 0; font-size: var(--t-base); font-weight: 500; }
 .tip-box { margin-top: var(--s-4); }
 .tip-box p { margin: 0; font-size: var(--t-xs); color: var(--ink-3); transition: opacity var(--d-slow) var(--ease); }
@@ -243,7 +243,7 @@
   justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   position: sticky;
   top: 0;
@@ -270,7 +270,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-.results-back:hover, .results-compare:hover { background: var(--field-deep); }
+.results-back:hover, .results-compare:hover { background-color: var(--field-deep); }
 
 .results-row {
   display: grid;
@@ -292,7 +292,7 @@
   max-height: 90vh;
   margin: 5vh auto;
   overflow-y: auto;
-  background: var(--paper);
+  background-color: var(--paper);
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
 }
@@ -302,7 +302,7 @@
   justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-4);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   position: sticky;
   top: 0;
@@ -325,7 +325,7 @@
   cursor: pointer;
   border-radius: var(--r-ctl);
 }
-.compare-close:hover { background: var(--field-deep); }
+.compare-close:hover { background-color: var(--field-deep); }
 .compare-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -347,7 +347,7 @@
   display: inline-block;
   padding: 3px 8px;
   border-radius: var(--r-tag);
-  background: var(--danger);
+  background-color: var(--danger);
   color: var(--paper);
   font-size: var(--t-2xs);
   font-weight: 500;
@@ -366,7 +366,7 @@
 .start-over {
   min-height: 48px;
   padding: 0 var(--s-5);
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -396,7 +396,7 @@
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);
-  background: var(--paper);
+  background-color: var(--paper);
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
   text-align: center;
@@ -414,7 +414,7 @@
 .uptip-ok {
   width: 100%;
   min-height: 44px;
-  background: var(--field);
+  background-color: var(--field);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--on-field);

@@ -17,7 +17,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-3);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   padding: 6px var(--s-3);
   border-radius: var(--r-tag) var(--r-tag) 0 0;
@@ -63,14 +63,14 @@
   gap: 6px;
   min-height: 66px;
   padding: var(--s-2) 6px;
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   color: var(--ink);
   text-align: center;
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.tile-inner:hover, .swatch-inner:hover { border-color: var(--rule-strong); background: var(--card); }
+.tile-inner:hover, .swatch-inner:hover { border-color: var(--rule-strong); background-color: var(--card); }
 
 .tile-label, .swatch-name {
   font-size: var(--t-2xs);
@@ -83,7 +83,7 @@
 /* ── Selected: ink fill, reversed mark, one signal dot ── */
 .tile:has(input:checked) .tile-inner,
 .swatch:has(input:checked) .swatch-inner {
-  background: var(--ink);
+  background-color: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
 }
@@ -96,7 +96,7 @@
   width: 15px;
   height: 15px;
   border-radius: var(--r-pill);
-  background: var(--signal);
+  background-color: var(--signal);
   border: 2px solid var(--paper);
 }
 
@@ -118,7 +118,7 @@
   color: var(--ink-3);
   border-style: dashed;
   border-color: var(--rule);
-  background: var(--card);
+  background-color: var(--card);
 }
 .tile.dimmed .tile-inner .frame-glyph,
 .swatch.dimmed .swatch-inner .swatch-dot { opacity: .55; }
@@ -129,7 +129,7 @@
   align-items: center;
   min-height: 44px;
   padding: 0 var(--s-3);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -139,11 +139,25 @@
   letter-spacing: .03em;
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.chip-group label:hover, .radio-group label:hover { border-color: var(--rule-strong); background: var(--card); }
-.chip-group label:has(input:checked), .radio-group label:has(input:checked) {
-  background: var(--ink);
+.chip-group label:hover, .radio-group label:hover { border-color: var(--rule-strong); background-color: var(--card); }
+
+/* Two markup shapes exist in these groups. Tiles and swatches nest the input
+   inside the <label>; chips and radios put the input as a SIBLING of the label
+   inside a wrapping <span>. `label:has(input:checked)` only ever matches the
+   first shape, so the sibling form needs the wrapper as the :has() subject.
+   Both are covered so neither markup can silently lose its selected state. */
+.chip-group label:has(input:checked),
+.radio-group label:has(input:checked),
+.chip-group span:has(input:checked) label,
+.radio-group span:has(input:checked) label {
+  background-color: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
+}
+.chip-group span:has(input:focus-visible) label,
+.radio-group span:has(input:focus-visible) label {
+  outline: 2px solid var(--field);
+  outline-offset: 2px;
 }
 
 /* ── Marks inside a tag. All drawn geometry; the inline geometry the

@@ -20,10 +20,10 @@
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   overflow: hidden;
-  background: var(--paper);
+  background-color: var(--paper);
 }
 .result-card.is-primary { border-color: var(--ink); }
-.result-img { background: var(--card); display: grid; place-items: center; min-height: 180px; }
+.result-img { background-color: var(--card); display: grid; place-items: center; min-height: 180px; }
 .result-img img { display: block; width: 100%; height: auto; max-height: 58vh; object-fit: contain; }
 .tryon-done { position: relative; width: 100%; }
 .tryon-done .recolor-btn {
@@ -32,7 +32,7 @@
   bottom: var(--s-2);
   min-height: 44px;
   padding: 0 var(--s-3);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -43,7 +43,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
-.tryon-done .recolor-btn:hover { background: var(--ink); color: var(--paper); }
+.tryon-done .recolor-btn:hover { background-color: var(--ink); color: var(--paper); }
 .tryon-wait, .tryon-fail {
   display: grid;
   gap: var(--s-2);
@@ -59,7 +59,7 @@
   width: 72px;
   height: 4px;
   border-radius: 2px;
-  background: var(--card-sunk);
+  background-color: var(--card-sunk);
   overflow: hidden;
   position: relative;
 }
@@ -69,7 +69,7 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 45%;
-  background: var(--field);
+  background-color: var(--field);
   animation: waitSlide 1.2s var(--ease) infinite;
 }
 
@@ -78,7 +78,7 @@
   align-self: flex-start;
   padding: 2px 6px;
   border-radius: var(--r-tag);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   font-size: var(--t-2xs);
   font-weight: 500;
@@ -99,7 +99,7 @@
   display: grid;
   gap: 1px;
   padding: 4px 8px;
-  background: var(--card);
+  background-color: var(--card);
   border-radius: var(--r-tag);
   text-align: center;
 }

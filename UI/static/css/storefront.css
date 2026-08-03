@@ -19,7 +19,7 @@
   align-items: center;
   gap: var(--s-4);
   padding: var(--s-3) var(--s-5);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
 }
 .topbar .back-btn {
@@ -97,7 +97,7 @@
   gap: var(--s-3);
   min-height: 64px;
   padding: var(--s-3) var(--s-4);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -106,7 +106,7 @@
   font-family: inherit;
   transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
 }
-.ai-action-btn:hover { background: var(--ink); color: var(--paper); }
+.ai-action-btn:hover { background-color: var(--ink); color: var(--paper); }
 .ai-action-btn .ai-ico { flex: none; width: 34px; height: 34px; display: grid; place-items: center; }
 .ai-action-btn .ai-ico svg { width: 30px; height: 30px; }
 .ai-action-btn .ai-txt { display: flex; flex-direction: column; gap: 2px; }
@@ -166,7 +166,7 @@
   flex: none;
   min-height: 44px;
   padding: 0 var(--s-4);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -179,8 +179,8 @@
   white-space: nowrap;
   transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
 }
-.filter-pill:hover { border-color: var(--rule-strong); background: var(--card); }
-.filter-pill.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.filter-pill:hover { border-color: var(--rule-strong); background-color: var(--card); }
+.filter-pill.active { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
 
 /* ── The shelf run ────────────────────────────── */
 .product-grid {
@@ -192,7 +192,7 @@
 .product-card {
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   overflow: hidden;
@@ -203,7 +203,7 @@
 .product-card .img-wrap {
   position: relative;
   aspect-ratio: 3 / 2;
-  background: var(--card);
+  background-color: var(--card);
   display: grid;
   place-items: center;
   border-bottom: 1px solid var(--rule);
@@ -233,7 +233,7 @@
   z-index: 1;
   padding: 2px 6px;
   border-radius: var(--r-tag);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   color: var(--ink-2);
 }
@@ -279,7 +279,7 @@
 .tryon-btn {
   min-height: 36px;
   padding: 0 var(--s-3);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -287,7 +287,7 @@
   font-family: inherit;
   transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
 }
-.tryon-btn:hover { background: var(--ink); color: var(--paper); }
+.tryon-btn:hover { background-color: var(--ink); color: var(--paper); }
 
 /* Scroll-to highlight when "Shop this frame" is used. */
 @keyframes sfCardPulse {
@@ -330,7 +330,7 @@
   position: relative;
   width: 220px;
   padding: 0;
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-ctl);
   box-shadow: var(--sh-panel);
@@ -349,7 +349,7 @@
   justify-content: space-between;
   gap: var(--s-2);
   padding: 5px var(--s-2);
-  background: var(--field);
+  background-color: var(--field);
   color: var(--on-field);
   font-size: var(--t-2xs);
   font-weight: 500;
@@ -366,7 +366,7 @@
   width: 40px;
   height: 30px;
   border-radius: var(--r-tag);
-  background: var(--card);
+  background-color: var(--card);
   object-fit: contain;
   display: grid;
   place-items: center;
@@ -393,11 +393,11 @@
   -webkit-box-orient: vertical;
 }
 
-.sf-bar { display: block; height: 5px; background: var(--card-sunk); border-radius: 2px; overflow: hidden; }
+.sf-bar { display: block; height: 5px; background-color: var(--card-sunk); border-radius: 2px; overflow: hidden; }
 .sf-bar-fill {
   display: block;
   height: 100%;
-  background: var(--field);
+  background-color: var(--field);
   transform-origin: left center;
   transform: scaleX(0);
 }
@@ -415,14 +415,14 @@
 
 /* ── Done ── */
 .sf-ticket.is-done { border-color: var(--signal); }
-.sf-ticket.is-done .sf-tk-head { background: var(--signal); color: var(--signal-ink); }
+.sf-ticket.is-done .sf-tk-head { background-color: var(--signal); color: var(--signal-ink); }
 .sf-ticket.is-done .sf-tk-kind { color: var(--signal-ink); }
-.sf-ticket.is-done .sf-bar-fill { background: var(--signal); }
+.sf-ticket.is-done .sf-bar-fill { background-color: var(--signal); }
 
 /* ── Error ── */
 .sf-ticket.is-error { border-color: var(--danger); }
-.sf-ticket.is-error .sf-tk-head { background: var(--danger); }
-.sf-ticket.is-error .sf-bar-fill { background: var(--danger); }
+.sf-ticket.is-error .sf-tk-head { background-color: var(--danger); }
+.sf-ticket.is-error .sf-bar-fill { background-color: var(--danger); }
 
 .sf-badge {
   position: absolute;
@@ -433,7 +433,7 @@
   height: 16px;
   place-items: center;
   border-radius: var(--r-pill);
-  background: var(--paper);
+  background-color: var(--paper);
   font-size: var(--t-2xs);
   font-weight: 700;
   color: var(--danger);
@@ -491,7 +491,7 @@
   width: min(560px, 100%);
   max-height: 92vh;
   overflow-y: auto;
-  background: var(--paper);
+  background-color: var(--paper);
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
 }
@@ -526,13 +526,13 @@
   cursor: pointer;
   border-radius: var(--r-ctl);
 }
-.modal-close:hover { background: var(--card); color: var(--ink); }
+.modal-close:hover { background-color: var(--card); color: var(--ink); }
 
 .modal-submit {
   width: 100%;
   min-height: 48px;
   margin-top: var(--s-3);
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -544,13 +544,13 @@
   transition: filter var(--d-fast) var(--ease);
 }
 .modal-submit:hover:not(:disabled) { filter: brightness(1.06); }
-.modal-submit:disabled { background: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.modal-submit:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
 
 .shop-btn, .recolor-btn, .rc-back-btn, .change-photo-btn {
   width: 100%;
   min-height: 44px;
   margin-top: var(--s-2);
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
   color: var(--ink);
@@ -561,7 +561,7 @@
   transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
 }
 .shop-btn:hover, .recolor-btn:hover, .rc-back-btn:hover, .change-photo-btn:hover {
-  background: var(--ink);
+  background-color: var(--ink);
   color: var(--paper);
 }
 
@@ -570,7 +570,7 @@
   place-items: center;
   gap: var(--s-2);
   padding: var(--s-5) var(--s-4);
-  background: var(--card);
+  background-color: var(--card);
   border: 1.5px dashed var(--rule-strong);
   border-radius: var(--r-ctl);
   cursor: pointer;
@@ -605,14 +605,14 @@
   align-items: center;
   gap: 5px;
   padding: var(--s-2) 4px;
-  background: var(--paper);
+  background-color: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
   cursor: pointer;
   transition: border-color var(--d-fast) var(--ease);
 }
 .rc-color-opt:hover { border-color: var(--rule-strong); }
-.rc-color-opt.selected { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.rc-color-opt.selected { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
 .rc-swatch { width: 32px; height: 32px; border-radius: var(--r-tag); border: 1px solid var(--rule); }
 .rc-cname { font-size: var(--t-2xs); letter-spacing: var(--tr-label); text-transform: uppercase; text-align: center; line-height: 1.2; }
 
@@ -632,7 +632,7 @@
   width: min(560px, 100%);
   height: 100%;
   overflow-y: auto;
-  background: var(--paper);
+  background-color: var(--paper);
   box-shadow: var(--sh-modal);
 }
 .fs-panel-body { padding: var(--s-5); }
@@ -656,7 +656,7 @@
 .fs-panel-body .submit-btn {
   width: 100%;
   min-height: 48px;
-  background: var(--signal);
+  background-color: var(--signal);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--signal-ink);
@@ -665,7 +665,7 @@
   font-weight: 700;
   cursor: pointer;
 }
-.fs-panel-body .submit-btn:disabled { background: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
+.fs-panel-body .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-3); cursor: not-allowed; }
 #sf-fs-file { display: none; }
 
 /* ══════════════════════════════════════════════════
@@ -689,7 +689,7 @@
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);
-  background: var(--paper);
+  background-color: var(--paper);
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
   text-align: center;
@@ -707,7 +707,7 @@
 .uptip-ok {
   width: 100%;
   min-height: 44px;
-  background: var(--field);
+  background-color: var(--field);
   border: 0;
   border-radius: var(--r-ctl);
   color: var(--on-field);
