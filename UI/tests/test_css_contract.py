@@ -1,13 +1,13 @@
 """Ratchet budgets for the CSS layer.
 
-Every number below is the measured state at the start of the redesign. They are
-ceilings: lower them as work lands, never raise them. A test that fails because
-a budget got smaller is the point.
+Every number below is a ceiling measured against the shipped state. Lower them
+as work lands, never raise them. A test that fails because a budget got smaller
+is the point.
 
-Responsive breakage is one of this repo's chronic failure modes. The measured
-cause is narrow but real: two orphan breakpoints. 540px lives only in
-free-search.css and 768px only in common.css, so the results grid reflows at a
-width nothing else on the page uses.
+Responsive breakage was one of this repo's chronic failure modes. The measured
+cause was two orphan breakpoints: 540px lived only in free-search.css and 768px
+only in common.css, so parts of a page reflowed at widths nothing else used.
+Both are gone; the whole app now runs on 560/900.
 """
 import re
 import unittest
@@ -18,14 +18,18 @@ _CSS = _UI / "static" / "css"
 _TEMPLATES = _UI / "templates"
 
 # --- budgets. Lower these, never raise. ---
-# Mid-migration: the old set (380/540/600/768/900/1024) coexists with the new
-# one (560/900/1280) until the last page moves off common.css. Target is 3.
-BREAKPOINT_BUDGET = 7
-ORPHAN_BREAKPOINT_BUDGET = 2    # 540 in free-search only, 768 in common only; target 0
-INLINE_STYLE_BUDGET = 237       # target 40
-RAW_HEX_BUDGET = 181            # target 0 outside tokens.css
-IMPORTANT_BUDGET = 3            # target 0
-UNDERSIZED_TEXT_BUDGET = 12     # distinct font sizes below 12px; target 0
+# The whole app runs on 560/900, down from 380/540/600/768/900/1024.
+BREAKPOINT_BUDGET = 3
+# Zero: every page is on the token layer and the 560/900 set.
+ORPHAN_BREAKPOINT_BUDGET = 0
+# 237 -> 186. What remains is facet geometry (clip-path silhouettes,
+# indicator sizes) and swatch colours, which are product data rather than
+# design decisions. Moving them to data-attribute rules is follow-up work.
+INLINE_STYLE_BUDGET = 186
+RAW_HEX_BUDGET = 0
+IMPORTANT_BUDGET = 0
+# Only the 11px functional floor remains, which is the allowed minimum.
+UNDERSIZED_TEXT_BUDGET = 1
 
 
 # Files exempt from the raw-hex rule: the token layer is where colour lives.
@@ -102,9 +106,8 @@ class TestColourDiscipline(unittest.TestCase):
 class TestMotion(unittest.TestCase):
 
     def test_token_layer_carries_a_global_reduced_motion_reset(self):
-        """One global reset in the token layer beats per-file duplication: every
-        page that loads tokens.css inherits it. Pages still on common.css have
-        no coverage at all and gain it when they move over."""
+        """One global reset in the token layer beats per-file duplication:
+        every page loads tokens.css, so every page inherits it."""
         tokens = _CSS / "tokens.css"
         self.assertTrue(tokens.is_file(), "tokens.css is missing")
         block = re.search(
@@ -129,8 +132,8 @@ class TestMotion(unittest.TestCase):
             for i, line in enumerate(_read(f).splitlines(), 1):
                 if re.search(r"transition:[^;}]*\b(width|height)\b", line):
                     offenders.append(f"{f.name}:{i}")
-        # Two exist today (progress bars); this asserts no new ones appear.
-        self.assertLessEqual(len(offenders), 2, f"layout-property transitions: {offenders}")
+        # Progress now animates transform: scaleX, so none should remain.
+        self.assertEqual(offenders, [], f"layout-property transitions: {offenders}")
 
 
 class TestTypography(unittest.TestCase):

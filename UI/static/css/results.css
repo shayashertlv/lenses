@@ -1,0 +1,121 @@
+/* ══════════════════════════════════════════════════
+   Results — the shelf-edge language for a rendered try-on
+   Shared by / (Smart fit) and /free-search.
+   Shelf edge direction, seed e4d16858.
+   ══════════════════════════════════════════════════ */
+
+/* The first render arrives large; the alternates settle in beside it. */
+.results-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--s-3);
+  align-content: start;
+}
+.result-card.is-primary { grid-column: 1 / -1; }
+.result-card.is-primary .result-img { max-height: 58vh; }
+
+.result-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  overflow: hidden;
+  background: var(--paper);
+}
+.result-card.is-primary { border-color: var(--ink); }
+.result-img { background: var(--card); display: grid; place-items: center; min-height: 180px; }
+.result-img img { display: block; width: 100%; height: auto; max-height: 58vh; object-fit: contain; }
+.tryon-done { position: relative; width: 100%; }
+.tryon-done .recolor-btn {
+  position: absolute;
+  right: var(--s-2);
+  bottom: var(--s-2);
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.tryon-done .recolor-btn:hover { background: var(--ink); color: var(--paper); }
+.tryon-wait, .tryon-fail {
+  display: grid;
+  gap: var(--s-2);
+  place-items: center;
+  padding: var(--s-6) var(--s-4);
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: center;
+}
+.tryon-wait-bar {
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--card-sunk);
+  overflow: hidden;
+  position: relative;
+}
+@keyframes waitSlide { from { transform: translateX(-100%); } to { transform: translateX(220%); } }
+.tryon-wait-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 45%;
+  background: var(--field);
+  animation: waitSlide 1.2s var(--ease) infinite;
+}
+
+.result-body { display: flex; flex-direction: column; gap: 3px; padding: var(--s-3); flex: 1; }
+.result-label {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border-radius: var(--r-tag);
+  background: var(--field);
+  color: var(--on-field);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  margin-bottom: var(--s-2);
+}
+.result-brand { font-size: var(--t-md); font-weight: 800; font-stretch: 70%; text-transform: uppercase; line-height: 1; }
+.result-name { font-size: var(--t-sm); font-weight: 500; }
+.result-spec {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.scores { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+.score {
+  display: grid;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--card);
+  border-radius: var(--r-tag);
+  text-align: center;
+}
+.score-k {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.score-v { font-size: var(--t-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+.result-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: auto;
+  padding-top: var(--s-3);
+}
+.result-thumb { width: 54px; height: 34px; object-fit: contain; }

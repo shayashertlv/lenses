@@ -304,6 +304,10 @@
   animation: shimmer 1.3s linear infinite;
   border-radius: var(--r-ctl);
 }
+.sk .img-wrap { aspect-ratio: 3 / 2; }
+.sk-a { height: 14px; width: 60%; margin-bottom: 8px; }
+.sk-b { height: 16px; width: 90%; margin-bottom: 12px; }
+.sk-c { height: 28px; width: 40%; }
 
 /* ══════════════════════════════════════════════════
    Counter tickets — the dock

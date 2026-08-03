@@ -47,7 +47,8 @@ class TestRoutes(unittest.TestCase):
                 self.assertIn(b"</html>", body)
 
     def test_static_assets_serve(self):
-        for path in ("/static/css/common.css", "/static/js/common.js"):
+        for path in ("/static/css/tokens.css", "/static/js/common.js",
+                     "/static/fonts/archivo-var-latin.woff2"):
             with self.subTest(path=path):
                 status, _, body = self._get(path)
                 self.assertEqual(status, 200)

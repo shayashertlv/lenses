@@ -10,6 +10,11 @@
 <link rel="stylesheet" href="/static/css/storefront.css"/>
 </head>
 <body>
+<!-- impeccable-disable repeating-stripes-gradient: the polarized-lens and
+     carbon-fibre indicators depict a real material property from the tag
+     schema (lenses.type=polarized, frame.material=carbon-fiber). The stripe
+     is the subject, not surface decoration. -->
+
 <!--
   DIRECTION CONTRACT — Shelf edge · seed e4d16858 · scope direction · mode persuade
   THESIS: the optical counter of a chain optician, built as a category signage
@@ -68,14 +73,14 @@
   </div>
   <div class="product-grid" id="product-grid">
     <!-- Skeleton cards while loading -->
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
-    <div class="product-card"><div class="img-wrap skeleton" style="aspect-ratio:1/1"></div><div class="product-info"><div class="skeleton" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skeleton" style="height:16px;width:90%;margin-bottom:12px"></div><div class="skeleton" style="height:28px;width:40%"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
+    <div class="product-card sk"><div class="img-wrap skeleton"></div><div class="product-info"><div class="skeleton sk-a"></div><div class="skeleton sk-b"></div><div class="skeleton sk-c"></div></div></div>
   </div>
 </div>
 
@@ -95,7 +100,7 @@
         <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
         <span class="up-label" id="sf-fs-up-label">Upload a Photo</span>
         <span class="up-hint">JPG, PNG, or WebP</span>
-        <img class="up-preview" id="sf-fs-preview"/>
+        <img class="up-preview" id="sf-fs-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/>
       </div>
       <input type="file" id="sf-fs-file" accept="image/*"/>
 
@@ -126,14 +131,14 @@
       <div class="tile-grid">
         <label class="tile"><input type="radio" name="lens_type" value="" checked/><div class="tile-inner"><div class="any-icon">&#10038;</div><span class="tile-label">Any</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.2)"></div><span class="tile-label">Clear</span></div></label>
-        <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:rgba(255,255,255,.6)">Rx</div><span class="tile-label">Prescription</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="prescription-ready"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.6875rem;font-weight:700;color:rgba(255,255,255,.6)">Rx</div><span class="tile-label">Prescription</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="sunglasses"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:#2a2a2a"></div><span class="tile-label">Sunglasses</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="polarized"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:repeating-linear-gradient(0deg,#666,#666 2px,#888 2px,#888 4px)"></div><span class="tile-label">Polarized</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="gradient"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(180deg,#333,#999)"></div><span class="tile-label">Gradient</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="mirrored"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#e0e8f0,#8090a8,#e0e8f0)"></div><span class="tile-label">Mirrored</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="chromance"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#4060c0,#a040a0,#c06020)"></div><span class="tile-label">Chromance</span></div></label>
         <label class="tile"><input type="radio" name="lens_type" value="prizm"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#c04010,#e08020,#20a040)"></div><span class="tile-label">Prizm</span></div></label>
-        <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#1a3a5c,#2060a0);display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;color:rgba(255,255,255,.8)">SPT</div><span class="tile-label">Sport</span></div></label>
+        <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;background:linear-gradient(135deg,#1a3a5c,#2060a0);display:flex;align-items:center;justify-content:center;font-size:.6875rem;font-weight:700;color:#fff">SPT</div><span class="tile-label">Sport</span></div></label>
       </div>
 
       <h3 class="section-title">Frame Color</h3>
@@ -280,7 +285,7 @@
         </div>
         <!-- Photo-ready state -->
         <div id="upload-ready" style="display:none;text-align:center">
-          <img class="upload-preview" id="modal-preview" src="" alt="Your photo"/>
+          <img class="upload-preview" id="modal-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Your photo"/>
           <button type="button" class="change-photo-btn" onclick="openPickerWithTip('modal-file')">Change photo</button>
         </div>
         <input type="file" id="modal-file" accept="image/*" style="display:none"/>
@@ -291,7 +296,7 @@
       <div class="tryon-result" id="modal-result">
         <h3>Here's how you look!</h3>
         <p class="modal-subtitle" id="modal-result-product"></p>
-        <img id="modal-result-img" src="" alt="Virtual try-on result"/>
+        <img id="modal-result-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Virtual try-on result"/>
         <button class="shop-btn" id="modal-shop-btn" style="display:none" onclick="shopThisFrame()">Shop this frame</button>
         <button class="recolor-btn" onclick="showRecolorPicker()">Recolor Lenses</button>
         <button class="modal-submit" onclick="resetModal()">Try Another Photo</button>

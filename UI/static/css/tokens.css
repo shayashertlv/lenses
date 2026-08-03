@@ -48,7 +48,10 @@
   --card-sunk:    #e7e5dd;
   --ink:          #0e1310;
   --ink-2:        #4a534d;   /* 7.2:1 on paper */
-  --ink-3:        #6b746e;   /* 4.6:1 on paper — the muted floor, still AA */
+  /* The muted floor. Tuned against --card, not --paper: most muted text sits
+     on a card (spec rows, docket labels, score keys), and a value that clears
+     4.5:1 on white can still fail on the slightly darker card. */
+  --ink-3:        #626b65;   /* 5.5:1 on paper, 4.8:1 on card */
   --field:        #0f5132;   /* 9.4:1 on paper */
   --field-hi:     #157a4a;
   --field-deep:   #0a3a24;

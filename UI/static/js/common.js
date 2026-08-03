@@ -32,6 +32,19 @@ function fmtPrice(o){
 /* ── Capitalize helper ── */
 function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
 
+/* ── Model name ──
+   Catalogue `name` repeats the brand ("Emporio Armani EA1041 Semi-Rimless"
+   where brand is "Emporio Armani"). A shelf-edge label sets the brand in
+   signage caps above the model, so printing the raw name under it says the
+   brand twice. Strip the prefix; fall back to the full name if stripping
+   would leave nothing. */
+function modelName(o){
+  const n=String((o&&o.name)||'').trim(), b=String((o&&o.brand)||'').trim();
+  if(!b||!n.toLowerCase().startsWith(b.toLowerCase()))return n;
+  const rest=n.slice(b.length).replace(/^[\s\-–—·|]+/,'').trim();
+  return rest||n;
+}
+
 /* ── Frame silhouettes ──
    Drawn geometry, one per silhouette in the tag taxonomy, used as the shelf
    label's photo well before the product image decodes and as the mark on a
@@ -64,6 +77,49 @@ function frameGlyph(shape, cls){
     'fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" ' +
     'stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + '</svg>';
 }
+
+/* ── RingTimer — smooth, duration-aware progress ───────────────────────────
+   Starts at 0% and eases toward ~90% exactly at the feature's expected
+   duration, so it is near the finish right when the result lands. On overrun
+   it drifts gently 90→97 (never a hard wall, never reaches 100 until
+   finish()). One continuous monotonic timer — no mid-load jumps, ever.
+
+   The curve below is the product of a long tuning arc; do not retune it. The
+   only thing a surface chooses is applyFn — the storefront dock paints a
+   ticket bar with it, the landing counter paints the docket bar. */
+function RingTimer(applyFn, durationSec) {
+  this.apply = applyFn;
+  this.D = Math.max(1, durationSec) * 1000;
+  this.t0 = 0;
+  this.displayed = 0;
+  this.raf = null;
+  const self = this;
+  function pctAt(ms) {
+    const x = ms / self.D;
+    let p;
+    if (x <= 1) p = 90 * (1 - Math.pow(1 - x, 1.7));         // ease-out to 90% at D
+    else p = 90 + 7 * (1 - Math.exp(-(ms - self.D) / 8000)); // gentle drift toward ~97%
+    return Math.min(p, 97);
+  }
+  function tick(now) {
+    const p = pctAt(now - self.t0);
+    if (p > self.displayed) { self.displayed = p; self.apply(p); }
+    self.raf = requestAnimationFrame(tick);
+  }
+  this._tick = tick;
+}
+RingTimer.prototype.start = function () {
+  this.t0 = performance.now();
+  this.apply(0);
+  if (!this.raf) this.raf = requestAnimationFrame(this._tick);
+};
+RingTimer.prototype.finish = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+  this.displayed = 100; this.apply(100);
+};
+RingTimer.prototype.stop = function () {
+  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+};
 
 /* ── Poll retry tracker ──
    Tracks consecutive poll failures and updates a stage text element.

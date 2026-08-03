@@ -177,39 +177,49 @@ function getTryonHtml(o){
   if(o.tryon_status==='done'&&o.tryon_b64){
     const key='rc'+(++_recolorIdx);
     _recolorStore[key]=o.tryon_b64;
-    return `<div class="tryon-done-wrap">
-      <img src="data:image/png;base64,${o.tryon_b64}" alt="Virtual try-on"/>
-      <button class="recolor-overlay-btn" onclick="event.stopPropagation();goRecolor('${key}')" onmouseover="this.style.background='rgba(232,168,56,1)'" onmouseout="this.style.background='rgba(232,168,56,.92)'">Recolor Lenses</button>
-    </div>`;
+    return '<div class="tryon-done">' +
+      '<img src="data:image/png;base64,'+o.tryon_b64+'" alt="You wearing '+escHtml(o.name)+'"/>' +
+      '<button class="recolor-btn" type="button" onclick="goRecolor(''+key+'')">Recolour lenses</button>' +
+      '</div>';
   }
-  if(o.tryon_status==='error') return `<div class="tryon-error">Try-on could not be generated${o.tryon_error?': '+escHtml(o.tryon_error):''}</div>`;
-  return '<div class="tryon-loading"><div class="mini-spin"></div><p>Generating try-on...</p></div>';
+  if(o.tryon_status==='error') return '<div class="tryon-fail">Could not be rendered'+(o.tryon_error?': '+escHtml(o.tryon_error):'')+'</div>';
+  return '<div class="tryon-wait"><span class="tryon-wait-bar"></span>Rendering</div>';
 }
 
-function fsBuildCard(opt,index){
-  const el=document.createElement('div');
-  el.className='result-card';
-  const labelText=index===0?'Best Match':'Alt '+index;
-  const labelCls=index===0?'result-label':'result-label alt';
+function fsBuildCard(o,index){
+  const el=document.createElement('article');
+  el.className='result-card'+(index===0?' is-primary':'');
+  const label=index===0?'Best match':'Alternate '+index;
+  const spec=[o.material,o.color].filter(Boolean).map(escHtml).join(' &middot; ');
+  const scores=[
+    o.fit_score!=null?['Fit',o.fit_score]:null,
+    o.style_score!=null?['Style',o.style_score]:null,
+    o.color_score!=null?['Colour',o.color_score]:null,
+  ].filter(Boolean);
 
-  el.innerHTML=`
-    <div class="result-img-wrap">${getTryonHtml(opt)}</div>
-    <div class="result-info">
-      <div class="result-thumb">
-        <img src="data:image/jpeg;base64,${opt.product_b64}" alt="${escHtml(opt.name)}"/>
-      </div>
-      <div class="result-meta">
-        <div class="result-head">
-          <span class="${labelCls}">${labelText}</span>
-          <span class="result-name">${escHtml(opt.name)}</span>
-        </div>
-        <div class="result-tags">
-          ${[opt.material,opt.color].filter(t=>t&&t.trim()).map(t=>'<span class="result-tag">'+escHtml(t)+'</span>').join('')}
-        </div>
-        <div class="result-price">${fmtPrice(opt)}</div>
-      </div>
-    </div>`;
+  el.innerHTML=
+    '<div class="result-img">'+getTryonHtml(o)+'</div>'+
+    '<div class="result-body">'+
+      '<span class="result-label">'+label+'</span>'+
+      '<span class="result-brand">'+escHtml(o.brand||'')+'</span>'+
+      '<span class="result-name">'+escHtml(modelName(o))+'</span>'+
+      (spec?'<span class="result-spec">'+spec+'</span>':'')+
+      (scores.length
+        ? '<div class="scores">'+scores.map(x=>
+            '<span class="score"><span class="score-k">'+x[0]+'</span>'+
+            '<span class="score-v">'+Math.round(x[1])+'</span></span>').join('')+'</div>'
+        : '')+
+      '<div class="result-foot">'+
+        '<span class="price sg-price">'+fsPrice(o)+'</span>'+
+        (o.product_b64?'<img class="result-thumb" src="data:image/jpeg;base64,'+o.product_b64+'" alt=""/>':'')+
+      '</div>'+
+    '</div>';
   return el;
+}
+
+function fsPrice(o){
+  const sym=o.currency==='ILS'?'₪':escHtml(o.currency||'');
+  return sym+Number(o.price||0).toLocaleString();
 }
 
 /* ── Compare modal ──────────────────────────── */
@@ -227,9 +237,9 @@ function openCompare(){
       ?`data:image/png;base64,${o.tryon_b64}`
       :`data:image/jpeg;base64,${o.product_b64}`;
     card.innerHTML=`
-      <img class="compare-card-img" src="${imgSrc}" alt="${o.name}"/>
+      <img class="compare-card-img" src="${imgSrc}" alt="${escHtml(o.name)}"/>
       <div class="compare-card-footer">
-        <span class="compare-card-price">${fmtPrice(o)}</span>
+        <span class="compare-card-price sg-price">${fsPrice(o)}</span>
       </div>`;
     grid.appendChild(card);
   }

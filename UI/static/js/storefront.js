@@ -45,44 +45,7 @@ const KIND_CFG = {
   recolor:    { dur: 20, label: 'Recolour',     spawn: 'Recoloring · ~20s',         stageMsg: 'Recoloring the lenses…' },
 };
 
-/* ── RingTimer — smooth, duration-aware progress ───────────────────────────
-   Starts at 0% and eases toward ~90% exactly at the feature's expected
-   duration, so the ring is near the finish right when the result lands. On
-   overrun it drifts gently 90→97 (never a hard wall, never reaches 100 until
-   finish()). One continuous monotonic timer — no mid-load jumps, ever. */
-function RingTimer(applyFn, durationSec) {
-  this.apply = applyFn;
-  this.D = Math.max(1, durationSec) * 1000;
-  this.t0 = 0;
-  this.displayed = 0;
-  this.raf = null;
-  const self = this;
-  function pctAt(ms) {
-    const x = ms / self.D;
-    let p;
-    if (x <= 1) p = 90 * (1 - Math.pow(1 - x, 1.7));         // ease-out to 90% at D
-    else p = 90 + 7 * (1 - Math.exp(-(ms - self.D) / 8000)); // gentle drift toward ~97%
-    return Math.min(p, 97);
-  }
-  function tick(now) {
-    const p = pctAt(now - self.t0);
-    if (p > self.displayed) { self.displayed = p; self.apply(p); }
-    self.raf = requestAnimationFrame(tick);
-  }
-  this._tick = tick;
-}
-RingTimer.prototype.start = function () {
-  this.t0 = performance.now();
-  this.apply(0);
-  if (!this.raf) this.raf = requestAnimationFrame(this._tick);
-};
-RingTimer.prototype.finish = function () {
-  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
-  this.displayed = 100; this.apply(100);
-};
-RingTimer.prototype.stop = function () {
-  if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
-};
+/* RingTimer now lives in common.js — the landing counter paces on it too. */
 
 /* One shared pair of screen-reader live regions for the whole dock. */
 function ensureLiveRegions() {
@@ -186,7 +149,7 @@ function renderProducts() {
       </div>
       <div class="product-info">
         <div class="brand-name sg-display">${escHtml(p.brand)}</div>
-        <div class="prod-name">${escHtml(p.name)}</div>
+        <div class="prod-name">${escHtml(modelName(p))}</div>
         <div class="prod-tags sg-label">
           <span class="prod-tag">${spec}</span>
           <span class="prod-tag">${spec2}</span>
