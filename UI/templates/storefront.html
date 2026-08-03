@@ -4,49 +4,67 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Optique — Eyewear Store</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="/static/css/common.css"/>
-<link rel="stylesheet" href="/static/css/free-search.css"/>
+<link rel="preload" href="/static/fonts/archivo-var-latin.woff2" as="font" type="font/woff2" crossorigin/>
+<link rel="stylesheet" href="/static/css/tokens.css"/>
+<link rel="stylesheet" href="/static/css/facets.css"/>
 <link rel="stylesheet" href="/static/css/storefront.css"/>
 </head>
 <body>
+<!--
+  DIRECTION CONTRACT — Shelf edge · seed e4d16858 · scope direction · mode persuade
+  THESIS: the optical counter of a chain optician, built as a category signage
+    system. Refuses the near-black + one-violet-accent + identical-card-grid
+    arrangement this product shipped as.
+  OWN-WORLD: paper white ground, G-15 green at field scale on every category
+    band, signal orange restricted to price blocks and one primary action,
+    Archivo condensed at signage weight, squared corners, drawn frame
+    silhouettes instead of icon-font glyphs.
+  STORY: the visitor browses a real 147-frame shelf run, hands over a photo,
+    and keeps browsing while a counter ticket fills in behind them.
+  FIRST VIEWPORT: green category band, shelf run beginning above the fold,
+    two AI entry points as bordered plates, gender filter as signage pills.
+  FORM: shelf-edge label as the product card; counter ticket as the job dock.
+    Candidate 7 of 7 on the grounded list; the roll assigned it.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the
+    finish review, the verdict, and DESIGN.md.
+-->
 
 <div class="topbar">
   <a href="/" class="back-btn">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 12L6 8l4-4"/></svg>
-    Back to Lenses
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 12L6 8l4-4"/></svg>
+    Lenses
   </a>
   <a href="/storefront" class="brand">Optique</a>
-  <div class="powered">Virtual try-on by <span>Lenses AI</span></div>
+  <div class="powered">Try-on by <span>Lenses</span></div>
 </div>
 
 <div class="hero">
-  <h1>Find Your Perfect Pair</h1>
-  <p>Browse our collection and try any frame on yourself instantly with AI-powered virtual try-on.</p>
+  <h1>147 frames on the shelf.<br/>Try any of them on your own face.</h1>
+  <p>Pick a frame and hand over a photo, or let the AI choose for you. Each render takes about twenty seconds and you can keep browsing while it works.</p>
 </div>
 
 <!-- AI actions: let the AI pick a frame, then try it on (non-blocking circle) -->
 <div class="ai-actions">
-  <button class="ai-action-btn" onclick="openSmartFit()">
-    <span class="ai-ico"><svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18.5 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></span>
-    <span class="ai-txt"><strong>Smart Fit</strong><small>Let AI pick your best frame</small></span>
+  <button class="ai-action-btn" type="button" onclick="openSmartFit()">
+    <span class="ai-ico" aria-hidden="true"><svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><circle cx="34" cy="24" r="18"/><circle cx="86" cy="24" r="18"/><path d="M52 22h16M16 18L2 12M104 18l14-6"/></svg></span>
+    <span class="ai-txt"><strong>Smart fit</strong><small>We read your face &#183; ~30s</small></span>
   </button>
-  <button class="ai-action-btn" onclick="openFreeSearch()">
-    <span class="ai-ico"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>
-    <span class="ai-txt"><strong>Free Search</strong><small>Describe what you want</small></span>
+  <button class="ai-action-btn" type="button" onclick="openFreeSearch()">
+    <span class="ai-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>
+    <span class="ai-txt"><strong>Free search</strong><small>You set the spec &#183; ~20s</small></span>
   </button>
 </div>
 
 <div class="container">
   <div class="grid-header">
-    <h2>All Eyewear</h2>
+    <h2>All eyewear</h2>
     <span class="count" id="product-count"></span>
   </div>
-  <div class="filter-strip">
-    <button class="filter-pill active" data-gender="all"    onclick="setGenderFilter('all')">All</button>
-    <button class="filter-pill"        data-gender="men"    onclick="setGenderFilter('men')">Men</button>
-    <button class="filter-pill"        data-gender="women"  onclick="setGenderFilter('women')">Women</button>
-    <button class="filter-pill"        data-gender="unisex" onclick="setGenderFilter('unisex')">Unisex</button>
+  <div class="filter-strip" role="group" aria-label="Filter by fit">
+    <button class="filter-pill active" type="button" data-gender="all"    onclick="setGenderFilter('all')">All</button>
+    <button class="filter-pill"        type="button" data-gender="men"    onclick="setGenderFilter('men')">Men</button>
+    <button class="filter-pill"        type="button" data-gender="women"  onclick="setGenderFilter('women')">Women</button>
+    <button class="filter-pill"        type="button" data-gender="unisex" onclick="setGenderFilter('unisex')">Unisex</button>
   </div>
   <div class="product-grid" id="product-grid">
     <!-- Skeleton cards while loading -->

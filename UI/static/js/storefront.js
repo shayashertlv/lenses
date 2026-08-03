@@ -24,8 +24,6 @@ let jobSeq = 0;
 let pendingProduct = null;   // product whose modal is currently open
 let storeAction = 'tryon';   // 'tryon' | 'smartfit' (drives the modal generate button)
 
-const RING_R = 26;                       // ring radius in the 60x60 viewBox
-const RING_C = 2 * Math.PI * RING_R;     // circumference (dash length)
 
 function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -41,10 +39,10 @@ function prefersReducedMotion() {
    jumps for it).
    ══════════════════════════════════════════════════ */
 const KIND_CFG = {
-  smartfit:   { dur: 30, spawn: 'Smart Fit · ~30s',          stageMsg: 'Analyzing your face…' },
-  freesearch: { dur: 20, spawn: 'Finding your match · ~20s', stageMsg: 'Searching the collection…' },
-  tryon:      { dur: 20, spawn: 'Try-on · ~20s',             stageMsg: 'Creating your try-on…' },
-  recolor:    { dur: 20, spawn: 'Recoloring · ~20s',         stageMsg: 'Recoloring the lenses…' },
+  smartfit:   { dur: 30, label: 'Smart fit',    spawn: 'Smart Fit · ~30s',          stageMsg: 'Analyzing your face…' },
+  freesearch: { dur: 20, label: 'Free search',  spawn: 'Finding your match · ~20s', stageMsg: 'Searching the collection…' },
+  tryon:      { dur: 20, label: 'Try-on',       spawn: 'Try-on · ~20s',             stageMsg: 'Creating your try-on…' },
+  recolor:    { dur: 20, label: 'Recolour',     spawn: 'Recoloring · ~20s',         stageMsg: 'Recoloring the lenses…' },
 };
 
 /* ── RingTimer — smooth, duration-aware progress ───────────────────────────
@@ -171,28 +169,31 @@ function renderProducts() {
     const genderLabel = p.gender === 'men' ? 'Men' : p.gender === 'women' ? 'Women' : 'Unisex';
     const imgSrc = '/api/catalog-image/' + p.image.replace('images/', '');
 
+    const spec = [p.material, p.rim_type].filter(Boolean).map(escHtml).join(' &middot; ');
+    const spec2 = [p.shape, p.lens_size, p.lens_color].filter(Boolean).map(escHtml).join(' &middot; ');
+
     const card = document.createElement('div');
     card.className = 'product-card';
     card.dataset.id = p.id;
+    /* Shelf-edge label: a drawn frame silhouette holds the photo well until
+       the image decodes, so an unloaded card reads as filed stock rather than
+       as a broken image. */
     card.innerHTML = `
       <div class="img-wrap">
-        <img src="${escHtml(imgSrc)}" alt="${escHtml(p.name)}" loading="lazy"/>
-        <span class="badge ${genderClass}">${genderLabel}</span>
+        ${frameGlyph(p.shape)}
+        <img src="${escHtml(imgSrc)}" alt="${escHtml(p.name)}" loading="lazy" decoding="async"/>
+        <span class="badge ${genderClass} sg-label">${genderLabel}</span>
       </div>
       <div class="product-info">
-        <div class="brand-name">${escHtml(p.brand)}</div>
+        <div class="brand-name sg-display">${escHtml(p.brand)}</div>
         <div class="prod-name">${escHtml(p.name)}</div>
-        <div class="prod-tags">
-          <span class="prod-tag">${escHtml(p.shape)}</span>
-          <span class="prod-tag">${escHtml(p.material)}</span>
-          <span class="prod-tag">${escHtml(p.rim_type)}</span>
+        <div class="prod-tags sg-label">
+          <span class="prod-tag">${spec}</span>
+          <span class="prod-tag">${spec2}</span>
         </div>
         <div class="price-row">
-          <div><span class="price">${p.price.toLocaleString()}</span><span class="currency">${escHtml(p.currency)}</span></div>
-          <button class="tryon-btn" type="button">
-            <svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3 14c0-2.761 2.239-5 5-5s5 2.239 5 5"/></svg>
-            Try On
-          </button>
+          <span class="price sg-price">${escHtml(p.currency === 'ILS' ? '₪' : p.currency)}${p.price.toLocaleString()}</span>
+          <button class="tryon-btn sg-label" type="button">Try on</button>
         </div>
       </div>`;
     /* Listener, not an interpolated onclick: product names carry quotes and
@@ -416,36 +417,42 @@ function spawnCircle(job) {
   const isRecolor = job.kind === 'recolor';
   const isAI = (job.kind === 'smartfit' || job.kind === 'freesearch');
   const btn = document.createElement('button');
-  btn.className = 'sf-circle is-loading' + (isRecolor ? ' is-recolor' : '') + (isAI ? ' is-ai' : '');
+  btn.className = 'sf-ticket is-loading' + (isRecolor ? ' is-recolor' : '') + (isAI ? ' is-ai' : '');
   btn.dataset.job = job.id;
   btn.setAttribute('aria-label',
     isRecolor ? 'Recoloring ' + job.productName + ' in ' + job.color
     : isAI ? (job.kind === 'smartfit' ? 'Smart Fit — finding your best frame' : 'Free Search — finding your best match')
     : 'Try-on for ' + job.productName + ' — generating');
   const thumbHtml = job.thumbSrc
-    ? '<img class="sf-thumb" src="' + job.thumbSrc + '" alt=""/>'
+    ? '<img class="sf-thumb" src="' + escHtml(job.thumbSrc) + '" alt=""/>'
     : (isAI
-        ? '<div class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 24 24" fill="none" stroke="#2a2a3a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18.5 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></div>'
-        : '<img class="sf-thumb" src="" alt=""/>');
+        ? '<span class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="34" cy="24" r="18"/><circle cx="86" cy="24" r="18"/><path d="M52 22h16"/></svg></span>'
+        : '<span class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="34" cy="24" r="18"/><circle cx="86" cy="24" r="18"/><path d="M52 22h16"/></svg></span>');
   btn.innerHTML =
-    '<svg class="sf-ring" viewBox="0 0 60 60">' +
-      '<circle class="sf-circ-bg" cx="30" cy="30" r="' + RING_R + '"/>' +
-      '<circle class="sf-circ-fg" cx="30" cy="30" r="' + RING_R + '"/>' +
-    '</svg>' +
-    thumbHtml +
-    (isRecolor ? '<span class="sf-color-dot" style="background:' + (job.colorBg || '#fff') + '"></span>' : '') +
+    '<span class="sf-tk-head">' +
+      '<span class="sf-tk-no sg-figure">Ticket ' + String(jobs.size).padStart(2, '0') + '</span>' +
+      '<span class="sf-tk-kind">' + escHtml((KIND_CFG[job.kind] || KIND_CFG.tryon).label) + '</span>' +
+    '</span>' +
+    '<span class="sf-tk-body">' +
+      '<span class="sf-tk-row">' + thumbHtml +
+        (isRecolor ? '<span class="sf-color-dot" style="background:' + escHtml(job.colorBg || '#fff') + '"></span>' : '') +
+        '<span class="sf-caption"></span>' +
+      '</span>' +
+      '<span class="sf-bar"><span class="sf-bar-fill"></span></span>' +
+      '<span class="sf-tk-foot"><span class="sf-tk-state">Working</span><span class="sf-pct sg-figure">0%</span></span>' +
+    '</span>' +
     '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
     '<span class="sf-badge sf-badge-err">!</span>' +
-    '<span class="sf-dismiss" aria-hidden="true">&times;</span>' +
-    '<span class="sf-caption"></span>';
+    '<span class="sf-dismiss" aria-hidden="true">&times;</span>';
   job.el = btn;
 
-  /* Drive the progress ring with the smooth, duration-aware RingTimer */
-  const ringFg = btn.querySelector('.sf-circ-fg');
-  ringFg.style.strokeDasharray = RING_C.toFixed(2);
-  ringFg.style.strokeDashoffset = RING_C.toFixed(2);     // start empty (0%)
-  job.pace = new RingTimer(function (pct) {
-    ringFg.style.strokeDashoffset = (RING_C * (1 - pct / 100)).toFixed(2);
+  /* Same RingTimer, same pacing maths, painting a bar instead of a ring.
+     scaleX rather than width so the fill never triggers layout. */
+  const fill = btn.querySelector('.sf-bar-fill');
+  const pct = btn.querySelector('.sf-pct');
+  job.pace = new RingTimer(function (p) {
+    fill.style.transform = 'scaleX(' + (p / 100).toFixed(4) + ')';
+    pct.textContent = Math.round(p) + '%';
   }, job.dur);
   job.pace.start();
 
@@ -732,7 +739,7 @@ function flyToDock(sourceEl, circleEl) {
   circleEl.style.opacity = '0';
   circleEl.getBoundingClientRect();                // force reflow
   requestAnimationFrame(() => {
-    circleEl.style.transition = 'transform .5s cubic-bezier(.34,1.4,.64,1), opacity .3s ease';
+    circleEl.style.transition = 'transform .5s cubic-bezier(.16,1,.3,1), opacity .3s ease';
     circleEl.style.transform = 'translate(0,0) scale(1)';
     circleEl.style.opacity = '1';
   });
@@ -755,7 +762,7 @@ function collapseModal(circleEl) {
   const dy = (c.top + c.height / 2) - (m.top + m.height / 2);
 
   modalEl.style.transformOrigin = 'center';
-  modalEl.style.transition = 'transform .4s cubic-bezier(.4,0,1,1), opacity .35s ease';
+  modalEl.style.transition = 'transform .4s cubic-bezier(.7,0,.84,0), opacity .35s ease';
   modalEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(.16)';
   modalEl.style.opacity = '0';
   overlay.classList.add('closing');
@@ -790,7 +797,7 @@ function morphFromCircle(circleEl) {
   modalEl.style.opacity = '0';
   modalEl.getBoundingClientRect();                // force reflow
   requestAnimationFrame(() => {
-    modalEl.style.transition = 'transform .42s cubic-bezier(.34,1.4,.64,1), opacity .3s ease';
+    modalEl.style.transition = 'transform .42s cubic-bezier(.16,1,.3,1), opacity .3s ease';
     modalEl.style.transform = 'translate(0,0) scale(1)';
     modalEl.style.opacity = '1';
   });
@@ -965,7 +972,7 @@ function collapseOverlayToCircle(job) {
   const dy = (c.top + c.height / 2) - (m.top + m.height / 2);
   overlay.classList.add('closing');
   panel.style.transformOrigin = 'center';
-  panel.style.transition = 'transform .4s cubic-bezier(.4,0,1,1), opacity .35s ease';
+  panel.style.transition = 'transform .4s cubic-bezier(.7,0,.84,0), opacity .35s ease';
   panel.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(.16)';
   panel.style.opacity = '0';
   let done = false;

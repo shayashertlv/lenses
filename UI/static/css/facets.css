@@ -1,0 +1,185 @@
+/* ══════════════════════════════════════════════════
+   Facet controls — the category signage language
+   Shared by /free-search and the storefront's search overlay.
+
+   Selection uses :has() rather than the adjacent-sibling form it replaces.
+   The old `input:checked + .tile-inner` required the visually-hidden input to
+   stay the immediate previous sibling of the styled div; any markup
+   restructure killed selection feedback across 161 controls silently, with
+   nothing thrown. :has() is order-independent, so that class of bug is gone.
+   ══════════════════════════════════════════════════ */
+
+/* ── Group heading: a category signage band ── */
+.opt-group { margin-bottom: var(--s-5); }
+
+.opt-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  background: var(--field);
+  color: var(--on-field);
+  padding: 6px var(--s-3);
+  border-radius: var(--r-tag) var(--r-tag) 0 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  margin: 0 0 var(--s-3);
+}
+.opt-title .opt-count { color: var(--on-field-2); font-variant-numeric: tabular-nums; }
+
+/* ── Grids ── */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: var(--s-2);
+}
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: var(--s-2);
+}
+.chip-group, .radio-group { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+/* ── The hidden input. Kept in flow so :focus-visible can reach the label. ── */
+.tile input, .swatch input, .chip-group input, .radio-group input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* ── Shelf tag: the unit of every facet ── */
+.tile, .swatch { display: block; position: relative; cursor: pointer; }
+
+.tile-inner, .swatch-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 66px;
+  padding: var(--s-2) 6px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  text-align: center;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.tile-inner:hover, .swatch-inner:hover { border-color: var(--rule-strong); background: var(--card); }
+
+.tile-label, .swatch-name {
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  line-height: 1.25;
+}
+
+/* ── Selected: ink fill, reversed mark, one signal dot ── */
+.tile:has(input:checked) .tile-inner,
+.swatch:has(input:checked) .swatch-inner {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.tile:has(input:checked) .tile-inner::after,
+.swatch:has(input:checked) .swatch-inner::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--r-pill);
+  background: var(--signal);
+  border: 2px solid var(--paper);
+}
+
+.tile:has(input:focus-visible) .tile-inner,
+.swatch:has(input:focus-visible) .swatch-inner,
+.chip-group label:has(input:focus-visible),
+.radio-group label:has(input:focus-visible) {
+  outline: 2px solid var(--field);
+  outline-offset: 2px;
+}
+
+/* ── Out of range: filed, but unreachable given the other choices.
+      Held at --ink-3 (4.8:1) rather than a low opacity, which is how the
+      previous design failed contrast at every viewport. ── */
+.tile.dimmed .tile-inner,
+.swatch.dimmed .swatch-inner,
+.chip-group .dimmed label,
+.radio-group .dimmed label {
+  color: var(--ink-3);
+  border-style: dashed;
+  border-color: var(--rule);
+  background: var(--card);
+}
+.tile.dimmed .tile-inner .frame-glyph,
+.swatch.dimmed .swatch-inner .swatch-dot { opacity: .55; }
+
+/* ── Pills: chips and radios ── */
+.chip-group label, .radio-group label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--t-xs);
+  font-weight: 500;
+  letter-spacing: .03em;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.chip-group label:hover, .radio-group label:hover { border-color: var(--rule-strong); background: var(--card); }
+.chip-group label:has(input:checked), .radio-group label:has(input:checked) {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+/* ── Marks inside a tag. All drawn geometry; the inline geometry the
+      templates carry (clip-path silhouettes, gradient swatches) still
+      applies on top of these boxes. ── */
+.frame-glyph { width: 44px; height: 18px; display: block; }
+
+.shape-vis {
+  width: 46px; height: 22px;
+  border: 1.6px solid currentColor;
+  border-radius: 3px;
+}
+.shape-fill { width: 46px; height: 22px; background: currentColor; }
+
+.lens-ind { width: 40px; height: 20px; border-radius: 3px; border: 1.4px solid currentColor; }
+
+.rim-vis { width: 44px; height: 20px; border-radius: 3px; }
+.rim-vis.full    { border: 2px solid currentColor; }
+.rim-vis.semi    { border: 2px solid currentColor; border-bottom-color: transparent; }
+.rim-vis.rimless { border: 1px dashed currentColor; }
+
+.thick-bar { width: 40px; background: currentColor; border-radius: 2px; }
+.size-dot  { border-radius: var(--r-pill); background: currentColor; }
+.mat-chip  { font-size: var(--t-2xs); letter-spacing: var(--tr-label); text-transform: uppercase; }
+
+.swatch-dot {
+  width: 30px; height: 30px;
+  border-radius: var(--r-tag);
+  border: 1px solid var(--rule);
+}
+.swatch:has(input:checked) .swatch-inner .swatch-dot { border-color: rgba(255, 255, 255, .5); }
+
+.any-icon { font-size: var(--t-sm); font-weight: 700; }
+
+@media (max-width: 560px) {
+  .tile-grid   { grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); }
+  .swatch-grid { grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); }
+  .tile-inner, .swatch-inner { min-height: 60px; }
+}

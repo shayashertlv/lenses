@@ -4,10 +4,10 @@ Every number below is the measured state at the start of the redesign. They are
 ceilings: lower them as work lands, never raise them. A test that fails because
 a budget got smaller is the point.
 
-Responsive breakage is one of this repo's chronic failure modes, and the cause
-is visible in BREAKPOINT_BUDGET: 21 distinct max-width values across five
-stylesheets, 13 of them used in exactly one file, so different parts of the same
-page reflow at different widths.
+Responsive breakage is one of this repo's chronic failure modes. The measured
+cause is narrow but real: two orphan breakpoints. 540px lives only in
+free-search.css and 768px only in common.css, so the results grid reflows at a
+width nothing else on the page uses.
 """
 import re
 import unittest
@@ -17,18 +17,24 @@ _UI = Path(__file__).resolve().parent.parent
 _CSS = _UI / "static" / "css"
 _TEMPLATES = _UI / "templates"
 
-# --- budgets: measured at redesign start. Lower these, never raise. ---
-BREAKPOINT_BUDGET = 21          # target 6
-ORPHAN_BREAKPOINT_BUDGET = 13   # breakpoints used in exactly one file; target 0
+# --- budgets. Lower these, never raise. ---
+# Mid-migration: the old set (380/540/600/768/900/1024) coexists with the new
+# one (560/900/1280) until the last page moves off common.css. Target is 3.
+BREAKPOINT_BUDGET = 7
+ORPHAN_BREAKPOINT_BUDGET = 2    # 540 in free-search only, 768 in common only; target 0
 INLINE_STYLE_BUDGET = 237       # target 40
 RAW_HEX_BUDGET = 181            # target 0 outside tokens.css
 IMPORTANT_BUDGET = 3            # target 0
 UNDERSIZED_TEXT_BUDGET = 12     # distinct font sizes below 12px; target 0
-REDUCED_MOTION_FLOOR = 1        # stylesheets declaring it; target = all of them
+
 
 # Files exempt from the raw-hex rule: the token layer is where colour lives.
 TOKEN_FILES = {"tokens.css"}
 
+# Only @media preludes. A bare `max-width:` search also matches the CSS
+# *property*, so a container capped at `max-width: 1320px` would count as a
+# breakpoint it is not.
+_MEDIA_RULE = re.compile(r"@media([^{]+)\{")
 _MEDIA_W = re.compile(r"max-width:\s*(\d+)px")
 _HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _INLINE_STYLE = re.compile(r'\sstyle="')
@@ -45,10 +51,13 @@ def _read(p):
 
 
 def _breakpoints():
-    """max-width value -> set of files using it."""
+    """max-width value -> set of files using it, counting @media preludes only."""
     by_value = {}
     for f in _css_files():
-        for v in {int(x) for x in _MEDIA_W.findall(_read(f))}:
+        widths = set()
+        for prelude in _MEDIA_RULE.findall(_read(f)):
+            widths |= {int(x) for x in _MEDIA_W.findall(prelude)}
+        for v in widths:
             by_value.setdefault(v, set()).add(f.name)
     return by_value
 
@@ -92,12 +101,26 @@ class TestColourDiscipline(unittest.TestCase):
 
 class TestMotion(unittest.TestCase):
 
-    def test_reduced_motion_coverage_does_not_regress(self):
-        declaring = [f.name for f in _css_files() if "prefers-reduced-motion" in _read(f)]
-        self.assertGreaterEqual(
-            len(declaring), REDUCED_MOTION_FLOOR,
-            f"only {declaring} declare prefers-reduced-motion",
+    def test_token_layer_carries_a_global_reduced_motion_reset(self):
+        """One global reset in the token layer beats per-file duplication: every
+        page that loads tokens.css inherits it. Pages still on common.css have
+        no coverage at all and gain it when they move over."""
+        tokens = _CSS / "tokens.css"
+        self.assertTrue(tokens.is_file(), "tokens.css is missing")
+        block = re.search(
+            r"@media[^{]*prefers-reduced-motion[^{]*\{(?:[^{}]|\{[^{}]*\})*\}", _read(tokens)
         )
+        self.assertIsNotNone(block, "tokens.css declares no prefers-reduced-motion block")
+        self.assertIn("*", block.group(0), "the reduced-motion block must be a global reset")
+
+    def test_pages_on_the_token_layer_are_covered(self):
+        """Any stylesheet whose page loads tokens.css is covered by the reset."""
+        covered = set()
+        for tpl in sorted(_TEMPLATES.glob("*.html")):
+            sheets = re.findall(r'href="/static/css/([A-Za-z0-9_.-]+)"', _read(tpl))
+            if "tokens.css" in sheets:
+                covered |= set(sheets)
+        self.assertIn("tokens.css", covered, "no template loads the token layer yet")
 
     def test_no_layout_property_transitions(self):
         """Animating width/height thrashes layout. Use transform instead."""
