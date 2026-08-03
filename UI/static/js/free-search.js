@@ -179,12 +179,19 @@ function getTryonHtml(o){
     _recolorStore[key]=o.tryon_b64;
     return '<div class="tryon-done">' +
       '<img src="data:image/png;base64,'+o.tryon_b64+'" alt="You wearing '+escHtml(o.name)+'"/>' +
-      '<button class="recolor-btn" type="button" onclick="goRecolor(''+key+'')">Recolour lenses</button>' +
+      '<button class="recolor-btn" type="button" data-rc="' + key + '">Recolour lenses</button>' +
       '</div>';
   }
   if(o.tryon_status==='error') return '<div class="tryon-fail">Could not be rendered'+(o.tryon_error?': '+escHtml(o.tryon_error):'')+'</div>';
   return '<div class="tryon-wait"><span class="tryon-wait-bar"></span>Rendering</div>';
 }
+
+/* Delegated: the recolour key rides on a data attribute so no amount of
+   quoting inside an interpolated onclick can break the parse again. */
+document.addEventListener('click', function (e) {
+  const b = e.target.closest && e.target.closest('.recolor-btn[data-rc]');
+  if (b) { e.preventDefault(); goRecolor(b.dataset.rc); }
+});
 
 function fsBuildCard(o,index){
   const el=document.createElement('article');
@@ -407,6 +414,41 @@ function productMatches(p,inputName,value){
   return vals.includes(q);
 }
 
+
+/* Category signage is "name left, live count right". After faceting, each
+   band reports how many of its options are still reachable given the other
+   choices -- the number the contract asks for, from the pool updateFacets
+   already computed. */
+function updateSignageCounts(root) {
+  const scope = root || document;
+  scope.querySelectorAll('.section-title').forEach(title => {
+    let group = title.nextElementSibling;
+    /* Stop at the next band: a section with no controls of its own (the photo
+       tray) must not borrow the following section's options. */
+    while (group && !group.matches('.tile-grid,.swatch-grid,.chip-group,.radio-group')) {
+      if (group.matches('.section-title')) return;
+      group = group.nextElementSibling;
+    }
+    if (!group) return;
+    const opts = group.querySelectorAll('label.tile,label.swatch,span');
+    let total = 0, live = 0;
+    opts.forEach(o => {
+      const input = o.querySelector('input');
+      if (!input || !input.value) return;      // "Any" is not an option to count
+      total++;
+      if (!o.classList.contains('dimmed')) live++;
+    });
+    if (!total) return;
+    let c = title.querySelector('.section-count');
+    if (!c) {
+      c = document.createElement('span');
+      c.className = 'section-count sg-figure';
+      title.appendChild(c);
+    }
+    c.textContent = live === total ? String(total) : live + ' of ' + total;
+  });
+}
+
 function updateFacets(){
   if(!catalogProducts) return;
 
@@ -464,6 +506,7 @@ function updateFacets(){
       label.classList.toggle('dimmed',dimmed);
     });
   });
+  updateSignageCounts(null);
 }
 
 // Load catalog on page init and wire up faceting

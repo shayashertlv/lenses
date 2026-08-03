@@ -181,7 +181,8 @@
 }
 .filter-pill:hover { border-color: var(--rule-strong); background-color: var(--card); }
 .filter-pill.active { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
-.pill-count { opacity: .62; }
+.pill-count { color: var(--ink-3); }
+.filter-pill.active .pill-count { color: var(--on-field-2); }
 
 /* ── The shelf run ────────────────────────────── */
 .product-grid {
@@ -269,12 +270,13 @@
 
 .product-info .price-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--s-2);
   margin-top: auto;
   padding-top: var(--s-3);
 }
+.product-info .price-row .tryon-btn { flex: none; margin-left: auto; }
 .product-info .price { font-size: var(--t-sm); }
 .shelf-ix {
   margin-right: auto;
@@ -297,25 +299,23 @@
 }
 .tryon-btn:hover { background-color: var(--ink); color: var(--paper); }
 
+/* Placeholder labels while the catalogue loads: the world's own drawn
+   silhouette in a card photo well, not a shimmer gradient. */
+.product-card.is-placeholder { border-style: dashed; }
+.product-card.is-placeholder .img-wrap .frame-glyph { color: var(--rule); }
+.product-card.is-placeholder .ph-line {
+  height: 10px;
+  border-radius: var(--r-tag);
+  background-color: var(--card);
+}
+.product-card.is-placeholder .ph-line + .ph-line { margin-top: 6px; width: 62%; }
+
 /* Scroll-to highlight when "Shop this frame" is used. */
 @keyframes sfCardPulse {
   0%, 100% { border-color: var(--rule); }
   35%      { border-color: var(--ink); }
 }
 .product-card.sf-highlight { animation: sfCardPulse 1.6s var(--ease) 2; }
-
-/* ── Loading skeleton ─────────────────────────── */
-@keyframes shimmer { to { background-position: -200% 0; } }
-.skeleton {
-  background: linear-gradient(90deg, var(--card) 25%, var(--card-sunk) 37%, var(--card) 63%);
-  background-size: 200% 100%;
-  animation: shimmer 1.3s linear infinite;
-  border-radius: var(--r-ctl);
-}
-.sk .img-wrap { aspect-ratio: 3 / 2; }
-.sk-a { height: 14px; width: 60%; margin-bottom: 8px; }
-.sk-b { height: 16px; width: 90%; margin-bottom: 12px; }
-.sk-c { height: 28px; width: 40%; }
 
 /* ══════════════════════════════════════════════════
    Counter tickets — the dock
@@ -625,6 +625,14 @@
 .rc-color-opt.selected { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
 .rc-swatch { width: 32px; height: 32px; border-radius: var(--r-tag); border: 1px solid var(--rule); }
 .rc-cname { font-size: var(--t-2xs); letter-spacing: var(--tr-label); text-transform: uppercase; text-align: center; line-height: 1.2; }
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.section-count { color: var(--on-field-2); font-weight: 400; }
 
 /* ══════════════════════════════════════════════════
    Free Search overlay

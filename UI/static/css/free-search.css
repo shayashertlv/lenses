@@ -67,6 +67,8 @@
   text-transform: uppercase;
 }
 #form-view > .section-title:first-of-type { margin-top: 0; }
+.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
+.section-count { color: var(--on-field-2); font-weight: 400; }
 
 /* ── The dispensing tray ── */
 .fs-upload {

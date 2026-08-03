@@ -267,13 +267,21 @@ function sfFmtPrice(o) {
   return sym + Number(o.price || 0).toLocaleString();
 }
 
+/* Delegated: the recolour key rides on a data attribute rather than being
+   interpolated into an onclick, where a quote in the value breaks the parse.
+   free-search.js shipped exactly that bug for several commits. */
+document.addEventListener('click', function (e) {
+  const b = e.target.closest && e.target.closest('.recolor-btn[data-rc]');
+  if (b) { e.preventDefault(); goRecolor(b.dataset.rc); }
+});
+
 function buildTryonHtml(o) {
   if (o.tryon_status === 'done' && o.tryon_b64) {
     const key = 'rc' + (++_recolorIdx);
     _recolorStore[key] = o.tryon_b64;
     return '<div class="tryon-done">' +
       '<img src="data:image/png;base64,' + o.tryon_b64 + '" alt="You wearing ' + escHtml(o.name) + '"/>' +
-      '<button class="recolor-btn" type="button" onclick="goRecolor(\'' + key + '\')">Recolour lenses</button>' +
+      '<button class="recolor-btn" type="button" data-rc="' + key + '">Recolour lenses</button>' +
       '</div>';
   }
   if (o.tryon_status === 'error') {

@@ -51,7 +51,12 @@
 #form-view { max-width: 840px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-7); }
 #form-view > p { max-width: var(--measure); color: var(--ink-2); margin: 0 0 var(--s-5); }
 
+.section-count { color: var(--on-field-2); font-weight: 400; }
 .section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
   display: block;
   margin: var(--s-5) 0 var(--s-3);
   padding: 6px var(--s-3);

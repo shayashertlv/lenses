@@ -126,6 +126,25 @@ function shelfIndex(p) {
   return m ? m[1].padStart(3, '0') : '';
 }
 
+/* The loading moment gets the world's own answer: dashed shelf labels with
+   the drawn silhouette in the photo well. A shimmer gradient is the category
+   default and was what this replaced. */
+function renderPlaceholders(n) {
+  const grid = document.getElementById('product-grid');
+  if (!grid) return;
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < n; i++) {
+    const card = document.createElement('div');
+    card.className = 'product-card is-placeholder';
+    card.setAttribute('aria-hidden', 'true');
+    card.innerHTML =
+      '<div class="img-wrap">' + frameGlyph(['round','rectangular','square','oval','cat-eye','aviator'][i % 6]) + '</div>' +
+      '<div class="product-info"><span class="ph-line"></span><span class="ph-line"></span></div>';
+    frag.appendChild(card);
+  }
+  grid.replaceChildren(frag);
+}
+
 function renderProducts() {
   const list = activeGender === 'all' ? allProducts : allProducts.filter(p => p.gender === activeGender);
   const grid = document.getElementById('product-grid');
@@ -196,6 +215,8 @@ function setGenderFilter(gender) {
   );
   renderProducts();
 }
+
+renderPlaceholders(6);
 
 fetch('/api/catalog')
   .then(r => r.json())
@@ -1031,6 +1052,40 @@ function productMatches(p, inputName, value) {
   else if (inputName === 'frame_material') { vals = vals.map(normMaterial); q = normMaterial(q); }
   return vals.includes(q);
 }
+
+/* Category signage is "name left, live count right". After faceting, each
+   band reports how many of its options are still reachable given the other
+   choices -- the number the contract asks for, from the pool updateFacets
+   already computed. */
+function updateSignageCounts(root) {
+  const scope = root || document;
+  scope.querySelectorAll('.section-title').forEach(title => {
+    let group = title.nextElementSibling;
+    /* Stop at the next band: a section with no controls of its own (the photo
+       tray) must not borrow the following section's options. */
+    while (group && !group.matches('.tile-grid,.swatch-grid,.chip-group,.radio-group')) {
+      if (group.matches('.section-title')) return;
+      group = group.nextElementSibling;
+    }
+    if (!group) return;
+    let total = 0, live = 0;
+    group.querySelectorAll('label.tile,label.swatch,span').forEach(o => {
+      const input = o.querySelector('input');
+      if (!input || !input.value) return;
+      total++;
+      if (!o.classList.contains('dimmed')) live++;
+    });
+    if (!total) return;
+    let c = title.querySelector('.section-count');
+    if (!c) {
+      c = document.createElement('span');
+      c.className = 'section-count sg-figure';
+      title.appendChild(c);
+    }
+    c.textContent = live === total ? String(total) : live + ' of ' + total;
+  });
+}
+
 function updateFacets() {
   const root = document.getElementById('fs-overlay');
   if (!root || !allProducts || !allProducts.length) return;
@@ -1069,6 +1124,7 @@ function updateFacets() {
       label.classList.toggle('dimmed', !available.has(rv));
     });
   });
+  updateSignageCounts(document.getElementById('fs-overlay'));
 }
 function sfInitFaceting() {
   const root = document.getElementById('fs-overlay');
