@@ -146,7 +146,11 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
         report.append("\n" + "=" * 60)
         report.append("  BEST MATCHES FROM INVENTORY")
         report.append("=" * 60)
-        for i, (product, score, _) in enumerate(match_results, 1):
+        # Indexed rather than unpacked: this is a display helper and has no
+        # business caring whether it was handed a full Match or a bare
+        # (product, score) pair.
+        for i, match in enumerate(match_results, 1):
+            product, score = match[0], match[1]
             p = product["tags"]["product"]
             f = product["tags"]["frame"]
             stock = "In stock" if p.get("in_stock") else "Out of stock"

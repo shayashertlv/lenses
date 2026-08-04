@@ -64,12 +64,18 @@ def get_api_key() -> str:
 
 
 def resolve_model(model_alias: str) -> str:
-    """Resolve a friendly model name to the actual model string."""
+    """Resolve a generation model name to the actual model string.
+
+    Nano Banana Pro or nothing — see the matching note in
+    face_analysis/config.py. The `startswith("gemini-")` passthrough that used
+    to sit here let any image model through unannounced.
+    """
     if model_alias in MODEL_MAP:
         return MODEL_MAP[model_alias]
-    if model_alias.startswith("gemini-"):
+    if model_alias in set(MODEL_MAP.values()):
         return model_alias
     raise ValueError(
-        f"Unknown model '{model_alias}'. "
-        f"Choose from: {', '.join(MODEL_MAP.keys())}"
+        f"Refusing to generate with '{model_alias}'. Image generation in this "
+        f"product is {', '.join(MODEL_MAP)} "
+        f"({', '.join(set(MODEL_MAP.values()))}) and nothing else."
     )

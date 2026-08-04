@@ -55,17 +55,25 @@
    which is a render hanging out of the bottom of its own card.
 
    Nothing here is a percentage of an indefinite thing any more. `inset: 0` sizes
-   the box from the well's used padding box, and `contain` scales the picture
-   inside that box, letterboxing rather than cropping. No min/max resolution, no
-   auto-margin centring, no intrinsic sizing — the well is the frame and the
-   picture cannot leave it. */
+   the box from the well's used padding box, and object-fit does the fitting
+   inside it. No min/max resolution, no auto-margin centring, no intrinsic
+   sizing — the well is the frame and the picture cannot leave it.
+
+   `scale-down`, not `contain`. The box is the well whatever the render's real
+   size is — 828x1035 device pixels on a 1440x900 laptop at 2x — and `contain`
+   scales the picture up to fill it, so a render that came back at 400x500 was
+   being enlarged 2.07x and shown soft. The layout the well replaced never did
+   that: an auto-sized picture with a max cap stops at its own resolution.
+   `scale-down` is `contain` with that ceiling put back — the smaller of the two
+   — so a large render still fits and a small one is shown at the size the model
+   actually produced. */
 .result-img img {
   position: absolute;
   inset: 0;
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: scale-down;
 }
 /* The frame the recolour button is pinned to, so it is stretched to the well
    rather than shrink-wrapped to the picture. Shrink-wrapped it took the

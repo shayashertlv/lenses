@@ -70,14 +70,22 @@ def get_api_key() -> str:
 
 
 def resolve_generation_model(model_alias: str) -> str:
-    """Resolve a friendly generation model name to the actual model string."""
+    """Resolve a generation model name to the actual model string.
+
+    Nano Banana Pro or nothing. This used to wave through any string starting
+    with "gemini-", which is how a lesser image model could reach the try-on
+    with no map entry, no flag and no error — the one thing that quietly
+    changes what every rendered face looks like. Only what is in the map,
+    under its alias or its own id, resolves now.
+    """
     if model_alias in GENERATION_MODEL_MAP:
         return GENERATION_MODEL_MAP[model_alias]
-    if model_alias.startswith("gemini-"):
+    if model_alias in set(GENERATION_MODEL_MAP.values()):
         return model_alias
     raise ValueError(
-        f"Unknown generation model '{model_alias}'. "
-        f"Choose from: {', '.join(GENERATION_MODEL_MAP.keys())}"
+        f"Refusing to generate with '{model_alias}'. Image generation in this "
+        f"product is {', '.join(GENERATION_MODEL_MAP)} "
+        f"({', '.join(set(GENERATION_MODEL_MAP.values()))}) and nothing else."
     )
 
 
