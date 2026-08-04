@@ -93,6 +93,44 @@ function frameGlyph(shape, cls){
     'stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + '</svg>';
 }
 
+/* ── The landing, shared by both progress models ───────────────────────────
+   A result arrives with the bar short of full, and both models used to paint
+   100 on the very next frame — a jump of up to 10 points that reads as the bar
+   giving up rather than finishing. Ease the last stretch instead: quick off the
+   mark, settling into 100, so the fill visibly completes.
+
+   Only the landing lives here. Neither pacing curve below is touched.
+
+   paint(p)     renders one value
+   setFrame(id) records the rAF handle so the owner's stop() can still cancel
+   onDone()     optional, fires once the bar has actually reached 100 — callers
+                that tear down the progress view need to wait for this, or the
+                landing is animated onto a screen nobody is looking at. */
+const PROGRESS_FINISH_MS = 420;
+function easeToFull(from, paint, setFrame, onDone) {
+  const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  /* Nothing left to travel, or the user asked for no motion: land immediately. */
+  if (from >= 99.5 || reduced) {
+    setFrame(null);
+    paint(100);
+    if (onDone) onDone();
+    return;
+  }
+  const t0 = performance.now();
+  function land(now) {
+    const x = Math.min(1, (now - t0) / PROGRESS_FINISH_MS);
+    if (x < 1) {
+      paint(from + (100 - from) * (1 - Math.pow(1 - x, 3)));   // ease-out cubic
+      setFrame(requestAnimationFrame(land));
+    } else {
+      setFrame(null);
+      paint(100);
+      if (onDone) onDone();
+    }
+  }
+  setFrame(requestAnimationFrame(land));
+}
+
 /* ── RingTimer — smooth, duration-aware progress ───────────────────────────
    Starts at 0% and eases toward ~90% exactly at the feature's expected
    duration, so it is near the finish right when the result lands. On overrun
@@ -128,9 +166,13 @@ RingTimer.prototype.start = function () {
   this.apply(0);
   if (!this.raf) this.raf = requestAnimationFrame(this._tick);
 };
-RingTimer.prototype.finish = function () {
+RingTimer.prototype.finish = function (onDone) {
   if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
-  this.displayed = 100; this.apply(100);
+  const self = this;
+  easeToFull(this.displayed,
+    function (p) { self.displayed = p; self.apply(p); },
+    function (id) { self.raf = id; },
+    onDone);
 };
 RingTimer.prototype.stop = function () {
   if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
@@ -192,7 +234,7 @@ PollRetry.prototype.reset=function(){
      const creep = new ProgressCreep(el)
      creep.set(20)   // snap to 20%, start drifting
      creep.set(55)   // snap to 55%, restart drift
-     creep.finish()  // snap to 100%, stop animation
+     creep.finish(fn) // ease the last stretch to 100%, then call fn
      creep.stop()    // reset to 0, stop animation
 */
 function ProgressCreep(fillEl, halfLife, applyFn){
@@ -233,8 +275,11 @@ ProgressCreep.prototype.stop=function(){
   if(this.raf){cancelAnimationFrame(this.raf);this.raf=null}
   this.base=0;this.displayed=0;
 };
-ProgressCreep.prototype.finish=function(){
+ProgressCreep.prototype.finish=function(onDone){
   if(this.raf){cancelAnimationFrame(this.raf);this.raf=null}
-  this.apply(100, this.el);
-  this.displayed=100;this.base=100;
+  const self=this;
+  easeToFull(this.displayed,
+    function(p){ self.displayed=p; self.base=p; self.apply(p, self.el); },
+    function(id){ self.raf=id; },
+    onDone);
 };

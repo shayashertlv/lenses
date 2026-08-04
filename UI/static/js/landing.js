@@ -179,8 +179,10 @@ function sfPollStatus() {
 
     const ready = d.num_options > 0 && (d.stage === 'primary_ready' || d.stage === 'done');
     if (ready || d.status === 'done') {
-      if (sfPace) sfPace.finish();
-      sfRender(d);
+      /* sfRender swaps the processing view away, so it waits for the bar to
+         actually reach 100 — otherwise the landing animates onto a screen
+         already gone. */
+      if (sfPace) sfPace.finish(() => sfRender(d)); else sfRender(d);
     }
     if (d.status !== 'done' && d.status !== 'error') sfPoll = setTimeout(sfPollStatus, 2000);
   }).catch(() => {

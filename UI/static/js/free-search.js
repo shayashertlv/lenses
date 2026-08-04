@@ -243,17 +243,19 @@ function pollStatus(){
     if(d.num_options>0) narrateFrames(d);
     narrateStatuses(d);
 
-    // Show results as soon as primary is ready
+    // Show results as soon as primary is ready. renderResults swaps the
+    // loading view away, so it waits for the bar to actually reach 100 —
+    // otherwise the landing animates onto a screen already gone.
     if(d.num_options>0 && (d.stage==='primary_ready'||d.stage==='done')){
-      stopNarration();if(fsCreep)fsCreep.finish();
-      renderResults(d);
+      stopNarration();
+      if(fsCreep)fsCreep.finish(()=>renderResults(d)); else renderResults(d);
     }
 
     if(d.status!=='done' && d.status!=='error')
       poll=setTimeout(pollStatus,2000);
     else if(d.status==='done'){
-      stopNarration();if(fsCreep)fsCreep.finish();
-      renderResults(d);
+      stopNarration();
+      if(fsCreep)fsCreep.finish(()=>renderResults(d)); else renderResults(d);
     }
   }).catch(()=>{if(fsRetry)fsRetry.fail();poll=setTimeout(pollStatus,3000)});
 }

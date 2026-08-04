@@ -233,8 +233,10 @@ function pollStatus(){
         collectResults(data);
         if(!resultsShown){
           resultsShown=true;
-          if(rcCreep)rcCreep.finish();
-          renderResults();
+          /* renderResults swaps the loading view away, so it waits for the bar
+             to actually reach 100 — otherwise the landing animates onto a
+             screen already gone. */
+          if(rcCreep)rcCreep.finish(renderResults); else renderResults();
         } else {
           updateProgressiveResults();
         }

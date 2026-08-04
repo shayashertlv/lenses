@@ -359,10 +359,13 @@
 }
 .sf-ticket:hover { transform: translateY(-2px); box-shadow: var(--sh-modal); }
 
+/* One row, packed: the number holds the left, everything else rides the right.
+   `margin-right: auto` on the number does the splitting, so the kind, the error
+   badge and the dismiss stay a single group with real gaps between them rather
+   than being spread apart by space-between. */
 .sf-tk-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: var(--s-2);
   padding: 5px var(--s-2);
   background-color: var(--field);
@@ -372,7 +375,16 @@
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
 }
-.sf-tk-kind { color: var(--on-field-2); }
+.sf-tk-no { flex: none; margin-right: auto; }
+/* The kind is the only elastic item, so a long label truncates instead of
+   pushing the dismiss out of the ticket. */
+.sf-tk-kind {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--on-field-2);
+}
 
 .sf-tk-body { display: block; padding: var(--s-2); }
 .sf-tk-row { display: flex; align-items: center; gap: var(--s-2); margin-bottom: 6px; }
@@ -416,6 +428,10 @@
   background-color: var(--field);
   transform-origin: left center;
   transform: scaleX(0);
+  /* scaleX is repainted per frame by the timer and must stay untransitioned;
+     the colour is the one thing that changes at completion, so let it sweep in
+     over the same beat the fill takes to land rather than snapping. */
+  transition: background-color var(--d-slow) var(--ease);
 }
 .sf-tk-foot {
   display: flex;
@@ -440,10 +456,13 @@
 .sf-ticket.is-error .sf-tk-head { background-color: var(--danger); }
 .sf-ticket.is-error .sf-bar-fill { background-color: var(--danger); }
 
+/* Both of these used to be absolutely positioned over the head, which is what
+   put the dismiss on top of the kind label. They are head children now, so the
+   flex row spaces them and nothing can overlap. The done state carried a white
+   tick here too — redundant signage, since the whole ticket turns signal
+   orange the moment it is ready. Only the error badge earns its place. */
 .sf-badge {
-  position: absolute;
-  top: 4px;
-  right: 26px;
+  flex: none;
   display: none;
   width: 16px;
   height: 16px;
@@ -456,17 +475,15 @@
 }
 .sf-badge svg { width: 11px; height: 11px; }
 .sf-badge-err svg { color: var(--danger); }
-.sf-ticket.is-done  .sf-badge-check { display: grid; }
-.sf-ticket.is-error .sf-badge-err   { display: grid; }
+.sf-ticket.is-error .sf-badge-err { display: grid; }
 
 .sf-dismiss {
-  position: absolute;
-  top: 2px;
-  right: 4px;
+  flex: none;
   width: 22px;
   height: 22px;
   display: grid;
   place-items: center;
+  margin-right: -4px;
   color: var(--on-field-2);
   font-size: var(--t-sm);
   line-height: 1;

@@ -451,10 +451,15 @@ function spawnCircle(job) {
     : (isAI
         ? '<span class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="34" cy="24" r="18"/><circle cx="86" cy="24" r="18"/><path d="M52 22h16"/></svg></span>'
         : '<span class="sf-thumb sf-thumb-ai"><svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="34" cy="24" r="18"/><circle cx="86" cy="24" r="18"/><path d="M52 22h16"/></svg></span>');
+  /* Head is one flex row: number left, then kind, badge and dismiss packed
+     right. The dismiss used to be positioned absolutely over the head, so it
+     sat on top of the kind label instead of beside it. */
   btn.innerHTML =
     '<span class="sf-tk-head">' +
       '<span class="sf-tk-no sg-figure">Ticket ' + String(jobs.size).padStart(2, '0') + '</span>' +
       '<span class="sf-tk-kind">' + escHtml((KIND_CFG[job.kind] || KIND_CFG.tryon).label) + '</span>' +
+      '<span class="sf-badge sf-badge-err"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M12 6v8\"/><path d=\"M12 18h.01\"/></svg></span>' +
+      '<span class="sf-dismiss" aria-hidden="true"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></span>' +
     '</span>' +
     '<span class="sf-tk-body">' +
       '<span class="sf-tk-row">' + thumbHtml +
@@ -463,10 +468,7 @@ function spawnCircle(job) {
       '</span>' +
       '<span class="sf-bar"><span class="sf-bar-fill"></span></span>' +
       '<span class="sf-tk-foot"><span class="sf-tk-state">Working</span><span class="sf-pct sg-figure">0%</span></span>' +
-    '</span>' +
-    '<span class="sf-badge sf-badge-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span>' +
-    '<span class="sf-badge sf-badge-err"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M12 6v8\"/><path d=\"M12 18h.01\"/></svg></span>' +
-    '<span class="sf-dismiss" aria-hidden="true"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></span>';
+    '</span>';
   job.el = btn;
 
   /* Same RingTimer, same pacing maths, painting a bar instead of a ring.
