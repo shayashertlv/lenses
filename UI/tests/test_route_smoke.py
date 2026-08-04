@@ -92,6 +92,43 @@ class TestRoutes(unittest.TestCase):
             path.write_text(original, encoding="utf-8")
         self.assertNotIn(marker, get_template("landing"))
 
+    def test_static_refs_are_versioned(self):
+        """Every /static/ reference a page serves carries its file's version.
+
+        A deploy that changes a stylesheet but not the page loading it left
+        every browser on the old stylesheet, and the page looked unshipped no
+        matter how many times it went out — reported twice as "it's still
+        showing". A changed URL cannot be answered from a cache.
+        """
+        import re
+        for path in ("/", "/free-search", "/lens-recolor", "/storefront"):
+            with self.subTest(path=path):
+                body = self._get(path)[2].decode("utf-8")
+                refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', body)
+                self.assertTrue(refs, f"{path} references no static assets at all")
+                bare = [r for r in refs if "?v=" not in r]
+                self.assertEqual(bare, [], f"{path} serves unversioned assets: {bare}")
+                # and the versioned URL must still resolve
+                for ref in refs[:3]:
+                    self.assertEqual(self._get(ref)[0], 200, f"{ref} did not serve")
+
+    def test_asset_version_tracks_the_file(self):
+        """The stamp has to move when the bytes could have, or it is decoration."""
+        import re
+        from pathlib import Path
+        from UI.templates import get_template
+        css = Path(__file__).resolve().parent.parent / "static" / "css" / "landing.css"
+        original = css.read_bytes()
+        grab = lambda: re.search(r'landing\.css\?v=([^"]+)', get_template("landing")).group(1)
+        before = grab()
+        try:
+            css.write_bytes(original + b"\n/* probe */\n")
+            after = grab()
+        finally:
+            css.write_bytes(original)
+        self.assertNotEqual(before, after, "editing a stylesheet did not change its version stamp")
+        self.assertEqual(grab(), before, "restoring the stylesheet did not restore its stamp")
+
     def test_rapid_edits_are_never_served_stale(self):
         """This test used to fail about two runs in three, and it was right to.
 
