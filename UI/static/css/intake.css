@@ -1,0 +1,218 @@
+/* ══════════════════════════════════════════════════
+   Intake — the card that asks for a photo
+   Loaded by every page that opens one. Smart fit, per-product try-on and free
+   search on the storefront, and Smart fit on the landing page, all begin by
+   asking for the same thing in the same words, so they ask with the same
+   object rather than four drifting copies of it.
+
+   This file owns the modal shell and the card inside it. Page-specific glue —
+   which steps a modal has, what sits beside the tray on a given surface —
+   stays with that page. Load it before the page stylesheet so the page can
+   still override.
+
+   The recurring failure this prevents: markup ported to a second page while
+   its CSS stayed behind, leaving raw OS controls on the new one. That has
+   happened twice in this codebase already.
+   ══════════════════════════════════════════════════ */
+
+/* ── Shell ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .55);
+}
+.modal-overlay.active { display: flex; }
+
+/* A column all the way down, so a step whose content can outgrow the viewport
+   can be told how much room is actually left. overflow-y stays as the floor
+   for viewports too short to hold even the controls. */
+.modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+}
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-5);
+}
+/* Steps keep their natural height and fall back to the modal's own scroll
+   rather than having their text compressed. A step that must negotiate for
+   space — the storefront's result, which carries a portrait photo — overrides
+   this from the page stylesheet. */
+.modal-body > * { flex: 0 0 auto; }
+
+/* Card titles only. A section band is also an h3 and carries its own type; it
+   is signage inside the card, not the name of it. */
+.modal-body h3:not(.section-title) {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 74%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+/* Sentence-length supporting copy: body voice, not signage caps —
+   a 50-char uppercase paragraph is signage misapplied to prose. */
+.modal-body .modal-subtitle {
+  margin: 0 0 var(--s-4);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.modal-close {
+  position: absolute;
+  top: var(--s-3);
+  right: var(--s-3);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  font-size: var(--t-lg);
+  cursor: pointer;
+  border-radius: var(--r-ctl);
+}
+.modal-close:hover { background-color: var(--card); color: var(--ink); }
+
+/* ── The band above the tray ── */
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin: var(--s-5) 0 var(--s-3);
+  padding: 6px var(--s-3);
+  background-color: var(--field);
+  color: var(--on-field);
+  border-radius: var(--r-tag) var(--r-tag) 0 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.section-count { color: var(--on-field-2); font-weight: 400; }
+
+/* ── The tray ──
+   The tray is a <button>, which shrink-wraps, so width: 100% is load-bearing —
+   without it this rendered 186px wide adrift at the left of its column.
+   `.fs-panel-body .fs-upload` is the storefront's free-search panel wearing the
+   same component; it simply never matches elsewhere. */
+.upload-zone,
+.fs-panel-body .fs-upload {
+  display: grid;
+  place-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: 140px;
+  padding: var(--s-4);
+  background-color: var(--card);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.upload-zone:hover,
+.fs-panel-body .fs-upload:hover { border-color: var(--field); background-color: var(--paper); }
+/* Filled. This state was written but never reachable on the modal side: picking
+   a photo hid the tray outright and dropped a bare, unframed image in its
+   place, jumping the modal 132px. The tray is one object that changes state. */
+.upload-zone.has-photo,
+.fs-panel-body .fs-upload.has-file { border-style: solid; border-color: var(--field); }
+/* A filled modal tray is a frame, not a control — the labelled button below it
+   is. The panel's tray stays clickable, which is why only this one is inert. */
+.upload-zone.has-photo { cursor: default; }
+.upload-zone.has-photo:hover { border-color: var(--field); background-color: var(--card); }
+/* `color` alone left the icon invisible: an unqualified SVG path paints its
+   fill, and a stroke-only glyph encloses no area. It has to be stroked. */
+.upload-zone svg,
+.fs-panel-body .fs-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
+.up-label { font-size: var(--t-base); font-weight: 700; }
+.up-hint {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.up-preview { display: none; max-width: 100%; max-height: 200px; border-radius: var(--r-ctl); }
+.fs-panel-body .fs-upload.has-file .up-preview { display: block; }
+.fs-panel-body .fs-upload.has-file svg,
+.fs-panel-body .fs-upload.has-file .up-hint { display: none; }
+.upload-preview { max-width: 100%; max-height: 220px; border-radius: var(--r-ctl); display: block; margin: 0 auto; }
+
+/* The compliance line, at the point of upload. Scoped to the card, because
+   each page also styles a posture line of its own outside it — the landing's
+   hero, the storefront's free-search panel — and those are not this. */
+.modal-body .posture {
+  max-width: var(--measure);
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+  text-align: left;
+}
+
+/* ── The action ──
+   The button, and a line under it saying why it is disabled. Smart fit used to
+   show a greyed action and no reason. */
+.modal-submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--s-3);
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
+}
+.modal-submit:hover:not(:disabled) { filter: brightness(1.06); }
+.modal-submit:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+
+.submit-row { margin-top: var(--s-5); }
+/* The row owns the gap above the action; the button must not add a second. */
+.submit-row .modal-submit, .submit-row .submit-btn { margin-top: 0; }
+.submit-hint {
+  max-width: var(--measure);
+  margin: var(--s-2) auto 0;
+  font-size: var(--t-2xs);
+  color: var(--ink-3);
+  text-align: center;
+}
+.submit-hint:empty { display: none; }
+
+/* The secondary action under a filled tray. */
+.change-photo-btn {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s-2);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.change-photo-btn:hover { background-color: var(--ink); color: var(--paper); }

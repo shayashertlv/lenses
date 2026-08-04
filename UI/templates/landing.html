@@ -7,6 +7,7 @@
 <link rel="preload" href="/static/fonts/archivo-var-latin.woff2" as="font" type="font/woff2" crossorigin/>
 <link rel="stylesheet" href="/static/css/tokens.css"/>
 <link rel="stylesheet" href="/static/css/results.css"/>
+<link rel="stylesheet" href="/static/css/intake.css"/>
 <link rel="stylesheet" href="/static/css/landing.css"/>
 </head>
 <body>
@@ -46,11 +47,6 @@
     <p>Four AI eyewear capabilities, demonstrated end to end on real frames from an optical catalogue. Start with any of them below.</p>
     <p class="posture">Uploads are processed, then discarded &#8212; no photo is stored.</p>
   </div>
-  <!-- The picker the directory's first row opens. The hero used to carry a
-       second, identical entry to Smart fit beside the headline; one capability
-       does not need two front doors, and the directory is where all four are
-       filed. -->
-  <input type="file" id="sf-file" accept="image/*" hidden/>
 </main>
 
 <section class="directory" aria-labelledby="dir-h">
@@ -58,7 +54,7 @@
   <ol class="dir-list">
     <li class="dir-row">
       <span class="dir-no">01</span>
-      <button class="dir-name" type="button" onclick="openPickerWithTip('sf-file')">Smart fit</button>
+      <button class="dir-name" type="button" onclick="openSmartFit()">Smart fit</button>
       <span class="dir-what">We read your face and pick three frames</span>
       <span class="dir-dur">~30 s</span>
     </li>
@@ -82,6 +78,41 @@
     </li>
   </ol>
 </section>
+
+<!-- ══ Smart fit intake ══
+     The same card the storefront opens, out of the same stylesheet. The photo
+     is collected and confirmed here rather than starting the run the instant a
+     file is chosen, so the wait is something the visitor asks for. -->
+<div class="modal-overlay" id="sf-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sf-modal-h" tabindex="-1">
+    <button class="modal-close" onclick="closeSmartFit()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="modal-body">
+      <div id="sf-modal-upload">
+        <h3 id="sf-modal-h">Smart fit</h3>
+        <p class="modal-subtitle">Upload a selfie &#8212; the AI reads your face and pulls your three best frames off the shelf.</p>
+
+        <h3 class="section-title">Your Photo</h3>
+        <button type="button" id="sf-upload-empty" class="upload-zone" onclick="openPickerWithTip('sf-file')">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
+          <span class="up-label">Upload a photo</span>
+          <span class="up-hint">JPG, PNG, or WebP</span>
+        </button>
+        <div id="sf-upload-ready" style="display:none;text-align:center">
+          <div class="upload-zone has-photo">
+            <img class="upload-preview" id="sf-modal-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Your photo"/>
+          </div>
+          <button type="button" class="change-photo-btn" onclick="openPickerWithTip('sf-file')">Change photo</button>
+        </div>
+        <input type="file" id="sf-file" accept="image/*" hidden/>
+        <p class="posture">Uploads are processed, then discarded &#8212; no photo is stored.</p>
+        <div class="submit-row">
+          <button class="modal-submit" id="sf-modal-go" disabled onclick="sfStartFromModal()">Find my best frames</button>
+          <p class="submit-hint" id="sf-modal-hint">Upload a photo first</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ══ The wait: a dispensing docket that fills in ══ -->
 <div id="sf-processing" class="docket-screen">

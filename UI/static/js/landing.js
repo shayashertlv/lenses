@@ -124,27 +124,78 @@ function announceSf(msg) {
   el.textContent = msg;
 }
 
-document.getElementById('sf-file').addEventListener('change', async e => {
+/* ── Smart fit intake ──
+   Choosing a file used to start the whole run on the spot. It is collected in
+   the card now and the run begins when the visitor says so, which is what the
+   storefront does and what makes the thirty-second wait something they asked
+   for rather than something that happened to them. */
+let sfPendingFile = null;
+let sfPendingPreview = null;
+
+function sfSetModalHint(msg) {
+  const el = document.getElementById('sf-modal-hint');
+  if (el) el.textContent = msg || '';
+}
+
+function sfShowUploadEmpty() {
+  document.getElementById('sf-upload-empty').style.display = '';
+  document.getElementById('sf-upload-ready').style.display = 'none';
+  document.getElementById('sf-modal-go').disabled = true;
+  sfSetModalHint('Upload a photo first');
+}
+
+function sfShowPhotoReady(src) {
+  document.getElementById('sf-upload-empty').style.display = 'none';
+  document.getElementById('sf-upload-ready').style.display = '';
+  document.getElementById('sf-modal-preview').src = src;
+  document.getElementById('sf-modal-go').disabled = false;
+  sfSetModalHint('We read your face, then pull three frames — about 30 seconds.');
+}
+
+function openSmartFit() {
+  const overlay = document.getElementById('sf-modal');
+  if (sfPendingPreview) sfShowPhotoReady(sfPendingPreview); else sfShowUploadEmpty();
+  overlay.classList.add('active');
+  const panel = overlay.querySelector('.modal');
+  if (panel) panel.focus();
+}
+
+function closeSmartFit() {
+  document.getElementById('sf-modal').classList.remove('active');
+}
+
+document.getElementById('sf-file').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
+  sfPendingFile = f;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    sfPendingPreview = ev.target.result;
+    sfShowPhotoReady(sfPendingPreview);
+    try { sessionStorage.setItem('cached_portrait', sfPendingPreview); } catch (err) {}
+  };
+  reader.readAsDataURL(f);
+});
+
+async function sfStartFromModal() {
+  const f = sfPendingFile;
+  if (!f) return;
+  closeSmartFit();
   sfResetState();
   sfShow('sf-processing');
   sfStartPace();
   document.getElementById('sf-stage').textContent = 'Reading your face';
   sfRetry = new PollRetry('sf-stage', sfShowError);
 
-  const reader = new FileReader();
-  reader.onload = ev => {
+  if (sfPendingPreview) {
     const wrap = document.getElementById('sf-portrait-wrap');
     const img = document.createElement('img');
     img.id = 'sf-portrait-img';
     img.alt = 'The photo you handed over';
-    img.src = ev.target.result;
+    img.src = sfPendingPreview;
     wrap.replaceChildren(img);
     wrap.hidden = false;
-    try { sessionStorage.setItem('cached_portrait', ev.target.result); } catch (err) {}
-  };
-  reader.readAsDataURL(f);
+  }
 
   const fd = new FormData();
   fd.append('photo', f);
@@ -155,7 +206,7 @@ document.getElementById('sf-file').addEventListener('change', async e => {
     sfSid = j.session_id;
     sfPollStatus();
   } catch (err) { sfShowError('Upload failed: ' + err.message); }
-});
+}
 
 const SF_STAGE_MSG = {
   uploading: 'Handing over your photo',
@@ -246,6 +297,10 @@ function sfReset() {
   if (sfPoll) clearTimeout(sfPoll);
   sfResetState();
   document.getElementById('sf-file').value = '';
+  sfPendingFile = null;
+  sfPendingPreview = null;
+  sfShowUploadEmpty();
+  closeSmartFit();
   document.getElementById('sf-opts').innerHTML = '';
   const wrap = document.getElementById('sf-portrait-wrap');
   wrap.hidden = true;
