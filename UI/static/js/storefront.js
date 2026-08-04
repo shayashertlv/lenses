@@ -80,9 +80,59 @@ function announce(msg, assertive) {
 
 /* Hide per-circle captions once the dock holds more than one circle, so
    captions never overlap on the tight wrap-reverse layout. */
+/* ── The dock's running order ──
+   What you can act on comes nearest the thumb. A finished render is the whole
+   point of the dock, so it must never be the card the cap collapses — which is
+   exactly what happened while the phone rail ordered by age and hid whatever
+   ran off the left edge. Newest wins inside a state. */
+const DOCK_RANK = { done: 0, error: 1, loading: 2 };
+const DOCK_VISIBLE_CAP = 2;      // phones only; CSS decides whether it bites
+let dockExpanded = false;
+
 function updateDockMulti() {
   const dock = document.getElementById('tryon-dock');
-  if (dock) dock.classList.toggle('sf-multi', dock.children.length > 1);
+  if (!dock) return;
+  const tickets = Array.prototype.slice.call(dock.querySelectorAll('.sf-ticket'));
+  dock.classList.toggle('sf-multi', tickets.length > 1);
+
+  const ranked = tickets
+    .map(el => ({ el, job: jobs.get(el.dataset.job) }))
+    .sort((a, b) => {
+      const ra = DOCK_RANK[(a.job && a.job.status) || 'loading'];
+      const rb = DOCK_RANK[(b.job && b.job.status) || 'loading'];
+      if (ra !== rb) return ra - rb;
+      return ((b.job && b.job.seq) || 0) - ((a.job && a.job.seq) || 0);
+    });
+
+  /* Order is set on every surface; only the phone stylesheet acts on the cap,
+     so a desktop dock keeps showing everything and resizing needs no listener. */
+  ranked.forEach((r, i) => {
+    r.el.style.order = i;
+    r.el.classList.toggle('is-stacked', !dockExpanded && i >= DOCK_VISIBLE_CAP);
+  });
+
+  const more = document.getElementById('sf-more');
+  if (!more) return;
+  const collapsed = Math.max(0, ranked.length - DOCK_VISIBLE_CAP);
+  if (collapsed === 0) {
+    more.hidden = true;
+    dockExpanded = false;
+    dock.classList.remove('is-expanded');
+    return;
+  }
+  dock.classList.toggle('is-expanded', dockExpanded);
+  const readyBelow = ranked.slice(DOCK_VISIBLE_CAP)
+    .filter(r => r.job && r.job.status === 'done').length;
+  more.hidden = false;
+  more.setAttribute('aria-expanded', dockExpanded ? 'true' : 'false');
+  more.textContent = dockExpanded
+    ? 'Show less'
+    : '+' + collapsed + ' more' + (readyBelow ? ' · ' + readyBelow + ' ready' : '');
+}
+
+function toggleDockExpanded() {
+  dockExpanded = !dockExpanded;
+  updateDockMulti();
 }
 
 /* Set a circle's caption (the ring runs independently on its own timer). opts:
@@ -437,6 +487,7 @@ function collapseModalToCircle(job) {
 function createJob(opts) {
   const job = {
     id: 'job_' + (++jobSeq),
+    seq: jobSeq,                         // dock ordering: newest first in a state
     kind: opts.kind || 'tryon',          // 'tryon' | 'recolor' | 'smartfit' | 'freesearch'
     productId: opts.productId || null,
     productName: opts.productName || null,
@@ -669,6 +720,7 @@ function markJobDone(job, b64) {
   announce((job.productName ? job.productName + ': ' : '') + 'ready — tap to view');
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolour' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
+  updateDockMulti();               // ready outranks working: re-sort the stack
 }
 
 function markJobError(job, msg) {
@@ -686,6 +738,7 @@ function markJobError(job, msg) {
   announce((job.productName ? job.productName + ': ' : '') + "couldn't finish — tap for details", true);
   job.el.setAttribute('aria-label',
     (job.kind === 'recolor' ? 'Recolour' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
+  updateDockMulti();               // an error outranks working: re-sort the stack
 }
 
 function onCircleClick(job) {

@@ -506,6 +506,30 @@
 .tryon-dock.sf-multi .sf-ticket { width: 190px; }
 .tryon-dock.sf-multi .sf-caption { -webkit-line-clamp: 1; }
 
+/* Carries whatever the phone cap collapsed. Rides above the stack — in a
+   column-reverse dock the highest order sits furthest from the bottom — so the
+   cards you can act on stay nearest the thumb. Inert anywhere the cap does not
+   apply: desktop shows every ticket, so this never appears there. */
+.sf-more {
+  display: none;
+  order: 999;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--sh-panel);
+}
+.sf-more:hover { color: var(--ink); border-color: var(--field); }
+
 /* ══════════════════════════════════════════════════
    Modal
    ══════════════════════════════════════════════════ */
@@ -998,36 +1022,40 @@
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
   .product-info { padding: var(--s-2); }
 
-  /* The dock becomes a full-width rail so a ticket never covers the shelf. */
+  /* The rail is gone. Two side-by-side tickets was its ceiling — a legible
+     header needs ~160px and the rail is ~360px — so a third could only be
+     reached by scrolling, and the card that scrolled off was as likely to be
+     the finished one as not. It stacks instead: full width, so nothing
+     truncates; capped, so the height stays bounded however many jobs are in
+     flight; and ranked, so what you can act on is nearest the thumb. There is
+     no longer an axis along which a ticket can be pushed off screen. */
   .tryon-dock {
     left: var(--s-2);
     right: var(--s-2);
     bottom: var(--s-2);
-    flex-direction: row;
     align-items: stretch;
-    overflow-x: auto;
+  }
+  .sf-ticket, .tryon-dock.sf-multi .sf-ticket {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: none;
+  }
+  /* The cap only bites here. The class is set on every surface; desktop has the
+     room to show everything, so there it means nothing. */
+  .sf-ticket.is-stacked { display: none; }
+  .sf-more:not([hidden]) { display: block; }
+  /* Expanding is opt-in and bounded: enough jobs would otherwise run the stack
+     off the top of the screen, which is the bug this replaced. It takes pointer
+     events only in this state, so the collapsed dock still lets taps through to
+     the shelf between its cards. */
+  .tryon-dock.is-expanded {
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    pointer-events: auto;
     scrollbar-width: none;
   }
-  .tryon-dock::-webkit-scrollbar { display: none; }
-  /* Tickets were pinned to 200px, so the second one alone overflowed a 359px
-     rail by 49px and the first was sliced 49px off the left edge; by the third
-     the first had left the screen entirely with nothing to say it existed.
-     They share the rail now, down to a floor that keeps the header legible, so
-     two fit whole at any phone width. Past that the rail genuinely cannot hold
-     them and it snaps instead, parking a card at the edge rather than cutting
-     one at an arbitrary offset. */
-  .tryon-dock { scroll-snap-type: x proximity; }
-  .sf-ticket, .tryon-dock.sf-multi .sf-ticket {
-    flex: 1 1 0;
-    width: auto;
-    /* The floor is 160px, except it is never more than half the rail — so two
-       tickets fit whole on any phone, down to a 320px screen, instead of the
-       floor itself forcing the overflow it exists to prevent. */
-    min-width: min(160px, calc((100% - var(--s-2)) / 2));
-    max-width: 200px;
-    scroll-snap-align: end;
-  }
-  body.dock-active .container { padding-bottom: 130px; }
+  .tryon-dock.is-expanded::-webkit-scrollbar { display: none; }
+  body.dock-active .container { padding-bottom: 300px; }
   .modal-body, .fs-panel-body { padding: var(--s-4); }
 }
 

@@ -80,7 +80,12 @@
 </main>
 
 <!-- Floating try-on dock: each in-flight / finished try-on lives here as a circle -->
-<div id="tryon-dock" class="tryon-dock" aria-live="polite"></div>
+<div id="tryon-dock" class="tryon-dock" aria-live="polite">
+  <!-- Rides above the stack on phones and carries whatever the cap collapsed.
+       Inert on desktop, where every ticket is shown. -->
+  <button type="button" class="sf-more" id="sf-more" hidden aria-expanded="false"
+          onclick="toggleDockExpanded()"></button>
+</div>
 
 <!-- Free Search overlay: full options form -> single best-match circle -->
 <div id="fs-overlay" class="fs-overlay">
