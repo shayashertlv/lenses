@@ -583,10 +583,16 @@
   color: var(--paper);
 }
 
+/* The tray is a <button>, so it shrink-wrapped to its longest line — 186px
+   adrift at the left of a 512px column, reading as a stray chip rather than a
+   target. Stretch it to the column and give it the same 140px body as
+   .fs-upload, so the two trays on this page are one component. */
 .upload-zone {
   display: grid;
   place-items: center;
   gap: var(--s-2);
+  width: 100%;
+  min-height: 140px;
   padding: var(--s-5) var(--s-4);
   background-color: var(--card);
   border: 1.5px dashed var(--rule-strong);
@@ -596,8 +602,17 @@
   transition: border-color var(--d-fast) var(--ease);
 }
 .upload-zone:hover { border-color: var(--field); }
+/* This state was written but never reachable: picking a photo hid the tray
+   outright and dropped a bare, unframed image in its place, jumping the modal
+   132px. The tray is one object that changes state — as .fs-upload and
+   .rc-upload already are — so the filled state now wears it too. */
 .upload-zone.has-photo { border-style: solid; border-color: var(--field); }
-.upload-zone svg { width: 30px; height: 30px; color: var(--field); }
+/* The filled tray is a frame, not a control; the labelled button below is. */
+#upload-ready .upload-zone { cursor: default; }
+#upload-ready .upload-zone:hover { border-color: var(--field); }
+/* `color` alone left the plus invisible: an unqualified SVG path paints its
+   fill, and a two-stroke cross encloses no area. It has to be stroked. */
+.upload-zone svg { width: 30px; height: 30px; fill: none; stroke: var(--field); stroke-width: 1.5; }
 .upload-zone p { margin: 0; font-size: var(--t-sm); font-weight: 500; }
 .upload-zone .small { font-size: var(--t-2xs); color: var(--ink-3); letter-spacing: var(--tr-label); text-transform: uppercase; }
 .upload-preview { max-width: 100%; max-height: 220px; border-radius: var(--r-ctl); display: block; margin: 0 auto; }
@@ -743,6 +758,83 @@
 }
 .fs-panel-body .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 #sf-fs-file { display: none; }
+
+/* ── Same omission as the toggle above, and the rest of it: the panel's
+      markup came over from free-search.html, its CSS did not, so the tray
+      and the number fields were rendering as raw OS controls — an outset
+      grey button and inset 3-D inputs in the middle of the shelf. ── */
+.fs-panel-body .fs-upload {
+  display: grid;
+  place-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: 140px;
+  padding: var(--s-4);
+  background-color: var(--card);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--d-fast) var(--ease);
+}
+.fs-panel-body .fs-upload:hover { border-color: var(--field); }
+.fs-panel-body .fs-upload.has-file { border-style: solid; border-color: var(--field); }
+.fs-panel-body .fs-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
+.fs-panel-body .up-label { font-size: var(--t-base); font-weight: 700; }
+.fs-panel-body .up-hint {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fs-panel-body .up-preview { display: none; max-width: 100%; max-height: 200px; border-radius: var(--r-ctl); }
+.fs-panel-body .fs-upload.has-file .up-preview { display: block; }
+.fs-panel-body .fs-upload.has-file svg,
+.fs-panel-body .fs-upload.has-file .up-hint { display: none; }
+
+.fs-panel-body .field { margin-top: var(--s-4); }
+.fs-panel-body .field label {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fs-panel-body .field input[type="number"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-variant-numeric: tabular-nums;
+}
+.fs-panel-body .field input[type="number"]:focus { border-color: var(--field); outline: none; box-shadow: var(--focus); }
+.fs-panel-body .submit-hint {
+  max-width: var(--measure);
+  margin: var(--s-2) auto 0;
+  font-size: var(--t-2xs);
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* The try-on modal's error step carries this too, and it was bare text. */
+.error-mark {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background-color: var(--danger);
+  color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
 
 /* ══════════════════════════════════════════════════
    Photo-tips popup (kept local while the other pages

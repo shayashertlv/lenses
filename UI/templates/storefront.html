@@ -280,7 +280,9 @@
         </button>
         <!-- Photo-ready state -->
         <div id="upload-ready" style="display:none;text-align:center">
-          <img class="upload-preview" id="modal-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Your photo"/>
+          <div class="upload-zone has-photo">
+            <img class="upload-preview" id="modal-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Your photo"/>
+          </div>
           <button type="button" class="change-photo-btn" onclick="openPickerWithTip('modal-file')">Change photo</button>
         </div>
         <input type="file" id="modal-file" accept="image/*" style="display:none"/>

@@ -44,6 +44,9 @@ _HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _INLINE_STYLE = re.compile(r'\sstyle="')
 _FONT_REM = re.compile(r"font-size:\s*([\d.]+)rem")
 _FONT_PX = re.compile(r"font-size:\s*([\d.]+)px")
+# One flat `selector { declarations }` rule. Nested at-rule preludes cannot
+# match, since neither half is allowed to cross a brace.
+_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
 
 def _css_files():
@@ -148,6 +151,78 @@ class TestTypography(unittest.TestCase):
         self.assertLessEqual(
             len(small), UNDERSIZED_TEXT_BUDGET,
             f"{len(small)} distinct font sizes below 12px (budget {UNDERSIZED_TEXT_BUDGET}): {small}",
+        )
+
+
+class TestUploadTrays(unittest.TestCase):
+    """Every upload tray in this product is a <button>, and a button shrink-wraps
+    to its content. Four of the five shipped without `width: 100%` and rendered
+    as ~164px chips adrift at the left of columns 512-892px wide, which read as
+    stray decoration rather than a target. The declaration is the entire fix, so
+    assert it here rather than rediscover it on a sixth tray.
+
+    A tray is identified by what makes one: a dashed, clickable box. That way a
+    tray added later is covered without anyone remembering to list it.
+    """
+
+    def _trays(self):
+        found = []
+        for f in _css_files():
+            text = re.sub(r"/\*.*?\*/", "", _read(f), flags=re.S)
+            for sel, body in _RULE.findall(text):
+                if "dashed" in body and "cursor: pointer" in body:
+                    found.append((f.name, sel.strip(), body, text))
+        return found
+
+    def test_trays_are_discoverable(self):
+        """Guards the heuristic itself: if it stops matching, the two tests
+        below start passing vacuously."""
+        self.assertGreaterEqual(
+            len(self._trays()), 5,
+            "the dashed+pointer heuristic no longer finds the upload trays, so "
+            "the width and icon contracts below are asserting nothing",
+        )
+
+    def test_every_tray_fills_its_column(self):
+        offenders = [
+            f"{name} {sel}" for name, sel, body, _ in self._trays()
+            if not re.search(r"width:\s*100%", body)
+        ]
+        self.assertEqual(
+            offenders, [],
+            f"upload trays that will shrink-wrap to their content: {offenders}",
+        )
+
+    def test_every_tray_icon_is_stroked(self):
+        """The tray icons are stroke-only paths, and an SVG path paints its fill
+        by default. Setting `color` alone leaves the glyph invisible while still
+        reserving its box -- which is how the storefront tray shipped with a
+        blank gap where the plus should be.
+
+        Either half of the stack can satisfy this: the landing tray strokes via
+        `stroke="currentColor"` in markup and tints through `color` in CSS, which
+        is correct. So the contract is that the icon ends up stroked, not that
+        any one layer does it.
+        """
+        templates = [_read(p) for p in sorted(_TEMPLATES.glob("*.html"))]
+        offenders = []
+        for name, sel, _, text in self._trays():
+            css = re.search(re.escape(sel) + r"\s+svg\s*\{([^{}]*)\}", text)
+            css_strokes = bool(css) and "fill:" in css.group(1) and "stroke:" in css.group(1)
+
+            # The tray's icon is the <svg> opening immediately inside it.
+            cls = sel.split(".")[-1].split()[0]
+            icon = re.compile(
+                r'class="[^"]*(?<![-\w])' + re.escape(cls) + r'(?![-\w])[^"]*"[^>]*>\s*(<svg[^>]*>)'
+            )
+            icons = [tag for html in templates for tag in icon.findall(html)]
+            markup_strokes = bool(icons) and all("stroke=" in tag for tag in icons)
+
+            if not (css_strokes or markup_strokes):
+                offenders.append(f"{name} {sel}")
+        self.assertEqual(
+            offenders, [],
+            f"tray icons that will not render: {offenders}",
         )
 
 

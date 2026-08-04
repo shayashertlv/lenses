@@ -84,6 +84,9 @@
   display: grid;
   place-items: center;
   gap: var(--s-2);
+  /* A <button> shrink-wraps: without this the tray rendered 164px wide in a
+     792px column, reading as a stray chip rather than a target. */
+  width: 100%;
   min-height: 140px;
   padding: var(--s-4);
   background-color: var(--card);
