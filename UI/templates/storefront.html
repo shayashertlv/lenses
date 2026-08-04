@@ -86,10 +86,14 @@
 <div id="fs-overlay" class="fs-overlay">
   <div class="fs-panel" role="dialog" aria-modal="true" aria-labelledby="fs-panel-h" tabindex="-1">
     <button class="modal-close" onclick="closeFreeSearch()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-    <div class="fs-panel-body">
+    <!-- Head and foot are pinned; only the sections between them scroll. Every
+         option in this form is optional, so the action must not sit a thousand
+         pixels below the fold behind things you already chose to skip. -->
+    <div class="fs-panel-head">
       <h2 class="fs-panel-title" id="fs-panel-h">Free search</h2>
       <p class="fs-panel-sub">Set your spec &#8212; the AI pulls the single best match from the shelf and tries it on you.</p>
-
+    </div>
+    <div class="fs-panel-body">
       <h3 class="section-title">Your Photo</h3>
       <button type="button" class="fs-upload" id="sf-fs-upload" onclick="openPickerWithTip('sf-fs-file')">
         <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
@@ -255,6 +259,8 @@
         </div>
       </div>
 
+    </div>
+    <div class="fs-panel-foot">
       <div class="submit-row">
         <button class="submit-btn" id="sf-fs-submit" disabled onclick="startFreeSearchFromOverlay()">Find my match</button>
         <p class="submit-hint" id="sf-fs-hint">Upload a photo first</p>

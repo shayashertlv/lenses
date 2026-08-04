@@ -942,7 +942,7 @@ function openFreeSearch() {
   const overlay = document.getElementById('fs-overlay');
   fsClearPanelTransform();
   overlay.classList.add('active');
-  overlay.querySelector('.fs-panel').scrollTop = 0;
+  overlay.querySelector('.fs-panel-body').scrollTop = 0;   // the body scrolls, not the panel
   focusDialog('#fs-overlay .fs-panel');
   fsRestoreSelfie();
   updateFacets();

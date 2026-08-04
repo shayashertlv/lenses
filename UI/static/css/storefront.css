@@ -765,23 +765,59 @@
 /* ══════════════════════════════════════════════════
    Free Search overlay
    ══════════════════════════════════════════════════ */
+/* Free search is the same card as smart fit and try-on: centred, same width,
+   same radius, same scrim. Only taller, because there is more in it.
+
+   It used to be a right-edge drawer, which is the convention for filters over
+   a list you can watch respond — and the justification for that convention is
+   absent here. This panel lays a scrim over the shelf, declares aria-modal,
+   and nothing behind it moves. It is a blocking one-shot intake form, exactly
+   like the other two, so it is shaped like them now. */
 .fs-overlay {
   position: fixed;
   inset: 0;
   z-index: 70;
   display: none;
-  justify-content: flex-end;
-  background: rgba(14, 19, 16, .45);
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .55);
 }
 .fs-overlay.active { display: flex; }
 .fs-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(560px, 100%);
-  height: 100%;
-  overflow-y: auto;
+  max-height: 92vh;
   background-color: var(--paper);
+  border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
+  overflow: hidden;            /* the radius has to clip the scrolling body */
 }
-.fs-panel-body { padding: var(--s-5); }
+/* Pinned head and foot, scrolling middle. The action was previously the last
+   thing in a ~1800px column, so the fastest path through an all-optional form
+   was to scroll past every option you had already decided to skip. */
+.fs-panel-head {
+  flex: 0 0 auto;
+  /* clear of the close button, which is absolute against the panel */
+  padding: var(--s-5) calc(var(--s-5) + 44px) var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+.fs-panel-head .fs-panel-sub { margin-bottom: 0; }
+.fs-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-4) var(--s-5) var(--s-5);
+}
+.fs-panel-foot {
+  flex: 0 0 auto;
+  padding: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--rule);
+  background-color: var(--paper);
+}
+.fs-panel-foot .submit-row { margin-top: 0; }
 .fs-panel-title {
   margin: 0 0 var(--s-1);
   font-size: var(--t-xl);
@@ -835,8 +871,9 @@
 .fs-panel-body .advanced-toggle.open .adv-caret { transform: rotate(180deg); }
 #sf-advanced-section { display: none; margin-top: var(--s-4); }
 #sf-advanced-section.open { display: block; }
-.fs-panel-body .submit-row { margin-top: var(--s-5); }
-.fs-panel-body .submit-btn {
+/* Scoped to the panel, not its scrolling body — the action lives in the
+   pinned foot now, outside .fs-panel-body. */
+.fs-panel .submit-btn {
   width: 100%;
   min-height: 48px;
   background-color: var(--signal);
@@ -847,8 +884,10 @@
   font-size: var(--t-base);
   font-weight: 700;
   cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
 }
-.fs-panel-body .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+.fs-panel .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.fs-panel .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
 #sf-fs-file { display: none; }
 
 /* ── Same omission as the toggle above, and the rest of it: the panel's
@@ -979,6 +1018,16 @@
   .hero { padding-top: var(--s-4); padding-bottom: var(--s-3); }
   .modal { max-height: 96vh; }
   .fs-panel-body { padding: var(--s-3) var(--s-4); }
+
+  /* Pinning stops paying here. On a 345px panel the head and foot take 66% of
+     it, and the 140px tray no longer fits the strip left between them — you
+     would scroll to see a single control. Below this height the card scrolls
+     as one column: an always-reachable action is not worth making the form
+     unreachable to get it. */
+  .fs-panel { display: block; overflow-y: auto; max-height: 96vh; }
+  .fs-panel-head { padding: var(--s-4) calc(var(--s-4) + 44px) 0 var(--s-4); border-bottom: 0; }
+  .fs-panel-body { overflow: visible; }
+  .fs-panel-foot { padding: var(--s-3) var(--s-4) var(--s-4); border-top: 0; }
   /* Height is the scarce axis here, and the result card spends most of it on
      chrome. Trim the chrome rather than the photo: the photo is the result. */
   .modal-body { padding: var(--s-3) var(--s-4); }
