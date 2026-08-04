@@ -451,10 +451,11 @@ body.sf-open { overflow: hidden; }
   padding: var(--s-4);
   background: rgba(14, 19, 16, .6);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--d-fast) var(--ease);
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
 }
-.uptip-overlay.visible { opacity: 1; pointer-events: auto; }
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);

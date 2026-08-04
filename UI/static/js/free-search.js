@@ -3,25 +3,10 @@
    ══════════════════════════════════════════════════ */
 
 /* ── State ──────────────────────────────────── */
-let sid=null, poll=null, tipTimer=null, tipIdx=0, uploadedFile=null, lastRendered='';
+let sid=null, poll=null, uploadedFile=null, lastRendered='';
 let catalogProducts=null; // loaded from /api/catalog for faceting
 let fsCreep=null;
 let fsRetry=null;
-
-const tips=[
-  "Did you know? Frame shape can change how others perceive your personality.",
-  "Round frames have been a staple since the 13th century.",
-  "Titanium frames can flex without breaking — perfect for active lifestyles.",
-  "Acetate is made from plant-based cellulose, making it eco-friendlier than plastic.",
-  "Polarized lenses cut glare by filtering horizontally-oriented light.",
-  "The most popular frame color worldwide? Classic black, followed by tortoiseshell.",
-  "Cat-eye frames were originally designed in the 1930s and became iconic in the 1950s.",
-  "Photochromic lenses can transition from clear to dark in under 30 seconds.",
-  "Aviators were originally designed for military pilots in the 1930s.",
-  "Blue-light filtering lenses can improve sleep quality when worn in the evening.",
-  "Semi-rimless frames offer a lighter feel while maintaining structural support.",
-  "The right pair of glasses can make you look up to 5 years younger.",
-];
 
 /* ── Photo upload ───────────────────────────── */
 const fileIn=document.getElementById('fs-file');
@@ -41,7 +26,7 @@ fileIn.addEventListener('change', e=>{
   reader.readAsDataURL(f);
 
   submitBtn.disabled=false;
-  submitHint.textContent='Select your preferences above, then hit the button!';
+  submitHint.textContent='Pick any options — all optional — then find your match.';
 });
 
 /* ── Restore cached portrait from another page ── */
@@ -57,7 +42,7 @@ fileIn.addEventListener('change', e=>{
   document.getElementById('up-label-text').textContent='Photo from previous session';
   preview.src=cached; preview.style.display='block';
   submitBtn.disabled=false;
-  submitHint.textContent='Select your preferences above, then hit the button!';
+  submitHint.textContent='Pick any options — all optional — then find your match.';
 })();
 
 /* ── Submit ──────────────────────────────────── */
@@ -88,9 +73,9 @@ async function submitSearch(){
   setLoadStep(1);
   fsCreep=new ProgressCreep(document.getElementById('load-prog'));
   fsCreep.set(15);
-  document.getElementById('load-stage').textContent='Searching our catalog...';
+  document.getElementById('load-stage').textContent='Searching the shelf…';
   fsRetry=new PollRetry('load-stage', showError);
-  startTips();
+  narrateSpec();
 
   try{
     const r=await fetch('/api/free-search',{method:'POST',body:fd});
@@ -120,15 +105,114 @@ function setLoadStep(n){
   else{s1.classList.add('done');s2.classList.add('active')}
   document.getElementById('lsl1').className='fs-sline'+(n>1?' done':'');
 }
-function setLoadProg(pct){if(fsCreep)fsCreep.set(pct);else document.getElementById('load-prog').style.width=pct+'%'}
+function setLoadProg(pct){if(fsCreep)fsCreep.set(pct);else document.getElementById('load-prog').style.transform='scaleX('+(pct/100)+')'}
 
-/* ── Tips ────────────────────────────────────── */
-function startTips(){tipIdx=0;showTip();tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500)}
-function stopTips(){if(tipTimer)clearInterval(tipTimer);tipTimer=null}
-function showTip(){
-  const el=document.getElementById('load-tip');
-  el.style.opacity='0';
-  setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity='1'},350);
+/* ── Narration ───────────────────────────────────
+   The landing narrates its wait with the job's own findings; this surface
+   does the same with the search's own material — the spec the visitor set,
+   the live pool it cuts, then the matched frames named with brand and price
+   while their renders are still in flight. */
+let _framesNamed=false, _frameRows=[], _nameTimer=null;
+
+function specSummary(){
+  const parts=[];
+  document.querySelectorAll('#form-view input[type=radio]:checked').forEach(r=>{
+    if(!r.value) return;
+    const inTile=r.closest('label.tile,label.swatch');
+    const label=inTile
+      ? inTile.querySelector('.tile-label,.swatch-name')
+      : (r.id?document.querySelector('label[for="'+r.id+'"]'):null);
+    parts.push(label?label.textContent.trim():r.value);
+  });
+  const price=document.querySelector('input[name=max_price]');
+  if(price && price.value) parts.push('under ₪'+Number(price.value).toLocaleString());
+  return parts;
+}
+
+function poolCount(){
+  if(!catalogProducts) return null;
+  const filters={};
+  document.querySelectorAll('#form-view input[type=radio]:checked').forEach(r=>{
+    if(r.value && FIELD_MAP[r.name]) filters[r.name]=r.value;
+  });
+  /* The count must honour the whole spec it sits beside — including the
+     price cap — and its denominator is the sellable shelf, not the raw
+     catalogue rows. A number that contradicts the spec is a truth defect. */
+  const priceEl=document.querySelector('input[name=max_price]');
+  const cap=priceEl&&priceEl.value?parseFloat(priceEl.value):null;
+  let n=0,total=0;
+  catalogProducts.forEach(p=>{
+    if(!p.in_stock) return;
+    total++;
+    if(cap!=null && Number(p.price||0)>cap) return;
+    for(const [f,v] of Object.entries(filters)){
+      if(!productMatches(p,f,v)) return;
+    }
+    n++;
+  });
+  return {n:n,total:total};
+}
+
+function pushNote(html){
+  const host=document.getElementById('load-notes');
+  const el=document.createElement('div');
+  el.className='lnote';
+  el.innerHTML=html;
+  host.appendChild(el);
+  requestAnimationFrame(()=>el.classList.add('in'));
+  return el;
+}
+
+function narrateSpec(){
+  const host=document.getElementById('load-notes');
+  host.innerHTML=''; _framesNamed=false; _frameRows=[];
+  const parts=specSummary();
+  const pool=poolCount();
+  const spec=parts.length?parts.map(escHtml).join(' · '):'anything on the shelf';
+  pushNote('<span class="lnote-label">Your spec</span>'+spec+
+    (pool?' — '+pool.n+' of '+pool.total+' frames qualify':''));
+}
+
+function narrateFrames(d){
+  if(_framesNamed || !d.num_options) return;
+  _framesNamed=true;
+  pushNote('<span class="lnote-label">Pulled from the shelf</span>');
+  const opts=[];
+  for(let i=0;i<Math.min(d.num_options,3);i++){ if(d['opt'+i]) opts.push([i,d['opt'+i]]); }
+  let k=0;
+  const addRow=()=>{
+    if(k>=opts.length){clearInterval(_nameTimer);_nameTimer=null;return}
+    const pair=opts[k++], i=pair[0], o=pair[1];
+    const row=document.createElement('div');
+    row.className='lframe';
+    row.innerHTML=
+      '<span class="lframe-brand">'+escHtml(o.brand||'')+'</span>'+
+      '<span class="lframe-name">'+escHtml(modelName(o))+'</span>'+
+      '<span class="lframe-price">'+fsPrice(o)+'</span>'+
+      '<span class="lframe-status">Rendering…</span>';
+    document.getElementById('load-notes').appendChild(row);
+    requestAnimationFrame(()=>row.classList.add('in'));
+    _frameRows[i]=row.querySelector('.lframe-status');
+  };
+  addRow();
+  _nameTimer=setInterval(addRow,900);
+  announceFs('Matched '+opts.length+' frames. Rendering your try-ons.');
+}
+
+function narrateStatuses(d){
+  _frameRows.forEach((el,i)=>{
+    if(!el) return;
+    const o=d['opt'+i]; if(!o) return;
+    if(o.tryon_status==='done'){el.textContent='Ready';el.classList.add('done');el.classList.remove('fail')}
+    else if(o.tryon_status==='error'){el.textContent='Failed';el.classList.add('fail')}
+  });
+}
+
+function stopNarration(){if(_nameTimer){clearInterval(_nameTimer);_nameTimer=null}}
+
+function announceFs(msg){
+  const el=document.getElementById('fs-live');
+  if(el) el.textContent=msg;
 }
 
 /* ── Poll ────────────────────────────────────── */
@@ -139,29 +223,36 @@ function pollStatus(){
     if(d.status==='error'){showError(d.error||'Unknown error');return}
 
     const msgs={
-      uploading:'Preparing your photo...',
-      searching:'Searching our catalog...',
-      tryon:'Generating virtual try-on images...',
-      primary_ready:'Your best match is ready!',
-      done:'All results are ready'
+      uploading:'Preparing your photo…',
+      searching:'Searching the shelf…',
+      tryon:'Rendering your try-ons…',
+      primary_ready:'Your best match is ready',
+      done:'All three are ready'
     };
-    document.getElementById('load-stage').textContent=msgs[d.stage]||'Processing...';
+    /* Write only on change: the element is aria-live, and rewriting an
+       identical string every 2s poll makes screen readers re-announce it. */
+    const stageEl=document.getElementById('load-stage');
+    const stageMsg=msgs[d.stage]||'Working…';
+    if(stageEl.textContent!==stageMsg) stageEl.textContent=stageMsg;
 
     if(d.stage==='searching'||d.stage==='uploading'){setLoadStep(1);setLoadProg(25)}
     else if(d.stage==='tryon'){setLoadStep(2);setLoadProg(55)}
     else if(d.stage==='primary_ready'){setLoadStep(2);setLoadProg(80)}
     else if(d.stage==='done'){setLoadStep(2);setLoadProg(100)}
 
+    if(d.num_options>0) narrateFrames(d);
+    narrateStatuses(d);
+
     // Show results as soon as primary is ready
     if(d.num_options>0 && (d.stage==='primary_ready'||d.stage==='done')){
-      stopTips();if(fsCreep)fsCreep.finish();
+      stopNarration();if(fsCreep)fsCreep.finish();
       renderResults(d);
     }
 
     if(d.status!=='done' && d.status!=='error')
       poll=setTimeout(pollStatus,2000);
     else if(d.status==='done'){
-      stopTips();if(fsCreep)fsCreep.finish();
+      stopNarration();if(fsCreep)fsCreep.finish();
       renderResults(d);
     }
   }).catch(()=>{if(fsRetry)fsRetry.fail();poll=setTimeout(pollStatus,3000)});
@@ -230,7 +321,7 @@ function fsPrice(o){
 }
 
 /* ── Compare modal ──────────────────────────── */
-let compareData=null;
+let compareData=null, _compareReturnEl=null;
 function openCompare(){
   if(!compareData) return;
   const grid=document.getElementById('compare-grid');
@@ -252,11 +343,18 @@ function openCompare(){
   }
   document.getElementById('compare-modal').style.display='flex';
   document.body.style.overflow='hidden';
+  _compareReturnEl=document.activeElement;
+  document.querySelector('#compare-modal .compare-content').focus();
 }
 function closeCompare(){
   document.getElementById('compare-modal').style.display='none';
   document.body.style.overflow='';
+  if(_compareReturnEl && _compareReturnEl.focus) _compareReturnEl.focus();
+  _compareReturnEl=null;
 }
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && document.getElementById('compare-modal').style.display==='flex') closeCompare();
+});
 
 /* ── Render results ──────────────────────────── */
 function renderResults(d){
@@ -277,21 +375,23 @@ function renderResults(d){
 
 /* ── Error ───────────────────────────────────── */
 function showError(msg){
-  stopTips();if(fsCreep)fsCreep.stop();
+  stopNarration();if(fsCreep)fsCreep.stop();
   document.getElementById('error-msg').textContent=msg;
   showView('error-view');
 }
 
 /* ── Reset ───────────────────────────────────── */
 function fsReset(){
-  sid=null; if(poll)clearTimeout(poll); stopTips(); lastRendered='';
+  sid=null; if(poll)clearTimeout(poll); stopNarration(); lastRendered='';
   uploadedFile=null;
   fileIn.value='';
   uploadArea.classList.remove('has-file');
-  document.getElementById('up-label-text').textContent='Upload a Photo';
+  document.getElementById('up-label-text').textContent='Hand over a photo';
   preview.style.display='none'; preview.src='';
   submitBtn.disabled=true;
-  submitHint.textContent='Upload a photo first';
+  /* Delegated click below picks this up; no handler interpolated into the string. */
+  submitHint.innerHTML='<button type="button" class="hint-jump">Hand over a photo first — jump to the tray</button>';
+  document.getElementById('load-notes').innerHTML='';
   document.getElementById('fs-opts').innerHTML='';
   document.querySelectorAll('#form-view input[type=radio][value=""]').forEach(r=>{r.checked=true});
   if(fsCreep){fsCreep.stop();fsCreep=null}
@@ -308,7 +408,20 @@ function toggleAdvanced(){
   const btn=document.getElementById('advanced-toggle');
   sec.classList.toggle('open');
   btn.classList.toggle('open');
+  btn.setAttribute('aria-expanded', sec.classList.contains('open')?'true':'false');
 }
+
+/* The disabled-submit hint names the photo tray ~4,000px above it;
+   clicking the hint goes there instead of asking the visitor to scroll. */
+function fsJumpToPhoto(){
+  const tray=document.getElementById('upload-area');
+  const smooth=window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
+  tray.scrollIntoView({behavior:smooth,block:'center'});
+  tray.focus({preventScroll:true});
+}
+document.addEventListener('click',e=>{
+  if(e.target.closest && e.target.closest('.hint-jump')) fsJumpToPhoto();
+});
 
 /* ══════════════════════════════════════════════════
    Client-side faceting — dim unavailable options
@@ -441,13 +554,28 @@ function updateSignageCounts(root) {
     if (!total) return;
     let c = title.querySelector('.section-count');
     if (!c) {
+      /* Screen readers hear "Shape, 8 of 10 available", not "Shape8 of 10":
+         hidden separators join the heading text and the injected count, and
+         the option group is labelled by its band. */
+      const sep = document.createElement('span');
+      sep.className = 'sr-only';
+      sep.textContent = ', ';
+      title.appendChild(sep);
       c = document.createElement('span');
       c.className = 'section-count sg-figure';
       title.appendChild(c);
+      const suf = document.createElement('span');
+      suf.className = 'sr-only';
+      suf.textContent = ' available';
+      title.appendChild(suf);
+      if (!title.id) title.id = 'facet-h-' + (++_facetHeadingId);
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-labelledby', title.id);
     }
     c.textContent = live === total ? String(total) : live + ' of ' + total;
   });
 }
+let _facetHeadingId = 0;
 
 function updateFacets(){
   if(!catalogProducts) return;

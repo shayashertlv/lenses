@@ -522,12 +522,12 @@
   text-transform: uppercase;
   letter-spacing: var(--tr-display);
 }
+/* Sentence-length supporting copy: body voice, not signage caps —
+   a 50-char uppercase paragraph is signage misapplied to prose. */
 .modal-body .modal-subtitle {
   margin: 0 0 var(--s-4);
-  font-size: var(--t-2xs);
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-  color: var(--ink-3);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
 }
 .modal-close {
   position: absolute;
@@ -686,11 +686,48 @@
 }
 .fs-panel-sub {
   margin: 0 0 var(--s-5);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+
+/* ── Data posture: the compliance answer, at the point of upload ── */
+.posture {
+  max-width: var(--measure);
+  margin: var(--s-2) 0 0;
   font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+  text-align: left;
+}
+#modal-upload .posture { margin: var(--s-3) 0 0; }
+
+/* ── Advanced disclosure (the toggle was a no-op: these rules only
+      existed in free-search.css, which this page does not load) ── */
+.fs-panel-body .advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  margin: var(--s-5) 0 0;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
-  color: var(--ink-3);
+  cursor: pointer;
 }
+.fs-panel-body .advanced-toggle:hover { background-color: var(--card); }
+.fs-panel-body .advanced-toggle .adv-caret { width: 16px; height: 16px; transition: transform var(--d-fast) var(--ease); }
+.fs-panel-body .advanced-toggle.open .adv-caret { transform: rotate(180deg); }
+#sf-advanced-section { display: none; margin-top: var(--s-4); }
+#sf-advanced-section.open { display: block; }
 .fs-panel-body .submit-row { margin-top: var(--s-5); }
 .fs-panel-body .submit-btn {
   width: 100%;
@@ -721,10 +758,11 @@
   padding: var(--s-4);
   background: rgba(14, 19, 16, .6);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--d-fast) var(--ease);
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
 }
-.uptip-overlay.visible { opacity: 1; pointer-events: auto; }
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);

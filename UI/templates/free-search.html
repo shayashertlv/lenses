@@ -18,26 +18,29 @@
 
 
 <!-- Top bar -->
-<div class="topbar">
+<header class="topbar">
   <a class="back-btn" href="/">Lenses</a>
-  <span class="logo">Free search</span>
+  <h1 class="logo">Free search</h1>
   <span class="topbar-note">You set the spec &#183; ~20s</span>
-</div>
+</header>
+
+<main>
 
 <!-- ═══════════════ FORM VIEW ═══════════════ -->
 <div id="form-view">
 
-  <h3 class="section-title sg-label">Your Photo</h3>
+  <h2 class="section-title sg-label">Your Photo</h2>
   <button type="button" class="fs-upload" id="upload-area" onclick="openPickerWithTip('fs-file')">
     <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
     <span class="up-label" id="up-label-text">Hand over a photo</span>
     <span class="up-hint">JPG, PNG, or WebP</span>
     <img class="up-preview" id="up-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></button>
   <input type="file" id="fs-file" accept="image/*"/>
+  <p class="posture">Processed, then discarded &#8212; no photo is stored. Lenses runs on your own infrastructure and Gemini key; you stay the data controller.</p>
 
   <!-- ── Primary filters ────────────────────────── -->
 
-  <h3 class="section-title sg-label">Gender</h3>
+  <h2 class="section-title sg-label">Gender</h2>
   <div class="radio-group">
     <span><input type="radio" name="gender" id="g-any" value="" checked/><label for="g-any">Any</label></span>
     <span><input type="radio" name="gender" id="g-uni" value="unisex"/><label for="g-uni">Unisex</label></span>
@@ -45,7 +48,7 @@
     <span><input type="radio" name="gender" id="g-women" value="women"/><label for="g-women">Women</label></span>
   </div>
 
-  <h3 class="section-title sg-label">Shape</h3>
+  <h2 class="section-title sg-label">Shape</h2>
   <div class="tile-grid">
     <label class="tile"><input type="radio" name="frame_shape" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
     <label class="tile"><input type="radio" name="frame_shape" value="round"/><div class="tile-inner"><div class="shape-vis" style="width:26px;height:26px;border-radius:50%"></div><span class="tile-label">Round</span></div></label>
@@ -60,7 +63,7 @@
     <label class="tile"><input type="radio" name="frame_shape" value="shield"/><div class="tile-inner"><div class="shape-fill" style="width:36px;height:22px;clip-path:polygon(0% 20%,100% 20%,100% 80%,50% 100%,0% 80%)"></div><span class="tile-label">Shield</span></div></label>
   </div>
 
-  <h3 class="section-title sg-label">Lens Type</h3>
+  <h2 class="section-title sg-label">Lens Type</h2>
   <div class="tile-grid">
     <label class="tile"><input type="radio" name="lens_type" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
     <label class="tile"><input type="radio" name="lens_type" value="clear"/><div class="tile-inner"><div class="lens-ind" style="width:26px;height:26px;"></div><span class="tile-label">Clear</span></div></label>
@@ -74,7 +77,7 @@
     <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind lens-ind--sport">SPT</div><span class="tile-label">Sport</span></div></label>
   </div>
 
-  <h3 class="section-title sg-label">Frame Color</h3>
+  <h2 class="section-title sg-label">Frame colour</h2>
   <div class="swatch-grid">
     <label class="swatch"><input type="radio" name="frame_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
     <label class="swatch"><input type="radio" name="frame_color" value="black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#1a1a1a"></div><span class="swatch-name">Black</span></div></label>
@@ -91,7 +94,7 @@
     <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f8f8f8;"></div><span class="swatch-name">White</span></div></label>
   </div>
 
-  <h3 class="section-title sg-label">Lens Color</h3>
+  <h2 class="section-title sg-label">Lens colour</h2>
   <div class="swatch-grid">
     <label class="swatch"><input type="radio" name="lens_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
     <label class="swatch"><input type="radio" name="lens_color" value="transparent"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/10px 10px;border-style:dashed"></div><span class="swatch-name">Clear</span></div></label>
@@ -108,13 +111,13 @@
   </div>
 
   <!-- ── Advanced options toggle ─────────────────── -->
-  <button type="button" id="advanced-toggle" class="advanced-toggle" onclick="toggleAdvanced()">
-    Advanced Options <span id="adv-arrow">&#9662;</span>
+  <button type="button" id="advanced-toggle" class="advanced-toggle" onclick="toggleAdvanced()" aria-expanded="false" aria-controls="advanced-section">
+    Advanced options <svg class="adv-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
   </button>
 
   <div id="advanced-section">
 
-    <h3 class="section-title sg-label">Material</h3>
+    <h2 class="section-title sg-label">Material</h2>
     <div class="tile-grid">
       <label class="tile"><input type="radio" name="frame_material" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
       <label class="tile"><input type="radio" name="frame_material" value="metal"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#c0c0c0,#808080)"></div><span class="tile-label">Metal</span></div></label>
@@ -137,7 +140,7 @@
       <label class="tile"><input type="radio" name="frame_material" value="O-Matter"/><div class="tile-inner"><div class="mat-chip" style="background:linear-gradient(135deg,#2a3a4a,#1a2a3a)"></div><span class="tile-label">O-Matter</span></div></label>
     </div>
 
-    <h3 class="section-title sg-label">Rim &amp; Thickness</h3>
+    <h2 class="section-title sg-label">Rim &amp; Thickness</h2>
     <div style="display:flex;gap:2rem;flex-wrap:wrap">
       <div class="field" style="flex:1;min-width:200px">
         <label>Rim Type</label>
@@ -159,7 +162,7 @@
       </div>
     </div>
 
-    <h3 class="section-title sg-label">Lens Size</h3>
+    <h2 class="section-title sg-label">Lens Size</h2>
     <div class="tile-grid" style="grid-template-columns:repeat(5,1fr);max-width:480px">
       <label class="tile"><input type="radio" name="lens_size" value="" checked/><div class="tile-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="tile-label">Any</span></div></label>
       <label class="tile"><input type="radio" name="lens_size" value="small"/><div class="tile-inner"><div class="size-dot" style="width:16px;height:16px"></div><span class="tile-label">Small</span></div></label>
@@ -215,7 +218,7 @@
     <button class="submit-btn" id="submit-btn" disabled onclick="submitSearch()">
       Find my glasses
     </button>
-    <p class="submit-hint" id="submit-hint">Hand over a photo first</p>
+    <p class="submit-hint" id="submit-hint"><button type="button" class="hint-jump">Hand over a photo first &#8212; jump to the tray</button></p>
   </div>
 
 </div>
@@ -235,9 +238,9 @@
 
     <div class="load-prog"><div class="load-prog-fill" id="load-prog"></div></div>
 
-    <p id="load-stage">Searching the shelf</p>
+    <p id="load-stage" aria-live="polite">Searching the shelf</p>
 
-    <div class="tip-box"><p id="load-tip"></p></div>
+    <div class="load-notes" id="load-notes"></div>
     <button class="load-cancel" onclick="fsReset()">Cancel</button>
   </div>
 </div>
@@ -245,17 +248,17 @@
 <!-- ═══════════════ RESULTS ═══════════════ -->
 <div id="results-view" class="results-viewport">
   <div class="results-controls">
-    <button class="results-back" onclick="fsReset()">&#8592; Back</button>
+    <button class="results-back" onclick="fsReset()"><svg class="back-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 12L6 8l4-4"/></svg>Back</button>
     <span class="results-title">Pulled for you</span>
     <button class="results-compare" onclick="openCompare()">Compare all</button>
   </div>
   <div id="fs-opts" class="results-row"></div>
   <div id="compare-modal" class="compare-modal" style="display:none">
     <button type="button" class="compare-backdrop" aria-label="Close comparison" onclick="closeCompare()"></button>
-    <div class="compare-content">
+    <div class="compare-content" role="dialog" aria-modal="true" aria-labelledby="compare-h" tabindex="-1">
       <div class="compare-header">
-        <h2>Side by side</h2>
-        <button onclick="closeCompare()" class="compare-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <h2 id="compare-h">Side by side</h2>
+        <button onclick="closeCompare()" class="compare-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div id="compare-grid" class="compare-grid"></div>
     </div>
@@ -272,11 +275,16 @@
   </div>
 </div>
 
+</main>
+
+<!-- polite announcements for assistive tech (match found, renders ready) -->
+<div id="fs-live" class="sr-only" aria-live="polite"></div>
+
 <!-- upload tip popup -->
 <div id="uptip" class="uptip-overlay">
-  <div class="uptip-box">
+  <div class="uptip-box" role="dialog" aria-modal="true" aria-labelledby="uptip-h">
     <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
-    <h3>Photo tips</h3>
+    <h3 id="uptip-h">Photo tips</h3>
     <p>A clear selfie, face mostly visible, well lit. Avoid group shots, sunglasses and blurry images.</p>
     <button class="uptip-ok" onclick="uptipOk()">Got it</button>
   </div>

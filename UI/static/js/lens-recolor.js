@@ -97,12 +97,25 @@ document.querySelectorAll('input[name="lens_color"]').forEach(cb=>{
   cb.addEventListener('change',function(){
     const checked=getCheckedColors();
     if(checked.length>MAX_COLORS){
-      this.checked=false; return;
+      /* Refusing the fourth colour must not look like a dead control:
+         the counter says why and nudges, mechanically. */
+      this.checked=false;
+      flashCounter();
+      return;
     }
     updateCounter();
     checkReady();
   });
 });
+function flashCounter(){
+  /* Field-green "full" state, not danger — Alert Red is failure only,
+     and a full selection is not a failure. */
+  const el=document.getElementById('color-counter');
+  el.textContent='3 of 3 selected — deselect one to swap';
+  el.className='color-counter full nudge';
+  clearTimeout(flashCounter._t);
+  flashCounter._t=setTimeout(updateCounter,1600);
+}
 function updateCounter(){
   const n=getCheckedColors().length;
   const el=document.getElementById('color-counter');
@@ -110,7 +123,16 @@ function updateCounter(){
   el.className='color-counter'+(n===3?' full':'')+(n>3?' over':'');
 }
 function checkReady(){
-  document.getElementById('submit-btn').disabled=!(chosenFile && getCheckedColors().length===3);
+  const n=getCheckedColors().length;
+  const ready=chosenFile && n===3;
+  document.getElementById('submit-btn').disabled=!ready;
+  const hint=document.getElementById('rc-hint');
+  if(hint){
+    if(ready) hint.textContent='Ready — about 20 seconds';
+    else if(!chosenFile && n===0) hint.textContent='Hand over a photo and pick three colours';
+    else if(!chosenFile) hint.textContent='Hand over a photo first';
+    else hint.textContent='Pick '+(3-n)+' more colour'+((3-n)===1?'':'s');
+  }
 }
 
 /* ── Submit ── */
@@ -124,12 +146,12 @@ document.getElementById('submit-btn').addEventListener('click',function(){
   fd.append('color3',colors[2]);
 
   showView('loading-view');
-  document.getElementById('load-stage').textContent='Uploading your photo...';
+  document.getElementById('load-stage').textContent='Uploading your photo…';
   rcSetStep(1);
   rcCreep=new ProgressCreep(document.getElementById('load-prog-fill'));
   rcCreep.set(10);
   rcRetry=new PollRetry('load-stage', showError);
-  startTips();
+  rcNarrateStart(colors);
 
   // Show portrait preview in loading
   const reader=new FileReader();
@@ -172,22 +194,27 @@ function pollStatus(){
       }
       if(rcRetry) rcRetry.reset();
 
-      // Update loading stage (only while loading screen is visible)
+      // Update loading stage (only while loading screen is visible).
+      // Write only on change: the element is aria-live, and rewriting an
+      // identical string every 2s poll makes screen readers re-announce it.
       if(!resultsShown){
         const stage=data.stage||'';
+        const stEl=document.getElementById('load-stage');
+        const setStage=t=>{if(stEl.textContent!==t)stEl.textContent=t};
         if(stage==='uploading'){
-          document.getElementById('load-stage').textContent='Uploading your photo...';
+          setStage('Uploading your photo…');
           rcSetStep(1);
           if(rcCreep) rcCreep.set(15);
         } else if(stage==='recoloring'){
-          document.getElementById('load-stage').textContent='Recoloring your lenses...';
+          setStage('Recolouring your lenses…');
           rcSetStep(2);
           if(rcCreep) rcCreep.set(40);
         } else if(stage==='primary_ready'){
-          document.getElementById('load-stage').textContent='First colour ready! Finishing the rest...';
+          setStage('First colour ready — finishing the rest…');
           rcSetStep(2);
           if(rcCreep) rcCreep.set(70);
         }
+        rcNarrateUpdate(data);
 
         // Show portrait in loading
         if(data.portrait_b64){
@@ -206,7 +233,7 @@ function pollStatus(){
         collectResults(data);
         if(!resultsShown){
           resultsShown=true;
-          stopTips();if(rcCreep)rcCreep.finish();
+          if(rcCreep)rcCreep.finish();
           renderResults();
         } else {
           updateProgressiveResults();
@@ -253,14 +280,14 @@ function updateHero(){
   const label=document.getElementById('hero-color-label');
 
   if(r && r.b64){
-    heroWrap.innerHTML='<div class="hero-glow"></div><img id="hero-img" src="data:image/png;base64,'+r.b64+'" alt="Recolored lens" style="display:block"/>';
+    heroWrap.innerHTML='<img id="hero-img" src="data:image/png;base64,'+r.b64+'" alt="Recoloured lens" style="display:block"/>';
     label.textContent=r.name;
   } else if(r && r.error){
-    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-error">'+escHtml(r.error)+'</div>';
-    label.textContent=r.name+' (failed)';
+    heroWrap.innerHTML='<div class="tryon-error">'+escHtml(r.error)+'</div>';
+    label.textContent=r.name+' — failed';
   } else if(r){
-    heroWrap.innerHTML='<div class="hero-glow"></div><div class="tryon-loading" style="padding:3rem 0"><div class="mini-spin" style="width:48px;height:48px;border-width:4px"></div><p style="margin-top:1rem;color:#bbb">Generating '+escHtml(r.name)+'...</p></div>';
-    label.textContent=r.name+' (generating...)';
+    heroWrap.innerHTML='<div class="tryon-loading tryon-loading--hero"><div class="mini-spin mini-spin--lg"></div><p class="gen-note">Rendering '+escHtml(r.name)+'…</p></div>';
+    label.textContent=r.name+' — rendering…';
   }
   renderAlts();
 }
@@ -282,13 +309,13 @@ function renderAlts(){
     } else if(r.error){
       imgHtml='<div class="tryon-error">'+escHtml(r.error)+'</div>';
     } else {
-      imgHtml='<div class="tryon-loading"><div class="mini-spin"></div><p>Generating...</p></div>';
+      imgHtml='<div class="tryon-loading"><div class="mini-spin"></div><p>Rendering…</p></div>';
     }
 
     card.innerHTML=
       '<div class="alt-card-img-wrap">'+imgHtml+'</div>'+
-      '<div class="alt-card-body"><p class="alt-card-name">'+escHtml(r.name)+'</p></div>'+
-      '<button class="alt-card-switch">View Full Size</button>';
+      '<p class="alt-name">'+escHtml(r.name)+'</p>'+
+      '<button class="alt-card-switch">View full size</button>';
 
     grid.appendChild(card);
   }
@@ -300,14 +327,14 @@ function switchTo(idx){
   const hero=document.getElementById('hero-section');
   hero.style.animation='none';
   hero.offsetHeight; // force reflow
-  hero.style.animation='slideUp .5s ease both';
+  hero.style.animation='slideUp var(--d-slow) var(--ease) both';
 
   updateHero();
 }
 
 /* ── Helpers ── */
 function showError(msg){
-  stopTips();if(rcCreep)rcCreep.stop();
+  if(rcCreep)rcCreep.stop();
   document.getElementById('error-msg').textContent=msg;
   showView('error-view');
 }
@@ -315,35 +342,52 @@ function showError(msg){
 function rcReset(){
   sessionId=null;
   if(pollTimer) clearInterval(pollTimer);
-  stopTips();if(rcCreep){rcCreep.stop();rcCreep=null}
+  if(rcCreep){rcCreep.stop();rcCreep=null}
   chosenFile=null;
   colorResults=[];
   mainIdx=0;
   resultsShown=false;
   document.getElementById('rc-file').value='';
   document.getElementById('upload-area').classList.remove('has-file');
-  document.getElementById('up-label-text').textContent='Upload a Photo';
+  document.getElementById('up-label-text').textContent='Hand over a photo';
   document.getElementById('up-preview').style.display='none';
   document.querySelectorAll('input[name="lens_color"]').forEach(c=>{c.checked=false});
   updateCounter();
-  document.getElementById('submit-btn').disabled=true;
-  document.getElementById('load-prog-fill').style.width='0%';
+  checkReady();
+  document.getElementById('load-prog-fill').style.transform='scaleX(0)';
+  document.getElementById('load-notes').innerHTML='';
   document.getElementById('load-portrait').style.display='none';
   showView(null);
 }
 
-/* ── Loading tips rotation ── */
-const tips=[
-  'Our AI analyses the lens area and applies the new colour with photorealistic precision.',
-  'Only the lens colour changes \u2014 frame, face, and background remain untouched.',
-  'Each colour is generated independently for the most realistic result.',
-  'The AI preserves natural reflections and blends the tint to match the lens curvature.',
-];
-let tipIdx=0,tipTimer=null;
-function startTips(){tipIdx=0;showTip();tipTimer=setInterval(()=>{tipIdx=(tipIdx+1)%tips.length;showTip()},4500)}
-function stopTips(){if(tipTimer)clearInterval(tipTimer);tipTimer=null}
-function showTip(){
-  const el=document.getElementById('load-tip');
-  el.style.opacity=0;
-  setTimeout(()=>{el.textContent=tips[tipIdx];el.style.opacity=1;},300);
+/* ── Narration: the three chosen colours, tracked by name ──
+   The wait names the actual work — each colour queued, rendering, ready —
+   instead of rotating generic assertions about the product. */
+let _rcRows={};
+function rcNarrateStart(colors){
+  const host=document.getElementById('load-notes');
+  host.innerHTML=''; _rcRows={};
+  const label=document.createElement('div');
+  label.className='lnote';
+  label.innerHTML='<span class="lnote-label">On the bench</span>';
+  host.appendChild(label);
+  requestAnimationFrame(()=>label.classList.add('in'));
+  colors.forEach(name=>{
+    const row=document.createElement('div');
+    row.className='lframe';
+    row.innerHTML='<span class="lframe-name">'+escHtml(name)+'</span>'+
+      '<span class="lframe-status">Queued</span>';
+    host.appendChild(row);
+    requestAnimationFrame(()=>row.classList.add('in'));
+    _rcRows[name]=row.querySelector('.lframe-status');
+  });
+}
+function rcNarrateUpdate(data){
+  for(let i=0;i<(data.num_colors||0);i++){
+    const c=data['color'+i]; if(!c) continue;
+    const el=_rcRows[c.name]; if(!el) continue;
+    if(c.b64){el.textContent='Ready';el.classList.add('done');el.classList.remove('fail')}
+    else if(c.error){el.textContent='Failed';el.classList.add('fail')}
+    else{el.textContent='Rendering…'}
+  }
 }

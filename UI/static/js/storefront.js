@@ -39,10 +39,10 @@ function prefersReducedMotion() {
    jumps for it).
    ══════════════════════════════════════════════════ */
 const KIND_CFG = {
-  smartfit:   { dur: 30, label: 'Smart fit',    spawn: 'Smart Fit · ~30s',          stageMsg: 'Analyzing your face…' },
-  freesearch: { dur: 20, label: 'Free search',  spawn: 'Finding your match · ~20s', stageMsg: 'Searching the collection…' },
+  smartfit:   { dur: 30, label: 'Smart fit',    spawn: 'Smart fit · ~30s',          stageMsg: 'Analysing your face…' },
+  freesearch: { dur: 20, label: 'Free search',  spawn: 'Finding your match · ~20s', stageMsg: 'Searching the shelf…' },
   tryon:      { dur: 20, label: 'Try-on',       spawn: 'Try-on · ~20s',             stageMsg: 'Creating your try-on…' },
-  recolor:    { dur: 20, label: 'Recolour',     spawn: 'Recoloring · ~20s',         stageMsg: 'Recoloring the lenses…' },
+  recolor:    { dur: 20, label: 'Recolour',     spawn: 'Recolouring · ~20s',        stageMsg: 'Recolouring the lenses…' },
 };
 
 /* RingTimer now lives in common.js — the landing counter paces on it too. */
@@ -258,10 +258,11 @@ function openTryon(productId, productName, thumbSrc) {
 
   document.getElementById('modal-product-name').textContent = productName;
   document.getElementById('modal-result-product').textContent = productName;
-  document.getElementById('modal-go').textContent = 'Try On';
+  document.getElementById('modal-go').textContent = 'Try on';
 
   showModalStep('modal-upload');
   document.getElementById('tryon-modal').classList.add('active');
+  focusDialog('#tryon-modal .modal');
   restoreCachedSelfie();
 }
 
@@ -270,10 +271,11 @@ function openSmartFit() {
   storeAction = 'smartfit';
   pendingProduct = null;
   clearModalTransform();
-  document.getElementById('modal-product-name').textContent = 'Smart Fit';
+  document.getElementById('modal-product-name').textContent = 'Smart fit';
   document.getElementById('modal-go').textContent = 'Find my best frame';
   showModalStep('modal-upload');
   document.getElementById('tryon-modal').classList.add('active');
+  focusDialog('#tryon-modal .modal');
   restoreCachedSelfie();
 }
 
@@ -320,11 +322,26 @@ function showPhotoReady(src) {
   document.getElementById('modal-go').disabled = false;
 }
 
+/* Focus bookkeeping shared by the two overlays: a dialog takes focus on
+   open and hands it back on close, so keyboard users are never left
+   focused on a control the overlay is covering. */
+let _dialogReturnEl = null;
+function focusDialog(sel) {
+  _dialogReturnEl = document.activeElement;
+  const el = document.querySelector(sel);
+  if (el) el.focus();
+}
+function restoreDialogFocus() {
+  if (_dialogReturnEl && _dialogReturnEl.focus) _dialogReturnEl.focus();
+  _dialogReturnEl = null;
+}
+
 /* Closing the modal only hides the overlay — background jobs keep running. */
 function closeModal() {
   document.getElementById('tryon-modal').classList.remove('active');
   document.getElementById('tryon-modal').classList.remove('closing');
   clearModalTransform();
+  restoreDialogFocus();
 }
 
 /* "Try Another Photo" / "Try Again" — back to the upload step. */
@@ -426,8 +443,8 @@ function spawnCircle(job) {
   btn.className = 'sf-ticket is-loading' + (isRecolor ? ' is-recolor' : '') + (isAI ? ' is-ai' : '');
   btn.dataset.job = job.id;
   btn.setAttribute('aria-label',
-    isRecolor ? 'Recoloring ' + job.productName + ' in ' + job.color
-    : isAI ? (job.kind === 'smartfit' ? 'Smart Fit — finding your best frame' : 'Free Search — finding your best match')
+    isRecolor ? 'Recolouring ' + job.productName + ' in ' + job.color
+    : isAI ? (job.kind === 'smartfit' ? 'Smart fit — finding your best frame' : 'Free search — finding your best match')
     : 'Try-on for ' + job.productName + ' — generating');
   const thumbHtml = job.thumbSrc
     ? '<img class="sf-thumb" src="' + escHtml(job.thumbSrc) + '" alt=""/>'
@@ -619,7 +636,7 @@ function markJobDone(job, b64) {
   setJobStatus(job, 'Ready — tap to view', { force: true });
   announce((job.productName ? job.productName + ': ' : '') + 'ready — tap to view');
   job.el.setAttribute('aria-label',
-    (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
+    (job.kind === 'recolor' ? 'Recolour' : 'Try-on') + ' ready for ' + job.productName + ' — tap to view');
 }
 
 function markJobError(job, msg) {
@@ -636,7 +653,7 @@ function markJobError(job, msg) {
   setJobStatus(job, "Couldn't finish — tap for details", { force: true });
   announce((job.productName ? job.productName + ': ' : '') + "couldn't finish — tap for details", true);
   job.el.setAttribute('aria-label',
-    (job.kind === 'recolor' ? 'Recolor' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
+    (job.kind === 'recolor' ? 'Recolour' : 'Try-on') + ' failed for ' + job.productName + ' — tap for details');
 }
 
 function onCircleClick(job) {
@@ -879,6 +896,7 @@ function openFreeSearch() {
   fsClearPanelTransform();
   overlay.classList.add('active');
   overlay.querySelector('.fs-panel').scrollTop = 0;
+  focusDialog('#fs-overlay .fs-panel');
   fsRestoreSelfie();
   updateFacets();
 }
@@ -887,12 +905,26 @@ function closeFreeSearch() {
   const overlay = document.getElementById('fs-overlay');
   overlay.classList.remove('active', 'closing');
   fsClearPanelTransform();
+  restoreDialogFocus();
 }
 
 function fsToggleAdvanced() {
-  document.getElementById('sf-advanced-section').classList.toggle('open');
-  document.getElementById('sf-advanced-toggle').classList.toggle('open');
+  const sec = document.getElementById('sf-advanced-section');
+  const btn = document.getElementById('sf-advanced-toggle');
+  sec.classList.toggle('open');
+  btn.classList.toggle('open');
+  btn.setAttribute('aria-expanded', sec.classList.contains('open') ? 'true' : 'false');
 }
+
+/* Escape closes whichever overlay is up (the photo-tips popup is handled
+   by common.js and wins if visible). Background jobs keep running. */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const tip = document.getElementById('uptip');
+  if (tip && tip.classList.contains('visible')) return;
+  if (document.getElementById('fs-overlay').classList.contains('active')) { closeFreeSearch(); return; }
+  if (document.getElementById('tryon-modal').classList.contains('active')) closeModal();
+});
 
 function fsShowSelfie(src) {
   const area = document.getElementById('sf-fs-upload');
@@ -901,7 +933,7 @@ function fsShowSelfie(src) {
   document.getElementById('sf-fs-up-label').textContent = 'Photo ready';
   prev.src = src; prev.style.display = 'block';
   document.getElementById('sf-fs-submit').disabled = false;
-  document.getElementById('sf-fs-hint').textContent = 'Pick any options (all optional), then find your match';
+  document.getElementById('sf-fs-hint').textContent = 'Pick any options — all optional — then find your match.';
 }
 
 function fsRestoreSelfie() {
@@ -1078,13 +1110,28 @@ function updateSignageCounts(root) {
     if (!total) return;
     let c = title.querySelector('.section-count');
     if (!c) {
+      /* Screen readers hear "Shape, 8 of 10 available", not "Shape8 of 10":
+         hidden separators join the heading text and the injected count, and
+         the option group is labelled by its band. */
+      const sep = document.createElement('span');
+      sep.className = 'sr-only';
+      sep.textContent = ', ';
+      title.appendChild(sep);
       c = document.createElement('span');
       c.className = 'section-count sg-figure';
       title.appendChild(c);
+      const suf = document.createElement('span');
+      suf.className = 'sr-only';
+      suf.textContent = ' available';
+      title.appendChild(suf);
+      if (!title.id) title.id = 'sf-facet-h-' + (++_sfFacetHeadingId);
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-labelledby', title.id);
     }
     c.textContent = live === total ? String(total) : live + ' of ' + total;
   });
 }
+let _sfFacetHeadingId = 0;
 
 function updateFacets() {
   const root = document.getElementById('fs-overlay');

@@ -34,18 +34,20 @@
     finish review, the verdict, and DESIGN.md.
 -->
 
-<div class="topbar">
+<header class="topbar">
   <a href="/" class="back-btn">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 12L6 8l4-4"/></svg>
     Lenses
   </a>
   <a href="/storefront" class="brand">Optique</a>
   <div class="powered">Try-on by <span>Lenses</span></div>
-</div>
+</header>
+
+<main>
 
 <div class="hero">
   <h1>147 frames on the shelf.<br/>Try any of them on your own face.</h1>
-  <p>Pick a frame and hand over a photo, or let the AI choose for you. Each render takes about twenty seconds and you can keep browsing while it works.</p>
+  <p>Pick a frame and hand over a photo, or let the AI choose for you. Each render takes about 20 seconds and you can keep browsing while it works.</p>
 </div>
 
 <!-- AI actions: let the AI pick a frame, then try it on (non-blocking circle) -->
@@ -56,7 +58,7 @@
   </button>
   <button class="ai-action-btn" type="button" onclick="openFreeSearch()">
     <span class="ai-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>
-    <span class="ai-txt"><strong>Free search</strong><small>You set the spec &#183; ~20s</small></span>
+    <span class="ai-txt"><strong>Free search</strong><small>Best match to your spec &#183; ~20s</small></span>
   </button>
 </div>
 
@@ -75,24 +77,27 @@
   </div>
 </div>
 
+</main>
+
 <!-- Floating try-on dock: each in-flight / finished try-on lives here as a circle -->
 <div id="tryon-dock" class="tryon-dock" aria-live="polite"></div>
 
 <!-- Free Search overlay: full options form -> single best-match circle -->
 <div id="fs-overlay" class="fs-overlay">
-  <div class="fs-panel">
-    <button class="modal-close" onclick="closeFreeSearch()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <div class="fs-panel" role="dialog" aria-modal="true" aria-labelledby="fs-panel-h" tabindex="-1">
+    <button class="modal-close" onclick="closeFreeSearch()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="fs-panel-body">
-      <h2 class="fs-panel-title">Free Search</h2>
-      <p class="fs-panel-sub">Tell us what you're after — AI finds your single best match and tries it on.</p>
+      <h2 class="fs-panel-title" id="fs-panel-h">Free search</h2>
+      <p class="fs-panel-sub">Set your spec &#8212; the AI pulls the single best match from the shelf and tries it on you.</p>
 
       <h3 class="section-title">Your Photo</h3>
       <button type="button" class="fs-upload" id="sf-fs-upload" onclick="openPickerWithTip('sf-fs-file')">
         <svg viewBox="0 0 48 48"><path d="M24 32V16m0 0l-8 8m8-8l8 8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="6" width="36" height="36" rx="8" stroke-linecap="round"/></svg>
-        <span class="up-label" id="sf-fs-up-label">Upload a Photo</span>
+        <span class="up-label" id="sf-fs-up-label">Upload a photo</span>
         <span class="up-hint">JPG, PNG, or WebP</span>
         <img class="up-preview" id="sf-fs-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></button>
       <input type="file" id="sf-fs-file" accept="image/*"/>
+      <p class="posture">Photos are processed, then discarded &#8212; never stored. The try-on runs on the retailer's own infrastructure and Gemini key; the retailer stays the data controller.</p>
 
       <h3 class="section-title">Gender</h3>
       <div class="radio-group">
@@ -131,7 +136,7 @@
         <label class="tile"><input type="radio" name="lens_type" value="sport"/><div class="tile-inner"><div class="lens-ind lens-ind--sport">SPT</div><span class="tile-label">Sport</span></div></label>
       </div>
 
-      <h3 class="section-title">Frame Color</h3>
+      <h3 class="section-title">Frame colour</h3>
       <div class="swatch-grid">
         <label class="swatch"><input type="radio" name="frame_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
         <label class="swatch"><input type="radio" name="frame_color" value="black"/><div class="swatch-inner"><div class="swatch-dot" style="background:#1a1a1a"></div><span class="swatch-name">Black</span></div></label>
@@ -148,7 +153,7 @@
         <label class="swatch"><input type="radio" name="frame_color" value="white"/><div class="swatch-inner"><div class="swatch-dot" style="background:#f8f8f8;"></div><span class="swatch-name">White</span></div></label>
       </div>
 
-      <h3 class="section-title">Lens Color</h3>
+      <h3 class="section-title">Lens colour</h3>
       <div class="swatch-grid">
         <label class="swatch"><input type="radio" name="lens_color" value="" checked/><div class="swatch-inner"><div class="any-icon"><svg class="any-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3L6.3 17.7"/></svg></div><span class="swatch-name">Any</span></div></label>
         <label class="swatch"><input type="radio" name="lens_color" value="transparent"/><div class="swatch-inner"><div class="swatch-dot" style="background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/10px 10px;border-style:dashed"></div><span class="swatch-name">Clear</span></div></label>
@@ -164,8 +169,8 @@
         <label class="swatch"><input type="radio" name="lens_color" value="silver"/><div class="swatch-inner"><div class="swatch-dot" style="background:linear-gradient(135deg,#d0d0d0,#a8a8a8)"></div><span class="swatch-name">Silver</span></div></label>
       </div>
 
-      <button type="button" id="sf-advanced-toggle" class="advanced-toggle" onclick="fsToggleAdvanced()">
-        Advanced Options <span id="sf-adv-arrow">&#9662;</span>
+      <button type="button" id="sf-advanced-toggle" class="advanced-toggle" onclick="fsToggleAdvanced()" aria-expanded="false" aria-controls="sf-advanced-section">
+        Advanced options <svg class="adv-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
       </button>
 
       <div id="sf-advanced-section">
@@ -251,7 +256,7 @@
       </div>
 
       <div class="submit-row">
-        <button class="submit-btn" id="sf-fs-submit" disabled onclick="startFreeSearchFromOverlay()">Find My Match</button>
+        <button class="submit-btn" id="sf-fs-submit" disabled onclick="startFreeSearchFromOverlay()">Find my match</button>
         <p class="submit-hint" id="sf-fs-hint">Upload a photo first</p>
       </div>
     </div>
@@ -260,8 +265,8 @@
 
 <!-- Try-on modal -->
 <div class="modal-overlay" id="tryon-modal">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-product-name" tabindex="-1">
+    <button class="modal-close" onclick="closeModal()" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="modal-body">
       <!-- Upload step -->
       <div id="modal-upload">
@@ -279,23 +284,24 @@
           <button type="button" class="change-photo-btn" onclick="openPickerWithTip('modal-file')">Change photo</button>
         </div>
         <input type="file" id="modal-file" accept="image/*" style="display:none"/>
-        <button class="modal-submit" id="modal-go" disabled onclick="modalGenerate()">Try On</button>
+        <p class="posture">Photos are processed, then discarded &#8212; never stored. The try-on runs on the retailer's own infrastructure and Gemini key; the retailer stays the data controller.</p>
+        <button class="modal-submit" id="modal-go" disabled onclick="modalGenerate()">Try on</button>
       </div>
 
       <!-- Result step -->
       <div class="tryon-result" id="modal-result">
-        <h3>Here's how you look!</h3>
+        <h3>Here's how it looks on you</h3>
         <p class="modal-subtitle" id="modal-result-product"></p>
         <img id="modal-result-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Virtual try-on result"/>
         <button class="shop-btn" id="modal-shop-btn" style="display:none" onclick="shopThisFrame()">Shop this frame</button>
-        <button class="recolor-btn" onclick="showRecolorPicker()">Recolor Lenses</button>
-        <button class="modal-submit" onclick="resetModal()">Try Another Photo</button>
+        <button class="recolor-btn" onclick="showRecolorPicker()">Recolour lenses</button>
+        <button class="modal-submit" onclick="resetModal()">Try another photo</button>
       </div>
 
       <!-- Recolor: pick color -->
       <div id="modal-recolor-pick" style="display:none;text-align:center">
-        <h3>Recolor Lenses</h3>
-        <p class="modal-subtitle">Choose a lens color</p>
+        <h3>Recolour lenses</h3>
+        <p class="modal-subtitle">Choose a lens colour</p>
         <div class="rc-color-grid" id="rc-color-grid">
           <button type="button" class="rc-color-opt" data-color="Clear" onclick="pickRcColor(this)"><div class="rc-swatch" data-clear="1"></div><span class="rc-cname">Clear</span></button>
           <button type="button" class="rc-color-opt" data-color="Soft Black" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#1a1a1a,#3a3a3a)"></div><span class="rc-cname">Soft Black</span></button>
@@ -314,7 +320,7 @@
           <button type="button" class="rc-color-opt" data-color="Deep Purple" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#6a1b9a,#ab47bc)"></div><span class="rc-cname">Deep Purple</span></button>
           <button type="button" class="rc-color-opt" data-color="Magenta Pink" onclick="pickRcColor(this)"><div class="rc-swatch" style="background:linear-gradient(135deg,#c2185b,#f06292)"></div><span class="rc-cname">Magenta Pink</span></button>
         </div>
-        <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply Color</button>
+        <button class="modal-submit" id="rc-apply-btn" disabled onclick="startRecolor()">Apply colour</button>
         <button class="rc-back-btn" onclick="backToResult()">Back</button>
       </div>
 
@@ -323,7 +329,7 @@
         <span class="error-mark">Not dispensed</span>
         <h3>Something went wrong</h3>
         <p class="modal-subtitle" id="modal-error-msg"></p>
-        <button class="modal-submit" onclick="resetModal()">Try Again</button>
+        <button class="modal-submit" onclick="resetModal()">Try again</button>
       </div>
     </div>
   </div>
@@ -331,11 +337,11 @@
 
 <!-- upload tip popup -->
 <div id="uptip" class="uptip-overlay">
-  <div class="uptip-box">
+  <div class="uptip-box" role="dialog" aria-modal="true" aria-labelledby="uptip-h">
     <div class="uptip-icon"><svg viewBox="0 0 36 36"><path d="M4 11a3 3 0 013-3h2.5l2-3h9l2 3H25a3 3 0 013 3v15a3 3 0 01-3 3H7a3 3 0 01-3-3V11z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="19" r="5" stroke-linecap="round"/></svg></div>
-    <h3>Photo Tips</h3>
+    <h3 id="uptip-h">Photo tips</h3>
     <p>For best results, upload a clear selfie with your face mostly visible and well-lit. Avoid group shots, sunglasses, or blurry images.</p>
-    <button class="uptip-ok" onclick="uptipOk()">Got It</button>
+    <button class="uptip-ok" onclick="uptipOk()">Got it</button>
   </div>
 </div>
 

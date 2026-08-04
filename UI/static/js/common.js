@@ -9,25 +9,40 @@ function escHtml(s){
   return d.innerHTML;
 }
 
-/* ── Upload-tip popup ── */
-let _uptipTarget=null;
+/* ── Upload-tip popup ──
+   Shown once per session: the tip is useful the first time and an
+   interruption every time after, so "Got it" remembers. Escape dismisses
+   without opening the picker and hands focus back where it came from. */
+let _uptipTarget=null, _uptipReturnEl=null;
 function openPickerWithTip(id){
+  let seen=false;
+  try{seen=!!sessionStorage.getItem('uptip_seen')}catch(e){}
+  if(seen){document.getElementById(id).click();return}
   _uptipTarget=id;
+  _uptipReturnEl=document.activeElement;
   document.getElementById('uptip').classList.add('visible');
+  const ok=document.querySelector('#uptip .uptip-ok');
+  if(ok) ok.focus();
 }
 function uptipOk(){
+  try{sessionStorage.setItem('uptip_seen','1')}catch(e){}
   document.getElementById('uptip').classList.remove('visible');
   if(_uptipTarget){
     document.getElementById(_uptipTarget).click();
     _uptipTarget=null;
   }
+  _uptipReturnEl=null;
 }
-
-/* ── Price formatting ── */
-function fmtPrice(o){
-  const sym=o.currency==='ILS'?'\u20AA':o.currency;
-  return o.price.toLocaleString()+' '+sym;
-}
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape') return;
+  const tip=document.getElementById('uptip');
+  if(tip && tip.classList.contains('visible')){
+    tip.classList.remove('visible');
+    _uptipTarget=null;
+    if(_uptipReturnEl && _uptipReturnEl.focus) _uptipReturnEl.focus();
+    _uptipReturnEl=null;
+  }
+});
 
 /* ── Capitalize helper ── */
 function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
@@ -143,11 +158,14 @@ PollRetry.prototype.fail=function(){
     return;
   }
   if(this.count>=3){
-    this.el.textContent='Connection issue \u2014 retrying... ('+this.count+'/'+this.max+')';
+    /* Write only on change: the stage element is aria-live. */
+    const t='Connection issue \u2014 retrying... ('+this.count+'/'+this.max+')';
+    if(this.el.textContent!==t) this.el.textContent=t;
   }
 };
 PollRetry.prototype.reset=function(){
-  if(this.count>=3 && this._savedText) this.el.textContent=this._savedText;
+  if(this.count>=3 && this._savedText && this.el.textContent!==this._savedText)
+    this.el.textContent=this._savedText;
   this.count=0;
 };
 
@@ -179,10 +197,11 @@ PollRetry.prototype.reset=function(){
 */
 function ProgressCreep(fillEl, halfLife, applyFn){
   this.el=fillEl;
-  /* applyFn(pct, el) renders the progress value. Defaults to a width bar
-     so every existing call site is unchanged; the storefront dock passes
+  /* applyFn(pct, el) renders the progress value. The default drives a
+     transform (scaleX from a left origin — the fill element must be
+     full-width with transform-origin:left); the storefront dock passes
      a custom fn to drive a circular SVG ring (stroke-dashoffset) instead. */
-  this.apply=applyFn||function(pct,el){el.style.width=pct.toFixed(1)+'%';};
+  this.apply=applyFn||function(pct,el){el.style.transform='scaleX('+(pct/100).toFixed(4)+')';};
   this.base=0;          // last set() value
   this.displayed=0;     // what's currently shown
   this.t0=0;            // timestamp of last set()

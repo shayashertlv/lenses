@@ -31,6 +31,7 @@
 }
 .topbar .back-btn:hover { color: var(--on-field); }
 .topbar .logo {
+  margin: 0;
   font-size: var(--t-lg);
   font-weight: 800;
   font-stretch: 72%;
@@ -53,6 +54,18 @@
 
 /* Category signage band. No live count here: this surface has no faceting,
    so nothing produces one and styling it would be dead CSS. */
+/* ── Supporting copy under a signage band ── */
+.section-note { margin: 0 0 var(--s-4); font-size: var(--t-sm); color: var(--ink-2); max-width: var(--measure); }
+
+/* ── Data posture: the compliance answer, at the point of upload ── */
+.posture {
+  max-width: var(--measure);
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
 .section-title {
   display: block;
   margin: var(--s-5) 0 var(--s-3);
@@ -175,6 +188,10 @@
 }
 #color-counter.full { color: var(--field); }
 #color-counter.over { color: var(--danger); }
+@media (prefers-reduced-motion: no-preference) {
+  #color-counter.nudge { animation: rcNudge .28s var(--ease); }
+}
+@keyframes rcNudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 
 .submit-row { margin-top: var(--s-5); }
 .submit-btn {
@@ -192,6 +209,13 @@
 }
 .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
 .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+.submit-hint {
+  max-width: var(--measure);
+  margin: var(--s-2) auto 0;
+  font-size: var(--t-2xs);
+  color: var(--ink-3);
+  text-align: center;
+}
 
 /* ══════════════════════════════════════════════════
    Loading / results / error screens
@@ -244,10 +268,52 @@
 .rc-sline.done { background-color: var(--field); }
 
 .load-prog { height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
-.load-prog-fill { display: block; height: 100%; width: 0; background-color: var(--field); }
+.load-prog-fill { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background-color: var(--field); }
 #load-stage { margin: 0; font-size: var(--t-base); font-weight: 500; }
-.tip-box { margin-top: var(--s-4); }
-.tip-box p { margin: 0; font-size: var(--t-xs); color: var(--ink-3); transition: opacity var(--d-slow) var(--ease); }
+
+/* ── The wait, narrated with the job's own material ── */
+.load-notes { margin-top: var(--s-4); text-align: left; }
+.load-notes .lnote {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.load-notes .lnote.in { opacity: 1; transform: none; }
+.load-notes .lnote-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lframe {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--rule);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.lframe.in { opacity: 1; transform: none; }
+.lframe-name { font-size: var(--t-sm); color: var(--ink); }
+.lframe-status {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.lframe-status.done { color: var(--field); font-weight: 700; }
+.lframe-status.fail { color: var(--danger); }
 .load-cancel {
   min-height: 44px;
   margin-top: var(--s-4);
@@ -277,6 +343,9 @@
   z-index: 2;
 }
 .res-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 44px;
   padding: 0 var(--s-3);
   background: none;
@@ -290,6 +359,7 @@
   text-transform: uppercase;
   cursor: pointer;
 }
+.res-back .back-caret { width: 14px; height: 14px; }
 .res-back:hover { background-color: var(--field-hi); }
 .res-back:active { background-color: var(--field-deep); }
 
@@ -358,6 +428,36 @@
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
 }
+.alt-card-switch {
+  display: block;
+  width: calc(100% - 2 * var(--s-3));
+  margin: 0 var(--s-3) var(--s-3);
+  min-height: 44px;
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.alt-card-switch:hover { background-color: var(--ink); color: var(--paper); }
+.tryon-loading { padding: var(--s-4) 0; text-align: center; }
+.tryon-loading p {
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.tryon-loading--hero { padding: var(--s-7) 0; }
+.mini-spin--lg { width: 48px; height: 48px; border-width: 4px; }
+.tryon-error { padding: var(--s-4); font-size: var(--t-sm); color: var(--danger); text-align: center; overflow-wrap: anywhere; }
 .mini-spin {
   width: 22px;
   height: 22px;
@@ -421,10 +521,11 @@
   padding: var(--s-4);
   background: rgba(14, 19, 16, .6);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--d-fast) var(--ease);
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
 }
-.uptip-overlay.visible { opacity: 1; pointer-events: auto; }
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
 .uptip-box {
   width: min(360px, 100%);
   padding: var(--s-5);
