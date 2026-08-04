@@ -367,9 +367,16 @@
 
 .results-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* Three in a line, as on the landing results — the shared rule in
+     results.css, restated here only because this file also sets the width and
+     padding and would otherwise have to split the selector. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-3);
-  max-width: 1320px;
+  /* Narrower than the shelf's 1320. With no side panel here the three cards
+     would otherwise be wider than a portrait render can fill at its height cap,
+     and the picture would sit in a letterbox again — the thing this layout
+     exists to stop. Sized so the card is about what the render wants to be. */
+  max-width: 1040px;
   width: 100%;
   margin: 0 auto;
   padding: var(--s-5);
@@ -524,7 +531,8 @@
    ══════════════════════════════════════════════════ */
 @media (max-width: 900px) {
   #form-view { padding: var(--s-4) var(--s-4) var(--s-6); }
-  .results-row, .compare-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); padding: var(--s-4); }
+  .results-row, .compare-grid { padding: var(--s-4); }
+  .compare-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 }
 
 @media (max-width: 560px) {

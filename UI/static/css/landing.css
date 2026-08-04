@@ -495,8 +495,9 @@ body.sf-open { overflow: hidden; }
   .dir-row { grid-template-columns: 34px minmax(0, 1fr) 72px; }
   .dir-what { display: none; }
   .docket-body { grid-template-columns: minmax(0, 1fr); }
+  /* The profile drops below the results, which leaves the row the full width —
+     so the three stay in line here rather than reflowing. */
   .results-inner { grid-template-columns: minmax(0, 1fr); padding: var(--s-4); }
-  .results-row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 }
 
 @media (max-width: 560px) {
@@ -505,12 +506,14 @@ body.sf-open { overflow: hidden; }
   .portrait { width: 64px; }
   .prow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .results-bar { padding: var(--s-2) var(--s-4); }
-  .result-card.is-primary .result-img, .result-img img { max-height: 46vh; }
-  .scores { flex-wrap: wrap; }
+  /* A phone cannot hold three renders side by side and keep a face legible, so
+     they stack. One per row means each can be taller than it was in the line. */
+  .results-row { grid-template-columns: minmax(0, 1fr); }
+  .result-img img { max-height: 58vh; }
 }
 
 @media (max-height: 500px) and (max-width: 900px) {
   .counter { padding-top: var(--s-4); padding-bottom: var(--s-4); }
   .docket-screen, .error-screen { align-items: flex-start; }
-  .result-card.is-primary .result-img, .result-img img { max-height: 70vh; }
+  .result-img img { max-height: 70vh; }
 }

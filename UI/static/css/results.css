@@ -4,10 +4,18 @@
    Shelf edge direction, seed e4d16858.
    ══════════════════════════════════════════════════ */
 
-/* The first render arrives large; the alternates settle in beside it. */
+/* Three renders, one row. The first used to span the full width with the
+   alternates beneath it, which made the primary card about 950px wide holding
+   a portrait photo: object-fit: contain then letterboxed it, leaving a band of
+   empty card either side of the face, and the two alternates were pushed below
+   the fold where they could not be compared against it.
+
+   Three equal columns size the picture to the card instead, and the best match
+   is marked by its border and its label rather than by being three times the
+   size of the things it is meant to be compared with. */
 .results-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-3);
   align-content: start;
 }
@@ -19,15 +27,18 @@
   overflow: hidden;
   background-color: var(--paper);
 }
-/* The first render arrives across the full row; the alternates settle in
-   beneath it. One block, so the two halves of this rule cannot drift apart. */
-.result-card.is-primary {
-  grid-column: 1 / -1;
-  border-color: var(--ink);
-}
-.result-card.is-primary .result-img { max-height: 58vh; }
+.result-card.is-primary { border-color: var(--ink); }
 .result-img { background-color: var(--card); display: grid; place-items: center; min-height: 180px; }
-.result-img img { display: block; width: 100%; height: auto; max-height: 58vh; object-fit: contain; }
+/* No forced width. The box takes the picture's own size, so a portrait render
+   is never hung in the middle of a letterbox. */
+.result-img img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 52vh;
+  margin: 0 auto;
+}
 .tryon-done { position: relative; width: 100%; }
 .tryon-done .recolor-btn {
   position: absolute;
@@ -97,7 +108,9 @@
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.scores { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+/* Wraps, because a card is a third of a row now rather than a whole one and
+   three score tiles no longer always fit on one line. */
+.scores { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-2); }
 .score {
   display: grid;
   gap: 1px;
