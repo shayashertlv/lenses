@@ -1033,13 +1033,17 @@
     left: var(--s-2);
     right: var(--s-2);
     bottom: var(--s-2);
-    align-items: stretch;
+    align-items: flex-end;     /* a column in the corner, as on desktop */
   }
+  /* Half the rail rather than all of it, so the stack sits lightly over the
+     shelf instead of covering it. The floor keeps the header whole on a 320px
+     screen, where half would be 152px and the kind label would start to go. */
   .sf-ticket, .tryon-dock.sf-multi .sf-ticket {
     flex: 0 0 auto;
-    width: auto;
+    width: max(160px, 50%);
     max-width: none;
   }
+  .sf-more { width: max(160px, 50%); }
   /* The cap only bites here. The class is set on every surface; desktop has the
      room to show everything, so there it means nothing. */
   .sf-ticket.is-stacked { display: none; }
