@@ -454,10 +454,25 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── helpers ───────────────────────────────────────────────────────
     def _html(self, content: str):
+        """A page, always revalidated.
+
+        Versioning every /static/ URL only keeps a deploy visible if the
+        document carrying those URLs is itself fresh. This response went out
+        with no Cache-Control, no ETag and no Last-Modified, which does not mean
+        "do not cache" — it means the browser is free to guess, and a heuristic
+        hit serves yesterday's HTML with yesterday's asset URLs on it. The
+        stamps are only as fresh as the page they ride on.
+
+        `no-cache`, not `no-store`: the page may be stored and must be
+        revalidated before use, and unlike `no-store` it leaves the back/forward
+        cache alone — which this product leans on, since a phone can discard the
+        page while its camera is open and restore it on the way back.
+        """
         data = content.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(data)
 

@@ -44,22 +44,28 @@
   place-items: center;
   overflow: hidden;
 }
-/* Placed against the well rather than laid out in it. In flow the picture's
-   `max-height: 100%` had nothing definite to resolve against — every box above
-   it sized to its content, so 100% meant 100% of the picture and constrained
-   nothing; a render taller than 4:5 ran straight out of the well. Absolutely
-   positioned, the containing block is the well's own padding box, which always
-   has a used height, and `margin: auto` against `inset: 0` centres it in both
-   axes without stretching it. */
+/* The picture's box is the well, and `object-fit` does the fitting.
+
+   Two earlier attempts relied on `max-height: 100%` bounding an auto-sized
+   picture, and both failed on a real render: a percentage max-height has to
+   resolve against a definite containing block, and every box in this chain took
+   its height from its own content, so 100% meant 100% of the picture and
+   constrained nothing. Stretching .tryon-done did not fix it and neither did an
+   explicit 1fr track — measured at 414x552 inside a 414x518 well both times,
+   which is a render hanging out of the bottom of its own card.
+
+   Nothing here is a percentage of an indefinite thing any more. `inset: 0` sizes
+   the box from the well's used padding box, and `contain` scales the picture
+   inside that box, letterboxing rather than cropping. No min/max resolution, no
+   auto-margin centring, no intrinsic sizing — the well is the frame and the
+   picture cannot leave it. */
 .result-img img {
   position: absolute;
   inset: 0;
-  margin: auto;
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 /* The frame the recolour button is pinned to, so it is stretched to the well
    rather than shrink-wrapped to the picture. Shrink-wrapped it took the
