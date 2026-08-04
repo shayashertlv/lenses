@@ -1009,7 +1009,24 @@
     scrollbar-width: none;
   }
   .tryon-dock::-webkit-scrollbar { display: none; }
-  .sf-ticket, .tryon-dock.sf-multi .sf-ticket { width: 200px; flex: none; }
+  /* Tickets were pinned to 200px, so the second one alone overflowed a 359px
+     rail by 49px and the first was sliced 49px off the left edge; by the third
+     the first had left the screen entirely with nothing to say it existed.
+     They share the rail now, down to a floor that keeps the header legible, so
+     two fit whole at any phone width. Past that the rail genuinely cannot hold
+     them and it snaps instead, parking a card at the edge rather than cutting
+     one at an arbitrary offset. */
+  .tryon-dock { scroll-snap-type: x proximity; }
+  .sf-ticket, .tryon-dock.sf-multi .sf-ticket {
+    flex: 1 1 0;
+    width: auto;
+    /* The floor is 160px, except it is never more than half the rail — so two
+       tickets fit whole on any phone, down to a 320px screen, instead of the
+       floor itself forcing the overflow it exists to prevent. */
+    min-width: min(160px, calc((100% - var(--s-2)) / 2));
+    max-width: 200px;
+    scroll-snap-align: end;
+  }
   body.dock-active .container { padding-bottom: 130px; }
   .modal-body, .fs-panel-body { padding: var(--s-4); }
 }
