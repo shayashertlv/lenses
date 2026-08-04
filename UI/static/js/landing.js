@@ -44,12 +44,26 @@ function sfShow(view) {
    empty card; sfRenderProfile overwrites them with the real thing. */
 const SF_PROFILE_ROWS = ['Face shape', 'Geometry', 'Colouring'];
 
+/* One glyph per reading. Drawn, stroke-only, in the same language as the rest
+   of the product's icons — an outline of a face, a jaw, and a tone. */
+const SF_PROFILE_ICONS = {
+  'Face shape': '<ellipse cx="12" cy="11" rx="6.5" ry="8"/><path d="M8.6 18.6c.9 1 2 1.6 3.4 1.6s2.5-.6 3.4-1.6"/>',
+  'Geometry': '<path d="M6 4v6.5a6 6 0 0 0 12 0V4"/><path d="M9 14.5h6"/>',
+  'Colouring': '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/>',
+};
+
+function sfProfileRow(label, valueHtml) {
+  const glyph = SF_PROFILE_ICONS[label] || '';
+  return '<div class="prow"><dt>' +
+    (glyph ? '<svg class="prow-icon" viewBox="0 0 24 24" aria-hidden="true">' + glyph + '</svg>' : '') +
+    '<span>' + escHtml(label) + '</span></dt><dd>' + valueHtml + '</dd></div>';
+}
+
 function sfRenderProfileSkeleton() {
   const dl = document.getElementById('sf-profile');
-  dl.innerHTML = SF_PROFILE_ROWS.map(k =>
-    '<div class="prow"><dt>' + escHtml(k) + '</dt>' +
-    '<dd><span class="skel skel-val"></span><span class="skel skel-note"></span></dd></div>'
-  ).join('');
+  dl.innerHTML = SF_PROFILE_ROWS
+    .map(k => sfProfileRow(k, '<span class="skel skel-val"></span><span class="skel skel-note"></span>'))
+    .join('');
   dl.classList.add('in');
 }
 
@@ -58,8 +72,7 @@ function sfRenderProfile(fs) {
   sfProfileDone = true;
 
   const dl = document.getElementById('sf-profile');
-  const row = (k, v, extra) =>
-    '<div class="prow"><dt>' + escHtml(k) + '</dt><dd>' + v + (extra || '') + '</dd></div>';
+  const row = (k, v, extra) => sfProfileRow(k, v + (extra || ''));
 
   let html = '';
   if (fs.face_shape) {
@@ -166,30 +179,91 @@ function sfShowPhotoReady(src) {
   sfSetModalHint('We read your face, then pull three frames — about 30 seconds.');
 }
 
+/* A phone can discard this page while its camera is open and reload it on the
+   way back, which drops the visitor on the hero with no sign of what they were
+   doing — the reported "nothing happens, you're back in landing". The card
+   records that it was open so a reload returns to it, and the last photo is
+   rebuilt from the cached preview so it does not have to be taken twice. */
+function sfMarkIntake(open) {
+  try {
+    if (open) sessionStorage.setItem('sf_intake_open', '1');
+    else sessionStorage.removeItem('sf_intake_open');
+  } catch (e) {}
+}
+
+function sfRestoreCachedPhoto() {
+  let cached = null;
+  try { cached = sessionStorage.getItem('cached_portrait'); } catch (e) {}
+  if (!cached || cached.indexOf('data:image') !== 0) return false;
+  try {
+    const mime = cached.slice(5, cached.indexOf(';'));
+    const bstr = atob(cached.slice(cached.indexOf(',') + 1));
+    const u8 = new Uint8Array(bstr.length);
+    for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+    sfPendingFile = new File([u8], 'photo.jpg', { type: mime });
+    sfPendingPreview = cached;
+    sfShowPhotoReady(cached);
+    return true;
+  } catch (e) { return false; }
+}
+
 function openSmartFit() {
   const overlay = document.getElementById('sf-modal');
-  if (sfPendingPreview) sfShowPhotoReady(sfPendingPreview); else sfShowUploadEmpty();
+  if (sfPendingPreview) sfShowPhotoReady(sfPendingPreview);
+  else if (!sfRestoreCachedPhoto()) sfShowUploadEmpty();
   overlay.classList.add('active');
+  sfMarkIntake(true);
   const panel = overlay.querySelector('.modal');
   if (panel) panel.focus();
 }
 
 function closeSmartFit() {
   document.getElementById('sf-modal').classList.remove('active');
+  sfMarkIntake(false);
+}
+
+/* A phone camera hands over a 3-12MB image. Held as a base64 data URL that is
+   a third bigger again, kept in a variable, painted into an <img> and pushed at
+   a 5MB sessionStorage quota that silently rejects it. The preview is scaled
+   down first — the upload still sends the original file untouched. */
+function sfPreviewFromFile(file, done) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const full = ev.target.result;
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      if (scale === 1) return done(full);
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.naturalWidth * scale);
+        cv.height = Math.round(img.naturalHeight * scale);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        done(cv.toDataURL('image/jpeg', 0.82));
+      } catch (e) { done(full); }
+    };
+    img.onerror = () => done(full);
+    img.src = full;
+  };
+  reader.readAsDataURL(file);
 }
 
 document.getElementById('sf-file').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   sfPendingFile = f;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    sfPendingPreview = ev.target.result;
-    sfShowPhotoReady(sfPendingPreview);
-    try { sessionStorage.setItem('cached_portrait', sfPendingPreview); } catch (err) {}
-  };
-  reader.readAsDataURL(f);
+  sfPreviewFromFile(f, src => {
+    sfPendingPreview = src;
+    sfShowPhotoReady(src);
+    try { sessionStorage.setItem('cached_portrait', src); } catch (err) {}
+  });
 });
+
+/* Reopened after a reload that happened while the picker was up. */
+try {
+  if (sessionStorage.getItem('sf_intake_open')) openSmartFit();
+} catch (e) {}
 
 async function sfStartFromModal() {
   const f = sfPendingFile;
@@ -280,16 +354,24 @@ function sfRender(d) {
   const fs = d.face_summary || sfLastSummary;
   const panel = document.getElementById('sf-profile-panel');
   if (fs && fs.face_shape) {
-    const notes = (d.face_insights ? String(d.face_insights).split(/\n\s*\n/) : sfNotes)
-      .map(s => String(s).trim()).filter(Boolean);
+    /* The readings, and only the readings. The insight essay ran to a couple of
+       thousand words down a 300px column beside the renders — it is written to
+       fill the wait, so it belongs in the docket where it streams in a line at
+       a time, not stacked beside the thing the visitor came here to look at. */
+    const dots = ['hair_color_hex', 'eye_color_hex', 'skin_tone_hex']
+      .filter(k => fs[k])
+      .map(k => '<span class="cdot" style="background:' + escHtml(fs[k]) + '" title="' +
+        escHtml(k.replace(/_color_hex|_tone_hex/, '')) + '"></span>').join('');
     panel.innerHTML =
       '<h3 class="pp-h">Your face profile</h3>' +
       '<dl class="profile in">' +
-        '<div class="prow"><dt>Face shape</dt><dd>' + escHtml(fs.face_shape) + '</dd></div>' +
-        (fs.key_geometry ? '<div class="prow"><dt>Geometry</dt><dd>' + escHtml(fs.key_geometry) + '</dd></div>' : '') +
-        (fs.color_profile ? '<div class="prow"><dt>Colouring</dt><dd>' + escHtml(fs.color_profile) + '</dd></div>' : '') +
-      '</dl>' +
-      notes.map(n => '<p class="note in">' + escHtml(n) + '</p>').join('');
+        sfProfileRow('Face shape', escHtml(fs.face_shape)) +
+        (fs.key_geometry ? sfProfileRow('Geometry', escHtml(fs.key_geometry)) : '') +
+        (fs.color_profile
+          ? sfProfileRow('Colouring',
+              escHtml(fs.color_profile) + (dots ? '<span class="cdots">' + dots + '</span>' : ''))
+          : '') +
+      '</dl>';
     panel.hidden = false;
   }
 }
@@ -314,6 +396,7 @@ function sfReset() {
   document.getElementById('sf-file').value = '';
   sfPendingFile = null;
   sfPendingPreview = null;
+  try { sessionStorage.removeItem('cached_portrait'); } catch (e) {}
   sfShowUploadEmpty();
   closeSmartFit();
   document.getElementById('sf-opts').innerHTML = '';

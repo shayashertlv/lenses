@@ -235,11 +235,26 @@ body.sf-open { overflow: hidden; }
 }
 .prow:first-child { border-top: 1px solid var(--rule); }
 .prow dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: var(--t-2xs);
   font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
   color: var(--ink-3);
+}
+/* One glyph per reading, so the three are told apart at a glance rather than
+   by reading three uppercase labels. */
+.prow-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--field);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .prow dd { margin: 0; font-size: var(--t-base); font-weight: 500; }
 .pnote { display: block; margin-top: 2px; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); }
