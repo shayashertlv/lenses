@@ -327,10 +327,18 @@ function restoreCachedSelfie() {
   return false;
 }
 
+/* The action's hint says why it is disabled, the way the free-search panel
+   already did — a greyed button with no reason beside it is a dead end. */
+function setModalHint(msg) {
+  const el = document.getElementById('modal-hint');
+  if (el) el.textContent = msg || '';
+}
+
 function showUploadEmpty() {
   document.getElementById('upload-empty').style.display = '';
   document.getElementById('upload-ready').style.display = 'none';
   document.getElementById('modal-go').disabled = true;
+  setModalHint('Upload a photo first');
 }
 
 function showPhotoReady(src) {
@@ -338,6 +346,9 @@ function showPhotoReady(src) {
   document.getElementById('upload-ready').style.display = '';
   document.getElementById('modal-preview').src = src;
   document.getElementById('modal-go').disabled = false;
+  setModalHint(storeAction === 'smartfit'
+    ? 'We read your face, then pick the single best frame — about 30 seconds.'
+    : 'Rendering takes about 20 seconds. You can keep browsing while it works.');
 }
 
 /* Focus bookkeeping shared by the two overlays: a dialog takes focus on

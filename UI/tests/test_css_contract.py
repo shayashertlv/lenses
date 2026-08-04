@@ -166,13 +166,29 @@ class TestUploadTrays(unittest.TestCase):
     """
 
     def _trays(self):
+        """Every tray selector, with grouped selectors expanded.
+
+        A grouped rule is one declaration block serving several trays — which is
+        what sharing a component looks like. Counting rules instead of selectors
+        would read that as a tray going missing.
+        """
         found = []
         for f in _css_files():
             text = re.sub(r"/\*.*?\*/", "", _read(f), flags=re.S)
             for sel, body in _RULE.findall(text):
                 if "dashed" in body and "cursor: pointer" in body:
-                    found.append((f.name, sel.strip(), body, text))
+                    for one in (s.strip() for s in sel.split(",")):
+                        if one:
+                            found.append((f.name, one, body, text))
         return found
+
+    @staticmethod
+    def _svg_rule_for(sel, text):
+        """The declaration block of the `<sel> svg` rule, grouped or not."""
+        for group, body in _RULE.findall(text):
+            if f"{sel} svg" in (s.strip() for s in group.split(",")):
+                return body
+        return None
 
     def test_trays_are_discoverable(self):
         """Guards the heuristic itself: if it stops matching, the two tests
@@ -207,8 +223,8 @@ class TestUploadTrays(unittest.TestCase):
         templates = [_read(p) for p in sorted(_TEMPLATES.glob("*.html"))]
         offenders = []
         for name, sel, _, text in self._trays():
-            css = re.search(re.escape(sel) + r"\s+svg\s*\{([^{}]*)\}", text)
-            css_strokes = bool(css) and "fill:" in css.group(1) and "stroke:" in css.group(1)
+            css = self._svg_rule_for(sel, text)
+            css_strokes = bool(css) and "fill:" in css and "stroke:" in css
 
             # The tray's icon is the <svg> opening immediately inside it.
             cls = sel.split(".")[-1].split()[0]
