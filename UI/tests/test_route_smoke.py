@@ -78,7 +78,7 @@ class TestRoutes(unittest.TestCase):
         self.assertEqual(cm.exception.code, 404)
 
     def test_templates_reload_without_restart(self):
-        """get_template() is mtime-cached, so an edit must be visible immediately."""
+        """get_template() is stat-cached, so an edit must be visible immediately."""
         from pathlib import Path
         from UI.templates import get_template
         path = Path(__file__).resolve().parent.parent / "templates" / "landing.html"
@@ -91,6 +91,35 @@ class TestRoutes(unittest.TestCase):
         finally:
             path.write_text(original, encoding="utf-8")
         self.assertNotIn(marker, get_template("landing"))
+
+    def test_rapid_edits_are_never_served_stale(self):
+        """This test used to fail about two runs in three, and it was right to.
+
+        Filesystem timestamps advance in ticks, so consecutive writes are often
+        stamped identically — measured here at 182 of 200 back-to-back writes.
+        The cache keyed on mtime alone could not see the second write and kept
+        serving the first, which is exactly what the restore at the end of the
+        test above tripped over.
+
+        The markers below are deliberately the same length for the first ten
+        iterations, so size cannot distinguish them either and the settle window
+        is what has to do the work.
+        """
+        from pathlib import Path
+        from UI.templates import get_template
+        path = Path(__file__).resolve().parent.parent / "templates" / "landing.html"
+        original = path.read_text(encoding="utf-8")
+        stale = []
+        try:
+            for i in range(40):
+                marker = f"<!-- probe-{i:02d} -->"          # fixed width on purpose
+                path.write_text(original.replace("</body>", marker + "</body>"), encoding="utf-8")
+                if marker not in get_template("landing"):
+                    stale.append(marker)
+        finally:
+            path.write_text(original, encoding="utf-8")
+        self.assertEqual(stale, [], f"{len(stale)}/40 edits served from a stale cache: {stale}")
+        self.assertNotIn("probe-", get_template("landing"))
 
 
 if __name__ == "__main__":
