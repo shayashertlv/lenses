@@ -250,7 +250,10 @@ function showModalStep(id) {
   MODAL_STEPS.forEach(s => {
     const el = document.getElementById(s);
     if (!el) return;
-    el.style.display = (s === id) ? (s === 'modal-result' ? 'block' : '') : 'none';
+    /* Hand the display mode back to CSS when shown — the result step is a flex
+       column so its photo can size to the room left over, and a hardcoded
+       'block' here would quietly undo that. */
+    el.style.display = (s === id) ? '' : 'none';
   });
 }
 

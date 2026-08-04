@@ -521,8 +521,14 @@
 }
 .modal-overlay.active { display: flex; }
 
+/* A column all the way down, so the one step whose content can outgrow the
+   viewport — the result, carrying a portrait photo — can be told how much room
+   is actually left. overflow-y stays as the floor for viewports too short to
+   hold even the controls. */
 .modal {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(560px, 100%);
   max-height: 92vh;
   overflow-y: auto;
@@ -530,7 +536,16 @@
   border-radius: var(--r-panel);
   box-shadow: var(--sh-modal);
 }
-.modal-body { padding: var(--s-5); }
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-5);
+}
+/* Only the result negotiates for space. The others keep their natural height
+   and fall back to the modal's own scroll rather than compressing their text. */
+#modal-upload, #modal-error, #modal-recolor-pick { flex: 0 0 auto; }
 .modal-body h3 {
   margin: 0 0 var(--s-2);
   font-size: var(--t-lg);
@@ -634,12 +649,37 @@
 .upload-zone .small { font-size: var(--t-2xs); color: var(--ink-3); letter-spacing: var(--tr-label); text-transform: uppercase; }
 .upload-preview { max-width: 100%; max-height: 220px; border-radius: var(--r-ctl); display: block; margin: 0 auto; }
 
+/* The photo used to be `width: 100%; height: auto`, so a portrait try-on
+   rendered 663px tall inside a 662px modal and pushed the product line and
+   every button past the fold — the whole card had to be scrolled to be read.
+   It is the only elastic thing here now: heading, product line and buttons
+   take their height first and the photo gets exactly what is left. */
+.tryon-result {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .tryon-result img {
   display: block;
-  width: 100%;
+  flex: 0 1 auto;          /* may shrink to fit; never stretches past its size */
+  /* A face has to stay legible. Left to shrink freely this reached 32x56 on a
+     landscape phone — everything visible, and the one thing the user came to
+     see reduced to a stamp. Below this floor the card scrolls again, which is
+     the honest outcome for a viewport that cannot hold a result at all. */
+  min-height: 200px;
+  /* `width: auto` rather than 100%: as flex shrinks the height, the intrinsic
+     ratio pulls the width in with it, so the box keeps hugging the photo. A
+     full-width box would letterbox instead, rounding corners nothing sits in
+     and hanging the picture in the middle of an invisible frame. */
+  width: auto;
+  max-width: 100%;
   height: auto;
+  /* Insurance only: if the floor above ever outsizes a small result, letterbox
+     it rather than stretch a face. A no-op whenever the box hugs. */
+  object-fit: contain;
   border-radius: var(--r-ctl);
-  margin-bottom: var(--s-3);
+  margin: 0 auto var(--s-3);
 }
 
 /* ── Recolour picker ── */
@@ -938,4 +978,13 @@
   .hero { padding-top: var(--s-4); padding-bottom: var(--s-3); }
   .modal { max-height: 96vh; }
   .fs-panel-body { padding: var(--s-3) var(--s-4); }
+  /* Height is the scarce axis here, and the result card spends most of it on
+     chrome. Trim the chrome rather than the photo: the photo is the result. */
+  .modal-body { padding: var(--s-3) var(--s-4); }
+  .modal-body h3 { font-size: var(--t-md); margin-bottom: 2px; }
+  .tryon-result .modal-subtitle { margin-bottom: var(--s-2); }
+  .tryon-result img { margin-bottom: var(--s-2); }
+  .tryon-result .modal-submit { min-height: 40px; margin-top: var(--s-2); }
+  .tryon-result .shop-btn,
+  .tryon-result .recolor-btn { min-height: 38px; margin-top: 6px; }
 }
