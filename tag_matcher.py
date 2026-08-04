@@ -38,13 +38,41 @@ Scoring details:
   - Missing product tags on soft fields receive partial credit (0.25× weight).
   - Final score = earned_weight / active_weight × 100 (range 0–100).
   - Fields left as "any" (not specified) are excluded from scoring entirely.
-  - compute_component_scores() provides per-dimension sub-scores
-    (fit, style, color) for UI display.
+  - compute_component_scores() breaks a score into fit / style / color.  It
+    credits a filter field only when told which filters were active, so call it
+    directly at your peril: rank_products returns the breakdown on every Match,
+    computed in the one scope that holds that context.
   - query_tags are never mutated (defensive deep-copy).
 """
 
 import copy
 import re
+from typing import NamedTuple
+
+
+class Match(NamedTuple):
+    """One ranked product: the product, its 0–100 score, and that same score
+    told in three parts.
+
+    The breakdown is a field of the result rather than something a caller works
+    out afterwards, because only rank_products knows which filter fields were
+    active and which had to be relaxed, and compute_component_scores credits a
+    filter match only when it is told. Recomputed outside with that context
+    missing, a shape-only search scored 100 here and 0 / 0 / 0 on the card —
+    the same product, described two ways, one of them wrong. Produced once,
+    where the context lives, the two cannot disagree.
+
+    Three fields on purpose. Carrying the breakdown as a quiet attribute on a
+    two-tuple would have spared every `for product, score in ...` in the repo,
+    and would have reintroduced exactly the property that caused the defect:
+    information present but easy to not know about. A caller that ignores the
+    third field now says so.
+    """
+
+    product: dict
+    score: float
+    components: dict
+
 
 # ── Unified field weights (filter + soft, used for scoring) ──────────────
 FIELD_WEIGHTS: dict[tuple[str, str], int] = {
@@ -529,7 +557,7 @@ def rank_products(query_tags: dict, products: list[dict],
                   top_k: int = 3,
                   max_per_model: int = 2,
                   min_score: float = 15,
-                  filters: dict | None = None) -> list[tuple[dict, float]]:
+                  filters: dict | None = None) -> list[Match]:
     """
     Filter then score products.
 
@@ -548,7 +576,9 @@ def rank_products(query_tags: dict, products: list[dict],
         filters:        Business filters: {"in_stock_only", "max_price", "gender"}.
 
     Returns:
-        List of (product, score) sorted by score descending.
+        List of Match(product, score, components) sorted by score descending.
+        `components` is the fit / style / colour breakdown of that same score,
+        computed here because this is where the filter context lives.
     """
     # Short-circuit pathological top_k values before doing any work
     if top_k <= 0:
@@ -755,7 +785,18 @@ def rank_products(query_tags: dict, products: list[dict],
     # already claimed a slot.  Re-sort so the final list is monotonically
     # descending by score regardless of which pass produced each entry.
     results.sort(key=lambda x: x[1], reverse=True)
-    return results
+
+    # ── Break each surviving score into its three parts ──────────────────
+    # Here, and only here, because this is the one scope that holds the filter
+    # context.  `query_tags` is the local folded copy — the same tags every
+    # score above was computed against, not the caller's pre-fold original.
+    return [
+        Match(product, score,
+              compute_component_scores(query_tags, product["tags"],
+                                       active_filter_fields=active_filter_fields,
+                                       relaxed_fields=relaxed_fields))
+        for product, score in results
+    ]
 
 
 def preferences_to_query_tags(prefs: dict) -> dict:

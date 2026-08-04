@@ -70,13 +70,13 @@ Examples:
     return parser.parse_args()
 
 
-def display_results(results: list[tuple[dict, float]]) -> None:
+def display_results(results: list) -> None:
     """Print search results to terminal."""
     print(f"\n{'='*60}")
     print(f"  TOP {len(results)} MATCHES")
     print(f"{'='*60}\n")
 
-    for i, (product, score) in enumerate(results, 1):
+    for i, (product, score, _) in enumerate(results, 1):
         prod = product["tags"]["product"]
         frame = product["tags"]["frame"]
         lenses = product["tags"]["lenses"]
@@ -96,7 +96,7 @@ def display_results(results: list[tuple[dict, float]]) -> None:
         print()
 
 
-def select_product(results: list[tuple[dict, float]], auto: bool) -> tuple[dict, float] | None:
+def select_product(results: list, auto: bool):
     """Let user select a product from results, or auto-select #1."""
     if not results:
         return None
@@ -215,7 +215,7 @@ def main() -> None:
         print("No product selected. Exiting.")
         return
 
-    product, score = selected
+    product, score, _ = selected
 
     # Step 4: Virtual try-on
     glasses_image_path = str(CATALOG_JSON.parent / product["image"])

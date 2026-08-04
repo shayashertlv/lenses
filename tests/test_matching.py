@@ -26,6 +26,7 @@ from tag_matcher import (
     _norm_shape,
     _visual_signature,
     _is_dedicated_sport,
+    _FILTER_FIELD_SET,
     compute_component_scores,
     compute_tag_score,
     preferences_to_query_tags,
@@ -377,6 +378,125 @@ class TestComponentScores(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 4b. FILTER FIELDS THROUGH THE BREAKDOWN
+#
+# The gap that let the free-search cards ship reading FIT 0 STYLE 0 COLOUR 0
+# under a score of 100.  Every test above this line queries soft fields only,
+# so the filter-field branch of compute_component_scores — the one that credits
+# nothing unless it is told which filters were active — had no coverage at all,
+# and the in-range test it did have accepts 0.0 happily.
+#
+# Five of the eleven fields the free-search form can set are filter fields, and
+# they are the prominent ones: shape, frame colour, lens colour, lens type,
+# gender.  Pick a shape, press go, and every number on the page was a zero.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFilterFieldsAreScored(unittest.TestCase):
+
+    FILTER_FIELDS = [
+        ("frame_shape", "hexagonal", ("lenses", "shape")),
+        ("frame_color", "black", ("frame", "color")),
+        ("lens_color", "clear", ("lenses", "color")),
+        ("gender", "men", ("style", "gender_target")),
+    ]
+
+    def test_the_fields_under_test_really_are_filter_fields(self):
+        """Guards the premise. If these stop being filter fields the tests
+        below keep passing while covering nothing."""
+        for _, _, tag in self.FILTER_FIELDS:
+            self.assertIn(tag, _FILTER_FIELD_SET, f"{tag} is no longer a filter field")
+
+    def test_a_matched_filter_field_earns_its_weight(self):
+        """The unit-level contract: told which filters were active, a matching
+        filter field scores. Not told, it silently earns nothing."""
+        q = {"frame": {}, "lenses": {"shape": "hexagonal"}, "style": {}}
+        p = next(p for p in PRODUCTS
+                 if _norm_shape(p["tags"]["lenses"].get("shape")) == "hexagonal")
+
+        uninformed = compute_component_scores(q, p["tags"])
+        informed = compute_component_scores(q, p["tags"],
+                                            active_filter_fields=[("lenses", "shape")])
+        self.assertEqual({round(v, 1) for v in uninformed.values()}, {0.0})
+        for component, value in informed.items():
+            self.assertAlmostEqual(value, 100.0, msg=f"{component} should be 100")
+
+    def test_rank_products_never_returns_a_zero_breakdown_under_a_high_score(self):
+        """The regression test. rank_products holds the filter context, so the
+        breakdown it returns must agree with the score it returns."""
+        for field, value, tag in self.FILTER_FIELDS:
+            with self.subTest(field=field):
+                q = preferences_to_query_tags({field: value})
+                filters = {"in_stock_only": True}
+                if field == "gender":
+                    filters["gender"] = value
+                results = rank_products(q, PRODUCTS, top_k=3, filters=filters)
+                self.assertTrue(results, f"{field}={value} matched nothing")
+                for product, score, components in results:
+                    if score < 50.0:
+                        continue
+                    self.assertGreater(
+                        max(components.values()), 0.0,
+                        f"{field}={value}: {product['name']} scored {score} overall "
+                        f"but {components} across the board",
+                    )
+
+    def test_breakdown_agrees_with_the_score_on_every_form_field(self):
+        """One field at a time, filter and soft alike: a product that scores
+        100 overall cannot be 0 on all three parts of that same score."""
+        every_field = self.FILTER_FIELDS + [
+            ("frame_material", "acetate", ("frame", "material")),
+            ("frame_thickness", "thin", ("frame", "thickness")),
+            ("rim_type", "full-rim", ("frame", "rim_type")),
+            ("lens_size", "medium", ("lenses", "size")),
+            ("aesthetic", "classic", ("style", "aesthetic")),
+            ("occasion", "everyday", ("style", "occasion")),
+        ]
+        for field, value, _ in every_field:
+            with self.subTest(field=field):
+                q = preferences_to_query_tags({field: value})
+                filters = {"in_stock_only": True}
+                if field == "gender":
+                    filters["gender"] = value
+                results = rank_products(q, PRODUCTS, top_k=1, filters=filters)
+                if not results:
+                    continue
+                product, score, components = results[0]
+                if score < 99.0:
+                    continue
+                for name, part in components.items():
+                    self.assertGreater(
+                        part, 0.0,
+                        f"{field}={value}: {product['name']} scored {score} but "
+                        f"{name}={part}",
+                    )
+
+    def test_match_carries_the_breakdown_as_a_field(self):
+        """Three fields, named. A caller that ignores the breakdown has to say
+        so — which is the whole point of not hiding it on the tuple."""
+        q = preferences_to_query_tags({"frame_shape": "round"})
+        results = rank_products(q, PRODUCTS, top_k=1, filters={"in_stock_only": True})
+        self.assertTrue(results)
+        match = results[0]
+        self.assertEqual(len(match), 3)
+        self.assertIsInstance(match.product, dict)
+        self.assertIsInstance(match.score, float)
+        self.assertEqual(set(match.components), {"fit", "style", "color"})
+        self.assertEqual(tuple(match), (match.product, match.score, match.components))
+
+    def test_breakdown_is_scored_against_the_folded_query(self):
+        """rank_products folds frame.shape into lenses.shape before scoring.
+        A breakdown computed outside, against the caller's unfolded tags, would
+        drop the shape signal — so the fold has to be inside the same scope."""
+        q = {"frame": {"shape": "round"}, "lenses": {}, "style": {}}
+        results = rank_products(q, PRODUCTS, top_k=1, filters={"in_stock_only": True})
+        self.assertTrue(results)
+        product, score, components = results[0]
+        self.assertGreater(score, 0.0)
+        self.assertGreater(max(components.values()), 0.0,
+                           f"{product['name']}: {score} overall, {components} in parts")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 5. RANK_PRODUCTS (full pipeline)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -391,13 +511,13 @@ class TestRankProducts(unittest.TestCase):
     def test_results_sorted_descending(self):
         query = {"frame": {"material": "metal"}, "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
-        scores = [s for _, s in results]
+        scores = [s for _, s, _ in results]
         self.assertEqual(scores, sorted(scores, reverse=True))
 
     def test_gender_filter(self):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
-        for product, _ in results:
+        for product, _, _ in results:
             gender = product["tags"]["style"]["gender_target"]
             self.assertIn(gender, ("women", "unisex"),
                           f"{product['name']} has gender_target={gender}")
@@ -407,7 +527,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"gender": "men"})
-        for product, _ in results:
+        for product, _, _ in results:
             gender = product["tags"]["style"]["gender_target"]
             self.assertIn(gender, ("men", "unisex"),
                           f"{product['name']} has gender_target={gender}")
@@ -418,7 +538,7 @@ class TestRankProducts(unittest.TestCase):
         Sport membership is keyed on style.occasion == "sport" (not lenses.type)."""
         query = {"frame": {}, "lenses": {"type": ["sunglasses"]}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
-        for product, _ in results:
+        for product, _, _ in results:
             occasion = product["tags"]["style"].get("occasion", [])
             if isinstance(occasion, str):
                 occasion = [occasion]
@@ -430,7 +550,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {}, "lenses": {"type": ["sport"]}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
         if results:  # catalog may not have sport products
-            for product, _ in results:
+            for product, _, _ in results:
                 occasion = product["tags"]["style"].get("occasion", [])
                 if isinstance(occasion, str):
                     occasion = [occasion]
@@ -441,7 +561,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {}, "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"max_price": 500})
-        for product, _ in results:
+        for product, _, _ in results:
             price = product["tags"]["product"]["price"]
             self.assertLessEqual(price, 500, f"{product['name']} costs {price}")
 
@@ -449,7 +569,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {}, "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=0,
                                 filters={"in_stock_only": True})
-        for product, _ in results:
+        for product, _, _ in results:
             self.assertTrue(product["tags"]["product"].get("in_stock", False),
                             f"{product['name']} is not in stock")
 
@@ -458,7 +578,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {"material": "carbon-fiber", "rim_type": "rimless"},
                  "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=50, min_score=50)
-        scores = [s for _, s in results]
+        scores = [s for _, s, _ in results]
         self.assertEqual(scores, sorted(scores, reverse=True),
                          "Results must be sorted by score descending")
 
@@ -476,8 +596,8 @@ class TestRankProducts(unittest.TestCase):
         q_cat_eye = {"frame": {}, "lenses": {"shape": "cat-eye"}, "style": {}}
         r_butterfly = rank_products(q_butterfly, PRODUCTS, top_k=10, min_score=0)
         r_cat_eye = rank_products(q_cat_eye, PRODUCTS, top_k=10, min_score=0)
-        butterfly_ids = {p["id"] for p, _ in r_butterfly}
-        cat_eye_ids = {p["id"] for p, _ in r_cat_eye}
+        butterfly_ids = {p["id"] for p, _, _ in r_butterfly}
+        cat_eye_ids = {p["id"] for p, _, _ in r_cat_eye}
         self.assertTrue(butterfly_ids <= cat_eye_ids,
                         f"butterfly IDs not subset of cat-eye: {butterfly_ids - cat_eye_ids}")
 
@@ -543,7 +663,7 @@ class TestRankProducts(unittest.TestCase):
         query = {"frame": {}, "lenses": {}, "style": {}}
         results = rank_products(query, PRODUCTS, top_k=3, min_score=0)
         self.assertEqual(len(results), 3)
-        for _, score in results:
+        for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
 
 
@@ -618,7 +738,7 @@ class TestInventoryMatcher(unittest.TestCase):
         }
         result = self.matcher.match(recommended_tags, top_k=50, gender="women")
         self.assertTrue(result.success)
-        for product, _ in result.matches:
+        for product, _, _ in result.matches:
             gender = product["tags"]["style"]["gender_target"]
             self.assertIn(gender, ("women", "unisex"))
 
@@ -639,7 +759,7 @@ class TestInventoryMatcher(unittest.TestCase):
             "style": {"aesthetic": ["modern"]},
         }
         result = self.matcher.match(recommended_tags, top_k=5)
-        for _, score in result.matches:
+        for _, score, _ in result.matches:
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 100.0)
 
@@ -674,7 +794,7 @@ class TestGlassesSearchEngine(unittest.TestCase):
             query_tags, top_k=10,
             filters={"max_price": 600, "in_stock_only": True, "gender": "men"},
         )
-        for product, _ in results:
+        for product, _, _ in results:
             self.assertLessEqual(product["tags"]["product"]["price"], 600)
             self.assertTrue(product["tags"]["product"].get("in_stock", False))
             self.assertIn(product["tags"]["style"]["gender_target"],
@@ -687,7 +807,7 @@ class TestGlassesSearchEngine(unittest.TestCase):
             "style": {},
         }
         results = self.engine.search(query_tags, top_k=10)
-        scores = [s for _, s in results]
+        scores = [s for _, s, _ in results]
         self.assertEqual(scores, sorted(scores, reverse=True))
 
 
@@ -719,8 +839,8 @@ class TestCrossEntryPointConsistency(unittest.TestCase):
         direct = rank_products(query_tags, PRODUCTS, top_k=5, filters=filters)
         engine = self.engine.search(query_tags, top_k=5, filters=filters)
 
-        direct_ids = [(p["id"], round(s, 6)) for p, s in direct]
-        engine_ids = [(p["id"], round(s, 6)) for p, s in engine]
+        direct_ids = [(p["id"], round(s, 6)) for p, s, _ in direct]
+        engine_ids = [(p["id"], round(s, 6)) for p, s, _ in engine]
         self.assertEqual(direct_ids, engine_ids)
 
     def test_direct_vs_inventory_matcher(self):
@@ -743,8 +863,8 @@ class TestCrossEntryPointConsistency(unittest.TestCase):
         # InventoryMatcher pre-filters by image existence, so its pool may be
         # smaller. But every matcher result should appear in direct results.
         if matcher_result.success:
-            matcher_ids = {p["id"] for p, _ in matcher_result.matches}
-            direct_ids = {p["id"] for p, _ in direct}
+            matcher_ids = {p["id"] for p, _, _ in matcher_result.matches}
+            direct_ids = {p["id"] for p, _, _ in direct}
             self.assertTrue(matcher_ids <= direct_ids,
                             f"Matcher returned IDs not in direct: {matcher_ids - direct_ids}")
 
@@ -764,7 +884,7 @@ class TestCrossEntryPointConsistency(unittest.TestCase):
                                 filters={"in_stock_only": True, "gender": "women"})
         self.assertGreater(len(results), 0)
         # Top result should have some affinity for the query
-        _, top_score = results[0]
+        _, top_score, _ = results[0]
         self.assertGreater(top_score, 0.0)
 
 
@@ -852,7 +972,7 @@ class TestEdgeCases(unittest.TestCase):
         }
         results = rank_products(query, [product], top_k=1, min_score=0)
         self.assertGreater(len(results), 0)
-        _, score = results[0]
+        _, score, _ = results[0]
         self.assertGreaterEqual(score, 90.0,
                                 msg=f"{product['name']} should self-score ≥90, got {score}")
 
@@ -920,7 +1040,7 @@ class TestScoreCombinations(unittest.TestCase):
         ]
         for query in combos:
             results = rank_products(query, PRODUCTS, top_k=50, min_score=0)
-            for product, score in results:
+            for product, score, _ in results:
                 self.assertGreaterEqual(score, 0.0,
                     f"Score {score} < 0 for {product['name']}")
                 self.assertLessEqual(score, 100.0,
@@ -937,7 +1057,7 @@ class TestScoreCombinations(unittest.TestCase):
                       "face_shape_fit": ["oval"], "occasion": ["everyday"]},
         }
         results = rank_products(query, PRODUCTS, top_k=999, min_score=0)
-        for product, score in results:
+        for product, score, _ in results:
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 100.0)
 
@@ -947,13 +1067,13 @@ class TestScoreCombinations(unittest.TestCase):
         """When only gender is specified, all matching products score 100."""
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
         results = rank_products(query, self.BOTH, top_k=10, min_score=0)
-        for _, score in results:
+        for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
 
     def test_only_shape_all_pass_at_100(self):
         query = {"frame": {}, "lenses": {"shape": "rectangular"}, "style": {}}
         results = rank_products(query, self.BOTH, top_k=10, min_score=0)
-        for _, score in results:
+        for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
 
     def test_only_multiple_filters_all_pass_at_100(self):
@@ -1018,7 +1138,7 @@ class TestScoreCombinations(unittest.TestCase):
         query = {"frame": {}, "lenses": {"shape": "hexagonal"},
                  "style": {"gender_target": "men"}}
         results = rank_products(query, self.BOTH, top_k=2, min_score=0)
-        for _, score in results:
+        for _, score, _ in results:
             # gender passes (10) but shape relaxed (0) → 10/20 * 100 = 50
             self.assertAlmostEqual(score, 50.0)
 
@@ -1116,7 +1236,7 @@ class TestScoreCombinations(unittest.TestCase):
                             query["frame"]["color"] = color
 
                         results = rank_products(query, PRODUCTS, top_k=5, min_score=0)
-                        for product, score in results:
+                        for product, score, _ in results:
                             self.assertGreaterEqual(score, 0.0)
                             self.assertLessEqual(score, 100.0)
 
@@ -1131,7 +1251,7 @@ class TestScoreCombinations(unittest.TestCase):
                       "face_shape_fit": ["oval"], "occasion": ["everyday"]},
         }
         results = rank_products(query, PRODUCTS, top_k=20, min_score=0)
-        scores = [s for _, s in results]
+        scores = [s for _, s, _ in results]
         if len(scores) >= 2:
             # With all fields specified, there should be meaningful spread
             score_range = max(scores) - min(scores)
@@ -1169,7 +1289,7 @@ class TestScoreCombinations(unittest.TestCase):
 
             results = rank_products(query, PRODUCTS, top_k=1, min_score=0)
             self.assertGreater(len(results), 0)
-            _, top_score = results[0]
+            _, top_score, _ = results[0]
             self.assertGreaterEqual(top_score, 85.0,
                 f"{product['name']} self-match should score ≥85, got {top_score:.1f}")
 
@@ -1223,21 +1343,21 @@ class TestGenderUnisexMatching(unittest.TestCase):
     def test_men_query_includes_unisex(self):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
         results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
-        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        genders = {p["tags"]["style"]["gender_target"] for p, _, _ in results}
         self.assertIn("unisex", genders, "Unisex products missing from men query")
         self.assertNotIn("women", genders, "Women-only products in men query")
 
     def test_women_query_includes_unisex(self):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}}
         results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
-        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        genders = {p["tags"]["style"]["gender_target"] for p, _, _ in results}
         self.assertIn("unisex", genders, "Unisex products missing from women query")
         self.assertNotIn("men", genders, "Men-only products in women query")
 
     def test_unisex_query_matches_all_genders(self):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "unisex"}}
         results = rank_products(query, PRODUCTS, top_k=200, min_score=0)
-        genders = {p["tags"]["style"]["gender_target"] for p, _ in results}
+        genders = {p["tags"]["style"]["gender_target"] for p, _, _ in results}
         self.assertTrue(len(genders) >= 2, f"Unisex query should match broadly, got {genders}")
 
     def test_men_pool_larger_than_men_only(self):
@@ -1264,7 +1384,7 @@ class TestGenderUnisexMatching(unittest.TestCase):
         query = {"frame": {}, "lenses": {"shape": "square"},
                  "style": {"gender_target": "men"}}
         results = rank_products(query, PRODUCTS, top_k=20, min_score=0)
-        unisex_results = [p for p, _ in results
+        unisex_results = [p for p, _, _ in results
                           if p["tags"]["style"]["gender_target"] == "unisex"]
         self.assertGreater(len(unisex_results), 0,
                            "No unisex products in men+square query")
@@ -1279,7 +1399,7 @@ class TestGenderUnisexMatching(unittest.TestCase):
         self.assertGreater(len(results), 0)
         # At least one should be unisex (RX7256 is unisex)
         has_unisex = any(p["tags"]["style"]["gender_target"] == "unisex"
-                         for p, _ in results)
+                         for p, _, _ in results)
         self.assertTrue(has_unisex, "No unisex products for men+square+black+clear")
 
 
@@ -1375,7 +1495,7 @@ class TestLensColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             lc = p["tags"]["lenses"].get("color", [])
             norm_colors = self._norm_lc_set(lc)
             self.assertNotIn("transparent", norm_colors,
@@ -1388,7 +1508,7 @@ class TestLensColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             lc = p["tags"]["lenses"].get("color", [])
             norm_colors = self._norm_lc_set(lc)
             self.assertIn("gray", norm_colors,
@@ -1399,7 +1519,7 @@ class TestLensColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             lc = p["tags"]["lenses"].get("color", [])
             norm_colors = self._norm_lc_set(lc)
             self.assertIn("transparent", norm_colors,
@@ -1410,7 +1530,7 @@ class TestLensColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             lc = p["tags"]["lenses"].get("color", [])
             norm_colors = self._norm_lc_set(lc)
             self.assertIn("blue", norm_colors,
@@ -1421,7 +1541,7 @@ class TestLensColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=20, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             lc = p["tags"]["lenses"].get("color", [])
             norm_colors = self._norm_lc_set(lc)
             self.assertIn("green", norm_colors,
@@ -1437,7 +1557,7 @@ class TestLensColorFiltering(unittest.TestCase):
             qt = preferences_to_query_tags(prefs)
             results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
                                     filters={"in_stock_only": True})
-            for p, score in results:
+            for p, score, _ in results:
                 if score < 100.0:
                     continue  # filter was relaxed — fallback product
                 lc = p["tags"]["lenses"].get("color", [])
@@ -1467,7 +1587,7 @@ class TestFrameColorFiltering(unittest.TestCase):
             qt = preferences_to_query_tags(prefs)
             results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
                                     filters={"in_stock_only": True})
-            for p, score in results:
+            for p, score, _ in results:
                 if score < 100.0:
                     continue  # filter was relaxed — fallback product
                 fc = p["tags"]["frame"].get("color", [])
@@ -1481,7 +1601,7 @@ class TestFrameColorFiltering(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=50, min_score=0,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             fc = p["tags"]["frame"].get("color", [])
             norm_colors = self._norm_fc_set(fc)
             self.assertIn("black", norm_colors,
@@ -1514,7 +1634,7 @@ class TestCombinedFilterValidation(unittest.TestCase):
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=5,
                                 filters={"in_stock_only": True})
-        for p, _ in results:
+        for p, _, _ in results:
             gender = p["tags"]["style"]["gender_target"]
             self.assertIn(gender, ("women", "unisex"))
 
@@ -1527,7 +1647,7 @@ class TestCombinedFilterValidation(unittest.TestCase):
         results = rank_products(qt, PRODUCTS, top_k=5,
                                 filters={"in_stock_only": True})
         self.assertGreater(len(results), 0)
-        for p, s in results:
+        for p, s, _ in results:
             # If score is 100, all filters passed exactly
             if s == 100.0:
                 t = p["tags"]
@@ -1608,8 +1728,8 @@ class TestV2PortFeatures(unittest.TestCase):
         r_frame = rank_products(q_frame, PRODUCTS, top_k=10, min_score=0)
         r_lens = rank_products(q_lens, PRODUCTS, top_k=10, min_score=0)
         self.assertGreater(len(r_frame), 0, "frame.shape query returned nothing")
-        self.assertEqual({p["id"] for p, _ in r_frame},
-                         {p["id"] for p, _ in r_lens},
+        self.assertEqual({p["id"] for p, _, _ in r_frame},
+                         {p["id"] for p, _, _ in r_lens},
                          "frame.shape should fold into lenses.shape and match identically")
 
     def test_frame_shape_fold_does_not_clobber_explicit_lens_shape_path(self):
@@ -1627,7 +1747,7 @@ class TestV2PortFeatures(unittest.TestCase):
         results = rank_products(query, PRODUCTS, top_k=10, max_per_model=2,
                                 min_score=0)
         counts: dict[str, int] = {}
-        for product, _ in results:
+        for product, _, _ in results:
             if product.get("_low_confidence"):
                 continue
             model = product["tags"].get("product", {}).get("model_name", "")
@@ -1641,7 +1761,7 @@ class TestV2PortFeatures(unittest.TestCase):
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
         results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
         sigs = [
-            _visual_signature(p) for p, _ in results
+            _visual_signature(p) for p, _, _ in results
             if not p.get("_low_confidence")
         ]
         self.assertEqual(len(sigs), len(set(sigs)),
@@ -1654,7 +1774,7 @@ class TestV2PortFeatures(unittest.TestCase):
         results = rank_products(query, PRODUCTS, top_k=3,
                                 filters={"max_price": 100, "in_stock_only": True})
         self.assertEqual(len(results), 3, "over-tight budget should still fill top_k")
-        for product, _ in results:
+        for product, _, _ in results:
             self.assertTrue(product.get("_low_confidence"),
                             "fallback result should be flagged low_confidence")
             self.assertTrue(product.get("_over_budget"),
@@ -1668,7 +1788,7 @@ class TestV2PortFeatures(unittest.TestCase):
         query = {"frame": {}, "lenses": {}, "style": {"occasion": ["sport"]}}
         results = rank_products(query, PRODUCTS, top_k=5, min_score=0)
         self.assertGreater(len(results), 0)
-        for product, _ in results:
+        for product, _, _ in results:
             occasion = product["tags"]["style"].get("occasion", [])
             if isinstance(occasion, str):
                 occasion = [occasion]
@@ -1681,7 +1801,7 @@ class TestV2PortFeatures(unittest.TestCase):
         sports glasses first, not office frames that merely also list sport)."""
         query = {"frame": {}, "lenses": {}, "style": {"occasion": ["sport"]}}
         results = rank_products(query, PRODUCTS, top_k=10, min_score=0)
-        flags = [_is_dedicated_sport(p) for p, _ in results]
+        flags = [_is_dedicated_sport(p) for p, _, _ in results]
         self.assertIn(True, flags, "expected at least one dedicated sport frame")
         if False in flags:  # both kinds present → all dedicated must come first
             last_dedicated = max(i for i, f in enumerate(flags) if f)
@@ -1698,7 +1818,7 @@ class TestV2PortFeatures(unittest.TestCase):
                                 top_k=50, min_score=0,
                                 filters={"max_price": 500, "in_stock_only": True})
         self.assertGreater(len(results), 0)
-        for product, _ in results:
+        for product, _, _ in results:
             self.assertFalse(product.get("_over_budget"),
                              f"{product['name']} is over budget but was padded in")
             self.assertLessEqual(product["tags"]["product"]["price"], 500)

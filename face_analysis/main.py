@@ -93,9 +93,7 @@ Examples:
     return parser.parse_args()
 
 
-def select_product(
-    matches: list[tuple[dict, float]], auto: bool
-) -> tuple[dict, float] | None:
+def select_product(matches: list, auto: bool):
     """Let user select a product from matches, or auto-select #1."""
     if not matches:
         return None
@@ -255,7 +253,7 @@ def main() -> None:
         print("No product selected. Exiting.")
         return
 
-    product, score = selected
+    product, score, _ = selected
     glasses_image_path = matcher.get_product_image_path(product)
 
     # ─── STEP 4: Virtual try-on ───

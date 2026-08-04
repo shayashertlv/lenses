@@ -158,6 +158,80 @@ class TestRoutes(unittest.TestCase):
         self.assertEqual(stale, [], f"{len(stale)}/40 edits served from a stale cache: {stale}")
         self.assertNotIn("probe-", get_template("landing"))
 
+    def test_pages_must_be_revalidated(self):
+        """Versioned asset URLs are only as fresh as the page carrying them.
+
+        These responses went out with no Cache-Control, no ETag and no
+        Last-Modified, which is not "do not cache" — it is "guess", and a
+        heuristic hit serves an older document along with that document's
+        asset stamps.
+        """
+        for path in ("/", "/free-search", "/lens-recolor", "/storefront"):
+            with self.subTest(path=path):
+                with urllib.request.urlopen(self.base + path, timeout=10) as r:
+                    cc = r.headers.get("Cache-Control", "")
+                self.assertIn("no-cache", cc, f"{path} may be served from a heuristic cache")
+
+
+class TestScoreBreakdownContract(unittest.TestCase):
+    """What /api/status is allowed to say about the fit / style / colour chips.
+
+    The endpoint used to default each one to the overall score, so a pipeline
+    that computed no breakdown still shipped three chips reading 80 / 80 / 80 —
+    one number wearing three labels, indistinguishable on the page from a real
+    breakdown that happened to agree.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = _Server(("127.0.0.1", 0), Handler)
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    _OPT = {
+        "name": "Test Frame", "brand": "Test", "model": "T1", "price": 100,
+        "currency": "ILS", "shape": "round", "material": "acetate",
+        "color": "black", "product_b64": "", "tryon_status": "pending",
+        "tryon_b64": None,
+    }
+
+    def _status(self, opt):
+        from UI.config import sessions
+        sid = "contract-test"
+        sessions[sid] = {"status": "processing", "stage": "tryon", "num_options": 1,
+                         "opt0": dict(self._OPT, **opt)}
+        try:
+            with urllib.request.urlopen(f"{self.base}/api/status/{sid}", timeout=10) as r:
+                return json.loads(r.read())["opt0"]
+        finally:
+            sessions.pop(sid, None)
+
+    def test_a_real_breakdown_is_passed_through(self):
+        opt = self._status({"score": 91.0, "fit_score": 80.0,
+                            "style_score": 64.0, "color_score": 55.0})
+        self.assertEqual((opt["fit_score"], opt["style_score"], opt["color_score"]),
+                         (80.0, 64.0, 55.0))
+
+    def test_a_missing_breakdown_is_null_not_the_overall_score(self):
+        """The storefront try-on has no query to score against — the visitor
+        picked the frame. It must say nothing rather than something untrue."""
+        opt = self._status({"score": 80.0})
+        for key in ("fit_score", "style_score", "color_score"):
+            self.assertIsNone(opt[key], f"{key} invented a value from the overall score")
+
+    def test_a_zero_breakdown_survives_serialisation(self):
+        """0.0 is a legitimate score and must not be read as absent."""
+        opt = self._status({"score": 0.0, "fit_score": 0.0,
+                            "style_score": 0.0, "color_score": 0.0})
+        for key in ("fit_score", "style_score", "color_score"):
+            self.assertEqual(opt[key], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

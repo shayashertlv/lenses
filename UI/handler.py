@@ -437,9 +437,17 @@ class Handler(BaseHTTPRequestHandler):
                 "price": opt["price"],
                 "currency": opt["currency"],
                 "score": opt["score"],
-                "fit_score": opt.get("fit_score", opt["score"]),
-                "style_score": opt.get("style_score", opt["score"]),
-                "color_score": opt.get("color_score", opt["score"]),
+                # Null, not the overall score. Defaulting to it meant a pipeline
+                # that computed no breakdown still shipped three chips reading
+                # 80 / 80 / 80 — one number wearing three labels, indistinguish-
+                # able from a real breakdown that happened to agree. The one
+                # pipeline with nothing to say here is the storefront try-on,
+                # where the visitor picked the frame and there is no query to
+                # score against; the frontends already omit a chip whose value
+                # is null, so it says nothing rather than something untrue.
+                "fit_score": opt.get("fit_score"),
+                "style_score": opt.get("style_score"),
+                "color_score": opt.get("color_score"),
                 "shape": opt["shape"],
                 "material": opt["material"],
                 "color": opt["color"],

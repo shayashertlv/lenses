@@ -24,7 +24,7 @@ class GlassesSearchEngine:
         query_tags: dict,
         top_k: int = 5,
         filters: dict | None = None,
-    ) -> list[tuple[dict, float]]:
+    ) -> list:
         """
         Cascading filter + soft-score search against the product catalog.
 
@@ -35,7 +35,7 @@ class GlassesSearchEngine:
                      {"max_price": 100, "in_stock_only": True, "gender": "men"}
 
         Returns:
-            List of (product_dict, score) sorted by score desc.
+            List of tag_matcher.Match(product, score, components), score desc.
         """
         return rank_products(
             query_tags=query_tags,

@@ -24,7 +24,7 @@ from UI.config import (
     sessions,
 )
 
-from tag_matcher import compute_component_scores, preferences_to_query_tags, rank_products
+from tag_matcher import preferences_to_query_tags, rank_products
 
 # Single source of truth for the lens-recolor prompt — shared with the root
 # lens_recolor/ feature so the two recolor paths can never diverge again.
@@ -258,7 +258,11 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
     matches = match_result.matches
     sess["num_options"] = len(matches)
 
-    for i, (product, score) in enumerate(matches):
+    # Smart fit never carried a breakdown at all: it stored the one score and
+    # the status endpoint filled the three chips with three copies of it, so a
+    # card read FIT 80 STYLE 80 COLOUR 80 and looked like a breakdown while
+    # being nothing of the kind. The matcher returns the real one now.
+    for i, (product, score, sub) in enumerate(matches):
         glasses_path = matcher.get_product_image_path(product)
         with open(glasses_path, "rb") as f:
             product_b64 = base64.b64encode(f.read()).decode("ascii")
@@ -271,6 +275,9 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
             "price": p["price"],
             "currency": p["currency"],
             "score": round(score, 1),
+            "fit_score": round(sub["fit"], 1),
+            "style_score": round(sub["style"], 1),
+            "color_score": round(sub["color"], 1),
             "shape": product["tags"]["frame"].get("shape", ""),
             "material": product["tags"]["frame"].get("material", ""),
             "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
@@ -307,7 +314,7 @@ def run_pipeline(session_id: str, portrait_bytes: bytes, filename: str):
         if idx > 0:
             _time.sleep(idx * 1.0)
 
-        product, _ = matches[idx]
+        product = matches[idx].product
         glasses_path = matcher.get_product_image_path(product)
         sess[f"opt{idx}"]["tryon_status"] = "generating"
         # Each thread gets its own client to avoid HTTP connection serialisation.
@@ -651,7 +658,7 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 if idx > 0:
                     _time.sleep(idx * 1.0)
 
-                product, _ = matches[idx]
+                product = matches[idx].product
                 glasses_path = os.path.join(CATALOG_DIR, product["image"])
                 sess[f"opt{idx}"]["tryon_status"] = "generating"
 
@@ -675,17 +682,16 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
         # Store each match and fire its try-on thread immediately — don't wait
         # for all matches to be stored before starting try-ons.
         threads = []
-        for i, (product, score) in enumerate(matches):
+        # The breakdown arrives with the match. Recomputed here it was missing
+        # the filter context the ranking had, and every filter field the visitor
+        # set — shape, colour, lens type, gender — counted in the denominator and
+        # earned nothing, so a shape-only search showed score 100 over 0 / 0 / 0.
+        for i, (product, score, sub) in enumerate(matches):
             glasses_path = os.path.join(CATALOG_DIR, product["image"])
             with open(glasses_path, "rb") as f:
                 product_b64 = base64.b64encode(f.read()).decode("ascii")
 
             ptags = product["tags"]["product"]
-            base = round(score, 1)
-            sub = compute_component_scores(query_tags, product["tags"])
-            fit_score = round(sub["fit"], 1)
-            style_score = round(sub["style"], 1)
-            color_score = round(sub["color"], 1)
 
             sess[f"opt{i}"] = {
                 "name": product["name"],
@@ -693,10 +699,10 @@ def run_free_search_pipeline(session_id: str, portrait_bytes: bytes,
                 "model": ptags["model_name"],
                 "price": ptags["price"],
                 "currency": ptags["currency"],
-                "score": base,
-                "fit_score": round(fit_score, 1),
-                "style_score": round(style_score, 1),
-                "color_score": round(color_score, 1),
+                "score": round(score, 1),
+                "fit_score": round(sub["fit"], 1),
+                "style_score": round(sub["style"], 1),
+                "color_score": round(sub["color"], 1),
                 "shape": product["tags"]["frame"].get("shape", ""),
                 "material": product["tags"]["frame"].get("material", ""),
                 "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
@@ -967,7 +973,7 @@ def run_storefront_smartfit_pipeline(session_id: str, portrait_bytes: bytes, fil
         _cleanup(portrait_path)
         return
 
-    product, score = match_result.matches[0]
+    product, score, sub = match_result.matches[0]
     glasses_path = matcher.get_product_image_path(product)
     try:
         with open(glasses_path, "rb") as f:
@@ -987,6 +993,9 @@ def run_storefront_smartfit_pipeline(session_id: str, portrait_bytes: bytes, fil
         "price": p.get("price", 0),
         "currency": p.get("currency", "ILS"),
         "score": round(score, 1),
+        "fit_score": round(sub["fit"], 1),
+        "style_score": round(sub["style"], 1),
+        "color_score": round(sub["color"], 1),
         "shape": product["tags"]["frame"].get("shape", ""),
         "material": product["tags"]["frame"].get("material", ""),
         "color": ", ".join(product["tags"]["frame"]["color"]) if isinstance(product["tags"]["frame"].get("color"), list) else str(product["tags"]["frame"].get("color", "")),
@@ -1114,7 +1123,7 @@ def run_storefront_freesearch_pipeline(session_id: str, portrait_bytes: bytes,
         _cleanup(portrait_path)
         return
 
-    product, score = matches[0]
+    product, score, sub = matches[0]
     glasses_path = os.path.join(CATALOG_DIR, product["image"])
     try:
         with open(glasses_path, "rb") as f:
@@ -1126,7 +1135,6 @@ def run_storefront_freesearch_pipeline(session_id: str, portrait_bytes: bytes,
         return
 
     ptags = product["tags"]["product"]
-    sub = compute_component_scores(query_tags, product["tags"])
     sess["num_options"] = 1
     sess["opt0"] = {
         "name": product["name"],

@@ -17,7 +17,7 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
 
     Args:
         analysis: Full analysis dict from face_analyzer.
-        match_results: Optional list of (product_dict, score) from inventory_matcher.
+        match_results: Optional list of tag_matcher.Match(product, score, components).
 
     Returns:
         Formatted report string.
@@ -146,7 +146,7 @@ def build_report(analysis: dict, match_results: list | None = None) -> str:
         report.append("\n" + "=" * 60)
         report.append("  BEST MATCHES FROM INVENTORY")
         report.append("=" * 60)
-        for i, (product, score) in enumerate(match_results, 1):
+        for i, (product, score, _) in enumerate(match_results, 1):
             p = product["tags"]["product"]
             f = product["tags"]["frame"]
             stock = "In stock" if p.get("in_stock") else "Out of stock"

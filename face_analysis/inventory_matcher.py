@@ -65,7 +65,8 @@ class InventoryMatcher:
                     whose gender_target matches or is 'unisex'.
 
         Returns:
-            MatchResult with list of (product_dict, similarity_score) tuples.
+            MatchResult whose .matches is a list of
+            tag_matcher.Match(product, score, components).
         """
         start_time = time.time()
 
