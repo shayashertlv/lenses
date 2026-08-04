@@ -44,15 +44,29 @@
   place-items: center;
   overflow: hidden;
 }
+/* Placed against the well rather than laid out in it. In flow the picture's
+   `max-height: 100%` had nothing definite to resolve against — every box above
+   it sized to its content, so 100% meant 100% of the picture and constrained
+   nothing; a render taller than 4:5 ran straight out of the well. Absolutely
+   positioned, the containing block is the well's own padding box, which always
+   has a used height, and `margin: auto` against `inset: 0` centres it in both
+   axes without stretching it. */
 .result-img img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   display: block;
   width: auto;
-  max-width: 100%;
   height: auto;
+  max-width: 100%;
   max-height: 100%;
-  margin: 0 auto;
 }
-.tryon-done { position: relative; width: 100%; }
+/* The frame the recolour button is pinned to, so it is stretched to the well
+   rather than shrink-wrapped to the picture. Shrink-wrapped it took the
+   overflowing picture's height, which put the button below the well's foot
+   where `overflow: hidden` cut it in half. Stretched, the button sits on the
+   well's own bottom edge whatever shape the render came back as. */
+.tryon-done { position: relative; place-self: stretch; }
 .tryon-done .recolor-btn {
   position: absolute;
   right: var(--s-2);
