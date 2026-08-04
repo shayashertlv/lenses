@@ -298,12 +298,16 @@ function fsBuildCard(o,index){
   ].filter(Boolean);
 
   el.innerHTML=
-    '<div class="result-img">'+getTryonHtml(o)+'</div>'+
-    '<div class="result-body">'+
+    '<div class="result-img">'+
       '<span class="result-label">'+label+'</span>'+
+      getTryonHtml(o)+
+    '</div>'+
+    '<div class="result-body">'+
       '<span class="result-brand">'+escHtml(o.brand||'')+'</span>'+
       '<span class="result-name">'+escHtml(modelName(o))+'</span>'+
-      (spec?'<span class="result-spec">'+spec+'</span>':'')+
+      /* Always rendered, empty or not: the row reserves two lines here, and a
+         card that omits the element reserves nothing and comes out of the line. */
+      '<span class="result-spec">'+spec+'</span>'+
       (scores.length
         ? '<div class="scores">'+scores.map(x=>
             '<span class="score"><span class="score-k">'+x[0]+'</span>'+

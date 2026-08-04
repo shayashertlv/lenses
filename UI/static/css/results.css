@@ -28,15 +28,28 @@
   background-color: var(--paper);
 }
 .result-card.is-primary { border-color: var(--ink); }
-.result-img { background-color: var(--card); display: grid; place-items: center; min-height: 180px; }
-/* No forced width. The box takes the picture's own size, so a portrait render
-   is never hung in the middle of a letterbox. */
+/* A photo well of a fixed 4:5, which is about what the renders come back as.
+   The box used to take the picture's own size, so three renders that came back
+   at three slightly different shapes gave three cards whose brand lines started
+   at three different heights — the one thing a comparison row cannot afford.
+   The well is the constant; the picture is centred in it and never cropped.
+   `flex: 0 1 auto` lets it give height back when the screen is short. */
+.result-img {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  aspect-ratio: 4 / 5;
+  background-color: var(--card);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
 .result-img img {
   display: block;
   width: auto;
   max-width: 100%;
   height: auto;
-  max-height: 52vh;
+  max-height: 100%;
   margin: 0 auto;
 }
 .tryon-done { position: relative; width: 100%; }
@@ -87,9 +100,19 @@
   animation: waitSlide 1.2s var(--ease) infinite;
 }
 
-.result-body { display: flex; flex-direction: column; gap: 3px; padding: var(--s-3); flex: 1; }
+/* Grows but never shrinks. Growing is what keeps the price rows on one line
+   across three cards whose spec lines wrap to different depths; refusing to
+   shrink is what sends a short screen's squeeze to the well instead of clipping
+   the text. */
+.result-body { display: flex; flex-direction: column; gap: 3px; padding: var(--s-3); flex: 1 0 auto; }
+/* The label marks the picture, so it sits on the picture. Held in the body it
+   cost a whole line above the brand — and every line the body takes is a line
+   the render does not get, on a screen where the render is the point. */
 .result-label {
-  align-self: flex-start;
+  position: absolute;
+  top: var(--s-2);
+  left: var(--s-2);
+  z-index: 1;
   padding: 2px 6px;
   border-radius: var(--r-tag);
   background-color: var(--field);
@@ -98,26 +121,34 @@
   font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
-  margin-bottom: var(--s-2);
 }
 .result-brand { font-size: var(--t-md); font-weight: 800; font-stretch: 70%; text-transform: uppercase; line-height: 1; }
 .result-name { font-size: var(--t-sm); font-weight: 500; }
+/* Two lines are reserved whether or not the second is used. A spec that wraps
+   on one card and not on the next made that card's body taller, and since the
+   body may grow but not shrink the difference came out of the photo well — so
+   three renders of the same face arrived at three different sizes, which is the
+   one thing a comparison row cannot afford. */
 .result-spec {
+  min-height: 3.2em;
   font-size: var(--t-2xs);
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
   color: var(--ink-3);
 }
 /* Wraps, because a card is a third of a row now rather than a whole one and
-   three score tiles no longer always fit on one line. */
+   three score tiles no longer always fit on one line. Key beside value rather
+   than over it: stacked, three chips took 40px of a body that is competing with
+   the render for height, and a two-word key over a two-digit number was never
+   reading as a column anyway. */
 .scores { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-2); }
 .score {
-  display: grid;
-  gap: 1px;
-  padding: 4px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 8px;
   background-color: var(--card);
   border-radius: var(--r-tag);
-  text-align: center;
 }
 .score-k {
   font-size: var(--t-2xs);
@@ -132,6 +163,6 @@
   justify-content: space-between;
   gap: var(--s-2);
   margin-top: auto;
-  padding-top: var(--s-3);
+  padding-top: var(--s-2);
 }
 .result-thumb { width: 54px; height: 34px; object-fit: contain; }

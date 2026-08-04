@@ -191,16 +191,29 @@ body.sf-open { overflow: hidden; }
   padding: var(--s-4);
 }
 
-/* The photo leads the column it is being read from, at a size worth looking at.
-   It used to float right at 84px, which parked it against the progress column
-   as if it belonged there and narrowed every reading to dodge it. Un-floated it
-   also fills the 181px the descriptions left behind, so the two columns come
-   out level instead of the readings stopping halfway down the card. */
-.portrait { width: auto; margin: 0 0 var(--s-4); }
+/* The photo and the readings taken off it, side by side — the customer, then
+   what was read from them, then the frame that answers it. Stacked instead, the
+   photo sat above three short rows and left the width beside it empty; floated,
+   as it was before that, it narrowed every reading to dodge a thumbnail. */
+.docket-main {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: 150px;
+}
+/* A fixed 3:4 well, filled rather than fitted. An upload arrives at whatever
+   shape the phone took it in, and sizing the box to the picture let a landscape
+   snap come out twice the width of a portrait one — the docket changed shape
+   with the file. The box is the constant now and the photo crops into it,
+   biased up the frame so the crop takes the shoulders, never the forehead. */
+.portrait { flex: 0 0 192px; margin: 0; }
 .portrait img {
   display: block;
-  width: auto;
-  height: 170px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  object-position: center 30%;
   border-radius: var(--r-tag);
   border: 1px solid var(--rule);
 }
@@ -211,7 +224,6 @@ body.sf-open { overflow: hidden; }
    the middle of it. The rows are laid in at the start now — labelled, values
    pending — so the card reads as a docket being filled, which is what it is.
    Each placeholder is replaced in place by its real value. */
-.docket-main { min-height: 150px; }
 .skel {
   display: block;
   height: .72em;
@@ -228,7 +240,13 @@ body.sf-open { overflow: hidden; }
   to { background-position: -120% 0; }
 }
 
-.profile { margin: 0; opacity: 0; transition: opacity var(--d-slow) var(--ease); }
+/* Stretched, and the three rules divide the height evenly: the readings and the
+   photo they were taken off end level, and the column reads as a form that has
+   been filled rather than three lines floating in the middle of a panel. */
+.docket-main .profile { align-self: stretch; display: flex; flex-direction: column; }
+.docket-main .prow { flex: 1; align-content: center; }
+
+.profile { flex: 1 1 auto; min-width: 0; margin: 0; opacity: 0; transition: opacity var(--d-slow) var(--ease); }
 .profile.in { opacity: 1; }
 .prow {
   display: grid;
@@ -266,9 +284,11 @@ body.sf-open { overflow: hidden; }
 .cdot { width: 13px; height: 13px; border-radius: var(--r-pill); border: 1px solid var(--rule); }
 
 /* ── The pulled frame, named before it is rendered ── */
-.docket-side { display: flex; flex-direction: column; gap: var(--s-3); }
+.docket-side { display: flex; flex-direction: column; }
 .pulled {
-  display: grid;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 3px;
   padding: var(--s-3);
   background-color: var(--card);
@@ -288,6 +308,7 @@ body.sf-open { overflow: hidden; }
   margin-bottom: var(--s-2);
 }
 .pulled-img {
+  flex: none;
   display: grid;
   place-items: center;
   width: 100%;
@@ -305,9 +326,16 @@ body.sf-open { overflow: hidden; }
   text-transform: uppercase;
   color: var(--ink-3);
 }
+/* Pinned to the foot of the slot, the way a shelf-edge label carries its price,
+   so the card reads the same height whether it is still a placeholder or the
+   real frame. */
 .pulled-price {
-  justify-self: start;
-  margin-top: var(--s-2);
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: var(--s-2);
+}
+.pulled-price .amount {
+  display: inline-block;
   background-color: var(--signal);
   color: var(--signal-ink);
   font-weight: 700;
@@ -316,6 +344,23 @@ body.sf-open { overflow: hidden; }
   padding: 2px 7px;
 }
 
+/* The placeholder shapes, one per line the slot is waiting on. Signal is a
+   price and a primary action only, so the pending price is sunk stock until
+   there is a real figure to put in it. */
+.skel-brand { width: 74%; height: 1em; }
+.skel-name  { width: 58%; }
+.skel-spec  { width: 84%; }
+.skel-price { width: 52px; height: 22px; border-radius: var(--r-tag); }
+
+/* ── The pace: the whole job's, so it runs the whole width ── */
+.docket-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--rule);
+}
+.pace { flex: 1 1 auto; min-width: 0; }
 .pace-row {
   display: flex;
   justify-content: space-between;
@@ -335,7 +380,9 @@ body.sf-open { overflow: hidden; }
   transform: scaleX(0);
 }
 .cancel {
+  flex: none;
   min-height: 44px;
+  padding: 0 var(--s-4);
   background: none;
   border: 1px solid var(--rule);
   border-radius: var(--r-ctl);
@@ -390,18 +437,34 @@ body.sf-open { overflow: hidden; }
    short readings do not fill 629px of it — 419px, two thirds of the column, was
    empty once the essay went — and the column was taking width off the only
    thing on the page anyone came to look at. It lies across the top as a strip
-   now, and the renders get the width back. */
+   now, and the renders get the width back.
+
+   One column, one measure. The strip ran to 1320 while the renders were capped
+   at 1080, so the two things on the page had different left and right edges and
+   the 120px either side of the cards read as a mistake rather than a margin.
+   The cap moved up here, where it governs both. */
 .results-inner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   gap: var(--s-4);
-  max-width: 1320px;
+  flex: 1;
+  min-height: 0;               /* so the row may shrink instead of scrolling */
+  /* Width follows height, because height is what actually limits a row of three
+     portrait renders. A card is a 4:5 well over a 186px body, and the height it
+     may have is the viewport less the band, the strip, the gap and the padding:
+     1.25w + 186 <= vh - 180, so the widest row that still fills is 2.4vh - 806.
+     Fixed at any single number the page is wrong at both ends — letterboxed
+     pictures on a laptop, or 320px of unused paper on a 1080p monitor. Clamped
+     to the system's 1320 container above and to a legible card below. */
+  max-width: clamp(880px, calc(240vh - 806px), 1320px);
   width: 100%;
   margin: 0 auto;
   padding: var(--s-5);
 }
 .profile-panel {
   order: -1;                      /* above the renders, whatever the DOM order */
+  flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -433,10 +496,19 @@ body.sf-open { overflow: hidden; }
   text-transform: uppercase;
   color: var(--ink-3);
 }
-/* Capped so a card is about what a portrait render wants to be. Left to the
-   full 1320 the picture would hit its height limit and sit in a letterbox
-   again, which is what the three-in-a-line layout exists to prevent. */
-.results-row { max-width: 1080px; width: 100%; margin: 0 auto; }
+/* The renders take whatever height is left under the strip and no more. The row
+   used to be a block of its own height in a scrolling screen, which left 103px
+   of paper below the cards on a laptop and made the results view the only
+   surface in the product that ends in a band of nothing. It fills the screen
+   now; where the pictures cannot use the height — a monitor tall enough that a
+   4:5 render tops out first — the leftover is split above and below the whole
+   block by justify-content, rather than dumped at the bottom. */
+.results-screen .results-row {
+  flex: 0 1 auto;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
 
 /* ══════════════════════════════════════════════════
    Error
@@ -519,11 +591,20 @@ body.sf-open { overflow: hidden; }
   .dir-row { grid-template-columns: 34px minmax(0, 1fr) 72px; }
   .dir-what { display: none; }
   .docket-body { grid-template-columns: minmax(0, 1fr); }
-  .results-inner { padding: var(--s-4); }
+  /* Fill-the-screen is a desktop shape. Below 900 there is not enough height to
+     hold three renders and their labels at any useful size, so the results view
+     goes back to being a document that scrolls. */
+  .results-inner {
+    display: block;
+    flex: none;
+    max-width: 1320px;
+    padding: var(--s-4);
+  }
+  .results-screen .results-row { grid-template-rows: auto; }
   /* The strip is a desktop shape, for a column that only exists there. On a
      phone the profile stays what it already was: a stacked card under the
      renders, which was the part that did not need changing. */
-  .profile-panel { order: 0; display: block; padding: var(--s-4); }
+  .profile-panel { order: 0; display: block; margin-top: var(--s-4); padding: var(--s-4); }
   .profile-panel .profile { display: block; }
   .profile-panel .prow {
     grid-template-columns: 106px minmax(0, 1fr);
@@ -538,17 +619,22 @@ body.sf-open { overflow: hidden; }
 @media (max-width: 560px) {
   .band { padding: var(--s-2) var(--s-4); }
   .counter { padding-top: var(--s-5); }
-  .portrait img { height: 120px; }
+  /* Narrower well, so a 311px docket column still leaves the readings a usable
+     measure beside the photo. */
+  .portrait { flex: 0 0 112px; }
   .prow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .results-bar { padding: var(--s-2) var(--s-4); }
   /* A phone cannot hold three renders side by side and keep a face legible, so
      they stack. One per row means each can be taller than it was in the line. */
   .results-row { grid-template-columns: minmax(0, 1fr); }
-  .result-img img { max-height: 58vh; }
+  /* Stacked, a card is the full width of the phone and the 4:5 well would run
+     past the fold on its own. Capped, the well shortens and the render sits
+     centred in it. */
+  .result-img { max-height: 58vh; }
 }
 
 @media (max-height: 500px) and (max-width: 900px) {
   .counter { padding-top: var(--s-4); padding-bottom: var(--s-4); }
   .docket-screen, .error-screen { align-items: flex-start; }
-  .result-img img { max-height: 70vh; }
+  .result-img { max-height: 70vh; }
 }

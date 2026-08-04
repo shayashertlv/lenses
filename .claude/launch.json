@@ -7,6 +7,13 @@
       "runtimeArgs": ["-m", "UI.app"],
       "port": 8080,
       "autoPort": true
+    },
+    {
+      "name": "Fixture sandbox",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "UI.responsive_sandbox.test_server", "8097", "landing"],
+      "port": 8097,
+      "autoPort": false
     }
   ]
 }

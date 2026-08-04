@@ -130,14 +130,22 @@
         <dl class="profile" id="sf-profile" aria-live="polite"></dl>
       </div>
 
+      <!-- The shelf slot. Laid in as a labelled placeholder the moment the wait
+           starts, like the readings beside it, so this column is never a third
+           of the docket standing empty until the match comes back. -->
       <aside class="docket-side">
-        <div class="pulled" id="sf-frame" hidden></div>
-        <div class="pace">
-          <div class="pace-row"><span>Working</span><span id="sf-pct">0%</span></div>
-          <div class="bar"><span class="bar-fill" id="sf-prog"></span></div>
-        </div>
-        <button class="cancel" type="button" onclick="sfReset()">Cancel</button>
+        <div class="pulled" id="sf-frame"></div>
       </aside>
+    </div>
+
+    <!-- The pace belongs to the whole job, not to the frame it used to sit
+         under, so it runs the width of the docket as its foot. -->
+    <div class="docket-foot">
+      <div class="pace">
+        <div class="pace-row"><span>Working</span><span id="sf-pct">0%</span></div>
+        <div class="bar"><span class="bar-fill" id="sf-prog"></span></div>
+      </div>
+      <button class="cancel" type="button" onclick="sfReset()">Cancel</button>
     </div>
   </div>
 </div>

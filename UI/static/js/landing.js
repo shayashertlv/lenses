@@ -94,6 +94,25 @@ function sfColourDots(fs) {
   return dots ? '<span class="cdots">' + dots + '</span>' : '';
 }
 
+/* ── The shelf slot ──
+   The match lands at about second nine, and until it did this column was a
+   third of the docket holding nothing at all — the readings beside it had a
+   skeleton and it did not. It gets the same treatment: the slot is laid in
+   labelled and pending the moment the wait starts, and the frame replaces its
+   placeholders in place. The drawn silhouette stands in for the photo, which is
+   what it does under every unloaded shelf-edge label in the product. */
+function sfRenderFrameSkeleton() {
+  const box = document.getElementById('sf-frame');
+  box.innerHTML =
+    '<span class="pulled-label">Pulled from the shelf</span>' +
+    '<span class="pulled-img">' + frameGlyph('') + '</span>' +
+    '<span class="pulled-brand"><span class="skel skel-brand"></span></span>' +
+    '<span class="pulled-name"><span class="skel skel-name"></span></span>' +
+    '<span class="pulled-spec"><span class="skel skel-spec"></span></span>' +
+    '<span class="pulled-price"><span class="skel skel-price"></span></span>';
+  box.classList.add('in');
+}
+
 /* ── Name the chosen frame before its render exists. ── */
 function sfNameFrame(o) {
   if (sfFrameNamed || !o || !o.name) return;
@@ -108,9 +127,8 @@ function sfNameFrame(o) {
     '<span class="pulled-brand">' + escHtml(o.brand || '') + '</span>' +
     '<span class="pulled-name">' + escHtml(modelName(o)) + '</span>' +
     (spec ? '<span class="pulled-spec">' + spec + '</span>' : '') +
-    '<span class="pulled-price">' + sfFmtPrice(o) + '</span>';
-  box.hidden = false;
-  requestAnimationFrame(() => box.classList.add('in'));
+    '<span class="pulled-price"><span class="amount">' + sfFmtPrice(o) + '</span></span>';
+  box.classList.add('in');
   announceSf('Found it. ' + (o.brand ? o.brand + ' ' : '') + o.name);
 }
 
@@ -244,6 +262,7 @@ async function sfStartFromModal() {
   closeSmartFit();
   sfResetState();
   sfRenderProfileSkeleton();
+  sfRenderFrameSkeleton();
   sfShow('sf-processing');
   sfStartPace();
   document.getElementById('sf-stage').textContent = 'Reading your face';
@@ -353,7 +372,7 @@ function sfResetState() {
   sfProfileDone = false; sfFrameNamed = false;
   document.getElementById('sf-profile').innerHTML = '';
   const frame = document.getElementById('sf-frame');
-  frame.hidden = true; frame.classList.remove('in'); frame.innerHTML = '';
+  frame.classList.remove('in'); frame.innerHTML = '';
   const panel = document.getElementById('sf-profile-panel');
   panel.hidden = true; panel.innerHTML = '';
 }
@@ -427,12 +446,16 @@ function sfBuildCard(o, idx) {
   ].filter(Boolean);
 
   card.innerHTML =
-    '<div class="result-img">' + buildTryonHtml(o) + '</div>' +
-    '<div class="result-body">' +
+    '<div class="result-img">' +
       '<span class="result-label">' + label + '</span>' +
+      buildTryonHtml(o) +
+    '</div>' +
+    '<div class="result-body">' +
       '<span class="result-brand">' + escHtml(o.brand || '') + '</span>' +
       '<span class="result-name">' + escHtml(modelName(o)) + '</span>' +
-      (spec ? '<span class="result-spec">' + spec + '</span>' : '') +
+      /* Always rendered, empty or not: the row reserves two lines here, and a
+         card that omits the element reserves nothing and comes out of the line. */
+      '<span class="result-spec">' + spec + '</span>' +
       (scores.length
         ? '<div class="scores">' + scores.map(s =>
             '<span class="score"><span class="score-k">' + s[0] + '</span>' +
