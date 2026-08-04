@@ -6,14 +6,13 @@
    around second thirty. So everything interesting is known by second nine and
    the previous design showed a progress bar over the remaining twenty-plus
    seconds. The docket fills that gap with findings the API already returns:
-   the face profile, the three optician notes, and the chosen frame named
-   before its image exists.
+   the face profile's three readings, and the chosen frame named before its
+   image exists. The model's prose is not shown on either screen.
    ══════════════════════════════════════════════════ */
 
 let sfSid = null, sfPoll = null, sfLastRendered = '';
 let sfPace = null, sfRetry = null;
 let sfProfileDone = false, sfFrameNamed = false;
-let sfNotes = [], sfNoteIdx = 0, sfNoteTimer = null;
 let sfLastSummary = null;
 
 const SF_DURATION = 30;   // seconds, matches the storefront's KIND_CFG.smartfit
@@ -38,7 +37,6 @@ function sfShow(view) {
   document.body.classList.toggle('sf-open', !!view);
 }
 
-/* ── The face profile: nine real fields, rendered as docket rows. ── */
 /* The three rows the face read comes back with. Laid in the moment the wait
    starts so the docket opens as a form waiting on its values rather than an
    empty card; sfRenderProfile overwrites them with the real thing. */
@@ -61,8 +59,10 @@ function sfProfileRow(label, valueHtml) {
 
 function sfRenderProfileSkeleton() {
   const dl = document.getElementById('sf-profile');
+  /* One bar per row, because one value per row is all that lands now — the
+     placeholder should be the shape of the thing it is standing in for. */
   dl.innerHTML = SF_PROFILE_ROWS
-    .map(k => sfProfileRow(k, '<span class="skel skel-val"></span><span class="skel skel-note"></span>'))
+    .map(k => sfProfileRow(k, '<span class="skel skel-val"></span>'))
     .join('');
   dl.classList.add('in');
 }
@@ -74,51 +74,24 @@ function sfRenderProfile(fs) {
   const dl = document.getElementById('sf-profile');
   const row = (k, v, extra) => sfProfileRow(k, v + (extra || ''));
 
+  /* Readings only. The model returns a description with each one and an essay
+     alongside; none of it is shown any more, on either screen. */
   let html = '';
-  if (fs.face_shape) {
-    html += row('Face shape',
-      escHtml(fs.face_shape) +
-      (fs.face_shape_description ? '<span class="pnote">' + escHtml(fs.face_shape_description) + '</span>' : ''));
-  }
-  if (fs.key_geometry) {
-    html += row('Geometry',
-      escHtml(fs.key_geometry) +
-      (fs.key_geometry_description ? '<span class="pnote">' + escHtml(fs.key_geometry_description) + '</span>' : ''));
-  }
-  if (fs.color_profile) {
-    const dots = ['hair_color_hex', 'eye_color_hex', 'skin_tone_hex']
-      .filter(k => fs[k])
-      .map(k => '<span class="cdot" style="background:' + escHtml(fs[k]) + '" title="' +
-        escHtml(k.replace(/_color_hex|_tone_hex/, '')) + '"></span>').join('');
-    html += row('Colouring',
-      escHtml(fs.color_profile) + (dots ? '<span class="cdots">' + dots + '</span>' : '') +
-      (fs.color_profile_description ? '<span class="pnote">' + escHtml(fs.color_profile_description) + '</span>' : ''));
-  }
+  if (fs.face_shape) html += row('Face shape', escHtml(fs.face_shape));
+  if (fs.key_geometry) html += row('Geometry', escHtml(fs.key_geometry));
+  if (fs.color_profile) html += row('Colouring', escHtml(fs.color_profile) + sfColourDots(fs));
   dl.innerHTML = html;
   dl.classList.add('in');
 }
 
-/* ── The three optician notes, revealed across the render gap rather than
-      dumped at once. Generated, cached and returned by the API since the
-      analysis step; nothing rendered them before. ── */
-function sfStartNotes(text) {
-  if (sfNoteTimer || !text) return;
-  const paras = (Array.isArray(text) ? text : String(text).split(/\n\s*\n/))
-    .map(s => String(s).trim()).filter(Boolean);
-  if (!paras.length) return;
-  sfNotes = paras; sfNoteIdx = 0;
-
-  const host = document.getElementById('sf-notes');
-  const push = () => {
-    if (sfNoteIdx >= sfNotes.length) { clearInterval(sfNoteTimer); sfNoteTimer = null; return; }
-    const p = document.createElement('p');
-    p.className = 'note';
-    p.textContent = sfNotes[sfNoteIdx++];
-    host.appendChild(p);
-    requestAnimationFrame(() => p.classList.add('in'));
-  };
-  push();
-  sfNoteTimer = setInterval(push, 5200);
+/* The hair / eye / skin swatches — the colouring reading, shown rather than
+   described. Used by the docket and the results panel alike. */
+function sfColourDots(fs) {
+  const dots = ['hair_color_hex', 'eye_color_hex', 'skin_tone_hex']
+    .filter(k => fs[k])
+    .map(k => '<span class="cdot" style="background:' + escHtml(fs[k]) + '" title="' +
+      escHtml(k.replace(/_color_hex|_tone_hex/, '')) + '"></span>').join('');
+  return dots ? '<span class="cdots">' + dots + '</span>' : '';
 }
 
 /* ── Name the chosen frame before its render exists. ── */
@@ -314,7 +287,6 @@ function sfPollStatus() {
 
     document.getElementById('sf-stage').textContent = SF_STAGE_MSG[d.stage] || 'Working';
     if (d.face_summary) { sfLastSummary = d.face_summary; sfRenderProfile(d.face_summary); }
-    if (d.face_insights) sfStartNotes(d.face_insights);
     if (d.opt0) sfNameFrame(d.opt0);
 
     const ready = d.num_options > 0 && (d.stage === 'primary_ready' || d.stage === 'done');
@@ -379,10 +351,7 @@ function sfRender(d) {
 function sfResetState() {
   sfLastRendered = '';
   sfProfileDone = false; sfFrameNamed = false;
-  sfNotes = []; sfNoteIdx = 0;
-  if (sfNoteTimer) { clearInterval(sfNoteTimer); sfNoteTimer = null; }
   document.getElementById('sf-profile').innerHTML = '';
-  document.getElementById('sf-notes').innerHTML = '';
   const frame = document.getElementById('sf-frame');
   frame.hidden = true; frame.classList.remove('in'); frame.innerHTML = '';
   const panel = document.getElementById('sf-profile-panel');

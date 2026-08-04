@@ -217,7 +217,6 @@ body.sf-open { overflow: hidden; }
   animation: skelSweep 1.5s linear infinite;
 }
 .skel-val { width: 44%; }
-.skel-note { width: 76%; height: .62em; margin-top: 6px; }
 @keyframes skelSweep {
   from { background-position: 220% 0; }
   to { background-position: -120% 0; }
@@ -257,30 +256,8 @@ body.sf-open { overflow: hidden; }
   stroke-linejoin: round;
 }
 .prow dd { margin: 0; font-size: var(--t-base); font-weight: 500; }
-.pnote { display: block; margin-top: 2px; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); }
 .cdots { display: inline-flex; gap: 5px; margin-left: var(--s-2); vertical-align: middle; }
 .cdot { width: 13px; height: 13px; border-radius: var(--r-pill); border: 1px solid var(--rule); }
-
-/* ── The optician's notes, arriving one at a time ── */
-.notes { margin-top: var(--s-4); }
-.note {
-  margin: 0 0 var(--s-3);
-  max-width: var(--measure);
-  font-size: var(--t-base);
-  line-height: var(--lh-body);
-  color: var(--ink-2);
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
-}
-.note.in { opacity: 1; transform: none; }
-
-.tip {
-  margin: var(--s-4) 0 0;
-  font-size: var(--t-xs);
-  color: var(--ink-3);
-  transition: opacity var(--d-slow) var(--ease);
-}
 
 /* ── The pulled frame, named before it is rendered ── */
 .docket-side { display: flex; flex-direction: column; gap: var(--s-3); }
@@ -427,7 +404,6 @@ body.sf-open { overflow: hidden; }
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.profile-panel .note { font-size: var(--t-sm); }
 
 /* ══════════════════════════════════════════════════
    Error
