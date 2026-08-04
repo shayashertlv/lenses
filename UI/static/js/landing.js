@@ -39,6 +39,20 @@ function sfShow(view) {
 }
 
 /* ── The face profile: nine real fields, rendered as docket rows. ── */
+/* The three rows the face read comes back with. Laid in the moment the wait
+   starts so the docket opens as a form waiting on its values rather than an
+   empty card; sfRenderProfile overwrites them with the real thing. */
+const SF_PROFILE_ROWS = ['Face shape', 'Geometry', 'Colouring'];
+
+function sfRenderProfileSkeleton() {
+  const dl = document.getElementById('sf-profile');
+  dl.innerHTML = SF_PROFILE_ROWS.map(k =>
+    '<div class="prow"><dt>' + escHtml(k) + '</dt>' +
+    '<dd><span class="skel skel-val"></span><span class="skel skel-note"></span></dd></div>'
+  ).join('');
+  dl.classList.add('in');
+}
+
 function sfRenderProfile(fs) {
   if (sfProfileDone || !fs || !fs.face_shape) return;
   sfProfileDone = true;
@@ -182,6 +196,7 @@ async function sfStartFromModal() {
   if (!f) return;
   closeSmartFit();
   sfResetState();
+  sfRenderProfileSkeleton();
   sfShow('sf-processing');
   sfStartPace();
   document.getElementById('sf-stage').textContent = 'Reading your face';

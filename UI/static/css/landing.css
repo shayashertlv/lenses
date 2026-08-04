@@ -200,6 +200,29 @@ body.sf-open { overflow: hidden; }
 }
 
 /* ── The face profile rows ── */
+/* The read takes about a third of the wait to come back, and until it did this
+   column held nothing: 498px of blank paper with an 84px thumbnail floated into
+   the middle of it. The rows are laid in at the start now — labelled, values
+   pending — so the card reads as a docket being filled, which is what it is.
+   Each placeholder is replaced in place by its real value. */
+.docket-main { min-height: 150px; }
+.skel {
+  display: block;
+  height: .72em;
+  border-radius: var(--r-tag);
+  background-color: var(--card-sunk);
+  background-image: linear-gradient(90deg, transparent 0%, var(--card) 45%, transparent 90%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: skelSweep 1.5s linear infinite;
+}
+.skel-val { width: 44%; }
+.skel-note { width: 76%; height: .62em; margin-top: 6px; }
+@keyframes skelSweep {
+  from { background-position: 220% 0; }
+  to { background-position: -120% 0; }
+}
+
 .profile { margin: 0; opacity: 0; transition: opacity var(--d-slow) var(--ease); }
 .profile.in { opacity: 1; }
 .prow {
