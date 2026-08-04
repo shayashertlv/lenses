@@ -191,10 +191,16 @@ body.sf-open { overflow: hidden; }
   padding: var(--s-4);
 }
 
-.portrait { float: right; width: 84px; margin: 0 0 var(--s-3) var(--s-3); }
+/* The photo leads the column it is being read from, at a size worth looking at.
+   It used to float right at 84px, which parked it against the progress column
+   as if it belonged there and narrowed every reading to dodge it. Un-floated it
+   also fills the 181px the descriptions left behind, so the two columns come
+   out level instead of the readings stopping halfway down the card. */
+.portrait { width: auto; margin: 0 0 var(--s-4); }
 .portrait img {
   display: block;
-  width: 100%;
+  width: auto;
+  height: 170px;
   border-radius: var(--r-tag);
   border: 1px solid var(--rule);
 }
@@ -380,30 +386,57 @@ body.sf-open { overflow: hidden; }
 .results-back:hover { background-color: var(--field-hi); }
 .results-back:active { background-color: var(--field-deep); }
 
+/* The profile used to hold a 300px column of its own beside the renders. Three
+   short readings do not fill 629px of it — 419px, two thirds of the column, was
+   empty once the essay went — and the column was taking width off the only
+   thing on the page anyone came to look at. It lies across the top as a strip
+   now, and the renders get the width back. */
 .results-inner {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: var(--s-5);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-4);
   max-width: 1320px;
   width: 100%;
   margin: 0 auto;
   padding: var(--s-5);
 }
-/* The profile persists beside the results. */
 .profile-panel {
-  align-self: start;
-  padding: var(--s-4);
+  order: -1;                      /* above the renders, whatever the DOM order */
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-5);
+  padding: var(--s-3) var(--s-4);
   background-color: var(--card);
   border-radius: var(--r-ctl);
 }
+.profile-panel .profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3) var(--s-5);
+}
+/* In the strip a reading is a label and a value on one line, not a table row. */
+.profile-panel .prow {
+  grid-template-columns: auto auto;
+  gap: var(--s-2);
+  align-items: center;
+  padding: 0;
+  border: 0;
+}
+.profile-panel .prow:first-child { border-top: 0; }
 .pp-h {
-  margin: 0 0 var(--s-3);
+  margin: 0;
   font-size: var(--t-2xs);
   font-weight: 500;
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
   color: var(--ink-3);
 }
+/* Capped so a card is about what a portrait render wants to be. Left to the
+   full 1320 the picture would hit its height limit and sit in a letterbox
+   again, which is what the three-in-a-line layout exists to prevent. */
+.results-row { max-width: 1080px; width: 100%; margin: 0 auto; }
 
 /* ══════════════════════════════════════════════════
    Error
@@ -486,15 +519,26 @@ body.sf-open { overflow: hidden; }
   .dir-row { grid-template-columns: 34px minmax(0, 1fr) 72px; }
   .dir-what { display: none; }
   .docket-body { grid-template-columns: minmax(0, 1fr); }
-  /* The profile drops below the results, which leaves the row the full width —
-     so the three stay in line here rather than reflowing. */
-  .results-inner { grid-template-columns: minmax(0, 1fr); padding: var(--s-4); }
+  .results-inner { padding: var(--s-4); }
+  /* The strip is a desktop shape, for a column that only exists there. On a
+     phone the profile stays what it already was: a stacked card under the
+     renders, which was the part that did not need changing. */
+  .profile-panel { order: 0; display: block; padding: var(--s-4); }
+  .profile-panel .profile { display: block; }
+  .profile-panel .prow {
+    grid-template-columns: 106px minmax(0, 1fr);
+    gap: var(--s-3);
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .profile-panel .prow:first-child { border-top: 1px solid var(--rule); }
+  .pp-h { margin: 0 0 var(--s-3); }
 }
 
 @media (max-width: 560px) {
   .band { padding: var(--s-2) var(--s-4); }
   .counter { padding-top: var(--s-5); }
-  .portrait { width: 64px; }
+  .portrait img { height: 120px; }
   .prow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .results-bar { padding: var(--s-2) var(--s-4); }
   /* A phone cannot hold three renders side by side and keep a face legible, so
