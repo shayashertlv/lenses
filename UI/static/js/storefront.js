@@ -11,8 +11,20 @@ let cachedPreviewSrc = null;
 /* ── Recolor selection (used when spawning a recolor circle) ── */
 let rcSelectedColor = null;
 let rcSelectedBg = null;        // css background of the picked swatch (for the dot)
-let lastTryonB64 = null;
-let currentProductId = null;
+
+/* The result the modal is currently showing, captured as ONE object at the
+   moment it opens. Everything reachable from the result view — recolour, shop
+   this frame — reads from this and from nothing else.
+
+   This used to be three separate globals (lastTryonB64, currentProductId,
+   pendingProduct) that startRecolor assembled at Apply time. openJobResult
+   wrote all three together, but openTryon, openSmartFit and showJobError each
+   rewrote pendingProduct on its own — so a recolour could be born carrying one
+   frame's pixels with another frame's name, thumbnail and id, and the ticket
+   would show a pair of glasses that was never recoloured. A single object
+   assigned in a single statement makes that split unrepresentable: there is no
+   longer a moment when half the identity has been updated. */
+let openResult = null;
 
 /* ── Multi-job try-on dock ────────────────────────────────
    Hitting "Try On" collapses the modal into a floating circle.
@@ -254,6 +266,8 @@ function clearModalTransform() {
 function openTryon(productId, productName, thumbSrc) {
   storeAction = 'tryon';
   pendingProduct = { productId, productName, thumbSrc };
+  openResult = null;           // starting a new flow: no result is on screen
+
   clearModalTransform();
 
   document.getElementById('modal-product-name').textContent = productName;
@@ -270,6 +284,7 @@ function openTryon(productId, productName, thumbSrc) {
 function openSmartFit() {
   storeAction = 'smartfit';
   pendingProduct = null;
+  openResult = null;           // starting a new flow: no result is on screen
   clearModalTransform();
   document.getElementById('modal-product-name').textContent = 'Smart fit';
   document.getElementById('modal-go').textContent = 'Find my best frame';
@@ -413,6 +428,7 @@ function createJob(opts) {
     productName: opts.productName || null,
     thumbSrc: opts.thumbSrc || null,
     sourceB64: opts.sourceB64 || null,   // recolor: image to recolor
+    sourceJobId: opts.sourceJobId || null, // recolor: job the image came from
     color: opts.color || null,           // recolor: color name
     colorBg: opts.colorBg || null,       // recolor: swatch css background (for the dot)
     prefs: opts.prefs || null,           // freesearch: preference key/values
@@ -678,6 +694,7 @@ function pulseLoading(job) {
 
 function showJobError(job) {
   pendingProduct = { productId: job.productId, productName: job.productName, thumbSrc: job.thumbSrc };
+  openResult = null;           // an error is not a result you can recolour
   showModalStep('modal-error');
   document.getElementById('modal-error-msg').textContent = job.el.dataset.error || 'Try-on failed';
   document.getElementById('tryon-modal').classList.add('active');
@@ -685,12 +702,19 @@ function showJobError(job) {
 
 /* Tapping a ready circle: morph it open into the result modal. */
 function openJobResult(job) {
-  lastTryonB64 = job.b64;
-  currentProductId = job.productId;
+  /* One capture, one statement — the whole identity of what is on screen. */
+  openResult = {
+    jobId: job.id,
+    b64: job.b64,
+    productId: job.productId,
+    productName: job.productName,
+    thumbSrc: job.thumbSrc,
+    opt0: job.opt0,
+  };
   pendingProduct = { productId: job.productId, productName: job.productName, thumbSrc: job.thumbSrc };
-  let label = job.productName || '';
-  if (job.opt0 && (job.opt0.price || job.opt0.price === 0)) {
-    label += ' · ' + Number(job.opt0.price).toLocaleString() + ' ' + (job.opt0.currency || '');
+  let label = openResult.productName || '';
+  if (openResult.opt0 && (openResult.opt0.price || openResult.opt0.price === 0)) {
+    label += ' · ' + Number(openResult.opt0.price).toLocaleString() + ' ' + (openResult.opt0.currency || '');
   }
   document.getElementById('modal-result-product').textContent = label;
   const rimg = document.getElementById('modal-result-img');
@@ -713,7 +737,7 @@ function openJobResult(job) {
 
 /* "Shop this frame" — close the result and scroll to / highlight its catalog card. */
 function shopThisFrame() {
-  const pid = currentProductId;
+  const pid = openResult && openResult.productId;
   if (!pid) return;
   closeModal();
   const find = () => document.querySelector('.product-card[data-id="' + pid + '"]');
@@ -838,6 +862,9 @@ function morphFromCircle(circleEl) {
    ══════════════════════════════════════════════════ */
 
 function showRecolorPicker() {
+  /* No captured result means there is nothing to recolour. Bail rather than
+     fall through to whatever the ambient state happens to hold. */
+  if (!openResult || !openResult.b64) return;
   showModalStep('modal-recolor-pick');
   rcSelectedColor = null;
   rcSelectedBg = null;
@@ -858,15 +885,19 @@ function backToResult() {
   showModalStep('modal-result');
 }
 
-/* Apply Color: spawn a non-blocking recolor circle (same collapse as try-on). */
+/* Apply Color: spawn a non-blocking recolor circle (same collapse as try-on).
+   Every field below comes off the one captured result, so the pixels and the
+   identity travelling with them cannot be from different frames. */
 function startRecolor() {
-  if (!rcSelectedColor || !lastTryonB64) return;
+  const src = openResult;
+  if (!rcSelectedColor || !src || !src.b64) return;
   const job = createJob({
     kind: 'recolor',
-    productId: currentProductId,
-    productName: (pendingProduct && pendingProduct.productName) || 'Lenses',
-    thumbSrc: (pendingProduct && pendingProduct.thumbSrc) || '',
-    sourceB64: lastTryonB64,
+    productId: src.productId,
+    productName: src.productName || 'Lenses',
+    thumbSrc: src.thumbSrc || '',
+    sourceB64: src.b64,
+    sourceJobId: src.jobId,
     color: rcSelectedColor,
     colorBg: rcSelectedBg,
   });
