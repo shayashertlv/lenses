@@ -193,8 +193,12 @@ class TestUploadTrays(unittest.TestCase):
     def test_trays_are_discoverable(self):
         """Guards the heuristic itself: if it stops matching, the two tests
         below start passing vacuously."""
+        # Four: storefront's modal tray, its free-search panel, the free-search
+        # page and lens-recolour. It was five until the landing hero's tray went
+        # — that page's Smart fit entry was a duplicate of the directory's own,
+        # so the tray and its rules were deleted rather than left unreachable.
         self.assertGreaterEqual(
-            len(self._trays()), 5,
+            len(self._trays()), 4,
             "the dashed+pointer heuristic no longer finds the upload trays, so "
             "the width and icon contracts below are asserting nothing",
         )

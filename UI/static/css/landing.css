@@ -33,12 +33,10 @@ body.sf-open { overflow: hidden; }
   color: var(--on-field-2);
 }
 
-/* ── The counter: pitch beside the tray ───────── */
+/* ── The counter: the pitch, addressed to a retailer ───────── */
+/* One column since the tray beside the headline went. Nothing sits opposite
+   the pitch now, so a second track would only be a measured void. */
 .counter {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: var(--s-7);
-  align-items: start;
   max-width: 1320px;
   margin: 0 auto;
   padding: var(--s-7) var(--s-5) var(--s-6);
@@ -60,32 +58,10 @@ body.sf-open { overflow: hidden; }
   color: var(--ink-2);
 }
 
-.tray {
-  display: grid;
-  place-items: center;
-  gap: var(--s-2);
-  width: 100%;
-  min-height: 150px;
-  padding: var(--s-4);
-  background-color: var(--card);
-  border: 1.5px dashed var(--rule-strong);
-  border-radius: var(--r-ctl);
-  color: var(--ink);
-  font-family: inherit;
-  cursor: pointer;
-  text-align: center;
-  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
-}
-.tray:hover { border-color: var(--field); background-color: var(--paper); }
-.tray svg { width: 32px; height: 32px; color: var(--field); }
-.tray-title { font-size: var(--t-base); font-weight: 700; }
-.tray-sub {
-  font-size: var(--t-2xs);
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
+/* .tray / .tray-title / .tray-sub lived here for the hero's upload zone. The
+   hero no longer has one — the directory's first row opens the picker — so the
+   rules went with it rather than lingering as an unreachable component.
+   .start stays: the error card's "Try again" wears it. */
 .start {
   width: 100%;
   min-height: 52px;
@@ -491,8 +467,7 @@ body.sf-open { overflow: hidden; }
    Breakpoints: 560 / 900 / 1280 only.
    ══════════════════════════════════════════════════ */
 @media (max-width: 900px) {
-  .counter { grid-template-columns: minmax(0, 1fr); gap: var(--s-5); padding: var(--s-6) var(--s-4) var(--s-5); }
-  .counter-tray { max-width: 420px; }
+  .counter { padding: var(--s-6) var(--s-4) var(--s-5); }
   .directory { padding: 0 var(--s-4) var(--s-6); }
   .dir-row { grid-template-columns: 34px minmax(0, 1fr) 72px; }
   .dir-what { display: none; }
@@ -513,7 +488,6 @@ body.sf-open { overflow: hidden; }
 
 @media (max-height: 500px) and (max-width: 900px) {
   .counter { padding-top: var(--s-4); padding-bottom: var(--s-4); }
-  .tray { min-height: 104px; }
   .docket-screen, .error-screen { align-items: flex-start; }
   .result-card.is-primary .result-img, .result-img img { max-height: 70vh; }
 }
