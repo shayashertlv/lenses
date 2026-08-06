@@ -394,12 +394,13 @@
    was rebuilt around — and left a band of unused paper on a tall monitor.
 
    Width follows height. A card is a 4:5 well over a 69px bar, and the height it
-   may have is the viewport less the band (68), this padding (48) and the note
-   (37): 1.25w + 69 <= vh - 153, so w <= 0.8vh - 178. Three of those plus two
-   12px gaps plus the padding is 2.4vh - 461. Clamped to this surface's 1100
+   may have is the viewport less the band (68) and this padding (48):
+   1.25w + 69 <= vh - 116, so w <= 0.8vh - 148. Three of those plus two 12px
+   gaps plus the padding is 2.4vh - 372. Clamped to the system's 1320 container
    above and to a card still worth looking at below. Re-derive it if the bar's
-   height changes: too generous and the well letterboxes to make up the
-   difference, which is the thing the derivation exists to avoid.
+   height changes, or if anything is put back above the row: too generous and
+   the well letterboxes to make up the difference, which is the thing the
+   derivation exists to avoid.
 
    `justify-content: center` places the leftover when the picture tops out
    first; `min-height: 0` lets the well give height back rather than scroll. */
@@ -409,13 +410,12 @@
   justify-content: center;
   flex: 1;
   min-height: 0;
-  max-width: clamp(720px, calc(240vh - 461px), 1100px);
+  max-width: clamp(720px, calc(240vh - 372px), 1320px);
   width: 100%;
   margin: 0 auto;
   padding: var(--s-5);
 }
 .res-inner .results-row { flex: 0 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-content: stretch; }
-.res-note { margin: 0 0 var(--s-4); max-width: var(--measure); font-size: var(--t-sm); color: var(--ink-2); }
 
 /* ── The three renders ────────────────────────────
    The row itself is .results-row from results.css, the same one Smart fit and
@@ -431,6 +431,22 @@
 
    Only what is specific to this page lives below; the well, the card and the
    wait/fail states are the shared ones. */
+/* A finished card is itself the <button>, so the UA's own font, colour and
+   padding have to be put back before the shared .result-card rules mean
+   anything. The picture is what a visitor aims at, and it was the one part of
+   the card that did nothing — only the label strip under it was live. */
+button.result-card {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--d-base) var(--ease);
+}
+button.result-card:hover { border-color: var(--ink); }
+button.result-card:hover .rc-card-action { background-color: var(--card); }
+button.result-card:hover .rc-card-cta { color: var(--ink); }
+
 /* Two fixed lines, not one. The tint name is the answer the visitor came for
    and DESIGN.md:328 gives a result card's body the 17px condensed brand voice —
    but at 17px the name, its swatch and the action all on one line measure past
@@ -446,18 +462,9 @@
   min-height: 68px;
   padding: var(--s-2) var(--s-3);
   background-color: var(--paper);
-  border: 0;
   border-top: 1px solid var(--rule);
-  color: var(--ink);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background-color var(--d-fast) var(--ease);
 }
-.rc-card-action:hover { background-color: var(--card); }
-/* The wait and fail states get the same bar so the row keeps one baseline, but
-   there is nothing to open yet, so it is not a control. */
-.rc-card-action.is-idle { cursor: default; }
 .rc-card-head {
   display: flex;
   align-items: center;
@@ -494,7 +501,6 @@
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.rc-card-action:hover .rc-card-cta { color: var(--ink); }
 
 /* ── Full size ──
    The hero used to be where a render could be looked at properly. The row

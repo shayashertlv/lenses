@@ -327,26 +327,29 @@ function rcCardHtml(r,i){
   } else {
     well='<div class="tryon-wait"><span class="tryon-wait-bar"></span>Rendering</div>';
   }
-  /* One control per card, and it is the card's whole bottom bar: the old markup
-     put a <button> inside a div carrying the click, so the card was unreachable
-     by keyboard and the button's label named an action it did not perform. */
-  const head='<span class="rc-card-head">'+rcSwatchHtml(r.name)+
-    '<span class="rc-card-name">'+escHtml(r.name)+'</span></span>';
-  const body=r.b64
-    ? '<button class="rc-card-action" type="button" data-i="'+i+'">'+head+
-        '<span class="rc-card-cta">View full size</span></button>'
-    : '<div class="rc-card-action is-idle">'+head+
-        '<span class="rc-card-cta">'+(r.error?'Not rendered':'Rendering')+'</span></div>';
-  return '<article class="result-card" data-state="'+rcState(r)+'">'+
-    '<div class="result-img">'+well+'</div>'+body+'</article>';
+  /* The whole card is the control, picture included. One target, and it is the
+     one people actually aim at — the label strip underneath was the only live
+     part, so clicking the face did nothing. (Before that the card was a <div>
+     with a <button> inside it that promoted the hero instead of opening
+     anything, which was neither reachable by keyboard nor true.)
+     A colour still rendering or failed has nothing to open, so it stays an
+     <article> rather than a button that does nothing. */
+  const bar='<span class="rc-card-action"><span class="rc-card-head">'+
+    rcSwatchHtml(r.name)+'<span class="rc-card-name">'+escHtml(r.name)+'</span></span>'+
+    '<span class="rc-card-cta">'+(r.b64?'View full size':r.error?'Not rendered':'Rendering')+
+    '</span></span>';
+  const inside='<div class="result-img">'+well+'</div>'+bar;
+  return r.b64
+    ? '<button class="result-card" type="button" data-i="'+i+'" data-state="done">'+inside+'</button>'
+    : '<article class="result-card" data-state="'+rcState(r)+'">'+inside+'</article>';
 }
 
 /* ── Full size ── */
 let _zoomReturn=null;
 
 document.getElementById('rc-row').addEventListener('click',function(e){
-  const btn=e.target.closest('.rc-card-action[data-i]');
-  if(btn) rcOpenZoom(+btn.dataset.i);
+  const card=e.target.closest('.result-card[data-i]');
+  if(card) rcOpenZoom(+card.dataset.i);
 });
 
 function rcOpenZoom(i){
