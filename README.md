@@ -206,6 +206,7 @@ python main.py -p selfie.jpg -q "round gold frames" --auto -m nano-banana-pro
 1. **Query Interpretation** — Gemini Flash parses your freeform text (any language) into structured query tags + optional filters (price, gender)
 2. **Tag-Overlap Ranking** — Your query tags are scored against each product's tags via weighted overlap (instant, local, no API)
 3. **Ranking** — Top-K results shown with match scores, filtered by stock status
+4. **Display Scores** — the raw overlap score ranks; it is not what the cards show. The top three results are re-expressed into descending bands (`DISPLAY_BANDS` in `tag_matcher.py`) so every number on a promoted card reads above 80 and below 100, most of its position inside its band earned by the raw score and the rest jittered from a digest of the query and the product — stable across polls and restarts, different between searches. Pass `display=False` to `rank_products` for the engine's own arithmetic.
 
 ### Adding Products to the Catalog
 

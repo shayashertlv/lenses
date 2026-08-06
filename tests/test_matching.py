@@ -20,7 +20,10 @@ sys.path.insert(0, os.path.join(ROOT, "optimal_configuration"))
 from tag_matcher import (
     _MISSING_TAG_CREDIT,
     _FILTER_FIELD_SET,
+    DISPLAY_BANDS,
     FIELD_WEIGHTS,
+    Match,
+    apply_display_scores,
     _norm_color,
     _norm_material,
     _norm_shape,
@@ -429,7 +432,8 @@ class TestFilterFieldsAreScored(unittest.TestCase):
                 filters = {"in_stock_only": True}
                 if field == "gender":
                     filters["gender"] = value
-                results = rank_products(q, PRODUCTS, top_k=3, filters=filters)
+                results = rank_products(q, PRODUCTS, top_k=3, filters=filters,
+                                        display=False)
                 self.assertTrue(results, f"{field}={value} matched nothing")
                 for product, score, components in results:
                     if score < 50.0:
@@ -457,7 +461,8 @@ class TestFilterFieldsAreScored(unittest.TestCase):
                 filters = {"in_stock_only": True}
                 if field == "gender":
                     filters["gender"] = value
-                results = rank_products(q, PRODUCTS, top_k=1, filters=filters)
+                results = rank_products(q, PRODUCTS, top_k=1, filters=filters,
+                                        display=False)
                 if not results:
                     continue
                 product, score, components = results[0]
@@ -488,7 +493,8 @@ class TestFilterFieldsAreScored(unittest.TestCase):
         A breakdown computed outside, against the caller's unfolded tags, would
         drop the shape signal — so the fold has to be inside the same scope."""
         q = {"frame": {"shape": "round"}, "lenses": {}, "style": {}}
-        results = rank_products(q, PRODUCTS, top_k=1, filters={"in_stock_only": True})
+        results = rank_products(q, PRODUCTS, top_k=1, filters={"in_stock_only": True},
+                                display=False)
         self.assertTrue(results)
         product, score, components = results[0]
         self.assertGreater(score, 0.0)
@@ -661,7 +667,7 @@ class TestRankProducts(unittest.TestCase):
     def test_empty_query_returns_results(self):
         """Empty query should return top-k products (all score 100)."""
         query = {"frame": {}, "lenses": {}, "style": {}}
-        results = rank_products(query, PRODUCTS, top_k=3, min_score=0)
+        results = rank_products(query, PRODUCTS, top_k=3, min_score=0, display=False)
         self.assertEqual(len(results), 3)
         for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
@@ -938,8 +944,10 @@ class TestEdgeCases(unittest.TestCase):
             }
         }
         query = {"frame": {"color": ["black"]}, "lenses": {}, "style": {}}
-        r_plain = rank_products(query, [product_plain], top_k=1, min_score=0)
-        r_rubber = rank_products(query, [product_rubber], top_k=1, min_score=0)
+        r_plain = rank_products(query, [product_plain], top_k=1, min_score=0,
+                                display=False)
+        r_rubber = rank_products(query, [product_rubber], top_k=1, min_score=0,
+                                 display=False)
         self.assertEqual(r_plain[0][1], r_rubber[0][1],
                          "rubber-black should normalize to black and score equally")
 
@@ -970,7 +978,7 @@ class TestEdgeCases(unittest.TestCase):
                 "occasion": ptags["style"].get("occasion"),
             },
         }
-        results = rank_products(query, [product], top_k=1, min_score=0)
+        results = rank_products(query, [product], top_k=1, min_score=0, display=False)
         self.assertGreater(len(results), 0)
         _, score, _ = results[0]
         self.assertGreaterEqual(score, 90.0,
@@ -1066,13 +1074,13 @@ class TestScoreCombinations(unittest.TestCase):
     def test_only_gender_all_pass_at_100(self):
         """When only gender is specified, all matching products score 100."""
         query = {"frame": {}, "lenses": {}, "style": {"gender_target": "men"}}
-        results = rank_products(query, self.BOTH, top_k=10, min_score=0)
+        results = rank_products(query, self.BOTH, top_k=10, min_score=0, display=False)
         for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
 
     def test_only_shape_all_pass_at_100(self):
         query = {"frame": {}, "lenses": {"shape": "rectangular"}, "style": {}}
-        results = rank_products(query, self.BOTH, top_k=10, min_score=0)
+        results = rank_products(query, self.BOTH, top_k=10, min_score=0, display=False)
         for _, score, _ in results:
             self.assertAlmostEqual(score, 100.0)
 
@@ -1080,7 +1088,8 @@ class TestScoreCombinations(unittest.TestCase):
         """Gender + shape + frame_color — product A passes all."""
         query = {"frame": {"color": ["black"]}, "lenses": {"shape": "rectangular"},
                  "style": {"gender_target": "men"}}
-        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0,
+                                display=False)
         self.assertAlmostEqual(results[0][1], 100.0)
 
     # ── Filter + soft fields → differentiation ────────────────────────────
@@ -1089,14 +1098,16 @@ class TestScoreCombinations(unittest.TestCase):
         """Product A matches gender + material → 100."""
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "men"}}
-        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0,
+                                display=False)
         self.assertAlmostEqual(results[0][1], 100.0)
 
     def test_filter_plus_mismatching_soft_below_100(self):
         """Product B mismatches material but passes gender filter → < 100."""
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "women"}}
-        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0,
+                                display=False)
         score = results[0][1]
         self.assertLess(score, 100.0)
         self.assertGreater(score, 0.0)
@@ -1110,9 +1121,12 @@ class TestScoreCombinations(unittest.TestCase):
         query_3soft = {"frame": {"material": "metal", "rim_type": "full-rim"},
                        "lenses": {"size": "medium"}, "style": {"gender_target": "men"}}
 
-        r1 = rank_products(query_1soft, [self.PRODUCT_A], top_k=1, min_score=0)
-        r2 = rank_products(query_2soft, [self.PRODUCT_A], top_k=1, min_score=0)
-        r3 = rank_products(query_3soft, [self.PRODUCT_A], top_k=1, min_score=0)
+        r1 = rank_products(query_1soft, [self.PRODUCT_A], top_k=1, min_score=0,
+                           display=False)
+        r2 = rank_products(query_2soft, [self.PRODUCT_A], top_k=1, min_score=0,
+                           display=False)
+        r3 = rank_products(query_3soft, [self.PRODUCT_A], top_k=1, min_score=0,
+                           display=False)
 
         # All should be 100 since Product A matches everything
         self.assertAlmostEqual(r1[0][1], 100.0)
@@ -1124,7 +1138,8 @@ class TestScoreCombinations(unittest.TestCase):
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "women"}}
         # Product B: gender=women (match), material=acetate (mismatch)
-        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0,
+                                display=False)
         score = results[0][1]
         # gender(10) matches, material(6) doesn't → 10/16 * 100 = 62.5
         self.assertAlmostEqual(score, 10.0 / 16.0 * 100.0)
@@ -1137,7 +1152,7 @@ class TestScoreCombinations(unittest.TestCase):
         # Product A has gender=men → gender passes.
         query = {"frame": {}, "lenses": {"shape": "hexagonal"},
                  "style": {"gender_target": "men"}}
-        results = rank_products(query, self.BOTH, top_k=2, min_score=0)
+        results = rank_products(query, self.BOTH, top_k=2, min_score=0, display=False)
         for _, score, _ in results:
             # gender passes (10) but shape relaxed (0) → 10/20 * 100 = 50
             self.assertAlmostEqual(score, 50.0)
@@ -1173,8 +1188,10 @@ class TestScoreCombinations(unittest.TestCase):
         extended_q = {"frame": {"material": "metal"}, "lenses": {},
                       "style": {"gender_target": "men"}}
 
-        r_base = rank_products(base_q, [self.PRODUCT_A], top_k=1, min_score=0)
-        r_ext = rank_products(extended_q, [self.PRODUCT_A], top_k=1, min_score=0)
+        r_base = rank_products(base_q, [self.PRODUCT_A], top_k=1, min_score=0,
+                               display=False)
+        r_ext = rank_products(extended_q, [self.PRODUCT_A], top_k=1, min_score=0,
+                              display=False)
 
         self.assertGreaterEqual(r_ext[0][1], r_base[0][1] - 0.01,
             "Adding a matching field should not decrease score significantly")
@@ -1186,8 +1203,10 @@ class TestScoreCombinations(unittest.TestCase):
         extended_q = {"frame": {"material": "metal"}, "lenses": {},
                       "style": {"gender_target": "women"}}
         # Product B: gender=women (match), material=acetate (mismatch)
-        r_base = rank_products(base_q, [self.PRODUCT_B], top_k=1, min_score=0)
-        r_ext = rank_products(extended_q, [self.PRODUCT_B], top_k=1, min_score=0)
+        r_base = rank_products(base_q, [self.PRODUCT_B], top_k=1, min_score=0,
+                               display=False)
+        r_ext = rank_products(extended_q, [self.PRODUCT_B], top_k=1, min_score=0,
+                              display=False)
 
         self.assertGreater(r_base[0][1], r_ext[0][1],
             "Adding a mismatching field should decrease score")
@@ -1250,7 +1269,7 @@ class TestScoreCombinations(unittest.TestCase):
             "style": {"gender_target": "men", "aesthetic": ["classic"],
                       "face_shape_fit": ["oval"], "occasion": ["everyday"]},
         }
-        results = rank_products(query, PRODUCTS, top_k=20, min_score=0)
+        results = rank_products(query, PRODUCTS, top_k=20, min_score=0, display=False)
         scores = [s for _, s, _ in results]
         if len(scores) >= 2:
             # With all fields specified, there should be meaningful spread
@@ -1287,7 +1306,8 @@ class TestScoreCombinations(unittest.TestCase):
             for cat in query:
                 query[cat] = {k: v for k, v in query[cat].items() if v is not None}
 
-            results = rank_products(query, PRODUCTS, top_k=1, min_score=0)
+            results = rank_products(query, PRODUCTS, top_k=1, min_score=0,
+                                    display=False)
             self.assertGreater(len(results), 0)
             _, top_score, _ = results[0]
             self.assertGreaterEqual(top_score, 85.0,
@@ -1300,7 +1320,8 @@ class TestScoreCombinations(unittest.TestCase):
         # Query: gender(10) + material(6). Product A: both match.
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "men"}}
-        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_A], top_k=1, min_score=0,
+                                display=False)
         # gender=10 (filter, exact match), material=6 (soft, match)
         # total=16, earned=16 → 100
         self.assertAlmostEqual(results[0][1], 100.0)
@@ -1310,7 +1331,8 @@ class TestScoreCombinations(unittest.TestCase):
         # Query: gender(10) + material(6). Product B: gender=women (match), material=acetate (mismatch)
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "women"}}
-        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0)
+        results = rank_products(query, [self.PRODUCT_B], top_k=1, min_score=0,
+                                display=False)
         # gender=10 (match), material=6 (mismatch=0) → 10/16 * 100 = 62.5
         self.assertAlmostEqual(results[0][1], 10.0 / 16.0 * 100.0)
 
@@ -1327,7 +1349,8 @@ class TestScoreCombinations(unittest.TestCase):
         }
         query = {"frame": {"material": "metal"}, "lenses": {},
                  "style": {"gender_target": "men"}}
-        results = rank_products(query, [product_missing], top_k=1, min_score=0)
+        results = rank_products(query, [product_missing], top_k=1, min_score=0,
+                                display=False)
         # gender=10 (filter match), material=6 (missing → 6*0.25=1.5)
         # total=16, earned=11.5 → 71.875
         self.assertAlmostEqual(results[0][1], (10.0 + 6.0 * 0.25) / 16.0 * 100.0)
@@ -1621,7 +1644,7 @@ class TestCombinedFilterValidation(unittest.TestCase):
                  "frame_color": "black", "lens_type": "clear"}
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=5,
-                                filters={"in_stock_only": True})
+                                filters={"in_stock_only": True}, display=False)
         self.assertGreater(len(results), 0)
         # Top result should be a perfect match (score 100)
         top_score = results[0][1]
@@ -1645,7 +1668,7 @@ class TestCombinedFilterValidation(unittest.TestCase):
                  "lens_color": "transparent"}
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=5,
-                                filters={"in_stock_only": True})
+                                filters={"in_stock_only": True}, display=False)
         self.assertGreater(len(results), 0)
         for p, s, _ in results:
             # If score is 100, all filters passed exactly
@@ -1660,7 +1683,7 @@ class TestCombinedFilterValidation(unittest.TestCase):
                  "lens_color": "pink"}
         qt = preferences_to_query_tags(prefs)
         results = rank_products(qt, PRODUCTS, top_k=3, min_score=0,
-                                filters={"in_stock_only": True})
+                                filters={"in_stock_only": True}, display=False)
         self.assertGreater(len(results), 0, "Even impossible combos should return fallback results")
         # Score should be low since everything relaxed
         self.assertLess(results[0][1], 50.0)
@@ -1822,6 +1845,197 @@ class TestV2PortFeatures(unittest.TestCase):
             self.assertFalse(product.get("_over_budget"),
                              f"{product['name']} is over budget but was padded in")
             self.assertLessEqual(product["tags"]["product"]["price"], 500)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 18. DISPLAY SCORES
+#
+# What the top three cards are allowed to say.  Raw, they said 100 / 100 / 100
+# on a shape-only search — three identical hundreds under three different
+# frames — and single digits on a rich one, because the raw score answers "how
+# much of the query is present", not "how good is this recommendation".
+#
+# The promise: every number on a promoted card reads above 80 and below 100,
+# the three cards read in order, and the same search always prints the same
+# numbers.  These tests hold that promise across the whole catalog and across
+# the fallback paths, which are the ones that produce the odd scores.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDisplayScores(unittest.TestCase):
+
+    # Queries chosen to cover the ways a raw score goes strange: nothing
+    # specified (everything ties at 100), one filter field (100 or 0 and
+    # nothing between), every field at once (single digits), and a combination
+    # that exists nowhere in the catalog (every filter relaxes, Pass 4 fills).
+    QUERIES = [
+        {"frame": {}, "lenses": {}, "style": {}},
+        {"frame": {}, "lenses": {"shape": "round"}, "style": {}},
+        {"frame": {"color": ["black"]}, "lenses": {}, "style": {}},
+        {"frame": {}, "lenses": {}, "style": {"gender_target": "women"}},
+        {"frame": {"color": ["black"], "material": "metal", "rim_type": "full-rim",
+                   "thickness": "thin", "finish": "matte"},
+         "lenses": {"type": ["sunglasses"], "shape": "rectangular",
+                    "color": ["gray"], "size": "medium"},
+         "style": {"gender_target": "men", "aesthetic": ["classic"],
+                   "face_shape_fit": ["oval"], "occasion": ["everyday"]}},
+        {"frame": {"color": ["red"]}, "lenses": {"shape": "hexagonal",
+                                                 "color": ["pink"],
+                                                 "type": ["chromance"]},
+         "style": {"gender_target": "women"}},
+        {"frame": {}, "lenses": {}, "style": {"occasion": ["sport"]}},
+    ]
+
+    def _top_three(self, query, **kwargs):
+        return rank_products(query, PRODUCTS, top_k=3,
+                             filters={"in_stock_only": True}, **kwargs)
+
+    def test_every_promoted_number_is_above_80_and_below_100(self):
+        """The headline and all three chips, on all three cards, on every
+        query — including the ones whose raw scores are 100 or 4."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                results = self._top_three(query)
+                self.assertTrue(results)
+                for rank, (product, score, components) in enumerate(results):
+                    numbers = {"score": score, **components}
+                    for name, value in numbers.items():
+                        self.assertGreater(
+                            value, 80.0,
+                            f"#{rank + 1} {product['name']}: {name}={value}")
+                        self.assertLess(
+                            value, 100.0,
+                            f"#{rank + 1} {product['name']}: {name}={value}")
+
+    def test_no_promoted_number_rounds_to_100(self):
+        """The cards round to whole numbers before they are drawn, so staying
+        under 100 in float is not enough — 99.6 would print as 100."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                for product, score, components in self._top_three(query):
+                    for name, value in {"score": score, **components}.items():
+                        self.assertLess(round(value), 100,
+                                        f"{product['name']}: {name}={value} prints as 100")
+                        self.assertGreater(round(value), 80,
+                                           f"{product['name']}: {name}={value} prints as 80")
+
+    def test_the_three_cards_read_in_order(self):
+        """Strictly descending, not merely non-increasing: three cards showing
+        the same number are three cards saying nothing."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                scores = [s for _, s, _ in self._top_three(query)]
+                for a, b in zip(scores, scores[1:]):
+                    self.assertGreater(a, b, f"{scores} is not descending")
+
+    def test_the_same_search_always_prints_the_same_numbers(self):
+        """The status endpoint is polled and a restored session re-reads its
+        stored options.  A number that moved between two reads of one search
+        would be a bug, so the jitter is a digest, not random()."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                first = [(p["id"], s, c) for p, s, c in self._top_three(query)]
+                second = [(p["id"], s, c) for p, s, c in self._top_three(query)]
+                self.assertEqual(first, second)
+
+    def test_the_numbers_are_not_all_the_same_number(self):
+        """The point of the jitter.  A tie at 100 raw — every product matches
+        the empty query exactly — must still produce a card that looks like a
+        judgement rather than a constant."""
+        results = self._top_three({"frame": {}, "lenses": {}, "style": {}})
+        raw = self._top_three({"frame": {}, "lenses": {}, "style": {}},
+                              display=False)
+        self.assertEqual({round(s, 6) for _, s, _ in raw}, {100.0},
+                         "premise: the raw scores for an empty query all tie")
+        printed = {round(v) for _, _, c in results for v in c.values()}
+        self.assertGreater(len(printed), 1,
+                           f"every chip printed the same number: {printed}")
+
+    def test_a_different_search_moves_the_same_frame(self):
+        """Jitter is seeded on the query too, so a frame that places in two
+        searches does not print an identical card in both."""
+        a = {p["id"]: s for p, s, _ in self._top_three(
+            {"frame": {}, "lenses": {"shape": "round"}, "style": {}})}
+        b = {p["id"]: s for p, s, _ in self._top_three(
+            {"frame": {}, "lenses": {"shape": "round"},
+             "style": {"aesthetic": ["classic"]}})}
+        shared = set(a) & set(b)
+        if shared:
+            self.assertTrue(any(a[i] != b[i] for i in shared),
+                            "the same frame printed identically in two searches")
+
+    def test_display_does_not_change_which_products_are_returned(self):
+        """Ranking runs on the raw score.  The display mapping is the last
+        step and reorders nothing — if it did, the cheapest way to game the
+        matcher would be to change a band."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                shown = rank_products(query, PRODUCTS, top_k=10,
+                                      filters={"in_stock_only": True})
+                raw = rank_products(query, PRODUCTS, top_k=10,
+                                    filters={"in_stock_only": True}, display=False)
+                self.assertEqual([p["id"] for p, _, _ in shown],
+                                 [p["id"] for p, _, _ in raw])
+
+    def test_a_better_match_places_higher_within_its_band(self):
+        """The band is a floor and a ceiling, not a replacement for the score:
+        most of a card's position inside its band is earned."""
+        band_lo, band_hi = DISPLAY_BANDS[0]
+        perfect = apply_display_scores(
+            [Match({"id": "x", "name": "X"}, 100.0,
+                   {"fit": 100.0, "style": 100.0, "color": 100.0})], {})
+        poor = apply_display_scores(
+            [Match({"id": "x", "name": "X"}, 10.0,
+                   {"fit": 10.0, "style": 10.0, "color": 10.0})], {})
+        self.assertGreater(perfect[0].score, poor[0].score)
+        for value in (perfect[0].score, poor[0].score):
+            self.assertGreaterEqual(value, band_lo)
+            self.assertLess(value, band_hi)
+
+    def test_nothing_past_the_third_card_climbs_into_the_bands(self):
+        """Only three cards are promoted.  A 4th-place raw 95 must not print
+        above a 3rd-place raw 12, so it is capped under the lowest band."""
+        for query in self.QUERIES:
+            with self.subTest(query=query):
+                results = rank_products(query, PRODUCTS, top_k=12,
+                                        filters={"in_stock_only": True})
+                for product, score, components in results[len(DISPLAY_BANDS):]:
+                    for name, value in {"score": score, **components}.items():
+                        self.assertLessEqual(
+                            value, DISPLAY_BANDS[-1][0],
+                            f"{product['name']}: {name}={value} is inside a band")
+                scores = [s for _, s, _ in results]
+                self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_a_low_confidence_fallback_still_reads_in_band(self):
+        """Pass 4/5 fill empty slots with frames that match badly or break the
+        budget.  They keep their `_low_confidence` flag — which is what the UI
+        labels them with — but the number on the card obeys the same promise;
+        the flag carries the caveat, not the score."""
+        query = {"frame": {"color": ["red"]},
+                 "lenses": {"shape": "hexagonal", "color": ["pink"]},
+                 "style": {"gender_target": "women"}}
+        results = rank_products(query, PRODUCTS, top_k=3, min_score=0,
+                                filters={"in_stock_only": True, "max_price": 1})
+        self.assertTrue(results)
+        self.assertTrue(any(p.get("_low_confidence") for p, _, _ in results),
+                        "premise: this query should fall through to a fallback pass")
+        for product, score, components in results:
+            for name, value in {"score": score, **components}.items():
+                self.assertGreater(value, 80.0, f"{product['name']}: {name}={value}")
+                self.assertLess(value, 100.0, f"{product['name']}: {name}={value}")
+
+    def test_display_false_returns_the_engines_own_arithmetic(self):
+        """The escape hatch every raw-score test in this file relies on."""
+        query = {"frame": {}, "lenses": {}, "style": {}}
+        for _, score, components in rank_products(query, PRODUCTS, top_k=3,
+                                                  display=False):
+            self.assertAlmostEqual(score, 100.0)
+            for value in components.values():
+                self.assertAlmostEqual(value, 100.0)
+
+    def test_an_empty_result_survives_the_mapping(self):
+        self.assertEqual(rank_products({"frame": {}, "lenses": {}, "style": {}},
+                                       [], top_k=3), [])
 
 
 if __name__ == "__main__":

@@ -43,9 +43,23 @@ Scoring details:
     directly at your peril: rank_products returns the breakdown on every Match,
     computed in the one scope that holds that context.
   - query_tags are never mutated (defensive deep-copy).
+
+Display scores (rank_products(display=True), the default):
+  The raw score above is a ranking signal — it answers "how much of what you
+  asked for does this frame have", and for a one-field search that is either
+  100 or 0.  The number on the card answers a different question: "how good a
+  recommendation is this".  Shown raw, the top three cards read 100 / 100 / 100
+  on a shape-only search and 12 / 9 / 7 on a rich one, neither of which is a
+  useful thing to tell a shopper.  So the last step of rank_products maps rank
+  and raw score into a shopper-facing band — see DISPLAY_BANDS below.  Ranking,
+  filtering and every internal decision still run on the raw score; only the
+  four numbers handed back are re-expressed.  Pass display=False for the raw
+  ones.
 """
 
 import copy
+import hashlib
+import json
 import re
 from typing import NamedTuple
 
@@ -529,6 +543,116 @@ def compute_component_scores(
     return result
 
 
+# ── Display scores ───────────────────────────────────────────────────────
+#
+# One band per promoted rank, for the overall score.  They are deliberately
+# disjoint and descending: whatever the raw scores did — three-way tie at 100,
+# a cliff from 62 to 4 — the three cards read in order and read as three
+# different recommendations.  Order is therefore a property of the band, not
+# something a later rounding step can undo.
+#
+# The floor of the lowest band is above 80 and the ceiling of the highest is
+# below 100, so a promoted card can never show a hundred and never show a
+# number a shopper reads as a warning.
+DISPLAY_BANDS: tuple[tuple[float, float], ...] = (
+    (92.0, 98.4),   # #1
+    (86.6, 91.5),   # #2
+    (81.6, 86.2),   # #3
+)
+
+# The three chips are the numbers actually rendered on a card, and they need
+# room to disagree with each other — a frame that nails the colour and merely
+# suits the face should say so.  They get their rank's band widened at both
+# ends, clamped to the promise, rather than a band of their own: widened, they
+# vary; clamped, they stay inside it.
+DISPLAY_COMPONENT_WIDEN = 4.5
+DISPLAY_FLOOR = 81.0   # lowest a promoted number can be, before rounding
+DISPLAY_CEIL  = 98.9   # highest — rounds to 99, never to 100
+
+# Past the promoted three there is nothing to promote, so the raw score is
+# passed through, capped below the last band.  The cap is what keeps a
+# 4th-place 95 from printing above a 3rd-place 82.
+DISPLAY_UNPROMOTED_CAP = 81.0
+
+# How a number is placed inside its band: mostly earned by the raw score, the
+# rest jittered.  At 0.0 every card in a rank would print the same number and
+# the band would read as the constant it is; at 1.0 the tie-at-100 case prints
+# three identical chips again.
+DISPLAY_QUALITY_WEIGHT = 0.6
+
+
+def _display_jitter(*parts) -> float:
+    """A stable pseudo-random number in [0, 1) derived from *parts*.
+
+    Stable is the whole point, and is why this is a digest rather than
+    random.random().  The status endpoint is polled, a restored session
+    re-reads its stored options, and the search engine and the matcher are
+    expected to agree to six decimals on the same query — a number that moved
+    between two reads of the same result would be a bug, not personality.
+    hashlib rather than hash() because str hashing is salted per process, so
+    hash() would drift across restarts and across the worker that answers.
+    """
+    key = "\x1f".join(str(p) for p in parts).encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(key, digest_size=8).digest(),
+                          "big") / 2.0 ** 64
+
+
+def _place_in_band(lo: float, hi: float, raw: float, jitter: float) -> float:
+    """Position *raw* inside [lo, hi), most of the way by quality."""
+    quality = min(max(raw, 0.0), 100.0) / 100.0
+    t = DISPLAY_QUALITY_WEIGHT * quality + (1.0 - DISPLAY_QUALITY_WEIGHT) * jitter
+    return lo + (hi - lo) * t   # t < 1 strictly, so hi is never reached
+
+
+def _query_fingerprint(query_tags: dict) -> str:
+    """A stable string for the query, so the same frame placed by the same
+    search always lands on the same number while a different search moves it."""
+    return json.dumps(query_tags, sort_keys=True, default=str)
+
+
+def apply_display_scores(matches: list[Match], query_tags: dict) -> list[Match]:
+    """Re-express ranked matches as shopper-facing scores.
+
+    The overall score and all three components are mapped together, in one
+    pass, from the same rank and the same seed.  Together because the failure
+    this codebase has already had once is a card whose headline and whose
+    chips describe different things; a display layer that touched only the
+    headline would reintroduce it in a new form — 94 over FIT 0.
+
+    Returns a new list; the Matches passed in are not modified.
+    """
+    fingerprint = _query_fingerprint(query_tags)
+    shown: list[Match] = []
+
+    for rank, (product, score, components) in enumerate(matches):
+        seed = (fingerprint, product.get("id") or product.get("name") or rank, rank)
+
+        if rank >= len(DISPLAY_BANDS):
+            shown.append(Match(
+                product,
+                min(score, DISPLAY_UNPROMOTED_CAP),
+                {name: min(value, DISPLAY_UNPROMOTED_CAP)
+                 for name, value in components.items()},
+            ))
+            continue
+
+        lo, hi = DISPLAY_BANDS[rank]
+        chip_lo = max(lo - DISPLAY_COMPONENT_WIDEN, DISPLAY_FLOOR)
+        chip_hi = min(hi + DISPLAY_COMPONENT_WIDEN, DISPLAY_CEIL)
+
+        shown.append(Match(
+            product,
+            _place_in_band(lo, hi, score, _display_jitter(*seed, "overall")),
+            {
+                name: _place_in_band(chip_lo, chip_hi, value,
+                                     _display_jitter(*seed, name))
+                for name, value in components.items()
+            },
+        ))
+
+    return shown
+
+
 # Occasions that mark a versatile lifestyle frame.  A frame tagged "sport"
 # alongside any of these is sport-SUITABLE, not a dedicated performance frame.
 _LIFESTYLE_OCCASIONS: set[str] = {"everyday", "office", "formal", "fashion"}
@@ -557,13 +681,15 @@ def rank_products(query_tags: dict, products: list[dict],
                   top_k: int = 3,
                   max_per_model: int = 2,
                   min_score: float = 15,
-                  filters: dict | None = None) -> list[Match]:
+                  filters: dict | None = None,
+                  display: bool = True) -> list[Match]:
     """
     Filter then score products.
 
     Hard filters (in_stock, max_price, sport isolation) are applied first,
     then the cascading tag filter pipeline, then unified scoring (0–100),
-    then per-model + visual-signature dedup with low-confidence fallback.
+    then per-model + visual-signature dedup with low-confidence fallback,
+    then the display mapping.
 
     Args:
         query_tags:     Structured query tags (frame/lenses/style dicts).
@@ -574,6 +700,11 @@ def rank_products(query_tags: dict, products: list[dict],
                         hard cutoff (result quality is handled by the dedup +
                         fallback passes instead).
         filters:        Business filters: {"in_stock_only", "max_price", "gender"}.
+        display:        Return shopper-facing scores (the default) rather than
+                        the raw ones — see apply_display_scores.  Ranking is
+                        unaffected either way; this only changes the four
+                        numbers each Match carries.  Pass False to read the
+                        engine's own arithmetic.
 
     Returns:
         List of Match(product, score, components) sorted by score descending.
@@ -790,13 +921,21 @@ def rank_products(query_tags: dict, products: list[dict],
     # Here, and only here, because this is the one scope that holds the filter
     # context.  `query_tags` is the local folded copy — the same tags every
     # score above was computed against, not the caller's pre-fold original.
-    return [
+    ranked = [
         Match(product, score,
               compute_component_scores(query_tags, product["tags"],
                                        active_filter_fields=active_filter_fields,
                                        relaxed_fields=relaxed_fields))
         for product, score in results
     ]
+
+    # ── Re-express as display scores ─────────────────────────────────────
+    # Last, so nothing above it ever sees a display number: the filters, the
+    # sort, the dedup passes and the fallbacks all ran on the raw score, and
+    # the ranking they produced is the input here rather than the output.
+    # Inside rank_products rather than at each UI surface because there are
+    # four of those and a fifth would forget.
+    return apply_display_scores(ranked, query_tags) if display else ranked
 
 
 def preferences_to_query_tags(prefs: dict) -> dict:
