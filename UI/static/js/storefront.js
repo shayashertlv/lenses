@@ -360,18 +360,13 @@ function restoreCachedSelfie() {
     showPhotoReady(cachedPreviewSrc);
     return true;
   }
-  const cached = sessionStorage.getItem('cached_portrait');
-  if (cached) {
-    try {
-      const arr = cached.split(','), mime = arr[0].match(/:(.*?);/)[1];
-      const bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
-      for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
-      cachedFile = new File([u8], 'cached-photo.jpg', { type: mime });
-      cachedPreviewSrc = cached;
-      currentFile = cachedFile;
-      showPhotoReady(cachedPreviewSrc);
-      return true;
-    } catch (e) { /* fall through to empty state */ }
+  const restored = restoredPortrait();
+  if (restored) {
+    cachedFile = restored.file;
+    cachedPreviewSrc = restored.dataUrl;
+    currentFile = cachedFile;
+    showPhotoReady(cachedPreviewSrc);
+    return true;
   }
   showUploadEmpty();
   return false;
@@ -443,9 +438,9 @@ document.getElementById('modal-file').addEventListener('change', e => {
   reader.onload = ev => {
     cachedPreviewSrc = ev.target.result;
     showPhotoReady(cachedPreviewSrc);
-    try { sessionStorage.setItem('cached_portrait', ev.target.result); } catch (e) {}
   };
   reader.readAsDataURL(f);
+  cachePortrait(f);
 });
 
 /* ── Generate: collapse the modal window into a floating circle ── */
@@ -1042,18 +1037,13 @@ function fsRestoreSelfie() {
     fsShowSelfie(cachedPreviewSrc);
     return;
   }
-  const cached = sessionStorage.getItem('cached_portrait');
-  if (cached) {
-    try {
-      const arr = cached.split(','), mime = arr[0].match(/:(.*?);/)[1];
-      const bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
-      for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
-      cachedFile = new File([u8], 'cached-photo.jpg', { type: mime });
-      cachedPreviewSrc = cached;
-      currentFile = cachedFile;
-      fsShowSelfie(cached);
-      return;
-    } catch (e) { /* fall through */ }
+  const restored = restoredPortrait();
+  if (restored) {
+    cachedFile = restored.file;
+    cachedPreviewSrc = restored.dataUrl;
+    currentFile = cachedFile;
+    fsShowSelfie(cachedPreviewSrc);
+    return;
   }
   document.getElementById('sf-fs-submit').disabled = true;
   document.getElementById('sf-fs-hint').textContent = 'Upload a photo first';
@@ -1068,9 +1058,9 @@ document.getElementById('sf-fs-file').addEventListener('change', e => {
   reader.onload = ev => {
     cachedPreviewSrc = ev.target.result;
     fsShowSelfie(ev.target.result);
-    try { sessionStorage.setItem('cached_portrait', ev.target.result); } catch (e) {}
   };
   reader.readAsDataURL(f);
+  cachePortrait(f);
 });
 
 /* Collect the overlay's preference selections (only the non-empty ones). */

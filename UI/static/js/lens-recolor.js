@@ -46,8 +46,9 @@ document.getElementById('rc-file').addEventListener('change',function(e){
   document.getElementById('up-label-text').textContent=f.name;
   const prev=document.getElementById('up-preview');
   const rcReader=new FileReader();
-  rcReader.onload=ev=>{prev.src=ev.target.result;prev.style.display='block';try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}};
+  rcReader.onload=ev=>{prev.src=ev.target.result;prev.style.display='block'};
   rcReader.readAsDataURL(f);
+  cachePortrait(f);
   checkReady();
 });
 
@@ -74,12 +75,10 @@ document.getElementById('rc-file').addEventListener('change',function(e){
 /* ── Restore cached portrait from another page (fallback if no recolor_preload) ── */
 (function(){
   if(chosenFile) return; // already loaded via recolor_preload
-  const cached=sessionStorage.getItem('cached_portrait');
-  if(!cached) return;
-  const arr=cached.split(','), mime=arr[0].match(/:(.*?);/)[1];
-  const bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
-  for(let i=0;i<n;i++) u8[i]=bstr.charCodeAt(i);
-  chosenFile=new File([u8],'cached-photo.jpg',{type:mime});
+  const restored=restoredPortrait();
+  if(!restored) return;
+  const cached=restored.dataUrl;
+  chosenFile=restored.file;
   const area=document.getElementById('upload-area');
   area.classList.add('has-file');
   document.getElementById('up-label-text').textContent='Photo from previous session';

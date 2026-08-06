@@ -44,6 +44,120 @@ document.addEventListener('keydown',function(e){
   }
 });
 
+/* ── The portrait, cached at a resolution the model can still use ───────────
+   One photo, two jobs, and conflating them cost picture quality on every
+   screen that restores a session.
+
+   The PREVIEW is painted into a 192px well and wants to be small. The CACHED
+   copy is not a preview at all: it is what a restored page UPLOADS. Reload,
+   or arrive from another screen, and the file rebuilt from this entry is what
+   Nano Banana Pro is handed.
+
+   Five scripts wrote this key and no two agreed. Landing cached its 900px
+   q0.82 preview and re-uploaded that — under half the 2048px the pipeline is
+   built to send, with the compression already baked in, and the renders came
+   back soft. The other four cached the untouched original, which for a 12MP
+   phone photo is 4-7MB of base64 against a ~5MB quota: setItem threw, the
+   catch swallowed it, and nothing was cached at all.
+
+   So: store the largest copy the quota will actually take, starting at the
+   pipeline's own ceiling and stepping down until one fits. Below the ceiling
+   the original goes in untouched, because re-encoding a photo that is already
+   small enough only loses detail. */
+
+const PORTRAIT_UPLOAD_MAX  = 2048;   // FS_MAX_IMAGE_DIM — the server downscales past this anyway
+const PORTRAIT_PREVIEW_MAX = 900;    // more than any preview slot in the product paints
+const PORTRAIT_CACHE_KEY   = 'cached_portrait';
+const PORTRAIT_STEPS = [2048, 1600, 1200, 900];
+
+function _portraitRescale(img, maxDim, quality){
+  try{
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const cv = document.createElement('canvas');
+    cv.width  = Math.round(img.naturalWidth  * scale);
+    cv.height = Math.round(img.naturalHeight * scale);
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', quality);
+  }catch(e){ return null; }
+}
+
+function _portraitStore(dataUrl){
+  if(!dataUrl) return false;
+  try{ sessionStorage.setItem(PORTRAIT_CACHE_KEY, dataUrl); return true; }
+  catch(e){ return false; }
+}
+
+/* Cache `file` for a later restore. done(storedDataUrl | null) — never throws,
+   and a failure to cache is not a failure to proceed: the live session already
+   holds the original File and uploads that untouched. */
+function cachePortrait(file, done){
+  const finish = done || function(){};
+  const reader = new FileReader();
+  reader.onerror = () => finish(null);
+  reader.onload = ev => {
+    const full = ev.target.result;
+    const img = new Image();
+    const fallback = () => finish(_portraitStore(full) ? full : null);
+    img.onerror = fallback;
+    img.onload = () => {
+      const side = Math.max(img.naturalWidth, img.naturalHeight);
+      const tries = [];
+      if (side <= PORTRAIT_UPLOAD_MAX) tries.push(() => full);        // lossless
+      PORTRAIT_STEPS.forEach(step => {
+        if (step < side) tries.push(() => _portraitRescale(img, step, 0.92));
+      });
+      if (!tries.length) tries.push(() => full);
+      /* Drop the previous entry first: a stale 2MB copy occupies the quota the
+         new one is trying to fit into. */
+      try{ sessionStorage.removeItem(PORTRAIT_CACHE_KEY); }catch(e){}
+      for (const make of tries){
+        const url = make();
+        if (_portraitStore(url)) return finish(url);
+      }
+      finish(null);
+    };
+    img.src = full;
+  };
+  reader.readAsDataURL(file);
+}
+
+/* The cached portrait as an uploadable File plus its data URL, or null. */
+function restoredPortrait(){
+  let cached = null;
+  try{ cached = sessionStorage.getItem(PORTRAIT_CACHE_KEY); }catch(e){}
+  if(!cached || cached.indexOf('data:image') !== 0) return null;
+  try{
+    const mime = cached.slice(5, cached.indexOf(';'));
+    const bstr = atob(cached.slice(cached.indexOf(',') + 1));
+    const u8 = new Uint8Array(bstr.length);
+    for(let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+    const ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg';
+    return { file: new File([u8], 'portrait' + ext, { type: mime }), dataUrl: cached };
+  }catch(e){ return null; }
+}
+
+function clearCachedPortrait(){
+  try{ sessionStorage.removeItem(PORTRAIT_CACHE_KEY); }catch(e){}
+}
+
+/* A small copy for painting. done(dataUrl) — the original when it is already
+   small enough, so the common case costs nothing. */
+function previewPortrait(file, done){
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const full = ev.target.result;
+    const img = new Image();
+    img.onerror = () => done(full);
+    img.onload = () => {
+      if (Math.max(img.naturalWidth, img.naturalHeight) <= PORTRAIT_PREVIEW_MAX) return done(full);
+      done(_portraitRescale(img, PORTRAIT_PREVIEW_MAX, 0.82) || full);
+    };
+    img.src = full;
+  };
+  reader.onerror = () => done('');
+  reader.readAsDataURL(file);
+}
+
 /* ── Capitalize helper ── */
 function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):''}
 

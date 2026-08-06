@@ -182,20 +182,24 @@ function sfMarkIntake(open) {
   } catch (e) {}
 }
 
+/* The restored photo is the one that gets UPLOADED, not just shown. It used to
+   be rebuilt from the 900px q0.82 preview cached beside it, so a reloaded
+   session handed the model under half the resolution the pipeline sends and the
+   renders came back soft. cachePortrait stores the largest copy the quota takes;
+   this reads it back. The small preview is derived from it afterwards, so a
+   2048px data URL is never what gets painted into a 192px well. */
 function sfRestoreCachedPhoto() {
-  let cached = null;
-  try { cached = sessionStorage.getItem('cached_portrait'); } catch (e) {}
-  if (!cached || cached.indexOf('data:image') !== 0) return false;
-  try {
-    const mime = cached.slice(5, cached.indexOf(';'));
-    const bstr = atob(cached.slice(cached.indexOf(',') + 1));
-    const u8 = new Uint8Array(bstr.length);
-    for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
-    sfPendingFile = new File([u8], 'photo.jpg', { type: mime });
-    sfPendingPreview = cached;
-    sfShowPhotoReady(cached);
-    return true;
-  } catch (e) { return false; }
+  const restored = restoredPortrait();
+  if (!restored) return false;
+  sfPendingFile = restored.file;
+  sfPendingPreview = restored.dataUrl;
+  sfShowPhotoReady(restored.dataUrl);
+  previewPortrait(restored.file, src => {
+    if (sfPendingFile !== restored.file) return;   // a new pick landed meanwhile
+    sfPendingPreview = src;
+    sfShowPhotoReady(src);
+  });
+  return true;
 }
 
 function openSmartFit() {
@@ -214,41 +218,19 @@ function closeSmartFit() {
 }
 
 /* A phone camera hands over a 3-12MB image. Held as a base64 data URL that is
-   a third bigger again, kept in a variable, painted into an <img> and pushed at
-   a 5MB sessionStorage quota that silently rejects it. The preview is scaled
-   down first — the upload still sends the original file untouched. */
-function sfPreviewFromFile(file, done) {
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const full = ev.target.result;
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 900;
-      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
-      if (scale === 1) return done(full);
-      try {
-        const cv = document.createElement('canvas');
-        cv.width = Math.round(img.naturalWidth * scale);
-        cv.height = Math.round(img.naturalHeight * scale);
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        done(cv.toDataURL('image/jpeg', 0.82));
-      } catch (e) { done(full); }
-    };
-    img.onerror = () => done(full);
-    img.src = full;
-  };
-  reader.readAsDataURL(file);
-}
-
+   a third bigger again and painted into an <img>, so the preview is scaled down
+   first — the upload sends the original file untouched. The cache is a separate
+   copy at a separate size, because it is not a preview: see cachePortrait. */
 document.getElementById('sf-file').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   sfPendingFile = f;
-  sfPreviewFromFile(f, src => {
+  previewPortrait(f, src => {
+    if (sfPendingFile !== f) return;
     sfPendingPreview = src;
     sfShowPhotoReady(src);
-    try { sessionStorage.setItem('cached_portrait', src); } catch (err) {}
   });
+  cachePortrait(f);
 });
 
 /* Reopened after a reload that happened while the picker was up. */
@@ -384,7 +366,7 @@ function sfReset() {
   document.getElementById('sf-file').value = '';
   sfPendingFile = null;
   sfPendingPreview = null;
-  try { sessionStorage.removeItem('cached_portrait'); } catch (e) {}
+  clearCachedPortrait();
   sfShowUploadEmpty();
   closeSmartFit();
   document.getElementById('sf-opts').innerHTML = '';

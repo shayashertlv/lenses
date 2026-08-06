@@ -22,8 +22,11 @@ fileIn.addEventListener('change', e=>{
   document.getElementById('up-label-text').textContent=f.name;
 
   const reader=new FileReader();
-  reader.onload=ev=>{preview.src=ev.target.result;preview.style.display='block';try{sessionStorage.setItem('cached_portrait',ev.target.result)}catch(e){}};
+  reader.onload=ev=>{preview.src=ev.target.result;preview.style.display='block'};
   reader.readAsDataURL(f);
+  /* Cached separately and at its own size: a full-size data URL is 4-7MB of
+     base64 against a ~5MB quota, so this used to throw and cache nothing. */
+  cachePortrait(f);
 
   submitBtn.disabled=false;
   submitHint.textContent='Pick any options — all optional — then find your match.';
@@ -31,13 +34,11 @@ fileIn.addEventListener('change', e=>{
 
 /* ── Restore cached portrait from another page ── */
 (function(){
-  const cached=sessionStorage.getItem('cached_portrait');
-  if(!cached || uploadedFile) return;
-  // Convert data URL to File
-  const arr=cached.split(','), mime=arr[0].match(/:(.*?);/)[1];
-  const bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
-  for(let i=0;i<n;i++) u8[i]=bstr.charCodeAt(i);
-  uploadedFile=new File([u8],'cached-photo.jpg',{type:mime});
+  if(uploadedFile) return;
+  const restored=restoredPortrait();
+  if(!restored) return;
+  const cached=restored.dataUrl;
+  uploadedFile=restored.file;
   uploadArea.classList.add('has-file');
   document.getElementById('up-label-text').textContent='Photo from previous session';
   preview.src=cached; preview.style.display='block';
