@@ -7,7 +7,6 @@
 let chosenFile = null;
 let sessionId = null;
 let pollTimer = null;
-let mainIdx = 0;               // which color is in the hero
 let colorResults = [];          // [{name, b64, error, status}]
 let rcCreep = null;
 let rcRetry = null;
@@ -26,8 +25,9 @@ function showView(v){
   ['form-view','loading-view','results-view','error-view'].forEach(id=>{
     const el=document.getElementById(id);
     if(id===v){
-      // results-view is a block scroll layout; loading/error use flex centering
-      el.style.display=(id==='results-view'||id==='form-view')?'block':'flex';
+      /* form-view is a document; the three overlays are flex — results as a
+         column whose row takes the leftover height, loading and error centred. */
+      el.style.display=(id==='form-view')?'block':'flex';
     } else {
       el.style.display='none';
     }
@@ -35,6 +35,11 @@ function showView(v){
   if(v===null){
     document.getElementById('form-view').style.display='block';
   }
+  /* The three overlays are fixed at z-index 70 over a header at 40, so without
+     this the header stays in the tab order underneath them: Shift-Tab off the
+     results heading reached an invisible "Lenses" link that navigates away and
+     throws the session out. */
+  document.querySelector('header.topbar').inert = !!v && v!=='form-view';
 }
 
 /* ── File picker ── */
@@ -248,90 +253,133 @@ function pollStatus(){
     .catch(()=>{if(rcRetry)rcRetry.fail()});
 }
 
-/* ── Render results ── */
+/* ── Render results ──
+   Three renders, one row, all at one size. */
 function renderResults(){
-  // Find first successful result for hero
-  mainIdx=0;
-  for(let i=0;i<colorResults.length;i++){
-    if(colorResults[i].b64){mainIdx=i;break;}
-  }
-  updateHero();
-  renderAlts();
+  renderRow();
   showView('results-view');
+  /* The view swap removes the control that was focused, which would drop focus
+     to <body> and lose a keyboard visitor's place. Send it to the heading. */
+  const h=document.getElementById('res-heading');
+  if(h) h.focus();
 }
 
-function updateProgressiveResults(){
-  // Re-render alt cards to replace spinners with newly arrived images
-  // Only update hero if current hero has no image yet and a new one arrived
-  const cur=colorResults[mainIdx];
-  if(cur && !cur.b64 && !cur.error){
-    // Current hero is still loading — check if it arrived
-    for(let i=0;i<colorResults.length;i++){
-      if(colorResults[i].b64){mainIdx=i;break;}
-    }
-    updateHero();
+function updateProgressiveResults(){ renderRow(); }
+
+function rcState(r){ return r.b64?'done':r.error?'fail':'wait' }
+
+/* Cards are patched one at a time, never the container. The status poll runs
+   every 2s: rebuilding the row wholesale restarted every wait bar on each one,
+   and it also detached whatever held focus — including the card the open
+   full-size dialog is meant to hand focus back to, whose .focus() on a detached
+   node does nothing at all and drops the visitor onto <body>. A colour that has
+   not changed state is not touched. */
+function renderRow(){
+  const row=document.getElementById('rc-row');
+  while(row.children.length>colorResults.length) row.lastElementChild.remove();
+  colorResults.forEach((r,i)=>{
+    const cell=row.children[i];
+    if(cell && cell.dataset.state===rcState(r)) return;
+    if(cell) cell.outerHTML=rcCardHtml(r,i);
+    else row.insertAdjacentHTML('beforeend',rcCardHtml(r,i));
+  });
+  rcAnnounce();
+}
+
+/* What is actually on screen. The results view opens at the `primary_ready`
+   stage, where one of the three colours has come back and two are still
+   rendering, so announcing the requested count called three renders ready when
+   there was one — and nothing was said when the other two landed. */
+function rcAnnounce(){
+  const live=document.getElementById('res-live');
+  if(!live) return;
+  const done=colorResults.filter(r=>r.b64);
+  const failed=colorResults.filter(r=>r.error);
+  const text=done.length+' of '+colorResults.length+' colours ready'+
+    (done.length?': '+done.map(r=>r.name).join(', '):'')+'.'+
+    (failed.length?' '+failed.map(r=>r.name).join(', ')+' could not be rendered.':'');
+  if(live.textContent!==text) live.textContent=text;
+}
+
+/* escHtml goes through textContent, which escapes < > and & but leaves a double
+   quote alone — safe for text, not for a value being written between quotes. */
+function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;') }
+
+/* The swatch the visitor picked, read back off the picker rather than restated
+   here, so the sixteen gradients live in exactly one place. */
+function rcSwatchHtml(name){
+  const input=document.querySelector('input[name="lens_color"][value="'+CSS.escape(name)+'"]');
+  const sw=input && input.closest('.color-pick').querySelector('.color-swatch');
+  if(!sw) return '';
+  return '<span class="rc-swatch"'+
+    (sw.hasAttribute('data-clear')?' data-clear="1"':'')+
+    (sw.getAttribute('style')?' style="'+escAttr(sw.getAttribute('style'))+'"':'')+
+    '></span>';
+}
+
+function rcCardHtml(r,i){
+  let well;
+  if(r.b64){
+    well='<div class="tryon-done"><img src="data:image/png;base64,'+r.b64+
+      '" alt="You wearing '+escAttr(r.name)+' lenses"/></div>';
+  } else if(r.error){
+    well='<div class="tryon-fail">Could not be rendered: '+escHtml(r.error)+'</div>';
+  } else {
+    well='<div class="tryon-wait"><span class="tryon-wait-bar"></span>Rendering</div>';
   }
-  renderAlts();
+  /* One control per card, and it is the card's whole bottom bar: the old markup
+     put a <button> inside a div carrying the click, so the card was unreachable
+     by keyboard and the button's label named an action it did not perform. */
+  const head='<span class="rc-card-head">'+rcSwatchHtml(r.name)+
+    '<span class="rc-card-name">'+escHtml(r.name)+'</span></span>';
+  const body=r.b64
+    ? '<button class="rc-card-action" type="button" data-i="'+i+'">'+head+
+        '<span class="rc-card-cta">View full size</span></button>'
+    : '<div class="rc-card-action is-idle">'+head+
+        '<span class="rc-card-cta">'+(r.error?'Not rendered':'Rendering')+'</span></div>';
+  return '<article class="result-card" data-state="'+rcState(r)+'">'+
+    '<div class="result-img">'+well+'</div>'+body+'</article>';
 }
 
-function updateHero(){
-  const r=colorResults[mainIdx];
-  const heroImg=document.getElementById('hero-img');
-  const heroWrap=document.getElementById('hero-img-wrap');
-  const label=document.getElementById('hero-color-label');
+/* ── Full size ── */
+let _zoomReturn=null;
 
-  if(r && r.b64){
-    heroWrap.innerHTML='<img id="hero-img" src="data:image/png;base64,'+r.b64+'" alt="Recoloured lens" style="display:block"/>';
-    label.textContent=r.name;
-  } else if(r && r.error){
-    heroWrap.innerHTML='<div class="tryon-error">'+escHtml(r.error)+'</div>';
-    label.textContent=r.name+' — failed';
-  } else if(r){
-    heroWrap.innerHTML='<div class="tryon-loading tryon-loading--hero"><div class="mini-spin mini-spin--lg"></div><p class="gen-note">Rendering '+escHtml(r.name)+'…</p></div>';
-    label.textContent=r.name+' — rendering…';
-  }
-  renderAlts();
+document.getElementById('rc-row').addEventListener('click',function(e){
+  const btn=e.target.closest('.rc-card-action[data-i]');
+  if(btn) rcOpenZoom(+btn.dataset.i);
+});
+
+function rcOpenZoom(i){
+  const r=colorResults[i];
+  if(!r||!r.b64) return;
+  const img=document.getElementById('rc-zoom-img');
+  img.src='data:image/png;base64,'+r.b64;
+  img.alt='You wearing '+r.name+' lenses';
+  document.getElementById('rc-zoom-name').textContent=r.name;
+  _zoomReturn=document.activeElement;
+  const ov=document.getElementById('rc-zoom');
+  ov.classList.add('visible');
+  /* aria-modal is an announcement, not an enforcement: without this Tab walks
+     straight out of the dialog into the row behind the backdrop. */
+  document.querySelector('main').inert=true;
+  void ov.offsetWidth;   // the panel is rendered before focus is asked to enter it
+  document.getElementById('rc-zoom-close').focus();
 }
 
-function renderAlts(){
-  const grid=document.getElementById('alt-grid');
-  grid.innerHTML='';
-  for(let i=0;i<colorResults.length;i++){
-    if(i===mainIdx) continue;
-    const r=colorResults[i];
-    const card=document.createElement('div');
-    card.className='alt-card'+(i===mainIdx?' active':'');
-    card.onclick=function(){switchTo(i)};
-    card.style.cursor='pointer';
-
-    let imgHtml='';
-    if(r.b64){
-      imgHtml='<img src="data:image/png;base64,'+r.b64+'" alt="'+escHtml(r.name)+'"/>';
-    } else if(r.error){
-      imgHtml='<div class="tryon-error">'+escHtml(r.error)+'</div>';
-    } else {
-      imgHtml='<div class="tryon-loading"><div class="mini-spin"></div><p>Rendering…</p></div>';
-    }
-
-    card.innerHTML=
-      '<div class="alt-card-img-wrap">'+imgHtml+'</div>'+
-      '<p class="alt-name">'+escHtml(r.name)+'</p>'+
-      '<button class="alt-card-switch">View full size</button>';
-
-    grid.appendChild(card);
-  }
+function rcCloseZoom(e){
+  // Called both from the backdrop and from Close; the backdrop must not fire
+  // when the click landed on the panel it is behind.
+  if(e && e.target!==e.currentTarget) return;
+  document.getElementById('rc-zoom').classList.remove('visible');
+  // Cleared before the focus call: focus cannot enter an inert subtree.
+  document.querySelector('main').inert=false;
+  if(_zoomReturn){_zoomReturn.focus();_zoomReturn=null}
 }
 
-function switchTo(idx){
-  mainIdx=idx;
-  // Re-render hero with animation
-  const hero=document.getElementById('hero-section');
-  hero.style.animation='none';
-  hero.offsetHeight; // force reflow
-  hero.style.animation='slideUp var(--d-slow) var(--ease) both';
-
-  updateHero();
-}
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape') return;
+  if(document.getElementById('rc-zoom').classList.contains('visible')) rcCloseZoom();
+});
 
 /* ── Helpers ── */
 function showError(msg){
@@ -346,8 +394,11 @@ function rcReset(){
   if(rcCreep){rcCreep.stop();rcCreep=null}
   chosenFile=null;
   colorResults=[];
-  mainIdx=0;
   resultsShown=false;
+  _zoomReturn=null;   // the control it would return to is about to be removed
+  rcCloseZoom();
+  document.getElementById('rc-row').innerHTML='';
+  document.getElementById('res-live').textContent='';
   document.getElementById('rc-file').value='';
   document.getElementById('upload-area').classList.remove('has-file');
   document.getElementById('up-label-text').textContent='Hand over a photo';

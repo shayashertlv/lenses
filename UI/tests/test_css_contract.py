@@ -38,8 +38,14 @@ TOKEN_FILES = {"tokens.css"}
 # Only @media preludes. A bare `max-width:` search also matches the CSS
 # *property*, so a container capped at `max-width: 1320px` would count as a
 # breakpoint it is not.
+#
+# min-width counts too. It was not matched, so `@media (min-width: 1280px)` --
+# the first thing anyone reaching for "three across on desktop only" writes --
+# was invisible to both budgets below and would have added a real reflow width
+# against a green suite. Adding it changes nothing today: every prelude under
+# UI/static/css is a max-width, so the counted set is identical.
 _MEDIA_RULE = re.compile(r"@media([^{]+)\{")
-_MEDIA_W = re.compile(r"max-width:\s*(\d+)px")
+_MEDIA_W = re.compile(r"(?:max|min)-width:\s*(\d+)px")
 _HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 _INLINE_STYLE = re.compile(r'\sstyle="')
 _FONT_REM = re.compile(r"font-size:\s*([\d.]+)rem")

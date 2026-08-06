@@ -332,11 +332,19 @@
 .load-cancel:hover { border-color: var(--ink); color: var(--ink); }
 
 /* ── Results: the render leads ── */
+/* A flex column, so the row below can be given the height the band leaves and
+   nothing more. This declaration was inert until now — showView() forced
+   `display: block` — and the results view was a 1650px document scrolling in a
+   900px window as a result. */
 #results-view { flex-direction: column; }
+/* The band carries the screen's title, the way the Smart fit results bar does
+   (landing.css:400-418). It used to hold the back button alone under a
+   `space-between` written for a second child that was never there, while the
+   title sat again 24px below it at 40px — two headers for one screen, and 61px
+   of height taken off the pictures to say the same thing twice. */
 .res-topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5);
   background-color: var(--field);
@@ -366,76 +374,175 @@
 .res-back:hover { background-color: var(--field-hi); }
 .res-back:active { background-color: var(--field-deep); }
 
-.res-inner { max-width: 1100px; width: 100%; margin: 0 auto; padding: var(--s-5); }
-.res-page-title {
-  margin: 0 0 var(--s-4);
-  font-size: var(--t-xl);
+.res-bar-title {
+  margin: 0;
+  font-size: var(--t-md);
   font-weight: 800;
-  font-stretch: 68%;
+  font-stretch: 72%;
   text-transform: uppercase;
   letter-spacing: var(--tr-display);
-  line-height: var(--lh-tight);
+  line-height: 1;
 }
+/* The heading takes focus when the results replace the form, so its ring has to
+   read on the band it sits in — --field on --field is no ring at all. */
+.res-bar-title:focus-visible { outline: 2px solid var(--on-field); outline-offset: 3px; }
 
-.hero-section { margin-bottom: var(--s-5); }
-.hero-badge {
-  display: inline-block;
-  margin-bottom: var(--s-2);
-  padding: 3px 8px;
-  border-radius: var(--r-tag);
-  background-color: var(--field);
-  color: var(--on-field);
-  font-size: var(--t-2xs);
-  font-weight: 500;
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-}
-#hero-img-wrap { position: relative; background-color: var(--card); border-radius: var(--r-ctl); overflow: hidden; }
-#hero-img { display: block; width: 100%; height: auto; max-height: 62vh; object-fit: contain; margin: 0 auto; }
-.hero-color-label {
-  display: block;
-  margin-top: var(--s-2);
-  font-size: var(--t-2xs);
-  font-weight: 500;
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
+/* The row takes the height left under the band and no more, the way Smart fit's
+   does (landing.css:446-464). Three portrait renders are limited by height, not
+   width, so a fixed container is wrong at both ends: at 1100px the row ran 8px
+   past the fold on a 625px-tall laptop — clipping the very control the screen
+   was rebuilt around — and left a band of unused paper on a tall monitor.
 
-.section-divider {
-  margin: var(--s-5) 0 var(--s-3);
-  padding-bottom: var(--s-2);
-  border-bottom: 2px solid var(--ink);
-  font-size: var(--t-2xs);
-  font-weight: 500;
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-  color: var(--ink-3);
+   Width follows height. A card is a 4:5 well over a 69px bar, and the height it
+   may have is the viewport less the band (68), this padding (48) and the note
+   (37): 1.25w + 69 <= vh - 153, so w <= 0.8vh - 178. Three of those plus two
+   12px gaps plus the padding is 2.4vh - 461. Clamped to this surface's 1100
+   above and to a card still worth looking at below. Re-derive it if the bar's
+   height changes: too generous and the well letterboxes to make up the
+   difference, which is the thing the derivation exists to avoid.
+
+   `justify-content: center` places the leftover when the picture tops out
+   first; `min-height: 0` lets the well give height back rather than scroll. */
+.res-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  max-width: clamp(720px, calc(240vh - 461px), 1100px);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--s-5);
 }
-#alt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--s-3); }
-.alt-card {
+.res-inner .results-row { flex: 0 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-content: stretch; }
+.res-note { margin: 0 0 var(--s-4); max-width: var(--measure); font-size: var(--t-sm); color: var(--ink-2); }
+
+/* ── The three renders ────────────────────────────
+   The row itself is .results-row from results.css, the same one Smart fit and
+   Free Search use, and it is here for the reason recorded there: this screen
+   used to give the first colour the full 1052px width with the other two
+   beneath it. A portrait letterboxed inside that band painted 418px wide
+   against 634px of empty card, so the "selected" colour came out SMALLER than
+   the two alternates below it — and those started at y=714 on a 900px screen,
+   below the fold, which is where a visitor who asked to compare three tints
+   could not see two of them. Three equal columns size the picture to the card
+   and put all three on one line at the same scale, which is the only
+   arrangement a colour comparison can actually be made in.
+
+   Only what is specific to this page lives below; the well, the card and the
+   wait/fail states are the shared ones. */
+/* Two fixed lines, not one. The tint name is the answer the visitor came for
+   and DESIGN.md:328 gives a result card's body the 17px condensed brand voice —
+   but at 17px the name, its swatch and the action all on one line measure past
+   a 281px column at the 900px viewport, so "Champagne Gold" would wrap on one
+   card and not on the next. Ragged bars are the one thing a comparison row
+   cannot afford, so the stack is fixed for every card at every width. */
+.rc-card-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 68px;
+  padding: var(--s-2) var(--s-3);
   background-color: var(--paper);
+  border: 0;
+  border-top: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--d-fast) var(--ease);
+}
+.rc-card-action:hover { background-color: var(--card); }
+/* The wait and fail states get the same bar so the row keeps one baseline, but
+   there is nothing to open yet, so it is not a control. */
+.rc-card-action.is-idle { cursor: default; }
+.rc-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+}
+.rc-card-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 70%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1.1;
+}
+/* The chip the visitor picked, carried through to the render it produced, so
+   the name over the picture is anchored to something they already chose. */
+.rc-swatch {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-tag);
   border: 1px solid var(--rule);
+}
+.rc-swatch[data-clear] { background-color: var(--paper); border: 2px dashed var(--rule-strong); }
+.rc-card-cta {
+  flex: 0 0 auto;
+  margin-top: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rc-card-action:hover .rc-card-cta { color: var(--ink); }
+
+/* ── Full size ──
+   The hero used to be where a render could be looked at properly. The row
+   trades that for comparison, so the close look moves here and the button
+   that always said "View full size" finally does it. */
+/* It borrows the photo-tips backdrop but not its fade. `visibility` is a
+   discrete property: while a transition to `visible` is running the computed
+   value is still `hidden` on the first frame, and nothing inside a hidden
+   subtree can take focus — so the dialog opened with focus left on the card
+   behind the backdrop. Appearing at once removes the frame that bug lives in. */
+#rc-zoom { transition: none; }
+.zoom-box {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: 92vh;
+  padding: var(--s-3);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+}
+.zoom-well {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  background-color: var(--card);
   border-radius: var(--r-ctl);
   overflow: hidden;
-  cursor: pointer;
-  transition: border-color var(--d-base) var(--ease), transform var(--d-base) var(--ease);
 }
-.alt-card:hover { border-color: var(--ink); transform: translateY(-2px); }
-.alt-card img { display: block; width: 100%; height: auto; background-color: var(--card); }
-.alt-card .alt-name {
-  display: block;
-  padding: var(--s-2) var(--s-3);
-  font-size: var(--t-2xs);
-  font-weight: 500;
-  letter-spacing: var(--tr-label);
+.zoom-well img { display: block; max-width: 100%; max-height: 78vh; object-fit: scale-down; }
+.zoom-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+}
+.zoom-name {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
   text-transform: uppercase;
+  letter-spacing: var(--tr-display);
 }
-.alt-card-switch {
-  display: block;
-  width: calc(100% - 2 * var(--s-3));
-  margin: 0 var(--s-3) var(--s-3);
+.zoom-close {
   min-height: 44px;
+  padding: 0 var(--s-4);
   background-color: var(--paper);
   border: 1px solid var(--ink);
   border-radius: var(--r-ctl);
@@ -446,31 +553,8 @@
   letter-spacing: var(--tr-label);
   text-transform: uppercase;
   cursor: pointer;
-  transition: background-color var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
 }
-.alt-card-switch:hover { background-color: var(--ink); color: var(--paper); }
-.tryon-loading { padding: var(--s-4) 0; text-align: center; }
-.tryon-loading p {
-  margin: var(--s-2) 0 0;
-  font-size: var(--t-2xs);
-  font-weight: 500;
-  letter-spacing: var(--tr-label);
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.tryon-loading--hero { padding: var(--s-7) 0; }
-.mini-spin--lg { width: 48px; height: 48px; border-width: 4px; }
-.tryon-error { padding: var(--s-4); font-size: var(--t-sm); color: var(--danger); text-align: center; overflow-wrap: anywhere; }
-.mini-spin {
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--card-sunk);
-  border-top-color: var(--field);
-  border-radius: var(--r-pill);
-  animation: rcSpin .9s linear infinite;
-  margin: var(--s-5) auto;
-}
-@keyframes rcSpin { to { transform: rotate(360deg); } }
+.zoom-close:hover { background-color: var(--ink); color: var(--paper); }
 
 /* ── Error ── */
 .err-card {
@@ -565,7 +649,11 @@
    ══════════════════════════════════════════════════ */
 @media (max-width: 900px) {
   #form-view { padding: var(--s-4) var(--s-4) var(--s-6); }
-  .res-inner { padding: var(--s-4); }
+  /* Fill-the-screen is a desktop shape. Below 900 there is not enough height to
+     hold three renders and their labels at any useful size, so the results view
+     goes back to being a document that scrolls. */
+  .res-inner { display: block; flex: none; max-width: none; padding: var(--s-4); }
+  .res-inner .results-row { grid-template-rows: auto; }
 }
 
 @media (max-width: 560px) {
@@ -574,12 +662,12 @@
   .color-pick-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
   .color-swatch { width: 36px; height: 36px; }
   .rc-sline { width: 28px; }
-  #alt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #hero-img { max-height: 48vh; }
 }
 
 @media (max-height: 500px) and (max-width: 900px) {
   #loading-view, #error-view { align-items: flex-start; }
   .load-portrait { width: 64px; }
-  #hero-img { max-height: 72vh; }
+  /* Landscape phone: the well may take the height the stacked layout gives it. */
+  .result-img { max-height: 70vh; }
+  .zoom-well img { max-height: 62vh; }
 }

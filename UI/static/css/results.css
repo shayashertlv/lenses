@@ -109,6 +109,10 @@
   text-transform: uppercase;
   color: var(--ink-3);
   text-align: center;
+  /* A provider error arrives as one long unbroken string. The well is
+     `overflow: hidden`, so without this it is clipped rather than wrapped and
+     the reason the render failed is the part that goes missing. */
+  overflow-wrap: anywhere;
 }
 .tryon-wait-bar {
   width: 72px;
@@ -194,3 +198,21 @@
   padding-top: var(--s-2);
 }
 .result-thumb { width: 54px; height: 34px; object-fit: contain; }
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+
+   The row's own responsive behaviour lives with the row, so a page that adopts
+   it adopts the whole component rather than the desktop half of it. landing.css
+   and free-search.css state the same two rules for their own shells; this is
+   the copy every page gets for free.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 560px) {
+  /* A phone cannot hold three renders side by side and keep a face legible, so
+     they stack. One per row means each can be taller than it was in the line. */
+  .results-row { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, a card is the full width of the phone and the 4:5 well would run
+     past the fold on its own. Capped, the well shortens and the render sits
+     centred in it. */
+  .result-img { max-height: 58vh; }
+}

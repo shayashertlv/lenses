@@ -7,6 +7,7 @@
 <link rel="preload" href="/static/fonts/archivo-var-latin.woff2" as="font" type="font/woff2" crossorigin/>
 <link rel="stylesheet" href="/static/css/tokens.css"/>
 <link rel="stylesheet" href="/static/css/facets.css"/>
+<link rel="stylesheet" href="/static/css/results.css"/>
 <link rel="stylesheet" href="/static/css/lens-recolor.css"/>
 </head>
 <body>
@@ -84,24 +85,14 @@
 <div id="results-view">
   <div class="res-topbar">
     <button class="res-back" onclick="rcReset()"><svg class="back-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 12L6 8l4-4"/></svg>New photo</button>
+    <h2 class="res-bar-title" id="res-heading" tabindex="-1">Your lens colours</h2>
   </div>
   <div class="res-inner">
-    <h2 class="res-page-title">Your lens colours</h2>
+    <p class="res-note">One photo, three tints, at the same size. Open any one full size to look closer.</p>
+    <p class="sr-only" id="res-live" aria-live="polite"></p>
 
-    <!-- Hero (main selected image) -->
-    <div class="hero-section" id="hero-section">
-      <div class="hero-badge">Selected colour</div>
-      <div class="hero-img-wrap" id="hero-img-wrap">
-        <img id="hero-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Recoloured lens"/>
-      </div>
-      <h3 class="hero-color-label" id="hero-color-label"></h3>
-    </div>
-
-    <!-- Divider -->
-    <div class="section-divider"><span>Other colours</span></div>
-
-    <!-- Alt cards -->
-    <div class="alt-grid" id="alt-grid"></div>
+    <!-- Three renders, one row -->
+    <div class="results-row" id="rc-row"></div>
   </div>
 </div>
 
@@ -116,6 +107,17 @@
 </div>
 
 </main>
+
+<!-- full-size render -->
+<div id="rc-zoom" class="uptip-overlay" onclick="rcCloseZoom(event)">
+  <div class="zoom-box" role="dialog" aria-modal="true" aria-labelledby="rc-zoom-name">
+    <div class="zoom-well"><img id="rc-zoom-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt=""/></div>
+    <div class="zoom-foot">
+      <h3 class="zoom-name" id="rc-zoom-name"></h3>
+      <button class="zoom-close" id="rc-zoom-close" type="button" onclick="rcCloseZoom()">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- upload tip popup -->
 <div id="uptip" class="uptip-overlay">
