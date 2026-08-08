@@ -238,18 +238,33 @@ main { display: flex; flex: 1 1 auto; min-height: 0; }
    finds nothing to compress, and the page grows instead. Measured: the
    block held 352px against a 314px allowance and simply overflowed.
 
-   The floor is therefore stated here, in rows, rather than inferred:
-   72px is one cell at its smallest — 8 padding, the 30px swatch mark, a 4
-   gap, two lines of 11px name, 2 border — which clears the 66px DESIGN.md
-   gives a shape tag. When a viewport cannot afford sixteen of those, the
-   grid stops, the page grows and it scrolls. A row of unreadable targets is
-   not a screen that fits. Re-derive it if the swatch floor or the name's
-   line count changes. */
+   The floor is therefore stated here, in rows, rather than inferred — and
+   stated in the tokens it is made of rather than as a number that was true
+   once. --rc-row is one cell at its smallest: 2 border, three --s-1 (the
+   padding above, the padding below, and the gap between mark and name), the
+   swatch mark, and the two lines .color-pick-name reserves. That comes to
+   71.5px at the default root size, which is the 72 this used to hard-code,
+   and it clears the 66px DESIGN.md gives a shape tag.
+
+   As a literal it was only true at one text size. The caption's reserve is
+   `2.5em` and the padding is rem, so both grow when a visitor raises the
+   browser's minimum font size — and 72 did not. Measured at 320x568 with a
+   24px root: all sixteen cells painted their name outside their own border,
+   because the grid still floored at 284px while each cell now needed 87.
+   Nothing scrolled its way out of it either — the rows are `minmax(0, 1fr)`,
+   so the overflow had nowhere to go but over the row beneath. Derived, the
+   floor rises with the text it is holding and the page scrolls instead,
+   which is the outcome this screen chooses everywhere else.
+
+   --rc-mark carries the swatch's own floor, so the row and the mark cannot
+   drift apart: change one and the other follows. */
 .color-pick-grid {
+  --rc-mark: 30px;
+  --rc-row: calc(2px + 3 * var(--s-1) + var(--rc-mark) + 2.5 * var(--t-2xs));
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
-  min-height: calc(2 * 72px + var(--s-2));
+  min-height: calc(2 * var(--rc-row) + var(--s-2));
   align-content: stretch;
   gap: var(--s-2);
 }
@@ -313,15 +328,16 @@ main { display: flex; flex: 1 1 auto; min-height: 0; }
    `min-height` here is the whole screen's floor. Every level above passes
    the squeeze down until it reaches this number; when the viewport cannot
    afford sixteen of them, nothing shrinks further and the page scrolls
-   instead. 30px is the mark DESIGN.md gives the Colour Swatch, and a shape
-   tag is allowed to come down a step below 560 — the component's own height
-   does, 66 to 60 — so the mark comes down with it rather than the tint
-   becoming something you cannot read a colour off. */
+   instead. It reads --rc-mark rather than restating it, so the mark and the
+   row that has to hold it are one number. 30px is what DESIGN.md gives the
+   Colour Swatch, and a shape tag is allowed to come down a step below 560 —
+   the component's own height does, 66 to 60 — so the mark comes down with
+   it rather than the tint becoming something you cannot read a colour off. */
 .color-swatch {
   flex: 0 1 auto;
   width: auto;
   height: 44px;
-  min-height: 30px;
+  min-height: var(--rc-mark);
   aspect-ratio: 1;
   border-radius: var(--r-tag);
   border: 1px solid var(--rule);
@@ -842,7 +858,7 @@ button.result-card:hover .rc-card-cta { color: var(--ink); }
      divide sixteen, so no row is ever left ragged. */
   .color-pick-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    min-height: calc(4 * 72px + 3 * var(--s-2));
+    min-height: calc(4 * var(--rc-row) + 3 * var(--s-2));
   }
   /* Fill-the-screen is a desktop shape. Below 900 there is not enough height to
      hold three renders and their labels at any useful size, so the results view
@@ -858,13 +874,14 @@ button.result-card:hover .rc-card-cta { color: var(--ink); }
   /* The gap closes to 4px so the four columns clear 80px — the width
      CHAMPAGNE sets at — on a 360px handset, the narrowest in common use.
      Below about 356px the word no longer fits its cell and hyphenates. */
+  /* The shape tag's step down below 560 — 66px to 60px — taken on the mark,
+     which the row derives itself from, so both come down together. */
   .color-pick-grid {
+    --rc-mark: 26px;
     gap: var(--s-1);
-    min-height: calc(4 * 68px + 3 * var(--s-1));
+    min-height: calc(4 * var(--rc-row) + 3 * var(--s-1));
   }
-  /* The shape tag's step down below 560 — 66px to 60px — taken on the mark
-     as well as on the box, so the floor stays 4px inside the cell. */
-  .color-swatch { height: 36px; min-height: 26px; }
+  .color-swatch { height: 36px; }
   /* Same derivation as the 124 above, with the phone's 28px icon and 12px
      padding: 28 + 24 + 18 + two 8px gaps + 24. */
   #form-view > .rc-upload { flex-basis: 102px; }
@@ -924,11 +941,11 @@ button.result-card:hover .rc-card-cta { color: var(--ink); }
   #form-view > .colours-block { grid-area: colours; }
   .submit-row { grid-area: action; align-self: end; }
   .color-pick-grid {
+    --rc-mark: 26px;
     grid-template-columns: repeat(8, minmax(0, 1fr));
-    min-height: calc(2 * 68px + var(--s-1));
+    min-height: calc(2 * var(--rc-row) + var(--s-1));
     gap: var(--s-1);
   }
-  .color-swatch { min-height: 26px; }
   .submit-btn { min-height: 44px; }
   .submit-hint { margin-top: var(--s-1); }
 }
