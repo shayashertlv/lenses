@@ -25,15 +25,19 @@ function showView(v){
   ['form-view','loading-view','results-view','error-view'].forEach(id=>{
     const el=document.getElementById(id);
     if(id===v){
-      /* form-view is a document; the three overlays are flex — results as a
-         column whose row takes the leftover height, loading and error centred. */
-      el.style.display=(id==='form-view')?'block':'flex';
+      /* The overlays are flex — results as a column whose row takes the leftover
+         height, loading and error centred. form-view clears the inline style
+         rather than being given one: it is a flex column sized against the
+         viewport in CSS, and writing `display: block` here put it back to a
+         document every time the visitor pressed Cancel, New photo or Try
+         again — the one path no test walks. */
+      el.style.display=(id==='form-view')?'':'flex';
     } else {
       el.style.display='none';
     }
   });
   if(v===null){
-    document.getElementById('form-view').style.display='block';
+    document.getElementById('form-view').style.display='';
   }
   /* The three overlays are fixed at z-index 70 over a header at 40, so without
      this the header stays in the tab order underneath them: Shift-Tab off the
@@ -112,18 +116,22 @@ document.querySelectorAll('input[name="lens_color"]').forEach(cb=>{
   });
 });
 function flashCounter(){
-  /* Field-green "full" state, not danger — Alert Red is failure only,
-     and a full selection is not a failure. */
+  /* The counter rides the signage band now and has one line's width beside a
+     25-character title, so the count stays a count and the sentence explaining
+     the refusal goes to the hint under the button, which is where every other
+     piece of "what do I do next" already lives. Not danger — Alert Red is
+     failure only, and a full selection is not a failure. */
   const el=document.getElementById('color-counter');
-  el.textContent='3 of 3 selected — deselect one to swap';
   el.className='color-counter full nudge';
+  const hint=document.getElementById('rc-hint');
+  if(hint) hint.textContent='Three is the limit — deselect one to swap';
   clearTimeout(flashCounter._t);
-  flashCounter._t=setTimeout(updateCounter,1600);
+  flashCounter._t=setTimeout(()=>{updateCounter();checkReady()},1600);
 }
 function updateCounter(){
   const n=getCheckedColors().length;
   const el=document.getElementById('color-counter');
-  el.textContent=n+' of 3 selected';
+  el.textContent=n+' of 3';
   el.className='color-counter'+(n===3?' full':'')+(n>3?' over':'');
 }
 function checkReady(){
