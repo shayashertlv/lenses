@@ -17,7 +17,9 @@
 
 import * as THREE from 'three';
 
-import { loadCanonicalFace, LM, noseSpan } from '../src/canonical-face.js';
+import {
+  loadCanonicalFace, LM, noseSpan, IRIS_DIAMETER_CM,
+} from '../src/canonical-face.js';
 import { MODELS, DEFAULT_MODEL, loadGlassesModel } from '../src/models.js';
 import {
   createTracker, createTrackerClient, DETECT_LONG_SIDE, estimateYaw,
@@ -44,13 +46,17 @@ import { solveRestConfiguration, EPS_BEAR, S_GRID } from '../src/seat-equilibriu
 import {
   updateFrame, remeasure, noteFaceLost, noteFacelessResult, isDifferentFace,
   LOST_SECONDS_BEFORE_RESET, HOLD_FACELESS_RESULTS, IDENTITY_STRIKES,
+  PER_SESSION_STATE,
 } from '../src/frame.js';
 import { fitRect } from '../src/layout.js';
 import { prepareTemples, aimTemples, fadeTemples } from '../src/temples.js';
 import {
   PoseSmoother, PredictedVector, DEFAULT_SMOOTHING,
 } from '../src/smoothing.js';
-import { createStabMeter } from '../src/stab.js';
+import { createStabMeter, STAB_WINDOW_S, screenPointOf } from '../src/stab.js';
+import {
+  measureSettle, measureSettleRaw, normalQuantile, SETTLE_WINDOW_S,
+} from '../src/settle.js';
 import {
   canonicalAnchors, measureAnchors, clampAnchors, medianAnchors, measureMetricScale,
   carryLandmarks, DEPTH_BLEND_LIMIT,
@@ -62,10 +68,39 @@ const SAMPLES = ['../assets/samples/face-a.jpg', '../assets/samples/face-b.jpg']
 
 const results = [];
 const record = (name, pass, detail) => {
-  results.push({ name, pass, detail });
+  results.push({ name, pass, detail, kind: 'check' });
   const line = document.createElement('div');
   line.className = `line ${pass ? 'ok' : 'fail'}`;
   line.textContent = `${pass ? 'PASS' : 'FAIL'}  ${name} — ${detail}`;
+  document.getElementById('out').append(line);
+};
+
+/**
+ * An OPEN FINDING, tallied apart from the checks.
+ *
+ * The generality instrument exists to find places where the pipeline is right
+ * about the average face and wrong about a real one. Those discoveries are the
+ * output of the exercise, not accidents in it — so they must not read as
+ * regressions, and they must not read as passes either. Two classes:
+ *
+ *   'tail'  — the claim holds on the mean face and fails on an anthropometric
+ *             tail. The face parameters that break it are the finding.
+ *   'floor' — the claim holds nowhere yet, because the work that would make it
+ *             hold has not been done. Its number is the floor a later stage
+ *             diffs against.
+ *
+ * A finding never fails the suite. A regression — the same check going red on
+ * S00, the canonical face — does, because S00 is every existing check's own
+ * subject and the generaliser must not have changed the canonical answer.
+ */
+const findings = [];
+const recordFinding = (name, clear, cls, detail) => {
+  findings.push({
+    name, clear, kind: 'finding', class: cls, detail,
+  });
+  const line = document.createElement('div');
+  line.className = `line ${clear ? 'ok' : 'open'}`;
+  line.textContent = `${clear ? 'CLEAR' : `OPEN (${cls})`}  ${name} — ${detail}`;
   document.getElementById('out').append(line);
 };
 
@@ -7414,6 +7449,259 @@ async function run() {
         + ' — bounds 0.2 mm RMS / 0.5 mm step / 15% guard');
     }
 
+    // --- the camera-geometry ladder: the seat learns on ANY camera ---
+    //
+    // The generality instrument for the square-on band (frame.js
+    // SEAT_REF_QUANTILE). A webcam is wherever the hardware put it, and the
+    // pose the tracker reports is head-relative-to-CAMERA, so a camera that is
+    // not at eye level puts a user who is looking straight at their screen
+    // partway down the pitch ramp for their entire session. Three geometries,
+    // each an otherwise clean frontal session:
+    //
+    //   eye level    0.0°  — an external webcam at eye height
+    //   laptop      13.5°  — a lid camera 12 cm below the eyes at 50 cm,
+    //                        atan(12/50); the measured-common case
+    //   phone/lap   30.0°  — a phone held in the lap
+    //
+    // plus ±1.5° of ordinary postural wander on each axis at three
+    // incommensurate sub-Hz rates, so no geometry is a degenerate constant.
+    //
+    // WHAT THIS CATCHES, and it shipped: the bar used to be the absolute
+    // constant `wPose >= 0.999`, and the laptop session's BEST frame reads
+    // 0.9984. Measured on this ladder before the fix — laptop and phone both
+    // admitted 0/600 frames over 20 s, `needRef` null, `hasSolve` false, 0
+    // solves, 38 refusals; the eye-level session in the same run solved 37
+    // times and wore 6.10 mm of standoff. The seat did not exist for either
+    // off-axis camera and nothing surfaced it. A knife-edge equality on a
+    // product of three smoothsteps, not a low-trust problem.
+    //
+    // The assertion is the strong one: all three must recover the SAME face
+    // constant. The standoff is a property of the nose and the frame, so an
+    // honest seat reads it off any camera; a seat that reads it off the camera
+    // would disagree between the three.
+    {
+      const truth = shapeFace(face, { noseR: 0.94, noseZ: 1.04 });
+      const GEOMETRIES = [
+        { name: 'eye level', pitchDeg: 0 },
+        { name: 'laptop', pitchDeg: 13.5 },
+        { name: 'phone in lap', pitchDeg: 30 },
+      ];
+      const sessionAt = (pitchDeg, frames = 600) => {
+        const rand = lcg(20260817);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const fit5 = { ...DEFAULT_FIT };
+        let firstRefAt = -1;
+        let firstSolveAt = -1;
+        for (let k = 0; k < frames; k++) {
+          const t = k / 30;
+          const pose = poseOf(
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.07 * t + 1)),
+            THREE.MathUtils.degToRad(pitchDeg + 1.5 * Math.sin(2 * Math.PI * 0.11 * t)),
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.09 * t + 2)),
+          );
+          updateFrame({
+            scene, face, model, fit: fit5, smoother, state, source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(synthesiseLandmarks(face, truth, camera, pose), rand),
+            },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+          const s = state.seatConfig;
+          if (firstRefAt < 0 && s.needEst.value !== null) firstRefAt = k;
+          if (firstSolveAt < 0 && s.hasSolve) firstSolveAt = k;
+        }
+        const s = state.seatConfig;
+        return {
+          state,
+          firstRefAt,
+          firstSolveAt,
+          hasSolve: s.hasSolve,
+          solves: s.solves,
+          needRefMm: s.needEst.value !== null ? s.needEst.value * 10 : null,
+          zetaMm: s.applied.zeta * 10,
+          band: state.seat.squareOn,
+        };
+      };
+
+      const runs = GEOMETRIES.map((g) => ({ ...g, ...sessionAt(g.pitchDeg) }));
+      const learned = runs.every((r) => r.hasSolve && r.solves >= 1
+        && r.needRefMm !== null && r.band.admitted > 0);
+      // The reference is a face constant, so the three cameras must agree on
+      // it. 0.5 mm is the standoff channel's own re-arm band (ZETA_REARM
+      // 0.15 mm) with room for the surface a pitched view actually reconstructs
+      // — it is a generality bound, not a precision one.
+      const refs = runs.map((r) => r.needRefMm).filter((v) => v !== null);
+      const refSpread = refs.length === GEOMETRIES.length
+        ? Math.max(...refs) - Math.min(...refs) : Infinity;
+      // Frame one behaviour for an eye-level user is BIT-IDENTICAL to the
+      // pre-band code, and this is the proof rather than an argument: with the
+      // band at exactly 1 the test `w >= SEAT_REF_SLACK · band` IS the old
+      // expression `w >= 0.999`, character for character.
+      const eyeLevel = runs[0];
+      const oldLawIdentical = eyeLevel.band.band === 1 && eyeLevel.band.barrier === 0.999
+        && eyeLevel.band.admitted === eyeLevel.band.frames;
+      record('the seat learns on any camera, not just one at eye level',
+        learned && refSpread <= 0.5 && oldLawIdentical,
+        `${runs.map((r) => `${r.name} (${r.pitchDeg}° pitch): band `
+          + `${r.band.band.toFixed(4)}, admitted ${r.band.admitted}/${r.band.frames}, first `
+          + `reference frame ${r.firstRefAt}, first solve frame ${r.firstSolveAt}, `
+          + `${r.solves} solves, standoff ${r.needRefMm === null ? 'NEVER LEARNED'
+            : `${r.needRefMm.toFixed(3)} mm`}`).join('; ')} — the three cameras agree on the `
+        + `standoff to ${refSpread === Infinity ? '∞' : refSpread.toFixed(3)} mm (bound 0.5); `
+        + `and the eye-level session's band is exactly 1 with the barrier at 0.999, so its `
+        + `test is the pre-band expression character for character. Before the band: `
+        + `0/600 admitted, no reference, no solve at 13.5° and at 30°`);
+
+      // Anti-knife-edge, asserted directly. The bug was an equality against a
+      // near-1 constant; the replacement must not be an equality against
+      // anything. A quantile is a LEVEL, so a pose held EXACTLY constant is
+      // square-on for its own session whatever its value — including at the
+      // pitch whose trust lands a thousandth under the old bar. Every frame
+      // after the ring fills must be admitted, at every one of these pitches.
+      {
+        const held = [0, 12, 13.5, 22, 30, 34].map((pitchDeg) => {
+          const rand = lcg(20260818);
+          const state = { occluder: createOccluder(face) };
+          const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+          const fit5 = { ...DEFAULT_FIT };
+          const pose = poseOf(0, THREE.MathUtils.degToRad(pitchDeg), 0);
+          const FRAMES = 120;
+          for (let k = 0; k < FRAMES; k++) {
+            updateFrame({
+              scene, face, model, fit: fit5, smoother, state, source,
+              detection: {
+                matrix: pose.toArray(),
+                landmarks: noisy(synthesiseLandmarks(face, truth, camera, pose), rand),
+              },
+              dt: 1 / 30, smoothing: false, temples: null,
+            });
+          }
+          const sq = state.seat.squareOn;
+          return {
+            pitchDeg,
+            w: state.poseTrust.w,
+            admitted: sq.admitted,
+            // Everything from the frame the ring fills on. The cold-start rule
+            // is `no band until the window that measures it is full`, so the
+            // frames that ran without one are FIT_WINDOW − 1 = 30 — unless the
+            // pose clears the cold fallback's own bar of 0.999 (the eye-level
+            // row), in which case nothing was ever refused.
+            expected: FRAMES - (sq.wMax >= 0.999 ? 0 : 30),
+            hasSolve: state.seatConfig.hasSolve,
+          };
+        });
+        record('a pose held constant is square-on for its own session, at any pitch',
+          held.every((h) => h.admitted === h.expected && h.hasSolve),
+          `${held.map((h) => `${h.pitchDeg}° (w ${h.w.toFixed(4)}): `
+            + `${h.admitted}/${h.expected} admitted, solved ${h.hasSolve}`).join('; ')} — a `
+          + `quantile is a level, not a rate limiter, so a point-mass distribution passes `
+          + `wholesale; the refused frames at the head of each are the cold-start rule (no `
+          + `band until the FIT_WINDOW ring that measures it is full), not a threshold. `
+          + `The 12° row is the old bar's knife edge: w 0.9983 against 0.999`);
+      }
+
+      // The band's DIRECTION, on synthetic truth, both ways round. This tree
+      // has shipped three sign/aliasing bugs, and a quantile has exactly one
+      // way to be wrong that no other check here can see: taking the low tail
+      // instead of the high one. Nothing above distinguishes them — a point
+      // mass has Q10 = Q90, and on a slow wander the running maximum of Q10
+      // converges to nearly the same level as the maximum of Q90.
+      //
+      // What separates them is a distribution that is bimodal INSIDE one ring:
+      // a pose alternating every three frames between square-on and 25° of
+      // pitch, so all 31 slots hold both modes at once. Q90 = the square mode
+      // (band 1.0000, barrier 0.999) and admits the square frames alone; Q10 =
+      // the pitched mode (band 0.3655) and would admit BOTH — every frame in
+      // the session, which is the failure the categorical refusal exists to
+      // prevent, arriving silently and reading as "the band adapted".
+      {
+        const rand = lcg(20260822);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const fit5 = { ...DEFAULT_FIT };
+        const FRAMES = 300;
+        let squareSeen = 0;
+        let squareAdmitted = 0;
+        let pitchedSeen = 0;
+        let pitchedAdmitted = 0;
+        for (let k = 0; k < FRAMES; k++) {
+          const pitched = Math.floor(k / 3) % 2 === 1;
+          const pose = poseOf(0, THREE.MathUtils.degToRad(pitched ? 25 : 0), 0);
+          updateFrame({
+            scene, face, model, fit: fit5, smoother, state, source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(synthesiseLandmarks(face, truth, camera, pose), rand),
+            },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+          if (k < 31) continue; // the cold-start window, whose band is not measured
+          const admitted = state.seatConfig.applied.squareOn;
+          if (pitched) { pitchedSeen++; if (admitted) pitchedAdmitted++; } else {
+            squareSeen++; if (admitted) squareAdmitted++;
+          }
+        }
+        const sq = state.seat.squareOn;
+        record('the square-on band selects the squarest poses, not the least square',
+          pitchedAdmitted === 0 && squareAdmitted === squareSeen && sq.band === 1,
+          `a pose alternating every three frames between 0° and 25° of pitch fills every `
+          + `31-frame ring with both modes: the band reads ${sq.band.toFixed(4)} and admits `
+          + `${squareAdmitted}/${squareSeen} of the square frames and `
+          + `${pitchedAdmitted}/${pitchedSeen} of the 25° ones. The low-tail mistake would `
+          + `read 0.3655 and admit all ${squareSeen + pitchedSeen} — indistinguishable from `
+          + `a working band on every other fixture here, which is why this one is bimodal `
+          + `within the window`);
+      }
+
+      // The drift bound, and the isolation. A minute turned away must not
+      // redefine turned-away as square-on — the band is the running maximum of
+      // the quantile, so the ring emptying cannot move it — and the whole
+      // estimator must die with the fit, or one user's camera would define
+      // square-on for the next.
+      {
+        const rand = lcg(20260819);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const fit5 = { ...DEFAULT_FIT };
+        const drive = (pose, frames) => {
+          for (let k = 0; k < frames; k++) {
+            updateFrame({
+              scene, face, model, fit: fit5, smoother, state, source,
+              detection: {
+                matrix: pose.toArray(),
+                landmarks: noisy(synthesiseLandmarks(face, truth, camera, pose), rand),
+              },
+              dt: 1 / 30, smoothing: false, temples: null,
+            });
+          }
+        };
+        drive(poseOf(0, THREE.MathUtils.degToRad(13.5), 0), 150); // 5 s at the laptop
+        const settledBand = state.seat.squareOn.band;
+        const admittedBefore = state.seat.squareOn.admitted;
+        const refBefore = state.seatConfig.needEst.value;
+        drive(poseOf(THREE.MathUtils.degToRad(45), 0, 0), 1800); // a minute turned away
+        const turnedBand = state.seat.squareOn.band;
+        const admittedAway = state.seat.squareOn.admitted - admittedBefore;
+        const refAfter = state.seatConfig.needEst.value;
+        remeasure(state);
+        drive(poseOf(0, THREE.MathUtils.degToRad(13.5), 0), 1);
+        const fresh = state.seat.squareOn;
+        record('a minute turned away cannot redefine square-on, and it dies with the fit',
+          turnedBand === settledBand && admittedAway === 0 && refAfter === refBefore
+          && fresh.band === 1 && fresh.frames === 1 && fresh.admitted === 0
+          && fresh.live === null,
+          `5 s at a 13.5° camera set the band at ${settledBand.toFixed(4)}; 1800 frames at `
+          + `45° of yaw admitted ${admittedAway} of them and left the band at `
+          + `${turnedBand.toFixed(4)} and the standoff reference at `
+          + `${refAfter === null ? 'null' : `${(refAfter * 10).toFixed(3)} mm`} — unmoved, `
+          + `because the band is the running MAXIMUM of the quantile and a ring that empties `
+          + `cannot lower a maximum; and one \`remeasure\` puts the estimator back to band 1 / `
+          + `frames 1 / no live quantile, so the next wearer's camera is measured from scratch`);
+      }
+    }
+
     // --- fallback purity: a zero-confidence session is today's pipeline ---
     //
     // The invariant's third mechanism, pinned: with the person model starved
@@ -8045,6 +8333,1991 @@ async function run() {
     }
   }
 
+  // ------------------------------------- isolation: one wearer's adaptation stays theirs
+  //
+  // Goal 3, proved rather than assumed. The pipeline is a stack of estimators
+  // and every one of them is a measurement of somebody; the boundary between
+  // two people is stated once, in `PER_SESSION_STATE` (frame.js), and this
+  // block is what makes that statement an invariant instead of a comment.
+  //
+  // WHY THE OLD SWAP CHECK IS NOT ENOUGH, and why this one is strong. The
+  // stage-4 check ("a new face in the chair inherits nothing of the old one")
+  // drives 150 frames of A and 31 of B and asks whether the person model's
+  // offsets land within half a millimetre of a control. Three things make that
+  // a heal test rather than an isolation test:
+  //
+  //   1. it builds a FRESH occluder for each arm, where the app builds one per
+  //      page and reuses it across every face that sits down — so the
+  //      occluder's own carried state (the view residual, the warm-started
+  //      control mesh, the depth-fit EMA, the relief latch) cannot be observed
+  //      at all;
+  //   2. it compares after 31 samples, by which time everything bounded and
+  //      self-healing has healed — the leaks with a tau are invisible by
+  //      construction, and "it heals in 0.3 s" is not the claim Goal 3 makes;
+  //   3. its two faces differ only in SHAPE, so no leak that rides gaze, noise
+  //      amplitude or the depth fit is exercised at all.
+  //
+  // So this block shares one occluder and one pose filter across the swap,
+  // compares on EVERY frame of the trajectory rather than at the end, compares
+  // bit patterns rather than budgets, and drives two subjects that differ on
+  // every axis that carries state. And it carries its own falsifier: (e)
+  // re-injects each confirmed leak one at a time and requires the comparison
+  // to catch it, so the check cannot quietly stop discriminating.
+  {
+    // Reported in the last check of the block, never asserted: this is the
+    // generality instrument, and an instrument that stops being run stops
+    // instrumenting. Wall time is the one number a throttled pane may not
+    // reproduce, so it is a number to watch rather than a bar to pass.
+    const isolationStartedMs = performance.now();
+    const camera = scene.camera;
+    camera.updateMatrixWorld(true);
+    const source = { width: 1024, height: 1024 };
+    const lcg = (seed) => {
+      let s = seed;
+      return () => {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        return s / 0x7fffffff;
+      };
+    };
+    // A dead-on constant pose, deliberately. The pose filter's LEVEL is one of
+    // the two things that legitimately survive a swap (the composite is
+    // frame-locked — see `resetNoise`), so a moving pose would put a genuine,
+    // CORRECT difference between the swapped arm and a cold control and make
+    // bit-identity unmeasurable for a reason that is not a leak. Held
+    // constant, the surviving level is the same number in both arms and every
+    // remaining difference is carry-over. The pose filter's own isolation is
+    // proved separately in (g), where the motion belongs.
+    const still = new THREE.Matrix4().compose(
+      new THREE.Vector3(0, 0, -45),
+      new THREE.Quaternion(),
+      new THREE.Vector3(1, 1, 1),
+    );
+    const NOISE_03MM = 0.03 / (2 * 45 * Math.tan((63 * Math.PI) / 360));
+
+    // ---- two subjects, differing on every axis that carries state ----
+    //
+    // Shape (enough to convict on `widthRatio`), resting GAZE (what makes the
+    // admission door's carried neutral visible), landmark NOISE amplitude
+    // (what makes the person model's noise state and the shrinkage floor
+    // differ) — and through the shape, a different depth fit, a different
+    // surface and a different seat.
+    //
+    // The irises have to be synthesised, and their absence is exactly why the
+    // stage-4 swap check cannot see the gaze door at all: the canonical mesh
+    // carries 468 vertices and MediaPipe's refinement adds ten more, so
+    // `synthesiseLandmarks` produces a face with no eyes in it, `measureMetricScale`
+    // returns null and the gaze block never runs. They are built in FACE SPACE
+    // and projected with the rest — a real iris is ~11.7 mm across on every
+    // adult head (`IRIS_DIAMETER_CM`), so it does NOT scale with the head, and
+    // synthesising it in image space would have quietly made the one absolute
+    // ruler in the pipeline proportional to face width.
+    const irisPoints = (truth, g) => {
+      const out = [];
+      for (const [outer, inner] of [[LM.EYE_OUTER_R, LM.EYE_INNER_R],
+        [LM.EYE_OUTER_L, LM.EYE_INNER_L]]) {
+        const ox = truth[outer * 3]; const oy = truth[outer * 3 + 1];
+        const oz = truth[outer * 3 + 2];
+        const ix = truth[inner * 3]; const iy = truth[inner * 3 + 1];
+        const iz = truth[inner * 3 + 2];
+        // The gaze offset is stated in eye-corner spans because that is the
+        // dimensionless signal `frame.js` measures and `GAZE_ADMIT` is set in.
+        const span = Math.hypot(ix - ox, iy - oy);
+        const cx = (ox + ix) / 2 + g * span;
+        const cy = (oy + iy) / 2;
+        const cz = (oz + iz) / 2 + 0.4; // the cornea stands proud of the corners
+        const r = IRIS_DIAMETER_CM / 2;
+        out.push([cx, cy, cz], [cx - r, cy, cz], [cx + r, cy, cz],
+          [cx, cy - r, cz], [cx, cy + r, cz]);
+      }
+      return out;
+    };
+    const projected = new THREE.Vector3();
+    const withIrises = (landmarks, truth, g) => {
+      const out = landmarks.slice();
+      for (const [x, y, z] of irisPoints(truth, g)) {
+        projected.set(x, y, z).applyMatrix4(still).project(camera);
+        out.push({ x: (projected.x + 1) / 2, y: (1 - projected.y) / 2, z: 0 });
+      }
+      return out;
+    };
+    const jitter = (landmarks, rand, amp) => landmarks.map((p) => ({
+      x: p.x + (rand() - 0.5) * 2 * amp,
+      y: p.y + (rand() - 0.5) * 2 * amp,
+      z: p.z,
+    }));
+    const SUBJECTS = {
+      // The canonical head, looking a tenth of an eye-span off centre, at the
+      // quieter landmark noise.
+      A: { truth: shapeFace(face, {}), gaze: 0.10, amp: NOISE_03MM },
+      // 22% broader, a third wider in the nose, 10% more protrusive, looking
+      // straight down the lens, at twice the landmark noise.
+      B: {
+        truth: shapeFace(face, { wide: 1.22, noseR: 1.3, noseZ: 1.1 }),
+        gaze: 0, amp: 2 * NOISE_03MM,
+      },
+      // A third face, for the one leak whose harm is a decision rather than a
+      // value: 20% narrower than B, so it disagrees with B's carried fit.
+      C: { truth: shapeFace(face, { wide: 0.8, noseR: 0.8 }), gaze: 0, amp: NOISE_03MM },
+    };
+    const marksFor = (who, rand) => {
+      const { truth, gaze, amp } = SUBJECTS[who];
+      return jitter(withIrises(synthesiseLandmarks(face, truth, camera, still), truth, gaze),
+        rand, amp);
+    };
+
+    /**
+     * A session as the app builds one: one occluder, one pose filter, one state
+     * object — and the per-session fields declared up front, exactly as
+     * `main.js`'s own state literal declares them. That last part matters for
+     * the comparison rather than for the behaviour: a reset writes the
+     * manifest's zero, and "a session that has seen nobody holds the same
+     * value" is only a statement if the field exists to hold it.
+     */
+    const session = () => {
+      const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+      return {
+        state: {
+          occluder: createOccluder(face),
+          smoother,
+          anchors: null,
+          sampleSet: null,
+          anchorSamples: 0,
+          identityStrikes: 0,
+          measuringLatch: false,
+          templesAimed: false,
+          lostSeconds: 0,
+        },
+        smoother,
+      };
+    };
+    const drive = (s, who, frames, rand) => {
+      let last = null;
+      for (let k = 0; k < frames; k++) {
+        last = updateFrame({
+          scene, face, model, fit: { ...DEFAULT_FIT }, smoother: s.smoother,
+          state: s.state, source,
+          detection: { matrix: still.toArray(), landmarks: marksFor(who, rand) },
+          dt: 1 / 30, smoothing: true, temples: null,
+        });
+      }
+      return last;
+    };
+
+    // ---- the snapshot: every person-derived field, flattened to bit patterns ----
+    //
+    // Bit patterns, not tolerances. A budget answers "has it healed"; the
+    // question here is "did anything cross at all", and the only honest
+    // comparison for that is `Object.is` on the value (which also makes NaN
+    // equal NaN and keeps 0 distinguishable from -0 — a `===` diff gets those
+    // two wrong in opposite directions).
+    const fnv = (typed) => {
+      const bytes = new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
+      let h = 0x811c9dc5;
+      for (let i = 0; i < bytes.length; i++) {
+        h ^= bytes[i];
+        h = Math.imul(h, 0x01000193) >>> 0;
+      }
+      return `#${h.toString(16)}/${typed.length}`;
+    };
+    // The one reference field in the tracked set: the seat's model-identity
+    // handle, compared by `!==` against the loaded asset to detect a model
+    // swap. Both arms are handed the same object; walking it would walk the
+    // whole scene graph.
+    const BY_REFERENCE = new Set(['state.seatConfig.modelRef']);
+    const flatten = (value, path, out, seen) => {
+      if (BY_REFERENCE.has(path)) { out.set(path, value === null ? null : '<model>'); return; }
+      if (value === null || value === undefined
+        || typeof value === 'number' || typeof value === 'boolean'
+        || typeof value === 'string') {
+        // `undefined` folds to `null`: a lazily-created field that has not been
+        // created yet and one a reset has emptied are the same absence, and
+        // every consumer in the tree reads them through `??` or `?.`, which
+        // cannot tell them apart either. A leak writes a value, not an absence.
+        out.set(path, value === undefined ? null : value);
+        return;
+      }
+      if (typeof value === 'function') return;
+      if (ArrayBuffer.isView(value)) { out.set(path, fnv(value)); return; }
+      if (value.isVector3) {
+        out.set(`${path}.x`, value.x);
+        out.set(`${path}.y`, value.y);
+        out.set(`${path}.z`, value.z);
+        return;
+      }
+      if (value.isQuaternion) {
+        out.set(`${path}.x`, value.x);
+        out.set(`${path}.y`, value.y);
+        out.set(`${path}.z`, value.z);
+        out.set(`${path}.w`, value.w);
+        return;
+      }
+      if (seen.has(value)) { out.set(path, '<alias>'); return; }
+      seen.add(value);
+      if (Array.isArray(value)) {
+        out.set(`${path}.length`, value.length);
+        for (let i = 0; i < value.length; i++) flatten(value[i], `${path}[${i}]`, out, seen);
+        return;
+      }
+      for (const key of Object.keys(value).sort()) {
+        flatten(value[key], `${path}.${key}`, out, seen);
+      }
+    };
+
+    /**
+     * The three page-lifetime counters the manifest names as survivors, held
+     * out BY NAME rather than by a pattern — so a new survivor cannot join
+     * them by looking like one.
+     */
+    const LIFETIME = ['person.resets', 'person.decays', 'person.commits',
+      'state.sessionEpoch', 'occluder.frameCount'];
+    /** The occluder's rebuild instrument, whole — counters and the ring of frames. */
+    const LIFETIME_PREFIX = 'occluder.rebuilds.';
+    /**
+     * The intermediate geometry, held out of the RESET comparison (c) only —
+     * `resetOccluderPerson` schedules its rebuild (`driftSurface = Infinity`)
+     * rather than clearing it, because it is derived from the composite and is
+     * rewritten before anything reads it. It stays in the trajectory
+     * comparison (d), which is where "before anything reads it" is a claim
+     * that can be falsified.
+     */
+    const REBUILT = ['occluder.skin', 'occluder.base', 'occluder.control',
+      'occluder.surface'];
+    /**
+     * The two fields the manifest excuses from the RESET, as opposed to from
+     * the comparison. They are dropped when the question is "does a reset
+     * equal a construction", because the answer there is deliberately no: a
+     * reset leaves the pose readings standing, on the same grounds the pose
+     * level stands. They stay in every other arm, where the question is "does
+     * a swapped session equal a cold one", and there the answer is yes because
+     * both recompute them from the same frame's detection.
+     */
+    const POSE_SURVIVORS = ['state.poseTrust', 'state.measuringLatch'];
+    const snapshot = (s, { includeRebuilt = true, includeSurvivors = true } = {}) => {
+      const out = new Map();
+      const seen = new Set();
+      for (const key of [...Object.keys(PER_SESSION_STATE.perPerson),
+        ...Object.keys(PER_SESSION_STATE.perSource), 'sessionEpoch',
+        // Compared even though the manifest excuses them from the reset: they
+        // describe the POSE rather than the wearer, and the way to hold that
+        // claim to account is to require them equal between a swapped session
+        // and a cold one on the same landmarks — which they are, because they
+        // are recomputed from this frame's detection before anything reads
+        // them.
+        'poseTrust', 'measuringLatch']) {
+        flatten(s.state[key], `state.${key}`, out, seen);
+      }
+      // The person model, whole — every array and every scalar off the object,
+      // so a field added to it joins the comparison without being listed here.
+      const p = s.state.person;
+      if (p) for (const key of Object.keys(p).sort()) flatten(p[key], `person.${key}`, out, seen);
+      // The occluder's person-derived half, named explicitly rather than
+      // walked: `userData` also holds the shared geometry (which is supposed
+      // to survive) and back-references into the scene graph.
+      const d = s.state.occluder.userData;
+      for (const key of ['offsets', 'viewResidual', 'observed', 'hasShape', 'compensated',
+        'driftSurface', 'driftProfile', 'depthFit', 'depthClamped', 'relief', 'reliefBase',
+        'shift', 'facingTrust', 'facingDot', 'fitExclude', 'framesSinceRebuild',
+        'frameCount', 'rebuilds', 'visibility', 'skin', 'base', 'control']) {
+        flatten(d[key], `occluder.${key}`, out, seen);
+      }
+      flatten(d.surface?.depth, 'occluder.surface.depth', out, seen);
+      flatten(d.surface?.origin, 'occluder.surface.origin', out, seen);
+      // The pose filter's two noise calibrations. Its LEVEL is deliberately
+      // absent — that is the thing that must survive, and (g) asserts it.
+      //
+      // `fill` and `index` are deliberately NOT compared here, and the reason
+      // is the same exception the level is: they count how many measurements
+      // the estimator has SEEN, and a rate is a difference between two
+      // consecutive measurements, so whether frame one of the new session
+      // produces a rate sample at all depends on whether the level estimator
+      // was warm — which it is on one side of a swap and is not on the other,
+      // by design. The identity conviction adds a second, unavoidable frame of
+      // it: the reset fires PARTWAY through a frame, after the smoother has
+      // already consumed it. What carries information is the calibration
+      // itself, so the FLOOR and the whole 32-slot RING are compared, and any
+      // sample that says anything about the previous wearer moves one or both.
+      // The counters are asserted directly against a constructed estimator in
+      // (g), where the statement is exact.
+      for (const [name, n] of [['position', s.smoother.position.noise],
+        ['rotation', s.smoother.rotation.noise]]) {
+        out.set(`noise.${name}.floor`, n.floor);
+        out.set(`noise.${name}.ring`, fnv(n.ring));
+      }
+      // `rebuildsSeen` is the solve scheduler's edge detector against
+      // `occluder.rebuilds.surface`, a page-lifetime instrument — so its
+      // absolute value counts every rebuild the OCCLUDER has ever done, not
+      // every one this wearer's session has. Only the edge is read, so what is
+      // compared is the lag between the two: zero when the scheduler has seen
+      // the rebuild, negative on the frame between. That is the whole of what
+      // the scheduler can act on, and it is bit-compared.
+      if (out.has('state.seatConfig.rebuildsSeen')) {
+        out.set('state.seatConfig.rebuildsLag',
+          out.get('state.seatConfig.rebuildsSeen') - d.rebuilds.surface);
+        out.delete('state.seatConfig.rebuildsSeen');
+      }
+      for (const key of LIFETIME) out.delete(key);
+      for (const key of [...out.keys()]) {
+        if (key.startsWith(LIFETIME_PREFIX)) out.delete(key);
+      }
+      const drop = [];
+      if (!includeRebuilt) drop.push(...REBUILT);
+      if (!includeSurvivors) drop.push(...POSE_SURVIVORS);
+      if (drop.length) {
+        for (const key of [...out.keys()]) {
+          if (drop.some((prefix) => key === prefix || key.startsWith(`${prefix}.`))) {
+            out.delete(key);
+          }
+        }
+      }
+      return out;
+    };
+    /** Every path on which two snapshots disagree. */
+    const diff = (a, b) => {
+      const keys = new Set([...a.keys(), ...b.keys()]);
+      const bad = [];
+      for (const k of keys) if (!Object.is(a.get(k), b.get(k))) bad.push(k);
+      return bad.sort();
+    };
+    /** One frame's rendered answer — what the viewer actually gets. */
+    const shown = (r) => (r?.placement ? [
+      r.placement.position.x, r.placement.position.y, r.placement.position.z,
+      r.placement.quaternion.x, r.placement.quaternion.y,
+      r.placement.quaternion.z, r.placement.quaternion.w,
+      r.placement.scale, r.placement.noseSeat?.easedPush ?? null,
+    ] : [null]);
+
+    // --- (a) the manifest is a complete map of `state`, not of half of it ---
+    //
+    // The mechanism that keeps everything below honest as the code changes: a
+    // field added to `state` and to no bucket fails here, so the next person to
+    // add per-session state has to decide which side of the boundary it is on.
+    // Both halves of `state` are covered — the fields `frame.js` writes (driven,
+    // then read off the object) and the fields `main.js` declares (read out of
+    // its source, because importing it boots the app).
+    {
+      const s = session();
+      drive(s, 'A', 3, lcg(1));
+      const buckets = [
+        Object.keys(PER_SESSION_STATE.perPerson),
+        Object.keys(PER_SESSION_STATE.perSource),
+        Object.keys(PER_SESSION_STATE.ownedByApp),
+      ];
+      const known = new Set(buckets.flat());
+      const driven = Object.keys(s.state).filter((k) => !known.has(k));
+
+      const mainSrc = await (await fetch('../src/main.js')).text();
+      const literal = mainSrc.slice(mainSrc.indexOf('\nconst state = {'));
+      const body = literal.slice(0, literal.indexOf('\n};'));
+      const declared = [...body.matchAll(/^ {2}(?:get )?([A-Za-z_$][\w$]*)\s*[:(]/gm)]
+        .map((m) => m[1]);
+      const unlisted = declared.filter((k) => !known.has(k));
+
+      // The three buckets are a PARTITION: a field in two of them means two
+      // reset paths disagree about who owns it, which is how the depth fit
+      // came to be cleared by one path and not the other.
+      const counts = new Map();
+      for (const k of buckets.flat()) counts.set(k, (counts.get(k) ?? 0) + 1);
+      const doubled = [...counts].filter(([, n]) => n > 1).map(([k]) => k);
+      // And every excused field must still have an owner: `allowedToSurvive`
+      // is an annotation on the partition, not an escape from it.
+      const orphanExcuses = Object.keys(PER_SESSION_STATE.allowedToSurvive)
+        .filter((k) => !PER_SESSION_STATE.ownedByApp[k]);
+
+      record('every field of `state` is on one side of the isolation boundary',
+        driven.length === 0 && unlisted.length === 0 && doubled.length === 0
+        && orphanExcuses.length === 0 && declared.length > 40,
+        `PER_SESSION_STATE partitions ${known.size} fields into per-person, per-source `
+        + `and app-owned, each in exactly one (${doubled.length} in two), and all `
+        + `${Object.keys(PER_SESSION_STATE.allowedToSurvive).length} deliberate `
+        + `survivors carry both a reason and an owner (${orphanExcuses.length} `
+        + `orphaned). The ${Object.keys(s.state).length} fields a driven session `
+        + `actually carries are all named (${driven.length} unlisted`
+        + `${driven.length ? `: ${driven.join(', ')}` : ''}), and so are all `
+        + `${declared.length} the app declares in main.js's own state literal `
+        + `(${unlisted.length} unlisted${unlisted.length ? `: ${unlisted.join(', ')}` : ''})`);
+    }
+
+    // --- (b) the class of leak, not only the instance ---
+    //
+    // `noseSeatGuardOverflow` was a module-level `let` in fit.js, monotonically
+    // incremented and never reset, because module scope is the one place a
+    // `state`-keyed manifest cannot see. Fixing the instance leaves the class
+    // open, so the class is closed mechanically: no module under src/ may own
+    // a top-level mutable binding outside a named allowlist, and every name on
+    // that allowlist is there for a reason that is not about a person. The
+    // file list comes from the directory rather than from a constant, so a new
+    // module is covered the moment it exists.
+    {
+      const ALLOWED = {
+        // A lazily-loaded copy of the canonical mesh: one asset, no person.
+        'canonical-face.js': ['cached'],
+        // The app shell's own DOM handles and load bookkeeping.
+        'main.js': ['modelRequests', 'queuedSource', 'lightFrames', 'lastWidth',
+          'lastHeight', 'unsizedFrames', 'reportedUnsized', 'controls', 'readout'],
+        // The worker owns one landmarker and its monotone timestamp; it has no
+        // notion of a session and is torn down with the tracker.
+        'tracker.worker.js': ['numFaces', 'landmarker', 'lastTimestamp'],
+      };
+      const listing = await (await fetch('../src/')).text();
+      const files = [...listing.matchAll(/href="([\w.-]+\.js)"/g)].map((m) => m[1]);
+      const offenders = [];
+      for (const file of files) {
+        const src = await (await fetch(`../src/${file}`)).text();
+        for (const m of src.matchAll(/^(?:let|var)\s+([A-Za-z_$][\w$]*)/gm)) {
+          if (!(ALLOWED[file] ?? []).includes(m[1])) offenders.push(`${file}:${m[1]}`);
+        }
+      }
+      record('no module under src/ owns mutable state a reset cannot reach',
+        files.length >= 20 && files.includes('fit.js') && offenders.length === 0,
+        `${files.length} modules scanned from the directory listing (not a hardcoded `
+        + `list, so a new file is covered the moment it exists); every top-level `
+        + `\`let\`/\`var\` is one of the ${Object.values(ALLOWED).flat().length} `
+        + `allowlisted names — a lazy mesh cache, the app shell's DOM and load `
+        + `bookkeeping, and the worker's landmarker handle — and `
+        + `${offenders.length} are not${offenders.length ? `: ${offenders.join(', ')}` : ''}. `
+        + `This is the check fit.js's \`noseSeatGuardOverflow\` failed: a per-session cap `
+        + `count in module scope, which no reset could reach, which reported the previous `
+        + `person's overflows into the next person's session and made the telemetry `
+        + `replay order-dependent within one process`);
+    }
+
+    // --- (c) a reset is a construction, field by field ---
+    //
+    // The narrow structural statement everything else rests on, and the one
+    // that catches a leak WITHOUT needing the leaked value to matter yet:
+    // after a reset, every field the manifest calls per-person holds exactly
+    // the value a session that has seen nobody holds. Latent carry-over — a
+    // noise ring still holding the previous wearer's samples, a warm start
+    // still pointing at their control mesh — is bit-unequal here even when its
+    // consequence is seconds away.
+    {
+      const warm = session();
+      drive(warm, 'A', 120, lcg(11));
+      const scope = { includeRebuilt: false, includeSurvivors: false };
+      const before = snapshot(warm, scope);
+      remeasure(warm.state, warm.smoother);
+      const after = snapshot(warm, scope);
+      const cold = session();
+      // The person model is created on a session's first frame; construct it
+      // directly so the comparison is reset-vs-constructed rather than
+      // reset-vs-absent.
+      cold.state.person = createPersonModel(face);
+      const carried = diff(after, snapshot(cold, scope));
+      const moved = diff(before, after).length;
+      record('a reset returns every per-person field to its constructed value',
+        carried.length === 0 && moved > 100,
+        `4 s of one wearer moved ${moved} of the ${before.size} tracked fields; one `
+        + `reset puts every one of them back where a session that has seen nobody `
+        + `starts — ${carried.length} differ from a freshly constructed session`
+        + `${carried.length ? `: ${carried.slice(0, 8).join(', ')}` : ''}. The comparison `
+        + `is \`Object.is\` over flattened bit patterns, typed arrays by FNV hash, so `
+        + `"it heals in 0.3 s" cannot pass it. The drawn surface and the subdivision's `
+        + `intermediates are excluded HERE and only here: the reset schedules their `
+        + `rebuild (driftSurface = Infinity) rather than clearing them, and (d) is where `
+        + `"rebuilt before anything reads it" is falsifiable. So are the two pose `
+        + `readings the manifest excuses from the reset itself, for the same reason the `
+        + `pose level is excused — (d) is where THAT is falsifiable, and there they are `
+        + `compared`);
+    }
+
+    // --- (d) THE PROOF: two faces back to back, whole trajectory, bit for bit ---
+    //
+    // Face A converges for four seconds; face B then sits down in front of the
+    // SAME occluder, the SAME pose filter and the SAME state object, exactly as
+    // the app arranges them, and is driven for three seconds. The control is
+    // face B from a cold start with the identical landmark stream. The claim is
+    // not that the two look similar, and not that they agree once things have
+    // settled: EVERY frame of B's trajectory is bit-identical in both arms —
+    // the rendered placement and every field the manifest calls per-person.
+    //
+    // Why the whole trajectory rather than frame one. Frame-one equality is
+    // necessary and not sufficient, and it is the version a leak satisfies for
+    // free: a noise ring holding the previous wearer's samples reads identically
+    // until the new wearer's activity rises against it, and a warm start only
+    // shows on the rebuild after the one being compared. Comparing every frame
+    // prices latency at zero.
+    //
+    // Why bit-identity rather than a budget. A budget has to be chosen, and the
+    // only number available to choose it against is whatever today's leak
+    // happens to be worth on today's two fixtures — which is how a leak becomes
+    // a pinned tolerance. Bit-identity never needs re-deriving when either face
+    // changes, and in a fully synthetic harness on a seeded landmark stream it
+    // is exactly reproducible.
+    //
+    // Why the reset is driven through `remeasure` here and through the identity
+    // conviction in (f). `remeasure` fires BETWEEN frames, so B's frame one is a
+    // whole frame; a conviction fires PARTWAY through one, and that frame is
+    // B's first. Both are asserted: this arm pins the boundary, (f) pins the
+    // trigger.
+    const FRAMES_B = 60;
+    const trajectory = (first, second, seedA, seedB) => {
+      const swapped = session();
+      drive(swapped, first, 120, lcg(seedA));
+      remeasure(swapped.state, swapped.smoother);
+      const control = session();
+      const randSwap = lcg(seedB);
+      const randCtrl = lcg(seedB);
+      let firstBad = null;
+      let badPaths = [];
+      let shownBad = 0;
+      for (let k = 0; k < FRAMES_B; k++) {
+        const a = shown(drive(swapped, second, 1, randSwap));
+        const b = shown(drive(control, second, 1, randCtrl));
+        for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) shownBad++;
+        const bad = diff(snapshot(swapped), snapshot(control));
+        if (bad.length && firstBad === null) { firstBad = k + 1; badPaths = bad; }
+      }
+      // `state.identity` is the one object excused from the comparison above,
+      // on the stated grounds that its four EVENT counters must outlive the
+      // reset they record while every VALUE field is rewritten on each frame
+      // the question runs. The second half of that claim is asserted rather
+      // than trusted: the value fields must agree between the arms even though
+      // the counters do not.
+      const values = (s) => ['driver', 'obsWidthRatio', 'carWidthRatio', 'devWidthRatio',
+        'obsMetricScale', 'carMetricScale', 'devMetricScale', 'strikes']
+        .map((k) => s.state.identity?.[k] ?? null);
+      const vs = values(swapped);
+      const vc = values(control);
+      const identityCarried = vs.some((v, i) => !Object.is(v, vc[i]));
+      return { firstBad, badPaths, shownBad, identityCarried };
+    };
+    {
+      // Both orderings. A leak that happens to be benign one way round — the
+      // second wearer quieter than the first, so an inherited noise floor falls
+      // free — is not benign the other way.
+      const ab = trajectory('A', 'B', 21, 22);
+      const ba = trajectory('B', 'A', 23, 24);
+      record('a second wearer\'s whole session is bit-identical to a cold one (isolationSwap)',
+        ab.firstBad === null && ba.firstBad === null
+        && ab.shownBad === 0 && ba.shownBad === 0
+        && !ab.identityCarried && !ba.identityCarried,
+        `4 s of one face, then 2 s of a different one — 22% broader, a third wider in `
+        + `the nose, 10% more protrusive, at twice the landmark noise and a tenth of an `
+        + `eye-span of resting gaze apart — through ONE occluder, ONE pose filter and `
+        + `ONE state object, as the app arranges them. All ${FRAMES_B} frames of the `
+        + `second session are bit-identical to the same ${FRAMES_B} frames driven from a `
+        + `cold start: ${ab.shownBad + ba.shownBad} differing floats in the rendered `
+        + `placement across both orderings, and the first frame on which any per-person `
+        + `field differs is ${ab.firstBad ?? 'none'} (A then B`
+        + `${ab.badPaths.length ? `: ${ab.badPaths.slice(0, 4).join(', ')}` : ''}) and `
+        + `${ba.firstBad ?? 'none'} (B then A`
+        + `${ba.badPaths.length ? `: ${ba.badPaths.slice(0, 4).join(', ')}` : ''}). The one `
+        + `object excused from that comparison, the identity readout, is checked on its `
+        + `own terms: its lifetime event counters differ (they must — they record the `
+        + `reset), and every value field agrees, so what survives is a count and not a `
+        + `measurement`);
+    }
+
+    // --- (e) the discriminator map: every leak, re-injected, must break (d) ---
+    //
+    // A green check that cannot fail is decoration, and this one is built out
+    // of exclusions and allowlists, which is exactly the machinery that decays
+    // into decoration. So each confirmed leak is re-created on top of a session
+    // that has otherwise been reset properly, one at a time, and (d)'s
+    // comparison must catch it. The map is recorded rather than described, so a
+    // refactor that collapses two assertions into one surfaces here as a lost
+    // discriminator instead of as a still-green suite.
+    {
+      const donor = session();
+      drive(donor, 'A', 120, lcg(31));
+      const dd = donor.state.occluder.userData;
+      const leaks = [
+        // L1 — the gaze admission door's carried neutral. The most damaging of
+        // the set, because it is the door in front of everything else.
+        ['L1 gaze', (s) => { s.state.gaze = { ...donor.state.gaze }; }],
+        // L2 — the depth-fit EMA the anchors consume one frame stale.
+        ['L2 depthFit', (s) => {
+          s.state.occluder.userData.depthFit = { ...dd.depthFit };
+        }],
+        // L3 — the fast shape layer, and the flag that stops the next wearer's
+        // first sample being adopted whole.
+        ['L3 viewResidual', (s) => {
+          const u = s.state.occluder.userData;
+          u.viewResidual.set(dd.viewResidual);
+          u.offsets.set(dd.offsets);
+          u.hasShape = true;
+        }],
+        // L4 — the compensation solve's warm start, priced by its own comment
+        // at ~0.5 mm of the previous face.
+        ['L4 compensated', (s) => {
+          const u = s.state.occluder.userData;
+          u.control.set(dd.control);
+          u.compensated = true;
+          u.driftSurface = Infinity;
+        }],
+        // L5 — the module-level cap counter, in its caller-owned form.
+        ['L5 guardOverflow', (s) => { s.state.seatConfig.guardOverflow = 7; }],
+        // L9 — a monotone readout that is a description of a moment in the
+        // previous session rather than a count of events.
+        ['L9 lastDecayCause', (s) => { s.state.person.lastDecayCause = 'abs'; }],
+      ];
+      const caught = [];
+      const missed = [];
+      // Every arm below is compared against the SAME cold session on the same
+      // seeded stream, so it is driven once and its per-frame snapshots kept.
+      // (The alternative — a fresh control per leak — is six identical
+      // sessions, and this suite is the generality instrument: it has to stay
+      // cheap enough that people run it.)
+      const HORIZON = 12;
+      const controlSnaps = [];
+      {
+        const control = session();
+        drive(control, 'B', 1, lcg(32));
+        const randCtrl = lcg(33);
+        for (let k = 1; k <= HORIZON; k++) {
+          drive(control, 'B', 1, randCtrl);
+          controlSnaps.push(snapshot(control));
+        }
+      }
+      for (const [name, inject] of leaks) {
+        const swapped = session();
+        // A second of the previous wearer is enough here: the arm is reset
+        // before the injection, and the value injected comes from the 4 s
+        // donor above, so the warm-up only has to have happened.
+        drive(swapped, 'A', 30, lcg(31));
+        remeasure(swapped.state, swapped.smoother);
+        // One frame first, so the lazily-created seat state exists to inject into.
+        drive(swapped, 'B', 1, lcg(32));
+        inject(swapped);
+        const randSwap = lcg(33);
+        let at = 0;
+        for (let k = 1; k <= HORIZON && at === 0; k++) {
+          drive(swapped, 'B', 1, randSwap);
+          if (diff(snapshot(swapped), controlSnaps[k - 1]).length) at = k;
+        }
+        (at > 0 ? caught : missed).push(`${name}@${at || 'never'}`);
+      }
+
+      // L7's harm is a DECISION, not a value: the next agreeing sample zeroes
+      // the streak, so a snapshot comparison cannot see it. Driven instead —
+      // a session carrying inherited strikes convicts the next face early.
+      const strikeTo = (inherited) => {
+        const s = session();
+        drive(s, 'B', 60, lcg(34));
+        s.state.identityStrikes = inherited;
+        const epoch = s.state.sessionEpoch ?? 0;
+        const rand = lcg(35);
+        for (let k = 1; k <= IDENTITY_STRIKES + 2; k++) {
+          drive(s, 'C', 1, rand);
+          if ((s.state.sessionEpoch ?? 0) > epoch) return k;
+        }
+        return null;
+      };
+      const earlyAt = strikeTo(IDENTITY_STRIKES - 1);
+      const honestAt = strikeTo(0);
+      const l7 = earlyAt === 1 && honestAt === IDENTITY_STRIKES;
+
+      // L8's is the stillness meter, which the app owns rather than `state`.
+      const meter = createStabMeter();
+      for (let k = 0; k < 40; k++) meter.update(500, 400, 0, 0, k / 30);
+      const heldBefore = meter.readout.n;
+      meter.reset();
+      meter.update(560, 400, 0, 0, 40 / 30);
+      const l8 = heldBefore >= 39 && meter.readout.n === 1
+        && meter.readout.maxStepPx === null;
+
+      record('each confirmed leak, re-injected alone, is caught by the swap check',
+        missed.length === 0 && caught.length === leaks.length && l7 && l8,
+        `${caught.length}/${leaks.length} re-injected leaks are caught, with the frame `
+        + `each one takes to surface: ${caught.join(', ')}`
+        + `${missed.length ? `; MISSED ${missed.join(', ')}` : ''}. Two are asserted `
+        + `differently because their harm is not a value: L7 (the identity streak) is a `
+        + `DECISION — a session carrying ${IDENTITY_STRIKES - 1} inherited strikes `
+        + `convicts the next face on frame ${earlyAt} where an honest one takes `
+        + `${honestAt}; and L8 (the stillness meter) belongs to the app, where a window `
+        + `holding ${heldBefore} samples of one face reports `
+        + `${meter.readout.n} sample and no step after the reset, so a swap cannot read `
+        + `as one enormous move in the meter that is read aloud during the live `
+        + `protocol. L6 has its own arm in (g), because a constant pose gives the noise `
+        + `estimator nothing to calibrate on. This is what stops (d) decaying into `
+        + `decoration: an allowlist that stopped discriminating shows up as a missed `
+        + `leak rather than as a still-green suite`);
+    }
+
+    // --- (f) the trigger: the same boundary, fired mid-frame ---
+    //
+    // (d) resets between frames. Production resets PARTWAY through one: the
+    // identity question runs after this frame's anchors have already been
+    // measured — through the previous wearer's depth fit, one frame stale by
+    // design — and that measurement is the sample that would be adopted whole
+    // as the new wearer's frame one. The conviction therefore re-measures it
+    // against the cleared estimators, and this arm is what pins that.
+    //
+    // It also measures a consequence worth stating plainly: the gaze door
+    // gates the identity QUESTION as well as the sample, so a wearer whose
+    // resting gaze differs from the previous one's carried neutral by more
+    // than GAZE_ADMIT cannot be convicted until that neutral has crawled onto
+    // them (tau = 10 s). The conviction frame is reported, not asserted
+    // against a number, because it is a property of the door rather than of
+    // the boundary.
+    {
+      const swapped = session();
+      drive(swapped, 'A', 120, lcg(41));
+      const epochBefore = swapped.state.sessionEpoch ?? 0;
+      // The control runs the SAME seeded landmark stream, and burns one frame's
+      // draws for every pre-conviction frame the swapped arm spends. That
+      // alignment is the whole subtlety of this arm: the conviction fires
+      // partway through a frame, so the frame that convicts IS the new
+      // session's frame one, and the control's frame one has to be driven from
+      // the identical landmarks.
+      const randSwap = lcg(42);
+      const randCtrl = lcg(42);
+      const control = session();
+      let convictedAt = null;
+      let shownAtConviction = null;
+      for (let k = 1; k <= 200 && convictedAt === null; k++) {
+        const rs = drive(swapped, 'B', 1, randSwap);
+        if ((swapped.state.sessionEpoch ?? 0) > epochBefore) {
+          convictedAt = k;
+          shownAtConviction = shown(rs);
+        } else {
+          marksFor('B', randCtrl); // burn, so the streams stay in step
+        }
+      }
+      let firstBad = null;
+      let badPaths = [];
+      if (convictedAt !== null) {
+        const b0 = shown(drive(control, 'B', 1, randCtrl));
+        const bad0 = diff(snapshot(swapped), snapshot(control));
+        if (bad0.length || shownAtConviction.some((v, i) => !Object.is(v, b0[i]))) {
+          firstBad = 1;
+          badPaths = bad0;
+        }
+        for (let k = 2; k <= 40 && firstBad === null; k++) {
+          const a = shown(drive(swapped, 'B', 1, randSwap));
+          const b = shown(drive(control, 'B', 1, randCtrl));
+          const bad = diff(snapshot(swapped), snapshot(control));
+          if (bad.length || a.some((v, i) => !Object.is(v, b[i]))) {
+            firstBad = k;
+            badPaths = bad;
+          }
+        }
+      }
+      record('the identity conviction is the same boundary, fired mid-frame',
+        convictedAt !== null && firstBad === null
+        && (swapped.state.sessionEpoch ?? 0) === epochBefore + 1,
+        `a 22%-broader face convicts on frame ${convictedAt} of its own session, and `
+        + `that frame — the one the reset fires PARTWAY through — is the new session's `
+        + `frame one: driven from there against a cold control on the identical landmark `
+        + `stream, 40 frames are bit-identical (first divergence: ${firstBad ?? 'none'}`
+        + `${badPaths.length ? ` at ${badPaths.slice(0, 4).join(', ')}` : ''}) — including `
+        + `the conviction frame's own sample, which is re-measured after the reset `
+        + `because it was taken through the previous wearer's depth fit and is the `
+        + `sample the new wearer's fit is adopted whole from. The ${convictedAt} frames `
+        + `before the conviction are the gaze door's, not the boundary's: it pauses the `
+        + `identity question along with the sample, so a wearer whose resting gaze is `
+        + `${(0.10).toFixed(2)} eye-spans from the previous one's carried neutral waits `
+        + `for that neutral to crawl inside GAZE_ADMIT before the question is asked at `
+        + `all`);
+    }
+
+    // --- (g) what deliberately survives: the pose, and only the pose ---
+    //
+    // The interesting half of a boundary is its exceptions, and this one has
+    // two. The pose LEVEL survives because the composite is frame-locked: a
+    // pose is a statement about a frame, not about a person, and nobody moved
+    // when the estimator changed its mind about whose face it is. The noise
+    // CALIBRATION does not survive, because it measures one person's distance,
+    // lighting and skin contrast — and it fails in one direction only, which
+    // is the direction that matters: the floor falls free, so a quieter second
+    // wearer re-calibrates at once, while a NOISIER one inherits a floor too
+    // low and may climb it at no more than `NOISE_RISE`x the cap per second,
+    // under-subtracting the whole way.
+    {
+      const DT = 1 / 30;
+      const feed = (sm, amp, frames, r) => {
+        const floors = [];
+        for (let k = 0; k < frames; k++) {
+          sm.update({
+            position: [(r() - 0.5) * 2 * amp, (r() - 0.5) * 2 * amp,
+              -45 + (r() - 0.5) * 2 * amp],
+            quaternion: [0, 0, 0, 1],
+            scale: 1,
+          }, DT);
+          floors.push(sm.position.noise.floor);
+        }
+        return floors;
+      };
+      const QUIET = 0.02;
+      const NOISY = 0.20;
+
+      const kept = new PoseSmoother(DEFAULT_SMOOTHING);
+      const reset = new PoseSmoother(DEFAULT_SMOOTHING);
+      feed(kept, QUIET, 90, lcg(52));
+      feed(reset, QUIET, 90, lcg(52));
+      const levelBefore = reset.position.filters.map((f) => f.level);
+      const calibrated = reset.position.noise.floor;
+      reset.resetNoise();
+      const levelAfter = reset.position.filters.map((f) => f.level);
+      const levelHeld = levelBefore.every((v, i) => Object.is(v, levelAfter[i]))
+        && Object.is(kept.position.filters[0].level, reset.position.filters[0].level);
+
+      // Field by field against an estimator that has never seen anybody.
+      const fresh = new PoseSmoother(DEFAULT_SMOOTHING).position.noise;
+      const n = reset.position.noise;
+      const constructed = n.floor === fresh.floor && n.fill === fresh.fill
+        && n.index === fresh.index && n.ring.every((v) => v === 0)
+        && n.sorted.every((v) => v === 0);
+
+      const keptFloors = feed(kept, NOISY, 120, lcg(53));
+      const resetFloors = feed(reset, NOISY, 120, lcg(53));
+      let under = 0;
+      let worst = 0;
+      for (let k = 0; k < keptFloors.length; k++) {
+        if (keptFloors[k] < resetFloors[k]) under++;
+        worst = Math.max(worst, resetFloors[k] - keptFloors[k]);
+      }
+      record('the noise calibration is the wearer\'s; the pose level is the frame\'s',
+        constructed && levelHeld && under >= 60 && worst > 0.05,
+        `90 frames of a quiet wearer calibrate the position floor at `
+        + `${calibrated.toFixed(3)} cm/s. \`resetNoise\` puts the estimator back to its `
+        + `constructed state field for field — floor, fill, index and both 32-slot rings `
+        + `zeroed (${constructed}) — while every component of the pose level is unchanged `
+        + `bit for bit (${levelHeld}), so a change of wearer re-calibrates without a `
+        + `visible pop and the frame lock is untouched. The harm it removes, measured on `
+        + `a next wearer 10x noisier: the inherited floor reads low on `
+        + `${under}/${keptFloors.length} frames and by up to ${worst.toFixed(2)} cm/s — `
+        + `under-subtraction on the activity signal, which opens the adaptive cutoff on `
+        + `noise and shows the new wearer exactly the shimmer the estimator exists to `
+        + `remove. [the whole isolation block, seven checks and `
+        + `${Math.round((performance.now() - isolationStartedMs) / 1000)} s of wall time `
+        + `in whatever this environment is]`);
+    }
+  }
+
+  // -------------------------------------- the settle instrument (Goal 2)
+  //
+  // The metric that says when the frame has STOPPED CREEPING, validated
+  // against constructed streams whose settle time is known by construction.
+  // This block is the instrument's own proof and it has to come before any
+  // gate leans on it, because the metric it replaces was fatally unmeasurable
+  // and looked strict rather than broken.
+  //
+  // The one it replaces: `settleMs = min{t : |p(t') − p_inf| <= 0.5 px for all
+  // t' >= t}` — a last-exit time on the RAW composed screen position against
+  // an absolute band. The fixtures' own still-segment screen RMS is 3.97 px
+  // (telemetry, production) and 2.91 px on the stab-law instrument, so a
+  // 0.5 px band is exceeded on essentially every frame and the last exit is
+  // the run length on every subject, in both arms of every A/B, forever. It
+  // reads "never settled" before and after any change alike.
+  //
+  // The replacement measures the LOCATION (a trailing median, time-stamped at
+  // its own centre) against a band built from the session's own jitter — see
+  // `src/settle.js` for the derivation of each part. What this block does is
+  // refuse to take any of that on trust: every claim below is driven on a
+  // stream whose truth is known, and the old metric is run on the SAME streams
+  // so the comparison is a measurement rather than an argument.
+  {
+    const RATE = 30;
+    const RUN_S = 30;
+    const lcg = (seed) => {
+      let s = seed;
+      return () => {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        return s / 0x7fffffff;
+      };
+    };
+    const gaussOf = (rand) => {
+      let u = 0;
+      let v = 0;
+      while (u === 0) u = rand();
+      while (v === 0) v = rand();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    };
+    // Three jitter SHAPES at the same RMS. The band is built from an
+    // interquartile density estimate, so it is distribution-free by
+    // construction — and this is where that stops being a claim.
+    const NOISES = {
+      // rms = amp: a uniform on [-a, a] has sd a/sqrt(3).
+      uniform: (amp) => (r) => (r() - 0.5) * 2 * amp * Math.sqrt(3),
+      gaussian: (amp) => (r) => gaussOf(r) * amp,
+      // A quiet core with 5% of samples four times as wide — the detector's
+      // real outlier behaviour, which a Gaussian model of the median's
+      // sampling error would get wrong.
+      heavy: (amp) => (r) => (r() < 0.05 ? gaussOf(r) * amp * 4 : gaussOf(r) * amp * 0.6),
+    };
+    const streamOf = (drift, noise, seed, { rate = RATE, runS = RUN_S } = {}) => {
+      const rand = lcg(seed);
+      const out = [];
+      for (let k = 0; k < rate * runS; k++) {
+        const t = k / rate;
+        out.push({ t, x: drift(t) + noise(rand) });
+      }
+      return out;
+    };
+    // The fixtures' own numbers, so the demonstration is at the amplitudes the
+    // product actually has: 3.97 px of still-segment screen jitter, and the
+    // brief's "~2 mm of creep" at the session that measured 4.22 px/mm.
+    const JITTER_PX = 3.97;
+    const DRIFT_PX = 2.0 * 4.22;
+    // The old metric's band, quoted exactly: RELIEF_DEADBAND_PX aliased into a
+    // whole-frame settle criterion.
+    const OLD_BAND_PX = 0.5;
+    // "The old metric learned nothing": its last exit is either never, or the
+    // final frames of the run. Stated as a predicate because the failure has
+    // both shapes — a run whose very last sample happens to land inside the
+    // band reports a number, and that number is the run length.
+    const oldLearnedNothing = (v) => v === null || v > RUN_S - 2;
+
+    // --- (1) the headline: does it read differently on fast and slow? ---
+    {
+      const fastTau = 0.4;
+      const slowTau = 3.0;
+      const fastStream = streamOf((t) => DRIFT_PX * Math.exp(-t / fastTau),
+        NOISES.gaussian(JITTER_PX), 40001);
+      const slowStream = streamOf((t) => DRIFT_PX * Math.exp(-t / slowTau),
+        NOISES.gaussian(JITTER_PX), 40001);
+      const fast = measureSettle(fastStream);
+      const slow = measureSettle(slowStream);
+      const oldFast = measureSettleRaw(fastStream, OLD_BAND_PX);
+      const oldSlow = measureSettleRaw(slowStream, OLD_BAND_PX);
+      // Truth: the drift falls under the band at tau*ln(A/band). The metric is
+      // not asked to hit that to the millisecond — it is asked to ORDER the two
+      // and to put them on opposite sides of the 2 s target.
+      const fastTruth = fastTau * Math.log(DRIFT_PX / fast.band);
+      const slowTruth = slowTau * Math.log(DRIFT_PX / slow.band);
+      record('the settle metric separates a slow convergence from a fast one',
+        fast.settleS !== null && slow.settleS !== null
+        && fast.settleS <= 2.0 && slow.settleS >= 4.0
+        && slow.settleS / fast.settleS >= 3
+        && oldLearnedNothing(oldFast) && oldLearnedNothing(oldSlow),
+        `identical ${JITTER_PX} px jitter, identical ${DRIFT_PX.toFixed(1)} px drift, only `
+        + `the time constant differs. NEW: fast (tau ${fastTau} s) settles at `
+        + `${fast.settleS.toFixed(2)} s against a truth of ${fastTruth.toFixed(2)} s; slow `
+        + `(tau ${slowTau} s) at ${slow.settleS.toFixed(2)} s against ${slowTruth.toFixed(2)} `
+        + `— a ratio of ${(slow.settleS / fast.settleS).toFixed(1)}x, on opposite sides of `
+        + `the 2 s target, off bands of ${fast.band.toFixed(2)} / ${slow.band.toFixed(2)} px. `
+        + `OLD (0.5 px on the raw sample): `
+        + `${oldFast === null ? 'NEVER SETTLED' : `${oldFast.toFixed(1)} s of a ${RUN_S} s run`} `
+        + `and ${oldSlow === null ? 'NEVER SETTLED' : `${oldSlow.toFixed(1)} s`} — the same `
+        + `verdict for both, which `
+        + `is the whole defect: a 0.5 px band on a ${fast.jitterRms.toFixed(2)} px signal is `
+        + `exceeded every frame, so the gate cannot discriminate and never could`);
+    }
+
+    // --- (2) the null: a settled channel must read settled, at any jitter ---
+    //
+    // The property the absolute band could never have. Nine streams with NO
+    // drift at all — three distribution shapes at three amplitudes — must all
+    // read settled immediately, and the band must widen with the jitter rather
+    // than the verdict flipping. A noisier subject is not a slower one.
+    {
+      const rows = [];
+      let seed = 41000;
+      for (const [shape, make] of Object.entries(NOISES)) {
+        for (const mult of [1, 2, 4]) {
+          seed += 1;
+          const stream = streamOf(() => 0, make(JITTER_PX * mult), seed);
+          const m = measureSettle(stream);
+          rows.push({
+            shape, mult, m, old: measureSettleRaw(stream, OLD_BAND_PX),
+          });
+        }
+      }
+      const allSettled = rows.every((r) => r.m.settleS !== null && r.m.settleS <= 1.0);
+      const oldNeverSettles = rows.every((r) => oldLearnedNothing(r.old));
+      const g1 = rows.find((r) => r.shape === 'gaussian' && r.mult === 1).m.band;
+      const g4 = rows.find((r) => r.shape === 'gaussian' && r.mult === 4).m.band;
+      // Two identities the band's arithmetic rests on, asserted rather than
+      // commented: the window is the stab law's own (one window, one jitter
+      // number, not two), and the quantile that turns the false-alarm budget
+      // into the multiplier is the standard normal one.
+      const oneWindow = SETTLE_WINDOW_S === STAB_WINDOW_S;
+      const quantileRight = Math.abs(normalQuantile(0.975) - 1.959964) < 1e-5;
+      record('a settled channel reads settled at any jitter amplitude or shape',
+        allSettled && oldNeverSettles && g4 / g1 > 2.5 && oneWindow && quantileRight,
+        `${rows.map((r) => `${r.shape} x${r.mult}: ${r.m.settleS.toFixed(2)} s `
+          + `(band ${r.m.band.toFixed(2)}, jitter ${r.m.jitterRms.toFixed(2)}, `
+          + `driftZ ${r.m.driftZ.toFixed(1)})`).join('; ')} — every one settled inside a `
+        + `second with NO drift present, and the band grew ${(g4 / g1).toFixed(1)}x from `
+        + `x1 to x4 jitter instead of the verdict flipping. The old 0.5 px metric reads `
+        + `NEVER SETTLED on all ${rows.length}, drift or no drift, which is what makes it `
+        + `a jitter meter wearing a settle meter's name. Window = stab's own `
+        + `${SETTLE_WINDOW_S} s (${oneWindow}); z from the run-wise budget, `
+        + `${rows[0].m.z.toFixed(2)} at ${rows[0].m.windows} independent windows (the `
+        + `quantile itself is right to 1e-5 at the 97.5th percentile: ${quantileRight})`);
+    }
+
+    // --- (3) a known step, at BOTH signs ---
+    //
+    // The synthetic-truth check this tree owes any new geometric arithmetic.
+    // A median time-stamped at its window's centre must place a step where the
+    // step is, and must place a downward step in the same place as an upward
+    // one — an asymmetric answer would mean the location estimate is reading
+    // an order statistic that is not the middle one.
+    {
+      const T0 = 3.0;
+      const upStream = streamOf((t) => (t < T0 ? 0 : DRIFT_PX),
+        NOISES.gaussian(JITTER_PX), 42001);
+      // The mirror image of the SAME stream, sample for sample — not a second
+      // draw with the drift negated, which would differ by the noise as well.
+      // Against an exactly mirrored input the metric must answer exactly the
+      // mirrored thing, so the two settle times must be BIT-equal. That is the
+      // strongest form of the both-signs check this tree demands, and it is
+      // what forced the interpolated quantile: a floor-index median on an
+      // even-length window is not equivariant under negation, so this check
+      // fails on the obvious implementation.
+      const downStream = upStream.map((s) => ({ t: s.t, x: -s.x }));
+      const up = measureSettle(upStream);
+      const down = measureSettle(downStream);
+      record('a step is recovered where the step is, and mirroring it mirrors nothing else',
+        up.settleS >= T0 - 0.5 && up.settleS <= T0 + 1.2
+        && Object.is(up.settleS, down.settleS) && Object.is(up.band, down.band)
+        && Object.is(up.driftAmp, down.driftAmp),
+        `a ${DRIFT_PX.toFixed(1)} px step at ${T0.toFixed(1)} s reads `
+        + `${up.settleS.toFixed(3)} s, and the sample-for-sample negated stream reads `
+        + `${down.settleS.toFixed(3)} s — bit-identical settle, band and drift amplitude. `
+        + `The residual lateness (+${(up.settleS - T0).toFixed(2)} s) is understood and is a `
+        + `property of the signal, not the estimator: a step only `
+        + `${(DRIFT_PX / JITTER_PX).toFixed(1)}x the jitter makes the window's two `
+        + `populations OVERLAP, so the median crosses over a spread of frames rather than at `
+        + `one. The exact-at-the-centre identity holds in the noiseless limit and degrades `
+        + `toward the window MEAN, which is still centred — so the bias is bounded by the `
+        + `half-window and one-signed`);
+    }
+
+    // --- (4) seconds, not frames ---
+    //
+    // Free here and worth having: the same drift law sampled at four detection
+    // rates must produce the same MILLISECONDS. Every frame-domain constant in
+    // this tree is a 30 fps statement, and an instrument that inherited that
+    // would report a 15 fps session as twice as slow to settle.
+    {
+      const rates = [15, 24, 30, 60];
+      const AMP_MM = 5.5;
+      const TOL_MM = 0.3;
+      const JIT_MM = 0.05;
+      const at = (tau, rate) => measureSettle(
+        streamOf((t) => AMP_MM * Math.exp(-t / tau), NOISES.gaussian(JIT_MM), 43001, { rate }),
+        { tolerance: TOL_MM },
+      ).settleS;
+      const fast = rates.map((rate) => at(0.5, rate));
+      const slow = rates.map((rate) => at(3.0, rate));
+      // The same sweep on a channel whose band is RESOLUTION-limited rather
+      // than deadband-limited. Reported, not asserted, and reported precisely
+      // because it fails: the band goes as 1/sqrt(n), so more samples per
+      // second buy a narrower band and a later last exit. It is the honest
+      // boundary of the instrument and it is the second reason the seat
+      // channels are the primary gate.
+      const px = rates.map((rate) => measureSettle(
+        streamOf((t) => DRIFT_PX * Math.exp(-t / 3.0), NOISES.gaussian(JITTER_PX), 43001,
+          { rate }),
+      ).settleS);
+      const spread = (a) => Math.max(...a) - Math.min(...a);
+      record('the settle time is in seconds, not in frames',
+        spread(fast) <= 0.3 && spread(slow) <= 0.3
+        && Math.min(...slow) > Math.max(...fast),
+        `the same two drift laws on a deadbanded channel at ${rates.join('/')} fps: fast `
+        + `${fast.map((v) => v.toFixed(2)).join(' / ')} s (spread `
+        + `${spread(fast).toFixed(2)}, truth ${(0.5 * Math.log(AMP_MM / TOL_MM)).toFixed(2)}), `
+        + `slow ${slow.map((v) => v.toFixed(2)).join(' / ')} s (spread `
+        + `${spread(slow).toFixed(2)}, truth ${(3 * Math.log(AMP_MM / TOL_MM)).toFixed(2)}) — `
+        + `the verdict is the wall clock's, not the detector's, because the window is by TIME `
+        + `and the median's timestamp is the window's own measured centre. LIMIT, reported: `
+        + `the same law on the resolution-limited screen channel reads `
+        + `${px.map((v) => v.toFixed(2)).join(' / ')} s (spread ${spread(px).toFixed(2)}) — a `
+        + `band that goes as 1/sqrt(n) is not rate-free, so a screen-channel settle time may `
+        + `only be compared between runs at the same detection rate`);
+    }
+
+    // --- (5) against known truth on the channel the gate actually reads ---
+    //
+    // The primary gate is on the seat's own channels, where the band's floor is
+    // the channel's existing deadband rather than the instrument's resolution —
+    // `applied.s` cannot move by less than REST_DEADBAND, so asserting
+    // convergence finer than that asserts something the mechanism cannot
+    // deliver. That floor also makes the metric exact: with the band a
+    // constant, the reported settle IS the time the drift crosses it.
+    {
+      const AMP_MM = 5.5; // the standoff spread the seat solves across
+      const TOL_MM = 0.3; // REST_DEADBAND
+      const JIT_MM = 0.05; // the eased push's own measured noise
+      const rows = [0.4, 0.8, 3.0, 5.0].map((tau) => {
+        const m = measureSettle(
+          streamOf((t) => AMP_MM * Math.exp(-t / tau), NOISES.gaussian(JIT_MM), 44001),
+          { tolerance: TOL_MM },
+        );
+        return { tau, m, truth: tau * Math.log(AMP_MM / TOL_MM) };
+      });
+      const worst = Math.max(...rows.map((r) => Math.abs(r.m.settleS - r.truth)));
+      record('on a deadbanded channel the settle time is the true one',
+        worst <= 0.4 && rows.every((r) => r.m.band === TOL_MM),
+        `${rows.map((r) => `tau ${r.tau.toFixed(1)} s -> ${r.m.settleS.toFixed(2)} s `
+          + `(truth ${r.truth.toFixed(2)})`).join('; ')} — worst error `
+        + `${worst.toFixed(2)} s over a 0.4-to-5 s span of time constants, off a band `
+        + `pinned at the channel's own ${TOL_MM} mm deadband while the jitter runs `
+        + `${rows[0].m.jitterRms.toFixed(3)} mm. The drift reads `
+        + `${rows[0].m.driftZ.toFixed(0)}x the instrument's resolution here, against `
+        + `~13x on the screen channel — which is why the seat channels are asserted and `
+        + `the screen version is reported`);
+    }
+
+    // --- (6) the anti-cheat: settling fast is not settling right ---
+    //
+    // A settle time alone is gamed by a channel that never moves. The metric
+    // publishes `final` for exactly this, and every gate built on it must pair
+    // the two. Here is the pairing, driven: a pinned channel settles instantly
+    // and fails the convergence arm; a slow one settles late and passes it.
+    {
+      const AMP_MM = 5.5;
+      const TOL_MM = 0.3;
+      const pinned = measureSettle(streamOf(() => 0, NOISES.gaussian(0.05), 45001),
+        { tolerance: TOL_MM });
+      const slow = measureSettle(
+        streamOf((t) => AMP_MM * (1 - Math.exp(-t / 3.0)), NOISES.gaussian(0.05), 45001),
+        { tolerance: TOL_MM },
+      );
+      const converged = (m) => Math.abs(m.final - AMP_MM) <= TOL_MM;
+      record('settling fast and settling right are two claims, and both are checked',
+        pinned.settleS <= 1.0 && !converged(pinned)
+        && slow.settleS >= 4.0 && converged(slow),
+        `a channel pinned at zero "settles" in ${pinned.settleS.toFixed(2)} s and lands at `
+        + `${pinned.final.toFixed(2)} mm against a truth of ${AMP_MM} mm — fast and wrong, `
+        + `and the convergence arm catches it (|final − truth| `
+        + `${Math.abs(pinned.final - AMP_MM).toFixed(2)} mm > ${TOL_MM}). The honest channel `
+        + `settles in ${slow.settleS.toFixed(2)} s and lands at ${slow.final.toFixed(2)} mm `
+        + `(${Math.abs(slow.final - AMP_MM).toFixed(3)} mm out). Neither number is a gate on `
+        + `its own`);
+    }
+  }
+
+  // ------------------------------- the multi-subject generality instrument
+  //
+  // `pipeline-check` is the generality instrument and it is fully synthetic, so
+  // subjects are nearly free — and until now it carried ONE head with six
+  // noses. `shapeFace` varies three scalar multipliers, its `wide` parameter
+  // defaults to 1 and nothing ever passed otherwise, and `anchorsForShape`
+  // hardcodes `metricScale: 1`, `pdCm: null`, `noseWidthRatio: 1`. So the
+  // entire `LIMITS` block was unexercised, the iris chain was never driven at a
+  // non-unit scale, and the six-nose seat measurables widened the SURFACE while
+  // `noseWidthRatio` stayed pinned at 1.000 — which is the condition
+  // frame.js:40 names as the original diagnosis.
+  //
+  // This block replaces that with a parameterised subject drawn from published
+  // adult ranges, and runs the one-face checks across the set. Failures on the
+  // tails are the point of the exercise: they are recorded as FINDINGS with the
+  // face parameters that produce them, not as regressions, and the mean face
+  // S00 is asserted separately so that a real regression still shows as one.
+  //
+  // ------------------------------------------------- the anthropometry, sourced
+  //
+  // Every figure below is recorded HERE, once, with its source, so a wrong
+  // number is correctable in one place rather than re-derived from a comment.
+  // Two methodological notes that matter more than any single figure:
+  //
+  //   1. The canonical mesh is the MEAN and the axes are stated relative to it.
+  //      Its nasal span (23.35 mm across landmarks 245/465/114/343) is the
+  //      sidewall strip a pad bears on, which is NOT alar width (al-al, ~34 mm)
+  //      — a different measurement on the same nose. Published absolute ranges
+  //      are therefore transferred as COEFFICIENTS OF VARIATION and applied as
+  //      ratios, never pasted in as centimetres. Anything else would assert
+  //      that the mesh's landmark set means what a caliper means.
+  //   2. The population spread of a craniofacial dimension has two parts —
+  //      within-group SD and between-group mean spread — and for the nose the
+  //      second is the larger. Farkas's 25-population study puts group MEAN
+  //      nasal width from ~31 mm to ~45 mm; the within-group SD is ~2 mm. A
+  //      subject set that spans only within-group SDs would miss most of the
+  //      variation the product will actually meet, so the pooled figure is used
+  //      and the hand-placed tails go to the published group extremes.
+  {
+    const generalityStartedMs = performance.now();
+    const camera = scene.camera;
+    camera.updateMatrixWorld(true);
+    const source = { width: 1024, height: 1024 };
+    const lcg = (seed) => {
+      let s = seed;
+      return () => {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        return s / 0x7fffffff;
+      };
+    };
+    const NOISE_03MM = 0.03 / (2 * 45 * Math.tan((63 * Math.PI) / 360));
+    const noisy = (landmarks, rand, amp = NOISE_03MM) => landmarks.map((p) => ({
+      x: p.x + (rand() - 0.5) * 2 * amp,
+      y: p.y + (rand() - 0.5) * 2 * amp,
+      z: p.z,
+    }));
+
+    /**
+     * The axes, their population statistics and where each figure comes from.
+     * `sd` is in the axis's own parameter units — a ratio for the multipliers,
+     * cm for the offsets, mm for the two absolute lengths.
+     */
+    const POP = {
+      noseWidthRatio: {
+        what: 'nasal sidewall span at pad height, as a ratio of the canonical 23.35 mm',
+        sd: 0.115,
+        source: 'Farkas, Anthropometry of the Head and Face, 2nd ed. 1994: al-al '
+          + '34.9±2.5 mm (M) / 31.4±1.9 mm (F), N. American white adults — within-group '
+          + 'CV ~7%. Farkas et al. 2005, J Craniofac Surg 16(4):615, 25 populations: '
+          + 'group means ~31-45 mm — between-group spread ~9%. Pooled CV 11.5%',
+      },
+      noseZ: {
+        what: 'nasal tip protrusion, as a ratio',
+        sd: 0.08,
+        source: 'Farkas 1994: sn-prn 20.5±1.6 mm (M) / 19.0±1.4 mm (F) — CV ~8%',
+      },
+      wide: {
+        what: 'head breadth at the temples, as a ratio of the canonical 15.49 cm',
+        sd: 0.045,
+        source: 'Farkas 1994 eu-eu 152 mm (M) / 146 mm (F), SD 5-6 mm; ANSUR II (2012, '
+          + 'n=6068) head breadth 152.5/146.6 mm SD ~5 mm — within-sex CV 3.5%, plus a '
+          + '4% between-sex mean gap',
+      },
+      bridgeZ: {
+        what: 'nasal root prominence (bridge height), cm of forward offset at the nasion',
+        sd: 0.15,
+        source: 'Farkas et al. 2005: nasal root depth and bridge prominence differ by '
+          + 'several mm between populations, low-bridge morphologies being common in '
+          + 'East/Southeast Asian and sub-Saharan African groups. Stated as ±1.5 mm SD '
+          + 'because the mesh has no caliper equivalent for this measure',
+      },
+      sidewall: {
+        what: 'sidewall taper: how much faster the nose widens below the bridge, '
+          + 'dimensionless (0 = canonical 15.7° half-angle)',
+        sd: 0.25,
+        source: 'derived, not published as such: the canonical mesh spans 20.6 mm at '
+          + 'the high pair and 26.1 mm a centimetre lower, a 15.7° half-angle; ±1.5 SD '
+          + 'here walks that between ~11° and ~21°, and the hand-placed tails reach '
+          + '8° and 28°',
+      },
+      ipdMm: {
+        what: 'interpupillary distance, mm — varied INDEPENDENTLY of face width',
+        mean: 63.4,
+        sd: 3.8,
+        source: 'Dodgson 2004, Proc SPIE 5291 (Stereoscopic Displays XI), from the '
+          + '1988 US Army survey: adult mean 63.4 mm, SD 3.8 mm, observed range 45-80 mm',
+      },
+      irisMm: {
+        what: 'horizontal visible iris diameter, mm — the pipeline\'s only absolute ruler',
+        mean: 11.71,
+        sd: 0.42,
+        source: 'Rüfer, Schröder & Erb 2005, Cornea 24(3):259 — white-to-white 11.71 '
+          + '± 0.42 mm in healthy adults. IRIS_DIAMETER_CM ships the mean and DISCARDS '
+          + 'the SD, which is the ±3.6% floor under every absolute claim',
+      },
+      scale: {
+        what: 'overall head size against the canonical head',
+        sd: 0.045,
+        source: 'the same head-breadth statistics as `wide`, but as a SIZE rather than '
+          + 'a shape; the low tail is placed at 0.75 for a child (LIMITS.metricScale '
+          + 'admits 0.7) and 1.15 for a large adult',
+      },
+      asym: {
+        what: 'lateral deviation of the nose from the facial midline, cm',
+        sd: 0.15,
+        source: 'Ferrario et al. 1994/1995 (J Oral Maxillofac Surg; Am J Orthod): '
+          + 'normal adults carry 1-3 mm of soft-tissue facial asymmetry, up to ~5 mm '
+          + 'without being clinically remarkable',
+      },
+    };
+    const IRIS_MEAN_MM = POP.irisMm.mean;
+
+    /**
+     * A subject's face, as a deformation of the canonical mesh.
+     *
+     * The smooth-falloff law is `shapeFace`'s, kept verbatim so a descriptor
+     * with only the three old axes set reproduces the old face exactly — a
+     * discontinuity would be rasterised into the depth field and every number
+     * read off it would be measuring the crease, which is why the original
+     * chose it. Three axes are added on top, each with its own falloff:
+     * `sidewall` makes the width multiplier depend on HEIGHT (a taper, not a
+     * scale), `bridgeZ` rides a bump centred on the nasion rather than the
+     * whole nose, and `asym` is a lateral translation of the nose region only.
+     */
+    const subjectFace = (base, d = {}) => {
+      const {
+        noseR = 1, noseZ = 1, wide = 1, bridgeZ = 0, sidewall = 0, asym = 0,
+      } = d;
+      const out = new Float32Array(base.positions);
+      const bridgeY = base.point(LM.NOSE_BRIDGE)[1];
+      const nasionY = base.point(LM.NASION)[1];
+      for (let i = 0; i < out.length; i += 3) {
+        const x = out[i];
+        const y = out[i + 1];
+        const rx = Math.min(Math.abs(x) / 3.0, 1);
+        const ry = Math.min(Math.abs(y - bridgeY) / 4.0, 1);
+        const w = Math.max((1 - rx * rx) * (1 - ry * ry), 0);
+        // Height above the bridge, in nose-lengths, clamped: +1 at the brow,
+        // −1 a nose below. The taper widens the wall BELOW the bridge for
+        // positive `sidewall`, which is the steep-wall direction.
+        const h = Math.max(Math.min((y - bridgeY) / 4.0, 1), -1);
+        const rby = Math.min(Math.abs(y - nasionY) / 2.5, 1);
+        const wB = Math.max((1 - rx * rx) * (1 - rby * rby), 0);
+        out[i] = x * (wide + (noseR * (1 - sidewall * h) - wide) * w) + asym * w;
+        out[i + 2] = out[i + 2] * (1 + (noseZ - 1) * w) + bridgeZ * wB;
+      }
+      return out;
+    };
+
+    const noseSpanOf = (truth) => noseSpan(
+      truth[LM.NOSE_WALL_HIGH_R * 3], truth[LM.NOSE_WALL_HIGH_L * 3],
+      truth[LM.NOSE_WALL_LOW_R * 3], truth[LM.NOSE_WALL_LOW_L * 3],
+    );
+    const templeWidthOf = (truth) => Math.hypot(
+      truth[LM.TEMPLE_R * 3] - truth[LM.TEMPLE_L * 3],
+      truth[LM.TEMPLE_R * 3 + 1] - truth[LM.TEMPLE_L * 3 + 1],
+      truth[LM.TEMPLE_R * 3 + 2] - truth[LM.TEMPLE_L * 3 + 2],
+    );
+
+    /**
+     * The `noseR` multiplier that DELIVERS a target nasal span ratio.
+     *
+     * Necessary, and the first version of this block did not have it and was
+     * wrong because of it. `noseR` scales the nose region through a smooth
+     * falloff, so the sidewall landmarks — which sit part-way out of the bump —
+     * move by less than the multiplier says: asking for 1.45 delivered about
+     * 1.2, the subject set silently spanned two thirds of what it claimed, and
+     * `LIMITS` was reported as never binding when the descriptor had never
+     * actually reached it. The span is AFFINE in `noseR` (the deformation is
+     * linear in it, and `noseSpan` is a mean of two absolute differences of
+     * x), so two evaluations solve it exactly rather than approximately, and
+     * the subject table can then be stated in the units the code's own bounds
+     * are stated in.
+     */
+    const noseRFor = (target, d) => {
+      const spanAt = (m) => noseSpanOf(subjectFace(face, { ...d, noseR: m })) / face.noseWidth;
+      const a = spanAt(1);
+      const b = spanAt(2);
+      return b === a ? 1 : 1 + (target - a) / (b - a);
+    };
+
+    /**
+     * The ten refined landmarks MediaPipe adds for the irises, in FACE SPACE.
+     *
+     * Three things have to be right at once, and getting any of them wrong
+     * makes the pipeline's one absolute ruler silently proportional to
+     * something it should be independent of:
+     *
+     *  - a real iris is ~11.7 mm on every adult head, so it does NOT scale with
+     *    the head. With the head matrix carrying a scale `k`, the face-space
+     *    radius must be divided by `k` so the PROJECTED iris is the true size.
+     *  - IPD varies independently of face width, so the centres are placed at
+     *    the descriptor's own separation about the midline rather than at the
+     *    eye-corner midpoints.
+     *  - the centres sit at the inner corners' own depth, because that is the
+     *    depth `measureAnchors` borrows for the iris rays (`at(IRIS_*,
+     *    EYE_INNER_*)`); putting them anywhere else would put a perspective
+     *    factor between what is synthesised and what is recovered.
+     */
+    const irisPointsFor = (truth, d) => {
+      const k = d.scale ?? 1;
+      const sepFace = ((d.ipdMm ?? POP.ipdMm.mean) / 10) / k;
+      const rFace = ((d.irisMm ?? IRIS_MEAN_MM) / 10) / 2 / k;
+      const cy = (truth[LM.EYE_INNER_R * 3 + 1] + truth[LM.EYE_INNER_L * 3 + 1]) / 2;
+      const cz = (truth[LM.EYE_INNER_R * 3 + 2] + truth[LM.EYE_INNER_L * 3 + 2]) / 2;
+      const out = [];
+      for (const side of [-1, 1]) {
+        const cx = (side * sepFace) / 2;
+        out.push([cx, cy, cz], [cx - rFace, cy, cz], [cx + rFace, cy, cz],
+          [cx, cy - rFace, cz], [cx, cy + rFace, cz]);
+      }
+      return out;
+    };
+    const projScratch = new THREE.Vector3();
+    const landmarksFor = (truth, d, pose) => {
+      const marks = synthesiseLandmarks(face, truth, camera, pose);
+      for (const [x, y, z] of irisPointsFor(truth, d)) {
+        projScratch.set(x, y, z).applyMatrix4(pose).project(camera);
+        marks.push({ x: (projScratch.x + 1) / 2, y: (1 - projScratch.y) / 2, z: 0 });
+      }
+      return marks;
+    };
+
+    /**
+     * Anchors describing a subject, DERIVED from the truth mesh and descriptor.
+     *
+     * `anchorsForShape` hardcodes `metricScale: 1`, `pdCm: null` and
+     * `noseWidthRatio: 1`; this one measures all three off the face it is
+     * describing, which is what lets a geometric check see a ratio channel at
+     * all. It is deliberately a second function rather than a change to the
+     * first: the existing checks are pinned against `anchorsForShape`'s
+     * answers, and moving them is a separate decision from adding subjects.
+     */
+    const anchorsForSubject = (truth, d = {}) => {
+      const at = (i) => new THREE.Vector3(truth[i * 3], truth[i * 3 + 1], truth[i * 3 + 2]);
+      const bridge = at(LM.NOSE_BRIDGE);
+      const templeWidth = templeWidthOf(truth);
+      const widthRatio = templeWidth / face.templeWidth;
+      const noseWidth = noseSpanOf(truth);
+      const k = d.scale ?? 1;
+      const irisMm = d.irisMm ?? IRIS_MEAN_MM;
+      return {
+        measured: true,
+        bridge,
+        bridgeUp: at(LM.NASION).sub(bridge).normalize(),
+        eyeLineY: (truth[LM.EYE_OUTER_R * 3 + 1] + truth[LM.EYE_OUTER_L * 3 + 1]) / 2,
+        eyeCentreX: 0,
+        templeWidth,
+        widthRatio,
+        // What the iris ruler reports, INCLUDING its own error: a wearer whose
+        // iris is not 11.7 mm has every absolute number scaled by the ratio.
+        metricScale: (k * IRIS_MEAN_MM) / irisMm,
+        pdCm: ((d.ipdMm ?? POP.ipdMm.mean) / 10) * (IRIS_MEAN_MM / irisMm),
+        noseWidth,
+        noseWidthRatio: noseWidth / face.noseWidth,
+        ears: {
+          right: new THREE.Vector3(-Math.abs(truth[LM.TEMPLE_R * 3]), 3, -3),
+          left: new THREE.Vector3(Math.abs(truth[LM.TEMPLE_R * 3]), 3, -3),
+        },
+      };
+    };
+    const surfaceOfTruth = (truth) => buildFaceSurface({
+      positions: truth,
+      indices: face.indices,
+      origin: [truth[LM.NOSE_BRIDGE * 3], truth[LM.NOSE_BRIDGE * 3 + 1],
+        truth[LM.NOSE_BRIDGE * 3 + 2]],
+    });
+    const poseOf = (yawRad = 0, pitchRad = 0, rollRad = 0, k = 1) => new THREE.Matrix4()
+      .compose(
+        new THREE.Vector3(0, 0, -45),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(pitchRad, yawRad, rollRad)),
+        new THREE.Vector3(k, k, k),
+      );
+
+    // ------------------------------------------------------ the standing set
+    //
+    // S00 is the control and every existing check's own subject. S01-S08 are a
+    // 2^(6-3) fractional factorial at ±1.5 SD (7th and 93rd percentiles) on the
+    // six axes that carry the most machinery, with generators D=AB, E=AC,
+    // F=BC. RESOLUTION III, stated correctly: with eight runs and six factors
+    // that is the best available, so main effects are clear of each other and
+    // aliased with two-factor interactions. Eight runs is what makes every axis
+    // appear at both levels in a balanced way, which is what the coverage
+    // argument actually needs; the plan's claim of resolution IV is arithmetic
+    // that does not exist.
+    //
+    // S09-S13 are hand-placed at the published extremes, each aimed at
+    // machinery that no combination of ±1.5 SD levels reaches.
+    const L = 1.5;
+    const lv = (axis, sign) => (POP[axis].mean ?? 1) + sign * L * POP[axis].sd;
+    const FACTORIAL = [
+      [-1, -1, -1], [+1, -1, -1], [-1, +1, -1], [+1, +1, -1],
+      [-1, -1, +1], [+1, -1, +1], [-1, +1, +1], [+1, +1, +1],
+    ].map(([a, b, c], i) => ({
+      id: `S0${i + 1}`,
+      what: '2^(6-3)_III factorial at ±1.5 SD',
+      d: {
+        noseWidthRatio: lv('noseWidthRatio', a),
+        noseZ: lv('noseZ', b),
+        wide: lv('wide', c),
+        bridgeZ: L * POP.bridgeZ.sd * (a * b),
+        sidewall: L * POP.sidewall.sd * (a * c),
+        ipdMm: lv('ipdMm', b * c),
+      },
+    }));
+    const SUBJECTS = [
+      { id: 'S00', what: 'the canonical head — the control', d: {} },
+      ...FACTORIAL,
+      {
+        id: 'S09',
+        what: 'a small child: 0.75 scale, 52 mm IPD, 15% narrow',
+        d: {
+          scale: 0.75, ipdMm: 52, wide: 0.85, noseWidthRatio: 0.9, irisMm: 11.7,
+        },
+      },
+      {
+        id: 'S10',
+        what: 'broad low bridge — the anatomy that most needs the seat',
+        d: {
+          noseWidthRatio: 1.45, bridgeZ: -0.35, sidewall: -0.6, noseZ: 0.9, ipdMm: 66,
+        },
+      },
+      {
+        id: 'S11',
+        what: 'narrow high bridge, steep sidewalls',
+        d: {
+          noseWidthRatio: 0.70, noseZ: 1.2, bridgeZ: 0.35, sidewall: 0.6, ipdMm: 60,
+        },
+      },
+      {
+        id: 'S12',
+        what: 'a nose deviated +3 mm from the midline',
+        d: { asym: 0.3 },
+      },
+      {
+        id: 'S12m',
+        what: 'the same deviation mirrored, −3 mm — the both-signs arm',
+        d: { asym: -0.3 },
+      },
+      {
+        id: 'S13',
+        what: 'a large adult with a large iris: 1.15 scale, 76 mm IPD, 12.5 mm iris',
+        d: {
+          scale: 1.15, wide: 1.12, ipdMm: 76, irisMm: 12.5, noseWidthRatio: 1.1,
+        },
+      },
+    ].map((s) => {
+      // The descriptor is stated in the units the CODE's own bounds are stated
+      // in — `noseWidthRatio`, not a deformation multiplier — and solved back
+      // into the multiplier here. See `noseRFor`.
+      const d = { ...s.d };
+      if (d.noseWidthRatio !== undefined) d.noseR = noseRFor(d.noseWidthRatio, d);
+      return { ...s, d, truth: subjectFace(face, d) };
+    });
+    const isMean = (s) => s.id === 'S00';
+
+    // ------------------------------------------ (A) what the anchors recover
+    //
+    // Every ratio channel driven off average for the first time, through the
+    // real `measureAnchors`, and compared against the truth the mesh was built
+    // with. Perfect landmarks: this is a question about the arithmetic, and
+    // injected noise would only blur the answer.
+    //
+    // The rail landings are the real product of this family. `LIMITS` has never
+    // been exercised by any fixture — no synthetic face approached any bound —
+    // so a clamp that binds on a real human has never been observed here.
+    {
+      const rows = [];
+      for (const s of SUBJECTS) {
+        const pose = poseOf(0, 0, 0, s.d.scale ?? 1);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const marks = landmarksFor(s.truth, s.d, pose);
+        for (let k = 0; k < 40; k++) {
+          updateFrame({
+            scene, face, model, fit: { ...DEFAULT_FIT }, smoother, state, source,
+            detection: { matrix: pose.toArray(), landmarks: marks },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+        }
+        const a = state.anchors;
+        const truthNwr = noseSpanOf(s.truth) / face.noseWidth;
+        const truthWr = templeWidthOf(s.truth) / face.templeWidth;
+        const truthScale = ((s.d.scale ?? 1) * IRIS_MEAN_MM) / (s.d.irisMm ?? IRIS_MEAN_MM);
+        const truthPd = ((s.d.ipdMm ?? POP.ipdMm.mean) / 10)
+          * (IRIS_MEAN_MM / (s.d.irisMm ?? IRIS_MEAN_MM));
+        const rails = [];
+        if (truthNwr < 0.7 - 1e-6 || truthNwr > 1.4 + 1e-6) rails.push(`noseWidthRatio ${truthNwr.toFixed(3)}`);
+        if (truthWr < 0.75 - 1e-6 || truthWr > 1.3 + 1e-6) rails.push(`widthRatio ${truthWr.toFixed(3)}`);
+        if (truthScale < 0.7 - 1e-6 || truthScale > 1.3 + 1e-6) rails.push(`metricScale ${truthScale.toFixed(3)}`);
+        if (truthPd < 4.6 || truthPd > 8.0) rails.push(`pdCm ${truthPd.toFixed(2)}`);
+        const err = (got, want) => (got === null || got === undefined
+          ? Infinity : Math.abs(got - want) / Math.max(Math.abs(want), 1e-6));
+        rows.push({
+          s,
+          nwr: a.noseWidthRatio,
+          wr: a.widthRatio,
+          ms: a.metricScale,
+          pd: a.pdCm,
+          eNwr: err(a.noseWidthRatio, Math.min(Math.max(truthNwr, 0.7), 1.4)),
+          eWr: err(a.widthRatio, Math.min(Math.max(truthWr, 0.75), 1.3)),
+          eMs: err(a.metricScale, Math.min(Math.max(truthScale, 0.7), 1.3)),
+          ePd: err(a.pdCm, truthPd),
+          rails,
+        });
+      }
+      const mean = rows.find((r) => isMean(r.s));
+      record('the mean face measures as the mean face on every ratio channel',
+        mean.eNwr < 0.03 && mean.eWr < 0.03 && mean.eMs < 0.03 && mean.ePd < 0.03,
+        `S00: noseWidthRatio ${mean.nwr.toFixed(4)}, widthRatio ${mean.wr.toFixed(4)}, `
+        + `metricScale ${mean.ms === null ? 'null' : mean.ms.toFixed(4)}, pd `
+        + `${mean.pd === null ? 'null' : `${(mean.pd * 10).toFixed(1)} mm`} — every channel `
+        + `within ${(Math.max(mean.eNwr, mean.eWr, mean.eMs, mean.ePd) * 100).toFixed(2)}% `
+        + `of the truth the mesh was built with, so the generaliser did not move the `
+        + `canonical answer. The iris chain runs here for the first time at a non-unit `
+        + `scale, and it is what makes the metricScale column exist at all`);
+
+      const worstErr = Math.max(...rows.map((r) => Math.max(r.eNwr, r.eWr, r.eMs, r.ePd)));
+      const railed = rows.filter((r) => r.rails.length);
+      recordFinding('LIMITS binds on real anthropometry, and nothing counts it',
+        railed.length === 0, 'tail',
+        `${railed.length}/${rows.length} subjects have at least one truth value outside a `
+        + `\`LIMITS\` bound, so the clamp silently rewrites their face: `
+        + `${railed.map((r) => `${r.s.id} [${r.rails.join(', ')}]`).join('; ')}. `
+        + `Recovery error across the whole set, against the CLAMPED truth, is at worst `
+        + `${(worstErr * 100).toFixed(1)}% — the arithmetic is right, the bounds are the `
+        + `finding. \`LIMITS.noseWidthRatio\` [0.7, 1.4] is ±2.6 SD of the pooled adult `
+        + `nasal-width distribution, so it clips a real tail rather than a bad frame; and `
+        + `there is no counter anywhere for a clamp that landed, so today this is invisible `
+        + `in production. Ranked work: give every LIMITS field a rail counter (mirroring `
+        + `\`depthClamped\`), then re-derive the bounds from the population rather than `
+        + `from what one face needed`);
+    }
+
+    // ---------------------------------------- (B) the seat, across the set
+    //
+    // Seat measurables 1 and 3 and the G17 pupil verdict, which today run on
+    // six noses that share one head, one width ratio and one metric scale.
+    {
+      const rests = [];
+      for (const s of SUBJECTS) {
+        const surface = surfaceOfTruth(s.truth);
+        const anchors = anchorsForSubject(s.truth, s.d);
+        const placement = solvePlacement({
+          model, anchors, fit: DEFAULT_FIT, face, surface,
+        });
+        const solve = solveRestConfiguration({
+          surface, model, anchors, base: placement.seatBase,
+        });
+        const seated = solvePlacement({
+          model, anchors, fit: DEFAULT_FIT, face, surface,
+          seatConfig: { s: solve.sStar, zeta: solve.zetaAt(solve.sStar), phi: 0 },
+        });
+        rests.push({
+          s,
+          mode: solve.mode,
+          sMm: solve.sStar * 10,
+          zetaMm: solve.zetaStar * 10,
+          gapMm: solve.bearing.gap !== null ? solve.bearing.gap * 10 : NaN,
+          deficitMm: solve.bearing.deficit !== null ? solve.bearing.deficit * 10 : NaN,
+          pupil: pupilHeightInLens({ model, anchors, placement: seated }),
+        });
+      }
+      const bears = (r) => r.mode === 'wedge' && r.gapMm < EPS_BEAR * 10
+        && r.deficitMm <= EPS_BEAR * 10;
+      const onLens = (r) => r.pupil >= PUPIL_BANDS.low - 1e-9 && r.pupil <= PUPIL_BANDS.high + 1e-9;
+      const mean = rests.find((r) => isMean(r.s));
+      const zetas = rests.map((r) => r.zetaMm).filter((v) => Number.isFinite(v));
+      const spread = Math.max(...zetas) - Math.min(...zetas);
+      record('the seat still answers the mean face, and answers the set differently',
+        bears(mean) && onLens(mean) && spread > 1.5,
+        `S00 rests '${mean.mode}' at s ${mean.sMm.toFixed(2)} mm, gap `
+        + `${mean.gapMm.toFixed(2)} / deficit ${mean.deficitMm.toFixed(2)} mm against the `
+        + `${(EPS_BEAR * 10).toFixed(1)} mm bearing bound, pupils at `
+        + `${(mean.pupil * 100).toFixed(1)}%. Across the ${rests.length} subjects the solved `
+        + `standoff spans ${spread.toFixed(2)} mm (floor 1.5) — the seat answers the nose in `
+        + `front of it and now has fourteen to answer`);
+
+      const failBear = rests.filter((r) => !bears(r));
+      recordFinding('two-sided bearing across the subject set (seat measurable 1)',
+        failBear.length === 0, 'tail',
+        failBear.length === 0
+          ? `all ${rests.length} subjects rest on both pads, worst gap `
+            + `${Math.max(...rests.map((r) => r.gapMm)).toFixed(2)} mm / deficit `
+            + `${Math.max(...rests.map((r) => r.deficitMm)).toFixed(2)} mm`
+          : `${failBear.length}/${rests.length} fail: `
+            + `${failBear.map((r) => `${r.s.id} (${r.s.what}) → '${r.mode}' s `
+              + `${r.sMm.toFixed(2)} gap ${r.gapMm.toFixed(2)} deficit `
+              + `${r.deficitMm.toFixed(2)} mm`).join('; ')}. The bound is EPS_BEAR `
+            + `${(EPS_BEAR * 10).toFixed(1)} mm, itself an absolute centimetre on a `
+            + `quantity that scales with the nose`);
+
+      // Where does the two-sided solve give up? The set above answers "at
+      // ±3 mm of nasal deviation"; a bound with no number beside it is a
+      // symptom, so this sweeps the axis and reports the crossing, at both
+      // signs — a one-sided sweep would miss a solve that only fails one way.
+      {
+        const sweep = [0, 0.05, 0.1, 0.15, 0.2, 0.3].flatMap((mm) => (mm === 0 ? [0] : [mm, -mm]))
+          .map((asym) => {
+            const truth = subjectFace(face, { asym });
+            const surface = surfaceOfTruth(truth);
+            const anchors = anchorsForSubject(truth, {});
+            const placement = solvePlacement({
+              model, anchors, fit: DEFAULT_FIT, face, surface,
+            });
+            const solve = solveRestConfiguration({
+              surface, model, anchors, base: placement.seatBase,
+            });
+            // The deficit at the optical height is the two-sided question's
+            // own answer, and it exists whatever mode the solve lands in.
+            const atZero = solve.table.find((r) => r.s === 0) ?? null;
+            return {
+              asymMm: asym * 10,
+              mode: solve.mode,
+              deficitMm: atZero && Number.isFinite(atZero.deficit) ? atZero.deficit * 10 : NaN,
+            };
+          });
+        const flats = sweep.filter((r) => r.mode !== 'wedge');
+        // Per SIGN, because the two turn out to differ — and that difference is
+        // itself a measurement rather than a nuisance.
+        const givesUpAt = (sign) => {
+          const bad = sweep.filter((r) => Math.sign(r.asymMm) === sign && r.mode !== 'wedge')
+            .map((r) => Math.abs(r.asymMm));
+          return bad.length ? Math.min(...bad) : Infinity;
+        };
+        const plus = givesUpAt(1);
+        const minus = givesUpAt(-1);
+        // The canonical mesh is not itself symmetric (the spec records a solved
+        // baseline roll of about −1.2° on it), so a deviation one way adds to
+        // the mesh's own bias and the other subtracts. Measured as the mean
+        // signed gap between the mirrored deficits — a number, so the claim is
+        // checkable rather than a story about why the sweep is lopsided.
+        const pairs = sweep.filter((r) => r.asymMm > 0)
+          .map((r) => r.deficitMm - sweep.find((q) => q.asymMm === -r.asymMm).deficitMm)
+          .filter((v) => Number.isFinite(v));
+        const bias = pairs.reduce((a, b) => a + b, 0) / Math.max(pairs.length, 1);
+        recordFinding('a deviated nose drops the seat out of its two-sided solve',
+          flats.length === 0, 'tail',
+          `${sweep.map((r) => `${r.asymMm > 0 ? '+' : ''}${r.asymMm.toFixed(1)}: `
+            + `${r.mode}/${Number.isFinite(r.deficitMm) ? r.deficitMm.toFixed(2) : 'n/a'}`)
+            .join('  ')} (mm of deviation: mode / pad deficit at the optical height). The `
+          + `wedge solve gives up at ${Number.isFinite(plus) ? `+${plus.toFixed(1)} mm` : 'no + deviation tested'} `
+          + `and at ${Number.isFinite(minus) ? `−${minus.toFixed(1)} mm` : 'no − deviation tested'}. `
+          + `The two signs are NOT the same, and the reason is measurable rather than a sign `
+          + `bug in the solve: the deficit runs ${bias >= 0 ? '+' : ''}${(bias * 1000).toFixed(0)} µm `
+          + `worse on the + side at every matched pair, which is the CANONICAL MESH's own `
+          + `asymmetry (the spec records ≈−1.2° of solved baseline roll on it) adding to one `
+          + `direction and cancelling the other. A deviated nose therefore has a `
+          + `handedness in this pipeline that nobody put there. Past the crossing the pad `
+          + `deficit never reaches EPS_BEAR at ANY height in the search box, so `
+          + `\`found === -1\` and the seat falls back to the 1-DOF optical height: an `
+          + `asymmetric wearer gets the pre-stage-5 seat and nothing says so. Ferrario et al. `
+          + `put normal adult soft-tissue asymmetry at 1-3 mm, so the crossing is INSIDE the `
+          + `population, not at its edge. The mechanism built for exactly this — the G5 `
+          + `pad-balance roll — ships dark (\`DEFAULT_FIT.padBalance\` false), and the spec's `
+          + `own condition for lighting it is that the canonical baseline roll be subtracted `
+          + `first, which is the same mesh asymmetry this sweep just measured`);
+      }
+
+      const failPupil = rests.filter((r) => !onLens(r));
+      recordFinding('the pupil verdict stays on the lens across the subject set (G17)',
+        failPupil.length === 0, 'tail',
+        `heights ${rests.map((r) => `${r.s.id} ${(r.pupil * 100).toFixed(0)}%`).join(' ')} `
+        + `against the [${(PUPIL_BANDS.low * 100).toFixed(0)}%, `
+        + `${(PUPIL_BANDS.high * 100).toFixed(0)}%] band`
+        + (failPupil.length
+          ? ` — OFF-LENS on ${failPupil.map((r) => `${r.s.id} (${r.s.what})`).join(', ')}. `
+            + `PUPIL_BANDS is fixed while \`pupilTarget\` is a live slider, so the band is `
+            + `not even a statement about the fit the user asked for`
+          : ' — every subject on the lens'));
+    }
+
+    // ------------------------------- (C) how long each subject takes to settle
+    //
+    // The Goal-2 floor, measured. Twenty seconds of a cold session per subject
+    // through the real `updateFrame`, with the settle metric read on the two
+    // channels that carry the creep. Nothing here is a gate yet: the ≤2 s
+    // target is what the convergence work has to deliver, and these are the
+    // numbers it will be diffed against.
+    {
+      const RUN_FRAMES = 600;
+      // The height channel needs an asset whose pads BEAR, and the shipped one
+      // does not: on the default frame the wedge bears at the optical height,
+      // so `sStar` is 0 and `applied.s` is identically zero for the whole
+      // session on every face — measured below and reported, because a channel
+      // that never moves settles instantly and would flatter the gate. Descent
+      // begins at ~1.28x this asset's native pad separation (seat measurable
+      // 2's own probe), so the settle sweep runs at 1.34x, which is the middle
+      // of the band that measurable already pins. Same frame, pads bent
+      // outward — which is what a DBL change IS to the seat.
+      const DESCEND = 1.34;
+      const cx = model.centre.x;
+      const descending = {
+        ...model,
+        noseContacts: model.noseContacts.map(
+          (p) => new THREE.Vector3(cx + (p.x - cx) * DESCEND, p.y, p.z),
+        ),
+        padSepM: model.padSepM * DESCEND,
+        xbarPadM: model.xbarPadM * DESCEND,
+      };
+      const session = (s, useModel, frames) => {
+        const rand = lcg(20260901);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const k = s.d.scale ?? 1;
+        const sSamples = [];
+        const zSamples = [];
+        const pxSamples = [];
+        for (let f = 0; f < frames; f++) {
+          const t = f / 30;
+          // A clean frontal session with ±1.5° of ordinary postural wander at
+          // three incommensurate sub-Hz rates — a held pose is a degenerate
+          // stream and would flatter every estimator in the chain.
+          const pose = poseOf(
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.07 * t + 1)),
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.11 * t)),
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.09 * t + 2)),
+            k,
+          );
+          const r = updateFrame({
+            scene,
+            face,
+            model: useModel,
+            fit: { ...DEFAULT_FIT },
+            smoother,
+            state,
+            source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(landmarksFor(s.truth, s.d, pose), rand),
+            },
+            dt: 1 / 30,
+            smoothing: false,
+            temples: null,
+          });
+          sSamples.push({ t, x: state.seatConfig.applied.s * 10 });
+          zSamples.push({ t, x: state.seatConfig.applied.zeta * 10 });
+          const p = screenPointOf(r.placement.position, scene.head.matrixWorld, camera,
+            source.width, source.height);
+          pxSamples.push({ t, x: p.y });
+        }
+        return { sSamples, zSamples, pxSamples };
+      };
+      const rows = [];
+      const nativeMovers = [];
+      for (const s of SUBJECTS) {
+        const run = session(s, descending, RUN_FRAMES);
+        // The shipped asset, briefly, only to record what its height channel
+        // does on it — which for most faces is nothing at all.
+        const native = session(s, model, 90);
+        if (native.sSamples.some((p) => p.x !== 0)) nativeMovers.push(s.id);
+        // Tolerances are the channels' own output deadbands, in mm — the
+        // numbers the mechanism already refuses to act inside.
+        rows.push({
+          s,
+          height: measureSettle(run.sSamples, { tolerance: 0.3 }),
+          zeta: measureSettle(run.zSamples, { tolerance: 0.15 }),
+          px: measureSettle(run.pxSamples),
+        });
+      }
+      // A settle of `null` means the location never re-entered the band before
+      // the run ended — still converging at 20 s. Scored as infinite, never
+      // dropped: silently reading a null as "not over the target" is exactly
+      // how a broken instrument passes its own gate.
+      const secOf = (m) => (m.settleS === null ? Infinity : m.settleS);
+      const fmt = (m) => (m.settleS === null ? '>20' : m.settleS.toFixed(1));
+      const mean = rows.find((r) => isMean(r.s));
+      const defined = rows.every((r) => r.height.settleS !== null && r.zeta.settleS !== null);
+      const learned = rows.filter((r) => Math.abs(r.height.final) > 0.3
+        || Math.abs(r.zeta.final) > 0.15);
+      record('every subject\'s seat converges, and the metric reads it on all of them',
+        learned.length === rows.length
+        && mean.height.settleS !== null && mean.zeta.settleS !== null,
+        `S00 settles its height at ${mean.height.settleS.toFixed(2)} s (final `
+        + `${mean.height.final.toFixed(2)} mm, jitter ${mean.height.jitterRms.toFixed(3)} mm, `
+        + `drift ${Number.isFinite(mean.height.driftZ) ? `${mean.height.driftZ.toFixed(0)}x` : 'infinitely far above'} `
+        + `the instrument's resolution) and its standoff at `
+        + `${mean.zeta.settleS.toFixed(2)} s (final ${mean.zeta.final.toFixed(2)} mm). `
+        + `${defined ? 'All' : `${rows.filter((r) => r.height.settleS !== null && r.zeta.settleS !== null).length} of`} `
+        + `${rows.length} subjects produce a defined settle on both channels and all `
+        + `${learned.length} moved their seat off zero. FIXTURE FINDING, reported: on the `
+        + `SHIPPED pad separation the height channel never leaves zero for `
+        + `${rows.length - nativeMovers.length} of ${rows.length} subjects — that asset's `
+        + `wedge bears at the optical height, so \`sStar\` is 0 and there is nothing to `
+        + `settle; only ${nativeMovers.length}`
+        + `${nativeMovers.length ? ` (${nativeMovers.join(', ')})` : ''} descend on it at all. `
+        + `A settle sweep on that asset alone would have reported 0.1 s for most faces and `
+        + `called the target met, which is why this one runs at ${DESCEND}x separation, in `
+        + `the descending regime seat measurable 2 already pins`);
+
+      const worstOf = (r) => Math.max(secOf(r.height), secOf(r.zeta));
+      const over = rows.filter((r) => worstOf(r) > 2.0);
+      const worst = rows.reduce((a, r) => (worstOf(r) > worstOf(a) ? r : a));
+      recordFinding('the ≤2 s settle target, measured on every subject', over.length === 0,
+        'floor',
+        `height / standoff settle, seconds: `
+        + `${rows.map((r) => `${r.s.id} ${fmt(r.height)}/${fmt(r.zeta)}`).join('  ')} — `
+        + `${over.length}/${rows.length} subjects are over the 2 s target on at least one `
+        + `channel; worst is ${worst.s.id} (${worst.s.what}) at `
+        + `${worstOf(worst) === Infinity ? 'still converging at 20 s' : `${worstOf(worst).toFixed(2)} s`}. This is the `
+        + `FLOOR the convergence work diffs against, not a regression: the confidence ramp `
+        + `is \`noseMeanW/CONF_FULL_W\` and its own measured best case is 2.8 s. The screen `
+        + `channel is reported beside it and is resolution-limited: S00 drift `
+        + `${mean.px.driftAmp.toFixed(1)} px against a ${mean.px.band.toFixed(1)} px band `
+        + `and ${mean.px.jitterRms.toFixed(1)} px of jitter`);
+    }
+
+    // ------------------------------- (D) the camera-geometry ladder, per subject
+    //
+    // The showstopper check, generalised. The seat's square-on band is now
+    // relative to the session's own pose distribution, so it should learn on
+    // any camera for any face — and the standoff it learns is a property of
+    // the NOSE, so the three geometries must agree on it subject by subject.
+    {
+      const GEOMETRIES = [
+        { name: 'eye level', pitchDeg: 0 },
+        { name: 'laptop', pitchDeg: 13.5 },
+        { name: 'phone in lap', pitchDeg: 30 },
+      ];
+      const FRAMES = 300;
+      const ladder = (s, frames) => {
+        const k = s.d.scale ?? 1;
+        const runs = GEOMETRIES.map((g) => {
+          const rand = lcg(20260902);
+          const state = { occluder: createOccluder(face) };
+          const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+          for (let f = 0; f < frames; f++) {
+            const t = f / 30;
+            const pose = poseOf(
+              THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.07 * t + 1)),
+              THREE.MathUtils.degToRad(g.pitchDeg + 1.5 * Math.sin(2 * Math.PI * 0.11 * t)),
+              THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.09 * t + 2)),
+              k,
+            );
+            updateFrame({
+              scene, face, model, fit: { ...DEFAULT_FIT }, smoother, state, source,
+              detection: {
+                matrix: pose.toArray(),
+                landmarks: noisy(landmarksFor(s.truth, s.d, pose), rand),
+              },
+              dt: 1 / 30, smoothing: false, temples: null,
+            });
+          }
+          const c = state.seatConfig;
+          return {
+            g,
+            hasSolve: c.hasSolve,
+            solves: c.solves,
+            refMm: c.needEst.value !== null ? c.needEst.value * 10 : null,
+            admitted: state.seat.squareOn.admitted,
+          };
+        });
+        const refs = runs.map((r) => r.refMm).filter((v) => v !== null);
+        return {
+          s,
+          runs,
+          learnedAll: runs.every((r) => r.hasSolve && r.refMm !== null && r.admitted > 0),
+          spread: refs.length === GEOMETRIES.length
+            ? Math.max(...refs) - Math.min(...refs) : Infinity,
+        };
+      };
+      const rows = SUBJECTS.map((s) => ladder(s, FRAMES));
+      const mean = rows.find((r) => isMean(r.s));
+      // The assertion is that the seat LEARNS on every geometry — the
+      // showstopper's own claim, and the one that was 0/600 before the band.
+      // Whether the three then AGREE is a convergence question at this
+      // horizon, not a learning one, and it is separated out below rather than
+      // folded in here, because the two have different fixes.
+      record('the mean face\'s seat learns on all three camera geometries',
+        mean.learnedAll,
+        `${mean.runs.map((r) => `${r.g.name} (${r.g.pitchDeg}°): `
+          + `${r.admitted} admitted, ${r.solves} solves, standoff `
+          + `${r.refMm === null ? 'NEVER LEARNED' : `${r.refMm.toFixed(3)} mm`}`).join('; ')} `
+        + `— the three cameras agree on S00's standoff to ${mean.spread.toFixed(3)} mm after `
+        + `${FRAMES} frames. Before the square-on band this session admitted 0/600 at 13.5° `
+        + `and at 30°, and the seat did not exist for either camera`);
+
+      const failLearn = rows.filter((r) => !r.learnedAll);
+      const failAgree = rows.filter((r) => r.learnedAll && r.spread > 0.5);
+      // Is the disagreement CONVERGENCE or CAMERA-DEPENDENCE? One cheap
+      // experiment settles it instead of an argument: re-run the worst subject
+      // at three times the horizon and see whether the spread shrinks. An
+      // unconverged estimate closes; a camera-dependent answer does not.
+      const worstAgree = rows.reduce((a, r) => (r.spread > a.spread ? r : a));
+      const longRun = ladder(worstAgree.s, FRAMES * 3);
+      recordFinding('the seat learns on any camera, and the three cameras agree',
+        failLearn.length === 0 && failAgree.length === 0, 'tail',
+        `${rows.length} subjects x ${GEOMETRIES.length} geometries x ${FRAMES} frames (10 s). `
+        + (failLearn.length
+          ? `NEVER LEARNED: ${failLearn.map((r) => `${r.s.id} (${r.s.what}) at `
+            + `${r.runs.filter((x) => !x.hasSolve || x.refMm === null)
+              .map((x) => `${x.g.pitchDeg}°`).join('/')}`).join('; ')}. `
+          : `every subject learned on every geometry — that half of the showstopper fix `
+            + `generalises. `)
+        + (failAgree.length
+          ? `DISAGREE (>0.5 mm) on ${failAgree.length}/${rows.length}: `
+            + `${failAgree.map((r) => `${r.s.id} ${r.spread.toFixed(2)} mm `
+              + `[${r.runs.map((x) => (x.refMm === null ? 'null' : x.refMm.toFixed(2)))
+                .join(', ')}] on ${r.runs.map((x) => x.solves).join('/')} solves`)
+              .join('; ')}. DIAGNOSIS, measured not argued: the worst of them `
+            + `(${worstAgree.s.id}) re-run at ${FRAMES * 3} frames (30 s) reads `
+            + `${longRun.spread.toFixed(2)} mm against ${worstAgree.spread.toFixed(2)} mm at `
+            + `10 s, on ${longRun.runs.map((x) => x.solves).join('/')} solves against `
+            + `${worstAgree.runs.map((x) => x.solves).join('/')} — so this is `
+            + `${longRun.spread < worstAgree.spread * 0.7 ? 'CONVERGENCE RATE, and it belongs '
+              + 'to Goal 2: the off-axis geometries admit only a fraction of their frames, so '
+              + 'they reach the same answer later rather than a different one'
+              : 'NOT convergence: the spread does not close with the horizon, so the standoff '
+              + 'this pipeline learns genuinely depends on where the camera is'}. `
+          : `every subject's three cameras agree to within 0.5 mm (worst `
+            + `${Math.max(...rows.map((r) => r.spread)).toFixed(2)} mm). `)
+        + `[the whole generality block, ${SUBJECTS.length} subjects and `
+        + `${Math.round((performance.now() - generalityStartedMs) / 1000)} s of wall time in `
+        + `whatever this environment is]`);
+    }
+  }
+
   // ---------------------------------------------------------- lighting
   // The lights follow the scene the camera sees; these drive the estimator with
   // known scenes and require it to answer correctly.
@@ -8132,11 +10405,19 @@ async function run() {
   await checkVideoBackground(scene, canvas);
 
   const failed = results.filter((r) => !r.pass);
-  const summary = `${results.length - failed.length}/${results.length} checks passed`;
+  const open = findings.filter((f) => !f.clear);
+  const tails = open.filter((f) => f.class === 'tail').length;
+  const floors = open.filter((f) => f.class === 'floor').length;
+  const summary = `${results.length - failed.length}/${results.length} checks passed`
+    + (open.length
+      ? ` · ${open.length} open generality findings (${tails} tail, ${floors} floor) — `
+        + 'work queue, not regressions'
+      : '');
   document.getElementById('summary').textContent = summary;
   document.getElementById('summary').className = failed.length ? 'fail' : 'ok';
   document.title = failed.length ? `FAIL — ${summary}` : `OK — ${summary}`;
   window.__results = results;
+  window.__findings = findings;
   window.__done = true;
 }
 

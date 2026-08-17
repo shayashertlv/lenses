@@ -204,7 +204,20 @@ export class NoiseFloor {
     return Math.max(0, rate - this.floor);
   }
 
+  /**
+   * Back to the constructed state, ring included.
+   *
+   * The ring is zeroed even though `estimate` only ever reads `ring[0..fill)`,
+   * so the stale samples are already unreachable. "Unreachable" is a claim
+   * about today's read pattern; "absent" is a claim about the object. The
+   * isolation check compares a reset estimator field by field against a
+   * constructed one, and a reset that leaves the previous wearer's samples
+   * sitting in the buffer cannot pass that comparison — nor should it have to
+   * argue its way past it.
+   */
   reset() {
+    this.ring.fill(0);
+    this.sorted.fill(0);
     this.fill = 0;
     this.index = 0;
     this.floor = 0;
@@ -817,6 +830,65 @@ export class PoseSmoother {
     this.rotation.reset();
     this.scale.reset();
     this.bounded = 0;
+  }
+
+  /**
+   * Throws away the two noise-DC calibrations and NOTHING else — the narrow
+   * reset a change of wearer wants, where `reset()` would be wrong.
+   *
+   * The distinction is the whole point. A `NoiseFloor` is a measurement of one
+   * person in one room in front of one camera: their distance, their lighting,
+   * their skin contrast, how well the detector likes their face. Carried into
+   * the next wearer it is bounded and self-healing in one direction and not in
+   * the other — the floor falls free, so a QUIETER second wearer re-calibrates
+   * on the next window, but a NOISIER one inherits a floor that is too low and
+   * may only climb it at `NOISE_RISE · cap` per second (~0.8 cm/s per second),
+   * so for several seconds the adaptive cutoff sits open on noise it has been
+   * told is signal and the new wearer sees exactly the shimmer this class
+   * exists to remove. Worse for the population Goal 1 is for: the users most
+   * likely to be the noisier of a pair are the ones the detector already
+   * serves worst.
+   *
+   * The pose LEVEL deliberately survives, and that is not laziness. The
+   * composite is frame-locked: the pose drawn on a frame is the pose solved
+   * from that frame. Clearing the level makes the next detection be adopted
+   * whole, which is correct after a dropout (the velocity describes a movement
+   * that is over) and wrong here — nobody moved, the estimator changed its
+   * mind about whose face it is, and a jump would put a visible pop on screen
+   * for a reason the viewer cannot see. So a swap re-calibrates the noise and
+   * keeps the pose continuous, and the isolation check asserts both halves.
+   */
+  resetNoise() {
+    this.position.noise.reset();
+    this.position.measuredSpeed = 0;
+    this.position.activityEff = 0;
+    this.rotation.noise.reset();
+    this.rotation.measuredRate = 0;
+    this.rotation.activityEff = 0;
+    // The RATE estimators go with the floors, and the line between them and the
+    // level is where this reset earns its name. A `NoiseFloor` calibrates the
+    // measured rate; the rate is a difference between two consecutive
+    // MEASUREMENTS, so the first one taken across a change of wearer is a
+    // difference between two people's readings — and it is admitted to the
+    // freshly-cleared ring as though it described the new one. Its VALUE is
+    // usually near zero (nobody moved), but its arrival is not: the ring is one
+    // sample further on forever after, which is the previous wearer showing
+    // through a calibration that claims to be the new wearer's. Clearing the
+    // derivative costs exactly one frame of `beta` (the cutoff sits at
+    // `minCutoff` until the next measurement gives it a rate), which is what a
+    // cold session's first frame does anyway.
+    //
+    // The LEVEL is untouched by all of it, and that is the invariant: the
+    // composite is frame-locked, so the pose drawn on a frame is the pose
+    // solved from that frame. Nobody moved when the estimator changed its mind
+    // about whose face it is, and a level reset would put a visible pop on
+    // screen for a reason the viewer cannot see.
+    for (const f of this.position.filters) {
+      f.previousValue = null;
+      f.rate.reset();
+    }
+    this.rotation.rateAxis.set(0, 0, 0);
+    this.rotation.rateStarted = false;
   }
 }
 

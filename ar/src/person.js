@@ -463,7 +463,20 @@ export function createPersonModel(face) {
       return depth + (personDepth - depth) * w;
     },
 
-    /** Identity change: everything measured is gone; the priors remain. */
+    /**
+     * Identity change: everything measured is gone; the priors remain.
+     *
+     * Two fields are deliberately NOT cleared, and the split is the isolation
+     * boundary in miniature. `resets` and `decays` count events over the
+     * page's life — a counter that resets with the thing it counts cannot
+     * report the reset, and the harness's own swap check reads `resets`
+     * across exactly this call. Everything else describes a person: the
+     * information state, the estimate, the noise, the clocks, and the
+     * readouts derived from them, including `lastDecayCause` and
+     * `tripwireSeconds`, which are a *description of a moment in the previous
+     * session* rather than a count of anything, and which used to be shown
+     * against the next wearer.
+     */
     reset() {
       this.A.fill(0);
       this.b.fill(0);
@@ -475,6 +488,13 @@ export function createPersonModel(face) {
       this.zWeight.fill(0);
       this.zTarget.fill(0);
       this.resNoise.fill(RES_NOISE_INIT);
+      // Scratch, and cleared anyway: it holds the previous person's residuals
+      // past the median's own read window, and "unreachable" is a claim about
+      // today's read pattern where "absent" is a claim about the object. The
+      // isolation check compares a reset model field by field against a
+      // constructed one and this is the difference between passing that
+      // comparison and arguing past it.
+      this.scratch.fill(0);
       this.frames = 0;
       this.sinceCommit = 0;
       this.regressSeconds = 0;
@@ -484,6 +504,8 @@ export function createPersonModel(face) {
       this.meanW = 0;
       this.noseMeanW = 0;
       this.zConfBridge = 0;
+      this.lastDecayCause = null;
+      this.tripwireSeconds = 0;
       this.resets++;
     },
 

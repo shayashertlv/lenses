@@ -339,9 +339,38 @@ against a keyframe bank and never re-measure the wearer.
 The thing the timer was guarding against is someone else sitting down in the chair,
 which is a question about the face, so it is now asked of the face. A returning head
 whose proportions land more than 12% from the estimate gets a fresh window; one that
-matches keeps its fit and resumes instantly. Two independent signals feed it: shape
-(`widthRatio` against the canonical head) and *absolute size* from the iris, which
-catches the case shape alone cannot — an adult and a child proportioned alike.
+matches keeps its fit and resumes instantly. It is a **shape** comparison —
+`widthRatio` against the canonical head — and it convicts only on a streak of
+confident disagreements, so one bad sample can never cost a converged estimate. Absolute
+size from the iris used to stand beside it as a second witness (it catches the case
+shape alone cannot: an adult and a child proportioned alike), and it was withdrawn
+when a live capture measured that ruler swinging further than the tolerance it was
+being asked to convict at. A predicate must not convict on a reading its own fixture
+shows lying; the iris still serves the size verdicts and the PD readout, it just no
+longer carries a death sentence. That case reverts to **Re-measure face**.
+
+**And what a new person inherits is nothing.** That is a stronger claim than it
+sounds, because this pipeline is a stack of estimators and every one of them is a
+measurement of *somebody* — the fit window, the person model, the occluder's carried
+deformation and its depth fit, the seat's solved configuration and its square-on band,
+the gaze door's neutral reference, the pose filter's noise calibration. An estimator
+that survives a change of wearer does not merely report the wrong number; it reports
+the *previous* person's number with the *next* person's confidence, and every
+mechanism downstream is built to trust exactly that. So the boundary is written down
+in one place (`PER_SESSION_STATE` in `src/frame.js`), it names which of the five reset
+paths owns every field of the session, and it says what deliberately survives and why
+— the smoothed pose level, because the composite is frame-locked and nobody moved when
+the estimator changed its mind about whose face it is; and the lifetime event counters,
+because a counter that resets with the thing it counts cannot report the reset.
+
+The check that holds it up runs two different synthetic faces back to back through one
+occluder, one pose filter and one state object, exactly as the app arranges them, and
+asserts that every frame of the second person's session is **bit-identical** to the
+same frame of a session that never saw the first — not similar, not converged, not
+within a budget. A budget would have to be chosen, and the only number available to
+choose it against is whatever today's leak happens to be worth. It also re-injects
+each leak on its own and requires the comparison to catch it, so a check built out of
+allowlists cannot quietly stop discriminating.
 
 What a long absence still discards is the pose filter's **velocity**, and only that. A
 head speed carried across half a second describes a movement that finished long ago,
@@ -793,14 +822,26 @@ removed.
 
 ## Verified
 
-`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 343
-checks. 342 pass anywhere; the one remaining is a wall-clock budget ("the
+`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 364
+checks. 363 pass anywhere; the one remaining is a wall-clock budget ("the
 deformation fits inside the tracking loop", 13 ms for a full occluder rebuild)
 which is environment-ruled: it measures real elapsed time, so it passes on an
 unloaded machine and reads red in a throttled or backgrounded tab. It is the only
 check in the suite whose result depends on the machine rather than the code, and
 it is left in rather than deleted because the budget is real — it just has to be
-read with that caveat. Add `?model=crystal` (or any entry's `value`) to run
+read with that caveat.
+
+Beside the checks the suite carries **open generality findings**, tallied
+separately in the summary line and in `window.__findings`. They come from the
+multi-subject block, which runs the seat, placement, convergence and
+camera-geometry checks across fifteen synthetic faces drawn from published adult
+anthropometry rather than the one head the suite used to carry. A finding is a
+place where the pipeline is right about the average face and wrong about a real
+one ("tail"), or right about nobody yet because the work has not been done
+("floor"). Neither is a regression, so neither fails the suite — but a red on
+**S00**, the canonical face, does, because S00 is every other check's own subject.
+Finding them is the point: the list is the work queue, with the face parameters
+that produce each one. Add `?model=crystal` (or any entry's `value`) to run
 the whole suite against a different frame: the checks are written against whatever
 is loaded rather than against one asset, so that is how a newly added frame gets
 put through all of them. It drives `updateFrame`, the same function the live

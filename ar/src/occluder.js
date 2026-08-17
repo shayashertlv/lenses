@@ -566,6 +566,23 @@ export function createOccluder(face) {
      * to prevent.
      */
     reliefBase: OCCLUDER_RELIEF,
+    /**
+     * The per-vertex facing verdicts, rewritten in full every frame by
+     * `measureShape`: how squarely each vertex faces the lens (`facingDot`),
+     * that dot put through the facing ramp and the self-occlusion hold
+     * (`facingTrust` — the identical weight the person model accumulates at,
+     * exported so the two can never disagree about what was observed), and
+     * whether the vertex is excluded from the depth fit (`fitExclude`).
+     *
+     * Allocated here rather than lazily on the first frame so that a reset is
+     * a return to a state this constructor can produce: `resetOccluderPerson`
+     * clears them, and the isolation check compares a reset occluder field by
+     * field against a constructed one, where a lazily-created array reads as
+     * `undefined` on one side and a buffer on the other.
+     */
+    facingDot: new Float32Array(face.vertexCount),
+    facingTrust: new Float32Array(face.vertexCount),
+    fitExclude: new Uint8Array(face.vertexCount),
     /** Nothing measured yet, so the first sample is adopted whole rather than eased into. */
     hasShape: false,
     /** How far the shape has moved since each of the two rebuilds, in cm. */
@@ -607,6 +624,82 @@ export function createOccluder(face) {
   applyRelief(group);
 
   return group;
+}
+
+/**
+ * Returns every person-derived field of the occluder to the value
+ * `createOccluder` gave it — the occluder's half of the isolation boundary.
+ *
+ * The occluder is created once per page and reused for the whole of it, across
+ * every face that sits down in front of it. That is right for the geometry (the
+ * shell, the subdivision, the materials — all asset, none of it anybody's face)
+ * and wrong for everything this function touches, each of which is a statement
+ * about a particular person in front of a particular camera:
+ *
+ *  - `offsets` / `viewResidual` — that face's deformation. `person.reset()`
+ *    zeroes the slow layer but the fast one still carries the whole of the old
+ *    shape, and with `hasShape` true the next person's first sample is EASED
+ *    into it at `SHAPE_TAU` through the shrinkage floor rather than adopted
+ *    whole. So the composite starts on the previous face and walks off it —
+ *    the frame-one-is-a-fit invariant, broken for the one session that most
+ *    needs it.
+ *  - `compensated` — the code's own comment beside the toggle prices a warm
+ *    start from a stale control at ~0.5 mm of the previous face, baked into the
+ *    next person's first rebuild.
+ *  - `depthFit` — `remeasure` in `frame.js` already clears this and states why
+ *    ("a statement about the previous face in front of the previous source").
+ *    The identity swap is the same sentence with a different trigger, and it
+ *    was the one path that did not clear it.
+ *  - `relief` — a latched value derived from the wearer's distance through
+ *    `pixelsPerCm`; back to `reliefBase` so the next session re-derives it from
+ *    its own distance rather than inheriting a hold.
+ *  - the visibility and facing scratch — rewritten from scratch every frame, so
+ *    they carry nothing in practice; cleared anyway, because "in practice"
+ *    is not a boundary and the isolation check compares field by field.
+ *
+ * Two callers, deliberately identical: the deform toggle (which needs exactly
+ * this list to be the honest A/B it promises) and `resetFit` (which needs
+ * exactly this list to make a new wearer a new session). They used to be one
+ * caller with the list written out by hand, which is how the other path came to
+ * have none of it.
+ *
+ * NOT cleared, and named here so the omissions read as decisions: the rebuild
+ * counters and `frameCount` (instruments measuring the occluder over the page's
+ * life — an instrument that resets with the thing it measures cannot report on
+ * it), and every geometry field (`base`, `control`, `skin`, `restBase`,
+ * `subdivision`, `surface`, `profile`, `windowIndices`, the materials), which
+ * describe the canonical mesh and no person at all.
+ */
+export function resetOccluderPerson(occluder) {
+  const data = occluder?.userData;
+  if (!data) return;
+  data.offsets.fill(0);
+  data.viewResidual.fill(0);
+  data.observed.fill(0);
+  data.hasShape = false;
+  // Infinity, not zero: the drawn surface still carries the previous face and
+  // must be rebuilt from the cleared composite before anything reads it. This
+  // is the constructed value, which is what makes a reset session and a cold
+  // session the same session.
+  data.driftSurface = Infinity;
+  data.driftProfile = Infinity;
+  data.rebuilds.lastCause = 'reset';
+  data.compensated = false;
+  data.depthFit = null;
+  data.depthClamped = 0;
+  data.relief = data.reliefBase ?? OCCLUDER_RELIEF;
+  // The rebuild the two Infinities above schedule must not then wait behind
+  // the cadence floor: back to the constructed value, which means "eligible
+  // now", exactly as a session's first frame is.
+  data.framesSinceRebuild = REBUILD_MIN_INTERVAL;
+  data.shift.set(0, 0, 0);
+  data.visibility.behind.fill(-Infinity);
+  data.visibility.depth.fill(0);
+  data.visibility.proj.fill(0);
+  data.visibility.vertexDepth.fill(0);
+  data.facingTrust?.fill(0);
+  data.facingDot?.fill(0);
+  data.fitExclude?.fill(0);
 }
 
 /**
@@ -1020,29 +1113,15 @@ export function updateOccluder(occluder, {
   } else if (!deform && data.hasShape) {
     // The control was turned off. Fall back to the average head rather than freezing
     // this face's shape into it, so the toggle is the honest A/B it looks like.
-    data.offsets.fill(0);
-    data.viewResidual.fill(0);
+    // Every field this path used to clear by hand now goes through the one
+    // exported reset — see `resetOccluderPerson`, which exists because
+    // `resetFit` needs the identical list and had none of it.
+    resetOccluderPerson(occluder);
     // The person model goes with the shape, for the same honesty: with the
     // deform off nothing accumulates, and a frozen estimate would spring the
     // measured face back the instant the toggle returned — a step, and a lie
     // about what the toggle shows in between.
     person?.reset();
-    data.hasShape = false;
-    data.driftSurface = Infinity;
-    data.driftProfile = Infinity;
-    data.rebuilds.lastCause = 'reset';
-    // Cold-start the next compensation solve. The warm start is only valid when the
-    // target moved less than the rebuild deadband; this jump is the whole
-    // deformation at once, and three warm passes from the old control leave ~0.5 mm
-    // of the previous face baked into the "average" head the toggle promises.
-    data.compensated = false;
-    // The depth fit goes with the shape. With the deform off nothing re-measures
-    // it, and `frame.js` hands this object to the anchor recovery gated only on
-    // ITS OWN toggle — left in place, the anchors would ride a frozen fit whose
-    // offset describes wherever the head was when the control flipped, drifting
-    // off by however far the wearer moves afterwards. Null is the honest value:
-    // there is no fit while nothing measures one.
-    data.depthFit = null;
   }
 
   // C6: the deadband decides WHETHER the drift is worth acting on, the
@@ -1127,8 +1206,7 @@ function measureShape(data, {
   // criterion, applied identically: a vertex behind cover past its graze-widened
   // bias is not being observed, whatever its normal says.
   const count = offsets.length / 3;
-  const facingDot = data.facingDot ?? (data.facingDot = new Float32Array(count));
-  const fitExclude = data.fitExclude ?? (data.fitExclude = new Uint8Array(count));
+  const { facingDot, fitExclude } = data;
   for (let i = 0; i < count; i++) {
     const at = i * 3;
     const px = rest[at] + offsets[at] - cameraInFace.x;
@@ -1192,7 +1270,7 @@ function measureShape(data, {
   const personOffsets = person?.offsets ?? null;
   const resNoise = person?.resNoise ?? null;
   const personW = person?.W ?? null;
-  const facingTrust = data.facingTrust ?? (data.facingTrust = new Float32Array(count));
+  const { facingTrust } = data;
   let drift = 0;
 
   for (let i = 0; i < offsets.length; i += 3) {

@@ -93,6 +93,14 @@ const state = {
    */
   stabMeter: createStabMeter(),
   get stab() { return this.stabMeter.readout; },
+  /**
+   * How many times the per-person state has been thrown away this page — an
+   * identity conviction, a re-measure, a source switch. See
+   * `PER_SESSION_STATE` in `frame.js`: this is what makes the lifetime
+   * counters attributable. Two readings of `__ar.identity.asked` taken at the
+   * same `sessionEpoch` describe one person; across a bump they do not.
+   */
+  sessionEpoch: 0,
   anchors: null,
   /**
    * The bounded window of recent head-on samples the fit stands on. See `updateFrame`
@@ -101,6 +109,19 @@ const state = {
    */
   sampleSet: null,
   anchorSamples: 0,
+  /**
+   * The identity streak and the pose-confidence readout, declared here rather
+   * than sprung into existence by the first frame that writes them.
+   *
+   * Both are `PER_SESSION_STATE.perPerson` fields, and the manifest's job is to
+   * say what a reset returns them TO — which is only meaningful if a session
+   * that has never run holds the same value. The isolation check compares a
+   * reset session field by field against a constructed one, and a field that is
+   * `undefined` on one side and `0` on the other is a difference the check
+   * cannot tell from a leak.
+   */
+  identityStrikes: 0,
+  measuringLatch: false,
   temples: null,
   templesAimed: false,
   fit: { ...DEFAULT_FIT },

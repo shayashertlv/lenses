@@ -13,7 +13,9 @@ import { solvePlacement, pupilHeightInLens, pupilVerdict, widthVerdict } from '.
 import { measureAnchors, canonicalAnchors, clampAnchors, medianAnchors } from './anchors.js';
 import { LM } from './canonical-face.js';
 import { aimTemples, resetTemples, fadeTemples } from './temples.js';
-import { updateOccluder, headProfileFor, surfaceOf } from './occluder.js';
+import {
+  updateOccluder, headProfileFor, surfaceOf, resetOccluderPerson,
+} from './occluder.js';
 import { estimateYaw } from './tracker.js';
 import { createPersonModel, W_MAX } from './person.js';
 import { solveRestConfiguration } from './seat-equilibrium.js';
@@ -101,9 +103,10 @@ const POSE_TRUST_IDENTITY = 0.8;
 export const IDENTITY_STRIKES = 5;
 
 /**
- * The standoff is a face constant, and this is the only pose allowed to teach
- * it — the wearer's "the glasses are being pushed forward for no reason" at
- * >40° of yaw, third and final attempt (2026-08-17).
+ * The standoff is a face constant, and only a square-on pose may teach it —
+ * the wearer's "the glasses are being pushed forward for no reason" at >40° of
+ * yaw, third and final attempt (2026-08-17) — but "square-on" is a fact about
+ * THIS SESSION'S CAMERA, not an absolute cone (2026-08-17, camera geometry).
  *
  * The first two attempts failed for the same unexamined reason. Freezing the
  * channel at low trust locked in an inflation that had already happened;
@@ -112,42 +115,164 @@ export const IDENTITY_STRIKES = 5;
  * already wrong at 10–20° of yaw, where the trust ramps still read 0.87–1.0**
  * (+1.7 to +3.5 mm of fictional interference, measured). A weight cannot
  * discount a reading that arrives at full weight. So the seat stops asking the
- * ramps — which grade *landmark* trust — and asks the only question that
- * matters for a two-pad bearing: is this head square enough to the camera that
- * BOTH nasal sidewalls are genuinely seen? That is `w = 1`: inside every ramp's
- * start (yaw 9.7°, pitch 11.5°, roll 14.3°), the pose the trust model itself
- * rates as carrying no discount at all.
+ * ramps for a *weight* and asks them for a *rank*: is this pose among the
+ * squarest this session actually achieves?
  *
- * Outside it the standoff does not ease, does not re-solve, and is not guarded
- * against — it is simply the number the last square-on look measured. A head
- * turning cannot change how far a frame sits off the nose it rests on, so a
- * pipeline that lets a turn change it is not modelling anything real.
+ * **The refusal is categorical, and that part was measured to work.** What was
+ * wrong was its REFERENCE. The bar used to be the absolute constant 0.999
+ * against `w = wy·wp·wr`, i.e. "inside every ramp's start" (yaw 9.7°, pitch
+ * 11.5°, roll 14.3°) — a cone about the CAMERA axis, and a camera is not
+ * anybody's eye level. A laptop lid 12 cm below the eyes at 50 cm puts a user
+ * who is looking straight at their screen at atan(12/50) = 13.5° of pose
+ * pitch, where `wp = 1 − smoothstep(0.20, 0.60, 0.236) = 0.977`; with ±1.5° of
+ * ordinary postural wander the session's BEST frame reads 0.9984 against a bar
+ * of 0.999. Measured on the synthetic camera ladder: 0/600 frames admitted
+ * over 20 s, no standoff reference, no equilibrium ever solved, `hasSolve`
+ * false for the session — 6.1 mm of solved standoff for an eye-level user and
+ * exactly 0 for the laptop one. A phone in the lap (30°, `w` ≈ 0.16) was the
+ * same, worse. That is not a low-trust problem; it is a knife-edge equality on
+ * a product of three smoothsteps, and it fails silently for a whole class of
+ * hardware.
  *
- * **The COMBINED trust `w = wy·wp·wr`, and a yaw-only gate was tried and
- * measured worse.** The reasoning for yaw-only is seductive and wrong: only
- * yaw hides a nasal sidewall, so surely pitch and roll may keep teaching. The
- * replay says otherwise — gating on `wy` alone recovered pitch (excursion
- * 2.44 → 0.69 mm) and took the wearer's actual complaint backwards, the push
- * past 40° of yaw going +0.51 → −1.43 mm under the combined gate but +0.91
- * under yaw-only, i.e. WORSE than before any of this work. Pitch does not
- * occlude a sidewall but it does degrade the reconstruction, so a yaw-only
- * gate admits inflated readings from pitched frames and then carries them
- * into the turn. Occlusion is not the only way a surface reading goes bad.
+ * So the bar is now the session's own top decile:
+ *
+ *     band = max over the session of  Q90( last FIT_WINDOW values of w )
+ *     square-on  ⟺  w ≥ SEAT_REF_SLACK · band
+ *
+ * **No new threshold: the quantile IS the definition of square-on** — the same
+ * move `NoiseFloor` makes in `smoothing.js` (measure the live level, use it,
+ * never let it eat the thing it protects). Four properties, all load-bearing:
+ *
+ *  - **A point mass passes wholesale.** A quantile is a LEVEL, not a rate
+ *    limiter: a user whose pose is habitually the same reads the same `w` every
+ *    frame, so Q90 equals that value and every frame is admitted. An eye-level
+ *    user's `w` is exactly 1.0 inside the cone, so `band = 1`, the test is
+ *    `w ≥ 0.999` and the behaviour is **bit-identical to the measured-good
+ *    one**. The laptop user's band centres on their own habitual pose instead.
+ *  - **It cannot starve.** The band is a level the session's own distribution
+ *    demonstrated ~4 frames of in 31, so there is always a best-available look
+ *    to learn from. What it refuses is the WORSE 87% — which is the categorical
+ *    refusal, unchanged, with the reference moved off the camera and onto the
+ *    user.
+ *  - **It cannot drift.** The band is the running MAXIMUM of that quantile, so
+ *    a minute spent turned away cannot redefine turned-away as square-on: the
+ *    ring empties, Q90 collapses, the band does not move, and every one of
+ *    those frames is refused. That is the "bound it relative to the session's
+ *    own best observed trust" requirement — and the bound and the band are the
+ *    same object, so it needs no second coefficient. The recorded cost of the
+ *    ratchet: a session that moves to a WORSE camera mid-way keeps the better
+ *    reference and pauses further learning rather than re-adapting downward,
+ *    which is exactly what the invariant already prescribes for an off-square
+ *    pose ("what the last square-on look measured is what a turned head
+ *    wears"), and it can only happen after the seat has already learned from
+ *    the better data. `__ar.seat.squareOn` publishes the band, the live
+ *    quantile and the admitted count so this is diagnosable live; `resetFit`
+ *    clears it with the rest of the seat.
+ *  - **The test is not an equality on a product.** That is what broke it. The
+ *    level is an order statistic OF THE SAME product, drawn from the session
+ *    that is being tested, so it moves with the distribution instead of
+ *    standing in front of it; the harness asserts the point-mass property
+ *    directly (a pose held constant at ANY pitch admits every frame).
+ *
+ * **The trust stays COMBINED (`w = wy·wp·wr`), and a visibility gate was
+ * refused for a measured reason.** `min(facingTrust)` over the pad columns is
+ * the predicate this comment used to ask for, and it is wrong: pitch does not
+ * occlude a sidewall but it does degrade the reconstruction, and the surface
+ * law is already wrong at 10–20° of YAW where both sidewalls are plainly
+ * visible and `facingTrust ≈ 1`. A yaw-only gate was tried and measured: it
+ * recovered pitch (excursion 2.44 → 0.69 mm) and took the wearer's actual
+ * complaint backwards, the push past 40° of yaw going +0.51 → −1.43 mm under
+ * the combined gate but **+0.91 under yaw-only**, i.e. worse than before any
+ * of this work. Occlusion is not the only way a surface reading goes bad, so
+ * the gate keeps grading the whole pose — it only stops pretending it knows
+ * where the camera is.
  *
  * The residual cost is honest and recorded: pitch excursion 0.00 → 2.44 mm and
  * browse 1.17 → 2.79 mm, the standoff going stale while off-square and the
  * guard bridging it (3 → 13 pushes). The wearer validated this trade live
  * ("much better") on the axis they raised; the pitch tail is the open item.
  *
- * 0.999 rather than 1.0 only because `w` is a product of three smoothsteps and
- * float equality on it would be a coin toss at the boundary.
+ * `SEAT_REF_SLACK` is the old 0.999 keeping the ONE job its own comment always
+ * claimed — "float equality on a product of three smoothsteps would be a coin
+ * toss at the boundary" — and losing the job it was silently doing, which was
+ * defining square-on as a cone about the camera. It is a relative slack now, so
+ * it means the same thing at every band.
  */
-const SEAT_REF_TRUST = 0.999;
+const SEAT_REF_QUANTILE = 0.9;
+const SEAT_REF_SLACK = 0.999;
 
 /** Hermite smoothstep, rising 0 → 1 across [edge0, edge1]. */
 function smoothstep(edge0, edge1, x) {
   const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1);
   return t * t * (3 - 2 * t);
+}
+
+/**
+ * Folds this frame's pose trust into the square-on band (see SEAT_REF_QUANTILE).
+ *
+ * The ring is `FIT_WINDOW` long, and it has to be: the band decides admission
+ * to a `FIT_WINDOW`-slot window (`needEst`), so a band measured over a longer
+ * horizon would admit more samples than the window can hold and one measured
+ * over a shorter one would refuse samples it has room for. One window, one
+ * horizon. `FIT_WINDOW` being odd is the other half — it is why its own median
+ * is exact, and it makes the decile `sorted[floor(0.9·30)]` an exact order
+ * statistic rather than an interpolation between two.
+ *
+ * **The cold-start rule is that rule, not a number: there is no band until the
+ * ring that measures it is full.** A quantile over a partly-filled ring is a
+ * quantile of a different distribution, and the honest cold value is therefore
+ * today's cone (`band = 1`), which is today's behaviour exactly — 31 frames is
+ * ~1 s at 30 fps, well inside the settle budget, and nothing is visible in it
+ * because a pre-solve session is already wearing the standalone raw law. The
+ * cold value is deliberately NOT recorded into `best`: it is a fallback, not an
+ * observation, and letting it ratchet the band to 1.0 would reproduce the very
+ * bug this replaces.
+ *
+ * Insertion sort over 31 elements into a held scratch array — `NoiseFloor`'s
+ * own arithmetic, no allocation, ~0.5 µs.
+ */
+function updateSquareOnBand(seat, wPose) {
+  const sq = seat.squareOn;
+  const w = wPose ?? 1;
+  sq.frames++;
+  sq.wMin = Math.min(sq.wMin, w);
+  sq.wMax = Math.max(sq.wMax, w);
+  sq.ring[sq.index] = w;
+  sq.index = (sq.index + 1) % FIT_WINDOW;
+  if (sq.fill < FIT_WINDOW) sq.fill += 1;
+  if (sq.fill < FIT_WINDOW) {
+    sq.live = null;
+    sq.q10 = null;
+    sq.q50 = null;
+    sq.band = 1;
+    return;
+  }
+  const sorted = sq.sorted;
+  for (let i = 0; i < FIT_WINDOW; i++) {
+    const value = sq.ring[i];
+    let j = i - 1;
+    for (; j >= 0 && sorted[j] > value; j--) sorted[j + 1] = sorted[j];
+    sorted[j + 1] = value;
+  }
+  sq.live = sorted[Math.floor(SEAT_REF_QUANTILE * (FIT_WINDOW - 1))];
+  sq.q10 = sorted[Math.floor(0.1 * (FIT_WINDOW - 1))];
+  sq.q50 = sorted[(FIT_WINDOW - 1) >> 1];
+  // The ratchet: rises to a better demonstrated level, never falls. This IS the
+  // drift bound (see SEAT_REF_QUANTILE) — one object, not a band plus a floor.
+  if (sq.live > sq.best) sq.best = sq.live;
+  sq.band = sq.best;
+}
+
+/**
+ * This frame's square-on verdict — ONE expression with three consumers: the
+ * standoff reference's admission, the resting height's ease, and the solve
+ * scheduler's refusal. It used to be three copies of the same comparison
+ * against the same absolute constant, which is the duplicated-literal class
+ * that has already produced drift elsewhere in this tree; a band that lived in
+ * three places would drift the same way.
+ */
+function isSquareOn(seat, wPose) {
+  return (wPose ?? 1) >= SEAT_REF_SLACK * seat.squareOn.band;
 }
 
 /**
@@ -536,10 +661,45 @@ function createSeatState() {
     solves: 0,
     holds: 0,
     guardPushes: 0,
+    /**
+     * Frames on which the non-penetration guard hit `GUARD_MAX`. Here, on the
+     * per-session seat state, rather than in `fit.js`'s module scope where it
+     * used to live: `resetFit` clears `state.seatConfig` whole, so a wearer's
+     * cap overflows are their own. A module-level counter reported the
+     * PREVIOUS person's total into the next person's session and made the
+     * telemetry replay order-dependent within one process. `solvePlacement`
+     * takes this object as its `stats`.
+     */
+    guardOverflow: 0,
     /** Solve attempts refused for pose trust below the stage-6 bar —
      * counted apart from `holds` so the replay can tell "the field said
      * hold" from "the pose was not asked". Monotone, like the rest. */
     refusals: 0,
+    /**
+     * The square-on band's estimator state (see SEAT_REF_QUANTILE). It lives
+     * HERE, on the seat state, for the isolation reason and not for tidiness:
+     * `resetFit` clears `state.seatConfig` whole, so one user's pose
+     * distribution cannot define square-on for the next one. A module-level
+     * ring would be exactly the leak class the isolation work is chasing.
+     */
+    squareOn: {
+      ring: new Float64Array(FIT_WINDOW),
+      sorted: new Float64Array(FIT_WINDOW),
+      fill: 0,
+      index: 0,
+      /** The level in force: the session's best demonstrated top decile. */
+      band: 1,
+      /** This frame's own top decile, null until the ring is full. */
+      live: null,
+      q10: null,
+      q50: null,
+      /** The ratchet's high-water mark. Never seeded from the cold fallback. */
+      best: 0,
+      wMin: Infinity,
+      wMax: 0,
+      frames: 0,
+      admitted: 0,
+    },
   };
 }
 
@@ -570,11 +730,19 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   // `applied` so `solvePlacement`'s guard answers penetration against the
   // same reference the ζ channel settles on — one reference, two consumers,
   // no second grammar.
-  // Square-on only (see SEAT_REF_TRUST). The weighted-median grammar below is
-  // kept — it still refuses noise and a single freak reading — but the gate in
-  // front of it is now categorical, because the failure it exists to stop
-  // arrives at full weight.
-  const seatSquareOn = (wPose ?? 1) >= SEAT_REF_TRUST;
+  // Square-on only (see SEAT_REF_QUANTILE). The weighted-median grammar below
+  // is kept — it still refuses noise and a single freak reading — but the gate
+  // in front of it is categorical, because the failure it exists to stop
+  // arrives at full weight; and its reference is this session's own top decile,
+  // because a camera is not anybody's eye level.
+  //
+  // The band is folded FIRST, on every eased frame, so all three consumers ask
+  // the same question of the same frame. (Held under 'frozen' with the rest of
+  // the estimator state, because `easeSeatChannels` is not called at all — the
+  // pose distribution of a frozen warm-up is not this session's.)
+  updateSquareOnBand(seat, wPose);
+  const seatSquareOn = isSquareOn(seat, wPose);
+  if (seatSquareOn) seat.squareOn.admitted++;
   if (seat.rawNeeded !== null && seatSquareOn) {
     const est = seat.needEst;
     est.samples.push({ v: seat.rawNeeded, w: wPose });
@@ -590,7 +758,7 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   }
   seat.applied.needRef = seat.needEst.value;
   // Published for `solvePlacement`'s guard: penetration is only answerable
-  // from a pose that can actually see the contact (see SEAT_REF_TRUST).
+  // from a pose that can actually see the contact (see SEAT_REF_QUANTILE).
   seat.applied.squareOn = seatSquareOn;
 
   if (!seat.hasSolve) return;
@@ -598,7 +766,7 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   const alpha = (tau) => 1 - Math.exp(-Math.max(dt, 0) / tau);
 
   // The resting height latches on exactly the same argument as the standoff
-  // (SEAT_REF_TRUST), and it needs saying because the solve gate alone did not
+  // (SEAT_REF_QUANTILE), and it needs saying because the solve gate alone did not
   // cover it: `sTarget` is `conf · sStar`, and `conf` climbs as the person
   // model accumulates — so the height kept easing DOWN THE WEDGE at any pose,
   // with no new solve involved, and the wedge has a forward component. The
@@ -656,7 +824,7 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   // full-amplitude synthetic morph remains a recorded residual exposure;
   // the live segments say the seat is not the gaze path, so the ease keeps
   // following the skin — at its admitted worth.
-  // LATCHED off-square (see SEAT_REF_TRUST). Not "eased more slowly", not
+  // LATCHED off-square (see SEAT_REF_QUANTILE). Not "eased more slowly", not
   // "frozen at a bar chosen to be safe" — simply not touched. The number the
   // last square-on look measured is the number a turned head wears, because
   // that is what a pair of glasses does.
@@ -779,13 +947,17 @@ function scheduleSeatSolve(seat, {
   // never dropped, and trust returning re-solves within the refractory —
   // while the clock resets so a parked bad pose retries at the solve
   // cadence, not at 30 Hz (the same argument as the hold path's).
-  // The bar is SEAT_REF_TRUST, the same square-on question the reference and
-  // the guard now ask (2026-08-17). It was 0.3, and 0.3 was measured letting
-  // the solve adopt equilibria off a surface already inflated at 10–20° — the
-  // rest channel then walked the frame down a wedge that is not there
-  // (+0.3 to +2.1 mm mean, +4.3 worst). One pose teaches the seat; every other
-  // pose wears what it taught.
-  if ((wPose ?? 1) < SEAT_REF_TRUST) {
+  // The bar is the square-on band, the same question the reference and the
+  // guard now ask, through the same one expression (2026-08-17). It was 0.3,
+  // and 0.3 was measured letting the solve adopt equilibria off a surface
+  // already inflated at 10–20° — the rest channel then walked the frame down a
+  // wedge that is not there (+0.3 to +2.1 mm mean, +4.3 worst). One pose
+  // teaches the seat; every other pose wears what it taught. Which pose that is
+  // is now a fact about this session's camera rather than a cone about the
+  // camera axis (see SEAT_REF_QUANTILE) — the band was folded by
+  // `easeSeatChannels` earlier this same frame, so the two agree by
+  // construction rather than by two copies of a literal.
+  if (!isSquareOn(seat, wPose)) {
     seat.sinceSolve = 0;
     seat.refusals++;
     seat.lastMode = 'hold';
@@ -942,7 +1114,11 @@ export function updateFrame({
   if (adaptToFace && !state.person) state.person = createPersonModel(face);
   const person = adaptToFace ? state.person : null;
 
-  const observed = clampAnchors(measureAnchors({
+  // Wrapped rather than inlined because the identity conviction below has to be
+  // able to run it a second time: every input marked "one frame stale" is a
+  // statement about the PREVIOUS person, and on the one frame that decides the
+  // person changed, "previous" means somebody else. See the re-measure there.
+  const measureObserved = () => clampAnchors(measureAnchors({
     face,
     camera: scene.camera,
     head: scene.head,
@@ -958,6 +1134,7 @@ export function updateFrame({
     depthFit: landmarkDepth ? state.occluder?.userData?.depthFit ?? null : null,
     person,
   }), face);
+  let observed = measureObserved();
 
   // The image-asymmetry yaw estimate, demoted to a readout. It used to gate the
   // sample window, and it was the wrong instrument for the job: it conflates
@@ -1006,7 +1183,15 @@ export function updateFrame({
   // landmarks simply has no gaze signal and admits everything, exactly as a
   // build without irises has no metricScale. Held whole under 'frozen' — the
   // neutral EMA is estimator state.
-  {
+  //
+  // Wrapped, like `measureObserved` above and for the same reason: the identity
+  // conviction below empties the neutral reference mid-frame, and the reading
+  // itself belongs to the NEW wearer (these are their landmarks) — only the
+  // reference it was compared against belonged to the last one. Re-run after the
+  // reset, the new session seeds its neutral from this frame, which is what a
+  // cold session does; left un-run, the new wearer's first frame has no gaze
+  // signal at all and the seed slips to their second.
+  const measureGaze = () => {
     const lms = detection.landmarks;
     if (pinMode !== 'frozen' && adaptToFace && lms && lms.length > LM.IRIS_L_CONTOUR[3]) {
       const g = state.gaze ?? (state.gaze = {
@@ -1032,8 +1217,9 @@ export function updateFrame({
         g.neutral = g.delta <= GAZE_ADMIT;
       }
     }
-  }
-  const gazeNeutral = state.gaze ? state.gaze.neutral : true;
+  };
+  measureGaze();
+  let gazeNeutral = state.gaze ? state.gaze.neutral : true;
   // The attribution counter the telemetry replay differences per segment —
   // every sample the gaze door refused, monotone like the seat's counters.
   if (adaptToFace && pinMode !== 'frozen' && wPose > POSE_TRUST_ADMIT && !gazeNeutral) {
@@ -1091,7 +1277,32 @@ export function updateFrame({
         if (state.identityStrikes >= IDENTITY_STRIKES) {
           state.identityStrikes = 0;
           id.convictions++;
-          resetFit(state);
+          resetFit(state, smoother);
+          // ...and this frame's own sample is re-measured against the cleared
+          // estimators before it is admitted.
+          //
+          // The measurement above consumed two things that describe the
+          // PREVIOUS person: the occluder's depth fit ("one frame stale", and
+          // on this one frame the previous frame belongs to somebody else) and
+          // the person model's crossfaded depth. Admitted as it stood, it made
+          // the new wearer's frame-one fit — the sample that is adopted whole,
+          // by the invariant — the one sample in their whole session measured
+          // through the last person's depth EMA, and every deadbanded field
+          // then carried that offset until something moved it. The alternative
+          // of refusing the sample is worse: the anchors fall back to canonical
+          // for a frame, so the swap becomes two visible steps instead of one.
+          // Re-measuring costs a dozen unprojects on an event that fires at
+          // most once per wearer, and it is what makes frame one of the new
+          // session bit-identical to frame one of a cold one — which the
+          // isolation check asserts across the whole trajectory rather than
+          // taking on trust.
+          observed = measureObserved();
+          // ...and so is the gaze reading, for the same reason one layer over:
+          // the delta above was this wearer's eyes against the LAST wearer's
+          // neutral. Re-seeded here, the new session's admission door opens on
+          // its own first frame instead of on its second.
+          measureGaze();
+          gazeNeutral = state.gaze ? state.gaze.neutral : true;
         }
       } else {
         if ((state.identityStrikes ?? 0) > 0) id.acquittals++;
@@ -1390,6 +1601,7 @@ export function updateFrame({
     model, anchors, fit, face, surface,
     seatConfig: seatState.hasSolve && fit.seatOnNose !== false
       ? seatState.applied : null,
+    stats: seatState,
   });
 
   const adopted = pinMode === 'frozen' ? null : scheduleSeatSolve(seatState, {
@@ -1405,6 +1617,7 @@ export function updateFrame({
   if (adopted === 'adopted-first') {
     placement = solvePlacement({
       model, anchors, fit, face, surface, seatConfig: seatState.applied,
+      stats: seatState,
     });
   }
 
@@ -1443,6 +1656,29 @@ export function updateFrame({
     readout.solves = seatState.solves;
     readout.holds = seatState.holds;
     readout.refusals = seatState.refusals;
+    // The square-on band, live (see SEAT_REF_QUANTILE). This is the readout
+    // that would have caught the camera-geometry bug in a live session
+    // instead of in an audit: `admitted` at 0 with `frames` in the hundreds
+    // says "this camera never gets a look in", and `band` beside `live` says
+    // whether the reason is the ratchet or the pose. One reused object.
+    {
+      const sq = seatState.squareOn;
+      const band = readout.squareOn ?? (readout.squareOn = {});
+      /** The bar in force this frame: w must reach SEAT_REF_SLACK × this. */
+      band.band = sq.band;
+      band.barrier = SEAT_REF_SLACK * sq.band;
+      /** This frame's own top decile over the last FIT_WINDOW frames. */
+      band.live = sq.live;
+      /** The band's inputs: the same ring's other quantiles. */
+      band.q10 = sq.q10;
+      band.q50 = sq.q50;
+      /** Session-long extremes of the pose trust itself. */
+      band.wMin = Number.isFinite(sq.wMin) ? sq.wMin : null;
+      band.wMax = sq.wMax;
+      band.frames = sq.frames;
+      band.admitted = sq.admitted;
+      band.warm = sq.fill >= FIT_WINDOW;
+    }
     readout.solveAgeMs = Number.isFinite(seatState.sinceSolve)
       ? seatState.sinceSolve * 1000 : null;
     readout.deadbandHolding = seatState.zetaHolding && !seatState.sSettling;
@@ -1602,20 +1838,262 @@ export function isDifferentFace(anchors, observed) {
   return apart(observed.widthRatio, anchors.widthRatio);
 }
 
-/** Empties the estimate without touching anything else. */
-function resetFit(state) {
-  state.anchors = null;
-  state.sampleSet = null;
-  state.anchorSamples = 0;
-  // A fresh face is a fresh seat. The solved configuration is the OLD
-  // face's nose — its equilibrium height, its standoff, its roll; easing the
-  // new wearer in from it drags a visible re-seat across their first fraction
-  // of a second. Cleared whole (channels, solve, scheduler edges), so the
-  // next frame's first solve is adopted whole — frame one of the new fit is a
-  // fit, exactly like frame one of a session. `remeasure` always cleared the
-  // old scalar; the identity swap used to keep it, for no reason anyone
-  // chose; both now clear the whole state through this one line.
-  state.seatConfig = null;
+/*
+ * ===========================================================================
+ * THE ISOLATION BOUNDARY
+ * ===========================================================================
+ *
+ * One rule, stated here and enforced by `pipeline-check`'s `isolationSwap`:
+ *
+ *     Every piece of state that is a statement about A PARTICULAR PERSON, in
+ *     front of a particular source, wearing a particular model, is enumerated
+ *     in `PER_SESSION_STATE` below, is created lazily on the state object (or
+ *     on `occluder.userData`), and is cleared through ONE entry point per
+ *     reset class. Module-level mutable state is forbidden for anything
+ *     person-derived, because module scope is the one place a reset cannot
+ *     reach.
+ *
+ * The rule exists because this pipeline is a chain of estimators and every
+ * one of them is a measurement of somebody. An estimator that survives a
+ * change of wearer does not merely report the wrong number: it reports the
+ * PREVIOUS person's number with the NEXT person's confidence, and every
+ * mechanism downstream — admission doors, easing channels, warm starts,
+ * shrinkage floors — is built to trust exactly that. The failures are
+ * therefore silent and slow, which is why they need a manifest and a check
+ * rather than a convention.
+ *
+ * THE FIVE RESET CLASSES, and what each must clear:
+ *
+ *   identity change   `isDifferentFace` convicts on IDENTITY_STRIKES
+ *                     confident disagreements → `resetFit`
+ *                     → everything person-derived.
+ *   remeasure         the *Re-measure face* button, the *Adapt to face*
+ *                     toggle, a new source → `remeasure`
+ *                     → everything `resetFit` clears, plus the source-derived
+ *                       fields (`templesAimed`, `lostSeconds`).
+ *   source switch     camera/sample change, in `main.js`
+ *                     → everything `remeasure` clears, plus the input clocks
+ *                       and counters `main.js` owns (frame timing, dropped
+ *                       frames, detect rotation, the source epoch) and the
+ *                       pose filter WHOLE (`smoother.reset()`, level included
+ *                       — a new source really is a new geometry, so the pose
+ *                       is discontinuous and adopting frame one whole is
+ *                       correct).
+ *   model swap        a new glasses asset → asset-derived state only. The
+ *                     face is deliberately untouched: the wearer did not
+ *                     change, and re-measuring them because they tried on a
+ *                     different pair is the scan phase in disguise. Note the
+ *                     `needEst` window deliberately spans a model swap — the
+ *                     standoff law legitimately changes and converges in
+ *                     ~0.5–1 s at full trust, where an EMPTIED window at a bad
+ *                     pose falls back to the raw morph exactly when a slider
+ *                     is moved mid-turn.
+ *   face loss         `LOST_SECONDS_BEFORE_RESET` → the pose filter's velocity
+ *                     state ONLY. The fit is deliberately NOT touched: it used
+ *                     to be, and every dropout long enough to cross the line
+ *                     restarted the measurement, so users watched their
+ *                     glasses re-size several times a minute.
+ *
+ * WHAT DELIBERATELY SURVIVES, and why (the interesting half of a boundary is
+ * always the exceptions):
+ *
+ *   the smoothed POSE LEVEL — the composite is frame-locked, so a pose is a
+ *     statement about a FRAME, not about a person. Nobody moved when the
+ *     estimator changed its mind about whose face it is, and clearing the
+ *     level would put a visible pop on screen for a reason the viewer cannot
+ *     see. Only the two `NoiseFloor` calibrations go (`smoother.resetNoise`).
+ *   lifetime event counters — `person.resets`, `person.decays`,
+ *     `state.identity`'s four event counts, the occluder's rebuild counters
+ *     and `frameCount`. A counter that resets with the thing it counts cannot
+ *     report the reset; `state.identity.convictions` in particular is
+ *     incremented on the same frame `resetFit` runs, so clearing it would make
+ *     the conviction invisible to the replay that event-counts it. Attribution
+ *     is restored instead by `state.sessionEpoch`, which counts resets, so any
+ *     lifetime counter can be differenced across a boundary.
+ *   the geometry — `face`, `scene`, `tracker`, `occluder`'s mesh/subdivision/
+ *     materials, the loaded model. None of it is anybody's face.
+ *
+ * The manifest below is machine-readable on purpose: `resetFit` iterates it,
+ * and so does the check. A field added to `state` without a manifest entry
+ * fails `isolationSwap` — which is what turns this comment into an invariant.
+ */
+export const PER_SESSION_STATE = {
+  /**
+   * Cleared by `resetFit` — every one of these is a statement about the
+   * person in the chair. The value is what the field returns to, which is by
+   * construction the value a session that never saw anybody else has.
+   */
+  perPerson: {
+    /** The carried fit. */
+    anchors: null,
+    sampleSet: null,
+    anchorSamples: 0,
+    /**
+     * A fresh face is a fresh seat. The solved configuration is the OLD
+     * face's nose — its equilibrium height, its standoff, its roll; easing
+     * the new wearer in from it drags a visible re-seat across their first
+     * fraction of a second. Cleared whole (channels, solve, scheduler edges,
+     * the square-on band, the guard-overflow count), so the next frame's
+     * first solve is adopted whole.
+     */
+    seatConfig: null,
+    /**
+     * The gaze admission door's neutral reference — the single most damaging
+     * survivor in the set, because it is the door in front of everything
+     * else. A habitually left-looking wearer settles the neutral EMA 0.10 off
+     * centre; the next person sits down looking straight ahead;
+     * `|B − A_neutral| > GAZE_ADMIT` refuses EVERY one of B's samples, the
+     * anchors stay canonical, the person model never accumulates, and B wears
+     * the average face for the tens of seconds it takes a τ = 10 s EMA to
+     * crawl onto them. Nothing on screen explains it.
+     */
+    gaze: null,
+    /**
+     * The identity streak. A conviction and an acquittal both zero it, but a
+     * remeasure did not, so up to `IDENTITY_STRIKES − 1` strikes accumulated
+     * against the previous person carried over and the next one convicted a
+     * strike early. (The `state.identity` READOUT is a lifetime instrument —
+     * see `allowedToSurvive`.)
+     */
+    identityStrikes: 0,
+    /** The pin's reused scratch for the person model's bridge estimate. */
+    bridgeEstimate: null,
+    /** Readout mirrors of per-person estimators, rewritten every frame the
+     *  estimator behind them runs; cleared so a stale line cannot be read
+     *  against the wrong person. (`poseTrust` and `measuringLatch` are NOT
+     *  here — see `allowedToSurvive`: they describe the pose, not the wearer.) */
+    depthFit: null,
+    seat: null,
+    pin: null,
+  },
+
+  /**
+   * Cleared by `remeasure`, on top of everything above. These describe the
+   * SOURCE and the session's relationship to it rather than the face.
+   */
+  perSource: {
+    templesAimed: false,
+    lostSeconds: 0,
+  },
+
+  /**
+   * Owned and cleared by `main.js` (the browser half), named here so this
+   * manifest is a complete map of `state` rather than of half of it. The
+   * value is the reset class that owns the field.
+   */
+  ownedByApp: {
+    detectRotation: 'source switch',
+    rollSearch: 'source switch',
+    facelessResults: 'source switch',
+    frameAtMs: 'source switch',
+    lastFrameMs: 'source switch',
+    lastSubmitMs: 'source switch',
+    lastResultMs: 'source switch',
+    lastAppliedDetectionMs: 'source switch',
+    cameraIntervalMs: 'source switch',
+    droppedFrames: 'source switch',
+    upstreamMs: 'source switch',
+    upstreamMeasured: 'source switch',
+    cameraSettings: 'source switch',
+    sourceEpoch: 'source switch',
+    detected: 'source switch',
+    switching: 'source switch',
+    mirrorDelayMs: 'source switch',
+    latencyMeasured: 'source switch',
+    background: 'source switch',
+    source: 'source switch',
+    model: 'model swap',
+    modelRoot: 'model swap',
+    modelValue: 'model swap',
+    temples: 'model swap',
+    fit: 'model swap (the sliders; `resetFit` in main.js is the UI button)',
+    smoother: 'source switch (whole) / identity (noise only)',
+    stabMeter: 'source switch + identity',
+    occluder: 'identity (its person-derived half — see resetOccluderPerson)',
+    occlusionMask: 'never — a renderer resource',
+    recovery: 'never — a lifetime dropout instrument',
+    fps: 'never — a display readout',
+    trackFps: 'never — a display readout',
+    face: 'never — the canonical mesh',
+    scene: 'never — the renderer',
+    tracker: 'never — the landmarker',
+    faceDebug: 'never — a debug overlay',
+    anchorDebug: 'never — a debug overlay',
+    frameCanvas: 'never — a display surface',
+    frameCtx: 'never — a display surface',
+    captureCanvas: 'never — a display surface',
+    captureCtx: 'never — a display surface',
+    detectCanvas: 'never — a display surface',
+    detectCtx: 'never — a display surface',
+    noise: 'never — a getter over the smoother',
+    stab: 'never — a getter over the stab meter',
+    rebuilds: 'never — a getter over the occluder',
+    person: 'identity (in place — see `person.reset`)',
+    identity: 'never — a page-lifetime attribution instrument (created here, in'
+      + ' `frame.js`, but owned by nobody\'s reset; see `allowedToSurvive`)',
+    poseTrust: 'never — a statement about the pose (see allowedToSurvive)',
+    measuringLatch: 'never — derived from poseTrust on the same frame',
+    sessionEpoch: 'never — it COUNTS the resets',
+  },
+
+  /**
+   * Fields that cross the boundary on purpose. The reason is the entry: a
+   * survivor without one is a leak that has been renamed.
+   *
+   * This is an ANNOTATION, not a fourth bucket — every key here also appears
+   * in `ownedByApp`, and `pipeline-check` asserts that containment, so a field
+   * cannot be excused from the boundary without also being given an owner.
+   */
+  allowedToSurvive: {
+    person: 'the object survives; `person.reset()` empties it in place, and its'
+      + ' two event counters (`resets`, `decays`) must outlive what they count',
+    identity: 'a page-lifetime attribution instrument. Its four event counters'
+      + ' (asked, strikeEvents, acquittals, convictions) are incremented on the'
+      + ' same frame `resetFit` runs, so clearing them would hide the conviction'
+      + ' from the replay that event-counts it. Every VALUE field (driver,'
+      + ' obs/car/dev) is rewritten on every frame the question runs, so it'
+      + ' carries nothing; difference the counters across `sessionEpoch`',
+    sessionEpoch: 'counts the resets, so it cannot be reset by one',
+    occluder: 'one occluder per page, reused across every face — the mesh,'
+      + ' subdivision, materials and rebuild counters are asset and instrument;'
+      + ' its person-derived half goes through `resetOccluderPerson`',
+    smoother: 'the pose LEVEL is a statement about a frame, not a person, and'
+      + ' the composite is frame-locked; only `resetNoise()` runs on a swap',
+    face: 'the canonical mesh',
+    scene: 'the renderer',
+    tracker: 'the landmarker',
+    fit: 'the asset sliders — a change of wearer is not a change of taste',
+    poseTrust: 'the three trust ramps and the true pose eulers for THIS frame —'
+      + ' a statement about the pose, which takes the same exception the pose'
+      + ' level does: the composite is frame-locked, nobody moved when the'
+      + ' estimator changed its mind about whose face it is, and the one consumer'
+      + ' that reads it stale (the smoother activity lever, one frame back) is'
+      + ' reading the previous FRAME, whose pose is this frame\'s pose. Rewritten'
+      + ' unconditionally every frame before anything else touches it',
+    measuringLatch: 'derived from `poseTrust` on the same frame, and a pure'
+      + ' readout since graft G12 — no behaviour branches on it',
+  },
+};
+
+/**
+ * Empties everything that is a statement about the person in the chair.
+ *
+ * The single entry point for the identity-change reset class: `resetFit`
+ * iterates `PER_SESSION_STATE.perPerson` and then calls the one exported reset
+ * of each collaborator that owns state of its own. Adding a field to the
+ * manifest is therefore the whole of adding it to the reset, and the
+ * isolation check fails on a `state` field that is in neither the manifest nor
+ * the allowlist.
+ *
+ * `smoother` is passed rather than read off `state` so the harness — which
+ * hands `updateFrame` a smoother as an argument and keeps none on its state
+ * object — resets the same things the app does. The app keeps `state.smoother`
+ * and gets it from the default.
+ */
+function resetFit(state, smoother = state.smoother ?? null) {
+  for (const [key, zero] of Object.entries(PER_SESSION_STATE.perPerson)) {
+    state[key] = zero;
+  }
   // The person model is the slowest state there is, and it is a statement
   // about the PREVIOUS person: carried across an identity change it would
   // spend its whole adaptation tau (20–60 s) morphing one face into another —
@@ -1623,6 +2101,23 @@ function resetFit(state) {
   // half a millimetre. Reset in place: the arrays clear, the object survives,
   // and the next frame accumulates a fresh person from sample one.
   state.person?.reset();
+  // The occluder's person-derived half — the deformation, the warm start, the
+  // depth fit, the relief latch. The occluder itself is one object for the
+  // page's life, shared across every face that sits in front of it, so
+  // without this the next wearer's first sample is EASED into the previous
+  // wearer's shape instead of adopted whole.
+  resetOccluderPerson(state.occluder);
+  // The two noise-DC calibrations, and not the pose level. See `resetNoise`.
+  smoother?.resetNoise?.();
+  // A stillness window spanning two different faces reads the swap as one
+  // enormous step — and this is the meter read aloud in the live protocol.
+  state.stabMeter?.reset?.();
+  // Counts the resets, so every lifetime counter above can be differenced
+  // across a boundary and attributed to the right person.
+  state.sessionEpoch = (state.sessionEpoch ?? 0) + 1;
+  // The identity readout's streak field mirrors `identityStrikes`, which the
+  // manifest just zeroed; the object itself survives (see `allowedToSurvive`).
+  if (state.identity) state.identity.strikes = 0;
 }
 
 /**
@@ -1632,15 +2127,19 @@ function resetFit(state) {
  * *Adapt to face*, and a new source. Losing the face does not call it, and that
  * is the point: see `IDENTITY_TOLERANCE`.
  */
-export function remeasure(state) {
-  resetFit(state);
-  state.templesAimed = false;
-  state.lostSeconds = 0;
+export function remeasure(state, smoother = state.smoother ?? null) {
+  resetFit(state, smoother);
+  for (const [key, zero] of Object.entries(PER_SESSION_STATE.perSource)) {
+    state[key] = zero;
+  }
   // The depth fit's EMA is a statement about the previous face in front of the
   // previous source — its offset rides that head's geometry, and the anchors
   // consume it one frame stale from this very handle. Cleared whole: the next
   // face's first fit is adopted whole (see `conditionDepthFit`), exactly like
-  // the pin's first sample.
+  // the pin's first sample. `resetFit` clears it too, through
+  // `resetOccluderPerson`; stated here as well because the argument written at
+  // this call site is the argument that belongs at both, and the asymmetry
+  // between the two paths was one of the confirmed leaks.
   if (state.occluder?.userData) state.occluder.userData.depthFit = null;
 }
 

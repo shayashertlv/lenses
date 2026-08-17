@@ -1305,6 +1305,304 @@ src/frame.js, src/fit.js, tests/telemetry-replay.js, tests/z-decomp.*):
     frame must stay seated, no forward ride; then return frontal and
     judge the ~2 s settle tail (the recorded residual) by impression.
 
+Stage 7 — The square-on band: the seat's reference stops being the camera
+  (nose-v4 change 2, 2026-08-17). The 196-constant audit's highest-value
+  finding, product showstopper class.
+  THE BUG, measured on a new synthetic camera ladder before any change:
+    `SEAT_REF_TRUST = 0.999` gated the standoff reference, the height ease
+    and the solve scheduler on `wPose = wy·wp·wr`, i.e. on a CONE ABOUT THE
+    CAMERA AXIS (yaw 9.7°, pitch 11.5°, roll 14.3°). A laptop lid 12 cm
+    below the eyes at 50 cm is atan(12/50) = 13.5° of pose pitch for a user
+    looking straight at their screen: `wp = 1 − smoothstep(0.20, 0.60,
+    0.236) = 0.977`, and with ±1.5° of postural wander the session's BEST
+    frame reads 0.9984 against a bar of 0.999. Over 20 s (600 frames) of an
+    otherwise clean frontal session: eye level admitted 600/600, first
+    reference frame 1, first solve frame 0, 37 solves, ζ −6.096 mm;
+    laptop 13.5° admitted 0/600, needRef null, hasSolve FALSE, 0 solves,
+    38 refusals, ζ 0.000 mm; phone-in-lap 30° identical, 0/600. The seat
+    did not exist for either off-axis camera and nothing surfaced it — a
+    knife-edge equality on a product of three smoothsteps, not a low-trust
+    problem, and not a phenomenon one wearer's eye-level webcam can show.
+  THE FIX: keep the categorical refusal (it was MEASURED to work — see the
+    stage-6 record above) and make its REFERENCE adaptive. Square-on is now
+    the top decile of this session's own `wPose` distribution:
+    `band = max over the session of Q90(last FIT_WINDOW values of w)`,
+    `square-on ⟺ w ≥ SEAT_REF_SLACK · band`. The quantile IS the
+    definition — no new tuned threshold — and it is the `NoiseFloor`
+    pattern the tree already runs on. `SEAT_REF_TRUST` is renamed
+    `SEAT_REF_SLACK`, keeping the one job its own comment always claimed
+    (float slack on a product) and losing the one it was silently doing.
+    The ring is FIT_WINDOW long because the band gates admission to a
+    FIT_WINDOW-slot window, and odd because that makes the decile an exact
+    order statistic. Cold-start rule, not a number: no band until that ring
+    is full (31 frames ≈ 1 s), during which `band = 1` reproduces today
+    exactly; the cold value never seeds the ratchet. Drift bound and band
+    are ONE object: the running maximum needs no second coefficient. The
+    estimator lives on `state.seatConfig`, so `resetFit` clears it with the
+    seat — one user's camera cannot define square-on for the next.
+  THE REJECTED ALTERNATIVE, and why: `min(facingTrust)` over the pad
+    columns re-admits exactly what the latch refuses. frame.js:135 records
+    the measurement — pitch degrades the reconstruction without occluding a
+    sidewall — and frame.js:112 records that the surface law is already
+    wrong at 10–20° of YAW, where both sidewalls are plainly visible and
+    facingTrust ≈ 1. That is the yaw-only failure (+0.91 vs −1.43 mm past
+    40°) with a different label. The trust stays COMBINED.
+  AFTER, same ladder: eye level unchanged in every counter (band exactly
+    1.0000, barrier exactly 0.999 — the test IS the old expression);
+    laptop 13.5° band 0.9984, 131/600 admitted, first reference frame 133,
+    first solve 144, 9 solves, standoff −6.779 mm; phone 30° band 0.1640,
+    83/600, first reference 134, first solve 144, standoff −6.413 mm. The
+    three cameras agree on the standoff — a face constant — to 0.366 mm
+    against a 0.5 mm bound. First-solve latency off-axis is set by how
+    often the pose returns to the session's own best (here the wander's own
+    half-period, 4.4 s); against never, and inside a session, not a scan.
+  HARNESS: pipeline-check grows FOUR checks (343 → 347), all synthetic.
+    (1) the three-camera ladder above; (2) point-mass — a pose held
+    constant at 0/12/13.5/22/30/34° admits EVERY post-warm frame and
+    solves, which is the direct anti-knife-edge assertion (the 12° row is
+    the old bar's edge, w 0.9984); (3) DIRECTION, both ways round, the
+    sign-class discipline this tree owes: a pose alternating every three
+    frames between 0° and 25° fills each ring with both modes, band reads
+    1.0000 and admits 134/134 square and 0/135 pitched — the low-tail
+    mistake would read 0.3655 and admit all 269, and NO other fixture here
+    can tell the two apart (a point mass has Q10 = Q90, and on a slow
+    wander the running max of either converges to nearly the same level);
+    (4) drift + isolation — 5 s at 13.5° sets band 0.9776, then 1800 frames
+    (a minute) at 45° of yaw admit 0 and move neither the band nor the
+    reference, and one `remeasure` returns band 1 / frames 1 / no live
+    quantile.
+  BASELINES — NEITHER RE-PINNED, deliberately; see the finding below.
+    telemetry-replay 366/366, and the entire pinned object is
+    BEHAVIOURALLY BIT-IDENTICAL: 14 deltas, all `wallMsMean`, both
+    directions, ±0.55 ms. The >40° cure is exact, not merely preserved —
+    yaw segment over40MeanMm −2.9525 (87 frames) and browse −1.4297 (10
+    frames), both equal to the pin to four decimals, duty 0, overflows 0.
+    Predicted by construction: the fixture is an eye-level capture, its top
+    decile is 1.0, so the band pins at 1 and the test is the old one.
+    diag-replay 338/338 against the standing pin. A CONTROL RUN (this tree
+    with frame.js stashed) was run to separate the change from the fixture:
+    152 non-timing keys differ from the pinned baseline in BOTH runs — that
+    staleness is PRE-EXISTING — and 41 of them differ between control and
+    fix. Classified: all 41 are the seat's own z channel and nothing else
+    (rigidMiss x and y are untouched), confined to the two SHARED-SESSION
+    passes, which are the only place in the fixtures where one session
+    visits ten different poses — i.e. the closest thing the stills have to
+    an off-axis camera. The exhibit: crossfade-off stills f04/f05/f06 all
+    read exactly −5.417 mm under the control (one frozen number worn by
+    three different poses — the bug) and −5.4474/−5.5456/−5.546 under the
+    fix (each pose measured). Worst per-still delta 0.129 mm = 86% of
+    ZETA_REARM and 0.54 px at the measured 4.22 px/mm — sub-deadband and
+    sub-pixel. Cost: shared-session seatAppliedSpanMm 1.9357 → 2.05 mm
+    crossfade-off, entirely the un-freezing of f04–f06, still owned by open
+    item (i) (the ≤1.5 mm cross-pose spread waiting on the depth story).
+    Two fix runs were bit-identical to each other, so the fixture's own
+    determinism claim holds and none of this is noise.
+  FINDING, handed up rather than absorbed: diag-baseline.json is STALE on
+    this tree — 111 non-timing keys drift with frame.js stashed, all within
+    tolerance, including `gazeInjection.validInjector: true → false` (the
+    injector no longer reproduces the live coupling: production pin rms
+    8.3117 → 0.3813 px, peak 28.4958 → 0.8037) and `gaze door refused 2
+    samples (must be 0)`. That is a DEAD GATE. Re-pinning now would bake a
+    broken instrument into the baseline under this stage's name, which is
+    the exact failure the ratchet protocol exists to prevent, so the pin is
+    left standing and the triage is the orchestrator's call.
+  RESIDUAL, recorded: the ratchet is monotone, so a session that moves to a
+    WORSE camera mid-way keeps the better reference and pauses further
+    learning rather than re-adapting downward. That is what the invariant
+    already prescribes for an off-square pose, it can only happen after the
+    seat has learned from the better data, and `__ar.seat.squareOn` (band,
+    barrier, live/q10/q50, wMin/wMax, frames, admitted, warm) makes it
+    diagnosable live — `admitted` at 0 with `frames` in the hundreds is the
+    readout that would have caught the original bug in a session instead of
+    in an audit. Release is `resetFit` / re-measure / a new session.
+  LIVE QUESTION for the next session: try the app on a laptop lid camera
+    (or with the laptop on the knees) and confirm the frame seats rather
+    than hangs at the optical height; `__ar.seat.squareOn.admitted` should
+    climb.
+
+Stage 8 — The isolation boundary: one wearer's adaptation stays theirs
+  (nose-v4 Goal 3, 2026-08-17). The audit named nine leaks; all nine were
+  re-verified against this tree, eight were confirmed live and fixed, the
+  ninth was split, and the boundary is now stated in code and proved by
+  bit-identity rather than by a healing budget.
+  THE RULE, in `frame.js` beside `resetFit` and machine-readable as
+    `PER_SESSION_STATE`: every piece of state that is a statement about a
+    particular person, in front of a particular source, wearing a
+    particular model is enumerated in ONE place, created on the state
+    object (or on `occluder.userData`), and cleared through ONE entry point
+    per reset class. Module-level mutable state is forbidden for anything
+    person-derived — module scope is the one place a state-keyed reset
+    cannot reach. Five reset classes are tabulated (identity change /
+    remeasure / source switch / model swap / face loss past
+    LOST_SECONDS_BEFORE_RESET) with what each must clear, and every
+    deliberate survivor carries a reason AND an owner.
+  THE LEAKS, verified against the code and disposed:
+    L1 `state.gaze` — CONFIRMED, fixed. `resetFit` never touched the
+      admission door's carried neutral, so the next wearer was judged
+      against the last one's resting gaze. At 0.10 eye-spans apart every
+      sample is refused (GAZE_ADMIT 0.08), the anchors stay canonical and
+      the person model never accumulates while a tau = 10 s EMA crawls
+      across. The door gates the identity QUESTION too, so it also delays
+      the conviction that would have cleared it — measured at 51 frames in
+      the new fixture. That coupling is recorded as a finding, not fixed
+      here; the door's own design is a Goal-1 item.
+    L2 `occluder.userData.depthFit` — CONFIRMED, fixed. `remeasure` cleared
+      it and stated why; `resetFit` did not. Same sentence, other trigger.
+    L3 `viewResidual`/`offsets`/`hasShape` — CONFIRMED, fixed.
+      `person.reset()` empties the slow layer; the fast one still carried
+      the previous face and `hasShape` made the next wearer's first sample
+      EASED into it rather than adopted whole.
+    L4 `compensated` — CONFIRMED, fixed. The next rebuild warm-started
+      from the previous face's control mesh; the file's own comment prices
+      the residue at ~0.5 mm.
+    L5 `noseSeatGuardOverflow` (module-level `let`, fit.js) — CONFIRMED,
+      fixed. Now a caller-owned `stats` on the seat state, which
+      `resetFit` clears whole — the `blendFittedDepth` pattern from
+      anchors.js. It also made the telemetry replay order-dependent within
+      one process.
+    L6 the two `NoiseFloor`s — CONFIRMED, fixed. `PoseSmoother.resetNoise()`
+      clears the calibration AND the rate estimators it calibrates, and
+      nothing else; the pose LEVEL deliberately survives (frame lock).
+      Harm measured: on a next wearer 10x noisier the inherited floor reads
+      low on 105/120 frames, by up to 1.89 cm/s.
+    L7 `state.identityStrikes` — CONFIRMED, fixed. Harm measured through
+      the production path: a session carrying IDENTITY_STRIKES − 1
+      inherited strikes convicts the next face on frame 1 where an honest
+      one takes 5.
+    L8 `state.stabMeter` — CONFIRMED (reset on source switch only), fixed.
+    L9 monotone counters — SPLIT, deliberately. `person.lastDecayCause`,
+      `person.tripwireSeconds` and `person.scratch` are descriptions of a
+      moment in the previous session and are cleared with the model.
+      `person.resets`/`decays`/`commits`, `state.identity`'s four event
+      counters and the occluder's rebuild counters are page-lifetime
+      INSTRUMENTS and survive: a counter that resets with the thing it
+      counts cannot report it, and `identity.convictions` is incremented on
+      the same frame `resetFit` runs, so clearing it would hide the
+      conviction from the replay that event-counts it. Attribution is
+      restored instead by `state.sessionEpoch`, which counts the resets.
+  TWO FIXES THE PROOF FORCED, both real behaviour:
+    (i) the conviction fires PARTWAY through a frame — after that frame's
+      anchors were measured through the PREVIOUS wearer's depth fit ("one
+      frame stale", and on this one frame the previous frame belongs to
+      somebody else) — and that measurement is the sample adopted whole as
+      the new wearer's frame one. It is now re-measured against the cleared
+      estimators. Refusing it instead would drop the anchors to canonical
+      for a frame, making the swap two visible steps rather than one.
+    (ii) the same one layer over for the gaze reading: the eyes are the new
+      wearer's, only the neutral belonged to the last one, so the neutral
+      re-seeds from this frame instead of the next.
+  THE PROOF — `isolationSwap`, seven checks (pipeline-check 347 -> 354):
+    (a) the manifest is a complete map of `state`: 63 fields partitioned
+      into per-person / per-source / app-owned, each in exactly one, all 11
+      deliberate survivors carrying a reason and an owner; the 18 fields a
+      driven session carries and all 54 the app declares in main.js's own
+      state literal (read out of the source, since importing it boots the
+      app) are named. A field added to `state` and to no bucket fails.
+    (b) L5's CLASS, not its instance: 24 modules enumerated from the src/
+      directory listing (not a constant, so a new file is covered the
+      moment it exists), every top-level `let`/`var` on a 13-name allowlist
+      — a lazy mesh cache, the app shell's DOM and load bookkeeping, the
+      worker's landmarker handle.
+    (c) a reset IS a construction: 4 s of one wearer moves 1049 of 1067
+      tracked fields and one reset returns every one of them to the value a
+      session that has seen nobody holds.
+    (d) THE HEADLINE. Two synthetic subjects differing on shape (22%
+      broader, a third wider in the nose, 10% more protrusive — enough to
+      convict on widthRatio), on resting GAZE (0.10 eye-spans) and on
+      landmark NOISE (x1 vs x2), driven through ONE occluder, ONE pose
+      filter and ONE state object as the app arranges them. Every frame of
+      the second session is compared field by field against the same frame
+      of a cold session on the identical seeded landmark stream, by
+      `Object.is` over flattened bit patterns (typed arrays by FNV hash) —
+      not a budget. Result: 0 differing floats in the rendered placement,
+      no per-person field differing on any frame, in BOTH orderings.
+      Whole trajectory rather than frame one, because frame-one equality is
+      what a latent leak satisfies for free.
+    (e) the discriminator map: each leak re-injected alone must break (d).
+      6/6 caught, plus L7 driven (conviction at frame 1 vs 5) and L8
+      asserted on the meter the live protocol reads aloud. This is what
+      stops a check built out of allowlists decaying into decoration.
+    (f) the same boundary through the production trigger: the conviction
+      frame IS the new session's frame one, and 40 frames from there are
+      bit-identical to a cold control on the same landmarks.
+    (g) the exceptions, held to account: `resetNoise` returns both
+      estimators to their constructed state field for field while every
+      component of the pose level is unchanged bit for bit.
+  SUITES AND BASELINES:
+    pipeline-check 347 -> 354 checks. 353/354, the one failure being the
+      Stage-0-environment-ruled wall check (15.3 ms forced rebuild in the
+      throttled pane; the settled frame reads 0.94 ms, inside the recorded
+      0.93–0.98 ms band). The production changes were run against the
+      standing 347 BEFORE the new checks were written, and scored the
+      identical 346/347 with the identical single failure — so the fixes
+      are inert on every existing check, and the seven new ones are the
+      whole of the delta.
+    telemetry-replay 366/366 against the standing pin, and the pinned
+      object is BEHAVIOURALLY BIT-IDENTICAL: 15 deltas, of which 14 are
+      `wallMsMean` (+0.48 to +1.71 ms — a busier pane) and the fifteenth is
+      a signed zero (`placeZP95Mm` 0 -> -0, numerically equal). Predicted by
+      construction: the fixture logs ZERO identity convictions, so no reset
+      path is exercised and every change is on a path the replay never
+      takes.
+    diag-replay 338/338 against the standing pin. 165 deltas, 13 timing;
+      the 152 non-timing keys are the SAME pre-existing staleness Stage 7
+      recorded and separated with a stashed-frame.js control run — and the
+      identification is exact rather than by count: the Stage-7 exhibit
+      (crossfade-off f04/f05/f06) reads -5.4474 / -5.5456 / -5.546 mm here,
+      bit for bit what Stage 7 landed. This stage adds no diag delta at all.
+    NEITHER BASELINE RE-PINNED, for the same reason Stage 7 gave and which
+      still stands: diag-baseline.json is stale on this tree independently
+      of any of this work, and one of the stale keys is a DEAD GATE
+      (`gazeInjection.validInjector` true -> false). Re-pinning would bake a
+      broken instrument into the baseline under this stage's name. There is
+      also nothing to ratchet: no regression, and no improvement in this
+      stage's direction that either fixture can see, because neither
+      fixture crosses the boundary.
+  RECORDED COST: ~14 occluders and ~1,800 driven frames, most of them
+    compared field by field — 22 s of wall time in the throttled hidden
+    pane, measured and reported in the last check's own detail rather than
+    asserted (wall clock is the one number a pane may not reproduce). Two
+    things bought most of it back before it was recorded: the six
+    re-injection arms share ONE cold control sequence instead of building
+    six identical ones, and their warm-up is 1 s rather than 4 (the arm is
+    reset before the injection, so only the FACT of the warm-up matters).
+    If it ever needs to come down further, the honest next cut is (e)'s
+    horizon — headroom, since every leak surfaces on frame one — and NOT
+    (d)'s, which is where the latency claim lives.
+  THE FIXTURE'S OWN FINDING: the irises had to be synthesised. The
+      canonical mesh stops at 468 vertices and MediaPipe's refinement adds
+      ten more, so `synthesiseLandmarks` produces a face with NO EYES —
+      `measureMetricScale` returns null and the gaze block never runs. The
+      stage-4 swap check therefore could not see the admission door at all.
+      They are built in FACE SPACE at IRIS_DIAMETER_CM, because a real iris
+      is ~11.7 mm on every adult head: synthesising them in image space
+      would have quietly made the pipeline's one absolute ruler
+      proportional to face width.
+  FINDING, handed up rather than fixed here: THE GAZE DOOR GATES THE
+    IDENTITY QUESTION, so a wearer whose resting gaze differs from the
+    previous one's carried neutral by more than GAZE_ADMIT cannot be
+    convicted until that neutral has crawled onto them — measured at 51
+    frames (1.7 s) at 0.10 eye-spans apart, against a tau of 10 s and a
+    strike count that would otherwise convict in 5. The two halves compound:
+    L1 is what makes B's samples refused, and the refusal is what delays the
+    conviction that clears L1. The boundary fix removes the second half
+    (once convicted, everything resets), and the first is the door's own
+    design — a Goal-1 item, and the audit already names the shape of the
+    answer (`GAZE_ADMIT` from a live `NoiseFloor` on `g.delta`, plus a
+    Welford or robust warm start so the neutral is not seeded from frame
+    one's glance). Worth stating plainly because it is a SECOND reason the
+    door is on the critical path for a new user, not just a slower one.
+  RESIDUAL, recorded: `state.identity`'s value fields are asserted equal
+    between a swapped and a cold session, but its four event counters are
+    excused, so the check cannot see a leak that hid inside one of them.
+    That is the price of keeping an instrument that must outlive the reset
+    it records; `state.sessionEpoch` is what makes it attributable.
+  LIVE QUESTION for the next session: sit a second person down in front of
+    a warm session without touching *Re-measure face*, and watch
+    `__ar.sessionEpoch` bump and `__ar.identity.asked` keep climbing —
+    then read `__ar.pin.gazeRefusals` across the swap, which is where the
+    finding above will show as a delay before the bump.
+
 Every stage: full harness green (existing checks modulo the Stage-0-enumerated
 legitimate rewrites, each tied in a comment to the diagnosis finding it retires),
 plus the stage's own new checks, plus the diag-replay A/B against the pinned
@@ -1426,3 +1724,370 @@ re-admits the bad solves the latch exists to refuse. Whatever fixes the pitch
 and browse staleness has to do it without re-opening yaw: a pitch-aware standoff
 extrapolation, or a staleness-bounded re-solve that refuses on *confidence*
 rather than on angle, are the two directions that have not been measured yet.
+
+## Goals 1–3 — generality, convergence, isolation
+
+The pipeline above was tuned on one person over one week. Three goals were set
+against that fact: make it work for **any** user, settle fast **without a scan
+phase**, and confine each user's adaptation **to that user**. This section is the
+record: the audit that opened the work, the two production stages that have
+landed, and the two instruments built so the rest can be measured rather than
+argued about.
+
+### The audit headline
+
+A provenance audit walked all **196** numeric constants in `ar/src` and asked one
+question of each — *what fixes this value?*
+
+| provenance | count |
+|---|---|
+| **physics or geometry** | **32** |
+| one person's measurement | 66 |
+| arbitrary | 80 |
+| inherited, source unknown | 12 |
+| could not be placed at all | 24 |
+
+Six constants in seven are a guess or one wearer's number. That single line
+reframes every "tuning" question in this tree as a provenance question, and it is
+why the two goals that sound like polish (settle time, generality) are really the
+same goal.
+
+The plan built on that audit was put through an adversarial judgment, which
+returned **ADOPT-WITH-CHANGES** with ten required changes. Three of them shaped
+what has been built since:
+
+* **change 2** — the seat's square-on gate must become *relative to the session's
+  own pose distribution*, not a categorical constant, and must land before
+  anything else because it is the highest value per line in the plan;
+* **change 6** — the proposed settle metric is *unmeasurable on the fixtures as
+  specified* and must be rewritten before any gate is pinned with it;
+* the isolation half — rated the strongest part of the plan and told to land
+  first, since it is a correctness bug rather than a generality one.
+
+### Stage 7 — the seat did not exist anywhere but eye level
+
+`SEAT_REF_TRUST = 0.999` asked "is the head square to the camera?" and answered it
+with a float equality against a product of three smoothsteps. A webcam is wherever
+the hardware put it, and the pose the tracker reports is head-relative-to-*camera*,
+so a lid camera 12 cm below the eyes at 50 cm puts a user looking straight at their
+screen 13.5° down the pitch ramp for their whole session. Measured on three
+synthetic 20 s sessions with ±1.5° of postural wander:
+
+| geometry | best wPose of 600 frames | admitted | first solve | ζ applied |
+|---|---|---|---|---|
+| eye level 0° | 1.0000 | 600/600 | frame 0 | −6.096 mm |
+| laptop 13.5° | **0.9984** | **0/600** | never | **0.000 mm** |
+| phone/lap 30° | 0.1641 | **0/600** | never | **0.000 mm** |
+
+The laptop session's *best frame of six hundred* misses the bar by six parts in ten
+thousand. The seat did not exist for that entire class of hardware and nothing
+surfaced it.
+
+The fix keeps the categorical refusal (it was measured to work) and makes its
+*reference* the session's own:
+
+```
+band      = max over the session of  Q90( last FIT_WINDOW values of wPose )
+square-on ⟺ wPose ≥ SEAT_REF_SLACK · band          SEAT_REF_SLACK = 0.999
+```
+
+`SEAT_REF_TRUST` is renamed `SEAT_REF_SLACK` and keeps the one job its comment
+always claimed (float equality on a product of smoothsteps is a coin toss) while
+losing the one it was silently doing (defining square-on as a cone about the
+camera axis). No new threshold: the quantile *is* the definition of square-on, the
+ring length is `FIT_WINDOW` because the band gates admission to a `FIT_WINDOW`
+window, and cold start is that rule rather than a number (no band until the ring
+that measures it is full). Because `band ≤ 1` always, the new test is **provably
+weaker than the old one for any session** — never stricter.
+
+After: all three geometries learn, and the three cameras agree on the standoff — a
+face constant — to **0.366 mm** against a pinned 0.5 mm bound. Every eye-level
+number is identical digit for digit, because an eye-level session's band is
+exactly 1 and the test is the old expression character for character.
+`telemetry-replay` 366/366 with **zero behavioural deltas**.
+
+### Stage 8 — the isolation boundary
+
+Nine leak sites were confirmed against the tree and closed: the gaze door's
+carried neutral (`state.gaze`), the occluder's depth fit, view residual, shape
+flag and warm-started control mesh, a module-level guard counter in `fit.js`, both
+`NoiseFloor` estimators, the identity strike count and the stability meter. Two
+fixes the proof forced and the audit had not seen: the identity conviction fires
+*partway through a frame*, so that frame's anchors — the sample adopted whole as
+the new wearer's frame one — were measured through the previous wearer's depth
+fit, and the gaze reading one layer over. Both are now re-measured against the
+cleared estimators.
+
+The boundary is stated once, machine-readably, in `PER_SESSION_STATE` (frame.js)
+and iterated by `resetFit` itself, with `perPerson` / `perSource` / `ownedByApp`
+partitions and an `allowedToSurvive` annotation that must also carry an owner. The
+rule: **module-level mutable state is forbidden for anything person-derived,
+because module scope is the one place a state-keyed reset cannot reach.**
+
+The proof (`isolationSwap`, seven checks) drives two synthetic subjects differing
+in shape, resting gaze and landmark noise through **one** occluder, **one** pose
+filter and **one** state object, as the app arranges them, and compares the whole
+trajectory bit-for-bit against the same subject from a cold start on the identical
+seeded landmark stream — both orderings, with a discriminator map that re-injects
+each leak alone and requires the check to catch it (6/6, plus two driven
+separately). Result: **no per-person field differing on any of 60 frames, in both
+orderings.**
+
+### Stage 9 — the instruments
+
+Two things had to exist before Goal 2 could be worked on at all: a settle metric
+that can discriminate, and a subject set that is not one face.
+
+#### 9a. The settle metric (`src/settle.js`)
+
+**Why the proposed one could not work.** The plan defined
+
+```
+settleMs = min{ t : |p(t′) − p_∞| ≤ 0.5 px  ∀ t′ ≥ t }
+```
+
+— a last-exit time on the **raw** composed screen position against an **absolute**
+band. The fixtures' own still-segment screen RMS is 3.97 px (telemetry,
+production) and 2.91 px on the stab-law instrument, so a 0.5 px band is exceeded
+essentially every frame and the last exit is the run length on every subject, in
+both arms of every A/B, forever. The gate reads "never settled" identically before
+and after any change. It looks like a strict bar and is a broken instrument.
+
+**What it measures instead.** Two different things move a frame on a still head:
+per-frame **jitter** (zero-mean, already measured everywhere in this tree) and
+**convergence drift** (a monotone-ish walk of the placement's mean over seconds).
+The metric measures the *location*, not the sample:
+
+```
+window(t)   samples in (t − W, t],  W = SETTLE_WINDOW_S = STAB_WINDOW_S = 5 s
+m(t)        median of the window                        the location
+c(t)        (t_oldest + t_newest)/2                     the time that median is OF
+σ_loc       IQR(window) / sqrt(n_eff)                   sd of a sample median
+n_eff       n·(1−ρ)/(1+ρ)                               lag-1 autocorrelation
+σ_Δ         sqrt(2)·σ_loc
+band        max( channel deadband , z·σ_Δ )
+settle      c(t*),  t* = min{ t : |m(t′) − m(T)| ≤ band  ∀ t′ ≥ t }
+```
+
+Five parts, each forced rather than chosen:
+
+1. **The median separates the two quantities by construction.** Zero-mean jitter
+   enters the location divided by ~`sqrt(n)` — at 5 s of 30 fps the sample median's
+   sd is 1.2533·sd/√150, a factor of 9.8 — while a drift slower than the window
+   passes through untouched. About 10:1 of gain on drift-over-jitter, which is
+   exactly what the raw-sample metric lacked.
+2. **The window is time-stamped at its centre**, and that is a correct timestamp
+   rather than a correction: for any monotone trajectory the median of a window is
+   the signal at the window's own time-midpoint, exactly, because a monotone map
+   preserves which sample is the middle one. Stamping at the right edge — the
+   obvious thing — reports every settle a half-window late, which on a 2 s target
+   is larger than the target.
+3. **The noise floor is distribution-free and measured from the session's own
+   signal.** The asymptotic sd of a sample median is `1/(2·f(m)·√n)`; estimating
+   the density from the window's own order statistics (`f = 0.5/IQR`, the standard
+   interquartile estimate) collapses it to `IQR/√n`. It returns 1.2533·sd/√n for a
+   Gaussian window and a/√n for a uniform one on [−a, a], and widens on its own for
+   a heavy-tailed one. **A jittery subject gets a wider band, not an automatic
+   failure** — the property the absolute 0.5 px band could never have, and the
+   reason it could not generalise past one person's noise.
+4. **The band's floor is the channel's own deadband.** `applied.s` cannot move by
+   less than `REST_DEADBAND`, so asserting convergence finer than that asserts
+   something the mechanism cannot deliver. No number is introduced: it is the
+   tolerance the channel was already built around. The composed screen position has
+   no deadband — it tracks the head every frame — so its band is purely the
+   instrument's resolution, which is why the screen version is **reported** and the
+   seat channels are **asserted**.
+5. **`z` is a stated false-alarm rate, not taste.** A last-exit time is fragile in
+   one specific way: any band with a non-negligible per-look exceedance under a
+   settled null pushes the last exit to the end of the run. With `Nw = span/W`
+   independent window positions, `z` solves `(1 − 2(1 − Φ(z)))^Nw = 1 − 0.01`;
+   a 30 s run at W = 5 s gives z = 3.09, a 60 s run 3.34. The *rate* is the
+   constant — the same shape as the tree's own `NOISE_QUANTILE`/`NOISE_GATE` pair,
+   where the 1.2% false-refusal rate is stated and asserted rather than the 3 being
+   defended. And the null is **measured**: settled streams at three jitter
+   distributions and three amplitudes must all settle at zero.
+
+**Acceptance number.** `settle ≤ 2.0 s` on `applied.s` (band floor
+`REST_DEADBAND` 0.3 mm) and on `applied.zeta` (band floor `ZETA_REARM` 0.15 mm),
+from a cold session, **paired** with the convergence arm `|final − final(60 s)| ≤
+the same deadband` — a settle time alone is gamed by a channel that never moves,
+so the metric publishes `final` and every gate must read both.
+
+**Validation (six checks, `pipeline-check`, all synthetic).** The metric is proved
+against streams whose settle time is known by construction, and the old metric is
+run on the *same* streams so the comparison is a measurement:
+
+| stream (30 s, 3.97 px jitter, 8.4 px drift) | new | old (0.5 px) |
+|---|---|---|
+| fast exponential, τ = 0.4 s | **0.82 s** (truth 0.56) | never settled |
+| slow exponential, τ = 3.0 s | **4.03 s** (truth 4.20) | never settled |
+| nine settled nulls (uniform/Gaussian/heavy × ×1/×2/×4) | **≤ 0.72 s**, all nine | never settled, all nine |
+| a step at 3.0 s, and the same stream negated sample for sample | **3.48 s, bit-identical** | — |
+| deadbanded channel (5.5 mm, 0.3 mm deadband) at τ = 0.4/0.8/3/5 s | error **≤ 0.29 s** against truth | — |
+| the same at 15/24/30/60 fps | spread **≤ 0.11 s** | — |
+| a channel pinned at zero | 0.12 s, and `final` off by 5.5 mm | — |
+
+The band grew 4.2× from ×1 to ×4 jitter instead of the verdict flipping. The
+negation arm is bit-equality, and it is what forced the interpolated quantile: a
+floor-index median on an even-length window is not equivariant under negation, so
+the obvious implementation answers a downward drift differently from the identical
+upward one.
+
+**Stated limits.** (i) On a *resolution-limited* channel — one with no deadband,
+i.e. the screen position — the band goes as `1/√n`, so the settle time is **not**
+rate-free: measured 3.20 / 3.56 / 5.10 / 8.04 s for one drift law at 15/24/30/60
+fps. Screen-channel settle times may only be compared between runs at the same
+detection rate. On a deadbanded channel the band is constant and the spread is
+0.11 s. (ii) A drift smaller than the band is invisible: at ×4 jitter an 8 px
+screen drift is under the instrument's resolution and reads as settled. (iii) A
+step whose height is only ~2× the jitter reads ~0.5 s late, because the window's
+two populations overlap and the median crosses over a spread of frames; the bias
+is bounded by the half-window and one-signed.
+
+#### 9b. The multi-subject subject set
+
+`pipeline-check` is the generality instrument and is fully synthetic, so subjects
+are nearly free — and it carried **one head with six noses**. `shapeFace` varies
+three multipliers, its `wide` parameter defaults to 1 and nothing ever passed
+otherwise, and `anchorsForShape` hardcodes `metricScale: 1`, `pdCm: null`,
+`noseWidthRatio: 1`. So the whole `LIMITS` block was unexercised, the iris chain
+was never driven at a non-unit scale, and the six-nose seat measurables widened
+the *surface* while `noseWidthRatio` stayed pinned at 1.000 — the condition
+frame.js:40 names as the original diagnosis.
+
+**The axes and their sources**, recorded in one place in the harness so a wrong
+figure is correctable once rather than re-derived from a comment:
+
+| axis | population statistic | source |
+|---|---|---|
+| nasal span at pad height | pooled CV **11.5%** (within-group ~7%, between-group ~9%) | Farkas, *Anthropometry of the Head and Face* 2nd ed. 1994 (al–al 34.9 ± 2.5 mm M / 31.4 ± 1.9 mm F); Farkas et al. 2005, *J Craniofac Surg* 16(4):615 — 25 populations, group means ~31–45 mm |
+| nasal protrusion | CV ~8% | Farkas 1994 (sn–prn 20.5 ± 1.6 mm M / 19.0 ± 1.4 mm F) |
+| head breadth | CV 3.5% within sex + 4% between | Farkas 1994 (eu–eu 152/146 mm, SD 5–6 mm); ANSUR II 2012, n = 6068 |
+| bridge/nasal-root prominence | ±1.5 mm SD (declared: the mesh has no caliper equivalent) | Farkas et al. 2005 on population differences in root depth |
+| sidewall slope | canonical 15.7° half-angle; ±1.5 SD walks 11°–21°, tails 8°/28° | derived from the mesh (20.6 mm at the high pair, 26.1 mm a centimetre lower) |
+| IPD | **63.4 ± 3.8 mm**, observed range 45–80 | Dodgson 2004, *Proc SPIE* 5291, from the 1988 US Army survey |
+| iris diameter (HVID) | **11.71 ± 0.42 mm** | Rüfer, Schröder & Erb 2005, *Cornea* 24(3):259 |
+| overall head size | as head breadth, but as size not shape | ditto |
+| nasal asymmetry | 1–3 mm typical in normal adults, to ~5 mm | Ferrario et al. 1994/1995 (*J Oral Maxillofac Surg*; *Am J Orthod*) |
+
+Two methodological points matter more than any single figure. **(1)** The
+canonical mesh is the *mean*, and its nasal span (23.35 mm across landmarks
+245/465/114/343) is the sidewall strip a pad bears on — **not** alar width
+(~34 mm). Published absolute ranges are therefore transferred as *coefficients of
+variation* and applied as ratios; pasting caliper centimetres onto mesh landmarks
+would assert that the two measure the same thing. **(2)** For the nose the
+*between-group* spread is larger than the within-group SD, so a set spanning only
+within-group SDs would miss most of the variation the product will meet.
+
+**The standing set — 15 subjects.** S00 canonical (the control and every existing
+check's own subject); S01–S08 a **2^(6−3)_III** fractional factorial at ±1.5 SD
+(the 6.7th and 93.3rd percentiles) on nasal width, protrusion, head breadth,
+bridge prominence, sidewall slope and IPD, generators D = AB, E = AC, F = BC —
+resolution **III**, stated correctly: with eight runs and six factors that is the
+best available and main effects are aliased with two-factor interactions. (The
+plan claimed resolution IV for eight runs; that design does not exist.) Then five
+hand-placed cases at the published extremes: **S09** a small child (0.75 scale,
+52 mm IPD, 15% narrow), **S10** broad low bridge (`noseWidthRatio` 1.45, root
+−3.5 mm, shallow walls), **S11** narrow high bridge with steep walls
+(`noseWidthRatio` 0.70, root +3.5 mm), **S12/S12m** a ±3 mm deviated nose (the
+both-signs arm), **S13** a large adult with a large iris (1.15 scale, 76 mm IPD,
+12.5 mm HVID — which makes the iris ruler under-read scale by 6.4%, on purpose).
+
+**A fixture bug the calibration found.** The first version stated the subjects in
+deformation multipliers, and the smooth falloff means the sidewall landmarks move
+by *less* than the multiplier: asking for 1.45 delivered about 1.2, the set
+silently spanned two thirds of what it claimed, and `LIMITS` was reported as never
+binding when the descriptor had never reached it. The span is affine in the
+multiplier, so the harness now solves it exactly and the subject table is stated
+in the units the code's own bounds are stated in.
+
+**The iris, and why it had to be built in face space.** The canonical mesh stops
+at 468 vertices; MediaPipe's refinement adds ten. So `synthesiseLandmarks` produces
+a face with no eyes, `measureMetricScale` returns null, and the whole iris chain —
+the pipeline's only absolute ruler — was untested. The irises are synthesised in
+**face space at `IRIS_DIAMETER_CM`, divided by the head's own scale**, because a
+real iris is ~11.7 mm on every adult head and does *not* scale with the head;
+synthesising it in image space would have made the one absolute ruler
+proportional to face width.
+
+#### 9c. The pass/fail matrix
+
+Every family asserts separately on **S00** (a red there is a regression, because
+S00 is every existing check's own subject) and records the whole set as a
+**finding** (a red there is the work queue). The suite's summary distinguishes
+them, and `window.__findings` carries them machine-readably.
+
+| family | S00 | across the 15 |
+|---|---|---|
+| anchor recovery on every ratio channel | **PASS** (all four within **0.09%**) | worst recovery error 2.4%; **1/15 outside a `LIMITS` bound** |
+| two-sided bearing (seat measurable 1) | **PASS** | **3/15 fail** — S11 → `saddle`, S12/S12m → `flat` |
+| standoff spread (seat measurable 3) | **PASS** | **14.73 mm** across the set, against a 1.5 mm floor |
+| pupil verdict on the lens (G17) | **PASS** | **15/15 pass**, all at 45% |
+| the seat converges and the metric reads it | **PASS** | 15/15 defined, 15/15 moved off zero |
+| ≤2 s settle | **FAIL (2.9 / 3.3 s)** | **6/15 over target**, worst 15.2 s |
+| the seat learns on all three camera geometries | **PASS** | **15/15 learn** |
+| the three cameras agree to 0.5 mm | — | **6/15 disagree at a 10 s horizon** |
+
+#### 9d. The enumerated tail failures — the work queue
+
+Ranked by how many real users each reaches, and by whether anything today would
+tell you it happened.
+
+1. **A deviated nose drops the seat out of its two-sided solve, and the direction
+   matters.** Sweeping nasal deviation with everything else canonical: the wedge
+   solve holds at ±1.0 mm, gives up at **+1.5 mm** and at **−2.0 mm**. Past the
+   crossing the pad deficit never reaches
+   `EPS_BEAR` at any height in the search box, so `found === −1` and the seat falls
+   back to the 1-DOF optical height — an asymmetric wearer gets the pre-stage-5
+   seat and nothing says so. Ferrario puts normal adult asymmetry at 1–3 mm, so the
+   crossing is **inside** the population. The two signs differ because the deficit
+   runs consistently worse on the + side at every matched pair — **+83 µm** —
+   which is the
+   canonical mesh's own asymmetry (the spec's ≈−1.2° of solved baseline roll)
+   adding one way and cancelling the other: a deviated nose has a handedness in
+   this pipeline that nobody put there. The channel built for exactly this — the G5
+   pad-balance roll — ships dark, and the spec's own condition for lighting it is
+   that the canonical baseline roll be subtracted first, which is the same mesh
+   asymmetry this sweep measures.
+2. **The ≤2 s settle target is met on no face, including the mean one.** S00 reads
+   2.9 s on the height channel and 3.3 s on the standoff; 6 of 15 subjects are over
+   target, worst 15.2 s. This is the *floor* the convergence work diffs against,
+   not a regression — the confidence ramp is `noseMeanW/CONF_FULL_W` and its own
+   best case was measured at 2.8 s.
+3. **A narrow, high, steeply-walled nose (S11) seats in `saddle` mode**: the
+   bridge centre out-interferes both sides across the whole sweep, so the pads
+   never take load and the two-sided solve reports the asset's own shape rather
+   than the wearer's nose. Different mechanism from (1), same consequence.
+4. **Six of fifteen subjects' three cameras disagree by more than 0.5 mm at a 10 s
+   horizon** (worst 4.31 mm). Diagnosed rather than argued: the worst subject
+   re-run at 30 s reads 2.39 mm on 56/12/4 solves against 19/6/3 — so this is
+   **convergence rate**, not camera dependence, and it belongs to Goal 2. The
+   off-axis geometries admit a fraction of their frames and therefore reach the
+   same answer later, not a different one.
+5. **`LIMITS` binds on real anthropometry and nothing counts it.** One subject in
+   fifteen (S10, `noseWidthRatio` 1.45) has a truth value outside a bound, so the
+   clamp silently rewrites their face. Under the stated 11.5% pooled CV the
+   [0.7, 1.4] rails clip about the outer 0.5% of adults at the low end — and the
+   pooled distribution is a mixture of group means rather than a Gaussian, so the
+   true tail is heavier than that. There is no counter anywhere for a clamp that
+   landed: in production this is invisible. First work is the counter (mirroring
+   `depthClamped`), *then* the re-derivation.
+6. **Fixture finding, reported so a later sweep cannot be flattered by it:** on the
+   shipped pad separation the seat's height channel never leaves zero for **12 of
+   the 15** subjects — that asset's wedge bears at the optical height, so `sStar`
+   is 0 and there is nothing to settle; only S01, S03 and S05 descend on it at all. A settle sweep on that asset alone would report
+   ~0.1 s for nearly every face and call the target met. The sweep therefore runs at
+   1.34× separation, in the descending regime seat measurable 2 already pins.
+
+#### 9e. Suites
+
+* `pipeline-check` **363/364** (354 → 364: six checks for the settle instrument,
+  four for the generality matrix) plus **six recorded findings** of which five are
+  open (four tail, one floor), tallied apart from the checks:
+  `363/364 checks passed · 5 open generality findings (4 tail, 1 floor) — work
+  queue, not regressions`. A finding never fails the suite; a red on S00 does.
+  The one standing check failure is the Stage-0-environment-ruled wall check.
+* `telemetry-replay` 366/366; `diag-replay` 338/338. Neither baseline re-pinned:
+  this stage adds no production change, and `diag-baseline.json`'s pre-existing
+  staleness (including the dead `gazeInjection.validInjector` gate) still stands as
+  Stage 7 recorded it.

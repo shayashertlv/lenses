@@ -28,8 +28,26 @@ import {
   sideInterference, PAD_SINK, GUARD_BAND, GUARD_MAX,
 } from './nose.js';
 
-/** Frames on which the guard hit GUARD_MAX — surfaced through the seat report. */
-let noseSeatGuardOverflow = 0;
+/**
+ * Frames on which the guard hit `GUARD_MAX` used to be counted HERE, in a
+ * module-level `let` that no reset could reach.
+ *
+ * It is gone, and the shape of the bug is worth keeping in front of whoever
+ * next reaches for a module-level counter. `resetFit` and `remeasure` clear
+ * per-session state through the state object; module scope is not on the state
+ * object, so the count accumulated across identity convictions, source
+ * switches and re-measures for the whole life of the page — and
+ * `noseSeat.guardOverflow` reported the previous person's cap overflows into
+ * the next person's session. It also made the telemetry replay
+ * order-dependent WITHIN one process, so the instrument the seat's constants
+ * were justified against depended on which fixture ran first.
+ *
+ * The counter now belongs to whoever owns the session (`solvePlacement`'s
+ * optional `stats`), exactly the pattern `blendFittedDepth` in `anchors.js`
+ * already used for `stats.clamped`, and `frame.js` hands it the seat state —
+ * which `resetFit` clears whole. A caller that passes no `stats` gets zero and
+ * counts nothing, which is the honest answer for a one-shot solve.
+ */
 
 /** The canonical face model is in centimetres; glTF is in metres. */
 export const FACE_UNITS_PER_METRE = 100;
@@ -503,10 +521,16 @@ export const DEFAULT_FIT = {
  * behaviour with the argmax softened. `fit.seatOnNose: false` overrides a
  * passed `seatConfig` entirely — every seat channel dark, the pure hang.
  *
+ * `stats`, when present, is a CALLER-OWNED counter object — today one field,
+ * `guardOverflow` — carrying the diagnostics that describe a session rather
+ * than a frame. Caller-owned rather than module-owned so a reset can reach
+ * them: see the note where the module-level counter used to live.
+ *
  * Returns a transform to apply to the model *inside* the head node.
  */
 export function solvePlacement({
   model, anchors, fit, face = null, surface = null, seatConfig = null,
+  stats = null,
 }) {
   const scale = fit.mode === 'physical'
     // Model metres -> face-space centimetres. No division by head scale: the head
@@ -766,7 +790,10 @@ export function solvePlacement({
       // snapped) boundary is the lesser visual evil, and the trust-scaled
       // deform upstream keeps the honest ask inside the cap anyway. Overflow
       // is counted, not hidden.
-      if (guard > GUARD_MAX) { noseSeatGuardOverflow += 1; guard = GUARD_MAX; }
+      if (guard > GUARD_MAX) {
+        if (stats !== null) stats.guardOverflow += 1;
+        guard = GUARD_MAX;
+      }
       applied = zeta + guard;
     } else {
       applied = needed;
@@ -785,7 +812,8 @@ export function solvePlacement({
       /** What was actually added to z — eased channel + raw guard, bounded. */
       easedPush: bounded,
       guard,
-      guardOverflow: noseSeatGuardOverflow,
+      /** This SESSION's cap overflows — zero for a caller that owns no stats. */
+      guardOverflow: stats !== null ? stats.guardOverflow : 0,
       touched: felt.touched,
       dropped: felt.dropped,
       interference: felt.touched > 0 ? felt.soft : 0,
