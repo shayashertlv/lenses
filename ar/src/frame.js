@@ -836,10 +836,10 @@ export function updateFrame({
    * Anchoring-v3 instrument (ar/docs/nose-v3/v3-rethink.txt): which pin
    * composes the placement. Since the pin-innovation deletion (the telemetry
    * attribution run measured the innovation worth 0.03 px — vestigial), the
-   * production pin IS the fused base (carried median ⊕ κ·person estimate), so
-   * 'production' and 'rigid' are the SAME path — the alias is kept so every
-   * caller and pinned baseline stays coherent, and the harness asserts the
-   * collapse bit-for-bit rather than trusting this comment.
+   * production pin IS the fused base (carried median ⊕ κ·person estimate).
+   * The 'rigid' arm the decomposition ran against measured the same path once
+   * the innovation went, so the alias is gone with it; the harness asserts
+   * that the option is inert unless passed rather than trusting this comment.
    *
    * 'frozen' is the remaining distinct arm — the PURE POSE FLOOR: every
    * estimator HOLDS. No sample admission and no weighted-median commit, no
@@ -1299,12 +1299,9 @@ export function updateFrame({
 
     // A fresh vector per frame, like the payload object around it: harness
     // and UI consumers hold whole payloads across frames, and a pin they all
-    // aliased would rewrite history under them. 'production', 'rigid' and
-    // 'frozen' all compose this same base — 'rigid' collapsed into
-    // production when the innovation it isolated was deleted (the alias
-    // survives for the pinned baselines; the harness asserts the collapse),
-    // and 'frozen' differs only in what the estimators upstream were allowed
-    // to do, never in this composition.
+    // aliased would rewrite history under them. Both surviving modes compose
+    // this same base — 'frozen' differs only in what the estimators upstream
+    // were allowed to do, never in this composition.
     anchors = {
       ...carried,
       bridge: new THREE.Vector3(baseX, baseY, baseZ),

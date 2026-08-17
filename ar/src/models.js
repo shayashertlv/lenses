@@ -908,12 +908,6 @@ const MATERIALS = {
     roughness: 0.28,
     envMapIntensity: 1.1,
   }),
-  dark: () => new THREE.MeshPhysicalMaterial({
-    color: 0x1b1d21,
-    metalness: 0.2,
-    roughness: 0.45,
-    clearcoat: 0.6,
-  }),
 };
 
 function applyMaterial(root, kind) {

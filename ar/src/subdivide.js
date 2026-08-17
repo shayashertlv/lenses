@@ -34,7 +34,7 @@
  * to new ones. Original vertices keep their indices, so anything addressing this mesh by
  * landmark number still can — `LM.NOSE_BRIDGE` is vertex 6 before and after.
  */
-export function planLoopSubdivision(indices, vertexCount, pinned = 0) {
+export function planLoopSubdivision(indices, vertexCount) {
   const triangleCount = indices.length / 3;
 
   // --- edges, and the vertices opposite them ---
@@ -84,19 +84,10 @@ export function planLoopSubdivision(indices, vertexCount, pinned = 0) {
   const rows = new Array(vertexCount + edgeList.length);
 
   for (let v = 0; v < vertexCount; v++) {
-    // A pinned vertex is a *measurement*, and Loop's vertex rule would smooth it away.
-    // Measured on the canonical mesh, full Loop pulls the nose bridge 1.6 mm back and
-    // the whole head about 1 mm in — the ridge flattens, because that rule drags every
-    // vertex towards the average of its ring and a nose bridge is nothing but curvature.
-    // A millimetre of shrink is not a rounding error here: it sits on top of the relief
-    // and is 20 screen pixels of under-occlusion at the range these captures were taken.
-    //
-    // So the 468 landmarks stay exactly where the detector put them, at every level, and
-    // only the vertices subdivision itself introduced are free to move. What comes out
-    // interpolates the measurement and is smooth between it, which is the same division
-    // of labour the rest of this pipeline runs on.
-    if (v < pinned) { rows[v] = [[v, 1]]; continue; }
-
+    // Full Loop everywhere, including on the measured landmarks. Holding them still
+    // instead was the obvious first answer and it is the wrong one — it turns each
+    // one into a spike as its neighbourhood smooths away from it. The measurement is
+    // recovered by inverting the map instead; see `compensate` for the numbers.
     if (onBoundary[v]) {
       // A rim vertex is a cubic B-spline of the rim curve, and must depend only on the
       // rim. Letting the interior pull on it would drag the face's boundary inward and
@@ -205,7 +196,7 @@ export function applyLoopSubdivision(plan, from, into) {
  * below the feather's own width at close range, which is the point at which the
  * boundary stops being a polygon and starts being a curve.
  */
-export function planSubdivision(indices, vertexCount, levels, pinned = 0) {
+export function planSubdivision(indices, vertexCount, levels) {
   const plans = [];
   const buffers = [];
   let currentIndices = indices;
@@ -223,11 +214,7 @@ export function planSubdivision(indices, vertexCount, levels, pinned = 0) {
   }
 
   for (let level = 0; level < levels; level++) {
-    // `pinned` does not grow with the mesh: it is the count of *measured* vertices, and
-    // subdivision never adds a measurement. Everything a previous level introduced is
-    // free to be smoothed by the next one, which is what stops the pinned points from
-    // reading as 468 little creases.
-    const plan = planLoopSubdivision(currentIndices, currentCount, pinned);
+    const plan = planLoopSubdivision(currentIndices, currentCount);
     plans.push(plan);
     buffers.push(new Float32Array(plan.vertexCount * 3));
     currentIndices = plan.indices;

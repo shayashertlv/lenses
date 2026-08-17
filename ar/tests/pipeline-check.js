@@ -5859,18 +5859,17 @@ async function run() {
         + `so the anchors can never ride a fit nothing is measuring`);
     }
 
-    // --- anchoring-v3: pinMode is inert by default, and 'rigid' ≡ production ---
+    // --- anchoring-v3: pinMode is inert by default ---
     //
     // The R0 instrument threaded `pinMode` into `updateFrame` so the telemetry
     // replay could decompose pose-carried from landmark-carried screen motion,
     // and the decomposition DECIDED: the production-vs-rigid gap (the pin
     // innovation term) measured 0.03 px on the gaze fixture, so the innovation
-    // was deleted and 'rigid' collapsed into the production path. This check
-    // is the old R0 inertness assert with the collapse made explicit: the
-    // option omitted, 'production' and 'rigid' must all be bit-identical (the
-    // alias survives for the pinned baselines and every existing caller), the
-    // composed pin must BE the base readout, and 'frozen' must remain the one
-    // genuinely distinct arm.
+    // was deleted, the 'rigid' arm became the production path exactly, and the
+    // alias went with the machinery it isolated. What is left to pin is what
+    // every caller depends on: omitting the option and passing 'production'
+    // must be bit-identical, the composed pin must BE the base readout, and
+    // 'frozen' must remain the one genuinely distinct arm.
     {
       const truth = shapeFace(face, { noseR: 1.12, noseZ: 1.05 });
       const drive = (pinMode) => {
@@ -5894,25 +5893,21 @@ async function run() {
       };
       const omitted = drive(null);
       const explicit = drive('production');
-      const rigid = drive('rigid');
 
       const bitEqual = omitted.out.anchors.bridge.equals(explicit.out.anchors.bridge)
         && omitted.out.placement.position.equals(explicit.out.placement.position)
         && omitted.out.placement.quaternion.equals(explicit.out.placement.quaternion)
         && omitted.out.placement.scale === explicit.out.placement.scale;
-      const collapsed = rigid.out.anchors.bridge.equals(omitted.out.anchors.bridge)
-        && rigid.out.placement.position.equals(omitted.out.placement.position);
       const pin = omitted.st.pin;
       const pinIsBase = omitted.out.anchors.bridge.x === pin.baseX
         && omitted.out.anchors.bridge.y === pin.baseY
         && omitted.out.anchors.bridge.z === pin.baseZ;
-      record('the pinMode instrument is inert and \'rigid\' has collapsed into production',
-        bitEqual && collapsed && pinIsBase,
-        `12 frames driven three ways: option omitted ≡ 'production' bit-for-bit `
-        + `(${bitEqual}); 'rigid' ≡ production bit-for-bit (${collapsed} — the `
-        + `innovation term the mode isolated is deleted, anchoring-v3); and the `
-        + `production pin composes exactly __ar.pin.base (${pinIsBase}) — the pose `
-        + `carries a fused constant, with 'frozen' the one distinct arm left`);
+      record('the pinMode instrument is inert by default',
+        bitEqual && pinIsBase,
+        `12 frames driven both ways: option omitted ≡ 'production' bit-for-bit `
+        + `(${bitEqual}); and the production pin composes exactly __ar.pin.base `
+        + `(${pinIsBase}) — the pose carries a fused constant, with 'frozen' the `
+        + `one distinct arm left`);
     }
 
     // --- R0 (anchoring-v3): pinMode 'frozen' holds every estimator dead ---

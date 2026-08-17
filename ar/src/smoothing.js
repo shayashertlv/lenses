@@ -10,9 +10,11 @@
  * head is moving. Two knobs — `minCutoff` sets how still "still" looks, `beta`
  * sets how quickly it gets out of the way. Casiez, Roussel & Vogel, CHI 2012.
  *
- * That is enough for a measurement that does not have to be *timely* — the facial
- * anchors, which describe proportions that are not changing — and `anchors.js`
- * uses it for exactly that.
+ * That law is the whole of this module: `Predicted` derives its `alpha` from it
+ * every frame. It used to be exported as a filter class in its own right for the
+ * facial anchors, which describe proportions that are not changing — but a
+ * measurement that does not have to be *timely* does not want a time constant
+ * either, and `anchors.js` now carries a weighted median instead.
  *
  * The head pose gets the same filter, tuned very differently, and the tuning is the
  * whole story behind glasses that trail the face. A first-order low-pass at cutoff
@@ -209,65 +211,20 @@ export class NoiseFloor {
   }
 }
 
-/** One Euro over a single scalar. */
-export class OneEuro {
-  constructor({ minCutoff = 1.0, beta = 0.0, dCutoff = 1.0 } = {}) {
-    this.minCutoff = minCutoff;
-    this.beta = beta;
-    this.dCutoff = dCutoff;
-    this.x = new LowPass();
-    this.dx = new LowPass();
-    this.prev = null;
-  }
-
-  filter(value, dt) {
-    if (!(dt > 0)) return this.x.value === null ? value : this.x.value;
-
-    const derivative = this.prev === null ? 0 : (value - this.prev) / dt;
-    this.prev = value;
-
-    const smoothedDerivative = this.dx.filter(derivative, alphaFor(this.dCutoff, dt));
-    const cutoff = this.minCutoff + this.beta * Math.abs(smoothedDerivative);
-    return this.x.filter(value, alphaFor(cutoff, dt));
-  }
-
-  reset() {
-    this.x.reset();
-    this.dx.reset();
-    this.prev = null;
-  }
-}
-
 /*
- * `InnovationFilter` (design C3 / graft G11 — the bridge pin's hybrid-activity
- * innovation filter) lived here from stage 3 until anchoring-v3 deleted the
- * pin's innovation term whole: the 2026-08-17 telemetry attribution run
- * measured the filtered innovation's entire screen contribution at 0.03 px
- * (production 8.57 px vs rigid 8.54 during the gaze segment), and with the
- * term gone the class had no consumer. ~110 lines of filter and derivations,
- * removed with the machinery; the git history and the spec's landing note
- * carry the design.
+ * `OneEuro` and `OneEuroVector` — plain One Euro over a scalar and over a
+ * vector's components — lived here, and both outlived their consumers. The
+ * anchors moved to a weighted median (see `medianAnchors`: a filter's time
+ * constant was never what that measurement wanted), and `Predicted` below
+ * derives its own alpha from the One Euro law directly rather than wrapping
+ * the class. `InnovationFilter` (design C3 / graft G11 — the bridge pin's
+ * hybrid-activity innovation filter) went the same way at anchoring-v3, when
+ * the 2026-08-17 telemetry attribution run measured the filtered innovation's
+ * entire screen contribution at 0.03 px and the pin's innovation term was
+ * deleted whole. The law is still the one this module runs on and is derived
+ * at the top of the file; only the unused wrappers are gone. Git history and
+ * the spec's landing notes carry the designs.
  */
-
-/** One Euro applied independently to each component of a vector. */
-export class OneEuroVector {
-  constructor(size, options) {
-    this.filters = Array.from({ length: size }, () => new OneEuro(options));
-  }
-
-  set options(options) {
-    for (const f of this.filters) Object.assign(f, options);
-  }
-
-  filter(values, dt, out = values) {
-    for (let i = 0; i < this.filters.length; i++) out[i] = this.filters[i].filter(values[i], dt);
-    return out;
-  }
-
-  reset() {
-    for (const f of this.filters) f.reset();
-  }
-}
 
 // ---------------------------------------------------------------- prediction
 

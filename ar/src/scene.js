@@ -350,21 +350,16 @@ export function createScene(canvas, { preserveDrawingBuffer = false } = {}) {
 }
 
 /**
- * The occluder lives in `occluder.js` now.
+ * The occluder lives in `occluder.js` now, and callers import it from there.
  *
  * It moved because it stopped being a thing the render layer owns. What used to be
  * here was geometry plus one sideways stretch; what is there now also owns the depth
  * field `seat()` solves against, and the whole point of the rewrite is that those two
  * cannot be separated — the field is rasterised from the triangles that write the
  * depth buffer. Splitting them across two modules is exactly how they drifted apart
- * in the first place.
- *
- * Re-exported here so callers that only ever wanted 'the head' keep working.
+ * in the first place. A compatibility re-export stood here through the move; every
+ * caller now names the real module, so it is gone too.
  */
-export {
-  createOccluder, createShadowCatcher, updateOccluder, headProfileFor, surfaceOf,
-  OCCLUDER_LAYER, OCCLUDER_FEATHER,
-} from './occluder.js';
 
 /**
  * The face wireframe lives in `occluder.js` now, as `createOccluderDebugMesh`.

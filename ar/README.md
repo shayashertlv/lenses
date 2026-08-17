@@ -1163,7 +1163,7 @@ figure. It is enough to drive frame-width selection, which is a comparison anywa
 | `src/frame.js` | one frame: pose → smooth → place. Shared by app and tests |
 | `src/scene.js` | three.js layer, camera matching, occluders, shadow catcher, debug meshes |
 | `src/lighting.js` | scene brightness/tint probe that drives the lights |
-| `src/smoothing.js` | One Euro filters, and the velocity-carrying pose predictor |
+| `src/smoothing.js` | the One Euro law, and the velocity-carrying pose predictor built on it |
 | `src/sources.js` | camera and still-image sources |
 | `src/main.js` | wiring, loop, controls |
 | `tests/pipeline-check.html` | the harness |
