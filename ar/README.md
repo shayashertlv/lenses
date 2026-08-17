@@ -1330,3 +1330,33 @@ mirrored sunglass, which is fine, but clear lenses need either an `.mtl` or a `.
 with the lens as its own material.
 
 Attribution for the vendored model and libraries is in [ATTRIBUTION.md](ATTRIBUTION.md).
+
+## The fixtures the replays need, and why they are not in the repository
+
+Two of the three suites stand on recordings of a real wearer, and those
+recordings are deliberately **not committed**: they are that person's facial
+geometry, and a repository is a poor place to keep it. A fresh clone therefore
+runs `tests/pipeline-check.html` — which is synthetic throughout — and finds the
+other two waiting for files that are not there.
+
+| Suite | Needs | If missing |
+|---|---|---|
+| `tests/pipeline-check.html` | nothing | runs |
+| `tests/diag-replay.html` | `assets/samples/diag/f00–f09.png` | cannot start |
+| `tests/telemetry-replay.html` | `tests/fixtures/telemetry-*.ndjson.gz` | cannot start |
+
+The telemetry can be re-made in ninety seconds: open
+`tests/record-telemetry.html`, follow the six on-screen segments, and drop the
+downloaded `.ndjson.gz` into `tests/fixtures/`. Then load
+`tests/telemetry-replay.html?fixture=fixtures/<name>.ndjson.gz`, which prints a
+baseline; save it as `tests/telemetry-baseline.json` and the suite asserts
+against it from then on. **The pinned baseline belongs to the recording it was
+pinned on** — a new recording means a new baseline, and the runner refuses to
+compare across the two.
+
+The ten `diag` stills cannot be re-made: they are a particular person at a
+particular set of angles on a particular afternoon, and the whole
+`diag-replay` suite — its seeded-noise jitter numbers, its gaze-injection
+control, its per-still baselines — is pinned to them. They are ignored by the
+repository-root `*.png` rule and exist in exactly one place, this working tree.
+`git clean -xdf` deletes them and takes 338 checks with them.
