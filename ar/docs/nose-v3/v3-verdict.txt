@@ -1,0 +1,47 @@
+All referenced code verified against the tree (pin composition frame.js:996–1003, gaze gate 955–991, constants 133–172, `InnovationFilter` smoothing.js:281, trust lever `update(..., trust=1)` with the `0.3 + 0.7·trust` scaling at smoothing.js:597–606, `W_PIN_FULL=60` / `bridgeMaturity` person.js:83/444, seat's bridge-relative cancellation comment frame.js:552). The plan's audit table is accurate; no fabricated line references.
+
+# VERDICT: ADOPT-WITH-CHANGES
+
+## Criterion 1 — Structural elimination of both symptoms: PASS on gaze, HONEST-PARTIAL on tilt
+
+**Gaze:** genuinely structural. The audit's central finding is correct and verified in code: the bridge pin's innovation term (frame.js:949–1003) is the only per-frame landmark→screen path, and A deletes the path rather than gating it. `pin = base + (1−μ)·filtered(innovation)` at μ=1 makes a 4 mm landmark swing produce zero screen motion by arithmetic, not by filter attenuation. The flapping-threshold problem is retired by removing its reason to exist. This is the correct answer to the veto.
+
+**Back-tilt:** not structural, and the plan is honest about it. A removes the pin-noise and guard contributions; pose-matrix noise at 49° pitch remains, and A2's soft jitter radius is conditioning — a new mechanism with new constants, the same family the user vetoed, wearing a continuous-curve justification. The "graceful degradation, ≤5 px at holds" acceptance is the right frame (extreme pitch is a detector limit; the only structural fix is B), but A2 as written is pre-committed rather than earned. See change 3.
+
+## Criterion 2 — Memory constraint: PASS, with a real mechanism
+
+The decomposition (identity offset vs Procrustes redistribution) is an actual mechanism, not hope, and both halves are measured: the person model kills the identity term (0.08–0.18 mm transverse convergence, 0.000 mm identity-swap, per the stage-4 landing record in spec.md), and the surviving pose-systematic term is already bounded on this wearer (2.82 mm z span, 4.278 mm x wander per-still-cold — an upper bound). Expecting low-single-digit mm, not 12–15, is arithmetically defensible. Critically, the claim is not trusted — it is gated (`rigidMissPx ≤ 3 px per still` AND rigid span ≤ the landmark wander it retires) with a graded fallback (μ cap 0.7 → B) that never re-grows the gate. One caveat: removing the innovation also removes the per-frame *compensation* the landmark provides for pose-systematic miss — the rigidMissPx "rigid must beat the wander" clause covers exactly this; it must be treated as a hard gate, not a hope.
+
+## Criterion 3 — Cold session: PASS at A1, GATED-RISK at A3, one false claim
+
+A1's μ=0 path is bit-identical and the frame-one pin survives — verified consistent with how `first` short-circuits at frame.js:922/998. But the risk table's claim that cold-window gaze behavior is "strictly ≤ current production" is **wrong as written**: A1 deletes the gaze gate while μ<1 for the first 8–15 s of every session, so the cold window reverts to *pre-gate* coupling (the 9–28 px regime), which is worse than today's flapping-but-partially-effective gate during that window. See change 2. A3 (median-only cold path) changes μ<1 behavior again and is gated on cold-tail telemetry tolerance — acceptable, since the carried median converges ~1 s and the gate is pinned.
+
+## Criterion 4 — Cost and 15 fps: PASS
+
+A is a net deletion (~260 lines, three firefighting constants). B is +0.1 ms against a 6.4–6.7 ms replay mean, hard-gated. The telemetry fixture records at the real ~15 fps and replays at recorded dt, so the fixture exercises the actual 67 ms-step regime, which the stills never could. No concerns.
+
+## Criterion 5 — Offline proof decisive: MOSTLY, with one ordering flaw (the biggest problem in the plan)
+
+`gazeInjection` is genuinely decisive for the *landmark* path: the validity gate (production control must reproduce the live ~9+ px) closes the injector-realism loophole, and stills injection cannot touch the matrix by construction. But that same construction means **the stills fixture structurally cannot falsify A's central premise — that the pose matrix itself is gaze-immune and turn-stable.** That falsification lives only in the telemetry fixture's pose-only decomposition, and the plan schedules the capture at LIVE 1, *after* A1 and A2 are built. The recorder lands at R0; nothing prevents running the 90 s capture immediately after R0. See change 1.
+
+## Criterion 6 — Riskiest assumption and cheapest falsification
+
+**Riskiest assumption: "sub-degree matrix motion under gaze" implies "≤2 px on screen."** It does not follow automatically. The code's own `NOSE_LEVER_CM = 8` (frame.js:163) prices the lever: 1° of pose rotation ≈ 1.4 mm at the bridge ≈ 5–6 px at this wearer's geometry (9 px ↔ 2.3 mm ⇒ ~3.9 px/mm). "Sub-degree" spans 0.1° (~0.5 px, premise holds) to 0.9° (~5 px, premise fails and B is primary). The pose smoother will eat some of the oscillation at rest, but that is exactly the kind of hope this process forbids. The plan *has* the right falsification test (telemetry eye-circle segment, pose-only replay, >2 px → promote B) — it just runs it two stages too late. Cheapest falsification: R0 recorder + one 90 s capture + the decomposition replay, before a line of A1 is written.
+
+## Required changes
+
+1. **Move the telemetry capture to immediately after R0, before A1.** The capture is pure instrumentation with zero behavior risk, costs the user the same 90 s the plan already budgets, and it decides A-vs-B primacy (pose-only eye-circle RMS vs 2 px; pitch-hold decomposition of the 31 px) *before* implementation effort is spent on the possibly-wrong candidate. LIVE 1 then becomes a short confirmation run of the same script under the landed stages (a second short session is an acceptable price for falsify-first; the plan's own process discipline demands it). If the user refuses a second session, at minimum the capture-then-analyze must precede A2.
+
+2. **Fix the cold-window claim and its handling.** Deleting the gaze gate at A1 regresses the μ<1 window to pre-gate coupling; "strictly ≤ current production" is false there. Either (a) accept explicitly, gated by a telemetry cold-segment comparison against a production-replay control, or (b) seed μ from κ (the plan's own suggestion) so the window shrinks. Do not land the risk table as written — this process has a record of catching arithmetic-impossible claims at landings (spec stages 1, 3, 4); don't ship one in the plan.
+
+3. **Make A2 contingent, like B.** Land A1, replay the telemetry pitch segment, and add the jitter radius only if the post-A1 residual exceeds 5 px RMS. Require r(pitch) to be derived from the measured 2–6× noise-vs-pitch curve and pinned in the baseline (measured curve, not free knob — the plan's own B-rule, applied to A2). If A2 lands, the ζ-freeze/guard-cap re-derivation must produce net constant deletion, else it fails the plan's own kill criterion in spirit.
+
+4. **Add mask-registration coverage to the rigid path.** The occluder translation rides the same pin (the weld, frame.js:893–897), so a ≤3 px rigid miss displaces the mask boundary against the live image too. The weld check guarantees frame/mask *consistency*, not boundary-vs-image *registration*. Add a boundary-registration item to the LIVE checklist (glasses-behind-head-edge at yaw) and confirm the snap-gate/feather budget absorbs 3 px; if the snap machinery is doing the absorbing, count its boundary-pixel moves in the telemetry yaw segment.
+
+5. **Minor:** state that `gazeInjection` displaces normalized landmarks pre-unproject (the space `carryLandmarks` consumes) with the matrix untouched — the validity gate mostly covers this, but the injector's space is load-bearing for the 0.5 px claim.
+
+## What is right and should not be touched
+
+The audit table (verified accurate against the code). The A-over-B ordering with B fully specified, flagged, and earned by measurement rather than assumed — B's gauge-drift feedback loop is real and the clamp+counter treatment is correct. The honest collapse of C into A's layers. The net-deletion character. μ as a dial with today's behavior at one end. The telemetry fixture format (landmarks+matrices, no pixels; deterministic replay stronger than the stills). The global kill criterion ("any stage needing a new threshold to pass its own gate is killed") — this is the veto made structural, and it is the best sentence in the plan.
+
+**Recommended path: A as staged, amended by changes 1–5. B stays shelved behind `?pose=fit`, promoted only on the measured triggers. C stays dead.**

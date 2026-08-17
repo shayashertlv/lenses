@@ -1,0 +1,4 @@
+# The repository root ignores *.jpg everywhere. These two are not photographs —
+# they are synthetic test fixtures the pipeline harness runs against, and the
+# checks in tests/ do not work without them. Re-include them here.
+!assets/samples/*.jpg

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AR telemetry recorder — the live capture protocol</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three/three.module.js",
+    "three/addons/": "../vendor/three/addons/"
+  }
+}
+</script>
+
+<style>
+  body {
+    margin: 0;
+    background: #0b0d10;
+    color: #e8ecf1;
+    font: 15px/1.5 system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+  #view { max-width: 100%; max-height: 100%; }
+  #hud {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start; pointer-events: none;
+    text-align: center; padding: 4vh 2vw;
+  }
+  #instruction {
+    font-size: clamp(22px, 4.5vw, 44px); font-weight: 700;
+    text-shadow: 0 2px 8px #000c; max-width: 26ch;
+  }
+  #countdown {
+    font-size: clamp(60px, 14vw, 160px); font-weight: 800; line-height: 1;
+    text-shadow: 0 4px 16px #000d; margin-top: 2vh;
+  }
+  #meter {
+    position: absolute; left: 12px; bottom: 12px; text-align: left;
+    font: 14px/1.5 ui-monospace, Consolas, monospace;
+    background: #0b0d10cc; padding: 10px 14px; border-radius: 8px;
+  }
+  #meter b { font-size: 22px; }
+  #status { position: absolute; right: 12px; bottom: 12px; font-size: 13px; opacity: .8; }
+  .lead #countdown { color: #fbbf24; }
+  .run #countdown { color: #4ade80; }
+  #done { display: none; position: absolute; inset: 0; place-items: center;
+    background: #0b0d10ee; flex-direction: column; gap: 12px; }
+  #done.show { display: flex; }
+  #done a { color: #4ade80; font-size: 20px; }
+  /* The pipeline's scene renders here headlessly — the stab meter needs the
+     placed frame, not a visible composite. Kept out of the way. */
+  #gl { position: fixed; left: -10000px; top: 0; width: 640px; height: 640px; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="hud">
+    <div id="instruction">starting…</div>
+    <div id="countdown"></div>
+  </div>
+  <div id="meter">stab —</div>
+  <div id="status"></div>
+  <div id="done"></div>
+</div>
+
+<canvas id="gl" width="640" height="640"></canvas>
+
+<script type="module" src="./record-telemetry.js"></script>
+</body>
+</html>

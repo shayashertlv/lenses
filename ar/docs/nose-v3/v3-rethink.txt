@@ -1,0 +1,177 @@
+All code read (frame.js whole, person.js, smoothing.js, anchors.js, occluder.js measureShape path, fit.js solvePlacement, spec.md stage 4–5 landing notes, diag-replay fixture). Here is the plan.
+
+---
+
+# ANCHORING V3 — CANDIDATE ARCHITECTURES FOR THE PER-FRAME GLASSES TRANSFORM
+
+## 0. The audit that frames everything: what touches the screen per frame TODAY
+
+The screen transform is `smoothedPose ∘ placement`. Reading `updateFrame` + `solvePlacement`, the placement's inputs decompose into:
+
+| Channel | Source | Timescale | Landmark noise reaches screen? |
+|---|---|---|---|
+| Pose (position/quaternion/scale) | MediaPipe matrix → `PoseSmoother` | per frame | via the matrix only (measured sub-degree under gaze) |
+| `anchors.bridge` — the pin (hang target x/y/z, occluder translation, seat query origin) | **live landmark innovation** (`base + filtered(observed − base)`), gaze-gated | per frame | **YES — this is the gaze path (9–28 px)** |
+| `eyeLineY`, `bridgeUp`, ears, widths, `metricScale` | carried weighted median + deadbands | ~seconds | no |
+| Seat s/ζ/φ | event solves ≤2 Hz + eased channels + deadbands | events | no |
+| Guard | per-frame surface read, capped 4 mm, frozen < w 0.3 | per frame | bounded (jiggle contributor at tilt) |
+| Occluder shape | `person.offsets + viewResidual` (trust-scaled) | mixed | boundary only; feeds guard |
+
+The architecture is already nine-tenths "one rigid transform + carried constants." **The entire remaining per-frame landmark→screen path is the bridge pin's innovation term** (plus the bounded guard). Gaze-coupling, the pin filter, the gaze gate, and their constants exist only because that one term exists. That is what v3 removes.
+
+---
+
+## CANDIDATE A — CONVERGED-RIGID (the leading hypothesis, specified)
+
+**Principle.** The glasses are rigid in face space at the person model's converged geometry. Landmarks feed ONLY the slow estimators (sample window → weighted median; person model A/b/W). The pose matrix alone carries the frame after convergence. Gaze, slide, and landmark noise structurally cannot reach the screen because nothing per-frame from landmarks is composed into the placement.
+
+### A.1 The one arithmetic change
+
+In `frame.js` (~line 996), today:
+
+```
+pin = base + filtered(observed.bridge − base)      // base = carried median ⊕ κ·personEstimate
+```
+
+becomes:
+
+```
+pin = base + (1 − μ) · filtered(observed.bridge − base)
+```
+
+with **μ the rigidity maturity**: `μ = smoothstep(0.5, 1.0, clamp(W[NOSE_BRIDGE] / W_RIGID_FULL, 0, 1))`, `W_RIGID_FULL = 120` (≈ 8–15 s of decent frontal observation — deliberately slower than the existing `W_PIN_FULL = 60` fusion, because handing the frame to the pose is a bigger claim than improving the noise reference). One new constant, one multiply. Everything about μ is already instrumented (`person.bridgeMaturity` generalizes).
+
+- **Cold session (μ = 0): bit-identical to today.** Frame one is a fit; the first seconds follow landmarks exactly as now. The frame-one bit-equality pin survives untouched — the invariant every stage re-pins.
+- **Converged (μ = 1): the pin is a face-space constant** — carried median fused with `person.bridgeEstimate()` by κ, updated only through ≤2 Hz commits and the median's deadbands. The screen position is `smoothedPose ∘ constant`. A 4 mm bridge-landmark gaze swing moves the drawn frame **zero**, not "filtered."
+- The crossfade is a **dial, not a cliff**: if live use shows the rigid end misbehaving, μ can be capped (e.g. 0.7) without reverting anything.
+
+### A.2 What happens to the pin/gaze machinery
+
+Deleted at A-stage-1 (they exist only to condition the term being retired):
+
+- **The gaze gate, whole**: `GAZE_FREEZE`, `GAZE_NEUTRAL_TAU`, `GAZE_STILL_CMS` (frame.js ~135–163), the iris-vs-corner measurement and freeze block (~955–991), `state.gaze`, `pin.gazeDelta/gazeFrozen` readouts. ~70 lines. The flapping threshold problem ceases to exist rather than being tuned.
+- At A-stage-3 (after the offline + live proof holds), the **innovation term itself**: `PIN_FILTER`, `NOSE_LEVER_CM`, `PIN_ACTIVITY_CAP`, `state.pinFilters`, the hybrid-activity plumbing (~frame.js 110–172 + 905–1016, ~150 lines), and `InnovationFilter` + its noise floor in smoothing.js (~110 lines) if no other consumer remains. Cold sessions then ride the carried median alone — which converges inside ~1 s and is itself robust; the replay must show the cold tail is not degraded (see gates).
+
+Survives: `POSE_TRUST` ramps (they feed sample admission, tripwires, the smoother's trust lever), the sample window + weighted median + deadbands, the person model whole, the depth fit (the occluder still needs it; the pin's z stops depending on it automatically as μ→1 — the r2-band exposure at the hang point, gone), the seat equilibrium **unchanged** (it already consumes carried anchors + event solves + the capped guard; its bridge-relative kernel cancels the pin by construction, per the `anchorsSig` comment), the occluder's view-lock (the mask must keep covering THIS image — the single-surface invariant is untouched), temples, frame-locked compositing.
+
+### A.3 Why rigid-on-person-model does not reproduce the 12–15 mm canonical miss — and what proves it
+
+Decompose the historical miss. `miss(pose) = identity offset (this face vs canonical, static in face space) + Procrustes redistribution (pose-dependent residual of fitting canonical object points to this face's landmarks)`. The pre-rework measurement — 12–15 mm at ±10° yaw, `adaptToFace` off — was **both terms at full strength**: canonical anchor positions carried by a canonical-fit pose. The person model kills the first term by construction: it converges to THIS face in face space (identity-swap check: offsets land 0.000 mm from a never-saw-A control; transverse convergence 0.08–0.18 mm). The second term is what remains, and it is already measured on this wearer: shared-session bridge z span 2.82 mm across the ten poses, x wander 4.278 mm **per-still-cold** (each still a cold session — an upper bound; the spec itself re-attributes it as pose-systematic slide to be measured on a converged session). So the honest expectation is **low-single-digit millimetres of pose-systematic residual, not 12–15** — and the part of it that is constant-in-z is absorbed by the seat's standoff solve.
+
+**Proof, offline, before any live minute is spent** — two new diag-replay metrics (shared-session pass, converged model):
+
+1. `rigidMissPx/Mm`: per still, solve the placement twice — production pin vs `pin = base` (μ forced 1) — and report the screen-space frame-centre delta per still and its span across the ten stills. **Gate: ≤ 3 px (≈1.7 mm at 45 cm) on every still in the user's pose diet, and the cross-still span of the rigid placement must be ≤ the cross-still wander of the landmark-following placement** (rigid must beat the wander it retires, not merely tie it).
+2. `gazeInjection`: synthetically displace the nose-region landmarks (bridge 6, tip 4, nasion 168, nose walls) by the *measured live gaze-coupling field* — 2.3 mm mean / 4 mm peak equivalent, 0.5 Hz circular profile, eye corners pinned at 0.00 (exactly what the wearer measured) — over 10 s of a converged still. **Gate: screen response ≤ 0.5 px rigid vs ~9+ px production control.** This lands with zero user cost and proves the structural claim.
+
+### A.4 Extreme-pitch story (the 31 px RMS)
+
+At 49° pitch, today's jiggle is the sum of: pin innovation noise (dies with A), surface-morph → guard excursions (already capped 4 mm and ζ-frozen below w 0.3), and pose-matrix noise through the smoother. What remains under A is only the third. Hardening layer (A-stage-2, this is where the research's "Candidate C material" folds in — see §C):
+
+- Encode the measured 2–6× noise-vs-pitch curve directly as the smoother's trust input (the lever exists: `update(..., trust)` scales `activityEff` by `0.3 + 0.7·trust`). Extend it so deep-pitch trust also **stiffens the level path** bounded-safely: a Kinect-style soft jitter radius on the pose (deviations under r(pitch) heavily smoothed, continuous radial falloff, no gate), r ramping 0 → ~0.3° / 2 mm across the pitch band. No thresholds; a monotone curve keyed on the same true-pitch euler the trust ramps already read.
+- Acceptance is graceful degradation, per the psychophysics brief: **stiff-but-attached at 49° (≤ 5 px RMS at hold) is a pass; 31 px is the fail being retired.** No attempt to make extreme pitch as good as frontal — that is the whack-a-mole boundary.
+
+### A.5 Risks and kill criteria
+
+| Risk | Instrument | Kill/response |
+|---|---|---|
+| Rigid placement visibly slides across the face on turns (pose-systematic residual larger live than the stills say) | `rigidMissPx` + live segment 3 impression | Cap μ at 0.7 (keeps 30% innovation) → if still visible, escalate to Candidate B. Never re-grow the gaze gate. |
+| Pose matrix itself carries visible gaze wobble (the sub-degree measurement was optimistic) | telemetry replay: pose-only screen RMS during eye-circle segment | If > 2 px: A's premise fails at the margin → B becomes primary (it removes eye-corner weight from the fit). |
+| Cold-session first seconds still gaze-couple (μ=0 window) | telemetry replay, eye circles at t<10 s | Accept if ≤ current production (it is strictly ≤); shorten by seeding μ from κ if it ever matters. |
+| Commit steps become visible once the pin is rigid (2 Hz base moves) | existing commit-invisibility metric (worst composite step 0.00 µm) + new pin-step-at-commit metric | Gate: pin step per commit ≤ 0.1 mm; ease through the existing 0.5 s crossfade if exceeded. |
+| Person-model z prior share (~23% at the zConf equilibrium ceiling) biases the rigid pin's depth | absorbed by the standoff solve (constant z is exactly what ζ owns); watched by the existing true-skin-gap metric (1.62 mm budget) | If gap grows > 1.75 mm pinned bound: the crossfade-ceiling open item (spec stage 4 item 1) is the fix, not the pin. |
+
+---
+
+## CANDIDATE B — RIGID-SUBSET POSE (re-derive the carrying transform)
+
+**Principle.** Candidate A trusts MediaPipe's matrix to carry the frame. B additionally replaces the matrix with a per-frame rigid fit of **this face's converged model** against **this frame's observed rays**, over a gaze-immune, expression-immune subset — attacking both symptoms at the estimator: gaze-coupled vertices are excluded from the fit entirely, and extreme-pose noise is averaged over many personally-converged stable points instead of riding MediaPipe's canonical-basis fit.
+
+### B.1 The math
+
+Object points: `X_i = person.est[i]` (face space, cm) for subset S. Observations: pixel rays `u_i` from normalized landmarks (the same unproject `carryLandmarks` uses). Solve `(R, t)` minimizing
+
+```
+Σ_{i∈S} w_i · ρ_Huber( ‖ project(R·X_i + t) − u_i ‖ ; δ = 2 px )
+w_i = (W[i]/W_MAX) · facingTrust[i] · m_i · r_i(pitch)
+```
+
+- Scale is **not** solved — held at the smoother's running scale (scale is the twitchiest channel and a head does not change size; MediaPipe's own scale stays the input to that channel).
+- `m_i` — the rigidity mask, chosen from the research + the wearer's own measurements: **include** eye corners 33/263/133/362 (measured 0.00 mm under gaze live — the community's generic worry does not apply to this detector's corners), temples 127/356, cheeks 234/454 + 205/425, jaw 136/365, forehead 10/54/284/67/297, chin 199/152, under-nose 2, philtrum 164; **exclude** the gaze-coupled nose core 4/6/129/358 (despite MediaPipe weighting them highest — that weighting is exactly why the matrix carries a residual), all eyelids, irises, brows, lips. ~20–40 points.
+- `r_i(pitch)`: the measured R(pitch) noise curve as per-landmark down-weighting (nose region degrades fastest under back-tilt; the brief notes this beats pose-independent weights precisely where the jiggle lives).
+- Solver: 2 Gauss–Newton iterations on se(3), warm-started from last frame's solution (MediaPipe matrix on reset/re-acquisition). Equivalently: one weighted Umeyama on ray-carried points per iteration. Cost O(|S|): ~40 pts × 2 iters × ~40 flops ≈ **< 0.1 ms** — noise against the 5.6–6.7 ms replay mean.
+- Confidence blend, no gate: `wSolve = smooth(Σw_i, λ_min(JᵀJ))`; `pose = blend(mediapipeMatrix, solved, wSolve)`. Few visible subset points (extreme yaw, occlusion) → wSolve → 0 → today's behaviour, continuously.
+- **Gauge anchor**: divergence from the MediaPipe matrix clamped (≤ 3° / ≤ 1 cm, counted when hit). The person model was accumulated in matrix-defined face space; letting the fit's frame walk freely is a slow gauge drift with a feedback loop (pose fits model, observations carried by pose feed model). The clamp bounds it; the existing tripwires watch the residuals.
+
+### B.2 Composition with the frame-locked smoother
+
+The solved pose replaces `rawPosition/rawQuaternion` at the top of `updateFrame` — same `PoseSmoother`, same trust lever, same `sample(0)`, frame lock untouched. Self-consistency rule preserved: the measurement inversion (`measureAnchors`, `carryLandmarks`, occluder deform) inverts **the same pose the frame is drawn with** (the solved one), exactly as the raw-pose-inverts rule works today — one pose in flight per frame.
+
+### B.3 What dies / survives
+
+Everything Candidate A deletes, plus: the pose-carried residual slide that A merely tolerates (B's fit against personal object points removes the canonical-misfit redistribution — the 4.3 mm x wander and the 2.8 mm z span should shrink measurably, testable on the same `rigidMissPx` metric). Survives: all of A's survivors; MediaPipe matrix remains as the cold-session pose, the blend fallback, and the gauge anchor.
+
+### B.4 Cost, degradation, risks, kill criteria
+
+- Wall budget: +0.1 ms hard gate in the replay (`≤ 13.72` aggregate untouched).
+- Degradation: continuous wSolve blend; no new thresholds anywhere.
+- Risks: (1) gauge drift / feedback — kill if the divergence clamp engages > 1% of frames at rest, or if converged-model residuals trend up over a 5-minute replay; (2) a second estimator to tune — the anti-whack-a-mole rule is that its weights come from measured curves (W, facingTrust, R(pitch)) and are not free knobs; (3) it changes the pose everywhere (occluder, measurement inversion) — ships behind `?pose=fit` with the replay run in both modes, bit-parity asserted with wSolve forced 0.
+
+---
+
+## CANDIDATE C — verdict: no third architecture
+
+The research surfaced nothing that beats A/B as an *architecture*. The two items that looked like candidates collapse into layers of A:
+
+- **Kinect-style DES + jitter radius + max-deviation on the pose, R(pitch)-conditioned** → that is A-stage-2's hardening of the carry (already specified in §A.4). It is a filter change, not an anchoring change.
+- **Jeeliz "trust the tracker pose, no landmarks"** → A without the person model — strictly weaker here.
+- **Ditto "scan then replay"** → a different product (not a live mirror). Its lesson — the more the product leans on the converged personal model, the less the live detector touches the screen — *is* Candidate A's thesis.
+
+---
+
+## THE NEW OFFLINE FIXTURE — recorded live telemetry (specified)
+
+The ten stills cannot exercise gaze or continuous motion (frozen pixels). One consented recording captures the live phenomenology forever.
+
+**Format** — `ar/tests/fixtures/telemetry-<subject>-<date>.ndjson.gz` (~1–2 MB checked in):
+
+```
+line 0 header: { v:1, subject, date, width, height, fovDeg, note,
+  segments:[ {name:"still", t0,t1}, {name:"eye-circles",...}, {name:"glances",...},
+             {name:"pitch",...}, {name:"yaw",...}, {name:"browse",...} ] }
+lines 1..N:   { t:<ms camera clock>, m:[16 floats column-major],
+               l:[478×3, normalized, rounded 5 decimals] }
+```
+
+(5-decimal rounding ≈ 0.006 px at 640 wide — far under noise; keeps gzip small. Landmarks + matrices ONLY — no pixels: privacy and size.)
+
+**Capture flow** — new `ar/tests/record-telemetry.html`: production tracker + camera exactly as `main.js` boots them, an on-screen segment script with countdowns ("hold still — 15 s", "circle your eyes, head still", "glance left/hold/return", "tilt back to your comfort limit, hold 3 s, return, twice", "sweep ±30° yaw", "browse normally"), rings every frame, serializes and downloads at 90 s. The user runs it once; the capture **is** the first live session's protocol (below), so it costs no extra time.
+
+**Replay runner** — `ar/tests/telemetry-replay.js`: no MediaPipe, no camera — reconstructs `detection` objects from records, drives the real `updateFrame` + `PoseSmoother` at recorded dt. Fully deterministic across machines (stronger than the stills fixture — no detector in the loop). Per-segment metrics, asserted against `telemetry-baseline.json` under the diag tolerance discipline: screen frame-centre RMS + max step per segment (stillness gated on pose speed < 2 cm/s and 5°/s, per the memory note), pose-only vs pin decomposition (run twice, μ forced 0/1), wall time. **Ratchet targets from psychophysics: ≤ 2 px RMS at rest AND during eye circles** (detection threshold at this geometry; today: 9–28 px), **≤ 5 px at pitch holds** (today: 31), settle ≤ 10 s.
+
+---
+
+## STAGED LANDING (recommended path: A, with B specified and shelved)
+
+**R0 — Instruments first (no behaviour change).** Land the telemetry recorder + replay runner; add `rigidMissPx` and `gazeInjection` to diag-replay (shared-session pass); add the `__ar.stab` live meter (trailing-5 s screen RMS + max step, pose-stillness gated). Re-pin nothing; these only add metrics. Offline gates for proceeding: gazeInjection production control reproduces ~9+ px (validates the injector against the live numbers); rigidMissPx ≤ 3 px per still, rigid span ≤ landmark wander.
+
+**A1 — The crossfade + gaze-gate deletion.** `μ` lands; innovation scaled by (1−μ); gaze gate deleted whole. Replay: gazeInjection ≤ 0.5 px converged; frame-one bit-equality (μ=0 path untouched); cold-tail metrics unchanged; all pinned metrics classified per the ratchet protocol; re-pin.
+
+**A2 — Pose-carry hardening.** R(pitch) → smoother trust extended with the soft jitter radius (continuous, no thresholds); telemetry pitch-segment gate ≤ 5 px RMS at holds. This is where the ζ-freeze/guard-cap band-aids get *re-derived* as consequences of one curve instead of three constants — delete any that the curve makes redundant.
+
+**LIVE 1 (≤ 3 minutes, doubles as the fixture capture).** Run `record-telemetry.html`: 15 s still + 15 s eye circles + 10 s glances (meter visible: PASS ≤ 2 px during circles), 15 s pitch holds (PASS ≤ 5 px, no forward-launch), 15 s yaw sweeps, 20 s free browse (subjective: any slide-across-face on turns? settled within 10 s?). The file becomes the permanent fixture; `__ar.stab` numbers are read out loud during, not after. Total ~90 s of instruction + slack.
+
+**A3 — Delete the pin machinery.** Innovation term removed whole; cold sessions ride the carried median; `InnovationFilter`, `PIN_FILTER`, `NOSE_LEVER_CM`, `PIN_ACTIVITY_CAP` and readouts deleted (~260 lines net). Gates: frame-one bit-equality re-pinned; telemetry cold-segment tail within tolerance of A1's.
+
+**B — contingent, behind `?pose=fit`.** Triggered only by a measured deficiency of A: pose-only eye-circle RMS > 2 px, or pitch holds > 5 px after A2, or live slide impression with rigidMissPx confirming > 3 px. B slots into A's structure without rework (it only swaps the pose source). Its own gates per §B.4.
+
+**Kill criteria (global).** Any stage that needs a new threshold, gate, or re-arming bar to pass its own gate is killed as written — that is the whack-a-mole boundary made structural. If telemetry shows the matrix itself gaze-responding > 2 px equivalent, A's premise fails and B is promoted to primary rather than layering conditioning on A.
+
+---
+
+## RECOMMENDATION
+
+**Candidate A, staged as above, with B fully specified and held behind a flag as the measured-escalation path. C is not a candidate.**
+
+Reasoning: (1) A is the unanimous production architecture — every shipped system collapses landmarks into one rigid carrier and parents the glasses to it; the pre-rework rejection measured rigid-on-*canonical*, and the person model (0.08–0.18 mm transverse convergence, zero identity bleed) is precisely the missing piece that made it fail then. (2) The wearer's own experiment already validated A's premise: matrix sub-degree under pure gaze while the bridge landmark swung 2.3–4 mm — the screen path, not the estimator, is the defect, and A deletes the path. (3) A is a net *deletion* (~260 lines of pin/gaze machinery plus three constants born from live firefighting) — the opposite of the conditioning spiral the user vetoed — and its one new number (μ) is a dial with today's behaviour at one end. (4) A is provable offline before costing the user a minute (gazeInjection + rigidMissPx on the existing stills), and the first live session it does need doubles as capturing the fixture that makes every future rework offline-provable. (5) B adds a second estimator with a feedback loop; it should be earned by a measured deficiency of A, not assumed — and A's structure is exactly what B plugs into if earned, so nothing staged here is throwaway.
+
+Key files for the implementing session: `ar/src/frame.js` (pin composition ~996, gaze gate ~955–991, constants 110–172), `ar/src/person.js` (`bridgeMaturity`, `W_PIN_FULL`), `ar/src/smoothing.js` (`InnovationFilter`, `PoseSmoother.update` trust lever), `ar/src/fit.js` (`solvePlacement` — no changes needed), `ar/tests/diag-replay.js` (shared-session pass hosts the two new metrics), new `ar/tests/record-telemetry.html` + `ar/tests/telemetry-replay.js`.

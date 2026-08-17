@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AR diag probe (scratch)</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three/three.module.js",
+    "three/addons/": "../vendor/three/addons/"
+  }
+}
+</script>
+
+<style>
+  body {
+    margin: 0;
+    padding: 20px;
+    background: #0b0d10;
+    color: #e8ecf1;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  #status { margin: 0 0 14px; font-size: 13px; color: #93a4b8; }
+  #out { white-space: pre-wrap; }
+  /* The canvas is measured through, not looked at. */
+  #gl { position: fixed; left: -10000px; top: 0; width: 640px; height: 640px; }
+</style>
+</head>
+<body>
+
+<h1>AR diag probe — detector noise + shape pipeline on still captures (SCRATCH)</h1>
+<p id="status">booting…</p>
+<div id="out"></div>
+
+<canvas id="gl" width="640" height="640"></canvas>
+
+<script type="module" src="./diag-probe.js"></script>
+</body>
+</html>

@@ -14,6 +14,13 @@
       "runtimeArgs": ["-m", "UI.responsive_sandbox.test_server", "8097", "landing"],
       "port": 8097,
       "autoPort": false
+    },
+    {
+      "name": "AR try-on",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["ar/serve.py"],
+      "port": 8765,
+      "autoPort": false
     }
   ]
 }

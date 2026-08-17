@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lenses · AR try-on</title>
+<link rel="stylesheet" href="./styles.css">
+
+<!--
+  No bundler, matching the rest of Lenses. Dependencies are vendored under
+  ./vendor and resolved by this import map, so the whole thing runs from any
+  static file server and keeps working with no network.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<main class="app">
+
+  <div class="viewer">
+    <!--
+      stage-fit takes the leftover height; the stage is sized inside it from
+      script, to the source's aspect ratio. See src/layout.js.
+    -->
+    <div class="stage-fit" id="stageFit">
+      <div class="stage" id="stage">
+        <canvas id="gl"></canvas>
+        <canvas id="overlay" class="overlay"></canvas>
+        <p class="status" id="status" hidden></p>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <aside class="panel">
+    <header class="panel__head">
+      <h1>AR try-on</h1>
+      <p>Live frame placement from a single camera. Prototype pipeline.</p>
+    </header>
+    <div class="controls" id="controls"></div>
+    <footer class="panel__foot">
+      <p>
+        Tracking runs entirely on this device — no frame is uploaded.
+      </p>
+    </footer>
+  </aside>
+
+</main>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
