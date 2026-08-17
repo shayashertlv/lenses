@@ -80,7 +80,7 @@ export const W_MAX = 300;
 export const Z_CONF_MIN = 25;
 
 /** Pin-fusion maturity: full trust in ~2–4 s of decent observation. */
-export const W_PIN_FULL = 60;
+const W_PIN_FULL = 60;
 
 /** Same bound the deform and the anchors use — a face constant, stated once. */
 const OFFSET_LIMIT = 2.0;

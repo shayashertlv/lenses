@@ -1,9 +1,16 @@
 # Nose pipeline v2 — the authoritative synthesis spec
 
 2026-08-16. Produced by a diagnose → design → judge process; this file is the merge
-decision. An implementer works from THIS file, pulling detail from the referenced
-design documents in this directory. Where this file contradicts a design document,
-this file wins.
+decision, and as of the 2026-08-17 cull it is the ONLY surviving document of that
+process. The inputs it was merged from — `diagnosis.json`, the three competing
+design documents (`design-stability-first.txt`, `design-physics-first.txt`,
+`design-estimation-first.txt`), the judge's `judgements.txt`, the stage-0 check
+inventory, and the whole `nose-v3/` planning directory — were deleted as process
+artifacts once their decisions had landed in code. They are recoverable from git
+history if the reasoning behind a merge decision is ever needed again. Where this
+file names one of them below, read it as provenance, not as a live pointer: this
+file already carries every decision they made, and it always won conflicts with
+them anyway.
 
 The three complaints being fixed, verbatim from the user:
 1. "the scan of the face isnt good enough, specifically of the nose"
@@ -12,13 +19,17 @@ The three complaints being fixed, verbatim from the user:
 3. "the model is figity and gigily (vibrates a little) it doesnt stand still
    completely, especially in difficult angles"
 
-Ground truth for every claim: `diagnosis.json` (four sections: capture, seat,
-jitter, empirics — the empirics were measured on the production path against the
-user's own captures in `assets/samples/diag/`).
+Ground truth for every claim was `diagnosis.json` (four sections: capture, seat,
+jitter, empirics — the empirics measured on the production path against ten of the
+user's own hard-pose photo captures). Both the diagnosis and those captures are
+deleted; the hard-pose regression set they served is now the telemetry fixtures
+under `ar/tests/fixtures/`, which are richer (per-frame landmarks + matrices over a
+scripted 90 s protocol) and drive a deterministic replay rather than a
+per-machine detector.
 
 ## The verdict
 
-Base design: **`design-stability-first.txt`** — adopted in full EXCEPT its
+Base design: **the stability-first design** (deleted; see the note above) — adopted in full EXCEPT its
 resting-height solve (the `q(u)` width-match root find), which is replaced by the
 physics-first bearing solve below. Its thesis (every quantity assigned to its
 honest timescale; filtering only ever touches face-space constants or an activity
@@ -26,7 +37,8 @@ signal's noise DC), its person model (A/b/W anisotropic information filter), its
 noise-conditioning stack (C1–C7), its stages, constants, measurables, and
 instrumentation are the spec.
 
-Seat solve: **`design-physics-first.txt` sections B.2–B.8** — `sideInterference`
+Seat solve: **the physics-first design's sections B.2–B.8** (deleted; the solve
+itself is `src/seat-equilibrium.js`) — `sideInterference`
 softmax kernel, load-time L/C/R contact split, `solveRestConfiguration` (height
 sweep, closed-form standoff ζ*(s), bearing function B(s), largest-s equilibrium
 with monotonicity assert and bisection refine), per-frame raw non-penetration
@@ -688,7 +700,7 @@ Stage 6 — Budget lock + live verification in the user's real Chrome
     to fail A1. Recorded here so A1 starts from the measurement, not from
     the plan's optimism.
   R0 TELEMETRY ATTRIBUTION RUN (2026-08-17, on the real capture
-  ar/tests/fixtures/telemetry-shay-2026-08-17.ndjson — 3064 frames, six
+  ar/tests/fixtures/telemetry-shay-2026-08-17.ndjson.gz — 3064 frames, six
   segments; this is the A-vs-B decision run the v3 verdict's amendment 1
   moved ahead of A1, and its numbers decide the design).
   INSTRUMENTS LANDED for the run (each inert unless invoked, and the
@@ -807,12 +819,14 @@ Stage 6 — Budget lock + live verification in the user's real Chrome
   untouched, telemetry-replay 403/403 with telemetry-baseline.json NEWLY
   PINNED on this fixture — all three modes, the diag tolerance discipline
   verbatim (spans assert on the px law), strike logs carried in the pin.
-  WHAT HAPPENS NEXT lives in ar/docs/nose-v3/: v3-rethink.txt (the
-  anchoring-v3 plan — candidate A converged-rigid, B rigid-subset pose
-  shelved behind ?pose=fit, staged R0/A1/A2/A3) as amended by v3-verdict.txt
+  WHAT HAPPENED NEXT was planned in a nose-v3 directory, since deleted: the
+  anchoring-v3 plan (candidate A converged-rigid, B rigid-subset pose
+  shelved behind ?pose=fit, staged R0/A1/A2/A3) as amended by its verdict
   (adopt-with-changes: capture moves before A1; the cold-window claim
   corrected; A2 contingent; mask-registration coverage; gazeInjection space
-  pinned to normalized landmarks). Stage R0's instruments are in the tree:
+  pinned to normalized landmarks). What landed from it is recorded below and
+  in code; candidate B was later removed (see the 2026-08-17 cull note at the
+  end of this file). Stage R0's instruments are in the tree:
   record-telemetry.html (the 90 s capture protocol — the capture IS the
   next live session), telemetry-replay.html (deterministic fixture runner
   with the production/rigid/frozen pinMode decomposition, baseline pinned
@@ -823,7 +837,7 @@ Stage 6 — Budget lock + live verification in the user's real Chrome
   single contributor.
   ANCHORING-V3 IMPLEMENTATION LANDING (2026-08-17, the stage the attribution
   run decided; every number below measured on the pinned fixture
-  ar/tests/fixtures/telemetry-shay-2026-08-17.ndjson unless named otherwise).
+  ar/tests/fixtures/telemetry-shay-2026-08-17.ndjson.gz unless named otherwise).
   WHAT LANDED, in the order the decision doc ordered it:
   (1) GAZE-HARDENED ADMISSION (frame.js GAZE_ADMIT 0.08 — the stage-6 gate's
       live calibration re-consumed verbatim: eyes-still 0.042 mean/0.050 max,
@@ -849,7 +863,13 @@ Stage 6 — Budget lock + live verification in the user's real Chrome
       MET: 0 convictions on eye/glances/browse in both production and fit
       passes (was 4+1); the pipeline-check identity swap (22% width) still
       convicts in exactly IDENTITY_STRIKES.
-  (3) CANDIDATE B LANDED (ar/src/pose-fit.js, wired at the top of
+  (3) CANDIDATE B LANDED — SINCE REMOVED. Everything in this entry and in
+      the landing-verification and A/B entries below is the historical
+      measurement record; the code it describes was deleted on 2026-08-17
+      and is recoverable at commit d284968. See "The 2026-08-17 cull" at the
+      end of this file. Read on for what was measured, not for what is in
+      the tree.
+      (ar/src/pose-fit.js, wired at the top of
       updateFrame behind ?pose=fit / poseFit option; 'shadow' arm proves
       no side channel, bit-parity asserted). Per B.1: weighted Huber
       (δ=2 px) ray refit of person.est over RIGID_SUBSET (canonical-face.js
@@ -1275,11 +1295,12 @@ src/frame.js, src/fit.js, tests/telemetry-replay.js, tests/z-decomp.*):
     clears it whole via resetFit.
   A/B VERDICT RECORD (live session, 2026-08-17): production
     (POSE_FIT_DEFAULT=false) beat the flagged ?pose=fit by impression —
-    the flag STAYS OFF and production ships with this landing;
-    Candidate B remains shelved behind ?pose=fit awaiting its queued
+    the flag STAYS OFF and production ships with this landing.
+    Candidate B was shelved behind ?pose=fit at the time, awaiting queued
     refinements (ISO_REF z² normalisation per the measured ladder
-    iso·z² ≈ 78±7%, wSolve maturity ramp) and re-enters through the
-    same live protocol.
+    iso·z² ≈ 78±7%, wSolve maturity ramp). It was never taken off the
+    shelf: on 2026-08-17 it was DELETED rather than refined, on the
+    strength of this verdict. See the cull note at the end of this file.
   LIVE QUESTION for the next session: hold a side turn past 40° — the
     frame must stay seated, no forward ride; then return frontal and
     judge the ~2 s settle tail (the recorded residual) by impression.
@@ -1306,8 +1327,10 @@ ratcheted; regressions can never hide inside a stale baseline.
 
 ## Constants, measurables, instrumentation
 
-As listed in `design-stability-first.txt` (=== CONSTANTS ===, === MEASURABLES ===,
-=== INSTRUMENTATION ===), amended by: SOFTMAX_TAU = 0.05 cm for sideInterference
+As listed in the (deleted) stability-first design's === CONSTANTS ===,
+=== MEASURABLES === and === INSTRUMENTATION === tables — the shipped values live
+in the source, which is now their only authority — amended by:
+SOFTMAX_TAU = 0.05 cm for sideInterference
 (physics-first B.2; stability-first's 0.03 cm SOFTMAX_TEMP is superseded),
 GUARD_BAND = 0.03 cm, EPS_BEAR = 0.08 cm, TAU_REST = 0.8 s (stability-first's
 value wins over physics-first's 0.4 s — settling reads as intentional), the G10
@@ -1323,3 +1346,83 @@ same triangles via surfaceOf); placement principle (position re-measured every
 frame — conditioning a face-space constant's innovation is allowed, freezing
 position in face space is not); 30 fps (per-frame additions O(468) or O(existing
 contact loop); event work ≤2 Hz).
+
+## The 2026-08-17 cull
+
+Three things happened to the tree on the day this note was added. Two are
+deletions with a reason; the third is a debt, written down here so the next
+person does not rediscover it the hard way.
+
+### (a) Candidate B — the rigid-subset pose refit — is removed
+
+`src/pose-fit.js` and every hook into it are gone: the `poseFit` option on
+`updateFrame`, the `?pose=fit|shadow|mp` switch in main.js, `RIGID_SUBSET` in
+canonical-face.js, the two candidate-B checks in pipeline-check, and the 'fit'
+and 'frozenFit' passes in the telemetry replay. It is all recoverable at commit
+**d284968** if the idea is ever worth reopening.
+
+It was removed because it **lost the wearer's own live A/B**. That is the only
+verdict that mattered: the offline numbers had it roughly level with production
+(it bought accuracy under injected matrix error and paid ~2 px of solve residual
+as carrier noise at rest), so it was shipped flagged-off pending a live session,
+and the live session preferred the matrix. A feature that is off by default,
+carries its own failure modes, and lost the one test it was built to win is not
+a feature — it is a fork of the pose path that every future change has to keep
+working. The extreme-pose slide it was built to correct (R0 rigidMiss: up to
+13 px at −18° yaw) is therefore an accepted, uncorrected residual; frame.js says
+so at the pin, rather than pointing at a file that no longer exists.
+
+### (b) The process documents are deleted; this file is the record
+
+`diagnosis.json`, the three design documents, `judgements.txt`, the stage-0
+check inventory and the whole `nose-v3/` planning directory are gone (same
+commit). They were the *process* — diagnose, three competing designs, judge,
+merge — and the process finished. What they decided is in this file and in the
+code; what they argued about is history. The ten hard-pose photo captures under
+`assets/samples/diag/` were NOT deleted, despite being superseded as the
+regression set by the telemetry fixtures: `tests/diag-replay.js` still runs its
+entire 338-check suite off them, and they are gitignored, so deleting them would
+have been permanent and would have taken the suite with it.
+
+The telemetry fixtures are now stored gzipped (`.ndjson.gz`, 106 MB → 36 MB);
+the replay has always read gzip through DecompressionStream.
+
+### (c) OPEN ITEM — the square-on latch's standoff staleness at pitch and browse
+
+The seat now re-solves only when the head is square to the camera. That cured
+the complaint it was built for and it cost something measurable elsewhere, and
+BOTH halves are pinned in telemetry-baseline.json. Measured on
+`telemetry-shay-2026-08-17.ndjson.gz`, production pass, previous pin → this pin:
+
+    CURED (the wearer's complaint — the ">40° forward push"):
+      yaw     over40MeanMm    +0.51  →  −1.43 mm   (was pushing the frame
+                                                    forward off the nose past
+                                                    40°; now sits behind the
+                                                    segment's frontal reference)
+      glances over40MeanMm    −1.56  →  −2.95 mm
+
+    THE COST (standoff staleness — the latch holds an old solve while the
+    head is off-square, and the non-penetration guard answers for it):
+      pitch   placeZP95Mm      0.00  →   2.44 mm
+      browse  placeZP95Mm      1.17  →   2.72 mm
+      pitch   guardPushes         0  →      3
+      browse  guardPushes         2  →     13
+      seatSolves fall and seatRefusals rise across every off-square segment
+      (yaw 20→4 solves / 9→25 refusals; browse 28→6 / 10→32) — that IS the
+      latch, not a regression.
+
+A head pitched down or browsing is never square-on, so the latch never opens,
+so the standoff it is holding goes stale exactly where the nose profile is
+changing fastest. The guard catches it — no cap overflows, no penetration — but
+the guard is a safety, not an estimator, and 13 pushes in a browse segment is
+the seat asking for help.
+
+**The measured negative result, so the next attempt does not repeat it:** a
+yaw-only gate — opening the latch on yaw alone and ignoring pitch — was tried
+and is WORSE on the wearer's own complaint. It puts the >40° yaw mean back at
+**+0.91 mm** (forward push, the original complaint) against the square-on
+latch's **−1.43 mm**. Widening the gate on the axis the complaint lives on
+re-admits the bad solves the latch exists to refuse. Whatever fixes the pitch
+and browse staleness has to do it without re-opening yaw: a pitch-aware standoff
+extrapolation, or a staleness-bounded re-solve that refuses on *confidence*
+rather than on angle, are the two directions that have not been measured yet.

@@ -274,23 +274,6 @@ const state = {
  */
 const params = new URLSearchParams(location.search);
 
-/**
- * CANDIDATE B (anchoring-v3): whether the rigid-subset pose refit carries the
- * frame. `?pose=fit` turns it on, `?pose=shadow` runs the solver without
- * applying it (the readout under `__ar.poseFit` still tells the whole story),
- * `?pose=mp` pins the raw MediaPipe matrix. The default is the landing
- * decision made on the pinned telemetry fixture's acceptance gates — see the
- * spec's candidate-B landing note for the numbers behind it.
- */
-const POSE_FIT_DEFAULT = false;
-const poseFitMode = (() => {
-  const v = params.get('pose');
-  if (v === 'fit') return 'fit';
-  if (v === 'shadow') return 'shadow';
-  if (v === 'mp' || v === 'off') return false;
-  return POSE_FIT_DEFAULT;
-})();
-
 const setStatus = (text, tone = 'info') => {
   dom.status.textContent = text ?? '';
   dom.status.dataset.tone = tone;
@@ -1024,7 +1007,6 @@ function updatePose(result, dt) {
     temples: state.temples,
     deformOccluder: controls.values.occluderFit,
     landmarkDepth: controls.values.landmarkDepth,
-    poseFit: poseFitMode,
   });
 
   // How far away the wearer is, which is what turns the boundary's millimetres into

@@ -793,8 +793,14 @@ removed.
 
 ## Verified
 
-`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 253
-checks, currently all passing. Add `?model=crystal` (or any entry's `value`) to run
+`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 343
+checks. 342 pass anywhere; the one remaining is a wall-clock budget ("the
+deformation fits inside the tracking loop", 13 ms for a full occluder rebuild)
+which is environment-ruled: it measures real elapsed time, so it passes on an
+unloaded machine and reads red in a throttled or backgrounded tab. It is the only
+check in the suite whose result depends on the machine rather than the code, and
+it is left in rather than deleted because the budget is real — it just has to be
+read with that caveat. Add `?model=crystal` (or any entry's `value`) to run
 the whole suite against a different frame: the checks are written against whatever
 is loaded rather than against one asset, so that is how a newly added frame gets
 put through all of them. It drives `updateFrame`, the same function the live

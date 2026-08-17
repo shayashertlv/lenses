@@ -192,10 +192,8 @@ const SHAPE_TAU = 0.10;
  * So everything from the silhouette forwards is believed outright, and only what has
  * genuinely turned away is held.
  */
-// Exported since anchoring-v3: `pose-fit.js` weighs its rigid-subset points by
-// the same facing ramp — one law for "is this landmark observed", stated once.
-export const FACING_HOLD = -0.45;
-export const FACING_TRUST = -0.05;
+const FACING_HOLD = -0.45;
+const FACING_TRUST = -0.05;
 
 /**
  * The self-occlusion test the facing ramp cannot do.

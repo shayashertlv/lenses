@@ -71,57 +71,6 @@ export const LM = {
 };
 
 /**
- * The rigid subset — the vertices the per-frame pose refit stands on
- * (anchoring-v3 candidate B, `pose-fit.js`; spec: ar/docs/nose-v3/v3-rethink.txt
- * §B.1). The refit re-derives the head pose each frame from THESE landmarks
- * only, so membership is the whole defence: a landmark in this table must move
- * with the SKULL — not with the eyes, not with expression — or the refit
- * inherits exactly the coupling it exists to remove.
- *
- * Every inclusion and exclusion is decided by measurement on the wearer's own
- * telemetry (the 2026-08-17 attribution run, spec.md Stage-6/R0 notes), not by
- * anatomy-book intuition:
- *
- *  - **Eye corners 33/263/133/362 — INCLUDED.** The community's generic worry
- *    is that everything near the eye follows gaze; measured live on a held
- *    still head under deliberate eye circles, this detector's corners moved
- *    0.00 mm while the nose BRIDGE swung 2.3 mm mean / 4 mm peaks. The corners
- *    are bony-landmark stable and sit at the exact image region the fit most
- *    needs constrained (the glasses hang between them).
- *  - **Nose core 4/6/129/358 — EXCLUDED.** MediaPipe's bridge/tip landmarks
- *    follow the eyes (upstream: google/mediapipe issue #1786; the live
- *    measurement above). MediaPipe's own Procrustes weighting trusts these
- *    vertices HIGHEST — which is precisely why its matrix carries a gaze
- *    residual (frozen-pass eye-circles RMS 3.49 px vs the 2 px bar) and why
- *    this table must not.
- *  - **All eyelids, irises, brows, lips — EXCLUDED.** Eyelids/irises are the
- *    gaze instrument itself; brows and lips are expression's fastest movers.
- *  - **The rest — temples, cheeks, jaw, forehead, chin, under-nose,
- *    philtrum — INCLUDED** per the v3 research: skull-following regions with
- *    wide geometric spread (the fit needs leverage in every axis), each far
- *    from the measured gaze field (the injection instrument displaces nose
- *    landmarks only; these held still). The under-nose pair (2/164) rides the
- *    maxilla, not the lip vermilion — talking moves it fractionally, and the
- *    Huber loss (δ = 2 px) bounds what a moving mouth can charge the fit.
- */
-export const RIGID_SUBSET = [
-  // eye corners — measured 0.00 mm under gaze (outer R/L, inner R/L)
-  33, 263, 133, 362,
-  // temples — the silhouette anchors the width rides
-  127, 356,
-  // cheeks — malar surface, upper and mid
-  234, 454, 205, 425,
-  // jaw — the mandible's silhouette at mid-height
-  136, 365,
-  // forehead — centre and both brows' bony shelf above the expression zone
-  10, 54, 284, 67, 297,
-  // chin — pogonion and the point above it
-  199, 152,
-  // under-nose / philtrum — maxilla-following, below the gaze field
-  2, 164,
-];
-
-/**
  * The horizontal diameter of the human iris, in centimetres.
  *
  * 11.7 mm, and remarkably invariant — it is the constant MediaPipe's own iris work

@@ -16,7 +16,6 @@ import { aimTemples, resetTemples, fadeTemples } from './temples.js';
 import { updateOccluder, headProfileFor, surfaceOf } from './occluder.js';
 import { estimateYaw } from './tracker.js';
 import { createPersonModel, W_MAX } from './person.js';
-import { createPoseFit } from './pose-fit.js';
 import { solveRestConfiguration } from './seat-equilibrium.js';
 import { normalAt } from './nose.js';
 
@@ -414,9 +413,6 @@ const scratchVector = new THREE.Vector3();
 const scratchQuaternion = new THREE.Quaternion();
 const rawPositionArray = [0, 0, 0];
 const rawQuaternionArray = [0, 0, 0, 1];
-/** Candidate B's blended pose, before it replaces the raw one. */
-const fitPosition = new THREE.Vector3();
-const fitQuaternion = new THREE.Quaternion();
 const scaleTriple = new THREE.Vector3();
 const bufferSize = new THREE.Vector2();
 
@@ -849,7 +845,7 @@ export function updateFrame({
   smoothing = true, adaptToFace = true, temples = null, lead = 0,
   deformOccluder = true, landmarkDepth = true,
   /**
-   * Anchoring-v3 instrument (ar/docs/nose-v3/v3-rethink.txt): which pin
+   * Anchoring-v3 instrument: which pin
    * composes the placement. Since the pin-innovation deletion (the telemetry
    * attribution run measured the innovation worth 0.03 px — vestigial), the
    * production pin IS the fused base (carried median ⊕ κ·person estimate).
@@ -871,28 +867,6 @@ export function updateFrame({
    * the harness asserts the hold field by field.
    */
   pinMode = 'production',
-  /**
-   * CANDIDATE B (anchoring-v3, `pose-fit.js`): whether the rigid-subset pose
-   * refit replaces the MediaPipe matrix as the frame's carrier.
-   *
-   *  - `false` (default): the matrix pose, byte-for-byte today's behaviour.
-   *  - `'fit'`: the refit runs and the BLENDED pose (matrix → solved by
-   *    wSolve) replaces the raw position/quaternion at the top of the frame —
-   *    same smoother, same lead-0 sample, and every measurement inversion
-   *    (measureAnchors, carryLandmarks, the occluder deform) inverts the same
-   *    pose the frame is drawn with, exactly as the raw-pose rule works
-   *    today: one pose in flight per frame. Scale stays the matrix's.
-   *  - `'shadow'`: the refit runs — solver state, counters and the
-   *    `__ar.poseFit` readout all advance — but the pose is not touched.
-   *    This is B.4's bit-parity instrument: a shadow session must equal a
-   *    `false` session bit-for-bit, asserted in the harness, which proves
-   *    the solver has no side channel into the pipeline.
-   *
-   * A cold session has wSolve = 0 by arithmetic (the person model's W is the
-   * confidence mass), so frame one rides the matrix untouched in every mode —
-   * the frame-one bit-equality invariant survives without a special case.
-   */
-  poseFit = false,
 }) {
   // A face in frame ends any run of lost ones. See `noteFaceLost`.
   state.lostSeconds = 0;
@@ -904,52 +878,6 @@ export function updateFrame({
   // The transform is a similarity: one rotation, one translation, one uniform
   // scale. Averaging the three guards against a near-degenerate decomposition.
   const rawHeadScale = (rawScale.x + rawScale.y + rawScale.z) / 3;
-
-  // CANDIDATE B (anchoring-v3): the rigid-subset refit, at the very top —
-  // whatever pose leaves this block IS the frame's one pose: the smoother
-  // input, every measurement inversion, the drawn transform. See the option's
-  // note and `pose-fit.js` for the mechanism and the measurements behind it.
-  if (poseFit && adaptToFace) {
-    const solver = state.poseFitSolver ?? (state.poseFitSolver = createPoseFit(face));
-    // r(pitch): the codebase's measured pitch-degradation curve — the same
-    // POSE_TRUST ramp the sample window admits at, read off the matrix pose
-    // (the gauge anchor; the blended pose does not exist yet). Its place in
-    // the blend was decided by measurement BOTH ways on the real fixture:
-    // removed, the fit's pitch-hold RMS read 5.12 px at wSolve 0.53; present,
-    // 4.60 px at wSolve 0.34 — at deep pitch the subset's landmarks are noisy
-    // enough (solve residual 4.3 px) that the matrix-plus-estimators carry
-    // the hold better, exactly as B.1 specified.
-    poseEuler.setFromQuaternion(rawQuaternion, 'YXZ');
-    const pitchTrust = 1 - smoothstep(
-      POSE_TRUST.pitch[0], POSE_TRUST.pitch[1], Math.abs(poseEuler.x),
-    );
-    const readout = state.poseFit ?? (state.poseFit = {});
-    solver.solve({
-      person: state.person ?? null,
-      landmarks: detection.landmarks,
-      mpPosition: rawPosition,
-      mpQuaternion: rawQuaternion,
-      scale: rawHeadScale,
-      camera: scene.camera,
-      width: source.width,
-      height: source.height,
-      pitchTrust,
-      outPosition: fitPosition,
-      outQuaternion: fitQuaternion,
-      readout,
-    });
-    // 'shadow' proves the solver has no side channel; wSolve = 0 leaves the
-    // matrix untouched by construction (the outputs are bit-copies of it),
-    // and the skip below makes that a structural guarantee, not a float one.
-    if (poseFit !== 'shadow' && readout.wSolve > 0) {
-      rawPosition.copy(fitPosition);
-      rawQuaternion.copy(fitQuaternion);
-    }
-  } else if (state.poseFit) {
-    // The readout must never describe a frame the solver did not run on.
-    state.poseFit.wSolve = 0;
-    state.poseFit.gnIters = 0;
-  }
 
   let position = rawPosition;
   let quaternion = rawQuaternion;
@@ -1239,10 +1167,10 @@ export function updateFrame({
   // bridge (upstream #1786). Position is still re-measured every frame — the
   // sample window admits this frame's reading at its honest trust and the
   // median moves freely while samples genuinely disagree — but the drawn pin
-  // now rides the estimate, not the instantaneous landmark, and the
-  // pose-systematic slide the landmark was compensating at extremes belongs
-  // to the pose refit (`pose-fit.js`), which re-derives the carrier from
-  // personally-converged points instead.
+  // now rides the estimate, not the instantaneous landmark. The
+  // pose-systematic slide the landmark was compensating at extremes is a
+  // known, accepted residual: it rides the MediaPipe matrix's own error at
+  // extreme yaw, and nothing downstream of here corrects it.
   //
   // The eye line, the bridge direction and the ear rest points are ALWAYS the
   // carried values — the weighted-median, deadbanded estimate — at every pose.
@@ -1274,8 +1202,9 @@ export function updateFrame({
   // the person model, instead of a raw landmark whose per-frame motion was
   // measured to be mostly gaze and noise. The extreme-pose slide the
   // innovation was compensating (R0 rigidMiss: up to 13 px at −18° yaw,
-  // per-still-cold) is candidate B's job now — the pose refit re-derives the
-  // carrier from personally-converged points per frame (`pose-fit.js`).
+  // per-still-cold) is UNCORRECTED and known: a rigid-subset pose refit was
+  // built and measured against it, and lost the wearer's live A/B, so the
+  // slide is accepted rather than traded for the refit's own failure modes.
   //
   // The pin then feeds EVERY consumer — `solvePlacement`'s hang target, the
   // occluder's translation, the seat's bridge-relative query — from this one
@@ -1678,13 +1607,7 @@ function resetFit(state) {
   state.anchors = null;
   state.sampleSet = null;
   state.anchorSamples = 0;
-  // A fresh face is a fresh gauge: the pose refit's warm start is a statement
-  // about the OLD face's divergence from the matrix, and its confidence mass
-  // (the person model's W) is about to be zeroed below — the solver forgets
-  // its warm delta so the new wearer's first solved frame starts from the
-  // matrix, exactly as a new session does.
-  state.poseFitSolver?.reset();
-  // And a fresh face is a fresh seat. The solved configuration is the OLD
+  // A fresh face is a fresh seat. The solved configuration is the OLD
   // face's nose — its equilibrium height, its standoff, its roll; easing the
   // new wearer in from it drags a visible re-seat across their first fraction
   // of a second. Cleared whole (channels, solve, scheduler edges), so the
