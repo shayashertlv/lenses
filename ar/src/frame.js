@@ -124,6 +124,22 @@ export const IDENTITY_STRIKES = 5;
  * turning cannot change how far a frame sits off the nose it rests on, so a
  * pipeline that lets a turn change it is not modelling anything real.
  *
+ * **The COMBINED trust `w = wy·wp·wr`, and a yaw-only gate was tried and
+ * measured worse.** The reasoning for yaw-only is seductive and wrong: only
+ * yaw hides a nasal sidewall, so surely pitch and roll may keep teaching. The
+ * replay says otherwise — gating on `wy` alone recovered pitch (excursion
+ * 2.44 → 0.69 mm) and took the wearer's actual complaint backwards, the push
+ * past 40° of yaw going +0.51 → −1.43 mm under the combined gate but +0.91
+ * under yaw-only, i.e. WORSE than before any of this work. Pitch does not
+ * occlude a sidewall but it does degrade the reconstruction, so a yaw-only
+ * gate admits inflated readings from pitched frames and then carries them
+ * into the turn. Occlusion is not the only way a surface reading goes bad.
+ *
+ * The residual cost is honest and recorded: pitch excursion 0.00 → 2.44 mm and
+ * browse 1.17 → 2.79 mm, the standoff going stale while off-square and the
+ * guard bridging it (3 → 13 pushes). The wearer validated this trade live
+ * ("much better") on the axis they raised; the pitch tail is the open item.
+ *
  * 0.999 rather than 1.0 only because `w` is a product of three smoothsteps and
  * float equality on it would be a coin toss at the boundary.
  */
