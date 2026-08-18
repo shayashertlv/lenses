@@ -2091,3 +2091,195 @@ tell you it happened.
   this stage adds no production change, and `diag-baseline.json`'s pre-existing
   staleness (including the dead `gazeInjection.validInjector` gate) still stands as
   Stage 7 recorded it.
+
+### Stage 10 — the seat's confidence is the agreement of its own answers
+
+Queue items 2 and 4 and open item (c) were all worked from one change, because the
+audit's own framing said they were one question: the seat's confidence was a
+**clock**, and every wearer paid the same two seconds whatever their data was
+worth.
+
+```
+was:   conf = clamp(noseMeanW / CONF_FULL_W, 0, 1)          CONF_FULL_W = 50
+is:    conf = max(0, 1 − sigma²/value²)                     src/agreement.js
+```
+
+`value` is the weighted median of a bounded window of the seat's own **solved
+rest heights**; `sigma = scale/sqrt(nEff)` is that median's own standard
+deviation; `scale = max(2·MAD, S_REFINE)` is the window's measured scatter
+floored at the solve's own bisection resolution; and `nEff = n(1−rho)/(1+rho)`
+discounts it by the window's **measured** lag-1 autocorrelation. No number is
+chosen. `CONF_FULL_W` is deleted.
+
+**Why each line is forced.** The shrinkage is exact Bayes between the prior
+`s = 0` ("hold today's optical height") and the estimate, with the prior's own
+spread estimated from the same data — the positive-part empirical-Bayes
+(James–Stein) form for one coordinate, which collapses to the estimate's own
+signal-to-noise and nothing else. The `nEff` correction is not optional: what
+makes the seat's readings differ is mostly the wearer's postural wander, which
+varies on a ~1 s timescale, so counting frames as independent looks over-counts
+by about thirty at 30 fps and by about two at the 2 Hz solve cadence. The scale
+is `2·MAD` rather than the settle metric's IQR because a cold session's first
+answers are **one-sided contamination by construction** — they describe a
+surface the pipeline had not finished measuring — and the two estimate the same
+width (`IQR = 2·MAD` for a symmetric window) while differing in breakdown point,
+25% against 50%. And the window's capacity is stated in TIME:
+`SETTLE_WINDOW_S / SOLVE_MIN_INTERVAL` = 10 solves, because `FIT_WINDOW`'s 31
+slots are one second of a 30 Hz stream and fifteen seconds of a 2 Hz one.
+
+**The second half of the change, and it was needed as much as the first:** the
+height's target became the window's median instead of the latest solve. `sTarget`
+was `conf · seat.sStar` — one raw answer, unfiltered — so at full confidence a
+single freak solve moved the applied height. S06's solve reads −0.25 mm all
+session except two answers of −0.5 mm at t ≈ 8 s, and those two alone dragged the
+height off zero and the standoff behind it: the whole 9.2 s that subject's
+standoff took to settle. The standoff got this treatment on 2026-08-17; the
+height never had.
+
+#### What it measures
+
+The settle sweep now runs **15 subjects × 3 noise rungs** (×1/×2/×4 of the 0.3 mm
+landmark noise — the rungs the settle instrument's own null already drives), and
+the acceptance is a **law with a measured argument** rather than a flat number:
+
+```
+settle  ≤  t_est  +  t_agree  +  REST_TAU·ln(A/band)  +  1/rate
+t_agree =  max( 2/rate ,  scale²/(D·|sHat|·rate_eff) )
+```
+
+`t_est` is how long the seat's own answers kept moving (a property of the surface;
+no confidence law settles before the thing it is confident about). `t_agree` is
+the estimator's own cost — the structural floor of two observations against the
+quadratic cost of the measured scatter. The rest is the channel's deliberate
+no-pop ease and one solve of latency. **Asserted on every cell**, and the noise
+dependence is stated rather than hidden: the quadratic binds only on the subjects
+whose solves genuinely disagree, and everywhere else the measured scatter sits at
+the solve's own 0.25 mm resolution floor so the structural two solves is what is
+paid.
+
+**The A/B, on identical frames.** The deleted ramp is computed in shadow beside
+the live one on every frame of every cell — same subject, same noise, same
+solves, same person model — so "the confidence stopped being a fixed wait" is a
+paired measurement:
+
+| | new | `noseMeanW/50` |
+|---|---|---|
+| median time for the confidence to stop moving the height | **0.58 s** | 3.76 s |
+| cells where it is faster / slower | 12 / 0 | — |
+
+Settle, seconds, height / standoff, at the matrix's own noise:
+
+| | S00 | S01 | S05 | S06 | S08 | S09 |
+|---|---|---|---|---|---|---|
+| before | 2.9 / 3.3 | 4.6 / 5.4 | 4.5 / 8.8 | 0.1 / 9.2 | **15.1** / 7.1 | 4.0 / 4.7 |
+| after | **1.4 / 2.3** | 2.3 / 11.4 | 1.9 / 2.7 | 0.1 / 5.9 | **0.1** / 14.9 | 2.5 / 3.3 |
+
+Two of fifteen are still over the flat 2 s target **on the height**, and the
+decomposition says why: their confidence was done inside 2 s and what remains is
+`REST_TAU·ln(|sHat|/band)`. A seat 3.5 mm down the wedge needs 2.0 s of ease
+alone to arrive without jumping, so the flat target is reachable only for a
+wearer whose seat moves less than about a millimetre — a property of the EASE,
+which is a taste constant about how fast a correction may visibly arrive, and
+moving it is a separate decision with a separate argument.
+
+The standoff channel is where the remaining reds are, and its numbers only mean
+anything beside **how far** it settled: the longest of them is the smallest
+motion in the set — S08 takes 14.9 s to place 0.22 mm, which at 1.74 px/mm is
+0.39 px. That is the instrument at its own floor, not a wearer watching a frame
+creep.
+
+#### The estimator's own proof (five checks, all synthetic)
+
+* concurring observations earn confidence and scattering ones do not — **two**
+  concurring observations beat thirty-one scattering ones, at an identical
+  location, so the difference is the scatter and nothing else;
+* **both signs, bit-identical**: a stream and its sample-for-sample negation give
+  the same `conf`, `sigma`, `scale`, `rho`, `nEff` to the last bit and exactly
+  negated locations, at deliberately unequal weights — the weighted median's tie
+  rule is where a one-sided implementation breaks;
+* **correlated observations buy less than their count claims**: an AR(1) stream
+  at rho 0.9 against a white one of the same variance, and the estimator must
+  tell them apart. This is the check the rejected first attempt at this law would
+  have failed;
+* a **quantised** observer cannot claim precision finer than its quantum from a
+  lucky pair, and the floor stops binding once real scatter exceeds it;
+* one observation earns **exactly zero**, and the settle law bounds the truth over
+  25 draws (median inside the law; no draw worse by more than the one extra
+  observation a two-sample scale estimate can cost).
+
+#### Queue item 4 — the camera disagreement is a pitch bias in the SURFACE
+
+The previous pass diagnosed the three cameras' disagreement as convergence rate,
+by re-running the worst subject at three times the horizon and watching the
+spread close. That inference is only sound if nothing else changed with the
+horizon, and this pass **decomposes** it instead of timing it: each geometry's
+run now ends with two extra placements, each holding one half of the pipeline at
+truth — the learned SURFACE queried with truth anchors, and the carried ANCHORS
+against the true surface. Whichever spreads with pitch is where the disagreement
+lives, and the arithmetic reading them is identical in all three geometries.
+
+The answer is the surface, and it is **not** convergence: the offset is monotone
+in camera pitch, one-signed on every subject, and — the part that matters for
+open item (c) — **outside what the estimator claims**. The largest sigma any of
+the 45 runs reports is a hundredth of a millimetre while the spread is halves of
+millimetres: at 30° the seat is not unsure, its window is tight around a
+different answer.
+
+#### Open item (c) — what a confidence built on agreement can and cannot close
+
+It can close the question it was asked. It cannot close (c), and the measurement
+says so rather than the argument:
+
+* **What it closed.** On the wearer's own recording the pitch and browse
+  staleness the square-on latch cost is largely gone — `placeZP95Mm` 2.44 → 0.46
+  on pitch and 2.72 → 0.52 on browse, `guardPushes` 3 → 0 and 13 → 9. The seat
+  stops chasing single solves, so the number the latch holds while off-square is
+  a median rather than whatever the last look happened to say.
+* **What it cannot close, and why.** (c) asks how to tell "the surface reading is
+  stale" from "the pose cannot see the contact". A confidence built on measured
+  agreement is blind to that distinction **by construction**, and the ladder's
+  decomposition is the proof: at a 30° camera the standoff readings agree with
+  each other to 0.001–0.1 mm while sitting 0.2–0.7 mm away from the square-on
+  answer. Agreement cannot see a bias that has become the quiet level — which is
+  the same sentence that keeps `TRIP_ABS_RMS`'s absolute arm alive in `person.js`,
+  and it is now measured in a second place. The latch stays closed at pitch and
+  the guard keeps answering. The ranked next work is the view-residual deform's
+  pitch behaviour, gated against the synthetic truth the ladder now carries.
+
+#### The ratchet — NOT taken, and the reason
+
+`pipeline-check` is green and the settle work is proved on the synthetic set.
+**`telemetry-baseline.json` was NOT re-pinned**, because the wearer's own
+recording carries one delta that cannot be classified as an improvement:
+
+```
+CURED (open item (c)):        pitch  placeZP95Mm   2.4368 →  0.4592
+                              browse placeZP95Mm   2.7163 →  0.5162
+                              pitch  guardPushes        3 →  0
+                              browse guardPushes        13 →  9
+                              pitch  rmsPx         5.1788 →  3.8200
+                              glances over40MeanMm −2.9525 → −3.1103   (further behind)
+
+REGRESSED (the wearer's own complaint):
+                              yaw    over40MeanMm −1.4297 → +1.4755
+                              still  rmsPx         3.9544 →  5.9412
+                              still  placeZP95Mm   4.3529 →  6.4395
+```
+
+The yaw figure is the ">40° forward push" the square-on latch exists to cure,
+crossing back through zero — worse than the +0.51 mm the original complaint was
+measured at. Traced: the fixture resets mid-session, and the post-reset
+re-convergence lands **inside** the yaw segment, so the segment's own
+first-quarter frontal reference is taken while the seat is 2.3 mm higher than it
+ends. The frozen pass does not move on yaw at all, which says the pose path is
+unchanged and the production difference is convergence-inside-the-segment. Two
+window lengths were measured (10 solves and 31); the 31-solve arm is worse on
+BOTH complaints (glances over40MeanMm −2.95 → **+1.87**), so the shipped 10 is
+the better of the two and neither restores the pinned figure.
+
+This is a decision for the wearer, not for the harness: the change buys a
+confidence that reads the wearer's own data (0.58 s against 3.76 s median) and
+cures (c)'s pitch and browse staleness, and it costs a metric on the wearer's own
+recording that measures the frame's z during a turn taken while the seat is still
+converging. Until that is resolved the baseline stands unpinned and this section
+is the record of the deltas.
