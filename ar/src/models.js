@@ -11,13 +11,58 @@
  * OBJ declares nothing — an exporter's units are whatever the modeller was working
  * in — so an asset can land at any size at all. Rather than eyeball a fudge factor,
  * each entry states the frame's real width in millimetres and the loader scales the
- * geometry to match. That is a number a retailer already has: it is printed on the
- * temple arm of every pair they sell.
+ * geometry to match.
+ *
+ * **What `realWidthMm` measures, stated because it was not.** `normaliseWidth`
+ * scales the model's total transverse extent, and on this catalogue that extent
+ * IS the frame front: measured per asset over the frontmost quarter of the depth,
+ * the front slice spans the same x as the whole model on ten of eleven (the
+ * eleventh, `shield-golden`, wraps so far that its arms stand 1.1 mm wider). So
+ * the number is the **total frame front width** in the optician's sense — twice
+ * the lens width plus the bridge plus the two endpieces — and not, as the note
+ * that used to stand here claimed, the number "printed on the temple arm". The
+ * marking on a temple arm is `A□DBL–temple`, whose third figure is the ARM's
+ * length; on this catalogue that is a 140 mm coincidence and not a measurement.
+ * Checked against the frame's own boxing geometry: `meshy` measures A 59.4 mm and
+ * DBL 21.3 mm, and 2A + DBL = 140.1 mm.
+ *
+ * **`widthSource` — because 140 is a guess on nine of eleven entries.** An
+ * arbitrary-unit mesh carries shape and nothing else: absolute scale is not
+ * recoverable from it, by construction, and no measurement of the geometry can
+ * put it back. `analyseModel`'s `widthM` is measured AFTER `normaliseWidth` has
+ * run, so on those nine it reads the assumption straight back and hands it on as
+ * though it were a measurement. Every entry therefore declares where its width
+ * came from, and `analyseModel` carries the answer to whoever makes a physical
+ * claim with it:
+ *
+ *   `authored`  the asset arrives life-sized and its width is its author's own
+ *               (`navigator` 147.5 mm, `khronos` 150.5 mm — no `realWidthMm`).
+ *   `stated`    a real product measurement from the supplier. Nothing here yet.
+ *   `assumed`   `ASSUMED_WIDTH_MM`, a population placeholder. Nine entries.
+ *
+ * What it would take to retire `assumed`: one number per asset — the product's
+ * total front width in millimetres, or its `A□DBL` marking with the endpieces,
+ * either measured across the front with a rule or read off the supplier's spec.
+ * That is a catalogue data entry job, not a geometry one.
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+/**
+ * The placeholder width, in millimetres, and what it costs.
+ *
+ * 140 mm is squarely inside the adult range — total front widths run roughly
+ * 125–150 mm — which is exactly why it went unnoticed: it renders plausibly and
+ * it is wrong by an unknown amount on every asset that carries it. The
+ * sensitivity is worth stating in one place: the width verdict compares this
+ * number against the wearer's head, so ±10 mm of assumption moves the comparison
+ * by ±6.5% against the mean face, where the whole span between the verdict's
+ * derived narrow and wide edges is about 20%. The assumption alone can decide
+ * the answer on a third of that band.
+ */
+const ASSUMED_WIDTH_MM = 140;
 
 /**
  * Crystal acetate, as a surface.
@@ -106,7 +151,8 @@ export const MODELS = [
     url: '../assets/glasses/meshy-glasses.glb',
     // Image-to-3D output: arbitrary scale (1.88 units across), correctly oriented
     // (+Y up, lenses at +Z, arms to -Z — verified against the vertex data).
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     // The exporter stamps metallicFactor 1.0 on everything, which would render
     // this cream acetate frame as dark brushed metal. The texture carries the
     // look; only the surface response needs correcting.
@@ -139,7 +185,8 @@ export const MODELS = [
      * exporter's own axis conversion, which is exactly the convention the rest of
      * this file expects — lenses at +Z, arms to -Z.
      */
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     /**
      * Metalness only, and set to zero rather than nudged.
      *
@@ -182,7 +229,8 @@ export const MODELS = [
      *
      * 1.32M triangles down to 106k, an 8192 base map to 2048, 131 MB to 2.8 MB.
      */
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
   },
   {
     value: 'horizon-amber',
@@ -204,7 +252,8 @@ export const MODELS = [
      * transmitted light by the base colour, so the lens still darkens and warms what
      * is behind it. What is gone is the top-to-bottom falloff.
      */
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
   },
   {
     value: 'horizon-sage',
@@ -219,7 +268,8 @@ export const MODELS = [
      * translucent acetate frame has exactly the same problem a lens does about
      * landing on top of a photograph.
      */
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     /**
      * The frame's material ships a packed metallic-roughness texture and **no**
      * `metallicFactor`, which glTF defaults to 1.0 — so a translucent acetate frame
@@ -258,7 +308,8 @@ export const MODELS = [
      * An AR coat and a mirror coat are opposites — one suppresses reflection, the
      * other maximises it — and this frame is the one that says so.
      */
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     /**
      * No `pbr` correction: every material here already declares `metallicFactor: 0`,
      * including the gold-*looking* frame, whose colour comes from the texture rather
@@ -271,7 +322,8 @@ export const MODELS = [
     value: 'crystal',
     label: 'Crystal acetate (parts scan)',
     url: '../assets/glasses/crystal-parts.glb',
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     /**
      * Tripo exports this one rotated 42.7° off axis — a yaw of about 40° plus a
      * 5.3° roll. Measured from the asset's own geometry rather than eyeballed: the
@@ -294,7 +346,8 @@ export const MODELS = [
     value: 'crystal-lenses',
     label: 'Crystal acetate with lenses (parts scan)',
     url: '../assets/glasses/glasses01-with-lenses.glb',
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     /**
      * Same exporter and the same problem as `crystal`. The width axis is easy and
      * exact: the two lens meshes are symmetric, so the vector between their centroids
@@ -359,6 +412,7 @@ export const MODELS = [
      * polished, which is a legitimate finish and a one-line change in Blender if it
      * was not the intent.
      */
+    widthSource: 'authored',
   },
   {
     value: 'base',
@@ -366,16 +420,28 @@ export const MODELS = [
     url: '../assets/glasses/base.obj',
     // Authored at arbitrary scale — 1.85 units across. Normalised to a standard
     // adult frame width. Change this to the real measurement of the actual product.
-    realWidthMm: 140,
+    realWidthMm: ASSUMED_WIDTH_MM,
+    widthSource: 'assumed',
     material: 'metal',
   },
   {
     value: 'khronos',
     label: 'Sunglasses (Khronos)',
     url: '../assets/glasses/sunglasses-khronos.glb',
-    // Authored in metres at life size, so nothing to correct.
+    // Authored in metres at life size, so nothing to correct. Measures 150.5 mm
+    // across, which is its author's number and not ours.
+    widthSource: 'authored',
   },
 ];
+
+/**
+ * Where an entry's physical width came from. Every entry must say, and the
+ * default is the honest one for a catalogue that has not been asked yet.
+ */
+export function widthSourceOf(entry) {
+  if (entry.widthSource) return entry.widthSource;
+  return entry.realWidthMm ? 'assumed' : 'authored';
+}
 
 export const DEFAULT_MODEL = MODELS[0].value;
 
@@ -432,6 +498,12 @@ export async function loadGlassesModel(entry, baseUrl) {
   }
 
   if (entry.realWidthMm) normaliseWidth(root, entry.realWidthMm / 1000);
+
+  // The provenance travels WITH the geometry, because the geometry is where the
+  // claim gets made: `analyseModel` measures `widthM` off these vertices, and on
+  // an `assumed` asset that measurement is the assumption read back. Anything
+  // stating a physical size to a wearer has to be able to see the difference.
+  root.userData.widthSource = widthSourceOf(entry);
 
   return root;
 }

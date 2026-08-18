@@ -98,6 +98,7 @@ export function analyseModel(object3D) {
   const noseContacts = findBridgeSurface(points, centre, size);
   const noseSides = splitContactSides(noseContacts, centre, size);
   const { box: frontBox, isolated: frontIsolated, rakeDeg } = findFrontBox(points, box, centre, size);
+  const endpiece = findEndpiece(points, centre, size);
 
   return {
     box,
@@ -126,6 +127,22 @@ export function analyseModel(object3D) {
     centre,
     /** Ear-to-ear span of the frame front, in metres. */
     widthM: size.x,
+    /**
+     * WHERE the frame's widest line is — the endpiece, in the model's own
+     * space. `widthM` says how wide the frame is; this says at what depth and
+     * height it is that wide, which is what turns a width into a fit. See
+     * `findEndpiece` and `widthVerdict`.
+     */
+    endpiece,
+    /**
+     * Where `widthM` came from: `authored`, `stated` or `assumed`. Carried off
+     * the loaded root because on an `assumed` asset the vertices were SCALED to
+     * a guess before they were measured, so `widthM` is that guess read back.
+     * Anything making a physical claim to a wearer has to be able to say so —
+     * see the catalogue note in `models.js`. `null` for a hand-built model in a
+     * harness, which is neither a product nor a claim.
+     */
+    widthSource: object3D.userData?.widthSource ?? null,
     /** Where the pads rest on the nose, in the model's own space (metres). */
     noseContact,
     /**
@@ -355,6 +372,44 @@ function splitContactSides(noseContacts, centre, size) {
 }
 
 /**
+ * The endpiece: where the frame is at its widest, in the model's own space.
+ *
+ * A width on its own cannot answer a fit question, and that is the whole of why
+ * this exists. A head is not a cylinder — it narrows sharply from the ear
+ * forward (measured on the canonical mesh in the frame's own height band: 154.9
+ * mm across at the ear plane, 144.3 mm a centimetre forward of it, 111.8 mm at
+ * the lens plane). So "is this 140 mm frame wide enough" has no answer until you
+ * say where the 140 mm is: a flat frame carries its widest line forward, where
+ * the head is narrow, and a wrapped one carries it back, where the head is
+ * broad. Both fit; they fit at different widths. `widthVerdict` turns that into
+ * a verdict by asking where the two silhouettes cross.
+ *
+ * The outer 2% of the half-width on each side, by MEDIAN depth and height rather
+ * than by extremum: an endpiece is a region a few millimetres across, and the
+ * single outermost vertex of a photogrammetry scan is a spike on a hinge screw.
+ */
+function findEndpiece(points, centre, size) {
+  const cut = size.x * 0.48;
+  const zs = [];
+  const ys = [];
+  for (let i = 0; i < points.length; i += 3) {
+    if (Math.abs(points[i] - centre.x) < cut) continue;
+    zs.push(points[i + 2]);
+    ys.push(points[i + 1]);
+  }
+  // Nothing out at the edges is not a failure mode any real frame has, but a
+  // lens-only asset would land here; the frame's own centre is the honest
+  // fallback, and it makes the verdict read the widest depth as the centre depth.
+  if (zs.length === 0) return { z: centre.z, y: centre.y, count: 0 };
+  const median = (a) => {
+    a.sort((p, q) => p - q);
+    const mid = a.length >> 1;
+    return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+  };
+  return { z: median(zs), y: median(ys), count: zs.length };
+}
+
+/**
  * Isolates the frame front from the temple arms.
  *
  * Two cuts, both from the model's own proportions. Depth: the front sits in the
@@ -429,8 +484,32 @@ export const DEFAULT_FIT = {
   mode: 'physical',
   /** Multiplies the solved size. 1 = leave it alone. */
   sizeMultiplier: 1.0,
-  /** In `proportional` mode, frame width as a fraction of face width. */
-  widthRatio: 1.0,
+  /**
+   * In `proportional` mode, frame width as a fraction of face width.
+   *
+   * It shipped at 1.0, which is not a neutral default — it is one of the two
+   * failure modes, exactly. `proportional` sizes the frame to
+   * `anchors.templeWidth × widthRatio`, and `templeWidth` is the span between
+   * landmarks 127 and 356: the WIDEST vertex pair in the whole mesh. So 1.0 asks
+   * for a frame exactly as wide as the wearer's head is at its widest point,
+   * which is the width at which the temple arm stops being able to touch the
+   * head at all — see `widthVerdict`. Measured: on the mean face at 1.0, all
+   * eleven catalogue frames return no contact, i.e. `wide`. Every frame in
+   * fit-to-face mode was rendered a full head-breadth across.
+   *
+   * The default is now the MAXIMIN point between the two failures the mode's own
+   * docstring names — the arm contacting halfway along its run, as far from
+   * fouling the front as from sliding off the back. Measured on the mean face
+   * over the whole catalogue, that is `widthRatio` 0.9255 (per asset 0.864 to
+   * 0.966, the spread being how far back each frame carries its widest line);
+   * quantised to the control's own 0.01 step, which moves the mean contact from
+   * 0.500 to 0.510.
+   *
+   * Grading that contact into "slightly tight" and "slightly loose" would need a
+   * soft-tissue compression model or real frames measured on real faces. Neither
+   * exists here, so the default sits at the centre and says so.
+   */
+  widthRatio: 0.93,
   /** Shifts along the face's own axes, in centimetres. */
   offsetX: 0.0,
   offsetY: 0.0,
@@ -929,27 +1008,229 @@ export function pupilVerdict(height) {
 }
 
 /**
- * How the frame's width compares with the face's.
+ * How the frame's width compares with the wearer's — by where the arm lands.
  *
- * A frame should be about as wide as the face at the temples. Meaningfully wider
- * and it slides down and the arms splay; meaningfully narrower and it pinches. The
- * tolerance is deliberately loose — styles legitimately differ — so this only
- * speaks up when the mismatch is one a person would see.
+ * The two failure modes have been named correctly in this file since it was
+ * written: "meaningfully wider and it slides down and the arms splay;
+ * meaningfully narrower and it pinches". What was wrong for as long as they were
+ * named was everything that turned them into a number.
+ *
+ * **What was wrong, measured.** The old test was `frameWidth / templeWidth` in
+ * FACE-SPACE units, banded at 0.92 / 1.06. Three defects, and each of them fails
+ * in the same direction:
+ *
+ *   1. *It could not see the wearer's size.* Both sides were in the canonical
+ *      head's centimetres — face space is the canonical head, posed to cover
+ *      whoever is in the chair — so the ratio described SHAPE and nothing else.
+ *      Four of the fifteen generality subjects returned bit-identical verdicts to
+ *      the mean face because their `widthRatio` was 1, whatever their actual head
+ *      measured. A child with a proportionally normal face reads exactly what a
+ *      large adult with a proportionally normal face reads. That is the one thing
+ *      true-size mode exists to tell them apart on.
+ *   2. *The bands were centred on the wrong place.* `templeWidth` is the span
+ *      between landmarks 127 and 356, and those are the WIDEST vertex pair in the
+ *      whole mesh, sitting at the ear plane (z = −2.0 cm, 154.9 mm apart on the
+ *      canonical face — head breadth, not the optician's temple-to-temple, which
+ *      industry sizing guides put at 120–140 mm for adults). Real frame fronts
+ *      run 125–150 mm, so a correct frame lands at 0.81–0.97 of this ruler and
+ *      the "good" band began at 0.92. Measured over the fifteen subjects and the
+ *      eleven catalogue frames: **100 of 165 cells read `narrow`**, nine of the
+ *      eleven frames on the mean face among them. A verdict that calls a standard
+ *      adult frame narrow on an average adult sends that wearer to a larger one.
+ *   3. *A width was compared without a depth.* See `findEndpiece`: the head
+ *      narrows by 43 mm from the ear plane to the lens plane, so the same 140 mm
+ *      means different things on a flat frame and a wrapped one, and one ratio
+ *      cannot hold both.
+ *
+ * **What replaces it.** The arm runs from the endpiece back to the ear along the
+ * side of the head, and the head widens the whole way. So there is exactly one
+ * depth at which the two silhouettes cross, and that crossing IS the fit:
+ *
+ *   `contact` = 0   the head reaches the frame's width right at the endpiece —
+ *                   the front itself is already fouling the face. NARROW.
+ *   `contact` = 1   the head only reaches it at its widest point — the arm
+ *                   barely grips, and past that it never touches at all. WIDE.
+ *
+ * The two band edges are the geometry's own and there is no third number: this
+ * function has no tolerance constant in it, where the old one had two. And the
+ * verdict now moves with the wearer's SIZE, because the comparison is run at the
+ * frame's true manufactured width against the wearer's true head — `metricScale`
+ * (the iris, this pipeline's only absolute ruler) divides the frame's face-space
+ * size, since face space is the canonical head and `metricScale` is how much
+ * bigger the real one is. Scaling is about `placement.position`, the point the
+ * frame rests on, so a true-size frame swings about its own seat.
+ *
+ * `absolute` is false when no iris has been resolved. The verdict then describes
+ * the frame AS DRAWN against the average head, which is a real answer to a
+ * different question, and the caller is told which one it got rather than being
+ * left to assume.
+ *
+ * `widthSource` rides out with it for the reason `models.js` gives: on nine of
+ * the eleven catalogue assets `model.widthM` is a 140 mm assumption read back
+ * off vertices that were scaled to it, and ±10 mm of that assumption moves the
+ * ratio by ±7% — more than the whole of what this function is trying to resolve.
  */
-export function widthVerdict({ model, anchors, placement }) {
+export function widthVerdict({ model, anchors, placement, face = null, fit = null }) {
   const frameWidth = model.widthM * placement.scale;
-  // Both sides in face-space units, which is the canonical head's centimetres rather
-  // than this head's. The ratio is therefore honest and the two absolute figures are
-  // not quite — see the note in `solvePlacement` on why the iris measurement that
-  // would fix them is not wired in here yet.
-  const ratio = frameWidth / anchors.templeWidth;
+  // The absolute ruler. 1 means "no iris yet": the comparison then runs in
+  // canonical units, which is what this function did unconditionally before.
+  const k = anchors.metricScale ?? 1;
+  const absolute = anchors.metricScale != null;
+
+  // How the drawn size relates to the size of the thing being described.
+  //
+  // In `physical` the drawn frame is the product's own metres pushed into
+  // canonical centimetres, so the product occupies `1/k` of what is drawn on a
+  // head `k` times the average — that division is the whole of the scale fix.
+  // In `proportional` there is no product to describe: the frame has been
+  // rescaled to span this face, so the drawn frame IS the frame being asked
+  // about and the factor is 1. Getting this backwards would make the fit-to-face
+  // mode report a size mismatch it removed by construction.
+  const proportional = fit?.mode === 'proportional';
+  const trueScale = proportional ? 1 : 1 / k;
+
+  // Real millimetres on both sides, for the number a person reads.
+  const faceWidthMm = anchors.templeWidth * k * 10;
+  const frameWidthMm = frameWidth * trueScale * k * 10;
+  const ratio = faceWidthMm > 0 ? frameWidthMm / faceWidthMm : 1;
+
+  const contact = contactFraction({ model, anchors, placement, face, trueScale });
 
   let verdict = 'good';
-  if (ratio > 1.06) verdict = 'wide';
-  else if (ratio < 0.92) verdict = 'narrow';
+  if (contact === null) verdict = 'wide';
+  else if (contact <= 0) verdict = 'narrow';
+  else if (contact >= 1) verdict = 'wide';
 
-  return { ratio, verdict, frameWidthCm: frameWidth, faceWidthCm: anchors.templeWidth };
+  return {
+    ratio,
+    verdict,
+    contact,
+    absolute,
+    widthSource: model.widthSource ?? null,
+    frameWidthMm,
+    faceWidthMm,
+    // The old face-space figures, unchanged in meaning, because two consumers
+    // and a pinned harness read them.
+    frameWidthCm: frameWidth,
+    faceWidthCm: anchors.templeWidth,
+  };
 }
+
+/**
+ * Where along the arm's run the head first reaches the frame's half-width.
+ *
+ * 0 at the endpiece, 1 at the head's widest point, `null` when the head never
+ * gets there — which is the "wide" failure and has to be distinguishable from a
+ * contact at exactly 1.
+ *
+ * The wearer's silhouette is the canonical mesh's, stretched laterally by
+ * `anchors.widthRatio` — the same model `estimateEars` uses to put the rest
+ * points on the face's own outline, and the only per-wearer shape the pipeline
+ * measures. Depths are the canonical head's, because nothing here measures a
+ * wearer's fore-aft profile; that is stated rather than hidden, and it is why
+ * this reports a contact POSITION rather than a millimetre of pressure.
+ *
+ * Restricted to the height band the frame front actually occupies, so a cheek or
+ * a jaw cannot answer a question about a temple.
+ */
+function contactFraction({ model, anchors, placement, face, trueScale }) {
+  if (!face) return null;
+
+  const scale = placement.scale;
+  const half = (model.widthM * scale * trueScale) / 2;
+  if (!(half > 0)) return null;
+
+  _placed.compose(placement.position, placement.quaternion, _scaleTriple.setScalar(scale));
+  // The frame front's height band, and the endpiece's depth, both carried into
+  // face space through the placement — then rescaled about the seat, which puts
+  // the frame at the size being asked about on this wearer's own head.
+  const band = model.frontBox.clone().applyMatrix4(_placed);
+  const trueAbout = (v) => v.sub(placement.position).multiplyScalar(trueScale)
+    .add(placement.position);
+  trueAbout(band.min);
+  trueAbout(band.max);
+  const endpieceZ = trueAbout(
+    _endpiece.set(0, model.endpiece.y, model.endpiece.z).applyMatrix4(_placed),
+  ).z;
+
+  // The head's own silhouette in that band, as the forward-monotone envelope
+  // `h(z) = max{ |x_i| : z_i >= z }` — a head can only narrow going forward, so
+  // the half-width at a depth is the widest thing at or in front of it. That
+  // fills the gaps between the mesh's handful of silhouette vertices without
+  // inventing a taper it does not have.
+  //
+  // Never materialised, because this runs on every frame of the live loop and a
+  // sorted array of it would be an allocation per frame for nothing. The one
+  // quantity wanted is the deepest-forward depth at which the envelope still
+  // reaches the frame's half-width, and by the definition above that is simply
+  // the largest `z` among vertices at least that wide. Four reductions over 468
+  // vertices, no allocation, no sort.
+  const wr = anchors.widthRatio ?? 1;
+  let hMax = -Infinity;
+  // Where the run ENDS: the frontmost depth at which the head reaches its widest.
+  // Not the backmost vertex in the band, which is a different point and the
+  // difference is not cosmetic — with the run measured to the back of the band, a
+  // frame exactly as wide as the head reports a contact part-way along instead of
+  // at the end, so the wide edge stops being reachable by equality. The synthetic
+  // check that caught it is fit-to-face at `widthRatio` 1.0, which asks for
+  // exactly that frame by construction.
+  let zWidest = -Infinity;
+  let zC0 = -Infinity;
+  let inBand = 0;
+  for (let i = 0; i < face.vertexCount; i++) {
+    const y = face.positions[i * 3 + 1];
+    if (y < band.min.y || y > band.max.y) continue;
+    inBand++;
+    const z = face.positions[i * 3 + 2];
+    const w = Math.abs(face.positions[i * 3]) * wr;
+    if (w > hMax) { hMax = w; zWidest = z; } else if (w === hMax && z > zWidest) zWidest = z;
+    if (w >= half && z > zC0) zC0 = z;
+  }
+  if (inBand < 4) return null;
+  // The frame is wider than the head ever gets: the arm cannot touch it.
+  if (zC0 === -Infinity) return null;
+  const span = endpieceZ - zWidest;
+  // The frame carries its widest line behind the head's own widest point, so
+  // there is no run to be part-way along: it can only ever touch at the back.
+  if (!(span > 1e-9)) return 1;
+  // The head has already caught up at the endpiece itself — the front is
+  // fouling the face, which is the narrow edge.
+  if (zC0 >= endpieceZ) return 0;
+
+  // Where between this vertex and the next one forward the envelope crosses.
+  // `hAt` is the envelope at the crossing vertex and `hF` the step in front of
+  // it; `hF < half` holds by construction, since anything that wide sits at or
+  // behind `zC0`.
+  let hAt = 0;
+  let zF = Infinity;
+  for (let i = 0; i < face.vertexCount; i++) {
+    const y = face.positions[i * 3 + 1];
+    if (y < band.min.y || y > band.max.y) continue;
+    const z = face.positions[i * 3 + 2];
+    if (z >= zC0) {
+      const w = Math.abs(face.positions[i * 3]) * wr;
+      if (w > hAt) hAt = w;
+      if (z > zC0 && z < zF) zF = z;
+    }
+  }
+  let zC = zC0;
+  if (zF < Infinity) {
+    let hF = 0;
+    for (let i = 0; i < face.vertexCount; i++) {
+      const y = face.positions[i * 3 + 1];
+      if (y < band.min.y || y > band.max.y) continue;
+      if (face.positions[i * 3 + 2] < zF) continue;
+      const w = Math.abs(face.positions[i * 3]) * wr;
+      if (w > hF) hF = w;
+    }
+    if (hAt > hF) zC = zC0 + (zF - zC0) * ((hAt - half) / (hAt - hF));
+  }
+  return Math.min(Math.max((endpieceZ - zC) / span, 0), 1);
+}
+
+const _placed = new THREE.Matrix4();
+const _scaleTriple = new THREE.Vector3();
+const _endpiece = new THREE.Vector3();
 
 const _projected = new THREE.Vector3();
 

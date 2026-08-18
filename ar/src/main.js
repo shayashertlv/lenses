@@ -1054,8 +1054,18 @@ function updatePose(result, dt) {
   // No "scanning 34%" any more, because there is nothing to wait for: the fit is a
   // fit from the first detection. What is shown instead is what the fit currently
   // says, which is true on frame one and stays true.
+  // The tilde is not decoration: it is the difference between a measurement and
+  // an estimate, and it has to survive into the one place a wearer reads.
+  // A width verdict is a physical claim with two absolute inputs — the frame's
+  // manufactured width and the wearer's head size — and either can be missing.
+  // Nine of eleven catalogue assets declare `widthSource: 'assumed'` (their
+  // geometry was scaled to a 140 mm placeholder, so the width measured back off
+  // it is that placeholder), and until an iris resolves there is no absolute
+  // ruler on the face at all. Marked rather than hidden, because "wide" and
+  // "wide, probably" send a shopper to different shelves.
   readout.set('fit', measured.width
-    ? `${measured.width.verdict} · ${(measured.pupilHeight * 100).toFixed(0)}%`
+    ? `${measured.width.absolute && measured.width.widthSource !== 'assumed' ? '' : '~'}`
+      + `${measured.width.verdict} · ${(measured.pupilHeight * 100).toFixed(0)}%`
     : '—');
   // Pupil distance, the one number here that is in real millimetres rather than in
   // ratios against the average head — see `measureMetricScale`. A dash means no iris
