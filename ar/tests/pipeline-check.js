@@ -703,6 +703,222 @@ async function run() {
     }
   }
 
+  // ------------------------------------------------------ the constant register
+  //
+  // A provenance audit walked all 196 numeric constants in `ar/src` and found
+  // that only 32 rest on physics or geometry: 66 were one person's
+  // measurement, 80 arbitrary, 12 inherited from an unknown source, and 24
+  // could not be placed at all. That audit was a document, and a document goes
+  // stale the first time somebody adds a constant. This is the same audit as a
+  // MECHANISM: every value in the four exported constant bags must appear here
+  // with a class and a reason, and a new constant with no entry fails the
+  // suite. The four classes, in decreasing order of how much they can be
+  // trusted on a face nobody has met:
+  //
+  //   derived   — physics, geometry or a stated statistic fixes the value, and
+  //               changing it would make the arithmetic wrong rather than the
+  //               feel different.
+  //   measured  — the value is not a value: it is read off the session's own
+  //               signal every frame, and the constant here is a floor, a rate
+  //               or a reference the measurement is taken against.
+  //   validated — arbitrary in origin, but a check in this suite would go red
+  //               if it were wrong, so its RANGE is proved even though its
+  //               value is not derived.
+  //   stated    — nothing fixes it and the reason is written down. These are
+  //               the honest remainder, and the register exists to keep the
+  //               count of them visible instead of letting it drift.
+  {
+    const REGISTER = {
+      // ---- SEAT_CONSTANTS
+      REST_TAU: ['stated', 'how fast a correction may visibly arrive — a taste '
+        + 'constant about the product, and the settle law names it as the term that '
+        + 'keeps two subjects over the flat 2 s target'],
+      REST_DEADBAND: ['derived', 'the depth field\'s own cell-scale noise on the '
+        + 'queries the solve reads: below it the solver reports texture, not anatomy'],
+      SEAT_TAU: ['stated', 'the standoff\'s ease, same class as REST_TAU and an order '
+        + 'faster because a standoff correction is a smaller motion than a re-seat'],
+      ZETA_REARM: ['measured', 'min(2x the measured noise of the eased push, half a '
+        + 'pixel at this frame\'s measured image scale) — see VISIBLE_PX'],
+      ZETA_RELEASE: ['derived', 'the hysteresis, at a fixed ratio of the re-arm so it '
+        + 'moves with it: one threshold chatters at its own edge'],
+      ZETA_HYSTERESIS: ['derived', 'that ratio, 1:3, carried from the shipped pair'],
+      VISIBLE_PX: ['derived', 'half a pixel — the tree\'s own sub-pixel floor, already '
+        + 'the value of RELIEF_DEADBAND_PX and of the settle metric\'s rejected band'],
+      SOLVE_MIN_INTERVAL: ['derived', 'the spec\'s <=2 Hz event-work invariant, '
+        + 'enforced by the number that IS the cap'],
+      SOLVE_HEARTBEAT: ['validated', 'every solve trigger is edge-detected and an edge '
+        + 'can be missed; the heartbeat turns "missed" into "late", and the checks '
+        + 'assert the cadence rather than the number'],
+      FIT_WINDOW: ['derived', 'one second of a 30 Hz stream — the window a median over '
+        + 'per-frame measurements needs to reject a blink without lagging a turn'],
+      REST_WINDOW: ['derived', 'SETTLE_WINDOW_S / SOLVE_MIN_INTERVAL — the same '
+        + 'look-back in SECONDS the stab meter and the settle metric use, at the '
+        + 'cadence solves actually arrive'],
+      SEAT_REF_SLACK: ['derived', 'a relative slack against a measured band, not a '
+        + 'threshold: it exists only so a float equality on a product of smoothsteps '
+        + 'is not a coin toss'],
+
+      // ---- PERSON_CONSTANTS
+      W_PAR: ['derived', '(0.5 mm ray-pinned landmark noise / 5 mm borrowed-depth '
+        + 'error)^2 — the ratio of two stated variances'],
+      PRIOR_LAMBDA: ['derived', 'unit-weight frames of canonical prior: enough that an '
+        + 'empty model returns the rest pose exactly, little enough that ~1 s of real '
+        + 'observation dominates'],
+      W_MAX: ['stated', 'the forgetting cap, ~10-20 s of good viewing. Nothing fixes '
+        + 'it; what it costs is measured — it sets the zConf ceiling directly, and (E) '
+        + 'reports that ceiling per camera'],
+      W_PIN_FULL: ['validated', 'pin-fusion maturity, ~2-4 s of decent observation; '
+        + 'the pin checks assert the fusion\'s behaviour at both ends'],
+      RES_NOISE_INIT: ['derived', 'the pipeline\'s one stated measurement noise, '
+        + '0.5 mm — the same 0.5 mm that is W_PAR\'s numerator, used as the reference '
+        + 'variance of the inverse-variance self-downweight'],
+      RES_NOISE_TAU: ['stated', 'the noise EMA\'s memory; a rate, not a level, and the '
+        + 'level it estimates is what everything downstream actually reads'],
+      COMMIT_INTERVAL: ['derived', 'the <=2 Hz event-work invariant again'],
+      TRIP_RATIO: ['validated', 'G9\'s dual baseline: the person surface must not fit '
+        + 'worse than the average head by more than half again, asserted by the '
+        + 'tripwire checks at both signs'],
+      TRIP_SECONDS: ['derived', 'the dwell, so one bad frame cannot decay a converged '
+        + 'model — longer than any single-frame excursion the pose ramps admit'],
+      TRIP_ABS_RMS: ['stated', 'the absolute arm, and it is absolute ON PURPOSE: a '
+        + 'ratio cannot see a bias that has become the quiet level. The same sentence '
+        + 'that keeps open item (c) open'],
+      TRIP_ABS_SECONDS: ['derived', 'as TRIP_SECONDS, shorter because an absolute '
+        + 'excursion needs no baseline to be believed'],
+      DECAY_KEEP: ['derived', 'a soft decay rather than a reset: 10% a frame is a '
+        + '~0.3 s time constant at 30 fps, inside SHAPE_TAU so nothing visible steps'],
+      HUBER_FLOOR: ['derived', 'a floor on a MEASURED quantity, so a vertex whose '
+        + 'noise has converged very low cannot clip its own next honest sample'],
+      HUBER_SIGMAS: ['derived', 'the same rate NOISE_GATE states in smoothing.js: a '
+        + 'two-sided 3-sigma bound clips 0.27% of honest samples'],
+      SELF_TRUST_ADMIT: ['stated', 'the one number in this file nothing fixes. It '
+        + 'answers "has this vertex been observed well enough for what it says about '
+        + 'itself to mean anything", and the physics is silent on where that starts'],
+      RESID_MIN_W: ['derived', 'the weight at which the prior owns under 30% of a '
+        + 'vertex\'s estimate, so its residual measures the estimate and not the '
+        + 'canonical face it started from'],
+      RESID_MIN_N: ['derived', 'the sample-median floor stab.js and settle.js both '
+        + 'use, stated once per place a median is taken over a variable population'],
+
+      // ---- OCCLUDER_CONSTANTS
+      OCCLUDER_FEATHER: ['validated', 'the mask\'s fade half-width in face space, '
+        + 'capped in PIXELS by MAX_FEATHER_PX — the cap is the general half'],
+      OCCLUDER_RELIEF: ['derived', 'PAD_SINK + OCCLUDER_FEATHER + one field cell: the '
+        + 'depth the occluder must stand behind so a seated pad is not clipped'],
+      SHAPE_TAU: ['stated', 'how fast the view residual chases this image; a taste '
+        + 'constant bounded by the rebuild cadence on one side and visible lag on the '
+        + 'other'],
+      OFFSET_LIMIT: ['derived', 'the same bound the deform, the anchors and the person '
+        + 'model share — a face constant, stated once and asserted equal in all three'],
+      DEPTH_LIMIT: ['derived', 'how far a fitted depth may move a vertex off the '
+        + 'borrowed one; the borrowed-depth error W_PAR is derived from, times three'],
+      DEPTH_FIT_ZERO_R2: ['validated', 'the depth fit\'s confidence ramp, asserted by '
+        + 'the fit checks at both ends rather than defended as a number'],
+      DEPTH_FIT_FULL_R2: ['validated', 'ditto, and the pair is a ramp so the gap '
+        + 'matters more than either edge'],
+      DEPTH_EMA_TAU: ['derived', 'the conditioning pole, well inside SHAPE_TAU so the '
+        + 'fit can never be the slowest thing in the surface'],
+      NOSE_RESID_ZERO: ['validated', 'the nose-residual demotion ramp; the seat checks '
+        + 'assert the demotion happens, not where'],
+      NOSE_RESID_FULL: ['validated', 'ditto'],
+      NOSE_BOX: ['derived', 'the nose window, in centimetres from the bridge — the '
+        + 'anatomy the seat solves on, not a tuning'],
+      SURFACE_DEADBAND: ['derived', 'the seat\'s own precision, 0.2 mm: a rebuild '
+        + 'finer than the solve\'s resolution changes nothing downstream'],
+      PROFILE_DEADBAND: ['derived', 'all the temple routing can use, 2 mm — the arm is '
+        + 'a curve through a coarse profile'],
+      SUBDIVISION_LEVELS: ['validated', 'mesh density; the pixel checks fail below it '
+        + 'and the wall-clock budget fails above it, which brackets it from both sides'],
+      VIS_GRID: ['derived', 'the visibility raster, sized so one cell is under the '
+        + 'quantisation VIS_BIAS already allows for'],
+      VIS_BIAS: ['stated', 'the depth-quantisation slack the visibility test allows '
+        + 'before calling a vertex covered'],
+      VIS_RAMP: ['stated', 'how fast trust falls past that slack'],
+      VIS_GRAZE: ['derived', 'grazing slack scaled by the vertex\'s own facing: a '
+        + 'surface seen edge-on gets the full allowance, one seen squarely almost none'],
+      REBUILD_MIN_INTERVAL: ['validated', 'the rebuild-storm backstop; the storm and '
+        + 'the latency it trades against are both measured in the suite'],
+      REBUILD_BYPASS: ['derived', 'a genuine reshape is never made to wait: 1 mm is '
+        + 'five times the deadband, so only real movement bypasses'],
+      SHRINK_FLOOR: ['derived', 'a floor on a measured quantity, same pattern as '
+        + 'HUBER_FLOOR — the noise level the shrinkage falls back to before the online '
+        + 'estimate has any samples'],
+      SHRINK_SIGMAS: ['derived', '1.5 measured sigmas puts 87% of pure noise inside '
+        + 'the shrinkage ball while a 3-sigma reshape keeps half its size'],
+      TAU_RESID_DECAY: ['stated', 'how fast a held vertex hands ownership to the '
+        + 'person model; slower than SHAPE_TAU by construction and otherwise a taste'],
+      CONF_HOLD: ['derived', 'one second of good viewing — the weight at which the '
+        + 'model underneath is worth handing a held residual to'],
+      RELIEF_DEADBAND_PX: ['derived', 'half a pixel, the same VISIBLE_PX'],
+      RESID_TRUST_FULL: ['derived', 'POSE_TRUST\'s own yaw ramp read backwards: the '
+        + 'angle at which the far sidewall stops being observed and starts being '
+        + 'guessed'],
+      RESID_TRUST_FLOOR: ['derived', 'the tree\'s own "one twentieth of a frontal '
+        + 'measurement" (POSE_TRUST_ADMIT) — deliberately not zero, because a frozen '
+        + 'residual is the failure the stage-6 freeze was retired for'],
+
+      // ---- HEAD_CONSTANTS
+      SKULL_DEPTH: ['stated', 'the proxy skull\'s depth. It carries no pixels — the '
+        + 'shell exists to route temple arms and to catch a shadow — so its exposure '
+        + 'is a temple that misses an ear, which the temple checks assert directly'],
+      SKULL_FULLNESS: ['stated', 'ditto, the shell\'s roundness'],
+      SKULL_RINGS: ['validated', 'tessellation; the boundary-loop and clearance checks '
+        + 'fail if it is too coarse'],
+      PINNA: ['stated', 'where the ear sits relative to the mesh silhouette, which the '
+        + 'canonical mesh does not model. Exposure is the same as SKULL_DEPTH\'s'],
+    };
+    const BAGS = {
+      SEAT_CONSTANTS, PERSON_CONSTANTS, OCCLUDER_CONSTANTS, HEAD_CONSTANTS,
+    };
+    const CLASSES = ['derived', 'measured', 'validated', 'stated'];
+    const keys = [];
+    for (const bag of Object.values(BAGS)) keys.push(...Object.keys(bag));
+    const missing = keys.filter((k) => !REGISTER[k]);
+    const orphan = Object.keys(REGISTER).filter((k) => !keys.includes(k));
+    const badClass = Object.entries(REGISTER)
+      .filter(([, v]) => !CLASSES.includes(v[0]) || !(v[1] || '').length);
+    const tally = CLASSES.map((c) => [c,
+      keys.filter((k) => REGISTER[k]?.[0] === c).length]);
+    record('every exported constant carries a class and a reason',
+      missing.length === 0 && orphan.length === 0 && badClass.length === 0,
+      `${keys.length} constants across ${Object.keys(BAGS).length} bags: `
+      + `${tally.map(([c, n]) => `${n} ${c}`).join(', ')}`
+      + `${missing.length ? ` — UNREGISTERED: ${missing.join(', ')}` : ''}`
+      + `${orphan.length ? ` — REGISTERED BUT GONE: ${orphan.join(', ')}` : ''}`
+      + `${badClass.length ? ` — MALFORMED: ${badClass.map(([k]) => k).join(', ')}` : ''}`
+      + `. The 2026-08-17 audit's answer was a document and went stale on its first `
+      + `new constant; this is the same question as a mechanism, so an unregistered `
+      + `one is a red rather than a gap nobody notices.`);
+
+    // The register's own point: `stated` is the honest remainder, and its SIZE
+    // is the thing worth watching. Reported rather than gated, because driving
+    // it to zero by writing better sentences would be the exact dishonesty the
+    // register exists to prevent.
+    const stated = keys.filter((k) => REGISTER[k]?.[0] === 'stated');
+    // The three sub-classes, computed rather than written out, so the sentence
+    // cannot drift away from the table above it the way the audit's own
+    // document did.
+    const EASES = ['REST_TAU', 'SEAT_TAU', 'SHAPE_TAU', 'TAU_RESID_DECAY'];
+    const SHELL = Object.keys(HEAD_CONSTANTS);
+    const eases = stated.filter((k) => EASES.includes(k));
+    const shell = stated.filter((k) => SHELL.includes(k));
+    const unplaced = stated.filter((k) => !eases.includes(k) && !shell.includes(k)
+      && k !== 'TRIP_ABS_RMS');
+    recordFinding('constants that nothing fixes', stated.length === 0, 'floor',
+      `${stated.length} of ${keys.length} exported constants are 'stated' — no `
+      + `derivation exists and the reason is recorded instead: ${stated.join(', ')}. `
+      + `Three sub-classes, and only one of them is a gap. ${eases.length} are EASE `
+      + `TIMES (${eases.join(', ')}) — a product decision about how fast a correction `
+      + `may visibly arrive, not a measurement anybody could take. ${shell.length} are `
+      + `the proxy head shell (${shell.join(', ')}), whose only exposure is a temple arm `
+      + `the temple checks already assert directly. One (TRIP_ABS_RMS) is absolute ON `
+      + `PURPOSE, and the argument for it is the same sentence that keeps open item (c) `
+      + `open: agreement cannot see a bias that has become the quiet level. That leaves `
+      + `${unplaced.length} genuinely unplaced — ${unplaced.join(', ')} — which is the `
+      + `audit's "could not be placed at all" bucket at the size it has actually `
+      + `reached, and the number to watch.`);
+  }
+
   // ------------------------------------------------ the catalogue's own widths
   //
   // Every physical claim this pipeline makes to a wearer stands on one number
@@ -6616,10 +6832,10 @@ async function run() {
     // 23% of the depth answer — ~0.9 mm of a 4 mm delta — so the honest
     // depth bound at this pose diet is ~1.5 mm slide-free, and the honest
     // TRANSVERSE bound is the spec's own 0.4 mm (measured 0.18 — the x/y
-    // fusion is the value this stage ships). The zConf ceiling is asserted
-    // below as a pinned fact: it is the measured reason the G8 crossfade
-    // gate stays closed (see the spec's stage-4 landing note), and a later
-    // stage that raises the ceiling must come back through this check.
+    // fusion is the value this stage ships). That ceiling is what eventually
+    // RETIRED the crossfade rather than merely keeping it dark: (E) measures
+    // it on fifteen faces at three cameras and no cell reaches 25, because
+    // the angle that buys parallax is the angle the trust law refuses.
     {
       const runConvergence = (withSlide) => {
         const truth = shapeFace(face, { noseR: 0.92, noseZ: NOSE_Z_4MM });
@@ -6704,8 +6920,7 @@ async function run() {
         lastClean.depthMm <= 1.6 && last.depthMm <= 3.5
         && last.transverseMm <= 0.4 && lastClean.transverseMm <= 0.4
         && regress <= 0.25 && slidRegress <= 0.5
-        && slideBias <= 2.0
-        && noseZConfMax < PERSON_CONSTANTS.Z_CONF_MIN,
+        && slideBias <= 2.0,
         `+4 mm of tip protrusion and −8% of width, swept ±15° for 20 s: transverse `
         + `error converges to ${last.transverseMm.toFixed(2)} mm with G14 slide and `
         + `${lastClean.transverseMm.toFixed(2)} without (budget 0.4 — the x/y fusion `
@@ -6717,9 +6932,8 @@ async function run() {
         + `worst post-10 s regression ${regress.toFixed(2)} mm slide-free (budget 0.25; `
         + `the slid series breathes ${slidRegress.toFixed(2)} with the slide's own `
         + `phase, bound 0.5); and the `
-        + `parallax ceiling is real: worst nose zConf ${noseZConfMax.toFixed(1)} against `
-        + `the ${PERSON_CONSTANTS.Z_CONF_MIN} maturity floor — the measured fact that `
-        + `keeps the G8 crossfade gate closed at this stage`);
+        + `parallax ceiling is real: worst nose zConf ${noseZConfMax.toFixed(1)} on a `
+        + `20 s +-15 deg sweep — the measured fact that retired the crossfade, see (E)`);
     }
 
     // --- (c) the G8 sign gate, and G15's frontal-only starvation assert ---
@@ -6781,70 +6995,17 @@ async function run() {
       const plusEnd = plus.errs[plus.errs.length - 1];
       const minusEnd = minus.errs[minus.errs.length - 1];
 
-      // The applied channel: with the crossfade forced on, the carried tip
-      // depth must move TOWARD the person's converged (true, protruding)
-      // surface at both signs — the sign of `depthFor` itself.
-      const fadeRun = (signYaw) => {
-        const state = { occluder: createOccluder(face) };
-        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
-        const fit4 = { ...DEFAULT_FIT };
-        for (let k = 0; k < 450; k++) {
-          const yawRad = THREE.MathUtils.degToRad(15) * Math.sin((2 * Math.PI * 0.25 * k) / 30);
-          const pose = poseAt(yawRad);
-          updateFrame({
-            scene, face, model, fit: fit4, smoother, state, source,
-            detection: {
-              matrix: pose.toArray(),
-              landmarks: synthesiseLandmarks(face, protruding, camera, pose),
-            },
-            dt: 1 / 30, smoothing: false, temples: null,
-          });
-        }
-        const pose = poseAt(THREE.MathUtils.degToRad(15) * signYaw);
-        const landmarks = synthesiseLandmarks(face, protruding, camera, pose);
-        const out = new Float32Array(face.vertexCount * 3);
-        const truthTip = protruding[tipAt + 2];
-        // The planted error: recover WITHOUT the depth fit, so the carried tip
-        // rides the borrowed canonical depth — 4 mm shy of this face's truth.
-        // The crossfade must pull it toward the person's converged surface;
-        // pulling the other way (the sign bug this gate exists for) would land
-        // FURTHER from truth, at whichever yaw sign exposes it.
-        carryLandmarks({
-          face, camera, headMatrixWorld: pose, landmarks, out, depthFit: null,
-        });
-        const plain = Math.abs(out[tipAt + 2] - truthTip);
-        state.person.crossfadeOn = true;
-        carryLandmarks({
-          face, camera, headMatrixWorld: pose, landmarks, out, depthFit: null,
-          person: state.person,
-        });
-        const faded = Math.abs(out[tipAt + 2] - truthTip);
-        return { plain, faded, zWeightTip: state.person.zWeight[LM.NOSE_TIP] };
-      };
-      const fadePlus = fadeRun(1);
-      const fadeMinus = fadeRun(-1);
-
-      // The crossfade pull is proportional to its own weight by construction
-      // (depth + (person − depth)·w), so the honest sign assertion is scaled
-      // by the weight the stream actually earned: the faded error must shed
-      // at least half of what a full-trust crossfade could shed, at BOTH
-      // signs. A sign bug fails this by GROWING the error on one side.
-      const pullOk = (f) => f.faded <= f.plain * (1 - 0.5 * f.zWeightTip)
-        && f.faded < f.plain;
       record('a planted +4 mm protrusion error recovers at both yaw signs (G8 sign gate)',
         plus.monotone && minus.monotone
-        && plusEnd <= plus.errs[0] * 0.5 && minusEnd <= minus.errs[0] * 0.5
-        && fadePlus.zWeightTip > 0.1 && fadeMinus.zWeightTip > 0.1
-        && pullOk(fadePlus) && pullOk(fadeMinus),
+        && plusEnd <= plus.errs[0] * 0.5 && minusEnd <= minus.errs[0] * 0.5,
         `converged 4 mm proud, then fed the true face at a held yaw: tip depth error `
         + `falls ${(plus.errs[0] * 10).toFixed(1)} → ${(plusEnd * 10).toFixed(1)} mm at +15° `
         + `and ${(minus.errs[0] * 10).toFixed(1)} → ${(minusEnd * 10).toFixed(1)} mm at −15°, `
         + `monotonically at both signs — the recovery direction is right on both sides `
-        + `of zero; and the crossfade channel itself (forced on, zWeight `
-        + `${fadePlus.zWeightTip.toFixed(2)}/${fadeMinus.zWeightTip.toFixed(2)}) pulls the `
-        + `carried tip depth from ${(fadePlus.plain * 10).toFixed(2)}/${(fadeMinus.plain * 10).toFixed(2)} mm `
-        + `of borrowed-depth error to ${(fadePlus.faded * 10).toFixed(2)}/${(fadeMinus.faded * 10).toFixed(2)} mm `
-        + `— toward the truth at both signs, in proportion to the trust it earned`);
+        + `of zero. (This used to carry a second arm asserting the depth CROSSFADE's own `
+        + `sign, which is the arm G8 was written for. The crossfade is retired — see `
+        + `(E) — so what remains is the estimator's own sign, which is the thing every `
+        + `other consumer of the person model still rides.)`);
 
       // G15: a long frontal-only session can NEVER reach depth trust. Every
       // observation deposits w·W_PAR of A_zz with no parallax in it, so the
@@ -6871,18 +7032,26 @@ async function run() {
         for (let i = 0; i < face.vertexCount; i++) {
           if (onNose(i)) noseZConfMax = Math.max(noseZConfMax, person.zConf[i]);
         }
+        // Asserted RELATIVE to what the same estimator gets from a browsing
+        // stream, not against a retired constant: 600 frontal frames must buy
+        // under a FIFTH of what 450 browsing frames buy at the bridge on the
+        // same estimator (measured at ~10 in (E)), and no nose vertex may
+        // reach the browsing level at all. The fifth is the ratio the check
+        // already carried — it read `Z_CONF_MIN * 0.2` — translated onto a
+        // reference that still exists. It also keeps the claim meaningful if
+        // `W_MAX` ever moves, because both sides of it move together.
+        const BROWSING_PARALLAX = 10;
         record('twenty frontal seconds buy no depth trust at all (G15)',
           person.meanW > 50
-          && person.zConfBridge < PERSON_CONSTANTS.Z_CONF_MIN * 0.2
-          && noseZConfMax < PERSON_CONSTANTS.Z_CONF_MIN
-          && person.zWeight[LM.NOSE_BRIDGE] < 0.2,
+          && person.zConfBridge < BROWSING_PARALLAX * 0.2
+          && noseZConfMax < BROWSING_PARALLAX,
           `600 frontal frames accumulate meanW ${person.meanW.toFixed(0)} — a thoroughly `
-          + `observed face — yet zConf at the bridge is ${person.zConfBridge.toFixed(2)} `
-          + `against the ${PERSON_CONSTANTS.Z_CONF_MIN} depth-trust floor (worst nose `
-          + `vertex ${noseZConfMax.toFixed(1)}, crossfade weight `
-          + `${person.zWeight[LM.NOSE_BRIDGE].toFixed(3)}): the W_PAR·W subtraction `
-          + `leaves only true parallax in the accumulator, and a frontal stream has `
-          + `none to give — borrowed depth can never bootstrap itself into trust`);
+          + `observed face — yet zConf at the bridge is ${person.zConfBridge.toFixed(2)}, `
+          + `under a fifth of the ~${BROWSING_PARALLAX} a browsing stream reaches on the `
+          + `same estimator (worst nose vertex ${noseZConfMax.toFixed(1)}): the W_PAR·W `
+          + `subtraction leaves only true parallax in the accumulator, and a frontal `
+          + `stream has none to give — borrowed depth can never bootstrap itself into `
+          + `trust, which is the property that survives the crossfade's retirement`);
       }
     }
 
@@ -11552,6 +11721,209 @@ async function run() {
         + `[the whole generality block, ${SUBJECTS.length} subjects and `
         + `${Math.round((performance.now() - generalityStartedMs) / 1000)} s of wall time in `
         + `whatever this environment is]`);
+    }
+
+    // ------------------------- (E) the zConf crossfade, and why it is retired
+    //
+    // The channel shipped dark from stage 4 to 2026-08-18 on ONE session's
+    // arithmetic: the accumulator equilibrates at
+    // `zConf* = W_MAX(1-W_PAR)E_w[sin^2 theta]`, a +-15 deg sweep gives
+    // `E_w ~= 0.03`, so the ceiling was ~9 against a `Z_CONF_MIN = 25` gate
+    // that could never open. That is a claim about a POSE DIET, and a pose
+    // diet is not a property of the pipeline — it is where the camera is and
+    // what the wearer does with their head. So it was measured on every
+    // subject at every camera rather than argued from one, and the answer was
+    // worse than the claim.
+    //
+    // THE STRUCTURAL FINDING: parallax and pose trust are the SAME ANGLE with
+    // opposite signs. Turning the head buys `sin^2 theta` and costs `wPose`,
+    // which enters the observation weight SQUARED — so the product `w sin^2`
+    // has an interior maximum and no browsing diet reaches the floor. Worse,
+    // a camera below the eyes does not help either, because to the tracker it
+    // is not a camera angle at all: it is head pitch, and the trust law
+    // refuses it. Measured below, the 30 deg geometry accumulates a mean `W`
+    // of about 19 against 200 at eye level.
+    //
+    // THE ACCEPTANCE, run at the deletion commit and recorded in the spec: the
+    // channel forced on over these same 45 cells improved the nose-window
+    // depth error against truth on 23 and regressed it on 22, moving the mean
+    // 0.78 -> 0.75 mm — a 3% shift that is predominantly a one-signed offset
+    // of +0.1 to +0.6 mm rather than a per-subject correction. It cannot be
+    // re-run here because the apply path is gone; what remains is the
+    // REACHABILITY half, which is the half that generalises, and it is kept
+    // running because a later stage that changes the trust law has to come
+    // back through it.
+    {
+      const GEOM = [
+        { name: 'eye level', pitchDeg: 0 },
+        { name: 'laptop', pitchDeg: 13.5 },
+        { name: 'phone in lap', pitchDeg: 30 },
+      ];
+      // The maturity floor the retired gate asked for. It is a harness
+      // constant now, not a pipeline one: sigma_z = sigma_xy/sqrt(zConf) puts
+      // the triangulated depth at 0.1 mm here, which is what "trusted
+      // prior-free" was taken to mean.
+      const RETIRED_FLOOR = 25;
+      const FRAMES = 450;
+      const bridgeYCanon = face.point(LM.NOSE_BRIDGE)[1];
+      const onNose = (i) => Math.abs(face.positions[i * 3]) <= 2.0
+        && Math.abs(face.positions[i * 3 + 1] - bridgeYCanon) <= 2.5;
+      const noseIdx = [];
+      for (let i = 0; i < face.vertexCount; i++) if (onNose(i)) noseIdx.push(i);
+
+      const run = (s, g) => {
+        const k = s.d.scale ?? 1;
+        const rand = lcg(20260903);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        for (let f = 0; f < FRAMES; f++) {
+          const t = f / 30;
+          const pose = poseOf(
+            THREE.MathUtils.degToRad(18 * Math.sin(2 * Math.PI * 0.13 * t)
+              + 1.5 * Math.sin(2 * Math.PI * 0.07 * t + 1)),
+            THREE.MathUtils.degToRad(g.pitchDeg
+              + 9 * Math.sin(2 * Math.PI * 0.09 * t + 0.7)
+              + 1.5 * Math.sin(2 * Math.PI * 0.11 * t)),
+            THREE.MathUtils.degToRad(5 * Math.sin(2 * Math.PI * 0.06 * t + 2)
+              + 1.5 * Math.sin(2 * Math.PI * 0.09 * t + 2)),
+            k,
+          );
+          updateFrame({
+            scene, face, model, fit: { ...DEFAULT_FIT }, smoother, state, source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(landmarksFor(s.truth, s.d, pose), rand),
+            },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+        }
+        const p = state.person;
+        const zc = noseIdx.map((i) => p.zConf[i]).sort((a, b) => a - b);
+        return {
+          zBridge: p.zConfBridge,
+          zNoseHi: zc[Math.floor(0.9 * zc.length)],
+          wMean: p.meanW,
+        };
+      };
+
+      const cells = [];
+      for (const s of SUBJECTS) for (const g of GEOM) cells.push({ s, g, r: run(s, g) });
+      window.__parallax = cells;
+      const byGeom = GEOM.map((g) => {
+        const c = cells.filter((x) => x.g === g);
+        const mean = (f) => c.reduce((a, x) => a + f(x), 0) / c.length;
+        return {
+          g,
+          zBridge: mean((x) => x.r.zBridge),
+          zHi: mean((x) => x.r.zNoseHi),
+          W: mean((x) => x.r.wMean),
+          reach: c.filter((x) => x.r.zBridge >= RETIRED_FLOOR).length,
+        };
+      });
+      const best = Math.max(...cells.map((c) => c.r.zBridge));
+      const reached = cells.filter((c) => c.r.zBridge >= RETIRED_FLOOR);
+
+      record('mono depth triangulation does not reach its own floor on any camera',
+        reached.length === 0 && best < RETIRED_FLOOR,
+        `${cells.length} cells (${SUBJECTS.length} subjects x ${GEOM.length} cameras), `
+        + `${FRAMES} frames of the browse diet each. Bridge parallax against the `
+        + `${RETIRED_FLOOR} the retired gate asked for, per camera (mean, and how many `
+        + `of ${SUBJECTS.length} reach it): `
+        + `${byGeom.map((b) => `${b.g.name} ${b.zBridge.toFixed(1)} (${b.reach}/`
+          + `${SUBJECTS.length}), mean W ${b.W.toFixed(0)}`).join('; ')}. `
+        + `Best of all ${cells.length}: ${best.toFixed(1)}. The camera pitch makes it `
+        + `WORSE, not better, and that is the whole finding: to the tracker a camera `
+        + `below the eyes is not a camera angle, it is head pitch, so the same angle `
+        + `that would buy parallax is the angle the trust law refuses to accumulate at `
+        + `— w goes as wPose SQUARED. Turning the head has the same problem from the `
+        + `other side, so the equilibrium peaks near +-30 deg of sweep amplitude and `
+        + `falls away on both sides of it. There is no pose diet and no camera that `
+        + `reaches the floor, which is why the crossfade is deleted rather than tuned: `
+        + `what would have to change first is the trust law, not the gate.`);
+    }
+
+    // ------------------------------- (F) the pixel is the ruler for "invisible"
+    //
+    // Every "nobody can see this" claim in the tree was a millimetre converted
+    // by ONE session's 1.74 px/mm at 45 cm — and three of them converted it
+    // wrong by a factor of ten (`ZETA_REARM`, `FIT_DEADBAND.eyeLineY`, and the
+    // >40° recovery note; corrected in place). px/mm is not a property of the
+    // pipeline: it is the camera, the resolution and how far away somebody is
+    // sitting. This repository's own two capture sessions measured 1.74 and
+    // 4.22 px/mm, and at 4.22 the shipped standoff re-arm is 0.63 px — over
+    // the half-pixel bar the same tree uses everywhere else.
+    //
+    // So the seat's re-arm distance is now min(noise floor, VISIBLE_PX at the
+    // measured scale). Three things have to hold and all three are asserted
+    // here rather than argued: the scale is MEASURED and moves the right way
+    // with distance, the bound is the smaller of the two, and at the geometry
+    // the shipped numbers were pinned under the SHIPPED value still wins — so
+    // the fixtures cannot move for this reason and any delta they do show is
+    // somebody else's.
+    {
+      // 20 cm is a phone at reading distance and lands the harness's own scale
+      // at 4.18 px/mm — within a percent of the 4.22 the diag stills measure,
+      // which is the second of this repository's two real capture geometries.
+      // 45 cm is the first. 70 cm is a desktop monitor's webcam.
+      const DISTANCES = [20, 45, 70];
+      const readAt = (depthCm) => {
+        const s = SUBJECTS.find((x) => isMean(x));
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const rand = lcg(20260904);
+        for (let f = 0; f < 90; f++) {
+          const pose = new THREE.Matrix4().compose(
+            new THREE.Vector3(0, 0, -depthCm),
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(
+              THREE.MathUtils.degToRad(1.5 * Math.sin(f / 11)),
+              THREE.MathUtils.degToRad(1.5 * Math.sin(f / 7)), 0,
+            )),
+            new THREE.Vector3(1, 1, 1),
+          );
+          updateFrame({
+            scene, face, model, fit: { ...DEFAULT_FIT }, smoother, state, source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(landmarksFor(s.truth, s.d, pose), rand),
+            },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+        }
+        return {
+          depthCm,
+          pxPerCm: state.seat.pxPerCm,
+          rearmMm: state.seat.zetaRearmMm,
+          visibleBinds: state.seat.zetaRearmVisible,
+        };
+      };
+      const rungs = DISTANCES.map(readAt);
+      // The law, independently: px per face-space cm is headScale·H /
+      // (2·d·tan(fov/2)), so at fixed head scale it is exactly inverse in the
+      // distance. Asserting the PRODUCT is constant tests the arithmetic, not
+      // just the ordering — an ordering test passes on any decreasing function.
+      const products = rungs.map((r) => r.pxPerCm * r.depthCm);
+      const productSpread = (Math.max(...products) - Math.min(...products))
+        / (products.reduce((a, b) => a + b, 0) / products.length);
+      const at45 = rungs.find((r) => r.depthCm === 45);
+      const shippedMm = SEAT_CONSTANTS.ZETA_REARM * 10;
+      record('half a pixel is measured, not assumed, and it only ever tightens the rest',
+        rungs.every((r) => Number.isFinite(r.pxPerCm) && r.pxPerCm > 0)
+        && productSpread < 0.02
+        && rungs.every((r) => r.rearmMm <= shippedMm + 1e-9)
+        && at45.rearmMm === shippedMm && at45.visibleBinds === false
+        && rungs[0].rearmMm < shippedMm && rungs[0].visibleBinds === true,
+        `${rungs.map((r) => `${r.depthCm} cm: ${(r.pxPerCm / 10).toFixed(2)} px/mm, re-arm `
+          + `${r.rearmMm.toFixed(3)} mm${r.visibleBinds ? ' (half a pixel binds)' : ''}`)
+          .join('; ')}. The scale obeys its own law — px/cm x distance is constant to `
+        + `${(productSpread * 100).toFixed(2)}% across the range, which is the inverse `
+        + `law and not merely a decreasing one. At 45 cm, the geometry the shipped `
+        + `numbers were pinned under, half a pixel is `
+        + `${(SEAT_CONSTANTS.VISIBLE_PX / at45.pxPerCm * 10).toFixed(3)} mm against the `
+        + `${shippedMm.toFixed(2)} mm noise floor, so the SHIPPED value wins and nothing `
+        + `on the fixtures can move for this reason; at ${DISTANCES[0]} cm — a phone held `
+        + `at reading distance, and within a percent of the diag stills' own 4.22 px/mm — `
+        + `half a pixel is the tighter of the two and the channel stops resting on a `
+        + `motion the wearer could see.`);
     }
   }
 
