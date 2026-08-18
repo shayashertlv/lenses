@@ -261,6 +261,26 @@ function updateSquareOnBand(seat, wPose) {
   sq.q50 = sorted[(FIT_WINDOW - 1) >> 1];
   // The ratchet: rises to a better demonstrated level, never falls. This IS the
   // drift bound (see SEAT_REF_QUANTILE) — one object, not a band plus a floor.
+  //
+  // MEASURED NEGATIVE RESULT, 2026-08-18, written down so the next attempt does
+  // not repeat it. The ratchet does starve the seat at an off-axis camera, and
+  // the mechanism is exact: a running maximum of a NOISY statistic converges on
+  // the global maximum of `w`, and `0.999 ×` a global maximum is very nearly a
+  // measure-zero set. At eye level `w` is pinned at 1 so the band is 1 and every
+  // frame passes forever; at a camera 30° below the eyes `w` wanders, the bar
+  // climbs to the session's single best frame, and admission decays with session
+  // length — 75 of the first 300 frames, then NINETEEN MORE in the next 1500,
+  // three solves in a minute against a hundred and twelve at eye level.
+  //
+  // Bounding the ratchet's memory to `SETTLE_WINDOW_S` (a two-epoch rolling
+  // maximum) fixes the starvation and does not fix the thing the starvation was
+  // suspected of causing: admitted 94 → 159 and solves 3 → 7 at 30° over 60 s,
+  // and the three cameras' disagreement moved from 0.818 mm to 0.826 mm. It also
+  // costs the property the ratchet exists for — a minute turned away drops the
+  // band to the turned-away level, which is the pinned "a minute turned away
+  // cannot redefine square-on" check going red, and re-admits exactly the hard-
+  // yaw solves the latch was built to refuse. Bought nothing, cost the safety:
+  // reverted. The disagreement's real cause is one layer up (see the ladder).
   if (sq.live > sq.best) sq.best = sq.live;
   sq.band = sq.best;
 }
@@ -657,6 +677,31 @@ function createSeatState() {
      * remembers exactly as far as the instrument that grades it, and no further.
      */
     restEst: createAgreement(REST_WINDOW, S_REFINE),
+    /**
+     * The carried estimate of the SOLVED BALANCING ROLL — the same estimator a
+     * third time, and for the same reason both the others have it.
+     *
+     * The roll cannot ride the HEIGHT's confidence, which was the obvious thing
+     * and is wrong in a way that is invisible until measured: `conf` is a
+     * shrinkage of the height toward the prior `s = 0`, so on any face whose
+     * seat does not descend — twelve of the fifteen synthetic subjects on the
+     * shipped asset — the height is exactly 0, the shrinkage is exactly 0, and
+     * a roll gated on it is dead for the whole session. The height's confidence
+     * is a statement about the height and about nothing else.
+     *
+     * Its own window says the same thing about the roll: shrink the solved
+     * angle toward the prior "no roll" by how much the session's own solved
+     * angles agree with each other. One observation earns exactly zero, which
+     * is what keeps frame one bit-identical to the standalone law. And because
+     * `phiStar` is the ABSOLUTE balanced angle rather than an increment — the
+     * secant Newton step returns the same answer from any base — shrinking it
+     * has no fixed-point problem: a partly-applied roll does not make the next
+     * solve ask for more.
+     *
+     * No resolution floor: unlike the height, the roll is not bisected onto a
+     * grid, so it has no quantum of its own to be floored at.
+     */
+    rollEst: createAgreement(REST_WINDOW),
     /** Whether any equilibrium solve has been adopted yet — before one, the
      * placement seats standalone (the softened raw law), which IS the
      * pre-solve behaviour and the zero-state every reset returns to. */
@@ -707,6 +752,26 @@ function createSeatState() {
      * counted apart from `holds` so the replay can tell "the field said
      * hold" from "the pose was not asked". Monotone, like the rest. */
     refusals: 0,
+    /**
+     * Solves that ran the whole sweep and found NO bearing height, at any roll
+     * the frame is allowed — the seat honestly falling back to the pre-stage-5
+     * optical height on a nose these pads cannot take two-sided.
+     *
+     * A counter and not just a mode string, because the mode is an instant and
+     * this is a session property: a wearer whose frame never bears wants that
+     * visible over a minute, not in whatever frame happens to be sampled. It
+     * was the silence the generality sweep named — an asymmetric wearer got
+     * the 1-DOF seat and nothing said so.
+     */
+    noBearing: 0,
+    /** Solves that seated on the bridge saddle: the frame's bridge reaches the
+     * nose before its pads can, at every height in the box. A true statement
+     * about the pairing (a wide bridge on a narrow high nose), counted so a
+     * catalogue can see which frames answer which faces that way. */
+    saddles: 0,
+    /** Solves whose bearing needed the balancing roll — this wearer's nose is
+     * asymmetric enough that the frame has to follow it. */
+    rollBore: 0,
     /**
      * The square-on band's estimator state (see SEAT_REF_QUANTILE). It lives
      * HERE, on the seat state, for the isolation reason and not for tidiness:
@@ -879,8 +944,31 @@ function easeSeatChannels(seat, fit, dt, wPose) {
     }
   }
 
+  // The roll rides its OWN window's grade, exactly as the height rides its.
+  //
+  // Target `conf_roll · median(φ*)`, not the latest `φ*`: a roll is an estimate
+  // of the wearer's own nasal asymmetry, one observation measures no scatter, so
+  // the grade is exactly zero and the target is exactly zero. That is what keeps
+  // FRAME ONE bit-identical to the standalone law with the balance lit — the
+  // no-scan-phase invariant, which a whole-adopted first roll broke the moment
+  // the flag went on (measured: the cold-session pin went red on 'the roll
+  // exactly 0'). The median rather than the latest for the same reason the
+  // height took one on 2026-08-18: a single freak solve must not cock the frame.
+  //
+  // And LATCHED off-square, exactly as the height above is. `isSquareOn` was
+  // documented as "ONE expression with three consumers"; the roll was a fourth
+  // channel quietly left out of it, and it is the one whose evidence a hard pose
+  // destroys most completely — past 40° of yaw the far pad has left the modelled
+  // patch, so the pad-load DIFFERENCE the roll is made of is exactly the
+  // quantity that cannot be read there. Kept on that argument and not on a
+  // measured win: on the wearer's own recording it moved the >40° glances mean
+  // by 0.002 mm (2.0337 → 2.0353), which is to say not at all. It matters when
+  // the balance is lit; while the balance is dark it is inert.
   if (fit.padBalance === true) {
-    seat.applied.phi += ((seat.phiStar ?? 0) - seat.applied.phi) * alpha(PHI_TAU);
+    if (seatSquareOn) {
+      const phiTarget = seat.rollEst.conf * (seat.rollEst.value ?? 0);
+      seat.applied.phi += (phiTarget - seat.applied.phi) * alpha(PHI_TAU);
+    }
   } else {
     seat.applied.phi = 0;
   }
@@ -1015,6 +1103,10 @@ function scheduleSeatSolve(seat, {
     return 'held';
   }
 
+  if (solve.mode === 'unbalanced') seat.noBearing++;
+  if (solve.mode === 'saddle') seat.saddles++;
+  if (solve.rollBore) seat.rollBore++;
+
   const first = !seat.hasSolve;
   seat.hasSolve = true;
   seat.solve = solve;
@@ -1031,6 +1123,7 @@ function scheduleSeatSolve(seat, {
   // itself. `S_REFINE` is the window's resolution floor (see `restEst`).
   foldAgreement(seat.restEst, solve.sStar, wPose);
   seat.conf = seat.restEst.conf;
+  foldAgreement(seat.rollEst, solve.phiStar ?? 0, wPose);
 
   if (first) {
     // Adopted whole, through the channels' own deadbands: the height starts
@@ -1047,7 +1140,11 @@ function scheduleSeatSolve(seat, {
     seat.applied.zeta = solve.zetaAt(seat.applied.s);
     seat.zetaHolding = true;
     seat.zetaHeld = seat.applied.zeta;
-    seat.applied.phi = fit.padBalance === true ? solve.phiStar : 0;
+    // Graded by its own window exactly as the height above is, and on a true
+    // frame one that grade is exactly zero — so the first adoption applies NO
+    // roll, whatever the solve found. See `easeSeatChannels`.
+    seat.applied.phi = fit.padBalance === true
+      ? seat.rollEst.conf * (seat.rollEst.value ?? 0) : 0;
     return 'adopted-first';
   }
   return 'solved';
@@ -1691,6 +1788,16 @@ export function updateFrame({
     readout.appliedMm = ns ? ns.easedPush * 10 : 0;
     readout.guardMm = ns ? ns.guard * 10 : 0;
     readout.guardPushes = seatState.guardPushes;
+    // The give-ups, as session counts rather than as this frame's mode. A
+    // non-zero `noBearing` says the seat ran and could not find a two-sided
+    // rest; `saddles` says the frame bears on its bridge, which is an answer
+    // rather than a failure; `rollBore` says the balance is carrying the fit.
+    readout.noBearing = seatState.noBearing;
+    readout.saddles = seatState.saddles;
+    readout.rollBore = seatState.rollBore;
+    readout.asymMm = seatState.solve?.asym != null ? seatState.solve.asym * 10 : null;
+    readout.handednessMm = seatState.solve?.handedness != null
+      ? seatState.solve.handedness * 10 : null;
     // The carried surface reference and its evidence mass (2026-08-17) —
     // beside the raw law it admits from, so a live session shows the
     // refusal working: at a hard pose `needMm` (the raw morph) climbs while
@@ -1705,6 +1812,9 @@ export function updateFrame({
     // is not determined", and it is now visible instead of inferred. `restNEff`
     // beside `restN` shows how much of the window's count the measured
     // autocorrelation actually bought.
+    readout.rollEstDeg = seatState.rollEst.value !== null
+      ? seatState.rollEst.value * (180 / Math.PI) : null;
+    readout.rollConf = seatState.rollEst.conf;
     readout.sRestEstMm = seatState.restEst.value !== null ? seatState.restEst.value * 10 : null;
     readout.restSigmaMm = seatState.restEst.sigma !== null ? seatState.restEst.sigma * 10 : null;
     readout.restScaleMm = seatState.restEst.scale !== null ? seatState.restEst.scale * 10 : null;
