@@ -18,7 +18,9 @@ import {
 } from './occluder.js';
 import { estimateYaw } from './tracker.js';
 import { createPersonModel, W_MAX } from './person.js';
-import { solveRestConfiguration } from './seat-equilibrium.js';
+import { solveRestConfiguration, S_REFINE } from './seat-equilibrium.js';
+import { createAgreement, foldAgreement } from './agreement.js';
+import { SETTLE_WINDOW_S } from './settle.js';
 import { normalAt } from './nose.js';
 
 /**
@@ -275,39 +277,6 @@ function isSquareOn(seat, wPose) {
   return (wPose ?? 1) >= SEAT_REF_SLACK * seat.squareOn.band;
 }
 
-/**
- * The anchors' weighted median (see `medianAnchors`), for one scalar: sort by
- * value, walk the cumulative weight, take the first value at or past half the
- * total, and mean the straddling pair on an exact tie — the generalisation
- * that reproduces the plain median bit for bit under equal weights. The
- * seat's carried raw-law estimate stands on it (2026-08-17); same law, same
- * tie tolerance, so the two windows can never disagree about what "median"
- * means.
- */
-function weightedScalarMedian(samples) {
-  if (!samples.length) return null;
-  const order = samples.map((_, i) => i).sort((a, b) => samples[a].v - samples[b].v);
-  let total = 0;
-  for (const s of samples) total += s.w;
-  if (!(total > 0)) {
-    const mid = order.length >> 1;
-    return order.length % 2
-      ? samples[order[mid]].v
-      : (samples[order[mid - 1]].v + samples[order[mid]].v) / 2;
-  }
-  const half = total / 2;
-  const tie = total * 1e-9;
-  let cum = 0;
-  for (let k = 0; k < order.length; k++) {
-    cum += samples[order[k]].w;
-    if (cum >= half - tie) {
-      return cum <= half + tie && k + 1 < order.length
-        ? (samples[order[k]].v + samples[order[k + 1]].v) / 2
-        : samples[order[k]].v;
-    }
-  }
-  return samples[order[order.length - 1]].v;
-}
 
 /**
  * The gaze-hardened admission band (anchoring-v3, 2026-08-17 — the measured
@@ -427,15 +396,39 @@ const SOLVE_MIN_INTERVAL = 0.5;
 const SOLVE_HEARTBEAT = 5;
 
 /**
- * G1's confidence scale: the solved resting height is applied scaled by
- * `clamp(noseMeanW / 50, 0, 1)`. 50 unit-weight frames is ~2 s of decent
- * frontal observation — enough that the surface under the pads is this
- * wearer's nose rather than the canonical prior the session woke up with. A
- * cold session therefore holds today's optical height BY CONSTRUCTION (the
- * scale is zero, not merely small), and the height eases in only as fast as
- * the evidence for it accumulates.
+ * How many solves the resting-height estimate stands on — the same look-back in
+ * SECONDS that the stab meter and the settle metric use, expressed at the
+ * cadence solves actually arrive. See `restEst` for what a window stated in
+ * slots instead of seconds cost when it was measured.
  */
-const CONF_FULL_W = 50;
+const REST_WINDOW = Math.round(SETTLE_WINDOW_S / SOLVE_MIN_INTERVAL);
+
+/**
+ * G1's confidence scale is MEASURED AGREEMENT, not elapsed evidence.
+ *
+ * It used to be `clamp(noseMeanW / 50, 0, 1)` — the person model's accumulated
+ * weight against a fixed count of "enough" frames. Fifty unit-weight frames is
+ * about two seconds, and every wearer paid those two seconds whatever their
+ * data was worth. Measured on the fifteen-subject set, that clock is wrong in
+ * both directions at once: the canonical face's solve answers −1.50 mm on frame
+ * one and −1.375 mm nineteen seconds later (a journey of 0.125 mm, inside the
+ * channel's own 0.3 mm deadband) and still waited 2.9 s; while S08's solve
+ * disagrees with itself across 1.5 mm all session and was believed at full
+ * confidence anyway, walking the applied height up and down the wedge for 15.2 s.
+ *
+ * So the scale is now the seat's own answers grading themselves: the solved
+ * heights go into a bounded window, and `conf` is that window's positive-part
+ * empirical-Bayes shrinkage `max(0, 1 − sigma²/value²)`, with `sigma` the
+ * location's own standard deviation from the MEASURED scatter, an effective
+ * sample count discounted by the MEASURED lag-1 autocorrelation, and a floor at
+ * the solve's own `S_REFINE` resolution. See `agreement.js` for every line of
+ * the derivation; nothing here chooses a number, and `CONF_FULL_W` is gone.
+ *
+ * A cold session still holds today's optical height BY CONSTRUCTION, and for a
+ * better reason than before: scatter is undefined on a single observation, so
+ * the first solve earns `conf = 0` exactly rather than a small number that
+ * happened to fall under the deadband.
+ */
 
 /**
  * The G13 confidence-crossing thresholds, on noseMeanW normalised by the
@@ -624,7 +617,46 @@ function createSeatState() {
      * the deadbands already refuse to act on). No new thresholds: wPose,
      * POSE_TRUST_ADMIT, FIT_WINDOW, and the deadbands it flows through.
      */
-    needEst: { samples: [], value: null, weight: 0 },
+    needEst: createAgreement(FIT_WINDOW),
+    /**
+     * The carried estimate of the SOLVED RESTING HEIGHT, and the source of the
+     * seat's confidence (2026-08-18).
+     *
+     * Same window, same grammar, same eviction as `needEst` above — the two are
+     * literally one estimator with two instances, which is the point: the seat
+     * has exactly one idea of what "the carried estimate of a face-space
+     * constant" means. What it adds is that the window also GRADES itself, and
+     * that grade is what `conf` is (see the G1 note above and `agreement.js`).
+     *
+     * The height needed this treatment more than the standoff did and had never
+     * had it. `sTarget` used to be `conf · seat.sStar` — the LATEST solve, raw,
+     * with no window at all — so a single freak answer moved the applied height
+     * the moment confidence was full. Measured: S06's solve reads −0.25 mm for
+     * the whole session except two answers of −0.5 mm at t ≈ 8 s, and those two
+     * alone dragged the applied height off zero and the standoff behind it,
+     * which is the entire 9.2 s that subject's standoff took to settle. A
+     * median over the window ignores them by construction.
+     *
+     * `resolution` is the solve's own bisection step (`S_REFINE`), because a
+     * quantised observer cannot disagree with itself by less than its quantum
+     * and a window of identical grid answers must not be allowed to claim
+     * infinite precision from two lucky samples.
+     *
+     * THE CAPACITY IS STATED IN TIME, and it is the one thing here that is NOT
+     * `needEst`'s. `FIT_WINDOW` is 31 slots because that is about a second of a
+     * 30 Hz stream, which is what the anchors and the standoff readings are.
+     * Solves arrive at 2 Hz, so the same 31 slots would be a FIFTEEN-SECOND
+     * memory — longer than the whole convergence it is supposed to describe. It
+     * was measured being exactly that: on the wearer's own recording the solve's
+     * answer steps from 0 to −11.3 mm at 3.6 s (the surface finishing its own
+     * measurement), and a 31-solve window went on holding the pre-step answers
+     * for ten seconds after they stopped being true. So the window looks back
+     * `SETTLE_WINDOW_S` — the same 5 s the stab meter and the settle metric look
+     * back, already derived as 2.5 periods of the measured 0.5 Hz gaze coupling
+     * — at the solve cadence the scheduler itself enforces. The estimator
+     * remembers exactly as far as the instrument that grades it, and no further.
+     */
+    restEst: createAgreement(REST_WINDOW, S_REFINE),
     /** Whether any equilibrium solve has been adopted yet — before one, the
      * placement seats standalone (the softened raw law), which IS the
      * pre-solve behaviour and the zero-state every reset returns to. */
@@ -714,10 +746,15 @@ function createSeatState() {
  * flag and pins to exactly zero when dark, which keeps the dark path
  * bit-identical to a build without the feature.
  */
-function easeSeatChannels(seat, person, fit, dt, wPose) {
+function easeSeatChannels(seat, fit, dt, wPose) {
   seat.sinceSolve += Math.max(dt, 0);
-  seat.conf = person
-    ? Math.min(Math.max(person.noseMeanW / CONF_FULL_W, 0), 1) : 0;
+  // The confidence the height rides is the SOLVE WINDOW'S OWN GRADE, folded by
+  // `scheduleSeatSolve` at the last adopted solve — last frame's reading, the
+  // same one-frame staleness the ζ target has always had, on a channel whose
+  // fastest time constant is 0.15 s. The person model is not consulted: how
+  // many frames it has seen is not the question, whether the seat's answers
+  // agree with each other is.
+  seat.conf = seat.restEst.conf;
 
   // The carried raw-law estimate (see `needEst` on the state): last frame's
   // reading — the same one-frame staleness the ζ target always had — admitted
@@ -744,17 +781,7 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   const seatSquareOn = isSquareOn(seat, wPose);
   if (seatSquareOn) seat.squareOn.admitted++;
   if (seat.rawNeeded !== null && seatSquareOn) {
-    const est = seat.needEst;
-    est.samples.push({ v: seat.rawNeeded, w: wPose });
-    if (est.samples.length > FIT_WINDOW) {
-      let evict = 0;
-      for (let i = 1; i < est.samples.length; i++) {
-        if (est.samples[i].w < est.samples[evict].w) evict = i;
-      }
-      est.samples.splice(evict, 1);
-    }
-    est.value = weightedScalarMedian(est.samples);
-    est.weight = est.samples.reduce((a, s) => a + s.w, 0);
+    foldAgreement(seat.needEst, seat.rawNeeded, wPose);
   }
   seat.applied.needRef = seat.needEst.value;
   // Published for `solvePlacement`'s guard: penetration is only answerable
@@ -775,7 +802,14 @@ function easeSeatChannels(seat, person, fit, dt, wPose) {
   // +1.57 frontal in the same segment). Where the frame rests on the nose is a
   // face constant; turning cannot slide it. The confidence ramp simply pauses
   // while off-square and resumes on the next square-on look.
-  const sTarget = seat.conf * seat.sStar;
+  //
+  // The target is the CARRIED estimate of the solved height, not the latest
+  // solve (2026-08-18 — see `restEst`), for the same reason the ζ target became
+  // the carried estimate the day before: the resting height is a face-space
+  // constant, and the ease's job is to settle onto the ESTIMATE of that
+  // constant, which only moves when admitted evidence moves the window's
+  // median. One freak solve now moves the applied height by nothing at all.
+  const sTarget = seat.conf * (seat.restEst.value ?? 0);
   if (seatSquareOn && Math.abs(sTarget - seat.applied.s) > REST_DEADBAND) {
     seat.applied.s += (sTarget - seat.applied.s) * alpha(REST_TAU);
     seat.sSettling = true;
@@ -989,14 +1023,26 @@ function scheduleSeatSolve(seat, {
   seat.zetaAt = solve.zetaAt;
   seat.phiStar = solve.phiStar;
 
+  // The answer joins the window and the window re-grades itself, in that order,
+  // so `conf` below is a statement about evidence that INCLUDES this solve.
+  // Weighted at this frame's pose trust, exactly as the standoff's readings
+  // are — and every solve that reaches this line already passed the square-on
+  // gate, so the weight is a fine grading of admitted looks, never the gate
+  // itself. `S_REFINE` is the window's resolution floor (see `restEst`).
+  foldAgreement(seat.restEst, solve.sStar, wPose);
+  seat.conf = seat.restEst.conf;
+
   if (first) {
     // Adopted whole, through the channels' own deadbands: the height starts
     // at zero unless the confidence-scaled target has already left the
-    // deadband (on a true frame one, confidence arithmetic guarantees it has
-    // not — conf ≤ 1/50 and |s*| ≤ 12 mm put the target under 0.24 mm), and
-    // the standoff adopts the sweep's answer at that height verbatim, exactly
-    // as the scalar seat adopted its first push.
-    const sTarget = seat.conf * solve.sStar;
+    // deadband, and on a true frame one it has not — a single observation
+    // measures no scatter, so `conf` is exactly zero and the target is exactly
+    // zero. (Under the frame-count ramp this was an arithmetic accident:
+    // conf ≤ 1/50 and |s*| ≤ 12 mm put the target under 0.24 mm, just inside
+    // the 0.3 mm deadband. Same applied height, now by construction.) The
+    // standoff adopts the sweep's answer at that height verbatim, exactly as
+    // the scalar seat adopted its first push.
+    const sTarget = seat.conf * (seat.restEst.value ?? 0);
     seat.applied.s = Math.abs(sTarget) > REST_DEADBAND ? sTarget : 0;
     seat.applied.zeta = solve.zetaAt(seat.applied.s);
     seat.zetaHolding = true;
@@ -1589,7 +1635,7 @@ export function updateFrame({
   // them — no easing, no clock, and (below) no solves. What still runs is the
   // per-frame guard inside `solvePlacement`, which is a capped safety, and the
   // `rawNeeded` readout, which feeds nothing while the ease is held.
-  if (pinMode !== 'frozen') easeSeatChannels(seatState, person, fit, dt, wPose);
+  if (pinMode !== 'frozen') easeSeatChannels(seatState, fit, dt, wPose);
 
   const surface = surfaceOf(state.occluder);
   // The channels are withheld — not merely frozen — while "Rest on the
@@ -1652,6 +1698,19 @@ export function updateFrame({
     readout.needRefMm = seatState.needEst.value !== null ? seatState.needEst.value * 10 : null;
     readout.needMass = seatState.needEst.weight;
     readout.needMm = seatState.rawNeeded !== null ? seatState.rawNeeded * 10 : null;
+    // The height's carried estimate and the grade `conf` is READ FROM
+    // (2026-08-18). Published beside `sRestMm`, the latest raw solve, because
+    // the pair is the whole diagnosis in a live session: `sRestMm` jumping
+    // around `sRestEstMm` while `restSigmaMm` is large IS "this wearer's seat
+    // is not determined", and it is now visible instead of inferred. `restNEff`
+    // beside `restN` shows how much of the window's count the measured
+    // autocorrelation actually bought.
+    readout.sRestEstMm = seatState.restEst.value !== null ? seatState.restEst.value * 10 : null;
+    readout.restSigmaMm = seatState.restEst.sigma !== null ? seatState.restEst.sigma * 10 : null;
+    readout.restScaleMm = seatState.restEst.scale !== null ? seatState.restEst.scale * 10 : null;
+    readout.restRho = seatState.restEst.rho;
+    readout.restN = seatState.restEst.n;
+    readout.restNEff = seatState.restEst.nEff;
     readout.phiDeg = seatState.applied.phi * (180 / Math.PI);
     readout.solves = seatState.solves;
     readout.holds = seatState.holds;
@@ -1917,6 +1976,16 @@ export function isDifferentFace(anchors, observed) {
  * and so does the check. A field added to `state` without a manifest entry
  * fails `isolationSwap` — which is what turns this comment into an invariant.
  */
+/**
+ * The seat channels' own numbers, exported so the harness gates on the same
+ * constants the channels run on rather than on copies of them. Every one is
+ * derived and documented at its definition above; this block adds nothing.
+ */
+export const SEAT_CONSTANTS = {
+  REST_TAU, REST_DEADBAND, SEAT_TAU, ZETA_REARM, ZETA_RELEASE,
+  SOLVE_MIN_INTERVAL, SOLVE_HEARTBEAT, FIT_WINDOW, REST_WINDOW, SEAT_REF_SLACK,
+};
+
 export const PER_SESSION_STATE = {
   /**
    * Cleared by `resetFit` — every one of these is a statement about the

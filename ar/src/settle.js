@@ -205,8 +205,13 @@ export function settleZ(windows, alpha = SETTLE_ALPHA) {
  * exactly, which makes the median negation-equivariant and the IQR
  * negation-invariant — and the harness asserts the consequence: a drift and its
  * mirror image settle at bit-identical times.
+ *
+ * Exported because `agreement.js` builds the seat's confidence out of the same
+ * IQR-over-root-n construction this file uses for its band, and the metric that
+ * GRADES the seat's convergence and the estimator that DRIVES it must not hold
+ * two opinions about what a quantile is.
  */
-const quantileOf = (sorted, q) => {
+export const interpolatedQuantile = (sorted, q) => {
   const h = q * (sorted.length - 1);
   const lo = Math.floor(h);
   const hi = Math.ceil(h);
@@ -266,8 +271,8 @@ export function measureSettle(samples, { tolerance = 0, alpha = SETTLE_ALPHA } =
     work.length = 0;
     for (let i = head; i < trail.length; i++) work.push(trail[i].x);
     work.sort((p, q) => p - q);
-    const median = quantileOf(work, 0.5);
-    const iqr = quantileOf(work, 0.75) - quantileOf(work, 0.25);
+    const median = interpolatedQuantile(work, 0.5);
+    const iqr = interpolatedQuantile(work, 0.75) - interpolatedQuantile(work, 0.25);
 
     // Lag-1 autocorrelation of the window's own deviations, and the RMS about
     // the median in the same pass. Clamped non-negative: the correction may
@@ -357,7 +362,7 @@ export function measureSettleRaw(samples, bandAbs) {
   const tail = samples.filter((s) => s.t >= tEnd - 2 && Number.isFinite(s.x))
     .map((s) => s.x).sort((a, b) => a - b);
   if (!tail.length) return null;
-  const pInf = quantileOf(tail, 0.5);
+  const pInf = interpolatedQuantile(tail, 0.5);
   let lastViolation = -1;
   for (let i = 0; i < samples.length; i++) {
     if (Math.abs(samples[i].x - pInf) > bandAbs) lastViolation = i;
