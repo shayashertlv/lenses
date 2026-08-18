@@ -419,6 +419,49 @@ const CONF_HOLD = 30;
  */
 const RELIEF_DEADBAND_PX = 0.5;
 
+/**
+ * The view-residual's trust lever: the pose trust at which the residual is
+ * allowed to chase this image at full rate, and the floor it never falls
+ * below.
+ *
+ * Both were numeric literals inside `measureShape`, which is where the audit
+ * found them. Neither is arbitrary and the derivations are different.
+ *
+ * `RESID_TRUST_FULL` is `POSE_TRUST`'s own yaw ramp read backwards. The
+ * residual exists to make the mesh cover THIS image; the measurement that put
+ * this lever here (stage 6, live) was a deep tilt where the surface surged by
+ * centimetres because the landmarks it was chasing were foreshortened and half
+ * hallucinated. `w = 0.3` is where the yaw ramp crosses on its way out — a
+ * ~29° turn, the angle at which the far sidewall stops being observed and
+ * starts being guessed — so the knee is the pose ramp's own statement about
+ * when a landmark set stops describing a face, not a second opinion about it.
+ *
+ * `RESID_TRUST_FLOOR` is deliberately NOT zero and that is the load-bearing
+ * part. At zero the residual freezes whole, and a frozen residual is the exact
+ * failure the stage-6 freeze was retired for: it locks whatever inflation had
+ * already happened and wears it through the entire hard-pose regime. A twentieth
+ * is the tree's own "one twentieth of a frontal measurement" (`POSE_TRUST_ADMIT`,
+ * frame.js) — enough that a surface which is genuinely wrong keeps correcting,
+ * far too little for a hallucinated one to move it inside a turn.
+ */
+const RESID_TRUST_FULL = 0.3;
+const RESID_TRUST_FLOOR = 0.05;
+
+/**
+ * The shrinkage floor's multiple of the vertex's own measured noise (G16).
+ *
+ * A vector shrinkage `1 − r0/|e|` removes a ball of radius `r0` from the
+ * innovation, so `r0` has to be the radius inside which an innovation is
+ * indistinguishable from noise. At 1.5 measured sigmas a two-sided Gaussian
+ * puts 87% of pure noise inside the ball — the drift pump the rebuild storm
+ * was made of runs on the other 13%, at a fraction of its amplitude, and a
+ * real reshape of 3 sigma keeps half its size. Going to 3 sigma (the Huber
+ * gate's own rate) would stall genuine millimetre-scale reshapes, which is the
+ * opposite failure and the reason the two gates do not share a number: one is
+ * refusing outliers, the other is refusing noise.
+ */
+const SHRINK_SIGMAS = 1.5;
+
 const shift = new THREE.Vector3();
 const cameraInFace = new THREE.Vector3();
 const toFace = new THREE.Matrix4();
@@ -1104,7 +1147,7 @@ export function updateOccluder(occluder, {
     // delta, so the composite the surface is built from does not move — no
     // step, no drift, no rebuild. What a commit changes is only the SPLIT
     // between the slow layer and the fast one, plus everything derived from
-    // the estimate (zConf, the pin base, the crossfade targets).
+    // the estimate (zConf and the pin base).
     if (!freezeEstimators && person && data.hasShape && person.commitDue(dt)) {
       const delta = person.commit();
       const viewResidual = data.viewResidual;
@@ -1244,7 +1287,7 @@ function measureShape(data, {
 
   const recovery = carryLandmarks({
     face, camera, headMatrixWorld, landmarks, out: observed,
-    depthFit: data.depthFit, depthLimit: DEPTH_LIMIT, person,
+    depthFit: data.depthFit, depthLimit: DEPTH_LIMIT,
   });
   data.depthClamped = recovery.depthClamped;
 
@@ -1261,7 +1304,8 @@ function measureShape(data, {
   // trusted residual); the fade band and snap absorb the boundary error, which is
   // millimetres, where the chase's error was centimetres.
   const trustScale = data.hasShape
-    ? (wPose >= 0.3 ? 1 : Math.max(wPose / 0.3, 0.05))
+    ? (wPose >= RESID_TRUST_FULL
+      ? 1 : Math.max(wPose / RESID_TRUST_FULL, RESID_TRUST_FLOOR))
     : 1;
   const alpha = data.hasShape
     ? (1 - Math.exp(-Math.max(dt, 0) / SHAPE_TAU)) * trustScale
@@ -1324,7 +1368,7 @@ function measureShape(data, {
     // frame one is bit-identical to the pre-stage pipeline.
     if (data.hasShape) {
       const el = Math.hypot(ex, ey, ez);
-      const r0 = Math.max(SHRINK_FLOOR, 1.5 * (resNoise ? resNoise[v] : 0));
+      const r0 = Math.max(SHRINK_FLOOR, SHRINK_SIGMAS * (resNoise ? resNoise[v] : 0));
       const shrink = el > r0 ? 1 - r0 / el : 0;
       ex *= shrink; ey *= shrink; ez *= shrink;
     }
@@ -1364,7 +1408,7 @@ function measureShape(data, {
   // shrinkage conditions the render path and must never starve the person
   // model (G16's second half, and the two-features-interacting risk retired).
   // Frozen (R0): the model holds whole — no accumulate, and with it no
-  // tripwires, no decay, no zWeight ease.
+  // tripwires and no decay.
   if (person && !freezeEstimators) {
     person.accumulate(observed, cameraInFace, facingTrust, wPose, dt);
   }
@@ -1683,4 +1727,7 @@ export const OCCLUDER_CONSTANTS = {
   VIS_GRID, VIS_BIAS, VIS_RAMP, VIS_GRAZE,
   REBUILD_MIN_INTERVAL, REBUILD_BYPASS, SHRINK_FLOOR,
   TAU_RESID_DECAY, CONF_HOLD, RELIEF_DEADBAND_PX,
+  // Named 2026-08-18: three numeric literals inside `measureShape`, which is
+  // where the audit found the rest of this file's real behaviour hiding.
+  RESID_TRUST_FULL, RESID_TRUST_FLOOR, SHRINK_SIGMAS,
 };

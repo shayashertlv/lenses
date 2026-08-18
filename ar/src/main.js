@@ -242,7 +242,7 @@ const state = {
    * and the cause of the last surface rebuild, so a cadence regression is
    * visible without the harness. (`__ar.person` is `state.person` itself —
    * the model exposes meanW/noseMeanW/zConfBridge/residualRmsMm/commits/
-   * resets/tripwireActive/crossfadeOn as plain fields.)
+   * resets/tripwireActive as plain fields.)
    */
   get rebuilds() {
     const data = this.occluder?.userData;

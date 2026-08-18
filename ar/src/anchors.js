@@ -340,17 +340,8 @@ function blendFittedDepth(borrowed, z, fitted, fitWeight, depthLimit, stats = nu
 export function carryLandmarks({
   face, camera, headMatrixWorld, landmarks, out, depthFit = null,
   depthLimit = DEPTH_BLEND_LIMIT,
-  /**
-   * The person model (stage 4), for the zConf depth crossfade: a vertex whose
-   * accumulated parallax has earned prior-free depth trust walks its ray to
-   * the person surface's own camera depth instead of the borrowed/fitted one
-   * — `person.depthFor` applies the law, including the G8 gate that ships it
-   * dark. Null (or an empty model) leaves every depth exactly as before.
-   */
-  person = null,
 }) {
   inverseHead.copy(headMatrixWorld).invert();
-  const headElements = headMatrixWorld.elements;
   const count = Math.min(face.vertexCount, landmarks.length);
   const fitted = depthFit?.used === true ? depthFit : null;
   // How much of the fitted depth to believe, 0..1 — smooth in the fit's own r2, so
@@ -388,18 +379,6 @@ export function carryLandmarks({
       ? blendFittedDepth(borrowed, landmark.z, fitted, fitWeight, depthLimit, stats)
       : borrowed;
 
-    // The crossfade sits ON TOP of the unified blend, per vertex: at zero
-    // trust it is the identity, at full trust the fitted path is retired for
-    // this vertex entirely — depth from the person's own converged surface,
-    // prior-free. Clamped against the borrowed depth by the same law as the
-    // fit, because depth is still the axis one bad estimate hurts most.
-    if (person) {
-      const faded = person.depthFor(i, depth, headElements);
-      if (faded !== depth) {
-        depth = Math.min(Math.max(faded, borrowed - depthLimit), borrowed + depthLimit);
-      }
-    }
-
     rayPoint.set(landmark.x * 2 - 1, -(landmark.y * 2 - 1), 0.5).unproject(camera);
 
     const t = depth / rayPoint.z;
@@ -426,11 +405,8 @@ export function measureAnchors({
   depthLimit = DEPTH_BLEND_LIMIT,
   /** True yaw off the pose euler, radians — the PD's foreshortening correction. */
   trueYaw = 0,
-  /** The person model's depth crossfade — same law as `carryLandmarks`. */
-  person = null,
 }) {
   inverseHead.copy(head.matrixWorld).invert();
-  const headElements = head.matrixWorld.elements;
 
   // The same depth correction the occluder's shape recovery earns, applied to the
   // anchors — and its absence here was a real artefact, not an economy. A borrowed
@@ -473,19 +449,6 @@ export function measureAnchors({
     let depth = fitted
       ? blendFittedDepth(borrowed, landmark.z, fitted, fitWeight, depthLimit)
       : borrowed;
-
-    // And the same crossfade, keyed by the vertex whose depth is being
-    // borrowed (`depthFrom` — the iris rays ride the inner corner's estimate,
-    // exactly as they ride its borrowed depth). The bridge pin is the first
-    // beneficiary: once vertex 6 has parallax, its depth stops depending on
-    // the depth fit entirely — the r2-band exposure at the one point
-    // everything hangs from, gone.
-    if (person) {
-      const faded = person.depthFor(depthFrom, depth, headElements);
-      if (faded !== depth) {
-        depth = Math.min(Math.max(faded, borrowed - depthLimit), borrowed + depthLimit);
-      }
-    }
 
     rayPoint.set(landmark.x * 2 - 1, -(landmark.y * 2 - 1), 0.5).unproject(camera);
 

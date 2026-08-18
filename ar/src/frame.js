@@ -358,20 +358,89 @@ const GAZE_NEUTRAL_TAU = 10;
 const SEAT_TAU = 0.15;
 
 /**
- * The standoff channel's effect deadband, cm: the ease only re-arms when its
- * target has moved past `ZETA_REARM` from the value it is holding, and goes
- * back to holding once the eased value lands within `ZETA_RELEASE` of the
- * target. Between those, the seat literally RESTS — zero movement, not small
- * movement.
+ * Half a pixel: the resolution below which a displacement on this screen is
+ * not a displacement at all.
  *
- * 0.15 mm of re-arm is 0.026 px at 45 cm (1.74 px/mm) — invisible — and more
- * than twice the measured 0.02–0.08 mm noise of the eased push, so noise can
- * never wake the channel. The 0.05 mm release is the hysteresis: one
- * threshold would chatter exactly at its own edge, which is the latch lesson
- * this codebase already paid for once.
+ * Not a new number — it is the one this tree already argues every visibility
+ * claim against, in three places that each wrote it out separately: the relief
+ * cap's own effect deadband (`RELIEF_DEADBAND_PX`, occluder.js), the settle
+ * metric's rejected absolute band (settle.js), and the roll's `0.235°` visible
+ * angle (fit.js). Stated once here so the conversions below can reference the
+ * claim instead of restating it.
+ */
+export const VISIBLE_PX = 0.5;
+
+/**
+ * The standoff channel's effect deadband: the ease only re-arms when its
+ * target has moved past the re-arm distance from the value it is holding, and
+ * goes back to holding once the eased value lands within the release distance
+ * of the target. Between those, the seat literally RESTS — zero movement, not
+ * small movement.
+ *
+ * Two floors, and until 2026-08-18 only one of them was real.
+ *
+ * **The noise floor is the derivation and it stands.** 0.15 mm is more than
+ * twice the measured 0.02–0.08 mm noise of the eased push, so noise can never
+ * wake the channel; the 0.05 mm release is the hysteresis, because one
+ * threshold would chatter exactly at its own edge — the latch lesson this
+ * codebase already paid for once.
+ *
+ * **The visibility floor was one session's arithmetic, and the arithmetic was
+ * wrong.** The comment here claimed 0.15 mm was "0.026 px at 45 cm
+ * (1.74 px/mm)". 0.15 × 1.74 = 0.261 px, not 0.026 — a factor of ten, in the
+ * flattering direction, and the same slip appears on `FIT_DEADBAND.eyeLineY`
+ * and on the >40° recovery note below. Corrected, the shipped value is 0.26 px
+ * at THAT session's scale: under half a pixel, so the claim survives — barely
+ * — for that wearer at that distance. It does not survive generally. px/mm is
+ * a property of the camera, the resolution and how far away the wearer is
+ * sitting, not of the pipeline: this repository's own two capture sessions
+ * measured **1.74 and 4.22 px/mm**, a factor of 2.4 apart, and at 4.22 the
+ * shipped re-arm is **0.63 px** — over the half-pixel bar, i.e. a rest the
+ * wearer can see the frame taking.
+ *
+ * So the visibility floor stops being a constant and becomes the measurement:
+ * `VISIBLE_PX / imageScale`, from `measureImageScale` below, live every frame.
+ * The channel takes the SMALLER of the two, which is what makes this a strict
+ * improvement rather than a re-tuning — the noise floor can only be relaxed by
+ * a claim about noise, never by a claim about pixels, and the shipped pair is
+ * the answer wherever the wearer sits far enough away for it to be invisible.
+ * At the fixture that pinned these numbers the visibility bound is 0.287 mm
+ * against the shipped 0.15, so the shipped value wins and the replay is
+ * untouched; a wearer holding a phone at arm's length gets 0.118 mm instead.
  */
 const ZETA_REARM = 0.015;
 const ZETA_RELEASE = 0.005;
+/** The shipped pair's hysteresis ratio, kept when the bound moves. */
+const ZETA_HYSTERESIS = ZETA_RELEASE / ZETA_REARM;
+
+/**
+ * How many image pixels one face-space centimetre spans, this frame.
+ *
+ * The pipeline's absolute ruler for LENGTH is the iris (`metricScale`); this
+ * is its ruler for VISIBILITY, and the two are independent — a wearer with an
+ * average head at arm's length and one with an average head at a metre have
+ * the same `metricScale` and a three-fold difference in what they can see.
+ *
+ * Exact, and pose-free by construction. A face-space offset `r` from the head
+ * origin lands `headScale·r` centimetres from it in camera space; at depth `d`
+ * under a vertical field of view `fov`, one camera centimetre perpendicular to
+ * the view is `heightPx / (2·d·tan(fov/2))` pixels. Both factors are already
+ * measured — `headScale` is the pose fit's own scale, `d` is the pose's own
+ * translation, `fov` is the camera the whole pipeline unprojects through, and
+ * `heightPx` is the frame being drawn into. Nothing is assumed and no landmark
+ * pair is differenced, so it does not foreshorten with yaw the way a temple
+ * span would.
+ *
+ * `null` when the pose is degenerate, which is the caller's cue to keep the
+ * shipped floor rather than invent a scale.
+ */
+function measureImageScale(headScale, depthCm, fovDeg, heightPx) {
+  const d = Math.abs(depthCm);
+  const tanHalf = Math.tan((fovDeg * Math.PI) / 360);
+  if (!(d > 1e-6) || !(heightPx > 0) || !(tanHalf > 1e-9) || !(headScale > 1e-9)) return null;
+  const px = (headScale * heightPx) / (2 * d * tanHalf);
+  return Number.isFinite(px) && px > 0 ? px : null;
+}
 
 /**
  * The resting-height channel: its ease time and its output deadband (G1).
@@ -513,9 +582,18 @@ const FIT_DEADBAND = {
    * frame by design — but a carried proportion that the median nudges a few
    * hundredths of a millimetre per admitted sample is exactly the creep the other
    * fields' deadbands exist to refuse. Sized like the nose width's: 0.2 mm is
-   * smaller than anybody can see (0.035 px at 45 cm) and larger than the
-   * converged median's frame-to-frame noise, so the eye line rests between real
-   * changes the way the widths do.
+   * larger than the converged median's frame-to-frame noise, so the eye line
+   * rests between real changes the way the widths do.
+   *
+   * It used to also claim "smaller than anybody can see (0.035 px at 45 cm)".
+   * That was the same factor-of-ten slip `ZETA_REARM` carried: 0.2 mm at that
+   * session's 1.74 px/mm is **0.35 px**, and at the diag stills' 4.22 px/mm it
+   * is 0.84 px — visible. The claim is withdrawn rather than repaired, because
+   * this deadband does not need it: it is on a CARRIED PROPORTION whose whole
+   * job is to stop a median creeping, and the thing that would be seen is the
+   * creep it refuses, not the step it permits. The visibility argument belongs
+   * where a channel eases toward a target, which is the seat's, and there it
+   * is now measured (see `VISIBLE_PX`).
    */
   eyeLineY: 0.02,
 };
@@ -723,6 +801,10 @@ function createSeatState() {
     /** The standoff channel's effect-deadband latch. */
     zetaHolding: false,
     zetaHeld: 0,
+    /** The re-arm distance actually in force — min(noise floor, half a pixel
+     * at the measured image scale). Published so a live session can read which
+     * of the two bounds it is sitting on. */
+    zetaRearm: ZETA_REARM,
     sSettling: false,
     /** Scheduler state: elapsed-since-solve clock, pending-event latch, and
      * one edge detector per G13 trigger. */
@@ -813,7 +895,7 @@ function createSeatState() {
  * flag and pins to exactly zero when dark, which keeps the dark path
  * bit-identical to a build without the feature.
  */
-function easeSeatChannels(seat, fit, dt, wPose) {
+function easeSeatChannels(seat, fit, dt, wPose, imageScale = null) {
   seat.sinceSolve += Math.max(dt, 0);
   // The confidence the height rides is the SOLVE WINDOW'S OWN GRADE, folded by
   // `scheduleSeatSolve` at the last adopted solve — last frame's reading, the
@@ -911,9 +993,12 @@ function easeSeatChannels(seat, fit, dt, wPose) {
   // that inflation through the whole >40° regime (dζ +2.1 to +2.6 mm on the
   // ab fixture's yaw segment, frozen). With the carried target the low-trust
   // ease is not a hazard but the recovery: past 40° the target is the
-  // wearer's own frontal reference, so the standoff settles back onto it —
-  // sub-pixel motion (≈2.5 mm over SEAT_TAU at 45 cm ≈ 0.4 px), through the
-  // same deadband as ever.
+  // wearer's own frontal reference, so the standoff settles back onto it,
+  // through the same deadband as ever. (The "≈ 0.4 px" this note used to
+  // carry was the third instance of the same factor-of-ten slip: 2.5 mm at
+  // 1.74 px/mm is 4.4 px, and the recovery is a visible settle — which is
+  // what SEAT_TAU's 0.15 s ease is FOR. The motion is deliberate and eased,
+  // not invisible, and calling it sub-pixel was the only part that was wrong.)
   //
   // NOT additionally frozen under off-neutral gaze, and that was measured
   // before it was believed (anchoring-v3 landing): the R0 gazeInjection run
@@ -930,16 +1015,25 @@ function easeSeatChannels(seat, fit, dt, wPose) {
   // last square-on look measured is the number a turned head wears, because
   // that is what a pair of glasses does.
   if (seatSquareOn) {
+    // The two floors, taken at their tighter (see ZETA_REARM): the noise floor
+    // the pair was derived against, and half a pixel at THIS frame's measured
+    // image scale. `imageScale` null — a degenerate pose, or a caller with no
+    // camera — keeps the shipped pair, because "no measurement" must never
+    // read as "no bound".
+    const visible = imageScale ? VISIBLE_PX / imageScale : Infinity;
+    const rearm = Math.min(ZETA_REARM, visible);
+    const release = rearm * ZETA_HYSTERESIS;
+    seat.zetaRearm = rearm;
     const est = seat.needEst;
     const zetaTarget = est.value !== null
       ? est.value
       : (seat.rawNeeded ?? seat.zetaAt(seat.applied.s));
-    if (seat.zetaHolding && Math.abs(zetaTarget - seat.zetaHeld) > ZETA_REARM) {
+    if (seat.zetaHolding && Math.abs(zetaTarget - seat.zetaHeld) > rearm) {
       seat.zetaHolding = false;
     }
     if (!seat.zetaHolding) {
       seat.applied.zeta += (zetaTarget - seat.applied.zeta) * alpha(SEAT_TAU);
-      if (Math.abs(seat.applied.zeta - zetaTarget) <= ZETA_RELEASE) {
+      if (Math.abs(seat.applied.zeta - zetaTarget) <= release) {
         seat.zetaHolding = true;
         seat.zetaHeld = zetaTarget;
       }
@@ -1254,7 +1348,7 @@ export function updateFrame({
   // is owned HERE, beside the fit window and the pin filters it feeds, because
   // its lifecycle is the fit's: created with the session, reset with
   // `resetFit`, and meaningless without adaptation. Empty it contributes
-  // nothing anywhere (offsets zero, pin maturity zero, crossfade weight zero),
+  // nothing anywhere (offsets zero, pin maturity zero, parallax zero),
   // which is one of the three mechanisms that keep frame one bit-identical.
   if (adaptToFace && !state.person) state.person = createPersonModel(face);
   const person = adaptToFace ? state.person : null;
@@ -1290,7 +1384,6 @@ export function updateFrame({
     // depth, whose error rotates into the image at any tilted pose and pushes the
     // frame (and the occluder translated onto the same pin) forward off the face.
     depthFit: landmarkDepth ? state.occluder?.userData?.depthFit ?? null : null,
-    person,
   }), face, railsOf());
   let observed = measureObserved();
 
@@ -1442,7 +1535,7 @@ export function updateFrame({
           // The measurement above consumed two things that describe the
           // PREVIOUS person: the occluder's depth fit ("one frame stale", and
           // on this one frame the previous frame belongs to somebody else) and
-          // the person model's crossfaded depth. Admitted as it stood, it made
+          // the carried surface underneath it. Admitted as it stood, it made
           // the new wearer's frame-one fit — the sample that is adopted whole,
           // by the invariant — the one sample in their whole session measured
           // through the last person's depth EMA, and every deadbanded field
@@ -1747,7 +1840,14 @@ export function updateFrame({
   // them — no easing, no clock, and (below) no solves. What still runs is the
   // per-frame guard inside `solvePlacement`, which is a capped safety, and the
   // `rawNeeded` readout, which feeds nothing while the ease is held.
-  if (pinMode !== 'frozen') easeSeatChannels(seatState, fit, dt, wPose);
+  // What one face-space centimetre is worth in pixels, this frame, on this
+  // camera, at this distance. Measured rather than assumed — see
+  // `measureImageScale`. Kept on the state so the readouts and the harness can
+  // both see the number the deadbands are being taken against.
+  state.imageScale = measureImageScale(
+    headScale, position.z, scene.camera.fov, source.height,
+  );
+  if (pinMode !== 'frozen') easeSeatChannels(seatState, fit, dt, wPose, state.imageScale);
 
   const surface = surfaceOf(state.occluder);
   // The channels are withheld — not merely frozen — while "Rest on the
@@ -1866,6 +1966,14 @@ export function updateFrame({
     readout.solveAgeMs = Number.isFinite(seatState.sinceSolve)
       ? seatState.sinceSolve * 1000 : null;
     readout.deadbandHolding = seatState.zetaHolding && !seatState.sSettling;
+    // The image scale and the bound it is buying: `zetaRearmMm` is the smaller
+    // of the noise floor and half a pixel HERE, and `zetaRearmVisible` says
+    // which of the two is binding — the one live readout that tells a wearer
+    // sitting too close why the standoff channel got twitchier.
+    readout.pxPerCm = state.imageScale;
+    readout.zetaRearmMm = seatState.zetaRearm * 10;
+    readout.zetaRearmVisible = state.imageScale !== null
+      && VISIBLE_PX / state.imageScale < ZETA_REARM;
     if (ns?.perSide) {
       const side = readout.perSide ?? (readout.perSide = {});
       side.ILmm = Number.isFinite(ns.perSide.L.soft) ? ns.perSide.L.soft * 10 : null;
@@ -2109,6 +2217,7 @@ export function isDifferentFace(anchors, observed) {
 export const SEAT_CONSTANTS = {
   REST_TAU, REST_DEADBAND, SEAT_TAU, ZETA_REARM, ZETA_RELEASE,
   SOLVE_MIN_INTERVAL, SOLVE_HEARTBEAT, FIT_WINDOW, REST_WINDOW, SEAT_REF_SLACK,
+  VISIBLE_PX, ZETA_HYSTERESIS,
 };
 
 export const PER_SESSION_STATE = {
@@ -2234,6 +2343,7 @@ export const PER_SESSION_STATE = {
     identity: 'never — a page-lifetime attribution instrument (created here, in'
       + ' `frame.js`, but owned by nobody\'s reset; see `allowedToSurvive`)',
     poseTrust: 'never — a statement about the pose (see allowedToSurvive)',
+    imageScale: 'never — a statement about the camera (see allowedToSurvive)',
     measuringLatch: 'never — derived from poseTrust on the same frame',
     sessionEpoch: 'never — it COUNTS the resets',
   },
@@ -2274,6 +2384,12 @@ export const PER_SESSION_STATE = {
       + ' unconditionally every frame before anything else touches it',
     measuringLatch: 'derived from `poseTrust` on the same frame, and a pure'
       + ' readout since graft G12 — no behaviour branches on it',
+    imageScale: 'pixels per face-space centimetre — a statement about the'
+      + ' CAMERA and how far away somebody is sitting, not about whose face it'
+      + ' is. Two wearers at the same desk share it and one wearer who leans in'
+      + ' changes it, which is the opposite of a person-derived field.'
+      + ' Recomputed from this frame\'s pose and this frame\'s source every'
+      + ' frame, before anything reads it, with no memory of any kind',
   },
 };
 

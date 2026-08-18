@@ -56,15 +56,13 @@ export const PRIOR_LAMBDA = 4;
 export const W_MAX = 300;
 
 /**
- * How much accumulated parallax before a vertex's depth is trusted prior-free.
- * σ_z ≈ σ_xy/√A_zz = 0.5 mm/5 ≈ 0.1 mm at 25; at the user's ±10–18° browsing
- * (sin²15° ≈ 0.067) that needs ≈370 weighted frames ≈ 15–25 s of natural use.
+ * `zConf` — how much real triangulation a session has accumulated per vertex,
+ * and the instrument that RETIRED the depth crossfade it was built to gate.
  *
- * Measured against `zConf`, which is NOT `A_zz` raw — see the commit note.
- * Graft G15: every observation deposits `w·W_PAR` into `A_zz` even at zero
- * parallax (the along-ray share of the update), so a long frontal-only session
- * accumulates `W_PAR·W_i` of `A_zz` that is borrowed-depth information, not
- * triangulation. Expanding the update law:
+ * Graft G15's bookkeeping: every observation deposits `w·W_PAR` into `A_zz`
+ * even at zero parallax (the along-ray share of the update), so a long
+ * frontal-only session accumulates `W_PAR·W_i` of `A_zz` that is borrowed
+ * depth, not triangulation. Expanding the update law:
  *
  *     A_zz = Σ w·(1 − (1−W_PAR)·d_z²)  =  W_PAR·W  +  (1−W_PAR)·Σ w·(1 − d_z²)
  *
@@ -72,12 +70,46 @@ export const W_MAX = 300;
  *
  *     zConf = A_zz − W_PAR·W  =  (1−W_PAR)·Σ w·sin²θ
  *
- * with θ the angle between the view ray and the face-space z axis. On a purely
- * frontal stream sin²θ ≈ 0 at the bridge and zConf stays ≈ 0 whatever W does —
- * prior-only information can never reach Z_CONF_MIN by construction, and the
- * harness asserts it rather than trusting the algebra.
+ * with θ the angle between the view ray and the face-space z axis.
+ *
+ * **What used to be here, and why it is gone.** A `Z_CONF_MIN = 25` maturity
+ * floor gated a crossfade that walked a vertex's ray to the person surface's
+ * own camera depth once its parallax had earned prior-free trust. Past the
+ * `W_MAX` forgetting cap the accumulator equilibrates, and solving the update
+ * law's fixed point gives its ceiling:
+ *
+ *     zConf*  =  W_MAX · (1 − W_PAR) · E_w[sin²θ]  ≈  297 · E_w[sin²θ]
+ *
+ * so 25 asks for a WEIGHTED RMS view angle of 16.9°, sustained. Measured on
+ * fifteen synthetic subjects at three camera geometries, browsing: the bridge
+ * reaches 2.3 to 24.1, and **0 of 45 cells reach the floor**. The reason is
+ * structural rather than a tuning miss, and it is the whole finding: parallax
+ * and pose trust are the SAME ANGLE with opposite signs. Turning the head buys
+ * `sin²θ` and costs `wPose²`, which enters the weight squared; and a camera
+ * below the eyes does not help, because to the tracker it is not a camera
+ * angle at all — it is head pitch, and the trust law refuses it. At the 30°
+ * geometry the model accumulates a mean `W` of 19 against 200 at eye level and
+ * the parallax is a fifth of what an eye-level session gets. The estimator's
+ * own admission law will not accumulate the information the gate was asking
+ * for, on any camera, for anybody.
+ *
+ * And forced on regardless, the channel does not earn its place: over the same
+ * 45 cells the nose-window depth error against truth improves on 23 and
+ * regresses on 22, with the mean moving 0.78 → 0.75 mm — a 3% shift that is
+ * predominantly a one-signed offset of +0.1 to +0.6 mm rather than a
+ * per-subject correction. The thing the channel was built to fix (the depth
+ * fit's slope bias at the bridge) was fixed at stage 4 by the |e14| →
+ * mean-depth change instead, and the person model's depth already reaches the
+ * DRAWN surface through `measureShape`'s composite without it.
+ *
+ * So the apply path is deleted — `zTarget`, `zWeight`, `depthFor`,
+ * `crossfadeOn`, `CROSSFADE_DEFAULT_ON`, `CROSSFADE_EASE_TAU`, `Z_CONF_MIN`,
+ * and the `person` argument to `carryLandmarks`/`measureAnchors` — and the
+ * ACCUMULATOR stays, because it is the measurement that retired it and the one
+ * number that says how much of a session's depth is real. Recoverable in full
+ * from git history if mono depth triangulation is ever worth reopening; what
+ * would have to change first is the trust law, not this constant.
  */
-export const Z_CONF_MIN = 25;
 
 /** Pin-fusion maturity: full trust in ~2–4 s of decent observation. */
 const W_PIN_FULL = 60;
@@ -92,24 +124,6 @@ export const RES_NOISE_INIT = 0.05;
 /** Commit cadence: ≤ COMMIT_HZ = 2 Hz, amortised event work. */
 const COMMIT_INTERVAL = 0.5;
 
-/** The crossfade's onset ease, seconds — a commit-quantised zConf step never
- * lands on the recovered depth in one frame. */
-const CROSSFADE_EASE_TAU = 0.5;
-
-/**
- * G8, the sign-gate discipline: the zConf depth crossfade ships with its apply
- * gain at zero until the synthetic-truth sign gate (inject a +4 mm protrusion
- * error, BOTH yaw signs, assert recovery direction) and the G14 acceptance
- * gates (slide-injected convergence with bounded bias; converged depth stable
- * across the diag f00–f09 stills within 1.5 mm) pass as hard gates. This
- * codebase has shipped one sign bug already; the gates are run in the harness,
- * and the default flips only on a recorded pass (see the Stage-4 landing note
- * in ar/docs/nose-v2/spec.md for the measured values that set this flag).
- * `crossfadeOn` stays an instance flag so the harness can A/B it and a
- * regression can be shipped dark again without an API change.
- */
-export const CROSSFADE_DEFAULT_ON = false;
-
 /** G9 dual-baseline tripwire: person residual vs canonical, ratio and dwell. */
 const TRIP_RATIO = 1.5;
 const TRIP_SECONDS = 2.0;
@@ -121,6 +135,59 @@ const DECAY_KEEP = 0.9;
 
 /** Huber gate floor on the transverse residual, cm. */
 const HUBER_FLOOR = 0.1;
+
+/**
+ * The Huber knee, in multiples of the vertex's own noise scale.
+ *
+ * 3 is not taste and not tuning: it is the same rate `NOISE_GATE` states in
+ * `smoothing.js`, and it is stated there as a RATE rather than defended as a
+ * number — a two-sided 3σ bound on a Gaussian clips 0.27% of honest samples,
+ * so the gate costs about one sample in 370 and buys a hard cap on what a hand
+ * across the face can do. The floor beneath it (`HUBER_FLOOR`) is what stops a
+ * vertex whose measured noise has converged very low from clipping its own
+ * next honest sample; it is a floor on a MEASURED quantity, which is the
+ * pattern this tree uses everywhere it can (see `SHRINK_FLOOR`, `scale` in
+ * `agreement.js`, `NoiseFloor` in `smoothing.js`).
+ */
+const HUBER_SIGMAS = 3;
+
+/**
+ * The weight below which a sample does not teach the noise EMA, and the trust
+ * below which a vertex is not admitted to the dual-baseline residual.
+ *
+ * ONE number for two questions because it IS one question: has this vertex
+ * been observed well enough this frame for what it says about itself to mean
+ * anything. Above it the sample carries the measurement; below it the sample
+ * is mostly the gate's own arithmetic, and letting the gate's arithmetic feed
+ * the noise floor closes a loop — a clipped outlier raises the floor, a raised
+ * floor clips less, and the estimator talks itself into believing an outlier.
+ *
+ * **This value is stated, not derived, and the honest thing is to say so.**
+ * The tree's other admission floor (`POSE_TRUST_ADMIT`, frame.js) has a real
+ * argument — a sample worth a twentieth of a frontal one is not worth one of
+ * 31 window slots — and it answers a different question, about memory rather
+ * than about self-description. Nothing in the physics fixes THIS one. What can
+ * be said about it is measured rather than asserted: the generality matrix
+ * sweeps it across [0.05, 0.5] — a full order of magnitude around the shipped
+ * value, from the tree's own other floor to the point where only near-frontal
+ * vertices qualify — and reports what moves. See the spec's stage-13 section.
+ */
+const SELF_TRUST_ADMIT = 0.2;
+
+/**
+ * The accumulated weight a vertex needs before its residual joins the robust
+ * median the tripwires read, and how many such vertices the median needs.
+ *
+ * `RESID_MIN_W` is one third of `W_PIN_FULL` — the same "has this vertex been
+ * looked at at all" question the pin's maturity asks, at the point where the
+ * estimate has stopped being mostly prior: at W = 10 against λ = 4 the prior
+ * owns 29% of the answer, so the residual is measuring the estimate rather
+ * than the canonical face it started from. `RESID_MIN_N` is the sample-median
+ * floor `stab.js` and `settle.js` both use (`MIN_SAMPLES` = 8), stated once in
+ * each place a median is taken over a variable population.
+ */
+const RESID_MIN_W = 10;
+const RESID_MIN_N = 8;
 
 const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
 
@@ -149,10 +216,6 @@ export function createPersonModel(face) {
     offsets: new Float32Array(count * 3),
     /** The G15 parallax accumulator: A_zz − W_PAR·W, refreshed at commit. */
     zConf: new Float32Array(count),
-    /** The crossfade weight actually applied: eased toward the zConf target. */
-    zWeight: new Float32Array(count),
-    /** Commit-time crossfade target, clamp(zConf/Z_CONF_MIN, 0, 1). */
-    zTarget: new Float32Array(count),
     /** Per-vertex online |transverse innovation| EMA, cm. */
     resNoise: new Float32Array(count).fill(RES_NOISE_INIT),
     /** Δoffsets of the last commit — handed back for viewResidual re-basing. */
@@ -177,7 +240,6 @@ export function createPersonModel(face) {
     tripwireActive: false,
     lastDecayCause: null,
     tripwireSeconds: 0,
-    crossfadeOn: CROSSFADE_DEFAULT_ON,
 
     // --- internal clocks ---
     sinceCommit: 0,
@@ -226,6 +288,15 @@ export function createPersonModel(face) {
         // Stability self-downweight: a vertex whose own innovations run noisy
         // (the nose tip, measured 2–6x worse) buys less per frame.
         //
+        // The shape of it is an inverse-variance weight and not a curve
+        // somebody liked: `1/(1 + σ²/σ₀²) = σ₀²/(σ₀² + σ²)` is exactly how
+        // much a reading of variance σ² is worth against a reference reading
+        // of variance σ₀², and σ₀ is `RES_NOISE_INIT` — 0.5 mm, the SAME
+        // 0.5 mm of ray-pinned landmark noise that is the numerator of
+        // `W_PAR` above. So the constant in the denominator is the pipeline's
+        // one stated measurement noise, used twice, and a vertex at the
+        // stated noise is worth exactly half a noiseless one.
+        //
         // Pose trust enters SQUARED. Linear was measured live (stage 6): once the
         // trust tails were widened to cover real 30–40° holds, w ≈ 0.3 learned the
         // foreshortened, slid geometry of the turn fast enough to churn the
@@ -249,14 +320,14 @@ export function createPersonModel(face) {
         const tz = rz - along * dz;
         const rt = Math.hypot(tx, ty, tz);
 
-        // Huber gate: past 3x the vertex's own noise scale, influence grows
-        // no further — a hand across the face buys one noise-quantum, not a
-        // reshape.
-        const huber = 3 * Math.max(HUBER_FLOOR, noise);
+        // Huber gate: past HUBER_SIGMAS times the vertex's own noise scale,
+        // influence grows no further — a hand across the face buys one
+        // noise-quantum, not a reshape.
+        const huber = HUBER_SIGMAS * Math.max(HUBER_FLOOR, noise);
         if (rt > huber) w *= huber / rt;
 
         // The online noise estimate follows only samples the gate trusted.
-        if (w > 0.2) resNoise[i] += (rt - noise) * alphaNoise;
+        if (w > SELF_TRUST_ADMIT) resNoise[i] += (rt - noise) * alphaNoise;
 
         // G9's dual baseline, in the same pass: the nose window's transverse
         // residual against BOTH the person estimate and the canonical rest —
@@ -264,7 +335,7 @@ export function createPersonModel(face) {
         // whatever the absolute number says.
         if (mask[i]) {
           noseN++;
-          if (trust[i] > 0.2) {
+          if (trust[i] > SELF_TRUST_ADMIT) {
             const cxr = px - this.rest[at3];
             const cyr = py - this.rest[at3 + 1];
             const czr = pz - this.rest[at3 + 2];
@@ -304,12 +375,7 @@ export function createPersonModel(face) {
 
         sumW += W[i];
         if (mask[i]) noseSumW += W[i];
-        if (W[i] > 10) scratch[residCount++] = rt;
-
-        // The crossfade weight eases toward its commit-time target every
-        // frame, so a quantised zConf step reads as a 0.5 s fade, never a pop.
-        this.zWeight[i] += (this.zTarget[i] - this.zWeight[i])
-          * (1 - Math.exp(-Math.max(dt, 0) / CROSSFADE_EASE_TAU));
+        if (W[i] > RESID_MIN_W) scratch[residCount++] = rt;
       }
 
       this.frames++;
@@ -320,7 +386,7 @@ export function createPersonModel(face) {
       // Robust residual: the median is untouched by the handful of vertices a
       // hand or a hallucination moves, which is exactly why the tripwires can
       // read it without flinching at outliers.
-      if (residCount > 8) {
+      if (residCount > RESID_MIN_N) {
         const view = scratch.subarray(0, residCount);
         view.sort();
         this.residualRmsMm = view[residCount >> 1] * 10;
@@ -371,7 +437,7 @@ export function createPersonModel(face) {
      * on the surface, and no rebuild is caused.
      */
     commit() {
-      const { A, b, W, est, offsets, deltaOffsets, rest, zConf, zTarget } = this;
+      const { A, b, W, est, offsets, deltaOffsets, rest, zConf } = this;
       for (let i = 0; i < this.count; i++) {
         const at6 = i * 6;
         const at3 = i * 3;
@@ -411,12 +477,11 @@ export function createPersonModel(face) {
         deltaOffsets[at3 + 2] = oz - offsets[at3 + 2];
         offsets[at3] = ox; offsets[at3 + 1] = oy; offsets[at3 + 2] = oz;
 
-        // G15's bookkeeping, exactly as derived on Z_CONF_MIN above: subtract
+        // G15's bookkeeping, exactly as derived on `zConf` above: subtract
         // the W_PAR-weighted share every observation deposits regardless of
         // parallax, so what remains is (1−W_PAR)·Σ w·sin²θ — pure
         // triangulation information, zero on a frontal-only stream.
         zConf[i] = Math.max(A[at6 + 5] - W_PAR * W[i], 0);
-        zTarget[i] = clamp(zConf[i] / Z_CONF_MIN, 0, 1);
       }
       this.commits++;
       this.zConfBridge = zConf[LM.NOSE_BRIDGE];
@@ -446,24 +511,6 @@ export function createPersonModel(face) {
     },
 
     /**
-     * The zConf depth crossfade (G8-gated): blends a recovered camera depth
-     * toward the person surface's own camera depth by the vertex's eased
-     * parallax trust. `depth` is whatever the borrowed/fitted path produced;
-     * `e` is the raw head matrix's elements. With the gain off, or a vertex
-     * short of parallax, the input passes through untouched — bit for bit.
-     */
-    depthFor(i, depth, e) {
-      if (!this.crossfadeOn) return depth;
-      const w = this.zWeight[i];
-      if (!(w > 0)) return depth;
-      const at = i * 3;
-      const personDepth = e[2] * this.est[at] + e[6] * this.est[at + 1]
-        + e[10] * this.est[at + 2] + e[14];
-      if (!Number.isFinite(personDepth)) return depth;
-      return depth + (personDepth - depth) * w;
-    },
-
-    /**
      * Identity change: everything measured is gone; the priors remain.
      *
      * Two fields are deliberately NOT cleared, and the split is the isolation
@@ -485,8 +532,6 @@ export function createPersonModel(face) {
       this.offsets.fill(0);
       this.deltaOffsets.fill(0);
       this.zConf.fill(0);
-      this.zWeight.fill(0);
-      this.zTarget.fill(0);
       this.resNoise.fill(RES_NOISE_INIT);
       // Scratch, and cleared anyway: it holds the previous person's residuals
       // past the median's own read window, and "unreachable" is a claim about
@@ -512,8 +557,8 @@ export function createPersonModel(face) {
     /**
      * The tripwires' self-healing: shed 10% of the information per frame while
      * disagreement holds. x̂ decays toward the prior smoothly (the solve blends
-     * by weight), the crossfade weight follows zConf down through its own
-     * ease, and nothing visible steps.
+     * by weight), the parallax accumulator decays exactly with it, and nothing
+     * visible steps.
      */
     softDecay(cause) {
       const { A, b, W, zConf } = this;
@@ -526,7 +571,6 @@ export function createPersonModel(face) {
         W[i] *= DECAY_KEEP;
         // zConf is linear in A and W, so the decayed value is exact, not stale.
         zConf[i] *= DECAY_KEEP;
-        this.zTarget[i] = clamp(zConf[i] / Z_CONF_MIN, 0, 1);
       }
       this.decays++;
       this.lastDecayCause = cause;
@@ -537,8 +581,10 @@ export function createPersonModel(face) {
 }
 
 export const PERSON_CONSTANTS = {
-  W_PAR, PRIOR_LAMBDA, W_MAX, Z_CONF_MIN, W_PIN_FULL,
-  RES_NOISE_INIT, RES_NOISE_TAU, COMMIT_INTERVAL, CROSSFADE_EASE_TAU,
+  W_PAR, PRIOR_LAMBDA, W_MAX, W_PIN_FULL,
+  RES_NOISE_INIT, RES_NOISE_TAU, COMMIT_INTERVAL,
   TRIP_RATIO, TRIP_SECONDS, TRIP_ABS_RMS, TRIP_ABS_SECONDS, DECAY_KEEP,
-  CROSSFADE_DEFAULT_ON,
+  // Named 2026-08-18: these four were numeric literals inside `accumulate`,
+  // which is the one place in this file no reader looks for a constant.
+  HUBER_FLOOR, HUBER_SIGMAS, SELF_TRUST_ADMIT, RESID_MIN_W, RESID_MIN_N,
 };
