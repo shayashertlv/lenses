@@ -10,7 +10,9 @@
 
 import * as THREE from 'three';
 import { solvePlacement, pupilHeightInLens, pupilVerdict, widthVerdict } from './fit.js';
-import { measureAnchors, canonicalAnchors, clampAnchors, medianAnchors } from './anchors.js';
+import {
+  measureAnchors, canonicalAnchors, clampAnchors, medianAnchors, createRailCounter,
+} from './anchors.js';
 import { LM } from './canonical-face.js';
 import { aimTemples, resetTemples, fadeTemples } from './temples.js';
 import {
@@ -1261,6 +1263,19 @@ export function updateFrame({
   // able to run it a second time: every input marked "one frame stale" is a
   // statement about the PREVIOUS person, and on the one frame that decides the
   // person changed, "previous" means somebody else. See the re-measure there.
+  // The rail tally (`__ar.rails`), created with the session and cleared with it.
+  // A clamp that rewrites a face has to be visible in production or the bound
+  // is unfalsifiable — see `createRailCounter`.
+  //
+  // Re-read off `state` at every call rather than captured once, and that is not
+  // a style choice: `measureObserved` runs a SECOND time on the frame an
+  // identity conviction fires, after `resetFit` has cleared the field. A captured
+  // reference would post the new wearer's first measurement into the old
+  // wearer's counter and leave `state.rails` empty until the next frame, so the
+  // swapped session and a cold one would disagree by exactly one frame — which
+  // is how the isolation proof caught it.
+  const railsOf = () => state.rails ?? (state.rails = createRailCounter());
+
   const measureObserved = () => clampAnchors(measureAnchors({
     face,
     camera: scene.camera,
@@ -1276,7 +1291,7 @@ export function updateFrame({
     // frame (and the occluder translated onto the same pin) forward off the face.
     depthFit: landmarkDepth ? state.occluder?.userData?.depthFit ?? null : null,
     person,
-  }), face);
+  }), face, railsOf());
   let observed = measureObserved();
 
   // The image-asymmetry yaw estimate, demoted to a readout. It used to gate the
@@ -1919,7 +1934,7 @@ export function updateFrame({
     metricScale: anchors.metricScale ?? null,
     pdCm: anchors.pdCm ?? null,
     pupilHeight: pupilHeightInLens({ model, anchors, placement }),
-    width: widthVerdict({ model, anchors, placement }),
+    width: widthVerdict({ model, anchors, placement, face }),
   };
 }
 
@@ -2144,6 +2159,14 @@ export const PER_SESSION_STATE = {
     depthFit: null,
     seat: null,
     pin: null,
+    /**
+     * The `LIMITS` rail tally (`__ar.rails`). Person-derived twice over: it
+     * counts how often THIS wearer's measurements fell outside the bounds, and
+     * carried across a change of face it would report the previous person's
+     * anatomy as this one's. Cleared whole, so a rail count is always
+     * attributable to one session.
+     */
+    rails: null,
   },
 
   /**

@@ -586,11 +586,46 @@ export function measureAnchors({
  * not be allowed to fling the glasses off the head. Real human variation in these
  * measurements is well inside these limits, so clamping costs nothing on a good
  * frame and contains the damage on a bad one.
+ *
+ * That last sentence was an assumption for as long as this block existed, and it
+ * was wrong on the one axis with the widest population: `noseWidthRatio` shipped
+ * at `[0.7, 1.4]` and the generality matrix's broad-nosed subject has a TRUTH
+ * value of 1.45, so the clamp was silently rewriting that face. Nothing anywhere
+ * counted a rail landing, which is what made it invisible — see `RailCounter`.
+ *
+ * The ratio bounds are now derived from published adult anthropometry, and the
+ * two methodological rules are the generality matrix's own (`POP`, in
+ * `pipeline-check.js`), restated because a bound is worthless without them:
+ *
+ *   1. Published absolute ranges are transferred as RATIOS against the same mesh
+ *      the pipeline measures against, never pasted in as centimetres — the
+ *      landmark sets do not mean what a caliper means. Every bound below divides
+ *      by a span measured on `canonical_face_model.obj` itself.
+ *   2. The pooled population is a MIXTURE OF GROUP MEANS, not a Gaussian, so a
+ *      bound placed at a pooled z-score clips a real tail. The bounds are placed
+ *      at (extreme published group mean) ± 3 (within-group SD) instead, which is
+ *      the outer edge of the published human range rather than a quantile of a
+ *      distribution nobody has.
+ *
+ * A refusal bound may be generous — its job is to catch a hand across the face,
+ * not to police anybody's anatomy — so where the derivation lands inside the
+ * shipped value the shipped value stays and the derivation is recorded as the
+ * headroom.
  */
-const LIMITS = {
+export const LIMITS = {
   bridgeX: 1.5,
   bridgeY: 2.0,
   bridgeZ: 2.0,
+  /**
+   * Head breadth as a SHAPE ratio against the canonical head's 15.49 cm.
+   *
+   * Derived: ANSUR II (2012, n = 6068) head breadth 152.5 mm (M) / 146.6 mm (F),
+   * SD ~5 mm. At ±3 SD that is 131.6–167.5 mm, or 0.85–1.08 of the canonical
+   * mesh's own temple span (154.9 mm, landmarks 127/356 — measured, and the
+   * widest vertex pair in the mesh). The shipped bounds are far outside that on
+   * both sides and are left alone: they also have to absorb the projection error
+   * in an image-space width measurement, which anthropometry says nothing about.
+   */
   widthRatio: [0.75, 1.3],
   /**
    * True head size against the average, from the iris.
@@ -598,40 +633,126 @@ const LIMITS = {
    * Wider than `widthRatio` on the low side because this one has to admit
    * children — a proportionally normal face can still be genuinely small — while
    * `widthRatio` describes shape, where a 0.75 really is the edge of human.
+   * Derived headroom: an adult at +3 SD of head breadth reads 1.08 and a
+   * two-year-old about 0.85, so both rails sit outside the range they admit.
    */
   metricScale: [0.7, 1.3],
-  // Nose width is the more variable of the two — noses differ more between people
-  // than head widths do — so its bounds are wider than the face's.
-  noseWidthRatio: [0.7, 1.4],
+  /**
+   * Nasal sidewall span at pad height, as a ratio of the canonical 23.35 mm.
+   *
+   * The re-derived bound, and the one that was binding on real anatomy. The
+   * published measure is alar width (al-al), a different measurement on the same
+   * nose, so it is transferred as a ratio against the canonical mesh's OWN alar
+   * width — landmarks 129/358, measured at 35.7 mm, which is itself inside the
+   * published adult range and is what makes the transfer non-circular.
+   *
+   *   low   Farkas et al. 2005 (J Craniofac Surg 16(4):615, 25 populations) puts
+   *         the lowest group MEAN at ~31 mm; Farkas 1994 puts the within-group
+   *         SD at 1.9 mm (F). 31 − 3(1.9) = 25.3 mm -> 25.3/35.72 = 0.708.
+   *   high  highest group mean ~45 mm, within-group SD 2.5 mm (M).
+   *         45 + 3(2.5) = 52.5 mm -> 52.5/35.72 = 1.470.
+   *
+   * The old 1.4 clipped the upper half of the widest published populations —
+   * about 0.5% of adults under the matrix's pooled 11.5% CV, and more than that
+   * in truth because the pooled distribution is a mixture. It is the rail that
+   * was binding on the generality matrix's broad-nosed subject, and it moves.
+   *
+   * The low rail stays at 0.7 rather than moving out to its derived 0.708, by
+   * the same rule the other two bounds are held to: a refusal bound may be
+   * generous, and 0.7 is on the generous side of the derivation. Tightening it
+   * to three derived digits would clip the narrow-nosed subject the set already
+   * carries at exactly 0.700 and buy nothing.
+   */
+  noseWidthRatio: [0.7, 1.470],
   earY: 1.5,
   earZ: 1.5,
 };
 
+/**
+ * A caller-owned tally of which bounds actually bound.
+ *
+ * The reason this exists is the reason `depthClamped` exists, one layer over: a
+ * clamp that lands does not report an error, it reports a DIFFERENT FACE, with
+ * the same confidence as a measurement. Every estimator downstream — the seat,
+ * the person model, the width verdict — then describes a wearer who is not in
+ * the chair, and nothing on screen says so. `depthClamped` has answered that
+ * question for the occluder's depth fit since stage 2; `LIMITS` had no
+ * equivalent, so a bound binding on real anthropometry was invisible in
+ * production by construction.
+ *
+ * Counts AND magnitudes, because they answer different questions. A count says
+ * "this fired"; the worst overshoot says whether the rail is in the wrong place
+ * (a wearer sitting steadily 5% outside it) or doing its job (one frame 40%
+ * outside, then nothing). Overshoot is signed and relative for the ratio
+ * channels, absolute in centimetres for the offset ones, which is the unit each
+ * bound is stated in.
+ *
+ * Caller-owned rather than module-owned for the reason written at
+ * `PER_SESSION_STATE`: a rail count is a statement about the person in the
+ * chair, and module scope is the one place a state-keyed reset cannot reach.
+ */
+export function createRailCounter() {
+  return {
+    frames: 0,
+    /** Frames on which at least one bound bound. */
+    railedFrames: 0,
+    counts: {
+      bridgeX: 0, bridgeY: 0, bridgeZ: 0, eyeLineY: 0,
+      widthRatio: 0, metricScale: 0, noseWidthRatio: 0,
+      earY: 0, earZ: 0, bridgeUp: 0,
+    },
+    /** Worst distance past the bound, in the bound's own units. */
+    worst: {
+      bridgeX: 0, bridgeY: 0, bridgeZ: 0, eyeLineY: 0,
+      widthRatio: 0, metricScale: 0, noseWidthRatio: 0,
+      earY: 0, earZ: 0, bridgeUp: 0,
+    },
+  };
+}
+
 /** Keeps a measured anchor set inside plausible human range. */
-export function clampAnchors(anchors, face) {
+export function clampAnchors(anchors, face, rails = null) {
   const reference = canonicalAnchors(face);
-  const limit = (value, base, span) => Math.min(Math.max(value, base - span), base + span);
+  let hit = false;
+  /** Records one rail landing. `over` is how far past the bound the value was. */
+  const note = (field, over) => {
+    if (!(over > 0)) return;
+    hit = true;
+    if (!rails) return;
+    rails.counts[field] += 1;
+    if (over > rails.worst[field]) rails.worst[field] = over;
+  };
+  const limit = (value, base, span, field) => {
+    const clamped = Math.min(Math.max(value, base - span), base + span);
+    note(field, Math.abs(value - clamped));
+    return clamped;
+  };
+  const band = (value, [lo, hi], field) => {
+    const clamped = Math.min(Math.max(value, lo), hi);
+    // Relative on a ratio channel: "12% outside the bound" is the sentence that
+    // says whether the bound is in the wrong place, and a ratio has no cm.
+    note(field, Math.abs(value - clamped) / Math.max(Math.abs(clamped), 1e-9));
+    return clamped;
+  };
 
   anchors.bridge.set(
-    limit(anchors.bridge.x, reference.bridge.x, LIMITS.bridgeX),
-    limit(anchors.bridge.y, reference.bridge.y, LIMITS.bridgeY),
-    limit(anchors.bridge.z, reference.bridge.z, LIMITS.bridgeZ),
+    limit(anchors.bridge.x, reference.bridge.x, LIMITS.bridgeX, 'bridgeX'),
+    limit(anchors.bridge.y, reference.bridge.y, LIMITS.bridgeY, 'bridgeY'),
+    limit(anchors.bridge.z, reference.bridge.z, LIMITS.bridgeZ, 'bridgeZ'),
   );
-  anchors.widthRatio = Math.min(Math.max(anchors.widthRatio, LIMITS.widthRatio[0]), LIMITS.widthRatio[1]);
+  anchors.widthRatio = band(anchors.widthRatio, LIMITS.widthRatio, 'widthRatio');
   anchors.templeWidth = face.templeWidth * anchors.widthRatio;
-  anchors.noseWidthRatio = Math.min(
-    Math.max(anchors.noseWidthRatio ?? 1, LIMITS.noseWidthRatio[0]), LIMITS.noseWidthRatio[1],
+  anchors.noseWidthRatio = band(
+    anchors.noseWidthRatio ?? 1, LIMITS.noseWidthRatio, 'noseWidthRatio',
   );
   anchors.noseWidth = face.noseWidth * anchors.noseWidthRatio;
-  anchors.eyeLineY = limit(anchors.eyeLineY, reference.eyeLineY, LIMITS.bridgeY);
+  anchors.eyeLineY = limit(anchors.eyeLineY, reference.eyeLineY, LIMITS.bridgeY, 'eyeLineY');
 
   // Deliberately left alone when null. An unmeasurable iris this frame means "no
   // reading", and clamping that to 1.0 would quietly assert an average-sized head —
   // the exact claim this measurement exists to stop the pipeline making.
   if (anchors.metricScale !== null && anchors.metricScale !== undefined) {
-    anchors.metricScale = Math.min(
-      Math.max(anchors.metricScale, LIMITS.metricScale[0]), LIMITS.metricScale[1],
-    );
+    anchors.metricScale = band(anchors.metricScale, LIMITS.metricScale, 'metricScale');
   }
 
   // The measured ear heights and depths are kept — they are the point of measuring
@@ -643,8 +764,8 @@ export function clampAnchors(anchors, face) {
       const ear = anchors.ears[side];
       ear.set(
         side === 'right' ? -halfWidth : halfWidth,
-        limit(ear.y, reference.ears[side].y, LIMITS.earY),
-        limit(ear.z, reference.ears[side].z, LIMITS.earZ),
+        limit(ear.y, reference.ears[side].y, LIMITS.earY, 'earY'),
+        limit(ear.z, reference.ears[side].z, LIMITS.earZ, 'earZ'),
       );
     }
   } else {
@@ -654,7 +775,16 @@ export function clampAnchors(anchors, face) {
   // A bridge direction wildly off the canonical one means the two landmarks it is
   // built from have collapsed together or crossed; keep the average instead.
   if (anchors.bridgeUp.dot(reference.bridgeUp) < 0.7) {
+    // The one refusal in this function that is not a clamp, counted alongside
+    // them because it is the same event: the pipeline substituting the average
+    // face for a measurement it declined. The magnitude is how far past the
+    // dot-product bound the measured direction fell.
+    note('bridgeUp', 0.7 - anchors.bridgeUp.dot(reference.bridgeUp));
     anchors.bridgeUp.copy(reference.bridgeUp);
+  }
+  if (rails) {
+    rails.frames += 1;
+    if (hit) rails.railedFrames += 1;
   }
   return anchors;
 }
