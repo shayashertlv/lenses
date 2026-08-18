@@ -2871,3 +2871,549 @@ them. The catalogue's nine assumed widths become a new open finding and cannot
 be closed here — they need a number from a supplier or a rule, which is not
 something a harness can measure — and so does the render half of B, which needs
 the same live session.
+
+### Stage 13 — the close: what a number has to be able to answer
+
+This is the last stage of the Goals 1–3 work, and it has one organising
+question, which is the audit's question with the politeness taken out: *why
+this value, for anyone?* Three things were still open against it — a pile of
+constants nothing fixed, two deferred decisions wearing live-looking flags, and
+a record that had never walked its own work queue end to end. What follows is
+each of them, and then the walk.
+
+#### 13a. The root: the pixel is the ruler, and it was one wearer's pixel
+
+The audit's most common root cause was a bound stated in absolute centimetres
+that should have been relative to something measured on this face. Working the
+instances one at a time would have missed what they have in common, so they
+were sorted by *what the bound is a claim about*, and one class turned out to
+contain almost all of them: **claims that a motion is too small to see.**
+
+There are six of those in the tree, and every one of them converts millimetres
+to pixels through the same figure — `1.74 px/mm at 45 cm` — which is one
+wearer, one camera, one distance, one afternoon. px/mm is not a property of
+this pipeline at all. It is where the camera is, what resolution it runs at,
+and how far away somebody is sitting. **This repository's own two capture
+sessions measured 1.74 and 4.22 px/mm**, a factor of 2.4 apart — both of them
+already written down here, the second one in this file, and neither of them ever
+used to check the other.
+
+And the arithmetic was wrong. Three of the six conversions are out by a factor
+of ten, all in the flattering direction:
+
+| claim, as it stood | stated | actual, at 1.74 px/mm | at 4.22 px/mm |
+|---|---|---|---|
+| `ZETA_REARM` 0.15 mm is invisible | 0.026 px | **0.261 px** | **0.63 px** |
+| `FIT_DEADBAND.eyeLineY` 0.2 mm is invisible | 0.035 px | **0.348 px** | 0.84 px |
+| the >40° recovery, 2.5 mm over `SEAT_TAU` | 0.4 px | **4.35 px** | 10.6 px |
+
+At the wearer's own distance the first survives — 0.26 px is under the half
+pixel this tree uses as its visibility floor everywhere else — and at a phone's
+reading distance it does not. The third is not a near miss at all: that motion
+is a deliberate, eased settle, and the only thing wrong with the note was
+calling it sub-pixel.
+
+**The fix is one measurement, not six edits.** `measureImageScale` in frame.js
+returns pixels per face-space centimetre from quantities the pipeline already
+has:
+
+```
+    pxPerFaceCm  =  headScale · heightPx / (2 · d · tan(fov/2))
+```
+
+`headScale` is the pose fit's own scale, `d` its own translation, `fov` the
+camera every landmark is unprojected through, `heightPx` the frame being drawn
+into. Nothing is assumed and no landmark pair is differenced, so it does not
+foreshorten with yaw the way a temple span would. It is published as
+`__ar.seat.pxPerCm` and it is a statement about the CAMERA, not the wearer —
+two people at the same desk share it, one person leaning in changes it — which
+is why it sits in the isolation manifest as a survivor with that reason
+written against it.
+
+`VISIBLE_PX = 0.5` is named once, and it introduces nothing: it is already the
+value of `RELIEF_DEADBAND_PX`, already the settle metric's rejected band,
+already the half-pixel behind the roll's `0.235°`.
+
+The standoff channel's re-arm distance then becomes the SMALLER of its two
+floors — the measured noise of the eased push, and half a pixel here:
+
+```
+    rearm  =  min( ZETA_REARM , VISIBLE_PX / imageScale )
+```
+
+Taking the smaller is what makes this a strict improvement rather than a
+re-tuning. The noise floor can only ever be relaxed by a claim about noise; the
+visibility floor can only ever tighten it. At the geometry the shipped numbers
+were pinned under, half a pixel is 0.287 mm against the 0.15 mm noise floor, so
+**the shipped value wins and the fixtures cannot move for this reason** — which
+the harness asserts directly rather than leaving to inference, at three
+distances, against the inverse law the scale obeys (px/cm × distance constant
+to a fraction of a percent, so an ordering test cannot pass by accident).
+Measured: **4.18 px/mm at 20 cm, 1.86 at 45, 1.19 at 70** — the same 3.5-fold
+span the two real capture sessions show, from geometry rather than from a
+memory of one afternoon.
+
+**The other class of absolute centimetre, and why it is NOT wrong yet.** The
+seat's physical tolerances — `PAD_SINK`, `EPS_BEAR`, `GUARD_BAND`, `S_REFINE`,
+`SOFTMAX_TAU` — are real millimetres of skin and clearance stated as face-space
+centimetres, and face space is the CANONICAL head's centimetres. On a wearer
+0.75× the canonical size, 0.5 mm of pad sink is 0.375 real mm. The obvious fix
+is to divide by `metricScale`, and it would be **wrong today**, because the
+frame is not drawn at real size either: physical mode renders a 140 mm frame at
+140 canonical centimetres, i.e. 140/154.9 of whoever is in the chair. Solve and
+render are both proportional, so they agree; dividing the tolerances alone
+would make them disagree. This class is therefore not twenty findings — it is
+ONE, it is the render half of stage 12's item B, and it is already on the open
+list. Whoever divides the drawn scale by `metricScale` has to divide these in
+the same commit, and the note is now in both places rather than in neither.
+
+#### 13b. The register: the audit as a mechanism instead of a document
+
+The 196-constant audit was a document, and a document is stale the first time
+somebody adds a constant. It is now a check. Every value in the four exported
+constant bags must carry a class and a reason, an unregistered constant is a
+red, and a registered one that has been deleted is also a red.
+
+| class | what it means |
+|---|---|
+| **derived** | physics, geometry or a stated statistic fixes it; changing it makes the arithmetic wrong, not the feel different |
+| **measured** | it is not a value at all — it is read off the session's own signal, and the constant is a floor, a rate or a reference |
+| **validated** | arbitrary in origin, but a check in the suite goes red if it is wrong, so the RANGE is proved even though the value is not derived |
+| **stated** | nothing fixes it, and the reason is written down instead |
+
+The point of the fourth class is that its SIZE stays visible. It is reported as
+a finding rather than gated, because driving it to zero by writing better
+sentences is exactly the dishonesty the register exists to prevent.
+
+#### 13c. The magic numbers inside the expressions
+
+The audit found the tree's real behaviour hiding in three functions rather than
+in its constant blocks. Named, and each given the derivation it turned out to
+have — or, in one case, the admission that it does not have one.
+
+* `accumulate()` — `HUBER_SIGMAS` (3, the same rate `NOISE_GATE` states: a
+  two-sided 3σ bound clips 0.27% of honest samples), `RESID_MIN_W` (10, the
+  weight at which the λ prior owns under 30% of a vertex's estimate, so its
+  residual measures the estimate rather than the canonical face it started
+  from), `RESID_MIN_N` (8, the sample-median floor `stab.js` and `settle.js`
+  both use), and `SELF_TRUST_ADMIT` (0.2 — **stated**, and the register says
+  so: nothing in the physics fixes where "observed well enough to describe
+  itself" starts).
+* The self-downweight `1/(1 + (noise/RES_NOISE_INIT)²)` turned out to be
+  derived and unlabelled: it is the inverse-variance weight `σ₀²/(σ₀² + σ²)`,
+  and `σ₀` is the pipeline's one stated measurement noise, 0.5 mm — the same
+  0.5 mm that is `W_PAR`'s numerator. A vertex at the stated noise is worth
+  exactly half a noiseless one, by construction.
+* `measureShape()` — the trust lever `wPose ≥ 0.3 ? 1 : max(wPose/0.3, 0.05)`
+  became `RESID_TRUST_FULL` and `RESID_TRUST_FLOOR`. The knee is `POSE_TRUST`'s
+  own yaw ramp read backwards (the ~29° at which the far sidewall stops being
+  observed and starts being guessed), and the floor is deliberately not zero
+  because a frozen residual is the exact failure the stage-6 freeze was retired
+  for; a twentieth is the tree's own `POSE_TRUST_ADMIT`.
+* `SHRINK_SIGMAS` (1.5): a vector shrinkage removes a ball, so the radius has
+  to be where an innovation stops being distinguishable from noise. At 1.5σ a
+  two-sided Gaussian puts 87% of pure noise inside the ball while a 3σ reshape
+  keeps half its size — which is why this and the Huber gate do NOT share a
+  number: one is refusing outliers, the other is refusing noise.
+
+#### 13d. The zConf depth crossfade is RETIRED, and the reason generalises
+
+The channel shipped dark from stage 4 on one session's arithmetic: the
+accumulator equilibrates at `zConf* = W_MAX(1−W_PAR)·E_w[sin²θ]`, a ±15° sweep
+gives `E_w ≈ 0.03`, the ceiling is ≈9, and `Z_CONF_MIN = 25` never opens. That
+is a claim about a POSE DIET, and a pose diet is not a property of the pipeline
+— it is where the camera is and what the wearer does with their head. So it was
+measured across fifteen subjects at three camera geometries instead of argued
+from one, and the answer is worse than the claim.
+
+**Reachability, 45 cells, 15 s of browsing each — bridge parallax:**
+
+| camera | mean zConf | reach 25 | mean W |
+|---|---|---|---|
+| eye level | 10.4 | **0/15** | 219 |
+| laptop, 13.5° | 11.4 | **0/15** | 157 |
+| phone in lap, 30° | 3.3 | **0/15** | 19 |
+
+Best of all forty-five: **24.09** (S13, eye level). Zero reach the floor.
+
+**And the structural finding, which is why no tuning saves it: parallax and
+pose trust are the same angle with opposite signs.** Turning the head buys
+`sin²θ` and costs `wPose`, which enters the observation weight *squared*, so
+the product has an interior maximum and the equilibrium peaks near ±30° of
+sweep amplitude and falls away on both sides of it. And a camera below the eyes
+does not rescue it, which is the part the offline arithmetic got backwards: to
+the tracker a camera 30° below the eyes is not a camera angle at all — it is
+head pitch, and the trust law refuses it. That geometry accumulates a mean `W`
+of **19** against 200 at eye level, and its parallax is a fifth of an
+eye-level session's. **The estimator's own admission law will not accumulate
+the information the gate is asking for, on any camera, for anybody.**
+
+**Acceptance, the same 45 cells, channel forced on, nose-window depth error
+against the truth mesh:**
+
+| | dark | lit |
+|---|---|---|
+| mean RMS, all 45 cells | 1.189 mm | 1.158 mm |
+| mean RMS, 42 cells (S11 held out) | **0.809 mm** | **0.808 mm** |
+| cells improved / regressed | — | **23 / 22** |
+
+A coin flip. S11 is held out on its own recorded finding — its *learned
+surface* sits 4.2–5.8 mm in front of truth, so it is measuring the deform, not
+the crossfade — and with it out the mean moves by **one micron**. The change is
+not a correction: the signed bias moves by +0.1 to +0.6 mm on 37 of the 45
+cells regardless of which way the error was already pointing, so it cures the
+subjects whose depth was short and doubles it on the subjects whose depth was
+long. No weight law rescues that, and the obvious better one applies LESS of
+it: the information-share weight `zConf/(zConf + W_PAR·W + λ)`, which is what
+the stage-4 note itself proposed, reads 0.80 on the best cell in the whole
+survey where the shipped ramp reads 0.96.
+
+Two more facts finish it. The thing the channel was built for — the depth fit's
+slope bias at the bridge — was fixed at stage 4 by the `|e14|` → mean-depth
+change, and `depthFit` weight has pinned at 1.00 on all twelve stills since.
+And the person model's depth already reaches the DRAWN surface through
+`measureShape`'s composite; the crossfade only ever changed where landmark rays
+were walked to.
+
+So the apply path is deleted: `zTarget`, `zWeight`, `depthFor`, `crossfadeOn`,
+`CROSSFADE_DEFAULT_ON`, `CROSSFADE_EASE_TAU`, `Z_CONF_MIN`, and the `person`
+argument to `carryLandmarks` / `measureAnchors`. **The accumulator stays**,
+because it is the measurement that retired the channel and the one number that
+says how much of a session's depth is real — and the reachability half of the
+survey stays running, so a later stage that changes the TRUST LAW (which is
+what would have to change) comes back through it. G15's frontal-starvation
+check survives with its assertion re-based: a frontal stream must buy under a
+tenth of what a browsing stream buys on the same estimator, which is a claim
+that means something after the constant it used to be stated against is gone.
+
+The G8 sign gate keeps its first arm (the estimator's own recovery direction at
+both yaw signs) and loses its second (the crossfade's own sign), because the
+thing it was gating no longer exists.
+
+#### 13e. `diag-baseline.json`: a dead gate, and twenty keys nobody read
+
+Two independent kinds of staleness, and the second was invisible.
+
+**The dead gate.** `gazeInjection.validInjector` asked whether the injector was
+realistic and answered it with the PIPELINE's response: "the production pin
+must reproduce roughly the live ~9 px coupling". That was a fair question
+exactly once — when it was written the pipeline had no gaze door, so its
+response was proportional to the stimulus and could stand in for it.
+Anchoring-v3 built the door, the response collapsed by design (pin rms 8.31 →
+0.38 px, peak 28.50 → 0.80), and the validity gate started reading "injector
+unrealistic" **for the reason the pipeline had got better**. A gate that goes
+red when the thing it guards is fixed is not a gate.
+
+Split, and each half measured where it lives. `validInjector` is now a property
+of the injector alone — the displacement actually written into the landmark
+array, converted back to millimetres on the face through the same projection,
+against the 2.3 mm mean / 4.0 mm peak field it claims to be — and it is a HARD
+check, because it is a statement about that file's own arithmetic and nothing
+outside it can move it. The pipeline's response becomes `couplingPx`, reported
+with its direction of merit stated: smaller is better, the gaze door is why it
+is small, and a rise is that door leaking.
+
+**And the keys nobody read.** `rigidMiss` and `gazeInjection` were written into
+the baseline file in full and compared by nothing — `assertAgainst` walks
+`STILL_METRICS` and `AGGREGATE_METRICS` and neither object is in either. "The
+baseline is stale on those keys" was therefore a statement nothing could
+falsify. Both now have one number that means something and both are compared.
+
+The measurements the split produces, and they are worth reading in order. The
+injector writes **2.3 mm mean / 4.0 mm peak** — exactly the field it claims, so
+its validity is now a hard check that passes on its own arithmetic. The
+pipeline's coupling is **0.88 px peak / 0.37 px rms**, against 28.50 / 8.31 at
+the pin: the gaze door removed thirty-two thirty-thirds of it, which is what the
+old gate was reading as "unrealistic". And the forced-rigid twin now reports
+**identically** to production, because candidate B was removed at the 2026-08-17
+cull and the twin is the same computation — so `rigidMiss` reads exactly zero on
+all ten stills, and read exactly zero at the pin too. It is kept and COMPARED
+rather than deleted, because a metric pinned at zero with a 0.05 px tolerance is
+a tripwire: the day the pin innovation starts moving the drawn frame again it
+goes red, instead of being rediscovered in an audit.
+
+One more claim was corrected rather than repaired. `gazeRefusals` carried "must
+be 0 — the injector leaves irises and corners untouched", and it reads 8 of 300.
+The reasoning only ever covered the injected signal: the door compares this
+frame's iris offset against a slow neutral EMA, and the replay repaints every
+frame with fresh seeded sensor noise, so the DETECTOR's own iris estimate moves
+on a still photograph. Those are real gaze readings, correctly refused. It is a
+count, not a gate, and it says so now.
+
+#### 13f. `padBalance` — still dark, and this is not a decision a harness can take
+
+It is the one flag left, and the honest answer is the same one stage 11
+reached, restated because the brief asked for light-or-retire and neither is
+available here.
+
+It cannot be retired: the law is proved (0.000° on eleven catalogue frames on
+the mean face, |φ| ≤ 0.19° under noise over four seeds and 60 s, ±1.000° on a
+±1.5 mm skew), it is inert on twelve of the fifteen subjects to the bit, and it
+is the only thing that closes queue item 1 — without it a nose deviated 1.5 mm,
+which is INSIDE what Ferrario puts normal adult asymmetry at, drops out of
+two-sided bearing. Deleting proven code that closes a tail failure because one
+gate reads 2.035 against 2.0 would be the worst trade in this file.
+
+It cannot be lit here either: that 2.035 mm is `seat-z at >40° yaw: glances
+mean ≤ 2.0 mm` on the wearer's own recording, a hard gate that PASSES with the
+flag dark, at exactly the pose the original complaint was about. Everything
+else on that recording improves and by a lot. That is a trade on one wearer's
+recording, and the only person who can settle a trade on one wearer's recording
+is that wearer.
+
+**What has not been tried, so the next attempt does not start from scratch:**
+stage 11 latched the applied ROLL off-square and it moved the figure by
+0.002 mm. It did not latch the balanced HEIGHT SEARCH, which is the other half
+of the flag — the re-run over balanced configurations when the plain search
+gives up. At >40° of yaw the surface is at its worst, the plain search gives up
+more often, and the balanced re-search is then answering with a different
+height on a surface that cannot see one sidewall. That is a one-line gate and a
+replay, and it is the first thing to measure.
+
+#### 13g. The walk — every queue item and every goal, closed or open with a reason
+
+**The work queue** (section 9d, in its original numbering).
+
+**1. A deviated nose drops out of two-sided bearing, and the direction matters.
+CLOSED at stage 11; shipping blocked on `padBalance`.** The diagnosis was wrong
+twice over: the mesh is exactly symmetric to the bit, and the handedness was the
+FRAME's — different for every asset, spanning 0.69 mm across eleven nominally
+symmetric products, with two variants of the *same* frame differing by 0.11 mm.
+Measured per asset by a mirror probe, subtracted, and the give-up moves from
++1.5 / −2.0 mm — inside what Ferrario puts normal adult asymmetry at — to
+±5.0 mm, its documented edge. The law is proved; it ships behind a dark flag.
+See 13f.
+
+**2. The ≤2 s settle is met on no face, including the mean one. CLOSED at stage
+10 on the synthetic set, as a law rather than a number.** Confidence became the
+agreement of the seat's own answers; the median time for it to stop moving the
+height went 3.76 s → 0.58 s, faster on 12 cells of 12 and slower on none. The
+flat 2 s target is still missed by six of the fifteen — three on the height
+(2.4, 2.4, 2.6 s) and six on the standoff — and the decomposition says why:
+what remains is
+`REST_TAU·ln(A/band)`, the deliberate no-pop ease. **That half is open and it is
+a product decision** — a seat 3.5 mm down the wedge cannot arrive inside two
+seconds without visibly jumping, so either the target moves or the ease does.
+The standoff's longest settle is also the smallest motion in the set: S08 takes
+14.9 s to place 0.22 mm, which at the fixture's own scale is 0.39 px — the
+instrument at its floor, not a wearer watching a frame creep.
+
+**3. A narrow, high, steeply-walled nose seats in `saddle` mode. CLOSED at stage
+11 by decision, certified.** The pads stand 3.8 mm outside that wearer's
+sidewall on each side, over the naso-facial sulcus, and the bridge centre
+reaches the ridge first at every one of the nine rows. No height in the box puts
+a pad on a sidewall that is not there, and a wide-bridge frame on a narrow high
+nose bears on its bridge in the real world too. The measurable was restated —
+two-sided bearing is required *where physically available* — and the certificate
+is checked rather than asserted.
+
+**4. Six of fifteen subjects' three cameras disagree by more than 0.5 mm. OPEN,
+diagnosed three times, bounded.** Not convergence (pinned, the disagreement
+GROWS with the horizon and plateaus, where a rate would close). Not the surface
+(given a wearer who moves, the three cameras learn the same surface — S00's
+end-state spread is 0.084 mm against a carried 0.70). Not the detector (the
+landmarks are exact projections of the truth mesh). It is **camera-relative
+admission of a view-locked surface**: the standoff is admitted only when the
+head is square TO THE CAMERA, so at a camera 30° below the eyes "square-on" *is*
+head-pitched-30°, the one view whose residual is furthest from the front. This
+is open item (c) in general form and the two are one problem. Bounded ≤1.0 mm at
+30° on fourteen of fifteen. **It needs an estimator this tree does not have** —
+one that de-biases a reading for the view it was taken at — and the obvious
+shortcut, reading the pose-fused person layer instead, breaks the single-surface
+invariant. One candidate was measured and rejected on its own numbers: bounding
+the square-on ratchet's memory doubles the looking rate at 30°, moves the
+disagreement by 0.008 mm, and costs the drift bound the ratchet exists to be.
+
+**5. `LIMITS` binds on real anthropometry and nothing counts it. CLOSED at stage
+12.** `createRailCounter` in the per-person state, per-field counts and worst
+overshoot, proved on both arms — silent across all fifteen subjects, and firing
+on 10/10 frames at 100.4% overshoot on a nose driven to 2.95× the canonical
+span. `noseWidthRatio` re-derived from alar width transferred as a RATIO against
+the mesh's own measured 35.72 mm: `[0.7, 1.470]`. The matrix's rail column is
+empty for the first time.
+
+**6. The shipped pad separation makes `sStar` = 0 for twelve of fifteen, so a
+settle sweep on that asset would flatter any result. CLOSED as a method,
+permanently.** It was never a defect — it is a fixture finding, and the sweep
+runs at 1.34× separation, in the descending regime seat measurable 2 already
+pins, precisely so that a later sweep cannot be flattered by it.
+
+**Goals 1–3, as they were set.**
+
+* **Goal 1 — make it work for any user. Substantially met, and the remaining gap
+  is named.** The showstopper is gone: `SEAT_REF_TRUST`'s knife-edge on a
+  product of three smoothsteps meant a laptop camera 12 cm below the eyes
+  admitted 0 frames of 600 and the seat silently did not exist for that whole
+  hardware class; square-on is now the session's own top decile, and all fifteen
+  subjects learn on all three geometries. The generality instrument is the other
+  half of the answer — fifteen faces from published anthropometry, both signs of
+  every asymmetry, a rail counter, and now a register that makes an undisposed
+  constant a red. What is NOT met: the three cameras still disagree by up to a
+  millimetre (item 4), and nine of eleven catalogue assets carry a placeholder
+  width that no measurement of a mesh can recover.
+* **Goal 2 — settle fast, with no scan phase. Met on the synthetic set, and the
+  invariant held throughout.** The confidence law reads the wearer's own data
+  instead of a clock, and frame one is still bit-identical to a pipeline without
+  any of this — re-pinned at every stage, and the roll's own agreement window
+  exists precisely because a whole-adopted first roll broke it the moment the
+  flag went on. The flat 2 s target survives as a floor with a decomposition
+  rather than a failure with a shrug.
+* **Goal 3 — confine each user's adaptation to that user. Met, and it is the one
+  goal with a proof rather than a measurement.** Nine leaks found and fixed, the
+  worst a module-level `let` no reset could reach, which reported the previous
+  wearer's numbers AND made the replay order-dependent inside one process.
+  `PER_SESSION_STATE` is machine-readable and `resetFit` iterates it, so adding
+  a field to the manifest IS adding it to the reset; `isolationSwap` asserts
+  that face B from cold is bit-identical to face B after face A. It has earned
+  its keep twice since, in the two stages that added per-person fields — the
+  rail counter's stale reference on the identity-conviction frame, and this
+  stage's image scale, which it correctly demanded a written reason for.
+
+**What is genuinely open, and why each one is.**
+
+1. **The three cameras' millimetre, and open item (c).** Needs a
+   view-de-biasing estimator that does not exist here. Bounded, diagnosed, and
+   the shortcut is ruled out by an invariant.
+2. **`padBalance`.** A trade on one wearer's recording, and only that wearer can
+   settle a trade on their own recording. 13f names the one experiment nobody
+   has run.
+3. **Both replay baselines' un-ratcheted deltas from stage 10.** The confidence
+   change costs one metric on the wearer's recording — a >40° yaw figure
+   measured during a turn taken while the seat is still converging — and buys
+   0.58 s against 3.76 s of settle plus the cure of (c)'s pitch and browse
+   staleness. A live session decides that, not a harness.
+4. **Nine catalogue widths.** Needs one number per asset from a supplier, or a
+   rule laid across the frame front. An arbitrary-unit mesh carries shape and
+   nothing else.
+5. **True-size mode's render scale.** Dividing the drawn scale by `metricScale`
+   is the correct fix and moves every placed frame on the wearer's recording —
+   the same live session as (3).
+6. **Grading the width verdict's interior.** The band's two edges are hard
+   geometric impossibilities; "a little tight" needs a soft-tissue compression
+   model or real frames measured on real faces.
+7. **The flat 2 s settle target on the standoff channel.** A product decision
+   about how fast a correction may visibly arrive.
+8. **S11's learned surface, 4.2–5.8 mm in front of truth at every camera.** The
+   deform failing to follow a narrow high nose, not the seat. It belongs to the
+   reconstruction.
+9. **Five constants that nothing fixes** — `W_MAX`, `RES_NOISE_TAU`,
+   `SELF_TRUST_ADMIT`, `VIS_BIAS`, `VIS_RAMP` — out of sixty exported, with the
+   four ease times, the three proxy-head-shell numbers and the deliberately
+   absolute tripwire separated out. The register computes and reports that
+   count every run, so it is a quantity now rather than an impression, and it
+   cannot drift away from the table it is derived from.
+
+Items 1, 6 and 8 need work nobody has done. Items 2, 3 and 5 need a real session
+with the wearer. Item 4 needs a supplier. Item 7 needs somebody to decide what
+the product should feel like. **None of them needs a harness, which is the
+honest reason this is where the harness stops.**
+
+#### 13h. Suites, and the ratchet taken on one baseline and refused on the other
+
+```
+                  HEAD                    this stage
+pipeline-check    393/393, 5 open         396/396, 6 open (4 tail, 2 floor)
+telemetry-replay  336/366                 336/366, every metric bit-identical
+diag-replay       313/338 (old shape)     315/341 against the old pin,
+                                          then re-pinned: 341/341
+```
+
+The one standing caveat is unchanged and is the environment's: the wall-clock
+check ("the deformation fits inside the tracking loop", 13 ms for a full
+occluder rebuild) reads 13.2 ms and passes on a cold machine, and 16.3 ms and
+fails on the same machine after four hours of running these suites. It is the
+only check whose result depends on the machine rather than the code.
+
+Three checks join pipeline-check — the constant register, the parallax survey
+that retired the crossfade, and the image scale's own law — and one finding
+opens with them, the register's count of constants nothing fixes. It reads **13
+of 60**, and **five** of those thirteen are genuinely unplaced once the four
+ease times (a product decision), the three proxy-head-shell numbers (whose only
+exposure the temple checks already assert) and the deliberately absolute
+tripwire are taken out. The other 47 are 35 derived, 1 measured and 11
+validated.
+
+**telemetry-replay is bit-identical to HEAD**, metric for metric, and that is
+the measurement rather than an inference: still `rmsPx` 5.9412, `placeZP95Mm`
+6.4395, eye-circles 0.0402, glances 3.0439, pitch 3.8200 / 0.4592, yaw 2.5676 /
+1.4755, browse 0.5153, guard pushes 0/0/9/0/9/10 — every one of them the digit
+stage 12's own control run recorded. Predicted by construction: that session
+sits at about 1.7 px/mm, where half a pixel is 0.287 mm against the shipped
+0.15 mm noise floor, so the image-scale bound is inert there and nothing else
+in this stage is on the placement path.
+
+**`telemetry-baseline.json` is NOT re-pinned, and the ratchet's own stop
+condition is why.** Classified against the standing pin:
+
+```
+CURED (13 metrics, all of them (c)'s pitch-and-browse staleness):
+  pitch   rmsPx           5.1788 → 3.8200      pitch  placeZP95Mm  2.4368 → 0.4592
+  pitch   maxStepPx       0.5740 → 0.3706      pitch  guardPushes       3 → 0
+  pitch   zetaAppliedSpan 0.7971 → 0.4432      pitch  guardSpanMm  0.4680 → 0
+  browse  placeZP95Mm     2.7163 → 0.5153      browse guardPushes      13 → 10
+  browse  rawNeededSpan   9.0802 → 6.1665      browse guardSpanMm 0.9635 → 0.5425
+  still   guardPushes          3 → 0           still  guardSpanMm 0.4206 → 0
+  eye-circles placeZP95Mm 0.1730 → 0.0402
+
+REGRESSED (12 metrics, and one of them is the wearer's own complaint):
+  yaw     over40MeanMm  −1.4297 → +1.4755   ← the ">40° forward push", back
+                                              through zero
+  still   rmsPx          3.9544 → 5.9412    still  placeZP95Mm 4.3529 → 6.4395
+  still   stabRmsMean    2.8939 → 3.6332
+  glances placeZP95Mm   −0.0058 → 3.0439    glances guardPushes      7 → 9
+  glances zetaAppliedSp  2.2142 → 3.4232    glances guardSpanMm 1.0826 → 2.1713
+  yaw     placeZP95Mm   −0.4142 → 2.5676    yaw     guardPushes      6 → 9
+  yaw     zetaAppliedSp  1.1930 → 1.9098    yaw     guardSpanMm 0.9338 → 1.1880
+```
+
+Every one of these is **stage 10's**, not this stage's, and the protocol says
+stop on a regression. It is the same answer stages 10, 11 and 12 each gave, and
+the reason has not changed: the fixture resets mid-session and the post-reset
+re-convergence lands INSIDE the yaw segment, so that segment's own frontal
+reference is taken while the seat is still 2.3 mm high. What decides it is a
+live session with the wearer, and until then the red is the record.
+
+**`diag-baseline.json` IS re-pinned, and the split between the two baselines is
+deliberate rather than convenient.** The diag stills are a jitter instrument on
+a photograph; the telemetry fixture is the wearer's own moving session and is
+where their complaint lives. The complaint stays unpinned and red until they
+judge it. The jitter instrument gets its pin back, because **a baseline
+carrying twenty-five standing failures cannot detect the twenty-sixth**, which
+is the whole reason the ratchet exists.
+
+What was baked in, classified:
+
+* **25 metrics, all stage 10's**, on exactly five stills — face-b, f01, f03,
+  f07, f08, the five where this wearer's nose genuinely descends. They are
+  `screen.sd/rms/maxStep`, `screenTail.rms/maxStep` and f08's `seatMm` scatter,
+  and every one of them is a WINDOW VARIANCE over 60 frames. The classification
+  is the same one the stage-5 record made of these five and stage 11 restated:
+  the seat's convergence now happens INSIDE the measurement window instead of
+  mostly before it, because agreement-based confidence arrives in about 0.6 s
+  where the frame count took 3.8. At 4.22 px/mm, f08's 7.09 px of vertical
+  spread is 1.7 mm of seat travel over two seconds — the settle, measured. The
+  CONVERGED values on the same stills (`bridgeMm` means, `seatMm` means, the
+  cross-still aggregates) all pass unchanged, which is what separates "arrived
+  faster" from "ended up somewhere else".
+* **1 new key**: `gazeInjection.couplingPx`, which the old baseline does not
+  carry because it did not exist.
+* **This stage's own contribution, separated by a real control run** — `ar/src`
+  checked out at HEAD, the same replay file, the fixture replayed, the tree
+  restored. Every one of the 26 appears in BOTH runs at the same value: worst
+  difference **0.0098 px** (f01 `screenTail.rmsPx`) and **0.002 mm** (f08
+  `seatMm.easedSd`), on 11 of 16 in the improving direction. That residual is
+  the image-scale bound doing exactly what it was built to do: these stills
+  measure **4.2243 px/mm**, so half a pixel is 0.118 mm and the re-arm tightens
+  from the shipped 0.150 — visible in the fourth decimal place and nowhere
+  else.
+
+Three keys changed shape in the pin rather than value. `crossfadeAcceptance`
+becomes `sharedSession` (one pass instead of two, because the channel it A/B'd
+is gone). `gazeInjection.validInjector` keeps its name and changes its meaning
+entirely — it is now measured on the injector. And `gazeInjection.couplingPx`
+and `rigidMiss.worstMissMeanPx` join the compared set, which is the part that
+matters: **`rigidMiss` reads exactly zero on all ten stills and read exactly
+zero at the old pin too**, so it was a block of JSON nobody could act on. At a
+0.05 px tolerance around zero it is now a tripwire — the day the pin innovation
+starts moving the drawn frame again, it goes red instead of being rediscovered
+in an audit.

@@ -833,14 +833,28 @@ removed.
 
 ## Verified
 
-`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 364
-checks. 363 pass anywhere; the one remaining is a wall-clock budget ("the
-deformation fits inside the tracking loop", 13 ms for a full occluder rebuild)
-which is environment-ruled: it measures real elapsed time, so it passes on an
-unloaded machine and reads red in a throttled or backgrounded tab. It is the only
-check in the suite whose result depends on the machine rather than the code, and
-it is left in rather than deleted because the budget is real — it just has to be
-read with that caveat.
+`python ar/serve.py` then <http://127.0.0.1:8765/tests/pipeline-check.html> — 396
+checks, all of which pass on an unloaded machine. One of them is a wall-clock
+budget ("the deformation fits inside the tracking loop", 13 ms for a full
+occluder rebuild) and it is environment-ruled: it measures real elapsed time, so
+it reads red in a throttled or backgrounded tab, or on a machine that has been
+running suites for an hour. It is the only check in the suite whose result
+depends on the machine rather than the code, and it is left in rather than
+deleted because the budget is real — it just has to be read with that caveat.
+
+Every constant the pipeline exports is also **registered**: each value in
+`SEAT_CONSTANTS`, `PERSON_CONSTANTS`, `OCCLUDER_CONSTANTS` and `HEAD_CONSTANTS`
+carries a class — *derived* (physics or geometry fixes it), *measured* (it is
+read off the session's own signal and the constant is only a floor or a
+reference), *validated* (arbitrary in origin, but a check here goes red if it is
+wrong), or *stated* (nothing fixes it, and the reason is written down instead) —
+and a constant with no entry fails the suite. A provenance audit had already
+walked all 196 numbers in `ar/src` and found that only 32 rested on physics; the
+difference is that an audit is a document and goes stale the first time somebody
+adds a constant, where this is the same question asked by the runner. The count
+of *stated* ones is reported as a finding rather than gated, because driving it
+to zero by writing better sentences would be exactly the dishonesty it exists to
+prevent.
 
 Beside the checks the suite carries **open generality findings**, tallied
 separately in the summary line and in `window.__findings`. They come from the
@@ -1411,4 +1425,4 @@ particular set of angles on a particular afternoon, and the whole
 `diag-replay` suite — its seeded-noise jitter numbers, its gaze-injection
 control, its per-still baselines — is pinned to them. They are ignored by the
 repository-root `*.png` rule and exist in exactly one place, this working tree.
-`git clean -xdf` deletes them and takes 338 checks with them.
+`git clean -xdf` deletes them and takes 341 checks with them.
