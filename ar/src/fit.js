@@ -456,10 +456,43 @@ export const DEFAULT_FIT = {
   /**
    * The G5 pad-balance roll: lets the seat solve a roll about the face's Z
    * axis (clamped ±3°) that equalises the two pads' bearing on an asymmetric
-   * nose. The law ships implemented and the flag decides whether it is
-   * applied; the spec's gate — seat measurable (4) green WITH the balance on,
-   * on asymmetric synthetics at BOTH asymmetry signs — is run in the harness,
-   * and this default records its verdict (see the stage-5 landing note).
+   * nose, and — since 2026-08-18 — lets the height search run over BALANCED
+   * configurations, which is the only way a laterally deviated nose reaches
+   * two-sided bearing at all. See `seat-equilibrium.js` for both.
+   *
+   * STILL DARK, and the 2026-08-18 run that decided it is in the harness. The
+   * objection that kept it dark at stage 5 is GONE; a different one stopped it.
+   *
+   * What went: the ≈−1.2° roll that appeared on every average face was blamed
+   * on the canonical mesh. That mesh is exactly symmetric — all 468 vertices
+   * have an exact mirror partner. The handedness was the FRAME's own scan
+   * asymmetry, which the solve now measures on the wearer's own surface with a
+   * mirror probe and subtracts. Measured on the production path over twenty
+   * seconds, against 0.235° (half a pixel at the frame's own ends, 1.74 px/mm
+   * at 45 cm) as the angle a wearer could see:
+   *
+   *   symmetric wearer, clean landmarks       φ = 0.000°, held and wandering
+   *   symmetric wearer, 0.3 mm noise          |φ| ≤ 0.19°, four seeds and 60 s
+   *   ±1.5 mm skew, clean landmarks           −1.001° / +1.000°, mean −0.0005°
+   *   all eleven catalogue frames, mean face  φ = 0.000°, asym ≤ 0.006 mm
+   *
+   * And what it buys: the deviation at which the seat gives up two-sided
+   * bearing moves from +1.5/−2.0 mm — INSIDE the 1–3 mm Ferrario puts normal
+   * adult asymmetry at — to ±5 mm, its documented edge; S12 and S12m go from
+   * `unbalanced` to a solved wedge at BOTH signs, and seat measurable 1 goes
+   * from 3/15 failing to clear.
+   *
+   * What stopped it: the wearer's own recording. With the balance lit the
+   * telemetry replay's hard gate `seat-z at >40° yaw: glances mean ≤ 2.0 mm`
+   * reads 2.035 mm — a forward push at exactly the pose the original complaint
+   * was about, on a gate that passes with the flag dark. It is not the roll
+   * channel easing on unreadable evidence: latching it off-square with every
+   * other channel moved the figure by 0.002 mm. Everything ELSE on that
+   * recording improves, and by a lot — still rmsPx 5.94 → 2.34 and placeZP95Mm
+   * 6.44 → 0.68 against a 3.95/4.35 pin, yaw over40MeanMm +1.48 → +0.45 — so
+   * this is a trade, not a defect, and a trade on one wearer's recording is a
+   * live-session decision rather than a harness one. G8's own discipline, and
+   * the same discipline that kept it dark at stage 5.
    */
   padBalance: false,
   /**

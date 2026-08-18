@@ -1687,6 +1687,15 @@ the replay has always read gzip through DecompressionStream.
 
 ### (c) OPEN ITEM — the square-on latch's standoff staleness at pitch and browse
 
+> **STILL OPEN, and stage 11 restated it.** Stage 10 cured its pitch and browse
+> halves on the wearer's own recording; stage 11 found what remains and it is
+> not staleness at all. The standoff is admitted only when the head is square
+> TO THE CAMERA, and the surface it is read off is VIEW-LOCKED — so at an
+> off-axis camera the seat reads the same view's answer every time, however
+> much the wearer moves and however good the surface becomes at other poses.
+> The residual is bounded (≤1 mm at 30° on 14 of 15 subjects) and the ranked
+> work is named there. What follows is the original record.
+
 The seat now re-solves only when the head is square to the camera. That cured
 the complaint it was built for and it cost something measurable elsewhere, and
 BOTH halves are pinned in telemetry-baseline.json. Measured on
@@ -2034,7 +2043,8 @@ Ranked by how many real users each reaches, and by whether anything today would
 tell you it happened.
 
 1. **A deviated nose drops the seat out of its two-sided solve, and the direction
-   matters.** Sweeping nasal deviation with everything else canonical: the wedge
+   matters.** *(CLOSED at stage 11 — and its diagnosis was wrong: the mesh is
+   exactly symmetric and the handedness was the frame's. See "Stage 11".)* Sweeping nasal deviation with everything else canonical: the wedge
    solve holds at ±1.0 mm, gives up at **+1.5 mm** and at **−2.0 mm**. Past the
    crossing the pad deficit never reaches
    `EPS_BEAR` at any height in the search box, so `found === −1` and the seat falls
@@ -2054,11 +2064,15 @@ tell you it happened.
    target, worst 15.2 s. This is the *floor* the convergence work diffs against,
    not a regression — the confidence ramp is `noseMeanW/CONF_FULL_W` and its own
    best case was measured at 2.8 s.
-3. **A narrow, high, steeply-walled nose (S11) seats in `saddle` mode**: the
+3. *(CLOSED at stage 11 — the saddle is the correct physical answer and is now
+   certified by the geometry.)* **A narrow, high, steeply-walled nose (S11)
+   seats in `saddle` mode**: the
    bridge centre out-interferes both sides across the whole sweep, so the pads
    never take load and the two-sided solve reports the asset's own shape rather
    than the wearer's nose. Different mechanism from (1), same consequence.
-4. **Six of fifteen subjects' three cameras disagree by more than 0.5 mm at a 10 s
+4. *(RE-DIAGNOSED twice — stage 10 and again at stage 11, which is where the
+   answer is. Not convergence, not the surface, and not the detector.)* **Six of
+   fifteen subjects' three cameras disagree by more than 0.5 mm at a 10 s
    horizon** (worst 4.31 mm). Diagnosed rather than argued: the worst subject
    re-run at 30 s reads 2.39 mm on 56/12/4 solves against 19/6/3 — so this is
    **convergence rate**, not camera dependence, and it belongs to Goal 2. The
@@ -2283,3 +2297,303 @@ cures (c)'s pitch and browse staleness, and it costs a metric on the wearer's ow
 recording that measures the frame's z during a turn taken while the seat is still
 converging. Until that is resolved the baseline stands unpinned and this section
 is the record of the deltas.
+
+### Stage 11 — the handedness was never the face's
+
+Queue items 1 and 3 and the re-diagnosis of item 4 were worked together because
+the audit's framing was right again: all three are the seat meeting a face it
+was not shaped for. Two of them close. The third produces a diagnosis that
+overturns the previous one for the second time, and a landed negative result.
+
+#### The measurement that redirects everything
+
+The spec has said since stage 5 that the canonical mesh carries "≈−1.2° of
+solved baseline roll" — its own asymmetry — and queue item 1 attributed to it
+the **+83 µm** by which a nose deviated one way fared worse than the same nose
+deviated the other. Both attributions are wrong, and the mesh is innocent to the
+last bit:
+
+```
+canonical_face_model.obj, all 468 vertices, distance to the best mirror partner
+        worst residual   0.0 cm          28 vertices exactly on the axis
+the depth field it rasterises to, over the pad strip
+        worst |z(+x) − z(−x)|   < 1 µm   (float32 round-off in the rasteriser)
+```
+
+The handedness is the **FRAME's**, and it is different for every asset:
+
+| asset | handedness on the canonical face | | asset | handedness |
+|---|---|---|---|---|
+| khronos | **−0.625 mm** | | horizon-amber | +0.065 mm |
+| crystal | −0.483 mm | | horizon-sage | +0.056 mm |
+| crystal-lenses | −0.374 mm | | base | +0.034 mm |
+| meshy (default) | −0.054 mm | | aviator-amber | +0.025 mm |
+| aviator | −0.006 mm | | shield-golden | +0.022 mm |
+| navigator | +0.000 mm | | | |
+
+A 0.69 mm spread across eleven nominally symmetric products, and the two
+variants of the *same* crystal frame differ from each other by 0.11 mm. That is
+capture noise, not product geometry — these are photogrammetry scans. Against a
+wearer signal of ~0.44 mm of pad-load difference per millimetre of nasal
+deviation, two of the shipped frames carry more handedness than a
+millimetre-deviated nose does.
+
+**How it is measured, and why the measurement is exact.** The seat reads a
+wearer's asymmetry as `D = Î_L − Î_R`. That difference has two authors:
+`D(F, S) = a(F) + b(S)`. Mirroring the frame's contacts about the model's own
+centreline — the same axis the L/R split is taken about — and swapping which set
+is called left flips `a` and leaves `b` alone, because the surface has not
+moved. So
+
+```
+a(F) = [ D(F,S) − D(mF,S) ] / 2        the asset's
+b(S) = [ D(F,S) + D(mF,S) ] / 2        the wearer's
+```
+
+Both evaluated at the same height on the same surface: no reference
+configuration to get wrong, nothing assumed about the face, one extra pad-set
+pass on solve events only. The control: on the canonical face `b(S)` reads
+0.0000 mm for every asset, and `a(F)` moves by 0.0003 mm across a ±3 mm
+deviation sweep — it is a property of the asset, as claimed.
+
+#### Item 1 — a deviated nose keeps its two-sided solve. CLOSED
+
+Three things had to be true at once and all three now are.
+
+**(a) The pipeline stops imposing a handedness.** The asset's `a(F)` is
+subtracted from the reading before the roll is solved. Pinned: on the canonical
+face every one of the eleven assets solves a roll of **0.000°** and a residual
+asymmetry under 0.006 mm, against **0.235°** as the angle a wearer could see —
+derived, not chosen: half a pixel at the frame's own ends, `(0.5 px / 1.74 px
+per mm) / 70 mm`, the same sub-pixel floor `SEAT_TAU` is justified against.
+
+**(b) The two-sided solve reaches a bearing on an asymmetric nose.** Two changes,
+and the second was a bug in the first attempt:
+
+*The roll joins the search.* A lateral deviation moves BOTH sidewalls together,
+so every millimetre of descent adds load to both pads and leaves the difference
+between them untouched — measured, the deficit at the best height is flat to
+0.01 mm across the whole search box while the pad GAP is the entire story.
+Rolling is the only degree of freedom that closes it, and the code solved height
+and roll in series, so the channel built for an asymmetric nose only ever ran on
+a nose that had already borne without it. The sweep now re-runs over BALANCED
+configurations — **but only when the plain search gave up**, which is what makes
+this a strict extension: every face that bears today bears at exactly the same
+height by exactly the same arithmetic. (Running it unconditionally was tried and
+measured: on a face that already bears, the roll the landmark noise asks for is
+a fraction of a degree, but it perturbs every row and the solved heights scatter
+enough to cost the settle law a cell — S09 at ×4 noise took 5.4 s against its
+own 4.52 s bound.)
+
+*The lever is measured, not modelled — the second field amendment, and the same
+lesson as the first.* G5's `φ = Δ / (2·x̄_pad·κ)` is not the derivative of what
+the solve does. A roll about the hang point does not only raise one pad and
+lower the other; it also slides BOTH sideways by `−y_rel·φ`, and on a V-shaped
+wedge a common lateral slide is itself an asymmetry. Carrying that term,
+`dΔ/dφ = −2(x̄·κ_y − y_rel·w')`, and the model kept only the first half.
+Measured, the omission is worth **1.6–1.9× of gain**: the modelled law overshot
+balance by that factor on every deviated nose, left a residual of the same size
+and the opposite sign, and iterated solve-to-solve at |−0.65| — a frame that
+visibly rocks its way to level. A **secant across ±ROLL_CLAMP** needs neither
+term, cancels the handedness in the difference, lands balance in one Newton
+step, and DELETES two arbitrary constants (`κ > 0.05`, `x̄ > 0.1 cm`) in favour
+of one derived admission: a full-range roll must move the asymmetry by more than
+the bearing tolerance it is trying to close, or it is not a usable degree of
+freedom on this face.
+
+The deviation sweep, meshy, truth surfaces, both signs:
+
+| deviation, mm | −5 | −4 | −3 | −2 | −1.5 | 0 | +1.5 | +2 | +3 | +4 | +5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before | flat | flat | flat | flat | wedge | wedge | **flat** | flat | flat | flat | flat |
+| after | unbal. | wedge | wedge | wedge | wedge | wedge | wedge | wedge | wedge | wedge | unbal. |
+| roll, ° | — | +3.000 | +2.470 | +1.650 | +1.227 | 0.000 | −1.187 | −1.648 | −2.463 | −3.000 | — |
+| residual asym, mm | — | 0.146 | −0.000 | 0.000 | −0.016 | 0.000 | −0.001 | −0.002 | −0.003 | −0.153 | — |
+
+The give-up moves from **+1.5 / −2.0 mm — inside the 1–3 mm Ferrario puts normal
+adult asymmetry at — to ±5.0 mm, its documented edge**. The residual asymmetry
+across ±3 mm is at worst 0.016 mm. And the two signs now answer alike: the
+mirrored pairs' rolls sum to 0.002–0.007°, against a pipeline that used to run
+83 µm worse on the + side at every matched pair.
+
+On the fifteen-subject set the balance is **inert on twelve** — φ exactly 0.000°,
+deficit, gap and standoff bit-identical with the flag on and off — rescues
+**S12 and S12m at both signs** (deficit 1.44 / 1.34 → 0.415 / 0.402 mm, gap
+1.381 / 1.274 → 0.056 / 0.053), and leaves S11's saddle alone. Seat measurable 1
+goes from 3/15 failing to **1 certified saddle and nothing else** with the
+balance lit. Both arms are reported by the finding whichever way the flag is
+set, because a record that only shows the shipped side cannot say what the
+decision costs.
+
+**(c) The fallback says so.** Three physically different give-ups used to share
+one word. `'flat'` now means only "this asset has no pad pair — the geometry
+cannot answer the question"; a nose that ran the whole sweep and never bore is
+`'unbalanced'`, and it carries the best row's own deficit, gap and *residual
+asymmetry* out with the verdict instead of the `NaN` that made an asymmetric
+wearer invisible (a deficit that is mostly `asym` is an asymmetry failure, one
+that is not is a width failure). Session counters `noBearing`, `saddles` and
+`rollBore` join `solves`/`holds`/`refusals` on `__ar.seat`, because a mode is an
+instant and a wearer whose frame never bears wants that visible over a minute.
+
+**padBalance stays DARK, and the reason changed.** The objection that kept it
+dark at stage 5 is gone: the ≈−1.2° roll on every average face was the frame's,
+it is measured and subtracted, and on the production path — the LEARNED surface,
+not truth — over twenty seconds:
+
+| | roll |
+|---|---|
+| symmetric wearer, clean landmarks, held pose and wandering | **0.000°** |
+| symmetric wearer, 0.3 mm landmark noise, four seeds and 60 s | \|φ\| ≤ **0.19°** |
+| ±1.5 mm skew, clean landmarks | **−1.001° / +1.000°**, mean −0.0005° |
+| all eleven catalogue frames on the mean face | **0.000°**, asym ≤ 0.006 mm |
+
+against 0.235° as the angle a wearer could see. What stops it is the wearer's
+own recording: with the balance lit the telemetry replay's hard gate `seat-z at
+>40° yaw: glances mean ≤ 2.0 mm` reads **2.035 mm** — a forward push at exactly
+the pose the original complaint was about, on a gate that PASSES with the flag
+dark. It is not the roll channel easing on evidence a hard pose destroys:
+latching it off-square with every other channel (which it should have been all
+along — `isSquareOn` was documented as having three consumers and the roll was a
+fourth) moved the figure by 0.002 mm. And everything ELSE on that recording
+improves, by a lot — still `rmsPx` 5.94 → 2.34 and `placeZP95Mm` 6.44 → 0.68
+against a 3.95/4.35 pin, yaw `over40MeanMm` +1.48 → +0.45, both of them stage
+10's own un-ratcheted regressions cured. So this is a **trade on one wearer's
+recording**, which is a live-session decision and not a harness one — G8's own
+discipline, and the same discipline that kept the flag dark at stage 5. The law
+is proved, the flag is one line, and the person who can settle it is the wearer.
+
+**Two things the flag forced, and both are the tree's own rules applied where
+they had not been.** The roll is adopted through **its own agreement window**
+(`rollEst`), shrunk toward the prior "no roll" by how much the session's solved
+angles agree — so one observation earns exactly zero and **frame one stays
+bit-identical to the standalone law**, which a whole-adopted first roll broke the
+moment the flag went on. It cannot ride the HEIGHT's confidence, and that is
+worth writing down because it is invisible until measured: `conf` is a shrinkage
+of the height toward `s = 0`, so on any face whose seat does not descend —
+twelve of the fifteen subjects on the shipped asset — the height is exactly 0,
+the shrinkage is exactly 0, and a roll gated on it is dead for the whole session.
+One estimator, three instances, three different questions.
+
+#### Item 3 — S11's saddle is the correct answer, and it is certified
+
+Decided rather than fixed, because the geometry says the sweep is right. S11 is
+a narrow, high, steeply-walled nose (`noseWidthRatio` 0.70) whose nasal span at
+the pad strip is **16.3 mm**, in a frame whose pads sit **24.0 mm** apart: the
+pads stand 3.8 mm OUTSIDE that wearer's sidewall on each side, over the
+naso-facial sulcus where the surface falls away, and the bridge centre reaches
+the ridge first at every one of the nine rows (by at least 1.2 mm). No height in
+the box can put a pad on a sidewall that is not there. A wide-bridge frame on a
+narrow high nose bears on its bridge in the real world too — it is the case an
+optician answers with a smaller DBL or a saddle bridge.
+
+So the finding changes shape rather than closing by fiat: **two-sided bearing is
+required wherever it is physically available**, a certified saddle counts as
+answered, and the certificate is checked — the centre must beat both sides at
+every row, the pads must be unable to reach the sidewall, and the standoff must
+still be personal (S11 rests at −12.87 mm against the mean face's −5.29). All
+three hold. The verdict is reported as `'saddle'` and counted per session.
+
+#### Item 4 and open item (c) — corrected again, with one landed negative result
+
+Stage 10 decomposed the three cameras' disagreement by holding half the pipeline
+at truth and concluded a **pitch bias in the learned surface**. That decomposition
+has a blind spot this pass found: both its probes are taken at the END of the
+run, at one pose, while the shipped estimate is a median over readings taken at
+many. Extending it with the end-state probe of the shipped law itself
+(`live` — the session's own anchors on the session's own surface) and with a
+wearer who MOVES rather than one pinned at each camera pitch:
+
+| 60 s | ref spread | surf | anch | **live** |
+|---|---|---|---|---|
+| pinned at each camera pitch | 1.235 | 0.926 | 0.560 | 1.055 |
+| the same cameras, a wearer who moves | 0.981 | 0.630 | 0.256 | **0.216** |
+
+S00's three cameras, moving, at 60 s: the end-state law reads
+`[−5.09, −5.01, −5.07]` — **agreement to 0.084 mm** — while the carried estimate
+reads `[−5.16, −5.09, −4.41]`. S09 0.064 against 0.719; S13 0.042 against 0.472.
+
+**The surface is not pitch-biased.** Given a wearer who moves, the three cameras
+learn the same surface. What disagrees is *when the seat is allowed to read it*:
+the standoff is admitted only when the head is square **to the camera**, and at a
+camera 30° below the eyes "square to the camera" means the head pitched 30° down
+— the one pose whose view-locked residual is furthest from the front. The seat
+reads the same view's answer every time, however much the wearer moves and
+however good the surface becomes at other poses. The reading is precise (the
+largest σ any of the 45 runs reports is a hundredth of a millimetre) and it is
+0.8 mm from what the same surface says with the head level. **This is open item
+(c) in general form**, and the two items are one.
+
+Two things are now settled that were not:
+
+* **It is not the detector.** The ladder's landmarks are exact projections of the
+  truth mesh; no detector is in the loop. Whatever is left is our own arithmetic.
+* **It is not convergence.** Pinned, the disagreement GROWS with the horizon and
+  plateaus — S00 0.697 → 0.771 → 0.826 mm at 10 / 30 / 60 s — where a rate would
+  close.
+
+**The landed negative result: bounding the square-on ratchet's memory.** The
+starvation is real and its mechanism is exact — a running maximum of a NOISY
+statistic converges on the global maximum of `w`, and `0.999 ×` a global maximum
+is very nearly a measure-zero set. At eye level `w` is pinned at 1 so every frame
+passes forever; at 30° it wanders, the bar climbs to the session's single best
+frame, and admission decays with session length: 75 of the first 300 frames, then
+**nineteen more in the next 1500** — three solves in a minute against a hundred
+and twelve at eye level. Giving the ratchet the same `SETTLE_WINDOW_S` memory the
+estimator it gates already has (a two-epoch rolling maximum) fixes the starvation
+— admitted 94 → 159 and solves 3 → 7 at 30° over 60 s, and 185 → 354 / 10 → 20
+with a moving wearer — and **moves the disagreement from 0.818 mm to 0.826 mm**.
+It also costs the property the ratchet exists for: a minute turned away drops the
+band to the turned-away level, which is the pinned "a minute turned away cannot
+redefine square-on" check going red and re-admits exactly the hard-yaw solves the
+latch was built to refuse. Bought nothing, cost the safety: **reverted**, and
+written into `updateSquareOnBand` so the next attempt does not repeat it.
+
+**(c) stays open**, with a sharper statement than it had. The residual is bounded
+— ≤1.0 mm at 30° on fourteen of fifteen subjects — and the next work is named:
+de-bias the standoff reading for the view it was taken at. That needs an
+estimator this tree does not have, and reading the pose-fused person layer
+instead would break the single-surface invariant, so it is not a change to make
+in passing.
+
+**S11 carries a separate finding worth its own line:** its learned surface sits
+**4.2–5.8 mm** in front of the truth across the pad strip at every camera, which
+is why its camera spread is 4.05 mm where no other subject exceeds 1.0. That is
+the reconstruction failing to follow a narrow high nose, not the seat, and it
+belongs to the deform.
+
+#### Suites and the ratchet
+
+`pipeline-check` **374/375** with the flag lit and the same with it dark; the one
+standing check failure either way is the Stage-0-environment-ruled wall-clock
+check. The two tail findings that opened this stage — two-sided bearing across
+the set, and the deviated nose — are **CLEAR with the balance lit** and open with
+it dark, which is the honest reading of a law that is proved and not yet shipped;
+both arms are in the finding text. `LIMITS` (queue item 5, untouched), the flat
+2 s settle target (a floor, decomposed by stage 10) and the camera agreement
+above remain open.
+
+**Neither replay baseline re-pinned, and the reason is stage 10's, not this
+stage's.** Both were already failing at HEAD because stage 10 changed the
+confidence law and left its deltas for the wearer to judge. What this stage adds
+is measured against a HEAD-equivalent control run (the same tree with the flag
+dark), so its own contribution is separable:
+
+```
+telemetry-replay   HEAD-equivalent 336/366    this stage: 336/366, every failing
+                                              metric bit-identical to the digit
+diag-replay        HEAD-equivalent 313/338    this stage: 313/338, likewise
+```
+
+**As shipped this stage adds no delta to either replay at all** — every failing
+metric on both, and every passing one, is bit-identical to the same tree with
+this stage's code removed. That is what the flag being dark buys, and it is also
+what makes the flag's own numbers readable: lit, telemetry reads 329/366 (the
+trade above, and the `>40° glances` gate is the whole of it) and diag 315/338.
+
+The failures that remain on both are stage 10's, not this stage's. On diag they
+all sit on the five stills where this wearer's nose genuinely descends (face-b,
+f01, f03, f07, f08), whose 60-frame window measures the settle rather than the
+settled state — the same classification the stage-5 record already made of them,
+now amplified because stage 10's confidence arrives INSIDE that window instead
+of after it. Both baselines therefore stay unpinned, for stage 10's reason and
+not for a new one: what they are waiting on is a live session, not a harness.
