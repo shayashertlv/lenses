@@ -37,7 +37,7 @@ import {
 import { createLightProbe, lightingFor, softenTint } from '../src/lighting.js';
 import {
   analyseModel, measureFaceWidthRatio, solvePlacement, pupilHeightInLens, pupilVerdict,
-  PUPIL_BANDS, DEFAULT_FIT,
+  widthVerdict, PUPIL_BANDS, DEFAULT_FIT,
 } from '../src/fit.js';
 import {
   seat, sideInterference, buildFaceSurface, PAD_SINK, SOFTMAX_TAU,
@@ -64,7 +64,7 @@ import {
 } from '../src/agreement.js';
 import {
   canonicalAnchors, measureAnchors, clampAnchors, medianAnchors, measureMetricScale,
-  carryLandmarks, DEPTH_BLEND_LIMIT,
+  carryLandmarks, DEPTH_BLEND_LIMIT, LIMITS,
 } from '../src/anchors.js';
 import { createPersonModel, PERSON_CONSTANTS } from '../src/person.js';
 import { createSampleSource } from '../src/sources.js';
@@ -538,6 +538,8 @@ async function run() {
   // an asset ships glass is a fact about the file, and a flag beside the entry is a
   // second copy of that fact waiting to disagree with it.
   const declaredGlassBy = new Map();
+  /** The catalogue's own width table — see the provenance check after the loop. */
+  const widthTable = [];
   for (const entry of MODELS) {
     const root = await loadGlassesModel(entry, import.meta.url);
     const measured = analyseModel(root);
@@ -547,6 +549,58 @@ async function run() {
       measured.widthM > 0.11 && measured.widthM < 0.17 && measured.orientationLooksSane,
       `${(measured.widthM * 1000).toFixed(1)} mm wide, `
       + `size ${measured.size.toArray().map((n) => (n * 1000).toFixed(0)).join(' / ')} mm`);
+
+    // What `realWidthMm` actually normalises, per asset.
+    //
+    // The catalogue's docstring claims the number is the frame's TOTAL FRONT
+    // width, and that claim is only true if the front is the model's widest
+    // part — otherwise `normaliseWidth`, which scales the whole bounding box,
+    // is sizing the frame by its temple splay. Measured here rather than
+    // assumed: the frontmost quarter of the depth, and how wide it spans
+    // against the whole model.
+    {
+      const pts = [];
+      const v = new THREE.Vector3();
+      root.updateMatrixWorld(true);
+      root.traverse((node) => {
+        if (!node.isMesh) return;
+        const p = node.geometry?.attributes?.position;
+        if (!p) return;
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(node.matrixWorld);
+          pts.push(v.x, v.z);
+        }
+      });
+      const zCut = measured.box.max.z - measured.size.z * 0.25;
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < pts.length; i += 2) {
+        if (pts[i + 1] < zCut) continue;
+        lo = Math.min(lo, pts[i]);
+        hi = Math.max(hi, pts[i]);
+      }
+      const frontSpanM = hi - lo;
+      const share = frontSpanM / measured.size.x;
+      widthTable.push({
+        id: entry.value,
+        widthMm: measured.widthM * 1000,
+        source: measured.widthSource,
+        declared: entry.realWidthMm ?? null,
+        frontSpanMm: frontSpanM * 1000,
+        share,
+        endpieceBackMm: (measured.box.max.z - measured.endpiece.z) * 1000,
+      });
+      record(`${entry.value}: the declared width is the frame FRONT's span`,
+        share > 0.97 && measured.endpiece.count > 20
+        && measured.endpiece.z > measured.box.min.z && measured.endpiece.z < measured.box.max.z,
+        `the frontmost quarter spans ${(frontSpanM * 1000).toFixed(1)} mm of the model's `
+        + `${(measured.size.x * 1000).toFixed(1)} mm — ${(share * 100).toFixed(1)}% — so `
+        + `normalising the bounding box normalises the front, which is the number an `
+        + `optician calls frame width. The widest line sits `
+        + `${((measured.box.max.z - measured.endpiece.z) * 1000).toFixed(1)} mm behind the `
+        + `front face (${measured.endpiece.count} vertices), which is where the arm `
+        + `leaves it and what the width verdict needs to turn a width into a fit`);
+    }
 
     // The pads must sit behind the lenses and above the frame's lower edge, or the
     // contact-point search has locked onto the wrong geometry.
@@ -647,6 +701,50 @@ async function run() {
       modelRoot = root;
       model = measured;
     }
+  }
+
+  // ------------------------------------------------ the catalogue's own widths
+  //
+  // Every physical claim this pipeline makes to a wearer stands on one number
+  // per asset, and on nine of eleven that number is a placeholder. The check
+  // below is a CONTRACT — every entry must say where its width came from — and
+  // the finding beside it is the state of the catalogue, which is a data-entry
+  // problem and not a code one.
+  {
+    const assumed = widthTable.filter((r) => r.source === 'assumed');
+    const authored = widthTable.filter((r) => r.source === 'authored');
+    const unstated = widthTable.filter((r) => !r.source);
+    record('every catalogue asset declares where its width came from',
+      unstated.length === 0
+      && assumed.every((r) => r.declared !== null)
+      && authored.every((r) => r.declared === null),
+      `${widthTable.length} assets: ${authored.length} authored at life size `
+      + `(${authored.map((r) => `${r.id} ${r.widthMm.toFixed(1)}`).join(', ')} mm), `
+      + `${assumed.length} carrying the placeholder, 0 stated by a supplier, `
+      + `${unstated.length} silent. An 'authored' entry must carry no realWidthMm — `
+      + `declaring one would rescale an asset that already knows its own size`);
+
+    // Not a check. The pipeline is doing exactly what it was told; what it was
+    // told is a guess, and no measurement of a mesh can recover it.
+    const spread = 10; // mm of assumption, for the sensitivity below
+    const meanFace = 154.9;
+    recordFinding('the catalogue\'s physical width is an assumption on 9 of 11 assets',
+      assumed.length === 0, 'tail',
+      `\`realWidthMm\` is the placeholder 140 mm on ${assumed.length} of `
+      + `${widthTable.length} entries (${assumed.map((r) => r.id).join(', ')}), and `
+      + `\`analyseModel\` measures \`widthM\` AFTER \`normaliseWidth\` has applied it — `
+      + `so on those nine the "measured" width is the assumption read back, and true-size `
+      + `mode and the width verdict are both computed from it. This is not recoverable `
+      + `from the geometry: an arbitrary-unit mesh carries shape and nothing else, and `
+      + `the two assets that do know their own size know it because their AUTHOR did `
+      + `(${authored.map((r) => `${r.id} ${r.widthMm.toFixed(1)} mm`).join(', ')}). `
+      + `Sensitivity, so the size of the hole is on the record: ±${spread} mm of `
+      + `assumption moves the verdict's ratio against the mean face by `
+      + `±${((spread / meanFace) * 100).toFixed(1)}%, where the whole span between the `
+      + `derived narrow and wide edges is about 20%. The assumption alone can decide the `
+      + `answer. What closes it is one number per asset — total front width in mm, or `
+      + `the A□DBL marking plus endpieces — from the supplier or a rule, entered as `
+      + `\`widthSource: 'stated'\`. Until then the readout marks the verdict '~'`);
   }
 
   // ------------------------------------------------- scans, and anything with glass
@@ -2828,16 +2926,26 @@ async function run() {
     // Size has to follow the face too: asked to span it, the frame must actually
     // span *this* face, whose width differs from the average and from the other
     // sample's.
+    // Against `widthRatio` rather than against 1, because the default is no
+    // longer 1 and never should have been: `templeWidth` is the head's WIDEST
+    // span, so a frame asked to match it exactly is asked to be as wide as the
+    // wearer's head — see `DEFAULT_FIT.widthRatio`. What this check is really
+    // about survives the change intact: the span has to follow THIS face rather
+    // than the average one, and the ratio it lands at has to be the ratio it was
+    // asked for.
     const spanning = solvePlacement({
       model,
       anchors,
       fit: { ...DEFAULT_FIT, mode: 'proportional' },
     });
     const spanned = model.widthM * spanning.scale;
+    const asked = anchors.templeWidth * DEFAULT_FIT.widthRatio;
     record(`${name}: asked to span the face, the frame spans this face`,
-      near(spanned, anchors.templeWidth, 0.05),
-      `frame ${(spanned * 10).toFixed(0)} mm vs measured face `
-      + `${(anchors.templeWidth * 10).toFixed(0)} mm`);
+      near(spanned, asked, 0.05)
+      && Math.abs(spanned / anchors.templeWidth - DEFAULT_FIT.widthRatio) < 1e-9,
+      `frame ${(spanned * 10).toFixed(0)} mm against ${(asked * 10).toFixed(0)} mm asked `
+      + `for — ${DEFAULT_FIT.widthRatio}x this face's measured `
+      + `${(anchors.templeWidth * 10).toFixed(0)} mm, hit to the last bit`);
 
     placements.push({
       name, templeWidth: anchors.templeWidth, spanned, noseWidth: anchors.noseWidth,
@@ -10280,10 +10388,16 @@ async function run() {
         const truthScale = ((s.d.scale ?? 1) * IRIS_MEAN_MM) / (s.d.irisMm ?? IRIS_MEAN_MM);
         const truthPd = ((s.d.ipdMm ?? POP.ipdMm.mean) / 10)
           * (IRIS_MEAN_MM / (s.d.irisMm ?? IRIS_MEAN_MM));
+        // The bounds are read off `LIMITS` itself rather than copied, so a
+        // re-derivation in `anchors.js` cannot leave this block asserting the
+        // old rails — which is exactly how the shipped [0.7, 1.4] went
+        // unexamined for as long as it did.
+        const inside = (v, [lo, hi]) => v >= lo - 1e-6 && v <= hi + 1e-6;
+        const clip = (v, [lo, hi]) => Math.min(Math.max(v, lo), hi);
         const rails = [];
-        if (truthNwr < 0.7 - 1e-6 || truthNwr > 1.4 + 1e-6) rails.push(`noseWidthRatio ${truthNwr.toFixed(3)}`);
-        if (truthWr < 0.75 - 1e-6 || truthWr > 1.3 + 1e-6) rails.push(`widthRatio ${truthWr.toFixed(3)}`);
-        if (truthScale < 0.7 - 1e-6 || truthScale > 1.3 + 1e-6) rails.push(`metricScale ${truthScale.toFixed(3)}`);
+        if (!inside(truthNwr, LIMITS.noseWidthRatio)) rails.push(`noseWidthRatio ${truthNwr.toFixed(3)}`);
+        if (!inside(truthWr, LIMITS.widthRatio)) rails.push(`widthRatio ${truthWr.toFixed(3)}`);
+        if (!inside(truthScale, LIMITS.metricScale)) rails.push(`metricScale ${truthScale.toFixed(3)}`);
         if (truthPd < 4.6 || truthPd > 8.0) rails.push(`pdCm ${truthPd.toFixed(2)}`);
         const err = (got, want) => (got === null || got === undefined
           ? Infinity : Math.abs(got - want) / Math.max(Math.abs(want), 1e-6));
@@ -10293,11 +10407,16 @@ async function run() {
           wr: a.widthRatio,
           ms: a.metricScale,
           pd: a.pdCm,
-          eNwr: err(a.noseWidthRatio, Math.min(Math.max(truthNwr, 0.7), 1.4)),
-          eWr: err(a.widthRatio, Math.min(Math.max(truthWr, 0.75), 1.3)),
-          eMs: err(a.metricScale, Math.min(Math.max(truthScale, 0.7), 1.3)),
+          eNwr: err(a.noseWidthRatio, clip(truthNwr, LIMITS.noseWidthRatio)),
+          eWr: err(a.widthRatio, clip(truthWr, LIMITS.widthRatio)),
+          eMs: err(a.metricScale, clip(truthScale, LIMITS.metricScale)),
           ePd: err(a.pdCm, truthPd),
           rails,
+          // The LIVE counter, off the session that just ran — not a
+          // recomputation of the same arithmetic. A counter that agrees with a
+          // reimplementation of itself proves nothing; this one has to agree
+          // with the truth table beside it.
+          counter: state.rails,
         });
       }
       const mean = rows.find((r) => isMean(r.s));
@@ -10315,17 +10434,249 @@ async function run() {
       const railed = rows.filter((r) => r.rails.length);
       recordFinding('LIMITS binds on real anthropometry, and nothing counts it',
         railed.length === 0, 'tail',
-        `${railed.length}/${rows.length} subjects have at least one truth value outside a `
-        + `\`LIMITS\` bound, so the clamp silently rewrites their face: `
-        + `${railed.map((r) => `${r.s.id} [${r.rails.join(', ')}]`).join('; ')}. `
+        `${railed.length}/${rows.length} subjects have a truth value outside a \`LIMITS\` `
+        + `bound${railed.length ? `: ${railed.map((r) => `${r.s.id} [${r.rails.join(', ')}]`).join('; ')}` : ''}. `
         + `Recovery error across the whole set, against the CLAMPED truth, is at worst `
-        + `${(worstErr * 100).toFixed(1)}% — the arithmetic is right, the bounds are the `
-        + `finding. \`LIMITS.noseWidthRatio\` [0.7, 1.4] is ±2.6 SD of the pooled adult `
-        + `nasal-width distribution, so it clips a real tail rather than a bad frame; and `
-        + `there is no counter anywhere for a clamp that landed, so today this is invisible `
-        + `in production. Ranked work: give every LIMITS field a rail counter (mirroring `
-        + `\`depthClamped\`), then re-derive the bounds from the population rather than `
-        + `from what one face needed`);
+        + `${(worstErr * 100).toFixed(1)}%. Both halves of the ranked work are now done: `
+        + `every bound has a rail counter (\`__ar.rails\`, per-field counts and worst `
+        + `overshoot, mirroring \`depthClamped\`), and \`noseWidthRatio\` is re-derived `
+        + `from the published range — [${LIMITS.noseWidthRatio.join(', ')}] against the old `
+        + `[0.7, 1.4], the upper rail moving out to the widest published group mean plus `
+        + `three within-group SD as a ratio of the canonical mesh's own alar width `
+        + `(${(face.distance(129, 358) * 10).toFixed(2)} mm, landmarks 129/358). S10's `
+        + `truth 1.450 is inside it`);
+
+      // The counter is only worth having if it fires when the rail does and
+      // stays silent when it does not — and the honest test of that is a face
+      // built to land OUTSIDE the bound, driven through the real pipeline.
+      {
+        const quiet = rows.filter((r) => r.counter && r.counter.railedFrames > 0);
+        // A nose two and a half times the canonical span: past the new rail by
+        // a wide margin, and exactly the class of event the bound exists for.
+        const wild = { id: 'RAIL', d: { noseR: 3.4 } };
+        wild.truth = subjectFace(face, wild.d);
+        const pose = poseOf(0, 0, 0, 1);
+        const st = { occluder: createOccluder(face) };
+        const sm = new PoseSmoother(DEFAULT_SMOOTHING);
+        const marks = landmarksFor(wild.truth, wild.d, pose);
+        for (let k = 0; k < 10; k++) {
+          updateFrame({
+            scene, face, model, fit: { ...DEFAULT_FIT }, smoother: sm, state: st, source,
+            detection: { matrix: pose.toArray(), landmarks: marks },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+        }
+        const c = st.rails;
+        const truthWild = noseSpanOf(wild.truth) / face.noseWidth;
+        record('a clamp that rewrites a face is counted, and only then',
+          quiet.length === 0 && c.frames === 10 && c.railedFrames === 10
+          && c.counts.noseWidthRatio === 10 && c.worst.noseWidthRatio > 0.05
+          && c.counts.widthRatio === 0 && c.counts.metricScale === 0,
+          `across the ${rows.length}-subject set — every truth value now inside its bound — `
+          + `the counter reports ${quiet.length} railed frames, which is the silence a `
+          + `correct bound is supposed to keep. Driven with a nose at `
+          + `${truthWild.toFixed(2)}x the canonical span it fires on `
+          + `${c.counts.noseWidthRatio}/${c.frames} frames, worst overshoot `
+          + `${(c.worst.noseWidthRatio * 100).toFixed(1)}% past the rail, and no other `
+          + `channel moves (widthRatio ${c.counts.widthRatio}, metricScale `
+          + `${c.counts.metricScale}, bridge ${c.counts.bridgeX + c.counts.bridgeY + c.counts.bridgeZ}). `
+          + `Counts AND magnitude, because they answer different questions: a count says `
+          + `the bound fired, the overshoot says whether the bound is in the wrong place`);
+      }
+    }
+
+    // ------------------------------ (A2) the width verdict, across the set
+    //
+    // The one honest output of true-size mode, and it was wrong for most of
+    // this catalogue on most of these faces — in the direction that sends a
+    // wearer to a larger frame. Two defects, both invisible to single-person
+    // testing because both are constant biases: the ratio was taken in
+    // CANONICAL units on both sides (so it could not see the wearer's size at
+    // all), and its bands were centred on a ruler that measures head breadth at
+    // the ear rather than the frame's own span. See `widthVerdict`.
+    //
+    // Every number below is the paired A/B: the same subject, the same asset,
+    // the same placement, scored both ways.
+    {
+      const assets = [];
+      for (const entry of MODELS) {
+        const root = await loadGlassesModel(entry, import.meta.url);
+        assets.push({ id: entry.value, model: analyseModel(root) });
+      }
+      // Two coherent controls the standing set does not carry, and they are the
+      // whole point: a proportionally AVERAGE small head and a proportionally
+      // average large one. Their shape ratio is exactly 1, so the old verdict
+      // returned the mean face's answer for both, whatever they measured.
+      const scaleOnly = [
+        { id: 'C-kid', d: { scale: 0.80, ipdMm: 55 }, truth: subjectFace(face, {}) },
+        { id: 'C-big', d: { scale: 1.10, ipdMm: 70 }, truth: subjectFace(face, {}) },
+      ];
+      const cells = [];
+      for (const s of [...SUBJECTS, ...scaleOnly]) {
+        const anchors = anchorsForSubject(s.truth, s.d);
+        for (const a of assets) {
+          const placement = solvePlacement({
+            model: a.model, anchors, fit: DEFAULT_FIT, face,
+          });
+          const v = widthVerdict({
+            model: a.model, anchors, placement, face, fit: DEFAULT_FIT,
+          });
+          const old = v.frameWidthCm / v.faceWidthCm;
+          cells.push({
+            s: s.id,
+            a: a.id,
+            v,
+            oldRatio: old,
+            oldVerdict: old > 1.06 ? 'wide' : old < 0.92 ? 'narrow' : 'good',
+          });
+        }
+      }
+      const tally = (key) => cells.reduce((t, c) => {
+        const k = key === 'new' ? c.v.verdict : c.oldVerdict;
+        t[k] = (t[k] ?? 0) + 1;
+        return t;
+      }, {});
+      const nw = tally('new');
+      const ov = tally('old');
+      const meanCells = cells.filter((c) => c.s === 'S00');
+      const kid = cells.filter((c) => c.s === 'C-kid');
+      const big = cells.filter((c) => c.s === 'C-big');
+
+      // The defect, stated as the thing a wearer would have done about it.
+      record('the width verdict stops calling a standard frame narrow on an average face',
+        meanCells.every((c) => c.v.verdict === 'good')
+        && meanCells.filter((c) => c.oldVerdict === 'narrow').length >= 9,
+        `on the mean face the old bands called `
+        + `${meanCells.filter((c) => c.oldVerdict === 'narrow').length} of ${meanCells.length} `
+        + `catalogue frames \`narrow\` — every 140 mm frame, because 140/154.9 = 0.904 sits `
+        + `below the 0.92 edge — and a wearer told a standard adult frame is narrow buys a `
+        + `wider one. Over the whole ${cells.length}-cell matrix the old bands read `
+        + `${JSON.stringify(ov)} against the derived ${JSON.stringify(nw)}`);
+
+      // The half that no amount of band-shifting could fix.
+      const sameAsMean = (rowsOf) => rowsOf.every((c, i) => Math.abs(c.oldRatio - meanCells[i].oldRatio) < 1e-12
+        && c.oldVerdict === meanCells[i].oldVerdict);
+      record('the width verdict can see the wearer\'s SIZE, not only their shape',
+        kid.every((c) => c.v.verdict === 'wide')
+        && sameAsMean(kid) && sameAsMean(big)
+        && big.every((c) => c.v.contact !== null),
+        `C-kid and C-big are the mean face at 0.80 and 1.10 scale — heads `
+        + `${kid[0].v.faceWidthMm.toFixed(1)} mm and ${big[0].v.faceWidthMm.toFixed(1)} mm, `
+        + `iris-measured — and their SHAPE ratio is exactly 1, so the old verdict returned `
+        + `the mean adult's answer for both, bit-identical on all ${kid.length} frames `
+        + `(${kid[0].oldRatio.toFixed(4)} on the 140 mm assets, \`${kid[0].oldVerdict}\`). `
+        + `A 140 mm frame overhangs that child's head by `
+        + `${(kid[0].v.frameWidthMm - kid[0].v.faceWidthMm).toFixed(1)} mm and the old `
+        + `verdict called it ${kid[0].oldVerdict}. The derived verdict reads \`wide\` on all `
+        + `${kid.length} for C-kid, and C-big contacts on every frame with `
+        + `${big.filter((c) => c.v.verdict === 'narrow').length} at or past the pinch edge. `
+        + `Both sides are real millimetres now: the frame's own width and the head the iris `
+        + `measured`);
+
+      // What the band actually is, and what it is not.
+      const contacts = cells.map((c) => c.v.contact).filter((c) => c !== null).sort((x, y) => x - y);
+      const q = (p) => contacts[Math.min(contacts.length - 1, Math.floor(p * contacts.length))];
+      const ratios = cells.map((c) => c.oldRatio).sort((x, y) => x - y);
+      record('the verdict\'s two edges are the geometry\'s, with no tolerance constant left',
+        cells.every((c) => c.v.contact === null || (c.v.contact >= 0 && c.v.contact <= 1))
+        && (nw.good ?? 0) + (nw.wide ?? 0) + (nw.narrow ?? 0) === cells.length,
+        `\`contact\` is where the head first reaches the frame's half-width along the arm's `
+        + `run: 0 at the endpiece (the front itself fouls the face) and 1 at the head's `
+        + `widest point (past which the arm cannot touch at all). Over the matrix it spans `
+        + `${contacts[0].toFixed(3)}–${contacts[contacts.length - 1].toFixed(3)}, median `
+        + `${q(0.5).toFixed(3)}. Expressed back in the OLD ratio's units the derived band is `
+        + `about [0.80, 1.00] on the mean face and moves per asset with how far back each `
+        + `frame carries its widest line, against the shipped flat [0.92, 1.06] — which sat `
+        + `almost entirely above it (the matrix's own ratios run `
+        + `${ratios[0].toFixed(3)}–${ratios[ratios.length - 1].toFixed(3)}). Grading the `
+        + `interior of that band into "a little tight" needs a soft-tissue compression model `
+        + `or real frames measured on real faces; neither exists here, so \`contact\` is `
+        + `reported and not banded further`);
+
+      // ------ (A3) proportional mode
+      //
+      // `widthRatio` sizes the frame to a fraction of `templeWidth`, and
+      // `templeWidth` is the head's WIDEST span. So the shipped 1.0 was not a
+      // neutral default — it was one of the two failure modes exactly.
+      const meanSubject = SUBJECTS.find(isMean);
+      const propAt = (wr) => {
+        const fit = { ...DEFAULT_FIT, mode: 'proportional', widthRatio: wr };
+        const anchors = anchorsForSubject(meanSubject.truth, meanSubject.d);
+        return assets.map((a) => {
+          const placement = solvePlacement({ model: a.model, anchors, fit, face });
+          return widthVerdict({ model: a.model, anchors, placement, face, fit });
+        });
+      };
+      const atOne = propAt(1.0);
+      const past = propAt(1.02);
+      const atShipped = propAt(DEFAULT_FIT.widthRatio);
+      const shippedContacts = atShipped.map((v) => v.contact).filter((c) => c !== null);
+      const meanContact = shippedContacts.reduce((t, c) => t + c, 0) / shippedContacts.length;
+      // `widthRatio` 1.0 is the wide EDGE, exactly and by construction: it asks
+      // for a frame whose half-width equals `templeWidth / 2`, and that is
+      // landmark 127's own |x| — the widest vertex in the mesh — so the crossing
+      // lands on the widest point itself and `contact` must be 1.0 to the last
+      // bit. That is the analytic boundary this geometry can be checked against,
+      // and it is where an earlier version of the arithmetic was caught measuring
+      // the run to the back of the height band instead of to the widest point:
+      // the equality case then read 0.918 and the edge was unreachable.
+      record('fit-to-face renders a frame that can actually touch the head',
+        atOne.every((v) => v.contact === 1 && v.verdict === 'wide')
+        && past.every((v) => v.contact === null && v.verdict === 'wide')
+        && shippedContacts.length === assets.length
+        && Math.abs(meanContact - 0.5) < 0.05,
+        `at the old default \`widthRatio\` 1.0 the frame is asked to span `
+        + `\`templeWidth\` exactly — the widest vertex pair in the mesh — so all `
+        + `${atOne.length} catalogue frames land on the wide edge with contact exactly `
+        + `1.000, and a hair past it (1.02) all ${past.length} lose contact altogether: `
+        + `every frame in fit-to-face mode was rendered a full head-breadth across. At the `
+        + `derived ${DEFAULT_FIT.widthRatio} all ${shippedContacts.length} contact, mean `
+        + `${meanContact.toFixed(3)}, spread ${Math.min(...shippedContacts).toFixed(3)}–`
+        + `${Math.max(...shippedContacts).toFixed(3)}. The default is the MAXIMIN point `
+        + `between the two failures the mode's own docstring names — measured at 0.9255 `
+        + `over the catalogue on the mean face, quantised to the control's 0.01 step`);
+
+      // ------ both signs, on geometry whose only defence is |x|
+      //
+      // Three sign and aliasing bugs have shipped in this tree, and every one of
+      // them was in arithmetic that looked symmetric. The contact model reduces
+      // the wearer's silhouette through `Math.abs(x)`, so the test with teeth is
+      // the mesh MIRRORED: same face, every x negated, and the answer has to be
+      // bit-identical rather than close. Swept across the frame's whole size
+      // range so the crossing walks the length of the run, not just one bracket.
+      {
+        const flipped = new Float32Array(face.positions);
+        for (let i = 0; i < flipped.length; i += 3) flipped[i] = -flipped[i];
+        const mirror = { positions: flipped, vertexCount: face.vertexCount };
+        const anchors = anchorsForSubject(meanSubject.truth, meanSubject.d);
+        let cells = 0;
+        let differing = 0;
+        let spanLo = Infinity;
+        let spanHi = -Infinity;
+        let nulls = 0;
+        for (const a of assets) {
+          for (let m = 0.70; m <= 1.2001; m += 0.01) {
+            const fit = { ...DEFAULT_FIT, sizeMultiplier: m };
+            const placement = solvePlacement({ model: a.model, anchors, fit, face });
+            const c = widthVerdict({ model: a.model, anchors, placement, face, fit }).contact;
+            const cm = widthVerdict({
+              model: a.model, anchors, placement, face: mirror, fit,
+            }).contact;
+            cells++;
+            if (!(c === cm || (Number.isFinite(c) && c === cm))) differing++;
+            if (c === null) nulls++;
+            else { spanLo = Math.min(spanLo, c); spanHi = Math.max(spanHi, c); }
+          }
+        }
+        record('the contact model reads a mirrored face identically, across the whole run',
+          differing === 0 && nulls > 0 && spanLo <= 0 && spanHi > 0.9,
+          `${cells} cells (${assets.length} frames x sizes 0.70–1.20) against the same `
+          + `mesh with every x negated: ${differing} differ, to the last bit. The sweep `
+          + `walks the crossing the length of the arm's run and out the far end — contact `
+          + `spans ${spanLo.toFixed(3)}–${spanHi.toFixed(3)}, reaching the narrow edge `
+          + `exactly and leaving the head entirely on ${nulls} cells — so this is the `
+          + `symmetry holding everywhere the model is defined, not at one convenient width`);
+      }
     }
 
     // ---------------------------------------- (B) the seat, across the set
