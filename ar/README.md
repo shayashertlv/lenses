@@ -80,7 +80,7 @@ Three measurements come out of that, and each drives something:
 |---|---|
 | Nose bridge (x, y) | where the pads rest — and horizontal centring, so an off-centre nose still gets a centred frame |
 | Eye line (y) | the frame's height, so the pupils sit ~45% down the lens |
-| Temple width | frame size in *Fit to face*, and the width verdict in *True size* |
+| Temple width | frame size in *Fit to face*, and — with the iris turning it into millimetres — the head the width verdict compares a frame against |
 | Nose width (x) | how far off the face the frame comes to rest — a broader nose is a wider wedge, so the same pads meet it sooner |
 | Ear tops + cheeks (y, z, per side) | where each temple arm comes to rest, and where the ear occluders sit — ears are measured per side because real ears are asymmetric |
 
@@ -410,15 +410,26 @@ where both pupils sit in the same plane as the ruler measuring them, so there is
 perspective term to get wrong — and the app reports the result as `pupils` (59mm on
 both sample faces) and uses it to tell one wearer from another.
 
-It is deliberately **not** wired into the sizing yet, and the reason is a measurement
-rather than caution. `templeWidth`, the span the verdict is calibrated against, is the
-distance between two silhouette landmarks rather than anatomical head breadth:
-converted into real units it puts both sample faces at 171–175mm across, where a human
-head is 145–155. The scale factor is sound — the pupil distances behind it are
-plausible and the two faces differ the way two faces should — but the *thresholds* it
-would feed were tuned in the old units, and re-basing them needs real frames on real
-faces rather than two sample photographs. Shipping half of it would swap a known,
-uniform bias for an unknown, uneven one.
+**The verdict uses it now; the render still does not, and the split is deliberate.**
+The width verdict compares the frame's own manufactured width against the head the
+iris measured, both in real millimetres, and decides by *where the temple arm meets
+the head*: 0 when the frame front is already fouling the face, 1 when the head only
+reaches the frame's width at its widest point and the arm cannot touch at all. Two
+edges, both the geometry's own, and no tolerance constant between them. What it
+replaces was a flat band against `templeWidth` — the span between two silhouette
+landmarks at the ear plane, 154.9mm on the canonical mesh, which is head breadth
+rather than the temple-to-temple an optician measures — and it called **100 of 165
+subject-frame pairs `narrow`**, nine of the eleven catalogue frames on the average
+face among them. A wearer told a standard adult frame is narrow buys a wider one. It
+was also blind to size by construction: a child and a large adult with the same
+proportions got bit-identical answers, because both sides of the ratio were in
+canonical units and the factor cancelled.
+
+What the render still does is draw the frame in canonical centimetres, so *True size*
+is still 140/154.9 of whoever is in the chair rather than 140mm. Closing that moves
+every placed frame on the recorded fixtures, so it waits for the live session the
+replay baselines are already waiting on. The gap is now one measurement wide and
+written down, instead of a bias nothing could see.
 
 **An asset that coloured its own reflection keeps it.** The anti-reflective coating in
 `matchTransmissiveRender` is filled in only where glTF's default says *nothing was

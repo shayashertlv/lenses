@@ -2078,7 +2078,9 @@ tell you it happened.
    **convergence rate**, not camera dependence, and it belongs to Goal 2. The
    off-axis geometries admit a fraction of their frames and therefore reach the
    same answer later, not a different one.
-5. **`LIMITS` binds on real anthropometry and nothing counts it.** One subject in
+5. *(CLOSED at stage 12 — the counter exists and the rail is re-derived. See
+   "Stage 12".)* **`LIMITS` binds on real anthropometry and nothing counts it.**
+   One subject in
    fifteen (S10, `noseWidthRatio` 1.45) has a truth value outside a bound, so the
    clamp silently rewrites their face. Under the stated 11.5% pooled CV the
    [0.7, 1.4] rails clip about the outer 0.5% of adults at the low end — and the
@@ -2597,3 +2599,275 @@ settled state — the same classification the stage-5 record already made of the
 now amplified because stage 10's confidence arrives INSIDE that window instead
 of after it. Both baselines therefore stay unpinned, for stage 10's reason and
 not for a new one: what they are waiting on is a live session, not a harness.
+
+### Stage 12 — the catalogue's own numbers
+
+Three of these reach every user of an affected asset and none of them is visible
+to one person testing on one face, because all three are CONSTANT biases. A
+constant bias does not read as a bug. It reads as "this frame is narrow on me".
+
+#### A — nine of eleven catalogue widths are the same guess
+
+`realWidthMm` was documented as "a number a retailer already has: it is printed
+on the temple arm of every pair they sell". Two things about that were wrong and
+the second one matters.
+
+The marking on a temple arm is `A□DBL–temple`, and its third figure is the
+**arm's length**. That 140 is the most common temple length there is, which is
+exactly why nobody looked twice at a catalogue where nine of eleven entries
+carry `realWidthMm: 140`. What `normaliseWidth` actually scales is the model's
+total transverse extent, so the number has to be the **total frame front
+width** — and that is now checked rather than assumed, per asset:
+
+| asset | width mm | source | front slice's share of the span | widest line, mm behind the front |
+|---|---|---|---|---|
+| meshy | 140.0 | assumed | 99.9% | 34.1 |
+| aviator | 140.0 | assumed | 100.0% | 27.0 |
+| aviator-amber | 140.0 | assumed | 100.0% | 42.7 |
+| horizon-amber | 140.0 | assumed | 100.0% | 38.0 |
+| horizon-sage | 140.0 | assumed | 100.0% | 41.8 |
+| shield-golden | 140.0 | assumed | 99.1% | 61.8 |
+| crystal | 140.0 | assumed | 99.9% | 34.0 |
+| crystal-lenses | 140.0 | assumed | 99.9% | 34.0 |
+| **navigator** | **147.5** | **authored** | 100.0% | 28.8 |
+| base | 140.0 | assumed | 100.0% | 31.4 |
+| **khronos** | **150.5** | **authored** | 99.6% | 48.0 |
+
+The front IS the widest part on all eleven (`shield-golden` wraps far enough
+that its arms stand 1.2 mm wider), so the convention the code implements is the
+one an optician means, and the boxing geometry agrees with it: `meshy` measures
+A 59.4 mm and DBL 21.3 mm, and 2A + DBL = 140.1.
+
+**The value, though, is a guess, and no measurement can recover it.** An
+arbitrary-unit mesh carries shape and nothing else. `analyseModel` measures
+`widthM` *after* `normaliseWidth` has run, so on those nine the "measured" width
+is the assumption read straight back — and true-size mode and the width verdict
+are both computed from it. The two assets that know their own size know it
+because their author did.
+
+So the fix is not a derivation, it is a **provenance**: every entry declares
+`widthSource` (`authored` / `stated` / `assumed`), `analyseModel` carries it
+beside `widthM`, and the readout marks any verdict resting on an assumption — or
+on a face with no iris reading yet — with a `~`. The sensitivity is on the
+record so the size of the hole is known: **±10 mm of assumption moves the
+verdict's ratio against the mean face by ±6.5%**, where the whole span between
+the derived narrow and wide edges is about 20%. The assumption alone can decide
+a third of the answer. What closes it is one number per asset — total front
+width in millimetres, or the `A□DBL` marking plus endpieces — from the supplier
+or from a rule laid across the front. That is catalogue data entry and **not
+something this repository can do for itself**; it is recorded as an open finding
+rather than faked.
+
+#### B — the width verdict was wrong for most of the catalogue on most faces
+
+`frameWidth / templeWidth` in face-space units, banded at 0.92 / 1.06. Three
+defects, and all three fail in the same direction.
+
+**1. It could not see the wearer's size.** Both sides were in the canonical
+head's centimetres — face space *is* the canonical head, posed to cover whoever
+is in the chair — so the ratio described SHAPE and nothing else. The control
+that proves it is one the standing set did not carry: take the mean face and
+change only its SIZE.
+
+| | head, iris-measured | old ratio, 140 mm frame | old verdict | new verdict |
+|---|---|---|---|---|
+| C-kid (0.80 scale) | 123.9 mm | **0.9040** | narrow | **wide** |
+| S00 (the mean face) | 154.9 mm | **0.9040** | narrow | good |
+| C-big (1.10 scale) | 170.3 mm | **0.9040** | narrow | good / narrow |
+
+Bit-identical, all three. A 140 mm frame overhangs that child's head by 16 mm
+and the verdict called it *narrow*.
+
+**2. The bands were centred on the wrong place.** `templeWidth` is the span
+between landmarks 127 and 356, and those are the **widest vertex pair in the
+whole mesh** — measured, at the ear plane, z = −2.0 cm, 154.9 mm apart. That is
+head breadth, not the optician's temple-to-temple (industry sizing guides put
+that at 120–140 mm for adults, and the mesh's own frontal breadth at the temples
+reads 137 mm). Real frame fronts run 125–150 mm, so a correct frame lands at
+0.81–0.97 of this ruler — and the "good" band began at 0.92. Over the fifteen
+subjects and eleven frames, **100 of 165 cells read `narrow`**, nine of the
+eleven frames on the mean face among them. A wearer told a standard adult frame
+is narrow on an average adult face buys a wider one.
+
+**3. A width was compared without a depth.** The head narrows by 43 mm from the
+ear plane to the lens plane, so the same 140 mm means different things on a flat
+frame and a wrapped one. One ratio cannot hold both — and the endpiece column
+above spans 27 to 62 mm of set-back across this catalogue.
+
+**What replaces it, and why it has no tolerance constant in it.** The arm runs
+from the endpiece back to the ear along the side of the head, and the head
+widens the whole way, so there is exactly one depth at which the two silhouettes
+cross. That crossing is the fit:
+
+```
+contact = 0   the head reaches the frame's width AT the endpiece — the front
+              itself is fouling the face.                             NARROW
+contact = 1   the head only reaches it at its widest point — past that the arm
+              cannot touch at all and the frame hangs on its nose.    WIDE
+```
+
+Both edges are the geometry's own, and there is no third number. `metricScale` —
+the iris, this pipeline's only absolute ruler — divides the frame's face-space
+size, because face space is the canonical head and `metricScale` is how much
+bigger the real one is; the scaling is about the seat, so a true-size frame
+swings about the point it rests on. `absolute: false` rides out with the verdict
+when no iris has resolved yet, and the readout marks it.
+
+Expressed back in the OLD ratio's units the derived band is about
+**[0.80, 1.00]** on the mean face, moving per asset with how far back each frame
+carries its widest line. The shipped flat **[0.92, 1.06]** sat almost entirely
+above it.
+
+**What is NOT closed by this.** The band's two edges are hard geometric
+impossibilities, not comfort limits. Grading the interior — "a little tight", "a
+little loose" — needs a soft-tissue compression model or real frames measured on
+real faces. Neither exists here, so `contact` is reported as a graded number and
+not banded further, and this section says so rather than inventing a tolerance.
+
+**And one thing this deliberately does not change.** True-size mode still DRAWS
+the frame in canonical centimetres, so what is rendered is still 140/154.9 of
+whoever's face is in the chair rather than 140 mm. The verdict now describes the
+real product on the real head while the render does not, and that gap is stated
+rather than closed: dividing the drawn scale by `metricScale` moves every placed
+frame on the wearer's own recording, which is a change to make with the live
+session both replay baselines are already waiting on — not in the same pass that
+fixes the readout. The fit.js note that first raised it stands, now with the
+verdict half of its argument discharged.
+
+#### C — fit-to-face rendered every frame a full head-breadth across
+
+`DEFAULT_FIT.widthRatio` shipped at 1.0, and that is not a neutral default: it
+is one of B's two failure modes, exactly — and it is that failure's *analytic
+boundary*, which is what makes it checkable. Proportional mode sizes the frame
+to `templeWidth × widthRatio`, and `templeWidth` is twice landmark 127's own
+`|x|`, the widest vertex in the mesh. So at 1.0 the crossing lands ON the widest
+point: **contact is exactly 1.000 on all eleven frames**, the wide edge reached
+by equality, and a hair past it (1.02) all eleven lose contact altogether. Every
+frame in fit-to-face mode was rendered a full head-breadth across.
+
+That boundary earned its keep immediately. A first version of the arithmetic
+measured the run to the back of the frame's own height band rather than to the
+head's widest point, and the equality case then read 0.918 — the wide edge
+unreachable, and the whole verdict quietly compressed. It was the `widthRatio`
+1.0 check that failed, not a review.
+
+The new default is the **maximin** point between the two failures the mode's own
+docstring names — the arm contacting halfway along its run, as far from fouling
+the front as from sliding off the back. Measured over the catalogue on the mean
+face that is `widthRatio` **0.9255** (per asset 0.864 to 0.966, the spread being
+the endpiece set-back again); quantised to the control's own 0.01 step, which
+moves the mean contact from 0.500 to 0.510. Shipped: **0.93** — all eleven
+frames contact, spread 0.263 to 0.649.
+
+#### Both signs, because three sign bugs have shipped in this tree
+
+The contact model reduces the wearer's silhouette through `Math.abs(x)`, which
+is exactly the shape of arithmetic that has been wrong here before and looked
+symmetric while it was. So the mesh is **mirrored** — every x negated — and the
+answer has to come back bit-identical, over a sweep of the frame's whole size
+range so the crossing walks the length of the run rather than sitting in one
+bracket: **561 cells**, eleven frames × sizes 0.70–1.20, contact spanning
+0.000 to 0.954 and leaving the head entirely on 124 of them. **Zero differ.**
+
+#### D — a clamp that rewrites a face is now visible, and one rail moves
+
+Queue item 5, in the order it asked for.
+
+**The counter first.** `createRailCounter` in `anchors.js`, caller-owned for the
+same reason `guardOverflow` and `stats.clamped` are — a rail count is a
+statement about the person in the chair, and module scope is the one place a
+state-keyed reset cannot reach. It lives in `PER_SESSION_STATE.perPerson`, so
+the isolation proof covers it, and it surfaces as `__ar.rails`: per-field counts
+AND worst overshoot, because they answer different questions. A count says the
+bound fired; the overshoot says whether the bound is in the wrong place (a
+wearer sitting steadily 5% outside it) or doing its job (one frame 40% outside,
+then nothing). The `bridgeUp` refusal is counted alongside the clamps, because
+it is the same event: the pipeline substituting the average face for a
+measurement it declined.
+
+**Then the re-derivation.** Two methodological rules, both the generality
+matrix's own, restated in `LIMITS` because a bound is worthless without them:
+published ranges transfer as RATIOS against the same mesh the pipeline measures
+against, and the pooled population is a MIXTURE OF GROUP MEANS, so a bound
+placed at a pooled z-score clips a real tail.
+
+```
+noseWidthRatio   the published measure is alar width (al-al), a different
+                 measurement on the same nose, so it transfers as a ratio
+                 against the canonical mesh's OWN alar width — landmarks
+                 129/358, MEASURED at 35.72 mm, itself inside the published
+                 adult range, which is what makes the transfer non-circular.
+
+   low   lowest published group mean ~31 mm (Farkas et al. 2005, 25
+         populations) − 3 within-group SD (1.9 mm, Farkas 1994, F)
+         = 25.3 mm  ->  0.708
+   high  highest group mean ~45 mm + 3 within-group SD (2.5 mm, M)
+         = 52.5 mm  ->  1.470
+```
+
+Shipped `[0.7, 1.470]` against the old `[0.7, 1.4]`. The upper rail moves; the
+lower one stays at its shipped 0.7 rather than tightening to the derived 0.708,
+by a rule now written into the block: **a refusal bound may be generous**, and
+where the derivation lands inside the shipped value the shipped value stays and
+the derivation is recorded as the headroom. That rule is what keeps `widthRatio`
+and `metricScale` where they are — ANSUR II head breadth at ±3 SD is 0.85–1.08
+of the canonical span, far inside `[0.75, 1.3]` — and it is why tightening the
+low nose rail to three derived digits would have clipped S11, which the set
+carries at exactly 0.700, and bought nothing.
+
+S10's truth 1.450 is now inside its bound, so the matrix's rail column is empty
+for the first time — **0/15 railed**, against 1/15 at HEAD. The counter is
+proved on both arms: silent across all fifteen subjects, and firing on 10/10
+frames at 100.4% overshoot on a nose driven to 2.95× the canonical span, with
+no other channel moving (widthRatio 0, metricScale 0, bridge 0).
+
+**And it caught its own bug on the way in.** The counter was first captured once
+per frame into a local, and `measureObserved` runs a SECOND time on the frame an
+identity conviction fires — after `resetFit` has cleared the field. The stale
+reference posted the new wearer's first measurement into the old wearer's
+counter and left `state.rails` empty until the next frame, so a swapped session
+and a cold one disagreed by exactly one frame. `isolationSwap` failed on it
+within minutes of the field being added, naming the three fields and the frame.
+That is the boundary check doing the job stage 8 built it for, on the first new
+per-person field added since.
+
+#### Suites, and the ratchet
+
+```
+pipeline-check    HEAD 375/375, 5 open      this stage 392/393, 5 open
+telemetry-replay  HEAD 336/366              this stage 336/366, bit-identical
+diag-replay       HEAD 313/338              this stage 313/338, bit-identical
+```
+
+Eighteen checks join, and the open count is unchanged because one finding closes
+(`LIMITS`) and one opens (the catalogue's assumed widths). The single failing
+check is the Stage-0-environment-ruled wall-clock bound on `updateOccluder`,
+which nothing in this stage is on the path of: it read 13.4 ms and passed at
+HEAD earlier in the same session and 14.5 ms here, on a machine that had been
+running suites for an hour.
+
+**Neither replay baseline is re-pinned, and this stage adds no reason to.** The
+comparison is a real control run rather than an inference: `ar/src` was checked
+out at HEAD, the wearer's fixture replayed, and the tree restored. Every metric
+on every segment matches to the last digit —
+
+```
+                 still   eye-circles  glances   pitch    yaw    browse
+rmsPx           5.9412      7.1952    16.281   3.8200  43.8374    —
+placeZP95Mm     6.4395      0.0402     3.0439  0.4592   2.5676  0.5153
+over40MeanMm        —           —     −3.1103      —    1.4755    —
+guardPushes         0           0          9       0        9      10
+```
+
+— because nothing here is on the placement path the fixtures exercise: the
+verdict is a readout, `widthRatio` bites only in proportional mode and the
+fixtures run physical, and the `noseWidthRatio` rail never bound on this wearer,
+which the counter now says out loud rather than leaving to inference. The
+baselines stay unpinned for stage 10's reason, unchanged: they are waiting on a
+live session.
+
+Queue item 5 closes. Queue item 4 and open item (c) stay where stage 11 left
+them. The catalogue's nine assumed widths become a new open finding and cannot
+be closed here — they need a number from a supplier or a rule, which is not
+something a harness can measure — and so does the render half of B, which needs
+the same live session.
