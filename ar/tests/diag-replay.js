@@ -384,19 +384,25 @@ async function replayStill({ url, face, scene, model, tracker, nextTs }) {
   };
 }
 
-// ---------------------------------------------- G14(b) crossfade acceptance
+// ------------------------------------------------- the shared-session pass
 //
-// The real-world acceptance gate for the zConf depth crossfade (spec grafts G8
-// and G14b): before the crossfade may default on, CONVERGED depth must be
-// stable across the diag f00–f09 stills — the same face at ten different
-// poses. The per-still fixture above cannot ask this (fresh state per still
-// means no parallax ever accumulates inside one pose), so this pass runs the
-// ten stills as ONE shared session: one state, one person model, carried
-// across all ten poses in order — which is exactly the browsing the design's
-// zConf arithmetic banks on. Two passes, crossfade forced on and off, so the
-// span the crossfade adds or removes is attributable. Report-only against the
-// baseline (the gate's verdict is recorded in the spec's stage-4 landing
-// note); the summary lands in the JSON so later stages keep watching it.
+// The per-still fixture above uses fresh state per still, so no estimator ever
+// carries anything between poses and no parallax ever accumulates. This pass
+// runs the ten stills as ONE session: one state, one person model, carried
+// across all ten poses in order — which is exactly the browsing every
+// converging estimator in this tree banks on, and the only place in the
+// fixtures where one session visits ten different poses.
+//
+// It was built as the acceptance gate for the zConf depth crossfade (spec
+// grafts G8 and G14b), a PAIR of passes with the channel forced on and off so
+// the span it added was attributable. That channel is retired — measured
+// unreachable on fifteen faces at three cameras, and no better than the
+// borrowed path when forced on anyway — so this is one pass and it is
+// production. What it still measures is worth keeping: the cross-pose spread
+// of the bridge and of the applied seat on ONE converged session, which is the
+// closest thing the stills have to an off-axis camera, and the parallax a real
+// session actually accumulates. Report-only against the baseline; the summary
+// lands in the JSON so later stages keep watching it.
 
 const SESSION_SETTLE = 10;
 const SESSION_MEASURED = 30;
@@ -436,11 +442,10 @@ function screenOf(position, scene, source, out) {
   return out;
 }
 
-async function sharedSessionPass({ face, scene, model, tracker, nextTs, crossfadeOn,
+async function sharedSessionPass({ face, scene, model, tracker, nextTs,
   collectRigid = false }) {
   const occluder = createOccluder(face);
   const state = { occluder, person: createPersonModel(face) };
-  state.person.crossfadeOn = crossfadeOn;
   const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
   const fit = { ...DEFAULT_FIT };
   const perStill = [];
@@ -511,7 +516,6 @@ async function sharedSessionPass({ face, scene, model, tracker, nextTs, crossfad
       bridgeXMm: n ? round((xSum / n) * 10) : null,
       seatAppliedMm: seatN ? round((seatSum / seatN) * 10) : null,
       zConfBridge: round(state.person.zConfBridge),
-      zWeightBridge: round(state.person.zWeight[6]),
     });
     if (collectRigid && missN) {
       rigidStills.push({
@@ -575,7 +579,6 @@ async function sharedSessionPass({ face, scene, model, tracker, nextTs, crossfad
   }
 
   return {
-    crossfadeOn,
     perStill,
     bridgeZSpanMm: span((s) => s.bridgeZMm),
     bridgeXSpanMm: span((s) => s.bridgeXMm),
@@ -617,9 +620,32 @@ async function sharedSessionPass({ face, scene, model, tracker, nextTs, crossfad
 // aspect), so "2.3 mm" means 2.3 mm on the face whatever the still's
 // resolution.
 //
-// VALIDITY GATE (report-only): the production pin must reproduce roughly the
-// live ~9+ px coupling — if it does not, the injector is unrealistic and says
-// so, rather than flattering the rigid arm with a weak stimulus.
+// VALIDITY, and it was measured on the wrong side of the pipeline until
+// 2026-08-18. The gate used to read "the production pin must reproduce roughly
+// the live ~9+ px coupling — if it does not, the injector is unrealistic". That
+// asks the PIPELINE how big the stimulus was. It was a fair question exactly
+// once: when it was written, the pipeline had no gaze door, so its response was
+// proportional to the stimulus and could stand in for it. Anchoring-v3 then
+// built the gaze admission door and the response collapsed by design — pin rms
+// 8.31 → 0.38 px, peak 28.50 → 0.80 — and the validity gate started reading
+// "injector unrealistic" for the reason the pipeline had got better. A gate
+// that goes red when the thing it guards is fixed is not a gate; it is a
+// baseline key nobody can act on, and it has sat in `diag-baseline.json`
+// staling since Stage 7 with exactly that noted against it.
+//
+// So the two halves are separated, and each is measured where it lives:
+//
+//   validInjector — a property of the INJECTOR ALONE. The displacement this
+//                   pass actually wrote into the landmark array, converted back
+//                   to millimetres on the face through the same projection, has
+//                   to match the field it claims to be (2.3 mm mean, 4.0 mm
+//                   peak). No pipeline in the loop, so no pipeline change can
+//                   move it.
+//   couplingPx    — a property of the PIPELINE, reported with its direction of
+//                   merit stated: SMALLER IS BETTER, the gaze door is why it is
+//                   small, and a rise here is the door leaking. It is compared
+//                   against the baseline now rather than merely printed, which
+//                   is what turns it from a stale key into a ratchet.
 
 /** The displaced set: bridge 6, tip 4, nasion 168, the four nose walls. */
 const GAZE_INJECT_LMS = [
@@ -656,6 +682,10 @@ async function gazeInjectionPass({ face, scene, model, tracker, nextTs, session 
   const screen = { x: 0, y: 0 };
   let gazeRefusals = 0;
   let pxPerMm = null;
+  // What the injector actually applied, measured off the landmarks it wrote
+  // and converted back to millimetres on the face — the validity statement,
+  // with nothing downstream of the injector in it.
+  const appliedMm = [];
 
   for (let k = 0; k < frames; k++) {
     repaintWithNoise(source.element, pristine);
@@ -685,6 +715,13 @@ async function gazeInjectionPass({ face, scene, model, tracker, nextTs, session 
         const p = lms[i];
         lms[i] = { x: p.x + dxN, y: p.y + dyN, z: p.z };
       }
+      // Re-derived from the WRITTEN landmarks rather than from `rMm`, so a
+      // conversion error, a wrong aspect or a mis-indexed write shows up here
+      // instead of being asserted away by the number that caused it.
+      const wrote = GAZE_INJECT_LMS[0];
+      const ddx = (lms[wrote].x - detection.landmarks[wrote].x) * widthAtFaceCm;
+      const ddy = (lms[wrote].y - detection.landmarks[wrote].y) * heightAtFaceCm;
+      appliedMm.push(Math.hypot(ddx, ddy) * 10);
     }
 
     const r = updateFrame({ scene, face, model, fit, smoother, state, source,
@@ -722,6 +759,14 @@ async function gazeInjectionPass({ face, scene, model, tracker, nextTs, session 
 
   const production = track(prodX, prodY);
   const rigid = track(rigX, rigY);
+  // The injector's own field, as written. The tolerance is the sampling
+  // discretisation and nothing else: the 0.1 Hz radius breathe is sampled at
+  // 30 fps over exactly one cycle, so the mean is exact to a part in 300 and
+  // the peak is reached within half a sample of the top of the sine.
+  const appliedMean = appliedMm.length
+    ? appliedMm.reduce((a, b) => a + b, 0) / appliedMm.length : NaN;
+  const appliedPeak = appliedMm.length ? Math.max(...appliedMm) : NaN;
+  const VALID_TOL_MM = 0.05;
   return {
     still: GAZE_INJECT_STILL.split('/').pop(),
     seconds: GAZE_INJECT_SECONDS,
@@ -729,13 +774,40 @@ async function gazeInjectionPass({ face, scene, model, tracker, nextTs, session 
     pxPerMm,
     production,
     rigid,
-    /** The gaze door must NOT refuse — the injector leaves irises and
-     * corners untouched, so a nonzero count here means the injector leaked. */
+    /**
+     * How many samples the gaze admission door refused during the window.
+     *
+     * This used to carry "must be 0 — the injector leaves irises and corners
+     * untouched, so a nonzero count means the injector leaked". That reasoning
+     * only covers the INJECTED signal. The door compares this frame's iris
+     * offset against a slow neutral EMA, and the replay repaints every frame
+     * with fresh seeded sensor noise, so the DETECTOR's own iris estimate
+     * moves frame to frame on a still photograph — which is a real gaze
+     * reading, correctly refused, and nothing to do with the injector. It is a
+     * count, not a gate, and the injector's own validity is asserted directly
+     * above where it can be.
+     */
     gazeRefusals,
-    /** Validity: the production control reproduces the live ~9 px coupling
-     * (peak ≥ ~7 px is accepted as "roughly" — the pin filter's 0.8 Hz pole
-     * passes ~85% of a 0.5 Hz field). */
-    validInjector: Number.isFinite(production.peakPx) && production.peakPx >= 7,
+    /** What the injector actually wrote, in mm on the face. */
+    applied: { meanMm: round(appliedMean), peakMm: round(appliedPeak) },
+    /**
+     * Validity, measured on the injector alone: the displacement written into
+     * the landmark array IS the field it claims to be. Independent of every
+     * downstream change by construction — which is the whole point, and the
+     * repair to a gate that used to read the pipeline's response instead and
+     * therefore went red the day the gaze door landed.
+     */
+    validInjector: Number.isFinite(appliedMean) && Number.isFinite(appliedPeak)
+      && Math.abs(appliedMean - GAZE_MEAN_MM) <= VALID_TOL_MM
+      && Math.abs(appliedPeak - GAZE_PEAK_MM) <= VALID_TOL_MM,
+    /**
+     * The pipeline's gaze coupling, in pixels of drawn frame, and the number
+     * this pass exists to watch. SMALLER IS BETTER: the live measurement that
+     * motivated the injector was ~9 px of frame movement under a held-still
+     * head, the anchoring-v3 gaze door is what removed it, and a rise here is
+     * that door leaking. Compared against the baseline rather than printed.
+     */
+    couplingPx: production.peakPx,
   };
 }
 
@@ -817,6 +889,15 @@ const AGGREGATE_METRICS = [
   ['seatPushSpreadMm', 'mm'],
 ];
 
+/**
+ * The two R0 instruments' one meaningful number each, compared rather than
+ * merely stored. See the note at the call site for why they were not before.
+ */
+const REPORT_METRICS = [
+  ['gazeInjection.couplingPx', 'px'],
+  ['rigidMiss.worstMissMeanPx', 'px'],
+];
+
 const dig = (obj, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 
 function compare(label, current, baseline, kind) {
@@ -860,6 +941,18 @@ function assertAgainst(current, baseline) {
   for (const [path, kind] of AGGREGATE_METRICS) {
     compare(`aggregate ${path}`, dig(current.aggregates, path),
       dig(baseline.aggregates, path), kind);
+  }
+
+  // The two R0 instruments used to be PINNED BUT NEVER COMPARED: `rigidMiss`
+  // and `gazeInjection` were written into the baseline file in full and read
+  // by nothing, so "the baseline is stale on those keys" was a statement
+  // nothing could ever falsify. Both now have exactly one number that means
+  // something, and both are compared. `couplingPx` is the gaze door's own
+  // measure and smaller is better; `worstMissMeanPx` is the rigid twin's
+  // divergence from production and is a report, not a target — it is compared
+  // so a change SHOWS, and the ratchet classifies which way it went.
+  for (const [path, kind] of REPORT_METRICS) {
+    compare(`report ${path}`, dig(current, path), dig(baseline, path), kind);
   }
 
   // Wall time: judged since stage 3, against the STAGE-0 constant rather than
@@ -929,40 +1022,48 @@ async function run() {
   }
   current.aggregates = aggregate(current.stills);
 
-  // The G14(b) shared-session acceptance runs AFTER the per-still fixture, so
-  // the PRNG stream the pinned baseline was measured on is untouched. The R0
-  // instruments ride the OFF pass (crossfade dark IS the production config)
-  // and then continue its converged session into the gaze-injection still —
-  // both consume the stream only after every pinned metric has been measured.
-  say('crossfade acceptance — shared session, crossfade ON…');
-  const onPass = await sharedSessionPass({ face, scene, model, tracker,
-    nextTs: () => (timestamp += 33), crossfadeOn: true });
-  say('crossfade acceptance OFF + rigid-miss twin solves…');
-  const offPass = await sharedSessionPass({ face, scene, model, tracker,
-    nextTs: () => (timestamp += 33), crossfadeOn: false, collectRigid: true });
+  // The shared-session pass runs AFTER the per-still fixture, so the PRNG
+  // stream the pinned baseline was measured on is untouched. The R0
+  // instruments ride it and then continue its converged session into the
+  // gaze-injection still — both consume the stream only after every pinned
+  // metric has been measured.
+  //
+  // It used to be a PAIR of passes, crossfade on and off, and this comment
+  // used to explain which of the two production was. The crossfade is retired
+  // (see person.js and the spec's stage-13 section), so there is one pass and
+  // it is production. Deleting the ON pass moves the PRNG stream for
+  // everything downstream of it, which is why the R0 report metrics move in
+  // the re-pin that lands with it — a stream position, not a behaviour.
+  say('shared session — one converged pass across f00–f09…');
+  const shared = await sharedSessionPass({ face, scene, model, tracker,
+    nextTs: () => (timestamp += 33), collectRigid: true });
   say('gaze injection — 10 s on the converged session…');
   current.gazeInjection = await gazeInjectionPass({ face, scene, model, tracker,
-    nextTs: () => (timestamp += 33), session: offPass.session });
-  delete onPass.session;
-  delete offPass.session;
-  current.rigidMiss = offPass.rigidMiss;
-  delete offPass.rigidMiss;
-  delete onPass.rigidMiss;
-  current.crossfadeAcceptance = { on: onPass, off: offPass };
+    nextTs: () => (timestamp += 33), session: shared.session });
+  delete shared.session;
+  current.rigidMiss = shared.rigidMiss;
+  delete shared.rigidMiss;
+  current.sharedSession = shared;
   if (baseline) {
-    const on = current.crossfadeAcceptance.on;
-    const off = current.crossfadeAcceptance.off;
-    record('G14b shared-session crossfade acceptance (report)', true,
-      `crossfade ON: bridge z span ${on.bridgeZSpanMm} mm across f00–f09 `
-      + `(gate 1.5), x span ${on.bridgeXSpanMm} mm, zConfBridge ends at `
-      + `${on.perStill[on.perStill.length - 1]?.zConfBridge}, ${on.commits} commits, `
-      + `${on.resets} resets; OFF control: z span ${off.bridgeZSpanMm} mm, `
-      + `x span ${off.bridgeXSpanMm} mm — reported for the spec's landing note, `
-      + `asserted there`);
+    const sh = current.sharedSession;
+    record('shared-session cross-pose spread (report)', true,
+      `one session across f00–f09: bridge z span ${sh.bridgeZSpanMm} mm, x span `
+      + `${sh.bridgeXSpanMm} mm, applied seat span ${sh.seatAppliedSpanMm} mm, `
+      + `zConfBridge ends at ${sh.perStill[sh.perStill.length - 1]?.zConfBridge} `
+      + `(the parallax a real session actually accumulates), ${sh.commits} commits, `
+      + `${sh.resets} resets — reported for the spec's landing note, asserted there`);
 
     // The R0 offline gates, REPORTED not enforced (v3 plan, "STAGED LANDING":
     // they gate proceeding to A1, and the verdict belongs in the landing
     // record, not in a suite that must stay green while the decision is made).
+    // `rigidMiss` reads EXACTLY ZERO on all ten stills and did so at the pin
+    // too, which makes it a baseline key nobody could act on. It compares
+    // production against a twin solved from the pin's un-innovated base, and
+    // the spec records it reading up to 13 px at −18° yaw in the anchoring-v3
+    // era. It is kept — and, since 2026-08-18, COMPARED rather than merely
+    // printed — because a metric pinned at zero with a 0.05 px tolerance is a
+    // tripwire: the day the pin innovation starts moving the drawn frame
+    // again, this goes red instead of being rediscovered in an audit.
     const rm = current.rigidMiss;
     if (rm) {
       record('R0 rigidMiss (report — gates A1, not this suite)', true,
@@ -974,14 +1075,22 @@ async function run() {
     }
     const gz = current.gazeInjection;
     if (gz) {
+      // The injector's validity is now a hard check, because it can be: it is
+      // a statement about this file's own arithmetic and nothing else, so it
+      // can never go red for a reason outside this file.
+      record('the gaze injector writes the field it claims to',
+        gz.validInjector,
+        `asked for ${gz.injected.meanMm} mm mean / ${gz.injected.peakMm} mm peak at `
+        + `${gz.injected.hz} Hz on ${gz.still} (${gz.pxPerMm} px/mm); measured off the `
+        + `landmarks it wrote: ${gz.applied.meanMm} mm mean, ${gz.applied.peakMm} mm peak`);
       record('R0 gazeInjection (report — gates A1, not this suite)', true,
-        `${gz.injected.meanMm} mm mean / ${gz.injected.peakMm} mm peak at `
-        + `${gz.injected.hz} Hz on ${gz.still} (${gz.pxPerMm} px/mm): production `
-        + `pin rms ${gz.production.rmsPx} px, peak ${gz.production.peakPx} px `
-        + `(validity — reproduces the live ~9+ px coupling: `
-        + `${gz.validInjector ? 'YES' : 'NO — injector unrealistic'}); forced-rigid `
-        + `rms ${gz.rigid.rmsPx} px, peak ${gz.rigid.peakPx} px; gaze door `
-        + `refused ${gz.gazeRefusals} samples (must be 0 — irises untouched)`);
+        `gaze coupling ${gz.couplingPx} px peak, ${gz.production.rmsPx} px rms — SMALLER `
+        + `IS BETTER and the anchoring-v3 gaze door is why it is small (this read 28.50 `
+        + `peak / 8.31 rms before the door); forced-rigid twin `
+        + `${gz.rigid.peakPx} px, identical because candidate B was removed at the `
+        + `2026-08-17 cull and the twin is now the same computation; gaze door refused `
+        + `${gz.gazeRefusals} of 300 samples, which is the detector's own iris estimate `
+        + `moving under the replay's seeded sensor noise`);
     }
   }
 
