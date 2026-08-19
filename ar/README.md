@@ -1254,10 +1254,22 @@ It should follow the glTF convention — +Y up, +Z out of the face — which mos
 commerce assets do. The solver measures everything else: frame width, lens height,
 and where the pads meet the nose.
 
-`realWidthMm` is the frame's real total width. glTF declares metres so a
-well-authored `.glb` needs no correction, but OBJ declares nothing — `base.obj`
-arrives 1.85 units across — and true-size fitting is meaningless without it. It is
-a number a retailer already has: it is printed on the temple arm.
+`realWidthMm` is the frame's **total front width** — twice the lens width plus the
+bridge plus the two endpieces, the optician's `2A + DBL + 2×endpiece`. glTF declares
+metres so a well-authored `.glb` needs no correction, but OBJ declares nothing —
+`base.obj` arrives 1.85 units across — and true-size fitting is meaningless without
+it.
+
+This paragraph used to end "it is a number a retailer already has: it is printed on
+the temple arm", and that was wrong twice over. The marking on a temple arm reads
+`A□DBL–temple`, whose third figure is the length of the ARM; on this catalogue it
+being 140 as well is a coincidence, and `navigator` is the standing counterexample —
+147.5 mm across the front, 140 mm of temple. The second half is worse: a retailer
+mostly does *not* have this number to hand, which is why nine of the eleven
+catalogue entries carry `ASSUMED_WIDTH_MM` and say so through `widthSource`. An
+arbitrary-unit mesh carries shape and nothing else — no measurement of the geometry
+can recover the millimetres, because the geometry was scaled *to* them. See the
+`realWidthMm` docstring in `src/models.js`, which is the authority.
 
 **Getting a Meshy `.blend` into the catalogue**, which is the path the tortoiseshell
 aviator took, and the three things that had to happen to it:
