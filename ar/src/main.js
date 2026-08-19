@@ -1307,8 +1307,24 @@ function buildUI() {
             value,
             label: value === 'physical' ? 'True size' : 'Fit to face',
           })),
-          hint: 'True size keeps the frame at its manufactured width, so it can look '
-              + 'too big or too small — which is the point. Fit to face always spans the face.',
+          // The hint used to read "True size keeps the frame at its manufactured
+          // width", and that was the one sentence in this UI making a claim the
+          // code does not keep. `solvePlacement` draws physical mode at
+          // `FACE_UNITS_PER_METRE × sizeMultiplier` face units, and a face unit
+          // is the CANONICAL head's centimetre — so the frame spans a fixed
+          // fraction of the average head and the real millimetres it covers are
+          // the wearer's own, not the product's. Measured on the synthetic set,
+          // one 140 mm frame is drawn anywhere from 105 to 161 mm depending on
+          // who is wearing it. The mode is still worth having and still differs
+          // from fit-to-face — it does not chase this face's width — but it is
+          // relative to the average head rather than absolute, and the hint now
+          // says which. The other half is the catalogue: nine of eleven assets
+          // carry a placeholder width (`widthSource: 'assumed'`), which is what
+          // the `~` on the fit readout above already marks.
+          hint: 'True size holds the frame at its stated width against an average head, '
+              + 'so it does not chase your face the way Fit to face does — but the size '
+              + 'you see still scales with your head, and most of this catalogue’s '
+              + 'widths are placeholders. Fit to face always spans the face.',
         },
         {
           key: 'sizeMultiplier', type: 'range', label: 'Size', value: DEFAULT_FIT.sizeMultiplier,

@@ -2042,7 +2042,18 @@ export function updateFrame({
     metricScale: anchors.metricScale ?? null,
     pdCm: anchors.pdCm ?? null,
     pupilHeight: pupilHeightInLens({ model, anchors, placement }),
-    width: widthVerdict({ model, anchors, placement, face }),
+    // `fit` is not optional here, and leaving it out was a live defect the
+    // harness could not see: every check that exercises `widthVerdict` calls it
+    // DIRECTLY and passes `fit`, so the function has always been tested with the
+    // argument the app never gave it. Without it `fit?.mode === 'proportional'`
+    // is false whatever the sizing control says, `trueScale` stays `1/k`, and
+    // fit-to-face mode — which rescaled the frame to span this face precisely so
+    // there would be no product size left to describe — reports the frame `1/k`
+    // times its drawn width and hands that same factor to `contactFraction`. So
+    // it is not only the millimetres a person reads: on any wearer whose iris
+    // puts `metricScale` off 1, the VERDICT itself was computed against a frame
+    // width the wearer is not wearing.
+    width: widthVerdict({ model, anchors, placement, face, fit }),
   };
 }
 

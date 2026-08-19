@@ -561,19 +561,44 @@ export const DEFAULT_FIT = {
    * `unbalanced` to a solved wedge at BOTH signs, and seat measurable 1 goes
    * from 3/15 failing to clear.
    *
-   * What stopped it: the wearer's own recording. With the balance lit the
-   * telemetry replay's hard gate `seat-z at >40° yaw: glances mean ≤ 2.0 mm`
-   * reads 2.035 mm — a forward push at exactly the pose the original complaint
-   * was about, on a gate that passes with the flag dark. It is not the roll
-   * channel easing on unreadable evidence: latching it off-square with every
-   * other channel moved the figure by 0.002 mm. Everything ELSE on that
-   * recording improves, and by a lot — still rmsPx 5.94 → 2.34 and placeZP95Mm
-   * 6.44 → 0.68 against a 3.95/4.35 pin, yaw over40MeanMm +1.48 → +0.45 — so
-   * this is a trade, not a defect, and a trade on one wearer's recording is a
-   * live-session decision rather than a harness one. G8's own discipline, and
-   * the same discipline that kept it dark at stage 5.
+   * What stopped it for three stages, and what settled it (2026-08-18, stage
+   * 14). The objection was the wearer's own recording: with the balance lit
+   * the telemetry replay's hard gate `seat-z at >40° yaw: glances mean
+   * ≤ 2.0 mm` read 2.035, a gate that passes with the flag dark. Two
+   * measurements retire that objection and neither of them is an opinion.
+   *
+   * FIRST, THE GATE WAS ONE-SIDED, and the quantity it bounds is not. Run as a
+   * paired A/B on that same recording — `?padBalance=0` against
+   * `?padBalance=1`, the flag the only difference — the glances segment's
+   * `over40MeanMm` reads −3.1103 mm dark and +2.0353 lit. The shipped arm is
+   * 3.1 mm BEHIND its own frontal reference at >40° of yaw and the gate never
+   * looked, because `mean ≤ 2.0` cannot see a negative. In absolute excursion
+   * — which is what a wearer sees — lighting the flag moves that segment
+   * 1.07 mm CLOSER to where it started. The gate is now two-sided and its
+   * bound is derived rather than free; see the `GATE seat-z` block in
+   * `tests/telemetry-replay.js`.
+   *
+   * SECOND, THE COMPLAINT NOW HAS A GENERAL INSTRUMENT and the flag is clear
+   * on it. Until stage 14 the ">40° forward push" was measured nowhere but on
+   * that one recording, whose `yaw` segment entered the regime for TEN frames.
+   * The held-turn block in `pipeline-check` drives all fifteen synthetic
+   * subjects to ±45°, holds five seconds, and reads the placement against
+   * each run's own converged frontal reference: as a paired A/B, the balance
+   * is worse than dark on 0 of 30 runs beyond the standoff channel's own
+   * 0.15 mm deadband, better on 2, and the largest forward excursion it
+   * produces anywhere in the set is +0.756 mm against that gate's 2.0. The set
+   * carries a +3 mm and a −3 mm deviated nose (S12, S12m), so this is not a
+   * test the flag passes by having nothing to do.
+   *
+   * And on the wearer's own recording it CURES the metric the stage-10 ratchet
+   * stopped on: `yaw over40MeanMm` +1.4755 → +0.4316. Everything else improves
+   * too — still rmsPx 5.9412 → 2.3414, still placeZP95Mm 6.4395 → 0.6808, yaw
+   * placeZP95Mm 2.5676 → 0.9054, glances placeZP95Mm 3.0439 → 2.5694.
+   *
+   * It ships LIT. What it buys is a tail failure inside normal adult anatomy;
+   * what it cost was a gate that could only see one direction.
    */
-  padBalance: false,
+  padBalance: true,
   /**
    * How far, in centimetres, the seating solve may move the frame in or out.
    *
