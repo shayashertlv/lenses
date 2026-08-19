@@ -60,6 +60,21 @@ const SAMPLE_MODE = params.get('source') === 'sample';
  * each is announced through a 3 s lead-in before its clock starts). The
  * pass-bar text is what the wearer reads against the meter, out loud, DURING
  * the segment — the numbers are decided live, not reconstructed later.
+ *
+ * `yaw-hold` is an ADDITION (2026-08-18) and the reason is measured, not
+ * stylistic. The metric that decides the ">40° forward push" — the wearer's
+ * own complaint, and the delta the stage-10 ratchet stopped on — is
+ * `over40MeanMm`, taken over the frames with |yaw| > 40°. On the 2026-08-17
+ * capture the `yaw` segment produced **ten** such frames: a third of a second,
+ * and exactly the minimum `over40Frames >= 10` the gate refuses to run below.
+ * A sweep at ±30° barely enters the regime it is being read for, and it never
+ * DWELLS there, while the complaint is specifically about a HELD turn. So the
+ * sweep stays exactly as it was — every existing metric is computed on the
+ * same instructions and stays comparable — and a segment that holds past 40°
+ * is added beside it. It opens with a frontal dwell on purpose: `seatZStats`
+ * takes its zero from the segment's own first-quarter frames with every axis
+ * under 8°, and a segment that starts mid-turn has no such frames and falls
+ * back to whatever its first ten happen to be.
  */
 const LEAD_S = SAMPLE_MODE ? 1 : 3;
 const SEGMENTS = [
@@ -73,6 +88,9 @@ const SEGMENTS = [
     bar: 'PASS ≤ 5 px at the holds' },
   { name: 'yaw', seconds: 15, text: 'Sweep your head left–right, about ±30°, slow and steady.',
     bar: 'watch for slide across the face' },
+  { name: 'yaw-hold', seconds: 22,
+    text: 'Face the camera 4 s. Then FULL left, hold 5 s — centre — FULL right, hold 5 s.',
+    bar: 'watch: does the frame creep FORWARD off the nose at the holds?' },
   { name: 'browse', seconds: 20, text: 'Browse normally — move however you naturally would.',
     bar: 'subjective: settled? any slide?' },
 ].map((s) => (SAMPLE_MODE ? { ...s, seconds: 2 } : s));
