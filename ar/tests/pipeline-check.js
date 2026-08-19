@@ -11723,6 +11723,539 @@ async function run() {
         + `whatever this environment is]`);
     }
 
+    // ------------------- (D2) the held turn — where the frame goes past 40° of yaw
+    //
+    // THE GAP THIS CLOSES. The ">40° forward push" is the one behaviour in this
+    // pipeline a wearer reported by name, and until this block it was the one
+    // behaviour with no general instrument. Every yaw the synthetic set drove
+    // measured something else: the 45° hold at `a minute turned away cannot
+    // redefine square-on` asserts the band REFUSES those frames (admission, not
+    // placement); the ±30° sweep in seat measurable 5 asserts pad CONTACT; the
+    // 0/20/40/55° rungs in the occluder block measure a MESH gap in pixels. The
+    // camera ladder above sweeps the camera's PITCH and leaves head yaw at ±1.5°
+    // of postural wander. Not one of them asks where the FRAME ends up.
+    //
+    // So the quantity existed in exactly one place in this repository —
+    // `over40MeanMm`, on one recording of one face — and on that recording the
+    // `yaw` segment entered the regime for TEN frames, which is the
+    // `over40Frames >= 10` floor the gate refuses to run below, to the frame.
+    // A number that decides a shipped behaviour cannot be a third of a second
+    // long, and a behaviour this tree ships to everybody cannot be adjudicated
+    // by one person's impression of it. Hence: fifteen faces, both signs.
+    //
+    // THREE ARMS, because three separate open questions are the same experiment.
+    //
+    //   `converged`  — the shipped tree, seat settled before the turn. The
+    //                  measurement: does the frame move when the head turns?
+    //   `balanced`   — the same, with `fit.padBalance` LIT. The flag's blocking
+    //                  gate is `seat-z at >40° yaw ... mean <= 2.0 mm` on one
+    //                  recording, reading 2.035; this is that gate's general
+    //                  form, run as a PAIRED A/B on the same subject, sign,
+    //                  seed and frames.
+    //   `premature`  — the shipped tree with the reference taken 1.5 s in,
+    //                  while the seat is still descending. This is not a second
+    //                  opinion, it is a CONTROL on the instrument that produced
+    //                  the disputed +1.4755: that figure's zero is a segment's
+    //                  own first-quarter frontal frames, and the fixture's
+    //                  re-convergence lands inside the segment. If a reference
+    //                  taken mid-descent moves dPlaceZ forward on faces whose
+    //                  converged reference says it does not, the +1.4755 is the
+    //                  reference and not the seat, measured rather than argued.
+    //
+    // WHAT IS ASSERTED, and why no arm needs a new number.
+    //
+    //  (1) THE CHANNELS ARE LATCHED, bit-exactly. Off-square the design says the
+    //      seat holds: the eased-standoff block in `easeSeatChannels` is inside
+    //      `if (seatSquareOn)`, the height's ease is gated on the same verdict,
+    //      `solvePlacement`'s guard is gated on `seatCfg.squareOn !== false`,
+    //      and `scheduleSeatSolve` returns 'held' before `solveRestConfiguration`
+    //      is even called. So across a held 45° turn `applied.s`, `applied.zeta`
+    //      and the guard must not move AT ALL — not "within a tolerance", but
+    //      zero, because the code that could move them does not run. A claim
+    //      with no threshold in it, and the claim four separate square-on gates
+    //      were each added to make. The latch window opens where the HOLD does,
+    //      not where the turn does: the ramp is still partly square-on by
+    //      construction and the channels are meant to keep working through it.
+    //
+    //  (2) THE FRAME DOES NOT MOVE, against the standoff channel's OWN effect
+    //      deadband. If (1) holds, everything left in the frame's face-space z
+    //      is the base placement — the anchors, re-measured from observed
+    //      landmarks every frame, which is what the placement principle
+    //      REQUIRES to keep happening. `ZETA_REARM` is the smallest standoff
+    //      change that channel treats as real, so it is the honest bar for "did
+    //      the frame move": a motion under it is one the shipped code would
+    //      refuse to act on. Whatever exceeds it is therefore a statement about
+    //      the ANCHORS at yaw and not about the seat, and the decomposition
+    //      below says so rather than leaving it to be inferred.
+    //
+    // BOTH SIGNS, because three sign bugs have shipped in this tree. A push that
+    // exists at +45° and not at −45° is a handedness, and this set already
+    // learned once (stage 11) that a handedness it blamed on the face belonged
+    // to the frame.
+    {
+      const TURN_DEG = 45;
+      const SETTLE_FRAMES = 240; // 8 s frontal — the seat converges and latches
+      const SHORT_SETTLE = 45; //   1.5 s — the reference taken mid-descent
+      const RAMP_FRAMES = 30; //    1 s of turn: a turn, not a teleport
+      const HOLD_FRAMES = 150; //   5 s held past 40°, the complaint's own dwell
+      const REF_FRAMES = 30; //     the last second of a full settle is the zero
+      const SHORT_REF = 15; //      half a second of it, when there is only 1.5 s
+      const REARM_MM = SEAT_CONSTANTS.ZETA_REARM * 10;
+
+      // `solvePlacement` slides the frame ALONG THE NOSE rather than straight
+      // up — twice, once for the optical correction and once for the resting
+      // height — using `anchors.bridgeUp` as the direction and `1/up.y` as the
+      // scaling. Both slides therefore put `(distance / max(up.y, 0.2)) * up.z`
+      // into `position.z`, and `bridgeUp` is MEASURED, every frame, from two
+      // landmarks. It is the one term of the base placement that the frozen
+      // seat cannot hold still, and the only one the other probes here do not
+      // already account for, so it is measured rather than left to inference.
+      // `solvePlacement` is NOT given `state.anchors`. It is given a FUSED PIN
+      // — the carried median blended toward the person model's committed bridge
+      // estimate by that estimate's own maturity (see `updateFrame`'s
+      // adapt-to-face block) — and the person model keeps accumulating on every
+      // frame, turned away or not. So the bridge the frame actually hangs from
+      // is not one of the quantities the square-on latch holds still, and
+      // measuring the carried median here instead of the pin would attribute
+      // its motion to nowhere. `__ar.pin.baseZ` is that composed base, published
+      // for exactly this reason.
+      const pinZ = (st) => (st.pin && Number.isFinite(st.pin.baseZ)
+        ? st.pin.baseZ
+        : (st.anchors && st.anchors.bridge ? st.anchors.bridge.z : 0));
+      const upContrib = (r, st) => {
+        const up = st.anchors?.bridgeUp;
+        if (!up) return 0;
+        return ((r.placement.restHeight ?? 0) + (r.placement.verticalCorrection ?? 0))
+          / Math.max(up.y, 0.2) * up.z;
+      };
+      const heldTurn = (s, sign, { padBalance = DEFAULT_FIT.padBalance,
+        settle = SETTLE_FRAMES, refFrames = REF_FRAMES } = {}) => {
+        const k = s.d.scale ?? 1;
+        const rand = lcg(20260903);
+        const state = { occluder: createOccluder(face) };
+        const smoother = new PoseSmoother(DEFAULT_SMOOTHING);
+        const fitArm = { ...DEFAULT_FIT, padBalance };
+        // The same ±1.5° of postural wander every other session in this file
+        // uses: a perfectly held pose is a degenerate stream and would flatter
+        // every estimator in the chain.
+        const step = (t, yawDeg) => {
+          const pose = poseOf(
+            THREE.MathUtils.degToRad(yawDeg + 1.5 * Math.sin(2 * Math.PI * 0.07 * t + 1)),
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.11 * t)),
+            THREE.MathUtils.degToRad(1.5 * Math.sin(2 * Math.PI * 0.09 * t + 2)),
+            k,
+          );
+          return updateFrame({
+            scene, face, model, fit: fitArm, smoother, state, source,
+            detection: {
+              matrix: pose.toArray(),
+              landmarks: noisy(landmarksFor(s.truth, s.d, pose), rand),
+            },
+            dt: 1 / 30, smoothing: false, temples: null,
+          });
+        };
+
+        let f = 0;
+        // The reference is a MEAN over the last `refFrames` of the settle, and
+        // so is every term beside it: `position.z` is a sum of five terms and
+        // the only honest decomposition of "the frame ended up somewhere else"
+        // is term-by-term over the same two windows. Measuring each term's
+        // variance INSIDE the hold answers a different question and answers it
+        // 0.0000 — off-square everything is frozen, and the step that matters
+        // was taken during the turn-in, while the band was still admitting.
+        const ref = {
+          z: [], push: [], rest: [], vert: [], scale: [], base: [], needed: [], pre: [],
+          upc: [],
+        };
+        for (let i = 0; i < settle; i++, f++) {
+          const r = step(f / 30, 0);
+          if (i >= settle - refFrames) {
+            ref.z.push(r.placement.position.z);
+            ref.push.push(r.placement.noseSeat ? r.placement.noseSeat.easedPush : 0);
+            ref.rest.push(r.placement.restHeight ?? 0);
+            ref.vert.push(r.placement.verticalCorrection ?? 0);
+            ref.scale.push(r.placement.scale);
+            ref.base.push(pinZ(state));
+            ref.needed.push(r.placement.noseSeat ? r.placement.noseSeat.push : 0);
+            ref.pre.push(r.placement.position.z
+              - (r.placement.noseSeat ? r.placement.noseSeat.easedPush : 0));
+            ref.upc.push(upContrib(r, state));
+          }
+        }
+        const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+        const refPos = avg(ref.z);
+        const sAtRef = state.seatConfig.applied.s;
+        // The turn itself, eased in over a second so the trust ramps see a real
+        // rotation rate rather than a step they would rightly distrust. The
+        // channels are STILL LIVE here for as long as the band admits, which is
+        // exactly why the latch snapshot is taken after this loop and not before.
+        for (let i = 0; i < RAMP_FRAMES; i++, f++) {
+          step(f / 30, sign * TURN_DEG * ((i + 1) / RAMP_FRAMES));
+        }
+        const c = state.seatConfig;
+        const atHold = {
+          s: c.applied.s,
+          zeta: c.applied.zeta,
+          admitted: state.seat.squareOn.admitted,
+          overflow: c.guardOverflow ?? 0,
+        };
+        const hold = {
+          z: [], zeta: [], s: [], guard: [], squareOn: 0, yaw: [], touched: 0, base: [],
+          push: [], rest: [], vert: [], scale: [], needed: [], pre: [], upc: [],
+        };
+        for (let i = 0; i < HOLD_FRAMES; i++, f++) {
+          const r = step(f / 30, sign * TURN_DEG);
+          hold.z.push(r.placement.position.z);
+          hold.zeta.push(state.seatConfig.applied.zeta);
+          hold.s.push(state.seatConfig.applied.s);
+          hold.guard.push(r.placement.noseSeat ? r.placement.noseSeat.guard : 0);
+          if (r.placement.noseSeat && r.placement.noseSeat.touched > 0) hold.touched++;
+          if (state.seatConfig.applied.squareOn) hold.squareOn++;
+          if (state.poseTrust) hold.yaw.push(state.poseTrust.trueYawDeg);
+          // The decomposition, recorded rather than deduced. With the eased
+          // channels latched the frame can still move, and the question is
+          // WHICH term does it: the carried bridge (the anchors), the applied
+          // standoff, the resting height, the optical correction, or the drawn
+          // scale. `position.z` is built from exactly these, so recording all
+          // of them leaves nowhere for a residual to hide.
+          hold.base.push(pinZ(state));
+          hold.push.push(r.placement.noseSeat ? r.placement.noseSeat.easedPush : 0);
+          hold.rest.push(r.placement.restHeight ?? 0);
+          hold.vert.push(r.placement.verticalCorrection ?? 0);
+          hold.scale.push(r.placement.scale);
+          hold.needed.push(r.placement.noseSeat ? r.placement.noseSeat.push : 0);
+          hold.pre.push(r.placement.position.z
+            - (r.placement.noseSeat ? r.placement.noseSeat.easedPush : 0));
+          hold.upc.push(upContrib(r, state));
+        }
+        const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+        const worst = (a, r) => a.reduce((m, x) => Math.max(m, Math.abs(x - r)), 0);
+        const span = (a) => (a.length ? Math.max(...a) - Math.min(...a) : 0);
+        /** Held mean minus reference mean, mm — the term's own contribution. */
+        const shift = (h, r) => (avg(h) - avg(r)) * 10;
+        const peak = hold.z.reduce((m, x) => (Math.abs(x - refPos) > Math.abs(m - refPos)
+          ? x : m), refPos);
+        return {
+          s,
+          sign,
+          padBalance,
+          hasSolve: c.hasSolve,
+          /** The whole question, mm, + toward the camera = forward off the nose. */
+          dzMm: (mean(hold.z) - refPos) * 10,
+          peakMm: (peak - refPos) * 10,
+          /** How far the seat had descended when the reference was taken. */
+          refHeightMm: sAtRef * 10,
+          heldHeightMm: atHold.s * 10,
+          /** The three latch claims, over the HOLD — each must be exactly zero. */
+          zetaMovedMm: worst(hold.zeta, atHold.zeta) * 10,
+          sMovedMm: worst(hold.s, atHold.s) * 10,
+          guardMaxMm: Math.max(...hold.guard) * 10,
+          overflowed: (state.seatConfig.guardOverflow ?? 0) - atHold.overflow,
+          admittedDuringHold: state.seat.squareOn.admitted - atHold.admitted,
+          /** Every term of `position.z`, held mean minus reference mean, so the
+           * residual has nowhere to hide. These must sum to `dzMm`. */
+          /** The EXACT split: `position.z` is everything-before-the-standoff plus
+           * the applied standoff, so these two sum to `dzMm` by construction and
+           * a decomposition that does not close is impossible. */
+          dPreMm: shift(hold.pre, ref.pre),
+          dUpContribMm: shift(hold.upc, ref.upc),
+          pinMaturity: state.pin ? state.pin.maturity : null,
+          dBridgeMm: shift(hold.base, ref.base),
+          dPushMm: shift(hold.push, ref.push),
+          dRestMm: shift(hold.rest, ref.rest),
+          dVertMm: shift(hold.vert, ref.vert),
+          dScalePct: avg(ref.scale) ? ((avg(hold.scale) - avg(ref.scale))
+            / avg(ref.scale)) * 100 : 0,
+          /** The RAW law at the applied placement — not applied off-square, but
+           * it is the surface's own answer, so it says how far the SURFACE has
+           * moved under a seat that is provably frozen. */
+          dRawMm: shift(hold.needed, ref.needed),
+          rawSpanMm: span(hold.needed) * 10,
+          squareOnFrames: hold.squareOn,
+          touchedFrames: hold.touched,
+          meanYawDeg: mean(hold.yaw),
+          minYawDeg: Math.min(...hold.yaw),
+        };
+      };
+
+      // `converged` is the SHIPPED tree, whatever `DEFAULT_FIT.padBalance` is
+      // today, and `contrast` is the other arm — so the A/B keeps describing
+      // shipped-versus-alternative on the day the flag flips, instead of
+      // silently becoming a comparison of the default against itself.
+      const OTHER = !DEFAULT_FIT.padBalance;
+      const converged = [];
+      const contrast = [];
+      const premature = [];
+      for (const s of SUBJECTS) {
+        for (const sign of [+1, -1]) {
+          converged.push(heldTurn(s, sign));
+          contrast.push(heldTurn(s, sign, { padBalance: OTHER }));
+          premature.push(heldTurn(s, sign, { settle: SHORT_SETTLE, refFrames: SHORT_REF }));
+        }
+      }
+      window.__heldTurns = { converged, contrast, premature };
+      const sgn = (x) => (x >= 0 ? '+' : '');
+      const tag = (t) => `${t.s.id}${t.sign > 0 ? '+' : '-'}`;
+
+      // The instrument's own precondition: every run must actually have reached
+      // the regime it claims to measure, and must have had a seat to hold. A
+      // hold that never passed 40° would make every number below a statement
+      // about something else.
+      const all = [...converged, ...contrast, ...premature];
+      record('the held-turn instrument reaches the regime it measures, on every subject',
+        all.every((t) => t.minYawDeg > 40 && t.hasSolve),
+        `${all.length} runs (${SUBJECTS.length} subjects x both signs x 3 arms), `
+        + `${HOLD_FRAMES} held frames each at ${TURN_DEG}° — minimum |yaw| across the whole `
+        + `set ${Math.min(...all.map((t) => t.minYawDeg)).toFixed(1)}°, mean `
+        + `${(all.reduce((a, t) => a + t.meanYawDeg, 0) / all.length).toFixed(1)}°, `
+        + `${all.filter((t) => t.hasSolve).length}/${all.length} runs had solved a seat `
+        + `before the turn, and every run held pad contact on all ${HOLD_FRAMES} frames `
+        + `(${all.every((t) => t.touchedFrames === HOLD_FRAMES)}). For scale: the one `
+        + `recording this quantity previously existed on entered the regime for TEN frames`);
+
+      // --- (1) the latch, bit-exact, over the hold ---
+      const unlatched = all.filter((t) => t.zetaMovedMm !== 0 || t.sMovedMm !== 0
+        || t.guardMaxMm !== 0 || t.overflowed !== 0 || t.admittedDuringHold !== 0
+        || t.squareOnFrames !== 0);
+      record('a head held past 40° moves no seat channel at all',
+        unlatched.length === 0,
+        unlatched.length === 0
+          ? `across ${all.length} runs the eased standoff, the eased height and the guard are `
+            + `bit-identical to their at-the-turn values for all ${HOLD_FRAMES} held frames, `
+            + `0 frames square-on, 0 admitted to the standoff reference and 0 cap overflows `
+            + `— which is what four separate square-on gates (\`easeSeatChannels\`'s standoff `
+            + `block, the height's ease, \`scheduleSeatSolve\`'s refusal and `
+            + `\`solvePlacement\`'s \`seatCfg.squareOn !== false\`) each claim and none of `
+            + `them could previously be asked about together. So whatever the frame does at `
+            + `a held turn, the seat is not doing it`
+          : `${unlatched.length}/${all.length} runs moved a channel off-square: `
+            + `${unlatched.slice(0, 12).map((t) => `${tag(t)}`
+              + `${t.padBalance ? '(bal)' : ''} zeta ${t.zetaMovedMm.toFixed(4)} `
+              + `s ${t.sMovedMm.toFixed(4)} guard ${t.guardMaxMm.toFixed(4)} `
+              + `adm ${t.admittedDuringHold} sq ${t.squareOnFrames} `
+              + `ovfl ${t.overflowed}`).join('; ')} — all mm`);
+
+      // --- (2) the push itself, both signs, against the channel's own deadband ---
+      const pushed = converged.filter((t) => Math.abs(t.dzMm) > REARM_MM);
+      const fwd = converged.filter((t) => t.dzMm > REARM_MM);
+      const worstFwd = converged.reduce((a, t) => (t.dzMm > a.dzMm ? t : a));
+      const worstAny = converged.reduce((a, t) => (Math.abs(t.dzMm) > Math.abs(a.dzMm)
+        ? t : a));
+      const handed = SUBJECTS.map((s) => {
+        const p = converged.find((t) => t.s.id === s.id && t.sign > 0);
+        const n = converged.find((t) => t.s.id === s.id && t.sign < 0);
+        return { id: s.id, gap: Math.abs(p.dzMm - n.dzMm), p: p.dzMm, n: n.dzMm };
+      });
+      const worstHand = handed.reduce((a, h) => (h.gap > a.gap ? h : a));
+      recordFinding(
+        'the frame stays put through a held turn past 40°, on every face and both signs',
+        pushed.length === 0, 'tail',
+        `dPlaceZ over ${HOLD_FRAMES} held frames at ±${TURN_DEG}° against each run's own `
+        + `converged frontal reference, mm, + = FORWARD off the nose — the wearer's own `
+        + `complaint, stated generally. The bar is the standoff channel's own effect deadband `
+        + `ZETA_REARM = ${REARM_MM.toFixed(2)} mm, the smallest change that channel treats as `
+        + `real. ${pushed.length}/${converged.length} runs over it, `
+        + `${fwd.length} of them FORWARD. THE COMPLAINT'S OWN DIRECTION DOES NOT REPRODUCE: `
+        + `the largest forward excursion on any of the ${SUBJECTS.length} faces at either `
+        + `sign is ${tag(worstFwd)} ${sgn(worstFwd.dzMm)}${worstFwd.dzMm.toFixed(3)} mm, `
+        + `against the +1.4755 mm the disputed one-recording figure reports and the +0.51 mm `
+        + `the original complaint was measured at. Worst excursion either way is `
+        + `${tag(worstAny)} ${sgn(worstAny.dzMm)}${worstAny.dzMm.toFixed(3)} mm mean / `
+        + `${sgn(worstAny.peakMm)}${worstAny.peakMm.toFixed(3)} peak, `
+        + `${worstAny.dzMm > 0 ? 'FORWARD' : 'BACKWARD'}. `
+        + `WHERE IT COMES FROM. The latch check above proves every seat channel frozen `
+        + `THROUGH the hold, so the frame does not move while the head is turned — it `
+        + `arrives somewhere else, and the step is taken during the turn-in while the band `
+        + `is still admitting. Decomposed EXACTLY, because \`position.z\` is `
+        + `everything-before-the-standoff plus the applied standoff and the two therefore `
+        + `close by construction — held mean minus reference mean, worst of the set, mm: `
+        + `base placement ${Math.max(...converged.map((t) => Math.abs(t.dPreMm))).toFixed(4)}, `
+        + `applied standoff `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dPushMm))).toFixed(4)} (worst `
+        + `residual on the sum ${Math.max(...converged.map(
+    (t) => Math.abs(t.dPreMm + t.dPushMm - t.dzMm))).toFixed(6)}). Inside the base, every `
+        + `term that could move it: THE FUSED PIN'S BRIDGE `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dBridgeMm))).toFixed(4)}, resting `
+        + `height ${Math.max(...converged.map((t) => Math.abs(t.dRestMm))).toFixed(4)}, `
+        + `optical correction `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dVertMm))).toFixed(4)}, drawn scale `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dScalePct))).toFixed(4)}%, and the `
+        + `two along-the-nose slides' z contribution — the term carried by the MEASURED `
+        + `\`anchors.bridgeUp\` — `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dUpContribMm))).toFixed(4)}. THE PIN `
+        + `IS THE CARRIER, and it is the one term no square-on gate touches: the frame hangs `
+        + `from the carried median FUSED toward the person model's bridge estimate at that `
+        + `estimate's own maturity (mean over the set `
+        + `${(converged.reduce((a, t) => a + (t.pinMaturity ?? 0), 0) / converged.length)
+          .toFixed(3)}), and the person model accumulates on every frame, turned away or `
+        + `not. Beside `
+        + `them the RAW surface law at the same placement — NOT applied off-square, but it `
+        + `is what the SURFACE says — has moved `
+        + `${Math.max(...converged.map((t) => Math.abs(t.dRawMm))).toFixed(3)} mm and varies `
+        + `${Math.max(...converged.map((t) => t.rawSpanMm)).toFixed(3)} mm within the hold: `
+        + `the view-locked residual chasing each frame's image exactly as designed, and the `
+        + `measure of how much the latch is holding back. HANDEDNESS, measured because a push at one sign `
+        + `only is a different defect: worst |+ minus -| is ${worstHand.id} at `
+        + `${worstHand.gap.toFixed(3)} mm (${sgn(worstHand.p)}${worstHand.p.toFixed(3)} vs `
+        + `${sgn(worstHand.n)}${worstHand.n.toFixed(3)}), mean over the set `
+        + `${(handed.reduce((a, h) => a + h.gap, 0) / handed.length).toFixed(3)} mm — no `
+        + `sign asymmetry worth a name. Per subject, +/-: `
+        + `${handed.map((h) => `${h.id} ${sgn(h.p)}${h.p.toFixed(2)}/`
+          + `${sgn(h.n)}${h.n.toFixed(2)}`).join('  ')}`);
+
+      // --- (3) the control: what a reference taken mid-descent does to the number ---
+      //
+      // Paired against its own converged twin, so the ONLY difference is when
+      // the zero was taken. This is the disputed metric's own failure mode
+      // reproduced on demand, on faces whose converged answer is known.
+      const pairs = converged.map((cv, i) => ({
+        cv, pm: premature[i], d: premature[i].dzMm - cv.dzMm,
+      }));
+      const forwardShift = pairs.filter((p) => p.d > REARM_MM);
+      const meanShift = pairs.reduce((a, p) => a + p.d, 0) / pairs.length;
+      const worstShift = pairs.reduce((a, p) => (p.d > a.d ? p : a));
+      const stillDescending = premature.filter(
+        (t) => Math.abs(t.refHeightMm - t.heldHeightMm) > SEAT_CONSTANTS.REST_DEADBAND * 10,
+      );
+      recordFinding(
+        'a frontal reference taken mid-descent is what moves dPlaceZ forward, not the turn',
+        forwardShift.length === 0, 'tail',
+        `The same ${converged.length} runs with the zero taken at `
+        + `${(SHORT_SETTLE / 30).toFixed(1)} s instead of ${(SETTLE_FRAMES / 30).toFixed(0)} s `
+        + `— everything else identical, same subject, same sign, same seed, same frames. `
+        + `The HEIGHT channel is not what is still moving: `
+        + `${stillDescending.length}/${premature.length} early references were taken with it `
+        + `outside its own ${(SEAT_CONSTANTS.REST_DEADBAND * 10).toFixed(1)} mm deadband of `
+        + `where it ends. What has not converged at 1.5 s is the STANDOFF and the surface `
+        + `under it — the half a segment-local zero cannot see. dPlaceZ shifts by a mean of `
+        + `${sgn(meanShift)}${meanShift.toFixed(3)} mm, FORWARD on `
+        + `${forwardShift.length}/${pairs.length} runs, worst ${tag(worstShift.cv)} `
+        + `${sgn(worstShift.cv.dzMm)}${worstShift.cv.dzMm.toFixed(3)} -> `
+        + `${sgn(worstShift.pm.dzMm)}${worstShift.pm.dzMm.toFixed(3)} `
+        + `(${sgn(worstShift.d)}${worstShift.d.toFixed(3)}). `
+        + `THIS IS THE DISPUTED FIGURE'S MECHANISM, reproduced deliberately: `
+        + `\`over40MeanMm\` takes its zero from a segment's own first-quarter frontal frames, `
+        + `and on the 2026-08-17 fixture the post-reset re-convergence lands inside the yaw `
+        + `segment. A number whose zero moves under it does not measure where the frame went`);
+
+      // --- (4) padBalance's blocking gate, in its general form ---
+      //
+      // The flag's one objection is a >40°-yaw seat-z figure on one recording,
+      // 2.035 against a 2.0 bar. That is this measurement, on one face, with a
+      // ten-frame sample in the neighbouring segment. Here it is on fifteen, at
+      // both signs, paired.
+      const ab = converged.map((cv, i) => ({ cv, alt: contrast[i],
+        d: contrast[i].dzMm - cv.dzMm }));
+      const moved = ab.filter((p) => p.d !== 0);
+      const worse = ab.filter((p) => Math.abs(p.cv.dzMm) > Math.abs(p.alt.dzMm) + REARM_MM);
+      const better = ab.filter((p) => Math.abs(p.cv.dzMm) + REARM_MM < Math.abs(p.alt.dzMm));
+      const worstShipped = converged.reduce((a, t) => (t.dzMm > a.dzMm ? t : a));
+      recordFinding(
+        'padBalance does not move the frame at a held turn past 40°, on any face or sign',
+        worse.length === 0, 'tail',
+        `PAIRED A/B, ${ab.length} pairs (${SUBJECTS.length} subjects x both signs), the flag `
+        + `the only difference: SHIPPED is padBalance `
+        + `${DEFAULT_FIT.padBalance ? 'LIT' : 'DARK'} and the contrast arm is the other one. `
+        + `The two are bit-identical on ${ab.length - moved.length}/${ab.length} pairs. Of `
+        + `the ${moved.length} the flag touches, the SHIPPED arm is worse than the contrast `
+        + `on ${worse.length} by more than the channel's own ${REARM_MM.toFixed(2)} mm `
+        + `deadband and better on ${better.length}. Largest forward excursion as shipped, `
+        + `across the whole set: ${tag(worstShipped)} `
+        + `${sgn(worstShipped.dzMm)}${worstShipped.dzMm.toFixed(3)} mm — against the 2.0 mm `
+        + `bar that blocked this flag for three stages, read on one recording whose `
+        + `neighbouring yaw segment sampled this regime for ten frames. The set carries a `
+        + `+3 mm and a -3 mm deviated nose (S12, S12m), so this is not a test the flag `
+        + `passes by having nothing to do. `
+        + (moved.length
+          ? `Where it acts, shipped -> contrast: ${moved.slice(0, 8).map((p) => `${tag(p.cv)} `
+            + `${sgn(p.cv.dzMm)}${p.cv.dzMm.toFixed(3)} -> `
+            + `${sgn(p.alt.dzMm)}${p.alt.dzMm.toFixed(3)}`).join('  ')}`
+          : `It acts nowhere in this regime at all`));
+    }
+
+    // ------------------- (D3) what "True size" actually draws, per subject
+    //
+    // The open item said the fix was known and the measurement was not taken.
+    // This takes it. In `physical` mode the drawn scale is
+    // `FACE_UNITS_PER_METRE * sizeMultiplier` — model metres into face-space
+    // centimetres, with NO division by `anchors.metricScale`, and the reason is
+    // written at `solvePlacement`'s scale expression. Face space is the
+    // CANONICAL head's centimetres, so a frame drawn at 14.0 face units spans
+    // 14.0 × k real centimetres on a wearer whose face unit is k real ones.
+    // The mode's own promise is that it does not.
+    //
+    // Every quantity here is exact and none of it needs a session: the subject
+    // descriptor carries the truth scale, so the drawn real width is
+    // `model.widthM × scale × k × 10` mm and the error is against the asset's
+    // own `realWidthMm`. Reported as a finding rather than a check because the
+    // FIX is not this file's to take — it moves every placed frame, it drags
+    // the seat's real-millimetre tolerances with it (see the class list in the
+    // spec's stage 14), and the instrument that would say whether the result
+    // fits is the width verdict, whose interior grading is itself open.
+    {
+      const physical = { ...DEFAULT_FIT, mode: 'physical' };
+      // `normaliseWidth` scaled the geometry TO the catalogue's number, so the
+      // asset's own span in metres IS that number read back — which is exactly
+      // what the catalogue-width finding says about nine of eleven assets, and
+      // is the honest source for it here.
+      const statedMm = model.widthM * 1000;
+      const rows = SUBJECTS.map((s) => {
+        const anchors = anchorsForSubject(s.truth, s.d);
+        const placement = solvePlacement({ model, anchors, fit: physical, face });
+        const k = s.d.scale ?? 1;
+        // `widthM * scale` is the drawn span in face units (canonical cm);
+        // multiplied by the wearer's own real-cm-per-face-unit and by ten, it
+        // is the millimetres the frame actually covers on that face.
+        const drawnMm = model.widthM * placement.scale * k * 10;
+        // What the pipeline could KNOW it is doing, as against what it is doing:
+        // the iris ruler is the only absolute scale on a face and it carries its
+        // own error on a wearer whose iris is not the mean one.
+        const believedMm = model.widthM * placement.scale * (anchors.metricScale ?? 1) * 10;
+        return {
+          id: s.id,
+          k,
+          drawnMm,
+          believedMm,
+          errPct: ((drawnMm - statedMm) / statedMm) * 100,
+        };
+      });
+      window.__trueSizeRows = rows;
+      const worst = rows.reduce((a, r) => (Math.abs(r.errPct) > Math.abs(a.errPct) ? r : a));
+      const lo = rows.reduce((a, r) => (r.drawnMm < a.drawnMm ? r : a));
+      const hi = rows.reduce((a, r) => (r.drawnMm > a.drawnMm ? r : a));
+      // Half a pixel at the image scale the shipped bound is derived against —
+      // the tree's own visibility floor, so "wrong" here means "visibly wrong"
+      // rather than "wrong in the fourth decimal".
+      const visibleMm = SEAT_CONSTANTS.VISIBLE_PX / 1.74;
+      const visible = rows.filter((r) => Math.abs(r.drawnMm - statedMm) > visibleMm);
+      recordFinding('True size draws the frame at its real size, on every wearer',
+        visible.length === 0, 'tail',
+        `\`${DEFAULT_MODEL}\` states realWidthMm ${statedMm.toFixed(1)} mm and physical mode `
+        + `draws it at \`FACE_UNITS_PER_METRE × sizeMultiplier\` face units, undivided by `
+        + `metricScale — so the drawn frame spans that many CANONICAL centimetres and the `
+        + `real span it covers is the wearer's own. Measured across the ${rows.length} `
+        + `subjects: ${lo.drawnMm.toFixed(1)} mm on ${lo.id} to ${hi.drawnMm.toFixed(1)} mm `
+        + `on ${hi.id}, a ${(hi.drawnMm - lo.drawnMm).toFixed(1)} mm span for one product, `
+        + `worst error ${worst.id} ${worst.errPct >= 0 ? '+' : ''}${worst.errPct.toFixed(1)}%`
+        + ` (${worst.drawnMm.toFixed(1)} mm drawn against ${statedMm.toFixed(1)} stated). `
+        + `${visible.length}/${rows.length} are wrong by more than the half pixel this tree `
+        + `calls visible (${visibleMm.toFixed(2)} mm at 1.74 px/mm) — and that ratio `
+        + `UNDERSTATES it rather than the reverse, because `
+        + `${rows.filter((r) => r.k === 1).length} of the ${rows.length} subjects are at `
+        + `scale exactly 1, where the error is identically zero by construction. Every `
+        + `subject the set gives a scale OTHER than 1 is wrong, and the factorial arm was `
+        + `never built to vary it: `
+        + `${rows.filter((r) => r.k !== 1).map((r) => `${r.id} k=${r.k.toFixed(2)} `
+          + `${r.errPct >= 0 ? '+' : ''}${r.errPct.toFixed(0)}%`).join(', ')}. The mode is a `
+        + `proportional one wearing an absolute name. SECOND, and separately: what the `
+        + `pipeline could KNOW about its own error is bounded by the iris, and the iris `
+        + `carries its own — believed vs drawn, worst gap `
+        + `${Math.max(...rows.map((r) => Math.abs(r.believedMm - r.drawnMm))).toFixed(1)} mm `
+        + `on the subjects whose iris is not the mean one, so even the corrected mode would `
+        + `be right only to what the ruler can see. Per subject, k / drawn mm: `
+        + `${rows.map((r) => `${r.id} ${r.k.toFixed(2)}/${r.drawnMm.toFixed(0)}`).join('  ')}`);
+    }
+
     // ------------------------- (E) the zConf crossfade, and why it is retired
     //
     // The channel shipped dark from stage 4 to 2026-08-18 on ONE session's
