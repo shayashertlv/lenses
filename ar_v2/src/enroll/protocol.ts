@@ -488,6 +488,13 @@ export const achievedTurnDeg = (state: ProtocolState): number =>
  * against real captures once there are any.
  */
 export function summarise(state: ProtocolState): string {
+  // Saying "Full scan." while the scan is still running is a small lie that
+  // lands in the diagnostics report, which is exactly where a lie is expensive.
+  if (!state.finished) {
+    const current = BEATS[state.index];
+    return `In progress — on "${current ? current.id : '?'}", `
+      + `${state.done.length} of ${BEATS.length} done.`;
+  }
   const turn = achievedTurnDeg(state);
   const parts: string[] = [];
   if (turn > 0) parts.push(`turned to ${turn.toFixed(0)} deg as measured`);

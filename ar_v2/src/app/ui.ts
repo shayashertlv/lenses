@@ -46,6 +46,7 @@ export interface UI {
   verdicts(assessment: FitAssessment): void;
   catalogue(ranked: RankedFrame[]): void;
   readouts(values: Readouts): void;
+  showDiagnostics(text: string): void;
   onAction(handler: (action: string) => void): void;
 }
 
@@ -60,6 +61,7 @@ export function createUI(root: HTMLElement): UI {
   const catalogueEl = el('catalogue');
   const dotEl = el('guide-dot');
   const readingEl = el('reading');
+  const diagnosticsEl = el('diagnostics');
 
   let handler: (action: string) => void = () => {};
 
@@ -242,6 +244,19 @@ export function createUI(root: HTMLElement): UI {
         );
       }
       readoutEl.textContent = lines.join('\n');
+    },
+
+    showDiagnostics(text) {
+      if (!diagnosticsEl) return;
+      diagnosticsEl.textContent = text;
+      diagnosticsEl.hidden = false;
+      // Pre-selected, so a wearer whose browser refuses the clipboard write can
+      // still take it with one keystroke rather than dragging over 60 lines.
+      const range = document.createRange();
+      range.selectNodeContents(diagnosticsEl);
+      const selection = getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
     },
 
     onAction(h) { handler = h; },

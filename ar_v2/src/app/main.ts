@@ -47,6 +47,7 @@ import { createFrameLock, detectToSourceScale, scaleLandmarksToSource, type Fram
 import { createCameraSource, createStillSource, type Source } from './sources.js';
 import { createUI, type UI } from './ui.js';
 import { createEnrollClient, type EnrollClient } from './enroll-client.js';
+import { collectDiagnostics } from './diagnostics.js';
 
 type Phase = 'boot' | 'acquire' | 'scan' | 'solving' | 'wear' | 'error';
 
@@ -589,6 +590,28 @@ function handleAction(app: App, action: string): void {
       if (!app.model) return;
       const ranked = rankCatalogue(app.model, app.mesh, app.regions, TEST_FRAMES);
       app.ui.catalogue(ranked);
+      break;
+    }
+    case 'diagnostics': {
+      const report = JSON.stringify(collectDiagnostics({
+        phase: app.phase,
+        fps: app.fps,
+        loopDriver: app.loopDriver,
+        backend: app.scene.backendName,
+        workerAvailable: app.enroller.available,
+        lock: app.lock,
+        source: app.source,
+        protocol: app.protocol,
+        model: app.model,
+        seat: app.seat,
+        assessment: app.assessment,
+      }), null, 2);
+      console.log(report);
+      app.ui.showDiagnostics(report);
+      navigator.clipboard?.writeText(report).then(
+        () => app.ui.status('diagnostics copied to the clipboard'),
+        () => app.ui.status('diagnostics shown below — already selected, press ctrl+C'),
+      );
       break;
     }
     case 'forget':
