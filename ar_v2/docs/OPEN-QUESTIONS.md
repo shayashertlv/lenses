@@ -235,6 +235,32 @@ documented.
 
 ---
 
+## Q12 — The seat's falsifiability control is too weak.
+
+**The problem:** `report:seat` compares a contact-solved seat against three
+controls. Two of them separate cleanly (the template nose at 1.51 mm against
+1.03 mm for the real one). The third — "nominal placement", meaning pads hung on
+a landmark with no solve at all — comes out at 1.21 mm, only 1.2× worse, and the
+gap swings with the population (clean on 5 subjects, marginal on 8).
+
+**Why:** `nominalPose` was corrected during development to place the pads on the
+nasal sidewall rather than on the bridge apex, because starting the solve with
+the pads floating 2 to 10 mm off the skin is not a plausible initialisation. But
+that also made the *baseline* much better than what v1 actually ships, so the
+control now understates the contact solve's contribution rather than measuring
+it.
+
+**To settle it:** two separate poses. One that genuinely reproduces v1's
+placement (bridge apex, pads wherever they fall) as the control, and one that is
+a sane solver initialisation. They are different jobs and should not be the same
+function. Then re-derive the bar from the measurement.
+
+**Worth:** high for the *claim*, nil for the product. The seat itself is
+unaffected; what is affected is how much of the improvement this repository can
+honestly attribute to it.
+
+---
+
 ## Q10 — No real frame assets have measured geometry.
 
 **Assumed:** five parametric frames generated from numbers

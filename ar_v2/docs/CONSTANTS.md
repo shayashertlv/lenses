@@ -36,6 +36,7 @@ still cannot be, it is in `docs/OPEN-QUESTIONS.md`.
 
 | constant | value | class | why |
 | --- | --- | --- | --- |
+| `FACE_TO_CAMERA_FLIP` | diag(1, −1, −1) | `physics` | Face space is +Y up / +Z out of the face; CV camera space is +Y down / +Z forward. The two differ by a rotation of pi about X, so a **frontal head is this matrix, not the identity**. Grounded by test: it is the pose that puts the wearer's right temple on the image LEFT, which is what an unmirrored camera does. Getting the side of the multiply wrong returns the conjugate — yaw and roll negated — and made the guided scan impossible to complete. |
 | `MEDIAPIPE_ASSUMED_VERTICAL_FOV` | 63° | `published` | The pinhole MediaPipe assumes when solving its own facial transform. Used only as a **starting point** for the bundle and as the fallback when no scan has run. v1 used it as truth. |
 
 ## core/mesh.ts

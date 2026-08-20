@@ -20,8 +20,8 @@ replaces.** Three consequences:
 - **Pose must absorb shape error.** At high yaw the landmarks are worse *and*
   the rigid similarity fit has more shape error to absorb, so the pose swallows
   it as depth. Measured here: fitting the average head swings the bridge's depth
-  error by **5.0 mm** between frontal and turned. Fitting the scanned model
-  swings it by **0.65 mm**.
+  error by **5.1 mm** between frontal and turned. Fitting the scanned model
+  swings it by **0.37 mm**.
 - **Depth stays borrowed forever.** The nose — the only surface that carries the
   glasses — is the average nose.
 - **The escape route is closed by construction.** v1's own audit found why:
@@ -89,8 +89,9 @@ no per-frame placement.
 
 There is deliberately **nothing in the tracker that mentions yaw.** The reported
 symptom was a consequence of solving shape and pose together; with shape frozen,
-PnP holds 0.25–0.44° of rotation error flat from 0° to 90° of yaw. Adding a yaw
-term would be treating a symptom that no longer exists.
+PnP holds 0.42° of median rotation error at frontal and 0.93° at 60° — measured
+across the population and the camera ladder. Adding a yaw term would be treating
+a symptom that no longer exists.
 
 ### 3. Fit — `src/fit/`
 
@@ -118,7 +119,7 @@ yaw. There is no per-frame placement left to be wrong.**
 
 ### 4. Verification — `src/testkit/`, `tests/`
 
-Three reports and 49 tests, all headless, all against a synthetic population with
+Three reports and 64 tests, all headless, all against a synthetic population with
 known ground truth.
 
 The population exists because v1's real finding was not that its constants were
@@ -166,6 +167,6 @@ See `README.md` for the current tables. The three headlines:
 
 | | v1-equivalent | v2 |
 | --- | --- | --- |
-| Depth swing frontal → turned | 5.04 mm | **0.65 mm** |
+| Depth swing frontal → turned | 5.11 mm | **0.37 mm** |
 | Pad depth error (landmark-hung vs contact-solved) | 1.47 mm | **0.46 mm** |
 | Nose surface error | not measurable | **~0.8 mm** median |

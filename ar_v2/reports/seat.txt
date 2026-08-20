@@ -2,13 +2,13 @@ SEAT — WHERE THE FRAME COMES TO REST
 ====================================
 Seated against ground-truth geometry, to isolate the contact solve.
 
-frame          pad sep  descent mm (med/p90/worst)  |depth err| mm  pad load  panto deg  tilt advice deg   ms  unconverged
--------------  -------  --------------------------  --------------  --------  ---------  ---------------  ---  -----------
-narrow-pads         13          0.77 / 3.79 / 9.32            1.17      0.92        0.9             22.2   73            0
-standard            17        4.85 / 10.14 / 13.30            1.03      0.78        4.8             23.5   69            0
-wide-pads           22        8.53 / 16.34 / 17.55            1.31      0.70        8.7             25.5   65            0
-heavy-acetate       19        9.10 / 15.57 / 16.53            0.68      0.76        6.7             25.3   58            0
-steep-pads          17        5.66 / 10.84 / 13.37            0.96      0.83        4.0             29.7  109            0
+frame          pad sep  descent mm (med/p90/worst)  |depth err| mm  pad load  panto deg  tilt advice deg  ms  unconverged
+-------------  -------  --------------------------  --------------  --------  ---------  ---------------  --  -----------
+narrow-pads         13          0.77 / 3.79 / 9.32            1.17      0.92        0.9             22.2  92            0
+standard            17        4.85 / 10.14 / 13.30            1.03      0.78        4.8             23.5  87            0
+wide-pads           22        8.53 / 16.34 / 17.55            1.31      0.70        8.7             25.5  78            0
+heavy-acetate       19        9.10 / 15.57 / 16.53            0.68      0.76        6.7             25.3  72            0
+steep-pads          17        5.66 / 10.84 / 13.37            0.96      0.83        4.0             29.7  82            0
 
   descent    how far BELOW the nominal placement the frame settles.
              Nominal is v1's answer: pads hung on the bridge landmark.

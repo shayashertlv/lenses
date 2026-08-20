@@ -149,12 +149,39 @@ export async function createCameraSource(options: {
  * on a camera rather than short-circuiting on a repeated timestamp.
  */
 export async function createStillSource(
-  url: string, options: { fps?: number } = {},
+  url: string, options: { fps?: number; timeoutMs?: number } = {},
 ): Promise<Source> {
   const image = new Image();
   image.crossOrigin = 'anonymous';
-  image.src = url;
-  await image.decode();
+
+  // `await image.decode()` on its own is the third instance in this tree of the
+  // same bug: an await that can never settle. In a hidden or throttled tab the
+  // decode is deferred indefinitely — it neither resolves nor rejects — and boot
+  // hangs with no error, no log, and a status line that says everything is fine.
+  //
+  // Race it against `onload`/`onerror` (which fire from the network layer, not
+  // the decoder) and against a wall-clock timeout. Whichever settles first wins,
+  // and the timeout throws so the caller's own fallback runs.
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const done = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error); else resolve();
+    };
+    const timer = setTimeout(
+      () => done(new Error(`still image timed out loading: ${url}`)),
+      options.timeoutMs ?? 8000,
+    );
+    image.onload = () => done();
+    image.onerror = () => done(new Error(`still image failed to load: ${url}`));
+    image.src = url;
+    // Kick the decoder too, but never wait on it alone.
+    image.decode().then(() => done()).catch(() => { /* onload/onerror decide */ });
+  });
+
+  if (!(image.naturalWidth > 0)) throw new Error(`still image has no pixels: ${url}`);
 
   const fps = options.fps ?? 30;
   const interval = 1000 / fps;

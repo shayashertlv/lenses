@@ -45,7 +45,7 @@ import {
   type FaceMeasurements, type FaceMesh,
 } from '../core/mesh.js';
 import {
-  type Intrinsics, intrinsicsFromFov, project,
+  type Intrinsics, intrinsicsFromFov, poseRotationFromHeadEuler, project,
 } from '../core/camera.js';
 import {
   type Pose, m3, mat3FromEulerYXZ, poseIdentity, v3,
@@ -480,14 +480,14 @@ export function synthesizeCapture(
         * lerp(beat.distanceFrom ?? 1, beat.distanceTo ?? 1, t);
 
       const pose = poseIdentity();
-      // Model +Y is up and +Z out of the face; the camera looks down +Z with +Y
-      // down. The flip is a rotation of pi about X, folded into the euler build
-      // by negating pitch and roll and mirroring y and z.
-      const R = m3();
-      mat3FromEulerYXZ(R, yaw, pitch, roll);
-      // Convert model->camera: first flip the model's axes into CV convention.
-      const flip = Float64Array.of(1, 0, 0, 0, -1, 0, 0, 0, -1);
-      mul3(pose.R, R, flip);
+      // Model->camera, composed the way a real pose factorises: FLIP * R_head.
+      //
+      // This used to be `R_head * FLIP`, which is the conjugate — the same
+      // rotation with yaw and roll negated. It cancelled exactly against the
+      // matching error in `headEuler`, so the synthetic pipeline agreed with
+      // itself while inverting head yaw on every real face. One shared helper
+      // now, so the two cannot drift apart again.
+      poseRotationFromHeadEuler(pose.R, yaw, pitch, roll);
       // Postural wander as a SMOOTH random walk, not per-frame white noise.
       //
       // An earlier version drew the lateral offset independently each frame,

@@ -104,6 +104,35 @@ body.untracked #stage { filter: saturate(0.6) brightness(0.85); }
   pointer-events: none;
 }
 
+/*
+ * The live reading of what the current beat is watching.
+ *
+ * On screen rather than behind a console command, because a stalled scan and a
+ * nearly-finished one are indistinguishable without it — which is how a wearer
+ * ended up reporting "stuck" twice with no way to say what the scan was seeing.
+ */
+#reading {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.82);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#reading.struggling { color: #ffcf8f; }
+
+#guide-dot.near {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 26%, transparent);
+}
+
 #progress {
   position: absolute;
   left: 0; right: 0; bottom: 0;

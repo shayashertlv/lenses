@@ -53,12 +53,14 @@ is what a wearer actually perceives, since a constant offset is invisible.
 
 | | depth error at 0° | when turned | **swing** |
 | --- | --- | --- | --- |
-| v1-equivalent (fit the average head) | 5.28 mm | 0.27 mm | **5.01 mm** |
-| v2 (fit the scanned model) | 0.14 mm | 0.39 mm | **0.26 mm** |
+| v1-equivalent (fit the average head) | 5.25 mm | 0.14 mm | **5.11 mm** |
+| v2 (fit the scanned model) | 0.16 mm | −0.21 mm | **0.37 mm** |
 
-**A 19× reduction in the artefact that was reported.**
+**A 14× reduction in the artefact that was reported.**
 
-Rotation error, model-known, is **0.25–0.44° flat from 0° to 90° of yaw**. The
+Rotation error, model-known, across the population and the whole camera ladder:
+**0.42° median at frontal, 0.93° at 60°, 0.88° at 90°.** Total placement error of
+the bridge stays under 1 mm out to 60° and reaches 2.4 mm at full profile. The
 same solve against the average head runs 2.3–4.2° and puts the bridge 17–30 mm
 from where it belongs.
 
@@ -92,13 +94,24 @@ And where the frame comes to rest — the thing the complaint was about:
 
 | | pad depth error |
 | --- | --- |
-| hung off the bridge landmark (**v1's answer**) | 1.47 mm |
-| solved against the *template* nose | 0.61 mm |
-| **solved against this wearer's nose** | **0.46 mm** |
+| seated against the *average* nose | 1.51 mm |
+| **seated against this wearer's scanned nose** | **1.03 mm** |
 
 The wedge relationship v1 derived analytically and could not test is now a
-measured sweep: **0.74 mm of descent per mm of pad separation**, monotone across
+measured sweep: **0.85 mm of descent per mm of pad separation**, monotone across
 the population.
+
+**Where this claim is weaker than it looks.** The report also compares against a
+"nominal" placement — pads hung on a landmark, with no contact solve — and gets
+1.21 mm, only 1.2× worse than the full solve. An earlier version of this table
+showed 3.2×, and the difference is not an improvement in the baseline: it is that
+`nominalPose` was corrected to place the pads on the nasal **sidewall** rather
+than on the bridge apex, which makes the no-solve baseline considerably better
+than what v1 actually shipped. So the honest comparison is the one above —
+average nose against scanned nose — and the "versus a landmark" figure is
+withdrawn until there is a baseline that genuinely reproduces v1's placement.
+The separation is also population-sensitive (it is clean on 5 subjects and
+marginal on 8), which is itself a sign the metric needs work.
 
 ### A bug inherited from v1, quantified
 

@@ -29,7 +29,8 @@
  */
 
 import {
-  type Mat3, type Pose, type Vec3, clamp, eulerYXZ, m3apply, v3,
+  type Mat3, type Pose, type Vec3, clamp, eulerYXZ, m3, m3apply,
+  mat3FromEulerYXZ, v3,
 } from './linalg.js';
 
 export interface Intrinsics {
@@ -329,15 +330,52 @@ export function applyIntrinsicsDelta(
 export const FACE_TO_CAMERA_FLIP: Mat3 = Float64Array.of(1, 0, 0, 0, -1, 0, 0, 0, -1);
 
 export function headEuler(pose: Pose): { yaw: number; pitch: number; roll: number } {
+  // LEFT-multiply. `pose.R` maps model to camera, and a head rotation happens in
+  // MODEL space, so the pose factorises as `R = FLIP * R_head` and the head's own
+  // rotation is recovered by `FLIP * R` (FLIP being its own inverse).
+  //
+  // Right-multiplying instead — `R * FLIP` — returns the CONJUGATE
+  // `FLIP * R_head * FLIP`, which for a rotation about Y or Z is that rotation
+  // NEGATED. So it gets pitch right and silently inverts yaw and roll.
+  //
+  // That shipped, and it is worth understanding why no test caught it: the
+  // synthetic capture generator made the same mistake, composing `R_euler * FLIP`
+  // instead of `FLIP * R_euler`. The two errors cancel exactly, so the whole
+  // synthetic pipeline was self-consistent and wrong together — 56 passing tests
+  // over a system that inverted head yaw on every real face. The fix for the
+  // TEST is in `tests/protocol.test.ts`: the expected sign is now derived from
+  // where landmarks land in the image, which is an observable and cannot be
+  // conjugated away.
   const R = pose.R;
   const F = FACE_TO_CAMERA_FLIP;
   const head = new Float64Array(9);
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 3; c++) {
-      head[r * 3 + c] = R[r * 3] * F[c] + R[r * 3 + 1] * F[3 + c] + R[r * 3 + 2] * F[6 + c];
+      head[r * 3 + c] = F[r * 3] * R[c] + F[r * 3 + 1] * R[3 + c] + F[r * 3 + 2] * R[6 + c];
     }
   }
   return eulerYXZ(head);
+}
+
+/**
+ * Builds a model-to-camera pose rotation for a head at the given angles.
+ *
+ * The inverse of `headEuler`, and it exists so that anything constructing a
+ * synthetic pose composes it the same way a real one factorises. Every place
+ * that built one by hand got the side wrong at least once.
+ */
+export function poseRotationFromHeadEuler(
+  out: Mat3, yaw: number, pitch: number, roll: number,
+): Mat3 {
+  const head = m3();
+  mat3FromEulerYXZ(head, yaw, pitch, roll);
+  const F = FACE_TO_CAMERA_FLIP;
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      out[r * 3 + c] = F[r * 3] * head[c] + F[r * 3 + 1] * head[3 + c] + F[r * 3 + 2] * head[6 + c];
+    }
+  }
+  return out;
 }
 
 /** The camera centre expressed in the model's own frame. */

@@ -51,7 +51,17 @@ export interface BeatSpec {
   id: BeatId;
   /** What the wearer is asked to do. */
   prompt: string;
-  /** Where the guide dot should be, in normalised screen coordinates. */
+  /**
+   * Where the guide dot should be, in normalised **mirrored display** space.
+   *
+   * The preview is a mirror (`#stage` is CSS-flipped), because an unmirrored
+   * self-view feels wrong to everybody. So a wearer turning to their own RIGHT
+   * sees their face move to the RIGHT of the screen, and the dot has to be on
+   * that side. The first version of this table put `turn-right` at x = 0.18 —
+   * screen left — which is where the face goes in the RAW camera image, and it
+   * actively instructed the wearer to turn the wrong way while the prompt text
+   * told them the right way.
+   */
   target: { x: number; y: number; scale: number };
   /**
    * Whether this sample satisfies the beat.
@@ -60,6 +70,15 @@ export interface BeatSpec {
    * establishes it; every other beat can rely on it.
    */
   satisfied(sample: PoseSample, neutral: Neutral | null): boolean;
+  /**
+   * What this beat is watching, right now, against what it needs.
+   *
+   * Purely for the wearer and for anyone diagnosing a stuck scan. Without it,
+   * "the scan is stuck" and "you are nearly there" look identical from the
+   * outside — which cost two round trips of a wearer reporting a stall with no
+   * way to say what the scan thought it was seeing.
+   */
+  measure(sample: PoseSample, neutral: Neutral | null): { value: number; target: number; unit: string };
   /** Frames at the target before the beat is complete. */
   holdFrames: number;
   /** Beats that can be skipped without invalidating the scan. */
@@ -121,38 +140,43 @@ export const BEATS: BeatSpec[] = [
     // is rarely far to one side, and a wearer who is genuinely turned 20 degrees
     // away is not looking at the camera.
     satisfied: (s) => Math.abs(s.yawDeg) < 14 && Math.abs(s.pitchDeg) < 38,
+    measure: (s) => ({ value: Math.abs(s.yawDeg), target: 14, unit: 'deg off centre' }),
     holdFrames: 8,
     optional: false,
   },
   {
     id: 'turn-right',
     prompt: 'Slowly turn to your right',
-    target: { x: 0.18, y: 0.5, scale: 1 },
+    target: { x: 0.82, y: 0.5, scale: 1 },
     satisfied: (s, n) => dYaw(s, n) <= -30,
+    measure: (s, n) => ({ value: -dYaw(s, n), target: 30, unit: 'deg right' }),
     holdFrames: 4,
     optional: false,
   },
   {
     id: 'profile-right',
     prompt: 'Keep going — show me your profile',
-    target: { x: 0.06, y: 0.5, scale: 1 },
+    target: { x: 0.94, y: 0.5, scale: 1 },
     satisfied: (s, n) => dYaw(s, n) <= -60,
+    measure: (s, n) => ({ value: -dYaw(s, n), target: 60, unit: 'deg right' }),
     holdFrames: 6,
     optional: true,
   },
   {
     id: 'turn-left',
     prompt: 'Now slowly to your left',
-    target: { x: 0.82, y: 0.5, scale: 1 },
+    target: { x: 0.18, y: 0.5, scale: 1 },
     satisfied: (s, n) => dYaw(s, n) >= 30,
+    measure: (s, n) => ({ value: dYaw(s, n), target: 30, unit: 'deg left' }),
     holdFrames: 4,
     optional: false,
   },
   {
     id: 'profile-left',
     prompt: 'And your profile on this side',
-    target: { x: 0.94, y: 0.5, scale: 1 },
+    target: { x: 0.06, y: 0.5, scale: 1 },
     satisfied: (s, n) => dYaw(s, n) >= 60,
+    measure: (s, n) => ({ value: dYaw(s, n), target: 60, unit: 'deg left' }),
     holdFrames: 6,
     optional: true,
   },
@@ -161,6 +185,7 @@ export const BEATS: BeatSpec[] = [
     prompt: 'Back to centre, then look down a little',
     target: { x: 0.5, y: 0.78, scale: 1 },
     satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) >= 10,
+    measure: (s, n) => ({ value: dPitch(s, n), target: 10, unit: 'deg down' }),
     holdFrames: 4,
     optional: false,
   },
@@ -169,6 +194,7 @@ export const BEATS: BeatSpec[] = [
     prompt: 'And up a little',
     target: { x: 0.5, y: 0.22, scale: 1 },
     satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) <= -10,
+    measure: (s, n) => ({ value: -dPitch(s, n), target: 10, unit: 'deg up' }),
     holdFrames: 4,
     optional: false,
   },
@@ -177,6 +203,7 @@ export const BEATS: BeatSpec[] = [
     prompt: 'Lean in toward the camera',
     target: { x: 0.5, y: 0.5, scale: 1.5 },
     satisfied: (s) => s.distanceRatio <= 0.78,
+    measure: (s) => ({ value: (1 - s.distanceRatio) * 100, target: 22, unit: '% closer' }),
     holdFrames: 4,
     optional: true,
   },
@@ -185,6 +212,7 @@ export const BEATS: BeatSpec[] = [
     prompt: 'And lean back',
     target: { x: 0.5, y: 0.5, scale: 0.65 },
     satisfied: (s) => s.distanceRatio >= 1.25,
+    measure: (s) => ({ value: (s.distanceRatio - 1) * 100, target: 25, unit: '% further' }),
     holdFrames: 4,
     optional: true,
   },
@@ -228,8 +256,17 @@ export interface ProtocolStep {
   prompt: string;
   /** 0..1 across the whole protocol. */
   progress: number;
-  /** 0..1 within the current beat. */
+  /** 0..1 within the current beat's HOLD. */
   beatProgress: number;
+  /** What the beat is watching and what it needs, for the wearer. Null when
+   *  there is no face to measure. */
+  reading: { value: number; target: number; unit: string } | null;
+  /** 0..1 toward the target angle — how far the wearer has got, as opposed to
+   *  how long they have held it. */
+  toward: number;
+  /** True once this beat has been tried long enough that it is about to be
+   *  given up on. Lets the UI say so rather than looking frozen. */
+  struggling: boolean;
   justCompleted: BeatId | null;
   finished: boolean;
 }
@@ -238,12 +275,21 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   if (state.finished) {
     return {
       beat: null, prompt: 'Working out your measurements…',
-      progress: 1, beatProgress: 1, justCompleted: null, finished: true,
+      progress: 1, beatProgress: 1, reading: null, toward: 1,
+      struggling: false, justCompleted: null, finished: true,
     };
   }
 
   const beat = BEATS[state.index];
   let justCompleted: BeatId | null = null;
+
+  // The give-up timer ticks whether or not there is a face.
+  //
+  // It used to advance only on frames with a pose, so a detector that lost the
+  // wearer — which is exactly what happens at a profile hold — froze the
+  // protocol indefinitely: no progress, no give-up, no message. A scan must
+  // never stall, and "never" has to include the case where it cannot see.
+  if (!sample) state.attempts++;
 
   if (sample) {
     state.attempts++;
@@ -296,14 +342,43 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     }
   }
 
+  // A beat can also be abandoned with no face at all, which is the branch the
+  // block above exists for.
+  if (sample === null && !state.finished) {
+    const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
+    if (state.attempts > limit) {
+      if (state.neutral === null) {
+        // No usable pose was ever seen for the opening beat. Adopting zero here
+        // would mean measuring every later beat against the camera axis, so the
+        // neutral stays null and the beats fall back to absolute angles — worse,
+        // but honest, and reported through `summarise`.
+        state.skipped.push(beat.id);
+      } else {
+        state.skipped.push(beat.id);
+      }
+      state.index++;
+      state.held = 0;
+      state.attempts = 0;
+    }
+  }
+
   if (state.index >= BEATS.length) state.finished = true;
 
   const current = state.finished ? null : BEATS[state.index];
+  const reading = current && sample ? current.measure(sample, state.neutral) : null;
+  const limit = current
+    ? (current.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required)
+    : 1;
   return {
     beat: current,
     prompt: current ? current.prompt : 'Working out your measurements…',
     progress: state.index / BEATS.length,
     beatProgress: current ? state.held / current.holdFrames : 1,
+    reading,
+    toward: reading && reading.target !== 0
+      ? Math.max(0, Math.min(1, reading.value / reading.target))
+      : 0,
+    struggling: state.attempts > limit * 0.45,
     justCompleted,
     finished: state.finished,
   };

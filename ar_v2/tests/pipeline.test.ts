@@ -193,32 +193,50 @@ describe('the synthetic population', () => {
 
 describe('pose against a known model', () => {
   it('does not degrade with yaw — the architectural claim', () => {
-    const subject = generatePopulation(mesh, basis, { count: 1 })[0];
-    const capture = synthesizeCapture(mesh, subject, CAMERA_LADDER[0], { framesPerBeat: 8 });
-
+    // Across the POPULATION and the whole camera ladder, not one subject.
+    //
+    // The single-subject version of this test failed at 1.52 degrees against a
+    // 1.50 bar after an unrelated fix, on a bucket holding a handful of frames.
+    // That is not a regression, it is the variance of one draw — the same lesson
+    // the free-form field test learned. A claim about the architecture has to be
+    // measured on a population.
+    const population = generatePopulation(mesh, basis, { count: 5 });
     const byYaw = new Map<number, number[]>();
-    for (const frame of capture.frames) {
-      const correspondences = buildCorrespondences(
-        frame.landmarks, frame.sigmaPx, mesh.vertexCount,
-      );
-      if (correspondences.length < 40) continue;
-      const result = solvePnP(subject.positions, correspondences, capture.trueIntrinsics);
-      const deg = (rotationAngleBetween(result.pose.R, frame.pose.R) * 180) / Math.PI;
-      const bucket = Math.round((Math.abs(frame.trueYaw) * 180) / Math.PI / 30) * 30;
-      if (!byYaw.has(bucket)) byYaw.set(bucket, []);
-      byYaw.get(bucket)!.push(deg);
+
+    for (const subject of population) {
+      for (const geometry of CAMERA_LADDER) {
+        const capture = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 5 });
+        for (const frame of capture.frames) {
+          const correspondences = buildCorrespondences(
+            frame.landmarks, frame.sigmaPx, mesh.vertexCount,
+          );
+          if (correspondences.length < 40) continue;
+          const result = solvePnP(subject.positions, correspondences, capture.trueIntrinsics);
+          const deg = (rotationAngleBetween(result.pose.R, frame.pose.R) * 180) / Math.PI;
+          const bucket = Math.round((Math.abs(frame.trueYaw) * 180) / Math.PI / 15) * 15;
+          if (!byYaw.has(bucket)) byYaw.set(bucket, []);
+          byYaw.get(bucket)!.push(deg);
+        }
+      }
     }
 
     const frontal = distribution(byYaw.get(0) ?? []).median;
-    assert.ok(frontal < 1.5, `frontal rotation error ${frontal.toFixed(2)} deg`);
+    assert.ok(frontal < 0.8, `frontal rotation error ${frontal.toFixed(2)} deg`);
+
+    // Measured: 0.41 deg median at frontal, rising to 0.91 at 45 degrees and
+    // falling back to 0.56 at 90 — a worst-bucket ratio of 2.2. The bars carry
+    // headroom over that. v1's equivalent (fitting the average head) runs 2.3 to
+    // 4.2 degrees and puts the bridge 17 to 30 mm from where it belongs.
     for (const [bucket, values] of byYaw) {
+      if (values.length < 15) continue; // too few frames to have a median worth reading
       const median = distribution(values).median;
-      // The bar: error at any yaw is within 4x the frontal error. v1's
-      // equivalent (a fit against the average head) is 8 to 10x worse at
-      // frontal and grows from there.
       assert.ok(
-        median < Math.max(frontal * 4, 1.5),
-        `yaw ${bucket} deg: ${median.toFixed(2)} deg against ${frontal.toFixed(2)} frontal`,
+        median < 1.5,
+        `yaw ${bucket} deg: ${median.toFixed(2)} deg median over ${values.length} frames`,
+      );
+      assert.ok(
+        median < frontal * 3.5,
+        `yaw ${bucket} deg is ${(median / frontal).toFixed(2)}x the frontal error`,
       );
     }
   });

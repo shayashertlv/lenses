@@ -1,66 +1,265 @@
 /**
- * The guided scan protocol.
+ * The guided scan protocol, and the head-angle convention it stands on.
  *
- * This file exists because of a bug a wearer reported by name — *"the scan gets
- * stuck when asking to look downward"* — and because that bug had **two
- * independent causes**, either of which alone would have made the scan
- * impossible to finish. Both are pinned here.
+ * ## Why this file is written the way it is
  *
- *  1. **The euler convention.** `eulerYXZ(pose.R)` extracts the euler of the
- *     model-to-camera rotation, and face space differs from CV camera space by a
- *     rotation of pi about X. So a frontal face reported yaw = -180 and an
- *     inverted pitch, and every beat with a `|yaw| < k` clause was
- *     unsatisfiable. Meanwhile `turn-right` (`yaw <= -30`) was satisfied
- *     instantly, without the wearer turning at all.
+ * A wearer reported the scan getting stuck twice. The second time, the cause was
+ * that `headEuler` returned the **conjugate** of the head's rotation — yaw and
+ * roll negated — because it right-multiplied the face-to-camera flip where it
+ * should have left-multiplied.
  *
- *  2. **Absolute pitch thresholds.** Even with the angles correct, asking for
- *     `pitch >= 12` to mean "look down" only works if the camera is at eye
- *     level. This is v1's laptop-lid failure exactly — it scored *0 of 600
- *     admitted frames* for a camera 13.5 degrees below the eyes, because its
- *     square-on test was an absolute cone about the camera axis. Its own note is
- *     the lesson: **a camera is not anybody's eye level.**
+ * Fifty-six tests passed over that bug. They passed because the synthetic
+ * capture generator made the *same* mistake, composing `R_head * FLIP` instead
+ * of `FLIP * R_head`. The two errors cancel exactly, so the entire synthetic
+ * pipeline was self-consistent — and wrong together. Every test that checked
+ * "the angle I put in comes back out" was checking a round trip through two
+ * inverse bugs.
  *
- * The second is the more interesting failure, because the first would have been
- * caught by any real session and the second only shows up on some hardware.
+ * That is v1's own lesson arriving in the worst possible form: *a check that
+ * cannot fail is not a check.* The fix is not more tests of the same shape. It
+ * is to ground the expected answer in something **observable** — where landmarks
+ * actually land in the image — which no amount of self-consistent convention
+ * error can satisfy.
+ *
+ * So the sign tests below never say "I built a 30-degree turn, so it should read
+ * 30 degrees". They say:
+ *
+ *   1. On the template mesh, the wearer's right temple is at negative x. That is
+ *      data in the file, not a convention.
+ *   2. An unmirrored camera puts the wearer's right side on the image LEFT. That
+ *      is a fact about cameras, and it pins what a frontal pose must be.
+ *   3. Turning right means the nose swings toward the right temple's side. That
+ *      is what the words mean.
+ *   4. Therefore the right half of the face must foreshorten in the image, and
+ *      `headEuler` must report a negative yaw.
+ *
+ * Steps 1 to 3 are checked directly. Step 4 is the consequence under test.
  */
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import {
-  eulerYXZ, m3, mat3FromEulerYXZ, poseIdentity, type Pose,
+  eulerYXZ, m3, poseIdentity, type Mat3, type Pose,
 } from '../src/core/linalg.js';
-import { headEuler } from '../src/core/camera.js';
+import {
+  FACE_TO_CAMERA_FLIP, headEuler, intrinsicsFromFov, poseRotationFromHeadEuler, project,
+} from '../src/core/camera.js';
+import { LM } from '../src/core/mesh.js';
 import {
   BEATS, advanceProtocol, createProtocol, sampleFromPose,
 } from '../src/enroll/protocol.js';
 import { CAMERA_LADDER } from '../src/testkit/synthetic.js';
+import { loadTemplateMesh } from '../src/testkit/fixtures.js';
 
 const DEG = 180 / Math.PI;
+const mesh = loadTemplateMesh();
+const K = intrinsicsFromFov(1280, 720, 63);
 
-/**
- * A pose for a wearer doing what they were asked, at a given camera geometry.
- *
- * `basePitchDeg` is the tilt a camera below the eyes induces. To the tracker it
- * is head pitch, indistinguishable from the wearer looking down — which is the
- * whole difficulty, and why every beat after the first is measured relative to
- * the wearer's own neutral.
- */
+/** Row-major 3x3 multiply. Spelled out so no helper's convention is assumed. */
+function mul(out: Mat3, A: ArrayLike<number>, B: ArrayLike<number>): Mat3 {
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      out[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c];
+    }
+  }
+  return out;
+}
+
+/** Projects a mesh landmark through a pose. Returns [x, y] in pixels. */
+function projectLandmark(pose: Pose, index: number): [number, number] {
+  const p = mesh.positions;
+  const x = p[index * 3], y = p[index * 3 + 1], z = p[index * 3 + 2];
+  const R = pose.R;
+  const cam = Float64Array.of(
+    R[0] * x + R[1] * y + R[2] * z + pose.t[0],
+    R[3] * x + R[4] * y + R[5] * z + pose.t[1],
+    R[6] * x + R[7] * y + R[8] * z + pose.t[2],
+  );
+  const px = new Float64Array(2);
+  assert.ok(project(px, K, cam), `landmark ${index} projected behind the camera`);
+  return [px[0], px[1]];
+}
+
+// -------------------------------------------------------- grounding the axes
+
+describe('the head-angle convention, grounded in observables', () => {
+  it('1. the template puts the wearer\'s right temple at negative x', () => {
+    // Data in the file, not a convention anyone chose. Everything else hangs
+    // off this.
+    assert.ok(
+      mesh.positions[LM.TEMPLE_R * 3] < 0,
+      'TEMPLE_R should be at negative mesh x',
+    );
+    assert.ok(mesh.positions[LM.TEMPLE_L * 3] > 0, 'TEMPLE_L should be at positive mesh x');
+  });
+
+  it('2. a frontal pose puts the wearer\'s right side on the IMAGE LEFT', () => {
+    // A fact about cameras: an unmirrored self-view looks wrong precisely
+    // because your right hand appears on the left of the picture. This is what
+    // pins the frontal pose, and therefore what pins FACE_TO_CAMERA_FLIP.
+    const frontal = poseIdentity();
+    frontal.R.set(FACE_TO_CAMERA_FLIP);
+    frontal.t.set([0, 0, 500]);
+
+    const right = projectLandmark(frontal, LM.TEMPLE_R);
+    const left = projectLandmark(frontal, LM.TEMPLE_L);
+    assert.ok(
+      right[0] < left[0],
+      `the wearer's right temple projected to x=${right[0].toFixed(0)}, their left to ` +
+      `${left[0].toFixed(0)} — right must be further LEFT in an unmirrored image`,
+    );
+
+    // And the top of the head must be ABOVE the chin in image coordinates
+    // (+Y is down in CV convention).
+    const forehead = projectLandmark(frontal, LM.FOREHEAD);
+    const chin = projectLandmark(frontal, LM.CHIN);
+    assert.ok(forehead[1] < chin[1], 'the forehead must project above the chin');
+  });
+
+  it('3. turning right swings the nose toward the right temple\'s side', () => {
+    // What the words mean, expressed against the mesh's own geometry.
+    // A rotation about the model Y axis, built by hand.
+    const theta = 30 / DEG;
+    const turnRightInModel = Float64Array.of(
+      Math.cos(theta), 0, -Math.sin(theta),
+      0, 1, 0,
+      Math.sin(theta), 0, Math.cos(theta),
+    );
+    // The nose direction is model +Z. After the rotation it must have moved
+    // toward the side the right temple is on, i.e. negative x.
+    const nose = [turnRightInModel[2], turnRightInModel[5], turnRightInModel[8]];
+    assert.ok(
+      nose[0] < -0.1,
+      `the rotated nose direction has x=${nose[0].toFixed(3)}; a right turn must ` +
+      'send it toward negative x, where TEMPLE_R is',
+    );
+  });
+
+  it('4. therefore: a right turn foreshortens the right half and reads NEGATIVE yaw', () => {
+    // The consequence under test. Nothing here uses the euler helpers to define
+    // the rotation — only to read it back.
+    const theta = 30 / DEG;
+    const turnRightInModel = Float64Array.of(
+      Math.cos(theta), 0, -Math.sin(theta),
+      0, 1, 0,
+      Math.sin(theta), 0, Math.cos(theta),
+    );
+
+    // model -> camera is FLIP * R_model. Left-multiply: the head rotates in its
+    // OWN frame, then that frame maps to the camera's.
+    const pose = poseIdentity();
+    mul(pose.R, FACE_TO_CAMERA_FLIP, turnRightInModel);
+    pose.t.set([0, 0, 500]);
+
+    // Observable consequence: the wearer's right half of the face compresses.
+    const bridge = projectLandmark(pose, LM.NOSE_BRIDGE);
+    const rightEye = projectLandmark(pose, LM.EYE_OUTER_R);
+    const leftEye = projectLandmark(pose, LM.EYE_OUTER_L);
+    const spanRight = Math.hypot(bridge[0] - rightEye[0], bridge[1] - rightEye[1]);
+    const spanLeft = Math.hypot(bridge[0] - leftEye[0], bridge[1] - leftEye[1]);
+    assert.ok(
+      spanRight < spanLeft * 0.8,
+      `turning right should compress the right half: right span ${spanRight.toFixed(0)} px, ` +
+      `left ${spanLeft.toFixed(0)} px`,
+    );
+
+    // And the reported angle must be negative, at the right magnitude.
+    const e = headEuler(pose);
+    assert.ok(
+      e.yaw * DEG < -25 && e.yaw * DEG > -35,
+      `headEuler reported yaw = ${(e.yaw * DEG).toFixed(1)} for a 30-degree RIGHT turn; ` +
+      'it must be about -30. A positive value means the flip is being applied on ' +
+      'the wrong side and yaw is coming back conjugated.',
+    );
+    assert.ok(Math.abs(e.pitch * DEG) < 1, `pitch leaked: ${(e.pitch * DEG).toFixed(2)}`);
+    assert.ok(Math.abs(e.roll * DEG) < 1, `roll leaked: ${(e.roll * DEG).toFixed(2)}`);
+  });
+
+  it('5. looking down moves the chin up the image and reads POSITIVE pitch', () => {
+    // Same grounding for the other axis. Looking down rotates the nose toward
+    // the feet — model -Y — and the observable is that the chin rises toward the
+    // face in the image while the forehead falls away.
+    const theta = 20 / DEG;
+    const lookDownInModel = Float64Array.of(
+      1, 0, 0,
+      0, Math.cos(theta), -Math.sin(theta),
+      0, Math.sin(theta), Math.cos(theta),
+    );
+    // Ground the matrix before trusting it: the nose direction is model +Z,
+    // which is the third COLUMN. Looking down must give it a negative y.
+    const noseAfter = [lookDownInModel[2], lookDownInModel[5], lookDownInModel[8]];
+    assert.ok(
+      noseAfter[1] < -0.3,
+      `the rotated nose direction has y=${noseAfter[1].toFixed(3)}; looking down must ` +
+      'send it negative. (The first version of this test had the matrix upside ' +
+      'down and its own sanity check written so loosely it passed anyway.)',
+    );
+
+    const pose = poseIdentity();
+    mul(pose.R, FACE_TO_CAMERA_FLIP, lookDownInModel);
+    pose.t.set([0, 0, 500]);
+
+    const frontal = poseIdentity();
+    frontal.R.set(FACE_TO_CAMERA_FLIP);
+    frontal.t.set([0, 0, 500]);
+
+    // Observable: the face shortens vertically and the chin comes up.
+    const heightNow = projectLandmark(pose, LM.CHIN)[1] - projectLandmark(pose, LM.FOREHEAD)[1];
+    const heightFlat =
+      projectLandmark(frontal, LM.CHIN)[1] - projectLandmark(frontal, LM.FOREHEAD)[1];
+    assert.ok(
+      heightNow < heightFlat,
+      `looking down should foreshorten the face: ${heightNow.toFixed(0)} px against ` +
+      `${heightFlat.toFixed(0)} flat`,
+    );
+
+    const e = headEuler(pose);
+    assert.ok(
+      e.pitch * DEG > 15 && e.pitch * DEG < 25,
+      `headEuler reported pitch = ${(e.pitch * DEG).toFixed(1)} for looking DOWN 20 degrees; ` +
+      'it must be about +20',
+    );
+  });
+
+  it('poseRotationFromHeadEuler is the exact inverse of headEuler', () => {
+    // The shared constructor, so nothing has to build a pose by hand again.
+    for (const [yaw, pitch, roll] of [
+      [0, 0, 0], [30, 0, 0], [-30, 0, 0], [0, 20, 0], [0, -20, 0],
+      [0, 0, 15], [-45, 12, -8], [70, -5, 3],
+    ]) {
+      const pose = poseIdentity();
+      poseRotationFromHeadEuler(pose.R, yaw / DEG, pitch / DEG, roll / DEG);
+      pose.t.set([0, 0, 500]);
+      const e = headEuler(pose);
+      assert.ok(Math.abs(e.yaw * DEG - yaw) < 1e-6, `yaw ${yaw} -> ${e.yaw * DEG}`);
+      assert.ok(Math.abs(e.pitch * DEG - pitch) < 1e-6, `pitch ${pitch} -> ${e.pitch * DEG}`);
+      assert.ok(Math.abs(e.roll * DEG - roll) < 1e-6, `roll ${roll} -> ${e.roll * DEG}`);
+    }
+  });
+
+  it('the raw camera-frame euler must DISAGREE, or the flip has gone missing', () => {
+    // If this ever fails, `headEuler` has quietly become a no-op and the whole
+    // mechanism is dead code that happens to work.
+    const pose = poseIdentity();
+    poseRotationFromHeadEuler(pose.R, 0, 0, 0);
+    pose.t.set([0, 0, 500]);
+    const raw = eulerYXZ(pose.R);
+    assert.ok(
+      Math.abs(Math.abs(raw.yaw * DEG) - 180) < 0.01,
+      `the raw euler should report a frontal face at +/-180 yaw, got ${raw.yaw * DEG}`,
+    );
+  });
+});
+
+// ------------------------------------------------------------- the protocol
+
+/** A pose for a wearer at the given head angles and camera geometry. */
 function poseFor(
   yawDeg: number, pitchDeg: number, basePitchDeg: number, distanceMm: number,
 ): Pose {
   const pose = poseIdentity();
-  const R = m3();
-  mat3FromEulerYXZ(R, yawDeg / DEG, (pitchDeg + basePitchDeg) / DEG, 0);
-  // Face space (+Y up, +Z out of the face) to camera space (+Y down, +Z
-  // forward) is a rotation of pi about X.
-  const flip = Float64Array.of(1, 0, 0, 0, -1, 0, 0, 0, -1);
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) {
-      pose.R[r * 3 + c] =
-        R[r * 3] * flip[c] + R[r * 3 + 1] * flip[3 + c] + R[r * 3 + 2] * flip[6 + c];
-    }
-  }
+  poseRotationFromHeadEuler(pose.R, yawDeg / DEG, (pitchDeg + basePitchDeg) / DEG, 0);
   pose.t.set([0, 0, distanceMm]);
   return pose;
 }
@@ -68,47 +267,14 @@ function poseFor(
 const basePitchOf = (geometry: typeof CAMERA_LADDER[number]): number =>
   Math.atan2(geometry.belowEyesMm, geometry.distanceMm) * DEG;
 
-describe('head angles', () => {
-  it('headEuler reports the wearer, not the camera frame', () => {
-    const frontal = headEuler(poseFor(0, 0, 0, 500));
-    assert.ok(Math.abs(frontal.yaw * DEG) < 0.01, `frontal yaw ${frontal.yaw * DEG}`);
-    assert.ok(Math.abs(frontal.pitch * DEG) < 0.01, `frontal pitch ${frontal.pitch * DEG}`);
-    assert.ok(Math.abs(frontal.roll * DEG) < 0.01, `frontal roll ${frontal.roll * DEG}`);
-  });
-
-  it('pins the sign of every axis', () => {
-    // Named directions, because "pitch" alone has burned this project once.
-    assert.ok(headEuler(poseFor(0, 20, 0, 500)).pitch * DEG > 19, 'looking DOWN is positive pitch');
-    assert.ok(headEuler(poseFor(0, -20, 0, 500)).pitch * DEG < -19, 'looking UP is negative pitch');
-    assert.ok(headEuler(poseFor(35, 0, 0, 500)).yaw * DEG > 34, 'turning to your LEFT is positive yaw');
-    assert.ok(headEuler(poseFor(-35, 0, 0, 500)).yaw * DEG < -34, 'turning to your RIGHT is negative yaw');
-  });
-
-  it('the raw camera-frame euler must disagree, or the flip has gone missing', () => {
-    // If this ever fails, the model-to-camera flip has been removed somewhere
-    // upstream and `headEuler` has quietly become a no-op.
-    const raw = eulerYXZ(poseFor(0, 0, 0, 500).R);
-    assert.ok(
-      Math.abs(Math.abs(raw.yaw * DEG) - 180) < 0.01,
-      `the raw euler should report a frontal face at +/-180 yaw, got ${raw.yaw * DEG}`,
-    );
-    assert.ok(
-      eulerYXZ(poseFor(0, 20, 0, 500).R).pitch * DEG < 0,
-      'the raw euler should invert the sign of pitch',
-    );
-  });
-});
-
 describe('the guided scan', () => {
   it('a cooperative wearer completes it at every camera geometry', () => {
-    // The reported bug, as a test. A wearer who follows every prompt must reach
-    // the end — on a laptop lid and a phone in the lap as well as at eye level.
     for (const geometry of CAMERA_LADDER) {
       const basePitchDeg = basePitchOf(geometry);
       const state = createProtocol();
 
-      // What a cooperative wearer does, RELATIVE to their own neutral — which is
-      // the only thing a person actually controls.
+      // What a wearer following the prompts does, RELATIVE to their own neutral.
+      // A right turn is negative yaw — pinned by the observable tests above.
       const script: Record<string, { yaw: number; pitch: number; scale: number }> = {
         centre: { yaw: 0, pitch: 0, scale: 1 },
         'turn-right': { yaw: -38, pitch: 0, scale: 1 },
@@ -139,7 +305,6 @@ describe('the guided scan', () => {
         `${geometry.name}: skipped ${state.skipped.join(', ')} for a wearer who did everything asked`,
       );
       assert.ok(state.neutral, `${geometry.name}: no neutral was established`);
-      // The neutral must absorb the camera's own tilt rather than fight it.
       assert.ok(
         Math.abs(state.neutral!.pitchDeg - basePitchDeg) < 2,
         `${geometry.name}: neutral pitch ${state.neutral!.pitchDeg.toFixed(1)} should be ` +
@@ -148,15 +313,42 @@ describe('the guided scan', () => {
     }
   });
 
+  it('the guide dot is on the side the wearer will actually move toward', () => {
+    // The preview is a mirror, so a wearer turning right sees themselves move
+    // RIGHT on screen. The dot has to be on that side. The first version put
+    // `turn-right` on the left — where the face goes in the raw camera image —
+    // so it instructed the wearer to turn the wrong way while the prompt text
+    // told them the right way.
+    const dotOf = (id: string) => BEATS.find((b) => b.id === id)!.target.x;
+    assert.ok(dotOf('turn-right') > 0.5, 'turn-right must put the dot on the display RIGHT');
+    assert.ok(dotOf('profile-right') > dotOf('turn-right'), 'profile-right goes further right');
+    assert.ok(dotOf('turn-left') < 0.5, 'turn-left must put the dot on the display LEFT');
+    assert.ok(dotOf('profile-left') < dotOf('turn-left'), 'profile-left goes further left');
+    assert.ok(BEATS.find((b) => b.id === 'nod-down')!.target.y > 0.5, 'nod-down goes down');
+    assert.ok(BEATS.find((b) => b.id === 'nod-up')!.target.y < 0.5, 'nod-up goes up');
+  });
+
+  it('reports what it is measuring, so a stall is diagnosable', () => {
+    const state = createProtocol();
+    for (let i = 0; i < 40 && state.index === 0; i++) {
+      advanceProtocol(state, sampleFromPose(poseFor(0, 0, 0, 500), state.neutral));
+    }
+    // Now on turn-right, with the wearer only half-way there.
+    const step = advanceProtocol(state, sampleFromPose(poseFor(-15, 0, 0, 500), state.neutral));
+    assert.ok(step.reading, 'no reading was produced');
+    assert.ok(
+      step.reading!.value > 13 && step.reading!.value < 17,
+      `reading ${step.reading!.value.toFixed(1)} should be ~15 degrees of right turn`,
+    );
+    assert.equal(step.reading!.target, 30);
+    assert.ok(step.toward > 0.4 && step.toward < 0.6, `toward ${step.toward}`);
+  });
+
   it('measures the nod relative to neutral, not to the camera axis', () => {
-    // A phone in the lap sits ~30 degrees below the eyes, so an absolute
-    // `pitch >= 12` for "look down" is satisfied before the wearer moves, and
-    // `pitch <= -12` for "look up" would need them to crane 42 degrees.
     const basePitchDeg = 30;
     const state = createProtocol();
-    const neutralPose = poseFor(0, 0, basePitchDeg, 500);
     for (let i = 0; i < 60 && state.index === 0; i++) {
-      advanceProtocol(state, sampleFromPose(neutralPose, state.neutral));
+      advanceProtocol(state, sampleFromPose(poseFor(0, 0, basePitchDeg, 500), state.neutral));
     }
     assert.ok(state.neutral, 'the opening beat never completed at 30 degrees of camera tilt');
     assert.ok(Math.abs(state.neutral!.pitchDeg - basePitchDeg) < 2);
@@ -171,9 +363,7 @@ describe('the guided scan', () => {
     assert.ok(nodUp.satisfied(at(-14), state.neutral), 'looking up 14 degrees must count');
   });
 
-  it('gives up rather than stalling when the wearer will not move', () => {
-    // A scan must never hang. A wearer who cannot or will not turn gets a
-    // shorter scan and an honestly-degraded model, not a spinner.
+  it('never stalls: not on a wearer who will not move', () => {
     const state = createProtocol();
     const stubborn = poseFor(0, 0, 0, 500);
     for (let i = 0; i < 8000 && !state.finished; i++) {
@@ -181,15 +371,31 @@ describe('the guided scan', () => {
     }
     assert.ok(state.finished, 'the protocol stalled on a wearer who never moved');
     assert.ok(state.done.includes('centre'), 'the opening beat should still have completed');
-    assert.ok(state.skipped.length >= 6, `only skipped ${state.skipped.length} beats`);
   });
 
-  it('still establishes a neutral even if the opening beat is skipped', () => {
-    // Otherwise every later beat is measured against zero — i.e. against the
-    // camera axis, which is the bug this whole mechanism exists to avoid.
+  it('never stalls: not when the detector loses the face entirely', () => {
+    // The failure a profile hold provokes, and the one that froze the scan with
+    // no progress, no give-up and no message.
     const state = createProtocol();
-    // A wearer who is turned well away from the camera the whole time: the
-    // opening beat can never be satisfied.
+    for (let i = 0; i < 40 && state.index === 0; i++) {
+      advanceProtocol(state, sampleFromPose(poseFor(0, 0, 0, 500), state.neutral));
+    }
+    assert.ok(state.index > 0, 'the opening beat did not complete');
+
+    for (let i = 0; i < 8000 && !state.finished; i++) advanceProtocol(state, null);
+    assert.ok(state.finished, 'the protocol stalled when the face was never seen again');
+    assert.ok(state.skipped.length >= 7, `only skipped ${state.skipped.length} beats`);
+  });
+
+  it('never stalls: not when there is never a face at all', () => {
+    const state = createProtocol();
+    for (let i = 0; i < 8000 && !state.finished; i++) advanceProtocol(state, null);
+    assert.ok(state.finished, 'the protocol stalled with no face from the very first frame');
+    assert.equal(state.neutral, null, 'a neutral cannot be invented from nothing');
+  });
+
+  it('still establishes a neutral when the opening beat is skipped but a face was seen', () => {
+    const state = createProtocol();
     const turned = poseFor(45, 0, 0, 500);
     for (let i = 0; i < 8000 && !state.finished; i++) {
       advanceProtocol(state, sampleFromPose(turned, state.neutral));

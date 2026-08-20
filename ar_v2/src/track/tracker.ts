@@ -26,12 +26,13 @@
  *
  * There is deliberately nothing in this file that mentions yaw. The reported
  * ">40 degrees pushes the frame forward" was not a yaw problem — it was a
- * consequence of solving shape and pose together from one view. Measured on the
- * synthetic ladder: PnP against a *known* model holds 0.25 to 0.44 degrees of
- * rotation error flat from 0 to 90 degrees of yaw, while the same solve against
- * the average head swings the bridge's depth by about 9 mm over the same range.
- * The fix is that the model is known. Adding a yaw term here would be treating
- * a symptom that no longer exists.
+ * consequence of solving shape and pose together from one view. Measured across
+ * the synthetic population and the whole camera ladder: PnP against a *known*
+ * model holds 0.42 degrees of median rotation error at frontal, 0.93 at 60 and
+ * 0.88 at 90 — while the same solve against the average head swings the bridge's
+ * depth by 5.1 mm across that range against 0.37 mm here. The fix is that the
+ * model is known. Adding a yaw term would be treating a symptom that no longer
+ * exists.
  */
 
 

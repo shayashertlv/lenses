@@ -84,6 +84,17 @@ interface App {
 const STORAGE_KEY = 'ar-v2.facemodel';
 
 /**
+ * Reprojection above which a scan-phase pose is refused, px.
+ *
+ * Looser than the tracker's bar, because during the scan the pose is fitted to
+ * the TEMPLATE rather than to the wearer, so a perfectly good frame still
+ * carries the whole of that person's shape as residual. The job here is only to
+ * reject a pose that is not describing this face at all — a hand across it, a
+ * second person, a warm start that went stale during a fast turn.
+ */
+const SCAN_MAX_RMS_PX = 22;
+
+/**
  * Where the served assets live, relative to the PAGE rather than to this module.
  *
  * `new URL('../../assets/x', import.meta.url)` is the idiom v1 used and it is
@@ -98,32 +109,56 @@ const STORAGE_KEY = 'ar-v2.facemodel';
  */
 const asset = (path: string): string => new URL(path, document.baseURI).href;
 
+/**
+ * Fails a promise that takes too long, rather than letting it hang.
+ *
+ * Boot awaits four things that can each stall without erroring — a fetch, a
+ * renderer init, a WASM module, an image decode — and a stalled await produces
+ * the worst failure shape available: no error, no log, a status line saying
+ * everything is fine, and a frozen page. This tree has produced that shape three
+ * times now (an rAF that never fires, a worker that never answers, an image that
+ * never decodes), so boot no longer waits on anything indefinitely.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(
+      () => reject(new Error(`${what} did not finish within ${(ms / 1000).toFixed(0)}s`)), ms,
+    )),
+  ]);
+}
+
 async function boot(): Promise<void> {
   const canvas = document.getElementById('stage') as HTMLCanvasElement;
   const ui = createUI(document.body);
   ui.status('loading the face template');
 
-  const meshText = await fetch(asset('assets/face/canonical_face_model.obj'))
-    .then((r) => {
+  const meshText = await withTimeout(
+    fetch(asset('assets/face/canonical_face_model.obj')).then((r) => {
       if (!r.ok) throw new Error(`face template: HTTP ${r.status}`);
       return r.text();
-    });
+    }),
+    15000, 'loading the face template',
+  );
   const mesh = parseFaceObj(meshText);
   const basis = buildAnthropometricBasis(mesh);
   const regions = standardRegions(mesh);
 
   ui.status('starting the renderer');
-  const scene = await createScene(canvas);
+  const scene = await withTimeout(createScene(canvas), 20000, 'starting the renderer');
   ui.status(`renderer: ${scene.backendName}`);
 
   ui.status('loading the landmark detector');
-  const vision = await import(/* @vite-ignore */ asset('vendor/mediapipe/vision_bundle.mjs')) as any;
-  const detector = await createMediaPipeDetector(
+  const vision = await withTimeout(
+    import(/* @vite-ignore */ asset('vendor/mediapipe/vision_bundle.mjs')),
+    30000, 'loading the vision runtime',
+  ) as any;
+  const detector = await withTimeout(createMediaPipeDetector(
     vision,
     asset('vendor/mediapipe/wasm'),
     asset('assets/models/face_landmarker.task'),
     { onStatus: (t) => ui.status(t) },
-  );
+  ), 60000, 'loading the landmark detector');
 
   const lock = createFrameLock({ detectLongSide: DETECT_LONG_SIDE });
 
@@ -238,6 +273,7 @@ async function startSource(app: App): Promise<void> {
     app.ui.status('no camera — running on a sample image');
     try {
       app.source = await createStillSource(asset('assets/samples/face-a.jpg'));
+      app.ui.status('no camera — running on a sample image');
     } catch {
       app.ui.status('no camera and no sample image available');
       app.phase = 'error';
@@ -289,7 +325,11 @@ function onDetection(
 ): void {
   if (!result) {
     app.scene.setHeadPose(null);
-    app.ui.tracked(false);
+    app.ui.tracked(false, 'looking for your face');
+    // The protocol still has to hear about it. A beat whose give-up timer only
+    // ticks on frames WITH a face freezes forever when the detector loses the
+    // wearer — which is exactly what a profile hold provokes.
+    if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
     return;
   }
 
@@ -313,8 +353,31 @@ function onDetection(
       const correspondences = buildCorrespondences(
         landmarks, sigmaPx, app.mesh.vertexCount, undefined, 12,
       );
-      if (correspondences.length < 40) { app.ui.tracked(false); return; }
-      const solved = solvePnP(app.mesh.positions, correspondences, app.intrinsics, app.lastPose ?? undefined);
+      if (correspondences.length < 40) {
+        app.ui.tracked(false, 'not enough of your face is visible');
+        if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
+        return;
+      }
+
+      let solved = solvePnP(
+        app.mesh.positions, correspondences, app.intrinsics, app.lastPose ?? undefined,
+      );
+      // A warm start that lands badly is usually a warm start that went stale —
+      // the head moved a long way while the detector was between frames. Retry
+      // cold before accepting it, because an unchecked bad pose here does not
+      // just look wrong: it feeds the protocol, so the wearer gets told they are
+      // not turning when they are.
+      if (!(solved.rmsPx <= SCAN_MAX_RMS_PX) && app.lastPose) {
+        const cold = solvePnP(app.mesh.positions, correspondences, app.intrinsics);
+        if (cold.rmsPx < solved.rmsPx) solved = cold;
+      }
+      if (!(solved.rmsPx <= SCAN_MAX_RMS_PX) || !(solved.pose.t[2] > 50)) {
+        app.ui.tracked(false, 'hold steady — the fit is unstable');
+        app.lastPose = null;
+        if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
+        return;
+      }
+
       app.lastPose = solved.pose;
       app.scene.setHeadPose(solved.pose);
       app.ui.tracked(true);

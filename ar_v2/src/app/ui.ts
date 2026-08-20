@@ -56,6 +56,7 @@ export function createUI(root: HTMLElement): UI {
   const readoutEl = el('readouts');
   const catalogueEl = el('catalogue');
   const dotEl = el('guide-dot');
+  const readingEl = el('reading');
 
   let handler: (action: string) => void = () => {};
 
@@ -79,22 +80,43 @@ export function createUI(root: HTMLElement): UI {
   return {
     status(text) { if (statusEl) statusEl.textContent = text; },
 
+    /**
+     * The guide, and — new — a live reading of what the beat is watching.
+     *
+     * Without the reading, "the scan is stuck" and "you are nearly there" look
+     * identical from the outside. That cost two round trips of a wearer
+     * reporting a stall with no way to say what the scan thought it was seeing,
+     * so the number is on screen now rather than behind a console command.
+     */
     guide(step) {
       if (!promptEl || !progressEl || !dotEl) return;
       if (!step || !step.beat) {
         promptEl.textContent = '';
+        if (readingEl) readingEl.textContent = '';
         dotEl.style.opacity = '0';
         progressEl.style.width = '0%';
         return;
       }
       promptEl.textContent = step.prompt;
       progressEl.style.width = `${Math.round(step.progress * 100)}%`;
+
+      if (readingEl) {
+        readingEl.textContent = step.reading
+          ? `${step.reading.value.toFixed(0)} / ${step.reading.target.toFixed(0)} ${step.reading.unit}`
+          : 'no face';
+        readingEl.classList.toggle('struggling', step.struggling && step.toward < 0.9);
+      }
+
       dotEl.style.opacity = '1';
       dotEl.style.left = `${step.beat.target.x * 100}%`;
       dotEl.style.top = `${step.beat.target.y * 100}%`;
+      // The dot grows toward the target and fills once held, so a wearer can see
+      // BOTH that they are moving the right way and that they should keep still.
+      const grow = 0.7 + step.toward * 0.5;
       dotEl.style.transform =
-        `translate(-50%, -50%) scale(${(0.7 + step.beatProgress * 0.6) * step.beat.target.scale})`;
+        `translate(-50%, -50%) scale(${grow * step.beat.target.scale})`;
       dotEl.classList.toggle('holding', step.beatProgress > 0.1);
+      dotEl.classList.toggle('near', step.toward > 0.75);
     },
 
     tracked(on, reason) {
