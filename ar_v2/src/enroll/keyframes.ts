@@ -191,11 +191,31 @@ export interface CoverageVerdict {
   advice: string | null;
 }
 
+/**
+ * **These are MEASURED degrees, not physical ones.**
+ *
+ * The distinction is not pedantic. A wearer reported that the scan's "30
+ * degrees" arrived only after roughly seventy degrees of real head turn: the
+ * detector's landmarks under-rotate as half the face disappears, so the angle
+ * this pipeline can compute is compressed against the angle a person performs,
+ * by a factor that has never been calibrated.
+ *
+ * Every number here is therefore a statement about the pipeline's own readings,
+ * and the physical turn it corresponds to is unknown within roughly a factor of
+ * two. `yawSpanDeg` in particular was derived from a triangulation argument in
+ * *physical* degrees and is applied to *measured* ones, which means it is
+ * probably conservative — it asks for more real turn than the derivation
+ * intended. Left as is rather than adjusted on a guess. See
+ * `docs/OPEN-QUESTIONS.md` Q13.
+ */
 export const COVERAGE_THRESHOLDS = {
   yawSpanDeg: 50,
   pitchSpanDeg: 12,
   distanceSpanPct: 25,
-  profileYawDeg: 55,
+  // Lowered from 55: at that value, and with the measured angle compressed as
+  // it is, essentially no real wearer would ever be credited with a profile
+  // view — including ones who turned far enough to give a genuine silhouette.
+  profileYawDeg: 38,
 };
 
 export function assessCoverage(

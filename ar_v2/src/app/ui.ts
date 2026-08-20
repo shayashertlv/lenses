@@ -101,10 +101,23 @@ export function createUI(root: HTMLElement): UI {
       progressEl.style.width = `${Math.round(step.progress * 100)}%`;
 
       if (readingEl) {
-        readingEl.textContent = step.reading
-          ? `${step.reading.value.toFixed(0)} / ${step.reading.target.toFixed(0)} ${step.reading.unit}`
-          : 'no face';
+        const r = step.reading;
+        if (!r) {
+          readingEl.textContent = 'no face';
+        } else if (r.kind === 'reach') {
+          // A `reach` beat has no number the wearer must hit, so showing one
+          // ("30 / 60") is the thing that told a wearer to do the impossible.
+          // Show how far they have got and whether it has settled.
+          readingEl.textContent = step.settling
+            ? `${r.best.toFixed(0)} ${r.unit} — holding…`
+            : `${Math.max(r.value, 0).toFixed(0)} ${r.unit} (best ${r.best.toFixed(0)})`;
+        } else {
+          readingEl.textContent = r.atMost
+            ? `${r.value.toFixed(0)} ${r.unit} — needs under ${r.goal.toFixed(0)}`
+            : `${r.value.toFixed(0)} / ${r.goal.toFixed(0)} ${r.unit}`;
+        }
         readingEl.classList.toggle('struggling', step.struggling && step.toward < 0.9);
+        readingEl.classList.toggle('settling', step.settling);
       }
 
       dotEl.style.opacity = '1';

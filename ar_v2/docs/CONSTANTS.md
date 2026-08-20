@@ -87,6 +87,8 @@ still cannot be, it is in `docs/OPEN-QUESTIONS.md`.
 | `KEYFRAME_DEFAULTS.count` | 48 | `measured` | The knee: 24 costs 0.15 mm of nose accuracy against 48; 96 buys 0.02 mm for twice the solve time. |
 | `AXIS_WEIGHT` | yaw 1.0, pitch 0.7, roll 0.25 | `derived` | Yaw triangulates, pitch sees the underside of the nose, roll gives almost no new geometry — it only rotates the image. Equal weights would fill the keyframe budget with rolls. |
 | `COVERAGE_THRESHOLDS.yawSpanDeg` | 50° | `derived` | Triangulated depth error goes as `σ·Z/(f·sinθ)`. At the ladder's `Z/f ≈ 0.85 mm/px` and 0.7 px of noise, 1 mm of bridge depth needs `sinθ > 0.6`, i.e. ~37° total span. 50 leaves margin. |
+| `COVERAGE_THRESHOLDS.profileYawDeg` | 38° | `stated` | In MEASURED degrees, which are compressed against physical ones by an uncalibrated factor (Q13). Lowered from 55, at which essentially no real wearer would ever be credited with a profile view. |
+| `PLATEAU` | 20 frames, 1.2° | `stated` | How still a `reach` beat's maximum must be before it counts as "that is as far as I go". Two thirds of a second at 30 fps — long enough not to fire on the pause mid-turn, short enough not to feel like a hang. |
 | `COVERAGE_THRESHOLDS.distanceSpanPct` | 25% | `measured` | Below this the focal-length solve is ill-conditioned. Without the lean beat, PD error goes from 1.8 mm to 9.2 mm. |
 
 ## enroll/scale.ts

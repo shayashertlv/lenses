@@ -235,6 +235,51 @@ documented.
 
 ---
 
+## Q13 — Measured yaw is compressed against physical yaw, by an unknown factor. **(needs you)**
+
+**Reported, not measured here:** a wearer found that the scan's "30 degrees of
+turn" completed only after roughly **70 degrees** of real head rotation — and the
+follow-up beat, which asked for 60, was then anatomically impossible.
+
+**Why:** MediaPipe's landmarks under-rotate as half the face becomes invisible.
+The network is regularised toward a frontal prior, so the mesh it reports at a
+deep turn corresponds to a shallower rotation than the head actually performed.
+This is a property of the detector, not of anything in this tree.
+
+**Why the harness could not catch it.** The synthetic generator produces
+landmarks by projecting true geometry, so its measured yaw tracks the truth to
+within ten percent — it slightly *over*-reads, if anything. It was structurally
+incapable of representing the failure. That is now the **fourth** time the
+synthetic model has been kinder than reality in a way that changed a decision
+(the others: occluded landmarks are biased rather than merely noisy; heads wander
+smoothly rather than teleporting; and the pose composition error that cancelled
+against `headEuler`'s).
+
+**What has been done about it:**
+
+- The turn beats no longer name an angle. They ask the wearer to go as far as is
+  comfortable and detect when they stop, so no threshold has to be calibrated and
+  the scan cannot demand the impossible.
+- `synthesizeCapture` gained a `yawUnderRotation` option that reproduces the
+  effect (`k = 0.75` turns a true 75 degrees into a measured 21). It defaults to
+  **0**, because switching it on would move every accuracy number in this
+  repository onto a basis calibrated from one anecdote.
+- `COVERAGE_THRESHOLDS` now says out loud that its numbers are measured degrees
+  with an unknown relationship to physical ones.
+
+**To settle it:** a session where the physical angle is known independently —
+a wearer turning against a protractor or a marked floor, or two cameras at a
+known angle — recording measured yaw against it. Half an hour with a real camera.
+Then `yawUnderRotation` gets a real calibration, the harness stops flattering the
+system, and the coverage thresholds can be re-derived in physical degrees where
+the triangulation argument actually lives.
+
+**Worth:** high, and it is cheap. It also determines whether the *bundle's* own
+solved poses inherit the compression — they should partly correct, since shape is
+free — which nothing currently checks.
+
+---
+
 ## Q12 — The seat's falsifiability control is too weak.
 
 **The problem:** `report:seat` compares a contact-solved seat against three

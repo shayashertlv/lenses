@@ -12,78 +12,58 @@
  * there is no parallax, without parallax there is no depth, and without depth
  * the nose is the average one forever. v1's own audit found the reason it could
  * never escape: *parallax and pose trust are the same angle with opposite
- * signs* — turning the head buys `sin²θ` of triangulation and costs `wPose²` of
- * trust, and the trust term won. Over fifteen synthetic subjects at three camera
- * geometries, **zero of forty-five** reached the parallax its own estimator
- * needed.
+ * signs*. Over fifteen synthetic subjects at three camera geometries, **zero of
+ * forty-five** reached the parallax its own estimator needed.
  *
- * A guided scan resolves that contradiction by simply asking for the angle. Four
+ * A guided scan resolves that contradiction by asking for the angle. A few
  * seconds, once per device, and the wearer is doing something rather than
  * holding still.
+ *
+ * ## The design rule this file learned the hard way
+ *
+ * **Do not ask a wearer for a number you cannot calibrate.**
+ *
+ * The first version asked for "30 degrees" of turn and then "60 degrees" for a
+ * profile. A wearer reported that the first completed only after roughly
+ * *seventy* degrees of real head turn, and that the second was then physically
+ * impossible — there is nowhere left to go. The measured angle is compressed
+ * against the physical one, because MediaPipe's landmarks under-rotate as half
+ * the face disappears, and nothing in this file changes that.
+ *
+ * The synthetic harness could not have caught it: it generates landmarks by
+ * projecting true geometry, so its measured yaw tracks the truth to within ten
+ * percent — it even slightly *over*-reads. Reality does not.
+ * (`docs/OPEN-QUESTIONS.md` Q13.)
+ *
+ * So the turn beats no longer name an angle. They ask the wearer to go **as far
+ * as is comfortable** and detect when they have stopped — a question about their
+ * own body that they can always answer, that needs no calibration, and that
+ * cannot demand the impossible. What the scan actually got is then *reported*
+ * rather than *required*.
  *
  * ## The beats, and what each one is for
  *
  * Every beat is here because a specific quantity is unobservable without it.
- * None of them is padding:
  *
- *   `turn`     ±35 degrees of yaw. Triangulation baseline for the whole face.
- *              Without it, depth is the template's.
- *   `profile`  a hold near 80 degrees, each side. The nose becomes a SILHOUETTE
- *              against the background, which is the only direct measurement of
- *              its protrusion a single camera can make. Measured worth: nose
- *              surface error 0.77 mm with it against 0.92 mm without, and the
- *              worst-case protrusion error nearly halves.
- *   `nod`      ±15 degrees of pitch. The underside of the nose and the lower
- *              sidewall, which is exactly the strip a pad bears on.
- *   `lean`     in and back. Depth variation is the ONLY thing that makes focal
- *              length observable, and without it the camera's field of view has
- *              to be assumed. Measured worth: PD error 1.8 mm with it against
- *              9.2 mm without.
+ *   `centre`  establishes the wearer's own neutral. Everything else is relative
+ *             to it, because a camera is not anybody's eye level — v1's
+ *             laptop-lid failure, which scored *0 of 600 admitted frames* for a
+ *             camera 13.5 degrees below the eyes.
+ *   `turn`    as far as they comfortably can, each side. Triangulation baseline
+ *             for the whole face, and — if they get far enough — the nose as a
+ *             SILHOUETTE against the background, which is the only direct
+ *             measurement of its protrusion a single camera can make.
+ *   `nod`     down and up. The underside of the nose and the lower sidewall,
+ *             which is exactly the strip a pad bears on.
+ *   `lean`    in and back. Depth variation is the ONLY thing that makes focal
+ *             length observable; without it the field of view has to be assumed.
  */
 
 import { headEuler } from '../core/camera.js';
 import type { Pose } from '../core/linalg.js';
 
-export type BeatId = 'centre' | 'turn-right' | 'turn-left' | 'profile-right'
-  | 'profile-left' | 'nod-down' | 'nod-up' | 'lean-in' | 'lean-back';
-
-export interface BeatSpec {
-  id: BeatId;
-  /** What the wearer is asked to do. */
-  prompt: string;
-  /**
-   * Where the guide dot should be, in normalised **mirrored display** space.
-   *
-   * The preview is a mirror (`#stage` is CSS-flipped), because an unmirrored
-   * self-view feels wrong to everybody. So a wearer turning to their own RIGHT
-   * sees their face move to the RIGHT of the screen, and the dot has to be on
-   * that side. The first version of this table put `turn-right` at x = 0.18 —
-   * screen left — which is where the face goes in the RAW camera image, and it
-   * actively instructed the wearer to turn the wrong way while the prompt text
-   * told them the right way.
-   */
-  target: { x: number; y: number; scale: number };
-  /**
-   * Whether this sample satisfies the beat.
-   *
-   * `neutral` is null only during the opening beat, which is the one that
-   * establishes it; every other beat can rely on it.
-   */
-  satisfied(sample: PoseSample, neutral: Neutral | null): boolean;
-  /**
-   * What this beat is watching, right now, against what it needs.
-   *
-   * Purely for the wearer and for anyone diagnosing a stuck scan. Without it,
-   * "the scan is stuck" and "you are nearly there" look identical from the
-   * outside — which cost two round trips of a wearer reporting a stall with no
-   * way to say what the scan thought it was seeing.
-   */
-  measure(sample: PoseSample, neutral: Neutral | null): { value: number; target: number; unit: string };
-  /** Frames at the target before the beat is complete. */
-  holdFrames: number;
-  /** Beats that can be skipped without invalidating the scan. */
-  optional: boolean;
-}
+export type BeatId = 'centre' | 'turn-right' | 'turn-left'
+  | 'nod-down' | 'nod-up' | 'lean-in' | 'lean-back';
 
 export interface PoseSample {
   yawDeg: number;
@@ -98,25 +78,12 @@ export interface PoseSample {
 /**
  * The wearer's own neutral, learned during the opening beat.
  *
- * **Every beat after the first is measured RELATIVE to this**, and that is not a
- * refinement — it is the difference between a protocol that works and one that
- * only works for people whose camera is at eye level.
- *
- * v1 shipped exactly this bug and measured its cost: a laptop lid 12 cm below
- * the eyes at 50 cm puts a wearer who is looking straight at their screen at
- * `atan(12/50) = 13.5` degrees of *pose pitch*, and v1's square-on test — an
- * absolute cone about the camera axis — scored **0 of 600 admitted frames** for
- * that entire class of hardware. Its own note is the lesson: *"a camera is not
- * anybody's eye level."*
- *
- * An absolute `pitch >= 12` for "look down" repeats it. On a laptop the wearer
- * is already there before they move; on a phone in the lap (30 degrees) they
- * satisfy "look down" while looking straight ahead and can never satisfy "look
- * up". Relative to their own neutral, both work and neither needs to know what
- * kind of device this is.
- *
- * Yaw is also carried, for the same reason at a smaller magnitude: a camera
- * offset to one side, or a wearer sitting at an angle to it.
+ * **Every beat after the first is measured relative to this.** v1 shipped the
+ * absolute version and measured its cost: a laptop lid 12 cm below the eyes at
+ * 50 cm puts a wearer looking straight at their screen at 13.5 degrees of pose
+ * pitch, and an absolute square-on test scored **0 of 600 admitted frames** for
+ * that entire class of hardware. Its own note is the lesson: *a camera is not
+ * anybody's eye level.*
  */
 export interface Neutral {
   yawDeg: number;
@@ -124,95 +91,159 @@ export interface Neutral {
   distanceMm: number;
 }
 
-/** Relative to neutral. Null neutral means "not established yet", which only
- *  happens during the opening beat. */
+/**
+ * How a beat decides it is done.
+ *
+ * `threshold` — cross a line and hold it. Right for the beats whose quantity is
+ *   bounded and calibratable: "look roughly at the camera", "lean in a bit".
+ *
+ * `reach` — go as far as you can, and finish when you stop. Right for the turn,
+ *   where the number the system measures is not the number the wearer controls,
+ *   and demanding a specific one is how you end up asking for the impossible.
+ */
+export type BeatKind = 'threshold' | 'reach';
+
+export interface BeatSpec {
+  id: BeatId;
+  kind: BeatKind;
+  prompt: string;
+  /**
+   * Where the guide dot should be, in normalised **mirrored display** space.
+   *
+   * The preview is a mirror, because an unmirrored self-view feels wrong to
+   * everybody. So a wearer turning to their own RIGHT sees their face move to
+   * the RIGHT of the screen and the dot has to be on that side. The first
+   * version put `turn-right` on the screen left — where the face goes in the RAW
+   * camera image — so it instructed the opposite of what the prompt said.
+   */
+  target: { x: number; y: number; scale: number };
+  /** The quantity this beat watches, relative to neutral. */
+  measure(sample: PoseSample, neutral: Neutral | null): number;
+  unit: string;
+  /**
+   * Which side of `goal` satisfies the beat.
+   *
+   * Almost everything is `atLeast` — turn further, nod further, lean further.
+   * `centre` is the exception: it measures *degrees off centre*, where the goal
+   * is a ceiling. Unifying every beat onto `>=` (which an earlier version did)
+   * makes the opening beat satisfiable only by NOT looking at the camera, and
+   * since it is the beat that establishes the neutral, nothing after it works
+   * either.
+   */
+  compare?: 'atLeast' | 'atMost';
+  /**
+   * `threshold`: the value that satisfies it.
+   * `reach`: the value at which the wearer is certainly done, whatever the
+   *   plateau detector thinks. Generous on purpose — someone with a flexible
+   *   neck and a well-behaved camera should not be made to wait for a timeout.
+   */
+  goal: number;
+  /** `reach` only: below this, stopping does not count as finishing. */
+  minimum?: number;
+  /** An extra condition beyond the measured quantity, e.g. stay roughly frontal. */
+  also?(sample: PoseSample, neutral: Neutral | null): boolean;
+  holdFrames: number;
+  optional: boolean;
+}
+
 const dYaw = (s: PoseSample, n: Neutral | null): number => s.yawDeg - (n?.yawDeg ?? 0);
 const dPitch = (s: PoseSample, n: Neutral | null): number => s.pitchDeg - (n?.pitchDeg ?? 0);
+
+/**
+ * How still the maximum has to be before a `reach` beat calls it finished.
+ *
+ * `patience` frames without improving by `epsilonDeg`. At 30 fps that is about
+ * two thirds of a second of getting no further, which is what "that is as far as
+ * I go" looks like — long enough not to fire on the pause mid-turn, short enough
+ * not to feel like a hang.
+ */
+const PLATEAU = { patience: 20, epsilonDeg: 1.2 };
 
 export const BEATS: BeatSpec[] = [
   {
     id: 'centre',
+    kind: 'threshold',
     prompt: 'Look straight at the camera',
     target: { x: 0.5, y: 0.5, scale: 1 },
     // The only beat measured in absolute terms, because it is the one that
-    // defines the reference. The bounds are generous on pitch and tight on yaw:
-    // a camera can be far below the eyes (a phone in the lap is 30 degrees) but
-    // is rarely far to one side, and a wearer who is genuinely turned 20 degrees
-    // away is not looking at the camera.
-    satisfied: (s) => Math.abs(s.yawDeg) < 14 && Math.abs(s.pitchDeg) < 38,
-    measure: (s) => ({ value: Math.abs(s.yawDeg), target: 14, unit: 'deg off centre' }),
+    // defines the reference. Generous on pitch and tight on yaw: a camera can
+    // sit far below the eyes (a phone in the lap is 30 degrees) but is rarely
+    // far to one side.
+    measure: (s) => Math.abs(s.yawDeg),
+    unit: 'deg off centre',
+    goal: 14,
+    compare: 'atMost',
+    also: (s) => Math.abs(s.pitchDeg) < 38,
     holdFrames: 8,
     optional: false,
   },
   {
     id: 'turn-right',
-    prompt: 'Slowly turn to your right',
-    target: { x: 0.82, y: 0.5, scale: 1 },
-    satisfied: (s, n) => dYaw(s, n) <= -30,
-    measure: (s, n) => ({ value: -dYaw(s, n), target: 30, unit: 'deg right' }),
-    holdFrames: 4,
+    kind: 'reach',
+    prompt: 'Turn to your right, as far as is comfortable',
+    target: { x: 0.86, y: 0.5, scale: 1 },
+    measure: (s, n) => -dYaw(s, n),
+    unit: 'deg right',
+    goal: 55,
+    minimum: 15,
+    holdFrames: 5,
     optional: false,
-  },
-  {
-    id: 'profile-right',
-    prompt: 'Keep going — show me your profile',
-    target: { x: 0.94, y: 0.5, scale: 1 },
-    satisfied: (s, n) => dYaw(s, n) <= -60,
-    measure: (s, n) => ({ value: -dYaw(s, n), target: 60, unit: 'deg right' }),
-    holdFrames: 6,
-    optional: true,
   },
   {
     id: 'turn-left',
-    prompt: 'Now slowly to your left',
-    target: { x: 0.18, y: 0.5, scale: 1 },
-    satisfied: (s, n) => dYaw(s, n) >= 30,
-    measure: (s, n) => ({ value: dYaw(s, n), target: 30, unit: 'deg left' }),
-    holdFrames: 4,
+    kind: 'reach',
+    prompt: 'And to your left, as far as is comfortable',
+    target: { x: 0.14, y: 0.5, scale: 1 },
+    measure: (s, n) => dYaw(s, n),
+    unit: 'deg left',
+    goal: 55,
+    minimum: 15,
+    holdFrames: 5,
     optional: false,
   },
   {
-    id: 'profile-left',
-    prompt: 'And your profile on this side',
-    target: { x: 0.06, y: 0.5, scale: 1 },
-    satisfied: (s, n) => dYaw(s, n) >= 60,
-    measure: (s, n) => ({ value: dYaw(s, n), target: 60, unit: 'deg left' }),
-    holdFrames: 6,
-    optional: true,
-  },
-  {
     id: 'nod-down',
+    kind: 'threshold',
     prompt: 'Back to centre, then look down a little',
-    target: { x: 0.5, y: 0.78, scale: 1 },
-    satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) >= 10,
-    measure: (s, n) => ({ value: dPitch(s, n), target: 10, unit: 'deg down' }),
+    target: { x: 0.5, y: 0.76, scale: 1 },
+    measure: (s, n) => dPitch(s, n),
+    unit: 'deg down',
+    goal: 9,
+    also: (s, n) => Math.abs(dYaw(s, n)) < 25,
     holdFrames: 4,
     optional: false,
   },
   {
     id: 'nod-up',
+    kind: 'threshold',
     prompt: 'And up a little',
-    target: { x: 0.5, y: 0.22, scale: 1 },
-    satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) <= -10,
-    measure: (s, n) => ({ value: -dPitch(s, n), target: 10, unit: 'deg up' }),
+    target: { x: 0.5, y: 0.24, scale: 1 },
+    measure: (s, n) => -dPitch(s, n),
+    unit: 'deg up',
+    goal: 9,
+    also: (s, n) => Math.abs(dYaw(s, n)) < 25,
     holdFrames: 4,
     optional: false,
   },
   {
     id: 'lean-in',
+    kind: 'threshold',
     prompt: 'Lean in toward the camera',
     target: { x: 0.5, y: 0.5, scale: 1.5 },
-    satisfied: (s) => s.distanceRatio <= 0.78,
-    measure: (s) => ({ value: (1 - s.distanceRatio) * 100, target: 22, unit: '% closer' }),
+    measure: (s) => (1 - s.distanceRatio) * 100,
+    unit: '% closer',
+    goal: 20,
     holdFrames: 4,
     optional: true,
   },
   {
     id: 'lean-back',
+    kind: 'threshold',
     prompt: 'And lean back',
     target: { x: 0.5, y: 0.5, scale: 0.65 },
-    satisfied: (s) => s.distanceRatio >= 1.25,
-    measure: (s) => ({ value: (s.distanceRatio - 1) * 100, target: 25, unit: '% further' }),
+    measure: (s) => (s.distanceRatio - 1) * 100,
+    unit: '% further',
+    goal: 22,
     holdFrames: 4,
     optional: true,
   },
@@ -221,16 +252,17 @@ export const BEATS: BeatSpec[] = [
 export interface ProtocolState {
   index: number;
   held: number;
-  /** Completed beats, in order. */
   done: BeatId[];
-  /** Beats given up on. */
   skipped: BeatId[];
-  /** Frames spent on the current beat, for the give-up timer. */
   attempts: number;
-  /** The wearer's own neutral, set when the opening beat completes. */
   neutral: Neutral | null;
-  /** Running mean of the samples seen during the opening beat, for `neutral`. */
   neutralAccum: { yaw: number; pitch: number; distance: number; n: number };
+  /** The furthest the wearer has got in the current beat. */
+  best: number;
+  /** Frames since `best` last improved by more than the epsilon. */
+  sinceImprovement: number;
+  /** What each beat actually achieved, for honest reporting. */
+  achieved: Partial<Record<BeatId, number>>;
   finished: boolean;
 }
 
@@ -238,160 +270,196 @@ export const createProtocol = (): ProtocolState => ({
   index: 0, held: 0, done: [], skipped: [], attempts: 0,
   neutral: null,
   neutralAccum: { yaw: 0, pitch: 0, distance: 0, n: 0 },
+  best: 0, sinceImprovement: 0, achieved: {},
   finished: false,
 });
 
 /**
  * Frames to spend on one beat before moving on.
  *
- * Optional beats give up sooner. The scan must never stall: a wearer who cannot
- * or will not turn far enough gets a shorter scan and an honestly-degraded
- * model, not a spinner. This is the same instinct as v1's "keep previous, never
- * assume average" — refuse to invent, but never refuse to proceed.
+ * The scan must never hang. A wearer who cannot or will not turn gets a shorter
+ * scan and an honestly-degraded model, not a spinner. Same instinct as v1's
+ * "keep previous, never assume average" — refuse to invent, never refuse to
+ * proceed.
  */
-const GIVE_UP_FRAMES = { required: 210, optional: 90 };
+const GIVE_UP_FRAMES = { required: 240, optional: 100 };
 
 export interface ProtocolStep {
   beat: BeatSpec | null;
   prompt: string;
-  /** 0..1 across the whole protocol. */
   progress: number;
-  /** 0..1 within the current beat's HOLD. */
+  /** 0..1 within the current beat's hold. */
   beatProgress: number;
-  /** What the beat is watching and what it needs, for the wearer. Null when
-   *  there is no face to measure. */
-  reading: { value: number; target: number; unit: string } | null;
-  /** 0..1 toward the target angle — how far the wearer has got, as opposed to
-   *  how long they have held it. */
+  /** What the beat is watching and what it wants. Null with no face. */
+  reading: {
+    value: number; best: number; goal: number; unit: string; kind: BeatKind;
+    /** True when the goal is a ceiling rather than a floor. */
+    atMost: boolean;
+  } | null;
+  /** 0..1 toward the goal. A `reach` beat can finish well below 1, which is
+   *  exactly the point. */
   toward: number;
-  /** True once this beat has been tried long enough that it is about to be
-   *  given up on. Lets the UI say so rather than looking frozen. */
+  /** A `reach` beat that has seen the wearer stop and is confirming it. */
+  settling: boolean;
   struggling: boolean;
   justCompleted: BeatId | null;
   finished: boolean;
 }
 
+function resetBeat(state: ProtocolState): void {
+  state.held = 0;
+  state.attempts = 0;
+  state.best = 0;
+  state.sinceImprovement = 0;
+}
+
 export function advanceProtocol(state: ProtocolState, sample: PoseSample | null): ProtocolStep {
-  if (state.finished) {
-    return {
-      beat: null, prompt: 'Working out your measurements…',
-      progress: 1, beatProgress: 1, reading: null, toward: 1,
-      struggling: false, justCompleted: null, finished: true,
-    };
-  }
+  if (state.finished) return finishedStep();
 
   const beat = BEATS[state.index];
   let justCompleted: BeatId | null = null;
 
-  // The give-up timer ticks whether or not there is a face.
-  //
-  // It used to advance only on frames with a pose, so a detector that lost the
-  // wearer — which is exactly what happens at a profile hold — froze the
-  // protocol indefinitely: no progress, no give-up, no message. A scan must
-  // never stall, and "never" has to include the case where it cannot see.
-  if (!sample) state.attempts++;
+  // The give-up timer ticks whether or not there is a face. It used to advance
+  // only on frames WITH a pose, so a detector that lost the wearer — which is
+  // what a deep turn provokes — froze the protocol with no progress, no give-up
+  // and no message.
+  state.attempts++;
+
+  const settleNeutral = () => {
+    if (state.neutral === null && state.neutralAccum.n > 0) {
+      const a = state.neutralAccum;
+      state.neutral = {
+        yawDeg: a.yaw / a.n, pitchDeg: a.pitch / a.n, distanceMm: a.distance / a.n,
+      };
+    }
+  };
+
+  const complete = () => {
+    state.achieved[beat.id] = state.best;
+    settleNeutral();
+    state.done.push(beat.id);
+    justCompleted = beat.id;
+    state.index++;
+    resetBeat(state);
+  };
+
+  const abandon = (fallback: PoseSample | null) => {
+    if (state.neutral === null && fallback) {
+      // Adopting zero would mean measuring every later beat against the camera
+      // axis, which is the bug the neutral exists to avoid. Take whatever pose
+      // was actually seen instead.
+      state.neutral = {
+        yawDeg: fallback.yawDeg, pitchDeg: fallback.pitchDeg, distanceMm: fallback.distanceMm,
+      };
+    }
+    state.achieved[beat.id] = state.best;
+    state.skipped.push(beat.id);
+    state.index++;
+    resetBeat(state);
+  };
 
   if (sample) {
-    state.attempts++;
-    if (beat.satisfied(sample, state.neutral)) {
+    const value = beat.measure(sample, state.neutral);
+    const alsoOk = beat.also ? beat.also(sample, state.neutral) : true;
+
+    // Track the furthest they have got — for `reach`, and for reporting.
+    if (value > state.best + PLATEAU.epsilonDeg) {
+      state.best = value;
+      state.sinceImprovement = 0;
+    } else {
+      if (value > state.best) state.best = value;
+      state.sinceImprovement++;
+    }
+
+    const meetsGoal = beat.compare === 'atMost' ? value <= beat.goal : value >= beat.goal;
+
+    let satisfied: boolean;
+    if (beat.kind === 'threshold') {
+      satisfied = meetsGoal && alsoOk;
+    } else {
+      // Done when they reach a generous goal, OR when they have plainly stopped
+      // somewhere useful. The second clause is what makes this beat completable
+      // by everybody rather than only by the flexible.
+      const plateaued = state.sinceImprovement >= PLATEAU.patience
+        && state.best >= (beat.minimum ?? 0);
+      satisfied = alsoOk && (state.best >= beat.goal || plateaued);
+    }
+
+    if (satisfied) {
       state.held++;
-      // While holding the opening beat, average what we see. A single frame's
-      // pose carries a degree of noise and postural wander; the reference every
-      // later beat is measured against should not.
       if (state.neutral === null) {
         const a = state.neutralAccum;
         a.yaw += sample.yawDeg; a.pitch += sample.pitchDeg;
         a.distance += sample.distanceMm; a.n++;
       }
-      if (state.held >= beat.holdFrames) {
-        if (state.neutral === null && state.neutralAccum.n > 0) {
-          const a = state.neutralAccum;
-          state.neutral = {
-            yawDeg: a.yaw / a.n, pitchDeg: a.pitch / a.n, distanceMm: a.distance / a.n,
-          };
-        }
-        state.done.push(beat.id);
-        justCompleted = beat.id;
-        state.index++;
-        state.held = 0;
-        state.attempts = 0;
-      }
+      if (state.held >= beat.holdFrames) complete();
     } else {
-      // Decay rather than reset: a single bad frame in the middle of a hold is
-      // usually a blink, not a wearer who moved away.
+      // Decay rather than reset: one bad frame mid-hold is usually a blink.
       state.held = Math.max(0, state.held - 1);
       if (state.neutral === null) {
         state.neutralAccum = { yaw: 0, pitch: 0, distance: 0, n: 0 };
       }
       const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
-      if (state.attempts > limit) {
-        // Giving up on the OPENING beat means there is no neutral, and every
-        // later beat would then be measured against zero — i.e. against the
-        // camera axis, which is the bug this whole mechanism exists to avoid.
-        // So a skipped opening beat adopts whatever pose was actually seen.
-        if (state.neutral === null) {
-          state.neutral = {
-            yawDeg: sample.yawDeg, pitchDeg: sample.pitchDeg, distanceMm: sample.distanceMm,
-          };
-        }
-        state.skipped.push(beat.id);
-        state.index++;
-        state.held = 0;
-        state.attempts = 0;
-      }
+      if (state.attempts > limit) abandon(sample);
     }
-  }
-
-  // A beat can also be abandoned with no face at all, which is the branch the
-  // block above exists for.
-  if (sample === null && !state.finished) {
+  } else {
     const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
-    if (state.attempts > limit) {
-      if (state.neutral === null) {
-        // No usable pose was ever seen for the opening beat. Adopting zero here
-        // would mean measuring every later beat against the camera axis, so the
-        // neutral stays null and the beats fall back to absolute angles — worse,
-        // but honest, and reported through `summarise`.
-        state.skipped.push(beat.id);
-      } else {
-        state.skipped.push(beat.id);
-      }
-      state.index++;
-      state.held = 0;
-      state.attempts = 0;
-    }
+    if (state.attempts > limit) abandon(null);
   }
 
   if (state.index >= BEATS.length) state.finished = true;
+  if (state.finished) return finishedStep(justCompleted);
 
-  const current = state.finished ? null : BEATS[state.index];
-  const reading = current && sample ? current.measure(sample, state.neutral) : null;
-  const limit = current
-    ? (current.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required)
-    : 1;
+  const current = BEATS[state.index];
+  const value = sample ? current.measure(sample, state.neutral) : null;
+  const limit = current.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
+
   return {
     beat: current,
-    prompt: current ? current.prompt : 'Working out your measurements…',
+    prompt: current.prompt,
     progress: state.index / BEATS.length,
-    beatProgress: current ? state.held / current.holdFrames : 1,
-    reading,
-    toward: reading && reading.target !== 0
-      ? Math.max(0, Math.min(1, reading.value / reading.target))
-      : 0,
-    struggling: state.attempts > limit * 0.45,
+    beatProgress: state.held / current.holdFrames,
+    reading: value === null ? null : {
+      value, best: state.best, goal: current.goal, unit: current.unit, kind: current.kind,
+      atMost: current.compare === 'atMost',
+    },
+    toward: value === null ? 0 : towardOf(current, value, state.best),
+    settling: current.kind === 'reach'
+      && state.sinceImprovement > PLATEAU.patience * 0.4
+      && state.best >= (current.minimum ?? 0),
+    struggling: state.attempts > limit * 0.5,
     justCompleted,
-    finished: state.finished,
+    finished: false,
   };
 }
 
 /**
+ * How far along the current beat the wearer is, 0..1.
+ *
+ * For an `atMost` beat this counts DOWN toward the goal, so the dot grows as
+ * they get closer to centre rather than as they wander away from it.
+ */
+function towardOf(beat: BeatSpec, value: number, best: number): number {
+  if (beat.compare === 'atMost') {
+    if (!(beat.goal > 0)) return value <= 0 ? 1 : 0;
+    return Math.max(0, Math.min(1, 1 - (value - beat.goal) / (beat.goal * 3)));
+  }
+  return Math.max(0, Math.min(1, Math.max(value, best) / beat.goal));
+}
+
+const finishedStep = (justCompleted: BeatId | null = null): ProtocolStep => ({
+  beat: null,
+  prompt: 'Working out your measurements…',
+  progress: 1, beatProgress: 1, reading: null, toward: 1,
+  settling: false, struggling: false, justCompleted, finished: true,
+});
+
+/**
  * Turns a solved pose into the sample the protocol reads.
  *
- * `headEuler`, never `eulerYXZ(pose.R)` — see the note on `headEuler`. Using the
- * raw camera-frame euler here is what made this protocol impossible to finish:
- * a frontal face reported yaw = -180, so every beat with a `|yaw| < k` clause
- * was unsatisfiable and the wearer sat looking down at a prompt that would never
- * advance.
+ * `headEuler`, never `eulerYXZ(pose.R)`. The raw camera-frame euler reports a
+ * frontal face at yaw = -180 and inverts the sign of yaw and roll, which made
+ * this protocol impossible to finish twice over.
  */
 export function sampleFromPose(pose: Pose, neutral: Neutral | null): PoseSample {
   const e = headEuler(pose);
@@ -406,14 +474,27 @@ export function sampleFromPose(pose: Pose, neutral: Neutral | null): PoseSample 
   };
 }
 
-/** A one-line summary of what the scan actually got, for the report and the UI. */
+/** The largest turn the wearer managed, in the scan's own measured degrees. */
+export const achievedTurnDeg = (state: ProtocolState): number =>
+  Math.max(state.achieved['turn-right'] ?? 0, state.achieved['turn-left'] ?? 0);
+
+/**
+ * What the scan actually got, in the scan's own units.
+ *
+ * Reported rather than required. The turn beats ask for "as far as comfortable"
+ * precisely because the number the system measures is not the number the wearer
+ * controls, so the achieved figure is data about this session — useful for
+ * telling the wearer which of their measurements is soft, and for calibrating
+ * against real captures once there are any.
+ */
 export function summarise(state: ProtocolState): string {
-  if (state.skipped.length === 0) return 'Full scan.';
-  return `Skipped: ${state.skipped.join(', ')}. ` + (
-    state.skipped.some((b) => b.startsWith('profile'))
-      ? 'Nose depth is inferred rather than seen.'
-      : state.skipped.some((b) => b.startsWith('lean'))
-        ? 'Camera field of view assumed rather than solved.'
-        : 'Some measurements will be softer than usual.'
-  );
+  const turn = achievedTurnDeg(state);
+  const parts: string[] = [];
+  if (turn > 0) parts.push(`turned to ${turn.toFixed(0)} deg as measured`);
+  if (state.skipped.length) parts.push(`skipped: ${state.skipped.join(', ')}`);
+  if (state.skipped.some((b) => b.startsWith('lean'))) {
+    parts.push('camera field of view assumed rather than solved');
+  }
+  if (turn > 0 && turn < 35) parts.push('nose depth is inferred rather than seen');
+  return parts.length ? `${parts.join('. ')}.` : 'Full scan.';
 }

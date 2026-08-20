@@ -50,7 +50,17 @@ The organising move: **turn head rotation from the enemy into the instrument.**
 
 ### 1. Enrollment — `src/enroll/`
 
-Four seconds of guided capture, one joint bundle adjustment.
+A few seconds of guided capture, one joint bundle adjustment.
+
+**The turn beats do not name an angle.** They ask the wearer to go as far as is
+comfortable and detect when they have stopped. That is not a UX nicety: the
+angle this pipeline can *measure* is compressed against the angle a person
+*performs*, by an uncalibrated factor — a wearer reported the scan's "30 degrees"
+arriving only after roughly 70 degrees of real turn, which made the follow-up
+beat's demand for 60 more anatomically impossible. Asking for something the
+wearer controls (their own comfortable limit) instead of something the system
+cannot calibrate is the only version of this that works on every neck and every
+camera. What the scan achieved is then reported rather than required. Q13.
 
 ```
 frames ──► PnP init (template) ──► keyframe selection ──► coverage check

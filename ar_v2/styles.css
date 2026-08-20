@@ -127,6 +127,7 @@ body.untracked #stage { filter: saturate(0.6) brightness(0.85); }
 }
 
 #reading.struggling { color: #ffcf8f; }
+#reading.settling { color: #9de8bd; }
 
 #guide-dot.near {
   border-color: var(--good);

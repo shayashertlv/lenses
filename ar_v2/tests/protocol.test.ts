@@ -47,7 +47,7 @@ import {
 } from '../src/core/camera.js';
 import { LM } from '../src/core/mesh.js';
 import {
-  BEATS, advanceProtocol, createProtocol, sampleFromPose,
+  BEATS, achievedTurnDeg, advanceProtocol, createProtocol, sampleFromPose, summarise,
 } from '../src/enroll/protocol.js';
 import { CAMERA_LADDER } from '../src/testkit/synthetic.js';
 import { loadTemplateMesh } from '../src/testkit/fixtures.js';
@@ -277,12 +277,10 @@ describe('the guided scan', () => {
       // A right turn is negative yaw — pinned by the observable tests above.
       const script: Record<string, { yaw: number; pitch: number; scale: number }> = {
         centre: { yaw: 0, pitch: 0, scale: 1 },
-        'turn-right': { yaw: -38, pitch: 0, scale: 1 },
-        'profile-right': { yaw: -72, pitch: 0, scale: 1 },
-        'turn-left': { yaw: 38, pitch: 0, scale: 1 },
-        'profile-left': { yaw: 72, pitch: 0, scale: 1 },
-        'nod-down': { yaw: 0, pitch: 16, scale: 1 },
-        'nod-up': { yaw: 0, pitch: -16, scale: 1 },
+        'turn-right': { yaw: -60, pitch: 0, scale: 1 },
+        'turn-left': { yaw: 60, pitch: 0, scale: 1 },
+        'nod-down': { yaw: 0, pitch: 14, scale: 1 },
+        'nod-up': { yaw: 0, pitch: -14, scale: 1 },
         'lean-in': { yaw: 0, pitch: 0, scale: 0.7 },
         'lean-back': { yaw: 0, pitch: 0, scale: 1.35 },
       };
@@ -315,17 +313,31 @@ describe('the guided scan', () => {
 
   it('the guide dot is on the side the wearer will actually move toward', () => {
     // The preview is a mirror, so a wearer turning right sees themselves move
-    // RIGHT on screen. The dot has to be on that side. The first version put
-    // `turn-right` on the left — where the face goes in the raw camera image —
-    // so it instructed the wearer to turn the wrong way while the prompt text
-    // told them the right way.
+    // RIGHT on screen. The first version put `turn-right` on the left — where
+    // the face goes in the RAW camera image — so it instructed the opposite of
+    // what the prompt said.
     const dotOf = (id: string) => BEATS.find((b) => b.id === id)!.target.x;
     assert.ok(dotOf('turn-right') > 0.5, 'turn-right must put the dot on the display RIGHT');
-    assert.ok(dotOf('profile-right') > dotOf('turn-right'), 'profile-right goes further right');
     assert.ok(dotOf('turn-left') < 0.5, 'turn-left must put the dot on the display LEFT');
-    assert.ok(dotOf('profile-left') < dotOf('turn-left'), 'profile-left goes further left');
     assert.ok(BEATS.find((b) => b.id === 'nod-down')!.target.y > 0.5, 'nod-down goes down');
     assert.ok(BEATS.find((b) => b.id === 'nod-up')!.target.y < 0.5, 'nod-up goes up');
+  });
+
+  it('no beat asks for an angle a wearer might not have', () => {
+    // The reported failure: "turn 30 degrees" completed only after roughly 70
+    // degrees of real head turn, and the follow-up beat then demanded 60 more,
+    // which is anatomically impossible. Any beat whose quantity is a head
+    // ROTATION must be a `reach` — satisfiable by going as far as you can —
+    // rather than a threshold whose calibration cannot be verified from here.
+    for (const beat of BEATS) {
+      if (beat.unit.includes('deg right') || beat.unit.includes('deg left')) {
+        assert.equal(
+          beat.kind, 'reach',
+          beat.id + ' demands a specific turn angle; the measured angle is '
+          + 'compressed against the physical one and cannot be calibrated here',
+        );
+      }
+    }
   });
 
   it('reports what it is measuring, so a stall is diagnosable', () => {
@@ -333,15 +345,82 @@ describe('the guided scan', () => {
     for (let i = 0; i < 40 && state.index === 0; i++) {
       advanceProtocol(state, sampleFromPose(poseFor(0, 0, 0, 500), state.neutral));
     }
-    // Now on turn-right, with the wearer only half-way there.
     const step = advanceProtocol(state, sampleFromPose(poseFor(-15, 0, 0, 500), state.neutral));
     assert.ok(step.reading, 'no reading was produced');
     assert.ok(
       step.reading!.value > 13 && step.reading!.value < 17,
-      `reading ${step.reading!.value.toFixed(1)} should be ~15 degrees of right turn`,
+      'reading ' + step.reading!.value.toFixed(1) + ' should be ~15 degrees of right turn',
     );
-    assert.equal(step.reading!.target, 30);
-    assert.ok(step.toward > 0.4 && step.toward < 0.6, `toward ${step.toward}`);
+    assert.equal(step.reading!.kind, 'reach');
+  });
+
+  it('a wearer who can only turn a little still completes the turn', () => {
+    // THE reported bug. Whatever the calibration between measured and physical
+    // degrees, somebody who turns as far as they comfortably can must be able to
+    // finish. The plateau detector — not a threshold — is what makes that true.
+    for (const limitDeg of [16, 22, 30, 45]) {
+      const state = createProtocol();
+      let guard = 0;
+      while (!state.finished && guard++ < 6000) {
+        const beat = BEATS[state.index];
+        let yaw = 0; let pitch = 0; let scale = 1;
+        if (beat.id === 'turn-right') yaw = -limitDeg;
+        else if (beat.id === 'turn-left') yaw = limitDeg;
+        else if (beat.id === 'nod-down') pitch = 14;
+        else if (beat.id === 'nod-up') pitch = -14;
+        else if (beat.id === 'lean-in') scale = 0.7;
+        else if (beat.id === 'lean-back') scale = 1.35;
+        advanceProtocol(state, sampleFromPose(poseFor(yaw, pitch, 0, 500 * scale), state.neutral));
+      }
+      assert.ok(state.finished, 'a ' + limitDeg + '-degree turner never finished');
+      assert.ok(
+        !state.skipped.includes('turn-right') && !state.skipped.includes('turn-left'),
+        'a ' + limitDeg + '-degree turner had a turn beat SKIPPED rather than completed: '
+        + state.skipped.join(', '),
+      );
+      // And what they achieved is recorded rather than pretended.
+      const got = achievedTurnDeg(state);
+      assert.ok(
+        Math.abs(got - limitDeg) < 3,
+        'achieved ' + got.toFixed(1) + ' for a ' + limitDeg + '-degree turner',
+      );
+    }
+  });
+
+  it('a wearer who turns a long way finishes without waiting for a plateau', () => {
+    const state = createProtocol();
+    for (let i = 0; i < 40 && state.index === 0; i++) {
+      advanceProtocol(state, sampleFromPose(poseFor(0, 0, 0, 500), state.neutral));
+    }
+    assert.equal(BEATS[state.index].id, 'turn-right');
+    let frames = 0;
+    while (BEATS[state.index]?.id === 'turn-right' && frames++ < 500) {
+      advanceProtocol(state, sampleFromPose(poseFor(-60, 0, 0, 500), state.neutral));
+    }
+    assert.ok(state.done.includes('turn-right'), 'a 60-degree turn did not complete');
+    assert.ok(frames < 20, 'took ' + frames + ' frames; should finish on the hold, not a plateau');
+  });
+
+  it('reports the turn it actually got rather than the one it asked for', () => {
+    const state = createProtocol();
+    let guard = 0;
+    while (!state.finished && guard++ < 6000) {
+      const beat = BEATS[state.index];
+      let yaw = 0; let pitch = 0; let scale = 1;
+      if (beat.id === 'turn-right') yaw = -24;
+      else if (beat.id === 'turn-left') yaw = 24;
+      else if (beat.id === 'nod-down') pitch = 14;
+      else if (beat.id === 'nod-up') pitch = -14;
+      else if (beat.id === 'lean-in') scale = 0.7;
+      else if (beat.id === 'lean-back') scale = 1.35;
+      advanceProtocol(state, sampleFromPose(poseFor(yaw, pitch, 0, 500 * scale), state.neutral));
+    }
+    const text = summarise(state);
+    assert.ok(/24 deg/.test(text), 'summary should name the achieved turn: ' + text);
+    assert.ok(
+      /inferred rather than seen/.test(text),
+      'a 24-degree turn is not enough for a nose silhouette and the summary should say so: ' + text,
+    );
   });
 
   it('measures the nod relative to neutral, not to the camera axis', () => {
@@ -355,12 +434,18 @@ describe('the guided scan', () => {
 
     const nodDown = BEATS.find((b) => b.id === 'nod-down')!;
     const nodUp = BEATS.find((b) => b.id === 'nod-up')!;
-    const at = (pitch: number) => sampleFromPose(poseFor(0, pitch, basePitchDeg, 500), state.neutral);
+    const at = (pitch: number) =>
+      sampleFromPose(poseFor(0, pitch, basePitchDeg, 500), state.neutral);
+    const meets = (beat: typeof nodDown, pitch: number) => {
+      const sample = at(pitch);
+      return beat.measure(sample, state.neutral) >= beat.goal
+        && (beat.also ? beat.also(sample, state.neutral) : true);
+    };
 
-    assert.ok(!nodDown.satisfied(at(0), state.neutral), 'sitting still must not count as looking down');
-    assert.ok(nodDown.satisfied(at(14), state.neutral), 'looking down 14 degrees must count');
-    assert.ok(!nodUp.satisfied(at(0), state.neutral), 'sitting still must not count as looking up');
-    assert.ok(nodUp.satisfied(at(-14), state.neutral), 'looking up 14 degrees must count');
+    assert.ok(!meets(nodDown, 0), 'sitting still must not count as looking down');
+    assert.ok(meets(nodDown, 14), 'looking down 14 degrees must count');
+    assert.ok(!meets(nodUp, 0), 'sitting still must not count as looking up');
+    assert.ok(meets(nodUp, -14), 'looking up 14 degrees must count');
   });
 
   it('never stalls: not on a wearer who will not move', () => {
@@ -371,6 +456,13 @@ describe('the guided scan', () => {
     }
     assert.ok(state.finished, 'the protocol stalled on a wearer who never moved');
     assert.ok(state.done.includes('centre'), 'the opening beat should still have completed');
+    // A wearer who never turns at all cannot COMPLETE a turn beat: `minimum`
+    // exists so that "stopped at zero" is not mistaken for "went as far as they
+    // could". It is skipped, and the summary says so.
+    assert.ok(
+      state.skipped.includes('turn-right'),
+      'a wearer who never turned should have the turn SKIPPED, not completed at 0',
+    );
   });
 
   it('never stalls: not when the detector loses the face entirely', () => {
@@ -384,7 +476,7 @@ describe('the guided scan', () => {
 
     for (let i = 0; i < 8000 && !state.finished; i++) advanceProtocol(state, null);
     assert.ok(state.finished, 'the protocol stalled when the face was never seen again');
-    assert.ok(state.skipped.length >= 7, `only skipped ${state.skipped.length} beats`);
+    assert.ok(state.skipped.length >= 5, 'only skipped ' + state.skipped.length + ' beats');
   });
 
   it('never stalls: not when there is never a face at all', () => {
