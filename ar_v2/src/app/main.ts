@@ -31,7 +31,6 @@ import { poseIdentity, type Pose } from '../core/linalg.js';
 import {
   createFaceModel, deserializeFaceModel, serializeFaceModel, type FaceModel,
 } from '../core/facemodel.js';
-import { enroll } from '../enroll/enroll.js';
 import {
   advanceProtocol, createProtocol, sampleFromPose, summarise, type ProtocolState,
 } from '../enroll/protocol.js';
@@ -47,6 +46,7 @@ import { applySeat, createScene, type SceneHandle } from '../render/scene.js';
 import { createFrameLock, detectToSourceScale, scaleLandmarksToSource, type FrameLock } from './framelock.js';
 import { createCameraSource, createStillSource, type Source } from './sources.js';
 import { createUI, type UI } from './ui.js';
+import { createEnrollClient, type EnrollClient } from './enroll-client.js';
 
 type Phase = 'boot' | 'acquire' | 'scan' | 'solving' | 'wear' | 'error';
 
@@ -59,6 +59,7 @@ interface App {
   lock: FrameLock;
   ui: UI;
   detector: Detector;
+  enroller: EnrollClient;
   source: Source | null;
   intrinsics: Intrinsics;
   uncertainty: ReturnType<typeof createUncertainty>;
@@ -127,9 +128,20 @@ async function boot(): Promise<void> {
 
   const lock = createFrameLock({ detectLongSide: DETECT_LONG_SIDE });
 
+  // Started now rather than when the scan finishes: the worker spends ~40 ms
+  // rebuilding the template and the basis, and it can do that while the wearer
+  // is still being asked to look at the camera.
+  const enroller = await createEnrollClient(
+    asset('dist/src/enroll/enroll.worker.js'),
+    asset('assets/face/canonical_face_model.obj'),
+    { mesh, basis, regions },
+    (m) => console.info('[enroll]', m),
+  );
+  ui.status(enroller.available ? 'ready' : 'ready (solving on the main thread)');
+
   const app: App = {
     phase: 'boot',
-    mesh, basis, regions, scene, lock, ui, detector,
+    mesh, basis, regions, scene, lock, ui, detector, enroller,
     source: null,
     intrinsics: intrinsicsFromFov(1280, 720, MEDIAPIPE_ASSUMED_VERTICAL_FOV),
     uncertainty: createUncertainty(mesh.vertexCount),
@@ -388,34 +400,28 @@ async function runEnrollment(app: App): Promise<void> {
   app.ui.status('working out your measurements…');
   app.ui.guide(null);
 
-  // Yield so the browser paints the message before the solve blocks the thread.
+  // A single yield, so the message paints before anything heavy starts.
   //
   // **Not via `requestAnimationFrame`.** The obvious way to wait for a paint is
   // to await one, and it deadlocks in exactly the environments `startLoop`'s
-  // watchdog exists for: where rAF never fires, this promise never settles, and
+  // watchdog exists for: where rAF never fires, this promise never settles and
   // the app sits on "working out your measurements" forever while every
   // component underneath it is fine. Found by doing it, three lines after
   // writing the comment explaining that rAF can be dead.
-  //
-  // A timer always fires. The paint is slightly less guaranteed; a deadlock is
-  // not a trade worth making for it.
-  //
-  // The solve itself belongs in a worker and that is the next step here — the
-  // interfaces are already shaped for it, because nothing in `enroll/` touches
-  // the DOM.
   await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 32));
 
   try {
-    const result = enroll({
-      mesh: app.mesh,
-      basis: app.basis,
-      frames: app.collected,
+    // Off the main thread when a worker is available, which is the normal case.
+    // The frames are transferred, so `app.collected` is emptied by the handoff
+    // and must not be read afterwards.
+    const frames = app.collected;
+    app.collected = [];
+    const result = await app.enroller.run({
+      frames,
       imageWidth: app.source!.width,
       imageHeight: app.source!.height,
-      trace: (m) => console.info('[enroll]', m),
     });
-    console.info('[enroll] coverage', result.coverage, summarise(app.protocol));
+    console.info('[enroll] coverage', result.coverage, summarise(app.protocol), `on the ${result.ranOn} thread`);
     adoptModel(app, result.model);
     localStorage.setItem(STORAGE_KEY, serializeFaceModel(result.model));
     app.ui.status(
@@ -506,7 +512,9 @@ function renderReadouts(app: App): void {
     fps: app.fps,
     mirrorDelayMs: app.lock.mirrorDelayMs,
     droppedFrames: app.source?.droppedFrames ?? 0,
-    backend: app.scene.backendName + (app.loopDriver === 'timer' ? ' · timer loop' : ''),
+    backend: app.scene.backendName
+      + (app.loopDriver === 'timer' ? ' · timer loop' : '')
+      + (app.enroller.available ? '' : ' · inline solve'),
     phase: app.phase,
     model: app.model,
     seat: app.seat,

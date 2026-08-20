@@ -212,6 +212,29 @@ prediction, not a result.
 
 ---
 
+## Q11 — The enrollment worker is not yet the whole story.
+
+**Done:** the bundle now solves in a module worker (`enroll/enroll.worker.ts`),
+so the main thread stays responsive through the scan. Verified end to end in a
+browser: `ranOn: 'worker'`, and the model round-trips through the same
+`serializeFaceModel` path a returning wearer uses — so a format bug cannot hide
+until somebody reloads.
+
+**Not done:** the *detector* still runs on the main thread, synchronously, at
+~20 ms a frame. v1 put it in a worker and measured the trade carefully: a worker
+gets its own GL context, which on some machines makes inference genuinely slower
+(34 ms against 14 ms on the machine v1 shipped on), so it shipped a measured
+one-way fallback rather than a blanket choice. That whole apparatus should be
+ported — it is a solved problem sitting in `ar/src/tracker.js` with its
+reasoning attached.
+
+**Worth:** moderate. Under the frame lock the display advances once per
+detection, so a 20 ms main-thread inference costs UI responsiveness rather than
+mirror rate — which is the cheaper of the two coins, and exactly the trade v1
+documented.
+
+---
+
 ## Q10 — No real frame assets have measured geometry.
 
 **Assumed:** five parametric frames generated from numbers
