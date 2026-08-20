@@ -47,10 +47,22 @@ export async function createCameraSource(options: {
       facingMode: 'user',
       width: { ideal: options.width ?? 1280 },
       height: { ideal: options.height ?? 720 },
-      // Asked for, not required. Frame interval is latency the pipeline can
-      // never recover downstream, because a pose can only be as fresh as the
-      // frame it was solved from.
-      frameRate: { ideal: options.frameRate ?? 60 },
+      // **30, not 60, and this is the setting that made the preview dark.**
+      //
+      // Frame rate and exposure are the same knob on a camera sensor. At 60 fps
+      // the longest possible exposure is 16.7 ms; at 30 fps it is 33 ms. So
+      // asking for 60 in a dimly-lit room throws away a full stop of light, and
+      // the driver has no way to tell you — it just returns a darker picture.
+      //
+      // v1 asked for 60 and its note praised the latency: *"Halving it from
+      // 33 ms to 17 ms is the cheapest 16 ms in the whole chain."* It is not
+      // cheap. It costs half the light, and in this pipeline it buys nothing at
+      // all, because detection takes far longer than either interval — a wearer
+      // reported 172 ms of mirror delay with 402 frames dropped, which is the
+      // camera delivering at 60 and the pipeline consuming at 6.
+      //
+      // Ideal rather than required, so a camera that only does 60 still works.
+      frameRate: { ideal: options.frameRate ?? 30 },
     },
   });
 

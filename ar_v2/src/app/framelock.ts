@@ -62,6 +62,16 @@ export interface FrameLock {
   readonly display: HTMLCanvasElement;
   /** How far the mirror runs behind the room, ms, capture to composite. */
   mirrorDelayMs: number;
+  /**
+   * Mean luminance of the frames actually being detected on, 0..255.
+   *
+   * Measured, because "the picture is dark" turned out to be a real and
+   * actionable condition rather than a matter of taste — a camera asked for
+   * 60 fps halves its own exposure, and the wearer sees a dim mirror with no
+   * indication of why. It is also the single best predictor of the detector
+   * struggling, so it belongs in the readouts next to the mirror delay.
+   */
+  brightness: number;
   /** Frames the source presented that were never looked at. */
   droppedFrames: number;
   epoch: number;
@@ -72,6 +82,9 @@ export interface FrameLock {
     measuredCapture: boolean): CapturedFrame;
   /** Pairs the result's pixels with its own pose. Call when a detection lands. */
   present(frame: CapturedFrame): boolean;
+  /** Mean luminance of the detect canvas, 0..255. Sampled, not computed every
+   *  frame. */
+  measureBrightness(every?: number): number;
   nextEpoch(): number;
 }
 
@@ -85,10 +98,12 @@ export function createFrameLock(options: Partial<FrameLockOptions> = {}): FrameL
   let detectCtx: CanvasRenderingContext2D | null = null;
   let displayCtx: CanvasRenderingContext2D | null = null;
   let lastSubmitMs = 0;
+  let brightnessCountdown = 0;
 
   const lock: FrameLock = {
     capture, detect, display,
     mirrorDelayMs: 0,
+    brightness: NaN,
     droppedFrames: 0,
     epoch: 0,
 
@@ -113,6 +128,31 @@ export function createFrameLock(options: Partial<FrameLockOptions> = {}): FrameL
       return {
         capturedAtMs, timestampMs, measuredCapture, captureDt, epoch: lock.epoch,
       };
+    },
+
+    /**
+     * Samples the detect canvas's mean luminance.
+     *
+     * On the detect canvas rather than the full-resolution one: it is already
+     * small, it is the image the detector actually sees, and a `getImageData`
+     * on a 1280x720 canvas every frame is a stall nobody would attribute to a
+     * readout. Sampled every `every` frames and every 37th pixel, which is a
+     * few hundred microseconds.
+     */
+    measureBrightness(every = 15) {
+      if (!detectCtx) return lock.brightness;
+      if (brightnessCountdown-- > 0) return lock.brightness;
+      brightnessCountdown = every;
+      const data = detectCtx.getImageData(0, 0, detect.width, detect.height).data;
+      let sum = 0; let n = 0;
+      for (let i = 0; i < data.length; i += 4 * 37) {
+        sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+        n++;
+      }
+      const value = n ? sum / n : NaN;
+      lock.brightness = Number.isNaN(lock.brightness) ? value
+        : lock.brightness + (value - lock.brightness) * 0.2;
+      return lock.brightness;
     },
 
     present(frame) {

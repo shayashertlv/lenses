@@ -71,7 +71,34 @@ body {
   transform: scaleX(-1);
 }
 
-body.untracked #stage { filter: saturate(0.6) brightness(0.85); }
+/*
+ * The "no face" indicator does NOT darken the picture.
+ *
+ * It used to be `saturate(0.6) brightness(0.85)`, which is backwards twice over:
+ * the state it marks is one where the detector is already struggling to see the
+ * wearer, and dimming the preview both makes that worse to look at and stacks on
+ * top of whatever the room is already doing. A wearer in a dim room reported the
+ * mirror as "extremely dark", and this was the half of it that was pure CSS.
+ *
+ * An outline says the same thing without taking light away.
+ */
+body.untracked #stage-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--fair) 70%, transparent);
+  animation: seeking 1.6s ease-in-out infinite;
+}
+
+@keyframes seeking {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.untracked #stage-wrap::after { animation: none; opacity: 0.7; }
+}
 
 #guide-dot {
   position: absolute;

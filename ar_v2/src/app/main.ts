@@ -79,6 +79,8 @@ interface App {
    *  clock than the display's and a reviewer should be able to see which one
    *  produced a measurement. */
   loopDriver: 'raf' | 'timer';
+  /** Set once, so the runaway tripwire does not itself flood the console. */
+  warnedRunaway: boolean;
 }
 
 const STORAGE_KEY = 'ar-v2.facemodel';
@@ -191,6 +193,7 @@ async function boot(): Promise<void> {
     fps: 0,
     lastRenderMs: 0,
     loopDriver: 'raf',
+    warnedRunaway: false,
   };
 
   (globalThis as any).__ar = app;
@@ -289,13 +292,44 @@ async function startSource(app: App): Promise<void> {
   app.scene.applyIntrinsics(app.intrinsics);
 }
 
+/**
+ * One frame. **Schedules nothing** — `startLoop` owns the clock.
+ *
+ * This function used to re-arm `requestAnimationFrame` itself, and when the
+ * watchdog in `startLoop` was added it began arming it too. Both ran, so every
+ * frame doubled the number of pending callbacks: 1, 2, 4, 8, 16. Within seconds
+ * the main thread was doing nothing else.
+ *
+ * The symptoms did not look like a runaway loop, which is why it survived a
+ * review. A wearer's readout showed **10,000 fps**, 402 dropped camera frames
+ * and 172 ms of mirror delay, and the face detector could barely hold a lock —
+ * all of which read as "this machine is too slow" rather than "the app is
+ * calling itself exponentially". The fps figure was the tell and I had already
+ * decided it was a clamp artefact.
+ *
+ * A tick that schedules is a tick that can be scheduled twice. This one cannot.
+ */
 function tick(app: App, nowMs: number): void {
-  requestAnimationFrame((t) => tick(app, t));
   if (app.phase === 'error' || !app.source) return;
 
   const dt = app.lastRenderMs ? (nowMs - app.lastRenderMs) / 1000 : 1 / 60;
   app.lastRenderMs = nowMs;
-  app.fps += (1 / Math.max(dt, 1e-4) - app.fps) * 0.1;
+  // Clamped at 1 ms, not 0.1 ms. Two ticks landing in the same millisecond used
+  // to read as 10,000 fps, which is what the readout showed a wearer — a number
+  // so obviously wrong that it undermines every honest number beside it.
+  app.fps += (1 / Math.max(dt, 1e-3) - app.fps) * 0.1;
+
+  // A tripwire for exactly the failure above. No display runs at 240 Hz here,
+  // so a sustained reading past it means something is driving the loop more
+  // than once — and the failure is otherwise invisible, presenting as a slow
+  // machine rather than as a bug.
+  if (app.fps > 240 && !app.warnedRunaway) {
+    app.warnedRunaway = true;
+    console.error(
+      `the render loop is running at ${app.fps.toFixed(0)} fps — it is being driven `
+      + 'more than once per frame. Only startLoop() may schedule tick().',
+    );
+  }
 
   const offer = app.source.nextFrame(nowMs);
   if (offer && !app.busy) {
@@ -313,6 +347,7 @@ function tick(app: App, nowMs: number): void {
     app.busy = false;
 
     if (app.lock.present(frame)) app.scene.markBackgroundDirty();
+    app.lock.measureBrightness();
     onDetection(app, result, frame.captureDt);
   }
 
@@ -572,6 +607,7 @@ function handleAction(app: App, action: string): void {
 function renderReadouts(app: App): void {
   app.ui.readouts({
     fps: app.fps,
+    brightness: app.lock.brightness,
     mirrorDelayMs: app.lock.mirrorDelayMs,
     droppedFrames: app.source?.droppedFrames ?? 0,
     backend: app.scene.backendName

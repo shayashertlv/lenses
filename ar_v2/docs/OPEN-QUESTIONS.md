@@ -235,6 +235,31 @@ documented.
 
 ---
 
+## Q14 — Camera exposure is not controlled, only spoiled.
+
+**Fixed the obvious half:** the app asked `getUserMedia` for 60 fps. Frame rate
+and exposure are the same knob on a sensor — at 60 fps the longest possible
+exposure is 16.7 ms, at 30 fps it is 33 ms — so the request threw away a full
+stop of light in any dim room, for a rate the pipeline never came close to
+consuming. v1 asked for the same thing and its note praised the latency saving
+without mentioning the cost. Now 30.
+
+**Still open:** nothing measures or reports whether the camera is actually
+exposing well, beyond a mean-luminance readout and a "dim" hint. A wearer in a
+dim room gets a dark mirror, noisier landmarks, and a worse scan, and the only
+advice the app can give is "add light".
+
+Worth investigating: `MediaStreamTrack.getCapabilities()` exposes
+`exposureMode`, `exposureCompensation` and `brightness` on some platforms, and
+where they exist the app could ask for a longer exposure explicitly rather than
+hoping. It is device-specific and fragile, which is why it is a question rather
+than a change.
+
+**Worth:** moderate, and it compounds — Q1 (landmark noise) and Q13 (yaw
+compression) both get worse in the dark, so this may be upstream of both.
+
+---
+
 ## Q13 — Measured yaw is compressed against physical yaw, by an unknown factor. **(needs you)**
 
 **Reported, not measured here:** a wearer found that the scan's "30 degrees of

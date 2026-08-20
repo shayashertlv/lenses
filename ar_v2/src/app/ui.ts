@@ -28,6 +28,9 @@ import { TEST_FRAMES } from '../fit/frame-asset.js';
 
 export interface Readouts {
   fps: number;
+  /** Mean luminance of the detected frames, 0..255. NaN before the first
+   *  sample. */
+  brightness: number;
   mirrorDelayMs: number;
   droppedFrames: number;
   backend: string;
@@ -203,6 +206,15 @@ export function createUI(root: HTMLElement): UI {
         `mirror ${values.mirrorDelayMs.toFixed(0)} ms behind` +
           (values.droppedFrames ? ` · ${values.droppedFrames} frames dropped` : ''),
       ];
+      if (Number.isFinite(values.brightness)) {
+        // 0..255. Below ~55 a webcam is working near the bottom of its range and
+        // the landmarks get materially noisier; below ~30 it is mostly noise.
+        const b = values.brightness;
+        lines.push(
+          `image brightness ${b.toFixed(0)}/255` +
+          (b < 30 ? ' — very dark, add light' : b < 55 ? ' — dim' : ''),
+        );
+      }
       if (model) {
         lines.push(
           `scale: ${model.scale.source}` +
