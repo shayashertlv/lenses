@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Enrollment output is biometric data. It never belongs in the repository.
+# See docs/PRIVACY.md.
+*.facemodel.json
+fixtures/private/

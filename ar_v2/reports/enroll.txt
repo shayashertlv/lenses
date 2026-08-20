@@ -1,0 +1,29 @@
+ENROLLMENT ACCURACY
+===================
+10 subjects x 3 camera geometries
+basis: anthropometric-20, 19 modes
+
+Basis cannot explain (median/p90/worst RMS mm): 0.442 / 0.531 / 0.532
+  If this were near zero the reconstruction tests would be measuring
+  the basis rather than the scan. It is the harness's own falsifiability.
+
+Error against ground truth, mm — median / p90 / worst across the population.
+
+variant                      nose           pad strip              bridge        |protrusion|          |standoff|  scale%  PD mm  reproj px    ms  degraded
+-------------  ------------------  ------------------  ------------------  ------------------  ------------------  ------  -----  ---------  ----  --------
+full           1.60 / 3.65 / 4.37  1.15 / 2.92 / 3.05  1.52 / 3.07 / 3.48  1.02 / 2.45 / 3.61  0.87 / 1.43 / 1.75    2.86   4.61       5.48  2914         0
+no-profile     1.71 / 4.40 / 4.94  1.11 / 2.95 / 3.14  1.33 / 3.27 / 3.98  0.92 / 2.65 / 3.65  0.65 / 1.71 / 2.41    2.77   1.70       4.59  2915         0
+no-field       1.37 / 2.80 / 2.87  1.08 / 2.63 / 2.80  1.54 / 2.77 / 3.10  0.76 / 1.58 / 3.07  0.73 / 1.30 / 1.98    2.91   4.61       5.59  2357         0
+no-silhouette  1.64 / 3.70 / 4.40  1.14 / 2.94 / 3.04  1.45 / 3.27 / 3.57  0.99 / 2.50 / 3.81  0.84 / 1.47 / 1.72    2.91   4.61       5.48  2722         0
+no-lean        1.47 / 3.11 / 4.41  1.07 / 2.64 / 3.09  1.36 / 2.81 / 3.38  0.99 / 2.38 / 3.51  0.89 / 1.49 / 1.68    2.79   8.35       5.65  2707         0
+true-iris      1.12 / 2.04 / 2.73  0.81 / 0.96 / 0.99  1.11 / 1.34 / 1.94  0.64 / 1.71 / 3.30  0.68 / 1.21 / 1.39    0.81   5.94       5.48  2678         0
+
+Reading this table:
+  nose/pad strip/bridge  surface error over that region, after rigid alignment
+  |protrusion|           error in nose-tip-forward-of-bridge, the number a
+                         borrowed average nose gets most wrong
+  |standoff|             error in bridge-forward-of-eye-plane, which decides
+                         whether a frame clears the face at all
+  scale%                 absolute size error — this is the iris ruler's
+                         accuracy, and the "true-iris" row is the same
+                         pipeline with the population bias removed
