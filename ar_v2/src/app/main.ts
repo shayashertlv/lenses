@@ -72,7 +72,6 @@ interface App {
   /** Frames collected during the scan, awaiting the bundle. */
   collected: Omit<BundleFrame, 'pose'>[];
   lastPose: Pose | null;
-  referenceDistance: number | null;
   busy: boolean;
   fps: number;
   lastRenderMs: number;
@@ -153,7 +152,6 @@ async function boot(): Promise<void> {
     protocol: createProtocol(),
     collected: [],
     lastPose: null,
-    referenceDistance: null,
     busy: false,
     fps: 0,
     lastRenderMs: 0,
@@ -326,9 +324,11 @@ function onDetection(
         app.ui.status('hold still for a moment');
       }
 
-      if (app.referenceDistance === null) app.referenceDistance = solved.pose.t[2];
+      // The reference is the protocol's own neutral, learned during the opening
+      // beat, not the first frame the tracker happened to land on — which is
+      // whatever pose the wearer was in while the page was still loading.
       const step = advanceProtocol(
-        app.protocol, sampleFromPose(solved.pose, app.referenceDistance),
+        app.protocol, sampleFromPose(solved.pose, app.protocol.neutral),
       );
       app.ui.guide(step);
 
@@ -482,7 +482,6 @@ function handleAction(app: App, action: string): void {
       localStorage.removeItem(STORAGE_KEY);
       app.protocol = createProtocol();
       app.collected = [];
-      app.referenceDistance = null;
       app.model = null;
       app.tracker = null;
       app.phase = 'acquire';

@@ -34,10 +34,12 @@
  * a symptom that no longer exists.
  */
 
-import type { Intrinsics } from '../core/camera.js';
+
 import {
-  type Pose, eulerYXZ, poseClone, poseIdentity, rotationAngleBetween,
+  type Pose, poseClone, poseIdentity, rotationAngleBetween,
 } from '../core/linalg.js';
+import type { Intrinsics } from '../core/camera.js';
+import { headEuler } from '../core/camera.js';
 import type { FaceModel } from '../core/facemodel.js';
 import {
   type Correspondence, type PnPResult, buildCorrespondences, refinePnP, solvePnP,
@@ -227,7 +229,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     rmsPx: result.rmsPx,
     correspondences: correspondences.length,
     inliers: result.inliers,
-    euler: eulerYXZ(smoothed.R),
+    euler: headEuler(smoothed),
     smoothingLagMm: Math.hypot(
       smoothed.t[0] - result.pose.t[0],
       smoothed.t[1] - result.pose.t[1],
@@ -260,7 +262,7 @@ function miss(state: TrackerState, dt: number, reason: string): TrackResult {
     rmsPx: NaN,
     correspondences: 0,
     inliers: 0,
-    euler: hold ? eulerYXZ(state.lastSmoothed!.R) : null,
+    euler: hold ? headEuler(state.lastSmoothed!) : null,
     smoothingLagMm: 0,
     smoothingLagDeg: 0,
     held: !!hold,

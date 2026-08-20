@@ -29,7 +29,7 @@
  */
 
 import {
-  type Mat3, type Pose, type Vec3, clamp, m3apply, v3,
+  type Mat3, type Pose, type Vec3, clamp, eulerYXZ, m3apply, v3,
 } from './linalg.js';
 
 export interface Intrinsics {
@@ -293,6 +293,52 @@ export function applyIntrinsicsDelta(
 }
 
 // ------------------------------------------------------------------ misc
+
+/**
+ * The wearer's own yaw / pitch / roll, radians — turn, nod and tilt as a person
+ * would describe them.
+ *
+ * **Not `eulerYXZ(pose.R)`.** That extracts the euler of the *model-to-camera*
+ * rotation, and face space (+Y up, +Z out of the face) differs from CV camera
+ * space (+Y down, +Z forward) by a rotation of pi about X. So a head looking
+ * straight at the camera is not the identity in that frame — it IS that pi
+ * rotation — and the numbers that come out are relative to a flipped basis:
+ *
+ *     a frontal face      reads yaw = -180, roll = -180
+ *     looking down 16 deg reads pitch = -16       (sign inverted)
+ *     turning right       reads yaw near -180 rather than near -30
+ *
+ * That is not a cosmetic difference. It shipped, and it made the guided scan
+ * impossible to complete: the protocol's `nod-down` beat asks for
+ * `|yaw| < 20 AND pitch >= 12`, the first clause is never true at yaw = -180,
+ * and the wearer was left looking down at a prompt that would never advance.
+ * Meanwhile `turn-right` (`yaw <= -30`) was satisfied instantly, without the
+ * wearer turning at all. The keyframe coverage check reported a yaw span of
+ * 360 degrees for a capture that never left frontal — a number I saw in the
+ * very first run and read as "the sweep worked" instead of "that is impossible".
+ *
+ * Undoing the flip first costs one 3x3 multiply and makes every angle mean what
+ * its name says. `FACE_TO_CAMERA_FLIP` is its own inverse, which is why the same
+ * constant appears on both sides of the conversion.
+ *
+ * Sign conventions, stated so no caller has to guess:
+ *   yaw   > 0  the wearer turned to their own LEFT
+ *   pitch > 0  the wearer looked DOWN
+ *   roll  > 0  the wearer tipped their head toward their own RIGHT shoulder
+ */
+export const FACE_TO_CAMERA_FLIP: Mat3 = Float64Array.of(1, 0, 0, 0, -1, 0, 0, 0, -1);
+
+export function headEuler(pose: Pose): { yaw: number; pitch: number; roll: number } {
+  const R = pose.R;
+  const F = FACE_TO_CAMERA_FLIP;
+  const head = new Float64Array(9);
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      head[r * 3 + c] = R[r * 3] * F[c] + R[r * 3 + 1] * F[3 + c] + R[r * 3 + 2] * F[6 + c];
+    }
+  }
+  return eulerYXZ(head);
+}
 
 /** The camera centre expressed in the model's own frame. */
 export function cameraInModel(out: Vec3, pose: Pose): Vec3 {

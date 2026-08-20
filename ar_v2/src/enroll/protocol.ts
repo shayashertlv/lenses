@@ -41,7 +41,8 @@
  *              9.2 mm without.
  */
 
-import { eulerYXZ, type Pose } from '../core/linalg.js';
+import { headEuler } from '../core/camera.js';
+import type { Pose } from '../core/linalg.js';
 
 export type BeatId = 'centre' | 'turn-right' | 'turn-left' | 'profile-right'
   | 'profile-left' | 'nod-down' | 'nod-up' | 'lean-in' | 'lean-back';
@@ -52,8 +53,13 @@ export interface BeatSpec {
   prompt: string;
   /** Where the guide dot should be, in normalised screen coordinates. */
   target: { x: number; y: number; scale: number };
-  /** The pose condition that counts as satisfying this beat. */
-  satisfied(sample: PoseSample): boolean;
+  /**
+   * Whether this sample satisfies the beat.
+   *
+   * `neutral` is null only during the opening beat, which is the one that
+   * establishes it; every other beat can rely on it.
+   */
+  satisfied(sample: PoseSample, neutral: Neutral | null): boolean;
   /** Frames at the target before the beat is complete. */
   holdFrames: number;
   /** Beats that can be skipped without invalidating the scan. */
@@ -64,16 +70,57 @@ export interface PoseSample {
   yawDeg: number;
   pitchDeg: number;
   rollDeg: number;
-  /** Distance, as a ratio of the first frame's. */
+  /** Camera-space distance to the head, mm. */
+  distanceMm: number;
+  /** Distance, as a ratio of the neutral hold's. */
   distanceRatio: number;
 }
+
+/**
+ * The wearer's own neutral, learned during the opening beat.
+ *
+ * **Every beat after the first is measured RELATIVE to this**, and that is not a
+ * refinement — it is the difference between a protocol that works and one that
+ * only works for people whose camera is at eye level.
+ *
+ * v1 shipped exactly this bug and measured its cost: a laptop lid 12 cm below
+ * the eyes at 50 cm puts a wearer who is looking straight at their screen at
+ * `atan(12/50) = 13.5` degrees of *pose pitch*, and v1's square-on test — an
+ * absolute cone about the camera axis — scored **0 of 600 admitted frames** for
+ * that entire class of hardware. Its own note is the lesson: *"a camera is not
+ * anybody's eye level."*
+ *
+ * An absolute `pitch >= 12` for "look down" repeats it. On a laptop the wearer
+ * is already there before they move; on a phone in the lap (30 degrees) they
+ * satisfy "look down" while looking straight ahead and can never satisfy "look
+ * up". Relative to their own neutral, both work and neither needs to know what
+ * kind of device this is.
+ *
+ * Yaw is also carried, for the same reason at a smaller magnitude: a camera
+ * offset to one side, or a wearer sitting at an angle to it.
+ */
+export interface Neutral {
+  yawDeg: number;
+  pitchDeg: number;
+  distanceMm: number;
+}
+
+/** Relative to neutral. Null neutral means "not established yet", which only
+ *  happens during the opening beat. */
+const dYaw = (s: PoseSample, n: Neutral | null): number => s.yawDeg - (n?.yawDeg ?? 0);
+const dPitch = (s: PoseSample, n: Neutral | null): number => s.pitchDeg - (n?.pitchDeg ?? 0);
 
 export const BEATS: BeatSpec[] = [
   {
     id: 'centre',
     prompt: 'Look straight at the camera',
     target: { x: 0.5, y: 0.5, scale: 1 },
-    satisfied: (s) => Math.abs(s.yawDeg) < 8 && Math.abs(s.pitchDeg) < 10,
+    // The only beat measured in absolute terms, because it is the one that
+    // defines the reference. The bounds are generous on pitch and tight on yaw:
+    // a camera can be far below the eyes (a phone in the lap is 30 degrees) but
+    // is rarely far to one side, and a wearer who is genuinely turned 20 degrees
+    // away is not looking at the camera.
+    satisfied: (s) => Math.abs(s.yawDeg) < 14 && Math.abs(s.pitchDeg) < 38,
     holdFrames: 8,
     optional: false,
   },
@@ -81,7 +128,7 @@ export const BEATS: BeatSpec[] = [
     id: 'turn-right',
     prompt: 'Slowly turn to your right',
     target: { x: 0.18, y: 0.5, scale: 1 },
-    satisfied: (s) => s.yawDeg <= -30,
+    satisfied: (s, n) => dYaw(s, n) <= -30,
     holdFrames: 4,
     optional: false,
   },
@@ -89,7 +136,7 @@ export const BEATS: BeatSpec[] = [
     id: 'profile-right',
     prompt: 'Keep going — show me your profile',
     target: { x: 0.06, y: 0.5, scale: 1 },
-    satisfied: (s) => s.yawDeg <= -65,
+    satisfied: (s, n) => dYaw(s, n) <= -60,
     holdFrames: 6,
     optional: true,
   },
@@ -97,7 +144,7 @@ export const BEATS: BeatSpec[] = [
     id: 'turn-left',
     prompt: 'Now slowly to your left',
     target: { x: 0.82, y: 0.5, scale: 1 },
-    satisfied: (s) => s.yawDeg >= 30,
+    satisfied: (s, n) => dYaw(s, n) >= 30,
     holdFrames: 4,
     optional: false,
   },
@@ -105,7 +152,7 @@ export const BEATS: BeatSpec[] = [
     id: 'profile-left',
     prompt: 'And your profile on this side',
     target: { x: 0.94, y: 0.5, scale: 1 },
-    satisfied: (s) => s.yawDeg >= 65,
+    satisfied: (s, n) => dYaw(s, n) >= 60,
     holdFrames: 6,
     optional: true,
   },
@@ -113,7 +160,7 @@ export const BEATS: BeatSpec[] = [
     id: 'nod-down',
     prompt: 'Back to centre, then look down a little',
     target: { x: 0.5, y: 0.78, scale: 1 },
-    satisfied: (s) => Math.abs(s.yawDeg) < 20 && s.pitchDeg >= 12,
+    satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) >= 10,
     holdFrames: 4,
     optional: false,
   },
@@ -121,7 +168,7 @@ export const BEATS: BeatSpec[] = [
     id: 'nod-up',
     prompt: 'And up a little',
     target: { x: 0.5, y: 0.22, scale: 1 },
-    satisfied: (s) => Math.abs(s.yawDeg) < 20 && s.pitchDeg <= -12,
+    satisfied: (s, n) => Math.abs(dYaw(s, n)) < 25 && dPitch(s, n) <= -10,
     holdFrames: 4,
     optional: false,
   },
@@ -129,7 +176,7 @@ export const BEATS: BeatSpec[] = [
     id: 'lean-in',
     prompt: 'Lean in toward the camera',
     target: { x: 0.5, y: 0.5, scale: 1.5 },
-    satisfied: (s) => s.distanceRatio <= 0.75,
+    satisfied: (s) => s.distanceRatio <= 0.78,
     holdFrames: 4,
     optional: true,
   },
@@ -137,7 +184,7 @@ export const BEATS: BeatSpec[] = [
     id: 'lean-back',
     prompt: 'And lean back',
     target: { x: 0.5, y: 0.5, scale: 0.65 },
-    satisfied: (s) => s.distanceRatio >= 1.3,
+    satisfied: (s) => s.distanceRatio >= 1.25,
     holdFrames: 4,
     optional: true,
   },
@@ -152,13 +199,18 @@ export interface ProtocolState {
   skipped: BeatId[];
   /** Frames spent on the current beat, for the give-up timer. */
   attempts: number;
-  referenceDistance: number | null;
+  /** The wearer's own neutral, set when the opening beat completes. */
+  neutral: Neutral | null;
+  /** Running mean of the samples seen during the opening beat, for `neutral`. */
+  neutralAccum: { yaw: number; pitch: number; distance: number; n: number };
   finished: boolean;
 }
 
 export const createProtocol = (): ProtocolState => ({
   index: 0, held: 0, done: [], skipped: [], attempts: 0,
-  referenceDistance: null, finished: false,
+  neutral: null,
+  neutralAccum: { yaw: 0, pitch: 0, distance: 0, n: 0 },
+  finished: false,
 });
 
 /**
@@ -194,11 +246,24 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   let justCompleted: BeatId | null = null;
 
   if (sample) {
-    if (state.referenceDistance === null) state.referenceDistance = 1;
     state.attempts++;
-    if (beat.satisfied(sample)) {
+    if (beat.satisfied(sample, state.neutral)) {
       state.held++;
+      // While holding the opening beat, average what we see. A single frame's
+      // pose carries a degree of noise and postural wander; the reference every
+      // later beat is measured against should not.
+      if (state.neutral === null) {
+        const a = state.neutralAccum;
+        a.yaw += sample.yawDeg; a.pitch += sample.pitchDeg;
+        a.distance += sample.distanceMm; a.n++;
+      }
       if (state.held >= beat.holdFrames) {
+        if (state.neutral === null && state.neutralAccum.n > 0) {
+          const a = state.neutralAccum;
+          state.neutral = {
+            yawDeg: a.yaw / a.n, pitchDeg: a.pitch / a.n, distanceMm: a.distance / a.n,
+          };
+        }
         state.done.push(beat.id);
         justCompleted = beat.id;
         state.index++;
@@ -209,8 +274,20 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
       // Decay rather than reset: a single bad frame in the middle of a hold is
       // usually a blink, not a wearer who moved away.
       state.held = Math.max(0, state.held - 1);
+      if (state.neutral === null) {
+        state.neutralAccum = { yaw: 0, pitch: 0, distance: 0, n: 0 };
+      }
       const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
       if (state.attempts > limit) {
+        // Giving up on the OPENING beat means there is no neutral, and every
+        // later beat would then be measured against zero — i.e. against the
+        // camera axis, which is the bug this whole mechanism exists to avoid.
+        // So a skipped opening beat adopts whatever pose was actually seen.
+        if (state.neutral === null) {
+          state.neutral = {
+            yawDeg: sample.yawDeg, pitchDeg: sample.pitchDeg, distanceMm: sample.distanceMm,
+          };
+        }
         state.skipped.push(beat.id);
         state.index++;
         state.held = 0;
@@ -232,15 +309,25 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   };
 }
 
-/** Turns a solved pose into the sample the protocol reads. */
-export function sampleFromPose(pose: Pose, referenceDistance: number | null): PoseSample {
-  const e = eulerYXZ(pose.R);
+/**
+ * Turns a solved pose into the sample the protocol reads.
+ *
+ * `headEuler`, never `eulerYXZ(pose.R)` — see the note on `headEuler`. Using the
+ * raw camera-frame euler here is what made this protocol impossible to finish:
+ * a frontal face reported yaw = -180, so every beat with a `|yaw| < k` clause
+ * was unsatisfiable and the wearer sat looking down at a prompt that would never
+ * advance.
+ */
+export function sampleFromPose(pose: Pose, neutral: Neutral | null): PoseSample {
+  const e = headEuler(pose);
   const deg = 180 / Math.PI;
+  const distanceMm = pose.t[2];
   return {
     yawDeg: e.yaw * deg,
     pitchDeg: e.pitch * deg,
     rollDeg: e.roll * deg,
-    distanceRatio: referenceDistance ? pose.t[2] / referenceDistance : 1,
+    distanceMm,
+    distanceRatio: neutral && neutral.distanceMm > 1 ? distanceMm / neutral.distanceMm : 1,
   };
 }
 

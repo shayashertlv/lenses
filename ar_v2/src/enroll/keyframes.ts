@@ -22,7 +22,8 @@
  * fill the keyframe budget with rolls.
  */
 
-import { eulerYXZ, type Pose } from '../core/linalg.js';
+import { headEuler } from '../core/camera.js';
+import type { Pose } from '../core/linalg.js';
 import type { BundleFrame } from './bundle.js';
 
 export interface KeyframeOptions {
@@ -57,7 +58,10 @@ interface Descriptor {
 }
 
 function describe(pose: Pose, frame: BundleFrame): Descriptor {
-  const e = eulerYXZ(pose.R);
+  // The wearer's own angles, not the camera frame's — see `headEuler`. With the
+  // raw euler this function reported a 360-degree yaw span for a capture that
+  // never left frontal, because the values sat near +/-180 and wrapped.
+  const e = headEuler(pose);
   let usable = 0;
   for (let i = 0; i < frame.sigmaPx.length; i++) {
     if (frame.sigmaPx[i] > 0 && frame.sigmaPx[i] < 1e6 && !Number.isNaN(frame.landmarks[i * 2])) {
@@ -199,7 +203,7 @@ export function assessCoverage(
 ): CoverageVerdict {
   const missing: string[] = [];
   let maxYaw = 0;
-  for (const f of frames) maxYaw = Math.max(maxYaw, Math.abs(eulerYXZ(f.pose.R).yaw));
+  for (const f of frames) maxYaw = Math.max(maxYaw, Math.abs(headEuler(f.pose).yaw));
   const hasProfile = maxYaw * (180 / Math.PI) >= COVERAGE_THRESHOLDS.profileYawDeg;
 
   if (selection.yawSpanDeg < COVERAGE_THRESHOLDS.yawSpanDeg) missing.push('turn');
