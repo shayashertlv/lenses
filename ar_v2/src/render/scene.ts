@@ -7,10 +7,15 @@
  *
  * The video, three lights, `headNode`, `frameNode` — and, since stages 1 and 2
  * of the occlusion plan, the parametric frame from `render/frame-geometry.ts`
- * (swapped under `frameNode` by `attachFrame`) and the scanned face as a
- * depth-only occluder (`setOccluder` + `OCCLUDER_BIAS_MM`). There is still no
- * glTF loader, and the temple arms past the face oval have nothing to hide
- * behind until stage 3's head proxy. `attachFrame` obeys the three rules that
+ * (swapped under `frameNode` by `attachFrame`), a real glTF asset when one is
+ * loaded (`render/frame-mesh.ts`), and the scanned face lofted into a whole
+ * HEAD as a depth-only occluder (`setOccluder` + `OCCLUDER_BIAS_MM`).
+ *
+ * The head matters because the face does not reach: MediaPipe's mesh stops
+ * 24.4 mm back and a temple runs to an ear rest 96 mm back, so 72 mm of the arm
+ * used to be drawn against nothing. Measured, a face-only occluder lets 8.9% of
+ * temple samples X-ray through the head at yaw 45 and 12.5% at yaw 60; the loft
+ * takes both to 0.0%. See `core/head.ts`. `attachFrame` obeys the three rules that
  * used to be listed here as debts owed by a future implementation:
  *   - **Swap, do not accumulate.** `fitFrame` runs on every frame change, so the
  *     previous child of `frameNode` is removed and disposed
@@ -66,6 +71,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Intrinsics } from '../core/camera.js';
+import { buildHeadWithEars, reloftSkull, type HeadShell } from '../core/head.js';
 import type { Pose } from '../core/linalg.js';
 import type { FrameAsset } from '../fit/frame-asset.js';
 import {
@@ -146,7 +152,10 @@ export interface SceneHandle {
    * copy). Seat and occluder being one surface is the invariant this whole
    * design rests on; the caller passing anything else here re-opens v1's bug.
    */
-  setOccluder(positions: Float64Array, indices: Uint32Array): void;
+  setOccluder(
+    positions: Float64Array, indices: Uint32Array,
+    earRests: readonly [ArrayLike<number>, ArrayLike<number>],
+  ): void;
   /**
    * Applies per-vertex face-space deltas (mm, dense 3*vertexCount) on top of
    * the occluder's base positions — the edge-snap's output. Pass the zero
@@ -226,6 +235,9 @@ export async function createScene(
   scene.add(occluderNode);
   let occluderBase: Float32Array | null = null;
   let occluderMesh: any = null;
+  /** The loft, kept so the snap can re-run it. See `nudgeOccluder`. */
+  let occluderShell: HeadShell | null = null;
+  let reloftScratch: Float64Array | null = null;
   /** Scratch, so `setHeadPose` allocates nothing on the per-frame path. */
   const headWorld = new THREE.Vector3();
 
@@ -388,7 +400,7 @@ export async function createScene(
       }
     },
 
-    setOccluder(positions, indices) {
+    setOccluder(positions, indices, earRests) {
       // Sets, because the depth occluder and the shadow catcher SHARE one
       // geometry instance on purpose (see below) and disposing per-child would
       // dispose it twice.
@@ -401,13 +413,27 @@ export async function createScene(
       }
       for (const g of geometries) g.dispose?.();
       for (const m of materials) m.dispose?.();
-      occluderBase = new Float32Array(positions);
+      // **The occluder is a HEAD, not a face**, and the difference is 72 mm of
+      // temple. MediaPipe's mesh stops at the silhouette — its rearmost vertex
+      // on this template is 24.4 mm back — while a temple runs to an ear rest
+      // 96 mm back, so most of the arm used to be drawn against nothing.
+      // `buildHeadWithEars` lofts the mesh's own 36-vertex boundary loop to an
+      // occipital pole and hangs an open dish on each side.
+      //
+      // **The seat-and-occluder invariant is intact, and this is where to check
+      // it.** The loft SHARES the face's vertices and keeps them first, at their
+      // own indices, so the face part of this surface is bit-identical to
+      // `model.positions` — the same buffer the contact solve seated against.
+      // Nothing in front of the rim has changed; the addition is all behind it.
+      const head = buildHeadWithEars(positions, indices, earRests);
+      occluderShell = head.shell;
+      occluderBase = new Float32Array(head.positions);
       const geometry = new THREE.BufferGeometry();
       // Float32 narrowing is the only copy between the seat's surface and the
       // GPU's. Face-space millimetres, unchanged — no flip; the node's matrix
       // carries it (see `SceneHandle.occluderNode`).
       geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(occluderBase), 3));
-      geometry.setIndex(new THREE.BufferAttribute(indices.slice(), 1));
+      geometry.setIndex(new THREE.BufferAttribute(head.indices.slice(), 1));
       geometry.computeVertexNormals();
       // Depth-only: the universal recipe. Colour writes off, depth writes on,
       // rendered before everything that must be hidden by skin.
@@ -450,8 +476,31 @@ export async function createScene(
       if (!occluderMesh || !occluderBase) return;
       const attr = occluderMesh.geometry.getAttribute('position');
       const a = attr.array as Float32Array;
+      // `deltaMm` is dense over the FACE's vertices; the loft's are past its
+      // end, which `Math.min` already handled and which is now load-bearing
+      // rather than incidental.
       const n = Math.min(a.length, occluderBase.length, deltaMm.length);
       for (let i = 0; i < n; i++) a[i] = occluderBase[i] + deltaMm[i];
+      // Past the snap's reach, restore the loft's own values before re-lofting,
+      // or a shrinking rim would ratchet the skull inward frame by frame.
+      for (let i = n; i < a.length; i++) a[i] = occluderBase[i];
+
+      // **Re-loft, or the seam opens.** The snap moves the 36 rim vertices the
+      // skull was lofted from, and the skull SHARES them — so leaving it where
+      // it was tears a gap behind the ear at exactly the millimetre scale the
+      // snap works at. This is the one thing v1's head.js says the loft cannot
+      // survive without.
+      if (occluderShell) {
+        // `reloftSkull` wants Float64; the buffer is Float32 for the GPU. One
+        // scratch array, reused, rather than an allocation per frame — the snap
+        // runs several times a second.
+        if (!reloftScratch || reloftScratch.length !== a.length) {
+          reloftScratch = new Float64Array(a.length);
+        }
+        reloftScratch.set(a);
+        reloftSkull(reloftScratch, occluderShell.ring, occluderShell.faceVertexCount);
+        for (let i = occluderShell.faceVertexCount * 3; i < a.length; i++) a[i] = reloftScratch[i];
+      }
       attr.needsUpdate = true;
       occluderMesh.geometry.computeBoundingSphere?.();
     },

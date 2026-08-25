@@ -350,6 +350,18 @@ export interface OcclusionArm {
   positions: Float64Array;
   /** Model -> camera. */
   pose: Pose;
+  /**
+   * Triangles, when this arm is not the plain face mesh.
+   *
+   * **This is what let the instrument see the missing head at all.** Both arms
+   * used to be rasterised with `mesh.indices` and `mesh.vertexCount`, so truth
+   * and occluder were the same 468-vertex face — and a temple running 72 mm past
+   * the last vertex that mesh owns was drawn against nothing in BOTH, so the
+   * error cancelled exactly. The temple row read 4.57% X-ray while the entire
+   * back of the head was absent from the model, because the instrument had no
+   * way to express a truth that included one.
+   */
+  indices?: Uint32Array;
 }
 
 export interface FlipCount {
@@ -429,6 +441,11 @@ export function occlusionCell(
   // Same focal length, shifted principal point: a window, not a zoom. The
   // margin keeps the silhouette off the buffer border, which extractSilhouette
   // would otherwise report as contour.
+  // Deliberately over the FACE's vertices only, even when the truth arm carries a
+  // whole head: the crop is the window the glasses band is measured in, and
+  // widening it to the occiput would shrink the frame in the raster for no gain.
+  // `buildHeadShell` keeps the face's vertices first and at their own indices,
+  // which is what makes this still work on a head.
   const uv = new Float64Array(2);
   const cam = new Float64Array(3);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -456,8 +473,13 @@ export function occlusionCell(
   const H = Math.max(8, Math.round((W * cropH) / cropW));
   const truthBuf = createDepthBuffer(W, H, kCrop);
   const occBuf = createDepthBuffer(W, H, kCrop);
-  rasterize(truthBuf, truth.positions, mesh.indices, mesh.vertexCount, truth.pose, kCrop);
-  rasterize(occBuf, occluder.positions, mesh.indices, mesh.vertexCount, occluder.pose, kCrop);
+  // Each arm carries its own triangles when it has any; the face mesh otherwise.
+  // `vertexCount` must be the arm's own, not the mesh's, or the loft's vertices
+  // are never projected and the skull rasterises as nothing at all.
+  const armIndices = (arm: OcclusionArm) => arm.indices ?? mesh.indices;
+  const armVertices = (arm: OcclusionArm) => arm.positions.length / 3;
+  rasterize(truthBuf, truth.positions, armIndices(truth), armVertices(truth), truth.pose, kCrop);
+  rasterize(occBuf, occluder.positions, armIndices(occluder), armVertices(occluder), occluder.pose, kCrop);
   const scale = truthBuf.scale; // buffer px per crop-native px
 
   // ---- the glasses band, from the projected frame samples -------------------

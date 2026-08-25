@@ -354,15 +354,58 @@ stages 6–10 unchanged.
 at 100% today; khronos is at ~48% and +2.24 mm.** One of the two gradeable
 assets clears the bar and nine of eleven cannot be graded at all.
 
-### Stage 6 — the back of the head, before the real temple
-v2 has no skull, so at yaw a temple has nothing to hide behind. Port v1's
-`head.js` (396 lines): the face mesh's own boundary is a closed 36-vertex loop
-lofted to an occipital pole, sharing the rim's vertices so there is no seam.
-Ears are an **open dish per side, never a ball** — v1 records that a solid ear
-fills the crevice the temple runs through.
-*Gate:* non-vacuity as a rule — the extended instrument must show a large
-temple-corridor error with the proxy **disabled** and a small one enabled, on
-the same face and frame.
+### Stage 6 — the back of the head — **DONE (2026-08-25)**
+
+`src/core/head.ts`, ported from v1's `head.js` with **every length x10** — v1 is
+in centimetres and this tree is in millimetres, the same trap the shadow frustum
+carries, where a copied constant is silently a tenth of its intended size and the
+symptom is a proxy that does nothing rather than an error.
+
+The face mesh's own boundary is a **closed 36-vertex loop**; lofting it back to
+an occipital pole closes the head. Measured on this template: the loft is
+**watertight — 0 boundary edges against the face mesh's 36** — it reaches z =
+-141.9 where the face stopped at -24.4, and it holds **99.2% of the ring's width
+at the ear**, against 93.1% for a circular sweep. The three constants
+(`SKULL_DEPTH_MM` 140, `SKULL_FULLNESS` 3.5, `SKULL_RINGS` 12) were re-derived on
+v2's template and reproduce v1's own readings exactly, which is the check that
+the port is on the same geometry rather than a coincidence.
+
+Ears are **open dishes, never balls**, and that is now mechanised: a ball has no
+boundary and a dish does, so `tests/head.test.ts` asserts the pinna HAS boundary
+edges. v1 records that its earlier 40 mm ear balls filled the crevice the temple
+runs through, so the arm ended up inside the head and vanished.
+
+**The instrument was blind to the whole problem, and that is the finding.**
+`occlusionCell` rasterised BOTH arms with `mesh.indices`, so truth and occluder
+were the same 468-vertex face — an arm drawn against nothing in both cancelled
+exactly. The temple row read **4.57% X-ray while the entire back of the head was
+absent from the model**, because there was no way to express a truth that
+included one. `OcclusionArm` now carries optional `indices`.
+
+The gate, non-vacuous by construction — same face, same frame, same pose, only
+the occluding surface changes:
+
+    yaw    occluder = face only    occluder = face + head
+     0            0.0%                    0.0%
+    15            0.0%                    0.0%
+    30            0.0%                    0.0%
+    45            8.9%                    0.0%
+    60           12.5%                    0.0%
+
+**Below 45 degrees the skull buys nothing**, which is worth knowing and is not a
+disappointment: at low yaw the temple is not behind the head. Four sabotages
+shown red — re-blinding the instrument, a circular sweep, capping the pinna into
+a ball, and the shell editing a face vertex.
+
+`nudgeOccluder` re-lofts after the edge snap, because the snap moves the 36 rim
+vertices the skull SHARES and leaving it put tears a seam behind the ear at
+exactly the millimetre scale the snap works at.
+
+**The seat-and-occluder invariant is intact and is now asserted**: the loft keeps
+the face's vertices first and at their own indices, bit-identical to
+`model.positions`, so everything in front of the rim is the surface the contact
+solve seated against. The addition is all behind it.
+
 
 ### Stage 7 — navigator on a real face, rendered *(the one he wants to see)*
 The renderer for a real mesh: materials, lens glass, an environment map, one

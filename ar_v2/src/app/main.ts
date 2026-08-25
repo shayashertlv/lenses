@@ -47,7 +47,7 @@ import {
   createUncertainty, estimateSigma, acquisitionSigma, UNCERTAINTY_DEFAULTS,
 } from '../detect/uncertainty.js';
 import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../detect/mediapipe.js';
-import { solveSeat, type SeatResult } from '../fit/contact.js';
+import { earRestPoints, solveSeat, type SeatResult } from '../fit/contact.js';
 import { assessFit, rankCatalogue, type FitAssessment } from '../fit/score.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
 import { CATALOGUE } from '../fit/catalogue.js';
@@ -1118,7 +1118,12 @@ function adoptModel(app: App, model: FaceModel): void {
   // The seat and the occluder are one surface: the same `model.positions` the
   // contact solve seats the frame against goes to the GPU as the depth-only
   // occluder, unchanged. Passing anything else here is v1's occlusion bug.
-  app.scene.setOccluder(model.positions, app.mesh.indices);
+  // The ear rests come from the model too, because the occluder is a HEAD now:
+  // the skull is lofted from the face mesh's own boundary and a dish is hung at
+  // each ear. Without them a temple at yaw has nothing to hide behind — measured
+  // at 8.9% of temple samples X-raying through the head at 45 degrees and 12.5%
+  // at 60.
+  app.scene.setOccluder(model.positions, app.mesh.indices, earRestPoints(model));
   // A real asset may have finished downloading while the wearer was being
   // scanned, in which case `preloadCatalogue` could not install it — there was
   // no model to seat it against. Pick it up here rather than leaving the wearer
