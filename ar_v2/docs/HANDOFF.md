@@ -277,16 +277,43 @@ separation error, to 100% and +0.42 mm.**
 Stage 2 must land before you trust any measurement taken after it. Stages 4–7
 are the agent-executable spine. **Every stage must leave a working system.**
 
-### Stage 2 — baseline the real face *(BLOCKED ON SHAY)*
-Needs one recording session. Also rewrite the telemetry recorder:
-`ar/tests/record-telemetry.js` imports ten v1 modules, eight of which get
-deleted — it is a **~150-line rewrite** against `detect/mediapipe.ts` and
-`app/sources.ts`, not a move, and it is **impossible after v1 dies**. While v1
-still lives, capture one fixture with an ID-1 card in frame and a measured PD in
-its header; that settles a 6.7 mm PD disagreement across three captures of one
-person.
-*Gate:* replay asserts within-capture PD spread ≤7% on ≥4 of 5 seeds, and a
-committed cross-capture figure pinned to ±1 mm.
+### Stage 2 — baseline the real face — **recorder DONE, capture still needs Shay**
+
+The recorder half is built and no longer blocks anything:
+`src/enroll/telemetry.ts` plus a **"Save this scan"** button. Finish a scan, press
+it, and a `capture-<date>.ndjson` lands on the wearer's own disk. Nothing
+uploads and no pixels are recorded — landmarks and sigmas only.
+
+**It is not the port the handoff budgeted, and the reason matters.** v1's
+recorder wrote `{ t, m:[16], l:[478x3 normalised] }` — MediaPipe's
+transformation matrix and normalised 3D landmarks. **v2 consumes neither.** Its
+detector returns landmarks in PIXELS, 2 per landmark, and never asks MediaPipe
+for a matrix at all (`render/scene.ts`: "v2 does not consume it"). Replaying a
+v1 fixture would mean converting a format v2 has no use for into one it does,
+through the estimator under test.
+
+So the recording is `BundleFrame`-shaped — what `enroll/bundle.ts` actually
+takes — and it comes from `app.collected`, the array the app's own guided scan
+already fills. **The recording path IS the shipping path**, so there is no
+second protocol to keep in step. Seven of v1's ten imports were for a live
+stillness meter its own header says recording does not depend on; none of that
+is here.
+
+Also gone with it: the "impossible after v1 dies" dependency. Nothing in the
+recorder touches v1, so stage 10 no longer waits on this.
+
+**What still needs Shay:** one session. Set your PD first (`Set my PD`), hold an
+ID-1 card in frame if you can and add `?card=1` to the URL, scan, then `Save
+this scan`. That fixture is the only thing that can settle the **6.7 mm PD
+disagreement across three captures of one person**, and it is the only route by
+which a real face reaches a harness that is otherwise entirely synthetic.
+
+*Gate, unchanged and not yet met:* replay asserts within-capture PD spread <= 7%
+on >= 4 of 5 seeds, and a committed cross-capture figure pinned to +-1 mm. The
+replay path itself is tested (`tests/telemetry.test.ts`): a capture round-trips
+to disk within 5e-4 px, keeps an absent landmark absent, refuses a truncated
+file, and solves through the real `enroll` to within 0.05 mm of the live scan.
+
 
 ### Stage 4 — one surface, one description — **DONE (2026-08-25), two of three**
 

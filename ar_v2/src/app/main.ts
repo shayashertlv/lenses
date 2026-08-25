@@ -48,6 +48,7 @@ import {
 } from '../detect/uncertainty.js';
 import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../detect/mediapipe.js';
 import { earRestPoints, solveSeat, type SeatResult } from '../fit/contact.js';
+import { serializeCapture, type Capture } from '../enroll/telemetry.js';
 import { assessFit, rankCatalogue, type FitAssessment } from '../fit/score.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
 import { CATALOGUE } from '../fit/catalogue.js';
@@ -195,6 +196,16 @@ interface App {
   scanGen: number;
   /** Frames collected during the scan, awaiting the bundle. */
   collected: Omit<BundleFrame, 'pose'>[];
+  /**
+   * The frames the LAST completed scan solved from, kept so they can be saved.
+   *
+   * `runEnrollment` empties `app.collected` the moment it hands the frames to
+   * the worker, so by the time a wearer could ask to keep the capture it is
+   * already gone. This is the same array, held one scan longer — and it is what
+   * makes a real capture available to `enroll/telemetry.ts` without a second
+   * recording protocol that could drift from the shipping one.
+   */
+  lastCapture: Omit<BundleFrame, 'pose'>[] | null;
   lastPose: Pose | null;
   busy: boolean;
   fps: number;
@@ -392,6 +403,7 @@ async function boot(): Promise<void> {
     protocol: createProtocol(),
     scanGen: 0,
     collected: [],
+    lastCapture: null,
     lastPose: null,
     busy: false,
     fps: 0,
@@ -1005,6 +1017,10 @@ async function runEnrollment(app: App): Promise<void> {
     // if the worker dies.
     const frames = app.collected;
     app.collected = [];
+    // Held for `save-capture`. The bundle is about to consume these and nothing
+    // else keeps them; a wearer who has just been scanned is exactly the person
+    // who can be asked whether to keep the capture.
+    app.lastCapture = frames;
     const result = await app.enroller.run({
       frames,
       imageWidth: app.source!.width,
@@ -1440,6 +1456,51 @@ function handleAction(app: App, action: string): void {
       navigator.clipboard?.writeText(report).then(
         () => app.ui.status('diagnostics copied to the clipboard'),
         () => app.ui.status('diagnostics shown below — already selected, press ctrl+C'),
+      );
+      break;
+    }
+    case 'save-capture': {
+      // **The only way a real face reaches the harness.** Everything the
+      // estimator is measured against today is synthetic, and
+      // `docs/HANDOFF.md` records a 6.7 mm PD disagreement across three
+      // captures of one person that no synthetic population can settle.
+      if (!app.lastCapture || app.lastCapture.length === 0) {
+        app.ui.status('nothing to save yet — finish a scan first');
+        break;
+      }
+      const pd = app.knownPdMm;
+      const capture: Capture = {
+        header: {
+          v: 1,
+          subject: 'wearer',
+          date: new Date().toISOString().slice(0, 10),
+          width: app.source?.width ?? 0,
+          height: app.source?.height ?? 0,
+          intrinsics: app.intrinsics,
+          intrinsicsSolved: app.model?.intrinsicsSolved ?? false,
+          knownPdMm: pd,
+          // The wearer says whether a card was in frame; nothing here can tell.
+          card: /[?&]card=1/.test(location.search),
+          note: `${app.source?.label ?? 'unknown source'}; ${summarise(app.protocol)}`,
+          frames: app.lastCapture.length,
+        },
+        frames: app.lastCapture,
+      };
+      const text = serializeCapture(capture);
+      const blob = new Blob([text], { type: 'application/x-ndjson' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `capture-${capture.header.date}.ndjson`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoked on the next turn of the loop, not immediately: revoking before
+      // the download has started cancels it in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      app.ui.status(
+        `saved ${capture.frames.length} frames`
+        + (pd === null ? ' — no PD set, so this capture cannot settle scale' : ` with PD ${pd} mm`),
       );
       break;
     }
