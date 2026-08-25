@@ -19,3 +19,19 @@ declare module 'three/addons/*' {
   const addon: any;
   export = addon;
 }
+
+/**
+ * The two addons this tree actually imports, named individually.
+ *
+ * The wildcard above uses `export =`, which cannot serve a NAMED import — and
+ * both of these are named exports. Listing them is better than loosening the
+ * wildcard: an addon that gets imported without a line here fails to compile,
+ * which is the moment to notice that `scripts/fetch-vendor.mjs` needs a new
+ * hash pinned for it.
+ */
+declare module 'three/addons/loaders/GLTFLoader.js' {
+  export const GLTFLoader: any;
+}
+declare module 'three/addons/environments/RoomEnvironment.js' {
+  export const RoomEnvironment: any;
+}

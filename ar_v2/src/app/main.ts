@@ -50,7 +50,13 @@ import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../det
 import { solveSeat, type SeatResult } from '../fit/contact.js';
 import { assessFit, rankCatalogue, type FitAssessment } from '../fit/score.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
-import { applySeat, attachFrame, createScene, type SceneHandle } from '../render/scene.js';
+import { CATALOGUE } from '../fit/catalogue.js';
+import { frameFromMesh } from '../fit/frame-from-mesh.js';
+import { readGlb } from '../fit/mesh-io.js';
+import { loadFrameMesh } from '../render/frame-mesh.js';
+import {
+  CACHED_BY_CALLER, applySeat, attachFrame, createScene, type SceneHandle,
+} from '../render/scene.js';
 import { createFrameLock, detectToSourceScale, scaleLandmarksToSource, type FrameLock } from './framelock.js';
 import { createCameraSource, createStillSource, type Source } from './sources.js';
 import { createUI, type UI } from './ui.js';
@@ -151,6 +157,25 @@ interface App {
   seat: SeatResult | null;
   assessment: FitAssessment | null;
   frame: FrameAsset;
+  /**
+   * Mesh-backed frames that have finished loading, by id.
+   *
+   * Both halves are cached together because they must never be used apart: the
+   * `asset` is what `solveSeat` fits, the `object` is what gets drawn, and the
+   * object was placed by the asset's own `source.meshToFrame`. Loading is off
+   * the boot path entirely — see `preloadCatalogue`.
+   */
+  meshFrames: Map<string, { asset: FrameAsset; object: any }>;
+  /**
+   * The frame id the wearer last asked for, or null if they have not asked.
+   *
+   * Last-click-wins. A GLB is a multi-megabyte download and `handleAction` is
+   * synchronous and re-entrant, so two quick clicks start two loads and the
+   * SLOWER one would otherwise attach last — the wearer ends up wearing the
+   * frame they clicked first. It also decides whether the background preload
+   * may install its result: if the wearer has already chosen, it may not.
+   */
+  wantedFrameId: string | null;
   protocol: ProtocolState;
   /**
    * Which scan the app is currently on. Bumped by anything that abandons the
@@ -362,6 +387,8 @@ async function boot(): Promise<void> {
     seat: null,
     assessment: null,
     frame: TEST_FRAMES[1],
+    meshFrames: new Map(),
+    wantedFrameId: null,
     protocol: createProtocol(),
     scanGen: 0,
     collected: [],
@@ -405,6 +432,14 @@ async function boot(): Promise<void> {
   if (app.model) adoptModel(app, app.model);
 
   startLoop(app);
+
+  // Real assets, after the loop is running and never before it. Deliberately
+  // not awaited: the catalogue is 62.7 MB and a boot that waited for it would
+  // show a frozen page for a minute on a slow connection, for geometry the
+  // wearer cannot see until they have been scanned anyway.
+  void preloadCatalogue(app).catch((error) => {
+    console.warn('the frame catalogue could not be loaded:', error);
+  });
 }
 
 /**
@@ -1084,12 +1119,103 @@ function adoptModel(app: App, model: FaceModel): void {
   // contact solve seats the frame against goes to the GPU as the depth-only
   // occluder, unchanged. Passing anything else here is v1's occlusion bug.
   app.scene.setOccluder(model.positions, app.mesh.indices);
-  fitFrame(app, app.frame);
+  // A real asset may have finished downloading while the wearer was being
+  // scanned, in which case `preloadCatalogue` could not install it — there was
+  // no model to seat it against. Pick it up here rather than leaving the wearer
+  // on the parametric stand-in until they click something.
+  const ready = app.wantedFrameId === null
+    ? app.meshFrames.values().next().value
+    : app.meshFrames.get(app.wantedFrameId);
+  if (ready) {
+    app.wantedFrameId ??= ready.asset.id;
+    fitFrame(app, ready.asset, ready.object);
+  } else {
+    fitFrame(app, app.frame);
+  }
   app.phase = 'wear';
 }
 
 /** Solves the seat ONCE and caches it on the scene graph. */
-function fitFrame(app: App, frame: FrameAsset): void {
+/**
+ * Loads the mesh-backed catalogue in the background, after boot.
+ *
+ * **Nothing on the boot path awaits this.** The assets total 62.7 MB and
+ * `meshy-glasses.glb` alone is 23.3 MB, so a boot that waited for them is a boot
+ * that shows nothing for a minute on a slow connection. The app comes up wearing
+ * the parametric default and real frames appear in the picker as they land.
+ *
+ * A row whose declared part lists are EMPTY is skipped without fetching
+ * anything, because `frameFromMesh` refuses it on the part names alone and the
+ * bytes would tell us nothing we do not already know. That is not a
+ * micro-optimisation: it is 47.7 of the 62.7 MB, including `meshy-glasses` at
+ * 23.3 MB on its own, downloaded to reach a refusal that is decidable from a
+ * table. What still has to be fetched is anything that names its parts —
+ * whether it derives is then a question about geometry, and geometry needs the
+ * file.
+ *
+ * Sequential rather than parallel: it is bandwidth that is scarce here, not
+ * latency, and the wearer is looking at a working page throughout.
+ */
+async function preloadCatalogue(app: App): Promise<void> {
+  for (const entry of CATALOGUE) {
+    if (entry.parts.temple.length === 0 || entry.parts.lens.length === 0) {
+      console.info(
+        `[catalogue] ${entry.id}: skipped without fetching — it names no `
+        + `${entry.parts.temple.length === 0 ? 'temple' : 'lens'} parts, so the derivation `
+        + 'refuses on the table alone.',
+      );
+      continue;
+    }
+    try {
+      const response = await fetch(asset(entry.file));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const built = frameFromMesh(readGlb(bytes), entry);
+      if (!built.ok) {
+        // Not a warning. Nine of ten refuse today and every refusal is the
+        // correct answer for an asset nothing has measured — see
+        // `fit/catalogue.ts` for the per-asset reasons.
+        console.info(`[catalogue] ${entry.id}: ${built.reason}`);
+        continue;
+      }
+      const loaded = await loadFrameMesh(built.asset, document.baseURI);
+      // The cache owns this object for the life of the page; the scene must not
+      // dispose it on the next frame swap. See `attachFrameObject`.
+      loaded.object.userData[CACHED_BY_CALLER] = true;
+      if (loaded.lensPartCount === 0) {
+        // A matcher that returns nothing looks exactly like a frame with no
+        // lenses, and v1 shipped precisely that: "a frame with modelled lenses
+        // rendered as a frame with empty rims". Say so rather than draw it.
+        console.warn(`[catalogue] ${entry.id}: no lens parts matched — rims will render empty`);
+      }
+      app.meshFrames.set(entry.id, { asset: built.asset, object: loaded.object });
+      app.ui.addFrame(entry.id, built.asset.name);
+      for (const note of built.notes) console.info(`[catalogue] ${entry.id}: ${note}`);
+
+      // The first real frame becomes the one on screen, but only if the wearer
+      // has not already chosen for themselves. Swapping a frame out from under
+      // somebody who just picked it is worse than showing them the default.
+      if (app.wantedFrameId === null && app.model) {
+        app.wantedFrameId = entry.id;
+        fitFrame(app, built.asset, loaded.object);
+        app.ui.status(`wearing ${built.asset.name}`);
+      }
+    } catch (error) {
+      console.warn(`[catalogue] ${entry.id} failed to load:`, error);
+    }
+  }
+}
+
+/**
+ * Puts a frame on the face: solve the seat, draw it, grade the fit.
+ *
+ * Stays SYNCHRONOUS, deliberately. `adoptModel` calls it and then sets
+ * `phase = 'wear'` on the very next line; an `await` between those two lets the
+ * render loop run with a model adopted, an occluder set and no frame attached.
+ * Loading is done ahead of time by `preloadCatalogue`, and `object` is that
+ * already-loaded geometry — placed by the asset's own `source.meshToFrame`.
+ */
+function fitFrame(app: App, frame: FrameAsset, object?: any): void {
   if (!app.model) return;
   app.frame = frame;
   const seat = solveSeat(app.model, app.mesh, app.regions, frame,
@@ -1099,7 +1225,7 @@ function fitFrame(app: App, frame: FrameAsset): void {
   // new, and the one call that writes the seat matrix then refreshes the world
   // matrices over the fresh child. `applySeat` itself stays "called once per
   // fit" and unchanged.
-  attachFrame(app.scene, frame);
+  attachFrame(app.scene, frame, object);
   applySeat(app.scene, seat.pose);
   frameSanityTripwire(app, frame, seat);
   app.assessment = assessFit(app.model, app.mesh, app.regions, frame, seat);
@@ -1205,7 +1331,9 @@ function handleAction(app: App, action: string): void {
     case 'hook': {
       if (!app.model) { app.ui.status('scan first — there is no seat to adjust yet'); break; }
       app.softHook = !app.softHook;
-      fitFrame(app, app.frame); // re-solves the seat and refreshes the verdicts
+      // Pass the loaded object back in: without it `attachFrame` would fall
+      // back to `createFrameObject` and quietly replace a real mesh with tubes.
+      fitFrame(app, app.frame, app.meshFrames.get(app.frame.id)?.object);
       const hookBtn = document.querySelector('[data-action="hook"]');
       if (hookBtn) hookBtn.textContent = `Hook: ${app.softHook ? 'soft' : 'wall'}`;
       const v = app.seat;
@@ -1264,7 +1392,12 @@ function handleAction(app: App, action: string): void {
     }
     case 'rank': {
       if (!app.model) return;
-      const ranked = rankCatalogue(app.model, app.mesh, app.regions, TEST_FRAMES);
+      // Everything the picker offers, not just the parametric five — a ranked
+      // row is a button, and ranking a frame the click handler cannot resolve
+      // produces a dead button.
+      const ranked = rankCatalogue(app.model, app.mesh, app.regions, [
+        ...TEST_FRAMES, ...[...app.meshFrames.values()].map((m) => m.asset),
+      ]);
       app.ui.catalogue(ranked);
       break;
     }
@@ -1315,6 +1448,11 @@ function handleAction(app: App, action: string): void {
     default:
       if (action.startsWith('frame:')) {
         const id = action.slice('frame:'.length);
+        // Last click wins, and it also stops the background preload installing
+        // its own choice over the wearer's.
+        app.wantedFrameId = id;
+        const mesh = app.meshFrames.get(id);
+        if (mesh) { fitFrame(app, mesh.asset, mesh.object); break; }
         const frame = TEST_FRAMES.find((f) => f.id === id);
         if (frame) fitFrame(app, frame);
       }

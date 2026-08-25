@@ -249,6 +249,39 @@ export function disposeFrameObject(group: any): void {
     if (Array.isArray(node.material)) for (const m of node.material) materials.add(m);
     else if (node.material) materials.add(node.material);
   });
+  const textures = new Set<any>();
+  for (const m of materials) {
+    for (const slot of TEXTURE_SLOTS) {
+      const t = m[slot];
+      // `scene.environment` is assigned to `material.envMap` by three itself and
+      // is SHARED by every material in the scene, including the next frame's.
+      // Disposing it here kills the environment for everything that follows —
+      // exactly the class of leak-fix that becomes a worse bug. It is released
+      // in `createScene`'s `dispose`, which is the only place that owns it.
+      if (t?.isTexture) textures.add(t);
+    }
+  }
   for (const g of geometries) g.dispose();
   for (const m of materials) m.dispose();
+  for (const t of textures) t.dispose();
 }
+
+/**
+ * Texture slots a loaded glTF material can hold.
+ *
+ * The parametric frame has none — it is untextured tubes — so this did nothing
+ * until real assets arrived. It matters now: the catalogue carries **36 MB of
+ * embedded texture**, and a wearer flicking through frames uploads all of it to
+ * the GPU and, without this, never gets any of it back.
+ *
+ * `envMap` is deliberately absent. See the note in `disposeFrameObject`.
+ */
+const TEXTURE_SLOTS = [
+  'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap',
+  'bumpMap', 'displacementMap', 'alphaMap', 'lightMap',
+  'specularMap', 'specularColorMap', 'specularIntensityMap',
+  'transmissionMap', 'thicknessMap',
+  'clearcoatMap', 'clearcoatRoughnessMap', 'clearcoatNormalMap',
+  'sheenColorMap', 'sheenRoughnessMap', 'iridescenceMap', 'iridescenceThicknessMap',
+  'anisotropyMap',
+] as const;

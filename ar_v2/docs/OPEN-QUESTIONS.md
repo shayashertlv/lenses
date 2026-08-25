@@ -10,6 +10,26 @@ it. Anything in this file is a number the system is currently guessing.
 
 ---
 
+## Q-new 2026-08-25 — is 0.9 mm still the right pad-curvature limit for a REAL pad?
+
+`PAD_CURVATURE_LIMIT_MM` is 0.9, and it was set against `parametricFrame`'s pad:
+a flat 12 x 8 mm rectangle sampled 18 times. `navigator.glb`'s pads are moulded
+and genuinely curved, and measured over 7 synthetic subjects it exceeds the limit
+on **2 to 3 of them at every sample count** (812, 200, 64, 32, 18), where the
+parametric standard exceeds on 1.
+
+That is not a sampling artefact — it is the same at full resolution — so it is
+one of two things and nothing here distinguishes them:
+
+ - navigator really does bed down worse than a flat pad on these noses, and the
+   verdict is right; or
+ - 0.9 mm is a bar calibrated on a shape no real pad has, and every mesh-backed
+   asset will trip it.
+
+Deciding needs a real pad on a real nose, which is the same measurement day
+stage 8 already needs. Until then the verdict fires more often on measured
+frames than on parametric ones, and a reader should know that is expected.
+
 ## Q1 — What is the detector's actual landmark noise?
 
 **Assumed:** 0.7 px at 640 px long side, on a well-lit frontal face

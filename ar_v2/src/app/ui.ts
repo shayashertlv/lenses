@@ -43,6 +43,15 @@ export interface UI {
   guide(step: ProtocolStep | null): void;
   tracked(on: boolean, reason?: string): void;
   fit(assessment: FitAssessment): void;
+  /**
+   * Adds a frame to the picker after boot.
+   *
+   * The buttons used to be built once from `TEST_FRAMES` and there was no way
+   * in afterwards — so a real asset, which arrives over the network several
+   * seconds later, had no route to the DOM at all. `id` must be the same string
+   * `handleAction` resolves, since the button carries it as `frame:<id>`.
+   */
+  addFrame(id: string, name: string): void;
   catalogue(ranked: RankedFrame[]): void;
   readouts(values: Readouts): void;
   showDiagnostics(text: string): void;
@@ -67,16 +76,19 @@ export function createUI(root: HTMLElement): UI {
   let handler: (action: string) => void = () => {};
 
   // Frame buttons, built from the catalogue rather than hand-written, so adding
-  // an asset needs no HTML change.
+  // an asset needs no HTML change. The parametric frames are available at boot;
+  // mesh assets arrive later over the network and come in through `addFrame`.
   const framesEl = el('frames');
-  if (framesEl) {
-    for (const frame of TEST_FRAMES) {
-      const button = document.createElement('button');
-      button.textContent = frame.name;
-      button.dataset.action = `frame:${frame.id}`;
-      framesEl.appendChild(button);
-    }
-  }
+  const frameButtons = new Map<string, HTMLElement>();
+  const addFrameButton = (id: string, name: string) => {
+    if (!framesEl || frameButtons.has(id)) return;
+    const button = document.createElement('button');
+    button.textContent = name;
+    button.dataset.action = `frame:${id}`;
+    framesEl.appendChild(button);
+    frameButtons.set(id, button);
+  };
+  for (const frame of TEST_FRAMES) addFrameButton(frame.id, frame.name);
 
   root.addEventListener('click', (event) => {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
@@ -165,6 +177,8 @@ export function createUI(root: HTMLElement): UI {
         verdictEl.appendChild(row);
       }
     },
+
+    addFrame(id, name) { addFrameButton(id, name); },
 
     catalogue(ranked) {
       if (!catalogueEl) return;

@@ -48,13 +48,18 @@ const EXEMPT = new Set([
   'MESH_VERTEX_COUNT', 'MESH_LANDMARK_COUNT', 'FIRST_IRIS_INDEX',
   'DETECTOR_LANDMARK_COUNT', 'INTRINSICS_FREE_F', 'INTRINSICS_FIXED',
   'TRIVIAL', 'LM_DEFAULTS', 'POPULATION_DEFAULTS', 'CAPTURE_DEFAULTS',
-  'BEATS', 'TEST_FRAMES', 'VARIANTS', 'ROLL_PREROTATION',
+  // `CATALOGUE` is a data table, not a tuning constant — the same case as
+  // `TEST_FRAMES`. Every number IN it that could be otherwise carries its own
+  // ledger row (`ASSUMED_WIDTH_MM`) or its own docstring on the entry.
+  'BEATS', 'TEST_FRAMES', 'CATALOGUE', 'VARIANTS', 'ROLL_PREROTATION',
   'UNCERTAINTY_DEFAULTS', 'SEAT_DEFAULTS', 'BUNDLE_DEFAULTS',
   'KEYFRAME_DEFAULTS', 'TRACKER_DEFAULTS', 'PNP_DEFAULTS', 'SNAP_DEFAULTS',
   'CALIBRATION_DEFAULTS',
   'DISPLACEMENT_PRIORS', 'SKIN', 'IRIS', 'POPULATION_HVID', 'ID1_CARD',
   'PLAUSIBLE', 'CAMERA_LADDER', 'COVERAGE_THRESHOLDS', 'PD_PLAUSIBLE_MM',
   'TRANSLATION_SMOOTHING', 'ROTATION_SMOOTHING', 'LM', 'EPS',
+  // A userData KEY, not a number — it names an ownership flag on a scene node.
+  'CACHED_BY_CALLER',
 ]);
 
 // ------------------------------------------------------------------ the ledger

@@ -113,6 +113,98 @@ is shared.
 
 ## 5. What is already done
 
+### Stage 5 + stage 7 — a real pair of glasses, on a face *(2026-08-25)*
+
+**navigator.glb is the engine's frame now.** It loads through `fit/mesh-io.ts`,
+derives a complete measured layout, seats by contact physics, and renders as
+68,638 real triangles with materials, an environment map and a contact shadow.
+242 tests green, three gates green.
+
+New: `src/fit/catalogue.ts`, `src/fit/frame-from-mesh.ts`,
+`src/render/frame-mesh.ts`, `tests/asset.test.ts`, `tests/scene.test.ts`.
+
+**The one number that decided it was not the pads.** The first end-to-end run put
+the ear rest at the temple's REARMOST vertex, which is the obvious reading of
+"where the arm comes to rest" and is wrong: a real temple runs level to the bend
+and then curls DOWN behind the ear, so its rearmost vertex is the tip — on
+navigator 30 mm too far back and 21 mm too low. The ear term in `contact.ts` is
+ONE-SIDED, so a rest below the ear never engages. Measured, tip against bend,
+everything else identical, over 17 synthetic subjects:
+
+    ear rest at      descent mm            pantoscopic deg   pad load       converged
+    the TIP          8.57 [-1.2, 42.4]     21.5 [10, 53]     99% [0, 100]   13/17
+    the BEND         4.07 [ 0.6, 12.1]      0.3 [-2, 11]     90% [69, 100]  17/17
+    parametric ref   4.09 [ 0.4, 10.7]      3.9 [ 1, 15]     93% [56, 100]  17/17
+
+The tip's pad load reads 99% MEDIAN with a 0% worst case — the frame either hangs
+on the nose alone or slides off, and the median hides it.
+
+**The bend also checks the tree's highest-leverage constant for the first time.**
+`templeReachMm` defaults to 95 mm, swept against synthetics, never measured on a
+real frame. navigator's bend reads **96.2 mm** of reach — 1.2 mm from the swept
+default. One asset, not a population; recorded as corroboration, not as a new value.
+
+**Results that went against the plan, in the headline:**
+
+- **Stage 5's own gate cannot be met and the pre-agreed fallback is taken.**
+  ">=90% of samples on author-named pads" holds on navigator (100%) and is
+  unreachable on khronos — an exhaustive 212,400-configuration search tops out at
+  89.89%. khronos is now a recorded ceiling (>=45% ratchet), not a bar.
+- **Only 1 of 10 assets derives.** Nine refuse, each at a named step. That is the
+  honest state, and `tests/asset.test.ts` asserts the list EXACTLY so that making
+  the derivation credulous turns it red.
+- **`derivePads`' padAngleRad is systematically biased** by +8.7 deg (navigator)
+  and +6.1 deg (khronos): the rearward gate discards the forward-leaning 41.8% of
+  the pad by face count. Nothing in `src/` consumes the field — `contact.ts`
+  deliberately uses the mean pad NORMAL instead — so this is a reporting defect,
+  not a physics one. Not fixed.
+- **`serve.py` was broken by stage 1, four commits ago.** `faece72` (08-20)
+  constructed the server correctly; `ec9c315` (08-25, "v2 owns the assets and the
+  runtime") rewrote `main()` to delete the `SHARED_ROOTS` mapping and took the
+  `ThreadingHTTPServer(...)` line with it, so every start raised `NameError:
+  name 'server' is not defined`. **The commit whose whole purpose was making the
+  tree servable on its own was the commit that stopped it serving**, and
+  `check-selfcontained.mjs` was green throughout — it reads the source for the
+  paths serve.py would map and never starts it. A path check is not a smoke test.
+  (An earlier draft of this section said serve.py "had never worked". Wrong: it
+  worked for five days. A server started 08-23 was still up and serving this tree
+  while the file in the working copy could not start.)
+- **The WebGPU branch in `scene.ts` is unreachable.** The vendored
+  `three.module.js` does not export `WebGPURenderer` (verified by importing it in
+  Node), so `backendName` has always been `'webgl2'` — and it goes into the
+  diagnostics a wearer pastes, so every reader concluded a fallback had fired.
+  Header corrected; branch kept.
+
+**Two guards were knife edges and are now measured:**
+
+- `PAD_UP_REFERENCE_FRACTION` (new): the up-check compared against
+  `(minY+maxY)/2` of the whole mesh, which temple droop drags down.
+  **aviator-amber was refusing by 0.0026 mm.** The front-slab reference gives
+  every asset >=0.8 mm of margin. Swept 0.05-0.50 and **it is not monotone** —
+  0.25 fails on two assets while 0.33 and 0.50 pass, so the safe band is the one
+  contiguous with the failure boundary, 0.08-0.15.
+- `PAD_SIDE_IMBALANCE_MAX` (new): the two authored-pad assets score EXACTLY 0.0
+  face-count imbalance; `glasses01-with-lenses` scores 0.415.
+
+**A bug the new tests caught while being written**: `findBend` measured its level
+run from `topBin` backwards only. On a temple whose level section is exactly flat
+every bin ties, `topBin` lands at the REAR of the tie, and a synthetic temple 70%
+dead level measured 12.4 mm of level run out of 99 and was refused as an earhook.
+navigator hid it because a real temple rises gently toward its hinge.
+
+Also fixed: `check-isolation.mjs` reported `assets/glasses/navigator.glb` as
+"touches navigator" — a filename read as a browser global. Dotted-global patterns
+now scan with string literals blanked; bare identifiers still scan raw, because
+`globalThis['localStorage']` is a real bypass. Demonstrated red on a genuine
+`navigator.gpu` access.
+
+**Still open from these two stages:** stage 4 (the frame layout is described
+THREE times, not two — `contact.ts:947`'s `clearanceSamples` uses a third lens-size
+convention, `frontWidthMm * 0.11`, that `rimHalfAxes` explicitly calls wrong).
+Stage 6 (no head proxy, so a temple at yaw has nothing to hide behind). And the
+wearer's verdict on a real face, which no synthetic can supply.
+
+
 ### Stage 1 — custody (`da2938e`, `ec9c315`)
 
 `assets/` (77 MB, 15 tracked files), `scripts/fetch-vendor.mjs` and
@@ -270,10 +362,14 @@ v1's *tracking* pipeline, **not** an asset loader; the loader is `models.js`
 
 ## 8. Open questions I could not settle
 
-- **`aviator-amber` refuses while `aviator-tortoiseshell` derives**, and those
-  two assets differ essentially only in texture. The upside-down guard is
-  fragile on photogrammetry scans and I do not know why. Diagnose this before
-  trusting any refusal on a scanned asset.
+- ~~**`aviator-amber` refuses while `aviator-tortoiseshell` derives**~~ —
+  **CLOSED 2026-08-25.** It was never a property of the asset. The up-check
+  compared the pad centroid against `(minY+maxY)/2` of the whole mesh, which
+  temple droop drags downward, and amber's sign change landed **0.0026 mm** from
+  the 140 mm placeholder width somebody happened to declare — at 139.899 mm it
+  passed. It also flipped on `columnHalfWidthMm`: both aviators derive at >=20 mm
+  and the default 18 sat exactly on amber's zero crossing. The guard was reporting
+  the catalogue's placeholder, not the geometry. See `PAD_UP_REFERENCE_FRACTION`.
 - **khronos sits at ~48% precision.** Its frame front is sculpted rather than
   flat and carries genuinely rearward-leaning faces of its own.
 - `meshy-glasses.glb` is **one fused mesh, 106k triangles, no part names, no

@@ -62,8 +62,18 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    # `PORT` before the 8020 default, so a harness that assigns a port can hand
+    # one over without the command line changing. An explicit `--port` still
+    # wins over both.
+    #
+    # Nothing here needs a FIXED port — this is a static page with no OAuth
+    # callback, no webhook and no cross-origin allow-list keyed to an origin. So
+    # when 8020 is taken the honest response is to take another one, not to
+    # evict whatever is already there. On this machine that is routinely a
+    # previous session's own server: one had been serving this tree since
+    # 2026-08-23.
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8020)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT") or 8020))
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
@@ -81,11 +91,32 @@ def main() -> None:
             f"warning: {', '.join(missing)}/ not found under {HERE}.\n"
             "         run: node scripts/fetch-vendor.mjs\n"
         )
+    # The server itself, and it went missing for four commits.
+    #
+    # `faece72` (2026-08-20) constructed it correctly. `ec9c315` (2026-08-25) —
+    # "v2 owns the assets and the runtime" — rewrote this function to delete the
+    # `SHARED_ROOTS` mapping into the sibling checkout, and took the
+    # `ThreadingHTTPServer(...)` line with it. `main` then went straight from the
+    # warnings to `server.serve_forever()` on a name that no longer existed, so
+    # every attempt to start the tree raised `NameError: name 'server' is not
+    # defined`.
+    #
+    # **Nothing in the harness starts this server, which is why nothing caught
+    # it.** `check-selfcontained.mjs` reasons about the PATHS this file would
+    # map — it reads the source and checks that each one resolves under this
+    # directory — and never runs it. So the commit whose entire purpose was
+    # making the tree servable on its own was also the commit that stopped it
+    # serving, and the gate written to protect that property was satisfied
+    # throughout. A path check is not a smoke test.
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"  serving {HERE} at http://{args.host}:{args.port}/")
     print("  ctrl-c to stop")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

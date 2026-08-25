@@ -40,7 +40,18 @@ const FORBIDDEN = [
   // The identifier in use, not the English word: "A SIBLING of `headNode`, not
   // a child" is scene-graph prose, not a path into another checkout.
   { pattern: /\bSIBLING\s*[=/]/, why: 'resolves a path into a sibling checkout' },
-  { pattern: /SHARED_ROOTS/, why: 'serves paths from outside this tree' },
+  // The identifier IN USE, not a mention of it — the same narrowing the
+  // `SIBLING` pattern above already got, and for a sharper reason.
+  //
+  // `serve.py` records in a comment that `ec9c315` deleted this mapping and took
+  // the server construction with it, which is the only place that regression is
+  // written down. The bare-name pattern fired on that sentence and failed the
+  // build. A gate that forbids writing the HISTORY of the thing it removed makes
+  // the removal unexplainable, and the next person to touch `main()` is then
+  // reading a file that cannot tell them why it looks the way it does.
+  //
+  // An assignment, a subscript or a member access is use. A word in prose is not.
+  { pattern: /\bSHARED_ROOTS\s*[=[.]/, why: 'serves paths from outside this tree' },
 ];
 
 /**

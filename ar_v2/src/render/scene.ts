@@ -38,15 +38,33 @@
  * bundle (`FaceModel.intrinsics`) and `intrinsicsSolved` says whether it was
  * really solved or merely assumed.
  *
- * ## Renderer choice
+ * ## Renderer choice — and this section was false
  *
- * WebGPU where available, WebGL2 otherwise. As of 2026 WebGPU ships by default
- * in Chrome, Edge, Firefox and Safari 26 (including iOS), so the fallback is a
- * courtesy rather than the main path — but it is a real one, and the fallback
- * decision is logged rather than silent.
+ * It used to say: "WebGPU where available, WebGL2 otherwise. As of 2026 WebGPU
+ * ships by default in Chrome, Edge, Firefox and Safari 26, so the fallback is a
+ * courtesy rather than the main path."
+ *
+ * **Every machine takes the fallback, and always has.** three.js ships
+ * `WebGPURenderer` in a separate build (`three.webgpu.js`) which this tree does
+ * not vendor: `scripts/fetch-vendor.mjs` pins `three.module.js`, and the only
+ * occurrence of the string `WebGPURenderer` in that 1.2 MB bundle is inside a
+ * doc comment. Verified by importing it in Node — `typeof THREE.WebGPURenderer`
+ * is `undefined`. So `wantGPU` below is a constant false, the branch it guards
+ * is unreachable, and `backendName` is `'webgl2'` unconditionally.
+ *
+ * That mattered beyond tidiness: `backendName` goes into the diagnostics a
+ * wearer pastes, so anyone reading one concluded the fallback had fired on that
+ * particular machine. It fires on all of them.
+ *
+ * The branch is kept rather than deleted because vendoring the WebGPU build is a
+ * one-line change to `fetch-vendor.mjs` the day it is wanted — and because WebGL2
+ * is where this tree needs to be anyway: three's transmission pass, `PMREMGenerator`
+ * and the transmission render target are all WebGL-path features, and transmission
+ * is what makes a lens look like glass.
  */
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Intrinsics } from '../core/camera.js';
 import type { Pose } from '../core/linalg.js';
 import type { FrameAsset } from '../fit/frame-asset.js';
@@ -169,6 +187,22 @@ export async function createScene(
   }
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
 
+  // The four settings without which a PBR asset renders as a flat silhouette.
+  // None of them was here while the only thing drawn was a parametric tube.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // ACES rather than linear: the frame is composited over a camera frame that
+  // has already been through its own tone curve, so a linear frame reads as a
+  // sticker with blown highlights on the metal.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  // Shadows are what ground the frame on the face — v1's finding, and its own
+  // note is the argument: without one the glasses read as floating in front of
+  // the wearer rather than resting on them.
+  renderer.shadowMap.enabled = true;
+  // PCF rather than PCFSoft: the softness comes from `shadow.radius` below, and
+  // r185 deprecated the soft variant.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+
   // The head node carries the solved pose; everything about the wearer hangs off
   // it. `matrixAutoUpdate` off because the matrix is written directly from a
   // solved pose and letting three.js recompose it from position/quaternion/scale
@@ -192,19 +226,89 @@ export async function createScene(
   scene.add(occluderNode);
   let occluderBase: Float32Array | null = null;
   let occluderMesh: any = null;
+  /** Scratch, so `setHeadPose` allocates nothing on the per-frame path. */
+  const headWorld = new THREE.Vector3();
 
-  // Lighting: a fixed neutral environment. Estimating a real one from the video
-  // frame is the intended upgrade and nothing implements it — there is no
-  // lighting module in this tree, and this comment used to name one
-  // (`lighting.ts`) that has never existed. Two lights rather than one, because
-  // a single key on a specular frame reads as a sticker.
-  const key = new THREE.DirectionalLight(0xffffff, 2.0);
-  key.position.set(-0.4, 0.6, 1);
+  // ---------------------------------------------------------------- lighting
+  //
+  // Estimating the room's real light from the video is still the intended
+  // upgrade and still unimplemented. What is here now is v1's rig, ported with
+  // its reasoning and with **every length converted from centimetres to
+  // millimetres** — v1's scene is in cm and this one is in mm (`MM_TO_SCENE`
+  // is 1), so a copied shadow frustum would be ten times too small and the
+  // shadow would vanish off the side of its own map.
+  //
+  // A small room bounced into an environment map. Procedural, so there is
+  // nothing to fetch and the app stays offline. Without it a metal ferrule and
+  // a black acetate temple render as the same flat grey, because a PBR material
+  // with no environment has nothing to reflect.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = environmentTexture;
+  pmrem.dispose();
+
+  /**
+   * The key, which also casts the contact shadow.
+   *
+   * Upper-front-right of the head, the classic portrait key. It TRACKS the head
+   * (see `setHeadPose`) rather than sitting still, and v1's reason is the one
+   * that matters: a fixed light would need a shadow frustum covering everywhere
+   * the head might go, and the shadow would pop in and out of resolution as the
+   * wearer leaned.
+   */
+  const key = new THREE.DirectionalLight(0xffffff, 1.2);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  // Softness is what makes a contact shadow read as a shadow rather than as a
+  // second, darker pair of glasses drawn on the face. A frame sits about 10 mm
+  // off the skin, and at that distance a real shadow's edge is already diffuse;
+  // a pin-sharp one looks painted on. The larger map pays for the blur.
+  key.shadow.radius = 5;
+  // MILLIMETRES. A head is ~250 mm, so a +-250 mm box catches frame and face.
+  key.shadow.camera.left = -250;
+  key.shadow.camera.right = 250;
+  key.shadow.camera.top = 250;
+  key.shadow.camera.bottom = -250;
+  key.shadow.camera.near = 50;
+  key.shadow.camera.far = 3000;
+  key.shadow.bias = -0.0002;   // unitless, in depth-buffer terms
+  key.shadow.normalBias = 6;   // mm — v1's 0.6 cm
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-  fill.position.set(0.6, -0.2, 0.8);
-  scene.add(fill);
+  scene.add(key.target);
+
+  /**
+   * The screen the wearer is looking at, and it is what puts glass in the frames.
+   *
+   * v1's finding, and it is worth carrying whole because it is not obvious. A
+   * lens facing the camera reflects whatever is BEHIND the camera. The
+   * procedural room has no bright feature back there and the key sits ~30
+   * degrees off the view axis, which is thirty times the width of a polished
+   * lens's specular lobe. Measured on a real capture, scaling the lens's
+   * environment reflection **twenty-fold moved a single pixel** — so a frame
+   * with modelled lenses rendered as a frame with empty rims, which is exactly
+   * how it was reported. (v1's `GLASS_ENVIRONMENT_BOOST` ended at 1.0 for the
+   * same reason: the boost was never the answer, this light was.)
+   *
+   * Putting a light at the camera is not a cheat. It is the one light in the
+   * room whose position this app actually knows: somebody at a webcam is lit by,
+   * and looking at, a screen roughly where the lens is, and a screen reflection
+   * is the single most characteristic thing on a pair of glasses in a webcam
+   * photograph.
+   *
+   * Weak on purpose, and that is what makes it usable. With light and view
+   * coincident the half-vector IS the surface normal, so a polished surface
+   * concentrates the whole lobe into a highlight while a matte one barely
+   * registers it. A light strong enough to read as FILL would be four times this
+   * and would flatten the face with it.
+   */
+  const screen = new THREE.DirectionalLight(0xffffff, 0.35);
+  scene.add(screen);
+  scene.add(screen.target);
+
   scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+  /** Where the key sits relative to the head, millimetres. v1's cm x10. */
+  const KEY_OFFSET_MM = new THREE.Vector3(300, 600, 1000);
 
   let background: any = null;
 
@@ -261,6 +365,17 @@ export async function createScene(
       poseToGLMatrix(m, pose);
       headNode.matrix.fromArray(m);
       headNode.updateMatrixWorld(true);
+      // The key rides the head so its shadow frustum only ever has to cover one
+      // head-sized box; the screen light aims at the head from the camera, which
+      // sits at the origin looking down -Z and never moves. Both targets are
+      // scene children, so their world matrices need the refresh.
+      headNode.getWorldPosition(headWorld);
+      key.target.position.copy(headWorld);
+      key.position.copy(headWorld).add(KEY_OFFSET_MM);
+      key.target.updateMatrixWorld(true);
+      screen.target.position.copy(headWorld);
+      screen.position.set(0, 0, 0);
+      screen.target.updateMatrixWorld(true);
       // The occluder rides the same pose, pushed OCCLUDER_BIAS_MM along the
       // camera axis. Visible only once it has geometry — an empty Object3D is
       // harmless either way, but the flag keeps the scene graph honest.
@@ -274,11 +389,18 @@ export async function createScene(
     },
 
     setOccluder(positions, indices) {
+      // Sets, because the depth occluder and the shadow catcher SHARE one
+      // geometry instance on purpose (see below) and disposing per-child would
+      // dispose it twice.
+      const geometries = new Set<any>();
+      const materials = new Set<any>();
       for (const child of [...occluderNode.children]) {
         occluderNode.remove(child);
-        child.geometry?.dispose?.();
-        child.material?.dispose?.();
+        if (child.geometry) geometries.add(child.geometry);
+        if (child.material) materials.add(child.material);
       }
+      for (const g of geometries) g.dispose?.();
+      for (const m of materials) m.dispose?.();
       occluderBase = new Float32Array(positions);
       const geometry = new THREE.BufferGeometry();
       // Float32 narrowing is the only copy between the seat's surface and the
@@ -293,6 +415,33 @@ export async function createScene(
       const mesh = new THREE.Mesh(geometry, material);
       mesh.renderOrder = -1;
       occluderNode.add(mesh);
+
+      /**
+       * A head-shaped shadow receiver, and the reason a shadow is visible at all.
+       *
+       * The face on screen is VIDEO, not geometry — the only thing rendered
+       * there is the depth-only occluder above, which writes no colour. So a
+       * shadow cast onto the face would land on nothing and the whole shadow
+       * map would be invisible. `ShadowMaterial` is the answer: transparent
+       * everywhere the shadow is not, so the camera feed shows through
+       * untouched, and darkening only where the frame blocks the key.
+       *
+       * It shares the occluder's geometry INSTANCE rather than a copy, and v1
+       * records why that is load-bearing: the catcher is depth-tested against
+       * the occluder, so an occluder even a tenth of a millimetre in front of it
+       * culls the shadow entirely. A copy stays identical until the first time
+       * the head takes a measured shape — which is how v1's shadow disappeared
+       * the first time it was tried.
+       *
+       * `depthWrite` off so it cannot occlude anything itself, and it is a
+       * child of the same node so the camera-axis bias moves both together.
+       */
+      const catcherMaterial = new THREE.ShadowMaterial({ opacity: 0.18 });
+      catcherMaterial.depthWrite = false;
+      const catcher = new THREE.Mesh(geometry, catcherMaterial);
+      catcher.receiveShadow = true;
+      occluderNode.add(catcher);
+
       occluderNode.updateMatrixWorld(true);
       occluderMesh = mesh;
     },
@@ -314,6 +463,12 @@ export async function createScene(
     dispose() {
       renderer.dispose?.();
       background?.dispose?.();
+      // The environment map is a render target's texture and nothing else owns
+      // it. It is the one thing here that survives a frame swap by design — see
+      // `disposeFrameObject`, which must NOT touch it — so this is the only
+      // place it can be released.
+      environmentTexture?.dispose?.();
+      scene.environment = null;
     },
   };
 
@@ -345,12 +500,38 @@ export function applySeat(handle: SceneHandle, seat: Pose): void {
  * The geometry is frame-local millimetres and goes in UNCHANGED — no flip; see
  * the convention rule on `SceneHandle.frameNode`.
  */
-export function attachFrame(handle: SceneHandle, asset: FrameAsset): void {
+export function attachFrame(handle: SceneHandle, asset: FrameAsset, object?: any): void {
+  attachFrameObject(handle, object ?? createFrameObject(asset));
+}
+
+/**
+ * The swap-and-dispose half, for geometry that was loaded rather than built.
+ *
+ * `loadFrameMesh` returns a group already placed by the asset's own
+ * `meshToFrame`; this puts it under `frameNode` with the same discipline
+ * `attachFrame` has always had. Split out so the dispose rule lives in exactly
+ * one place — v1 leaked materials on frame swap and the review remembers it.
+ */
+export function attachFrameObject(handle: SceneHandle, object: any): void {
   const node = handle.frameNode;
   for (const child of [...node.children]) {
     node.remove(child);
-    disposeFrameObject(child);
+    // **Not everything under this node is ours to destroy.** A parametric frame
+    // is built fresh on every fit and must be disposed or it leaks — that is
+    // v1's bug. A loaded mesh is CACHED by the app so a wearer flicking between
+    // frames does not re-download 4 MB per click, and disposing it would leave
+    // the cache holding a group whose geometry and textures are gone: the next
+    // attach draws nothing, silently, and only for the frames already visited.
+    if (!child.userData?.[CACHED_BY_CALLER]) disposeFrameObject(child);
   }
-  node.add(createFrameObject(asset));
+  node.add(object);
   node.updateMatrixWorld(true);
 }
+
+/**
+ * Marks a frame object as owned by its loader rather than by the scene.
+ *
+ * Set it on anything handed to `attachFrameObject` that will be attached again
+ * later. See the disposal rule above for what forgetting it costs.
+ */
+export const CACHED_BY_CALLER = 'arCachedByCaller';

@@ -268,16 +268,46 @@ and `enroll/bundle.ts` each multiply lambda by a constant on accept and reject.
 8. **One Euro's four hard-won lessons**, even though the filter itself is now off
    by default — because a cleaner estimator made it stop earning its place.
 
-## What is not built
+## What is built, and what is not
 
-The fit pipeline is complete and reported numerically. **The frame is not drawn.**
-There is no glTF loader in this tree, `frameNode` is childless, and the seat is
-solved and applied to an empty node. `render/` exists, the camera is solved, the
-pose is composited — and nothing eyewear-shaped is ever added to the scene.
+**This section asserted the opposite of the code for two rounds of work and has
+now been rewritten twice.** It first said "the frame is not drawn" after
+`render/frame-geometry.ts` had started drawing a parametric one, and it said
+"there is no glTF loader in this tree" until 2026-08-25, when there is.
 
-This is worth stating in the architecture document and not only in the README,
-because the four-program diagram above reads as a finished pipeline and, as a
-*measurement* instrument, it is one. As a try-on, the last stage is missing.
+As of 2026-08-25 the try-on draws a **real, measured pair of glasses**:
+`assets/glasses/navigator.glb`, 68,638 triangles, read headlessly by
+`fit/mesh-io.ts` for its geometry and again by `render/frame-mesh.ts` through
+three.js for its materials, placed by the contact solve and rendered with an
+environment map, tone mapping and a contact shadow.
+
+The two readers agree because **neither of them decides where the frame goes
+twice**. `fit/frame-from-mesh.ts` rotates the asset into frame space, scales it
+to its declared width and re-centres it on the pad-contact origin, then hands the
+resulting 4×4 to the renderer as `FrameAsset.source.meshToFrame`. The renderer
+applies that matrix and computes nothing. A renderer that derived its own
+placement would agree until the day it did not, and the symptom would be a frame
+drawn a few millimetres from where it was fitted — which looks exactly like a
+tracking bug and is not one.
+
+**What is NOT built is nine of the ten catalogue assets**, and the reasons are
+the honest state rather than a to-do list:
+
+| asset | why it refuses |
+| --- | --- |
+| `navigator` | — it derives |
+| `sunglasses-khronos` | its arm is an **earhook**: the centreline descends from the hinge and never runs level, so there is no bend to rest on |
+| `shield-golden` | the same shape, and it is a wrap with no distinct pads at all |
+| `aviator-amber`, `aviator-tortoiseshell`, `horizon-amber`, `horizon-sage` | two parts each — `Frame` and `Lenses`. The temples are welded into the frame shell, so there is nothing to find a bend on |
+| `crystal-parts`, `crystal-lenses` | eight `tripo_part_N` nodes; nothing names a temple |
+| `meshy` | one fused mesh, 106k triangles, no node name and no material name |
+
+Eight of the ten also carry `ASSUMED_WIDTH_MM` — a 140 mm placeholder — so even
+their pad separations are a restatement of that guess. Nine of these ten need
+either a person with calipers or ten minutes in Blender naming parts. Neither is
+a geometry problem, which is why the derivation refuses rather than inferring.
+
+One more thing built but deliberately not wired: the **card ruler**.
 
 One more thing built but deliberately not wired: the **card ruler**.
 `enroll/card.ts` holds a detector (gradient edges, quad fit, sub-pixel line

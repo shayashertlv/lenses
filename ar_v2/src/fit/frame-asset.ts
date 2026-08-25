@@ -87,6 +87,41 @@ export interface FrameAsset {
   readonly dimensionSource: DimensionSource;
   /** Free text: "Zeiss caliper, 2026-08-20" or "normalised to 140 mm placeholder". */
   readonly provenance: string;
+  /**
+   * Where the drawable geometry lives, when this asset came from a mesh.
+   *
+   * Null for a parametric frame, which the renderer builds out of the fields
+   * above and nothing else.
+   */
+  readonly source: FrameSource | null;
+}
+
+/**
+ * The file a mesh-backed frame was read from, and the one transform that puts
+ * it where the seat solve thinks it is.
+ *
+ * **This exists so there is exactly one such transform.** `fit/frame-from-mesh.ts`
+ * rotates the asset into frame space, scales it to its declared width and
+ * re-centres it on the pad-contact origin, and every number it then measures —
+ * pads, lens centres, hinges, ear rests — is expressed in that frame. The
+ * renderer loads the same file again through three.js, for materials and
+ * textures this tree's headless reader deliberately does not decode. If it
+ * derived its own placement the two would agree until the day they did not,
+ * and the failure would be a frame drawn a few millimetres from where it was
+ * fitted — which looks like a tracking bug and is not one.
+ *
+ * So the renderer applies THIS matrix and computes nothing.
+ */
+export interface FrameSource {
+  /** Path under the served root, as the app fetches it. */
+  readonly url: string;
+  /**
+   * Row-major 4x4 taking the file's own coordinates into frame space.
+   *
+   * Row-major because that is what the rest of this tree writes; three.js wants
+   * column-major, and `render/` is where that transpose belongs.
+   */
+  readonly meshToFrame: Float64Array;
 }
 
 export const GRAVITY_N_PER_G = 9.80665e-3; // newtons per gram
@@ -330,6 +365,8 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     bridgeType: spec.bridgeType ?? 'pads',
     dimensionSource: 'assumed',
     provenance: 'parametric — generated from a FrameSpec, not measured',
+    // No file behind it: the renderer builds this one from the fields above.
+    source: null,
   };
 }
 
@@ -454,6 +491,90 @@ export const PAD_FRONT_FRACTION = 1 / 3;
 export const PAD_REAR_COS = 0.04;
 
 /**
+ * How much of an asset's depth the "is it upside down?" guard measures against.
+ *
+ * `measured`, and it replaces a reference that was a knife edge.
+ *
+ * The guard asks whether the inward-facing surfaces sit below the frame. What
+ * it used to compare them against was `(minY + maxY) / 2` of the WHOLE mesh —
+ * and a temple that droops toward its tip drags `minY` down, so the reference
+ * moves with a part of the asset that has nothing to do with which way up it
+ * is. Scans droop further than authored frames, so the reference is worst
+ * exactly where it is needed most.
+ *
+ * The margins it produced, at each asset's declared width (negative = passes,
+ * and a correct guard is negative on every one of the ten):
+ *
+ *     asset                  whole-mesh midY   front slab 0.12
+ *     aviator-amber                   +0.003            -2.101
+ *     horizon-sage                    +2.011            -0.806
+ *     meshy-glasses                   +1.397            -2.365
+ *     sunglasses-khronos              -0.164            -4.250
+ *     navigator                       -5.546            -7.011
+ *     shield-golden                   -9.257           -12.782
+ *
+ * **`aviator-amber` refused by three microns.** `docs/HANDOFF.md` carried it as
+ * an open question — "aviator-amber refuses while aviator-tortoiseshell derives,
+ * and those two assets differ essentially only in texture" — and the answer is
+ * that it was never a property of the asset. Amber's sign change lands 0.1 mm
+ * from whatever front width somebody happened to declare; at 139.899 mm it
+ * passes. The guard was reporting the catalogue's placeholder, not the geometry.
+ *
+ * Swept 0.05 to 0.50. **It is not monotone and the wide end is not safer**:
+ *
+ *     frac   worst margin over the ten    refusals
+ *     0.05        +0.566 (khronos)           1
+ *     0.08        -0.981                     0
+ *     0.10        -0.587                     0
+ *     0.12        -0.806                     0
+ *     0.15        -0.875                     0
+ *     0.20        -0.232                     0
+ *     0.25        +0.362 (glasses01)         2
+ *     0.33        -0.896                     0
+ *     0.50        -1.658                     0
+ *
+ * The safe band is **0.08 to 0.15**, and 0.12 is its middle. 0.20 narrows to a
+ * quarter of a millimetre and 0.25 fails outright, because a deeper slab starts
+ * catching the tops of the temples on the assets whose temples rise. That 0.33
+ * and 0.50 pass again is not a reason to prefer them: a parameter whose failures
+ * are interior to its range is one whose safe values are coincidences, and the
+ * plateau that is contiguous with the failure boundary is the only one worth
+ * standing on.
+ *
+ * What would be better than any slab is the guard the pads' own anatomy
+ * suggests — nose pads sit below the LENS CENTRES, always — but lens centres
+ * need part names, and eight of the ten assets do not name one.
+ */
+export const PAD_UP_REFERENCE_FRACTION = 0.12;
+
+/**
+ * How lopsided the two sides' face counts may be before the pair is refused.
+ *
+ * `measured`. Two nose pads are a mirrored pair, so a derivation that found one
+ * of them and half of something else is a derivation that found neither. The
+ * face-count imbalance |L - R| / (L + R), over the ten assets as they arrive:
+ *
+ *     navigator            0.0000     (406 + 406)
+ *     sunglasses-khronos   0.0000     (278 + 278)
+ *     horizon-amber        0.0091     aviator-amber        0.0097
+ *     meshy-glasses        0.0112     crystal-parts        0.0122
+ *     aviator-tortoise     0.0172     horizon-sage         0.0231
+ *     shield-golden        0.0257
+ *     glasses01            0.4150     (2948 + 7130)  <- the one that is wrong
+ *
+ * The two assets with author-declared pads score EXACTLY zero, which is what a
+ * mirrored pair should do and is the reason to believe the statistic. 0.15 is
+ * six times the worst honest value and a third of the outlier.
+ *
+ * `glasses01-with-lenses` scores 0.415 because it arrives rotated ~40 degrees
+ * off axis, so the central column cuts the frame diagonally and takes more of
+ * one rim than the other. That makes it a real red case for this guard and a
+ * standing reminder that the guard fires on a MIS-ORIENTED asset, not only on a
+ * mis-shaped one — which is the more common fault and the harder one to see.
+ */
+export const PAD_SIDE_IMBALANCE_MAX = 0.15;
+
+/**
  * Pad contact geometry, derived from a mesh.
  *
  * ## What this used to do, and why it was replaced
@@ -537,7 +658,21 @@ export function derivePads(
     return fail('the triangle winding is inverted — this mesh is inside out');
   }
 
-  const midY = (minY + maxY) / 2;
+  // The reference the up-check measures against: the mean height of the
+  // frontmost slab of the asset. NOT `(minY + maxY) / 2` of the whole mesh,
+  // which a drooping temple drags downward — see PAD_UP_REFERENCE_FRACTION for
+  // the margins that reference produced, including the three microns by which
+  // `aviator-amber` refused.
+  const upReference = (() => {
+    const cut = maxZ - (maxZ - minZ) * PAD_UP_REFERENCE_FRACTION;
+    let sum = 0, n = 0;
+    for (let i = 0; i < positions.length / 3; i++) {
+      if (positions[i * 3 + 2] < cut) continue;
+      sum += positions[i * 3 + 1];
+      n++;
+    }
+    return n ? sum / n : (minY + maxY) / 2;
+  })();
   // **Not the midpoint of Z.** The temples run 140 mm back from the front, so
   // the depth midpoint of a pair of glasses sits behind the wearer's ears and
   // every pad on earth is in front of it. What identifies a correctly-oriented
@@ -588,6 +723,19 @@ export function derivePads(
     );
   }
 
+  // **Are they a PAIR?** Two nose pads are mirror images, so a wildly lopsided
+  // count means the column caught one pad and part of something else. The two
+  // assets with author-declared pads score exactly 0 here; the one asset that
+  // arrives rotated off axis scores 0.415. See PAD_SIDE_IMBALANCE_MAX.
+  const imbalance = Math.abs(left.length - right.length) / (left.length + right.length);
+  if (imbalance > PAD_SIDE_IMBALANCE_MAX) {
+    return fail(
+      `the two inward surfaces are ${right.length} and ${left.length} faces `
+      + `(imbalance ${imbalance.toFixed(3)}) — not a mirrored pair. A frame that arrives `
+      + 'rotated off axis reads this way, because the central column then cuts it diagonally.',
+    );
+  }
+
   const summarise = (faces: Face[]) => {
     let sx = 0, sy = 0, sz = 0, nx = 0, ny = 0, nz = 0, area = 0;
     for (const f of faces) {
@@ -609,8 +757,11 @@ export function derivePads(
   // **Is it the right way up?** Nose pads sit below the lens centres, always.
   // The old version never read Y at all, so an upside-down asset derived
   // byte-identical pads and nothing could tell.
-  if ((r.cy + l.cy) / 2 > midY) {
-    return fail('the inward surfaces sit above the frame centre — is this upside down?');
+  if ((r.cy + l.cy) / 2 > upReference) {
+    return fail(
+      'the inward surfaces sit above the front of the frame — is this upside down? '
+      + `(${((r.cy + l.cy) / 2 - upReference).toFixed(3)} mm above)`,
+    );
   }
 
   // **Is it the right way round?** Pads are on the wearer's side, behind the

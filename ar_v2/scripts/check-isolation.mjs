@@ -20,11 +20,34 @@ import { pathToFileURL } from 'node:url';
 
 const HEADLESS = ['core', 'enroll', 'track', 'fit', 'detect', 'testkit'];
 
+/**
+ * Blanks the CONTENTS of string literals on a line, keeping the quotes.
+ *
+ * `src/fit/catalogue.ts` names an asset file `assets/glasses/navigator.glb`,
+ * and `/\bnavigator\s*\./` matched it: a data table full of file paths was
+ * reported as touching the browser's `navigator`. The pattern was right and the
+ * input was wrong — a filename in a string is not a global access.
+ *
+ * Only the dotted-global patterns get this treatment, and the distinction is
+ * the point. `document.`, `window.` and `navigator.` describe CODE reaching for
+ * a browser object, so a string that happens to contain those characters is
+ * never the thing being looked for. The bare identifiers — `localStorage`,
+ * `importScripts` — are different: `globalThis['localStorage']` is a real
+ * bypass written as a string, so those keep scanning the raw line and a file
+ * path that trips one of them can be renamed.
+ *
+ * Not a parser. It does not follow escapes or template interpolation, and it
+ * does not need to: this whole pass is a heuristic over source text, and the
+ * check that cannot be fooled is `importPass`, which loads every module for
+ * real.
+ */
+const blankStrings = (line) => line.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, (m) => m[0] + ' '.repeat(Math.max(0, m.length - 2)) + m[0]);
+
 const FORBIDDEN = [
   { pattern: /from ['"]three/, why: 'imports three.js' },
-  { pattern: /\bdocument\s*\./, why: 'touches the DOM' },
-  { pattern: /\bwindow\s*\./, why: 'touches window' },
-  { pattern: /\bnavigator\s*\./, why: 'touches navigator' },
+  { pattern: /\bdocument\s*\./, why: 'touches the DOM', code: true },
+  { pattern: /\bwindow\s*\./, why: 'touches window', code: true },
+  { pattern: /\bnavigator\s*\./, why: 'touches navigator', code: true },
   { pattern: /new\s+(Image|Worker|OffscreenCanvas)\b/, why: 'constructs a browser object' },
   // `self` is the worker's global. It is not a Node global, so a module that
   // installs `self.onmessage = ...` at import time throws `ReferenceError: self
@@ -75,8 +98,11 @@ for (const area of HEADLESS) {
       // A comment about the browser is prose, not use.
       const trimmed = line.trim();
       if (trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*')) continue;
-      for (const { pattern, why } of FORBIDDEN) {
-        if (pattern.test(line)) {
+      const codeOnly = blankStrings(line);
+      for (const { pattern, why, code } of FORBIDDEN) {
+        // `code: true` means "this pattern describes a global ACCESS", so a
+        // string literal that happens to contain it is data. See `blankStrings`.
+        if (pattern.test(code ? codeOnly : line)) {
           console.error(`${rel}:${i + 1}  ${why}`);
           console.error(`    ${trimmed}`);
           failures++;
