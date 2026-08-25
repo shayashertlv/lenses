@@ -1,9 +1,3 @@
-# The repository root ignores *.jpg everywhere. These two are not photographs —
-# they are synthetic test fixtures the pipeline harness runs against, and the
-# checks in tests/ do not work without them. Re-include them here.
-!assets/samples/*.jpg
-
-# Third-party browser libraries: 105,315 lines of nothing written here.
-# Fetched and SHA-256 verified by scripts/fetch-vendor.mjs; versions and
-# licences in ATTRIBUTION.md.
-vendor/
+# assets/ and vendor/ moved to ../ar_v2 when v2 became the system; both are
+# served from there by serve.py. Nothing under this directory needs ignoring
+# for them any more.

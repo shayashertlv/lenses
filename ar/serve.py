@@ -23,7 +23,25 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_PORT = 8765
 
 
+# **v1 now borrows from v2, and not the other way round.**
+#
+# `assets/` and `vendor/` moved to ../ar_v2 when v2 became the system. v1 is
+# kept bootable so the two can be compared side by side on a real face before
+# it is deleted; this is what keeps it running, and it goes when v1 goes.
+SIBLING = ROOT.parent / "ar_v2"
+BORROWED = ("/assets/", "/vendor/")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def translate_path(self, path):
+        clean = path.split("?", 1)[0].split("#", 1)[0]
+        for root in BORROWED:
+            if clean.startswith(root):
+                shared = SIBLING / clean.lstrip("/")
+                if shared.exists():
+                    return str(shared)
+        return super().translate_path(path)
+
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         ".js": "text/javascript",
