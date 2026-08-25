@@ -52,7 +52,12 @@ export interface UI {
    * `handleAction` resolves, since the button carries it as `frame:<id>`.
    */
   addFrame(id: string, name: string): void;
-  catalogue(ranked: RankedFrame[]): void;
+  /**
+   * Renders a ranked catalogue. `relativeTo` names the frame the ordering was
+   * taken AGAINST, when there was one — the heading is a different claim in
+   * each case and must say which. See `rankCatalogue`.
+   */
+  catalogue(ranked: RankedFrame[], relativeTo?: string): void;
   readouts(values: Readouts): void;
   showDiagnostics(text: string): void;
   /** Asks the wearer for their PD in mm. Null if they cancelled, 0 to clear. */
@@ -171,18 +176,32 @@ export function createUI(root: HTMLElement): UI {
         if (m.value === null) continue;
         const row = document.createElement('div');
         row.className = `verdict ${m.grade}`;
+        // A relative verdict has to READ as one. `4.0 mm` under a "width"
+        // label means "4 mm from the ideal"; the same number against a
+        // reference means "4 mm wider than that one", and rendering them
+        // identically is the two-meanings-one-number defect this file's width
+        // block already carries a scar from.
         row.innerHTML =
-          `<span class="label">${escapeHtml(m.id)}</span>` +
-          `<span class="value">${m.value.toFixed(1)} ${escapeHtml(m.unit)}</span>`;
+          `<span class="label">${escapeHtml(m.id)}${
+            m.relativeTo ? ` vs ${escapeHtml(m.relativeTo)}` : ''
+          }</span>` +
+          `<span class="value">${m.relativeTo && m.value > 0 ? '+' : ''}${
+            m.value.toFixed(1)} ${escapeHtml(m.unit)}</span>`;
         verdictEl.appendChild(row);
       }
     },
 
     addFrame(id, name) { addFrameButton(id, name); },
 
-    catalogue(ranked) {
+    catalogue(ranked, relativeTo) {
       if (!catalogueEl) return;
-      catalogueEl.innerHTML = '<h3>Ranked for your face</h3>';
+      // Say what the ordering is AGAINST. "Ranked for your face" is a claim
+      // about absolute fit and needs a ruler the scan does not have; "ranked
+      // next to the Navigator" is a claim about differences between two frames
+      // whose widths are both known, and it is exact.
+      catalogueEl.innerHTML = relativeTo
+        ? `<h3>Ranked next to ${escapeHtml(relativeTo)}</h3>`
+        : '<h3>Ranked for your face</h3>';
       for (const entry of ranked) {
         const row = document.createElement('button');
         row.className = 'ranked';

@@ -1416,10 +1416,19 @@ function handleAction(app: App, action: string): void {
       // Everything the picker offers, not just the parametric five — a ranked
       // row is a button, and ranking a frame the click handler cannot resolve
       // produces a dead button.
+      // Ranked NEXT TO the frame on the face, not against an absolute target.
+      // The width verdict then compares two frames whose widths are both known
+      // to the millimetre, and the scan's scale — the thing no prop-free ruler
+      // delivers better than about 4.7% — cancels out of the difference
+      // exactly. It is not an endorsement of what they are wearing: a
+      // similarity ordering does not require the reference to fit, which is
+      // just as well, because they have not said that it does. See
+      // `rankCatalogue` for what this fixes and, more to the point, what it
+      // does not.
       const ranked = rankCatalogue(app.model, app.mesh, app.regions, [
         ...TEST_FRAMES, ...[...app.meshFrames.values()].map((m) => m.asset),
-      ]);
-      app.ui.catalogue(ranked);
+      ], app.frame);
+      app.ui.catalogue(ranked, app.frame.name);
       break;
     }
     case 'diagnostics': {

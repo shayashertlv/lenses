@@ -2243,6 +2243,122 @@ describe('the wearer own PD as a ruler', () => {
   });
 });
 
+describe('ranking next to a frame, where the scale cancels', () => {
+  // Scale is a common factor. It cancels out of a DIFFERENCE between two frames
+  // and survives only in an absolute:
+  //
+  //     widthDelta(A) - widthDelta(B) = W_A - W_B          exact
+  //     widthDelta(A)                 = W_A - 0.90 x F     carries the error
+  //
+  // Both frames' widths are known to the millimetre, so the first sentence
+  // costs nothing and the second costs 1.365 mm per point of scale against a
+  // 4 mm band. These tests assert the exactness rather than a tolerance,
+  // because it IS exact — the face term is algebraically absent, not small.
+
+  const spec = (id: string, frontWidthMm: number) => parametricFrame({
+    id, frontWidthMm, padSeparationMm: 17, padAngleRad: 0.67, massG: 24,
+  });
+  const wide = spec('w148', 148);
+  const pivot = spec('w140', 140);
+
+  const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+  const scaled = (factor: number) => {
+    const p = new Float64Array(subject.positions.length);
+    for (let i = 0; i < p.length; i++) p[i] = subject.positions[i] * factor;
+    return truthModel(p);
+  };
+  const widthOf = (factor: number, reference?: typeof pivot) =>
+    assessFit(scaled(factor), mesh, regions, wide, undefined, reference)
+      .measures.find((m) => m.id === 'width')!;
+
+  it('the absolute width verdict moves with the scan scale', () => {
+    // The control. Without this the test below could pass on a verdict that
+    // never moves for any reason at all.
+    const moved = Math.abs(widthOf(1.025).value! - widthOf(1.0).value!);
+    assert.ok(
+      moved > 3,
+      `2.5% of scale moved the absolute width verdict by only ${moved.toFixed(2)} mm — ` +
+      'expected about 3.5 mm, since the target is 0.90 of a ~155 mm face span',
+    );
+  });
+
+  it('the same verdict against a reference does not move at all', () => {
+    const a = widthOf(1.0, pivot);
+    const b = widthOf(1.025, pivot);
+    // Exactly equal, not nearly: the face term is algebraically absent.
+    assert.equal(
+      a.value, b.value,
+      `${a.value} vs ${b.value} — the reference form still carries a face term`,
+    );
+    assert.equal(a.value, 148 - 140, 'the difference is not the difference of the two widths');
+    assert.equal(a.grade, b.grade);
+  });
+
+  it('says what it is relative to, so the number cannot be read as an absolute', () => {
+    // "4 mm wider than the Navigator" and "4 mm wider than you need" are
+    // different sentences and only one of them is exact. This file has already
+    // shipped one number carrying two meanings; the label travels with it now.
+    assert.equal(widthOf(1.0, pivot).relativeTo, pivot.name);
+    assert.equal(widthOf(1.0).relativeTo, undefined);
+  });
+
+  it('drops the scale caveat and keeps the asset caveat', () => {
+    // Scale is not in the number, so the scale caveat comes off. What does not
+    // come off is where the two WIDTHS came from, and it now applies to both
+    // frames: a difference between two widths is worth what the worse-known of
+    // the two is worth. Both parametric frames declare `assumed`, so this reads
+    // 0.3 x 0.3 — nearly worthless, and correctly so. It becomes 1.0 the day
+    // the catalogue's widths are measured rather than placed.
+    const irisModel = createFaceModel({
+      positions: new Float64Array(subject.positions),
+      vertexSigmaMm: new Float64Array(mesh.vertexCount).fill(0.2),
+      shapeCoeffs: new Float64Array(0),
+      basisName: 'ground-truth',
+      displacementRmsMm: 0, displacementMaxMm: 0,
+      intrinsics: { f: 600, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 },
+      intrinsicsSolved: true,
+      scale: { source: 'iris', factor: 1, sigma: 0.047, note: 'pooled iris' },
+      landmarkBiasMm: new Float64Array(mesh.vertexCount * 3),
+      quality: { nose: { observations: 30, parallaxRms: 0.3, sigmaMm: 0.3 } },
+      pdMm: null, pdSigmaMm: null,
+      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
+    });
+    const w = (reference?: typeof pivot) =>
+      assessFit(irisModel, mesh, regions, wide, undefined, reference)
+        .measures.find((m) => m.id === 'width')!.confidence;
+    // On a 4.7% ruler the absolute verdict's whole 4 mm band is consumed 1.6
+    // times over, so it is worth exactly nothing and contributes nothing to the
+    // ordering. The reference form is what gives it back.
+    assert.equal(w(), 0, `the absolute width verdict kept ${w()} on a 4.7% ruler`);
+    assert.ok(w(pivot) > 0, 'the reference form is worth nothing either — the scale ' +
+      'caveat is still being applied to a number the scale is not in');
+    assert.ok(
+      Math.abs(w(pivot) - 0.09) < 1e-9,
+      `both frames declare an assumed width, so the comparison should be worth ` +
+      `0.3 x 0.3 = 0.09, and it is worth ${w(pivot)}`,
+    );
+  });
+
+  it('reorders the catalogue, and the reference is not privileged into first place', () => {
+    // A similarity ordering does not endorse the reference. It ranks high on
+    // width by construction — it is zero millimetres from itself — but the seat
+    // carries three times width's weight, so it does not simply win.
+    const frames = [spec('w126', 126), spec('w134', 134), pivot, spec('w146', 146), wide];
+    const ranked = rankCatalogue(truthModel(subject.positions), mesh, regions, frames, pivot);
+    assert.equal(ranked.length, frames.length);
+    assert.ok(
+      ranked.some((r) => r.frame.id !== pivot.id),
+      'the ranking collapsed to the reference alone',
+    );
+    for (const r of ranked) {
+      assert.equal(
+        r.assessment.measures.find((m) => m.id === 'width')!.relativeTo, pivot.name,
+        `${r.frame.id} was ranked without the reference the others were ranked against`,
+      );
+    }
+  });
+});
+
 describe('the scale caveat sits where scale actually moves the verdict', () => {
   // The caveat used to be a flat multiply on exactly two verdicts — `width` and
   // `vertex` — and measured, it was on the wrong two. Per 1% of scale: width

@@ -42,6 +42,17 @@ export interface FitMeasure {
   /** The measured quantity itself. */
   value: number | null;
   unit: string;
+  /**
+   * When set, `value` is a DIFFERENCE against this named frame rather than a
+   * distance from an absolute target, and it must be read and rendered that
+   * way. "4 mm wider than the Navigator" and "4 mm wider than you need" are
+   * different sentences and only one of them is exact.
+   *
+   * This file has made the other version of this mistake once already — see the
+   * width block, where one number carried two meanings for a while and printed
+   * an overhang with the wrong sign across most of the adult range.
+   */
+  relativeTo?: string;
 }
 
 /**
@@ -97,7 +108,7 @@ export interface FitAssessment {
 
 export function assessFit(
   model: FaceModel, mesh: FaceMesh, regions: Record<string, Region>, frame: FrameAsset,
-  cachedSeat?: SeatResult,
+  cachedSeat?: SeatResult, reference?: FrameAsset,
 ): FitAssessment {
   const seat = cachedSeat ?? solveSeat(model, mesh, regions, frame);
   const nose = noseConfidence(model);
@@ -116,48 +127,71 @@ export function assessFit(
   // bound-transfer rule was written to avoid, applied here in the other
   // direction.
   //
-  // **Two different numbers, and for a while one of them did both jobs.**
-  // `widthDelta` is the distance from a *deliberately narrow target*, and it is
-  // the right thing to grade on. It is the wrong thing to put in a sentence: the
-  // prose read "Overhangs your face by about `widthDelta / 2` mm on each side",
-  // which carries a fixed `0.05 * templeWidth` bias — 6.9 to 7.8 mm per side —
-  // because the target is 10% inside the face by construction. Worse, the SIGN
-  // was wrong across most of the adult range: with the catalogue's 138 mm front,
-  // `widthDelta` is positive for every face narrower than 153 mm and clears the
-  // 4 mm tolerance — so the overhang sentence actually printed — for every face
-  // narrower than 149. A 148.6 mm wearer was told "Overhangs by about 2 mm"
-  // when the rims stopped 5.3 mm short of their temples on each side. And the
-  // good case said "Sits level with the sides of your face" precisely where the
-  // frame is ~7 mm inside them, contradicting the paragraph above it.
+  // **`widthDelta` is a distance from a target, not a distance from the face,
+  // and one number did both jobs here once.** The prose read "Overhangs your
+  // face by about `widthDelta / 2` mm on each side", which carries a fixed
+  // `0.05 * templeWidth` bias — 6.9 to 7.8 mm per side — because the target is
+  // 10% inside the face by construction. The SIGN was wrong across most of the
+  // adult range: with a 138 mm front, `widthDelta` is positive for every face
+  // narrower than 153 mm, so a 148.6 mm wearer was told "Overhangs by about
+  // 2 mm" while the rims stopped 5.3 mm short of their temples on each side.
   //
-  // So the grade stays on `widthDelta` and the sentence is built from
-  // `overhangPerSide`, which is the real geometry: positive means the rims
-  // genuinely stand proud of the widest part of the face.
+  // The prose verdicts were removed from the UI on 2026-08-25, and the
+  // `overhangPerSide` figure that fixed the sentence went unused for a day
+  // afterwards — computed every call, read by nothing. It is deleted with this
+  // change; the trap it documents is kept, because the next person to put a
+  // width sentence in front of a wearer needs it. The real geometry is
+  // `(frontWidthMm - templeWidth) / 2`, positive when the rims genuinely stand
+  // proud of the widest part of the face — NOT `widthDelta / 2`.
+  //
+  // **Against a reference frame, this verdict is EXACT.** Scale is a common
+  // factor, so it cancels out of a difference between two frames and survives
+  // only in an absolute:
+  //
+  //     widthDelta(A) - widthDelta(B) = W_A - W_B          exact, no scale term
+  //     widthDelta(A)                 = W_A - 0.90 x F     carries the whole error
+  //
+  // Both frames' widths are known to the millimetre. "This pair is 4 mm wider
+  // than that one on you" costs nothing; "this pair is 4 mm too wide for you"
+  // costs 1.365 mm per point of scale against a 4 mm band, which the iris rung
+  // cannot supply and no prop-free ruler can. So when the wearer is looking at
+  // a frame, the comparison against THAT frame is offered instead, and it is
+  // the only width signal on an iris scan that carries any confidence at all.
+  //
+  // It answers a different question, and the difference is the point: the
+  // absolute form asks "does this fit you", which needs a ruler; the reference
+  // form asks "how does this differ from the one in front of you", which does
+  // not. Ranking against a reference is a SIMILARITY ordering and does not
+  // require the reference to fit — which matters, because the wearer has not
+  // said that it does.
   const faceWidth = model.measurements.templeWidth;
   const targetWidth = faceWidth * FRAME_TO_FACE_WIDTH;
-  const widthDelta = frame.frontWidthMm - targetWidth;
-  const overhangPerSide = (frame.frontWidthMm - faceWidth) / 2;
-  // Below half a millimetre `toFixed(0)` prints "about 0 mm past", which is a
-  // sentence no human wrote. Level is level.
-  const wherePerSide = Math.abs(overhangPerSide) < 0.5
-    ? 'level with the widest part of your face'
-    : overhangPerSide > 0
-      ? `about ${overhangPerSide.toFixed(0)} mm past the widest part of your face on each side`
-      : `about ${(-overhangPerSide).toFixed(0)} mm inside the widest part of your face on each side`;
+  const widthDelta = reference
+    ? frame.frontWidthMm - reference.frontWidthMm
+    : frame.frontWidthMm - targetWidth;
   measures.push({
     id: 'width',
     // The trade's own tolerance: a front within about 4 mm of the target width
-    // reads as well-proportioned; beyond ~10 mm it looks borrowed.
+    // reads as well-proportioned; beyond ~10 mm it looks borrowed. The same
+    // tolerance applies to a difference from a reference — 4 mm of front width
+    // is 4 mm of front width either way.
     grade: gradeBy(Math.abs(widthDelta), 4, 10),
-    // Width needs the scale caveat more than anything else here, and by a wide
-    // margin: it is a comparison of two absolute lengths, one of which is the
-    // wearer's, and one point of scale moves it by a third of the whole good
-    // band. On the shipping iris rung a single sigma consumes the band several
-    // times over, so this verdict shrinks to neutral — which is not a
-    // regression, it is the measurement. `SCALE_SENSITIVITY`.
-    confidence: scaleCaveat('width', model) * (frame.dimensionSource === 'assumed' ? 0.3 : 1),
+    // Against a reference the scale caveat comes OFF, because the scale is not
+    // in the number. What does not come off is the asset provenance, and it now
+    // applies to BOTH frames: a difference between two widths is worth what the
+    // worse-known of the two is worth.
+    //
+    // Absolute, it needs the scale caveat more than anything else here and by a
+    // wide margin — one point of scale moves it by a third of the whole good
+    // band, so on the shipping iris rung a single sigma consumes the band 1.6
+    // times over and the verdict shrinks to neutral. That is the measurement,
+    // not a regression. `SCALE_SENSITIVITY`.
+    confidence: (reference ? 1 : scaleCaveat('width', model))
+      * (frame.dimensionSource === 'assumed' ? 0.3 : 1)
+      * (reference && reference.dimensionSource === 'assumed' ? 0.3 : 1),
     value: widthDelta,
     unit: 'mm',
+    ...(reference ? { relativeTo: reference.name } : {}),
   });
 
   // ---- where it rests ----------------------------------------------------
@@ -497,12 +531,61 @@ export interface RankedFrame {
  * The feature that a sticker-based try-on cannot copy: sorting by whether the
  * frame will actually sit right, rather than by style. Every entry carries its
  * own seat solve, so "why is this ranked here" is answerable.
+ *
+ * ## `reference` — and what it does and does not fix
+ *
+ * Pass the frame the wearer is looking at and the width verdict becomes a
+ * comparison against it, which is EXACT: scale is a common factor and cancels
+ * out of a difference between two frames. Measured, 5 seeds x 12 subjects x 15
+ * frames (5 pad geometries x front widths 132/140/148 mm), ground-truth
+ * geometry with the factor imposed, counting how often the TOP-RANKED frame
+ * changes, median-of-seeds:
+ *
+ *     scale error     +-1%    +-2.5%
+ *     absolute        16.7%   41.7% / 50.0%
+ *     reference       16.7%   25.0% / 25.0%
+ *     width alone, absolute    8.3%    25.0%
+ *     width alone, reference   0.0%     0.0%   <- exactly invariant, 0/60 cells
+ *
+ * **The width channel is fixed completely and the ranking is not, and the
+ * reason is a result that goes against the plan this was built from.**
+ * `docs/SCALE.md` 5 and `docs/NEXT-SESSION.md` 3B both attribute the ranking's
+ * scale sensitivity to this file's fixed metric target, `FRAME_TO_FACE_WIDTH`.
+ * It is not that. Measured on the five parametric TEST_FRAMES — the catalogue
+ * those documents' own numbers were taken on — dropping the width measure
+ * ENTIRELY changes the top-ranked-frame count not at all:
+ *
+ *     parametric catalogue, top frame changes /60
+ *     shipping weights   16 / 10 / 7 / 17   (x0.975 / x0.99 / x1.01 / x1.025)
+ *     width dropped      16 / 10 / 7 / 17   identical, cell for cell
+ *     width alone         0 /  0 / 0 /  0
+ *
+ * because every one of those five frames defaults to `frontWidthMm` 138, so the
+ * width verdict is byte-identical across the catalogue and orders nothing. What
+ * moves the ranking is the SEAT, and the seat is a contact equilibrium: a
+ * fixed-size frame lands somewhere else on a wedge that is 1% bigger, and two
+ * frames land at two different somewhere-elses. That difference does not
+ * cancel, so no reference frame can remove it.
+ *
+ * `NEXT-SESSION.md`'s gate for this change — "materially fewer than 6/50 and
+ * 16/50" — is therefore **met at +-2.5% and not met at +-1%**, and cannot be
+ * met at +-1% by this mechanism. What remains is the seat's own scale
+ * sensitivity, and the tail of it is the frames that JUMP between catching the
+ * sidewall and sliding.
+ *
+ * It is still worth having, and after the scale caveat became proportional it
+ * is worth more than it was: on an iris-scaled scan the absolute width verdict
+ * carries essentially zero confidence, so width contributes nothing to the
+ * ordering at all. The reference form is what gives it back.
  */
 export function rankCatalogue(
   model: FaceModel, mesh: FaceMesh, regions: Record<string, Region>, frames: FrameAsset[],
+  reference?: FrameAsset,
 ): RankedFrame[] {
   return frames
-    .map((frame) => ({ frame, assessment: assessFit(model, mesh, regions, frame) }))
+    .map((frame) => ({
+      frame, assessment: assessFit(model, mesh, regions, frame, undefined, reference),
+    }))
     .sort((a, b) => b.assessment.score - a.assessment.score);
 }
 
