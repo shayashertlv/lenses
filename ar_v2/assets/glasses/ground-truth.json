@@ -1,0 +1,26 @@
+{
+  "what": "Author-declared nose pad geometry, the only independent check on pad derivation in this tree.",
+  "definition": "padSeparationMm is the distance between the two pads' CONTACT-SAMPLE centroids, area-weighted over faces whose normal leans toward the midline by more than 0.35. padAngleRad is the mean lean of those contact normals out of the x axis.",
+  "coverage": "2 of 11 assets. The other nine are photogrammetry or image-to-3D output with generic part names or a single fused mesh, and have no author-declared pads to extract.",
+  "uncertainty": "Method-dependent at about +/-1.4 mm. On navigator: whole-mesh part centroids give 18.48 mm, these inward contact faces give 12.43 mm, a plane-fit of the same faces gives 13.79 mm. The contact-face reading is the one that matches how parametricFrame places its own samples; the spread is recorded rather than averaged away.",
+  "corroboration": "SEPARATION replicates across methods and ANGLE does not, which is the useful part. Two independent extractions agree on navigator to 0.05 mm (13.843 here against 13.79 from a plane fit) and on khronos to 0.10 mm. The ANGLE moves with the method: this area-weighted normal average reads 0.603 rad on navigator where the plane fit reads 0.673 — 4 degrees apart. So the claim that the authored pad angle corroborates this tree's anthropometric padAngleRad of 0.67 to within half a percent is TRUE OF ONE METHOD ONLY; by this one it is 3.8 degrees out. Grade a derivation against separation with confidence, and against angle with a tolerance no tighter than the methods disagree with each other.",
+  "inwardCos": 0.35,
+  "measured": {
+    "navigator.glb": {
+      "note": "Blender-authored, NosePad_L / NosePad_R",
+      "padSeparationMm": 13.843,
+      "padAngleRad": 0.6031,
+      "padAngleDeg": 34.56,
+      "contactAreaMm2": 322.9,
+      "faces": 1394
+    },
+    "sunglasses-khronos.glb": {
+      "note": "RapidCompact, one Nosepads part carrying both",
+      "padSeparationMm": 10.635,
+      "padAngleRad": 0.2927,
+      "padAngleDeg": 16.77,
+      "contactAreaMm2": 161.7,
+      "faces": 360
+    }
+  }
+}

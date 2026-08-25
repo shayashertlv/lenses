@@ -390,73 +390,261 @@ export interface PadDerivation {
   padAngleRad: number;
 }
 
+/**
+ * How far a face must lean toward the midline before it counts as pad contact
+ * surface. Cosine of the angle between its normal and the inward x axis.
+ *
+ * `stated`, and the value matters less than the criterion. What makes it work
+ * is that a nose pad is the only structure on a pair of glasses consisting of
+ * TWO SURFACES THAT FACE EACH OTHER ACROSS THE MIDLINE. Everything else in the
+ * central column — the bridge, the rim fronts, the lens edges — faces outward,
+ * forward or back. So this one test both finds the pads and refuses objects
+ * that have none, which is why the negative controls below need no special
+ * handling: a sphere, a cylinder, a flat plate and the human face mesh all
+ * have outward normals, and none of them has a surface looking at the midline.
+ *
+ * 0.35 is about 70 degrees off the x axis, which is generous — a real pad
+ * leans 15 to 35 degrees (see `assets/glasses/ground-truth.json`) so the band
+ * has ample room, and tightening it starts discarding the outer edge of a
+ * curved pad before it discards anything else.
+ */
+export const PAD_INWARD_COS = 0.35;
+
+/** Fewest inward-facing faces per side that can describe a pad surface. */
+export const PAD_MIN_FACES = 20;
+
+/**
+ * How much of an asset's depth counts as 'the front', for deciding whether a
+ * contact surface is where a nose pad would be.
+ *
+ * `stated`. Measured on the two assets that declare their pads, the contact
+ * centroid sits 5% (navigator) and 3% (khronos) of the way back from the
+ * frontmost point, because the depth range is set by the temple tips 140 mm
+ * behind. A third is therefore enormous headroom in the direction that matters
+ * and still refuses a back-to-front asset outright, whose pads land at 95%.
+ */
+export const PAD_FRONT_FRACTION = 1 / 3;
+
+/**
+ * How far a contact face must ALSO lean rearward, toward the wearer.
+ *
+ * `measured`. This is the test that separates a nose pad from the inner wall
+ * of the lens aperture, which is the contaminant that made the inward test
+ * alone insufficient: the aperture wall faces the midline just as squarely,
+ * because it is the inside of a hole. What it does not do is lean back. On
+ * navigator the aperture and the frame front read a mean z-normal of **exactly
+ * 0.000** while the authored nose pads read **-0.106**, because a pad has to
+ * face the nose and the nose sits behind the lens plane.
+ *
+ * Swept 0 to 0.12 against `assets/glasses/ground-truth.json`. On navigator the
+ * answer is flat across the whole range — precision 100%, separation +0.42 mm
+ * — because the contaminant sits at exactly zero and any positive requirement
+ * removes all of it. 0.04 is taken from the middle of that plateau rather than
+ * its edge, since a threshold of 0 is a knife edge against a surface that
+ * measures 0.000.
+ *
+ * **It does not fix everything, and the number that says so is kept here.** On
+ * sunglasses-khronos precision only reaches ~48% and separation lands +2.2 mm,
+ * because that asset's frame front is sculpted rather than flat and carries
+ * genuinely rearward-leaning faces of its own. One of the two gradeable assets
+ * passes a 90% precision bar and one does not; nine of eleven cannot be graded
+ * at all. That is the case for treating this derivation as a CHECKER against
+ * declared geometry rather than as the producer of it.
+ */
+export const PAD_REAR_COS = 0.04;
+
+/**
+ * Pad contact geometry, derived from a mesh.
+ *
+ * ## What this used to do, and why it was replaced
+ *
+ * The first version selected "the rearmost vertices inside a central column"
+ * and reported their vertex normals. It could not refuse anything and it did
+ * not measure a pad:
+ *
+ *  - It returned `ok: true` on all eleven catalogue assets, on all eleven
+ *    MIRRORED, on a Z-flipped frame, on a sphere, on a flat plate, on a
+ *    cylinder and on the human face mesh. Zero refusals across 231 sane
+ *    configurations. Its own docstring said "It reports when it failed."
+ *  - `positions[i * 3 + 1]` — the Y coordinate — appeared nowhere in any test,
+ *    only where samples were emitted, so an UPSIDE-DOWN frame derived
+ *    byte-identical pads.
+ *  - Against the two assets that ship author-named pads, 39% and 36% of what
+ *    it returned lay on the actual pads; on `navigator`, 2,202 of 3,830
+ *    samples came from `Frame_Front`. The rearmost sliver of a rounded pad
+ *    points straight back by construction, so its normal is -Z whatever the
+ *    pad's plane is doing, which drove `padAngleRad` toward 90 degrees on
+ *    nine of eleven assets independently of the asset.
+ *
+ * The selection now uses the criterion that defines the thing being looked
+ * for. Samples are FACE centroids with FACE normals rather than vertices with
+ * smoothed vertex normals, because a contact patch is a surface and its area
+ * is what the seat solve is really integrating over.
+ *
+ * ## The refusals, and that they are reachable
+ *
+ * Every one of them is exercised by the must-fail battery in
+ * `tests/pipeline.test.ts`, on real assets rather than on constructed toys,
+ * because a guard whose only evidence is a three-vertex triangle is a guard
+ * nobody has tested.
+ */
 export function derivePads(
   positions: Float64Array, indices: Uint32Array, options: {
     /** Half-width of the central column, mm. */
     columnHalfWidthMm?: number;
-    /** Keep geometry within this much of the rearmost point in the column. */
-    depthBandMm?: number;
+    /** How far a face must lean toward the midline. */
+    inwardCos?: number;
+    /** How far a face must also lean rearward, toward the wearer. */
+    rearCos?: number;
   } = {},
 ): PadDerivation {
   const halfWidth = options.columnHalfWidthMm ?? 18;
-  const band = options.depthBandMm ?? 6;
+  const inwardCos = options.inwardCos ?? PAD_INWARD_COS;
+  const rearCos = options.rearCos ?? PAD_REAR_COS;
 
-  // Face-ward is -Z in frame space, so the pads are at minimum Z in the column.
-  let minZ = Infinity;
-  const inColumn: number[] = [];
+  if (indices.length < 3 || positions.length < 9) {
+    return fail('not a mesh — no triangles to read a contact surface from');
+  }
+
+  // The asset's own centre, which is what "below" and "behind" are measured
+  // against. Using the geometry's own extents rather than the origin means
+  // this does not depend on where the author put 0,0,0.
+  let minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < positions.length / 3; i++) {
-    if (Math.abs(positions[i * 3]) > halfWidth) continue;
-    inColumn.push(i);
-    minZ = Math.min(minZ, positions[i * 3 + 2]);
+    const y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
-  if (inColumn.length < 12) {
-    return fail('no geometry in the central column — is this a frame mesh?');
+  // **Is it inside out?** Every face normal here comes from triangle winding,
+  // so a mesh whose winding is reversed has every normal pointing into the
+  // solid — and the inward-facing test then finds the BACK of each pad instead
+  // of its contact face, happily, with a plausible-looking separation. The
+  // signed volume of a closed mesh is positive when the winding is right.
+  // Measured across all ten catalogue assets: every one is positive (5.2e3 to
+  // 4.2e7), and every one mirrored without re-winding is negative.
+  let signedVolume = 0;
+  for (let t = 0; t + 2 < indices.length; t += 3) {
+    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+    signedVolume += (
+      positions[a] * (positions[b + 1] * positions[c + 2] - positions[b + 2] * positions[c + 1])
+      - positions[a + 1] * (positions[b] * positions[c + 2] - positions[b + 2] * positions[c])
+      + positions[a + 2] * (positions[b] * positions[c + 1] - positions[b + 1] * positions[c])
+    ) / 6;
+  }
+  if (signedVolume < 0) {
+    return fail('the triangle winding is inverted — this mesh is inside out');
   }
 
-  const rear = inColumn.filter((i) => positions[i * 3 + 2] <= minZ + band);
-  if (rear.length < 6) return fail('too few rearward vertices to form a pad surface');
+  const midY = (minY + maxY) / 2;
+  // **Not the midpoint of Z.** The temples run 140 mm back from the front, so
+  // the depth midpoint of a pair of glasses sits behind the wearer's ears and
+  // every pad on earth is in front of it. What identifies a correctly-oriented
+  // asset is that the pads are near the FRONT, just behind the lens plane.
+  const frontZ = maxZ - (maxZ - minZ) * PAD_FRONT_FRACTION;
 
-  // Split by side. A saddle bridge has no gap and both clusters merge, which is
-  // reported rather than forced.
-  const right = rear.filter((i) => positions[i * 3] < -1.5);
-  const left = rear.filter((i) => positions[i * 3] > 1.5);
-  if (right.length < 3 || left.length < 3) {
-    return fail('no distinct left and right contact clusters — saddle bridge?');
+  interface Face { cx: number; cy: number; cz: number; nx: number; ny: number; nz: number; area: number }
+  const right: Face[] = [];
+  const left: Face[] = [];
+
+  for (let t = 0; t + 2 < indices.length; t += 3) {
+    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+    const cx = (positions[a] + positions[b] + positions[c]) / 3;
+    if (Math.abs(cx) > halfWidth) continue;
+    const ux = positions[b] - positions[a];
+    const uy = positions[b + 1] - positions[a + 1];
+    const uz = positions[b + 2] - positions[a + 2];
+    const vx = positions[c] - positions[a];
+    const vy = positions[c + 1] - positions[a + 1];
+    const vz = positions[c + 2] - positions[a + 2];
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (!(len > 0)) continue; // a degenerate triangle describes no surface
+    const area = len / 2;
+    nx /= len; ny /= len; nz /= len;
+    // A face left of the midline contacts toward +x, and vice versa.
+    const inward = cx < 0 ? nx : -nx;
+    if (inward <= inwardCos) continue;
+    // ...and leaning back toward the wearer. The inner wall of the lens
+    // aperture faces the midline exactly as squarely as a pad does; what it
+    // does not do is lean rearward. See PAD_REAR_COS.
+    if (nz >= -rearCos) continue;
+    const face: Face = {
+      cx,
+      cy: (positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3,
+      cz: (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3,
+      nx, ny, nz, area,
+    };
+    (cx < 0 ? right : left).push(face);
   }
 
-  const normals = vertexNormals(positions, indices);
+  if (right.length < PAD_MIN_FACES || left.length < PAD_MIN_FACES) {
+    return fail(
+      `no pair of surfaces facing the midline (${right.length} + ${left.length} faces) — `
+      + 'a saddle bridge, a wrap, or not a frame at all',
+    );
+  }
+
+  const summarise = (faces: Face[]) => {
+    let sx = 0, sy = 0, sz = 0, nx = 0, ny = 0, nz = 0, area = 0;
+    for (const f of faces) {
+      sx += f.cx * f.area; sy += f.cy * f.area; sz += f.cz * f.area;
+      nx += f.nx * f.area; ny += f.ny * f.area; nz += f.nz * f.area;
+      area += f.area;
+    }
+    const nlen = Math.hypot(nx, ny, nz) || 1;
+    return {
+      cx: sx / area, cy: sy / area, cz: sz / area,
+      nx: nx / nlen, ny: ny / nlen, nz: nz / nlen,
+      area,
+    };
+  };
+
+  const r = summarise(right);
+  const l = summarise(left);
+
+  // **Is it the right way up?** Nose pads sit below the lens centres, always.
+  // The old version never read Y at all, so an upside-down asset derived
+  // byte-identical pads and nothing could tell.
+  if ((r.cy + l.cy) / 2 > midY) {
+    return fail('the inward surfaces sit above the frame centre — is this upside down?');
+  }
+
+  // **Is it the right way round?** Pads are on the wearer's side, behind the
+  // lens plane, and -Z is face-ward.
+  if ((r.cz + l.cz) / 2 < frontZ) {
+    return fail('the inward surfaces sit back among the temples — is this back to front?');
+  }
+
+  const separation = Math.abs(l.cx - r.cx);
+  if (!(separation > 4)) {
+    return fail(`contact surfaces ${separation.toFixed(1)} mm apart — one surface, not two pads`);
+  }
+
   const samples: number[] = [];
   const outNormals: number[] = [];
   const sides: number[] = [];
-  const centroids: Vec3[] = [];
-
-  for (const [cluster, side] of [[right, -1], [left, 1]] as const) {
-    const c = v3();
-    for (const i of cluster) {
-      samples.push(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
-      outNormals.push(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
+  for (const [faces, side] of [[right, -1], [left, 1]] as const) {
+    for (const f of faces) {
+      samples.push(f.cx, f.cy, f.cz);
+      outNormals.push(f.nx, f.ny, f.nz);
       sides.push(side);
-      c[0] += positions[i * 3]; c[1] += positions[i * 3 + 1]; c[2] += positions[i * 3 + 2];
     }
-    c[0] /= cluster.length; c[1] /= cluster.length; c[2] /= cluster.length;
-    centroids.push(c);
   }
 
-  const separation = Math.abs(centroids[1][0] - centroids[0][0]);
-
-  // Pad angle from the mean normal of the right cluster: the angle between its
-  // inward direction and the -Z axis.
-  let mnx = 0, mnz = 0;
-  for (let k = 0; k < sides.length; k++) {
-    if (sides[k] !== -1) continue;
-    mnx += outNormals[k * 3];
-    mnz += outNormals[k * 3 + 2];
-  }
-  const angle = Math.atan2(Math.abs(mnz), Math.abs(mnx));
+  // How far the contact plane leans out of the sagittal plane — the quantity
+  // `padAngleRad` names, and the same one `scripts/extract-pad-truth.mjs`
+  // measures on the two assets that declare their pads.
+  const lean = (n: { nx: number; ny: number; nz: number }) =>
+    Math.atan2(Math.hypot(n.ny, n.nz), Math.abs(n.nx));
+  const angle = (lean(r) + lean(l)) / 2;
 
   return {
     ok: true,
-    reason: `${right.length} + ${left.length} contact samples`,
+    reason: `${right.length} + ${left.length} inward faces, ${(r.area + l.area).toFixed(0)} mm2 of contact`,
     padSamples: Float64Array.from(samples),
     padNormals: Float64Array.from(outNormals),
     padSide: Int8Array.from(sides),

@@ -19,9 +19,9 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadBasis, loadRegions, loadTemplateMesh } from '../src/testkit/fixtures.js';
@@ -60,6 +60,7 @@ import {
   GRAVITY_N_PER_G, TEST_FRAMES, derivePads, parametricFrame, type FrameAsset,
   type FrameSpec,
 } from '../src/fit/frame-asset.js';
+import { readGlb } from '../src/fit/mesh-io.js';
 import { assessFit, rankCatalogue } from '../src/fit/score.js';
 import {
   fitOccluderArm, flipsAt, frameSampleSet, ladderPose, occlusionCell,
@@ -1414,6 +1415,145 @@ describe('the seat', () => {
       'even lenses behind the pad contact did not engage the clearance term — it is ' +
       'now unreachable, and a term nobody can reach is a term nobody can review',
     );
+  });
+});
+
+describe('deriving pad contact from a real mesh, and refusing everything else', () => {
+  // **The battery this describe exists for.** The previous derivation returned
+  // `ok: true` on all eleven catalogue assets, on all eleven mirrored, on a
+  // Z-flipped frame, on a sphere, a plate, a cylinder and the human face mesh
+  // — zero refusals across 231 configurations — while its docstring said "It
+  // reports when it failed". Its only test fed it a three-vertex triangle,
+  // which trips the is-this-a-mesh guard and nothing else.
+  //
+  // So every refusal below is exercised against a real asset rather than a
+  // constructed toy, and the positive case is graded against geometry the
+  // asset's own author declared.
+  const glbPath = (name: string) => resolve(
+    dirname(fileURLToPath(import.meta.url)), '../../assets/glasses', name,
+  );
+  const load = (name: string) => readGlb(new Uint8Array(readFileSync(glbPath(name))));
+  const truth = JSON.parse(readFileSync(glbPath('ground-truth.json'), 'utf8')) as {
+    measured: Record<string, { padSeparationMm: number; padAngleRad: number }>;
+  };
+
+  /**
+   * Same geometry, one axis negated — and the winding reversed with it.
+   *
+   * Negating one axis IS a mirror, so it flips triangle winding and leaves the
+   * mesh inside out. Re-winding is what makes the result an upside-down (or
+   * back-to-front) FRAME rather than an inverted one, which is the difference
+   * between the two refusals below.
+   */
+  const rewind = (ix: Uint32Array): Uint32Array => {
+    const out = Uint32Array.from(ix);
+    for (let t = 0; t + 2 < out.length; t += 3) {
+      const keep = out[t + 1];
+      out[t + 1] = out[t + 2];
+      out[t + 2] = keep;
+    }
+    return out;
+  };
+  const flip = (p: Float64Array, axis: 0 | 1 | 2): Float64Array => {
+    const out = Float64Array.from(p);
+    for (let i = axis; i < out.length; i += 3) out[i] = -out[i];
+    return out;
+  };
+
+  /** A closed convex surface: outward normals everywhere, nothing facing the midline. */
+  const sphere = (radius: number, rings = 24): { p: Float64Array; ix: Uint32Array } => {
+    const pos: number[] = [];
+    for (let i = 0; i <= rings; i++) {
+      const phi = (i / rings) * Math.PI;
+      for (let j = 0; j <= rings; j++) {
+        const th = (j / rings) * 2 * Math.PI;
+        pos.push(radius * Math.sin(phi) * Math.cos(th), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(th));
+      }
+    }
+    const ix: number[] = [];
+    for (let i = 0; i < rings; i++) {
+      for (let j = 0; j < rings; j++) {
+        const a = i * (rings + 1) + j;
+        ix.push(a, a + rings + 1, a + 1, a + 1, a + rings + 1, a + rings + 2);
+      }
+    }
+    return { p: Float64Array.from(pos), ix: Uint32Array.from(ix) };
+  };
+
+  it('recovers navigator\'s authored pads to under a millimetre', () => {
+    const asset = load('navigator.glb');
+    const got = derivePads(asset.positions, asset.indices);
+    assert.ok(got.ok, `refused a frame with authored nose pads: ${got.reason}`);
+    const want = truth.measured['navigator.glb'];
+    const err = Math.abs(got.padSeparationMm - want.padSeparationMm);
+    assert.ok(
+      err < 1.0,
+      `pad separation ${got.padSeparationMm.toFixed(2)} against the asset's own `
+      + `${want.padSeparationMm} mm — ${err.toFixed(2)} mm out`,
+    );
+  });
+
+  it('gives the same answer mirrored — a frame is a frame either way round', () => {
+    // NOT a refusal: glasses are near-symmetric, so mirroring is a geometry the
+    // derivation must simply be invariant to. It is here because the previous
+    // version's `ok: true` on mirrored input was read as evidence it worked.
+    const asset = load('navigator.glb');
+    // A mirror reverses triangle WINDING, and winding is what decides which
+    // way a face normal points. Mirroring the positions alone leaves the mesh
+    // inside-out — every normal inverted — which is broken geometry rather
+    // than a mirrored frame, and this test asserted the wrong thing until it
+    // failed and said so. A modeller's mirror re-winds; so does this one.
+    const rewound = rewind(asset.indices);
+    const direct = derivePads(asset.positions, asset.indices);
+    const mirrored = derivePads(flip(asset.positions, 0), rewound);
+    assert.ok(direct.ok && mirrored.ok, 'a mirrored frame is still a frame');
+    assert.ok(
+      Math.abs(direct.padSeparationMm - mirrored.padSeparationMm) < 0.05,
+      `mirroring moved the separation ${direct.padSeparationMm} -> ${mirrored.padSeparationMm}`,
+    );
+    // And the inside-out version — mirrored positions, original winding — must
+    // NOT quietly succeed, because every normal in it points into the solid.
+    const insideOut = derivePads(flip(asset.positions, 0), asset.indices);
+    assert.ok(!insideOut.ok, `derived pads from an inside-out mesh: ${insideOut.reason}`);
+  });
+
+  it('refuses a frame that is upside down', () => {
+    // The case the old version was structurally blind to: it never read Y at
+    // all, so this returned byte-identical pads.
+    const asset = load('navigator.glb');
+    const got = derivePads(flip(asset.positions, 1), rewind(asset.indices));
+    assert.ok(!got.ok, `derived pads from an upside-down frame: ${got.reason}`);
+    assert.match(got.reason, /upside down/);
+  });
+
+  it('refuses a frame that is back to front', () => {
+    const asset = load('navigator.glb');
+    const got = derivePads(flip(asset.positions, 2), rewind(asset.indices));
+    assert.ok(!got.ok, `derived pads from a back-to-front frame: ${got.reason}`);
+  });
+
+  it('refuses things that are not frames at all', () => {
+    const s60 = sphere(30);
+    const cases: [string, Float64Array, Uint32Array][] = [
+      ['a sphere', s60.p, s60.ix],
+      // A flat plate: normals are +/-Z, nothing leans toward the midline.
+      ['a flat plate', Float64Array.from([
+        -70, -20, 0, 70, -20, 0, 70, 20, 0, -70, -20, 0, 70, 20, 0, -70, 20, 0,
+      ]), Uint32Array.from([0, 1, 2, 3, 4, 5])],
+      ['the human face', loadTemplateMesh().positions, loadTemplateMesh().indices],
+    ];
+    for (const [what, p, ix] of cases) {
+      const got = derivePads(p, ix);
+      assert.ok(!got.ok, `derived nose pads from ${what}: ${got.reason}`);
+    }
+  });
+
+  it('reports what it refused on, in words that name the defect', () => {
+    // A refusal whose reason is generic is a refusal nobody can act on.
+    const asset = load('navigator.glb');
+    assert.match(derivePads(flip(asset.positions, 1), rewind(asset.indices)).reason, /upside down/);
+    assert.match(derivePads(flip(asset.positions, 0), asset.indices).reason, /inside out/);
+    assert.match(derivePads(Float64Array.from([0, 0, 0]), Uint32Array.from([0, 0, 0])).reason, /not a mesh/);
   });
 });
 
