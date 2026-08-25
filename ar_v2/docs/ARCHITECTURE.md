@@ -307,6 +307,34 @@ their pad separations are a restatement of that guess. Nine of these ten need
 either a person with calipers or ten minutes in Blender naming parts. Neither is
 a geometry problem, which is why the derivation refuses rather than inferring.
 
+### The parametric frame is described once
+
+`fit/frame-layout.ts` owns where a parametric frame's rims, lens discs, bridge,
+endpieces and temples are, plus the six cosmetic constants that size them. The
+renderer builds three.js objects from it; the occlusion instrument samples it.
+Neither computes a coordinate.
+
+It lives in `fit/` and not in `render/` for a mechanical reason:
+`check-isolation.mjs` actually `import()`s every built module under `core/
+enroll/ track/ fit/ detect/ testkit/` in Node, so a testkit module importing
+anything from `render/` would make Node resolve `three` — a vendored browser
+file, not a dependency — and the gate would fail. `render/ -> fit/` is the legal
+direction and was already exercised.
+
+The two used to be twins kept in step by a comment in each header, and **the
+bridge had drifted 4.000000 mm**: the samples sat 2.4 mm clear of a 1.6 mm tube,
+measuring air, and under-reporting that part's occlusion by 9–14 points. There
+was no test to catch it and there could not have been one — nothing in the suite
+can import `render/`. `tests/layout.test.ts` instantiates the compiled renderer
+against a stub instead.
+
+A **third** description survives on purpose: `contact.ts`'s `clearanceSamples`.
+Merging it was measured and rejected — the drawn rim is a flat ellipse with no
+dish and no pantoscopic tilt, so feeding it to the clearance term reports 19–20
+mm of cheek penetration on every catalogue frame. That is the renderer's shape
+being wrong, not the fit, and importing it would put a false wearer-facing
+verdict on every frame. See that function's header.
+
 One more thing built but deliberately not wired: the **card ruler**.
 
 One more thing built but deliberately not wired: the **card ruler**.

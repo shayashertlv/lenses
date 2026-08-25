@@ -288,16 +288,60 @@ person.
 *Gate:* replay asserts within-capture PD spread ≤7% on ≥4 of 5 seeds, and a
 committed cross-capture figure pinned to ±1 mm.
 
-### Stage 4 — one surface, one description
-`frame-geometry.ts` (renderer) and `report-occlusion.ts`'s `buildFrameSamples`
-(instrument) describe the same object independently, are documented as twins
-that must agree, and a review found them 4 mm apart at the bridge. A mesh-based
-frame breaks the twin by construction. Collapse both onto one `frameLayout()`.
-*Gate:* the twin-agreement check goes **vacuous** the moment both read one
-buffer, so it must be replaced, not deleted — every part the renderer emits must
-have a sample set (red today on endpieces and lens discs), and the clearance
-term must be shown *able to fire*.
-*Expect `tsc` to go red at ~6 mechanical sites. That is the gate working.*
+### Stage 4 — one surface, one description — **DONE (2026-08-25), two of three**
+
+`src/fit/frame-layout.ts` now owns the arithmetic and the six cosmetic constants.
+The renderer builds from it and the occlusion instrument samples from it; neither
+computes a coordinate.
+
+**The 4 mm was real and it flattered.** The instrument dropped the rims by
+`LENS_DROP_MM` and forgot the bridge, so its 16 bridge samples sat 4.000000 mm
+above a tube of radius 1.6 mm — **2.4 mm of clear air**, measuring geometry that
+did not exist. Correcting it raises the bridge's hidden fraction 31.3% -> 40.0%
+at yaw 0 and 37.5% -> 51.3% at yaw 30: the samples had been riding up the nose
+dorsum into its shallowest millimetres, which is the exact defect `LENS_DROP_MM`
+exists to prevent. Everything else agreed bit-for-bit.
+
+**The handoff was wrong about the gate, and the correction matters.** There was
+no twin-agreement check to make vacuous — **no test in this tree references
+`frame-geometry.ts` and none can**, because it imports three.js and the suite
+runs under Node where three is a vendored browser file, not a dependency. The
+twin was two comments asking a reader to keep it in step. `tests/layout.test.ts`
+instantiates the compiled renderer against a recording stub and asserts what the
+shared buffer does NOT make free: every drawn part has samples under a name the
+instrument knows, the renderer applies no offset of its own, and a mesh-backed
+asset is REFUSED rather than measured. All four shown red on their own sabotage,
+including reintroducing the 4 mm.
+
+**Two parts were added to the instrument, and they did not come out the same
+way** — both measured before adding:
+ - **lens discs carry real signal**: a new report row at 1474 contested samples
+   and 31.3% X-ray, comparable to the rim. Profile occlusion of the far lens was
+   entirely unmeasured.
+ - **endpieces buy nothing**: 0 contested at every yaw, and they cannot widen the
+   band because their far end is the hinge the temples already reach. Added so
+   the part list is exhaustive and the coverage gate has nothing to except. The
+   row is an honest, probably permanent zero.
+
+`byPart` was `[0, 0, 0]` hardcoded — a fourth part would have written
+`byPart.contested[3]++` on `undefined`, yielding **NaN silently**, no type error,
+no runtime error, a NaN row in the report. Any coverage gate on top of that could
+not have failed. Now sized from `framePartNames.length`.
+
+**The third description stays, deliberately.** `contact.ts`'s `clearanceSamples`
+is a fourth-of-a-rim at `0.11 x frontWidth` with no drop — 6.6 mm narrower,
+6.8 mm shallower and 4 mm too high. Collapsing it was measured and REJECTED:
+feeding the drawn rim in makes the clearance term engage on every catalogue
+frame at 19.3-20.5 mm of penetration, confined to the bottom-outer arc
+(255-300 deg). That is an artefact of the renderer drawing a FLAT ellipse with
+no dish and no pantoscopic tilt, not a fit result, and importing it would have
+`solveSeat` telling wearers their frame fouls their face by 19.7 mm on every
+frame in the catalogue. `tests/pipeline.test.ts` already fails on that change by
+design. The fix is to give the drawn rim a dish, not to merge.
+
+The clearance term was already shown able to fire — that test exists and passes.
+*(The predicted ~6 tsc errors did not materialise; the collapse was clean. What
+went red instead was `check-constants`, on all six newly-exported constants.)*
 
 ### Stage 5 — navigator end to end, headless. **HARD-STOPPED AT TWO WEEKS.**
 Load navigator through `mesh-io`, build a real `FrameAsset`, run `solveSeat`.

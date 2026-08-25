@@ -81,6 +81,7 @@ import { createFaceModel, type FaceModel } from '../core/facemodel.js';
 import { computeVertexNormals, type FaceMesh, type Region } from '../core/mesh.js';
 import { solveSeat } from '../fit/contact.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
+import { ellipsePoint, frameLayout, segmentPoint } from '../fit/frame-layout.js';
 import { distribution, table } from './metrics.js';
 import {
   createDepthBuffer, extractSilhouette, normalsToCamera, rasterize, vertexVisibility,
@@ -148,60 +149,102 @@ const STABILITY_YAW_DEG = 35;
 /**
  * The instrument's sampling of a frame's visible structure, frame-local mm.
  *
- * Built from the asset's own fields and nothing else: each lens rim as an
- * ellipse at the lens plane with `clearanceSamples`' half-axes (0.11 x
- * frontWidth across, 0.7 of that down), the bridge as the segment between the
- * two inner rim edges, and each temple as the straight hinge-to-ear polyline
- * out to the asset's own ear rest (z = -templeReachMm). ~320 samples.
+ * **Every coordinate comes from `fit/frame-layout.ts`.** This function used to
+ * re-derive the same arithmetic the renderer does, with both file headers naming
+ * the other as a twin to keep in step by hand, and the bridge had drifted
+ * 4.000000 mm — the rims were dropped by `LENS_DROP_MM` and the bridge was not.
+ * The samples missed the drawn bridge tube by 2.4 mm of clear air, and the error
+ * flattered: putting them where the bridge is actually drawn raises that part's
+ * hidden fraction from 31.3% to 40.0% at yaw 0 and 37.5% to 51.3% at yaw 30,
+ * because the samples had been riding up the nose dorsum into its shallowest
+ * millimetres.
+ *
+ * ## Five parts, and two of them are new
+ *
+ * The renderer emits rims, lens discs, a bridge, endpieces and temples. The
+ * instrument sampled three of those five, so a third of what a wearer sees was
+ * measured by nothing. Both additions were measured before being added, and they
+ * did NOT come out the same way:
+ *
+ *  - **Lens discs carry real, unmeasured signal**: 2,230 mm2 of drawn surface,
+ *    0% hidden at yaw 0 and 30, 2.8% at 45 and **14.1% at yaw 60**. Profile
+ *    occlusion of the far lens is a genuine effect the report had no row for.
+ *  - **Endpieces buy nothing, and are added anyway.** 37.8 mm of centreline
+ *    between them, and **0 of 160 samples hidden at yaw 0, 30, 45 or 60**. They
+ *    cannot widen the band either — their far end is the hinge, which the
+ *    temples already reach. They are here so the part list is exhaustive and the
+ *    coverage gate has nothing to except; the row they produce is an honest,
+ *    probably permanent zero, and a reader should expect it rather than read it
+ *    as a bug.
+ *
+ * ## What it refuses
+ *
+ * A mesh-backed asset. `navigator.glb` draws its own triangles and the layout
+ * above is a parametric stand-in for a shape that is not on screen, so measuring
+ * it would produce occlusion numbers about geometry nobody drew — which is the
+ * same failure as the 4 mm bridge, one order of magnitude larger. `frameSampleSet`
+ * throws instead.
  */
 /** Part labels for `frameSampleSet`'s cloud, in sample order. */
-export const framePartNames = ['rim', 'bridge', 'temple'] as const;
+export const framePartNames = ['rim', 'lens', 'bridge', 'endpiece', 'temple'] as const;
+
+/** Samples per closed ellipse, per side. */
+const RIM_SAMPLES = 88;
+const LENS_RING_SAMPLES = 44;
+/** Rings across a lens disc: the interior matters, not only its edge. */
+const LENS_RINGS = 3;
+const BRIDGE_SAMPLES = 16;
+const ENDPIECE_SAMPLES = 80;
+const TEMPLE_SAMPLES = 64;
 
 function buildFrameSamples(frame: FrameAsset): { points: Float64Array; parts: Uint8Array } {
+  const layout = frameLayout(frame);
+  if (!layout.describesDrawn) {
+    throw new Error(
+      `frameSampleSet: "${frame.id}" is mesh-backed (${frame.source?.url}), so this `
+      + 'parametric layout is not what gets drawn. Sampling it would report occlusion '
+      + 'for geometry nobody rendered. Sample the file\'s own triangles instead.',
+    );
+  }
   const out: number[] = [];
   const parts: number[] = [];
-  // TWIN of `render/frame-geometry.ts`'s `rimHalfAxes` — keep them identical.
-  // The first convention here (0.11 x frontWidth, clearanceSamples') rendered a
-  // 30 mm lens; a real wearer saw it at once, and the render side re-derived
-  // the size from the asset's own layout: inner edge at the pad gap, capped at
-  // the hinge, floored at the old value, 0.8 box aspect.
-  const cx = Math.abs(frame.lensCentres[0][0]);
-  const a = Math.max(
-    frame.frontWidthMm * 0.11,
-    Math.min(cx - frame.padSeparationMm / 2 - 1.5, frame.frontWidthMm / 2 - cx - 1),
-  );
-  const b = a * 0.8;
-  const drop = 4; // LENS_DROP_MM's twin — the rendered box sits below the fit line
+  const push = (p: Float64Array, part: number) => {
+    out.push(p[0], p[1], p[2]);
+    parts.push(part);
+  };
 
-  for (const c of frame.lensCentres) {
-    for (let i = 0; i < 88; i++) {
-      const t = (i / 88) * Math.PI * 2;
-      out.push(c[0] + a * Math.cos(t), c[1] - drop + b * Math.sin(t), c[2]);
-      parts.push(0);
+  for (const rim of layout.rims) {
+    for (let i = 0; i < RIM_SAMPLES; i++) push(ellipsePoint(rim, i / RIM_SAMPLES), 0);
+  }
+
+  // Lens discs: concentric rings rather than one outline, because what the far
+  // cheek hides at yaw is the disc's INTERIOR, not its edge.
+  for (const disc of layout.lenses) {
+    for (let r = 1; r <= LENS_RINGS; r++) {
+      const scale = r / LENS_RINGS;
+      const ring = { centre: disc.centre, a: disc.a * scale, b: disc.b * scale };
+      for (let i = 0; i < LENS_RING_SAMPLES; i++) {
+        push(ellipsePoint(ring, i / LENS_RING_SAMPLES), 1);
+      }
     }
   }
 
-  // Bridge: right lens's inner edge to left lens's inner edge.
-  const r = frame.lensCentres[0], l = frame.lensCentres[1];
-  for (let i = 0; i < 16; i++) {
-    const t = i / 15;
-    out.push(
-      (r[0] + a) + ((l[0] - a) - (r[0] + a)) * t,
-      r[1] + (l[1] - r[1]) * t,
-      r[2] + (l[2] - r[2]) * t,
-    );
-    parts.push(1);
+  for (let i = 0; i < BRIDGE_SAMPLES; i++) {
+    push(segmentPoint(layout.bridge, i / (BRIDGE_SAMPLES - 1)), 2);
   }
 
-  // Temples: hinge to ear rest, straight (the tree's own Q6 approximation).
-  for (let s = 0; s < 2; s++) {
-    const h = frame.hinges[s], e = frame.earRests[s];
-    for (let i = 0; i < 64; i++) {
-      const t = i / 63;
-      out.push(h[0] + (e[0] - h[0]) * t, h[1] + (e[1] - h[1]) * t, h[2] + (e[2] - h[2]) * t);
-      parts.push(2);
+  for (const e of layout.endpieces) {
+    for (let i = 0; i < ENDPIECE_SAMPLES / 2; i++) {
+      push(segmentPoint(e, i / (ENDPIECE_SAMPLES / 2 - 1)), 3);
     }
   }
+
+  for (const t of layout.temples) {
+    for (let i = 0; i < TEMPLE_SAMPLES; i++) {
+      push(segmentPoint(t, i / (TEMPLE_SAMPLES - 1)), 4);
+    }
+  }
+
   return { points: Float64Array.from(out), parts: Uint8Array.from(parts) };
 }
 
@@ -209,7 +252,7 @@ export function frameSampleSet(frame: FrameAsset): Float64Array {
   return buildFrameSamples(frame).points;
 }
 
-/** Which part (0 rim, 1 bridge, 2 temple) each `frameSampleSet` sample is. */
+/** Which part each `frameSampleSet` sample is — an index into `framePartNames`. */
 export function frameSampleParts(frame: FrameAsset): Uint8Array {
   return buildFrameSamples(frame).parts;
 }
@@ -523,8 +566,14 @@ export function occlusionCell(
   const parts = samples.parts;
   const flips: FlipCount[] = opt.biasesMm.map((biasMm) => {
     let contested = 0, xray = 0, forgiven = 0;
+    // Sized from the part list, NOT a literal `[0, 0, 0]`. It was that literal,
+    // and a fourth part would have written `byPart.contested[3]++` on
+    // `undefined` — yielding NaN silently, with no type error and no runtime
+    // error, and printing a NaN row. Any coverage gate built on top of that
+    // would have been a check that could not fail.
+    const zeroes = () => new Array(framePartNames.length).fill(0) as number[];
     const byPart = parts
-      ? { contested: [0, 0, 0], xray: [0, 0, 0], forgiven: [0, 0, 0] }
+      ? { contested: zeroes(), xray: zeroes(), forgiven: zeroes() }
       : undefined;
     for (let i = 0; i < n; i++) {
       const occHidden = hiddenBy(occBuf, i, biasMm);
@@ -996,8 +1045,15 @@ export function runOcclusionReport(options: OcclusionRunOptions = {}): string {
   out.push('');
   out.push(`Occluder scans: ${main.enrollNoseNote}. Frame: '${TEST_FRAMES[1].id}'`);
   out.push('seated by solveSeat on the scan (the shipping path). The frame sample');
-  out.push('cloud is an instrument sampling of rims, bridge and temples built from');
-  out.push('the asset\'s own fields — not render geometry. Every occluder is posed');
+  out.push('cloud samples all five parts the renderer draws — rims, lens discs,');
+  out.push('bridge, endpieces, temples — off the SAME `fit/frame-layout.ts` the');
+  out.push('renderer builds from, so this is render geometry and not a second');
+  out.push('description of it. The line that stood here said "rims, bridge and');
+  out.push('temples ... not render geometry", and both halves had become false:');
+  out.push('two of the five parts were unsampled, and the bridge samples sat');
+  out.push('4.000000 mm above the drawn tube — 2.4 mm clear of a 1.6 mm radius,');
+  out.push('so nothing they reported was about geometry that existed. Every');
+  out.push('occluder is posed');
   out.push('by PnP against noiseless truth landmarks (what the tracker does, minus');
   out.push('its noise — metric C carries the noise) and depth-gauge normalised, so');
   out.push('a ruler error cannot masquerade as an occlusion error.');

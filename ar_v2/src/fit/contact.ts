@@ -939,6 +939,43 @@ function comOf(out: Vec3, frame: FrameAsset): void {
  * why the clearance term has never once engaged — see `clearanceStiffnessNPerMm`
  * for the sweep. The missing geometry is the bottom rim, which is the part of a
  * real frame that meets a cheek.
+ *
+ * ## This is the THIRD description of the rim, and it deliberately stays
+ *
+ * The stage-4 collapse (2026-08-25) merged the renderer's rim and the occlusion
+ * instrument's rim onto one `fit/frame-layout.ts`. It did NOT merge this one,
+ * and "one surface, one description" is therefore two-thirds done on purpose.
+ *
+ * The numbers here differ from the drawn rim in every dimension: `0.11 x
+ * frontWidth` = 15.180 mm half-width with a 0.7 aspect against the layout's
+ * 21.740 / 17.392, and no `LENS_DROP_MM`. That is 6.560 mm narrower, 6.766 mm
+ * shallower and 4 mm too high — the pre-wearer convention both other files
+ * abandoned when a real wearer saw a 30 mm lens rendered on a 138 mm front.
+ *
+ * **Collapsing it was measured and rejected.** Feeding the drawn rim into the
+ * clearance field makes the term engage on EVERY catalogue frame: worst
+ * penetration 19.32 to 20.51 mm, on 2 to 8 of 14 faces. The penetration is
+ * confined to the bottom-outer arc — 255 to 300 degrees, frame-local y between
+ * -19.1 and -21.4 mm — and is zero everywhere else around the ellipse.
+ *
+ * Which is exactly what the paragraph above predicts in prose. The renderer
+ * draws a FLAT ellipse at the lens plane whose bottom edge hangs 21.4 mm below
+ * the pad origin, and on a real face at that height the cheek is already
+ * forward of it. A real frame does not foul there because its rim is dished and
+ * pantoscopically tilted, and this renderer draws neither. So the 19 mm is an
+ * artefact of the drawn shape, not a fit result — and collapsing would import a
+ * rendering artefact into the physics, making `solveSeat` tell a wearer their
+ * frame "fouls the face by 19.7 mm away from the pads" on every frame in the
+ * catalogue.
+ *
+ * `tests/pipeline.test.ts`'s "never reaches the clearance term on a real frame,
+ * and does reach it on an absurd one" already fails on that change, by design —
+ * its own comment says adding rim geometry "would make that documented claim
+ * silently false; this makes it fail instead". It works.
+ *
+ * The right fix is not a merge. It is giving the drawn rim a dish and a
+ * pantoscopic tilt so that the two descriptions can be the same shape without
+ * that shape being wrong. Until then this stays separate and says why.
  */
 export function clearanceSamples(frame: FrameAsset): Float64Array[] {
   const out: Float64Array[] = [];
