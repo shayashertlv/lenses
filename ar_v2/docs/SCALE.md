@@ -7,6 +7,17 @@ Everything below was **measured this session** across ≥5 independent campaign
 seeds. The raw probe output is in the session's workflow journals; the numbers
 here are the ones that survived an adversarial second pass.
 
+**Revised later the same day, and two of this document's own claims did not
+survive re-checking.** §2's third defect ("every rung under-reports its own
+sigma") and §5's attribution of the ranking's instability to
+`FRAME_TO_FACE_WIDTH` are both wrong, and both were wrong for the same reason:
+a number computed **pooled** rather than median-of-seeds, on a population whose
+last two members are hard-coded and identical in every seed. The corrections are
+in place below, marked and dated. The rule that catches this is the one at the
+top of `docs/NEXT-SESSION.md`, and this document quotes it while breaking it
+twice — *"a single draw is a coin flip; this tree has reversed a verdict three
+times by forgetting it"*. Four times now.
+
 ---
 
 ## 0. The card is already gone, and three documents did not say so
@@ -127,18 +138,57 @@ so this is the gauge alone. Camera f = 1024 px, 1024×768, face at 500 mm.
 **So the target is 1.5%, not 4.7% and not 0.1%.** That is the number any future
 ruler work has to beat.
 
-### Three defects this exposed
+### Three defects this exposed — two real, one not *(resolved 2026-08-25)*
 
-1. **Every confidence in the tree is blind to scale error by construction.**
-   `scaleTrust` reads `model.scale.sigma` and never the factor, so a wearer whose
-   true HVID is 11.10 mm carries a 5.4% error at exactly the same confidence as
-   one the 11.70 mm ruler fits. Nothing in the tree can notice.
-2. **The scale caveat is attached to the wrong verdicts.** Only width and vertex
-   carry `scaleConfidence` — and vertex is the *least* scale-sensitive claim
-   measured. Height, panto, depth and load carry none.
-3. **Every rung under-reports its own sigma.** The iris prints 4.72% while its
-   p90 implies 5.72% and its median 7.68%. That is the number lens ordering
-   gates on.
+1. ~~**Every confidence in the tree is blind to scale error by construction.**~~
+   **Real, and fixed in `2328f47`.** `scaleTrust` read `model.scale.sigma` and
+   never the factor, so a wearer whose true HVID is 11.10 mm carried a 5.4%
+   error at exactly the confidence of one the 11.70 mm ruler fits.
+   `ScaleEstimate.disagreementPct` now carries the signed gap between the
+   wearer's PD and the ruler it displaced, and `scaleSigma` in `fit/score.ts`
+   widens the effective sigma by whatever exceeds the 4.8% two behaving rulers
+   explain between them. It has no reach on the shipping single-ruler path, and
+   that is the honest state rather than a gap: nothing else can see it.
+2. ~~**The scale caveat is attached to the wrong verdicts.**~~ **Real, and fixed
+   in `2328f47`.** The caveat is now proportional to a measured sensitivity —
+   5 seeds x 12 subjects x 15 frames, per 1% of scale as a fraction of each
+   verdict's own good band: width 34.1%, height 8.3%, depth 5.6%, panto 4.6%,
+   pads 2.2%, load 2.1%, vertex 0.8%, level 0.3%. Width and vertex differ by a
+   factor of forty and had carried the same flat multiply.
+3. **NOT REAL. "Every rung under-reports its own sigma" does not survive its own
+   evidence.** The 4.72 / 5.72 / 7.68 triple was computed **pooled over 150
+   rows**, against this document's own >=4-of-5 rule. Per seed the median route
+   implies 4.02 / 8.58 / 5.28 / 8.41 / 5.28 and the p90 route 7.73 / 4.30 /
+   5.11 / 5.32 / 5.88 — **7.68% reproduces on 2 of 5 seeds, 5.72% on 2 of 5, and
+   the SIGN of the gap between the two routes flips across seeds.** Median of
+   seeds they agree, at 5.28% and 5.32%. Three further problems with it:
+   **20% of the rows are not draws** (`generatePopulation(count: N)` appends two
+   named extremes with irises hard-coded at 11.10 and 11.90 mm, identical in
+   every seed, so 15 rows sit at exactly +5.41% — on top of the measured median,
+   contributing nothing to the tail); it is scored on **temple width**, where
+   the pipeline residual is sd 2.94% against 0.89% on the eye span, so raising
+   the constant would bake the bundle's shape recovery into a ruler; and on the
+   **whole-mesh gauge over 255 runs the same printed 4.72% has |error|/sigma
+   median 0.65 and p90 1.72**, bracketing a well-calibrated one-sigma from both
+   sides. A separate adversarial pass in the same session measured the fraction
+   of runs exceeding the claimed one-sigma at 0.300 against a Gaussian's 0.317
+   and said so; it did not reach this document.
+
+   The sigma is therefore left alone. What it genuinely cannot express is not
+   size but SHAPE — the error is one-sided (+2.59% signed, 67% of wearers read
+   large) and a symmetric sigma has no way to say so. That is what
+   `disagreementPct` is for.
+
+4. **A fourth defect, found while fixing the first three and in neither
+   document: the PD rung's confidence moves the WRONG WAY.** `sigma =
+   opticianSigmaMm / knownPdMm`, and the wearer TYPES that number, so a larger
+   mistyped PD prints a smaller sigma. Measured over 10 (seed, subject) pairs:
+   a PD typed 10% high gives a **10.00% scale error at sigma 0.714%** against
+   0% error at 0.786% when it is right — a wrong scale carried at *higher*
+   confidence than a correct one, and 13.5x the iris rung's. Not patched with an
+   invented recall term, because a mistyped ruler is a blunder and not a
+   Gaussian; the disagreement is the defence, and at a 10% mistype it takes the
+   width confidence to zero.
 
 Also: **`worstClearanceMm` is identically 0.000 across all 2250 rows**, both
 signs, every error level. By this tree's own rule that is a check that cannot
@@ -248,14 +298,54 @@ Both frames' true widths are known to the millimetre, so **"this pair is 4 mm
 wider than that one on you" is exact**, while "this pair is 4 mm too wide for
 you" carries ~7 mm at 5%.
 
-`rankCatalogue` currently scores every frame against a **fixed metric target**
-(`FRAME_TO_FACE_WIDTH` = 0.90). That is precisely why 12% of faces get a
-different top recommendation at 1% scale error, and why the ranking is the one
-claim that cannot be satisfied by any prop-free ruler.
+### The attribution in this section was wrong *(measured 2026-08-25)*
 
-**Ranking against a reference the wearer has confirmed, rather than against an
-absolute target, makes the scale cancel.** That is the largest scale-driven
-defect in the tree that is fixable *without* a better ruler.
+This section said `rankCatalogue`'s fixed metric target (`FRAME_TO_FACE_WIDTH` =
+0.90) is "precisely why 12% of faces get a different top recommendation at 1%
+scale error". **It is not, and the measurement is not close.** 5 seeds x 12
+subjects, ground-truth geometry with the factor imposed, on the same five
+parametric frames the 12% was taken on:
+
+    parametric catalogue, top-ranked frame changes /60
+                                      x0.975  x0.99  x1.01  x1.025
+    shipping weights                     16     10      7      17
+    the width measure dropped entirely   16     10      7      17   <- identical
+    the width measure alone               0      0      0       0
+
+Every one of those five frames defaults to `frontWidthMm` 138, so the width
+verdict is byte-identical across the catalogue and orders **nothing**. What
+moves the ranking is the **seat**: it is a contact equilibrium, a fixed-size
+frame lands somewhere else on a wedge 1% bigger, and two frames land at two
+different somewhere-elses. That difference does not cancel out of a comparison,
+so no reference frame can remove it.
+
+**Ranking against a reference is still worth having, and it shipped in
+`85b4a9a`** — but for what it actually does. On a catalogue where widths differ
+(5 pad geometries x 132/140/148 mm), median-of-seeds:
+
+    scale error                +-1%    +-2.5%
+    absolute                  16.7%    41.7% / 50.0%
+    against a reference       16.7%    25.0% / 25.0%
+    width alone, absolute      8.3%    25.0%
+    width alone, reference     0.0%     0.0%     <- 0/60 cells, every factor
+
+The width channel is fixed **completely and exactly**; the whole ranking is
+roughly halved at +-2.5% and unmoved at +-1%. `docs/NEXT-SESSION.md`'s gate for
+the change — "materially fewer than 6/50 and 16/50" — is met at +-2.5% and
+**not met at +-1%, and cannot be** by this mechanism.
+
+Two consequences worth carrying forward:
+
+- **The remaining scale sensitivity of the ranking is a SEAT problem, not a
+  ruler problem**, and its tail is the few percent of face/frame pairs that jump
+  between catching the sidewall and sliding. That is the next thing to measure.
+- **The reference form is worth 0.09 confidence, not 1.0, until the assets are
+  measured.** The scale caveat comes off but the asset caveat does not, and it
+  now applies to both frames — a difference between two widths is worth what the
+  worse-known of the two is worth. Nine of ten catalogue assets and all five
+  parametric frames declare `dimensionSource: 'assumed'`. One number per asset
+  turns this verdict from 0.09 into 1.0, which is the strongest argument yet for
+  the stage-8 measurement day.
 
 ### What this does NOT license
 
