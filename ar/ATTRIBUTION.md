@@ -3,6 +3,15 @@
 Everything under `vendor/` and `assets/` is third-party and vendored deliberately,
 so the prototype runs offline with no install step. Licences below.
 
+**`vendor/` is no longer in git.** It is 105,315 lines of code nobody here wrote,
+and it was 61% of the pull request that introduced this tree. It is now fetched
+and SHA-256 verified by `scripts/fetch-vendor.mjs` against the pinned versions
+named below — run that once after cloning, or `--check` to verify a tree you
+already have. Still vendored rather than an npm dependency, for the reason this
+file always gave: the app is a static page with no build step and no bundler,
+`three.module.js` is loaded by an import map, and the MediaPipe wasm is fetched
+by path at runtime. `assets/` is unchanged and still tracked.
+
 ## 3D models
 
 **`assets/glasses/crystal-parts.glb`**

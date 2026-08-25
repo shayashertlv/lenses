@@ -2,3 +2,8 @@
 # they are synthetic test fixtures the pipeline harness runs against, and the
 # checks in tests/ do not work without them. Re-include them here.
 !assets/samples/*.jpg
+
+# Third-party browser libraries: 105,315 lines of nothing written here.
+# Fetched and SHA-256 verified by scripts/fetch-vendor.mjs; versions and
+# licences in ATTRIBUTION.md.
+vendor/
