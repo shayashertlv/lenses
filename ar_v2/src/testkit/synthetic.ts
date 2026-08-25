@@ -53,7 +53,7 @@ import {
 import {
   createDepthBuffer, normalsToCamera, rasterize, vertexVisibility,
 } from '../core/raster.js';
-import { createRng, type Rng } from './random.js';
+import { createRng, deriveSeed, type Rng } from './random.js';
 import { DETECTOR_LANDMARK_COUNT, FIRST_IRIS_INDEX } from '../core/mesh.js';
 
 // ------------------------------------------------------------------ subjects
@@ -144,6 +144,11 @@ export function generatePopulation(
   mesh: FaceMesh, basis: ShapeBasis, options: Partial<PopulationOptions> = {},
 ): SyntheticSubject[] {
   const opt = { ...POPULATION_DEFAULTS, ...options };
+  // An explicitly-undefined seed means "the default", not "seed 0". Without
+  // this, `{ seed: maybeSeed }` with `maybeSeed === undefined` would clobber
+  // the default in the spread and run every caller on `createRng(0)` —
+  // silently different from the historical run AND identical across callers.
+  if (options.seed === undefined) opt.seed = POPULATION_DEFAULTS.seed;
   const regions = standardRegions(mesh);
   const subjects: SyntheticSubject[] = [];
 
@@ -207,6 +212,44 @@ function generateSubject(
   };
 }
 
+/**
+ * A 32-bit hash of a label, for salting an RNG stream. FNV-1a.
+ *
+ * This exists because of a defect that sat under every published sweep in the
+ * tree. The salts here used to be **string lengths** — `subject.id.length` for a
+ * capture, `id.length` for a named extreme — and a sampled id is `S00`, `S01`,
+ * `S02` ..., always exactly three characters. Every sampled subject therefore
+ * drew the *same* detector bias field, the *same* postural wander and the *same*
+ * landmark noise, byte for byte, through the final frame; the streams did not
+ * even desynchronise. `eye-level` and `phone-lap` are both nine characters, so
+ * the salt `id.length * 31 + name.length` took exactly **six** values over the
+ * default 17 x 3 population-by-camera grid: six noise streams where there should
+ * have been fifty-one. Measured before the fix on the eight-subject population
+ * (six drawn plus the two named extremes), 15 of the 28 subject pairs shared a
+ * byte-identical wander trace, and 2 of the 3 camera geometries were
+ * indistinguishable.
+ *
+ * That is nearly invisible in a region-RMS column and fatal in a scalar one. One
+ * fixed subject over ten independent capture draws spans 0.71 to 3.12 mm of
+ * protrusion error and 0.49 to 2.60 mm of standoff — as wide as the entire
+ * across-subject spread the reports print. A noise-driven tail failure shared by
+ * every subject is **common-mode**: it can never surface as an outlier, and any
+ * constant bracketed by such a sweep is calibrated on one frozen draw.
+ * `VERTEX_SEAT_SIGMA_MM` was: its 8-sample sweep read 1.58 / 2.81 mm
+ * (median/p90) on the frozen draw and 1.95 / 6.94 on an honest one.
+ *
+ * `generatePopulation` never had the bug — it folds the subject index and the
+ * attempt number into the fork salt as integers. This is the same idea for
+ * things whose identity is a name rather than an index.
+ */
+function hashLabel(label: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < label.length; i++) {
+    h = Math.imul(h ^ label.charCodeAt(i), 0x01000193);
+  }
+  return h >>> 0;
+}
+
 function namedExtreme(
   mesh: FaceMesh, basis: ShapeBasis, noseWeight: Float64Array, opt: PopulationOptions,
   id: string, traits: Record<string, number>, irisDiameterMm: number, description: string,
@@ -218,7 +261,10 @@ function namedExtreme(
   }
   const positions = new Float64Array(mesh.vertexCount * 3);
   evaluateBasis(basis, coeffs, positions);
-  const rng = createRng(opt.seed ^ 0xbeef).fork(id.length);
+  // Hashed, not `id.length`: the two extremes shipped happened to have names of
+  // different lengths, so this one was latent rather than live — but a third
+  // extreme named to match either would have silently inherited its nose.
+  const rng = createRng(opt.seed ^ 0xbeef).fork(hashLabel(id));
   const noseDetail = randomNoseField(mesh, noseWeight, rng, opt.noseDetailMm);
   applyNormalField(mesh, positions, noseDetail);
   return {
@@ -407,6 +453,58 @@ export const CAPTURE_DEFAULTS: CaptureOptions = {
   rasterWidth: 192,
 };
 
+// -------------------------------------------------------------- campaign seeds
+
+/**
+ * How one campaign seed becomes the two sub-seeds a report actually runs on.
+ *
+ * A replication campaign wants ONE number per run — "seed 3" — but the
+ * synthetic pipeline has two independent noise domains with two different base
+ * seeds: the population (0x5eed: who the subjects are) and the captures
+ * (0xc0ffee: what the detector saw of them). Feeding the same raw campaign
+ * seed to both would put both domains on the same `createRng` base, and their
+ * fork salts are different in *kind* (small integers for subjects, 32-bit
+ * label hashes for captures), not guaranteed disjoint — a label hash landing in
+ * the population's salt range would recreate exactly the shared-stream defect
+ * `hashLabel` documents. So the campaign seed is folded into each domain's own
+ * base with `deriveSeed`, which preserves the 0x5eed / 0xc0ffee separation
+ * structurally rather than probabilistically.
+ *
+ * `undefined` passes through as `undefined` — i.e. "use the historical
+ * default" — so a report that threads `seed: populationSeedFor(opt.seed)` with
+ * no campaign seed set reproduces the pre-campaign run byte for byte.
+ *
+ * These two functions are the ONLY sanctioned spelling of the fold. A
+ * measurement agent that wants the same subjects a report drew at campaign
+ * seed k must call `generatePopulation(mesh, basis, { count, seed:
+ * populationSeedFor(k) })`, not invent its own mix.
+ */
+export function populationSeedFor(campaignSeed: number | undefined): number | undefined {
+  if (campaignSeed === undefined) return undefined;
+  assertCampaignSeed(campaignSeed);
+  return deriveSeed(POPULATION_DEFAULTS.seed, campaignSeed);
+}
+
+/** See `populationSeedFor`. The capture-domain half of the same fold. */
+export function captureSeedFor(campaignSeed: number | undefined): number | undefined {
+  if (campaignSeed === undefined) return undefined;
+  assertCampaignSeed(campaignSeed);
+  return deriveSeed(CAPTURE_DEFAULTS.seed, campaignSeed);
+}
+
+/** 0xffffffff would alias the unseeded historical run (`salt + 1` wraps to 0
+ *  in the fork mix), so a "replicate" at that seed would replicate nothing.
+ *  Rejected here so every threading path — report entry point or direct call —
+ *  refuses it, not only `acrossSeeds`. */
+function assertCampaignSeed(seed: number): void {
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0xfffffffe) {
+    throw new Error(
+      `campaign seed ${seed} is not an integer in [0, 0xfffffffe] — ` +
+      '0xffffffff aliases the unseeded run through the fork mix',
+    );
+  }
+}
+
 /**
  * The guided protocol, as pose trajectories.
  *
@@ -457,7 +555,14 @@ export function synthesizeCapture(
   options: Partial<CaptureOptions> = {},
 ): SyntheticCapture {
   const opt = { ...CAPTURE_DEFAULTS, ...options };
-  const rng = createRng(opt.seed).fork(subject.id.length * 31 + geometry.name.length);
+  // Same guard as `generatePopulation`: an explicitly-undefined seed means the
+  // default, never `createRng(0)`.
+  if (options.seed === undefined) opt.seed = CAPTURE_DEFAULTS.seed;
+  // One stream per (subject, geometry) pair, keyed by the pair's *names* rather
+  // than their lengths. See `hashLabel` for what the length version cost: six
+  // distinct noise streams across a grid of fifty-one, and every scalar accuracy
+  // number in this tree calibrated on one frozen draw.
+  const rng = createRng(opt.seed).fork(hashLabel(`${subject.id}/${geometry.name}`));
 
   const trueIntrinsics = intrinsicsFromFov(geometry.width, geometry.height, geometry.fovDeg);
   const normals = computeVertexNormals(subject.positions, mesh.indices, mesh.vertexCount);
@@ -626,6 +731,65 @@ export function synthesizeCapture(
   return { subject, geometry, trueIntrinsics, frames };
 }
 
+/**
+ * The postural wander trace of a capture: `pose.t[0]` and `pose.t[1]` per frame,
+ * mm, interleaved.
+ *
+ * Exported because it is the cheapest instrument that can catch a collapsed RNG
+ * salt, and because it catches it *exactly*. Wander is a smoothed random walk
+ * carried across the whole capture, so two captures drawn from the same stream
+ * agree on it to the last bit through the final frame — there is no drift to
+ * hide behind and no tolerance to argue about. It is also all but insensitive to
+ * the subject's own geometry, because every frame consumes the same number of
+ * draws for any face whose vertices all project: two different faces filmed by
+ * the same camera share this trace **only** if they share a noise stream.
+ */
+export function wanderTrace(capture: SyntheticCapture): Float64Array {
+  const out = new Float64Array(capture.frames.length * 2);
+  for (let f = 0; f < capture.frames.length; f++) {
+    out[f * 2] = capture.frames[f].pose.t[0];
+    out[f * 2 + 1] = capture.frames[f].pose.t[1];
+  }
+  return out;
+}
+
+/** True if two captures were drawn from the same noise stream. */
+export function sharesNoiseStream(a: SyntheticCapture, b: SyntheticCapture): boolean {
+  const ta = wanderTrace(a), tb = wanderTrace(b);
+  if (ta.length !== tb.length || ta.length === 0) return false;
+  for (let i = 0; i < ta.length; i++) if (ta[i] !== tb[i]) return false;
+  return true;
+}
+
+/**
+ * Throws if any two of these captures share a noise stream.
+ *
+ * The standing guard against the defect described in `hashLabel`. Pass one
+ * capture per distinct (subject, geometry) pair — passing the same pair twice is
+ * a caller error and this will correctly report it as a collision.
+ *
+ * Worth running over the *whole* grid a report sweeps rather than one sampled
+ * pair. The length collision was not uniform: it hit every pair of *sampled*
+ * subjects, but only two of the three geometries (`eye-level` and `phone-lap`
+ * are both nine characters; `laptop-lid` is ten), and the two named extremes
+ * escaped it entirely because their names happen to differ in length. A spot
+ * check on the wrong pair would have passed.
+ */
+export function assertDistinctNoiseStreams(captures: SyntheticCapture[]): void {
+  for (let i = 0; i < captures.length; i++) {
+    for (let j = i + 1; j < captures.length; j++) {
+      if (!sharesNoiseStream(captures[i], captures[j])) continue;
+      const name = (c: SyntheticCapture) => `${c.subject.id}/${c.geometry.name}`;
+      throw new Error(
+        `${name(captures[i])} and ${name(captures[j])} were drawn from the same ` +
+        'noise stream — their postural wander is byte-identical over all ' +
+        `${captures[i].frames.length} frames. The capture RNG salt has collapsed; ` +
+        'every scalar measurement over this grid is common-mode.',
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------- internals
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -680,18 +844,62 @@ function applyGaze(
 /**
  * The iris landmarks, which have no mesh vertex.
  *
- * Placed on a circle of this subject's own true iris diameter, in the eye plane,
- * facing the camera. That last part matters: a real iris is a disc on a sphere,
- * so under yaw its projection is an ellipse whose *mean* radius barely changes —
- * which is exactly why the iris is a usable ruler at angle and the pupil
- * separation is not.
+ * **A disc in the head, not a circle in the image**, and the difference is the
+ * whole reason this function was rewritten.
+ *
+ * It used to place the four contour points on a camera-facing circle straight in
+ * pixel space — `px = uv[0] + cos(angle) * radius * scale` — so the projected
+ * iris was a perfect circle at every yaw, at every distance, with `visibility`
+ * pinned to 1 even at 86 degrees where the far iris is behind the nose. Its own
+ * docstring asserted the physics it declined to implement: *"a real iris is a
+ * disc on a sphere, so under yaw its projection is an ellipse whose mean radius
+ * barely changes"*. That is the claim the iris ruler rests on, and the harness
+ * was not testing it — it was assuming it, and then reporting the assumption
+ * back as a passing test.
+ *
+ * What it does now:
+ *
+ * - The iris is a disc of the subject's own diameter lying in the eye, with a
+ *   normal that **rotates with the head**.
+ * - Except that the eye counter-rotates in the orbit to keep the camera
+ *   fixated, which is what actually keeps the iris readable at angle — the mean
+ *   radius argument is second-order beside it. That counter-rotation runs out:
+ *   see `EYE_ROTATION_LIMIT_DEG`.
+ * - Beyond that the disc turns with the head and its projection foreshortens
+ *   into a genuine ellipse.
+ * - Visibility is inherited from the eye corner the iris sits between, so an
+ *   iris behind the nose is reported as hidden rather than as a clean reading.
  */
+
+/**
+ * How far the eye can rotate in its orbit, degrees.
+ *
+ * `published`. The oculomotor range is about 50 degrees from primary position in
+ * each direction; comfortable sustained gaze is nearer 30. 50 is used because
+ * the scan actively asks the wearer to keep looking at the guide dot, which is
+ * exactly the condition that recruits the full range.
+ *
+ * This constant is what decides whether the iris ruler works at angle. Below it
+ * the wearer holds fixation and the disc stays fronto-parallel; above it the
+ * disc turns with the head and the ruler starts to foreshorten.
+ */
+const EYE_ROTATION_LIMIT_DEG = 50;
 function synthesizeIris(
   subject: SyntheticSubject, mesh: FaceMesh, pose: Pose, k: Intrinsics,
   landmarks: Float64Array, visibility: Float64Array, sigmaPx: Float64Array,
-  rng: Rng, noisePx: number,
+  rng: Rng, noisePx: number, eyeRotationLimitDeg = EYE_ROTATION_LIMIT_DEG,
 ): void {
   const radius = subject.irisDiameterMm / 2;
+
+  // Where the camera is, in FACE space: the pose maps face to camera, so the
+  // camera's own origin comes back through the inverse.
+  const R = pose.R;
+  const camPos = Float64Array.of(
+    -(R[0] * pose.t[0] + R[3] * pose.t[1] + R[6] * pose.t[2]),
+    -(R[1] * pose.t[0] + R[4] * pose.t[1] + R[7] * pose.t[2]),
+    -(R[2] * pose.t[0] + R[5] * pose.t[1] + R[8] * pose.t[2]),
+  );
+  const limit = (eyeRotationLimitDeg * Math.PI) / 180;
   const eyes: [number, number, readonly number[]][] = [
     [LM.EYE_INNER_R, LM.IRIS_R_CENTRE, LM.IRIS_R_CONTOUR],
     [LM.EYE_INNER_L, LM.IRIS_L_CENTRE, LM.IRIS_L_CONTOUR],
@@ -715,18 +923,61 @@ function synthesizeIris(
     visibility[centreIdx] = 1;
     sigmaPx[centreIdx] = noisePx * 0.5;
 
-    // Contour points on a camera-facing circle at the iris depth.
-    const scale = k.f / cam[2];
+    // Which way the iris disc faces, in face space.
+    //
+    // Straight ahead is +Z. The eye rotates toward the camera to hold fixation,
+    // as far as the orbit allows; past that the disc is dragged round by the
+    // head and starts to foreshorten.
+    let tx = camPos[0] - cxm, ty = camPos[1] - cym, tz = camPos[2] - czm;
+    const tl = Math.hypot(tx, ty, tz) || 1;
+    tx /= tl; ty /= tl; tz /= tl;
+    const need = Math.acos(Math.max(-1, Math.min(1, tz)));   // angle from +Z
+
+    let nx: number, ny: number, nz: number;
+    if (need <= limit || need < 1e-6) {
+      nx = tx; ny = ty; nz = tz;                              // fixation holds
+    } else {
+      // Rotate +Z toward the camera by exactly `limit` — a slerp at t = limit/need.
+      const sn = Math.sin(need);
+      const a = Math.sin(need - limit) / sn;
+      const b = Math.sin(limit) / sn;
+      nx = b * tx; ny = b * ty; nz = a + b * tz;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+    }
+
+    // Any two in-plane axes will do; the contour is a circle.
+    const helper = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    let ux = ny * helper[2] - nz * helper[1];
+    let uy = nz * helper[0] - nx * helper[2];
+    let uz = nx * helper[1] - ny * helper[0];
+    const ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    const vx = ny * uz - nz * uy;
+    const vy = nz * ux - nx * uz;
+    const vz = nx * uy - ny * ux;
+
+    // An iris the eye corners cannot see is not a reading.
+    const seen = visibility[anchor];
+
+    const pt = v3();
+    const puv = new Float64Array(2);
     for (let c = 0; c < contour.length; c++) {
       const angle = (c / contour.length) * Math.PI * 2;
-      const px = uv[0] + Math.cos(angle) * radius * scale;
-      const py = uv[1] + Math.sin(angle) * radius * scale;
+      const ca = Math.cos(angle) * radius, sa = Math.sin(angle) * radius;
       const idx = contour[c];
-      landmarks[idx * 2] = px + rng.normal() * noisePx * 0.6;
-      landmarks[idx * 2 + 1] = py + rng.normal() * noisePx * 0.6;
-      visibility[idx] = 1;
+      applyPose(pt, pose, Float64Array.of(
+        cxm + ca * ux + sa * vx,
+        cym + ca * uy + sa * vy,
+        czm + ca * uz + sa * vz,
+      ), 0);
+      if (!project(puv, k, pt)) { visibility[idx] = 0; continue; }
+      landmarks[idx * 2] = puv[0] + rng.normal() * noisePx * 0.6;
+      landmarks[idx * 2 + 1] = puv[1] + rng.normal() * noisePx * 0.6;
+      visibility[idx] = seen;
       sigmaPx[idx] = noisePx * 0.6;
     }
+    visibility[centreIdx] = seen;
   }
 }
 

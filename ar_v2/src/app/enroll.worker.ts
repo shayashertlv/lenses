@@ -6,6 +6,22 @@
  * itself — no way to even show the "working out your measurements" message,
  * because the browser never gets a chance to paint it before the solve starts.
  *
+ * ## Why this file sits in `app/` rather than in `enroll/`
+ *
+ * It used to sit in `enroll/`, next to the solver it calls, which reads well and
+ * is wrong: `enroll/` is one of the six directories `scripts/check-isolation.mjs`
+ * holds to running in Node with no browser at all, and this file assigns
+ * `self.onmessage` at module scope. Importing it under Node throws
+ * `ReferenceError: self is not defined` before a single line of it runs — while
+ * the isolation check passed, because it looks for `document.`, `window.`,
+ * `navigator.` and `new Worker`, none of which appear here.
+ *
+ * The file holds no arithmetic. It fetches a template, rebuilds geometry, calls
+ * `enroll()` and serialises the answer; every number in it comes from `core/` or
+ * `enroll/`. Its only consumers — `enroll-client.ts` and `main.ts` — are already
+ * here. So the boundary was drawn in the wrong place rather than violated, and
+ * moving the file is the fix rather than exempting it.
+ *
  * ## Why the worker rebuilds the model rather than receiving it
  *
  * The obvious design ships the mesh, the basis and the regions across. All
@@ -16,10 +32,17 @@
  * is the two sides disagreeing about geometry because one of them was built from
  * a stale copy.
  *
- * So the only thing that crosses is the frames, and they cross by **transfer**:
- * a 240-frame scan is ~4 MB of Float64, and structured-cloning that is a
- * copy the main thread pays for at exactly the moment it is trying to stay
- * responsive.
+ * So the only thing that crosses is the frames, and they cross by **structured
+ * clone**. They used to cross by transfer, on the argument that a ~4 MB copy is
+ * one the main thread should not pay for while trying to stay responsive — but
+ * that measures the wrong moment. This runs after the scan has ended, with the
+ * wearer looking at a "working out your measurements" message the app has just
+ * yielded to paint, and nothing else asking for the main thread. The copy is a
+ * few milliseconds against a solve of one to three seconds.
+ *
+ * Transfer also detached the buffers on the caller's side, which quietly broke
+ * both of `enroll-client`'s failure paths: they re-solved inline from arrays of
+ * length 0 and produced the average face. See the note there.
  *
  * ## What does not cross back
  *
@@ -34,8 +57,8 @@ import { parseFaceObj, standardRegions, type FaceMesh, type Region } from '../co
 import { buildAnthropometricBasis } from '../core/shape/anthropometric.js';
 import type { ShapeBasis } from '../core/shape/basis.js';
 import { serializeFaceModel } from '../core/facemodel.js';
-import { enroll } from './enroll.js';
-import type { BundleFrame } from './bundle.js';
+import { enroll } from '../enroll/enroll.js';
+import type { BundleFrame } from '../enroll/bundle.js';
 
 export interface EnrollWorkerInit {
   type: 'init';
@@ -46,14 +69,15 @@ export interface EnrollWorkerRun {
   type: 'enroll';
   id: number;
   frames: {
-    landmarks: ArrayBuffer;
-    sigmaPx: ArrayBuffer;
-    visibility: ArrayBuffer;
+    landmarks: Float64Array;
+    sigmaPx: Float64Array;
+    visibility: Float64Array;
     beat: string;
   }[];
   imageWidth: number;
   imageHeight: number;
   irisMm?: number;
+  knownPdMm?: number | null;
 }
 
 export type EnrollWorkerMessage = EnrollWorkerInit | EnrollWorkerRun;
@@ -116,6 +140,7 @@ self.onmessage = async (event: MessageEvent<EnrollWorkerMessage>) => {
         imageWidth: message.imageWidth,
         imageHeight: message.imageHeight,
         irisMm: message.irisMm,
+        knownPdMm: message.knownPdMm,
         trace: (m) => post({ type: 'trace', id: message.id, message: m }),
       });
 

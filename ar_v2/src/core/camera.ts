@@ -6,7 +6,7 @@
  * `core/` works in **computer-vision convention**: right-handed, +X right,
  * +Y **down**, +Z **into the scene**. A point in front of the camera has
  * positive z. three.js uses +Y up and -Z forward; the conversion happens in
- * exactly one place (`render/frame-convert.ts`) and nowhere else.
+ * exactly one place (`render/convert.ts`) and nowhere else.
  *
  * This is a deliberate reversal of v1, which did all its arithmetic in the
  * renderer's convention because the renderer was there first. The cost was that
@@ -153,9 +153,22 @@ export function pointAtDepth(out: Vec3, k: Intrinsics, px: number, py: number, z
  * Written out rather than differenced. A numeric jacobian is 6 extra
  * projections per residual per iteration, and on a 150-frame bundle that is the
  * difference between a scan that finishes while the user is still looking at
- * the dot and one that does not. `tests/jacobians.test.ts` checks every analytic
- * jacobian in the tree against central differences, which is the discipline
- * that makes writing them by hand safe.
+ * the dot and one that does not. `tests/core.test.ts` ("analytic jacobians match
+ * central differences") checks every *camera* jacobian — the four in this file —
+ * against central differences, which is the discipline that makes writing them
+ * by hand safe.
+ *
+ * The net now reaches past this file: `tests/core.test.ts` also differences
+ * `shape/basis.ts`'s `basisJacobian`, `shape/displacement.ts`'s
+ * `displacementJacobian` and `fit/contact.ts`'s `pointJacobian`, each in its
+ * own case. (An earlier version of this header named those three as untested;
+ * they were, and are no longer.)
+ *
+ * One gap is left, and it is a gap in *coverage of the model*, not of a
+ * function: `displacementJacobian`'s check differences it against
+ * `applyDisplacement`, which rides the same frozen normals, so it cannot see
+ * the neglected d(normal)/d(displacement) term. `shape/displacement.ts`'s
+ * header says so at the approximation itself.
  */
 export function dProjDPoint(J: Float64Array, off: number, k: Intrinsics, X: ArrayLike<number>): void {
   const x = X[0], y = X[1], z = X[2];
@@ -184,6 +197,44 @@ export function dProjDPoint(J: Float64Array, off: number, k: Intrinsics, X: Arra
   J[off + 5] = -(dvxn * xn + dvyn * yn) * zi;
 }
 
+/*
+ * Scratch for the two composed jacobians below, hoisted to module scope under
+ * `linalg.ts`'s rule 2 — "no allocation in a loop". Rule 2 exists for exactly
+ * this: counted over one 168-frame synthetic enrollment, `dProjDPose` runs
+ * 2,232,316 times — 1,400,724 of them (63%) from `track/pnp.ts` and 831,592
+ * (37%) from the bundle's global accumulation — and `dProjDModelPoint` 869,009
+ * times. `dProjDPose` also runs ~3,800 times per tracked video frame in the
+ * LIVE tracker, on the main thread.
+ *
+ * Measured, six synthetic enrollments, same tree, median of three timed runs
+ * after a warm-up, and every one of the four builds returned BIT-IDENTICAL
+ * reprojection RMS to seventeen significant figures:
+ *
+ *     all three allocated per call (as written before)   8.92 s
+ *     only the skew's `Float64Array.of` left allocating  9.63 s
+ *     only the two `new Float64Array(6)` left allocating 5.93 s
+ *     all three hoisted (this code)                      5.44 s
+ *
+ * The skew matrix is 3.0 s of the 3.5 s, and the two 6-element buffers add the
+ * remaining 0.5 s only once the skew is already hoisted — on their own, row
+ * two, they buy nothing measurable. `Float64Array.of` is a generic builtin that
+ * walks its arguments, not merely an allocation, and writing the six varying
+ * entries in place is where the time actually is. The same hoist takes the live
+ * per-frame solve from 2.1 ms to 0.55 ms out of a 16.7 ms budget. Do not tidy
+ * them back into the bodies.
+ *
+ * Safe because both functions are leaves — they call only `dProjDPoint`, which
+ * writes through its own output argument — neither is reentrant, and each realm
+ * (main thread, enrollment worker) gets its own module instance. The two
+ * point-jacobian buffers are kept SEPARATE rather than shared so that a future
+ * caller nesting one function inside the other cannot corrupt the outer one.
+ */
+const dPtPose = new Float64Array(6);
+const dPtModel = new Float64Array(6);
+/** -skew(Prot). The three diagonal zeros are written once, here; the six
+ *  off-diagonal entries are overwritten on every call. */
+const skewScratch = new Float64Array(9);
+
 /**
  * d(u,v) / d(pose increment), 2x6, in the order (wx, wy, wz, tx, ty, tz).
  *
@@ -198,17 +249,18 @@ export function dProjDPoint(J: Float64Array, off: number, k: Intrinsics, X: Arra
 export function dProjDPose(
   J: Float64Array, off: number, k: Intrinsics, Xcam: ArrayLike<number>, Prot: ArrayLike<number>,
 ): void {
-  const dPt = new Float64Array(6);
+  const dPt = dPtPose;
   dProjDPoint(dPt, 0, k, Xcam);
 
   // d(Xcam)/d(w) = -skew(Prot)
   const px = Prot[0], py = Prot[1], pz = Prot[2];
   // skew(P) = [ 0, -pz, py; pz, 0, -px; -py, px, 0 ]; we need its negation.
-  const S = Float64Array.of(
-    0, pz, -py,
-    -pz, 0, px,
-    py, -px, 0,
-  );
+  // Written in place: S[0], S[4], S[8] are zero for every P and were set at
+  // construction, so only the six off-diagonal entries move.
+  const S = skewScratch;
+  S[1] = pz;  S[2] = -py;
+  S[3] = -pz; S[5] = px;
+  S[6] = py;  S[7] = -px;
 
   for (let r = 0; r < 2; r++) {
     for (let c = 0; c < 3; c++) {
@@ -228,7 +280,7 @@ export function dProjDPose(
 export function dProjDModelPoint(
   J: Float64Array, off: number, k: Intrinsics, Xcam: ArrayLike<number>, R: Mat3,
 ): void {
-  const dPt = new Float64Array(6);
+  const dPt = dPtModel;
   dProjDPoint(dPt, 0, k, Xcam);
   for (let r = 0; r < 2; r++) {
     for (let c = 0; c < 3; c++) {
@@ -390,18 +442,19 @@ export function cameraInModel(out: Vec3, pose: Pose): Vec3 {
   return m3apply(out, RT, t);
 }
 
-/**
- * The angle, in radians, between the camera's view ray at a model point and the
- * model's own +Z axis. This is the parallax angle the enrollment bundle
- * accumulates — and unlike v1, nothing here penalises it. It is the signal.
+/*
+ * `viewAngleAt` was here, and it is deliberately gone.
+ *
+ * It returned the angle between a view ray and the model's own +Z axis, and its
+ * docstring called that "the parallax angle the enrollment bundle accumulates".
+ * It is not a parallax: it is the obliquity of ONE view, a property of a single
+ * camera position rather than a relationship between several. Averaging it over
+ * frames therefore reported large parallax for a head that never moved, as long
+ * as the camera sat off-axis — 15.9 degrees from a still photograph on a laptop,
+ * against a 12 degree threshold.
+ *
+ * Parallax is now accumulated in `perVertexUncertainty` as the angular
+ * dispersion of the view directions about their own mean, which is zero for a
+ * motionless head at any camera height. Removed rather than left in place,
+ * because the name was the trap.
  */
-export function viewAngleAt(pose: Pose, modelPoint: ArrayLike<number>): number {
-  const c = v3();
-  cameraInModel(c, pose);
-  const dx = modelPoint[0] - c[0];
-  const dy = modelPoint[1] - c[1];
-  const dz = modelPoint[2] - c[2];
-  const l = Math.hypot(dx, dy, dz);
-  if (l < 1e-9) return 0;
-  return Math.acos(clamp(Math.abs(dz) / l, 0, 1));
-}

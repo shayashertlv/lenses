@@ -111,6 +111,26 @@ export interface UncertaintyInput {
   intrinsics: Intrinsics;
   /** The previous frame's pose, or null on acquisition. */
   pose: Pose | null;
+  /**
+   * Pixels of `landmarks` per pixel of the detect canvas. **This is not
+   * optional bookkeeping — it was a silent factor of four on every real scan.**
+   *
+   * `floorPx` is calibrated at the DETECTION resolution, 640 px on the long
+   * side. But the app scales the detector's output up to source pixels before
+   * calling here (`scaleLandmarksToSource`), so at the default 1280-wide capture
+   * the landmarks arrive twice as large as the floor that describes them. Every
+   * sigma was therefore half what it should have been, and since a covariance
+   * goes as sigma squared, the bundle believed its landmarks **four times** more
+   * than it should.
+   *
+   * The fingerprint is the a-posteriori variance factor: a real wearer's scans
+   * measured about 3.5 where the synthetic harness gives 1.6, and the harness
+   * never touches this code path — it feeds `sigmaPx` straight from its own
+   * noise model, so no test could see it.
+   *
+   * 1 when the landmarks are already in detect pixels.
+   */
+  pixelScale?: number;
 }
 
 /**
@@ -123,7 +143,9 @@ export function estimateSigma(
 ): { sigmaPx: Float64Array; visibility: Float64Array } {
   const { options } = state;
   const n = state.vertexCount;
-  const sigma = new Float64Array(n).fill(options.floorPx);
+  // The floor has to be in the same pixels as the landmarks it bounds.
+  const floorPx = options.floorPx * (input.pixelScale ?? 1);
+  const sigma = new Float64Array(n).fill(floorPx);
   const visibility = new Float64Array(n).fill(1);
 
   // ---- 1. self-occlusion --------------------------------------------------
@@ -185,7 +207,7 @@ export function estimateSigma(
 
   for (let i = 0; i < n; i++) {
     if (Number.isNaN(input.landmarks[i * 2])) sigma[i] = Infinity;
-    else sigma[i] = clamp(sigma[i], options.floorPx, 1e5);
+    else sigma[i] = clamp(sigma[i], floorPx, 1e5);
   }
 
   return { sigmaPx: sigma, visibility };

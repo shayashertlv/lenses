@@ -267,6 +267,75 @@ function poseFor(
 const basePitchOf = (geometry: typeof CAMERA_LADDER[number]): number =>
   Math.atan2(geometry.belowEyesMm, geometry.distanceMm) * DEG;
 
+describe('the guided scan moves, and the protocol has to cope with that', () => {
+  /**
+   * Turn smoothly to `maxYaw` at `degPerFrame`, then hold still.
+   *
+   * Every other test in this file TELEPORTS: it jumps straight to the target
+   * angle and holds, so the measured value is constant from the first frame and
+   * the plateau detector fires immediately. That is why a per-frame velocity
+   * gate sat in `advanceProtocol` undetected — no test ever moved a head.
+   */
+  function turnSmoothly(degPerFrame: number, maxYaw: number, geometry = CAMERA_LADDER[0]) {
+    const basePitchDeg = basePitchOf(geometry);
+    const state = createProtocol();
+
+    // Settle the centre beat first so `neutral` is learned.
+    for (let i = 0; i < 200 && BEATS[state.index]?.id === 'centre'; i++) {
+      advanceProtocol(state, sampleFromPose(
+        poseFor(0, 0, basePitchDeg, geometry.distanceMm), state.neutral));
+    }
+
+    let yaw = 0;
+    for (let f = 0; f < 3000 && BEATS[state.index]?.id === 'turn-right'; f++) {
+      yaw = Math.max(-maxYaw, yaw - degPerFrame);
+      advanceProtocol(state, sampleFromPose(
+        poseFor(yaw, 0, basePitchDeg, geometry.distanceMm), state.neutral));
+    }
+    return { state, achieved: state.achieved['turn-right'] ?? 0 };
+  }
+
+  it('does not cut a smooth turn short — at any speed a person actually turns', () => {
+    // 0.3 deg/frame is 9 deg/s, a slow deliberate turn; 2.0 is 60 deg/s, brisk.
+    // The old code compared each frame against the LAST frame, so anything under
+    // PLATEAU.epsilonDeg (1.2 deg/frame = 36 deg/s) counted as "stopped" from
+    // frame one and the beat closed at roughly 18 degrees.
+    for (const degPerFrame of [0.3, 0.6, 1.0, 2.0]) {
+      const { achieved } = turnSmoothly(degPerFrame, 45);
+      assert.ok(
+        achieved > 40,
+        `turning at ${degPerFrame} deg/frame the beat closed at ${achieved.toFixed(1)} ` +
+        'degrees, but the wearer turned 45 — the plateau detector is reading ' +
+        'speed rather than stillness',
+      );
+    }
+  });
+
+  it('still gives up when the wearer genuinely stops', () => {
+    // The other half: a wearer whose neck stops at 22 degrees must not be asked
+    // for 55 forever. Plateau has to fire, just not while they are still moving.
+    const { state, achieved } = turnSmoothly(0.6, 22);
+    assert.ok(
+      state.done.includes('turn-right') || state.index > 1,
+      `the wearer stopped at 22 degrees and the beat never closed (achieved ${achieved.toFixed(1)})`,
+    );
+    assert.ok(
+      achieved > 19 && achieved < 25,
+      `reported ${achieved.toFixed(1)} degrees for a wearer who turned 22`,
+    );
+  });
+
+  it('reports what the wearer reached, not the plateau reference', () => {
+    // `achieved` feeds the ScanRecord and is the only calibration data for the
+    // yaw-compression question (Q13), so it has to be the furthest they got.
+    const { achieved } = turnSmoothly(0.5, 33);
+    assert.ok(
+      Math.abs(achieved - 33) < 3,
+      `wearer reached 33 degrees, record says ${achieved.toFixed(1)}`,
+    );
+  });
+});
+
 describe('the guided scan', () => {
   it('a cooperative wearer completes it at every camera geometry', () => {
     for (const geometry of CAMERA_LADDER) {
@@ -497,6 +566,89 @@ describe('the guided scan', () => {
     assert.ok(
       Math.abs(state.neutral!.yawDeg - 45) < 2,
       `neutral yaw ${state.neutral!.yawDeg.toFixed(1)} should be the pose actually seen`,
+    );
+  });
+});
+
+// ------------------------------------------------------------- the neutral
+
+/**
+ * A pose sample by its numbers rather than through a pose.
+ *
+ * These tests are about WHICH frames reach the neutral, not about the geometry
+ * that produced them, so building the sample directly keeps the euler chain out
+ * of the question entirely.
+ */
+const S = (yaw: number, pitch = 0) => ({
+  yawDeg: yaw, pitchDeg: pitch, rollDeg: 0, distanceMm: 500, distanceRatio: 1,
+});
+
+describe('the wearer\'s neutral is a measurement, so it has to come from the right frames', () => {
+  it('is learned from the centre beat and from nothing else', () => {
+    // The failure this pins was silent and complete. A `centre` beat the
+    // detector never satisfied left the accumulator open, so the guard was "the
+    // neutral is still null" rather than "this is the centre beat" — and the
+    // NEXT beat filled it. The wearer's hard right turn latched as straight
+    // ahead. Everything after was measured against a lie: `turn-left` completed
+    // with the wearer at TRUE centre while the record claimed 50 degrees of turn
+    // that never happened, and both nod beats' `|dYaw| < 25` guard read 50 at
+    // every centre pose and could only ever time out.
+    const st = createProtocol();
+
+    // 245 frames with no face at all — past GIVE_UP_FRAMES.required (240), so
+    // `centre` is abandoned having never once seen the wearer.
+    for (let i = 0; i < 245; i++) advanceProtocol(st, null);
+    assert.ok(st.skipped.includes('centre'), 'the opening beat did not give up');
+    assert.equal(
+      st.neutral, null,
+      'a neutral was invented from a beat that saw no face at all',
+    );
+
+    // Now the wearer is turned hard right for `turn-right`, which closes on the
+    // plateau detector at 50 degrees.
+    for (let i = 0; i < 40; i++) advanceProtocol(st, S(-50));
+    assert.ok(st.done.includes('turn-right'), 'the turn beat never closed');
+    assert.equal(
+      st.neutral, null,
+      `the neutral came back as ${JSON.stringify(st.neutral)} — a turned pose has ` +
+      'latched as the wearer\'s straight-ahead, and every later beat is now ' +
+      'measured against it',
+    );
+
+    // And the consequence, which is the part a wearer would have felt: sitting
+    // at TRUE centre must not complete a beat that asks for a left turn.
+    for (let i = 0; i < 60; i++) advanceProtocol(st, S(0));
+    assert.ok(
+      !st.done.includes('turn-left'),
+      'turn-left completed with the wearer facing straight at the camera',
+    );
+    assert.equal(
+      st.achieved['turn-left'], undefined,
+      `turn-left recorded ${st.achieved['turn-left']} degrees of turn from a wearer ` +
+      'who did not move',
+    );
+  });
+
+  it('keeps the frames a timed-out centre beat did see', () => {
+    // The other half. `abandon` used to throw away every good centre sample it
+    // had collected and then adopt whatever single pose it happened to be
+    // holding at the moment it gave up — or, with no face at that moment,
+    // nothing at all. A wearer half out of frame, with the detector dropping in
+    // and out, is the ordinary way to get here.
+    const st = createProtocol();
+
+    // Four frames that satisfy the beat (|yaw| 2 <= goal 14, |pitch| 3 < 38) but
+    // fall short of its holdFrames of 8, so it never completes.
+    for (let i = 0; i < 4; i++) advanceProtocol(st, S(2, 3));
+    assert.equal(st.neutral, null, 'the beat completed early — the fixture is wrong');
+
+    // Then the face is gone for long enough to run past the 240-frame give-up.
+    for (let i = 0; i < 260; i++) advanceProtocol(st, null);
+
+    assert.ok(st.skipped.includes('centre'), 'the opening beat did not give up');
+    assert.deepEqual(
+      st.neutral, { yawDeg: 2, pitchDeg: 3, distanceMm: 500 },
+      'the four good centre frames were discarded rather than averaged',
     );
   });
 });

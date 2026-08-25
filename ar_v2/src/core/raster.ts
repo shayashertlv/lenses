@@ -10,7 +10,7 @@
  * that turns a mesh and a camera into a depth buffer, and everything that needs
  * visibility calls it.
  *
- * The three consumers:
+ * The consumers that exist today — both of them, and that is the whole list:
  *
  *  1. **Synthetic ground truth** (`testkit/synthetic.ts`). A landmark is
  *     observable if its vertex is in front of whatever else is on its ray. A
@@ -18,10 +18,21 @@
  *     has turned away, not whether the nose is in front of the far cheek — and
  *     at the yaw angles this project cares about, the difference between those
  *     two questions is most of the far side of the face.
- *  2. **The silhouette residual** (`enroll/residuals/silhouette.ts`). The
- *     occluding contour is the depth buffer's own boundary.
- *  3. **Render-time occlusion** (`render/occlusion.ts`) uses the GPU for the
- *     real thing, but the headless harness needs the same answer to test it.
+ *  2. **Per-landmark uncertainty** (`detect/uncertainty.ts`). Same question at
+ *     runtime: a landmark on a surface the camera cannot see is a landmark
+ *     whose position the detector guessed, and it is down-weighted for it.
+ *
+ * Two more were designed for and are not built. Naming them because the "one
+ * function answers this question" rule above is only earned once they route
+ * through here too:
+ *
+ *  - **The silhouette residual.** `enroll/bundle.ts`'s `accumulateSilhouette`
+ *    computes its own contour from per-vertex normals (`contourVertices`)
+ *    rather than from a depth buffer's boundary, and it never imports this
+ *    file. That is the divergence this header exists to prevent, currently
+ *    live.
+ *  - **Render-time occlusion.** There is no occlusion pass in `render/` at
+ *    all; the frame is composited without one.
  *
  * It is deliberately unoptimised: scanline over the triangle's bounding box, no
  * tiles, no SIMD. At 468 vertices and ~900 triangles into a 160x120 buffer it
@@ -192,6 +203,12 @@ export function vertexVisibility(
  *
  * Returned in the *intrinsics'* pixel coordinates, not the buffer's, so the
  * silhouette residual never has to know the buffer was downscaled.
+ *
+ * **Zero callers as of this writing.** It was written for `enroll/bundle.ts`'s
+ * `accumulateSilhouette`, which instead finds its contour from per-vertex
+ * normal perpendicularity (`contourVertices`) and never imports this file. The
+ * coordinate convention above is therefore a promise to a consumer that does
+ * not exist yet, and nothing verifies it.
  */
 export function extractSilhouette(buffer: DepthBuffer): Float64Array {
   const W = buffer.width, H = buffer.height;

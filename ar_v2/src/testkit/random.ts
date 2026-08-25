@@ -30,6 +30,23 @@ export interface Rng {
   fork(salt: number): Rng;
 }
 
+/**
+ * The seed a `fork(salt)` stream actually runs on, exposed as a plain function
+ * so a caller can derive a sub-seed without holding an `Rng`.
+ *
+ * This is how a campaign seed is folded into a domain that already has its own
+ * base seed: `deriveSeed(base, campaignSeed)` gives a new base that is (a) a
+ * deterministic function of both, (b) different from `base` for every salt
+ * except the single degenerate value 0xffffffff (`salt + 1` wraps to 0 and the
+ * mix returns `base` unchanged — callers that accept arbitrary seeds must
+ * reject it, and `acrossSeeds` in metrics.ts does), and (c) exactly the value
+ * `createRng(base).fork(salt)` would run on, so the two spellings cannot
+ * disagree.
+ */
+export function deriveSeed(base: number, salt: number): number {
+  return (base ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0;
+}
+
 export function createRng(seed: number): Rng {
   let a = seed >>> 0;
   let spare: number | null = null;
@@ -66,7 +83,7 @@ export function createRng(seed: number): Rng {
       }
       return 0;
     },
-    fork: (salt) => createRng((seed ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0),
+    fork: (salt) => createRng(deriveSeed(seed, salt)),
   };
   return rng;
 }

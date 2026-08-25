@@ -38,10 +38,30 @@ export interface KeyframeOptions {
 }
 
 export const KEYFRAME_DEFAULTS: KeyframeOptions = {
-  // 48 measured on the synthetic ladder as the knee: 24 frames costs 0.15 mm of
-  // nose accuracy against 48, and 96 buys 0.02 mm for twice the solve time.
-  // `tests/enroll-keyframes.test.ts` regenerates that curve.
-  count: 48,
+  // 24, adopted 2026-08-22 from the knee replication campaign: 5 seeds
+  // {11,23,37,41,53} x 14 subjects x 3 camera geometries, 42 enrollments per
+  // cell on byte-identical captures per seed (paired inputs), sweep {48,36,24}.
+  // The adoption rule — dropping 48 -> 24 may cost at most 0.05 mm on every
+  // per-seed median mm metric and 0.10 mm at p90, in >=4/5 seeds — passed 4/5,
+  // failing only seed 53's protrusion p90 (+0.192 mm).
+  //
+  // The historical knee this comment used to quote ("24 costs 0.15 mm of nose
+  // accuracy against 48") does NOT replicate: the worst per-seed median nose
+  // cost is +0.025 mm, and the across-seed medians IMPROVE at 24 — nose
+  // -0.034 mm, |protrusion| -0.101 mm (better in 5/5 seeds), |standoff|
+  // -0.022 mm on the pooled pairing. No geometry pays: pooled nose med/p90
+  // moves 1.547/2.288 -> 1.503/2.259 (eye-level), 1.719/2.571 -> 1.626/2.535
+  // (laptop-lid), 1.769/3.119 -> 1.742/3.167 (phone-lap). Scale error is
+  // pairing noise, not a cost: the paired per-run d|scale%| median is
+  // +0.013 pp (n=210) with per-seed paired medians straddling zero — though
+  // had scale% been a blocking metric at a 0.05-in-own-units threshold, this
+  // call would have flipped, and that judgement is recorded rather than
+  // hidden. 36 is not a safer intermediate: it passes the same rule only 2/5
+  // (its standoff medians worsen at 3 seeds) — it is noise around the
+  // threshold, not a knee. Bundle time 630 -> 331 ms (0.53x): halving
+  // keyframes roughly halves bundle time, and the end-to-end figure is on
+  // `BUNDLE_DEFAULTS`.
+  count: 24,
   minLandmarkFraction: 0.55,
   frontalAnchors: 4,
 };
@@ -125,6 +145,36 @@ export function selectKeyframes(
   for (let i = 0; i < Math.min(opt.frontalAnchors, byFrontal.length); i++) {
     chosen.push(byFrontal[i]);
     chosenSet.add(byFrontal[i]);
+  }
+
+  // Per-axis extremes next — the frames that carry each axis's full span.
+  // Farthest-point below optimises a WEIGHTED pose distance, and at 24
+  // keyframes it can spend the whole budget on yaw and lean: measured on one
+  // sparse draw (S01, 12 frames per beat), a capture holding 21.8 degrees of
+  // pitch kept only 8.9 in the selection, the coverage verdict read that
+  // collapsed span against its 12-degree threshold, and a compliant wearer was
+  // told to nod again — advice about a thing they had already done.
+  // Guaranteeing the six extremes costs at most six of the slots and makes the
+  // selection's span equal the capture's on every axis by construction. That
+  // is a fix for the SOLVE, not only for the advice: the extremes are exactly
+  // the frames the conditioning arguments in `COVERAGE_THRESHOLDS` are about.
+  const axes: Array<(i: number) => number> = [
+    (i) => all[i].yaw, (i) => -all[i].yaw,
+    (i) => all[i].pitch, (i) => -all[i].pitch,
+    (i) => all[i].logZ, (i) => -all[i].logZ,
+  ];
+  const cap = Math.min(opt.count, candidates.length);
+  for (const axis of axes) {
+    if (chosen.length >= cap) break;
+    let best = -1;
+    let bestV = -Infinity;
+    for (const c of candidates) {
+      if (axis(c) > bestV) { bestV = axis(c); best = c; }
+    }
+    if (best >= 0 && !chosenSet.has(best)) {
+      chosen.push(best);
+      chosenSet.add(best);
+    }
   }
 
   // Then farthest-point.

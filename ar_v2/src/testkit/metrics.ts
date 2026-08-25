@@ -155,6 +155,80 @@ export function distribution(values: number[]): Distribution {
 export const fmt = (d: Distribution, dp = 2): string =>
   `${d.median.toFixed(dp)} / ${d.p90.toFixed(dp)} / ${d.worst.toFixed(dp)}`;
 
+// -------------------------------------------------------- seed replication
+
+/**
+ * A figure measured once per campaign seed.
+ *
+ * Everything a replication claim needs and nothing it does not: the seeds (so
+ * the sweep can be re-run), the per-seed values (so the spread can be shown,
+ * not just summarised), and the median, which is the campaign's standard
+ * estimator — a median of independent realisations is robust to one bad draw
+ * in a way a mean is not, and "one bad draw" is precisely what a single-run
+ * figure cannot distinguish itself from.
+ */
+export interface SeedSweep {
+  seeds: number[];
+  /** `figure(seed)`, in the same order as `seeds`. */
+  values: number[];
+  /** Median of `values` — the number a campaign publishes. */
+  median: number;
+  min: number;
+  max: number;
+}
+
+/** The campaign's standard seed list: 1..n. Distinct small integers — the RNG
+ *  fold decorrelates them — and never the degenerate 0xffffffff (see
+ *  `deriveSeed` in random.ts) or the unseeded default. */
+export function campaignSeeds(n: number): number[] {
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`campaignSeeds wants a positive integer count, got ${n}`);
+  }
+  return Array.from({ length: n }, (_, i) => i + 1);
+}
+
+/**
+ * Run a figure at N independent seeds and report the per-seed values.
+ *
+ * `seeds` is either a count (expanded via `campaignSeeds`) or an explicit
+ * list. The list is validated rather than trusted: duplicate seeds would
+ * silently narrow the spread while claiming N replicates, and the seed
+ * 0xffffffff aliases the unseeded historical run through the fork mix — both
+ * are refused loudly because a sweep containing either is not measuring what
+ * its caller thinks it is.
+ *
+ * A non-finite value from any seed poisons the summary statistics to NaN
+ * instead of being filtered out: a figure that failed at one seed in five is a
+ * finding, not an outlier to discard.
+ */
+export function acrossSeeds(
+  seeds: number | readonly number[],
+  figure: (seed: number) => number,
+): SeedSweep {
+  const list = typeof seeds === 'number' ? campaignSeeds(seeds) : [...seeds];
+  if (list.length === 0) throw new Error('acrossSeeds wants at least one seed');
+  const seen = new Set<number>();
+  for (const s of list) {
+    if (!Number.isInteger(s) || s < 0 || s > 0xfffffffe) {
+      throw new Error(`seed ${s} is not an integer in [0, 0xfffffffe]`);
+    }
+    if (seen.has(s)) {
+      throw new Error(`seed ${s} appears twice — ${list.length} runs but fewer realisations`);
+    }
+    seen.add(s);
+  }
+
+  const values = list.map((s) => figure(s));
+  const poisoned = values.some((v) => !Number.isFinite(v));
+  return {
+    seeds: list,
+    values,
+    median: poisoned ? NaN : percentile(values, 0.5),
+    min: poisoned ? NaN : Math.min(...values),
+    max: poisoned ? NaN : Math.max(...values),
+  };
+}
+
 /** A fixed-width table, because a report nobody can read is a report nobody reads. */
 export function table(headers: string[], rows: (string | number)[][]): string {
   const all = [headers, ...rows.map((r) => r.map(String))];

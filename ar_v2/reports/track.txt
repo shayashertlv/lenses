@@ -1,3 +1,17 @@
+[checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
+Regenerated 2026-08-23 at the adopted 2026-08-22 defaults (keyframes 24,
+rounds 3, field on at fieldPriorScale 8, TYPICAL_VARIANCE_FACTOR 1.9,
+SIDEWALL_BAND_MM [2,36], VERTEX_SEAT_SIGMA_MM 3.03) by running
+runTrackReport({ seed: 11 }) on the merged tree, after the keyframe-selector
+repair. At this report's defaults the tracker runs against ground-truth
+geometry -- no enrollment and no keyframes -- so the repair changes nothing
+here: the body is byte-identical to the pre-repair seed-11 copy (verified by
+diff). Checked-in copies before 2026-08-23 were the historical UNSEEDED draw,
+which the seeded harness deliberately still reproduces when no seed is passed
+-- so `npm run report:track` does not recreate this file verbatim. The
+accuracy tables in README.md and docs/ quote the MEDIAN OF ALL FIVE SEEDS
+with the per-seed spread; their digits therefore differ from any single
+realisation, including this one.
 TRACKING — WHAT HAPPENS PAST 40 DEGREES OF YAW
 ==============================================
 Tracked against ground-truth geometry, to isolate the tracker from the scan.
@@ -6,38 +20,38 @@ Tracked against ground-truth geometry, to isolate the tracker from the scan.
 --- v2 ---
 yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 -------  ------  ------------  ------------  ------  -----------  ------  ----
-0          1655          0.43          3.84   12.74         0.86    4.79    58
-15          415         -0.06          3.01    5.77         1.88    5.05     9
-30          424          0.53          3.47    6.31         1.88    5.61     9
-45          108          0.83          3.12    4.87         2.00    6.25     0
-60          134          1.88          3.94    7.84         2.65    6.74     0
-75          496          0.94          3.85    7.35         2.89    6.98     0
-90          128          0.05          3.16    5.04         1.79    7.21     0
-  jitter while holding a pose: 1.406 mm median, 2.855 p90, 15.234 worst (639 frames)
+0          1677         -0.05          3.90   12.00         0.99    5.00    15
+15          400         -0.58          3.25    5.89         1.93    5.12     0
+30          413          0.06          3.21    6.31         1.94    5.73     3
+45          115          0.33          3.07    5.34         2.21    6.52     2
+60          131          1.60          3.45    6.74         3.04    6.68     4
+75          531          0.28          3.61    6.98         2.91    7.15    25
+90           93         -1.88          3.82    8.45         2.00    7.50     0
+  jitter while holding a pose: 1.686 mm median, 2.855 p90, 5.456 worst (630 frames)
 
 --- average-head ---
 yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 -------  ------  ------------  ------------  ------  -----------  ------  ----
-0          1655          5.25         12.08   36.30         2.73    5.95    14
-15          415          3.10         10.10   32.44         3.47    6.12     0
-30          424          2.19         11.01   35.72         4.06    6.29     1
-45          108          0.71         10.92   34.84         4.07    6.60     0
-60          134          1.99         12.07   41.70         4.45    6.76     0
-75          496          0.14         12.18   40.03         3.27    6.72     0
-90          128         -1.21         18.32   49.26         2.16    6.90     0
-  jitter while holding a pose: 1.351 mm median, 2.867 p90, 24.825 worst (648 frames)
+0          1677          8.28         11.54   39.49         2.52    5.63    21
+15          400          6.39         10.92   36.30         3.23    5.61     0
+30          413          6.14         11.99   37.61         3.93    6.16     0
+45          115          5.36         14.81   39.43         3.42    6.60     0
+60          131          6.34         14.56   38.99         3.90    6.73     0
+75          531          4.21         19.38   38.01         3.14    7.22     0
+90           93         27.42         29.37   40.30         2.60    7.63     0
+  jitter while holding a pose: 1.620 mm median, 2.910 p90, 5.916 worst (648 frames)
 
 --- v2-no-smoothing ---
 yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 -------  ------  ------------  ------------  ------  -----------  ------  ----
-0          1655          0.16          0.92    3.07         0.42    4.79    58
-15          415          0.20          0.84    2.91         0.44    5.05     9
-30          424          0.08          1.02    2.77         0.59    5.61     9
-45          108         -0.21          0.89    2.39         0.81    6.25     0
-60          134         -0.08          0.98    1.70         0.93    6.74     0
-75          496          0.20          1.70    3.63         0.79    6.98     0
-90          128          0.31          2.36    4.19         0.88    7.21     0
-  jitter while holding a pose: 1.521 mm median, 2.684 p90, 4.099 worst (639 frames)
+0          1677         -0.52          0.82    3.48         0.42    5.00    15
+15          400         -0.48          0.71    2.86         0.47    5.12     0
+30          413         -0.17          0.72    2.65         0.60    5.73     3
+45          115         -0.05          0.78    2.30         0.80    6.52     2
+60          131         -0.16          0.94    2.14         1.15    6.68     4
+75          531         -0.36          1.70    4.29         1.02    7.15    25
+90           93         -1.32          2.26    6.52         1.77    7.50     0
+  jitter while holding a pose: 1.590 mm median, 2.758 p90, 4.177 worst (630 frames)
 
 THE COMPLAINT, QUANTIFIED
 -------------------------
@@ -47,9 +61,9 @@ invisible, because the wearer never sees the frame anywhere else.
 
 arm              depth err at 0 deg  depth err when turned  swing mm
 ---------------  ------------------  ---------------------  --------
-v2                             0.43                   1.88      1.45
-average-head                   5.25                   0.14      5.11
-v2-no-smoothing                0.16                  -0.21      0.37
+v2                            -0.05                   1.60      1.65
+average-head                   8.28                   4.21      4.07
+v2-no-smoothing               -0.52                  -0.05      0.47
 
   swing is the number a wearer reports as "it pushes forward when I turn".
 

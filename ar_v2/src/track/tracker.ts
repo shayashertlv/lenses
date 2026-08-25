@@ -37,15 +37,17 @@
 
 
 import {
-  type Pose, poseClone, poseIdentity, rotationAngleBetween,
+  type Pose, expSO3, invertSymmetric, logSO3, m3, m3mul, m3transpose,
+  orthonormalize, poseClone, poseIdentity, rotationAngleBetween, smoothstep, v3,
 } from '../core/linalg.js';
 import type { Intrinsics } from '../core/camera.js';
 import { headEuler } from '../core/camera.js';
 import type { FaceModel } from '../core/facemodel.js';
+import type { SilhouetteStrip } from '../core/mesh.js';
 import {
   type Correspondence, type PnPResult, buildCorrespondences, refinePnP, solvePnP,
 } from './pnp.js';
-import { PoseSmoother } from './smoothing.js';
+import { ADAPTIVE_SIGMA_FLOOR_PX, PoseSmoother, noiseScaleFromSigma } from './smoothing.js';
 
 export interface TrackerOptions {
   /** Landmarks whose sigma exceeds this are not used at all, px. */
@@ -53,15 +55,38 @@ export interface TrackerOptions {
   /** Below this many usable correspondences the frame is refused. */
   minCorrespondences: number;
   /**
-   * Reprojection RMS above which the solve is treated as failed, px.
+   * Reprojection error above which the solve is treated as failed, px —
+   * read against `RMS_PERCENTILE` of the raw residuals, so it means "a
+   * quarter of these landmarks are further off than this".
    *
    * A hard threshold, and one of the few in the tree. It is not a quality
    * judgement — it is "these landmarks do not describe this face", which happens
    * when a second person walks in front of the wearer, or a hand crosses the
    * face, and the right response is to keep the previous pose rather than to
    * accept a confident fit of the wrong thing.
+   *
+   * 25, re-derived when the statistic changed (see `RMS_PERCENTILE` for why
+   * it had to). Legitimate held turns measure 12.5-13.7 px all the way from
+   * 60 to 85 degrees; a cold acquisition that has locked onto a second face
+   * measures 71-89. 25 sits between them with 1.8x headroom above anything
+   * legitimate and 2.8x margin below anything wrong. The old 14 belonged to
+   * a quadratic mean and would refuse a 75-degree turn outright.
    */
   maxRmsPx: number;
+  /**
+   * Fraction of correspondences allowed to be grossly wrong (further off
+   * than `GROSS_ERROR_PX`) before the frame is refused — the other half of
+   * "these landmarks do not describe this face".
+   *
+   * `maxRmsPx` asks how well the landmarks the solve listened to fit;
+   * this asks how much of the frame is describing something else. A
+   * weighted mean structurally cannot answer the second question, and the
+   * review found a second face passing it at a 57 mm pose error. 0.15
+   * against a legitimate ceiling of 0.05 (a held 80-degree turn) and an
+   * intruder floor of 0.278 — see `GROSS_ERROR_PX` for the measurement and
+   * for the two statistics that were tried and failed first.
+   */
+  maxGrossFraction: number;
   /** Consecutive failed or faceless results ridden out before the frame is
    *  hidden. v1 shipped 4 while documenting 2; here there is one number. */
   holdFrames: number;
@@ -100,17 +125,187 @@ export interface TrackerOptions {
    * the model here, in which case the pose noise would be larger and the filter
    * would earn its place again. Flip this to `true` and re-run
    * `npm run report:track` to find out. See `docs/OPEN-QUESTIONS.md` Q7.
+   *
+   * **`'adaptive'`** is the answer to what the first real wearer then reported:
+   * the caveat above came true, and it came true YAW-SHAPED. Jiggle grows as
+   * the head turns — the far-side landmarks are hallucinated and their sigma
+   * inflates — and the fixed tuning "barely helps, same after 15 degrees". A
+   * single tuning cannot serve both regimes; the sigma the tracker is already
+   * holding says which regime each frame is in. `'adaptive'` keeps the One Euro
+   * structure and divides its cutoff by a per-frame noise scale derived from
+   * the mean finite landmark sigma relative to the clean-frontal floor — the
+   * formula, its two constants and what the scale actually reads on the
+   * production sigma stream all live on `noiseScaleFromSigma` in smoothing.ts.
+   * Measured on the wander fixture (median frame-to-frame bridge delta, mm):
+   * through 25-40 degrees of yaw, off 1.837 / fixed 1.533 / adaptive 1.298;
+   * quiet hold 1.458 / 0.873 / 0.554 — for one extra frame of response to a
+   * step turn (3 against fixed's 2 frames to 90%). `false` and `true` are
+   * bit-identical to the pre-adaptive build, asserted in core.test.ts.
    */
-  smooth: boolean;
+  smooth: boolean | 'adaptive' | 'locked';
+  /**
+   * Every this-many tracked frames, run a COLD solve alongside the warm one
+   * and adopt it if it wins decisively. The warm start is a local search: the
+   * first real wearer's recording caught it falling into a rolled basin during
+   * a fast slide across the frame — +12-15 degrees of roll their face never
+   * performed, held for ten seconds, reprojection just good enough that the
+   * rms gate never fired. A basin the gate cannot see needs an audit the gate
+   * does not run. Amortised cost at 30: a POSIT+refine every second — tenths
+   * of a millisecond per frame.
+   */
+  basinAuditInterval: number;
+  /** The cold solve must beat the warm rms by this ratio to be adopted —
+   *  decisive wins only, so landmark noise cannot flap between basins. */
+  basinRescueRatio: number;
+  /**
+   * The adoption deadband, mm and degrees. A cold solve that beats the warm
+   * rms decisively but lands within BOTH of these is the SAME basin seen
+   * through this frame's noise — adopting it buys nothing and costs a
+   * smoother reset, which is a visible pop. The first real wearer's "choppy"
+   * report had exactly that signature: near-equal adoptions about once a
+   * second on real correlated noise, each one resetting the filter. Below
+   * the deadband the warm pose stands; above it, the adoption is a genuine
+   * rescue and lands through the same crossfade as a latch release.
+   */
+  basinAdoptMinMm: number;
+  basinAdoptMinDeg: number;
+  /**
+   * Per-vertex rigidity for the pose solve, or null for all-rigid.
+   *
+   * A rigid-pose solver may only listen to landmarks that move rigidly with
+   * the SKULL, and MediaPipe's eye region does not: the lids and eye
+   * contours deform with gaze (the documented upstream defect — the mesh
+   * follows the pupil), so a wearer whose face is perfectly still can steer
+   * the solved pose with their eyes. That is not noise the latch can absorb;
+   * it is a coherent fake motion, and the fix is disenfranchisement, not
+   * filtering. The array feeds `buildCorrespondences`' rigidity parameter:
+   * sigma is inflated by 1/sqrt(r), and r <= 0.01 excludes the vertex
+   * entirely. The app builds it with `trackingRigidity`: the lid rings —
+   * where gaze and blinks actually live — get no vote at all, and the
+   * orbital surround keeps a feathered half vote, because the first,
+   * broader exclusion demonstrably cost the solve its stability at tilt.
+   */
+  rigidity: Float64Array | null;
+  /**
+   * Fuse a constant-velocity MAP prior into every warm solve.
+   *
+   * The mechanism (Bell & Cathey 1993 — the converged LM solve with a prior
+   * residual block IS the iterated-EKF posterior): the last few raw poses
+   * predict this frame's pose by an exact least-squares constant-velocity
+   * fit, and the prediction joins the solve's normal equations weighted by
+   * its own inverse covariance — endpoint noise and a physical
+   * head-acceleration bound, both priced per frame from the window's actual
+   * timestamps (see `buildMotionPrior`). The result is certainty-gated
+   * smoothing INSIDE the estimator: at frontal rest the landmarks carry
+   * ~50x the prior's information and nothing changes; at a 40-degree tilt
+   * the landmark information collapses and the prior steadies exactly the
+   * axes the solve no longer knows — with no yaw term, no gate, and no
+   * second filter to reconcile with the first.
+   *
+   * Off by default so the library's behavior is bit-identical to the
+   * pre-prior build; the app turns it on (`?prior=off` is the A/B lever).
+   */
+  motionPrior: boolean;
+  /**
+   * Schedule a redescending robust kernel by per-landmark visibility — see
+   * `BARRON_VIS_LO`.
+   *
+   * Requires `motionPrior`, and not as a convenience: a redescending loss is
+   * non-convex, and this file's own Cauchy note already says such a loss
+   * "could only ever run after the first iterations have found the right
+   * one". The motion prior's prediction is what holds the solve in the right
+   * basin, so the schedule is applied only on frames that carry one, and only
+   * to the solve that carries it.
+   *
+   * **Off by default, and that is a measured verdict rather than caution.**
+   * It was built to answer the partially-hallucinated landmark — the one that
+   * survives the visibility cull because it is still front-facing, and that
+   * Huber then lets pull with constant force forever. Measured on exactly
+   * that fixture (production visibility, coherent hallucination, paired
+   * seeds, median translation error mm):
+   *
+   *     yaw   huber   kernel only   scheduled
+   *      0    0.090      0.089        0.089
+   *     40   11.365     12.268       12.484
+   *     55   15.811     17.006       17.846
+   *
+   * It makes the very thing it was built for WORSE, and the reason is a
+   * property of the failure rather than of the implementation. A redescending
+   * estimator assumes the bad points are a MINORITY it can shed. The
+   * hallucinated far side is not a minority within its visibility band — it
+   * is a coherent, pose-correlated majority — so redescending lets that
+   * majority silence the honest points that disagree with it, and the solve
+   * settles deeper into the biased consensus. This is the same sentence the
+   * research plan already wrote about rank 6, arriving a rank early:
+   * reweighting can only mute a bias, never remove it. Measured, it cannot
+   * even mute it.
+   *
+   * The machinery stays, tested and unwired, for the regime where the
+   * assumption does hold — a MINORITY of coherently displaced landmarks,
+   * which is what an occluding hand actually is. On that fixture the schedule
+   * beats Huber by 32% at frontal (1.579 -> 1.079 mm). Read the caveat on
+   * that number in the ledger before wiring it: the occluded patch there sat
+   * in the low-visibility band, and visibility is the wrong signal for an
+   * occluder the raster cannot see at all.
+   */
+  redescending: boolean;
+  /**
+   * Per-oval-landmark candidate strips from `silhouetteStrips`, or null to
+   * match those landmarks to fixed vertices as every other landmark is.
+   *
+   * This is the one BIAS fix in the tracker. An oval landmark marks the
+   * face's occluding contour at its height, and the 3-D point on that
+   * contour slides across the surface as the head turns — 34.6 mm on
+   * average by 40 degrees of yaw — so a fixed correspondence is wrong in a
+   * pose-correlated way. Each frame the strip is marched under the pose we
+   * currently believe and the landmark is matched to whichever candidate is
+   * actually on the contour there. See `silhouetteStrips` for why
+   * reweighting cannot substitute.
+   *
+   * **Null by default, and the reason is a split measurement rather than
+   * caution.** Marching assumes the oval landmark is an HONEST observation
+   * of the outline. Where it is, the gain is large and holds up: at a held
+   * 40 degrees the settled error goes 0.513 -> 0.104 mm (-80%), at 55
+   * degrees 0.974 -> 0.153 (-84%). But MediaPipe draws the far half-face
+   * from its frontal prior, and where the landmark is an INVENTION rather
+   * than an observation, moving its 3-D point onto the true contour only
+   * widens the disagreement: the same code costs +37% at 55 degrees on a
+   * fixture whose far side is invented. No synthetic here can say which
+   * regime a given wearer's detector is in — that is what `?march=on`
+   * exists to settle, on a face, in a minute. A visibility guard (march only
+   * onto a contour vertex the depth buffer says is visible) was measured and
+   * REJECTED: it cost most of the upside at 55-65 degrees and removed none
+   * of the downside.
+   */
+  ovalStrips: SilhouetteStrip[] | null;
+  /**
+   * The floor `'adaptive'` measures sigma against, px. Must be in the SAME
+   * pixels as the `sigmaPx` fed to `track()`: the default is the detect-
+   * resolution floor, so a caller handing sigma in source pixels scales this
+   * by the same `pixelScale` it gave `estimateSigma` — otherwise a perfectly
+   * clean frame at a 1280-wide capture reads as 2x noise and the filter
+   * over-smooths every frame. Ignored unless `smooth` is `'adaptive'`.
+   */
+  adaptiveFloorPx: number;
 }
 
 export const TRACKER_DEFAULTS: TrackerOptions = {
   maxSigmaPx: 12,
   minCorrespondences: 40,
   maxRmsPx: 14,
+  maxGrossFraction: 0.15,
   holdFrames: 4,
   lostSecondsBeforeReset: 0.5,
   smooth: false,
+  basinAuditInterval: 30,
+  basinRescueRatio: 0.85,
+  basinAdoptMinMm: 3,
+  basinAdoptMinDeg: 2,
+  rigidity: null,
+  motionPrior: false,
+  redescending: false,
+  ovalStrips: null,
+  adaptiveFloorPx: ADAPTIVE_SIGMA_FLOOR_PX,
 };
 
 export interface TrackerState {
@@ -121,6 +316,88 @@ export interface TrackerState {
   lastRaw: Pose | null;
   /** Last emitted pose, smoothed. What the renderer used. */
   lastSmoothed: Pose | null;
+  /** The stillness latch ('locked' mode): consecutive frames the windowed
+   *  velocity has stayed under the enter thresholds, and the pose being held
+   *  while latched. */
+  latchQuiet: number;
+  latchedPose: Pose | null;
+  /** Scratch for the per-frame effective rigidity (static map x visibility
+   *  ramp), reused to avoid a per-frame allocation. */
+  rigidityScratch: Float64Array;
+  /** Scratch for the per-frame variance-factor eligibility mask (static
+   *  rigidity untouched AND visibility above `VF_CAL_MIN_VIS`), same reuse. */
+  calibratedScratch: Uint8Array;
+  /** Scratch mapping an oval landmark to the vertex it marched to this
+   *  frame, -1 for every landmark that is not an oval one. Same reuse. */
+  marchScratch: Int32Array;
+  /** The last LATCH_VEL_WINDOW+1 raw poses with arrival times and the
+   *  solve's own one-sigma pose uncertainty (mm / deg, from the calibrated
+   *  covariance; carried forward when a frame's covariance was singular) —
+   *  the window the latch's velocity gate reads, and the noise scale it is
+   *  read AGAINST. Cleared whenever the raw stream stops being one
+   *  continuous motion (dropout reset, basin adoption). */
+  velRing: { pose: Pose; time: number; sigmaMm: number; sigmaDeg: number }[];
+  /** Cumulative consumed-frame time, the clock `velRing` stamps against. */
+  velTime: number;
+  /** The per-session rest floor, per channel: mean and absolute-deviation
+   *  EMAs over LATCHED-frame windowed velocities — the frames the latch can
+   *  vouch for as rest. Null until the first latched frame; survives
+   *  dropouts and basin adoptions because the session's noise regime does. */
+  floorMm: { m: number; d: number } | null;
+  floorDeg: { m: number; d: number } | null;
+  /** The gates the latch actually ran this frame, for the diagnostics
+   *  readout: enter per channel (learned, clamped), exit = enter * ratio. */
+  latchEnterMmS: number;
+  latchEnterDegS: number;
+  /** Last frame's lifted drift guards — the contraction-decay's memory. */
+  guardMmLast: number;
+  guardDegLast: number;
+  /** The previous accepted solve's posterior covariance (honest units) —
+   *  the motion prior's endpoint uncertainty. Null until a solve carries
+   *  one, and nulled when the motion it described is over (dropout reset);
+   *  a singular-Hessian frame stores null, which simply skips the next
+   *  frame's prior rather than inventing certainty. */
+  lastCovariance: Float64Array | null;
+  /** The session's variance-factor EMA and the previous frame's raw value —
+   *  the sigma-claim honesty scale the prior is weighted by. The EMA
+   *  SURVIVES dropouts (honesty is a property of the session, like the rest
+   *  floor); the per-frame value dies with the motion. */
+  vfEma: number | null;
+  vfPrev: number | null;
+  /**
+   * How many of its own claimed sigmas the motion prior's prediction was wrong
+   * by on the last frame that carried one, and an EMA of the same. Null until
+   * a prior has been graded.
+   *
+   * This is the signal that lets one process-noise constant serve both a still
+   * head and a reversing one — see the `miss` term in `buildMotionPrior`.
+   */
+  priorMissLast: number | null;
+  priorMissEma: number | null;
+  /** A release/adoption crossfade in flight. `fadeFrom` is armed where the
+   *  eye last saw the glasses; the first fade frame converts it into
+   *  `fadeOffset` — the error from the live pose, as a translation and a
+   *  rotation vector — which then decays to zero over `fadeLeft` frames
+   *  while live motion rides through underneath at full rate. */
+  fadeFrom: Pose | null;
+  fadeOffset: { t: Float64Array; w: Float64Array } | null;
+  fadeLeft: number;
+  /** Diagnostics counts: how often the latch engaged, released on velocity,
+   *  re-anchored on the drift guard — and how many frames it HELD, so a
+   *  paste can report the average latch spell (latchedFrames / engages)
+   *  even after the interesting seconds have rolled out of the app's short
+   *  readout ring. Three field pastes in a row lost their still segment to
+   *  that ring before this counter existed. */
+  latchEngages: number;
+  latchReleases: number;
+  latchReanchors: number;
+  latchedFrames: number;
+  /** Times the basin audit replaced a warm pose — a diagnostics count. */
+  basinEscapes: number;
+  /** Cold audits solved, and decisive-rms wins skipped because the pose
+   *  difference sat inside the adoption deadband. */
+  basinAuditsRun: number;
+  basinAdoptionsSkipped: number;
   consecutiveFailures: number;
   lostSeconds: number;
   /** Frames since the last full acquisition. */
@@ -134,9 +411,37 @@ export function createTracker(
   return {
     model,
     options: { ...TRACKER_DEFAULTS, ...options },
+    rigidityScratch: new Float64Array(model.vertexCount),
+    calibratedScratch: new Uint8Array(model.vertexCount),
+    marchScratch: new Int32Array(model.vertexCount).fill(-1),
     smoother: new PoseSmoother(),
     lastRaw: null,
     lastSmoothed: null,
+    latchQuiet: 0,
+    latchedPose: null,
+    velRing: [],
+    velTime: 0,
+    floorMm: null,
+    floorDeg: null,
+    latchEnterMmS: LATCH_ENTER_VEL_MMS,
+    latchEnterDegS: LATCH_ENTER_VEL_DEGS,
+    guardMmLast: LATCH_DRIFT_MM,
+    guardDegLast: LATCH_DRIFT_DEG,
+    lastCovariance: null,
+    vfEma: null,
+    vfPrev: null,
+    priorMissLast: null,
+    priorMissEma: null,
+    fadeFrom: null,
+    fadeOffset: null,
+    fadeLeft: 0,
+    latchEngages: 0,
+    latchReleases: 0,
+    latchReanchors: 0,
+    latchedFrames: 0,
+    basinEscapes: 0,
+    basinAuditsRun: 0,
+    basinAdoptionsSkipped: 0,
     consecutiveFailures: 0,
     lostSeconds: 0,
     framesTracked: 0,
@@ -149,6 +454,17 @@ export interface TrackInput {
   landmarks: Float64Array | null;
   /** Per-landmark sigma in pixels. */
   sigmaPx: Float64Array | null;
+  /**
+   * Per-vertex visibility in [0,1] from the uncertainty estimator's raster
+   * (computed against the PREVIOUS pose — no same-frame feedback loop), or
+   * null when unknown (acquisition, tests that predate it). The solve CULLS
+   * what it cannot see: MediaPipe invents the far half-face from its frontal
+   * prior, and those landmarks are bias, not noise — sigma inflation mutes
+   * them (7x still clears the 12 px cutoff) where only exclusion removes
+   * them. Applied as a smoothstep ramp into the rigidity channel, so weight
+   * fades in and out instead of popping at a threshold.
+   */
+  visibility?: Float64Array | null;
   intrinsics: Intrinsics;
   /** Seconds since the previous frame that was actually *consumed*. Not the
    *  camera interval: after a dropout the true gap is longer, and feeding the
@@ -173,10 +489,334 @@ export interface TrackResult {
    *  honest measure of the lag the filter is costing. */
   smoothingLagMm: number;
   smoothingLagDeg: number;
+  /** The noise scale the adaptive filter ran at this frame: 1 on a clean frame
+   *  (and always, unless `smooth` is `'adaptive'`), up to
+   *  `ADAPTIVE_NOISE_SCALE_MAX` on a heavily occluded one. NaN on a held or
+   *  dropped frame — no solve, no sigma to scale by. Diagnostics readout;
+   *  nothing gates on it. */
+  noiseScale: number;
+  /** Windowed velocity of the raw pose over the last LATCH_VEL_WINDOW frames,
+   *  mm/s and deg/s — the signal the stillness latch gates on. NaN until the
+   *  window fills and on held or dropped frames. Reported in EVERY mode, so a
+   *  real session's diagnostics can re-derive the latch thresholds from the
+   *  face they failed on. */
+  velMmS: number;
+  velDegS: number;
+  /** This frame's one-sigma pose uncertainty from the calibrated solve
+   *  covariance (mm / deg), and the still-velocity noise the window would
+   *  read on a perfectly still head — the denominators the latch gates lift
+   *  against. NaN when unavailable. */
+  sigmaMm: number;
+  sigmaDeg: number;
+  noiseVelMmS: number;
+  noiseVelDegS: number;
+  /** The motion prior's information share of this frame's solve, per block
+   *  (trace ratio at the solution). NaN when no prior ran — cold frames,
+   *  the ring refilling, `motionPrior` off. The field instrument for the
+   *  prior's strength: at frontal rest it should read near zero, at a
+   *  tilted rest a substantial fraction, mid-turn near zero again. */
+  priorShareRot: number;
+  priorShareMm: number;
+  /** The solve's a-posteriori variance factor — how mis-scaled the honest
+   *  sigma claims measured this frame. NaN on held or dropped frames. */
+  varianceFactor: number;
+  /** The emitted pose is the latch anchor, bit-frozen. */
+  latched: boolean;
+  /** The emitted pose is inside a release/adoption crossfade. */
+  fading: boolean;
   /** Set when the pose is held over from a previous frame. */
   held: boolean;
   reason: string | null;
 }
+
+/**
+ * The stillness latch, v2 — `smooth: 'locked'`.
+ *
+ * What a resting wearer's eye wants is not smoothed motion but ZERO motion:
+ * "the glasses jiggle in place" was the first real wearer's exact complaint,
+ * and the adaptive filter's answer (smooth everything harder) bought delay
+ * instead, because its noise proxy is permanently elevated on real frames.
+ * While latched, the tracker emits the held pose EXACTLY — bit-frozen, no
+ * residual crawl.
+ *
+ * **Why v1 was retired — the same wearer's next report.** v1 gated on
+ * DISPLACEMENT: innovation against the held pose inside an enter band
+ * (1.2 mm / 0.5°) latched, past an exit band (2.2 mm / 0.9°) released, both
+ * as hard cuts. On their face it read "stuck and choppy", and the mechanism
+ * is structural: slow deliberate motion moves well under a millimetre per
+ * frame, so the enter band cannot tell it from rest — the latch engages
+ * MID-MOTION, holds until the drift accumulates past exit, snaps 2 mm,
+ * re-engages, and turns a slow head turn into a stutter. No displacement
+ * band fixes that, because per-frame displacement is the wrong axis: rest
+ * and slow motion differ in *persistence*, not in step size.
+ *
+ * v2 gates on a WINDOWED VELOCITY: displacement of the raw pose across the
+ * last `LATCH_VEL_WINDOW` frames, divided by the elapsed time. Zero-mean
+ * detector wander largely cancels over the window; persistent motion does
+ * not. Enter needs both channels quiet for `LATCH_ENTER_FRAMES`; release
+ * needs sustained velocity past the exit thresholds (hysteresis, so the
+ * boundary cannot chatter) — OR the drift guard: innovation against the
+ * anchor beyond `LATCH_DRIFT_MM`/`DEG`, which catches creep slower than the
+ * velocity floor before it can accumulate a visible offset. Every release —
+ * velocity, drift guard, or a basin-audit adoption — lands as a
+ * `LATCH_FADE_FRAMES` crossfade toward the live pose instead of a cut: the
+ * anchor's job is to own rest, not to make leaving rest an event the eye can
+ * see.
+ *
+ * ## The gates calibrate themselves — nobody's face is the constant
+ *
+ * The enter/exit thresholds started as fixed constants from a synthetic
+ * correlated-noise sweep, and the first real face convicted them inside a
+ * day: that wearer's at-rest rotational wander (windowed p50 0.87 deg/s,
+ * p90 2.14) sat ABOVE both the modeled enter (0.8) and exit (1.4), so the
+ * latch chattered on their stillness — 34.7% latched, seven engage/release
+ * cycles in nine seconds of sitting still. No fixed pair of numbers
+ * survives this, because the rest floor is a property of the SESSION —
+ * camera, detector, light, distance — not of the algorithm, and the same
+ * wearer's fps drifted 30-36 across three diagnostics pastes.
+ *
+ * So the gates are LEARNED, per channel, from the one population of frames
+ * the latch can vouch for: while latched, the emitted pose is bit-frozen
+ * and the innovation is bounded by the drift guard, so those frames ARE
+ * this session's rest, and their windowed velocities sample its floor. A
+ * mean + absolute-deviation EMA over latched-frame velocities sets
+ * enter = m + LATCH_FLOOR_MARGIN*d, clamped to [prior, prior*cap], with
+ * exit = enter * LATCH_EXIT_RATIO. The estimate ratchets itself open:
+ * latched samples are censored at the current exit, but every raise of the
+ * gate widens what the next samples can show, so a floor 3x the prior is
+ * learned in a few seconds of wear. It relaxes back the same way — when
+ * the regime quiets, the latched samples quiet, and the EMA follows them
+ * down to the prior clamp. Motion never feeds the estimator: unlatched
+ * frames are somebody moving, and learning from them would teach the latch
+ * to call motion rest.
+ *
+ * The shipped constants below are therefore PRIORS and CLAMPS, not
+ * thresholds: the enter values are what an unlearned session starts from
+ * (and the floor a learned gate may never tighten below — a quieter-than-
+ * prior session just latches eagerly, which costs nothing), and the caps
+ * bound what noise may claim (LATCH_FLOOR_CAP_DEG * 0.8 = 4.8 deg/s keeps
+ * a 5 deg/s deliberate head turn followable in ANY regime). Provenance for
+ * the priors is the original synthetic sweep; the caps and the estimator's
+ * two tuning numbers are sized against the first wearer's field pastes and
+ * verified as a MECHANISM across synthetic regimes at 1-10x the modeled
+ * floor — see the ledger rows. The diagnostics panel reports the live
+ * learned gates, so any session's paste shows what its face taught them.
+ */
+/**
+ * The visibility cull ramp: below LO a landmark's vote is zero, above HI it
+ * is untouched, smoothstepped between so weight fades instead of popping as
+ * the head turns. Values measured on the hallucination fixture sweep — see
+ * the ledger rows and the "visible half owns the solve" tests.
+ */
+export const VIS_CULL_LO = 0.1;
+export const VIS_CULL_HI = 0.35;
+/**
+ * Visibility at or above which a landmark's sigma still counts as an HONEST
+ * noise claim, eligible to calibrate the variance factor (see
+ * `Correspondence.sigmaCalibrated`). At this facing the occlusion inflation
+ * is 1 + 6*(1-v)^2 <= 1.06 — a <=4% residual bias on the estimate, against
+ * the 18-28% understatement the pooled estimator carried. Measured on the
+ * production raster (probe, template mesh): 43-73 static-rigid vertices
+ * clear this cut across yaw 0-40, so the estimate never starves in the
+ * working regime; the price is a noisier per-frame factor (dof ~80-140,
+ * ~16% relative sd at frontal against the pooled ~5%), absorbed by the
+ * guard's contraction decay and, for the motion prior, by its EMA.
+ */
+export const VF_CAL_MIN_VIS = 0.9;
+/**
+ * The redescending schedule: Barron's shape parameter as a function of how
+ * well the camera can see a landmark.
+ *
+ * The cull removes what the raster says is hidden, and the sigma inflation
+ * mutes what is oblique, but neither reaches the landmark this rank is for:
+ * one that is only PARTIALLY hallucinated. Such a point stays front-facing,
+ * survives any cull, carries a plausible sigma — and is simply in the wrong
+ * place, because the detector drew that part of the face from its frontal
+ * prior. Huber gives it constant force forever. Measured on the production
+ * fixture, that is worth ~10.9 mm of translation bias at 40 degrees of yaw,
+ * and it is the same number at every cull band, because no threshold
+ * separates "partly invented" from "merely oblique".
+ *
+ * A redescending kernel does: past a few sigmas its influence falls back
+ * toward zero, so a landmark that disagrees with the consensus stops
+ * arguing. `BARRON_ALPHA_HIGH` = 1 is where the well-visible landmarks sit,
+ * `BARRON_ALPHA_LOW` = -2 is Geman-McClure, and the schedule smoothsteps
+ * between them across
+ * [`BARRON_VIS_LO`, `BARRON_VIS_HI`] of raw facing cosine. The band brackets
+ * the populated part of the partially-visible range: the measured facing
+ * histogram puts ~112 vertices between 0.35 and 0.8 at 40 degrees, which is
+ * exactly the population that survives the cull and should not be trusted
+ * unconditionally.
+ *
+ * **alpha = 1 is NOT the pre-rank-5 behaviour, and an earlier draft of this
+ * comment claimed it was.** Barron at alpha 1 is Charbonnier, a SMOOTH
+ * Huber, and its weight sits below true Huber's everywhere inside the
+ * threshold — 0.928 against 1 at one sigma, 0.707 against 1 at the
+ * threshold itself. So on a scheduled frame EVERY correspondence changes
+ * weight, not only the poorly-seen ones, and any measured effect is the sum
+ * of a global kernel change and the schedule proper. The two are separated
+ * by measurement rather than by assertion: the frontal experiment runs three
+ * cells — Huber (control), alpha pinned to ALPHA_HIGH everywhere (the
+ * kernel change alone), and the full schedule — and the ledger row carries
+ * all three.
+ *
+ * One relationship is a hard invariant rather than a tuning choice:
+ * `BARRON_VIS_HI` must stay at or below `VF_CAL_MIN_VIS`, so every landmark
+ * the variance factor calibrates from sits at the schedule's fixed upper
+ * end. Otherwise the factor rank 4's motion prior consumes would drift with
+ * the schedule instead of describing the sigma stream. Asserted in the
+ * tests, not merely written here.
+ *
+ * The schedule reads RAW visibility, deliberately not the effective
+ * rigidity: the eye region's disenfranchisement is about gaze, a different
+ * question, and compounding the two would be double-counting the same
+ * hiddenness twice over — which the ledger already records the cull ramp and
+ * the sigma inflation doing.
+ */
+export const BARRON_ALPHA_HIGH = 1;
+export const BARRON_ALPHA_LOW = -2;
+export const BARRON_VIS_LO = 0.35;
+export const BARRON_VIS_HI = 0.8;
+
+export const LATCH_VEL_WINDOW = 10;
+export const LATCH_ENTER_VEL_MMS = 8.5;
+export const LATCH_ENTER_VEL_DEGS = 0.8;
+export const LATCH_EXIT_RATIO = 1.8;
+export const LATCH_FLOOR_MARGIN = 3;
+export const LATCH_FLOOR_RATE = 0.02;
+export const LATCH_FLOOR_CAP_MM = 3;
+export const LATCH_FLOOR_CAP_DEG = 6;
+export const LATCH_DRIFT_MM = 2.2;
+export const LATCH_DRIFT_DEG = 0.9;
+/**
+ * The covariance lifts, dimensionless. `LATCH_GATE_SNR` multiplies the
+ * window's predicted still-velocity noise (endpoint sigmas in quadrature
+ * over the span) into a gate floor; `LATCH_GUARD_SNR` multiplies the frame's
+ * pose sigma into a drift-guard floor. Both are "how many sigmas of the
+ * solve's own noise before we call it motion" — the regime-free form of the
+ * question every absolute threshold here was approximating. Values from the
+ * hallucination-fixture sweep; the followability caps bound both.
+ */
+export const LATCH_GATE_SNR = 3.5;
+export const LATCH_GUARD_SNR = 5;
+/**
+ * Where the leaky anchor wakes, as a fraction of the drift guard.
+ *
+ * The first calibrated field session held the latch beautifully and then
+ * BREATHED: the wearer's rest wander accumulated against the bit-frozen
+ * anchor until the drift guard paid it out as a glide every couple of
+ * seconds — 11 of 12 latch exits were drift re-anchors, and the wearer saw
+ * every one. A stillness whose corrections arrive as periodic events is not
+ * stillness; corrections must be continuous and individually invisible.
+ *
+ * So inside this fraction of the guard the anchor is EXACTLY frozen — that
+ * deadband is the stillness the latch promises — and beyond it the anchor
+ * pursues the raw pose just fast enough to hold the innovation at the
+ * boundary, capped at the channel's ENTER velocity: the speed the gate
+ * itself defines as indistinguishable from rest, so the pursuit is
+ * invisible by the same definition that makes the latch latch. Each channel
+ * pursues only while its windowed velocity reads under its enter gate —
+ * genuine motion gets no pursuit, keeps accumulating, and leaves through
+ * the guard or the velocity release as before; the guard survives as the
+ * hard backstop the pursuit should rarely let it reach. A welcome corollary:
+ * sub-enter creep, which used to advance as guard-snap sawteeth, is now
+ * simply followed at creep speed one deadband behind.
+ */
+export const LATCH_SLEW_START = 0.5;
+export const LATCH_ENTER_FRAMES = 3;
+/**
+ * The motion prior's constant-velocity fit runs over this many trailing
+ * velRing entries (fewer while the ring refills; two is the working
+ * minimum). The count sets the prior's structural strength ceiling: the
+ * predictor's noise gain c = sum(w_i^2) is 5 at two points (the recursion's
+ * fixed point caps the sigma reduction at 11% — the design review proved
+ * the two-point form dead on arrival), 1.5 at four (ceiling 42%), under 1
+ * at six — but the exact constant-acceleration error the fit commits grows
+ * with the window (2.5 vs 1.0 units of a*dt^2 at four vs two points), so a
+ * longer window trades onset lag for rest strength. Four is the shipped
+ * balance; the Q constants below are sized against it.
+ */
+export const PRIOR_POINTS = 4;
+/**
+ * The head-acceleration bounds behind the prior's process noise, one per
+ * channel type, face- and session-independent, priced through the window's
+ * exact error functional (see `buildMotionPrior`).
+ *
+ * **These are 37x below the peak acceleration a head reaches, and that is
+ * the correct reading of what they are.** The first draft sized them from
+ * the wearer's recorded traces at the PEAK of a deliberate turn onset —
+ * ~380 mm/s reached in ~0.25 s is ~1400 mm/s^2, and ~3 rad/s over the same
+ * onset is ~12 rad/s^2 — which is the right number for the wrong quantity.
+ * What the process noise has to describe is the residual acceleration a
+ * constant-velocity fit over four frames fails to capture, across the whole
+ * POPULATION of frames, and that population is dominated by a head sitting
+ * nearly still. Sizing it at the peak asserts that the wearer might be
+ * accelerating maximally on every frame, which throws the prior away on the
+ * frames it exists to serve.
+ *
+ * The values are therefore MEASURED, by a paired-seed sweep over five
+ * octaves (see the ledger rows), and the safety question the small numbers
+ * obviously raise — does a prior this strong lag a genuinely hard motion? —
+ * is answered by the sweep's adversarial cell rather than by argument: a
+ * ~1.7 rad/s turn sweeping 25-55 degrees of yaw, where these constants are
+ * violated by two orders of magnitude, costs 0.35 frames (12 ms) of lag and
+ * IMPROVES accuracy by 3.0%, in 5 seeds of 5. The mechanism that makes that
+ * safe is the information share: even a badly violated prior carries only
+ * 2% of the solve at frontal and 17% at 40 degrees, so it can move the
+ * answer by a bounded fraction and no more. The untested corner, stated:
+ * hard acceleration beyond ~55 degrees, where the landmark information is
+ * weakest and the share is highest.
+ */
+export const MOTION_PRIOR_ACCEL_MM_S2 = 37.5;
+export const MOTION_PRIOR_ACCEL_RAD_S2 = 0.375;
+
+/**
+ * How fast the prior's honesty estimate forgets, per frame that carried a
+ * prior.
+ *
+ * `stated`: 0.25 is about four frames of memory at 30 fps, chosen against the
+ * thing being tracked rather than swept — a head reverses two or three times a
+ * second, so the estimate has to relax between reversals or a single shake
+ * would suppress the prior for the rest of the session. It is deliberately the
+ * SLOW half of the pair: `buildMotionPrior` takes `max(last, EMA)`, so the
+ * stand-aside on a violated prediction is immediate at any rate, and this
+ * constant governs only how quickly trust returns.
+ */
+export const PRIOR_MISS_EMA_RATE = 0.25;
+/**
+ * The longest interval between two ring entries the prior will fit across.
+ *
+ * The process noise already prices a long lever arm — a window straddling a
+ * 0.4 s gap reads 3.3x the acceleration slack of an ordinary one — but that
+ * pricing assumes CONSTANT acceleration, and darkness can hide a reversal,
+ * which no acceleration bound covers. So a gap simply ends the window: the
+ * prior fits only frames whose motion something actually watched, and costs
+ * one prior-less frame after any sub-reset dropout. 0.15 s is about four
+ * frames at 30 fps and five at 36 — comfortably past ordinary detector
+ * jank at either end of the session fps drift this app has measured, and
+ * well under the 0.5 s at which everything else here declares the motion
+ * over.
+ */
+export const PRIOR_MAX_STEP_S = 0.15;
+/**
+ * EMA rate on the per-frame variance factor — the session's sigma-claim
+ * honesty estimate that scales the prior into the solve's claim units.
+ * ~10-frame time constant: fast enough to track a regime change inside a
+ * second, slow enough to hold the per-frame factor's ~16% noise to a few
+ * percent. The prior's weight uses max(EMA, previous frame's factor), so a
+ * one-frame spike (a hand the raster cannot see) strengthens the prior
+ * immediately instead of waiting out the EMA's lag.
+ */
+export const VF_EMA_RATE = 0.1;
+/**
+ * 3, down from 5 (2026-08-23): the wearer's localization experiment placed
+ * the "delay" squarely in the first instant after stillness, and the fade
+ * is the deliberate half of that instant. The leaky anchor shrank the
+ * offset a release pays out (innovation is pinned near the pursuit deadband
+ * instead of the full drift guard), so the shorter fade's per-frame steps
+ * stay comparable to the old five-frame payout of a bigger offset.
+ */
+export const LATCH_FADE_FRAMES = 3;
 
 export function track(state: TrackerState, input: TrackInput): TrackResult {
   const { model, options } = state;
@@ -185,42 +825,467 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     return miss(state, input.dt, 'no face detected');
   }
 
+  // The unclaimed dropout time riding on this frame, read BEFORE anything
+  // else: the motion prior must judge the same COMBINED darkness the stall
+  // reset below judges — a split judgement already let a second of gap
+  // through two half-checks once. (The prior's gate uses the 1/30 fallback
+  // where the reset's uses 0 for a non-positive dt; the prior is merely
+  // skipped more eagerly, which costs one prior-less frame.)
+  const gapSeconds = state.lostSeconds;
+  const dtSolve = input.dt > 0 ? input.dt : 1 / 30;
+  // The constant-velocity MAP prior — see `buildMotionPrior`. Only for warm
+  // solves on a live ring: a cleared ring is a motion that is over, and a
+  // gap past the reset span is about to clear it.
+  //
+  // Built HERE, above the correspondences, because the redescending schedule
+  // below has to know whether this frame will carry a prior: a non-convex
+  // kernel is only safe once something is holding the solve in the right
+  // basin, and the prior's prediction is that something. Nothing in
+  // `buildMotionPrior` reads the correspondences, so the order is free.
+  const prior = options.motionPrior && state.lastRaw && state.lastCovariance
+      && state.velRing.length >= 2
+      && dtSolve + gapSeconds <= options.lostSecondsBeforeReset
+    ? buildMotionPrior(state, dtSolve + gapSeconds)
+    : null;
+
+  // The effective rigidity this frame: the static map (the eye region's
+  // disenfranchisement) times the visibility ramp (the far side's) — one
+  // currency into the solver. The wearer's phrasing, made literal: the solve
+  // is owned by the half of the face the camera can actually see.
+  let rigidity = options.rigidity ?? undefined;
+  if (input.visibility) {
+    const eff = state.rigidityScratch;
+    for (let i = 0; i < model.vertexCount; i++) {
+      const ramp = smoothstep(VIS_CULL_LO, VIS_CULL_HI, input.visibility[i]);
+      eff[i] = (options.rigidity ? options.rigidity[i] : 1) * ramp;
+    }
+    rigidity = eff;
+  }
+  // The variance-factor eligibility mask: a sigma is an honest noise claim
+  // only where no deliberate inflation touched it — the STATIC rigidity map
+  // untouched (the ramp half of the effective product is bounded by the
+  // visibility test: ramp < 1 implies visibility < VIS_CULL_HI < the cut)
+  // and the occlusion inflation negligible. See VF_CAL_MIN_VIS.
+  const calibrated = state.calibratedScratch;
+  for (let i = 0; i < model.vertexCount; i++) {
+    calibrated[i] = (options.rigidity == null || options.rigidity[i] >= 0.999)
+      && (input.visibility == null || input.visibility[i] >= VF_CAL_MIN_VIS) ? 1 : 0;
+  }
   const correspondences: Correspondence[] = buildCorrespondences(
-    input.landmarks, input.sigmaPx, model.vertexCount, undefined, options.maxSigmaPx,
+    input.landmarks, input.sigmaPx, model.vertexCount,
+    rigidity, options.maxSigmaPx, calibrated,
   );
   if (correspondences.length < options.minCorrespondences) {
     return miss(state, input.dt, `only ${correspondences.length} usable landmarks`);
   }
 
-  // Warm start from the previous raw pose; POSIT from scratch only on
-  // acquisition. In steady state this converges in two iterations.
+  // Landmark marching — see `silhouetteStrips`. The oval landmarks are
+  // rematched to whichever vertex is actually on the occluding contour under
+  // the pose we currently believe: the prior's prediction where there is
+  // one, the previous raw pose otherwise. Never the pose being solved for,
+  // which would close a loop around the estimate.
+  const predicted = prior ? prior.pose : state.lastRaw;
+  if (options.ovalStrips && predicted) {
+    for (const strip of options.ovalStrips) {
+      state.marchScratch[strip.landmark] = marchStrip(strip, model.positions, predicted);
+    }
+    for (const c of correspondences) {
+      const marched = state.marchScratch[c.vertex];
+      // A strip's landmark maps to itself when it is already the contour
+      // vertex, so this is a no-op at frontal by construction rather than by
+      // a special case.
+      if (marched >= 0) c.vertex = marched;
+    }
+    state.marchScratch.fill(-1);
+  }
+
+  // The redescending schedule — see `BARRON_VIS_LO`. A landmark the camera
+  // can see keeps a Huber-like kernel; one it can barely see gets a
+  // redescending one, so a partially-hallucinated point's influence can fall
+  // to zero instead of pulling with constant force forever. Only stamped
+  // when a prior exists to hold the basin, and only honoured by the solve
+  // that carries that prior — the cold retry and the basin audit reuse this
+  // same array and must stay convex.
+  const redescending = options.redescending && prior !== null && input.visibility != null;
+  if (redescending) {
+    for (const c of correspondences) {
+      c.lossAlpha = BARRON_ALPHA_HIGH + (BARRON_ALPHA_LOW - BARRON_ALPHA_HIGH)
+        * (1 - smoothstep(BARRON_VIS_LO, BARRON_VIS_HI, input.visibility![c.vertex]));
+    }
+  }
+
+  // Warm start from the prediction where a prior exists (the fit's
+  // extrapolation is the best available start during motion), from the
+  // previous raw pose otherwise; POSIT from scratch only on acquisition.
+  // Every solve that could become this frame's result carries its calibrated
+  // covariance — the per-frame statement of how much the solve can know,
+  // which the latch gates are normalized against. One 6x6 inversion.
+  const COV = { wantCovariance: true };
   let result: PnPResult;
+  let coldAcquired = false;
   if (state.lastRaw) {
-    result = refinePnP(model.positions, correspondences, input.intrinsics, state.lastRaw);
+    result = prior
+      ? refinePnP(model.positions, correspondences, input.intrinsics, prior.pose,
+        { wantCovariance: true, prior, redescending })
+      : refinePnP(model.positions, correspondences, input.intrinsics, state.lastRaw, COV);
     // A warm start that lands badly is usually a warm start that was stale —
     // the head moved a lot while we were not looking. Retry cold before giving
     // up, because a cold solve at any pose is the whole point of having a model.
+    // The cold solve carries NO prior, deliberately: its whole job is to
+    // escape wherever the warm chain — prior included — got stuck.
     if (!(result.rmsPx <= options.maxRmsPx)) {
-      const cold = solvePnP(model.positions, correspondences, input.intrinsics);
-      if (cold.rmsPx < result.rmsPx) { result = cold; state.acquisitions++; }
+      const cold = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+      if (cold.rmsPx < result.rmsPx) { result = cold; coldAcquired = true; }
     }
   } else {
-    result = solvePnP(model.positions, correspondences, input.intrinsics);
-    state.acquisitions++;
+    result = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+    coldAcquired = true;
   }
 
   if (!(result.rmsPx <= options.maxRmsPx) || !(result.pose.t[2] > 50)) {
     return miss(state, input.dt, `reprojection ${result.rmsPx.toFixed(1)} px`);
   }
+  // The second half of the gate: how much of this frame is describing
+  // something that is not this face. Checked AFTER the rms so the reason
+  // string names whichever question actually failed.
+  if (result.grossFraction > options.maxGrossFraction) {
+    return miss(state, input.dt,
+      `${(result.grossFraction * 100).toFixed(0)}% of landmarks are elsewhere`);
+  }
+  // Counted only past the gate: 'acquisitions' means times the tracker
+  // actually acquired from scratch. Counting at the solve, as this used to,
+  // let a hand-over-face spell — cold retry beating a stale warm start,
+  // gate rejecting both — inflate the counter by one per occluded frame,
+  // ~60 phantom acquisitions per two-second occlusion in the diagnostics.
+  if (coldAcquired) state.acquisitions++;
 
+  // The basin audit — see `TrackerOptions.basinAuditInterval`. Runs on frames
+  // the gate is HAPPY with, because that is exactly where a wrong basin hides.
+  if (state.lastRaw && options.basinAuditInterval > 0
+      && state.framesTracked % options.basinAuditInterval === 0) {
+    const audit = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+    state.basinAuditsRun++;
+    if (audit.rmsPx <= options.maxRmsPx
+        && audit.rmsPx < result.rmsPx * options.basinRescueRatio) {
+      // The adoption deadband: a decisive rms win at a near-identical pose is
+      // the same basin, and adopting it would spend a smoother reset on
+      // nothing. See `TrackerOptions.basinAdoptMinMm`.
+      const dMm = Math.hypot(
+        audit.pose.t[0] - result.pose.t[0],
+        audit.pose.t[1] - result.pose.t[1],
+        audit.pose.t[2] - result.pose.t[2],
+      );
+      const dDeg = (rotationAngleBetween(audit.pose.R, result.pose.R) * 180) / Math.PI;
+      if (dMm < options.basinAdoptMinMm && dDeg < options.basinAdoptMinDeg) {
+        state.basinAdoptionsSkipped++;
+      } else {
+        // One expression, deliberately: the adoption, its count, and the death
+        // of the old basin's memory (latch, smoother, velocity window) are a
+        // single unit, so no surgical edit can keep the bookkeeping while
+        // dropping the rescue — the first breakage pass caught exactly that
+        // split and this shape is the fix.
+        result = adoptAuditPose(state, audit);
+      }
+    }
+  }
+
+  // Dropout frames consume real time but never reach the clock below —
+  // miss() banks their dt in lostSeconds, and the frame that recovers must
+  // credit it, or the velocity window straddles the gap with a foreshortened
+  // span and over-reads by up to ~2.4x (a sub-reset spell can be 14 frames)
+  // for the next full window: enough to refuse a resting latch, or to
+  // spuriously release one right after the wearer's hand leaves their face.
+  // (`gapSeconds` is read above the solve, because the motion prior has to
+  // make the same judgement about the same darkness.)
   state.consecutiveFailures = 0;
   state.lostSeconds = 0;
   state.framesTracked++;
   state.lastRaw = poseClone(result.pose);
 
-  const smoothed = options.smooth
-    ? state.smoother.filter(result.pose, input.dt)
+  // A consumed frame arriving after more unobserved time than the dropout-
+  // reset span is a stall — a tab switch, a GC pause, detector jank — and
+  // the ring's history predates a gap nothing observed. Credited into the
+  // span it would DILUTE the windowed velocity instead (one huge denominator
+  // over ten old poses), and a head panning at 30 mm/s right after a
+  // one-second stall would read ~1-3 mm/s for three frames: quiet enough to
+  // latch mid-pan. The judgement is the miss path's, at the same threshold,
+  // over the same quantity — dt PLUS any sub-reset miss gap riding on this
+  // frame, because darkness split across the two counters is still one gap
+  // (the review caught ~1.0 s of unobserved motion evading both halves).
+  // And it is the miss path's WHOLE judgement: the anchor, the fade and the
+  // pursuit memory describe a motion that is over — a latch held across a
+  // two-second tab-switch used to pay the entire gap displacement out as a
+  // three-frame swoop from the stale anchor, booked as a drift re-anchor.
+  if ((input.dt > 0 ? input.dt : 0) + gapSeconds > options.lostSecondsBeforeReset) {
+    state.velRing.length = 0;
+    state.latchQuiet = 0;
+    state.latchedPose = null;
+    state.fadeFrom = null;
+    state.fadeOffset = null;
+    state.fadeLeft = 0;
+    // The motion prior needs no separate kill here: it reads the ring, and
+    // the ring is now empty, so it cannot fire until two observed frames
+    // have rebuilt it. `vfEma` deliberately survives — how honest this
+    // session's sigma claims are is a property of the camera and the light,
+    // like the latch's rest floor, and darkness does not change it.
+  }
+
+  // The prior's memory for the NEXT frame. A singular Hessian stores null —
+  // the next frame then solves prior-less rather than reusing a covariance
+  // that describes a different frame, which is the same honesty rule the
+  // sigma carry-forward above breaks deliberately for a pure readout.
+  state.lastCovariance = result.covariance;
+
+  // Grade the prediction this frame's prior made, against where the solve
+  // actually landed, in units of the sigma the prior itself claimed. Only on
+  // frames that carried a prior — a prior-less frame says nothing about the
+  // constant-velocity model, and letting it decay the estimate would hand the
+  // next reversal a stale all-clear.
+  if (prior) {
+    const relPrior = m3();
+    const wPrior = v3();
+    logSO3(wPrior, m3mul(relPrior, result.pose.R, m3transpose(m3(), prior.pose.R)));
+    const residRot = Math.hypot(wPrior[0], wPrior[1], wPrior[2]);
+    const ratio = residRot / Math.max(prior.sigmaRot, 1e-9);
+    state.priorMissLast = ratio;
+    state.priorMissEma = state.priorMissEma === null
+      ? ratio
+      : state.priorMissEma + PRIOR_MISS_EMA_RATE * (ratio - state.priorMissEma);
+  }
+
+  if (Number.isFinite(result.varianceFactor) && result.varianceFactor > 0) {
+    state.vfPrev = result.varianceFactor;
+    state.vfEma = state.vfEma === null
+      ? result.varianceFactor
+      : state.vfEma + VF_EMA_RATE * (result.varianceFactor - state.vfEma);
+  }
+
+  // This frame's one-sigma pose uncertainty, mm and degrees, from the
+  // calibrated covariance. A singular Hessian (rare, catastrophic frames the
+  // rms gate usually refuses anyway) carries the previous frame's value
+  // forward rather than inventing certainty or panic.
+  let sigmaMm = NaN;
+  let sigmaDeg = NaN;
+  if (result.covariance) {
+    const C = result.covariance;
+    sigmaDeg = (Math.sqrt(Math.max(0, (C[0] + C[7] + C[14]) / 3)) * 180) / Math.PI;
+    sigmaMm = Math.sqrt(Math.max(0, (C[21] + C[28] + C[35]) / 3));
+  } else if (state.velRing.length > 0) {
+    const last = state.velRing[state.velRing.length - 1];
+    sigmaMm = last.sigmaMm;
+    sigmaDeg = last.sigmaDeg;
+  }
+
+  // The velocity window rides the raw stream in every mode: the latch gates
+  // on it, and the readout reports it so a real session's numbers can put the
+  // thresholds on trial.
+  state.velTime += (input.dt > 0 ? input.dt : 1 / 30) + gapSeconds;
+  state.velRing.push({ pose: poseClone(result.pose), time: state.velTime, sigmaMm, sigmaDeg });
+  if (state.velRing.length > LATCH_VEL_WINDOW + 1) state.velRing.shift();
+  let velMmS = NaN;
+  let velDegS = NaN;
+  let noiseVelMmS = NaN;
+  let noiseVelDegS = NaN;
+  if (state.velRing.length === LATCH_VEL_WINDOW + 1) {
+    const a = state.velRing[0], b = state.velRing[state.velRing.length - 1];
+    const span = b.time - a.time;
+    if (span > 0) {
+      velMmS = Math.hypot(
+        b.pose.t[0] - a.pose.t[0], b.pose.t[1] - a.pose.t[1], b.pose.t[2] - a.pose.t[2],
+      ) / span;
+      velDegS = ((rotationAngleBetween(b.pose.R, a.pose.R) * 180) / Math.PI) / span;
+      // What the windowed velocity would read on a PERFECTLY STILL head: the
+      // window is an endpoint difference, so its noise is the two endpoint
+      // sigmas in quadrature over the span. This is the denominator that
+      // makes the latch gates dimensionless — "velocity in units of what
+      // this regime's solve can know".
+      if (Number.isFinite(a.sigmaMm) && Number.isFinite(b.sigmaMm)) {
+        noiseVelMmS = Math.hypot(a.sigmaMm, b.sigmaMm) / span;
+        noiseVelDegS = Math.hypot(a.sigmaDeg, b.sigmaDeg) / span;
+      }
+    }
+  }
+
+  // `'adaptive'` reads the frame's noise off the sigma the tracker was handed
+  // anyway; `true` passes the neutral scale, which is bit-identical to a build
+  // that never had the parameter (the cutoff is divided by exactly 1).
+  const noiseScale = options.smooth === 'adaptive'
+    ? noiseScaleFromSigma(input.sigmaPx, options.adaptiveFloorPx)
+    : 1;
+  let smoothed = options.smooth
+    ? state.smoother.filter(result.pose, input.dt, noiseScale)
     : poseClone(result.pose);
+
+  // The gates the latch runs THIS frame. Two noise sources, two mechanisms,
+  // composed by max():
+  //   - COMMON-MODE DETECTOR WANDER (the whole landmark set drifts together)
+  //     is invisible to the solve's residuals — the pose genuinely wanders —
+  //     so it can only be LEARNED, per session, by the rest-floor calibrator.
+  //   - SOLVE NOISE (hallucinated far side culled, conditioning thinned at
+  //     tilt) is exactly what the calibrated covariance predicts, per frame,
+  //     with no learning and no bootstrap: the gate lifts the moment the
+  //     regime worsens. This is what un-deadlocks the latch at tilt — the
+  //     field session where 11 s of tilted rest latched zero frames.
+  // max() rather than quadrature: the learned floor already contains the
+  // solve noise of the regime it was learned in; adding them would double-
+  // count. The followability ceiling binds both.
+  const capMm = LATCH_ENTER_VEL_MMS * LATCH_FLOOR_CAP_MM;
+  const capDeg = LATCH_ENTER_VEL_DEGS * LATCH_FLOOR_CAP_DEG;
+  const enterMmBase = gateFrom(state.floorMm, LATCH_ENTER_VEL_MMS, LATCH_FLOOR_CAP_MM);
+  const enterDegBase = gateFrom(state.floorDeg, LATCH_ENTER_VEL_DEGS, LATCH_FLOOR_CAP_DEG);
+  const enterMm = Number.isFinite(noiseVelMmS)
+    ? Math.min(capMm, Math.max(enterMmBase, LATCH_GATE_SNR * noiseVelMmS))
+    : enterMmBase;
+  const enterDeg = Number.isFinite(noiseVelDegS)
+    ? Math.min(capDeg, Math.max(enterDegBase, LATCH_GATE_SNR * noiseVelDegS))
+    : enterDegBase;
+  state.latchEnterMmS = enterMm;
+  state.latchEnterDegS = enterDeg;
+
+  // The drift guard and pursuit deadband lift the same way: at tilt the
+  // innovation against a frozen anchor is noisier because the SOLVE is, and
+  // a fixed 2.2 mm budget would trip on noise. Capped at twice the budget —
+  // accuracy is still the point, and offsets below the solve's own noise
+  // floor are imperceptible in exactly the regimes that need the room.
+  let guardMm = Math.min(LATCH_DRIFT_MM * 2, Math.max(
+    LATCH_DRIFT_MM, Number.isFinite(sigmaMm) ? LATCH_GUARD_SNR * sigmaMm : 0,
+  ));
+  let guardDeg = Math.min(LATCH_DRIFT_DEG * 2, Math.max(
+    LATCH_DRIFT_DEG, Number.isFinite(sigmaDeg) ? LATCH_GUARD_SNR * sigmaDeg : 0,
+  ));
+  // While a latch is held the guard may not CONTRACT faster than 10% per
+  // frame: the pursuit parks the innovation just past the deadband the WIDE
+  // guard granted, and a one-frame sigma drop (an occluding hand leaving, a
+  // singular-covariance frame right after a ring clear) would pull the guard
+  // under that parked, perfectly-legal innovation and release a still head.
+  // The review mechanized exactly that release; the decay gives the pursuit
+  // the handful of frames it needs to walk the innovation back down.
+  if (state.latchedPose) {
+    if (guardMm < state.guardMmLast * 0.9) guardMm = state.guardMmLast * 0.9;
+    if (guardDeg < state.guardDegLast * 0.9) guardDeg = state.guardDegLast * 0.9;
+  }
+  state.guardMmLast = guardMm;
+  state.guardDegLast = guardDeg;
+
+  let latched = false;
+  if (options.smooth === 'locked') {
+    if (state.latchedPose) {
+      const dMm = Math.hypot(
+        result.pose.t[0] - state.latchedPose.t[0],
+        result.pose.t[1] - state.latchedPose.t[1],
+        result.pose.t[2] - state.latchedPose.t[2],
+      );
+      const dDeg = (rotationAngleBetween(result.pose.R, state.latchedPose.R) * 180) / Math.PI;
+      const velRelease = Number.isFinite(velMmS)
+        && (velMmS > enterMm * LATCH_EXIT_RATIO || velDegS > enterDeg * LATCH_EXIT_RATIO);
+      const driftRelease = dMm > guardMm || dDeg > guardDeg;
+      if (velRelease || driftRelease) {
+        // Real motion, or creep slower than the velocity floor that has
+        // finally accumulated: either way the anchor is done, and it leaves
+        // through the crossfade rather than as a cut. The smoother is NOT
+        // reset — it filtered every frame straight through the latch, so its
+        // state is current and the fade's moving target is the pose the
+        // wearer already judged acceptable in 'on'.
+        if (velRelease) state.latchReleases++;
+        else state.latchReanchors++;
+        state.fadeFrom = poseClone(state.latchedPose);
+        state.fadeLeft = LATCH_FADE_FRAMES;
+        state.latchedPose = null;
+        state.latchQuiet = 0;
+      } else {
+        // The leaky anchor — see LATCH_SLEW_START. Runs BEFORE the emit
+        // clone so this frame's output carries the pursuit step; the release
+        // checks above used the pre-pursuit innovation on purpose, so the
+        // pursuit can never mask a release the guard was owed.
+        const dt = input.dt > 0 ? input.dt : 1 / 30;
+        const startMm = guardMm * LATCH_SLEW_START;
+        if (Number.isFinite(velMmS) && velMmS < enterMm && dMm > startMm) {
+          const pull = Math.min(enterMm * dt, dMm - startMm) / dMm;
+          state.latchedPose.t[0] += (result.pose.t[0] - state.latchedPose.t[0]) * pull;
+          state.latchedPose.t[1] += (result.pose.t[1] - state.latchedPose.t[1]) * pull;
+          state.latchedPose.t[2] += (result.pose.t[2] - state.latchedPose.t[2]) * pull;
+        }
+        const startDeg = guardDeg * LATCH_SLEW_START;
+        if (Number.isFinite(velDegS) && velDegS < enterDeg && dDeg > startDeg) {
+          // R_anchor <- exp(s*w) * R_anchor, w = log(R_raw * R_anchor^T):
+          // the same geodesic pursuit the crossfade uses, scaled to pull the
+          // rotational innovation back to the deadband at sub-enter rate.
+          const w = v3();
+          logSO3(w, m3mul(m3(), result.pose.R, m3transpose(m3(), state.latchedPose.R)));
+          const s = Math.min(enterDeg * dt, dDeg - startDeg) / dDeg;
+          const slewed = m3mul(m3(), expSO3(m3(), v3(s * w[0], s * w[1], s * w[2])), state.latchedPose.R);
+          orthonormalize(state.latchedPose.R, slewed);
+        }
+        smoothed = poseClone(state.latchedPose);
+        latched = true;
+        state.latchedFrames++;
+        // A latched frame is the one kind the latch can vouch for as rest —
+        // the emitted pose is frozen inside the pursuit deadband and the
+        // drift guard bounds the innovation — so its windowed velocity
+        // samples this session's rest floor. Motion never reaches this
+        // branch, so it can never teach the gates to call motion rest. The
+        // samples are censored at the current exit, and that is what makes
+        // the estimate a RATCHET: each raise of the gate widens what the
+        // next samples can show, so a floor well above the prior is learned
+        // in a few seconds of chatter instead of never.
+        if (Number.isFinite(velMmS)) {
+          state.floorMm = feedFloor(state.floorMm, velMmS);
+          state.floorDeg = feedFloor(state.floorDeg, velDegS);
+        }
+      }
+    } else if (state.fadeLeft === 0 && Number.isFinite(velMmS)
+        && velMmS < enterMm && velDegS < enterDeg) {
+      state.latchQuiet++;
+      if (state.latchQuiet >= LATCH_ENTER_FRAMES) {
+        state.latchedPose = poseClone(smoothed);
+        state.latchEngages++;
+        state.latchedFrames++;
+        latched = true;
+      }
+    } else {
+      state.latchQuiet = 0;
+    }
+  } else {
+    state.latchedPose = null;
+    state.latchQuiet = 0;
+  }
+
+  // The crossfade. Not a pose blend: blending toward a target that is itself
+  // moving compounds the payout with the motion, and the last fade steps of a
+  // slide end up nearly as large as the cut being avoided. Instead the first
+  // fade frame captures the ERROR — where the eye last saw the glasses,
+  // relative to the live pose — and that fixed offset decays to zero over
+  // LATCH_FADE_FRAMES while live motion rides through underneath at full
+  // rate. The final fade frame carries zero offset: the fade cannot end on a
+  // step, by construction.
+  if (!latched && state.fadeLeft > 0) {
+    if (state.fadeFrom) {
+      const w = v3();
+      logSO3(w, m3mul(m3(), state.fadeFrom.R, m3transpose(m3(), smoothed.R)));
+      state.fadeOffset = {
+        t: v3(
+          state.fadeFrom.t[0] - smoothed.t[0],
+          state.fadeFrom.t[1] - smoothed.t[1],
+          state.fadeFrom.t[2] - smoothed.t[2],
+        ),
+        w,
+      };
+      state.fadeFrom = null;
+    }
+    if (state.fadeOffset) {
+      const rem = (state.fadeLeft - 1) / LATCH_FADE_FRAMES;
+      const o = state.fadeOffset;
+      const out = poseClone(smoothed);
+      out.t[0] += rem * o.t[0];
+      out.t[1] += rem * o.t[1];
+      out.t[2] += rem * o.t[2];
+      m3mul(out.R, expSO3(m3(), v3(rem * o.w[0], rem * o.w[1], rem * o.w[2])), smoothed.R);
+      orthonormalize(out.R, out.R);
+      smoothed = out;
+    }
+    state.fadeLeft--;
+    if (state.fadeLeft === 0) state.fadeOffset = null;
+  }
   state.lastSmoothed = poseClone(smoothed);
 
   return {
@@ -231,28 +1296,308 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     correspondences: correspondences.length,
     inliers: result.inliers,
     euler: headEuler(smoothed),
+    noiseScale,
     smoothingLagMm: Math.hypot(
       smoothed.t[0] - result.pose.t[0],
       smoothed.t[1] - result.pose.t[1],
       smoothed.t[2] - result.pose.t[2],
     ),
     smoothingLagDeg: (rotationAngleBetween(smoothed.R, result.pose.R) * 180) / Math.PI,
+    velMmS,
+    velDegS,
+    sigmaMm,
+    sigmaDeg,
+    noiseVelMmS,
+    noiseVelDegS,
+    priorShareRot: result.priorShareRot,
+    priorShareMm: result.priorShareMm,
+    varianceFactor: result.varianceFactor,
+    latched,
+    fading: state.fadeLeft > 0,
     held: false,
     reason: null,
   };
 }
 
+/**
+ * Which vertex of a strip is on the occluding contour under this pose.
+ *
+ * The contour is where the surface turns away from the eye: the vertex whose
+ * camera-space normal is most nearly perpendicular to the ray that reaches
+ * it. Twenty dot products against normals computed once at strip time.
+ *
+ * The ray matters — using the view AXIS instead would be a weak-perspective
+ * approximation, and the whole reason this file solves the true perspective
+ * model is that a face at 300 mm is not far enough away for that to be free.
+ */
+function marchStrip(
+  strip: SilhouetteStrip, positions: ArrayLike<number>, pose: Pose,
+): number {
+  const R = pose.R;
+  let best = strip.landmark;
+  let bestDot = Infinity;
+  for (let k = 0; k < strip.candidates.length; k++) {
+    const v = strip.candidates[k];
+    const nx = strip.normals[k * 3], ny = strip.normals[k * 3 + 1], nz = strip.normals[k * 3 + 2];
+    const ncx = R[0] * nx + R[1] * ny + R[2] * nz;
+    const ncy = R[3] * nx + R[4] * ny + R[5] * nz;
+    const ncz = R[6] * nx + R[7] * ny + R[8] * nz;
+    const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+    const cx = R[0] * x + R[1] * y + R[2] * z + pose.t[0];
+    const cy = R[3] * x + R[4] * y + R[5] * z + pose.t[1];
+    const cz = R[6] * x + R[7] * y + R[8] * z + pose.t[2];
+    const len = Math.hypot(cx, cy, cz) || 1;
+    const d = Math.abs((ncx * cx + ncy * cy + ncz * cz) / len);
+    if (d < bestDot) { bestDot = d; best = v; }
+  }
+  return best;
+}
+
+/**
+ * This frame's constant-velocity MAP prior: a predicted pose and the
+ * information (inverse covariance) to weight it by.
+ *
+ * ## Why a least-squares fit and not the last two poses
+ *
+ * The obvious predictor — velocity from the last two poses, extrapolated one
+ * frame — is arithmetically dead on arrival, and the design review proved it
+ * before a line was written. Its error is `(1+p)e1 - p*e2` for `p = dt/span`,
+ * so at 30 fps its variance is FIVE times a single pose's: feed that back
+ * through the estimator's own recursion and the fixed point caps the prior's
+ * information share at 1/5 and the achievable noise reduction at 11%. The
+ * rank's whole purpose is bigger than that.
+ *
+ * So the velocity comes from an exact ordinary-least-squares constant-velocity
+ * fit over the last `PRIOR_POINTS` ring entries. The fit's weights `w_i` are
+ * the standard OLS extrapolation weights, and they carry both quality factors
+ * this file needs, computed per frame from the window's ACTUAL timestamps
+ * rather than assumed:
+ *
+ *   c = sum(w_i^2)          the predictor's noise gain — 5 at two points,
+ *                           1.50 at four, so the reduction ceiling moves from
+ *                           11% to 42%.
+ *   s = |t*^2/2 - sum(w_i t_i^2/2)|
+ *                           the EXACT error the fit commits under one unit of
+ *                           sustained acceleration. Origin-invariant, because
+ *                           the weights reproduce constants and linears
+ *                           exactly. This is where the hand-derived
+ *                           `a*dt^2/2` of the first draft was wrong by 2x:
+ *                           the finite-difference velocity is ITSELF corrupted
+ *                           by the acceleration, in the same direction as the
+ *                           extrapolation, and the functional prices both.
+ *
+ *     P_pred = c * P_last + diag(sigma_accel * s)^2
+ *
+ * The second term is the process noise, and it is one physical constant per
+ * channel type — a head's sustained acceleration bound — not a tuning knob
+ * per face. It also removes a whole class of gap defect for free: a window
+ * that straddles unobserved darkness has a long lever arm, so `s` grows
+ * automatically (measured at 3.3x for a 0.4 s gap, dropping the prior's
+ * information to 9% of its resting value) where a `dt`-only process noise
+ * would have read the gap as an ordinary frame and claimed full confidence
+ * on a velocity averaged across the dark.
+ *
+ * That is the graceful half. The hard half is that a gap can hide a
+ * REVERSAL, which no constant-acceleration bound covers, so the window is
+ * also TRIMMED to the contiguous tail of frames separated by less than
+ * `PRIOR_MAX_STEP_S`: the prior predicts only from motion something actually
+ * watched. One prior-less frame after any sub-reset gap is the entire cost.
+ *
+ * Returns null when the window cannot support a fit — fewer than two
+ * contiguous entries, a degenerate time span, or a covariance that will not
+ * invert. Every one of those is "no prior this frame", which is always safe:
+ * the solve simply runs as it did before this rank existed.
+ */
+function buildMotionPrior(
+  state: TrackerState, dtPredict: number,
+): { pose: Pose; information: Float64Array; sigmaRot: number } | null {
+  const ring = state.velRing;
+  const P = state.lastCovariance;
+  if (!P || ring.length < 2 || !(dtPredict > 0)) return null;
+
+  // The contiguous tail: walk back while consecutive frames are close enough
+  // in time to have watched the motion between them.
+  let first = ring.length - 1;
+  while (first > 0
+    && ring.length - first < PRIOR_POINTS
+    && ring[first].time - ring[first - 1].time <= PRIOR_MAX_STEP_S) first--;
+  // The newest interval itself must be observed motion, or the window's own
+  // last step already straddles darkness.
+  if (ring.length - first < 2) return null;
+  if (ring[ring.length - 1].time - ring[ring.length - 2].time > PRIOR_MAX_STEP_S) return null;
+
+  const k = ring.length - first;
+  const last = ring[ring.length - 1];
+  // Times relative to the newest entry: the fit is origin-invariant, and a
+  // small origin keeps t^2 well-conditioned against the session clock.
+  const t = new Float64Array(k);
+  for (let i = 0; i < k; i++) t[i] = ring[first + i].time - last.time;
+  const tStar = dtPredict;
+
+  let tBar = 0;
+  for (let i = 0; i < k; i++) tBar += t[i];
+  tBar /= k;
+  let sxx = 0;
+  for (let i = 0; i < k; i++) sxx += (t[i] - tBar) * (t[i] - tBar);
+  if (!(sxx > 1e-9)) return null;
+
+  const w = new Float64Array(k);
+  let c = 0;
+  let accel = 0.5 * tStar * tStar;
+  for (let i = 0; i < k; i++) {
+    w[i] = 1 / k + ((tStar - tBar) * (t[i] - tBar)) / sxx;
+    c += w[i] * w[i];
+    accel -= w[i] * 0.5 * t[i] * t[i];
+  }
+  accel = Math.abs(accel);
+
+  // The predicted pose. Translation channel-wise; rotation in the tangent
+  // space at the newest pose, where a window's worth of head rotation is a
+  // few degrees and the log is unambiguous.
+  const pose = poseClone(last.pose);
+  pose.t[0] = 0; pose.t[1] = 0; pose.t[2] = 0;
+  const xi = v3();
+  const wRot = v3();
+  const rel = m3();
+  const relT = m3();
+  for (let i = 0; i < k; i++) {
+    const e = ring[first + i];
+    pose.t[0] += w[i] * e.pose.t[0];
+    pose.t[1] += w[i] * e.pose.t[1];
+    pose.t[2] += w[i] * e.pose.t[2];
+    logSO3(wRot, m3mul(rel, e.pose.R, m3transpose(relT, last.pose.R)));
+    xi[0] += w[i] * wRot[0];
+    xi[1] += w[i] * wRot[1];
+    xi[2] += w[i] * wRot[2];
+  }
+  m3mul(pose.R, expSO3(m3(), xi), last.pose.R);
+  orthonormalize(pose.R, pose.R);
+
+  // P_pred = c * P_last + Q, then inverted. The variance-factor scale puts
+  // the information into the solver's CLAIM units: `refinePnP` weights its
+  // residuals by claimed sigma, so an honest-units prior must be multiplied
+  // by the measured mis-scale or the two sides argue in different currencies.
+  // max(EMA, last frame) rather than the EMA alone: a hand crossing the face
+  // spikes the true factor immediately while the EMA needs ten frames, and
+  // those are exactly the frames where the prior is the only clean
+  // information in the room. Monotone-safe — screaming residuals can only
+  // strengthen the prior, never silence it.
+  // **The process noise is gated on the prior's own recent honesty.**
+  //
+  // `accel` above is a function of the ring's TIMESTAMPS alone — it contains
+  // no term for how the head is actually moving — so one scalar
+  // `MOTION_PRIOR_ACCEL_RAD_S2` has to price a still head and a reversing one
+  // identically. It cannot: sized for rest it is a 7x-19x yaw regression on a
+  // 1-1.5 Hz head shake, and sized for the shake it deletes the rest win it
+  // was adopted for. Retuning the constant is therefore not available, and
+  // this is the term that makes the choice unnecessary.
+  //
+  // `priorMiss` is how many of its own claimed sigmas the prediction was
+  // wrong by, last frame. A constant-velocity model tracking a constant
+  // velocity reads about 1 and nothing happens. A model being contradicted —
+  // which is exactly what a reversal is — reads many, and the prediction
+  // covariance grows as its SQUARE, so the prior stands aside in one frame
+  // and comes back as soon as the motion is smooth again. `max(last, EMA)`
+  // for the same reason `vfScale` below uses it: the recovery should be
+  // gradual but the stand-aside must be immediate.
+  const miss = Math.max(state.priorMissLast ?? 1, state.priorMissEma ?? 1, 1);
+  const qRot = MOTION_PRIOR_ACCEL_RAD_S2 * accel * miss;
+  const qMm = MOTION_PRIOR_ACCEL_MM_S2 * accel * miss;
+  const information = new Float64Array(36);
+  for (let i = 0; i < 36; i++) information[i] = c * P[i];
+  information[0] += qRot * qRot;
+  information[7] += qRot * qRot;
+  information[14] += qRot * qRot;
+  information[21] += qMm * qMm;
+  information[28] += qMm * qMm;
+  information[35] += qMm * qMm;
+  // The rotational one-sigma this prediction is CLAIMING, before the matrix
+  // is inverted into information. The next frame grades the prediction
+  // against it; see `state.priorMissLast`.
+  const sigmaRot = Math.sqrt(Math.max(0, (information[0] + information[7] + information[14]) / 3));
+  if (!invertSymmetric(information, 6)) return null;
+  const vfScale = Math.max(state.vfEma ?? 1, state.vfPrev ?? 1);
+  if (vfScale !== 1) for (let i = 0; i < 36; i++) information[i] *= vfScale;
+
+  return { pose, information, sigmaRot };
+}
+
+/**
+ * The basin audit's adoption: pose, count, and memory-reset as one unit.
+ *
+ * Everything that remembers the old basin dies here — the latch, the
+ * smoother, the velocity window — and the crossfade is armed from the last
+ * emitted pose, so the rescue lands as a glide instead of the ~1/s pop the
+ * first real wearer's "choppy" report was made of.
+ */
+function adoptAuditPose(state: TrackerState, audit: PnPResult): PnPResult {
+  state.basinEscapes++;
+  state.latchedPose = null;
+  state.latchQuiet = 0;
+  state.smoother.reset();
+  state.velRing.length = 0;
+  if (state.lastSmoothed) {
+    state.fadeFrom = poseClone(state.lastSmoothed);
+    state.fadeOffset = null;
+    state.fadeLeft = LATCH_FADE_FRAMES;
+  }
+  return audit;
+}
+
+/**
+ * One channel's gate: the learned rest floor where one exists, the prior
+ * where none does, clamped to [prior, prior*cap]. The lower clamp means a
+ * session quieter than the prior just latches eagerly — tightening below
+ * the prior buys nothing and risks refusing rest on a lucky lull. The upper
+ * cap bounds what noise may claim as rest, and it is sized so deliberate
+ * slow motion stays followable in any regime (see the constants header).
+ */
+function gateFrom(
+  floor: { m: number; d: number } | null, prior: number, cap: number,
+): number {
+  if (!floor) return prior;
+  const learned = floor.m + LATCH_FLOOR_MARGIN * floor.d;
+  return learned < prior ? prior : learned > prior * cap ? prior * cap : learned;
+}
+
+/** One latched-frame velocity sample into a channel's floor estimate: mean
+ *  and absolute-deviation EMAs at LATCH_FLOOR_RATE. The first sample seeds
+ *  the deviation at half itself — wide enough that one quiet first frame
+ *  does not start the gate at the prior's knife edge. */
+function feedFloor(
+  floor: { m: number; d: number } | null, v: number,
+): { m: number; d: number } {
+  if (!floor) return { m: v, d: v * 0.5 };
+  const m = floor.m + LATCH_FLOOR_RATE * (v - floor.m);
+  const d = floor.d + LATCH_FLOOR_RATE * (Math.abs(v - m) - floor.d);
+  return { m, d };
+}
+
 function miss(state: TrackerState, dt: number, reason: string): TrackResult {
   state.consecutiveFailures++;
   state.lostSeconds += Math.max(dt, 0);
+  // The quiet streak is a claim about CONSECUTIVE OBSERVED frames, and a
+  // dropped frame was not observed: a streak banked before even a two-frame
+  // blink would let the latch engage one frame after recovery, on a window
+  // nobody watched. Cleared on every miss, not only on the full reset.
+  state.latchQuiet = 0;
 
   if (state.lostSeconds >= state.options.lostSecondsBeforeReset) {
-    // Only the filter. The MODEL is untouched and cannot be touched: it is not
-    // a per-session estimate, so there is nothing here that a dropout could
-    // corrupt. In v1 this branch had to reason carefully about which of six
-    // estimators to discard.
+    // Only the filter and its per-motion memory. The MODEL is untouched and
+    // cannot be touched: it is not a per-session estimate, so there is
+    // nothing here that a dropout could corrupt. In v1 this branch had to
+    // reason carefully about which of six estimators to discard. The latch
+    // anchor, the velocity window and any in-flight fade die with the motion
+    // they described: half a second of darkness later, the head is wherever
+    // it is, and an anchor from before the gap is a pose to snap FROM.
     state.smoother.reset();
     state.lastRaw = null;
+    state.latchedPose = null;
+    state.latchQuiet = 0;
+    state.velRing.length = 0;
+    state.fadeFrom = null;
+    state.fadeOffset = null;
+    state.fadeLeft = 0;
   }
 
   const hold = state.consecutiveFailures <= state.options.holdFrames && state.lastSmoothed;
@@ -266,6 +1611,18 @@ function miss(state: TrackerState, dt: number, reason: string): TrackResult {
     euler: hold ? headEuler(state.lastSmoothed!) : null,
     smoothingLagMm: 0,
     smoothingLagDeg: 0,
+    noiseScale: NaN,
+    velMmS: NaN,
+    velDegS: NaN,
+    sigmaMm: NaN,
+    sigmaDeg: NaN,
+    noiseVelMmS: NaN,
+    noiseVelDegS: NaN,
+    priorShareRot: NaN,
+    priorShareMm: NaN,
+    varianceFactor: NaN,
+    latched: false,
+    fading: false,
     held: !!hold,
     reason,
   };

@@ -28,11 +28,13 @@
  */
 
 import { loadBasis, loadRegions, loadTemplateMesh } from './fixtures.js';
-import { generatePopulation, synthesizeCapture, CAMERA_LADDER } from './synthetic.js';
+import {
+  CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor, synthesizeCapture,
+} from './synthetic.js';
 import { enroll } from '../enroll/enroll.js';
 import { createFaceModel, type FaceModel } from '../core/facemodel.js';
 import { standardRegions } from '../core/mesh.js';
-import { solveSeat, type SeatResult } from '../fit/contact.js';
+import { landmarkHungPose, solveSeat, type SeatResult } from '../fit/contact.js';
 import { TEST_FRAMES, parametricFrame, type FrameAsset } from '../fit/frame-asset.js';
 import { distribution, fmt, table } from './metrics.js';
 import { evaluateBasis } from '../core/shape/basis.js';
@@ -43,6 +45,11 @@ export interface SeatRunOptions {
    *  contact solver from the reconstruction. */
   useTruth: boolean;
   verbose: boolean;
+  /** Campaign seed: one independent noise realisation per distinct value (new
+   *  population, and with `useTruth: false` new captures too); the same seed
+   *  reproduces the run bit for bit. `undefined` reproduces the historical
+   *  no-seed run exactly. See `RunOptions.seed` in report-enroll.ts. */
+  seed?: number;
 }
 
 export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
@@ -50,7 +57,9 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
   const mesh = loadTemplateMesh();
   const basis = loadBasis();
   const regions = loadRegions();
-  const population = generatePopulation(mesh, basis, { count: opt.subjects });
+  const population = generatePopulation(mesh, basis, {
+    count: opt.subjects, seed: populationSeedFor(opt.seed),
+  });
 
   const out: string[] = [];
   out.push('SEAT — WHERE THE FRAME COMES TO REST');
@@ -66,7 +75,9 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
   const models: FaceModel[] = population.map((subject) => {
     if (opt.useTruth) return truthModel(subject.positions, mesh.vertexCount);
     const geometry = CAMERA_LADDER[0];
-    const capture = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 12 });
+    const capture = synthesizeCapture(mesh, subject, geometry, {
+      framesPerBeat: 12, seed: captureSeedFor(opt.seed),
+    });
     return enroll({
       mesh, basis,
       frames: capture.frames.map((f) => ({
@@ -100,7 +111,7 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
       padLoad.push(seat.padLoadFraction);
       panto.push(seat.pantoscopicDeg);
       roll.push(Math.abs(seat.rollDeg));
-      clearance.push(Math.max(seat.padTiltAdviceDeg[0], seat.padTiltAdviceDeg[1]));
+      clearance.push(Math.max(seat.padTiltDeg[0], seat.padTiltDeg[1]));
       ms.push(seat.solveMs);
       if (!seat.converged) notConverged++;
       if (opt.verbose) {
@@ -123,7 +134,7 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
 
   out.push(table(
     ['frame', 'pad sep', 'descent mm (med/p90/worst)', '|depth err| mm', 'pad load',
-      'panto deg', 'tilt advice deg', 'ms', 'unconverged'],
+      'panto deg', 'pad tilt deg', 'ms', 'unconverged'],
     rows,
   ));
   out.push('');
@@ -196,7 +207,9 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
     const bearing: number[] = [];
     const penetration: number[] = [];
     for (const model of models) {
-      const nominal = evaluateSeatOn(model, mesh, regions, frame, null);
+      const nominal = solveSeat(model, mesh, regions, frame, {
+        maxIterations: 0, initialPose: landmarkHungPose(model, frame),
+      });
       bearing.push(Math.abs(nominal.padDepthErrorMm));
       penetration.push(nominal.padSeatErrorArticulatedMm);
     }
@@ -218,8 +231,11 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
   out.push('  real one. If every row looks like the baseline, the seat is not');
   out.push('  reading the scan and the scan was not worth taking.');
   out.push('');
-  out.push('  "nominal placement" is the row to read first: it is a frame hung off');
-  out.push('  the bridge landmark, which is what v1 shipped.');
+  out.push('  "nominal placement" is the row to read first: a frame hung off the');
+  out.push('  bridge landmark with no contact solve at all, which is what v1 shipped.');
+  out.push('  It uses landmarkHungPose, NOT the initialisation the solver itself');
+  out.push('  starts from — those are two different jobs, and sharing one function');
+  out.push('  made this control meaningless for a while (docs/OPEN-QUESTIONS.md Q12).');
 
   return out.join('\n');
 }

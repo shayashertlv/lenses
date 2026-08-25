@@ -293,11 +293,161 @@ export function standardRegions(mesh: FaceMesh): Record<string, Region> {
     ], 18, 6),
     // The silhouette ring of this mesh is coarse — mean edge 9 mm, and far
     // coarser at the rim — so these radii are larger than the anatomical region
-    // to reach a workable number of vertices. Sizes are asserted in
-    // `tests/regions.test.ts` so a template swap cannot silently empty one.
+    // to reach a workable number of vertices. Per-region vertex floors are
+    // asserted in `tests/pipeline.test.ts` ("every named region has enough
+    // vertices to be usable") so a template swap cannot silently empty one.
     temples: growRegion(mesh, 'temples', [LM.TEMPLE_R, LM.TEMPLE_L], 30, 12),
     cheeks: growRegion(mesh, 'cheeks', [LM.CHEEK_R, LM.CHEEK_L], 32, 12),
   };
+}
+
+/**
+ * The lid rings of the canonical face mesh — the sixteen vertices tracing
+ * each eye's contour, corners included. Standard MediaPipe topology; the
+ * corner indices are cross-checked against `LM.EYE_*` above, so a template
+ * swap that renumbers them breaks loudly in the tests rather than silently
+ * here. Not exported: their one job is `trackingRigidity`.
+ */
+const LID_RING_R = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
+const LID_RING_L = [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466];
+
+/**
+ * The face oval — MediaPipe's 36-landmark outline of the face, standard
+ * topology. Not exported for the same reason the lid rings are not: its one
+ * job is `silhouetteStrips`.
+ */
+const FACE_OVAL = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
+  400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
+  54, 103, 67, 109,
+];
+
+/** One oval landmark and the vertices its occluding contour can slide across. */
+export interface SilhouetteStrip {
+  /** The landmark index whose 2-D observation this strip explains. */
+  landmark: number;
+  /** Candidate model vertices, the "parallel" at that landmark's height. */
+  candidates: Int32Array;
+  /** Model-space normal per candidate, 3 each — carried here so the tracker
+   *  never needs the mesh topology, the same posture `rigidity` already takes. */
+  normals: Float64Array;
+}
+
+/**
+ * A horizontal strip of candidate vertices per face-oval landmark — the
+ * machinery for correcting the one error in this pipeline that is a BIAS
+ * rather than noise.
+ *
+ * Every other landmark names a feature of the face: the nose tip is the nose
+ * tip from any angle, so matching it to a fixed vertex is right. **An oval
+ * landmark names no such thing.** It marks where the face's outline is at
+ * that height — the occluding contour — and the 3-D point on the contour
+ * SLIDES ACROSS THE SURFACE as the head turns. Matching it to a fixed vertex
+ * is therefore wrong by however far the contour has slid, in a direction
+ * that follows the pose. Measured on the template: turn the head 40 degrees
+ * and the true contour vertex has moved for 26 of the 36 oval landmarks, by
+ * 34.6 mm on average.
+ *
+ * That is a bias, and the campaign has already established what does not fix
+ * one. Reweighting cannot: the visibility cull leaves these landmarks voting
+ * at nearly full weight (at 40 degrees, 11 of the survivors, 10 of them on
+ * the far side), a redescending kernel measured WORSE because the wrong
+ * points are a coherent majority rather than a sheddable minority, and
+ * simply discounting the whole ring is worse still because these vertices
+ * carry the longest lever arms the solve has. The only fix is to stop
+ * asking the wrong question: find the vertex that IS on the contour under
+ * the pose we believe, and use that one.
+ *
+ * A strip is that vertex's candidates: the same side of the face, within
+ * `heightMm` of the landmark, capped at the twenty most lateral, because the
+ * contour lives at the lateral extreme and the rest of the row is cheek and
+ * nose interior. Twenty dot products per landmark per frame, against normals
+ * computed once.
+ *
+ * Built from the POSITIONS the tracker will solve against — the wearer's
+ * scanned model, not the template — so the strips describe their face. It is
+ * deliberately NOT stored on `FaceModel`: it is a pure function of geometry
+ * the caller already holds, and putting it in the model would bump the
+ * serialisation version and reject every scan a wearer has already saved.
+ */
+export function silhouetteStrips(
+  mesh: FaceMesh, positions: Float64Array = mesh.positions,
+  heightMm = 6, maxCandidates = 20, midlineMm = 5,
+): SilhouetteStrip[] {
+  const normals = computeVertexNormals(positions, mesh.indices, mesh.vertexCount);
+  const out: SilhouetteStrip[] = [];
+  for (const landmark of FACE_OVAL) {
+    if (landmark >= mesh.vertexCount) continue;
+    const y0 = positions[landmark * 3 + 1];
+    const x0 = positions[landmark * 3];
+    // **A midline landmark gets no strip at all.** The forehead crown and the
+    // point of the chin sit at the TOP and BOTTOM extremes of the oval, where
+    // a horizontal strip answers the wrong question: their contour slides
+    // vertically if it slides at all. Worse, a row through the midline spans
+    // both cheeks, so the perpendicularity test could march such a landmark
+    // clean across the face — the 103 mm "slide" that showed up beside the
+    // honest 34.6 mm mean when this was first measured. They keep their fixed
+    // correspondence, which for a point at an extreme is the right one.
+    // Measured on the template, this is exactly two landmarks (10 and 152, at
+    // x = 0.0) and the next-nearest sits at 12.9 mm, so the cut is a wide gap
+    // rather than a knife edge.
+    if (Math.abs(x0) <= midlineMm) continue;
+    const cand: number[] = [];
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      if (Math.abs(positions[v * 3 + 1] - y0) > heightMm) continue;
+      if (Math.sign(positions[v * 3]) !== Math.sign(x0)) continue;
+      cand.push(v);
+    }
+    cand.sort((a, b) => Math.abs(positions[b * 3]) - Math.abs(positions[a * 3]));
+    const kept = cand.slice(0, maxCandidates);
+    const n = new Float64Array(kept.length * 3);
+    for (let k = 0; k < kept.length; k++) {
+      n[k * 3] = normals[kept[k] * 3];
+      n[k * 3 + 1] = normals[kept[k] * 3 + 1];
+      n[k * 3 + 2] = normals[kept[k] * 3 + 2];
+    }
+    out.push({ landmark, candidates: Int32Array.from(kept), normals: n });
+  }
+  return out;
+}
+
+/**
+ * Per-vertex rigidity for the POSE solve: 1 everywhere the face moves
+ * rigidly with the skull, tiered down across the eye region.
+ *
+ * MediaPipe's eye region deforms with GAZE — the lids follow the pupil (the
+ * long-documented upstream defect), so a perfectly still wearer can steer a
+ * naive pose solve with their eyes. A rigid-pose solver may only listen to
+ * landmarks that move rigidly with the skull, and blinks break the same
+ * vertices the same way. This map feeds `buildCorrespondences`' rigidity
+ * parameter (sigma × 1/sqrt(r); dropped at r <= 0.01).
+ *
+ * TWO TIERS, and the history is the reason: the first version excluded the
+ * whole feathered `eyes` region — ~130 vertices — and the wearer's next
+ * session showed why that was too broad: those were among the most stable
+ * central landmarks the solve had, and at face tilt (where the far side is
+ * already degraded) losing them made the pose visibly noisier and the
+ * noisier pose re-buried the motion signal under the smoother's noise
+ * floor — jitter growing with tilt, delay back. The gaze deformation is
+ * concentrated in the LID RINGS; the orbital surround the radius swept up
+ * barely moves with gaze. So: the rings get NO vote (r = 0, 32 vertices —
+ * gaze and blinks live there), and the surround keeps a feathered half
+ * vote (r = 1 - weight/2), restoring most of the conditioning the first
+ * version threw away. The iris landmarks (468+) never voted at all.
+ */
+export function trackingRigidity(
+  mesh: FaceMesh, regions: Record<string, Region>,
+): Float64Array {
+  const r = new Float64Array(mesh.vertexCount).fill(1);
+  const eyes = regions.eyes;
+  for (let k = 0; k < eyes.members.length; k++) {
+    const i = eyes.members[k];
+    const half = 1 - eyes.weight[i] / 2;
+    if (half < r[i]) r[i] = half;
+  }
+  for (const i of LID_RING_R) r[i] = 0;
+  for (const i of LID_RING_L) r[i] = 0;
+  return r;
 }
 
 // --------------------------------------------------------------- measurement
@@ -356,6 +506,25 @@ export interface FaceMeasurements {
   nasalRootDepth: number;
   /** The pad-bearing bridge landmark forward of the inner eye corners, mm. */
   bridgeStandoff: number;
+  /**
+   * Cheek depth: how far the cheek landmark sits BEHIND the inner-eye-corner
+   * plane, mm. Positive on every face.
+   *
+   * **This number USED to decide where a frame sits fore-aft** — `earRestPoints`
+   * placed the ear rest at `cheek.z - 17`, so 9 mm of cheek moved the lens
+   * distance by 5 mm, and a real wearer's two scans half an hour apart moved
+   * the seat by exactly that lever while every reported measurement moved ~1%.
+   * On the first live fitting the chain missed by enough to bury the pads
+   * 1.9 mm and park the lenses 5 mm from the eyes.
+   *
+   * The anchor now derives from the OUTER CANTHUS plus the published
+   * ectocanthion-tragion offset (`EYE_TO_TRAGION_Z_MM` in `fit/contact.ts`),
+   * and a test asserts the cheek lever is dead ("no longer lets the cheek
+   * decide where the lenses sit"). `cheekDepth` stays reported: it is still the
+   * canary for the CHEEK's own reconstruction, and the clearance and silhouette
+   * machinery still read that surface.
+   */
+  cheekDepth: number;
   /** Nose tip forward of the bridge. The single number a borrowed depth gets
    *  most wrong. */
   noseProtrusion: number;
@@ -396,6 +565,7 @@ export function measure(positions: Float64Array): FaceMeasurements {
     noseWidth,
     nasalRootDepth: p(LM.NASION, 2) - innerCanthiZ,
     bridgeStandoff: p(LM.NOSE_BRIDGE, 2) - innerCanthiZ,
+    cheekDepth: innerCanthiZ - (p(LM.CHEEK_R, 2) + p(LM.CHEEK_L, 2)) / 2,
     noseProtrusion: p(LM.NOSE_TIP, 2) - p(LM.NOSE_BRIDGE, 2),
     bridgeHeight: p(LM.NOSE_BRIDGE, 1) - p(LM.SUBNASALE, 1),
     outerEyeSpan: vertexDistance(positions, LM.EYE_OUTER_R, LM.EYE_OUTER_L),

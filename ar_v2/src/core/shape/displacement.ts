@@ -32,9 +32,17 @@
  * practice the displacements are millimetres on a surface whose curvature radius
  * is centimetres, the neglected term is under a percent, and including it makes
  * the system dense (a vertex's normal depends on its neighbours' displacements).
- * The outer loop recovers the exactness; `tests/displacement.test.ts` measures
- * the difference between the frozen-normal solve and a finite-difference exact
- * one, so this is a bounded approximation rather than an unexamined one.
+ * The outer loop recovers the exactness.
+ *
+ * **The "under a percent" is an argument, not a measurement.** Nothing in this
+ * tree compares the frozen-normal solve against an exact one. What
+ * `tests/core.test.ts` ("d(vertex) / d(free-form field value)") checks is a
+ * strictly narrower thing: that `displacementJacobian` agrees with central
+ * differences of `applyDisplacement` — and `applyDisplacement` rides the same
+ * frozen `field.normals`, so both sides of that comparison make the identical
+ * approximation. It catches a dropped region weight or a stale normal; it is
+ * structurally incapable of catching the neglected d(normal)/d(displacement)
+ * term. Sizing that term needs a test that does not exist yet.
  */
 
 import { computeVertexNormals, type FaceMesh, type Region } from '../mesh.js';

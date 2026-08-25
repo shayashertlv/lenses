@@ -38,6 +38,33 @@ import { pickFace } from './pick-face.js';
 export const DEFAULT_NUM_FACES = 2;
 
 /**
+ * MediaPipe's three confidence gates, or null to leave the library's own
+ * defaults (0.5) alone — which is what ships.
+ *
+ * The research plan's rank 7: lowering presence and tracking confidence to
+ * ~0.3 should make the landmarker hold its track through a deep tilt instead
+ * of dropping below threshold and re-running the face DETECTOR, whose fresh
+ * landmarks arrive in a slightly different place. That re-detection is
+ * visible as a pop.
+ *
+ * **It ships dark, and the reason is that nothing here can measure it.** The
+ * plan's own condition was "ship only if a replay measures a win", and the
+ * instrument that would decide it does not exist in this tree: the detector
+ * needs a browser and a face, the headless harness feeds `sigmaPx` straight
+ * from its own noise model, and ar_v2 has no telemetry replay. Lowering the
+ * gates is not free either — a looser presence threshold is more willing to
+ * believe in a face that is not there, and `pickFace` can only choose among
+ * what it is given. So the knob exists, costs nothing at its default, and
+ * waits for the one instrument that could settle it: a wearer who reports
+ * pops at tilt, sets `?confidence=0.3`, and says whether they stop.
+ */
+export interface DetectorConfidence {
+  detection: number;
+  presence: number;
+  tracking: number;
+}
+
+/**
  * Long side of the image actually handed to the detector, px.
  *
  * MediaPipe's detector runs at 192x192 and its mesh on a 256x256 crop whatever
@@ -95,10 +122,15 @@ export async function createMediaPipeDetector(
   },
   wasmDir: string,
   modelUrl: string,
-  options: { numFaces?: number; onStatus?: (text: string) => void } = {},
+  options: {
+    numFaces?: number;
+    onStatus?: (text: string) => void;
+    confidence?: DetectorConfidence | null;
+  } = {},
 ): Promise<Detector> {
   const numFaces = options.numFaces ?? DEFAULT_NUM_FACES;
   const onStatus = options.onStatus ?? (() => {});
+  const confidence = options.confidence ?? null;
 
   onStatus('loading the vision runtime');
   const fileset = await vision.FilesetResolver.forVisionTasks(wasmDir);
@@ -114,6 +146,14 @@ export async function createMediaPipeDetector(
     // instead, which is why it does not lose accuracy at large yaw. Asking for
     // it would cost inference time for a number nothing consumes.
     outputFacialTransformationMatrixes: false,
+    // Spread rather than always-present, so the default build is byte-for-byte
+    // the options object this file has always sent and nothing about the
+    // shipped detector moves. See DetectorConfidence.
+    ...(confidence ? {
+      minFaceDetectionConfidence: confidence.detection,
+      minFacePresenceConfidence: confidence.presence,
+      minTrackingConfidence: confidence.tracking,
+    } : {}),
   });
 
   let landmarker: MediaPipeLandmarker;

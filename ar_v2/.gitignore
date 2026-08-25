@@ -6,3 +6,7 @@ dist/
 # See docs/PRIVACY.md.
 *.facemodel.json
 fixtures/private/
+
+# Blender extraction working files. Regenerable from the source .blend
+# via .scratch/extract.py; the frame.json inside is 9 MB.
+.scratch/

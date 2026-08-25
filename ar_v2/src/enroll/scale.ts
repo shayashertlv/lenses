@@ -43,6 +43,11 @@ import { type Pose } from '../core/linalg.js';
 import { percentile, weightedMedian } from '../core/linalg.js';
 import type { ScaleEstimate } from '../core/facemodel.js';
 
+// The card machinery lives in `card.ts` — the sample types, the factor solver
+// with its propagated sigma, and the detector interface with the basic
+// implementation. Re-exported here because this file is where the ladder is
+// and where every existing consumer (`enroll.ts`) already imports from.
+
 /**
  * Population mean horizontal visible iris diameter, mm, and its within-group SD.
  *
@@ -72,9 +77,10 @@ export const POPULATION_HVID: Record<string, { meanMm: number; sigmaMm: number }
   white: { meanMm: 11.75, sigmaMm: 0.45 },
 };
 
-/** ISO 7810 ID-1: 85.60 x 53.98 mm, tolerance +/- 0.12 mm on the long edge. */
-export const ID1_CARD = { widthMm: 85.60, heightMm: 53.98, toleranceMm: 0.12 } as const;
-
+/**
+ * The span a reported pupillary distance has to fall inside to be reported at
+ * all. Applied in `enroll`, where the PD is now measured off the scaled surface.
+ */
 export const PD_PLAUSIBLE_MM: readonly [number, number] = [46, 80];
 
 // ---------------------------------------------------------------- iris path
@@ -84,7 +90,13 @@ export interface IrisReading {
   radiusPx: number;
   /** Camera-space depth of the iris plane, mm, from the solved pose. */
   depthMm: number;
-  /** Pupil separation in pixels. */
+  /**
+   * Pupil separation in pixels.
+   *
+   * Reported, and deliberately not used as a ruler. It is an IMAGE length, so it
+   * foreshortens with yaw exactly as the mean iris radius does not — see the
+   * note in `solveScale` for the measured cost of forgetting that.
+   */
   pdPx: number;
 }
 
@@ -99,7 +111,40 @@ export interface IrisReading {
  * is usable as a ruler at all, and it is destroyed by picking two points.
  *
  * Returns null rather than a guess when the iris is too small to measure. Six
- * pixels of diameter is where quantisation exceeds the signal.
+ * pixels of diameter is where quantisation exceeds the signal — or when the head
+ * is turned far enough that the disc is no longer facing the camera. See
+ * `IRIS_MAX_YAW_DEG`.
+ */
+/**
+ * **There is deliberately no yaw gate here, and that was tested rather than
+ * assumed.**
+ *
+ * A review flagged this function for accepting a reading at any head angle: no
+ * yaw gate, no visibility gate, no eye-openness gate, while measured keyframe
+ * yaw runs to a p90 of 72 degrees and a max of 86. The concern is sound in
+ * principle — the ruler rests on the iris disc facing the camera, and what
+ * really holds it there is not the mean-radius argument in the header above but
+ * the eye counter-rotating in its orbit to keep fixation, which runs out at the
+ * edge of the oculomotor range around 50 degrees.
+ *
+ * Modelling the iris faithfully in the harness (as a real disc that turns with
+ * the head once fixation runs out, rather than a circle drawn in image space)
+ * makes the effect visible for the first time: the reading is flat to within
+ * 2.5% out to 60 degrees, then −5.6% at 60–70, −7.6% at 70–80 and −10.4% at
+ * 80–90, while iris visibility falls from 0.69 to 0.13.
+ *
+ * So a gate at 55 degrees was written. Measured against ground truth over ten
+ * subjects, it made the scale **worse**:
+ *
+ *     gate at 55 deg   mean |scale error| 0.68%   median 0.62%   worst 0.90%
+ *     no gate          mean |scale error| 0.47%   median 0.36%   worst 0.74%
+ *
+ * `solveScale` takes a median over every keyframe, and a median is already
+ * robust to a biased minority; throwing away a third of the sample costs more
+ * stability than the biased tail costs accuracy. The gate was removed.
+ *
+ * Recorded at this length because the next reviewer will notice the same missing
+ * gate and reach for the same fix.
  */
 export function readIris(
   landmarks: Float64Array, pose: Pose, positions: Float64Array,
@@ -149,9 +194,46 @@ export interface ScaleInput {
   /** Assumed true iris diameter and its sigma. */
   irisMm?: number;
   irisSigmaMm?: number;
-  /** A card measurement, if one was taken. Overrides the iris. */
-  card?: CardReading | null;
 }
+
+/**
+ * The wearer's own PD as a ruler.
+ *
+ * The iris is the ruler of last resort: it works on anybody, needs no props and
+ * no cooperation, and it is *assumed* rather than measured — 11.70 mm pooled,
+ * with a one-sigma of 0.55 mm covering both the within-group spread and the gap
+ * between population means. That is 4.7%, and measured across a synthetic
+ * population the shipping iris path produces a worst-case scale error of **10%**.
+ * A real wearer's five scans disagreed with each other by up to 1.9%, which is
+ * the ruler's *precision*; its accuracy is unmeasurable without a second one.
+ *
+ * A pupillary distance from a spectacle prescription is that second ruler, and
+ * it is nearly free: it was measured on this wearer by an optician with a
+ * pupilometer, most people who wear glasses have it written down, and it costs
+ * a text field rather than a computer-vision subsystem.
+ *
+ * The card (ISO 7810, 85.60 mm to ±0.12) is a better ruler still and the ladder
+ * keeps its place at the top. Its machinery now exists (`card.ts`: the sample
+ * types, the factor solver, a detector interface with a basic implementation),
+ * measured against the synthetic harness only — no real frame, card or hand has
+ * ever been in front of it, so it stays unwired in the app.
+ * `docs/OPEN-QUESTIONS.md` Q3 / Q8.
+ *
+ * **It is applied in `enroll`, against the reconstructed 3-D geometry, and not
+ * here.** The obvious place is this file, next to the iris, using the `pdPx`
+ * that `readIris` already returns — and that is wrong. `pdPx` is an image
+ * distance between two pupils, so it foreshortens with yaw exactly as the iris
+ * radius does not; this file's own header says so: *"the mean radius of a
+ * projected circle is nearly invariant to the viewing angle, while a nominated
+ * horizontal diameter foreshortens"*. Measured, the image-space version made the
+ * scale worse than the assumption it replaced — 4.39% median error against
+ * 6.35% — while reporting a confident 0.93% sigma. Wrong and confident is the
+ * one combination worth going out of the way to avoid.
+ */
+export const PD_RULER = {
+  /** A pupilometer in an optician's hands, one sigma, mm. */
+  opticianSigmaMm: 0.5,
+} as const;
 
 /**
  * The scale ladder. Best available source wins; the loser is still computed and
@@ -159,8 +241,16 @@ export interface ScaleInput {
  * thing either of them can say.
  */
 export function solveScale(input: ScaleInput): {
-  estimate: ScaleEstimate; pdMm: number | null; pdSigmaMm: number | null;
-  irisFactor: number | null; disagreementPct: number | null;
+  estimate: ScaleEstimate;
+  /** Always null out of this function. `enroll` fills them in from the scaled
+   *  3-D surface; the fields stay on the shape so there is one place a PD is
+   *  carried rather than two. See the note in the body. */
+  pdMm: number | null; pdSigmaMm: number | null;
+  irisFactor: number | null;
+  /** The CARD against the iris, when both resolved, and nothing else. Overloading
+   *  it to carry a PD-against-iris gap put "card and iris disagree" into the
+   *  notes of scans that had no card in them. */
+  disagreementPct: number | null;
 } {
   const irisMm = input.irisMm ?? IRIS.defaultMm;
   const irisSigma = input.irisSigmaMm ?? IRIS.sigmaMm;
@@ -169,14 +259,10 @@ export function solveScale(input: ScaleInput): {
   // measured = radiusPx * depth / f. The correction factor is the ratio of the
   // assumed true size to the measured one.
   const factors: number[] = [];
-  const pds: number[] = [];
   for (const r of input.readings) {
     const measuredDiameterMm = (2 * r.radiusPx * r.depthMm) / input.intrinsics.f;
     if (!(measuredDiameterMm > 1 && measuredDiameterMm < 40)) continue;
     factors.push(irisMm / measuredDiameterMm);
-    if (Number.isFinite(r.pdPx)) {
-      pds.push((r.pdPx * r.depthMm) / input.intrinsics.f * (irisMm / measuredDiameterMm));
-    }
   }
 
   const irisFactor = factors.length ? weightedMedian(factors) : null;
@@ -189,34 +275,29 @@ export function solveScale(input: ScaleInput): {
     : 0.05;
   const irisRelSigma = Math.hypot(irisSigma / irisMm, scatter / Math.sqrt(Math.max(factors.length, 1)));
 
-  let pdMm = pds.length ? weightedMedian(pds) : null;
-  if (pdMm !== null && !(pdMm >= PD_PLAUSIBLE_MM[0] && pdMm <= PD_PLAUSIBLE_MM[1])) {
-    // Outside the human range means the iris landmarks are wrong — a half-closed
-    // eye, a specular highlight — not that the wearer is unusual. Refuse rather
-    // than report.
-    pdMm = null;
-  }
-
-  if (input.card) {
-    const cardFactor = solveCardFactor(input.card, input.intrinsics);
-    if (cardFactor) {
-      const disagreement = irisFactor
-        ? ((cardFactor.factor - irisFactor) / irisFactor) * 100
-        : null;
-      return {
-        estimate: {
-          source: 'card',
-          factor: cardFactor.factor,
-          sigma: cardFactor.sigma,
-          note: `ISO 7810 card, ${input.card.samples} samples`,
-        },
-        pdMm: pdMm !== null && irisFactor ? (pdMm / irisFactor) * cardFactor.factor : pdMm,
-        pdSigmaMm: pdMm !== null ? pdMm * cardFactor.sigma : null,
-        irisFactor,
-        disagreementPct: disagreement,
-      };
-    }
-  }
+  // **No pupillary distance comes out of this function, and that is the fix to a
+  // real one.**
+  //
+  // It used to take the median of `pdPx * depth / f * (irisMm / measuredDiameter)`
+  // over the frames, which looks like a triangulation and is not one. Substitute
+  // `measuredDiameter = 2 * radiusPx * depth / f` and both the depth and the
+  // focal length cancel *exactly*, leaving `irisMm * pdPx / (2 * radiusPx)` — a
+  // ratio of two IMAGE lengths and a constant. The mean iris radius is nearly
+  // invariant to viewing angle; a pupil separation is not, so the quotient
+  // foreshortens with yaw, and the median is taken over a scan that spends most
+  // of its frames deliberately asking the wearer to turn.
+  //
+  // Every subject read low. Mean error -3.93 mm even with the true iris diameter
+  // supplied; worst case a 62.5 mm PD reported as 56.9, beside a printed sigma
+  // of about 2.7 mm that does not cover it. The harm is not cosmetic: the readout
+  // is the number a wearer copies into `set-pd`, at which point a foreshortened
+  // guess becomes the ruler for everything else.
+  //
+  // The PD is measured in `enroll` instead, off the scaled 3-D surface, where the
+  // bundle has already divided head angle out: +0.78 mm mean with the wearer's
+  // true iris supplied as the ruler, against -3.93 here, and the residual is the
+  // scale's rather than the projection's. `PD_PLAUSIBLE_MM` still refuses an
+  // implausible span; it is applied there, at the point where the number is made.
 
   if (irisFactor !== null) {
     return {
@@ -226,8 +307,8 @@ export function solveScale(input: ScaleInput): {
         sigma: irisRelSigma,
         note: `iris at ${irisMm.toFixed(2)} mm assumed, ${factors.length} frames`,
       },
-      pdMm,
-      pdSigmaMm: pdMm !== null ? pdMm * irisRelSigma : null,
+      pdMm: null,
+      pdSigmaMm: null,
       irisFactor,
       disagreementPct: null,
     };
@@ -249,49 +330,11 @@ export function solveScale(input: ScaleInput): {
   };
 }
 
-// ----------------------------------------------------------------- card path
-
-/**
- * A card held in frame, as measured by whatever detects it.
- *
- * The detector is deliberately not in this file. Finding a card's four corners
- * in an image is a solved, self-contained vision problem with several good
- * approaches (quad detection on edges; a small segmentation net), and none of
- * them belong inside a scale solver. `docs/OPEN-QUESTIONS.md` Q3 tracks the
- * decision; until it is answered, `card` is null everywhere and the ladder falls
- * through to the iris, honestly labelled.
- */
-export interface CardReading {
-  /** Long-edge length in pixels, per sample. */
-  longEdgePx: number[];
-  /** Camera-space depth the card was held at, mm, per sample. */
-  depthMm: number[];
-  samples: number;
-}
-
-function solveCardFactor(
-  card: CardReading, intrinsics: Intrinsics,
-): { factor: number; sigma: number } | null {
-  const factors: number[] = [];
-  for (let i = 0; i < card.longEdgePx.length; i++) {
-    const measured = (card.longEdgePx[i] * card.depthMm[i]) / intrinsics.f;
-    if (!(measured > 20 && measured < 200)) continue;
-    factors.push(ID1_CARD.widthMm / measured);
-  }
-  if (factors.length < 3) return null;
-  const factor = weightedMedian(factors);
-  const scatter = (percentile(factors, 0.84) - percentile(factors, 0.16)) / 2;
-  return {
-    factor,
-    sigma: Math.hypot(
-      ID1_CARD.toleranceMm / ID1_CARD.widthMm,
-      scatter / Math.max(factor, 1e-9) / Math.sqrt(factors.length),
-    ),
-  };
-}
-
 /** Applies a scale factor to a geometry in place, and to the poses that go with it. */
-export function applyScale(positions: Float64Array, poses: Pose[], factor: number): void {
+export function applyScale(
+  positions: Float64Array, poses: Pose[], factor: number,
+  field?: { values: Float64Array } | null,
+): void {
   if (!(factor > 0) || Math.abs(factor - 1) < 1e-12) return;
   for (let i = 0; i < positions.length; i++) positions[i] *= factor;
   // Scaling the model without scaling the translations moves the face off its
@@ -300,5 +343,15 @@ export function applyScale(positions: Float64Array, poses: Pose[], factor: numbe
   // drifts", which is a long afternoon.
   for (const p of poses) {
     p.t[0] *= factor; p.t[1] *= factor; p.t[2] *= factor;
+  }
+  // The displacement field is a length too, and it was the one thing here that
+  // did not scale. It is measured along vertex normals in the bundle's own
+  // arbitrary units, so leaving it behind meant `displacementRmsMm` was in
+  // pre-scale units while carrying an `Mm` suffix — a real wearer's dump read
+  // 0.74 when the field was actually 1.09 mm, understating it by the gauge
+  // factor. Everything with length units scales together, and this function is
+  // where that invariant lives.
+  if (field) {
+    for (let i = 0; i < field.values.length; i++) field.values[i] *= factor;
   }
 }

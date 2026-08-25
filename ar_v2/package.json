@@ -15,6 +15,7 @@
     "report:enroll": "npm run build && node -e \"import('./dist/src/testkit/report-enroll.js').then(m=>console.log(m.runEnrollReport()))\"",
     "report:seat": "npm run build && node -e \"import('./dist/src/testkit/report-seat.js').then(m=>console.log(m.runSeatReport()))\"",
     "report:track": "npm run build && node -e \"import('./dist/src/testkit/report-track.js').then(m=>console.log(m.runTrackReport()))\"",
+    "report:occlusion": "npm run build && node -e \"import('./dist/src/testkit/report-occlusion.js').then(m=>console.log(m.runOcclusionReport()))\"",
     "check:constants": "node scripts/check-constants.mjs"
   },
   "devDependencies": {

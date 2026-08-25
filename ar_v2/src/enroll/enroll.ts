@@ -26,13 +26,13 @@
 
 import {
   type Intrinsics, MEDIAPIPE_ASSUMED_VERTICAL_FOV, dProjDModelPoint,
-  intrinsicsFromFov, project, viewAngleAt,
+  intrinsicsFromFov, project,
 } from '../core/camera.js';
 import {
   type Pose, invertSymmetric, poseClone, poseIdentity, v3, weightedMedian,
 } from '../core/linalg.js';
 import {
-  type FaceMesh, type Region, standardRegions,
+  LM, type FaceMesh, type Region, standardRegions,
 } from '../core/mesh.js';
 import { type ShapeBasis } from '../core/shape/basis.js';
 import {
@@ -48,7 +48,9 @@ import {
 import {
   type CoverageVerdict, type KeyframeOptions, assessCoverage, selectKeyframes,
 } from './keyframes.js';
-import { applyScale, readIris, solveScale, type CardReading } from './scale.js';
+import {
+  PD_PLAUSIBLE_MM, PD_RULER, applyScale, readIris, solveScale,
+} from './scale.js';
 import { buildCorrespondences, solvePnP } from '../track/pnp.js';
 import { detectorBias, type DetectorBias } from './detector-bias.js';
 
@@ -61,10 +63,14 @@ export interface EnrollInput {
   intrinsics?: Intrinsics;
   imageWidth: number;
   imageHeight: number;
-  card?: CardReading | null;
   /** Overrides the pooled iris assumption when the wearer volunteers it. */
   irisMm?: number;
   irisSigmaMm?: number;
+  /** The wearer's own pupillary distance, mm. A better ruler than the pooled
+   *  iris because it was measured on them. See `PD_RULER` in `scale.ts`. */
+  knownPdMm?: number | null;
+  /** One sigma on that figure, mm. Defaults to `PD_RULER.opticianSigmaMm`. */
+  knownPdSigmaMm?: number;
   bias?: DetectorBias;
   keyframes?: Partial<KeyframeOptions>;
   bundle?: Partial<BundleOptions>;
@@ -165,17 +171,80 @@ export function enroll(input: EnrollInput): EnrollResult {
     intrinsics: state.intrinsics,
     irisMm: input.irisMm,
     irisSigmaMm: input.irisSigmaMm,
-    card: input.card ?? null,
   });
-  applyScale(state.positions, state.frames.map((f) => f.pose), scale.estimate.factor);
+  applyScale(state.positions, state.frames.map((f) => f.pose), scale.estimate.factor, field);
+
+  // The wearer's own PD, applied against the RECONSTRUCTED geometry.
+  //
+  // Not in `solveScale` next to the iris, and not from `readIris`'s `pdPx`: an
+  // image-space pupil separation foreshortens with yaw, which is the exact
+  // property the iris was chosen to avoid. Measured, that version made the scale
+  // worse than the assumption it replaced. Here the span is taken between the
+  // eye-corner midpoints of the solved 3-D surface, where head angle has already
+  // been divided out by the bundle.
+  if (input.knownPdMm != null) {
+    const span = interpupillarySpan(state.positions);
+    if (span > 1 && input.knownPdMm >= 45 && input.knownPdMm <= 85) {
+      const correction = input.knownPdMm / span;
+      applyScale(state.positions, state.frames.map((f) => f.pose), correction, field);
+      const sigmaMm = input.knownPdSigmaMm ?? PD_RULER.opticianSigmaMm;
+      // Name the ruler the correction is measured AGAINST. It is the iris only
+      // when an iris actually resolved; with no ruler at all the scan was
+      // carrying the template's size, and calling that "the iris assumption"
+      // reports a measurement that never happened.
+      const displaced = scale.estimate.source;
+      notes.push(
+        `scale set from your PD of ${input.knownPdMm.toFixed(1)} mm ` +
+        (displaced === 'assumed'
+          ? `(it resized the scan by ${((correction - 1) * 100).toFixed(1)}%, which had no ruler before)`
+          : `(the ${displaced} scale was ${((correction - 1) * 100).toFixed(1)}% out)`),
+      );
+      scale.estimate = {
+        source: 'pd',
+        factor: scale.estimate.factor * correction,
+        sigma: sigmaMm / input.knownPdMm,
+        note: `wearer's PD of ${input.knownPdMm.toFixed(1)} mm, against the solved surface`,
+      };
+    }
+  }
+
+  // The PD readout, measured on the scaled 3-D surface and never from the image.
+  //
+  // `solveScale` used to derive it from `readIris`'s `pdPx`, and that expression
+  // collapses to a ratio of two IMAGE lengths with the depth and the focal length
+  // cancelling exactly — so it foreshortened with yaw and every subject read low,
+  // by a mean of 3.93 mm, behind a printed sigma of about 2.7 that did not cover
+  // it. The long version of why is in `solveScale`. Off the solved surface, with
+  // the wearer's true iris diameter supplied as the ruler, the same measurement
+  // reads +0.78 mm mean and 1.62 mm worst over the synthetic population; on the
+  // pooled iris it reads +1.87 mm mean, which is the scale error and nothing
+  // else, beside a sigma of about 3 mm that is the right size for it.
+  //
+  // That sigma is the SCALE's, and it is not an accuracy: it cannot see the
+  // eye-corner midpoint's own bias as a stand-in for a pupil, which is unmeasured
+  // on a real face (`interpupillarySpan` below, and `docs/OPEN-QUESTIONS.md`
+  // Q17). Where the wearer supplied their own PD this reproduces their figure and
+  // their sigma exactly, by construction — the correction above set it.
+  if (scale.estimate.source !== 'assumed') {
+    const span = interpupillarySpan(state.positions);
+    if (span >= PD_PLAUSIBLE_MM[0] && span <= PD_PLAUSIBLE_MM[1]) {
+      scale.pdMm = span;
+      scale.pdSigmaMm = span * scale.estimate.sigma;
+    } else {
+      // Outside the human range is a failure of the eye landmarks or of the ruler
+      // — a half-closed eye, a specular highlight, a scale that came out badly —
+      // not a wearer who is unusual. Refuse rather than report, and say so:
+      // a missing PD with no explanation is the kind of silence that gets read as
+      // a bug in the readout.
+      notes.push(
+        'pupillary distance not reported — the measured eye span is outside the ' +
+        'human range, so something in the eye landmarks or the scale is wrong',
+      );
+    }
+  }
+
   if (scale.estimate.source === 'assumed') {
     notes.push('no absolute ruler resolved — millimetre readouts are unavailable');
-  }
-  if (scale.disagreementPct !== null && Math.abs(scale.disagreementPct) > 4) {
-    notes.push(
-      `card and iris disagree by ${scale.disagreementPct.toFixed(1)}% — ` +
-      'the card is used; the gap is the iris assumption being wrong for this wearer',
-    );
   }
   input.trace?.(
     `scale: ${scale.estimate.source} x${scale.estimate.factor.toFixed(4)} ` +
@@ -185,6 +254,17 @@ export function enroll(input: EnrollInput): EnrollResult {
 
   // ---- 6. uncertainty and quality ----------------------------------------
   const { sigma, observations, parallax } = perVertexUncertainty(state.positions, state.frames, state.intrinsics, mesh);
+
+  // Rescale the formal covariance by the a-posteriori variance factor — the
+  // standard photogrammetric correction for a stochastic model that turned out
+  // to be wrong. Without it these millimetres scale linearly with whatever the
+  // detector layer asserted its own accuracy to be, and nothing ever checked.
+  //
+  // It is a correction to a PRECISION, not a conversion into an accuracy: see
+  // `noseConfidence` for why the corrected number still must not be read as
+  // "how wrong the nose is".
+  const sigmaScale = Math.sqrt(Math.max(report.varianceFactor, 0) || 1);
+  for (let i = 0; i < sigma.length; i++) sigma[i] *= sigmaScale;
   const quality: Record<string, RegionQuality> = {};
   for (const [name, region] of Object.entries(regions)) {
     quality[name] = summarise(region, sigma, observations, parallax);
@@ -214,6 +294,7 @@ export function enroll(input: EnrollInput): EnrollResult {
     pdSigmaMm: scale.pdSigmaMm,
     reprojectionRmsPx: report.reprojectionRmsPx,
     framesUsed: state.frames.length,
+    varianceFactor: report.varianceFactor,
     solveMs: nowMs() - started,
     degraded: !coverage.sufficient || !report.converged,
     notes,
@@ -226,6 +307,27 @@ export function enroll(input: EnrollInput): EnrollResult {
     keyframePoses: state.frames.map((f) => poseClone(f.pose)),
     keyframeIndices: selection.indices,
   };
+}
+
+/**
+ * The span the wearer's PD is compared against: eye-corner midpoint to
+ * eye-corner midpoint, in the solved surface.
+ *
+ * A proxy for pupil centres, and an imperfect one — the medial canthus sits
+ * closer to the nose than the visual axis does, so this runs slightly wide of a
+ * true interpupillary distance by an amount nobody here has measured on a real
+ * face. In the synthetic harness the iris centres are placed on exactly these
+ * midpoints, so the proxy is exact by construction and the harness cannot see
+ * that bias at all. `docs/OPEN-QUESTIONS.md` Q17.
+ */
+function interpupillarySpan(positions: Float64Array): number {
+  const mid = (a: number, b: number, c: number) =>
+    (positions[a * 3 + c] + positions[b * 3 + c]) / 2;
+  return Math.hypot(
+    mid(LM.EYE_INNER_R, LM.EYE_OUTER_R, 0) - mid(LM.EYE_INNER_L, LM.EYE_OUTER_L, 0),
+    mid(LM.EYE_INNER_R, LM.EYE_OUTER_R, 1) - mid(LM.EYE_INNER_L, LM.EYE_OUTER_L, 1),
+    mid(LM.EYE_INNER_R, LM.EYE_OUTER_R, 2) - mid(LM.EYE_INNER_L, LM.EYE_OUTER_L, 2),
+  );
 }
 
 // -------------------------------------------------------------- uncertainty
@@ -248,12 +350,24 @@ export function enroll(input: EnrollInput): EnrollResult {
  */
 export function perVertexUncertainty(
   positions: Float64Array, frames: BundleFrame[], intrinsics: Intrinsics, mesh: FaceMesh,
-): { sigma: Float64Array; observations: Float64Array; parallax: Float64Array } {
+): {
+  sigma: Float64Array; observations: Float64Array; parallax: Float64Array;
+} {
   const V = mesh.vertexCount;
   const A = new Float64Array(V * 9);
   const observations = new Float64Array(V);
-  const parallaxSum = new Float64Array(V);
-  const parallaxWeight = new Float64Array(V);
+  // Resultant of the unit view directions, per vertex, in FACE space. Parallax
+  // is how much those directions SPREAD, and a spread is only visible in the
+  // resultant's length — see below.
+  //
+  // The other quantity that used to be accumulated here — the RMS obliquity of
+  // each single view against the face's own +Z, which is what `parallaxRms` was
+  // wrongly computing before the two were separated — is gone. Kept for a while
+  // as `quality.obliquityRms` on the theory that camera placement predicts
+  // reconstruction quality, it measured +0.08 correlation with true nose error
+  // against the variance factor's +0.61 and never reached a consumer.
+  const viewSum = new Float64Array(V * 3);
+  const viewWeight = new Float64Array(V);
 
   const cam = v3();
   const uv = new Float64Array(2);
@@ -282,9 +396,20 @@ export function perVertexUncertainty(
         }
       }
       observations[i] += w;
-      const angle = viewAngleAt(frame.pose, positions.subarray(i * 3, i * 3 + 3));
-      parallaxSum[i] += w * angle * angle;
-      parallaxWeight[i] += w;
+
+      // The direction this vertex is being viewed from, as a unit vector in the
+      // face's own frame. `cam` is already the vertex in camera space, so the
+      // direction back to the camera is `-cam`, rotated into face space by R^T.
+      const vx = -(R[0] * cam[0] + R[3] * cam[1] + R[6] * cam[2]);
+      const vy = -(R[1] * cam[0] + R[4] * cam[1] + R[7] * cam[2]);
+      const vz = -(R[2] * cam[0] + R[5] * cam[1] + R[8] * cam[2]);
+      const vl = Math.hypot(vx, vy, vz);
+      if (vl > 1e-9) {
+        viewSum[i * 3] += (w * vx) / vl;
+        viewSum[i * 3 + 1] += (w * vy) / vl;
+        viewSum[i * 3 + 2] += (w * vz) / vl;
+        viewWeight[i] += w;
+      }
     }
   }
 
@@ -292,7 +417,32 @@ export function perVertexUncertainty(
   const parallax = new Float64Array(V);
   const block = new Float64Array(9);
   for (let i = 0; i < V; i++) {
-    parallax[i] = parallaxWeight[i] > 0 ? Math.sqrt(parallaxSum[i] / parallaxWeight[i]) : 0;
+    // **Spread between views, not obliquity of each view.**
+    //
+    // This was `acos(|dz| / |d|)` per frame — the angle between the view ray and
+    // the model's own +Z axis — squared and averaged. That is a property of one
+    // view, not a relationship between views, so a completely motionless head in
+    // front of a camera sitting below eye level produced a large constant
+    // "parallax": measured, 15.9 degrees against a 12 degree threshold, from a
+    // still photograph. The term was pinned at 1.0 on every laptop and phone,
+    // and the one repair the model could suggest to a wearer — that they had not
+    // turned their head enough — was unreachable code.
+    //
+    // The honest quantity is the angular dispersion of the view directions about
+    // their own mean. For unit vectors that is carried entirely by the length of
+    // their resultant: R = 1 means every view came from the same direction and
+    // there is no parallax at all, however oblique those views were.
+    // `2*asin(sqrt((1-R)/2))` is the angle whose chord equals the RMS chord, and
+    // it agrees with the RMS angle to first order.
+    if (viewWeight[i] > 0) {
+      const rx = viewSum[i * 3] / viewWeight[i];
+      const ry = viewSum[i * 3 + 1] / viewWeight[i];
+      const rz = viewSum[i * 3 + 2] / viewWeight[i];
+      const r = Math.min(1, Math.hypot(rx, ry, rz));
+      parallax[i] = 2 * Math.asin(Math.min(1, Math.sqrt((1 - r) / 2)));
+    } else {
+      parallax[i] = 0;
+    }
     block.set(A.subarray(i * 9, i * 9 + 9));
     // A floor on the information, equivalent to a prior that the vertex is
     // within ~8 mm of where the basis put it. Without it an unobserved vertex
@@ -308,7 +458,8 @@ export function perVertexUncertainty(
 }
 
 function summarise(
-  region: Region, sigma: Float64Array, observations: Float64Array, parallax: Float64Array,
+  region: Region, sigma: Float64Array, observations: Float64Array,
+  parallax: Float64Array,
 ): RegionQuality {
   const sigmas: number[] = [];
   let obs = 0, par = 0, w = 0;
@@ -379,6 +530,7 @@ function degraded(
       rounds: 0, reprojectionRmsPx: NaN, reprojectionP95Px: NaN, residualsUsed: 0,
       silhouetteResiduals: 0, focalPx: intrinsics.f, focalMovedPct: 0, ms: 0,
       perRound: [], converged: false, fieldFailures: 0, fieldRmsMm: 0,
+      varianceFactor: 1,
     },
     keyframePoses: [],
     keyframeIndices: [],

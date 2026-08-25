@@ -2,10 +2,12 @@
  * An identity basis built from the template mesh and published anthropometry.
  *
  * Twenty modes, each one a trait an optician or a frame designer would
- * recognise by name, each scaled so that a coefficient of 1.0 is one population
- * standard deviation of that trait. Nothing is learned; every mode is a
- * constructed field over the mesh, and every scale is a number with a stated
- * source in `docs/CONSTANTS.md`.
+ * recognise by name, each scaled so that a coefficient of 1.0 displaces the
+ * most-affected vertex by one population standard deviation of that trait — the
+ * exact guarantee, and which modes it does and does not extend to, are set out
+ * at the normalisation itself. Nothing is learned; every mode is a constructed
+ * field over the mesh, and every scale is a number with a stated source in
+ * `docs/CONSTANTS.md`.
  *
  * ## Honest provenance, up front
  *
@@ -22,9 +24,17 @@
  * and scale* of human facial variation, which is what a solver needs to be
  * well-conditioned and correctly regularised. It is not a claim that the modes
  * are the true principal components. When FLAME 2023 is available it should
- * replace this and the reported errors should improve; the harness in
- * `tests/shape-basis.test.ts` measures how much of a held-out face each basis
- * can explain, so the swap is a measurement rather than a belief.
+ * replace this and the reported errors should improve; `basisExplains()` below
+ * measures how much of a given face a basis can explain, and it is wired up in
+ * three places (`testkit/synthetic.ts`'s `subjectResidualAgainstBasis`, the
+ * "Basis cannot explain" row of `testkit/report-enroll.ts`, and the
+ * falsifiability guard in `tests/pipeline.test.ts`), so the swap would be a
+ * measurement rather than a belief.
+ *
+ * The honest limit on that: every face it has ever been run against is a
+ * *synthetic* subject drawn by `testkit/synthetic.ts`, not a held-out real
+ * scan. It can tell you one basis explains those subjects better than another;
+ * it cannot yet tell you either one explains a real head.
  *
  * ## The modes that exist because this is eyewear
  *
@@ -122,6 +132,8 @@ export function buildAnthropometricBasis(mesh: FaceMesh): ShapeBasis {
   const chinY = p(LM.CHIN, 1);
   const foreheadY = p(LM.FOREHEAD, 1);
   const height = Math.max(foreheadY - chinY, 1e-6);
+  /** Eye line to forehead. The scale a brow feature lives on — NOT `height`. */
+  const browSpan = Math.max(foreheadY - eyeY, 1e-6);
   const bridgeY = p(LM.NOSE_BRIDGE, 1);
   const subnasaleY = p(LM.SUBNASALE, 1);
   const noseSpanY = Math.max(bridgeY - subnasaleY, 1e-6);
@@ -207,9 +219,27 @@ export function buildAnthropometricBasis(mesh: FaceMesh): ShapeBasis {
     ['eyeDepth', CV.eyeDepth * projRef,
       (o, _x, _y, _z, i) => set(o, 0, 0, -eyes[i])],
 
+    // A supraorbital ridge is a band a centimetre or two above the eye line, not
+    // a gradient across the whole forehead.
+    //
+    // This was `ramp(y, eyeY, foreheadY) * (1 - ramp(y, eyeY + height * 0.35,
+    // foreheadY))`, where `height` is the whole CHIN-to-forehead span. On the
+    // template that put the second ramp's lower bound at eyeY + 61.8 = 88.5 mm
+    // while its upper bound was foreheadY = 82.6 — lower bound above upper — and
+    // foreheadY is also the highest vertex in the mesh. Every one of the 468
+    // vertices therefore clamped to t = 1, the factor came out `1 - 1`, and the
+    // whole field was identically zero. The mode was pruned, the basis shipped
+    // 19 modes under the name `anthropometric-20`, and the largest coefficient
+    // of variation in the table above carried no load at all.
+    //
+    // Scaled to the EYE-to-forehead span instead: the ridge builds from the eye
+    // line, peaks about a fifth of the way up (≈10 mm on the template, which is
+    // where a supraorbital torus actually sits) and has faded by just past
+    // halfway (≈31 mm), leaving the upper forehead to `foreheadSlope`.
     ['browRidge', CV.browRidge * projRef,
       (o, _x, y) => set(o, 0, 0,
-        ramp(y, eyeY, foreheadY) * (1 - ramp(y, eyeY + height * 0.35, foreheadY)))],
+        ramp(y, eyeY, eyeY + browSpan * 0.18)
+        * (1 - ramp(y, eyeY + browSpan * 0.18, eyeY + browSpan * 0.55)))],
 
     ['cheekProminence', CV.cheekProminence * projRef,
       (o, _x, _y, _z, i) => set(o, 0, 0, cheeks[i])],
@@ -248,10 +278,60 @@ export function buildAnthropometricBasis(mesh: FaceMesh): ShapeBasis {
       g[i * 3] = scratch[0]; g[i * 3 + 1] = scratch[1]; g[i * 3 + 2] = scratch[2];
       peak = Math.max(peak, Math.hypot(scratch[0], scratch[1], scratch[2]));
     }
-    // Normalise the field to unit peak, then scale to one SD of the trait. This
-    // is what makes `sigma = 1` correct for every coefficient and lets one
-    // regulariser weight serve all twenty.
-    const s = peak > 1e-9 ? magnitude / peak : 0;
+    // A named trait that moves nothing is a bug, not a configuration.
+    //
+    // This used to fall through to `s = 0`, producing a zero mode that
+    // `pruneBasis` then dropped — so the basis quietly shipped 19 modes under
+    // the name `anthropometric-20` for as long as `browRidge` was broken, and
+    // nothing anywhere said so. Failing here costs a build; failing silently
+    // costs a trait.
+    if (!(peak > 1e-9)) {
+      throw new Error(
+        `shape mode '${label}' is identically zero over all ${V} vertices — ` +
+        'its generator produced no displacement anywhere',
+      );
+    }
+    // ---- what "coefficient 1.0 is one standard deviation" guarantees ------
+    //
+    // `peak` is the largest per-vertex displacement anywhere in the field, so
+    // the scale below makes THAT equal one SD of the trait. It does not make
+    // the *named span* change by one SD, and for several modes it cannot: a
+    // field that pushes both temples outward moves each of them by the peak, so
+    // the distance between them moves by twice it.
+    //
+    // Measured on the template — coefficient 1.0, change in the span the mode is
+    // named for, over its declared SD:
+    //
+    //     faceWidth          2.00x   both sides move outward
+    //     templeWidth        1.73x   both sides, damped by Gram-Schmidt
+    //     eyeSpacing         1.11x
+    //     noseBridgeHeight   1.00x   one-sided, and exact
+    //     noseBridgeDepth    0.99x   one-sided
+    //     cheekProminence    0.99x   one-sided
+    //     noseWidth          0.91x
+    //     noseProtrusion     0.66x   the bridge travels with the tip
+    //     noseSidewallFlare  0.27x   the span is read high on the wall, the
+    //                                mode moves it low
+    //     faceTaper          0.07x   antisymmetric about the eye line
+    //
+    // The other ten modes name no span `FaceMeasurements` reports, so there is
+    // nothing to check them against at all.
+    //
+    // Note also that this normalisation is applied BEFORE `orthonormalizeModes`.
+    // Gram-Schmidt then removes whatever an earlier mode already explained, so
+    // the shipped modes peak at 0.77 to 1.00 of their declared SD — `faceWidth`,
+    // being first, is untouched at 1.00; `faceTaper` and `noseSidewallFlare` are
+    // the most shaved at 0.77.
+    //
+    // Left as it is, and the reason is measured rather than argued. Sweeping
+    // `shapePrior` from 0.5 to 4.0 — a 64x change in what a coefficient of 1.0
+    // costs the solve — moves every accuracy median in `report:enroll` by at
+    // most 0.042 mm (nose 1.063 -> 1.050, |protrusion| 0.269 -> 0.311). The
+    // prior is simply not where this pipeline's error is, so a factor of two on
+    // one mode's scale buys nothing real. A rescale would also have to run after
+    // Gram-Schmidt to mean anything, and for the ten modes with no measurable
+    // span there is no target to rescale toward. The honest fix is this comment.
+    const s = magnitude / peak;
     for (let i = 0; i < g.length; i++) g[i] *= s;
     raw.push(g);
     labels.push(label);

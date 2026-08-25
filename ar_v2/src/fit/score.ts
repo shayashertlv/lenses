@@ -31,20 +31,16 @@ import type { FrameAsset } from './frame-asset.js';
 
 export type Grade = 'good' | 'fair' | 'poor' | 'unknown';
 
-export interface Verdict {
+export interface FitMeasure {
+  /** Stable key, and the weight `scoreOf` looks up. */
   id: string;
-  label: string;
   grade: Grade;
-  /** One sentence, addressed to the wearer. */
-  detail: string;
-  /** 0..1. Below `SOFT_VERDICT` the UI marks the number as approximate. */
+  /** 0..1. How much the measurement behind this grade can be trusted. */
   confidence: number;
-  /** The measured quantity, for the readout. */
+  /** The measured quantity itself. */
   value: number | null;
   unit: string;
 }
-
-export const SOFT_VERDICT = 0.6;
 
 /**
  * A well-fitting front, as a fraction of the mesh's own temple-landmark span.
@@ -64,18 +60,37 @@ export const FRAME_TO_FACE_WIDTH = 0.90;
  */
 export const CORNEAL_APEX_MM = 12;
 
+/**
+ * How much of the vertex verdict's confidence survives an ASSUMED temple reach.
+ *
+ * The seat's fore-aft answer is only as good as the ear-rest position it was
+ * solved against, and on every parametric frame that position is
+ * `FrameSpec.templeReachMm`'s shared 95 mm default, not a measurement. Q16
+ * measured the leverage under the shipped wall hook (2026-08-22, 5 seeds x
+ * 8 subjects x 5 frames, cross-seed medians): ±5 mm of reach moves the corneal
+ * vertex 8.7 -> 16.7 mm — 0.80 mm of vertex per mm of reach, enough on its own
+ * to carry the verdict across the entire 12-16 mm band. No other verdict input
+ * has that reach (`descentMm` moves too, -0.05 -> 9.33 mm, but its verdict
+ * already carries the nose confidence that dominates it).
+ *
+ * The FACTOR is `stated`; the sensitivity behind it is measured. 0.5 halves
+ * the verdict's weight in the score's confidence-shrunk average without
+ * pretending the number is worthless — it is still centred on the geometry the
+ * asset actually declares. Keyed on `dimensionSource === 'assumed'` exactly as
+ * the width verdict's caveat is, because that is the provenance flag the asset
+ * pipeline carries. Exported now that its `docs/CONSTANTS.md` row exists —
+ * `check-constants.mjs` requires a ledger row for every export, and holding
+ * the export back was this docstring's own condition until the row landed.
+ */
+export const VERTEX_REACH_CONFIDENCE = 0.5;
+
 export interface FitAssessment {
   frameId: string;
   seat: SeatResult;
-  verdicts: Verdict[];
+  /** One graded measurement per criterion. */
+  measures: FitMeasure[];
   /** 0..100. A single number for ranking a catalogue. */
   score: number;
-  /** What an optician would do, in their own language. Empty when nothing needs
-   *  doing, which is itself worth saying — and empty when the scan is not good
-   *  enough to advise on, in which case `adviceWithheld` says so. */
-  adjustments: string[];
-  /** Set when advice was suppressed for lack of a good enough scan. */
-  adviceWithheld: string | null;
 }
 
 export function assessFit(
@@ -85,7 +100,7 @@ export function assessFit(
   const seat = cachedSeat ?? solveSeat(model, mesh, regions, frame);
   const nose = noseConfidence(model);
   const scaleConfidence = scaleTrust(model);
-  const verdicts: Verdict[] = [];
+  const measures: FitMeasure[] = [];
 
   // ---- width -------------------------------------------------------------
   //
@@ -99,20 +114,40 @@ export function assessFit(
   // differently-defined measurements as the same one — the exact trap v1's own
   // bound-transfer rule was written to avoid, applied here in the other
   // direction.
+  //
+  // **Two different numbers, and for a while one of them did both jobs.**
+  // `widthDelta` is the distance from a *deliberately narrow target*, and it is
+  // the right thing to grade on. It is the wrong thing to put in a sentence: the
+  // prose read "Overhangs your face by about `widthDelta / 2` mm on each side",
+  // which carries a fixed `0.05 * templeWidth` bias — 6.9 to 7.8 mm per side —
+  // because the target is 10% inside the face by construction. Worse, the SIGN
+  // was wrong across most of the adult range: with the catalogue's 138 mm front,
+  // `widthDelta` is positive for every face narrower than 153 mm and clears the
+  // 4 mm tolerance — so the overhang sentence actually printed — for every face
+  // narrower than 149. A 148.6 mm wearer was told "Overhangs by about 2 mm"
+  // when the rims stopped 5.3 mm short of their temples on each side. And the
+  // good case said "Sits level with the sides of your face" precisely where the
+  // frame is ~7 mm inside them, contradicting the paragraph above it.
+  //
+  // So the grade stays on `widthDelta` and the sentence is built from
+  // `overhangPerSide`, which is the real geometry: positive means the rims
+  // genuinely stand proud of the widest part of the face.
   const faceWidth = model.measurements.templeWidth;
   const targetWidth = faceWidth * FRAME_TO_FACE_WIDTH;
   const widthDelta = frame.frontWidthMm - targetWidth;
-  verdicts.push({
+  const overhangPerSide = (frame.frontWidthMm - faceWidth) / 2;
+  // Below half a millimetre `toFixed(0)` prints "about 0 mm past", which is a
+  // sentence no human wrote. Level is level.
+  const wherePerSide = Math.abs(overhangPerSide) < 0.5
+    ? 'level with the widest part of your face'
+    : overhangPerSide > 0
+      ? `about ${overhangPerSide.toFixed(0)} mm past the widest part of your face on each side`
+      : `about ${(-overhangPerSide).toFixed(0)} mm inside the widest part of your face on each side`;
+  measures.push({
     id: 'width',
-    label: 'Width',
-    // The trade's own tolerance: a front within about 4 mm of the face's own
-    // width reads as well-proportioned; beyond ~10 mm it looks borrowed.
+    // The trade's own tolerance: a front within about 4 mm of the target width
+    // reads as well-proportioned; beyond ~10 mm it looks borrowed.
     grade: gradeBy(Math.abs(widthDelta), 4, 10),
-    detail: Math.abs(widthDelta) <= 4
-      ? 'Sits level with the sides of your face.'
-      : widthDelta > 0
-        ? `Overhangs your face by about ${(widthDelta / 2).toFixed(0)} mm on each side.`
-        : `Narrower than your face by about ${(-widthDelta / 2).toFixed(0)} mm on each side.`,
     // Width is the verdict that most needs the scale caveat, because it is a
     // comparison of two absolute lengths and the frame's own may be assumed.
     confidence: scaleConfidence * (frame.dimensionSource === 'assumed' ? 0.3 : 1),
@@ -122,64 +157,82 @@ export function assessFit(
 
   // ---- where it rests ----------------------------------------------------
   const drop = seat.descentMm;
-  verdicts.push({
+  measures.push({
     id: 'height',
-    label: 'Where it rests',
     grade: gradeBy(Math.abs(drop), 3, 8),
-    detail: Math.abs(drop) <= 3
-      ? 'Rests where it should on your nose.'
-      : drop > 0
-        ? `Slides about ${drop.toFixed(0)} mm down your nose — the pads are wider than your bridge.`
-        : `Perches about ${(-drop).toFixed(0)} mm high — the pads are narrower than your bridge.`,
     confidence: nose.value,
     value: drop,
     unit: 'mm',
   });
 
   // ---- how the pads bear -------------------------------------------------
-  const tilt = Math.max(seat.padTiltAdviceDeg[0], seat.padTiltAdviceDeg[1]);
-  verdicts.push({
+  const tilt = Math.max(seat.padTiltDeg[0], seat.padTiltDeg[1]);
+  measures.push({
     id: 'pads',
-    label: 'Pad contact',
     grade: seat.padSeatErrorArticulatedMm > 1.0
       ? 'poor'
       : gradeBy(tilt, 10, 25),
-    detail: seat.padSeatErrorArticulatedMm > 1.0
-      ? 'The pads cannot follow the curve of your nose even if bent — this frame\'s bridge is the wrong shape for you.'
-      : tilt <= 10
-        ? 'The pads lie flat against your nose.'
-        : `The pads meet your nose at about ${tilt.toFixed(0)} degrees off — an optician would bend them flat in seconds.`,
     confidence: nose.value,
     value: tilt,
     unit: 'deg',
   });
 
   // ---- load --------------------------------------------------------------
-  verdicts.push({
+  measures.push({
     id: 'load',
-    label: 'Weight distribution',
     grade: seat.padLoadFraction >= 0.5 && seat.padLoadFraction <= 0.95 ? 'good'
       : seat.padLoadFraction < 0.3 ? 'poor' : 'fair',
-    detail: seat.padLoadFraction < 0.3
-      ? 'Almost all the weight lands on your ears — the pads are too far apart to hold it.'
-      : seat.padLoadFraction > 0.95
-        ? 'Your nose is carrying essentially all the weight; heavier frames in this shape will mark.'
-        : 'The weight is shared sensibly between your nose and your ears.',
     confidence: nose.value * 0.8,
     value: seat.padLoadFraction * 100,
     unit: '%',
   });
 
+  // ---- pad depth ---------------------------------------------------------
+  //
+  // A pad buried in the skin is a pressure point, and until now it could not
+  // reach a grade. `padDepthErrorMm` appeared exactly once in this file — inside
+  // an adjustment string — and had no key in `WEIGHTS`, so a real wearer whose
+  // pads bury 1.9 mm was told *"Rests where it should on your nose"* and scored
+  // 81. The seat had the number the whole time; nothing carried it to the wearer
+  // except prose they had to read past.
+  //
+  // Signed, and the two signs are different faults: negative buries the pad into
+  // the skin, positive leaves it hovering with the frame resting on something
+  // else. Graded on magnitude, described by sign.
+  const depth = seat.padDepthErrorMm;
+  measures.push({
+    id: 'depth',
+    grade: gradeBy(Math.abs(depth), 1.0, 3.0),
+    confidence: nose.value,
+    value: depth,
+    unit: 'mm',
+  });
+
+  // ---- pantoscopic tilt --------------------------------------------------
+  //
+  // This was escaping the verdict list entirely. 'Sits level' below grades
+  // `|rollDeg|` — rotation in the frontal plane — so a frame with no
+  // pantoscopic tilt at all still graded good and said "Sits level", while the
+  // adjustment text underneath told the wearer to bend the temples down. Two
+  // different axes, and only one of them was being reported.
+  //
+  // 8 to 12 degrees is what a prescription assumes. Below about 4 the lens is
+  // optically wrong for a downward gaze; much above 15 the frame looks tipped
+  // and the lower rim reaches the cheek.
+  const panto = seat.pantoscopicDeg;
+  measures.push({
+    id: 'panto',
+    grade: panto >= 6 && panto <= 14 ? 'good' : panto >= 3 && panto <= 18 ? 'fair' : 'poor',
+    confidence: nose.value * 0.8,
+    value: panto,
+    unit: 'deg',
+  });
+
   // ---- crookedness -------------------------------------------------------
   const roll = Math.abs(seat.rollDeg);
-  verdicts.push({
+  measures.push({
     id: 'level',
-    label: 'Sits level',
     grade: gradeBy(roll, 1.0, 2.5),
-    detail: roll <= 1.0
-      ? 'Sits level.'
-      : `Will sit about ${roll.toFixed(1)} degrees off level — your nose is not quite symmetrical, ` +
-        'which is completely normal and is why opticians adjust pads individually.',
     confidence: nose.value,
     value: roll,
     unit: 'deg',
@@ -193,27 +246,24 @@ export function assessFit(
   // by that much — which put every frame at 22 to 28 mm and graded them all
   // poor.
   const vertex = (seat.vertexDistanceMm[0] + seat.vertexDistanceMm[1]) / 2 - CORNEAL_APEX_MM;
-  verdicts.push({
+  measures.push({
     id: 'vertex',
-    label: 'Lens distance',
     // 12 to 16 mm is the range prescriptions are written for.
     grade: vertex >= 10 && vertex <= 18 ? 'good' : vertex >= 8 && vertex <= 22 ? 'fair' : 'poor',
-    detail: `Lenses will sit about ${vertex.toFixed(0)} mm from your eyes` +
-      (vertex > 18 ? ' — further than most prescriptions assume, which matters above about 4 dioptres.'
-        : vertex < 10 ? ' — close enough that your lashes may touch.' : '.'),
-    confidence: scaleConfidence * nose.value,
+    // Vertex carries THREE provenance caveats, not two: the scan's scale, the
+    // nose, and the asset's temple reach — the fore-aft input Q16 measured as
+    // the highest-leverage number in the tree. See VERTEX_REACH_CONFIDENCE.
+    confidence: scaleConfidence * nose.value *
+      (frame.dimensionSource === 'assumed' ? VERTEX_REACH_CONFIDENCE : 1),
     value: vertex,
     unit: 'mm',
   });
 
   // ---- fouling -----------------------------------------------------------
   if (seat.worstClearanceMm > 0.8) {
-    verdicts.push({
+    measures.push({
       id: 'clearance',
-      label: 'Clearance',
       grade: seat.worstClearanceMm > 2 ? 'poor' : 'fair',
-      detail: `The rims press into your face by about ${seat.worstClearanceMm.toFixed(1)} mm — ` +
-        'they will touch your brow or cheeks.',
       confidence: nose.value,
       value: seat.worstClearanceMm,
       unit: 'mm',
@@ -222,13 +272,9 @@ export function assessFit(
 
   // ---- the honest caveat -------------------------------------------------
   if (model.degraded || model.scale.source === 'assumed') {
-    verdicts.push({
+    measures.push({
       id: 'caveat',
-      label: 'About these numbers',
       grade: 'unknown',
-      detail: model.scale.source === 'assumed'
-        ? 'No absolute measurement was possible, so these are proportions rather than millimetres.'
-        : `The scan was incomplete (${model.notes.join('; ')}). A re-scan will sharpen these.`,
       confidence: 0,
       value: null,
       unit: '',
@@ -238,36 +284,12 @@ export function assessFit(
   return {
     frameId: frame.id,
     seat,
-    verdicts,
-    score: scoreOf(verdicts),
-    // Advice is gated on the scan, not on the seat.
-    //
-    // The verdicts carry their own confidence and the UI marks the soft ones,
-    // but an *instruction* has no equivalent hedge — "narrow the pads by 59 mm"
-    // reads as a measurement whatever tilde is next to it. Caught by running the
-    // app against a still photograph, which cannot turn its head, so the nose
-    // was never triangulated (sigma 4.6 mm against the 0.4 mm a real scan gets)
-    // and the seat came out 44 mm down the nose. Every verdict correctly said
-    // "poor" and the caveat correctly said "re-scan" — and underneath them sat
-    // three confident instructions to an optician.
-    adjustments: nose.value >= ADVICE_CONFIDENCE && !model.degraded
-      ? adjustmentsFor(seat, frame)
-      : [],
-    adviceWithheld: nose.value < ADVICE_CONFIDENCE || model.degraded
-      ? `Not enough of your nose was measured to advise on adjustments — ${nose.reason}.`
-      : null,
+    measures,
+    score: scoreOf(measures),
   };
 }
 
-/**
- * How well the nose must be known before the system will tell somebody to bend
- * something, 0..1.
- *
- * Higher than `SOFT_VERDICT`, on purpose. A hedged verdict is still useful
- * information; a hedged instruction is just a wrong instruction with a
- * disclaimer.
- */
-export const ADVICE_CONFIDENCE = 0.45;
+
 
 // ------------------------------------------------------------------ scoring
 
@@ -287,16 +309,22 @@ const GRADE_POINTS: Record<Grade, number> = { good: 1, fair: 0.55, poor: 0.1, un
 const WEIGHTS: Record<string, number> = {
   height: 3.0,
   pads: 3.0,
+  // As heavy as `pads`: a pad buried in the skin is the thing a wearer actually
+  // feels, and it was worth nothing at all until it had a verdict to attach to.
+  depth: 3.0,
   width: 2.0,
   level: 1.2,
+  // Lighter than the rest because it is the most adjustable fault on the list —
+  // an optician fixes it by bending the temples, without touching the frame.
+  panto: 1.0,
   load: 1.0,
   vertex: 0.8,
   clearance: 1.5,
 };
 
-function scoreOf(verdicts: Verdict[]): number {
+function scoreOf(measures: FitMeasure[]): number {
   let num = 0, den = 0;
-  for (const v of verdicts) {
+  for (const v of measures) {
     const w = WEIGHTS[v.id];
     if (!w) continue;
     const points = GRADE_POINTS[v.grade];
@@ -317,74 +345,6 @@ function scaleTrust(model: FaceModel): number {
   // iris's honest figure once population variation is included.
   return clamp(1 - model.scale.sigma / 0.06, 0, 1);
 }
-
-// -------------------------------------------------------------- adjustments
-
-/**
- * Instructions in an optician's own language.
- *
- * These are the output that makes the whole exercise more than a mirror, and
- * they are only possible because the geometry is metric and the contact is
- * solved. Deliberately conservative: nothing here suggests an adjustment the
- * measurement cannot support, and each line names the size of the change.
- */
-function adjustmentsFor(seat: SeatResult, frame: FrameAsset): string[] {
-  const out: string[] = [];
-
-  const tiltR = seat.padTiltAdviceDeg[0];
-  const tiltL = seat.padTiltAdviceDeg[1];
-  if (Math.max(tiltR, tiltL) > 8) {
-    out.push(
-      Math.abs(tiltR - tiltL) > 5
-        ? `Bend the pad arms to flatten the pads: right ${tiltR.toFixed(0)} deg, left ${tiltL.toFixed(0)} deg.`
-        : `Bend both pad arms to flatten the pads by about ${((tiltR + tiltL) / 2).toFixed(0)} deg.`,
-    );
-  }
-
-  if (seat.descentMm > 3) {
-    // Descent per mm of pad separation is measured, not assumed — see the wedge
-    // sweep in `testkit/report-seat.ts`. The inverse gives the correction.
-    const narrowBy = seat.descentMm / WEDGE_SLOPE_MM_PER_MM;
-    out.push(
-      `Narrow the pads by about ${narrowBy.toFixed(0)} mm to lift the frame ` +
-      `${seat.descentMm.toFixed(0)} mm to where it should sit.`,
-    );
-  } else if (seat.descentMm < -3) {
-    const widenBy = -seat.descentMm / WEDGE_SLOPE_MM_PER_MM;
-    out.push(`Widen the pads by about ${widenBy.toFixed(0)} mm to let the frame settle.`);
-  }
-
-  if (Math.abs(seat.rollDeg) > 1.5) {
-    const side = seat.rollDeg > 0 ? 'right' : 'left';
-    out.push(`Raise the ${side} pad slightly to level the frame.`);
-  }
-
-  if (seat.padDepthErrorMm < -1.5) {
-    out.push('The pads are set too deep for this bridge — bring them forward.');
-  }
-
-  if (seat.pantoscopicDeg < 4) {
-    out.push(
-      `Pantoscopic tilt is ${seat.pantoscopicDeg.toFixed(0)} deg; most prescriptions ` +
-      'assume 8 to 10. Bend the temples down at the hinge.',
-    );
-  }
-
-  return out;
-}
-
-/**
- * Millimetres of descent per millimetre of pad separation.
- *
- * **Measured, not derived.** The synthetic seat sweep (`report-seat.ts`) gives
- * 0.74 across the population. The purely geometric prediction from the
- * template's own sidewall angle is about 1.8, and the difference is real and
- * physical: the temple arms take load as the frame descends, so it does not
- * slide as far as the wedge alone would allow. v1 quoted the geometric figure
- * (0.54 mm of half-width per mm of descent, i.e. ~1.85 mm of separation per mm)
- * and had no way to check it.
- */
-export const WEDGE_SLOPE_MM_PER_MM = 0.74;
 
 // ---------------------------------------------------------------- catalogue
 

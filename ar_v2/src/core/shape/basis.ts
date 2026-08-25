@@ -4,11 +4,16 @@
  * ## Why this is an interface and not just FLAME
  *
  * The design called for FLAME 2023 Open (CC-BY-4.0), and that is still the
- * right answer for maximum fidelity — see `flame.ts`, which is a working loader
- * waiting for the asset. But the asset requires a human to accept a licence on
- * the MPI site, and a build that cannot run without it is a build that cannot be
- * tested. So the shape model is a *slot*, and the tree ships with a basis it can
- * construct from the template mesh alone (`anthropometric.ts`).
+ * right answer for maximum fidelity. But the asset requires a human to accept a
+ * licence on the MPI site, and a build that cannot run without it is a build
+ * that cannot be tested. So the shape model is a *slot*, and the tree ships
+ * with a basis it can construct from the template mesh alone
+ * (`anthropometric.ts`).
+ *
+ * The slot is empty and there is no loader. An earlier version of this header
+ * described "`flame.ts`, a working loader waiting for the asset"; no such file
+ * has ever existed here. What exists is this interface — which is the part that
+ * makes the swap cheap, and is a smaller claim than a loader.
  *
  * That turned out to be more than a stopgap, and the reasoning is worth stating
  * because it is a genuine disagreement with the plan:
@@ -41,12 +46,24 @@ export interface ShapeBasis {
   readonly mean: Float64Array;
   /**
    * Mode `k` as a displacement field, 3 * vertexCount, mm per unit coefficient.
-   * Modes are scaled so that a coefficient of 1.0 is one standard deviation of
-   * that trait in the adult population, which is what makes the prior sigma
-   * below a plain 1 and the bounds a plain +/-3.
+   *
+   * Modes are scaled so that a coefficient of 1.0 moves the vertex that moves
+   * MOST by one standard deviation of that trait in the adult population, which
+   * is what makes the prior sigma below a plain 1. It is a **peak-displacement**
+   * normalisation applied to each generator *before* Gram-Schmidt, and it is not
+   * the same claim as "the named span changes by one SD" — for a field that
+   * pushes both temples outward the span between them moves by twice the peak.
+   * `anthropometric.ts` carries the measured per-mode ratios and the argument
+   * for leaving them alone.
    */
   readonly modes: Float64Array[];
-  /** Prior standard deviation per coefficient. */
+  /**
+   * Prior standard deviation per coefficient.
+   *
+   * A cost, not a bound. Nothing in this tree clamps a coefficient and there is
+   * no bounds field to clamp it against — the prior is the only thing that keeps
+   * one small, and it does so by charging for it in the normal equations.
+   */
   readonly sigma: Float64Array;
   /** Human-readable name per coefficient, for readouts and for debugging. */
   readonly labels: string[];

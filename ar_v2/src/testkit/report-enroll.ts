@@ -14,7 +14,8 @@
 
 import { loadBasis, loadRegions, loadTemplateMesh } from './fixtures.js';
 import {
-  CAMERA_LADDER, generatePopulation, subjectResidualAgainstBasis, synthesizeCapture,
+  CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor,
+  subjectResidualAgainstBasis, synthesizeCapture,
   type CaptureOptions, type SyntheticSubject,
 } from './synthetic.js';
 import { enroll } from '../enroll/enroll.js';
@@ -44,6 +45,16 @@ export interface RunOptions {
   variants: string[];
   geometries: string[];
   verbose: boolean;
+  /**
+   * Campaign seed. One run of this report is ONE noise realisation — one draw
+   * of the population and one draw of every capture — and a figure published
+   * from a single realisation cannot be replicated and its tail cannot be
+   * trusted. Distinct seeds give fully independent realisations (new faces AND
+   * new detector noise); the same seed reproduces the run bit for bit.
+   * `undefined` (the default) reproduces the historical no-seed run exactly.
+   * See `acrossSeeds` in metrics.ts for the campaign's standard estimator.
+   */
+  seed?: number;
 }
 
 export function runEnrollReport(options: Partial<RunOptions> = {}): string {
@@ -58,7 +69,9 @@ export function runEnrollReport(options: Partial<RunOptions> = {}): string {
   const mesh = loadTemplateMesh();
   const basis = loadBasis();
   const regions = loadRegions();
-  const population = generatePopulation(mesh, basis, { count: opt.subjects });
+  const population = generatePopulation(mesh, basis, {
+    count: opt.subjects, seed: populationSeedFor(opt.seed),
+  });
 
   const out: string[] = [];
   out.push('ENROLLMENT ACCURACY');
@@ -97,7 +110,7 @@ export function runEnrollReport(options: Partial<RunOptions> = {}): string {
     for (const subject of population) {
       for (const geometry of CAMERA_LADDER) {
         if (!opt.geometries.includes(geometry.name)) continue;
-        const result = runOne(subject, geometry, variant, mesh, basis, regions, opt.verbose);
+        const result = runOne(subject, geometry, variant, mesh, basis, regions, opt.verbose, opt.seed);
         if (!result) continue;
         const { comparison, model } = result;
         noseRms.push(comparison.perRegion.nose.rmsMm);
@@ -154,10 +167,13 @@ export function runEnrollReport(options: Partial<RunOptions> = {}): string {
 function runOne(
   subject: SyntheticSubject, geometry: typeof CAMERA_LADDER[number], variant: Variant,
   mesh: ReturnType<typeof loadTemplateMesh>, basis: ReturnType<typeof loadBasis>,
-  regions: ReturnType<typeof loadRegions>, verbose: boolean,
+  regions: ReturnType<typeof loadRegions>, verbose: boolean, seed: number | undefined,
 ) {
+  // The campaign seed sits before the variant spread so a variant COULD pin its
+  // own capture seed deliberately; none does, and a variant that did would opt
+  // itself out of replication, which is why it would need to be deliberate.
   const capture = synthesizeCapture(mesh, subject, geometry, {
-    framesPerBeat: 14, ...variant.capture,
+    framesPerBeat: 14, seed: captureSeedFor(seed), ...variant.capture,
   });
   const result = enroll({
     mesh,

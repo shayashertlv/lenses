@@ -57,6 +57,11 @@ export interface FrameAsset {
   /** Angle of each pad's plane from the sagittal plane, radians. A pad angled to
    *  match the wearer's sidewall bears flush; one that does not digs an edge in. */
   readonly padAngleRad: number;
+  /** Pad face size, mm. Null when the frame came from a mesh: real geometry has
+   *  a contact patch, not a rectangle, and inventing dimensions for it is how
+   *  assets end up declaring numbers they do not have. */
+  readonly padHeightMm: number | null;
+  readonly padWidthMm: number | null;
 
   /** Overall front width, temple to temple, mm. */
   readonly frontWidthMm: number;
@@ -105,9 +110,87 @@ export interface FrameSpec {
   /** Pad face height and width, mm. */
   padHeightMm?: number;
   padWidthMm?: number;
-  /** How far the pads stand behind the lens plane, mm. */
-  padSetbackMm?: number;
+  /**
+   * How far the lens plane sits AHEAD of the pad contact, mm.
+   *
+   * **The only fore-aft knob a parametric frame has**, now that `padSetbackMm`
+   * is gone. That field named the distance from the pads to the lens plane from
+   * the other end, and it did nothing: its only effect was a constant `-setback`
+   * on every pad sample's Z, which the re-centring below subtracts back out
+   * exactly — the origin is *defined* as the pad centroid, so a rigid shift of
+   * every pad cannot survive it. Verified across 0, 3, 10, 18, 40, -25 and 1e6:
+   * the same pad cloud every time, to 2e-15 mm (2e-11 at 1e6, which is what
+   * cancelling a million-millimetre offset in doubles costs).
+   *
+   * **Measured by sweeping it against the population, not derived** — and the
+   * failed derivation is the point of this comment.
+   *
+   * A real wearer reported *"Lens distance: about 5 mm from your eyes — close
+   * enough that your lashes may touch"*, graded poor. The verdict was right and
+   * the asset was wrong: the value had been six-tenths of that dead setback
+   * field = 6 mm, a number with no anatomy behind it. Removing the field is what
+   * left this one holding the axis alone.
+   *
+   * The obvious fix was to derive it. A prescription assumes the back lens
+   * surface sits 12 to 16 mm from the cornea; the corneal apex is about 12 mm
+   * ahead of the canthal plane; the nasal sidewall is 11.5 mm ahead of the same
+   * plane on this template. Therefore 12.5 to 16.5 mm ahead of the pads.
+   *
+   * That derivation gives **20.7 mm** of vertex distance, which is worse than
+   * what it replaced. It is wrong because it computes where the pads *should*
+   * sit from a landmark, while the contact solve decides where they *actually*
+   * land — a frame settles on the surface with the pad's own stand-off, several
+   * millimetres forward of the landmark, and at a height that depends on the
+   * wearer's nose.
+   *
+   * So it is swept instead. Across six synthetic faces and three pad widths:
+   *
+   *     ahead   vertex median   in the 10-18 mm band
+   *       4          11.1              16/24
+   *       6          13.1              21/24
+   *       7          14.1              22/24     <- centres the 12-16 target
+   *       8          15.1              22/24
+   *      10          17.0              17/24
+   *      14          20.3               5/24
+   *
+   * The wearer's 5 mm sits below this whole synthetic range, which is its own
+   * finding: their frame settles further forward than any generated face. It is
+   * one more reason the real assets need measuring (Q10).
+   */
+  lensAheadOfPadsMm?: number;
   frontWidthMm?: number;
+  /**
+   * How far behind the pad-centroid origin the temple's ear rest sits, mm:
+   * `earRests` gets `z = -templeReachMm`. Default 95, the inline literal this
+   * field replaces (Q16 — "the highest-leverage number in the tree, and it has
+   * no spec field"; now it has one). The hinge sits at z = -2, so the arm's
+   * cantilever span is reach - 2 = 93 mm at the default — the L in
+   * `SKIN.hookCantileverNPerMm`'s derivation.
+   *
+   * The leverage, re-measured 2026-08-22 on the fixed-RNG population (5 seeds
+   * x 8 subjects x 5 catalogue frames, shipped wall hook, seated against
+   * ground truth; cross-seed medians of per-seed pooled medians):
+   *
+   *     reach mm   corneal vertex mm   descent mm   hook force /weight
+   *        90             8.7             -0.05            1.79
+   *        95            13.0              3.84            1.01
+   *       100            16.7              9.33            0.72
+   *
+   * ±5 mm of reach carries the vertex across the entire 12-16 mm band, which
+   * no other single number in the tree can do. The compliant hook does not
+   * deflate that positional leverage — it trims the force swing (1.07 -> 0.68
+   * weight-units over the same sweep) but the vertex swing stays 7.26 mm
+   * against the wall's 8.00.
+   *
+   * The stocked-length reality: real temples come in 5 mm steps — 135, 140,
+   * 145, 150 mm overall arm length, hinge to tip — a 15 mm spread, three times
+   * the ±5 mm swept above. How much of a stock-length step reaches the BEND
+   * (which is what this field measures) is itself unmeasured, which is why
+   * this defaults rather than derives. On a parametric frame the value is
+   * ASSUMED; measuring it off real assets is the most valuable measurement
+   * Q16 leaves open.
+   */
+  templeReachMm?: number;
   massG?: number;
   splayStiffnessNPerMm?: number;
   bridgeType?: FrameAsset['bridgeType'];
@@ -127,7 +210,6 @@ export interface FrameSpec {
 export function parametricFrame(spec: FrameSpec): FrameAsset {
   const padH = spec.padHeightMm ?? 12;
   const padW = spec.padWidthMm ?? 8;
-  const setback = spec.padSetbackMm ?? 10;
   const n = spec.samplesPerPad ?? 9;
   const rows = Math.max(2, Math.round(Math.sqrt(n)));
   const cols = Math.max(2, Math.round(n / rows));
@@ -148,6 +230,11 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     const across = v3(side * sa, 0, -ca);
 
     const cx = (side * spec.padSeparationMm) / 2;
+    // Row-major, across-pad innermost — and nothing downstream may lean on that.
+    // `derivePads` emits samples in whatever order a GLB stores its vertices, so
+    // a consumer that treats the sample index as a coordinate works on one of
+    // the two ways an asset gets here. `padArticulation` used to, and it cost a
+    // wearer-facing verdict.
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const fy = rows === 1 ? 0 : (r / (rows - 1) - 0.5) * padH;
@@ -155,7 +242,7 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
         samples.push(
           cx + up[0] * fy + across[0] * fa,
           0 + up[1] * fy + across[1] * fa,
-          -setback + up[2] * fy + across[2] * fa,
+          0 + up[2] * fy + across[2] * fa,
         );
         normals.push(nrm[0], nrm[1], nrm[2]);
         sides.push(side);
@@ -163,7 +250,14 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     }
   }
 
-  // Re-centre so the origin is the midpoint of the two pad centroids.
+  // Re-centre so the origin is the midpoint of the two pad centroids, which is
+  // the origin convention the whole contact solve is built on.
+  //
+  // It also means a spec field that offsets EVERY pad sample rigidly has no
+  // effect whatsoever — the shift lands in the centroid and comes straight back
+  // out. `padSetbackMm` was such a field and is gone; the fore-aft axis belongs
+  // to `lensAheadOfPadsMm`, which moves the lenses relative to the pads rather
+  // than moving both.
   let cxSum = 0, cySum = 0, czSum = 0;
   for (let i = 0; i < samples.length; i += 3) {
     cxSum += samples[i]; cySum += samples[i + 1]; czSum += samples[i + 2];
@@ -176,6 +270,33 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
 
   const frontWidth = spec.frontWidthMm ?? 138;
   const half = frontWidth / 2;
+  const lensAhead = spec.lensAheadOfPadsMm ?? 7;
+  const templeReach = spec.templeReachMm ?? 95;
+  // Fail where the mistake is: a non-positive reach puts the ear rests level
+  // with or in front of the pads, and the one-sided ear and hook terms then
+  // silently never engage — the frame has nothing holding it on and the seat
+  // reports a plausible-looking answer for a frame that cannot exist.
+  if (!Number.isFinite(templeReach) || templeReach <= 0) {
+    throw new Error(
+      `frame "${spec.id}": templeReachMm must be a positive finite number, ` +
+      `got ${spec.templeReachMm}`,
+    );
+  }
+
+  // A frame with one NaN in it does not fail — it seats, it scores, and it
+  // reports a verdict that looks like a number. `padAngleRad` is required and
+  // has no default, so a spec that omits it (which TypeScript catches, but a
+  // plain-JS caller does not) produced a pad cloud of NaN, a solve that quietly
+  // fell back to its initial pose, and a lens-distance verdict of "about 2 mm"
+  // that cost an hour of chasing the wrong constant. Fail where the mistake is.
+  for (let i = 0; i < samples.length; i++) {
+    if (!Number.isFinite(samples[i]) || !Number.isFinite(normals[i])) {
+      throw new Error(
+        `frame "${spec.id}": pad geometry is not finite — check padAngleRad ` +
+        `(${spec.padAngleRad}) and padSeparationMm (${spec.padSeparationMm})`,
+      );
+    }
+  }
 
   return {
     id: spec.id,
@@ -185,21 +306,24 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     padSide: Int8Array.from(sides),
     padSeparationMm: spec.padSeparationMm,
     padAngleRad: spec.padAngleRad,
+    padHeightMm: padH,
+    padWidthMm: padW,
     frontWidthMm: frontWidth,
     lensCentres: [
-      Float64Array.of(-frontWidth * 0.23, 0, setback * 0.6),
-      Float64Array.of(frontWidth * 0.23, 0, setback * 0.6),
+      Float64Array.of(-frontWidth * 0.23, 0, lensAhead),
+      Float64Array.of(frontWidth * 0.23, 0, lensAhead),
     ],
     hinges: [Float64Array.of(-half, 2, -2), Float64Array.of(half, 2, -2)],
-    // Temple length and drop, from the trade's own conventions: a stock arm
-    // runs about 95 mm from the hinge to the bend, and the bend sits a few
-    // millimetres above the hinge line rather than level with it, because the
-    // ear is higher than the eye. Getting the height wrong here is not a
-    // cosmetic error — the ear term is one-sided, so a rest point placed too
-    // low simply never engages and the frame has nothing holding it on.
+    // Temple reach and drop. The reach comes from the spec now (`templeReachMm`,
+    // default 95 — see that field for what ±5 mm of it does to the seat); the
+    // drop is the trade's convention that the bend sits a few millimetres above
+    // the hinge line rather than level with it, because the ear is higher than
+    // the eye. Getting the height wrong here is not a cosmetic error — the ear
+    // term is one-sided, so a rest point placed too low simply never engages
+    // and the frame has nothing holding it on.
     earRests: [
-      Float64Array.of(-half + 4, 8, -95),
-      Float64Array.of(half - 4, 8, -95),
+      Float64Array.of(-half + 4, 8, -templeReach),
+      Float64Array.of(half - 4, 8, -templeReach),
     ],
     massG: spec.massG ?? 24,
     splayStiffnessNPerMm: spec.splayStiffnessNPerMm ?? 0.05,
@@ -216,6 +340,14 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
  * brackets the population's nose widths from clearly-too-narrow to
  * clearly-too-wide. A solver that gets the middle right and the ends wrong is a
  * solver that works on the frames somebody happened to try.
+ *
+ * All five share the default 95 mm temple reach, deliberately. Nothing measured
+ * distinguishes their temples, and `templeReachMm`'s own table is the argument
+ * against inventing per-frame values: ±5 mm of reach moves the corneal vertex
+ * across the entire 12-16 mm band, so an unmeasured per-frame spread here would
+ * put an unmeasured band-width of vertex into every comparison the catalogue
+ * exists to make. Per-frame values belong here the day they are measured off
+ * real assets, not before.
  */
 export const TEST_FRAMES: FrameAsset[] = [
   parametricFrame({ id: 'narrow-pads', padSeparationMm: 13, padAngleRad: 0.67, massG: 20 }),

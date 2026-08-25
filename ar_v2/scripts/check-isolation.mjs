@@ -9,9 +9,14 @@
  * This is v1's own lesson made mechanical. Its `main.js` / `frame.js` split
  * existed for exactly this reason — so the arithmetic could be driven headless —
  * and it was maintained by discipline alone. Discipline is what fails at 2 a.m.
+ *
+ * Two passes, and the second one is the one that matters: a source-text
+ * blacklist, then an actual `import()` of every built module. See `importPass`
+ * for why one without the other is not a check.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const HEADLESS = ['core', 'enroll', 'track', 'fit', 'detect', 'testkit'];
 
@@ -21,6 +26,17 @@ const FORBIDDEN = [
   { pattern: /\bwindow\s*\./, why: 'touches window' },
   { pattern: /\bnavigator\s*\./, why: 'touches navigator' },
   { pattern: /new\s+(Image|Worker|OffscreenCanvas)\b/, why: 'constructs a browser object' },
+  // `self` is the worker's global. It is not a Node global, so a module that
+  // installs `self.onmessage = ...` at import time throws `ReferenceError: self
+  // is not defined` the moment anything headless imports it. That is exactly
+  // what `enroll.worker.ts` did while this gate printed "intact" and exited 0.
+  { pattern: /\bself\s*[.\[=]/, why: 'uses the worker global `self`' },
+  { pattern: /\b(localStorage|sessionStorage|importScripts)\b/, why: 'uses browser-only storage or loading' },
+  // Deliberately NOT forbidden: `fetch` and `MessageEvent`. Both have been Node
+  // globals since 18, so a module using them still runs headless — banning them
+  // would turn a "must run in Node" rule into a "must not touch the network"
+  // rule, which is a different rule that nobody agreed to, and would fire on
+  // code that is fine.
 ];
 
 /**
@@ -36,6 +52,8 @@ const walk = (dir) => readdirSync(dir).flatMap((entry) => {
 });
 
 let failures = 0;
+/** Every headless module, ALLOW-listed ones included — the import pass wants them all. */
+const modules = [];
 
 for (const area of HEADLESS) {
   const dir = join('src', area);
@@ -46,8 +64,9 @@ for (const area of HEADLESS) {
     continue;
   }
   for (const file of files) {
-    if (!file.endsWith('.ts')) continue;
+    if (!file.endsWith('.ts') || file.endsWith('.d.ts')) continue;
     const rel = relative('.', file).split(sep).join('/');
+    modules.push(rel);
     if (ALLOW.has(rel)) continue;
 
     const lines = readFileSync(file, 'utf8').split('\n');
@@ -67,8 +86,59 @@ for (const area of HEADLESS) {
   }
 }
 
-if (failures) {
-  console.error(`\nisolation boundary violated in ${failures} place(s).`);
+/**
+ * The check that could not have been fooled: actually import every built
+ * headless module in this Node process.
+ *
+ * Everything above reasons about source text, and text is guessable. The gate
+ * was green on `enroll.worker.ts`, which set `self.onmessage` at top level: no
+ * pattern matched, so the script printed "isolation boundary intact" and exited 0
+ * on the one file in its enforced set that threw `ReferenceError: self is not
+ * defined` the instant Node loaded it.
+ * A blacklist can only ever catch the browser globals somebody thought of. This
+ * pass catches all of them, plus top-level work that needs a DOM, plus a
+ * transitive import of something that does — because it runs the loader for
+ * real.
+ *
+ * It reads `dist/`, so it needs a build. When there is no build it SKIPS, and
+ * the skip is printed as loudly as a failure would be: a check that quietly does
+ * nothing is precisely the bug this file exists to prevent, and it is the bug
+ * this file just had.
+ */
+async function importPass() {
+  if (!existsSync('dist')) {
+    console.warn('SKIPPED the import pass: no dist/. Only the source-text patterns ran.');
+    console.warn('  Build first (`npm run build`) to get the check that actually loads each module.');
+    return 0;
+  }
+  let broken = 0;
+  let skipped = 0;
+  let loaded = 0;
+  for (const rel of modules) {
+    const built = resolve('dist', rel.replace(/\.ts$/, '.js'));
+    if (!existsSync(built)) { skipped++; continue; }
+    try {
+      await import(pathToFileURL(built).href);
+      loaded++;
+    } catch (error) {
+      console.error(`${rel}  does not load in Node`);
+      console.error(`    ${error?.message ?? error}`);
+      broken++;
+    }
+  }
+  if (skipped) {
+    console.warn(`SKIPPED ${skipped} module(s) in the import pass: no built .js in dist/.`);
+    console.warn('  A stale build hides exactly the failures this pass exists to find.');
+  }
+  if (!broken) console.log(`  ${loaded} module(s) imported cleanly in Node.`);
+  return broken;
+}
+
+const broken = await importPass();
+
+if (failures || broken) {
+  if (failures) console.error(`\nisolation boundary violated in ${failures} place(s).`);
+  if (broken) console.error(`\n${broken} headless module(s) failed to import in Node.`);
   console.error('The headless half of this tree must run in Node with no browser at all.');
   process.exit(1);
 }

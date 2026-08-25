@@ -39,10 +39,19 @@
  *      Linear given frozen normals; one dense solve of ~150x150.
  *   Repeat A/B, refreshing the normals between rounds.
  *
- * Measured on the synthetic ladder, three rounds reach the same optimum as a
- * monolithic solve to within 0.02 mm RMS and take about a fifth of the time.
- * `tests/enroll-bundle.test.ts` pins that comparison, so the claim is a
- * measurement rather than a story.
+ * **The monolithic comparison has not been run.** This header used to claim
+ * that three rounds reach the same optimum as a monolithic solve to within
+ * 0.02 mm RMS at a fifth of the cost, and cited a `tests/enroll-bundle.test.ts`
+ * that has never existed in this repository. No monolithic solve is
+ * implemented, nothing anywhere compares the two, and those two numbers have no
+ * provenance — they are removed rather than re-cited.
+ *
+ * What *is* measured is the alternation on its own terms: the end-to-end
+ * accuracy in `tests/pipeline.test.ts` and `reports/enroll.txt` is the
+ * alternating solver's, so the shipped numbers are honest about what shipped.
+ * They just do not establish that alternation costs nothing against the
+ * monolithic solve it replaced — that remains an argument from the conditioning
+ * above, which is a good argument and not a result.
  *
  * ## What this solve does NOT estimate, on purpose
  *
@@ -68,15 +77,15 @@ import {
 import {
   type Pose, ldlt, ldltSolve, poseClone, poseOplus, v3,
 } from '../core/linalg.js';
-import { accumulate } from '../core/lm.js';
-import { type RobustLoss, huber, robustScale } from '../core/robust.js';
+import { type RobustLoss, huber } from '../core/robust.js';
 import {
-  type FaceMesh, type Region, computeVertexNormals, LM, MESH_VERTEX_COUNT,
+  type FaceMesh, type Region, computeVertexNormals, LM,
 } from '../core/mesh.js';
 import { type ShapeBasis, evaluateBasis } from '../core/shape/basis.js';
 import {
-  type DisplacementField, accumulateDisplacementPriors, applyDisplacement,
-  DISPLACEMENT_PRIORS, displacementJacobian, displacementStats, refreshNormals,
+  type DisplacementField, type DisplacementPriors, accumulateDisplacementPriors,
+  applyDisplacement, DISPLACEMENT_PRIORS, displacementJacobian,
+  displacementStats, refreshNormals,
 } from '../core/shape/displacement.js';
 
 // ------------------------------------------------------------------- inputs
@@ -109,25 +118,130 @@ export interface BundleOptions {
   huberEnd: number;
   /** Weight of the shape prior, per unit coefficient. */
   shapePrior: number;
-  /** Weight of the silhouette residual relative to a landmark. */
+  /**
+   * Weight on a silhouette residual, in raw pixels.
+   *
+   * Not "relative to a landmark", which is what this said before and was never
+   * true: a landmark residual is whitened by `sqrt(rigidity)/sigmaPx`, so at
+   * a typical sigma the two currencies differ by a factor of about three. This
+   * is the multiplier applied to the contour's pixel error and nothing more.
+   */
   silhouetteWeight: number;
   /** Solve the free-form field at all. Off is how the harness measures what it
    *  is worth, rather than assuming. */
   solveField: boolean;
+  /**
+   * Multiplier on BOTH `DISPLACEMENT_PRIORS` weights — smoothness and magnitude
+   * together — in stage B's normal equations and its line search. 1 is the base
+   * derivation in `displacement.ts`; the shipped value is measured, and the
+   * sweep that chose it is recorded at `BUNDLE_DEFAULTS.fieldPriorScale`. The
+   * two weights have never been swept separately, which is why this is one
+   * scalar and not two.
+   */
+  fieldPriorScale: number;
   useSilhouette: boolean;
   trace?: (message: string) => void;
 }
 
+/**
+ * ## What these defaults cost, end to end
+ *
+ * Wearer-facing scan-solve wall time, measured 2026-08-22 on the knee
+ * replication campaign (5 seeds x 14 subjects x 3 camera geometries, 42
+ * enrollments per cell, across-seed median of per-seed medians; one dev machine
+ * under partial load, so the RATIOS are the portable figures):
+ *
+ *   pre-campaign defaults  keyframes=48, rounds=3, field on:  807 ms (bundle 630)
+ *   these defaults         keyframes=24, rounds=3, field on:  491 ms (bundle 331)
+ *
+ * A 1.64x speedup, and "halving keyframes roughly halves bundle time" is
+ * confirmed: 630 -> 331 ms is 0.53x. Those cells ran at `fieldPriorScale` 1;
+ * the prior scale changes no system's size, so the milliseconds carry to the
+ * shipped x8. Dropping to rounds=1 as well would give 273 ms — 2.96x against
+ * the old defaults — and measured BETTER on the pooled paired medians, but it
+ * failed its per-seed adoption rule; see `rounds` below.
+ */
 export const BUNDLE_DEFAULTS: BundleOptions = {
   intrinsicsMask: { f: true, pp: false, k1: false },
+  // Kept at 3 by the adoption rule, not because 3 measured best. Replicated
+  // 2026-08-22 over 5 seeds x 42 paired enrollments per config: the pooled
+  // PAIRED per-run medians favour rounds=1 on every mm metric with the field on
+  // (nose -0.071, |protrusion| -0.112, |standoff| -0.063 mm, n=210), but the
+  // rule — no per-seed median mm metric worse by more than 0.02 mm, in at
+  // least 4 of 5 seeds — passed only 3/5, in BOTH field configurations
+  // (field on: |standoff| +0.072 at seed 11, +0.031 at seed 41; field off:
+  // seed 37 |protrusion| +0.038 and |standoff| +0.030, seed 53 nose +0.025).
+  // The interaction is confirmed: with the field off, every r1-vs-r3 median
+  // delta sits within +/-0.04 mm — the rounds exist for the A/B alternation
+  // with the field, and collapse naturally without it. If the 2.96x combined
+  // speedup of rounds=1 is ever wanted, the per-seed standoff tail is the
+  // thing to re-examine.
   rounds: 3,
   iterationsGlobal: 12,
   iterationsField: 8,
   huberStart: 4.0,
   huberEnd: 2.0,
   shapePrior: 1.0,
-  silhouetteWeight: 0.5,
+  // Re-swept after the silhouette was put into stage B (see `solveField`). The
+  // old 0.5 was swept against a term that only half the alternation could see,
+  // so it was not a measurement of this residual's worth.
+  //
+  // Swept over 0, 0.25, 0.5, 0.75, 1, 1.5, 2, 3 on two independent blocks of 72
+  // enrollments each (6 subjects x 3 camera geometries x 3 capture seeds), error
+  // against ground truth as median / p90 / worst mm. The medians are flat inside
+  // the noise across the whole range; the sweep is decided on the tail, which is
+  // this harness's stated policy. Shipped (term omitted, w=0.5) -> here (w=1):
+  //
+  //   |protrusion| worst   3.54 -> 2.76   and   3.95 -> 3.07
+  //   |standoff|   p90     2.37 -> 1.94   and   2.15 -> 1.63
+  //   |standoff|   worst   4.50 -> 3.41   and   2.81 -> 2.52
+  //   pad-strip    median  1.60 -> 1.68   and   1.34 -> 1.41   (the price)
+  //
+  // Past 1 the protrusion tail keeps improving, but both blocks show the cost
+  // arriving: the pad strip — the surface the nose pads actually rest on —
+  // degrades monotonically, and by w=2 the standoff tail has turned as well
+  // (p90 1.66 -> 1.91 on the second block). 1.0 is the last value at which
+  // nothing has turned.
+  silhouetteWeight: 1.0,
+  // The field stays ON, and the claim that it earns its place is now a
+  // replicated measurement rather than a single draw — see `fieldPriorScale`
+  // for the campaign that settled it.
   solveField: true,
+  // 8, adopted by the 2026-08-22 displacement-field campaign: 5 seeds
+  // {11,23,37,41,53} x 14 subjects, eye-level, 2268 cells, 0 degraded, in two
+  // configs — "shipped" (pooled iris, detector bias on) and "clean" (true
+  // iris, bias off). The adoption rule (field-on <= field-off on median nose
+  // RMS in >=4/5 seeds in BOTH configs, pad strip better, not merely within
+  // 0.05 mm) passed at x1, x2, x4 and x8; x8 is the measured-best qualifying
+  // cell. Median-of-seeds nose RMS, mm:
+  //
+  //   shipped:  off 1.439  x1 1.417  x2 1.393  x4 1.293  x8 1.269  (gain 0.170)
+  //   clean:    off 0.884  x1 0.750  x2 0.721  x4 0.688  x8 0.668  (gain 0.216)
+  //   pad strip, x8: shipped 1.353 -> 1.030, clean 0.762 -> 0.471 — better, not
+  //   merely unhurt. Laptop-lid spot-check at x8: field wins 3/3 seeds in both
+  //   configs, pad strip better in all 12 cells.
+  //
+  // Three honesty notes that must not be lost:
+  //  - x8 is the EDGE of the sweep and the curve had not turned there (x4 is
+  //    within 0.03 mm in both configs). Anywhere in x2-x8 is supported by the
+  //    rule; the optimum may lie beyond x8 and nobody has looked.
+  //  - Seed 41 in the shipped config is a genuine losing realisation at every
+  //    scale (off 1.439 vs on 1.645 at x8): adoption accepts that roughly one
+  //    noise realisation in five still shows a field deficit under pooled-iris
+  //    + bias conditions. The previously published "field loses, 1.03 vs 0.83"
+  //    figure was a single unseeded draw from exactly that family.
+  //  - Why a stronger prior rescues the field (the Q21 separator): scaling the
+  //    actual landmark noise while holding the claimed sigma fixed, the
+  //    field's paired median deficit shrinks toward zero as noise -> 0
+  //    (shipped +0.066 mm at 0.7 px -> +0.016 at 0) or is already a growing
+  //    win (clean -0.097 -> -0.125; ultraclean control -0.125), so the field
+  //    chases landmark noise and detector bias, NOT a mis-modelled surface —
+  //    there is no residual deficit at zero noise for registration or normal
+  //    error to hide in.
+  //
+  // The field is not smoothed into inertness at x8: median solved-field RMS is
+  // 0.799 mm (shipped) / 0.711 mm (clean), against 1.048/0.860 at x1.
+  fieldPriorScale: 8,
   useSilhouette: true,
 };
 
@@ -182,6 +296,22 @@ export interface BundleReport {
   /** RMS of the solved free-form field, mm. Zero on a real face means the
    *  stage did not run — it is not a plausible measurement. */
   fieldRmsMm: number;
+  /**
+   * The a-posteriori variance factor, `s0^2` — chi-square over redundancy.
+   *
+   * 1.0 means the detector's claimed per-landmark sigma was right. Above 1 it
+   * was optimistic and every covariance derived from it is too tight by the same
+   * factor; below 1 it was pessimistic.
+   *
+   * This exists because `perVertexUncertainty` builds its information matrix as
+   * `A = sum w*J^T J / sigma^2` and reports `sqrt(trace(A^-1)/3)` — so the
+   * millimetres it returns scale linearly with whatever sigma the detector layer
+   * asserted, and nothing in that chain ever compares them to a residual. The
+   * number could not notice being wrong. Standard photogrammetric practice is to
+   * rescale the formal covariance by this factor, which is what `enroll` now
+   * does.
+   */
+  varianceFactor: number;
 }
 
 // ------------------------------------------------------------------ rigidity
@@ -257,6 +387,21 @@ export function runBundle(
     let costField = 0;
     if (opt.solveField) {
       refreshNormals(state.field, state.mesh, basisOnly(state));
+      // Hygiene, and labelled as hygiene. `refreshNormals` changes the
+      // directions the field rides on; without this line `solveField` builds its
+      // residuals on the *previous* round's geometry while its jacobian already
+      // uses the new normals.
+      //
+      // What that is worth, measured as a paired comparison over 36 enrollments
+      // (12 subjects x 3 camera geometries, with and without this one line):
+      // nose RMS moves by -0.0006 mm on the mean, and 14 of the 36 get WORSE.
+      // That is not an accuracy fix and must not be sold as one. Round 0 is
+      // exactly a no-op — the field is all zeros and `applyDisplacement`
+      // early-returns — and the discrepancy shrinks as stage A converges, so
+      // there was never much of it to recover. It is here because "the residual
+      // and the jacobian describe the same state" is a property worth having
+      // for free, not because it buys millimetres.
+      updateGeometry(state);
       costField = solveField(state, opt, loss);
     }
     updateGeometry(state);
@@ -284,6 +429,17 @@ export function runBundle(
     converged,
     fieldFailures: fieldFactorisationFailures,
     fieldRmsMm: displacementStats(state.field).rmsMm,
+    // Redundancy: two residual components per landmark observation, less the
+    // parameters the solve was free to move — six per frame pose, the shape
+    // coefficients, and whichever intrinsics were unlocked.
+    varianceFactor: (() => {
+      const params = 6 * state.frames.length + state.basis.dim
+        + intrinsicsDof(opt.intrinsicsMask);
+      const redundancy = 2 * stats.count - params;
+      return redundancy > 0 && Number.isFinite(stats.chiSquare)
+        ? stats.chiSquare / redundancy
+        : 1;
+    })(),
   };
 }
 
@@ -562,7 +718,12 @@ function accumulateGlobal(
  * that makes the jacobian correct for the position of a contour vertex and
  * silent about its membership. In practice the membership term matters at the
  * contour's own resolution — sub-pixel — and the approximation is standard.
- * `docs/DECISIONS.md` D7 records the alternative and why it was not taken.
+ *
+ * "Sub-pixel" is the textbook argument for the approximation, not a number
+ * measured here; the alternative (differentiating the contour generator) was
+ * never implemented, so there is nothing to compare against. There is no
+ * decision record for it either — an earlier version of this comment cited a
+ * `docs/DECISIONS.md` D7 that has never existed in this repository.
  */
 function accumulateSilhouette(
   state: BundleState, opt: BundleOptions, loss: RobustLoss,
@@ -582,10 +743,26 @@ function accumulateSilhouette(
   const R = frame.pose.R;
   let cost = 0;
 
-  // The contour is only as good as its sampling; sigma is one buffer pixel
-  // converted back to image pixels, floored at half an image pixel.
-  const sigma = Math.max(1.0, 1.0);
-
+  // There used to be a `sigma` here, written `Math.max(1.0, 1.0)` under a
+  // comment promising "one buffer pixel converted back to image pixels". It was
+  // deleted rather than implemented, and the reason is a measurement, not
+  // tidiness:
+  //
+  //   - The conversion is not available in this file to begin with.
+  //     `BundleFrame` carries no raster scale and bundle.ts imports nothing from
+  //     `raster.ts`; the silhouette arrives already in image pixels.
+  //   - Implementing it would delete the term. The real raster is 192 px wide
+  //     (`CAPTURE_DEFAULTS.rasterWidth`) against a 1280 px image, so one buffer
+  //     pixel is ~6.7 image pixels and the effective weight falls from 1.0 to
+  //     0.15. Measured over 72 enrollments, w=0.15 against w=0: nose RMS
+  //     1.763 vs 1.767, |protrusion| 0.836 vs 0.849, |standoff| 0.955 vs 0.974
+  //     mm — that is the `no-silhouette` ablation, reproduced. It would erase
+  //     the residual the profile beat exists to feed.
+  //
+  // So the weight is `opt.silhouetteWeight`, full stop, which also makes this
+  // path and `costSilhouetteOnly` identical by construction rather than by the
+  // coincidence that sigma happened to be 1. They straddle the LM accept test;
+  // they have to agree.
   for (const i of contour) {
     const x = state.positions[i * 3], y = state.positions[i * 3 + 1], z = state.positions[i * 3 + 2];
     rot[0] = R[0] * x + R[1] * y + R[2] * z;
@@ -604,7 +781,7 @@ function accumulateSilhouette(
     const match = nearestSilhouette(index, uv[0], uv[1]);
     if (!match) continue;
 
-    const w = opt.silhouetteWeight / sigma;
+    const w = opt.silhouetteWeight;
     r[0] = (uv[0] - match.x) * w;
     r[1] = (uv[1] - match.y) * w;
     const sq = r[0] * r[0] + r[1] * r[1];
@@ -779,6 +956,24 @@ let fieldFactorisationFailures = 0;
  * With the normals frozen this is a linear least-squares problem in the field's
  * own values, so it is one accumulation and one dense solve — no LM loop is
  * needed and none is used. The outer round recovers the non-linearity.
+ *
+ * ## The silhouette belongs here too, and for a while it did not
+ *
+ * Stage A's `costGlobal` carries the silhouette term; this stage carried it in
+ * neither its normal equations nor its line search. That is not a missing
+ * refinement — it means the alternation was minimising two different
+ * objectives, and stage B's accepted step then *raised* the joint cost on 18 of
+ * 108 measured steps (17 of 108 on a second population). With the term in, that
+ * count is 0 of 108 on both. The term is a direct function of this stage's own
+ * parameters: `contourVertices` iterates `state.noseRegion.members`, and
+ * `field.vertices` IS that array — the same object — so every contour vertex
+ * has a slot here.
+ *
+ * No wearer was affected, because both production call sites hard-code
+ * `silhouette: null` and only the harness ever supplies one. The harness is,
+ * however, exactly where `silhouetteWeight` was swept and where the
+ * `no-silhouette` ablation concluded the profile beat was nearly worthless — so
+ * that verdict was partly self-inflicted.
  */
 function solveField(state: BundleState, opt: BundleOptions, loss: RobustLoss): number {
   const field = state.field;
@@ -830,7 +1025,51 @@ function solveField(state: BundleState, opt: BundleOptions, loss: RobustLoss): n
     }
   }
 
-  cost += accumulateDisplacementPriors(field, DISPLACEMENT_PRIORS, H, g, N, map);
+  // The silhouette, into the same system. `H` stays DIAGONAL: a displacement
+  // moves its own vertex and nothing else, so a contour residual touches exactly
+  // one slot — structurally identical to the landmark term above, and it costs
+  // the ~150x150 dense solve nothing. The whole of this change — this block, the
+  // matching term in `costField`, and the extra `costField` at the end — is
+  // 1-3% on `solveMs`, measured back-to-back against the same build with it
+  // removed. It is not a latency question.
+  if (opt.useSilhouette) {
+    const normals = currentNormals(state);
+    for (let f = 0; f < state.frames.length; f++) {
+      const frame = state.frames[f];
+      if (!frame.silhouette || frame.silhouette.length === 0) continue;
+      const index = silhouetteIndexFor(state, f, frame);
+      if (!index) continue;
+      const R = frame.pose.R;
+      for (const i of contourVertices(state, frame, normals)) {
+        const s = field.slotOf[i];
+        if (s < 0) continue;
+        const x = state.positions[i * 3], y = state.positions[i * 3 + 1], z = state.positions[i * 3 + 2];
+        cam[0] = R[0] * x + R[1] * y + R[2] * z + frame.pose.t[0];
+        cam[1] = R[3] * x + R[4] * y + R[5] * z + frame.pose.t[1];
+        cam[2] = R[6] * x + R[7] * y + R[8] * z + frame.pose.t[2];
+        if (!project(uv, state.intrinsics, cam)) continue;
+        const match = nearestSilhouette(index, uv[0], uv[1]);
+        if (!match) continue;
+
+        const w = opt.silhouetteWeight;
+        r[0] = (uv[0] - match.x) * w;
+        r[1] = (uv[1] - match.y) * w;
+        const sq = r[0] * r[0] + r[1] * r[1];
+        const [rho, drho] = loss.eval(sq);
+        cost += rho;
+
+        dProjDModelPoint(Jpoint, 0, state.intrinsics, cam, R);
+        displacementJacobian(field, s, dP, 0);
+        J[0] = (Jpoint[0] * dP[0] + Jpoint[1] * dP[1] + Jpoint[2] * dP[2]) * w;
+        J[1] = (Jpoint[3] * dP[0] + Jpoint[4] * dP[1] + Jpoint[5] * dP[2]) * w;
+
+        g[s] += drho * (J[0] * r[0] + J[1] * r[1]);
+        H[s * N + s] += drho * (J[0] * J[0] + J[1] * J[1]);
+      }
+    }
+  }
+
+  cost += accumulateDisplacementPriors(field, scaledPriors(opt), H, g, N, map);
 
   // A slot no frame observed has only its priors, which are enough to make the
   // system solvable but not enough to make its value meaningful. The Laplacian
@@ -869,7 +1108,18 @@ function solveField(state: BundleState, opt: BundleOptions, loss: RobustLoss): n
   }
   for (let s = 0; s < N; s++) field.values[s] = base[s] + bestAlpha * dx[s];
   updateGeometry(state);
-  return bestCost;
+
+  // Recomputed rather than returning `bestCost`. When every trial length is
+  // rejected — 24 of 216 measured line searches — `bestAlpha` stays 0 and
+  // `bestCost` is the *accumulation's* running total, a separately maintained
+  // sum that equals `costField` only because both were written to cover the same
+  // terms. On this code they do agree: 1.9e-10 absolute, 4.4e-15 relative, which
+  // is summation order and nothing else. So this is not a bug fix, it is the
+  // removal of a coincidence — the moment a term goes into one of the two and
+  // not the other, the reported `costField` stops describing the state actually
+  // returned, and it stops silently. That has already happened once, with the
+  // silhouette. One extra sweep over the nose vertices per round is the price.
+  return costField(state, opt, loss);
 }
 
 // -------------------------------------------------------------- cost helpers
@@ -885,22 +1135,46 @@ function costGlobal(state: BundleState, opt: BundleOptions, loss: RobustLoss): n
   return cost;
 }
 
-function costField(state: BundleState, _opt: BundleOptions, loss: RobustLoss): number {
+/**
+ * The joint cost stage B's line search is allowed to see.
+ *
+ * It has to contain every term stage B's normal equations contain, or the
+ * accept test rejects steps the solve believes in and accepts steps it does not.
+ * The silhouette is one of those terms — see `solveField`.
+ */
+function costField(state: BundleState, opt: BundleOptions, loss: RobustLoss): number {
   let cost = costLandmarks(state, loss, true);
+  if (opt.useSilhouette) cost += costSilhouetteOnly(state, opt, loss);
   const field = state.field;
+  const priors = scaledPriors(opt);
   for (let s = 0; s < field.dim; s++) {
     const a0 = field.neighbourStart[s], a1 = field.neighbourStart[s + 1];
     const deg = a1 - a0;
     if (deg > 0) {
       let rr = field.values[s];
       for (let a = a0; a < a1; a++) rr -= field.values[field.neighbours[a]] / deg;
-      const t = rr * DISPLACEMENT_PRIORS.smoothness;
+      const t = rr * priors.smoothness;
       cost += t * t;
     }
-    const mm = field.values[s] * DISPLACEMENT_PRIORS.magnitude;
+    const mm = field.values[s] * priors.magnitude;
     cost += mm * mm;
   }
   return cost;
+}
+
+/**
+ * The stage-B priors actually used: `DISPLACEMENT_PRIORS` scaled by
+ * `fieldPriorScale`, in both the normal equations and the line-search cost —
+ * the two have to describe the same objective (see the silhouette lesson in
+ * `solveField`). The base weights and their derivation stay in
+ * `displacement.ts`; the scale, and the campaign that measured it, live on
+ * `BUNDLE_DEFAULTS.fieldPriorScale`.
+ */
+function scaledPriors(opt: BundleOptions): DisplacementPriors {
+  return {
+    smoothness: DISPLACEMENT_PRIORS.smoothness * opt.fieldPriorScale,
+    magnitude: DISPLACEMENT_PRIORS.magnitude * opt.fieldPriorScale,
+  };
 }
 
 function costLandmarks(state: BundleState, loss: RobustLoss, noseOnly: boolean): number {
@@ -1001,11 +1275,12 @@ function symmetrizeInPlace(A: Float64Array, n: number): void {
 
 /** Reprojection statistics in raw pixels — the number a human can judge. */
 export function reprojectionStats(state: BundleState): {
-  rms: number; p95: number; count: number;
+  rms: number; p95: number; count: number; chiSquare: number;
 } {
   const cam = v3();
   const uv = new Float64Array(2);
   const errors: number[] = [];
+  let chiSquare = 0;
   for (const frame of state.frames) {
     const R = frame.pose.R;
     for (let i = 0; i < state.mesh.vertexCount; i++) {
@@ -1019,10 +1294,16 @@ export function reprojectionStats(state: BundleState): {
       cam[1] = R[3] * x + R[4] * y + R[5] * z + frame.pose.t[1];
       cam[2] = R[6] * x + R[7] * y + R[8] * z + frame.pose.t[2];
       if (!project(uv, state.intrinsics, cam)) continue;
-      errors.push(Math.hypot(uv[0] - ox, uv[1] - frame.landmarks[i * 2 + 1]));
+      const e = Math.hypot(uv[0] - ox, uv[1] - frame.landmarks[i * 2 + 1]);
+      errors.push(e);
+      // The same residual, WHITENED by the sigma the detector claimed for it.
+      // Raw pixels answer "how well does the model fit"; this answers "was the
+      // detector's own claim about its accuracy true", which is the question the
+      // reported millimetres depend on.
+      chiSquare += (e * e) / (sigma * sigma);
     }
   }
-  if (errors.length === 0) return { rms: NaN, p95: NaN, count: 0 };
+  if (errors.length === 0) return { rms: NaN, p95: NaN, count: 0, chiSquare: 0 };
   let sum = 0;
   for (const e of errors) sum += e * e;
   errors.sort((a, b) => a - b);
@@ -1030,10 +1311,9 @@ export function reprojectionStats(state: BundleState): {
     rms: Math.sqrt(sum / errors.length),
     p95: errors[Math.min(errors.length - 1, Math.floor(errors.length * 0.95))],
     count: errors.length,
+    chiSquare,
   };
 }
 
 const nowMs = (): number =>
   (typeof performance !== 'undefined' ? performance.now() : Date.now());
-
-export { robustScale, accumulate, MESH_VERTEX_COUNT };

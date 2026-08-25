@@ -21,8 +21,7 @@
 
 import type { FaceModel } from '../core/facemodel.js';
 import type { SeatResult } from '../fit/contact.js';
-import type { FitAssessment, RankedFrame } from '../fit/advice.js';
-import { SOFT_VERDICT } from '../fit/advice.js';
+import type { FitAssessment, RankedFrame } from '../fit/score.js';
 import type { ProtocolStep } from '../enroll/protocol.js';
 import { TEST_FRAMES } from '../fit/frame-asset.js';
 
@@ -43,10 +42,12 @@ export interface UI {
   status(text: string): void;
   guide(step: ProtocolStep | null): void;
   tracked(on: boolean, reason?: string): void;
-  verdicts(assessment: FitAssessment): void;
+  fit(assessment: FitAssessment): void;
   catalogue(ranked: RankedFrame[]): void;
   readouts(values: Readouts): void;
   showDiagnostics(text: string): void;
+  /** Asks the wearer for their PD in mm. Null if they cancelled, 0 to clear. */
+  askPd(): number | null;
   onAction(handler: (action: string) => void): void;
 }
 
@@ -142,43 +143,26 @@ export function createUI(root: HTMLElement): UI {
       if (!on && reason && statusEl) statusEl.textContent = reason;
     },
 
-    verdicts(assessment) {
+    fit(assessment) {
+      // The fit panel is a SCORE and its parts, not a report. The prose
+      // verdicts and the optician instructions that used to render here were
+      // removed on 2026-08-25: a try-on shows a wearer the frame on their
+      // face, and telling them in sentences what an optician would bend is a
+      // different product with a different duty of care behind it.
       if (!verdictEl) return;
       verdictEl.innerHTML = '';
-      for (const v of assessment.verdicts) {
-        const row = document.createElement('div');
-        row.className = `verdict ${v.grade}`;
-        const soft = v.confidence < SOFT_VERDICT && v.value !== null;
-        row.innerHTML =
-          `<span class="label">${escapeHtml(v.label)}</span>` +
-          `<span class="value">${
-            v.value === null ? '' : `${soft ? '~' : ''}${v.value.toFixed(1)} ${v.unit}`
-          }</span>` +
-          `<span class="detail">${escapeHtml(v.detail)}</span>`;
-        verdictEl.appendChild(row);
-      }
       const score = document.createElement('div');
       score.className = 'score';
       score.textContent = `fit score ${assessment.score}`;
-      verdictEl.prepend(score);
-
-      if (adjustEl) {
-        adjustEl.innerHTML = '';
-        if (assessment.adviceWithheld) {
-          const row = document.createElement('div');
-          row.className = 'adjust none';
-          row.textContent = assessment.adviceWithheld;
-          adjustEl.appendChild(row);
-        } else if (assessment.adjustments.length === 0) {
-          adjustEl.innerHTML = '<div class="adjust none">Nothing to adjust — it fits as it comes.</div>';
-        } else {
-          for (const a of assessment.adjustments) {
-            const row = document.createElement('div');
-            row.className = 'adjust';
-            row.textContent = a;
-            adjustEl.appendChild(row);
-          }
-        }
+      verdictEl.appendChild(score);
+      for (const m of assessment.measures) {
+        if (m.value === null) continue;
+        const row = document.createElement('div');
+        row.className = `verdict ${m.grade}`;
+        row.innerHTML =
+          `<span class="label">${escapeHtml(m.id)}</span>` +
+          `<span class="value">${m.value.toFixed(1)} ${escapeHtml(m.unit)}</span>`;
+        verdictEl.appendChild(row);
       }
     },
 
@@ -189,12 +173,12 @@ export function createUI(root: HTMLElement): UI {
         const row = document.createElement('button');
         row.className = 'ranked';
         row.dataset.action = `frame:${entry.frame.id}`;
-        const poor = entry.assessment.verdicts.filter((v) => v.grade === 'poor');
+        const poor = entry.assessment.measures.filter((m) => m.grade === 'poor');
         row.innerHTML =
           `<span class="rank-score">${entry.assessment.score}</span>` +
           `<span class="rank-name">${escapeHtml(entry.frame.name)}</span>` +
           `<span class="rank-why">${
-            poor.length ? escapeHtml(poor.map((v) => v.label).join(', ')) : 'no complaints'
+            poor.length ? escapeHtml(poor.map((m) => m.id).join(', ')) : 'no complaints'
           }</span>`;
         catalogueEl.appendChild(row);
       }
@@ -244,6 +228,29 @@ export function createUI(root: HTMLElement): UI {
         );
       }
       readoutEl.textContent = lines.join('\n');
+    },
+
+    askPd() {
+      // The accuracy threshold is in the prompt because it decides whether the
+      // answer helps or hurts, and a wearer cannot know it otherwise. Measured:
+      // the pooled-iris assumption gives 4.4% median scale error, an exact PD
+      // gives 0.5%, and the two cross over at about 2.5 mm of PD error. A
+      // guessed PD is worse than no PD.
+      const raw = prompt(
+        'Distance between your PUPILS, in millimetres.\n\n'
+        + 'Not your distance from the screen. For an adult it is 54 to 74 mm, '
+        + 'usually around 63.\n\n'
+        + 'It is on a spectacle prescription as PD, DPD or IPD, either as one '
+        + 'number or as two that add up to it. An optician measures it with a '
+        + 'pupilometer, good to half a millimetre, and that is nine times better '
+        + 'than the iris size this app otherwise has to assume.\n\n'
+        + 'If you would be guessing by more than about 2 mm, cancel instead — a '
+        + 'guessed PD is WORSE than the assumption it replaces.\n\n'
+        + 'Blank cancels. Enter 0 to go back to the assumption.',
+      );
+      if (raw === null || raw.trim() === '') return null;
+      const value = Number(raw.trim());
+      return Number.isFinite(value) ? value : null;
     },
 
     showDiagnostics(text) {

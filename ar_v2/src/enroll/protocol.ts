@@ -250,6 +250,11 @@ export const BEATS: BeatSpec[] = [
 ];
 
 export interface ProtocolState {
+  /** The beat sequence this scan is running. `BEATS` exactly unless an option
+   *  added to it at creation; `advanceProtocol` and `summarise` read only
+   *  this, never the module constant, so an optional beat cannot desync the
+   *  index from the list it indexes into. */
+  beats: BeatSpec[];
   index: number;
   held: number;
   done: BeatId[];
@@ -257,8 +262,19 @@ export interface ProtocolState {
   attempts: number;
   neutral: Neutral | null;
   neutralAccum: { yaw: number; pitch: number; distance: number; n: number };
-  /** The furthest the wearer has got in the current beat. */
+  /**
+   * The plateau REFERENCE: the value `sinceImprovement` is counted against.
+   *
+   * Deliberately not the same thing as `peak`. This one only moves when the
+   * wearer genuinely gets further, so "frames since improvement" measures what
+   * its name says. Latching it to the current value every frame — which is what
+   * this did — turns the whole test into a per-frame velocity gate. See the
+   * comment at the improvement test.
+   */
   best: number;
+  /** The furthest the wearer has actually got in the current beat, for the goal
+   *  test and for honest reporting. */
+  peak: number;
   /** Frames since `best` last improved by more than the epsilon. */
   sinceImprovement: number;
   /** What each beat actually achieved, for honest reporting. */
@@ -266,8 +282,47 @@ export interface ProtocolState {
   finished: boolean;
 }
 
+/**
+ * What a finished scan achieved, small enough to live on the model forever.
+ *
+ * The model outlives the protocol. It is serialised to localStorage and restored
+ * on the next page load straight into `wear`, while `ProtocolState` is rebuilt
+ * fresh — so by the time a wearer can press "Copy diagnostics", the scan that
+ * produced their model is gone. A real dump came back reading
+ * `"In progress — on centre, 0 of 7 done"` beside a model built from 48 frames,
+ * which is not a contradiction, just two objects with different lifetimes.
+ *
+ * That mattered more than a cosmetic wrong line: how far the wearer actually
+ * turned, in the scan's own units, is the one measurement needed to calibrate
+ * the yaw compression in `docs/OPEN-QUESTIONS.md` Q13, and it was being
+ * destroyed before anyone could read it.
+ */
+export interface ScanRecord {
+  readonly done: BeatId[];
+  readonly skipped: BeatId[];
+  readonly achieved: Partial<Record<BeatId, number>>;
+  readonly turnAchievedDeg: number;
+  readonly neutral: Neutral | null;
+  readonly finished: boolean;
+  readonly summary: string;
+}
+
+/** Snapshot the protocol so it can be carried by the model that came out of it. */
+export function scanRecord(state: ProtocolState): ScanRecord {
+  return {
+    done: [...state.done],
+    skipped: [...state.skipped],
+    achieved: { ...state.achieved },
+    turnAchievedDeg: achievedTurnDeg(state),
+    neutral: state.neutral ? { ...state.neutral } : null,
+    finished: state.finished,
+    summary: summarise(state),
+  };
+}
+
 export const createProtocol = (): ProtocolState => ({
-  index: 0, held: 0, done: [], skipped: [], attempts: 0,
+  beats: BEATS,
+  index: 0, held: 0, done: [], skipped: [], attempts: 0, peak: 0,
   neutral: null,
   neutralAccum: { yaw: 0, pitch: 0, distance: 0, n: 0 },
   best: 0, sinceImprovement: 0, achieved: {},
@@ -310,13 +365,14 @@ function resetBeat(state: ProtocolState): void {
   state.held = 0;
   state.attempts = 0;
   state.best = 0;
+  state.peak = 0;
   state.sinceImprovement = 0;
 }
 
 export function advanceProtocol(state: ProtocolState, sample: PoseSample | null): ProtocolStep {
   if (state.finished) return finishedStep();
 
-  const beat = BEATS[state.index];
+  const beat = state.beats[state.index];
   let justCompleted: BeatId | null = null;
 
   // The give-up timer ticks whether or not there is a face. It used to advance
@@ -325,6 +381,10 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   // and no message.
   state.attempts++;
 
+  // Turn whatever centre frames were collected into the neutral. Safe to call on
+  // any beat and at any moment: only `centre` ever fills the accumulator, and
+  // with `n === 0` this does nothing at all, which is why `complete` and
+  // `abandon` can both call it unconditionally.
   const settleNeutral = () => {
     if (state.neutral === null && state.neutralAccum.n > 0) {
       const a = state.neutralAccum;
@@ -335,7 +395,7 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   };
 
   const complete = () => {
-    state.achieved[beat.id] = state.best;
+    state.achieved[beat.id] = state.peak;
     settleNeutral();
     state.done.push(beat.id);
     justCompleted = beat.id;
@@ -344,6 +404,12 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
   };
 
   const abandon = (fallback: PoseSample | null) => {
+    // Spend the frames the beat DID see before falling back to anything. A
+    // `centre` beat that timed out — the wearer half out of frame, the detector
+    // dropping in and out — was throwing away every good centre sample it had
+    // collected and then adopting the single pose it happened to hold at the
+    // moment it gave up, or nothing at all.
+    settleNeutral();
     if (state.neutral === null && fallback) {
       // Adopting zero would mean measuring every later beat against the camera
       // axis, which is the bug the neutral exists to avoid. Take whatever pose
@@ -352,7 +418,7 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
         yawDeg: fallback.yawDeg, pitchDeg: fallback.pitchDeg, distanceMm: fallback.distanceMm,
       };
     }
-    state.achieved[beat.id] = state.best;
+    state.achieved[beat.id] = state.peak;
     state.skipped.push(beat.id);
     state.index++;
     resetBeat(state);
@@ -363,11 +429,30 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     const alsoOk = beat.also ? beat.also(sample, state.neutral) : true;
 
     // Track the furthest they have got — for `reach`, and for reporting.
+    if (value > state.peak) state.peak = value;
+
+    // **The reference must NOT be re-latched on a non-improving frame.**
+    //
+    // This used to carry `if (value > state.best) state.best = value;` in the
+    // else-branch, which meant `best` became the previous frame's value every
+    // time the test failed — so the comparison was always against LAST FRAME,
+    // never against the value at the last reset. That is a velocity gate, not a
+    // stillness test.
+    //
+    // Turning smoothly at anything under `epsilonDeg` per frame — 1.2 deg at
+    // 30 fps is 36 deg/s, which is a brisk turn — never once satisfied the
+    // test, so `sinceImprovement` climbed from frame 1 while the head was still
+    // moving and the beat completed on patience alone. A real wearer's scan
+    // finished the turn beats at about 24 degrees of parallax and reported "no
+    // profile view"; this is why.
+    //
+    // Written correctly, the beat gives up when the rate falls below
+    // `epsilonDeg / patience` = 0.06 deg/frame = 1.8 deg/s, which is a head that
+    // has genuinely stopped. The bug made that threshold twenty times too fast.
     if (value > state.best + PLATEAU.epsilonDeg) {
       state.best = value;
       state.sinceImprovement = 0;
     } else {
-      if (value > state.best) state.best = value;
       state.sinceImprovement++;
     }
 
@@ -381,13 +466,23 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
       // somewhere useful. The second clause is what makes this beat completable
       // by everybody rather than only by the flexible.
       const plateaued = state.sinceImprovement >= PLATEAU.patience
-        && state.best >= (beat.minimum ?? 0);
-      satisfied = alsoOk && (state.best >= beat.goal || plateaued);
+        && state.peak >= (beat.minimum ?? 0);
+      satisfied = alsoOk && (state.peak >= beat.goal || plateaued);
     }
 
     if (satisfied) {
       state.held++;
-      if (state.neutral === null) {
+      // **Only `centre` may contribute to the neutral, and the beat id is the
+      // test — not "the neutral is still null".**
+      //
+      // Without the id check, a `centre` beat that the detector lost mid-hold
+      // leaves the neutral null and the accumulator open, so the NEXT beat feeds
+      // it: the wearer's -50 degree turn latches as "straight ahead". Everything
+      // after is measured against a lie. `turn-left` then completes in about 25
+      // frames at a true-centre pose while reporting 50 degrees of turn that
+      // never happened, and both nod beats' `|dYaw| < 25` guard reads 50 at any
+      // centre pose and can only time out.
+      if (beat.id === 'centre' && state.neutral === null) {
         const a = state.neutralAccum;
         a.yaw += sample.yawDeg; a.pitch += sample.pitchDeg;
         a.distance += sample.distanceMm; a.n++;
@@ -396,7 +491,7 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     } else {
       // Decay rather than reset: one bad frame mid-hold is usually a blink.
       state.held = Math.max(0, state.held - 1);
-      if (state.neutral === null) {
+      if (beat.id === 'centre' && state.neutral === null) {
         state.neutralAccum = { yaw: 0, pitch: 0, distance: 0, n: 0 };
       }
       const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
@@ -407,26 +502,26 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     if (state.attempts > limit) abandon(null);
   }
 
-  if (state.index >= BEATS.length) state.finished = true;
+  if (state.index >= state.beats.length) state.finished = true;
   if (state.finished) return finishedStep(justCompleted);
 
-  const current = BEATS[state.index];
+  const current = state.beats[state.index];
   const value = sample ? current.measure(sample, state.neutral) : null;
   const limit = current.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
 
   return {
     beat: current,
     prompt: current.prompt,
-    progress: state.index / BEATS.length,
+    progress: state.index / state.beats.length,
     beatProgress: state.held / current.holdFrames,
     reading: value === null ? null : {
-      value, best: state.best, goal: current.goal, unit: current.unit, kind: current.kind,
+      value, best: state.peak, goal: current.goal, unit: current.unit, kind: current.kind,
       atMost: current.compare === 'atMost',
     },
-    toward: value === null ? 0 : towardOf(current, value, state.best),
+    toward: value === null ? 0 : towardOf(current, value, state.peak),
     settling: current.kind === 'reach'
       && state.sinceImprovement > PLATEAU.patience * 0.4
-      && state.best >= (current.minimum ?? 0),
+      && state.peak >= (current.minimum ?? 0),
     struggling: state.attempts > limit * 0.5,
     justCompleted,
     finished: false,
@@ -491,9 +586,9 @@ export function summarise(state: ProtocolState): string {
   // Saying "Full scan." while the scan is still running is a small lie that
   // lands in the diagnostics report, which is exactly where a lie is expensive.
   if (!state.finished) {
-    const current = BEATS[state.index];
+    const current = state.beats[state.index];
     return `In progress — on "${current ? current.id : '?'}", `
-      + `${state.done.length} of ${BEATS.length} done.`;
+      + `${state.done.length} of ${state.beats.length} done.`;
   }
   const turn = achievedTurnDeg(state);
   const parts: string[] = [];

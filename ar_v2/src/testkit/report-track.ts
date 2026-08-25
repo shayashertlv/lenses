@@ -34,7 +34,9 @@
  */
 
 import { loadBasis, loadRegions, loadTemplateMesh } from './fixtures.js';
-import { CAMERA_LADDER, generatePopulation, synthesizeCapture } from './synthetic.js';
+import {
+  CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor, synthesizeCapture,
+} from './synthetic.js';
 import { enroll } from '../enroll/enroll.js';
 import { createFaceModel, type FaceModel } from '../core/facemodel.js';
 import { LM } from '../core/mesh.js';
@@ -47,6 +49,11 @@ export interface TrackRunOptions {
   /** Use ground-truth geometry rather than a scan, to isolate the tracker. */
   useTruth: boolean;
   geometries: string[];
+  /** Campaign seed: one independent noise realisation per distinct value (new
+   *  population and new captures — including the scan when `useTruth: false`);
+   *  the same seed reproduces the run bit for bit. `undefined` reproduces the
+   *  historical no-seed run exactly. See `RunOptions.seed` in report-enroll.ts. */
+  seed?: number;
 }
 
 interface Bucket {
@@ -71,7 +78,9 @@ export function runTrackReport(options: Partial<TrackRunOptions> = {}): string {
   const mesh = loadTemplateMesh();
   const basis = loadBasis();
   const regions = loadRegions();
-  const population = generatePopulation(mesh, basis, { count: opt.subjects });
+  const population = generatePopulation(mesh, basis, {
+    count: opt.subjects, seed: populationSeedFor(opt.seed),
+  });
 
   const out: string[] = [];
   out.push('TRACKING — WHAT HAPPENS PAST 40 DEGREES OF YAW');
@@ -92,12 +101,14 @@ export function runTrackReport(options: Partial<TrackRunOptions> = {}): string {
 
   for (const subject of population) {
     const truth = truthModel(subject.positions, mesh.vertexCount);
-    const model: FaceModel = opt.useTruth ? truth : scanOf(subject, mesh, basis);
+    const model: FaceModel = opt.useTruth ? truth : scanOf(subject, mesh, basis, opt.seed);
     const template = truthModel(mesh.positions, mesh.vertexCount);
 
     for (const geometry of CAMERA_LADDER) {
       if (!opt.geometries.includes(geometry.name)) continue;
-      const capture = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 10 });
+      const capture = synthesizeCapture(mesh, subject, geometry, {
+        framesPerBeat: 10, seed: captureSeedFor(opt.seed),
+      });
 
       for (const arm of arms) {
         const trackModel = arm === 'average-head' ? template : model;
@@ -267,9 +278,12 @@ function scanOf(
   subject: ReturnType<typeof generatePopulation>[number],
   mesh: ReturnType<typeof loadTemplateMesh>,
   basis: ReturnType<typeof loadBasis>,
+  seed: number | undefined,
 ): FaceModel {
   const geometry = CAMERA_LADDER[0];
-  const capture = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 12 });
+  const capture = synthesizeCapture(mesh, subject, geometry, {
+    framesPerBeat: 12, seed: captureSeedFor(seed),
+  });
   return enroll({
     mesh, basis,
     frames: capture.frames.map((f) => ({
