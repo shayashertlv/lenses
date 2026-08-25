@@ -39,7 +39,7 @@ import {
   createDisplacementField, displacementStats,
 } from '../core/shape/displacement.js';
 import {
-  type FaceModel, type RegionQuality, createFaceModel,
+  type FaceModel, type RegionQuality, SCALE_DISAGREEMENT_EXPECTED_PCT, createFaceModel,
 } from '../core/facemodel.js';
 import {
   type BundleFrame, type BundleOptions, type BundleReport,
@@ -193,18 +193,101 @@ export function enroll(input: EnrollInput): EnrollResult {
       // carrying the template's size, and calling that "the iris assumption"
       // reports a measurement that never happened.
       const displaced = scale.estimate.source;
+
+      // **The second ruler, which is the only thing in this tree that can see a
+      // scale error at all.**
+      //
+      // `ScaleEstimate.sigma` is a population precision — on the iris rung it is
+      // 0.55/11.70 to within 0.02 pp, identical for every wearer — so nothing
+      // downstream can distinguish a wearer the 11.70 mm assumption fits from
+      // one whose true HVID is 11.10 and who therefore carries 5.4% at exactly
+      // the same printed confidence. Two rulers disagreeing is a DIRECT
+      // observation of this wearer's own error, and it is free: the gap is
+      // `correction`, which this function already computes to move the geometry.
+      //
+      // Signed so the direction survives, and signed the way the documented
+      // bias is: POSITIVE means the displaced ruler read the wearer LARGER.
+      // `span` is what the displaced ruler made of the pupils and `knownPdMm` is
+      // what a pupilometer made of them, so that is `span / knownPd - 1`, i.e.
+      // `1 / correction - 1`.
+      //
+      // It is deliberately not folded into `sigma`. The gap is one-sided and a
+      // sigma is two-sided, and averaging a known direction into a symmetric
+      // interval destroys the only information the second ruler supplied.
+      // Rounded at construction rather than at the readout, because this field
+      // is dumped verbatim into `diagnostics.ts`'s paste and into the stored
+      // model. A thousandth of a percentage point is four orders below the
+      // 4.8% the gap is compared against; what it buys is that a wearer's
+      // diagnostics say -4.762 rather than -4.761904761904767.
+      const disagreementPct = displaced === 'assumed'
+        ? null
+        : Math.round((1 / correction - 1) * 100_000) / 1000;
+
       notes.push(
         `scale set from your PD of ${input.knownPdMm.toFixed(1)} mm ` +
         (displaced === 'assumed'
           ? `(it resized the scan by ${((correction - 1) * 100).toFixed(1)}%, which had no ruler before)`
-          : `(the ${displaced} scale was ${((correction - 1) * 100).toFixed(1)}% out)`),
+          // Say which WAY, not just how far. The old wording was
+          // `the iris scale was +3.0% out`, and a leading plus in front of "out"
+          // reads as "the iris was 3% too big" — the opposite of what a positive
+          // `correction - 1` means, which is that the scan had to be made BIGGER
+          // because the iris had read the wearer small.
+          : `(the ${displaced} ruler read you ` +
+            `${Math.abs(disagreementPct!).toFixed(1)}% ` +
+            `${disagreementPct! > 0 ? 'large' : 'small'})`),
       );
+      // Above the gap two well-behaved rulers explain by themselves, one of them
+      // is wrong and this cannot say which. `scaleSigma` prices that; the wearer
+      // is told, because a PD typed one digit out is the likeliest cause and it
+      // is the one thing they can check.
+      if (disagreementPct !== null
+        && Math.abs(disagreementPct) > SCALE_DISAGREEMENT_EXPECTED_PCT) {
+        notes.push(
+          `your PD and the ${displaced} ruler disagree by ` +
+          `${Math.abs(disagreementPct).toFixed(1)}%, further apart than the two ` +
+          'can normally be — one of them is wrong. Check the PD is the ' +
+          'distance between both pupils and not one eye\'s half of it',
+        );
+      }
       scale.estimate = {
         source: 'pd',
         factor: scale.estimate.factor * correction,
+        // **This sigma moves the wrong way when the ruler is wrong, and no
+        // sigma can fix that.** It is `opticianSigmaMm / knownPdMm`, which is
+        // the correct relative precision of a pupilometer reading — but the
+        // wearer TYPES this number, and a larger mistyped PD therefore prints a
+        // SMALLER sigma. Measured over 10 (seed, subject) pairs: a PD typed 10%
+        // high gives a 10.00% scale error at sigma 0.714% and width confidence
+        // 0.881, against 0% error at 0.786% and 0.869 when it is right — a
+        // wrong scale carried at HIGHER confidence than a correct one.
+        //
+        // Not patched with an invented recall term. A mistyped ruler is a
+        // blunder, not a Gaussian, and inflating every honest wearer's sigma to
+        // cover it would be the "wrong and confident" trade taken in the other
+        // direction. `disagreementPct` above is the defence, and it is a real
+        // one: at a 10% mistype the iris disagrees by about 10% against a 4.8%
+        // expectation, and `scaleSigma` takes the confidence to near zero.
+        // What has no defence is a mistyped PD on a scan where NO iris
+        // resolved — said out loud in the note below.
         sigma: sigmaMm / input.knownPdMm,
-        note: `wearer's PD of ${input.knownPdMm.toFixed(1)} mm, against the solved surface`,
+        note: `wearer's PD of ${input.knownPdMm.toFixed(1)} mm, against the solved surface`
+          + (disagreementPct === null ? ', unchecked — no second ruler resolved' : ''),
+        disagreementPct,
       };
+    } else {
+      // A PD was supplied and silently ignored. The app's own `set-pd` handler
+      // refuses the same range before storing, so this branch is reached by the
+      // library entry point — a replayed capture, a harness, a caller that is
+      // not the UI — and there it used to fall through with no note at all, so
+      // the scan came back on the iris while the caller believed it had set the
+      // ruler. `scale.ts`'s "never silently substitutes" applies to a ruler that
+      // was OFFERED as much as to one that was missing.
+      notes.push(
+        `the PD supplied (${input.knownPdMm.toFixed(1)} mm) was not used — ` +
+        (span > 1
+          ? 'it is outside the 45 to 85 mm human range'
+          : 'the solved eye span is degenerate, so there was nothing to correct'),
+      );
     }
   }
 

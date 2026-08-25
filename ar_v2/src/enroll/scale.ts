@@ -27,14 +27,22 @@
  * v2 does three things about it:
  *
  *  1. **Offers a better ruler that is not a prop.** The wearer's own PD, from
- *     their prescription — 0.79% against the iris's 4.7%, and measured, that
- *     clears the 1.5% the tightest downstream claim actually needs. Applied in
- *     `enroll.ts` against the reconstructed surface, not here. (An ID-1 card was
- *     tried and is gone: `f9c9093` deleted it, and the owner has rejected the
- *     method. `docs/SCALE.md`.)
+ *     their prescription — a propagated 0.79% (a pupilometer's 0.5 mm over a
+ *     63 mm adult PD) against the iris's propagated 4.70%, which is the figure
+ *     that clears the 1.5% the tightest downstream claim needs. Both numbers
+ *     are ruler sigmas rather than measured end-to-end scale errors, and the
+ *     iris's measured error is larger than its sigma on the temple-width gauge;
+ *     `docs/SCALE.md` 4 states the 0.79% without that qualification and should
+ *     not be read as a measurement of the PD rung. Applied in `enroll.ts`
+ *     against the reconstructed surface, not here. (An ID-1 card was tried and
+ *     is gone: `f9c9093` deleted it, and the owner has rejected the method.)
  *  2. **Reports the uncertainty instead of hiding it.** `ScaleEstimate.sigma`
  *     travels with the number, the UI shows it, and lens-ordering measurements
- *     refuse an iris-only scale.
+ *     refuse an iris-only scale. What a symmetric sigma cannot report is a
+ *     one-sided bias or a ruler that is simply wrong, and for those there is
+ *     `ScaleEstimate.disagreementPct` — the gap between two rulers, which is
+ *     the only signal in the tree that sees an individual wearer's scale error
+ *     rather than the population's.
  *  3. **Never silently substitutes.** If nothing resolved, the source is
  *     `assumed` and everything downstream that claims millimetres says so.
  */
@@ -203,7 +211,9 @@ export interface ScaleInput {
  * no cooperation, and it is *assumed* rather than measured — 11.70 mm pooled,
  * with a one-sigma of 0.55 mm covering both the within-group spread and the gap
  * between population means. That is 4.7%, and measured across a synthetic
- * population the shipping iris path produces a worst-case scale error of **10%**.
+ * population the shipping iris path produces a worst-case scale error of
+ * **14.5%** — this line said 10% until five seeds were run, and 10% turns out
+ * to have been one draw; the worst cell runs 10.28 to 14.50% across the seeds.
  * A real wearer's five scans disagreed with each other by up to 1.9%, which is
  * the ruler's *precision*; its accuracy is unmeasurable without a second one.
  *
@@ -250,20 +260,6 @@ export function solveScale(input: ScaleInput): {
    *  carried rather than two. See the note in the body. */
   pdMm: number | null; pdSigmaMm: number | null;
   irisFactor: number | null;
-  /**
-   * Reserved, and `null` on every path since the card rung was deleted.
-   *
-   * It named the CARD against the iris. Nothing can set it now and nothing reads
-   * it, and it is kept only because the idea it encodes is the right one and is
-   * wanted back: **a disagreement between two rulers is the only signal that can
-   * see the iris's ancestry-correlated bias at all.** Every confidence in this
-   * tree reads `ScaleEstimate.sigma` and never the factor, so a wearer whose true
-   * HVID is 11.10 mm carries a 5.4% error at exactly the same confidence as one
-   * the 11.70 mm ruler fits. With the card gone the second ruler has to be the
-   * wearer's PD — so this should carry PD-against-iris, and a gap over ~2% should
-   * be said out loud rather than averaged into a symmetric sigma. `docs/SCALE.md`.
-   */
-  disagreementPct: number | null;
 } {
   const irisMm = input.irisMm ?? IRIS.defaultMm;
   const irisSigma = input.irisSigmaMm ?? IRIS.sigmaMm;
@@ -283,6 +279,43 @@ export function solveScale(input: ScaleInput): {
   // ruler's own uncertainty. Averaging 40 frames does not make an 11.7 mm
   // assumption more true, and a sigma that shrinks with frame count would say
   // it did — which is the "confidence is a clock" mistake, in a new place.
+  //
+  // **What this number is, and what it is not — because a doc got it wrong.**
+  //
+  // It prints 4.72% and the first term is 0.55/11.70 = 4.7009%, a floor `hypot`
+  // can only add to; the scatter term contributes 0.02 pp at the shipped
+  // keyframe count. So the printed sigma is the HVID constant's population
+  // one-sigma and nothing else, and no amount of vision work moves it.
+  //
+  // `docs/SCALE.md` 2 and `docs/NEXT-SESSION.md` 3A both say it is under-reported
+  // — "prints 4.72% while its p90 implies 5.72% and its median implies 7.68%".
+  // Re-checked against the probe those came from, the claim does not survive
+  // this tree's own adoption rule:
+  //
+  //   - The pair was computed POOLED over 150 rows. Per seed, the median route
+  //     implies 4.02/8.58/5.28/8.41/5.28 and the p90 route 7.73/4.30/5.11/5.32/
+  //     5.88 — 7.68% reproduces on 2 of 5 seeds and 5.72% on 2 of 5, and the
+  //     SIGN of the gap between the two routes flips across seeds. Median of
+  //     seeds, the two routes agree: 5.28% and 5.32%.
+  //   - 20% of those rows are not draws. `generatePopulation(count: N)` appends
+  //     two named extremes with irises hard-coded at 11.10 and 11.90 mm,
+  //     identical in every seed, so 15 rows sit at exactly +5.41% — on top of
+  //     the measured median, contributing nothing to the tail.
+  //   - It is scored on TEMPLE WIDTH (`testkit/metrics.ts`'s `scaleErrorPct`),
+  //     the span furthest from where the iris is read, where the pipeline
+  //     residual is sd 2.94% against 0.89% on the eye span. Raising this
+  //     constant to 7.68% would bake the bundle's temple-region shape recovery
+  //     into a ruler's uncertainty.
+  //   - On the whole-mesh gauge over 255 runs the same printed 4.72% has
+  //     |error|/sigma median 0.65 and p90 1.72 — implying 4.52% and 4.96%, i.e.
+  //     bracketing it. A separate adversarial pass measured the fraction of runs
+  //     exceeding the claimed one-sigma at 0.300 against a Gaussian's 0.317.
+  //
+  // So it is left alone. What is genuinely missing from it is not size but
+  // SHAPE: the error is one-sided (+2.59% signed, 67% of wearers read large,
+  // because 11.70 sits ~2.2% above the generated population's mean) and a
+  // symmetric sigma cannot say so. That is reported through
+  // `ScaleEstimate.disagreementPct` instead, which is signed — see the field.
   const scatter = factors.length > 3
     ? (percentile(factors, 0.84) - percentile(factors, 0.16)) / 2 / Math.max(irisFactor ?? 1, 1e-9)
     : 0.05;
@@ -323,7 +356,6 @@ export function solveScale(input: ScaleInput): {
       pdMm: null,
       pdSigmaMm: null,
       irisFactor,
-      disagreementPct: null,
     };
   }
 
@@ -339,7 +371,6 @@ export function solveScale(input: ScaleInput): {
     pdMm: null,
     pdSigmaMm: null,
     irisFactor: null,
-    disagreementPct: null,
   };
 }
 

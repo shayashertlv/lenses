@@ -61,11 +61,80 @@ export interface ScaleEstimate {
    *  correction factor near 1 — but it is kept explicit rather than folded in,
    *  because folding it in loses the ability to say how well it is known. */
   factor: number;
-  /** One standard deviation of `factor`, as a fraction. */
+  /**
+   * One standard deviation of `factor`, as a fraction.
+   *
+   * A **population precision**, and it is worth being exact about what that
+   * excludes. On the iris rung it is `IRIS.sigmaMm / IRIS.defaultMm` to within
+   * a fortieth of a percentage point — `hypot`'s other term, the frame-to-frame
+   * scatter over `sqrt(n)`, contributes 0.02 pp — so it is the same number for
+   * every wearer and carries nothing about the one in front of the camera. Two
+   * things it therefore cannot express:
+   *
+   *  1. **The bias.** 11.70 mm sits about 2.2% above the mean of the population
+   *     the harness generates, so 67% of runs read the wearer LARGE, +2.59%
+   *     signed. A symmetric sigma has no way to say "and it is probably one
+   *     direction". `docs/SCALE.md` 1.
+   *  2. **A ruler that is simply wrong** — a mistyped PD, an iris on a wearer
+   *     whose ancestry the pooled constant does not describe. The sigma is
+   *     conditional on the ruler being the thing it claims to be.
+   *
+   * Both are visible only through `disagreementPct`, and only when a second
+   * ruler resolved. It is not under-reported: measured on the whole-mesh gauge
+   * over 255 runs, |error|/sigma has median 0.65 and p90 1.72, which brackets a
+   * well-calibrated one-sigma from both sides.
+   */
   sigma: number;
   /** Free-text provenance for the readout: "ISO 7810 card, 34 frames". */
   note: string;
+  /**
+   * Signed disagreement between this ruler and the one it displaced, in percent
+   * of the winning ruler's reading. Positive means **the displaced ruler read
+   * the wearer LARGER**, which is the direction the pooled iris errs.
+   *
+   * Absent — not zero — when only one ruler resolved, which is the shipping
+   * default. That absence is the honest state and it is load-bearing: `sigma`
+   * above is blind to this wearer's own scale error by construction, so a
+   * disagreement between two independent rulers is the **only** signal in the
+   * tree that can see it at all. `scaleSigma` in `fit/score.ts` is the consumer.
+   *
+   * Optional rather than required because 22 sites construct a `ScaleEstimate`
+   * literal, and because a model stored by an older build of this same format
+   * version comes back without the key. Every reader must tolerate `undefined`
+   * as well as `null`. Never `NaN`: `JSON.stringify` writes that as `null`, and
+   * a number that changes meaning on the way through disk is the kind of defect
+   * `reprojectionRmsPx` already carries a patch for.
+   */
+  disagreementPct?: number | null;
 }
+
+/**
+ * How far two rulers are expected to disagree before the gap means something,
+ * in percent.
+ *
+ * `derived`, and it is the one-sigma of the DIFFERENCE of two readings when
+ * both rulers are behaving, not a tolerance anybody chose. The only pair that
+ * can occur is the wearer's PD against the iris:
+ *
+ *     iris      IRIS.sigmaMm / IRIS.defaultMm = 0.55 / 11.70  =  4.70%
+ *     PD        PD_RULER.opticianSigmaMm / the wearer's own PD
+ *                 at 45 mm  0.50 / 45 = 1.11%   (the narrow end of the range)
+ *                 at 63 mm  0.50 / 63 = 0.79%   (a typical adult)
+ *                 at 85 mm  0.50 / 85 = 0.59%
+ *     hypot     4.74% to 4.83% across the whole admissible PD range
+ *
+ * 4.8 covers it end to end, and the iris term dominates so hard that the PD's
+ * own contribution moves the answer by a tenth of a percentage point over a
+ * 40 mm span of wearer. Below this, two rulers that differ are two rulers
+ * behaving and there is nothing to report; above it, the excess is real and
+ * one of them is wrong — which one is not knowable from inside.
+ *
+ * Sized from the rulers rather than from what a downstream claim can tolerate
+ * on purpose. The width verdict wants 1%, which is far tighter than this; a
+ * gate at 1% would fire on most honest scans and would be measuring the iris's
+ * ordinary scatter rather than a fault.
+ */
+export const SCALE_DISAGREEMENT_EXPECTED_PCT = 4.8;
 
 export interface RegionQuality {
   /**

@@ -25,7 +25,9 @@
 
 import { clamp } from '../core/linalg.js';
 import { LM, type FaceMesh, type Region } from '../core/mesh.js';
-import { noseConfidence, type FaceModel } from '../core/facemodel.js';
+import {
+  SCALE_DISAGREEMENT_EXPECTED_PCT, noseConfidence, type FaceModel,
+} from '../core/facemodel.js';
 import { solveSeat, type SeatResult, TARGET_CONTACT_MM } from './contact.js';
 import type { FrameAsset } from './frame-asset.js';
 
@@ -99,7 +101,6 @@ export function assessFit(
 ): FitAssessment {
   const seat = cachedSeat ?? solveSeat(model, mesh, regions, frame);
   const nose = noseConfidence(model);
-  const scaleConfidence = scaleTrust(model);
   const measures: FitMeasure[] = [];
 
   // ---- width -------------------------------------------------------------
@@ -148,9 +149,13 @@ export function assessFit(
     // The trade's own tolerance: a front within about 4 mm of the target width
     // reads as well-proportioned; beyond ~10 mm it looks borrowed.
     grade: gradeBy(Math.abs(widthDelta), 4, 10),
-    // Width is the verdict that most needs the scale caveat, because it is a
-    // comparison of two absolute lengths and the frame's own may be assumed.
-    confidence: scaleConfidence * (frame.dimensionSource === 'assumed' ? 0.3 : 1),
+    // Width needs the scale caveat more than anything else here, and by a wide
+    // margin: it is a comparison of two absolute lengths, one of which is the
+    // wearer's, and one point of scale moves it by a third of the whole good
+    // band. On the shipping iris rung a single sigma consumes the band several
+    // times over, so this verdict shrinks to neutral — which is not a
+    // regression, it is the measurement. `SCALE_SENSITIVITY`.
+    confidence: scaleCaveat('width', model) * (frame.dimensionSource === 'assumed' ? 0.3 : 1),
     value: widthDelta,
     unit: 'mm',
   });
@@ -160,7 +165,10 @@ export function assessFit(
   measures.push({
     id: 'height',
     grade: gradeBy(Math.abs(drop), 3, 8),
-    confidence: nose.value,
+    // Carried no scale caveat at all until it was measured. The frame is a
+    // fixed metric object and the face is not, so a rescaled wedge catches it
+    // at a different height.
+    confidence: nose.value * scaleCaveat('height', model),
     value: drop,
     unit: 'mm',
   });
@@ -172,7 +180,7 @@ export function assessFit(
     grade: seat.padSeatErrorArticulatedMm > 1.0
       ? 'poor'
       : gradeBy(tilt, 10, 25),
-    confidence: nose.value,
+    confidence: nose.value * scaleCaveat('pads', model),
     value: tilt,
     unit: 'deg',
   });
@@ -182,7 +190,7 @@ export function assessFit(
     id: 'load',
     grade: seat.padLoadFraction >= 0.5 && seat.padLoadFraction <= 0.95 ? 'good'
       : seat.padLoadFraction < 0.3 ? 'poor' : 'fair',
-    confidence: nose.value * 0.8,
+    confidence: nose.value * 0.8 * scaleCaveat('load', model),
     value: seat.padLoadFraction * 100,
     unit: '%',
   });
@@ -203,7 +211,7 @@ export function assessFit(
   measures.push({
     id: 'depth',
     grade: gradeBy(Math.abs(depth), 1.0, 3.0),
-    confidence: nose.value,
+    confidence: nose.value * scaleCaveat('depth', model),
     value: depth,
     unit: 'mm',
   });
@@ -223,7 +231,7 @@ export function assessFit(
   measures.push({
     id: 'panto',
     grade: panto >= 6 && panto <= 14 ? 'good' : panto >= 3 && panto <= 18 ? 'fair' : 'poor',
-    confidence: nose.value * 0.8,
+    confidence: nose.value * 0.8 * scaleCaveat('panto', model),
     value: panto,
     unit: 'deg',
   });
@@ -233,7 +241,7 @@ export function assessFit(
   measures.push({
     id: 'level',
     grade: gradeBy(roll, 1.0, 2.5),
-    confidence: nose.value,
+    confidence: nose.value * scaleCaveat('level', model),
     value: roll,
     unit: 'deg',
   });
@@ -250,10 +258,17 @@ export function assessFit(
     id: 'vertex',
     // 12 to 16 mm is the range prescriptions are written for.
     grade: vertex >= 10 && vertex <= 18 ? 'good' : vertex >= 8 && vertex <= 22 ? 'fair' : 'poor',
-    // Vertex carries THREE provenance caveats, not two: the scan's scale, the
-    // nose, and the asset's temple reach — the fore-aft input Q16 measured as
-    // the highest-leverage number in the tree. See VERTEX_REACH_CONFIDENCE.
-    confidence: scaleConfidence * nose.value *
+    // Vertex carries THREE provenance caveats: the scan's scale, the nose, and
+    // the asset's temple reach — the fore-aft input Q16 measured as the
+    // highest-leverage number in the tree. See VERTEX_REACH_CONFIDENCE.
+    //
+    // The scale one used to be the same flat multiply width carried, and that
+    // was backwards. Measured, vertex is the LEAST scale-sensitive claim in the
+    // tree — one point of scale moves it by a fortieth of a millimetre against
+    // a band eight millimetres wide — so it now keeps almost all of its
+    // confidence where width keeps almost none. What actually threatens this
+    // verdict is the reach, and that is the caveat beside it.
+    confidence: scaleCaveat('vertex', model) * nose.value *
       (frame.dimensionSource === 'assumed' ? VERTEX_REACH_CONFIDENCE : 1),
     value: vertex,
     unit: 'mm',
@@ -339,11 +354,134 @@ function scoreOf(measures: FitMeasure[]): number {
 const gradeBy = (value: number, goodBelow: number, poorAbove: number): Grade =>
   (value <= goodBelow ? 'good' : value >= poorAbove ? 'poor' : 'fair');
 
-function scaleTrust(model: FaceModel): number {
+/**
+ * The effective one-sigma of this scan's scale, as a fraction.
+ *
+ * `ScaleEstimate.sigma` alone is **blind to the wearer in front of the camera**.
+ * On the iris rung it is `IRIS.sigmaMm / IRIS.defaultMm` to within a fortieth of
+ * a percentage point — the frame-to-frame scatter contributes 0.02 pp — so it is
+ * the same number for everybody, and a wearer whose true HVID is 11.10 mm
+ * carries 5.4% of error at exactly the confidence of one the 11.70 mm assumption
+ * fits. That is a population precision doing duty as an individual one, and no
+ * amount of vision work changes it: 95.7% of the iris path's error is the HVID
+ * assumption itself.
+ *
+ * The one thing that can see the individual is a **second ruler**. When the
+ * wearer supplies their own PD, `enroll` records the signed gap against the
+ * ruler it displaced, and anything past what two behaving rulers explain between
+ * them is real, unmodelled, and belongs here. Which of the two is wrong is not
+ * knowable from inside — so the excess is priced as error rather than used to
+ * pick a winner.
+ *
+ * This is also the only defence against a **mistyped PD**, and it is a needed
+ * one. `sigma` on the PD rung is `opticianSigmaMm / knownPdMm`, so a wearer who
+ * types a LARGER wrong number prints a SMALLER sigma: measured over 10
+ * (seed, subject) pairs, a PD typed 10% high gives a 10.00% scale error at
+ * sigma 0.714%, against 0% error at 0.786% when it is right — a wrong scale
+ * carried at *higher* confidence than a correct one. At that mistype the iris
+ * disagrees by about 10% against a 4.8% expectation, the excess enters here, and
+ * the confidence goes to nearly nothing.
+ */
+function scaleSigma(model: FaceModel): number {
+  const gap = model.scale.disagreementPct;
+  if (gap == null || !Number.isFinite(gap)) return model.scale.sigma;
+  const excess = Math.max(0, Math.abs(gap) / 100 - SCALE_DISAGREEMENT_EXPECTED_PCT / 100);
+  return Math.hypot(model.scale.sigma, excess);
+}
+
+/**
+ * What one percent of scale error does to each verdict, in the verdict's own
+ * unit, against the width of the band it is graded against.
+ *
+ * **The scale caveat used to be a flat multiply on two verdicts, and it was on
+ * the wrong two.** `width` and `vertex` carried it and nothing else did — and
+ * measured, `vertex` is the LEAST scale-sensitive claim in the tree while
+ * `height`, `depth`, `panto` and `load` all move and carried none. A verdict's
+ * exposure to scale is not a property of whether somebody remembered it; it is
+ * the sensitivity of its own quantity against its own tolerance, and that is a
+ * measurement. So it is measured, and the caveat is proportional to it.
+ *
+ * `perPct` is |d value| per 1% of scale, from the ±1% pair on ground-truth
+ * geometry with the factor imposed — the gauge alone, no enrolment. `band` is
+ * the width of the good band the verdict is graded inside, so `perPct / band`
+ * is the fraction of the verdict's whole tolerance one point of scale consumes.
+ *
+ * Measured 2026-08-25, 5 campaign seeds x 12 subjects x 15 frames (5 pad
+ * geometries x front widths 132/140/148 mm), ground-truth geometry with the
+ * factor imposed so this is the gauge alone and no enrolment noise enters.
+ * Median of per-seed medians, with the per-seed spread:
+ *
+ *     measure   per 1%    band    of band   per-seed medians
+ *     width     1.365 mm    4 mm   34.1%    1.380 1.391 1.365 1.354 1.340
+ *     height    0.249 mm    3 mm    8.3%    0.249 0.268 0.237 0.262 0.135
+ *     depth     0.056 mm    1 mm    5.6%    0.058 0.057 0.047 0.056 0.050
+ *     panto     0.183 deg   4 deg   4.6%    0.229 0.187 0.163 0.183 0.128
+ *     pads      0.223 deg  10 deg   2.2%    0.228 0.211 0.223 0.181 0.224
+ *     load      0.482 pp   22.5 pp  2.1%    0.679 0.482 0.415 0.661 0.443
+ *     vertex    0.034 mm    4 mm    0.8%    0.060 0.033 0.029 0.034 0.048
+ *     level     0.003 deg   1 deg   0.3%    0.002 0.002 0.007 0.003 0.007
+ *
+ * **Width and vertex differ by a factor of forty and used to carry the same
+ * caveat.** At the iris rung's 4.7% one sigma the width verdict's entire
+ * tolerance is consumed 1.6 times over, while vertex loses 4% of its
+ * confidence — and vertex was the one the tree hedged.
+ *
+ * Two of these reproduce independent earlier measurements to three digits,
+ * which is the only cross-check available: `docs/SCALE.md` 2 has width at
+ * 1.37 mm and vertex at 0.035 mm per 1%, from a different frame set. `height`
+ * does NOT reproduce — 0.249 here against SCALE.md's 0.19 — and the frame set is
+ * why: these fifteen frames span 132 to 148 mm of front width and a wider front
+ * puts the ear rest further out, so the seat moves more.
+ *
+ * Two things this table is not:
+ *
+ *  - It is not a per-frame figure. The seat is a contact equilibrium, so its
+ *    sensitivity depends on where a particular frame catches a particular
+ *    sidewall, and the spread across frames is far wider than the spread across
+ *    seeds. A few percent of face/frame pairs *jump* between catching the
+ *    sidewall and sliding, and for those the movement is several times the
+ *    median. These are population figures and the tail is worse.
+ *  - It is not a list of everything scale touches. Anything absent from it is
+ *    exactly scale-invariant and gets no caveat at all: the face's own
+ *    projection, tracking, PnP, and every face-only ratio and angle. That
+ *    invariance is real to machine precision and the product should know it.
+ */
+const SCALE_SENSITIVITY: Record<string, { perPct: number; band: number }> = {
+  width: { perPct: 1.365, band: 4 },
+  height: { perPct: 0.249, band: 3 },
+  depth: { perPct: 0.056, band: 1.0 },
+  panto: { perPct: 0.183, band: 4 },
+  pads: { perPct: 0.223, band: 10 },
+  // Percentage points: the verdict's value is `padLoadFraction * 100` and its
+  // good band is 50 to 95, so the half-width is 22.5 pp rather than the 20 the
+  // first pass of this measurement used.
+  load: { perPct: 0.482, band: 22.5 },
+  vertex: { perPct: 0.034, band: 4 },
+  // Kept although it rounds to nothing — 0.3% of its band per point of scale.
+  // Leaving it out would say the roll of a settled frame is EXACTLY invariant,
+  // and it is not: the seat is a contact equilibrium, so a rescaled wedge
+  // catches the frame at a slightly different attitude. Nothing in this list is
+  // exactly invariant; the things that are (the face's own projection, its
+  // ratios, its angles, tracking, PnP) are not verdicts and never appear here.
+  level: { perPct: 0.0026, band: 1.0 },
+};
+
+/**
+ * How much of a verdict survives the scan's scale uncertainty, 0..1.
+ *
+ * One sigma of scale consumes `perPct * sigmaPct` of the verdict's own
+ * tolerance band; what is left of the band is what is left of the verdict. A
+ * verdict whose band is entirely consumed is not *wrong*, it is uninformative,
+ * and `scoreOf` shrinks it toward neutral rather than dropping it — so an
+ * uncertain measurement cannot make a frame look good OR bad by being uncertain.
+ */
+function scaleCaveat(id: string, model: FaceModel): number {
+  const s = SCALE_SENSITIVITY[id];
+  // Not in the table: exactly invariant, and free.
+  if (!s) return 1;
+  // Not a 5% ruler — no ruler. A categorical statement rather than a wide one.
   if (model.scale.source === 'assumed') return 0;
-  // Sigma is a relative standard deviation. 1% is excellent (a card), 5% is the
-  // iris's honest figure once population variation is included.
-  return clamp(1 - model.scale.sigma / 0.06, 0, 1);
+  return clamp(1 - (s.perPct * scaleSigma(model) * 100) / s.band, 0, 1);
 }
 
 // ---------------------------------------------------------------- catalogue

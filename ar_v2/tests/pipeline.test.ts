@@ -44,7 +44,9 @@ import { assessCoverage, selectKeyframes } from '../src/enroll/keyframes.js';
 import { IRIS, PD_RULER, POPULATION_HVID, solveScale } from '../src/enroll/scale.js';
 import { buildCorrespondences, posit, refinePnP, solvePnP } from '../src/track/pnp.js';
 import { createTracker, track } from '../src/track/tracker.js';
-import { createFaceModel, type FaceModel } from '../src/core/facemodel.js';
+import {
+  createFaceModel, type FaceModel, type ScaleEstimate,
+} from '../src/core/facemodel.js';
 import { SKIN, landmarkHungPose, solveSeat } from '../src/fit/contact.js';
 import { perVertexUncertainty } from '../src/enroll/enroll.js';
 import { LM } from '../src/core/mesh.js';
@@ -2026,7 +2028,14 @@ describe('the wearer own PD as a ruler', () => {
     );
   });
 
-  it('refuses a figure outside the human range instead of believing it', () => {
+  it('refuses a figure outside the human range, and says it refused', () => {
+    // Refusing is half of it. `enroll` is a library entry point as well as the
+    // app's — a replayed capture or a harness can hand it a PD that the app's
+    // own `set-pd` handler would have rejected before storing — and this branch
+    // used to fall through with no note at all, so the scan came back on the
+    // iris while the caller believed it had set the ruler. `scale.ts`'s "never
+    // silently substitutes" covers a ruler that was OFFERED as much as one that
+    // was missing.
     const subject = generatePopulation(mesh, basis, { count: 1 })[0];
     for (const typo of [6.3, 630, 12]) {
       const model = run(subject, typo);
@@ -2034,6 +2043,10 @@ describe('the wearer own PD as a ruler', () => {
         model.scale.source, 'iris',
         `a PD of ${typo} mm was accepted — a wearer typing centimetres would ` +
         'silently get a face an order of magnitude wrong',
+      );
+      assert.ok(
+        model.notes.some((n) => n.includes('was not used')),
+        `a PD of ${typo} mm was dropped in silence: ${model.notes.join(' | ')}`,
       );
     }
   });
@@ -2114,6 +2127,271 @@ describe('the wearer own PD as a ruler', () => {
       model.notes.every((n) => !n.includes('card and iris disagree')),
       `a card disagreement was reported on a scan with no card: ${model.notes.join(' | ')}`,
     );
+  });
+
+  // ---- the second ruler ---------------------------------------------------
+  //
+  // `ScaleEstimate.sigma` is a POPULATION precision: on the iris rung it is
+  // 0.55/11.70 to within a fortieth of a point, the same number for every
+  // wearer, so nothing downstream can tell a wearer the 11.70 mm assumption
+  // fits from one whose true HVID is 11.10 and who therefore carries 5.4% at
+  // identical printed confidence. Two rulers disagreeing is the only signal in
+  // the tree that sees the individual, and the gap is free — `enroll` already
+  // computes it to move the geometry.
+  //
+  // These four tests construct the gap EXACTLY rather than hoping a population
+  // produces one. `model.pdMm` on an iris-only run is the very span the PD
+  // correction divides into, and `enroll` is deterministic on identical frames,
+  // so dividing that span by 1.05 and handing it back as the wearer's PD makes
+  // the disagreement 5.000% by construction.
+
+  // One subject, and the iris rung's reading of it, solved once. `enroll` is
+  // deterministic on identical frames and `generatePopulation` is seeded, so
+  // every test below divides into the same span and gets an exact gap.
+  let cached: { subject: ReturnType<typeof generatePopulation>[number]; span: number } | null = null;
+  const irisRun = () => {
+    if (!cached) {
+      const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+      const model = run(subject, null);
+      assert.equal(model.scale.source, 'iris', 'the iris rung did not resolve');
+      assert.ok(model.pdMm !== null, 'the iris run reported no PD to disagree with');
+      assert.ok(
+        model.scale.disagreementPct === null || model.scale.disagreementPct === undefined,
+        `an iris-only scan claims a disagreement of ${model.scale.disagreementPct} — ` +
+        'absent is the honest state, and a zero would read as "two rulers checked ' +
+        'and agreed", which is the one thing an iris-only scan has NOT established',
+      );
+      cached = { subject, span: model.pdMm! };
+    }
+    return cached;
+  };
+
+  it('records how far the two rulers disagree, signed the way the bias runs', () => {
+    const { subject, span } = irisRun();
+
+    // The wearer's real pupils are 5% CLOSER than the iris made them, so the
+    // iris read them LARGE — and the documented bias is exactly that direction
+    // (+2.59% signed, 67% of wearers read large, because 11.70 sits ~2.2% above
+    // the population mean). Positive therefore has to mean "read large", or the
+    // sign carries the opposite of what every doc about it says.
+    const large = run(subject, span / 1.05);
+    assert.equal(large.scale.source, 'pd');
+    assert.ok(
+      large.scale.disagreementPct !== null && large.scale.disagreementPct !== undefined,
+      'two rulers resolved and the disagreement came back absent',
+    );
+    assert.ok(
+      Math.abs(large.scale.disagreementPct! - 5) < 0.01,
+      `constructed a 5.000% gap and the model reports ` +
+      `${large.scale.disagreementPct!.toFixed(4)}%`,
+    );
+
+    // And the other way. Without this the sign is untested: a magnitude-only
+    // implementation, or one with the reciprocal inverted, passes the line above.
+    const small = run(subject, span * 1.05);
+    assert.ok(
+      small.scale.disagreementPct! < 0,
+      `the iris read the wearer SMALL and the disagreement came back ` +
+      `${small.scale.disagreementPct!.toFixed(3)}% — the sign is inverted`,
+    );
+    assert.ok(Math.abs(small.scale.disagreementPct! + 4.7619) < 0.01);
+  });
+
+  it('says a large gap out loud, and stays quiet when the rulers agree', () => {
+    // Both directions, because a note that always fires and a note that never
+    // fires each pass one half of this on their own.
+    const { subject, span } = irisRun();
+    const said = (m: FaceModel) => m.notes.some((n) => n.includes('disagree by'));
+
+    // 10%, comfortably past the 4.8% two behaving rulers explain between them.
+    const far = run(subject, span / 1.10);
+    assert.ok(
+      said(far),
+      `a 10% ruler disagreement went unmentioned: ${far.notes.join(' | ')}`,
+    );
+    assert.ok(
+      far.notes.some((n) => n.includes('one eye')),
+      'the note does not name the likeliest cause — a monocular PD typed whole',
+    );
+
+    // The wearer's PD agrees with the iris to a fraction of a percent.
+    const near = run(subject, span * 1.001);
+    assert.ok(
+      !said(near),
+      `two rulers 0.1% apart were reported as disagreeing: ${near.notes.join(' | ')}`,
+    );
+    // ... and the ordinary note still fires, so "quiet" is not "silent".
+    assert.ok(near.notes.some((n) => n.includes('scale set from your PD')));
+  });
+
+  it('says which WAY the displaced ruler was out', () => {
+    // The note read `the iris scale was +3.0% out`, built from `correction - 1`.
+    // A leading plus in front of "out" reads as "the iris was 3% too big", and
+    // a positive `correction - 1` means the opposite: the scan had to be made
+    // BIGGER because the iris had read the wearer small.
+    const { subject, span } = irisRun();
+    const large = run(subject, span / 1.05);
+    assert.ok(
+      large.notes.some((n) => n.includes('read you 5.0% large')),
+      `the direction is missing or inverted: ${large.notes.join(' | ')}`,
+    );
+    const small = run(subject, span * 1.05);
+    assert.ok(
+      small.notes.some((n) => n.includes('read you 4.8% small')),
+      `the direction is missing or inverted: ${small.notes.join(' | ')}`,
+    );
+  });
+});
+
+describe('the scale caveat sits where scale actually moves the verdict', () => {
+  // The caveat used to be a flat multiply on exactly two verdicts — `width` and
+  // `vertex` — and measured, it was on the wrong two. Per 1% of scale: width
+  // moves 1.37 mm against a 4 mm band, and vertex moves 0.035 mm against a 4 mm
+  // band. That is a factor of forty, and they carried the SAME caveat, while
+  // `height`, `depth`, `panto` and `load` all move and carried none at all.
+  //
+  // These are behavioural rather than textual: `dist/` keeps comments, so
+  // grepping the compiled source for an English word is a check that cannot
+  // fail. They instantiate the compiled function and compare what it returns.
+
+  const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+  const frame = TEST_FRAMES[1];
+
+  /** The same face and the same frame, differing only in the scale estimate. */
+  const at = (scale: ScaleEstimate) => {
+    const model = createFaceModel({
+      positions: new Float64Array(subject.positions),
+      vertexSigmaMm: new Float64Array(mesh.vertexCount).fill(0.2),
+      shapeCoeffs: new Float64Array(0),
+      basisName: 'ground-truth',
+      displacementRmsMm: 0, displacementMaxMm: 0,
+      intrinsics: { f: 600, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 },
+      intrinsicsSolved: true,
+      scale,
+      landmarkBiasMm: new Float64Array(mesh.vertexCount * 3),
+      quality: { nose: { observations: 30, parallaxRms: 0.3, sigmaMm: 0.3 } },
+      pdMm: null, pdSigmaMm: null,
+      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
+    });
+    const out = new Map<string, number>();
+    for (const m of assessFit(model, mesh, regions, frame).measures) out.set(m.id, m.confidence);
+    return out;
+  };
+
+  // An exact ruler against the shipping iris rung. The POSITIONS are identical,
+  // so every graded value is identical too and only the confidences can move.
+  const exact = at({ source: 'pd', factor: 1, sigma: 0.001, note: 'exact' });
+  const iris = at({ source: 'iris', factor: 1, sigma: 0.047, note: 'pooled iris' });
+
+  it('leaves the least scale-sensitive verdict almost untouched', () => {
+    // 0.035 mm per point of scale against a 4 mm band: a 4.7% ruler consumes
+    // 4% of the tolerance. Vertex's real exposure is the temple reach, and that
+    // caveat is a separate one beside it.
+    const kept = iris.get('vertex')! / exact.get('vertex')!;
+    assert.ok(
+      kept > 0.9,
+      `the iris rung cost the vertex verdict ${((1 - kept) * 100).toFixed(0)}% of its ` +
+      'confidence — vertex is the least scale-sensitive claim measured and should keep it',
+    );
+  });
+
+  it('takes the width verdict apart, because one sigma eats the whole band', () => {
+    // 1.37 mm per point against a 4 mm band: 4.7% consumes it 1.6 times over.
+    // The verdict is not WRONG, it is uninformative, and `scoreOf` shrinks it
+    // toward neutral rather than dropping it — so an uncertain measurement
+    // cannot make a frame look good or bad by being uncertain.
+    const kept = iris.get('width')! / exact.get('width')!;
+    assert.ok(
+      kept < 0.2,
+      `the width verdict kept ${(kept * 100).toFixed(0)}% of its confidence on a 4.7% ` +
+      'ruler, where a single sigma is 6.4 mm against a 4 mm band',
+    );
+    // The pair is the whole point. A flat multiply — the old behaviour — makes
+    // these two identical, and this line is what turns that red.
+    assert.ok(
+      iris.get('vertex')! / exact.get('vertex')! > 4 * kept,
+      'width and vertex lost the same fraction of their confidence, which is the ' +
+      'flat multiply this replaced: they differ by a factor of forty in sensitivity',
+    );
+  });
+
+  it('gives the seat verdicts the caveat they never carried', () => {
+    // `height`, `depth`, `panto` and `load` all move under scale — the frame is
+    // a fixed metric object and the face is not, so a rescaled wedge catches it
+    // somewhere else — and every one of them read `nose.value` alone.
+    for (const id of ['height', 'depth', 'panto', 'load']) {
+      assert.ok(
+        iris.get(id)! < exact.get(id)! * 0.999,
+        `${id} costs nothing on a 4.7% ruler (${exact.get(id)!.toFixed(4)} -> ` +
+        `${iris.get(id)!.toFixed(4)}) — it moves under scale and carries no caveat`,
+      );
+    }
+  });
+
+  it('charges each verdict in proportion to what scale actually does to it', () => {
+    // The whole design in one assertion. Nothing in the verdict list is exactly
+    // scale-invariant — the seat is a contact equilibrium, so even the roll of
+    // a settled frame moves a little — so the claim is not "some pay nothing",
+    // it is that what each pays is ORDERED by its measured sensitivity. A flat
+    // multiply, a hand-picked subset, or a table with two entries transposed
+    // all turn this red.
+    //
+    // Measured fraction of the good band consumed per 1% of scale:
+    //   width 34.1%, height 8.3%, depth 5.6%, panto 4.6%, vertex 0.8%, level 0.3%
+    const order = ['width', 'height', 'depth', 'panto', 'vertex', 'level'];
+    const kept = order.map((id) => iris.get(id)! / exact.get(id)!);
+    for (let i = 1; i < order.length; i++) {
+      assert.ok(
+        kept[i] > kept[i - 1],
+        `${order[i]} kept ${(kept[i] * 100).toFixed(1)}% of its confidence and the more ` +
+        `scale-sensitive ${order[i - 1]} kept ${(kept[i - 1] * 100).toFixed(1)}% — the ` +
+        'caveat is not ordered by the sensitivity it claims to be built from',
+      );
+    }
+    // `pads` and `load` sit between panto and vertex at 2.2% and 2.1% of band,
+    // close enough that their order is inside the per-seed spread, so they are
+    // bracketed rather than sequenced.
+    for (const id of ['pads', 'load']) {
+      const k = iris.get(id)! / exact.get(id)!;
+      assert.ok(
+        k > kept[order.indexOf('panto')] && k < kept[order.indexOf('vertex')],
+        `${id} kept ${(k * 100).toFixed(1)}%, outside the panto-to-vertex bracket its ` +
+        'measured sensitivity puts it in',
+      );
+    }
+  });
+
+  it('a second ruler that disagrees is what makes any of this see the wearer', () => {
+    // The point of the whole cluster. `sigma` on the iris rung is the same
+    // number for everybody, so it cannot tell a wearer the 11.70 mm assumption
+    // fits from one carrying 5.4%. A disagreement between two rulers can.
+    const pd = { source: 'pd' as const, factor: 1, sigma: 0.008, note: 'pd' };
+    const alone = at(pd);
+    const agreeing = at({ ...pd, disagreementPct: 3 });
+    const fighting = at({ ...pd, disagreementPct: 20 });
+
+    // 3% is well inside what two behaving rulers explain between them (4.8%),
+    // so it is not evidence of anything and must cost nothing. Without this the
+    // implementation could simply penalise any disagreement at all.
+    for (const id of ['width', 'height', 'vertex']) {
+      assert.equal(
+        agreeing.get(id), alone.get(id),
+        `${id} was penalised for two rulers agreeing to within their own sigmas`,
+      );
+    }
+
+    // 20% is four times what they explain. One of them is wrong, this cannot
+    // say which, and the excess is priced as error rather than used to pick a
+    // winner. This is also the only defence against a mistyped PD, where the
+    // printed sigma moves the WRONG WAY: a PD typed 10% high prints a smaller
+    // sigma than a correct one.
+    for (const id of ['width', 'height']) {
+      assert.ok(
+        fighting.get(id)! < alone.get(id)! * 0.5,
+        `${id} kept ${((fighting.get(id)! / alone.get(id)!) * 100).toFixed(0)}% of its ` +
+        'confidence while the two rulers disagreed by 20% — the gap is not being read',
+      );
+    }
   });
 });
 

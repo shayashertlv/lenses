@@ -216,9 +216,21 @@ export function createUI(root: HTMLElement): UI {
         );
       }
       if (model) {
+        // The disagreement is shown beside the sigma rather than folded into
+        // it, because they answer different questions. The sigma is what the
+        // ruler claims about the POPULATION and is the same number for every
+        // wearer on the iris rung; the gap is what a second ruler saw about
+        // THIS one, and it is signed. Averaging a known direction into a
+        // symmetric interval throws away the only thing the second ruler
+        // supplied. Absent on the shipping single-ruler path, and absent is
+        // the honest state — an unchecked ruler should not read as a checked one.
+        const gap = model.scale.disagreementPct;
         lines.push(
           `scale: ${model.scale.source}` +
-          (model.scale.source === 'assumed' ? '' : ` ±${(model.scale.sigma * 100).toFixed(1)}%`),
+          (model.scale.source === 'assumed' ? '' : ` ±${(model.scale.sigma * 100).toFixed(1)}%`) +
+          (gap == null || !Number.isFinite(gap) ? ''
+            : ` · the ruler it replaced read you ${Math.abs(gap).toFixed(1)}% ` +
+              `${gap > 0 ? 'large' : 'small'}`),
         );
         if (model.pdMm !== null) {
           lines.push(
