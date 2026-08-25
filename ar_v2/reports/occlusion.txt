@@ -1,0 +1,215 @@
+OCCLUSION — WHAT THE SCANNED FACE HIDES, MEASURED BEFORE A PIXEL IS DRAWN
+==========================================================================
+The renderer about to be built will use the scanned face mesh as its
+occluder. This instrument measures, against synthetic ground truth, how
+good that occluder is: boundary placement in the glasses band, depth-
+ordering flips in both directions, stability under live tracking, and
+what the personal scan buys over the average face.
+
+Occluder scans: 12 subjects enrolled at eye-level, framesPerBeat 12, true iris. Frame: 'standard'
+seated by solveSeat on the scan (the shipping path). The frame sample
+cloud is an instrument sampling of rims, bridge and temples built from
+the asset's own fields — not render geometry. Every occluder is posed
+by PnP against noiseless truth landmarks (what the tracker does, minus
+its noise — metric C carries the noise) and depth-gauge normalised, so
+a ruler error cannot masquerade as an occlusion error.
+
+Campaign: seeds {11, 23, 37, 41, 53}. Seed 11 runs the full population (12 subjects: 10 sampled + 2 named extremes) and provides every table below; the four replication seeds run 6 subjects (4 sampled + the extremes) — the population was shrunk before the yaw ladder, per the wall-clock rule, and the headline block reports all five.
+
+METRIC A + D — THE BOUNDARY, SCAN AGAINST TEMPLATE
+--------------------------------------------------
+For every truth-contour pixel in the glasses band: distance to the
+nearest occluder-contour pixel. Median / p90 over ALL band pixels of
+all subjects in the bucket. Seed 11.
+
+camera      yaw  band px  scan px (med/p90)  scan mm (med/p90)  scan off  template mm (med/p90)  tmpl off  scan buys mm
+----------  ---  -------  -----------------  -----------------  --------  ---------------------  --------  ------------
+eye-level     0      126        0.83 / 1.64        0.72 / 1.41      0.52            0.80 / 3.79      1.36          0.67
+eye-level    15       67        0.85 / 1.71        0.73 / 1.42      0.57            2.20 / 8.35      2.20          1.40
+eye-level    30      117        0.00 / 0.92        0.00 / 0.78      0.30            1.53 / 5.30      1.71          1.54
+eye-level    45      137        0.00 / 0.83        0.00 / 0.71      0.24            1.47 / 5.32      2.33          2.11
+eye-level    60      140        0.00 / 0.84        0.00 / 0.70      0.30            2.07 / 5.58      2.76          2.34
+laptop-lid    0      163        0.97 / 1.93        0.71 / 1.39      0.47            1.53 / 5.41      1.98          1.61
+laptop-lid   15       87        0.95 / 1.91        0.71 / 1.39      0.48            2.01 / 7.56      2.45          1.71
+laptop-lid   30      117        0.95 / 1.07        0.64 / 0.83      0.31            1.52 / 5.40      1.91          1.64
+laptop-lid   45      155        0.00 / 1.00        0.00 / 0.71      0.20            1.44 / 6.74      1.82          1.64
+laptop-lid   60      193        0.00 / 0.95        0.00 / 0.67      0.25            1.90 / 7.40      2.65          2.28
+phone-lap     0      248        2.13 / 3.02        0.65 / 0.98      0.46            2.19 / 7.13      2.98          2.49
+phone-lap    15      149        2.09 / 3.00        0.60 / 0.96      0.45            2.07 / 9.64      2.64          2.15
+phone-lap    30      161        0.00 / 2.40        0.00 / 0.76      0.32            1.37 / 5.51      1.84          1.41
+phone-lap    45      211        0.00 / 2.34        0.00 / 0.70      0.24            1.26 / 4.11      1.55          1.30
+phone-lap    60      246        0.00 / 2.26        0.00 / 0.68      0.29            1.34 / 4.48      2.00          1.71
+
+  scan px      is in the geometry's NATIVE pixels: a phone pixel is a
+               third of a laptop pixel on the skin, which is why the mm
+               column is the comparable one and the px column is the one
+               a compositor cares about.
+  a 0.00 med   is a statement, not a rounding: more than half the band
+               boundary coincides to within one buffer cell (~0.7-0.9 mm,
+               ~1 native px at eye level), which is the grid the per-
+               pixel distances are quantised to.
+  off          the mean boundary OFFSET: in-band area where the two
+               masks disagree, over the truth contour's in-band length
+               (median across subjects). Sub-cell-resolving, and robust
+               where the raw distances are not: a knife-edge sliver of
+               face exposed in one mask only reads as its own thin area
+               here, while the nearest-distance walks its arc and can
+               report tens of millimetres for a sub-mm shape difference
+               (that tail is real and lives in the p90 columns).
+  scan buys    template offset minus scan offset, per subject, median.
+               Metric D's headline: the boundary error the average face
+               would add if it were the occluder.
+
+THE RULER CANCELS — POOLED IRIS AGAINST TRUE IRIS
+-------------------------------------------------
+Same subjects scanned twice: once told their true iris, once left to the
+pooled 11.7 mm default (the shipping configuration). If scale reached
+occlusion, these columns would differ by the ruler error.
+
+yaw  true-iris off mm  pooled off mm  |delta| med  |delta| worst  gauge err %
+---  ----------------  -------------  -----------  -------------  -----------
+0                0.23           0.23         0.00           0.00          2.0
+15               0.23           0.23         0.00           0.00          2.0
+30               0.18           0.18         0.00           0.00          2.0
+45               0.21           0.21         0.00           0.00          1.9
+60               0.29           0.29         0.00           0.00          1.8
+
+  gauge err    how far the pooled arm's depth gauge sat from truth before
+               normalisation — the ruler error the pose absorbed. That
+               these percents dwarf the |delta| columns is the point: the
+               ruler moves the gauge, the gauge cancels in projection, and
+               the boundary does not notice. A |delta| of 0.00 here is
+               EXACT, not merely small: the ruler multiplies the solved
+               shape globally (applyScale in enroll.ts), so the pooled and
+               true-iris models differ by a pure similarity that the PnP
+               fit and the gauge normalisation cancel to the last bit.
+               Scale provably cannot reach occlusion in this pipeline.
+               (The pooled arm is measured against the SCAN arm's band
+               so only the surface differs.)
+
+METRIC B — DEPTH-ORDERING FLIPS, AND THE BIAS TRADE
+---------------------------------------------------
+Every frame sample is classified hidden/visible against the truth depth
+buffer and against the scanned one (hidden = face nearer by more than
+0.5 mm). Contested = hidden by either surface at that bias; the
+fractions are of contested samples. X-RAY (truth-hidden, scan-visible)
+is the failure the field never tolerates; FORGIVEN (truth-visible,
+scan-hidden) it forgives. Sign convention: NEGATIVE bias moves the
+occluder TOWARD the camera, hides more, and buys X-ray down at the
+price of forgiven — pinned by its own test in pipeline.test.ts.
+
+yaw  contested  scan xray %  scan forgiven %  template xray %  template forgiven %
+---  ---------  -----------  ---------------  ---------------  -------------------
+0         3239         22.0              0.4              9.2                  5.9
+15        3160         20.0              0.6             10.2                  7.6
+30        3051         17.5              0.8             12.8                  8.1
+45        2890         13.7              0.4             11.6                  9.5
+60        3233          8.4              0.2              9.9                 10.1
+
+The bias sweep, pooled over yaw >= 30 (where occlusion lives), scan arm:
+
+bias mm  contested  xray %  forgiven %
+-------  ---------  ------  ----------
+-1.5          9253   10.54        1.34
+-1.0          9219   11.21        0.98
+-0.5          9194   12.23        0.71
+0.0           9174   13.07        0.49
++0.5          9172   13.90        0.47
++1.0          9171   14.93        0.46
++1.5          9171   15.73        0.46
+
+  The trade both ways: pushing the occluder toward the camera erases
+  X-ray and eats attached geometry (rim edges, temple roots) as
+  forgiven hides; pushing it away does the opposite. The renderer's
+  knob should be read off this table, not asserted.
+
+Where the flips live (yaw >= 30, scan arm):
+
+part    contested  xray % @0  forgiven % @0  xray % @-0.5  forgiven % @-0.5
+------  ---------  ---------  -------------  ------------  ----------------
+rim           952      53.57           2.31         53.57              2.31
+bridge        586      59.04           0.68         52.90              0.68
+temple       7636       4.49           0.25          3.97              0.51
+
+  The temple arm grazes the head, so its samples sit within a
+  millimetre of the surface for most of their length — precisely the
+  geometry that flips on sub-millimetre shape error, in either
+  direction. A bias spent to hide temple X-ray is a bias that starts
+  eating the rim, and this table is where that trade is visible.
+
+How deep the X-ray really is: an X-rayed sample sat a median 2.95 mm
+behind the truth surface (p90 11.24, worst 81.6, over 1199 flips at
+yaw >= 30). Two populations live in that spread. The shallow half are
+grazing skims — the temple riding within a couple of millimetres of
+the cheek. The deep tail is samples far behind the head exposed at an
+occluding EDGE (the nose profile, the mask's own cut edge) whose
+position the scan has sub-millimetre wrong: the flip is deep but the
+wrongly-drawn strip is only as wide as metric A's boundary offset.
+Note the rim row above: its X-ray is IDENTICAL at bias 0 and -0.5,
+because those samples land on pixels the scan mask does not cover at
+all — no depth bias can hide a sample the occluder has no depth for.
+A bias fixes depth-ordering X-ray only; edge-coverage X-ray is fixed
+by boundary accuracy (metric A) or by the renderer dilating its
+mask edge, which is a stage-1 decision this table informs.
+
+METRIC C — STABILITY UNDER LIVE TRACKING
+----------------------------------------
+A 40-frame wandering hold near 35 degrees of yaw — the capture
+machinery's own postural wander and landmark noise — tracked with the
+real tracker against the scan. Per frame: banded boundary error of the
+scan at the TRACKED pose against truth at the TRUE pose. The crawl is
+the median frame-to-frame change of that error — the wobble the eye
+punishes. The shape-only arm re-poses the same scan with noiseless
+landmarks, so tracked minus shape-only is what tracking itself costs.
+
+camera      frames  lost  tracked err mm  crawl mm (med)  crawl p90  shape-only mm
+----------  ------  ----  --------------  --------------  ---------  -------------
+eye-level      480     0            0.42           0.084      0.196           0.29
+laptop-lid     480     0            0.47           0.076      0.167           0.25
+phone-lap      404    76            0.53           0.055      0.074           0.25
+
+  A lost frame is one the tracker refused (solve rejected or held); the
+  boundary numbers are conditioned on tracking. The phone-lap loss rate
+  is a finding of its own: this hold combines 35 degrees of yaw with the
+  ~30 degree pitch a phone in the lap imposes, and the tracker starts
+  refusing solves there.
+
+HEADLINE — MEDIAN OF THE FIVE SEEDS, PER-SEED RANGE IN BRACKETS
+----------------------------------------------------------------
+  boundary med, scan, 30 deg   0.00  [0.00 .. 0.65] mm   (0.00  [0.00 .. 0.85] native px)
+  boundary med, scan, 45 deg   0.00  [0.00 .. 0.00] mm   (0.00  [0.00 .. 0.00] native px)
+  boundary offset, scan, 30    0.31  [0.13 .. 0.58] mm   (0.57  [0.38 .. 1.42] native px)
+  boundary offset, scan, 45    0.23  [0.19 .. 0.37] mm   (0.48  [0.31 .. 1.01] native px)
+  scan buys over template, 30  1.47  [1.14 .. 1.99] mm
+  scan buys over template, 45  1.66  [0.88 .. 2.32] mm
+  xray at bias 0 (yaw>=30)     13.07  [3.60 .. 15.95] % of contested
+  forgiven at bias 0           0.49  [0.37 .. 3.71] %
+  xray at bias -0.5 mm         12.23  [3.10 .. 14.89] %
+  forgiven at bias -0.5 mm     0.71  [0.42 .. 4.09] %
+  tracked boundary err (35deg) 0.92  [0.48 .. 1.07] mm
+  boundary crawl per frame     0.081  [0.073 .. 0.118] mm
+  shape-only boundary err      0.25  [0.15 .. 0.50] mm
+  |pooled - true iris| bound.  0.00  [0.00 .. 0.00] mm
+
+READING THIS TABLE
+------------------
+The scan mm column is the error a wearer would see at the frame's edge
+where it crosses the face contour: how many millimetres of temple arm
+vanish too early or too late. The buys column is the same number for the
+average head, minus the scan's — the argument for having scanned at all,
+and it should GROW with yaw, because frontal occlusion is nearly shape-
+free while profile occlusion is nothing but shape. X-ray percent is the
+one to watch in metric B: a single X-rayed temple sample is a temple
+drawn through a cheek. The crawl is metric C's verdict on the frozen-
+scan architecture: the scan does not change between frames, so boundary
+wobble can only come from pose noise, and it should sit well under a
+native pixel-equivalent (~0.3-0.9 mm at these distances).
+
+A limitation, stated: truth here is the same 468-vertex mask topology
+as the occluder, so everything the mask can never cover — ears, hair,
+the back of the head — is outside this instrument by construction.
+Whether the renderer should hide a temple tip behind hair it has no
+geometry for is a stage-1 renderer question, not a scan-quality
+question, and no number above speaks to it.
+
+Wall clock: 48.7 s.

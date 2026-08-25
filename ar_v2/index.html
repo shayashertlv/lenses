@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lenses AR — v2</title>
+<link rel="stylesheet" href="styles.css">
+<!--
+  No bundler. The import map resolves three.js from the vendored copy, exactly as
+  v1 did, so the app serves offline from a static directory and nothing is
+  fetched from a network at runtime.
+
+  The one thing that IS built is TypeScript -> JavaScript (`npm run build`), and
+  that is a deliberate reversal of v1's "no build step" property. The trade:
+  16,000 lines of untyped JavaScript held together by 8,500 lines of comments,
+  against typed source where a third of that load is carried mechanically. The
+  offline and no-network properties are kept; only the "open index.html and it
+  runs" property is lost, and it is lost to `tsc`, which is not a bundler and
+  emits ES modules one-to-one.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="stage-wrap">
+  <canvas id="stage"></canvas>
+  <div id="guide-dot" aria-hidden="true"></div>
+  <div id="prompt" role="status"></div>
+  <div id="reading" aria-live="polite"></div>
+  <div id="progress"><div id="progress-bar"></div></div>
+</div>
+
+<aside id="panel">
+  <header>
+    <h1>Lenses <span>v2</span></h1>
+    <p id="status">starting…</p>
+  </header>
+
+  <section>
+    <h2>Frame</h2>
+    <div id="frames" class="buttons"></div>
+    <div class="buttons">
+      <button data-action="rank">Rank for my face</button>
+      <button data-action="steady">Steady: on</button>
+      <button data-action="hook">Hook: wall</button>
+      <button data-action="edge">Edge: on</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Fit</h2>
+    <div id="verdicts"></div>
+  </section>
+
+  <section>
+    <h2>What an optician would do</h2>
+    <div id="adjustments"></div>
+  </section>
+
+  <section id="catalogue-section">
+    <div id="catalogue"></div>
+  </section>
+
+  <section>
+    <h2>Instruments</h2>
+    <pre id="readouts"></pre>
+    <div class="buttons">
+      <button data-action="diagnostics">Copy diagnostics</button>
+      <button data-action="set-pd">Set my PD</button>
+    </div>
+    <pre id="diagnostics" hidden></pre>
+  </section>
+
+  <footer>
+    <div class="buttons">
+      <button data-action="rescan">Scan again</button>
+      <button data-action="forget" class="danger">Delete my measurements</button>
+    </div>
+    <p class="privacy">
+      Your scan is solved on this device and stored in this browser only.
+      Nothing about your face is uploaded. “Delete my measurements” removes it
+      immediately and completely.
+    </p>
+  </footer>
+</aside>
+
+<script type="module" src="./dist/src/app/main.js"></script>
+</body>
+</html>

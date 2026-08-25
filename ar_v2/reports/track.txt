@@ -1,0 +1,78 @@
+[checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
+Regenerated 2026-08-23 at the adopted 2026-08-22 defaults (keyframes 24,
+rounds 3, field on at fieldPriorScale 8, TYPICAL_VARIANCE_FACTOR 1.9,
+SIDEWALL_BAND_MM [2,36], VERTEX_SEAT_SIGMA_MM 3.03) by running
+runTrackReport({ seed: 11 }) on the merged tree, after the keyframe-selector
+repair. At this report's defaults the tracker runs against ground-truth
+geometry -- no enrollment and no keyframes -- so the repair changes nothing
+here: the body is byte-identical to the pre-repair seed-11 copy (verified by
+diff). Checked-in copies before 2026-08-23 were the historical UNSEEDED draw,
+which the seeded harness deliberately still reproduces when no seed is passed
+-- so `npm run report:track` does not recreate this file verbatim. The
+accuracy tables in README.md and docs/ quote the MEDIAN OF ALL FIVE SEEDS
+with the per-seed spread; their digits therefore differ from any single
+realisation, including this one.
+TRACKING — WHAT HAPPENS PAST 40 DEGREES OF YAW
+==============================================
+Tracked against ground-truth geometry, to isolate the tracker from the scan.
+8 subjects x 3 camera geometries
+
+--- v2 ---
+yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
+-------  ------  ------------  ------------  ------  -----------  ------  ----
+0          1677         -0.05          3.90   12.00         0.99    5.00    15
+15          400         -0.58          3.25    5.89         1.93    5.12     0
+30          413          0.06          3.21    6.31         1.94    5.73     3
+45          115          0.33          3.07    5.34         2.21    6.52     2
+60          131          1.60          3.45    6.74         3.04    6.68     4
+75          531          0.28          3.61    6.98         2.91    7.15    25
+90           93         -1.88          3.82    8.45         2.00    7.50     0
+  jitter while holding a pose: 1.686 mm median, 2.855 p90, 5.456 worst (630 frames)
+
+--- average-head ---
+yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
+-------  ------  ------------  ------------  ------  -----------  ------  ----
+0          1677          8.28         11.54   39.49         2.52    5.63    21
+15          400          6.39         10.92   36.30         3.23    5.61     0
+30          413          6.14         11.99   37.61         3.93    6.16     0
+45          115          5.36         14.81   39.43         3.42    6.60     0
+60          131          6.34         14.56   38.99         3.90    6.73     0
+75          531          4.21         19.38   38.01         3.14    7.22     0
+90           93         27.42         29.37   40.30         2.60    7.63     0
+  jitter while holding a pose: 1.620 mm median, 2.910 p90, 5.916 worst (648 frames)
+
+--- v2-no-smoothing ---
+yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
+-------  ------  ------------  ------------  ------  -----------  ------  ----
+0          1677         -0.52          0.82    3.48         0.42    5.00    15
+15          400         -0.48          0.71    2.86         0.47    5.12     0
+30          413         -0.17          0.72    2.65         0.60    5.73     3
+45          115         -0.05          0.78    2.30         0.80    6.52     2
+60          131         -0.16          0.94    2.14         1.15    6.68     4
+75          531         -0.36          1.70    4.29         1.02    7.15    25
+90           93         -1.32          2.26    6.52         1.77    7.50     0
+  jitter while holding a pose: 1.590 mm median, 2.758 p90, 4.177 worst (630 frames)
+
+THE COMPLAINT, QUANTIFIED
+-------------------------
+"The glasses are pushed forward at >40 degrees" is a statement about how
+much the depth error CHANGES with yaw — a constant offset would be
+invisible, because the wearer never sees the frame anywhere else.
+
+arm              depth err at 0 deg  depth err when turned  swing mm
+---------------  ------------------  ---------------------  --------
+v2                            -0.05                   1.60      1.65
+average-head                   8.28                   4.21      4.07
+v2-no-smoothing               -0.52                  -0.05      0.47
+
+  swing is the number a wearer reports as "it pushes forward when I turn".
+
+WHAT THE FILTER COSTS AND BUYS
+------------------------------
+The lag is visible above as the gap between v2 and v2-no-smoothing on
+total error; the jitter line under each arm is what that lag buys. Both
+numbers belong in the same report — reporting only the cost is how a
+filter gets tuned to nothing, and reporting only the benefit is how it
+gets tuned until the frame swims. Note that this protocol is a
+deliberately fast sweep (35 degrees in a third of a second); ordinary
+browsing is slower and the lag is correspondingly smaller.
