@@ -22,7 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBasis, loadRegions, loadTemplateMesh } from '../src/testkit/fixtures.js';
 import {
@@ -2640,6 +2640,52 @@ describe('the gates that run before the tests do', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('strips the clock out of a report without touching a data column', () => {
+    // `check-reports.mjs`'s canary hashes a regenerated report, and every report
+    // carries a per-solve `ms` column whose value is the machine rather than the
+    // code — so the clock has to come out before hashing or the gate reports a
+    // drift on every different laptop.
+    //
+    // The FIRST version of that strip was `^(\S.*?)(\s+)\d+(\s+\d+)\s*$`:
+    // blank the second-from-last integer on any row that ends in two integers.
+    // It works on both real tables and it is exactly the blunt instrument this
+    // gate exists to prevent — a real data column that happened to sit in that
+    // position would be silently blanked, and the canary would lose the ability
+    // to see it change while still reporting itself green.
+    //
+    // So the strip reads the table's own underline for the column spans and the
+    // header above it for which span is the clock. This asserts both halves:
+    // the clock goes, and a same-shaped table with no `ms` header is untouched.
+    const gate = join(scriptsDir, 'check-reports.mjs');
+    return import(pathToFileURL(gate).href).then(({ stripTimings }) => {
+      const withClock = [
+        'frame          pad sep   ms  unconverged',
+        '-------------  -------  ---  -----------',
+        'narrow-pads         13  135            0',
+        'standard            17  106            1',
+        '',
+      ].join('\n');
+      const stripped = stripTimings(withClock).split('\n');
+      assert.ok(!/135/.test(stripped[2]), `the clock survived: ${stripped[2]}`);
+      assert.ok(!/106/.test(stripped[3]), `the clock survived: ${stripped[3]}`);
+      // Everything else on the row is intact, including the trailing integer
+      // the old positional rule sat next to.
+      assert.match(stripped[2], /narrow-pads\s+13\s+-+\s+0$/);
+      assert.match(stripped[3], /standard\s+17\s+-+\s+1$/);
+
+      // The same shape with no `ms` header. Under the positional rule the 135
+      // and 106 here would be blanked too, and a real measurement would stop
+      // being watched.
+      const noClock = withClock.replace('   ms  unconverged', '  hits  unconverged')
+        .replace('  ---  -----------', '  ----  -----------');
+      assert.equal(
+        stripTimings(noClock), noClock,
+        'a table with no clock column was rewritten anyway — the strip is ' +
+        'positional again, and the canary has stopped watching a real column',
+      );
+    });
   });
 
   it('refuses a constants ledger with two rows for one constant', () => {

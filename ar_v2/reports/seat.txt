@@ -1,28 +1,41 @@
+[provenance] seed 11 source=4a5e9c071122eff2 canary=dd50cac27ed67341
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
-Regenerated 2026-08-23 at the adopted 2026-08-22 defaults (keyframes 24,
-rounds 3, field on at fieldPriorScale 8, TYPICAL_VARIANCE_FACTOR 1.9,
-SIDEWALL_BAND_MM [2,36], VERTEX_SEAT_SIGMA_MM 3.03) by running
-runSeatReport({ seed: 11 }) on the merged tree, after the keyframe-selector
-repair. At this report's defaults the seat is solved against ground-truth
-geometry -- no enrollment runs, so the repair changes nothing here and the
-body differs from the pre-repair seed-11 copy only in the ms timing column.
-Checked-in copies before 2026-08-23 were the historical UNSEEDED draw, which
-the seeded harness deliberately still reproduces when no seed is passed -- so
-`npm run report:seat` does not recreate this file verbatim. The accuracy
-tables in README.md and docs/ quote the MEDIAN OF ALL FIVE SEEDS with the
-per-seed spread; their digits therefore differ from any single realisation,
-including this one.
+Regenerated 2026-08-25 by `npm run report:seat`, which runs
+runSeatReport({ seed: 11 }) and stamps the provenance line above. The seat is
+solved against ground-truth geometry at this report's defaults, so no
+enrollment runs and nothing here depends on the scan.
+
+WHAT MOVED SINCE THE 2026-08-23 COPY, and it is not small. That copy was made
+on the merged tree before `f9c9093` brought the tracking and contact layers
+into ar_v2. Same seed, same defaults, same generator:
+
+  frame           descent median      pad load    column
+  narrow-pads     -0.92 -> -0.82      0.90 -> 0.91
+  standard         1.66 ->  6.94      0.86 -> 0.70
+  wide-pads        4.58 -> 12.77      0.80 -> 0.89
+  heavy-acetate    4.63 -> 11.82      0.82 -> 0.73
+  steep-pads       2.22 ->  6.09      0.86 -> 0.75
+                                                  "tilt advice deg" is now
+                                                  "pad tilt deg"
+
+The frames settle two to three times further down the wedge than the old copy
+said, and the wedge sweep's measured slope moved with them. The ear rest moving
+from the temple's TIP to its BEND (`586a2a2`) is the change with the leverage to
+do that, and the direction is right for it -- a rest that never engaged let the
+frame hang on the nose. It is recorded here rather than explained: nothing in
+this session measured the two builds side by side, and the difference is now
+gated, so the next drift of this size cannot arrive unannounced.
 SEAT — WHERE THE FRAME COMES TO REST
 ====================================
 Seated against ground-truth geometry, to isolate the contact solve.
 
-frame          pad sep  descent mm (med/p90/worst)  |depth err| mm  pad load  panto deg  tilt advice deg  ms  unconverged
--------------  -------  --------------------------  --------------  --------  ---------  ---------------  --  -----------
-narrow-pads         13        -0.92 / 3.41 / 10.19            0.70      0.90       -0.2             19.6  53            0
-standard            17         1.66 / 9.43 / 10.87            1.06      0.86        1.1             17.0  41            1
-wide-pads           22        4.58 / 15.46 / 16.24            0.61      0.80        3.5             21.6  67            0
-heavy-acetate       19        4.63 / 16.19 / 17.21            0.62      0.82        3.1             22.5  44            0
-steep-pads          17        2.22 / 12.33 / 15.54            0.88      0.86        1.8             34.4  49            0
+frame          pad sep  descent mm (med/p90/worst)  |depth err| mm  pad load  panto deg  pad tilt deg   ms  unconverged
+-------------  -------  --------------------------  --------------  --------  ---------  ------------  ---  -----------
+narrow-pads         13         -0.82 / 2.78 / 5.83            0.76      0.91        0.7          20.9  141            0
+standard            17        6.94 / 13.81 / 13.96            0.79      0.70        8.1          19.6  110            0
+wide-pads           22       12.77 / 15.89 / 15.97            0.60      0.89        9.2          20.4  109            1
+heavy-acetate       19       11.82 / 15.82 / 15.91            0.67      0.73        9.7          21.0  125            0
+steep-pads          17        6.09 / 13.93 / 14.39            0.67      0.75        6.2          26.2  146            0
 
   descent    how far BELOW the nominal placement the frame settles.
              Nominal is v1's answer: pads hung on the bridge landmark.
@@ -41,24 +54,24 @@ Here it is a sweep. Descent against pad separation, one subject at a time:
 
 pad separation mm  descent median  descent p90
 -----------------  --------------  -----------
-12                          -0.73         3.79
-14                           0.62         7.91
-16                           1.96        11.23
-18                           2.67        13.84
-20                           3.06        15.77
-22                           4.52        16.54
-24                           8.29        17.49
+12                           0.98         2.31
+14                           3.29         7.35
+16                           4.82        13.17
+18                           7.69        14.70
+20                           9.33        15.23
+22                          12.35        15.76
+24                          14.83        16.44
 
-  measured slope: 0.642 mm of descent per mm of pad separation
-  implied wedge half-angle: 37.9 deg
+  measured slope: 1.146 mm of descent per mm of pad separation
+  implied wedge half-angle: 23.6 deg
 
 CONTROLS — these must FAIL, or the table above measures nothing
 ---------------------------------------------------------------
 case                            |depth error| on the real face mm  residual after bending mm  own descent mm
 ------------------------------  ---------------------------------  -------------------------  --------------
-solved on this face (baseline)                               1.06                       0.65            1.66
-template-nose control                                        1.33                       0.53            3.39
-flat-nose control                                            0.81                       0.68            1.23
+solved on this face (baseline)                               0.79                       0.50            6.94
+template-nose control                                        1.09                       0.46            4.19
+flat-nose control                                            1.15                       0.45            7.45
 nominal placement (v1)                                       4.92                       0.57            0.00
 
   A control passes by being BAD: a seat solved against the wrong nose
