@@ -57,6 +57,9 @@ const EXEMPT = new Set([
   'CALIBRATION_DEFAULTS',
   'DISPLACEMENT_PRIORS', 'SKIN', 'IRIS', 'POPULATION_HVID', 'ID1_CARD',
   'PLAUSIBLE', 'CAMERA_LADDER', 'COVERAGE_THRESHOLDS', 'PD_PLAUSIBLE_MM',
+  // `ID1_CARD` was here until 2026-08-25, exempting a constant deleted with
+  // `enroll/card.ts` in f9c9093. An exemption for a name that no longer exists
+  // is the same defect as an orphaned ledger row, in the one list nobody sweeps.
   'TRANSLATION_SMOOTHING', 'ROTATION_SMOOTHING', 'LM', 'EPS',
   // A userData KEY, not a number — it names an ownership flag on a scene node.
   'CACHED_BY_CALLER',

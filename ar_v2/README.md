@@ -404,7 +404,7 @@ src/
     raster    a tiny depth-buffer rasteriser (visibility, silhouette, occlusion)
     shape/    20-mode anthropometric basis + free-form nose displacement field
     facemodel THE boundary type: what a scan produces
-  enroll/     the four-second scan and its bundle adjustment; card.ts is the
+  enroll/     the four-second scan and its bundle adjustment; the ladder is pd -> iris -> assumed (docs/SCALE.md);
               built-but-unwired card ruler (Q3)
   track/      PnP against the scanned model; One Euro (off)
   fit/        contact-physics seat, frame assets, numeric fit scoring

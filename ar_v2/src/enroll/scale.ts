@@ -26,10 +26,12 @@
  *
  * v2 does three things about it:
  *
- *  1. **Offers a better ruler.** A standard ID card (ISO 7810 ID-1, 85.60 mm
- *     wide, tolerance ±0.12 mm) held at the brow is an object of known size in
- *     the same image. This is what the incumbent does, and it is worth ±1 mm on
- *     PD against the iris's ±2.5 mm.
+ *  1. **Offers a better ruler that is not a prop.** The wearer's own PD, from
+ *     their prescription — 0.79% against the iris's 4.7%, and measured, that
+ *     clears the 1.5% the tightest downstream claim actually needs. Applied in
+ *     `enroll.ts` against the reconstructed surface, not here. (An ID-1 card was
+ *     tried and is gone: `f9c9093` deleted it, and the owner has rejected the
+ *     method. `docs/SCALE.md`.)
  *  2. **Reports the uncertainty instead of hiding it.** `ScaleEstimate.sigma`
  *     travels with the number, the UI shows it, and lens-ordering measurements
  *     refuse an iris-only scale.
@@ -43,10 +45,8 @@ import { type Pose } from '../core/linalg.js';
 import { percentile, weightedMedian } from '../core/linalg.js';
 import type { ScaleEstimate } from '../core/facemodel.js';
 
-// The card machinery lives in `card.ts` — the sample types, the factor solver
-// with its propagated sigma, and the detector interface with the basic
-// implementation. Re-exported here because this file is where the ladder is
-// and where every existing consumer (`enroll.ts`) already imports from.
+// There is no card module. `enroll/card.ts` was deleted in f9c9093 and the
+// method is rejected; this file and `enroll.ts` hold the whole ladder.
 
 /**
  * Population mean horizontal visible iris diameter, mm, and its within-group SD.
@@ -212,12 +212,15 @@ export interface ScaleInput {
  * pupilometer, most people who wear glasses have it written down, and it costs
  * a text field rather than a computer-vision subsystem.
  *
- * The card (ISO 7810, 85.60 mm to ±0.12) is a better ruler still and the ladder
- * keeps its place at the top. Its machinery now exists (`card.ts`: the sample
- * types, the factor solver, a detector interface with a basic implementation),
- * measured against the synthetic harness only — no real frame, card or hand has
- * ever been in front of it, so it stays unwired in the app.
- * `docs/OPEN-QUESTIONS.md` Q3 / Q8.
+ * **There is no rung above this one.** An ID-1 card was built, measured and
+ * deleted (`f9c9093`), and the method is rejected. Measured since, across 5
+ * seeds: 95.7% of the iris path's error is the population HVID assumption,
+ * perfect vision would buy 0.11-1.47 percentage points of a 14.5% worst case,
+ * and every other physically admissible prop-free signal is dead — autofocus on
+ * depth of field (+-47% of Z), WebXR on reach, the corneal glint on the same
+ * ancestry-correlated constant this file refuses, rolling shutter on physics.
+ * Device motion reaches 2.65% only in simulation and carries a structural bias:
+ * the head recoils against the arm that thrusts the phone. `docs/SCALE.md`.
  *
  * **It is applied in `enroll`, against the reconstructed 3-D geometry, and not
  * here.** The obvious place is this file, next to the iris, using the `pdPx`
@@ -247,9 +250,19 @@ export function solveScale(input: ScaleInput): {
    *  carried rather than two. See the note in the body. */
   pdMm: number | null; pdSigmaMm: number | null;
   irisFactor: number | null;
-  /** The CARD against the iris, when both resolved, and nothing else. Overloading
-   *  it to carry a PD-against-iris gap put "card and iris disagree" into the
-   *  notes of scans that had no card in them. */
+  /**
+   * Reserved, and `null` on every path since the card rung was deleted.
+   *
+   * It named the CARD against the iris. Nothing can set it now and nothing reads
+   * it, and it is kept only because the idea it encodes is the right one and is
+   * wanted back: **a disagreement between two rulers is the only signal that can
+   * see the iris's ancestry-correlated bias at all.** Every confidence in this
+   * tree reads `ScaleEstimate.sigma` and never the factor, so a wearer whose true
+   * HVID is 11.10 mm carries a 5.4% error at exactly the same confidence as one
+   * the 11.70 mm ruler fits. With the card gone the second ruler has to be the
+   * wearer's PD — so this should carry PD-against-iris, and a gap over ~2% should
+   * be said out loud rather than averaged into a symmetric sigma. `docs/SCALE.md`.
+   */
   disagreementPct: number | null;
 } {
   const irisMm = input.irisMm ?? IRIS.defaultMm;

@@ -77,7 +77,7 @@ frames ──► PnP init (template) ──► keyframe selection ──► cove
   B. field: per-vertex nose displacement        ───┘
        │
        ▼
-  scale ladder (card > iris > assumed) ──► per-vertex uncertainty ──► FaceModel
+  scale ladder (pd > iris > assumed) ──► per-vertex uncertainty ──► FaceModel
 ```
 
 The staging is not cosmetic. A monolithic solve over poses, shape, intrinsics
@@ -335,16 +335,16 @@ mm of cheek penetration on every catalogue frame. That is the renderer's shape
 being wrong, not the fit, and importing it would put a false wearer-facing
 verdict on every frame. See that function's header.
 
-One more thing built but deliberately not wired: the **card ruler**.
+**The card ruler is gone**, and this section asserted otherwise for four
+commits. `enroll/card.ts` was deleted in `f9c9093`; the scale ladder is
+`pd → iris → assumed` and nothing in the running path has ever asked a wearer
+for a card. The owner has since rejected the method outright.
 
-One more thing built but deliberately not wired: the **card ruler**.
-`enroll/card.ts` holds a detector (gradient edges, quad fit, sub-pixel line
-refinement) and a factor solver with a propagated-and-measured sigma model;
-`enroll/protocol.ts` has an opt-in card beat, default off; the scale ladder's
-card branch consumes the readings end to end. Measured on the synthetic
-harness it reads **0.80% median scale error at 1 px of edge noise against the
-pooled iris's 5.14% on the same runs** — and it has never seen a real frame,
-card, or hand, which is why the app wires none of it up (Q3, Q8).
+What replaces it is not a better ruler but a smaller requirement: measured, the
+target is **1.5%**, the wearer's own prescription PD already delivers 0.79%, and
+the iris is good enough for the try-on picture. `docs/SCALE.md` carries the
+measurements, including why the remaining physically-admissible signals are all
+dead and why the synthetic harness cannot grade a scale estimator at all.
 
 ## Measured results
 
