@@ -131,6 +131,46 @@ describe('the wear branch keeps its wiring', () => {
   });
 });
 
+describe('the scan supplies the silhouette the bundle asks for', () => {
+  // Textual, because `main.ts` boots at module scope and the two other files
+  // here need a `Worker`. This is the third instance in this file of the same
+  // failure class — a computed signal dropped on the floor between the place
+  // that has it and the place that reads it — and this one survived for the
+  // whole life of the feature because the field that would have shown it,
+  // `BundleReport.silhouetteResiduals`, had no consumers at all.
+  //
+  // It took THREE sites to be right and only one to be wrong: `collectFrame`
+  // hard-coded null, `enroll-client` omitted the field from the postMessage,
+  // and the worker's message type did not carry it. The inline fallback passed
+  // `request.frames` straight through, so the two solve paths would have
+  // disagreed about which problem they were solving.
+  const read = (name: string) =>
+    readFileSync(new URL(`../src/app/${name}.js`, import.meta.url), 'utf8');
+
+  it('collectFrame no longer hard-codes silhouette: null', () => {
+    const text = read('main');
+    const at = text.indexOf('function collectFrame');
+    assert.ok(at >= 0, 'collectFrame has been renamed');
+    const body = text.slice(at, text.indexOf('\nfunction ', at + 1));
+    assert.doesNotMatch(body, /silhouette: null/,
+      'collectFrame is back to hard-coding silhouette: null — every silhouette '
+      + 'path in bundle.ts then continues, and production runs the harness\'s '
+      + 'no-silhouette ablation on every real scan');
+    assert.match(text, /function scanSilhouette\(/,
+      'the scan-phase silhouette is gone; the contour term is dead again');
+  });
+
+  it('the worker path carries it too, and it is the path that runs', () => {
+    // `enroll-client` posts a hand-written subset of each frame's fields. A
+    // field missing from THAT list is dropped in silence, and the worker is
+    // the path that runs whenever a Worker can be constructed at all.
+    assert.match(read('enroll-client'), /silhouette: f\.silhouette/,
+      'enroll-client drops the silhouette on the way to the worker again');
+    assert.doesNotMatch(read('enroll.worker'), /silhouette: null/,
+      'the worker rebuilds every frame with silhouette: null again');
+  });
+});
+
 describe('a stored camera is not planted on a source of another size', () => {
   it('neither intrinsics site takes a solved record verbatim', () => {
     // Textual for the same reason the two fingerprints above are: main.ts

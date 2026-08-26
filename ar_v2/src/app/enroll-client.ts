@@ -317,6 +317,13 @@ export async function createEnrollClient(
             landmarks: f.landmarks,
             sigmaPx: f.sigmaPx,
             visibility: f.visibility,
+            // Every field the bundle reads, and this list is the reason one of
+            // them never arrived: `silhouette` was missing here, so a caller
+            // that supplied one had it dropped on the way to the worker while
+            // the INLINE fallback (which passes `request.frames` straight
+            // through) would have carried it. Two paths, one of which quietly
+            // solved a different problem.
+            silhouette: f.silhouette,
             beat: f.beat,
           })),
           imageWidth: request.imageWidth,

@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  CalibrationField, occludingContour, snapOffsets, contourPushes, SNAP_DEFAULTS,
-  SNAP_SLEW_MM_PER_S,
+  CalibrationField, occludingContour, snapOffsets, snappedContourPoints, contourPushes,
+  SNAP_DEFAULTS, SNAP_SLEW_MM_PER_S,
 } from '../src/track/snap.js';
 import { createDepthBuffer, rasterize, clearDepthBuffer } from '../src/core/raster.js';
 import type { Intrinsics } from '../src/core/camera.js';
@@ -96,6 +96,83 @@ describe('the snapper recovers a known edge offset', () => {
     for (let i = 0; i < samples.length; i++) if (snap.confidence[i] > 0) claimed++;
     assert.ok(claimed <= samples.length / 4,
       `${claimed}/${samples.length} samples claimed edges in structureless noise`);
+  });
+});
+
+describe('the snapped contour is handed on as the edge the IMAGE put there', () => {
+  // The enrolment's silhouette term wants image points, not offsets. Getting
+  // this wrong in the obvious direction — emitting every sample, abstentions
+  // included, at its geometric position — would hand the bundle its own
+  // prediction back as evidence, which is the failure this whole module is
+  // written against.
+  const samples = Array.from({ length: 24 }, (_, i) => ({
+    x: 100, y: 80 + i * 4, nx: 1, ny: 0, depthMm: 450,
+  }));
+
+  it('puts each point where the offset says, along that sample own normal', () => {
+    const snap = snapOffsets(samples, verticalEdge(103));
+    const pts = snappedContourPoints(samples, snap);
+    assert.equal(pts.length, 2 * samples.length, 'a clean edge should leave nothing out');
+    for (let i = 0; i < samples.length; i++) {
+      assert.ok(Math.abs(pts[i * 2] - 103) < 0.4,
+        `point ${i} landed at x=${pts[i * 2].toFixed(2)} for an edge at 103`);
+      assert.equal(pts[i * 2 + 1], samples[i].y, 'the normal is +x, so y must not move');
+    }
+  });
+
+  it('follows a diagonal normal rather than the axes', () => {
+    // Same fixture as the diagonal recovery test above: the edge is at
+    // (x+y)/2 = 98 and every sample sits at (x+y)/2 = 100, so each point must
+    // move by ~-2.83 ALONG (SQRT1_2, SQRT1_2) — which lands it on the edge.
+    const diag = Array.from({ length: 16 }, (_, j) => ({
+      x: 100 + j, y: 100 - j, nx: Math.SQRT1_2, ny: Math.SQRT1_2, depthMm: 450,
+    }));
+    const edge = (x: number, y: number): number =>
+      128 + 100 * Math.tanh(((x + y) / 2 - 98) / 2);
+    const pts = snappedContourPoints(diag, snapOffsets(diag, edge));
+    assert.equal(pts.length, 2 * diag.length);
+    for (let i = 0; i < diag.length; i++) {
+      const mid = (pts[i * 2] + pts[i * 2 + 1]) / 2;
+      assert.ok(Math.abs(mid - 98) < 0.5,
+        `point ${i} sits on (x+y)/2 = ${mid.toFixed(2)}, not on the edge at 98`);
+      // An axis-aligned shortcut would leave y (or x) untouched. Both moved.
+      assert.ok(Math.abs(pts[i * 2] - diag[i].x) > 1.5);
+      assert.ok(Math.abs(pts[i * 2 + 1] - diag[i].y) > 1.5);
+    }
+  });
+
+  it('emits nothing at all where the snapper abstained', () => {
+    // Flat light: every sample refuses. An abstention is NOT "the edge is
+    // exactly where the geometry put it", and a silhouette built from the
+    // geometric positions would be the template's own contour dressed up as an
+    // observation — the bundle would then fit the template it started from.
+    const flat = snappedContourPoints(samples, snapOffsets(samples, () => 140));
+    assert.equal(flat.length, 0,
+      `${flat.length / 2} points were emitted for a band with no edge in it`);
+
+    // **INTERLEAVED, and that is the whole fixture.** The first version of this
+    // put the edge over the first twelve samples and the flat skin over the
+    // last twelve, then asserted the output LENGTH. Both of those are wrong in
+    // the same way: the length is decided by the counting pass, so dropping the
+    // guard from the WRITING pass left it unchanged, and with the confident
+    // samples contiguous at the front the emitted content was unchanged too —
+    // the array simply filled up before it reached an abstention. Measured:
+    // deleting the guard passed that test. Alternating rows, and an assertion
+    // on where each point LANDED, is what makes the guard visible.
+    const striped = (x: number, y: number): number =>
+      (((y - 80) / 4) % 2 === 0 ? 128 + 100 * Math.tanh((x - 103) / 2) : 140);
+    const snap = snapOffsets(samples, striped);
+    let confident = 0;
+    for (let i = 0; i < samples.length; i++) if (snap.confidence[i] > 0) confident++;
+    assert.ok(confident > 0 && confident < samples.length,
+      `${confident}/${samples.length} confident — this fixture cannot tell the stripes apart`);
+    const pts = snappedContourPoints(samples, snap);
+    assert.equal(pts.length, 2 * confident);
+    for (let i = 0; i < pts.length; i += 2) {
+      assert.ok(Math.abs(pts[i] - 103) < 0.5,
+        `an emitted point sits at x=${pts[i].toFixed(2)} — that is the geometric `
+        + 'prediction at 100, not an observed edge at 103, so an abstention was emitted');
+    }
   });
 });
 

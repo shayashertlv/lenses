@@ -207,6 +207,38 @@ export function snapOffsets(
   return { offsetPx, confidence };
 }
 
+/**
+ * The observed boundary, as image points — what the snapper actually found.
+ *
+ * `snapOffsets` reports a signed offset ALONG each sample's normal; the point
+ * the image put the edge at is `(x + nx*t, y + ny*t)`. This turns a whole
+ * `SnapResult` into the flat `[x, y, x, y, ...]` array in source pixels that
+ * `enroll/bundle.ts`'s silhouette term consumes, so the enrolment can be given
+ * the same contour the occluder calibration reads every frame.
+ *
+ * **Only confident samples.** An abstention means the image had no edge in
+ * that band, and this module's whole discipline is that an abstention is not
+ * "the edge is exactly where the geometry put it" — emitting the geometric
+ * position for those samples would hand the bundle its own prediction back as
+ * evidence and pull the solve toward whatever mesh was rasterised.
+ */
+export function snappedContourPoints(
+  samples: ContourSample[], snap: SnapResult,
+): Float64Array {
+  let n = 0;
+  for (let i = 0; i < samples.length; i++) if (snap.confidence[i] > 0) n++;
+  const out = new Float64Array(n * 2);
+  let w = 0;
+  for (let i = 0; i < samples.length; i++) {
+    if (!(snap.confidence[i] > 0)) continue;
+    const s = samples[i];
+    const t = snap.offsetPx[i];
+    out[w++] = s.x + s.nx * t;
+    out[w++] = s.y + s.ny * t;
+  }
+  return out;
+}
+
 /** A vertex push produced from the snapped contour, in FACE-space mm. */
 export interface VertexPush {
   vertex: number;

@@ -45,7 +45,10 @@ import {
   armWearer, createIdentityWatch, forgetWearer, observeIdentity, qualifies,
   type IdentityWatch,
 } from '../track/identity.js';
-import { CalibrationField, occludingContour, snapOffsets, contourPushes } from '../track/snap.js';
+import {
+  CalibrationField, occludingContour, snapOffsets, snappedContourPoints, contourPushes,
+  type ContourSample,
+} from '../track/snap.js';
 import { createDepthBuffer, rasterize, type DepthBuffer } from '../core/raster.js';
 import { solvePnP, buildCorrespondences } from '../track/pnp.js';
 import {
@@ -826,7 +829,8 @@ function onDetection(
       const step = advanceProtocol(app.protocol, sample);
       app.ui.guide(step);
 
-      collectFrame(app, landmarks, sigmaPx, visibility, step.beat?.id ?? 'done');
+      collectFrame(app, landmarks, sigmaPx, visibility,
+        scanSilhouette(app, solved.pose), step.beat?.id ?? 'done');
 
       if (step.finished) void runEnrollment(app);
       return;
@@ -962,54 +966,153 @@ function runEdgeSnap(app: App, pose: Pose, dt: number): void {
   const contour = occludingContour(app.snapBuffer, { jumpMm: 6, stride: 2 });
 
   if (contour.length >= 8) {
-    // Pixels of the exact frame this pose was solved on — the frame lock's
-    // whole guarantee, and the reason the snap can trust what it reads.
-    const display = app.lock.display;
-    const ctx = display.getContext('2d', { willReadFrequently: true });
-    if (ctx) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const c of contour) {
-        if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
-        if (c.y < minY) minY = c.y; if (c.y > maxY) maxY = c.y;
+    const lum = contourLuminance(app, contour, k.width);
+    if (lum) {
+      const snap = snapOffsets(contour, lum);
+      const pushes = contourPushes(contour, snap, app.model.positions, V, pose, k);
+      field.update(pushes);
+      let confident = 0; const abs: number[] = [];
+      for (let i = 0; i < contour.length; i++) {
+        if (snap.confidence[i] > 0) { confident++; abs.push(Math.abs(snap.offsetPx[i])); }
       }
-      // Contour coordinates are INTRINSICS pixels; the display canvas may be a
-      // different resolution. One scale factor bridges them at the sampler —
-      // the classic px-of-which-image bug this tree has already paid for once.
-      const toDisp = display.width / k.width;
-      const pad = 12;
-      const sx = Math.max(0, Math.floor(minX * toDisp - pad));
-      const sy = Math.max(0, Math.floor(minY * toDisp - pad));
-      const sw = Math.min(display.width - sx, Math.ceil((maxX - minX) * toDisp + 2 * pad));
-      const sh = Math.min(display.height - sy, Math.ceil((maxY - minY) * toDisp + 2 * pad));
-      if (sw > 4 && sh > 4) {
-        const img = ctx.getImageData(sx, sy, sw, sh);
-        const d = img.data;
-        const lum = (x: number, y: number): number => {
-          const ix = Math.max(0, Math.min(sw - 1.001, x * toDisp - sx));
-          const iy = Math.max(0, Math.min(sh - 1.001, y * toDisp - sy));
-          const x0 = ix | 0, y0 = iy | 0, fx = ix - x0, fy = iy - y0;
-          const at = (xx: number, yy: number) => {
-            const o = (yy * sw + xx) * 4;
-            return 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
-          };
-          const top = at(x0, y0) * (1 - fx) + at(Math.min(x0 + 1, sw - 1), y0) * fx;
-          const bot = at(x0, Math.min(y0 + 1, sh - 1)) * (1 - fx)
-            + at(Math.min(x0 + 1, sw - 1), Math.min(y0 + 1, sh - 1)) * fx;
-          return top * (1 - fy) + bot * fy;
-        };
-        const snap = snapOffsets(contour, lum);
-        const pushes = contourPushes(contour, snap, app.model.positions, V, pose, k);
-        field.update(pushes);
-        let confident = 0; const abs: number[] = [];
-        for (let i = 0; i < contour.length; i++) {
-          if (snap.confidence[i] > 0) { confident++; abs.push(Math.abs(snap.offsetPx[i])); }
-        }
-        abs.sort((a, b) => a - b);
-        app.snapStats = [contour.length, confident, abs.length ? abs[abs.length >> 1] : 0];
-      }
+      abs.sort((a, b) => a - b);
+      app.snapStats = [contour.length, confident, abs.length ? abs[abs.length >> 1] : 0];
     }
   }
   app.scene.nudgeOccluder(field.advance(dt));
+}
+
+/**
+ * A luminance sampler over the locked frame, in the coordinates the contour is
+ * in — the one reader both the wear-phase occluder calibration and the scan's
+ * silhouette go through.
+ *
+ * Pixels of the exact frame this pose was solved on: the frame lock's whole
+ * guarantee, and the reason the snapper can trust what it reads (`lock.present`
+ * runs before `onDetection`, so `display` holds this frame and not the next
+ * one). Only the contour's own bounding box is read back, because
+ * `getImageData` over the whole canvas is the expensive part.
+ *
+ * `intrinsicsWidth` is not a convenience: contour coordinates are INTRINSICS
+ * pixels and the display canvas may be a different resolution, so one scale
+ * factor has to bridge them at the sampler. That is the px-of-which-image bug
+ * this tree has already paid for once, and it now has two callers to get wrong
+ * instead of one.
+ */
+function contourLuminance(
+  app: App, contour: ContourSample[], intrinsicsWidth: number,
+): ((x: number, y: number) => number) | null {
+  const display = app.lock.display;
+  // **`willReadFrequently` here is inert and has always been**, so it is not
+  // written. `framelock.ts` creates this canvas's 2D context during `resize`,
+  // long before any snap, and `getContext` on a canvas that already has one
+  // returns the existing context and IGNORES the attributes. Verified in the
+  // live page: `display.getContext('2d', {willReadFrequently: true})
+  // .getContextAttributes().willReadFrequently` reads **false**, and Chrome
+  // logs its "multiple readback operations" warning anyway.
+  //
+  // Not simply moved to the creation site, because it is a real trade rather
+  // than an oversight: this canvas is also the scene's background TEXTURE
+  // every frame, and the hint moves a canvas to CPU-backed storage — fast to
+  // read, and a different (possibly slower) upload path to the GPU. Nobody has
+  // measured that side, so the honest state is a comment rather than a flag
+  // that looks measured and is not.
+  const ctx = display.getContext('2d');
+  if (!ctx) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const c of contour) {
+    if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
+    if (c.y < minY) minY = c.y; if (c.y > maxY) maxY = c.y;
+  }
+  const toDisp = display.width / intrinsicsWidth;
+  const pad = 12;
+  const sx = Math.max(0, Math.floor(minX * toDisp - pad));
+  const sy = Math.max(0, Math.floor(minY * toDisp - pad));
+  const sw = Math.min(display.width - sx, Math.ceil((maxX - minX) * toDisp + 2 * pad));
+  const sh = Math.min(display.height - sy, Math.ceil((maxY - minY) * toDisp + 2 * pad));
+  if (!(sw > 4 && sh > 4)) return null;
+  const d = ctx.getImageData(sx, sy, sw, sh).data;
+  return (x: number, y: number): number => {
+    const ix = Math.max(0, Math.min(sw - 1.001, x * toDisp - sx));
+    const iy = Math.max(0, Math.min(sh - 1.001, y * toDisp - sy));
+    const x0 = ix | 0, y0 = iy | 0, fx = ix - x0, fy = iy - y0;
+    const at = (xx: number, yy: number) => {
+      const o = (yy * sw + xx) * 4;
+      return 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
+    };
+    const top = at(x0, y0) * (1 - fx) + at(Math.min(x0 + 1, sw - 1), y0) * fx;
+    const bot = at(x0, Math.min(y0 + 1, sh - 1)) * (1 - fx)
+      + at(Math.min(x0 + 1, sw - 1), Math.min(y0 + 1, sh - 1)) * fx;
+    return top * (1 - fy) + bot * fy;
+  };
+}
+
+/**
+ * The observed face contour of one scan frame, for the bundle's silhouette term.
+ *
+ * **This term was dead in production for the life of the feature.**
+ * `useSilhouette` defaults true and every silhouette path in `bundle.ts` then
+ * `continue`s on `!frame.silhouette`, so hard-coding `silhouette: null` here
+ * ran the harness's `no-silhouette` ablation on every real scan — 0 of 141
+ * frames and 0 of 165 on the two real captures in `docs/REAL-FACE.md` — while
+ * `BundleReport.silhouetteResiduals`, the only field that could have said so,
+ * had no consumers. Supplying it is worth 0.287 mm off the |standoff| p90 and
+ * 0.412 mm off its worst, on 5 seeds of 5.
+ *
+ * Same three pieces the wear phase uses, in the same order: rasterise, take the
+ * occluding contour, read the real edge off the locked frame. Two things are
+ * deliberately different from `runEdgeSnap`:
+ *
+ *   - it rasterises the TEMPLATE, because during the scan there is no model
+ *     yet and the pose was solved against the template too. So the search band
+ *     is seeded by a nose that is not the wearer's. A sample whose band holds
+ *     no edge abstains and contributes nothing; a sample that finds the wrong
+ *     one contributes a point at most `SNAP_DEFAULTS.searchPx` = 8 source px
+ *     from the template's prediction, and `nearestSilhouette` refuses anything
+ *     past 20 px regardless. That is inside the envelope the term was measured
+ *     to survive: with the supplied contour degraded by a 3 px translation or a
+ *     5% radial dilation it still beat supplying nothing, on the nose median
+ *     (1.03-1.08 mm against 1.20) and the |standoff| p90 (1.56-1.86 against
+ *     1.97).
+ *   - it takes no `CalibrationField`. The field is a constant of ONE face's
+ *     geometry and there is no solved face yet; this is a per-frame observation
+ *     handed straight to the bundle.
+ *   - `stride: 1`, where the wear phase uses 2. **Density is worth something
+ *     here and nothing there.** The bundle's residual is point-to-NEAREST-POINT,
+ *     so a sparse observed contour pulls a model vertex along the boundary
+ *     rather than across it, where the wear phase's `contourPushes` reads each
+ *     sample's own normal and does not care how many neighbours it has. The
+ *     harness supplies ~500 boundary points per frame; the first browser scan
+ *     of this code measured 21-27. Measured (5 seeds x 6 subjects x 3
+ *     geometries, |standoff| p90, median-of-seeds), thinning the harness's
+ *     contour to production densities:
+ *
+ *         supplied nothing (production before)   1.989 mm
+ *         dense, ~500 points                     1.626
+ *         thinned to 120, +2 px of snap noise    1.640
+ *         thinned to  60                         1.722
+ *         thinned to  24                         1.705
+ *         thinned to  12                         1.739
+ *
+ *     So sparsity costs about 0.08 mm of a 0.36 mm gain, and **every density
+ *     down to 12 points beats supplying nothing on 5 seeds of 5**. Halving the
+ *     stride roughly doubles the sample count for a cost that is not the
+ *     `getImageData` — that readback is one per frame either way and is the
+ *     expensive part — but 17 luminance taps per extra sample.
+ */
+function scanSilhouette(app: App, pose: Pose): Float64Array | null {
+  const k = app.intrinsics;
+  const V = app.mesh.vertexCount;
+  if (!app.snapBuffer || app.snapBuffer.width !== 224) {
+    app.snapBuffer = createDepthBuffer(224, Math.round((224 * k.height) / k.width), k);
+  }
+  rasterize(app.snapBuffer, app.mesh.positions, app.mesh.indices, V, pose, k);
+  const contour = occludingContour(app.snapBuffer, { jumpMm: 6, stride: 1 });
+  if (contour.length < 8) return null;
+  const lum = contourLuminance(app, contour, k.width);
+  if (!lum) return null;
+  const points = snappedContourPoints(contour, snapOffsets(contour, lum));
+  return points.length >= 2 ? points : null;
 }
 
 /**
@@ -1040,7 +1143,7 @@ const COLLECT_BUDGET = 240;
  */
 function collectFrame(
   app: App, landmarks: Float64Array, sigmaPx: Float64Array,
-  visibility: Float64Array | null, beat: string,
+  visibility: Float64Array | null, silhouette: Float64Array | null, beat: string,
 ): void {
   app.collected.push({
     landmarks: new Float64Array(landmarks),
@@ -1048,7 +1151,7 @@ function collectFrame(
     visibility: visibility
       ? new Float64Array(visibility)
       : new Float64Array(app.mesh.vertexCount).fill(1),
-    silhouette: null,
+    silhouette,
     beat,
   });
   if (app.collected.length > COLLECT_BUDGET) {

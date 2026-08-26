@@ -72,6 +72,12 @@ export interface EnrollWorkerRun {
     landmarks: Float64Array;
     sigmaPx: Float64Array;
     visibility: Float64Array;
+    /** The observed face contour of this frame, source px, or null where the
+     *  snapper found no edge. Absent for the whole life of the feature: this
+     *  message type simply did not carry the field, so `enroll-client` could
+     *  not send one and the worker rebuilt every frame with `silhouette: null`
+     *  — the harness's `no-silhouette` ablation, on every real scan. */
+    silhouette: Float64Array | null;
     beat: string;
   }[];
   imageWidth: number;
@@ -131,7 +137,7 @@ self.onmessage = async (event: MessageEvent<EnrollWorkerMessage>) => {
         landmarks: new Float64Array(f.landmarks),
         sigmaPx: new Float64Array(f.sigmaPx),
         visibility: new Float64Array(f.visibility),
-        silhouette: null,
+        silhouette: f.silhouette ? new Float64Array(f.silhouette) : null,
         beat: f.beat,
       }));
 
