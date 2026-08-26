@@ -203,7 +203,11 @@ export function enroll(input: EnrollInput): EnrollResult {
   // been divided out by the bundle.
   if (input.knownPdMm != null) {
     const span = interpupillarySpan(state.positions);
-    if (span > 1 && input.knownPdMm >= 45 && input.knownPdMm <= 85) {
+    // The SAME constant the readout at the bottom of this function gates on.
+    // Two literals here and `PD_PLAUSIBLE_MM` there is what let a scan adopt a
+    // wearer's PD as its ruler and then deny having it.
+    if (span > 1 && input.knownPdMm >= PD_PLAUSIBLE_MM[0]
+      && input.knownPdMm <= PD_PLAUSIBLE_MM[1]) {
       const correction = input.knownPdMm / span;
       applyScale(state.positions, state.frames.map((f) => f.pose), correction, field);
       const sigmaMm = input.knownPdSigmaMm ?? PD_RULER.opticianSigmaMm;
@@ -304,7 +308,7 @@ export function enroll(input: EnrollInput): EnrollResult {
       notes.push(
         `the PD supplied (${input.knownPdMm.toFixed(1)} mm) was not used — ` +
         (span > 1
-          ? 'it is outside the 45 to 85 mm human range'
+          ? `it is outside the ${PD_PLAUSIBLE_MM[0]} to ${PD_PLAUSIBLE_MM[1]} mm human range`
           : 'the solved eye span is degenerate, so there was nothing to correct'),
       );
     }
@@ -329,7 +333,8 @@ export function enroll(input: EnrollInput): EnrollResult {
   // their sigma exactly, by construction — the correction above set it.
   if (scale.estimate.source !== 'assumed') {
     const span = interpupillarySpan(state.positions);
-    if (span >= PD_PLAUSIBLE_MM[0] && span <= PD_PLAUSIBLE_MM[1]) {
+    if (span >= PD_PLAUSIBLE_MM[0] - PD_ROUNDTRIP_MM
+      && span <= PD_PLAUSIBLE_MM[1] + PD_ROUNDTRIP_MM) {
       scale.pdMm = span;
       scale.pdSigmaMm = span * scale.estimate.sigma;
     } else {
@@ -422,6 +427,27 @@ export function enroll(input: EnrollInput): EnrollResult {
  * midpoints, so the proxy is exact by construction and the harness cannot see
  * that bias at all. `docs/OPEN-QUESTIONS.md` Q17.
  */
+/**
+ * How far the span may sit outside `PD_PLAUSIBLE_MM` and still be reported.
+ *
+ * Not slack in the plausibility rule — it is the width of a float. The PD
+ * correction above rescales the geometry by `knownPdMm / span`, so the span
+ * afterwards is the wearer's own figure *recomputed through a `Math.hypot` of
+ * three scaled coordinates*, and that round trip lands up to 1.4e-14 mm away
+ * from it. At an INCLUSIVE boundary that is enough to flip the verdict, and it
+ * flips per face rather than per number: measured over four subjects at seed
+ * 11, typing exactly 45.0 gave spans of 44.999999999999993 (refused),
+ * 45.000000000000000 (reported) and 45.000000000000007 (reported), and typing
+ * exactly 85.0 gave 84.999999999999986 (reported) and 85.000000000000014
+ * (refused). 45 and 85 are precisely the two numbers the app's own "outside the
+ * human range (45 to 85)" message invites a wearer to type.
+ *
+ * A nanometre is fourteen orders of magnitude above that round trip and six
+ * below the 0.1 mm the readout prints, so it cannot admit anything a person
+ * would call out of range.
+ */
+const PD_ROUNDTRIP_MM = 1e-9;
+
 function interpupillarySpan(positions: Float64Array): number {
   const mid = (a: number, b: number, c: number) =>
     (positions[a * 3 + c] + positions[b * 3 + c]) / 2;

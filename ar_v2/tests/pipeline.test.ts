@@ -41,7 +41,9 @@ import {
 import { enroll } from '../src/enroll/enroll.js';
 import { createBundleState, runBundle } from '../src/enroll/bundle.js';
 import { assessCoverage, selectKeyframes } from '../src/enroll/keyframes.js';
-import { IRIS, PD_RULER, POPULATION_HVID, solveScale } from '../src/enroll/scale.js';
+import {
+  IRIS, PD_PLAUSIBLE_MM, PD_RULER, POPULATION_HVID, solveScale,
+} from '../src/enroll/scale.js';
 import { buildCorrespondences, posit, refinePnP, solvePnP } from '../src/track/pnp.js';
 import { createTracker, track } from '../src/track/tracker.js';
 import {
@@ -1999,6 +2001,74 @@ describe('the wearer own PD as a ruler', () => {
   };
   const scaleErrPct = (model: FaceModel, subject: ReturnType<typeof generatePopulation>[number]) =>
     Math.abs(model.measurements.outerEyeSpan / measure(subject.positions).outerEyeSpan - 1) * 100;
+
+  it('promises one range, and it is the one the app tells the wearer', () => {
+    // **The fixture cannot come from the constant.** The first version of the
+    // test below swept `PD_PLAUSIBLE_MM[0]` and `[1]`, which moves with the
+    // constant — so narrowing it back to [46, 80], or opening it to [1, 500],
+    // both passed. A range is only checkable against something outside itself,
+    // and the something is the promise the app makes in its own words:
+    // `set-pd` refuses with "outside the human range (45 to 85)", and
+    // `readStoredPd` drops a stored value on the same rule. Both now read this
+    // constant, so this assertion is what stops all three drifting together.
+    assert.deepEqual([PD_PLAUSIBLE_MM[0], PD_PLAUSIBLE_MM[1]], [45, 85],
+      'the PD range moved. It is quoted verbatim to the wearer by `set-pd` and '
+      + 'used by `readStoredPd`, `enroll`s correction and `enroll`s readout — '
+      + 'move it here and every one of those moves, or none of them should.');
+
+    // And no site may go back to spelling it out. This is the defect itself:
+    // the correction gated on bare literals while the readout gated on the
+    // constant, so a wearer who typed 45 had the scan resized by their number
+    // and was then told the eye landmarks were wrong. Compiled text, because
+    // that is what runs.
+    const enrollJs = readFileSync(new URL('../src/enroll/enroll.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(enrollJs, /knownPdMm\s*>=\s*4[0-9]/,
+      'the PD correction is gating on a literal again, beside a readout that '
+      + 'gates on PD_PLAUSIBLE_MM — that is two ranges for one decision');
+    const mainJs = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(mainJs, /raw\s*>=\s*4[0-9]\s*&&\s*raw\s*<=\s*[0-9]/,
+      'the app is gating a typed PD on a literal again');
+  });
+
+  it('a PD it accepted as a ruler is a PD it will report', () => {
+    // These were TWO ranges. The correction gated on a bare [45, 85] (matching
+    // the app's `set-pd` handler and its stored-value reader) and the readout
+    // on `PD_PLAUSIBLE_MM` = [46, 80]. Since the correction rescales the whole
+    // geometry so `interpupillarySpan` EQUALS the wearer's figure by
+    // construction, a PD of 45.0 or 82.0 was taken as the absolute ruler, every
+    // millimetre downstream resized by it, and then refused as a readout with
+    // "something in the eye landmarks or the scale is wrong" — about a number
+    // the wearer had typed.
+    //
+    // The ENDPOINTS are the fixture, and they are also the second half of this
+    // finding: the correction's round trip lands the recomputed span up to
+    // 1.4e-14 mm from the typed figure, so at an inclusive boundary the verdict
+    // flipped per FACE. Measured over four subjects at seed 11, an exactly
+    // typed 45.0 gave 44.999999999999993 (refused), 45.000000000000000
+    // (reported) and 45.000000000000007 (reported). Several subjects, so this
+    // cannot pass by drawing a lucky one.
+    const population = generatePopulation(mesh, basis, { count: 2 });
+    for (const subject of population) {
+      for (const pd of [PD_PLAUSIBLE_MM[0], 61.8, PD_PLAUSIBLE_MM[1]]) {
+        const model = run(subject, pd);
+        assert.equal(model.scale.source, 'pd', `${pd} mm was not taken as the ruler`);
+        assert.ok(model.pdMm !== null && Math.abs(model.pdMm - pd) < 1e-6,
+          `the scan was resized by ${pd} mm and then reported `
+          + `${model.pdMm === null ? 'nothing' : `${model.pdMm} mm`}`);
+        assert.ok(!model.notes.some((n) => /eye landmarks or the scale is wrong/.test(n)),
+          `a scan resized by a typed ${pd} mm blamed its own eye landmarks`);
+      }
+      // And the refusal still refuses, just outside. Not a range that accepts
+      // everything: that would pass the assertions above just as well.
+      for (const pd of [PD_PLAUSIBLE_MM[0] - 0.1, PD_PLAUSIBLE_MM[1] + 0.1]) {
+        const model = run(subject, pd);
+        assert.notEqual(model.scale.source, 'pd',
+          `${pd} mm is outside the human range and was used as the ruler anyway`);
+        assert.ok(model.notes.some((n) => /was not used/.test(n)),
+          `${pd} mm was ignored without saying so`);
+      }
+    }
+  });
 
   /** The same enrollment at a second camera geometry, for the PD readout. */
   const enrollAt = (

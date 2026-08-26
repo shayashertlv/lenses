@@ -86,10 +86,28 @@ export const POPULATION_HVID: Record<string, { meanMm: number; sigmaMm: number }
 };
 
 /**
- * The span a reported pupillary distance has to fall inside to be reported at
- * all. Applied in `enroll`, where the PD is now measured off the scaled surface.
+ * The span a pupillary distance has to fall inside to be accepted as a ruler
+ * **or** reported as a measurement — one range, because these used to be two.
+ *
+ * The acceptance gate in `enroll` was `[45, 85]` (matching the app's `set-pd`
+ * handler and its stored-value reader) and the readout gate here was
+ * `[46, 80]`. That gap is not academic: the PD correction rescales the whole
+ * geometry so that `interpupillarySpan` EQUALS the wearer's figure by
+ * construction, so on `[45, 46) u (80, 85]` a scan was resized by the wearer's
+ * own typed number, every millimetre downstream with it, and then refused to
+ * print that number back — with the note *"the measured eye span is outside
+ * the human range, so something in the eye landmarks or the scale is wrong"*,
+ * about a number the wearer had typed. Measured against `dist/` at the time:
+ * 45.0 gave `source: 'pd'`, `factor: 1.0166`, `pdMm: null`; 46.0 gave the same
+ * source and `pdMm: 46.000`.
+ *
+ * 45 to 85 is the range the app already promises in its own error message, and
+ * the readout has no business being narrower than the ruler. Both ends stay
+ * wider than the adult range on purpose: the job is to refuse a *measurement
+ * failure* — a half-closed eye, a specular highlight — not to police anybody's
+ * face.
  */
-export const PD_PLAUSIBLE_MM: readonly [number, number] = [46, 80];
+export const PD_PLAUSIBLE_MM: readonly [number, number] = [45, 85];
 
 // ---------------------------------------------------------------- iris path
 

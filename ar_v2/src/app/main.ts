@@ -57,6 +57,10 @@ import {
 import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../detect/mediapipe.js';
 import { earRestPoints, solveSeat, type SeatResult } from '../fit/contact.js';
 import { serializeCapture, type Capture } from '../enroll/telemetry.js';
+// The one range a PD has to fall inside, shared with the estimator. Three
+// copies of `45`/`85` in this file and a fourth number in `scale.ts` is how a
+// scan came to accept a ruler it would not report.
+import { PD_PLAUSIBLE_MM } from '../enroll/scale.js';
 import { assessFit, rankCatalogue, type FitAssessment } from '../fit/score.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
 import { CATALOGUE } from '../fit/catalogue.js';
@@ -240,7 +244,8 @@ const PD_KEY = 'ar-v2.knownpd';
 /** The wearer's own PD, remembered between sessions. It does not change. */
 function readStoredPd(): number | null {
   const raw = Number(localStorage.getItem(PD_KEY));
-  return Number.isFinite(raw) && raw >= 45 && raw <= 85 ? raw : null;
+  return Number.isFinite(raw)
+    && raw >= PD_PLAUSIBLE_MM[0] && raw <= PD_PLAUSIBLE_MM[1] ? raw : null;
 }
 
 /**
@@ -1772,8 +1777,9 @@ function handleAction(app: App, action: string): void {
         app.ui.status('PD cleared — the scan will use the pooled iris assumption');
         break;
       }
-      if (!(raw >= 45 && raw <= 85)) {
-        app.ui.status(`${raw} mm is outside the human range (45 to 85) — not used`);
+      if (!(raw >= PD_PLAUSIBLE_MM[0] && raw <= PD_PLAUSIBLE_MM[1])) {
+        app.ui.status(`${raw} mm is outside the human range `
+          + `(${PD_PLAUSIBLE_MM[0]} to ${PD_PLAUSIBLE_MM[1]}) — not used`);
         break;
       }
       localStorage.setItem(PD_KEY, String(raw));
