@@ -111,16 +111,67 @@ here as one rather than as a silent omission.
 
 ---
 
-## The two holes that are correctness, and are still open
+## The two holes that were correctness — both CLOSED 2026-08-26
 
-**No identity-change detection.** v1 asked every frame whether the wearer had
-changed (`isDifferentFace` / `IDENTITY_STRIKES`) and reset everything
-person-derived if so, against a machine-readable manifest with five named reset
-classes. v2's only reset path is the **Scan again** button. *A second person
-sitting down in front of a warm session silently inherits the first one's
-`FaceModel`, cached seat and calibration field.* That is legitimate-by-
-architecture for the per-frame estimator state v2 no longer keeps; it is not
-legitimate for the state it does.
+**~~No identity-change detection.~~ CLOSED.** `src/track/identity.ts`, 11 tests
+in `tests/identity.test.ts`.
+
+Not a port. v1's predicate was a temple-width ratio against a canonical head,
+which is the right answer for a tree with no scanned model and the wrong one
+here. The v2 signal is `varianceFactor` — the whitened chi-squared per degree of
+freedom that `track/pnp.ts` has computed on every frame since it was written and
+that nothing read. Measured over 10 subjects x 3 geometries x 5 seeds, matched
+against impostor: `varianceFactor` separates at AUC 0.936 where the obvious
+candidate, reprojection RMS, manages 0.773 and is destroyed outright by 15%
+occlusion (a wearer scratching their chin reads as a stranger under any pixel
+threshold that catches an impostor).
+
+Three things in it are worth knowing before touching it:
+
+- **The bar is a ratio to the wearer's own reference, never a constant.** A
+  detector 3.0 px noisy while claiming 0.7 puts *every* genuine frame above the
+  impostor median — signal intact at AUC 0.995, calibration gone. MediaPipe
+  reports no per-landmark uncertainty, so an absolute threshold would rest
+  entirely on `detect/uncertainty.ts`. v1 deleted a whole arm of its own
+  predicate over the same shape of problem.
+- **It abstains rather than guessing.** The watch is armed in exactly one place:
+  immediately after a scan taken from a camera in this session. A model restored
+  from storage was measured elsewhere, possibly on another device, so there is
+  nobody in the room it can be sure of — and learning a reference from whoever
+  sat down would reference the stranger. The gap this closes is the one named
+  above; a shared device at cold boot is a different problem.
+- **Measured end to end: 0 of 80 false convictions, 214 of 240 caught, median 7
+  qualifying frames to convict.** The 11% that get through are the deliberate
+  side of the asymmetry.
+
+**And it turned up that `rescan` was already wrong.** The reset was written by
+hand and cleared 11 of ~18 person-derived fields. The seven it missed included
+`lastCapture` — the previous wearer's raw landmarks, which **Save this scan**
+then wrote to disk under the *new* wearer's PD — and `knownPdMm`, person A's
+typed PD becoming the absolute ruler person B's whole face was scaled by. Both
+paths now share one manifest-driven `resetPerson`, and `PERSON_STATE` is a
+`Record<keyof App, ...>` so TypeScript refuses to compile a field nobody
+classified. It caught the identity watch itself on the day it was added.
+
+**~~`render/scene.ts:setOccluder` has zero coverage repo-wide.~~ CLOSED.**
+5 tests in `tests/scene.test.ts`, five sabotages, every one red.
+
+The stub harness was seven identifiers short of being able to call any handle
+method at all — which is why the four tests that existed were all about
+`createScene`'s straight-line body. Six of the seven are real headless imports,
+so the tests run the actual `buildHeadWithEars` and the actual convention
+conversion against a stub three.js. What they pin: the occluder and the shadow
+catcher share ONE geometry *instance* (a clone is value-identical until the head
+takes a measured shape, which is exactly when v1's shadow vanished); the face
+vertices stay first and `array[i] === Math.fround(positions[i])` exactly, so no
+flip, scale or offset enters between the seat's surface and the GPU; three
+consecutive calls dispose each geometry and material exactly once and leave two
+children; the depth-only configuration; and the camera-axis bias.
+
+One correction to what this document used to imply: "bit-identical to
+`model.positions`" is true of `head.positions` and **false** of the buffer that
+reaches the GPU — after the Float32 narrowing, 1376 of 1404 face components
+differ. `Math.fround` is the exact statement.
 
 **The detector is untested end to end.** No test imports `detect/mediapipe`, and
 all four reports are synthetic — they feed landmarks from their own noise model.
@@ -140,11 +191,14 @@ behind the other side of it.
 1. ~~`app/framelock.ts`~~ — **CLOSED 2026-08-26**, `tests/framelock.test.ts`,
    7 tests, nine sabotages. Drop-whole-when-busy lives in `main.ts`'s loop
    rather than in the lock, so it remains uncited.
-2. `render/scene.ts:setOccluder` — **zero coverage repo-wide**. The occluder is
-   the whole illusion and it has nothing.
-3. `detect/mediapipe.ts` — no test, no report, no fixture.
+2. ~~`render/scene.ts:setOccluder`~~ — **CLOSED 2026-08-26**, 5 tests.
+3. `detect/mediapipe.ts` — no test, no report, no fixture. **Still open, and now
+   the largest of these**: the identity watch depends on `varianceFactor`, which
+   depends on the sigma `detect/uncertainty.ts` estimates, and nothing exercises
+   the real detector end to end. See the calibration note in `identity.ts`.
 4. `app/sources.ts` and `app/ui.ts` — no test.
-5. Identity change — no mechanism, so nothing to test yet.
+5. ~~Identity change — no mechanism~~ — **CLOSED 2026-08-26**,
+   `src/track/identity.ts`, 11 tests.
 
 **Recommended order, cheapest first, and none of it needs the owner:** a
 `setOccluder` test; then a detector smoke test against a recorded capture. That

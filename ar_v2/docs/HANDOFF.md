@@ -562,7 +562,7 @@ v1's *tracking* pipeline, **not** an asset loader; the loader is `models.js`
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 git checkout ar-v2-primary
 node scripts/fetch-vendor.mjs      # if vendor/ is absent
-npm test                            # expect 277/277 and four green gates
+npm test                            # expect 296/296 and four green gates
 ```
 
 Then read `src/fit/frame-asset.ts`'s `derivePads` and

@@ -18,7 +18,7 @@ Start here:
 ```bash
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 node scripts/fetch-vendor.mjs      # only if vendor/ is absent
-npm test                            # expect 277/277 and FOUR green gates
+npm test                            # expect 296/296 and FOUR green gates
 ```
 
 Read, in this order: `docs/HANDOFF.md` (the ten-stage migration and its traps),
@@ -133,18 +133,30 @@ ledger is the record of exactly how.
 `docs/NOSE-V2-SPEC.md` was moved out of v1 before the deletion. Everything else
 is on `origin/ar-v1` and `origin/ar-tryon`.
 
-### C2. The two correctness holes the ledger left open
+### C2. ~~The two correctness holes the ledger left open~~ — both CLOSED 2026-08-26
 
-Neither is a visual-quality question and neither needs the owner:
+`src/track/identity.ts` (11 tests) and five `setOccluder` tests. `docs/PARITY.md`
+carries what each does and how it was measured.
 
-- **A second wearer inherits the first one's face.** There is no
-  identity-change detection: sit down in front of a warm session and you get the
-  previous person's `FaceModel`, cached seat and calibration field. v1 had
-  `isDifferentFace`/`IDENTITY_STRIKES` and five named reset classes; v2's only
-  reset is the **Scan again** button.
-- **`render/scene.ts:setOccluder` has zero coverage repo-wide.** The occluder is
-  the whole illusion. `scene.test.ts` tests sRGB, the environment map, the
-  shadow frustum and the screen light — not this.
+**What that work left behind, in priority order:**
+
+1. **`detect/uncertainty.ts` has no calibration check, and the identity watch
+   now depends on it.** `varianceFactor` is residual over *claimed* sigma, so an
+   overconfident detector is arithmetically indistinguishable from a wrong face:
+   measured, 3.0 px of noise while claiming 0.7 puts every genuine frame above
+   the impostor median. The ratio-to-own-reference design cancels a CONSTANT
+   miscalibration; it does not cancel drift within a session. `TrackerState.vfEma`
+   is the instrument to build the check on.
+2. **The identity margin thins with population size.** Impostor-min falls 30%
+   between 5 and 30 subjects while matched-worst rises 2%; linear extrapolation
+   closes the gap at 35-45. Every number is synthetic, from a population drawn
+   from the same basis the estimator fits, with no expression change, no ageing,
+   no glasses already on the face and no relatives. Re-measure before trusting
+   the bar on real faces.
+3. **A shared device at cold boot is still unprotected.** The watch arms only
+   after a scan taken in this session, so a stored model loaded by somebody else
+   is never questioned. That is deliberate — see `identity.ts`, "What it refuses
+   to answer" — but it is a real second case, not a solved one.
 
 ## 4. Blocked on Shay — tell him, don't wait silently
 
