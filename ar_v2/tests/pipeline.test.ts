@@ -2670,6 +2670,23 @@ describe('the gates that run before the tests do', () => {
       const stripped = stripTimings(withClock).split('\n');
       assert.ok(!/135/.test(stripped[2]), `the clock survived: ${stripped[2]}`);
       assert.ok(!/106/.test(stripped[3]), `the clock survived: ${stripped[3]}`);
+
+      // **The WIDTH is part of the clock.** Both fixture values above are three
+      // digits, so for its whole life this test could not see that the strip
+      // blanked digit-for-digit and left the column's width behind. The column
+      // is right-aligned, so a 99 ms solve hashed as ` --` and a 114 ms one as
+      // `---`: the seat canary took FOUR distinct values in ten consecutive
+      // runs of one unchanged build (11f0e9f2, dab9f30e, dd50cac2, 99203b68),
+      // one of which was the committed stamp. `npm test` failed the reports
+      // gate at random on an unchanged tree and would have passed it at random
+      // on a changed one.
+      // Right-aligned in the span the underline declares, exactly as the
+      // generator writes it -- so this is a faster machine, not a wider table.
+      const faster = withClock.replace('  135  ', '   99  ').replace('  106  ', '    8  ');
+      assert.notEqual(faster, withClock, 'the fast-machine fixture did not substitute');
+      assert.equal(stripTimings(faster), stripTimings(withClock),
+        'two runs of the same code on machines of different speed hash differently — '
+        + 'the strip is erasing the clock\'s value and keeping its width');
       // Everything else on the row is intact, including the trailing integer
       // the old positional rule sat next to.
       assert.match(stripped[2], /narrow-pads\s+13\s+-+\s+0$/);

@@ -180,6 +180,17 @@ function stripTimings(text) {
   // The per-row `ms` columns in seat.txt and enroll.txt are BARE integers under
   // an `ms` header, so no unit can find them and their position has to.
   //
+  // **Blank the whole span, not digit-for-digit.** Replacing each `\d` with a
+  // `-` erases the VALUE and keeps its WIDTH, and the column is right-aligned,
+  // so a 99 ms solve hashed as ` --` and a 114 ms one as `---`. That is a
+  // machine-speed bit inside a hash whose entire job is to be independent of
+  // the machine: the seat canary took four distinct values in ten consecutive
+  // runs of the same build (11f0e9f2, dab9f30e, dd50cac2, 99203b68), one of
+  // which was the committed stamp. So `npm test` failed the reports gate at
+  // random on an unchanged tree, and passed it at random on a changed one -
+  // which is worse than a gate that cannot fail, because it trains its reader
+  // to re-run until it goes green.
+  //
   // Positionally, and not "the second-from-last integer on the line". That was
   // the first version and it is the shape of blunt instrument this whole gate
   // exists to avoid: it rewrites any row ending in two integers, so a real data
@@ -201,7 +212,7 @@ function stripTimings(text) {
     if (line.trim() === '') { span = null; continue; }
     if (span) {
       lines[i] = line.slice(0, span[0])
-        + line.slice(span[0], span[1]).replace(/\d/g, '-')
+        + '-'.repeat(Math.min(span[1], line.length) - Math.min(span[0], line.length))
         + line.slice(span[1]);
     }
   }
