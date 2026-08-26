@@ -232,8 +232,8 @@ R100, zero insertions). `vendor/` moved on disk (it is untracked; fetched and
 SHA-256 verified by `node scripts/fetch-vendor.mjs`).
 
 **The borrow was inverted, not removed.** `ar_v2/serve.py` serves only itself;
-`ar/serve.py` gained the mirror-image mapping and now reaches into `ar_v2` for
-`/assets/` and `/vendor/`. **v1 must stay bootable until the very end** — it is
+v1's server gained the mirror-image mapping and reached into `ar_v2` for
+`/assets/` and `/vendor/`. **v1 had to stay bootable until the very end** — it was
 the only working reference for what a rendered frame should look like, and
 stage 10's precondition is a written side-by-side verdict.
 
@@ -509,21 +509,25 @@ generator itself with the clock stripped.
 
 `npm run report:<name>` now regenerates AND stamps through the same script.
 
-### Stage 10 — retire v1 in one act, then read it cold
-**Never module by module** — `ar/src/main.js:34-54` imports `frame.js`,
-`smoothing.js`, `occluder.js`, `nose.js`, `fit.js`, `layout.js`, `stab.js` and
-`ui.js` by direct ES import, so piecemeal deletion makes v1 unbootable, and
-stages 7–8 need both trees serving.
-Five preconditions, all checkable: (1) `check-selfcontained` has run on every
-commit since stage 1; (2) the recorder runs from its new home and has been used;
-(3) a written side-by-side verdict and screenshot pair exists per asset —
-**the owner gave a blanket verdict on 2026-08-26 ("v2 is for sure better") but
-not a per-asset pair**; treat that as the precondition met at his discretion and
-say so rather than quietly recording it as the thing that was asked for;
-(4) the pad ground truth is committed (**done**); (5) the parity ledger is
-closed, each row naming a test or a report line that exists — **this is the one
-still open, and until 2026-08-26 the ledger did not exist as a document at
-all**; see `docs/PARITY.md`.
+### Stage 10 — DONE 2026-08-26. v1 is deleted; this tree is the only pipeline.
+It went in one act, as planned: v1's `main.js` imported eight modules by direct
+ES import, so piecemeal deletion would have made it unbootable partway.
+
+**Four of the five preconditions were met and the fifth was overridden**, and
+the distinction is recorded rather than smoothed over. Met: (1)
+`check-selfcontained` had run on every commit since stage 1; (2) the recorder
+runs from its new home; (3) the owner gave a blanket verdict ("v2 is for sure
+better") rather than the per-asset screenshot pair that was asked for, accepted
+at his discretion; (4) the pad ground truth is committed. **Not met: (5) the
+parity ledger.** It was built on 2026-08-26, every citation in it was real, and
+not one survived an adversarial read. The owner instructed the deletion anyway
+("no need for v1 no more"), which is a legitimate way for a precondition to end
+and is not the same as passing it. `docs/PARITY.md` carries the full finding,
+what was lost, and the six capabilities v2 still does not have.
+
+One file was kept: `docs/NOSE-V2-SPEC.md`, moved from v1 and the only document
+in that tree with no equivalent here. Everything else is recoverable from
+`origin/ar-v1` and `origin/ar-tryon`.
 Then the cold review of the whole AR project.
 
 **Honest total: about four months.** Roughly 77% of v1 (12,654 of 16,407 lines)
@@ -558,7 +562,7 @@ v1's *tracking* pipeline, **not** an asset loader; the loader is `models.js`
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 git checkout ar-v2-primary
 node scripts/fetch-vendor.mjs      # if vendor/ is absent
-npm test                            # expect 270/270 and four green gates
+npm test                            # expect 277/277 and four green gates
 ```
 
 Then read `src/fit/frame-asset.ts`'s `derivePads` and

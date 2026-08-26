@@ -271,7 +271,7 @@ to have solved on a worker may shrink once real ones come in.
 gets its own GL context, which on some machines makes inference genuinely slower
 (34 ms against 14 ms on the machine v1 shipped on), so it shipped a measured
 one-way fallback rather than a blanket choice. That whole apparatus should be
-ported — it is a solved problem sitting in `ar/src/tracker.js` with its
+ported — it is a solved problem, recoverable from `origin/ar-v1`'s `src/tracker.js` with its
 reasoning attached.
 
 **Worth:** moderate. Under the frame lock the display advances once per
@@ -1276,7 +1276,7 @@ This is v1's problem restated: nine of its eleven catalogue frames declared
 placeholder. It is an **asset pipeline** problem, not an algorithm problem, and
 no amount of solver quality survives it.
 
-`ar/assets/glasses/` has eleven real `.glb` files. `derivePads()` will find their
+`assets/glasses/` has ten real `.glb` files (plus `base.obj`). `derivePads()` will find their
 pad surfaces. What is missing is the true physical size of each — a caliper
 measurement of the front width, and ideally the mass.
 

@@ -30,9 +30,23 @@ import { join, relative, resolve, sep } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
-/** Directories whose text is checked. `dist/` is generated; `vendor/` is not ours. */
-const SCANNED = ['src', 'tests', 'scripts'];
-const LOOSE = ['index.html', 'serve.py', 'package.json'];
+/**
+ * Directories whose text is checked. `dist/` is generated; `vendor/` is not ours.
+ *
+ * **`docs/` is scanned, and it was the hole.** This gate covered `src tests
+ * scripts` plus three loose files, so the two places that actually still pointed
+ * at the sibling checkout were both invisible to it: `README.md:346` told every
+ * new reader that `vendor/` and `assets/` "are served from `../ar/` during the
+ * migration" — the dependency backwards and false since stage 1 — and
+ * `docs/OPEN-QUESTIONS.md` pointed at `ar/assets/glasses/`. The gate exists to
+ * stop this tree needing a sibling on disk, and the file most able to make
+ * somebody go and fetch one was the file it did not read.
+ *
+ * Prose is the easiest place for a stale path to survive precisely because
+ * nothing executes it. That makes it worth MORE scrutiny here, not less.
+ */
+const SCANNED = ['src', 'tests', 'scripts', 'docs'];
+const LOOSE = ['index.html', 'serve.py', 'package.json', 'README.md', 'ATTRIBUTION.md'];
 
 const FORBIDDEN = [
   { pattern: /\.\.[/\\]ar[/\\]/, why: 'reaches into the sibling v1 checkout' },
@@ -71,7 +85,7 @@ function walk(dir) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out.push(...walk(full));
-    else if (/\.(ts|mjs|js|html|py|json)$/.test(name)) out.push(full);
+    else if (/\.(ts|mjs|js|html|py|json|md)$/.test(name)) out.push(full);
   }
   return out;
 }

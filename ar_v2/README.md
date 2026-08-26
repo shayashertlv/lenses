@@ -342,9 +342,17 @@ python serve.py
 
 Then open <http://127.0.0.1:8020/>.
 
-With no camera it falls back to a sample still and says so. `vendor/` and
-`assets/` are served from `../ar/` during the migration — they are ~100 MB and
-byte-identical, and two copies of a template mesh is two things that can drift.
+With no camera it falls back to a sample still and says so, and the
+**Use an average face** control puts glasses on that still without a scan — the
+fastest way to look at every frame in the catalogue.
+
+`assets/` is tracked here and `vendor/` is fetched here by
+`scripts/fetch-vendor.mjs` and SHA-256 verified. Nothing is served from outside
+this directory; `scripts/check-selfcontained.mjs` fails the build if that comes
+back. This paragraph used to say the opposite — that both were served from the
+sibling v1 checkout during the migration — which had been false since stage 1,
+and pointed every new reader at a tree they did not need. v1 is now deleted, so
+the claim is not merely stale but unfollowable.
 
 ### The checks
 
@@ -352,9 +360,10 @@ byte-identical, and two copies of a template mesh is two things that can drift.
 npm test
 ```
 
-Runs the isolation boundary, the constants ledger, and **171 tests** — every
-*camera* jacobian against central differences, the enrollment against ground
-truth, the seat against its controls.
+Runs four gates — the isolation boundary, the constants ledger, self-containment
+and the report stamps — and **277 tests**: every *camera* jacobian against
+central differences, the enrollment against ground truth, the seat against its
+controls.
 
 Two qualifications, both of which used to be over-claims:
 
@@ -467,19 +476,21 @@ That list now includes the card detector (Q3): built and measured, but only
 against images this tree's own rasteriser produced — no real card, hand, glare
 or motion blur — and wired to nothing.
 
-And one that v1 did not need, because v1 drew the glasses:
+**This section carried a fourth entry that was false, and it is worth recording
+what it said**, because it was the front-door document reasoning from it:
 
 > **No eyewear geometry is rendered.** There is no glTF loader in this tree,
 > `frameNode` is childless, and the seat is solved and applied to an empty node.
 > The app shows the camera feed and the measurements. It does not show the
 > glasses.
 
-Everything in "What that buys, measured" is a numerical result about where a
-frame *would* sit. The fit pipeline is complete and reported; the picture is not.
-Note that this document's own opening quotations — "the glasses are being pushed
-forward", "the interaction of the glasses with the nose" — read as descriptions
-of something visible, and in v2 there is nothing visible to describe. Disclosure
-was chosen over building it.
+Every clause was wrong by 2026-08-25. `render/frame-mesh.ts` imports
+`GLTFLoader` and calls `loadAsync`; `render/scene.ts` adds the loaded object
+under `frameNode`; the app draws a measured pair of glasses. The paragraph
+beneath it then concluded "in v2 there is nothing visible to describe" about the
+owner's own reported symptoms, and closed "Disclosure was chosen over building
+it" — a disclosure of something that was not true. All ten catalogue assets are
+now wearable and the try-on is the first thing on the page.
 
 The synthetic capture model was wrong twice during this build, both times in ways
 that changed an engineering decision — occluded landmarks are *biased*, not

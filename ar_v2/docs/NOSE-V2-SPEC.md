@@ -1,3 +1,21 @@
+<!--
+  MOVED FROM v1 ON 2026-08-26, when `ar/` was deleted and v2 became the only
+  pipeline. It was `ar/docs/nose-v2/spec.md`, and it is the one file in that
+  tree with no equivalent here: the authoritative synthesis spec for the nose
+  rework, and — by its own first paragraph — the only surviving document of the
+  diagnose/design/judge process that produced it.
+
+  Read it as HISTORY, not as a live specification. It describes v1's nose
+  pipeline and the plan that fixed it; v2 solves the same three complaints with
+  a different architecture (scan once, track against the scan, seat by contact
+  physics). Where it names a path under `ar/`, that tree no longer exists —
+  recover it from `origin/ar-v1` or `origin/ar-tryon` if a reference is needed.
+
+  Kept because the three complaints at the top are the owner's own words and are
+  still the product's definition of done, and because the reasoning behind the
+  merge decisions is not recorded anywhere else.
+-->
+
 # Nose pipeline v2 — the authoritative synthesis spec
 
 2026-08-16. Produced by a diagnose → design → judge process; this file is the merge

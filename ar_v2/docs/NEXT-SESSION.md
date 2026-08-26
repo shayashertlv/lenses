@@ -18,7 +18,7 @@ Start here:
 ```bash
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 node scripts/fetch-vendor.mjs      # only if vendor/ is absent
-npm test                            # expect 270/270 and FOUR green gates
+npm test                            # expect 277/277 and FOUR green gates
 ```
 
 Read, in this order: `docs/HANDOFF.md` (the ten-stage migration and its traps),
@@ -122,17 +122,29 @@ first thing to look at if Shay says the frame lags a turn — and the
 2026-08-23 note about the locked-latch default feeling "stuck/choppy" may be the
 same thing seen from the wearer's side.
 
-### C. Stage 10 — retire v1, in one act
+### C. ~~Stage 10 — retire v1~~ — DONE 2026-08-26. There is one pipeline now.
 
-**Never module by module** — `ar/src/main.js:34-54` imports eight modules by
-direct ES import, so piecemeal deletion makes v1 unbootable. Five preconditions,
-four met: `check-selfcontained` has run on every commit since stage 1 ✓; the
-recorder no longer needs v1 ✓; the pad ground truth is committed ✓; the parity
-ledger must be closed with each row naming a test or report line that exists ✗;
-**a written side-by-side verdict and screenshot pair per asset ✗ — needs Shay.**
+v1 is deleted. Four of the five preconditions were met; the fifth — the parity
+ledger — was **overridden by the owner, not passed**, and `docs/PARITY.md` says
+so at the top along with the six capabilities v2 still does not have. Do not
+read the deletion as evidence that v2's coverage is complete; it is not, and the
+ledger is the record of exactly how.
 
-`ar/serve.py` still reaches into `ar_v2` for `/assets/` and `/vendor/`. v1 must
-stay bootable until this stage.
+`docs/NOSE-V2-SPEC.md` was moved out of v1 before the deletion. Everything else
+is on `origin/ar-v1` and `origin/ar-tryon`.
+
+### C2. The two correctness holes the ledger left open
+
+Neither is a visual-quality question and neither needs the owner:
+
+- **A second wearer inherits the first one's face.** There is no
+  identity-change detection: sit down in front of a warm session and you get the
+  previous person's `FaceModel`, cached seat and calibration field. v1 had
+  `isDifferentFace`/`IDENTITY_STRIKES` and five named reset classes; v2's only
+  reset is the **Scan again** button.
+- **`render/scene.ts:setOccluder` has zero coverage repo-wide.** The occluder is
+  the whole illusion. `scene.test.ts` tests sRGB, the environment map, the
+  shadow frustum and the screen light — not this.
 
 ## 4. Blocked on Shay — tell him, don't wait silently
 
@@ -142,7 +154,10 @@ stay bootable until this stage.
   five parametric frames declare `dimensionSource: 'assumed'` — the caveat now
   applies to *both* frames in a comparison. One measured number per asset turns
   the tree's only scale-free width claim from nearly worthless into exact.
-  Nine of ten assets refuse `derivePads` today and **every refusal is correct**.
+  **The refusal premise is gone and the width one is not.** All ten assets now
+  wear — `frameFromMesh` finds each arm from geometry rather than needing a part
+  called `temple` — so this is no longer about whether a frame can be tried on.
+  It is only about WIDTH, which is the one quantity no geometry recovers.
 - **One scan session.** Set PD → scan → **Save this scan**. Still the only route
   by which a real face reaches an otherwise entirely synthetic harness. It is now
   also the only way to see `ScaleEstimate.disagreementPct` do its job on a real

@@ -184,7 +184,7 @@ yaw. There is no per-frame placement left to be wrong.**
 
 ### 4. Verification — `src/testkit/`, `tests/`
 
-Three reports and **171 tests**, all headless, all against a synthetic
+Four reports and **277 tests**, all headless, all against a synthetic
 population with known ground truth. Two of them spent a day deliberately red —
 regression bars asserting claims the harness fix had disproved — and both are
 green again **by measurement, not by relaxation**: a 5-seed settlement
@@ -290,22 +290,35 @@ placement would agree until the day it did not, and the symptom would be a frame
 drawn a few millimetres from where it was fitted — which looks exactly like a
 tracking bug and is not one.
 
-**What is NOT built is nine of the ten catalogue assets**, and the reasons are
-the honest state rather than a to-do list:
+**All ten catalogue assets are wearable as of 2026-08-26**, and this section
+said the opposite of that for one commit. What differs between them is not
+whether they derive but **what each can prove about its own arms**, which
+`FrameAsset.earRestSource` carries to the wearer-facing note:
 
-| asset | why it refuses |
-| --- | --- |
-| `navigator` | — it derives |
-| `sunglasses-khronos` | its arm is an **earhook**: the centreline descends from the hinge and never runs level, so there is no bend to rest on |
-| `shield-golden` | the same shape, and it is a wrap with no distinct pads at all |
-| `aviator-amber`, `aviator-tortoiseshell`, `horizon-amber`, `horizon-sage` | two parts each — `Frame` and `Lenses`. The temples are welded into the frame shell, so there is nothing to find a bend on |
-| `crystal-parts`, `crystal-lenses` | eight `tripo_part_N` nodes; nothing names a temple |
-| `meshy` | one fused mesh, 106k triangles, no node name and no material name |
+| tier | assets | what it means |
+| --- | --- | --- |
+| `measured` | `navigator` | a part named `Temple_*`, its bend walked directly |
+| `derived` | both aviators, both horizons, both crystals, `meshy` | no temple named; the arm is found by splitting the mesh and fitting its knee |
+| `assumed` | `sunglasses-khronos`, `shield-golden` | a wrap or an earhook. Its arm never stops descending, so **there is no rest point in the geometry**; the wearer's own ear supplies the reach and height and only the lateral position is the asset's |
 
-Eight of the ten also carry `ASSUMED_WIDTH_MM` — a 140 mm placeholder — so even
-their pad separations are a restatement of that guess. Nine of these ten need
-either a person with calipers or ten minutes in Blender naming parts. Neither is
-a geometry problem, which is why the derivation refuses rather than inferring.
+The nine refusals this table used to list were correct answers to a narrower
+question: a rest point could only come from a part called `temple`, and nine
+assets do not have one. `deriveArmRest` asks the geometry instead. The
+discriminator between the last two tiers is the **ratio** of the arm's curl
+slope to its level slope — dimensionless, so it survives a droopy scan where the
+absolute-fall tolerance `findBend` uses does not — and it is bounded on both
+sides by measurement: 9.4–42 across the eight real temples, 3.1–5.9 across the
+two wraps.
+
+`findBend` is still tried first and navigator still goes through it, deliberately:
+the knee fit's own answer for navigator is 9 mm further back, inside the band
+the seat is most sensitive to, and adopting it everywhere would silently re-tune
+the one asset every seat number in this tree was measured on.
+
+Eight of the ten still carry an estimated front width, so their **width**
+comparisons remain one estimate against another. That is the stage-8 measurement
+day, and it is now the only thing it is about: one number per asset, with a rule
+or a supplier's spec. Data entry, not geometry.
 
 ### The parametric frame is described once
 

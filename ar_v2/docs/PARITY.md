@@ -1,14 +1,17 @@
 # v1 → v2 parity ledger
 
-**Stage 10's fifth precondition: "the parity ledger is closed, each row naming a
-test or a report line that exists."**
+## Verdict: v1 is deleted. Closed 2026-08-26 by the owner's decision, not by the ledger's own bar.
 
-## Verdict: NOT CLOSED. Do not delete `ar/`.
+**Say that plainly, because the distinction is the whole value of this file.**
+The precondition this document was written to enforce — *"the parity ledger is
+closed, each row naming a test or a report line that exists"* — was **never
+met**. It was overridden, deliberately and by the person who owns the product,
+with the instruction "no need for v1 no more". That is a legitimate way for a
+precondition to end. It is not the same as passing it, and a later reader
+deciding how much to trust v2's coverage needs to know which of the two
+happened here.
 
-Built 2026-08-26, the first time this ledger has existed as a document rather
-than as a line in a checklist. 26 v1 modules, 16,407 lines, each read and mapped
-to what supersedes it in v2. Then every row that claimed a citation was handed
-to an independent reader whose instructions were to reject it.
+What the ledger found, on 2026-08-26, before the deletion:
 
     rows                                        26
     verdict `superseded`                        17
@@ -19,185 +22,133 @@ to an independent reader whose instructions were to reject it.
     citations that exist verbatim               14   <- all of them
     citations that survive an adversarial read   0   <- none of them
 
-**Every citation in this ledger is real and every one of them is too narrow.**
-That is the finding. Not one row can currently name a test or report line that
-demonstrates v2 doing what the v1 module it replaces does. The precondition was
-written to catch exactly this, and it caught it on the first honest attempt.
+**Every citation was real and every one was too narrow.** The failure mode was
+uniform: a v2 test whose *name* read like the capability, whose *body* asserted
+a much smaller thing. `holds the frame on the face through a full turn` asserts
+>90% of frames tracked and median rotation error under 1.5° on one subject at
+one camera — it places no eyewear and never calls `solveSeat`. That finding
+stands, and deleting v1 does not answer it.
 
-The failure mode is uniform and worth naming, because it will recur: a v2 test
-whose *name* reads like the capability, whose *body* asserts a much narrower
-thing. `holds the frame on the face through a full turn` asserts >90% of frames
-tracked and median rotation error under 1.5° on one subject at one camera — it
-places no eyewear at all, and `solveSeat` is never called. `renders in sRGB with
-tone mapping, which a PBR asset needs` asserts two of `scene.js`'s nine
-capabilities. `every catalogue entry either derives or refuses with a reason`
-asserts that 1 of 10 derives — true, and nothing to do with loading, scaling or
-material correction.
-
-**None of this says v2 is worse than v1.** It says the test suite was written to
-pin v2's own new physics — the bundle, the contact solve, the scan protocol —
-and was never written to demonstrate that the things v1 already did still
-happen. Those are different jobs and only one of them has been done.
+None of this said v2 was worse than v1. It said the suite was written to pin
+v2's own new physics — the bundle, the contact solve, the scan protocol — and
+was never written to demonstrate that the things v1 already did still happen.
 
 ---
 
-## The ledger
+## What was actually lost, and where it went
 
-| v1 module | lines | verdict | superseded by | citation | covers? |
-| --- | --- | --- | --- | --- | --- |
-| `frame.js` | 2550 | superseded | `track/tracker.ts:track` + `fit/contact.ts:solveSeat` | "holds the frame on the face through a full turn" | **NO** |
-| `smoothing.js` | 1037 | superseded | `track/smoothing.ts:PoseSmoother` | "the OneEuro arithmetic is unchanged: golden values" | **NO** |
-| `tracker.js` | 394 | superseded | `detect/mediapipe.ts:createMediaPipeDetector` | — | **none exists** |
-| `tracker.worker.js` | 127 | **open** | — | — | — |
-| `stab.js` | 179 | **open** | — | — | — |
-| `settle.js` | 373 | dropped | — | — | — |
-| `occluder.js` | 1733 | superseded | `core/head.ts:buildHeadWithEars` + `render/scene.ts:setOccluder` | "a temple X-rays through a headless occluder at yaw, and not through a head" | **NO** |
-| `occlusion-mask.js` | 500 | **open** | — | — | — |
-| `subdivide.js` | 287 | **open** | — | — | — |
-| `scene.js` | 403 | superseded | `render/scene.ts:createScene` | "renders in sRGB with tone mapping, which a PBR asset needs" | **NO** |
-| `lighting.js` | 134 | **open** | — | — | — |
-| `fit.js` | 1299 | superseded | `fit/contact.ts:solveSeat` | "navigator sits on the nose across the population, and converges every time" | **NO** |
-| `seat-equilibrium.js` | 650 | superseded | `fit/contact.ts:solveSeat` | "slides further down the wedge as the pads get wider — monotonically" | **NO** |
-| `nose.js` | 551 | superseded | `core/meshdist.ts:buildMeshDistance` | "and in the CONTACT regime, at the pose solveSeat actually returns" | **NO** |
-| `temples.js` | 714 | **open** | *(occlusion half only)* | "a temple X-rays through a headless occluder…" | **NO** |
-| `layout.js` | 36 | dropped | — | — | — |
-| `models.js` | 995 | superseded | `fit/catalogue.ts` + `fit/frame-from-mesh.ts` + `render/frame-mesh.ts` | "every catalogue entry either derives or refuses with a reason — none throws" | **NO** |
-| `anchors.js` | 873 | superseded | `enroll/bundle.ts:solveBundle` | "recovers a nose it has never seen, to about a millimetre" | **NO** |
-| `person.js` | 590 | superseded | `enroll/bundle.ts:solveField` + `enroll/enroll.ts:perVertexUncertainty` | "a head that never moved has no parallax, however low the camera sits" | **NO** |
-| `head.js` | 396 | superseded | `core/head.ts:buildHeadWithEars` | "a temple X-rays through a headless occluder…" | **NO** |
-| `canonical-face.js` | 186 | superseded | `core/mesh.ts:parseFaceObj` | "parses to 468 vertices in millimetres" | **NO** |
-| `main.js` | 1568 | superseded | `app/main.ts:startLoop` | "does not fall back to a timer when the tab is merely hidden" | **NO** |
-| `ui.js` | 146 | superseded | `app/ui.ts:createUI` | — | **none exists** |
-| `sources.js` | 307 | superseded | `app/sources.ts:createCameraSource` | — | **none exists** |
-| `agreement.js` | 322 | dropped | — | — | — |
-| `pick-face.js` | 57 | superseded | `detect/pick-face.ts:pickFace` | — | **none exists** |
+`ar/` was 46 files and 36.0 MiB. It is recoverable in full from
+`origin/ar-v1` and `origin/ar-tryon`, and from this branch's own history.
+
+| what | disposition |
+| --- | --- |
+| `src/*.js`, 26 files, 16,407 lines | deleted; on `origin/ar-v1` |
+| `docs/nose-v2/spec.md`, 3,948 lines | **kept** — moved to `docs/NOSE-V2-SPEC.md` |
+| `tests/pipeline-check.js`, 396 checks | deleted; the only record of that suite |
+| `tests/fixtures/*.ndjson.gz`, 35.7 MB | deleted — see the privacy note below |
+| `index.html`, `serve.py`, `styles.css` | deleted; v2 has its own |
+
+**The fixtures were 95% of the tree and they were biometric data.** Three
+`.ndjson.gz` files, ~3,000 frames each, per-frame 478-point facial landmarks and
+head-pose matrices for a named subject over a scripted 90-second protocol.
+`docs/PRIVACY.md` already recorded that v1's README claimed they were
+*"deliberately not committed"* and that they were, in fact, committed. Deleting
+them from the working tree is an improvement and not a loss — v2 cannot read
+that format, and `enroll/telemetry.ts` records captures in `BundleFrame` shape
+instead.
+
+**They remain in git history.** If they are to be gone in the sense that word
+usually means, that is a history rewrite and a force-push, and it is a separate
+decision with separate consequences for anyone who has cloned this repo.
 
 ---
 
-## The six `open` rows — capabilities v2 does not have
+## The six capabilities v2 still does not have
 
-Each was grepped for across `src/`, `tests/`, `reports/` and `docs/` before
-being called open.
+These were `open` before the deletion and they are open now. What has changed is
+that the v1 source is no longer sitting beside them as a reference — it is one
+`git show` away instead.
 
-**1. `occlusion-mask.js` (500 lines) — soft, dithered occlusion.** v1 draws the
-occluder a second time into a depth texture and injects GLSL into every frame
-material so each fragment fades over a 1.2 mm feather band, resolved with an
-8-level ordered Bayer dither. Ordered rather than hashed so a still head does
-not get television static; dithered rather than alpha-blended so transmissive
+**1. Soft, dithered occlusion** (`occlusion-mask.js`, 500 lines). v1 drew the
+occluder a second time into a depth texture and injected GLSL into every frame
+material so each fragment faded over a 1.2 mm feather band, resolved with an
+8-level ordered Bayer dither — ordered rather than hashed so a still head does
+not get television static, dithered rather than alpha-blended so transmissive
 lenses stay in the opaque pass and keep their refraction. **v2 has a hard binary
-depth test** — `render/scene.ts:440`, `MeshBasicMaterial({ colorWrite: false })`
-at `renderOrder -1`. No second pass, no feather, no dither. Zero hits for
-`feather|dither|onBeforeCompile`.
+depth test** (`render/scene.ts`, `MeshBasicMaterial({ colorWrite: false })` at
+`renderOrder -1`).
 
-**2. `subdivide.js` (287 lines) — Loop subdivision of the occluder**, precomputed
-into a reusable CSR sparse matrix so a rebuild is a weighted sum. Zero hits for
-`subdivi` anywhere in v2. So v2's occluder is drawn at MediaPipe's raw
-468-vertex topology, and the artefact v1 measured — **7.3 mm triangles over the
-nose, up to 16.5 mm** — is unmitigated.
+**2. Loop subdivision of the occluder** (`subdivide.js`, 287 lines), precomputed
+into a reusable CSR sparse matrix so a rebuild was a weighted sum. v2's occluder
+is drawn at MediaPipe's raw 468-vertex topology, and the artefact v1 measured —
+7.3 mm triangles over the nose, up to 16.5 mm — is unmitigated.
 
-**3. `lighting.js` (134 lines) — the light probe.** Downsamples the video, reads
-the face bounding box, and drives key/ambient/environment/screen intensities
-from the light the camera actually sees. **v2 ported the lights and not the
-probe, and says so in its own source**: `render/scene.ts:243` — *"Estimating the
-room's real light from the video is still the intended upgrade and still
-unimplemented."*
+**3. The light probe** (`lighting.js`, 134 lines), which downsampled the video,
+read the face bounding box, and drove key/ambient/environment intensities from
+the light the camera actually saw. v2 ported the lights and not the probe, and
+says so in its own source (`render/scene.ts`).
 
-**4. `tracker.worker.js` (127 lines) — the detection worker.** v2 calls
-`app.detector.detect(...)` **synchronously inside the frame-lock tick**
-(`app/main.ts:656`), and its own comment concedes it: *"The detector is
-synchronous here, and that is the whole picture's latency, not just the pose's…
-A worker is the right home, and the lock is already shaped for one since it
-drops rather than queues."* `app.busy` is set and cleared around that call and
-is documented as a no-op kept for a worker that was never written. Lost with it:
-v1's warm-up guard (`WARMUP_RESULTS`/`DECIDE_AFTER`), never deciding while the
-tab is hidden, and comparing the *median* of recent inferences against the
-camera interval rather than a lifetime mean.
+**4. The detection worker** (`tracker.worker.js`, 127 lines). v2 calls
+`detector.detect(...)` synchronously inside the frame-lock tick and concedes it
+in a comment. Lost with it: v1's warm-up guard, never deciding while the tab is
+hidden, and comparing the *median* of recent inferences against the camera
+interval rather than a lifetime mean.
 
-**5. `stab.js` (179 lines) — the live stillness meter.** Screen-space RMS of the
-placed frame's origin over a 5 s ring gated on pose stillness — *the number every
-gate in v1's live protocol was read against*. `reports/track.txt` carries a
-same-class offline figure ("jitter while holding a pose: 1.052 mm median") but
-that is millimetres of bridge movement in a synthetic beat, not pixels of the
-drawn frame on a real session. There is no live instrument.
+**5. The live stillness meter** (`stab.js`, 179 lines) — screen-space RMS of the
+placed frame's origin over a 5 s ring gated on pose stillness, *the number every
+gate in v1's live protocol was read against*. `reports/track.txt` carries an
+offline analogue; there is no live instrument.
 
-**6. `temples.js` (714 lines) — four of its five jobs.** v2 hides a temple
-behind the skull loft, which is genuinely superseded and tested. It does **not**
-split an asset's arms into separately hinged nodes, aim each at that side's ear
-within a pitch limit, splay it until it clears the head's half-width, dissolve
-it by depth behind the hinge, or fade the far arm as the head turns. The frame
-is transformed rigidly.
+**6. Temple articulation** (four of `temples.js`'s five jobs). v2 hides a temple
+behind the skull loft, which is genuinely superseded and tested. It does not
+split an asset's arms into separately hinged nodes, aim each at that side's ear,
+splay it until it clears the head's half-width, dissolve it by depth behind the
+hinge, or fade the far arm as the head turns. The frame is transformed rigidly.
 
-## Two `superseded` rows with holes big enough to name here
-
-**`tracker.js` — nothing in the test suite touches the detector at all.** The v2
-code exists and carries v1's constants across verbatim, with the reasoning
-quoted (`DEFAULT_NUM_FACES` 2 to defeat MediaPipe's untunable internal
-smoothing, `DETECT_LONG_SIDE` 640, GPU→CPU fallback, `pickFace` by bbox area).
-But **no test imports `detect/mediapipe`, and all four reports are synthetic** —
-they feed landmarks from their own noise model, so the real detector path is
-unexercised end to end. v2 also sets `outputFacialTransformationMatrixes` false:
-the 4×4 that v1's own header calls *"the whole ballgame"* is not even requested.
-
-**`frame.js` — v2 has no identity-change detection.** v1 asked every frame
-whether the wearer had changed (`isDifferentFace`/`IDENTITY_STRIKES`) and reset
-everything person-derived if so, against a machine-readable manifest of session
-state with five named reset classes. v2's only reset path is a manual *rescan*
-button. **A second person sitting down in front of a warm session silently
-inherits the first one's `FaceModel`, cached seat and calibration field.** That
-is legitimate-by-architecture for the per-frame estimator state v2 no longer
-keeps; it is not legitimate for the state it does.
-
-## The three `dropped` rows are sound
-
-`settle.js` measured convergence drift of per-frame estimators v2 does not have.
-`agreement.js` existed because v1 re-solved the seat every frame and had to ramp
-it in; v2 solves once per (face, frame) and caches. `layout.js`'s failure mode
-cannot arise in v2's DOM. All three are dropped by construction, with the
-construction documented.
+**Four of these six are visual quality, not correctness**, and the owner has
+said v2 looks better without them. That is a product decision and it belongs
+here as one rather than as a silent omission.
 
 ---
 
-## What closing this requires
+## The two holes that are correctness, and are still open
 
-Not "write 26 tests". The honest reading of the adversarial pass is that **five
-things are untested in v2 and all five are in the half of the system the
-synthetic harness cannot reach**:
+**No identity-change detection.** v1 asked every frame whether the wearer had
+changed (`isDifferentFace` / `IDENTITY_STRIKES`) and reset everything
+person-derived if so, against a machine-readable manifest with five named reset
+classes. v2's only reset path is the **Scan again** button. *A second person
+sitting down in front of a warm session silently inherits the first one's
+`FaceModel`, cached seat and calibration field.* That is legitimate-by-
+architecture for the per-frame estimator state v2 no longer keeps; it is not
+legitimate for the state it does.
 
-1. ~~`app/framelock.ts` — imported by no test in the suite~~ — **CLOSED
-   2026-08-26.** `tests/framelock.test.ts`, 7 tests: the detect canvas is sized
-   by the long side and never upscaled; **it is drawn from the capture
-   SNAPSHOT and not from the live source** (the claim the whole mechanism
-   rests on, and the one v1's own docstring got wrong); a result from a
-   superseded epoch is refused rather than planted on the new source;
-   `captureDt` measures submitted frames rather than the camera interval and
-   resets across a switch; landmarks convert back to source pixels; brightness
-   is sampled rather than read every frame, off the detect canvas rather than
-   the full-resolution one. Nine sabotages, every test red under at least one.
-   Still NOT covered: drop-whole-when-busy lives in `main.ts`'s loop, not in
-   the lock, so it remains uncited.
-2. `render/scene.ts:setOccluder` — **zero coverage repo-wide**. `scene.test.ts`'s
-   four tests are sRGB, environment map, shadow frustum units, and screen light.
+**The detector is untested end to end.** No test imports `detect/mediapipe`, and
+all four reports are synthetic — they feed landmarks from their own noise model.
+v2 also sets `outputFacialTransformationMatrixes` false: the 4×4 that v1's own
+header called *"the whole ballgame"* is not requested. That is a deliberate and
+well-argued choice (v2 solves pose against the wearer's own geometry), but
+nothing exercises the real detector path.
+
+---
+
+## Still untested in v2, all of it browser-side
+
+The isolation boundary covers `core/ enroll/ track/ fit/ detect/ testkit/` and
+leaves `render/` and `app/` to the browser. Nothing was ever asked to stand
+behind the other side of it.
+
+1. ~~`app/framelock.ts`~~ — **CLOSED 2026-08-26**, `tests/framelock.test.ts`,
+   7 tests, nine sabotages. Drop-whole-when-busy lives in `main.ts`'s loop
+   rather than in the lock, so it remains uncited.
+2. `render/scene.ts:setOccluder` — **zero coverage repo-wide**. The occluder is
+   the whole illusion and it has nothing.
 3. `detect/mediapipe.ts` — no test, no report, no fixture.
 4. `app/sources.ts` and `app/ui.ts` — no test.
 5. Identity change — no mechanism, so nothing to test yet.
 
-Every one of those is browser-side, which is why the gates never caught it:
-`check-isolation.mjs` deliberately covers `core/ enroll/ track/ fit/ detect/
-testkit/` and leaves `render/` and `app/` to the browser. The isolation boundary
-is doing its job; nothing was ever asked to stand behind the other side of it.
-
-**Recommended order**, cheapest first, and none of it needs the owner:
-
-- a `setOccluder` test (the occluder is the whole illusion, and it has nothing)
-- a `framelock` test (pure logic, no browser needed — it is a scheduler)
-- a detector smoke test against a recorded capture rather than synthetic frames
-  — `capture-2026-08-26.ndjson` is the first real one and exists for this
-- then decide whether the six `open` rows are wanted at all. Four of them
-  (`occlusion-mask`, `subdivide`, `lighting`, `temples`' articulation) are
-  **visual quality**, not correctness, and the owner has already said v2 looks
-  better without them. That is a product call, and it belongs in this ledger as
-  a decision rather than as a silent omission.
-
-Until then `ar/` stays. It is the only working reference for what the answer is
-supposed to look like, and this document is the evidence that we cannot yet
-prove we have replaced it.
+**Recommended order, cheapest first, and none of it needs the owner:** a
+`setOccluder` test; then a detector smoke test against a recorded capture. That
+second one needs a real capture, and the one this tree cites —
+`capture-2026-08-26.ndjson`, quoted in `docs/HANDOFF.md` with its own numbers —
+**is in no commit and on no disk here.** Recover it before writing the test, or
+record a new one with **Save this scan**.

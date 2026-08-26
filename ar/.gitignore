@@ -1,3 +1,0 @@
-# assets/ and vendor/ moved to ../ar_v2 when v2 became the system; both are
-# served from there by serve.py. Nothing under this directory needs ignoring
-# for them any more.
