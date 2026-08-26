@@ -40,6 +40,10 @@ import {
 } from '../enroll/protocol.js';
 import type { BundleFrame } from '../enroll/bundle.js';
 import { createTracker, track, type TrackerState, type TrackResult } from '../track/tracker.js';
+import {
+  armWearer, createIdentityWatch, forgetWearer, observeIdentity, qualifies,
+  type IdentityWatch,
+} from '../track/identity.js';
 import { CalibrationField, occludingContour, snapOffsets, contourPushes } from '../track/snap.js';
 import { createDepthBuffer, rasterize, type DepthBuffer } from '../core/raster.js';
 import { solvePnP, buildCorrespondences } from '../track/pnp.js';
@@ -82,6 +86,10 @@ interface App {
   source: Source | null;
   intrinsics: Intrinsics;
   uncertainty: ReturnType<typeof createUncertainty>;
+  /** Watches whether the face in front of the camera is still the one that was
+   *  scanned. See `track/identity.ts` — it abstains until it has learned this
+   *  wearer's own reading, and never convicts on a turned or occluded frame. */
+  identity: IdentityWatch;
   tracker: TrackerState | null;
   /**
    * Which pose smoothing the tracker runs. The default has a history worth
@@ -381,6 +389,7 @@ async function boot(): Promise<void> {
     source: null,
     intrinsics: intrinsicsFromFov(1280, 720, MEDIAPIPE_ASSUMED_VERTICAL_FOV),
     uncertainty: createUncertainty(mesh.vertexCount),
+    identity: createIdentityWatch(),
     tracker: null,
     smooth: true,
     edgeSnap: true,
@@ -878,6 +887,32 @@ function applyTracked(app: App, tracked: TrackResult, dt: number, lostReason?: s
     if (app.trackStats.length > 300) app.trackStats.shift();
   }
   app.ui.tracked(tracked.tracked, lostReason ?? tracked.reason ?? undefined);
+
+  // **Is this still the person we scanned?**
+  //
+  // Asked only while wearing, and only of a model that came from a scan taken
+  // in THIS session: `identity.ts` learns the wearer's own reading before it
+  // will judge anybody, and a model restored from storage was measured on a
+  // previous session and possibly another device. The watch abstains there
+  // rather than referencing whoever happens to be sitting down — see its
+  // header, "What it refuses to answer".
+  //
+  // Degraded models are excluded for the plainer reason: the average face is
+  // nobody, so every wearer disagrees with it and a predicate pointed at it
+  // would convict on the first frontal frame. v1 hit exactly this and its
+  // harness pins the rule — "a face with no iris reading is never called a
+  // stranger... comparing a real face against an average would call every
+  // wearer a stranger on their first frame."
+  if (app.phase === 'wear' && app.model && !app.model.degraded) {
+    const verdict = observeIdentity(app.identity, {
+      solved: tracked.tracked && !tracked.held,
+      varianceFactor: tracked.varianceFactor,
+      yawRad: tracked.euler ? tracked.euler.yaw : NaN,
+      pitchRad: tracked.euler ? tracked.euler.pitch : NaN,
+      correspondences: tracked.correspondences,
+    });
+    if (verdict === 'changed') resetPerson(app, 'identity');
+  }
 }
 
 /**
@@ -1084,6 +1119,12 @@ async function runEnrollment(app: App): Promise<void> {
     // this app is developed on a machine with no camera — what it may not do
     // is persist. See `docs/PRIVACY.md`.
     const live = app.source?.kind === 'camera';
+    // **Arm the identity watch here and nowhere else.** This is the one moment
+    // the app knows who is in front of the camera: they have just sat through a
+    // scan of their own face, on this device, in this session. Every other route
+    // to a model — a restore from storage at boot, the average face — leaves the
+    // watch disarmed, which is a permanent abstention rather than a soft start.
+    if (live) armWearer(app.identity);
     const kept = live ? pushHistory(model) : 0;
     if (live) localStorage.setItem(STORAGE_KEY, serializeFaceModel(model));
     app.ui.status(
@@ -1102,6 +1143,198 @@ async function runEnrollment(app: App): Promise<void> {
   }
   if (gen === app.scanGen) app.collected = [];
 }
+
+/**
+ * Which class of state each field of `App` belongs to.
+ *
+ * **This exists because `rescan` was already wrong, and nothing could tell.**
+ * The reset was written by hand, field by field, and it cleared eleven of the
+ * roughly eighteen person-derived fields. The seven it missed were not obscure:
+ *
+ *   - `lastCapture` — the PREVIOUS wearer's raw landmark frames, 1.8-3.6 MB of
+ *     them, which **Save this scan** then writes to disk under the NEW wearer's
+ *     PD. One person's biometrics in a file labelled with another's.
+ *   - `knownPdMm` — person A's typed PD becomes the absolute ruler the next
+ *     bundle scales person B's whole face by.
+ *   - `intrinsics` — if A completed the lean beat, B's entire scan runs on A's
+ *     solved focal length.
+ *   - `lastPose` — warm-starts B's first PnP from A's pose, and gates whether
+ *     `estimateSigma` runs at all.
+ *   - `uncertainty` — its per-landmark disagreement EMA holds A's landmarks, so
+ *     B's first frames are scored against a shape difference. Measured on two
+ *     synthetic subjects: median disagreement 0.33 px -> 1.49 px on the swap
+ *     frame, max 0.35 -> 4.41, decaying over about 15 frames. Those numbers are
+ *     the sigmas the bundle weights by.
+ *   - `trackStats`, `snapStats` — the previous face's instrument readings.
+ *
+ * A hand-written reset cannot be reviewed against a growing interface, so the
+ * classification is data and `tests/app.test.ts` asserts that **every key of
+ * `App` appears here exactly once**. Add a field and forget it, and the test
+ * goes red naming the field. That is the check; the reset below is just a loop.
+ *
+ * v1 had the same idea and called it `PER_SESSION_STATE`. Its shape is worth
+ * keeping: the classes are about WHO a field belongs to, not about when it
+ * happens to be convenient to clear it.
+ *
+ *   'person'  belongs to the wearer. Cleared by a rescan AND by an identity
+ *             change. If in doubt, a field goes here — clearing something
+ *             person-independent costs a recompute; keeping something
+ *             person-derived is the bug this manifest exists to stop.
+ *   'app'     belongs to the session, the device or the wearer's CHOICES.
+ *             Survives both. A change of wearer is not a change of taste, and
+ *             the loop's own clocks are statements about frames, not people.
+ *   'never'   immutable for the life of the page — the template, the renderer,
+ *             the detector, the DOM.
+ */
+type StateClass = 'person' | 'app' | 'never';
+
+const PERSON_STATE: Readonly<Record<keyof App, StateClass>> = {
+  // ---- the wearer -------------------------------------------------------
+  model: 'person',
+  seat: 'person',
+  assessment: 'person',
+  tracker: 'person',
+  protocol: 'person',
+  collected: 'person',
+  snapField: 'person',
+  snapFrame: 'person',
+  snapBuffer: 'person',
+  snapStats: 'person',
+  trackStats: 'person',
+  lastCapture: 'person',
+  lastPose: 'person',
+  uncertainty: 'person',
+  knownPdMm: 'person',
+  // Person-owned, but reset through `forgetWearer` rather than by replacement:
+  // the reference and the streak go, the LIFETIME COUNTERS stay. A counter that
+  // resets with the thing it counts cannot report the reset, and `convictions`
+  // is the only way a paste from a live session says whether this mechanism has
+  // ever fired.
+  identity: 'person',
+  // Camera geometry is a property of the DEVICE, but `adoptModel` overwrites it
+  // with the scan's SOLVED value, at which point the number in this field is a
+  // thing measured about one wearer's session. It reverts to the device default
+  // rather than to nothing.
+  intrinsics: 'person',
+  // The phase machine is where the reset lands, so it is person-owned by
+  // definition: no wearer, no `wear`.
+  phase: 'person',
+  // The anti-resurrection counter. Person-owned because it must ADVANCE on
+  // every reset — a solve suspended inside `enroller.run` compares it across
+  // the await to find out that the scan it is solving is no longer the scan the
+  // app is on. It increments rather than zeroing; see `App.scanGen`.
+  scanGen: 'person',
+
+  // ---- the session, the device, and the wearer's choices ----------------
+  frame: 'app',            // which glasses. A new wearer keeps the same pair on screen.
+  wantedFrameId: 'app',
+  meshFrames: 'app',       // loaded assets; person-independent, and expensive
+  softHook: 'app',         // an A/B toggle
+  smooth: 'app',
+  edgeSnap: 'app',
+  motionPrior: 'app',
+  marchOval: 'app',
+  source: 'app',           // the camera; a source switch has its own path
+  busy: 'app',
+  fps: 'app',
+  lastRenderMs: 'app',
+  loopDriver: 'app',
+  detectMs: 'app',
+  warnedRunaway: 'app',
+
+  // ---- fixed for the life of the page -----------------------------------
+  mesh: 'never',
+  basis: 'never',
+  regions: 'never',
+  scene: 'never',
+  lock: 'never',
+  ui: 'never',
+  detector: 'never',
+  enroller: 'never',
+};
+
+
+/**
+ * Forgets the wearer. The single reset, used by every path that has one.
+ *
+ * Two callers, and they must not drift: the **Scan again** button, and an
+ * identity change convicted by `track/identity.ts`. They differ in exactly one
+ * thing — whether the wearer asked — and that difference belongs in the message,
+ * not in two hand-written lists of assignments.
+ *
+ * Everything `PERSON_STATE` calls the wearer's is cleared here, and the manifest
+ * is what makes that reviewable. `tests/app.test.ts` asserts the two agree.
+ *
+ * **What is deliberately NOT touched, and why each:**
+ *
+ *  - `localStorage`. A different person walking into the room is not a reason to
+ *    destroy the first person's saved scan. `rescan` removes the stored model
+ *    itself, before calling this, because a wearer who asked to start again has
+ *    said what they want; an identity change has not. "Delete my measurements"
+ *    is the control for that, and it is the only one.
+ *  - `app.frame` and `wantedFrameId`. A change of wearer is not a change of
+ *    taste — v1's phrase, and it is right. The glasses stay chosen.
+ *  - The pose filter's level, the loop's clocks, the frame lock. Those are
+ *    statements about FRAMES, not about people. Nobody moved when the app
+ *    changed its mind about whose face it is.
+ *  - The identity watch's lifetime counters. `forgetWearer` clears the
+ *    reference and the streak and keeps `convictions`, because a counter that
+ *    resets with the thing it counts cannot report the reset.
+ */
+function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
+  // FIRST, before anything below is overwritten. A solve may be suspended
+  // inside `enroller.run` right now and its continuation is about to resume
+  // against exactly this state; comparing the counter across the await is what
+  // lets it discover that the scan it is solving is no longer the scan the app
+  // is on. See `App.scanGen`.
+  app.scanGen++;
+
+  app.model = null;
+  app.seat = null;
+  app.assessment = null;
+  app.tracker = null;
+  app.protocol = createProtocol();
+  app.collected = [];
+  app.snapField = null;
+  app.snapFrame = 0;
+  app.snapBuffer = null;
+  app.snapStats = [0, 0, NaN];
+  app.trackStats = [];
+  // The previous wearer's raw landmark frames. Held live at 1.8-3.6 MB, and
+  // `save-capture` writes them out under whatever PD is current — which after a
+  // swap is somebody else's.
+  app.lastCapture = null;
+  // Warm-starts the next PnP and gates `estimateSigma`. A new face solved from
+  // the old face's pose is a solve starting in the wrong basin.
+  app.lastPose = null;
+  // Its per-landmark disagreement EMA is a memory of the previous face's
+  // landmarks; on the first frames after a swap every residual reads as noise.
+  app.uncertainty = createUncertainty(app.mesh.vertexCount);
+  // Person A's typed PD is not person B's ruler. The stored value is left alone
+  // — this clears the one in play, and the wearer is told.
+  app.knownPdMm = null;
+  // Back to the device default rather than to nothing: `adoptModel` replaced
+  // this with the scan's SOLVED focal length, which belongs to that session.
+  // The device's own default, from the live source's dimensions — not the
+  // boot-time 1280x720 guess and not the previous wearer's solve.
+  if (app.source) {
+    app.intrinsics = intrinsicsFromFov(
+      app.source.width, app.source.height, MEDIAPIPE_ASSUMED_VERTICAL_FOV,
+    );
+  }
+
+  detachFrame(app.scene);
+  app.scene.setHeadPose(null);
+  forgetWearer(app.identity);
+
+  app.phase = 'acquire';
+  app.ui.frameNote('');
+  app.ui.status(reason === 'rescan'
+    ? 'starting again'
+    : 'this looks like a different face — measuring again');
+  refreshFaceControls(app);
+}
+
 
 function templateModel(app: App): FaceModel {
   return createFaceModel({
@@ -1405,37 +1638,11 @@ function handleAction(app: App, action: string): void {
       app.ui.status('saved scans deleted from this device');
       break;
     case 'rescan':
-      // The stored MODEL goes; the history stays, because starting again is
-      // exactly what a repeatability run consists of.
+      // The stored MODEL goes, and only on this path: starting again is exactly
+      // what a repeatability run consists of, and the wearer asked. An identity
+      // change takes the same reset WITHOUT this line.
       localStorage.removeItem(STORAGE_KEY);
-      // Before anything else: a solve may be suspended inside `enroller.run`
-      // right now, and everything below is the state its continuation is about
-      // to resume against. See `App.scanGen`.
-      app.scanGen++;
-      app.protocol = createProtocol();
-      app.collected = [];
-      app.model = null;
-      app.tracker = null;
-      // Same reason as `adoptModel`: a rescan that never reaches enrollment
-      // must not leave the old face's occluder correction in place either.
-      app.snapField = null;
-      app.snapFrame = 0;
-      app.snapBuffer = null;
-      app.phase = 'acquire';
-      // The frame is a child of `headNode` and survives a rescan, so without
-      // this the previous face's seat stays drawn over a face that is being
-      // re-measured. Clearing `app.frame` also stops `fitFrame`'s caller
-      // re-attaching it before a model exists.
-      detachFrame(app.scene);
-      // `app.frame` is deliberately KEPT — it is a non-null field whose value is
-      // "which frame the wearer chose", and that choice survives a rescan. What
-      // must not survive is the SEAT, which was solved against a face that no
-      // longer exists.
-      app.seat = null;
-      app.assessment = null;
-      app.ui.frameNote('');
-      app.ui.status('starting again');
-      refreshFaceControls(app);
+      resetPerson(app, 'rescan');
       break;
 
     // **The shortcut past the scan, and the reason it exists.**

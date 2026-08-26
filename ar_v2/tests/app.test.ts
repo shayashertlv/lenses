@@ -326,3 +326,155 @@ describe('the render loop', () => {
     );
   });
 });
+
+describe('forgetting the wearer forgets ALL of the wearer', () => {
+  /**
+   * Slices `resetPerson` out of the compiled app and runs it against a stub.
+   *
+   * The manifest above it — `PERSON_STATE` — is a `Record<keyof App, ...>`, so
+   * TypeScript already refuses to compile an `App` field nobody classified.
+   * That caught the identity watch the day it was added and it is the stronger
+   * of the two checks. What it CANNOT check is whether the reset actually does
+   * what the manifest says: a field can be classified `'person'` and never
+   * assigned, which is exactly the state `rescan` was in for seven fields.
+   *
+   * So this runs the real function over a stub app whose every person-owned
+   * field holds a recognisable sentinel, and asserts that none of them survives.
+   */
+  function instantiateReset() {
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    const start = text.indexOf('function resetPerson(');
+    assert.ok(start >= 0, 'resetPerson has been renamed or moved');
+    const bodyAt = text.indexOf('{', text.indexOf(')', start));
+    let depth = 0, end = start;
+    for (let i = bodyAt; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}' && --depth === 0) { end = i + 1; break; }
+    }
+
+    const calls: string[] = [];
+    const resetPerson = new Function(
+      'createProtocol', 'createUncertainty', 'intrinsicsFromFov',
+      'MEDIAPIPE_ASSUMED_VERTICAL_FOV', 'detachFrame', 'forgetWearer',
+      'refreshFaceControls',
+      `${text.slice(start, end)}
+return resetPerson;`,
+    )(
+      () => ({ stub: 'protocol' }),
+      () => ({ stub: 'uncertainty' }),
+      () => ({ stub: 'intrinsics' }),
+      63,
+      () => calls.push('detachFrame'),
+      (w: { armed: boolean; reference: number }) => {
+        calls.push('forgetWearer'); w.armed = false; w.reference = NaN;
+      },
+      () => calls.push('refreshFaceControls'),
+    ) as (app: any, reason: string) => void;
+    return { resetPerson, calls };
+  }
+
+  /**
+   * Every field the manifest calls the wearer's, READ OUT OF THE MANIFEST.
+   *
+   * Not a list repeated here. A copy would drift the first time somebody
+   * classified a new field as `'person'` and forgot this file, and the drift
+   * would be silent in exactly the direction that matters — a field nobody
+   * checks is a field nobody clears. This is what v1 meant by calling its
+   * equivalent "machine-readable": the classification is data, and the test
+   * consumes it rather than restating it.
+   */
+  function personFields(): string[] {
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    const at = text.indexOf('const PERSON_STATE = {');
+    assert.ok(at >= 0, 'PERSON_STATE was renamed or removed — the reset is unreviewable');
+    const open = text.indexOf('{', at);
+    let depth = 0, end = open;
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}' && --depth === 0) { end = i + 1; break; }
+    }
+    const manifest = new Function(`return ${text.slice(open, end)};`)() as Record<string, string>;
+    const fields = Object.entries(manifest)
+      .filter(([, cls]) => cls === 'person')
+      .map(([key]) => key);
+    assert.ok(fields.length >= 15,
+      `the manifest calls only ${fields.length} fields the wearer's — it has been gutted`);
+    return fields;
+  }
+
+  const PERSON_FIELDS = personFields();
+
+  function stubApp() {
+    const app: any = {
+      mesh: { vertexCount: 468 },
+      source: { width: 1280, height: 720, kind: 'camera' },
+      scene: { setHeadPose: () => {} },
+      ui: { frameNote: () => {}, status: () => {} },
+      identity: { armed: true, reference: 7, window: [1, 2], strikes: 3, convictions: 4 },
+    };
+    for (const key of PERSON_FIELDS) {
+      if (key === 'identity') continue;
+      app[key] = key === 'scanGen' ? 41 : `SENTINEL:${key}`;
+    }
+    // The choices, which must SURVIVE. A change of wearer is not a change of taste.
+    app.frame = 'SENTINEL:frame';
+    app.wantedFrameId = 'SENTINEL:wantedFrameId';
+    app.softHook = true;
+    app.meshFrames = 'SENTINEL:meshFrames';
+    return app;
+  }
+
+  it("clears every field the manifest calls the wearer's", () => {
+    // RED: delete any single `app.<field> = ...` line from `resetPerson`. This
+    // is the check that would have caught `rescan` keeping `lastCapture`,
+    // `lastPose`, `uncertainty`, `intrinsics` and `knownPdMm` — five fields
+    // whose survival meant the next wearer was measured with the previous
+    // wearer's PD, warm-started from their pose, and scored against their
+    // landmark history.
+    const { resetPerson } = instantiateReset();
+    const app = stubApp();
+    resetPerson(app, 'identity');
+
+    for (const key of PERSON_FIELDS) {
+      if (key === 'identity') continue;
+      if (key === 'scanGen') {
+        assert.equal(app.scanGen, 42,
+          'scanGen must ADVANCE, not clear — a solve suspended inside enroller.run '
+          + 'compares it across the await to find out its scan was abandoned');
+        continue;
+      }
+      assert.notEqual(app[key], `SENTINEL:${key}`,
+        `resetPerson left the previous wearer's ${key} in place`);
+    }
+  });
+
+  it("keeps the wearer's CHOICES, and the watch's lifetime counters", () => {
+    // RED: add `app.frame = null` to resetPerson, or zero `convictions` in
+    // forgetWearer. The second is the one that matters: a counter that resets
+    // with the thing it counts cannot report the reset, and `convictions` is
+    // the only way a diagnostics paste says whether this ever fired.
+    const { resetPerson, calls } = instantiateReset();
+    const app = stubApp();
+    resetPerson(app, 'identity');
+
+    assert.equal(app.frame, 'SENTINEL:frame', 'the chosen glasses were thrown away');
+    assert.equal(app.wantedFrameId, 'SENTINEL:wantedFrameId');
+    assert.equal(app.softHook, true);
+    assert.equal(app.meshFrames, 'SENTINEL:meshFrames', 'the loaded assets were discarded');
+    assert.equal(app.identity.convictions, 4, 'the conviction count was reset with the reset');
+    assert.equal(app.identity.armed, false, 'the watch stayed armed on a face it no longer knows');
+    assert.ok(calls.includes('detachFrame'),
+      'the previous glasses stayed on the face being re-measured');
+    assert.ok(calls.includes('forgetWearer'));
+  });
+
+  it('lands in acquire, so nothing is drawn until there is a face to draw on', () => {
+    // RED: drop the phase assignment. `fitFrame` returns early without a model,
+    // so the app would sit in `wear` with no model and no frame, drawing
+    // nothing and offering no route back.
+    const { resetPerson } = instantiateReset();
+    const app = stubApp();
+    resetPerson(app, 'rescan');
+    assert.equal(app.phase, 'acquire');
+  });
+});
