@@ -361,7 +361,7 @@ npm test
 ```
 
 Runs four gates — the isolation boundary, the constants ledger, self-containment
-and the report stamps — and **296 tests**: every *camera* jacobian against
+and the report stamps — and **300 tests**: every *camera* jacobian against
 central differences, the enrollment against ground truth, the seat against its
 controls.
 

@@ -19,7 +19,8 @@ import { readFileSync } from 'node:fs';
 
 import {
   IDENTITY_MAX_PITCH_DEG, IDENTITY_MAX_YAW_DEG, IDENTITY_MIN_CORRESPONDENCES,
-  IDENTITY_REFERENCE_FRAMES, IDENTITY_STRIKES, IDENTITY_VF_RATIO, IDENTITY_WINDOW,
+  IDENTITY_REFERENCE_FRAMES, IDENTITY_SIGMA_DRIFT_MAX, IDENTITY_STRIKES,
+  IDENTITY_VF_RATIO, IDENTITY_WINDOW,
   armWearer, createIdentityWatch, forgetWearer, observeIdentity, qualifies,
   type IdentityObservation, type IdentityWatch,
 } from '../src/track/identity.js';
@@ -39,6 +40,7 @@ const frame = (varianceFactor: number, over: Partial<IdentityObservation> = {}):
   yawRad: 0,
   pitchRad: 0,
   correspondences: 468,
+  meanSigmaPx: 1,
   ...over,
 });
 
@@ -271,12 +273,17 @@ describe('the identity watch, measured against the population it was tuned on', 
         const r = track(tracker, {
           landmarks: f.landmarks, sigmaPx: f.sigmaPx, intrinsics, dt: 1 / 30,
         });
+        let sum = 0, count = 0;
+        for (let i = 0; i < f.sigmaPx.length; i++) {
+          if (Number.isFinite(f.sigmaPx[i])) { sum += f.sigmaPx[i]; count++; }
+        }
         const v = observeIdentity(watch, {
           solved: r.tracked && !r.held,
           varianceFactor: r.varianceFactor,
           yawRad: r.euler ? r.euler.yaw : NaN,
           pitchRad: r.euler ? r.euler.pitch : NaN,
           correspondences: r.correspondences,
+          meanSigmaPx: count ? sum / count : NaN,
         });
         if (after && v === 'changed') convicted = true;
       }
@@ -334,5 +341,106 @@ describe('the identity watch, measured against the population it was tuned on', 
     const rate = caught / swapTotal;
     assert.ok(rate >= 0.7,
       `only ${caught} of ${swapTotal} swaps were caught (${(rate * 100).toFixed(0)}%)`);
+  });
+});
+
+describe('the identity watch knows a moving ruler from a moving face', () => {
+  // The module's own header used to argue that a ratio to the wearer's own
+  // reference cancels a miscalibrated sigma estimator. It does — completely,
+  // and ONLY for a constant miscalibration. Measured end to end:
+  //
+  //     arm                        same-person worst ratio   false convictions
+  //     honest                             1.687                   0/36
+  //     OFFSET, 4x overconfident           1.797                   0/36
+  //     DRIFT to 2x mid-session            4.720                  36/36
+  //     DRIFT to 4x mid-session           16.847                  36/36
+  //
+  // These three tests are that experiment, in the small.
+
+  /**
+   * Learns at (`learnVf`, `learnSigma`), then judges at (`judgeVf`,
+   * `judgeSigma`).
+   *
+   * Both halves are stated explicitly, because the distinction the whole guard
+   * turns on lives between them. An overconfident detector inflates the
+   * REFERENCE as well as the reading — that is why the ratio cancels it — so an
+   * arm that inflates only the reading is not modelling an overconfident
+   * detector at all. It is modelling a different face. The first draft of this
+   * helper made exactly that mistake and its "constant overconfidence" arm
+   * convicted, correctly, for a reason that had nothing to do with sigma.
+   */
+  function run(
+    learnVf: number, learnSigma: number, judgeVf: number, judgeSigma: number,
+  ) {
+    const watch = createIdentityWatch();
+    armWearer(watch);
+    for (let i = 0; i < IDENTITY_REFERENCE_FRAMES; i++) {
+      observeIdentity(watch, frame(learnVf, { meanSigmaPx: learnSigma }));
+    }
+    const verdicts: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      verdicts.push(observeIdentity(watch, frame(judgeVf, { meanSigmaPx: judgeSigma })));
+    }
+    return { watch, verdicts };
+  }
+
+  it('a CONSTANT overconfidence changes nothing, because the ratio cancels it', () => {
+    // RED: compare `varianceFactor` against an absolute constant instead of
+    // against the wearer's own reference. Every reading here is 4x what the
+    // honest detector would report, and none of it should matter.
+    const { watch, verdicts } = run(8, 0.25, 8, 0.25);
+    assert.equal(watch.convictions, 0,
+      'a detector that has ALWAYS been overconfident convicted the wearer');
+    assert.equal(watch.recalibrations, 0,
+      'a constant offset is not a drift and must not throw the reference away');
+    assert.ok(verdicts.every((v) => v === 'same'), 'expected a steady verdict');
+  });
+
+  it('a MID-SESSION drift retires the reference instead of convicting', () => {
+    // This is the fix. The sigma scale halves, so every whitened residual
+    // quadruples — 4x the bar — and without the guard this is 36/36 false
+    // convictions. The claimed sigma is the tell: an identity change moves it
+    // by at most 1.35x, a drift like this by 2x.
+    //
+    // RED: delete the `sigmaScale` guard in `observeIdentity`. The verdict
+    // becomes 'changed' and a wearer sitting perfectly still is told they are
+    // somebody else.
+    const { watch, verdicts } = run(2, 1, 8, 0.5);
+    assert.equal(watch.convictions, 0,
+      'the wearer was convicted for the detector changing its mind about its own noise');
+    assert.equal(watch.recalibrations, 1, 'the stale reference was not retired');
+    assert.equal(verdicts[0], 'recalibrating',
+      'the drift was not noticed on the first frame that showed it');
+    // ...and it comes back on its own, on the new scale, rather than abstaining
+    // for ever. A drifted estimator does not drift back.
+    assert.ok(Number.isFinite(watch.reference), 'the reference was never relearned');
+    assert.ok(verdicts.slice(-5).every((v) => v === 'same'),
+      'the watch never recovered after recalibrating');
+  });
+
+  it('still convicts a new face when the ruler has NOT moved', () => {
+    // The guard must not be an amnesty. Same sigma throughout, vf up 4x — that
+    // is a face, and it has to be caught.
+    // RED: widen IDENTITY_SIGMA_DRIFT_MAX to swallow everything, or recalibrate
+    // unconditionally.
+    const { watch } = run(2, 1, 8, 1);
+    assert.equal(watch.recalibrations, 0, 'a steady ruler was mistaken for a drifting one');
+    // At least one. The reference survives a conviction — only the rolling
+    // window is cleared — so a reading that stays high goes on convicting every
+    // ninth frame. That is correct: the app resets on the first one.
+    assert.ok(watch.convictions >= 1, 'a different face went uncaught');
+  });
+
+  it('leaves room between the largest identity excursion and the smallest harmful drift', () => {
+    // The bound is not arbitrary and this pins both sides of it. Measured, the
+    // mean claimed sigma moves by at most 1.349x across an identity change and
+    // by 2.0x on the smallest drift that produces false convictions.
+    // RED: move IDENTITY_SIGMA_DRIFT_MAX outside [1.4, 1.9].
+    assert.ok(IDENTITY_SIGMA_DRIFT_MAX > 1.35,
+      `${IDENTITY_SIGMA_DRIFT_MAX} sits under the 1.349x that a change of WEARER produced — `
+      + 'every real identity change would be dismissed as a drift');
+    assert.ok(IDENTITY_SIGMA_DRIFT_MAX < 2.0,
+      `${IDENTITY_SIGMA_DRIFT_MAX} reaches the 2.0x drift that convicted 36 of 36 genuine `
+      + 'wearers — the guard would not fire on the thing it exists for');
   });
 });

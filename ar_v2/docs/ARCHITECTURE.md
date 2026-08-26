@@ -184,7 +184,7 @@ yaw. There is no per-frame placement left to be wrong.**
 
 ### 4. Verification — `src/testkit/`, `tests/`
 
-Four reports and **296 tests**, all headless, all against a synthetic
+Four reports and **300 tests**, all headless, all against a synthetic
 population with known ground truth. Two of them spent a day deliberately red —
 regression bars asserting claims the harness fix had disproved — and both are
 green again **by measurement, not by relaxation**: a 5-seed settlement

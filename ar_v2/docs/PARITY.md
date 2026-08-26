@@ -128,12 +128,15 @@ threshold that catches an impostor).
 
 Three things in it are worth knowing before touching it:
 
-- **The bar is a ratio to the wearer's own reference, never a constant.** A
-  detector 3.0 px noisy while claiming 0.7 puts *every* genuine frame above the
-  impostor median — signal intact at AUC 0.995, calibration gone. MediaPipe
-  reports no per-landmark uncertainty, so an absolute threshold would rest
-  entirely on `detect/uncertainty.ts`. v1 deleted a whole arm of its own
-  predicate over the same shape of problem.
+- **The bar is a ratio to the wearer's own reference, never a constant** — and
+  the first version of this paragraph had the risk backwards. A CONSTANT
+  miscalibration is harmless: measured, a permanently 4x-overconfident detector
+  produces 0 of 36 false convictions, because it inflates the reference and the
+  reading together. A detector that drifts MID-SESSION produced **36 of 36**.
+  `IDENTITY_SIGMA_DRIFT_MAX` is the guard, and it works because the denominator
+  is observable — a change of wearer moves the mean claimed sigma by at most
+  1.35x, a harmful drift by 2x or more. Its cost is that a drift and a swap
+  arriving together make the watch recalibrate onto the stranger.
 - **It abstains rather than guessing.** The watch is armed in exactly one place:
   immediately after a scan taken from a camera in this session. A model restored
   from storage was measured elsewhere, possibly on another device, so there is

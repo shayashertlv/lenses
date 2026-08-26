@@ -96,8 +96,45 @@
  * to convict at, and a predicate must not convict on a reading its own fixture
  * shows lying."* The answer here is the same rule applied differently — compare
  * the wearer against **their own reference**, learned live, on this device, in
- * this session. A constant miscalibration then cancels, because it inflates the
- * reference and the reading together.
+ * this session.
+ *
+ * ## The correction: an OFFSET is harmless, a DRIFT is not
+ *
+ * **The paragraph above used to end "a constant miscalibration then cancels",
+ * and stop there. That was true and it was the wrong emphasis**, and the
+ * experiment that says so is the reason `IDENTITY_SIGMA_DRIFT_MAX` exists.
+ * Measured end to end, the claimed sigma scaled by a factor:
+ *
+ *     arm                        same-person worst ratio   false convictions
+ *     honest                             1.687                   0/36
+ *     OFFSET, 2x overconfident           1.722                   0/36
+ *     OFFSET, 4x overconfident           1.797                   0/36
+ *     DRIFT to 2x mid-session            4.720                  36/36
+ *     DRIFT to 4x mid-session           16.847                  36/36
+ *
+ * A permanently overconfident detector is a non-event: it inflates the
+ * reference and the reading together and the ratio is unmoved. A detector that
+ * changes its mind about its own noise PART WAY THROUGH convicts every single
+ * genuine wearer, because the reference was learned on one scale and the
+ * verdict is taken on another. The table this file used to lead with described
+ * the harmless case in detail and gave the fatal one half a sentence.
+ *
+ * The guard is possible because the denominator is observable: an identity
+ * change moves the mean claimed sigma by at most 1.35x, a harmful drift by 2x
+ * or more. When it moves, the reference is retired and learned again rather
+ * than judged against — `'recalibrating'`, which is not a verdict about the
+ * wearer at all. With it, the drift arms go 36/36 false convictions to 0/36
+ * while honest and offset are untouched.
+ *
+ * **And here is what that costs, because it is a real hole and not a rounding
+ * error.** When a drift and a change of wearer arrive in the SAME frames, the
+ * watch recalibrates rather than convicting — and it recalibrates onto the
+ * stranger. Detection in those arms falls from 93% to 0-5%. The trade is
+ * deliberate (36 wrongly-convicted wearers against one stranger who gets
+ * through) but it is not free, and it is the strongest argument for giving
+ * `detect/uncertainty.ts` a calibration check of its own: that would tell a
+ * detector which has genuinely become noisier from one which is merely lying
+ * about it, and this guard cannot.
  *
  * ## What it refuses to answer
  *
@@ -131,6 +168,16 @@ export interface IdentityObservation {
   readonly pitchRad: number;
   /** `TrackResult.correspondences` — how much face the solve actually had. */
   readonly correspondences: number;
+  /**
+   * The mean of the sigmas the detector CLAIMED this frame, px.
+   *
+   * The denominator of the whole statistic, made visible. `varianceFactor` is
+   * residual over claimed sigma, so it moves for two reasons that have nothing
+   * to do with each other: the geometry stopped fitting (a different face), or
+   * the claimed sigma changed scale (the estimator's calibration moved). This
+   * is what tells them apart — see `IDENTITY_SIGMA_DRIFT_MAX`.
+   */
+  readonly meanSigmaPx: number;
 }
 
 export type IdentityVerdict =
@@ -142,7 +189,12 @@ export type IdentityVerdict =
    *  nothing decided, and crucially no strike accrued OR cleared. */
   | 'abstain'
   /** A different person, on `IDENTITY_STRIKES` consecutive qualifying frames. */
-  | 'changed';
+  | 'changed'
+  /**
+   * The claimed-sigma scale moved, so the reference is on the wrong scale and
+   * is being learned again. Not a verdict about the wearer at all.
+   */
+  | 'recalibrating';
 
 export interface IdentityWatch {
   /**
@@ -160,8 +212,12 @@ export interface IdentityWatch {
   armed: boolean;
   /** The wearer's own reading, once learned. NaN while learning. */
   reference: number;
+  /** The mean claimed sigma the reference was learned at, px. NaN until then. */
+  referenceSigma: number;
   /** Qualifying readings collected toward the reference. */
   readonly learning: number[];
+  /** The claimed sigmas seen while learning, alongside them. */
+  readonly learningSigma: number[];
   /**
    * The rolling window the verdict is taken on.
    *
@@ -180,6 +236,8 @@ export interface IdentityWatch {
   struck: number;
   acquitted: number;
   convictions: number;
+  /** Times the reference was thrown away because the sigma scale moved. */
+  recalibrations: number;
 }
 
 /**
@@ -307,17 +365,64 @@ export const IDENTITY_VF_RATIO = 2.0;
  */
 export const IDENTITY_STRIKES = 5;
 
+/**
+ * How far the mean claimed sigma may move before the reference is retired.
+ *
+ * `measured`, and this constant exists because the module's own documentation
+ * emphasised the wrong risk and an experiment said so.
+ *
+ * The header argues that a ratio to the wearer's own reference cancels a
+ * miscalibrated sigma estimator. **It does — completely — and only for a
+ * CONSTANT miscalibration.** Run end to end, the wearer learned first and then
+ * either continuing or replaced, with the claimed sigma scaled by a factor:
+ *
+ *     arm                       same-person worst ratio   false convictions
+ *     honest                            1.687                  0/36
+ *     OFFSET, 4x overconfident          1.797                  0/36
+ *     DRIFT to 2x, mid-session          4.720                 36/36
+ *     DRIFT to 4x, mid-session         16.847                 36/36
+ *
+ * An offset is harmless: it inflates the reference and the reading together. A
+ * DRIFT is a 100% false-conviction machine, because the reference was learned
+ * on one scale and the verdict is taken on another. The original text featured
+ * the offset case in a table and mentioned drift in half a sentence; it had the
+ * emphasis exactly backwards, and this guard is the correction.
+ *
+ * The two are separable because the denominator is observable. Mean claimed
+ * sigma, second half of a session against the first:
+ *
+ *     SAME person   med 1.222   range 1.089 - 1.329
+ *     NEW  person   med 1.217   range 1.007 - 1.349
+ *     a 2x drift          0.500
+ *     a 4x drift          0.250
+ *
+ * A change of wearer is invisible in this quantity — the two distributions are
+ * on top of each other, which is exactly what makes it a clean discriminator.
+ * (Both medians sit near 1.22 because the later beats of a capture carry more
+ * turned frames and honestly claim more noise; that is the protocol, not the
+ * person, and it happens equally to both.)
+ *
+ * 1.6 sits above every identity-driven excursion measured (max 1.349, a 19%
+ * margin) and below the smallest drift that causes a false conviction (2.0). It
+ * is a plateau rather than a knife edge in the same sense the ratio bar is:
+ * anything from about 1.4 to 1.9 separates the same two populations.
+ */
+export const IDENTITY_SIGMA_DRIFT_MAX = 1.6;
+
 export function createIdentityWatch(): IdentityWatch {
   return {
     armed: false,
     reference: NaN,
+    referenceSigma: NaN,
     learning: [],
+    learningSigma: [],
     recent: [],
     strikes: 0,
     asked: 0,
     struck: 0,
     acquitted: 0,
     convictions: 0,
+    recalibrations: 0,
   };
 }
 
@@ -341,6 +446,7 @@ export function qualifies(obs: IdentityObservation): boolean {
   if (!obs.solved) return false;
   if (!Number.isFinite(obs.varianceFactor) || obs.varianceFactor <= 0) return false;
   if (obs.correspondences < IDENTITY_MIN_CORRESPONDENCES) return false;
+  if (!Number.isFinite(obs.meanSigmaPx) || obs.meanSigmaPx <= 0) return false;
   // A missing euler is not a frontal frame — it is an unknown one.
   if (!Number.isFinite(obs.yawRad) || !Number.isFinite(obs.pitchRad)) return false;
   const deg = 180 / Math.PI;
@@ -367,10 +473,36 @@ export function observeIdentity(
   // Learning the wearer's own reading. Cannot convict, by construction.
   if (!Number.isFinite(watch.reference)) {
     watch.learning.push(obs.varianceFactor);
+    watch.learningSigma.push(obs.meanSigmaPx);
     if (watch.learning.length < IDENTITY_REFERENCE_FRAMES) return 'learning';
     watch.reference = median(watch.learning);
+    watch.referenceSigma = median(watch.learningSigma);
     watch.learning.length = 0;
+    watch.learningSigma.length = 0;
     return 'learning';
+  }
+
+  // **Did the ruler change, or did the face?**
+  //
+  // Both raise `varianceFactor` and only one of them is this module's business.
+  // The claimed sigma is the statistic's denominator and it is observable, so
+  // the two are separable — measured, an identity change moves the mean claimed
+  // sigma by at most 1.35x while the drifts that break the watch move it 2-4x.
+  //
+  // When the ruler moved, the reference is on the wrong scale and everything
+  // measured against it is meaningless. Learn it again rather than judging:
+  // abstaining instead would be safe for one session and would kill the feature
+  // permanently, because a drifted estimator does not drift back.
+  const sigmaScale = obs.meanSigmaPx / watch.referenceSigma;
+  if (sigmaScale > IDENTITY_SIGMA_DRIFT_MAX || sigmaScale < 1 / IDENTITY_SIGMA_DRIFT_MAX) {
+    watch.recalibrations++;
+    watch.reference = NaN;
+    watch.referenceSigma = NaN;
+    watch.learning.length = 0;
+    watch.learningSigma.length = 0;
+    watch.recent.length = 0;
+    watch.strikes = 0;
+    return 'recalibrating';
   }
 
   watch.asked++;
@@ -415,7 +547,9 @@ export function armWearer(watch: IdentityWatch): void {
 export function forgetWearer(watch: IdentityWatch): void {
   watch.armed = false;
   watch.reference = NaN;
+  watch.referenceSigma = NaN;
   watch.learning.length = 0;
+  watch.learningSigma.length = 0;
   watch.recent.length = 0;
   watch.strikes = 0;
 }

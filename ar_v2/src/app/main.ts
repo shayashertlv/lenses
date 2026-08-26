@@ -839,7 +839,7 @@ function onDetection(
       if (!app.tracker) return;
       applyTracked(app, track(app.tracker, {
         landmarks, sigmaPx, visibility, intrinsics: app.intrinsics, dt: captureDt,
-      }), captureDt);
+      }), captureDt, undefined, meanFinite(sigmaPx));
       return;
     }
 
@@ -865,7 +865,10 @@ function onDetection(
  * is better: "no face detected" is what the tracker means, "looking for your
  * face" is what the person in front of the camera needs to read.
  */
-function applyTracked(app: App, tracked: TrackResult, dt: number, lostReason?: string): void {
+function applyTracked(
+  app: App, tracked: TrackResult, dt: number,
+  lostReason?: string, meanSigmaPx = NaN,
+): void {
   app.lastPose = tracked.rawPose ?? (app.tracker?.lastRaw ? app.lastPose : null);
   app.scene.setHeadPose(tracked.pose);
   if (tracked.tracked && tracked.pose) runEdgeSnap(app, tracked.pose, dt);
@@ -910,6 +913,7 @@ function applyTracked(app: App, tracked: TrackResult, dt: number, lostReason?: s
       yawRad: tracked.euler ? tracked.euler.yaw : NaN,
       pitchRad: tracked.euler ? tracked.euler.pitch : NaN,
       correspondences: tracked.correspondences,
+      meanSigmaPx,
     });
     if (verdict === 'changed') resetPerson(app, 'identity');
   }
@@ -1514,6 +1518,22 @@ function refreshFaceControls(app: App): void {
       ? 'These are placed on an AVERAGE face. The picture is real; the millimetres are not yours.'
       : 'Placed on your own scan.';
   app.ui.face({ hasModel, scanning, hint });
+}
+
+/**
+ * The mean of the finite entries, or NaN if there are none.
+ *
+ * A hidden landmark arrives with `Infinity` (see `detect/uncertainty.ts`), so a
+ * plain mean of this array is `Infinity` on any turned frame — which would make
+ * the identity watch's drift guard fire on every turn instead of on a drifting
+ * detector.
+ */
+function meanFinite(values: ArrayLike<number>): number {
+  let sum = 0, n = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (Number.isFinite(values[i])) { sum += values[i]; n++; }
+  }
+  return n ? sum / n : NaN;
 }
 
 /** What this frame's fit numbers are worth, in one line for the wearer. */

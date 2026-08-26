@@ -18,7 +18,7 @@ Start here:
 ```bash
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 node scripts/fetch-vendor.mjs      # only if vendor/ is absent
-npm test                            # expect 296/296 and FOUR green gates
+npm test                            # expect 300/300 and FOUR green gates
 ```
 
 Read, in this order: `docs/HANDOFF.md` (the ten-stage migration and its traps),
@@ -140,13 +140,23 @@ carries what each does and how it was measured.
 
 **What that work left behind, in priority order:**
 
-1. **`detect/uncertainty.ts` has no calibration check, and the identity watch
-   now depends on it.** `varianceFactor` is residual over *claimed* sigma, so an
-   overconfident detector is arithmetically indistinguishable from a wrong face:
-   measured, 3.0 px of noise while claiming 0.7 puts every genuine frame above
-   the impostor median. The ratio-to-own-reference design cancels a CONSTANT
-   miscalibration; it does not cancel drift within a session. `TrackerState.vfEma`
-   is the instrument to build the check on.
+1. **`detect/uncertainty.ts` still has no calibration check, and the identity
+   watch's remaining hole is the shape of the one it would fill.**
+
+   The drift guard landed (`IDENTITY_SIGMA_DRIFT_MAX`) and it took the
+   mid-session-drift arms from **36/36 false convictions to 0/36** with honest
+   and constant-offset arms untouched. What it cannot do is tell a detector that
+   has GENUINELY become noisier from one that is merely lying about it — it only
+   sees that the claimed sigma moved. So when a drift and a change of wearer
+   arrive in the same frames, it recalibrates onto the stranger and detection in
+   those arms falls from 93% to **0-5%**.
+
+   A real calibration check would close that: compare the claimed sigma against
+   the empirical frame-to-frame scatter the estimator already computes
+   (`UncertaintyState.disagreement`, an EMA of the unexplained motion after the
+   median rigid translation is removed). If the two disagree, the estimator is
+   miscalibrated and the app knows it independently of identity.
+   `TrackerState.vfEma` is the other half of the instrument.
 2. **The identity margin thins with population size.** Impostor-min falls 30%
    between 5 and 30 subjects while matched-worst rises 2%; linear extrapolation
    closes the gap at 35-45. Every number is synthetic, from a population drawn
