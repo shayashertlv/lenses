@@ -1150,12 +1150,33 @@ function collectFrame(
   app: App, landmarks: Float64Array, sigmaPx: Float64Array,
   visibility: Float64Array | null, silhouette: Float64Array | null, beat: string,
 ): void {
+  // **`null` visibility is a frame that arrived before any pose existed**, so
+  // nothing could be rasterised against it — which also means its `sigmaPx` is
+  // the flat `acquisitionSigma`, `floorPx * 2` for every landmark, and not a
+  // per-landmark estimate. It is the least informative frame in the scan, and
+  // `fill(1)` asserted the opposite: that every landmark, including the far-side
+  // nose at yaw, was fully visible.
+  //
+  // Be precise about the blast radius, because the review was not. This is ONE
+  // frame per pose acquisition — the frame on which `acquire` flips to `scan` —
+  // plus one after each `SCAN_MAX_RMS_PX` refusal, not every frame. The
+  // whole-stream version of this bug is the one `:754` documents as already
+  // fixed, and the `noseObservations == framesUsed` fingerprint belongs to that
+  // one. Measured over 4 subjects x 3 geometries, the frame-0 fill reached
+  // keyframe selection in 1 cell of 12 and cost 0.005 mm of REPORTED nose
+  // precision there (sigma 0.4570 -> 0.4519, i.e. the nose reported as more
+  // precisely measured than it was); dropping the frame moves the nose RMS by
+  // -0.0097 mm in 1 cell of 6 and nothing elsewhere.
+  //
+  // Dropping it rather than making `visibility` nullable end to end: that would
+  // touch `App.collected`, `enroll-client`, the worker's message type,
+  // `BundleFrame` and `perVertexUncertainty`, to keep a frame worth 0.005 mm of
+  // a number nobody should trust to 0.005 mm.
+  if (!visibility) return;
   app.collected.push({
     landmarks: new Float64Array(landmarks),
     sigmaPx: new Float64Array(sigmaPx),
-    visibility: visibility
-      ? new Float64Array(visibility)
-      : new Float64Array(app.mesh.vertexCount).fill(1),
+    visibility: new Float64Array(visibility),
     silhouette,
     beat,
   });
@@ -1707,7 +1728,11 @@ function fitFrame(app: App, frame: FrameAsset, object?: any): void {
   // fit" and unchanged.
   attachFrame(app.scene, frame, object);
   applySeat(app.scene, seat.pose);
-  frameSanityTripwire(app, frame, seat);
+  // No `seat` argument any more: this reads `frameNode.matrix`, which
+  // `applySeat` has already written by the time we get here, so passing the pose
+  // in would only offer a second source to drift from the drawn one — which is
+  // the defect this function had.
+  frameSanityTripwire(app, frame);
   app.assessment = assessFit(app.model, app.mesh, app.regions, frame, seat);
   app.ui.fit(app.assessment);
   app.ui.frameNote(frameNoteFor(frame));
@@ -1723,7 +1748,7 @@ function fitFrame(app: App, frame: FrameAsset, object?: any): void {
  * (a double flip throws them ~150 mm behind it). Warns, never throws — a
  * wrongly-placed frame is a visible defect, not a reason to take the app down.
  */
-function frameSanityTripwire(app: App, frame: FrameAsset, seat: SeatResult): void {
+function frameSanityTripwire(app: App, frame: FrameAsset): void {
   if (!app.model) return;
   const p = app.model.positions;
   let hx0 = Infinity, hx1 = -Infinity, hy0 = Infinity, hy1 = -Infinity, hz1 = -Infinity;
@@ -1734,11 +1759,38 @@ function frameSanityTripwire(app: App, frame: FrameAsset, seat: SeatResult): voi
     if (p[i + 1] > hy1) hy1 = p[i + 1];
     if (p[i + 2] > hz1) hz1 = p[i + 2];
   }
-  const { R, t } = seat.pose;
+  // **The matrix that is DRAWN, not the pose that was handed to `applySeat`.**
+  //
+  // This function read `seat.pose` and claimed, in its own warning string, to
+  // catch the CV->GL double flip in `render/convert.ts`. It structurally could
+  // not: that flip is introduced by `applySeat` writing `frameNode.matrix`,
+  // strictly downstream of `seat.pose`, and every number below was BIT-IDENTICAL
+  // with and without it. Measured on a real `solveSeat` with the double flip
+  // installed: the right lens centre moved from (-32.22, 15.77, 58.58) to
+  // (-32.22, -15.77, -58.58), 121.3 mm out, and this printed
+  // `{cx: -0.50, lensZ: 58.57, lensY: 15.83, ok: true}` — "sanity ok" — both
+  // times. Mechanised over the function body, its only mention of `convert` was
+  // inside the warning string.
+  //
+  // It was never vacuous: it WOULD catch a `solveSeat` returning a mirrored,
+  // NaN or grossly displaced pose. It was MIS-AIMED — guarding the seat solver
+  // while claiming to guard the converter. Same three predicates, one different
+  // source.
+  //
+  // `frameNode.matrix`, not `matrixWorld`: the node's own matrix is frame-local
+  // -> face space (its parent `headNode` carries the flip, and face space agrees
+  // with GL), so reading it keeps this check independent of the live head pose,
+  // which is the property that made the old version worth having.
+  //
+  // No boundary is crossed. `app/` and `render/` are the same side of the
+  // isolation rule, `frameNode` is already a documented public member of
+  // `SceneHandle`, and `.matrix.elements` is a plain number array — this adds no
+  // `three` import to a file that has none.
+  const m = app.scene.frameNode.matrix.elements;   // three.js, column-major
   const toFace = (v: ArrayLike<number>) => [
-    R[0] * v[0] + R[1] * v[1] + R[2] * v[2] + t[0],
-    R[3] * v[0] + R[4] * v[1] + R[5] * v[2] + t[1],
-    R[6] * v[0] + R[7] * v[1] + R[8] * v[2] + t[2],
+    m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12],
+    m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13],
+    m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14],
   ];
   // The frame's extremal points, per the asset's own fields.
   const marks = [
@@ -1761,7 +1813,10 @@ function frameSanityTripwire(app: App, frame: FrameAsset, seat: SeatResult): voi
       + `centre x ${cx.toFixed(1)} (head x [${hx0.toFixed(0)}, ${hx1.toFixed(0)}]), `
       + `lens z ${lensZ.toFixed(1)} (face front ${hz1.toFixed(1)}), `
       + `lens y ${lensY.toFixed(1)} (head y [${hy0.toFixed(0)}, ${hy1.toFixed(0)}]). `
-      + 'A mirrored Y/Z pair is the double-flip defect in render/convert.ts.',
+      + 'A mirrored Y/Z pair is the double-flip defect in render/convert.ts — '
+      + 'and this check now reads frameNode.matrix, so it can actually see it. '
+      + 'Only `lensesAtTheFront` fires on that defect: a Y/Z mirror leaves x '
+      + 'alone and the mirrored lens y is still inside the head y range.',
     );
   }
 }

@@ -131,6 +131,67 @@ describe('the wear branch keeps its wiring', () => {
   });
 });
 
+/**
+ * One compiled function body, **with its comments removed**.
+ *
+ * `tsc` does not strip comments, so every docstring and `//` line in `main.ts`
+ * is sitting in `dist/src/app/main.js` — which is trap 5 in
+ * `docs/NEXT-SESSION.md` section 6 ("a textual gate on an English word is a
+ * check that cannot fail"), and it bites in BOTH directions. The two
+ * assertions below are `doesNotMatch` on `fill(1)` and on `seat.pose`, and the
+ * comments explaining why those are gone say the words `fill(1)` and
+ * `seat.pose`. Written naively, both tests fail on a correct build, which is
+ * how this helper came to exist.
+ *
+ * Line and block comments only. It would damage a string literal containing
+ * `//`, and nothing asserted on here is one.
+ */
+function codeOf(file: string, fn: string): string {
+  const text = readFileSync(new URL(`../src/app/${file}.js`, import.meta.url), 'utf8');
+  const at = text.indexOf(`function ${fn}`);
+  assert.ok(at >= 0, `${fn} has been renamed or moved out of app/${file}`);
+  const body = text.slice(at, text.indexOf('\nfunction ', at + 1));
+  return body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+}
+
+describe('the scan does not invent what it could not see', () => {
+  it('collectFrame refuses the pre-pose frame instead of filling visibility with 1', () => {
+    // Before the first pose there is nothing to rasterise against, so
+    // `estimateSigma` is not run and `visibility` is deliberately `null` — and
+    // `collectFrame` overwrote that with `fill(1)`, asserting that every
+    // landmark including the far-side nose was fully visible on the one frame
+    // where least was known.
+    //
+    // ONE frame per pose acquisition, not every frame: the review's blast
+    // radius belongs to the whole-stream version of this bug, which
+    // `main.ts` documents as already fixed and whose fingerprint was a real
+    // wearer's `noseObservations` equal to `framesUsed`. This one reached
+    // keyframe selection in 1 cell of 12 and cost 0.005 mm of REPORTED nose
+    // precision there.
+    const body = codeOf('main', 'collectFrame');
+    assert.match(body, /if \(!visibility\)\s*return/,
+      'collectFrame no longer refuses the pre-pose frame');
+    assert.doesNotMatch(body, /fill\(1\)/,
+      'collectFrame is asserting full visibility for a frame nothing was rasterised against');
+  });
+
+  it('the frame sanity tripwire reads the matrix that is drawn', () => {
+    // This check named `render/convert.ts` in its warning string for its whole
+    // life and never read a converter or a node matrix. It computed from
+    // `seat.pose`, which is strictly UPSTREAM of the `applySeat` call that
+    // introduces the CV->GL double flip, so a double-flipped seat put the lens
+    // centre 121.3 mm out and it printed "sanity ok" — with all three numbers
+    // bit-identical to the correct case.
+    const body = codeOf('main', 'frameSanityTripwire');
+    assert.match(body, /frameNode\.matrix/,
+      'frameSanityTripwire reads seat.pose again — it is upstream of applySeat and '
+      + 'cannot see the double flip its own message blames');
+    assert.doesNotMatch(body, /seat\.pose/,
+      'the tripwire is back on the pose as well as the matrix — two sources is how '
+      + 'it came to be reading the one that could not fail');
+  });
+});
+
 describe('the scan supplies the silhouette the bundle asks for', () => {
   // Textual, because `main.ts` boots at module scope and the two other files
   // here need a `Worker`. This is the third instance in this file of the same
@@ -149,9 +210,7 @@ describe('the scan supplies the silhouette the bundle asks for', () => {
 
   it('collectFrame no longer hard-codes silhouette: null', () => {
     const text = read('main');
-    const at = text.indexOf('function collectFrame');
-    assert.ok(at >= 0, 'collectFrame has been renamed');
-    const body = text.slice(at, text.indexOf('\nfunction ', at + 1));
+    const body = codeOf('main', 'collectFrame');
     assert.doesNotMatch(body, /silhouette: null/,
       'collectFrame is back to hard-coding silhouette: null — every silhouette '
       + 'path in bundle.ts then continues, and production runs the harness\'s '

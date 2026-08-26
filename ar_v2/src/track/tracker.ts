@@ -400,7 +400,40 @@ export interface TrackerState {
   basinAdoptionsSkipped: number;
   consecutiveFailures: number;
   lostSeconds: number;
-  /** Frames since the last full acquisition. */
+  /**
+   * Frames this SESSION whose solve passed the gate. Cumulative and never
+   * reset — **not** per-acquisition, whatever this comment used to say.
+   *
+   * Two readers depend on the cumulative reading. The basin audit's cadence
+   * (`framesTracked % basinAuditInterval`, and see that option's own docstring,
+   * which describes it correctly) needs it to hold an amortised rate; and the
+   * diagnostics paste emits it beside `acquisitions`, where
+   * `framesTracked / acquisitions` is the mean frames per lock only under this
+   * reading.
+   *
+   * **Measured before touching it, because the obvious fix is backwards.**
+   * Resetting the counter at each acquisition — which is what the old comment
+   * described — starves the audit exactly where a wrong basin is most likely.
+   * Both semantics against the same sessions (smooth: true, 20 deg yaw + 20 mm
+   * lateral wander, sigma 0.7 px, dropouts long enough to pass the 0.5 s reset):
+   *
+   *     session                  tracked  acqs   cumulative   per-acquisition
+   *     no dropouts, 600 frames    600      1    19 audits    19  — identical
+   *     20-frame gap every 90      480      7    13           13  — identical
+   *     20-frame gap every 37      428     24    13            1
+   *     20-frame gap every 31      339     29    10            1
+   *
+   * The implemented semantics holds 2.7–3.2 audits per 100 tracked frames in
+   * every regime; the documented one collapses to ONE audit in an entire flaky
+   * session, because a counter that restarts at every reacquisition never
+   * reaches 30 when reacquisition arrives every ~17 tracked frames. A session
+   * that keeps losing and regaining the face is precisely the one whose warm
+   * chain is most likely to be in the wrong basin.
+   *
+   * `src/testkit/report-occlusion.ts` has a same-named `StabilityResult
+   * .framesTracked` which is `perFrame.length` and has no relation to this. It
+   * is exactly the shape of thing a later reader "fixes" into agreement.
+   */
   framesTracked: number;
   acquisitions: number;
 }

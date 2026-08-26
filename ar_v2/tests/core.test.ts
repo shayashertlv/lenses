@@ -2055,6 +2055,46 @@ describe("the stillness latch v2 — velocity-gated rest, crossfaded exits", () 
   // (LATCH_VEL_WINDOW+1 raw poses) and then stay quiet for the enter count.
   const SETTLE = LATCH_VEL_WINDOW + 1 + LATCH_ENTER_FRAMES + 1;
 
+  it('the basin audit keeps its amortised rate across reacquisitions', () => {
+    // `TrackerState.framesTracked` is SESSION-cumulative: incremented once, at
+    // one site, and cleared by nothing — not by `miss()`'s reset block and not
+    // by `adoptAuditPose`. Its comment said "frames since the last full
+    // acquisition", which is false, and the obvious repair — resetting the
+    // counter to match the comment — is BACKWARDS.
+    //
+    // Measured both ways on the same sessions: a per-acquisition counter never
+    // reaches `basinAuditInterval` in a session that reacquires more often than
+    // the period, so the audit stops running exactly where a wrong basin is most
+    // likely. 13 audits over 428 tracked frames becomes 1.
+    //
+    // Nothing in this tree referenced the field before today — no test, no
+    // report, no doc — which is how a comment and its code drifted apart with no
+    // gate noticing. So what is pinned is the RATE, which is the property the
+    // audit option's own docstring claims, and neither semantics can now drift
+    // in silence.
+    const state = createTracker(model, { smooth: true });
+    let tracked = 0;
+    for (let f = 0; f < 900; f++) {
+      // 20 dark frames in every 37: long enough to pass the 0.5 s
+      // `lostSecondsBeforeReset` and force a genuine cold reacquisition.
+      const dark = f % 37 >= 17;
+      const r = track(state, dark
+        ? { landmarks: null, sigmaPx: null, intrinsics: K, dt: 1 / 30 }
+        : { landmarks: frameAt(0, 0, 0.8, 500 + f), sigmaPx: sigma, intrinsics: K, dt: 1 / 30 });
+      if (r.tracked && r.rawPose) tracked++;
+    }
+    // The precondition, so this cannot pass by never losing the face.
+    assert.ok(state.acquisitions > 10,
+      `only ${state.acquisitions} acquisitions — the fixture never lost the face, so it `
+      + 'cannot tell a cumulative counter from a per-acquisition one');
+    assert.ok(
+      state.basinAuditsRun >= tracked / (2 * TRACKER_DEFAULTS.basinAuditInterval),
+      `${state.basinAuditsRun} audits over ${tracked} tracked frames against a bar of `
+      + `${(tracked / (2 * TRACKER_DEFAULTS.basinAuditInterval)).toFixed(1)} — the audit `
+      + 'cadence is counting something that resets',
+    );
+  });
+
   it('freezes exactly at rest once the velocity window says rest', () => {
     const state = createTracker(model, { smooth: 'locked' });
     const poses: Float64Array[] = [];

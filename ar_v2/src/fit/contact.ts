@@ -261,8 +261,17 @@ export interface SeatOptions {
    * free".
    */
   rotationPriorWeight: number;
-  /** Include the ear support term. Off is how the harness measures what it does. */
-  useEars: boolean;
+  /**
+   * Build the whole-face distance field, so a rim can be checked against a brow.
+   *
+   * **Dead as a behaviour switch and kept for its cost**, which is the honest
+   * reason: no caller anywhere in `src/`, `tests/` or `scripts/` sets it, and
+   * `solveSeat` has 27 call sites. What it gates is a `buildMeshDistance` over
+   * the entire face rather than the nose and cheeks, which is the expensive
+   * half of setting up a seat, so an owner may well want it switchable. Its
+   * sibling `useEars` was removed on 2026-08-26 for the opposite reason: taking
+   * it produced a WRONG REPORT rather than a cheaper one.
+   */
   useClearance: boolean;
   /**
    * Hook stiffness override, N/mm — the Q15 experiment knob.
@@ -288,7 +297,6 @@ export const SEAT_DEFAULTS: SeatOptions = {
   maxIterations: 80,
   priorWeight: 0.004,
   rotationPriorWeight: 0.02,
-  useEars: true,
   useClearance: true,
 };
 
@@ -678,19 +686,17 @@ export function energyTerms(
   const gravity = weightN * p[1];
 
   let ear = 0;
-  if (opt.useEars) {
-    const ears = earRestPoints(model);
-    for (let s = 0; s < 2; s++) {
-      apply(p, pose, frame.earRests[s], 0);
-      // The ear supports from below only: energy appears when the temple would
-      // be below the rest point.
-      const below = Math.max(0, ears[s][1] - p[1]);
-      ear += 0.5 * SKIN.earStiffnessNPerMm * below * below;
-      // The hook: the temple resists travelling forward past the ear — a wall
-      // at the default stiffness, a bending arm at the compliant one.
-      const forward = Math.max(0, p[2] - ears[s][2]);
-      ear += 0.5 * hookStiffnessOf(opt) * forward * forward;
-    }
+  const ears = earRestPoints(model);
+  for (let s = 0; s < 2; s++) {
+    apply(p, pose, frame.earRests[s], 0);
+    // The ear supports from below only: energy appears when the temple would
+    // be below the rest point.
+    const below = Math.max(0, ears[s][1] - p[1]);
+    ear += 0.5 * SKIN.earStiffnessNPerMm * below * below;
+    // The hook: the temple resists travelling forward past the ear — a wall
+    // at the default stiffness, a bending arm at the compliant one.
+    const forward = Math.max(0, p[2] - ears[s][2]);
+    ear += 0.5 * hookStiffnessOf(opt) * forward * forward;
   }
 
   let clear = 0;
@@ -830,37 +836,35 @@ export function accumulate(
   const weightN = frame.massG * GRAVITY_N_PER_G;
   for (let a = 0; a < 6; a++) g[a] += weightN * J[6 + a];
 
-  if (opt.useEars) {
-    const ears = earRestPoints(model);
-    const row = new Float64Array(6);
-    for (let s = 0; s < 2; s++) {
-      applyBoth(p, rot, pose, frame.earRests[s], 0);
-      pointJacobian(J, rot);
+  const ears = earRestPoints(model);
+  const row = new Float64Array(6);
+  for (let s = 0; s < 2; s++) {
+    applyBoth(p, rot, pose, frame.earRests[s], 0);
+    pointJacobian(J, rot);
 
-      // Vertical support: d(below)/dx = -d(y)/dx.
-      const below = ears[s][1] - p[1];
-      if (below > 0) {
-        const sk = Math.sqrt(SKIN.earStiffnessNPerMm);
-        const r = sk * below;
-        for (let a = 0; a < 6; a++) row[a] = -sk * J[6 + a];
-        for (let a = 0; a < 6; a++) {
-          g[a] += row[a] * r;
-          for (let b = 0; b <= a; b++) H[a * 6 + b] += row[a] * row[b];
-        }
+    // Vertical support: d(below)/dx = -d(y)/dx.
+    const below = ears[s][1] - p[1];
+    if (below > 0) {
+      const sk = Math.sqrt(SKIN.earStiffnessNPerMm);
+      const r = sk * below;
+      for (let a = 0; a < 6; a++) row[a] = -sk * J[6 + a];
+      for (let a = 0; a < 6; a++) {
+        g[a] += row[a] * r;
+        for (let b = 0; b <= a; b++) H[a * 6 + b] += row[a] * row[b];
       }
+    }
 
-      // The hook: d(forward)/dx = +d(z)/dx. Same stiffness as the energy above,
-      // whichever the options chose — a Hessian that does not belong to the
-      // energy is not a bug worth introducing twice (see the clearance term).
-      const forward = p[2] - ears[s][2];
-      if (forward > 0) {
-        const sk = Math.sqrt(hookStiffnessOf(opt));
-        const r = sk * forward;
-        for (let a = 0; a < 6; a++) row[a] = sk * J[12 + a];
-        for (let a = 0; a < 6; a++) {
-          g[a] += row[a] * r;
-          for (let b = 0; b <= a; b++) H[a * 6 + b] += row[a] * row[b];
-        }
+    // The hook: d(forward)/dx = +d(z)/dx. Same stiffness as the energy above,
+    // whichever the options chose — a Hessian that does not belong to the
+    // energy is not a bug worth introducing twice (see the clearance term).
+    const forward = p[2] - ears[s][2];
+    if (forward > 0) {
+      const sk = Math.sqrt(hookStiffnessOf(opt));
+      const r = sk * forward;
+      for (let a = 0; a < 6; a++) row[a] = sk * J[12 + a];
+      for (let a = 0; a < 6; a++) {
+        g[a] += row[a] * r;
+        for (let b = 0; b <= a; b++) H[a * 6 + b] += row[a] * row[b];
       }
     }
   }
