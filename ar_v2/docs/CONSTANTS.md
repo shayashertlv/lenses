@@ -129,7 +129,7 @@ tree; the checked-in reports under `reports/` are the current tree at seed 11.
 
 | constant | value | class | why |
 | --- | --- | --- | --- |
-| `MEASUREMENT_UNIT` | one unit per `FaceMeasurements` key | `derived` | Not a magnitude — a table saying which unit each measurement is in, so the repeatability report cannot print a radian in a millimetre column. It is typed `Record<keyof FaceMeasurements, …>`, so TypeScript catches an *added* field; this table catches the runtime drift TypeScript cannot see, and a test asserts the runtime keys match. It exists because `sidewallAngle` — the one angular measurement among eight lengths — was printed under a millimetre header for the whole of the build, where 0.05 rad reads as a reassuringly tiny 0.05 mm instead of the 2.95° it is. |
+| `ANGULAR_MEASUREMENTS` | `['sidewallAngle']` | `derived` | Not a magnitude — the list of `FaceMeasurements` keys that are in RADIANS rather than millimetres, so the diagnostics dump cannot print an angle under a millimetre heading. It exists because `sidewallAngle` — the one angular measurement among eight lengths — was printed that way for the whole of the build, where 0.05 rad reads as a reassuringly tiny 0.05 mm instead of the 2.9 degrees it is. **This row used to name `MEASUREMENT_UNIT`, a full unit-per-key table deleted in `f9c9093` and replaced by this list**, and it survived the deletion by a day — provenance for nothing, reading exactly like provenance for something. It was found by `check-constants.mjs`'s orphaned-row sweep on the sweep's first run, which is the argument for the sweep: `docs/NEXT-SESSION.md` had asked for this to be done by hand and it had already been skipped twice. |
 
 ## core/facemodel.ts
 

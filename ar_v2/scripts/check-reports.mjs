@@ -85,7 +85,38 @@ const SEED = 11;
 /** The one file the fixtures read off disk. Every number depends on it. */
 const TEMPLATE = 'assets/face/canonical_face_model.obj';
 
-const PROVENANCE = /^\[provenance\] (.+?) source=([0-9a-f]{16}) canary=([0-9a-f]{16})$/;
+/**
+ * The stamp, and what each of its three hashes is for.
+ *
+ *   source  the generator's transitive import graph, comments stripped. Cheap,
+ *           runs every time, and answers "did the code that produced this
+ *           report change?"
+ *   canary  a one-subject run of the generator itself. Expensive, runs only
+ *           when `source` has drifted, and answers "did the change move the
+ *           numbers, or was it a comment?"
+ *   body    a hash of the COMMITTED BYTES below the preamble.
+ *
+ * **`body` was missing and its absence was the hole this gate exists to close.**
+ * `check()` compared `source` and `canary` — both of which describe the CODE —
+ * and never once read the report it was checking. So the one edit a report
+ * cannot survive, somebody changing a number in it by hand, passed silently:
+ * the generator was untouched, both code hashes matched, and the gate printed
+ * "unchanged" over a figure that had been typed. A gate guarding published
+ * numbers that never looks at the published numbers is the shape of defect this
+ * tree is named after.
+ *
+ * The hash is taken over the body with `\r` stripped, because git checks these
+ * files out CRLF and the generator writes LF — comparing them raw would fail
+ * every report on a fresh clone and teach everyone to ignore this gate.
+ */
+const PROVENANCE =
+  /^\[provenance\] (.+?) source=([0-9a-f]{16}) canary=([0-9a-f]{16})(?: body=([0-9a-f]{16}))?$/;
+
+/** The committed body, normalised, as the stamp hashes it. */
+function bodyHashOf(lines, bodyAt) {
+  const body = lines.slice(bodyAt).join('\n').replace(/\r/g, '');
+  return createHash('sha256').update(body).digest('hex').slice(0, 16);
+}
 
 // ------------------------------------------------------------- source hash
 
@@ -186,11 +217,13 @@ async function canaryHash(report) {
 // ------------------------------------------------------------------- modes
 
 function readReport(name) {
+  const report = REPORTS.find((r) => r.name === name);
   const path = `reports/${name}.txt`;
   const text = readFileSync(path, 'utf8');
   const lines = text.split(/\r?\n/);
   const stamped = PROVENANCE.exec(lines[0]);
-  return { path, text, lines, stamped };
+  const bodyAt = report ? lines.findIndex((l) => l.startsWith(report.bodyStartsWith)) : -1;
+  return { path, text, lines, stamped, bodyAt };
 }
 
 async function write(name) {
@@ -215,25 +248,68 @@ async function write(name) {
   const source = sourceHash(report.entry);
   const canary = await canaryHash(report);
 
+  // Hashed exactly as `check` will read it back: the body as written, with any
+  // carriage returns removed. `body` here is a single string that may itself
+  // contain newlines, which is why this normalises rather than joining lines.
+  const bodyHash = createHash('sha256')
+    .update(body.replace(/\r/g, '')).digest('hex').slice(0, 16);
+
   writeFileSync(path, [
-    `[provenance] ${report.realisation} source=${source} canary=${canary}`,
+    `[provenance] ${report.realisation} source=${source} canary=${canary} body=${bodyHash}`,
     ...preamble,
     body,
   ].join('\n'), 'utf8');
-  console.log(`wrote ${path} — ${report.realisation}, source ${source}, canary ${canary}`);
+  console.log(
+    `wrote ${path} — ${report.realisation}, source ${source}, canary ${canary}, body ${bodyHash}`,
+  );
 }
 
 async function check() {
   let failures = 0;
   let unstamped = 0;
   for (const report of REPORTS) {
-    const { path, stamped } = readReport(report.name);
+    const { path, stamped, lines, bodyAt } = readReport(report.name);
     if (!stamped) {
       console.log(`  ${path}  no provenance line — run \`npm run report:${report.name}\``);
       unstamped++;
       continue;
     }
-    const [, realisation, source, canary] = stamped;
+    const [, realisation, source, canary, body] = stamped;
+
+    // **The committed bytes first, before either code hash.**
+    //
+    // The other two answer "did the generator change?". This one answers "is
+    // this file still what the generator wrote?", and it is the only question
+    // that can catch a number somebody typed. It runs first because a
+    // hand-edited report is stale no matter what the code is doing.
+    if (!body) {
+      console.log(
+        `  ${path}  stamped before body hashing existed — re-stamp it with ` +
+        `\`npm run report:${report.name}\``,
+      );
+      unstamped++;
+      continue;
+    }
+    if (bodyAt < 0) {
+      console.error(
+        `  ${path}  no line starts with "${report.bodyStartsWith}", so the ` +
+        'hand-written preamble cannot be told from the generated body.',
+      );
+      failures++;
+      continue;
+    }
+    const liveBody = bodyHashOf(lines, bodyAt);
+    if (liveBody !== body) {
+      console.error(
+        `  ${path}  EDITED. The committed body is not what the generator wrote ` +
+        `(body ${body} -> ${liveBody}). A published number that was typed rather ` +
+        'than measured is the one thing this gate exists to refuse. Regenerate ' +
+        `with \`npm run report:${report.name}\`, or restore the file.`,
+      );
+      failures++;
+      continue;
+    }
+
     const live = sourceHash(report.entry);
     if (live === source) {
       console.log(`  ${path}  ${realisation}, source ${source} — unchanged`);

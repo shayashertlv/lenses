@@ -27,6 +27,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { VENDOR_FILES } from './vendor-manifest.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -113,19 +114,28 @@ for (const file of files) {
 /**
  * The paths the running app and the harness actually open.
  *
- * Listed rather than discovered, because the point is to fail when one of them
- * goes missing — and a list built by scanning for what exists cannot do that.
- * Keep it in step with `index.html`, `app/main.ts`, `detect/mediapipe.ts` and
- * `testkit/fixtures.ts`.
+ * The ASSETS are listed rather than discovered, because the point is to fail
+ * when one goes missing and a list built by scanning for what exists cannot do
+ * that. Keep them in step with `index.html`, `app/main.ts`,
+ * `detect/mediapipe.ts` and `testkit/fixtures.ts`.
+ *
+ * **The VENDOR half is no longer listed here, and that is a fix rather than a
+ * tidy-up.** It used to name four files. `vendor/` holds thirteen, and among
+ * the nine it did not name were `three.core.js` — which the `three.module.js`
+ * it DID name imports on its first line — every three.js addon, and three of
+ * the four MediaPipe wasm files. A tree missing any of them passed this gate
+ * and then failed at boot with a module error naming the wrong problem, which
+ * is the exact failure mode this check exists to prevent.
+ *
+ * They come from `vendor-manifest.mjs` now, the same list `fetch-vendor.mjs`
+ * fetches and SHA-256 verifies, so the two cannot disagree about what a
+ * complete vendor tree is.
  */
 const REQUIRED = [
   ['assets/face/canonical_face_model.obj', 'the face template — every test and report loads it'],
   ['assets/models/face_landmarker.task', 'the detector binary'],
   ['assets/samples/face-a.jpg', 'the still source main.ts falls back to with no camera'],
-  ['vendor/three/three.module.js', 'the renderer'],
-  ['vendor/three/addons/loaders/GLTFLoader.js', 'the asset loader'],
-  ['vendor/mediapipe/vision_bundle.mjs', 'the detector runtime'],
-  ['vendor/mediapipe/wasm/vision_wasm_internal.wasm', 'the detector wasm'],
+  ...VENDOR_FILES.map(([rel]) => [`vendor/${rel}`, 'vendored runtime — see vendor-manifest.mjs']),
 ];
 
 let missing = 0;
@@ -153,5 +163,6 @@ if (failures || missing) {
 
 console.log(
   `self-contained: ${files.length} files name no sibling, `
-  + `${REQUIRED.length} required assets present.`,
+  + `${REQUIRED.length} required files present `
+  + `(${VENDOR_FILES.length} of them the vendored runtime).`,
 );

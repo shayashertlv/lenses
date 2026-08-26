@@ -1,4 +1,4 @@
-[provenance] seed 11 source=fed35e3f2805b7c4 canary=cf2fa993e85b1bb2
+[provenance] seed 11 source=fed35e3f2805b7c4 canary=cf2fa993e85b1bb2 body=7685ea3bc810d26b
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
 Regenerated 2026-08-25 by `npm run report:track`, which runs
 runTrackReport({ seed: 11 }) and stamps the provenance line above. The tracker

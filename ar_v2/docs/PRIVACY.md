@@ -10,10 +10,44 @@ document short.
   leaves the device.
 - The result is one `FaceModel`, serialised to `localStorage` under
   `ar-v2.facemodel`.
-- "Delete my measurements" removes it. That is the whole deletion path, and it
-  is in the interface rather than in a policy document.
+- **Two other keys exist and neither holds geometry**: `ar-v2.knownpd`, the one
+  number the wearer types in, and `ar-v2.scanhistory`, which is legacy and is
+  deleted on sight (below).
+- "Delete my measurements" removes all three. That is the whole deletion path,
+  and it is in the interface rather than in a policy document.
 - No camera frame is ever stored. Frames live in three canvases that are
   overwritten thirty times a second and are gone when the tab closes.
+
+### This section was false for as long as it existed, and here is how
+
+**The claim above — one object, one key, and that is what makes the document
+short — was the load-bearing sentence, and it was wrong by six times.** There
+were three keys, and `ar-v2.scanhistory` held **up to five further complete
+`FaceModel`s**: five more sets of 468 vertex positions, per-vertex uncertainty,
+shape coefficients and PD, one per scan, oldest dropped at five.
+
+It was there for a real reason — scanning a face twice and diffing the results
+is the only repeatability test that needs no ground truth, and the synthetic
+harness cannot do it — but **it was never built**. `loadHistory` had no caller
+anywhere in the tree. Nothing read a single stored scan. The app told the wearer
+in words that *"Compare scans" will diff them*, about a control that did not
+exist, and retained the data to keep that promise.
+
+It is gone as of 2026-08-26. The key is removed at boot as well as by "Delete
+my measurements", because deleting the code alone would strand the data: every
+browser that had already run this app was holding five scans that nothing would
+ever clear.
+
+Two things worth taking from it, since a privacy document that only records its
+own correctness is not worth much:
+
+1. **An inventory is the one part of a privacy statement that cannot be
+   approximately right.** This one was written from the design rather than from
+   the code, and the design was true when it was written.
+2. **Retention needs a reader.** The history was justified by a feature, the
+   feature was never written, and nothing removed the justification. If
+   repeatability comes back it should start from a comparison UI and a stated
+   retention period, not from a store that accumulates and waits.
 
 ## Why the architecture makes this easy
 

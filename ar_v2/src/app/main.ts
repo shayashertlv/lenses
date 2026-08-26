@@ -231,19 +231,6 @@ interface App {
 
 const STORAGE_KEY = 'ar-v2.facemodel';
 
-/**
- * Past scans of this face, kept so they can be compared with each other.
- *
- * Every accuracy figure in this repository is synthetic, and the synthetic
- * harness cannot measure repeatability at all — each capture is generated from
- * one fixed truth, so two "scans" of a subject are two draws from the same
- * answer. Scanning a real face twice and diffing the results is the only test
- * here that needs no ground truth and no instrument, and it is the only one that
- * can catch a pipeline claiming more precision than it has.
- *
- * Five, because the useful statistic is pairwise and five scans give ten pairs
- * for about four minutes of a wearer's time. Oldest is dropped first.
- */
 const PD_KEY = 'ar-v2.knownpd';
 
 /** The wearer's own PD, remembered between sessions. It does not change. */
@@ -252,34 +239,34 @@ function readStoredPd(): number | null {
   return Number.isFinite(raw) && raw >= 45 && raw <= 85 ? raw : null;
 }
 
-const HISTORY_KEY = 'ar-v2.scanhistory';
-const HISTORY_MAX = 5;
-
-function loadHistory(): FaceModel[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    return (JSON.parse(raw) as string[])
-      .map((text) => { try { return deserializeFaceModel(text); } catch { return null; } })
-      .filter((m): m is FaceModel => m !== null);
-  } catch {
-    return [];
-  }
-}
-
-function pushHistory(model: FaceModel): number {
-  let texts: string[] = [];
-  try { texts = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') as string[]; } catch { /* start over */ }
-  texts.push(serializeFaceModel(model));
-  while (texts.length > HISTORY_MAX) texts.shift();
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(texts));
-  } catch {
-    // A full quota is not worth losing the scan over.
-    return texts.length;
-  }
-  return texts.length;
-}
+/**
+ * The scan history, deleted — and cleared from the browsers that already have one.
+ *
+ * It kept the last five `FaceModel`s so a wearer could scan twice and diff the
+ * results, which is a genuinely good idea: every accuracy figure in this
+ * repository is synthetic, the synthetic harness cannot measure repeatability at
+ * all, and scanning a real face twice is the only test here that needs no ground
+ * truth and no instrument.
+ *
+ * **It was never built.** `loadHistory` had no caller anywhere in the tree, so
+ * nothing ever read a stored scan; the app merely told the wearer, in words, that
+ * *"Compare scans" will diff them* — a control that does not exist and never
+ * did. So five complete facial geometries were retained on the device to power a
+ * promise, and `docs/PRIVACY.md` meanwhile said the scan was "one immutable
+ * object under one storage key", which was the paragraph it called the reason
+ * the whole document could be short.
+ *
+ * Removing it makes the privacy document true and takes the retained biometrics
+ * from up to six geometries to one. Rebuilding repeatability later is a
+ * different job: it needs a comparison UI and a stated retention period, and it
+ * should start from that rather than from an accumulating store nothing reads.
+ *
+ * The key stays named here because deleting the code would otherwise strand the
+ * data — every browser that has already run this app is holding five scans that
+ * nothing will ever clear. `boot` removes it, and so does "Delete my
+ * measurements".
+ */
+const LEGACY_HISTORY_KEY = 'ar-v2.scanhistory';
 
 /**
  * Reprojection above which a scan-phase pose is refused, px.
@@ -428,6 +415,11 @@ async function boot(): Promise<void> {
 
   // A stored model means a returning wearer skips the scan entirely — which is
   // the whole point of the model being one immutable, serialisable object.
+  // Anything this app stored and no longer uses goes on sight, rather than
+  // waiting for a wearer to press a button they have no reason to press. See
+  // `LEGACY_HISTORY_KEY`.
+  localStorage.removeItem(LEGACY_HISTORY_KEY);
+
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
     try {
@@ -1129,15 +1121,12 @@ async function runEnrollment(app: App): Promise<void> {
     // to a model — a restore from storage at boot, the average face — leaves the
     // watch disarmed, which is a permanent abstention rather than a soft start.
     if (live) armWearer(app.identity);
-    const kept = live ? pushHistory(model) : 0;
     if (live) localStorage.setItem(STORAGE_KEY, serializeFaceModel(model));
     app.ui.status(
       (model.degraded
         ? `measured, with caveats: ${model.notes.join('; ')}`
         : `measured in ${model.solveMs.toFixed(0)} ms`)
-      + (live
-        ? (kept > 1 ? ` — ${kept} scans saved, "Compare scans" will diff them` : '')
-        : ' — sample image, not saved'),
+      + (live ? '' : ' — sample image, not saved'),
     );
   } catch (error) {
     console.error('enrollment failed', error);
@@ -1653,10 +1642,6 @@ function handleAction(app: App, action: string): void {
       app.ui.status(`PD set to ${raw} mm — rescan to use it as the ruler`);
       break;
     }
-    case 'forget-scans':
-      localStorage.removeItem(HISTORY_KEY);
-      app.ui.status('saved scans deleted from this device');
-      break;
     case 'rescan':
       // The stored MODEL goes, and only on this path: starting again is exactly
       // what a repeatability run consists of, and the wearer asked. An identity
@@ -1849,7 +1834,7 @@ function handleAction(app: App, action: string): void {
     }
     case 'forget':
       localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(HISTORY_KEY);
+      localStorage.removeItem(LEGACY_HISTORY_KEY);
       localStorage.removeItem(PD_KEY);
       app.knownPdMm = null;
       app.ui.status('your measurements have been deleted from this device');

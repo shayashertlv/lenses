@@ -17,7 +17,7 @@
  * count to zero by writing better sentences is precisely the dishonesty the
  * ledger exists to prevent. The count is reported; a reviewer decides.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const LEDGER = readFileSync('docs/CONSTANTS.md', 'utf8');
@@ -47,7 +47,7 @@ const EXEMPT = new Set([
   'CV_TO_GL', 'MM_TO_SCENE', 'GRAVITY_N_PER_G', 'FACE_MODEL_VERSION',
   'MESH_VERTEX_COUNT', 'MESH_LANDMARK_COUNT', 'FIRST_IRIS_INDEX',
   'DETECTOR_LANDMARK_COUNT', 'INTRINSICS_FREE_F', 'INTRINSICS_FIXED',
-  'TRIVIAL', 'LM_DEFAULTS', 'POPULATION_DEFAULTS', 'CAPTURE_DEFAULTS',
+  'TRIVIAL', 'POPULATION_DEFAULTS', 'CAPTURE_DEFAULTS',
   // `CATALOGUE` is a data table, not a tuning constant — the same case as
   // `TEST_FRAMES`. Every number IN it that could be otherwise carries its own
   // ledger row (`ASSUMED_WIDTH_MM`) or its own docstring on the entry.
@@ -55,11 +55,14 @@ const EXEMPT = new Set([
   'UNCERTAINTY_DEFAULTS', 'SEAT_DEFAULTS', 'BUNDLE_DEFAULTS',
   'KEYFRAME_DEFAULTS', 'TRACKER_DEFAULTS', 'PNP_DEFAULTS', 'SNAP_DEFAULTS',
   'CALIBRATION_DEFAULTS',
-  'DISPLACEMENT_PRIORS', 'SKIN', 'IRIS', 'POPULATION_HVID', 'ID1_CARD',
+  'DISPLACEMENT_PRIORS', 'SKIN', 'IRIS', 'POPULATION_HVID',
   'PLAUSIBLE', 'CAMERA_LADDER', 'COVERAGE_THRESHOLDS', 'PD_PLAUSIBLE_MM',
-  // `ID1_CARD` was here until 2026-08-25, exempting a constant deleted with
-  // `enroll/card.ts` in f9c9093. An exemption for a name that no longer exists
-  // is the same defect as an orphaned ledger row, in the one list nobody sweeps.
+  // `ID1_CARD` sat here until 2026-08-26, exempting a constant deleted with
+  // `enroll/card.ts`, and the comment saying so sat two lines below the entry
+  // it described. `LM_DEFAULTS` was a second, from the deleted `core/lm.ts`.
+  // Both are gone, and the sweep below is what stops the next one lasting a
+  // year: an exemption for a name that no longer exists is the same defect as
+  // an orphaned ledger row, and until now this was the one list nobody swept.
   'TRANSLATION_SMOOTHING', 'ROTATION_SMOOTHING', 'LM', 'EPS',
   // A userData KEY, not a number — it names an ownership flag on a scene node.
   'CACHED_BY_CALLER',
@@ -166,6 +169,24 @@ for (const file of walk('src')) {
   while ((match = pattern.exec(text)) !== null) {
     found.push({ name: match[1], file: rel });
   }
+
+  // **And the clause form, which this gate could not see.**
+  //
+  // `export { FOO }` and `export { foo as BAR }` put a constant on the public
+  // surface without ever writing `export const` at the start of a line, so a
+  // constant declared plainly and re-exported needed no ledger row at all —
+  // the one shape of hole that lets a number reach the public API with no
+  // provenance and no complaint. Type-only clauses are excluded: a
+  // `export { type X }` names a type, and types are not constants.
+  const clause = /^export\s*\{([^}]*)\}/gm;
+  while ((match = clause.exec(text)) !== null) {
+    for (const part of match[1].split(',')) {
+      const spec = part.trim();
+      if (!spec || spec.startsWith('type ')) continue;
+      const name = (/\bas\s+([A-Za-z_$][\w$]*)/.exec(spec) ?? [, spec])[1].trim();
+      if (/^[A-Z][A-Z0-9_]*$/.test(name)) found.push({ name, file: rel });
+    }
+  }
 }
 
 // A row named `SKIN.stiffnessNPerMm` documents the export `SKIN`: the ledger
@@ -176,6 +197,69 @@ const documented = (name) =>
   byName.has(name) || rowNames.some((r) => r.startsWith(`${name}.`));
 
 const missing = found.filter((c) => !EXEMPT.has(c.name) && !documented(c.name));
+
+/**
+ * The other direction, which this gate could not see in either half.
+ *
+ * `docs/NEXT-SESSION.md` carried the limitation as a standing warning — "it
+ * cannot see an orphaned ROW, or an orphaned EXEMPTION; sweep both by hand when
+ * you delete a constant" — and a warning that asks for a manual sweep is a
+ * warning that gets skipped. It had already been skipped twice: `ID1_CARD` sat
+ * in the exemption list for a constant deleted a day earlier, with the comment
+ * announcing its removal two lines underneath it, and `LM_DEFAULTS` outlived
+ * `core/lm.ts` entirely.
+ *
+ * Neither is dangerous on its own. What they are is DEAD PROVENANCE, and a
+ * ledger nobody can trust to be current is a ledger nobody reads.
+ *
+ * A row may legitimately document a field of a bag (`SKIN.stiffnessNPerMm`), so
+ * a row is orphaned only when the name before its first dot is exported by
+ * nothing and exempted by nothing.
+ */
+/**
+ * The two sweeps below are about THIS repository's own bookkeeping, so they run
+ * only when the tree being scanned is this one.
+ *
+ * `EXEMPT` and the ledger are baked into this script and into `docs/`, but the
+ * gate's own tests (`tests/pipeline.test.ts`) copy it into a temp directory
+ * holding a two-file `src/` and a four-line ledger, to check the FORMAT rules —
+ * duplicate rows, unknown classes, a missing row. In a tree like that every one
+ * of the thirty-odd exemptions is orphaned by construction, and the sweeps would
+ * fail a fixture that is testing something else entirely.
+ *
+ * `src/core/` is the sentinel because it is the one directory this tree cannot
+ * be itself without, and no fixture has ever created it.
+ */
+const REAL_TREE = existsSync('src/core');
+
+const exported = new Set(found.map((c) => c.name));
+const orphanExemptions = REAL_TREE
+  ? [...EXEMPT].filter((name) => !exported.has(name))
+  : [];
+
+// **Not "is it exported" — "does the name appear in the source at all".**
+//
+// The first version of this sweep tested exportedness and flagged 23 rows, all
+// of them fine: the ledger legitimately documents module-PRIVATE constants
+// (`TYPICAL_VARIANCE_FACTOR`, `AXIS_WEIGHT`), fields of a spec
+// (`FrameSpec.templeReachMm`), and quantities named in prose rather than in
+// code ("verdict thresholds", "region radii"). A gate that fires on two dozen
+// correct rows is a gate that gets switched off, so the test is the weakest one
+// that still catches the thing it is for: a row whose name occurs NOWHERE in
+// `src/`, which is what a row for a deleted constant looks like.
+//
+// Prose rows are skipped outright — a row title has to look like an identifier
+// before its absence means anything.
+const allSource = [...walk('src')]
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n');
+const orphanRows = !REAL_TREE ? [] : rowNames.filter((row) => {
+  const root = row.split('.')[0].trim();
+  if (!/^[A-Za-z_$][\w$]*$/.test(root)) return false;
+  if (exported.has(root) || EXEMPT.has(root)) return false;
+  return !new RegExp(`\\b${root}\\b`).test(allSource);
+});
 
 // The class mix, reported not gated.
 const counts = {};
@@ -201,6 +285,26 @@ if (missing.length) {
   for (const c of missing) console.error(`  ${c.name}  (${c.file})`);
   console.error('\nA constant with no provenance is a constant nobody can review.');
   failures += missing.length;
+}
+
+if (orphanExemptions.length) {
+  console.error('\nexempted, but exported by nothing:');
+  for (const name of orphanExemptions) console.error(`  ${name}`);
+  console.error(
+    '\nAn exemption outlived the constant it excused. Delete it — while it is '
+    + 'there, the next constant to take that name inherits a silence nobody chose.',
+  );
+  failures += orphanExemptions.length;
+}
+
+if (orphanRows.length) {
+  console.error('\nledger rows for constants that no longer exist:');
+  for (const name of orphanRows) console.error(`  ${name}`);
+  console.error(
+    '\nA row describing a deleted constant is provenance for nothing, and it '
+    + 'reads exactly like provenance for something.',
+  );
+  failures += orphanRows.length;
 }
 
 if (failures) process.exit(1);
