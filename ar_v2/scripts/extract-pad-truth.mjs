@@ -33,6 +33,20 @@
  * the two contact-face methods is the honest uncertainty on this number, and
  * it is recorded in the output rather than averaged away.
  *
+ * ## Three angles, because `padAngleRad` was two
+ *
+ * Until 2026-08-26 this emitted one `padAngleRad` and measured it as a CONE
+ * angle from the x axis, while `parametricFrame` consumed it as a YAW about the
+ * vertical. On a parametric pad those are the same number — `ny` is identically
+ * zero — so nothing caught it. On a real pad, whose normal leans down as well
+ * as in, they differ by 3.8 degrees on navigator and 8.8 on khronos.
+ *
+ * The yaw keeps the name, because that is what the consumer inverts and what
+ * `SKIN`'s `atan(0.60 / 0.76)` was derived as. The cone angle stays in the file
+ * under its own name, because `PAD_INWARD_COS` gates on `n . x` and cites this
+ * file for its band; the vertical lean is emitted too, because it is a real
+ * property of a pad and the one this derivation recovers best.
+ *
  *   node scripts/extract-pad-truth.mjs          write assets/glasses/ground-truth.json
  *   node scripts/extract-pad-truth.mjs --check  fail if the file is stale
  */
@@ -109,13 +123,25 @@ function measure(assetFile, match) {
   const left = side(1);
   if (!right || !left) throw new Error(`${assetFile}: could not find two contact faces`);
 
-  // The pad plane's angle from the sagittal plane: how far the contact normal
-  // leans out of the x axis. This is the quantity `padAngleRad` names.
-  const angleOf = (n) => Math.atan2(Math.hypot(n[1], n[2]), Math.abs(n[0]));
+  // **A YAW about the vertical axis**: the quantity `parametricFrame` inverts
+  // at `frame-asset.ts:293` to build a pad plane, and the one `SKIN`'s
+  // `atan(0.60 / 0.76) = 0.67 rad` was derived as. This measured the CONE angle
+  // from the x axis until 2026-08-26, which on a parametric frame is the same
+  // number (`ny` is identically 0) and on a real pad is 6.7 to 8.8 degrees
+  // larger.
+  const yawOf = (n) => Math.atan2(Math.abs(n[2]), Math.abs(n[0]));
+  // The downward lean the yaw drops — an optician's frontal angle.
+  const dropOf = (n) => Math.asin(Math.max(-1, Math.min(1, -n[1])));
+  // The cone angle is still emitted, because `PAD_INWARD_COS` gates on `n . x`
+  // and its justification cites this file. Swapping one angle for another would
+  // have left that citation pointing at a number for a different quantity.
+  const coneOf = (n) => Math.atan2(Math.hypot(n[1], n[2]), Math.abs(n[0]));
 
   return {
     padSeparationMm: Math.abs(left.centroid[0] - right.centroid[0]),
-    padAngleRad: (angleOf(left.normal) + angleOf(right.normal)) / 2,
+    padAngleRad: (yawOf(left.normal) + yawOf(right.normal)) / 2,
+    padVerticalLeanRad: (dropOf(left.normal) + dropOf(right.normal)) / 2,
+    padConeAngleRad: (coneOf(left.normal) + coneOf(right.normal)) / 2,
     right,
     left,
   };
@@ -129,6 +155,10 @@ for (const { asset, match, note } of SOURCES) {
     padSeparationMm: +m.padSeparationMm.toFixed(3),
     padAngleRad: +m.padAngleRad.toFixed(4),
     padAngleDeg: +((m.padAngleRad * 180) / Math.PI).toFixed(2),
+    padVerticalLeanRad: +m.padVerticalLeanRad.toFixed(4),
+    padVerticalLeanDeg: +((m.padVerticalLeanRad * 180) / Math.PI).toFixed(2),
+    padConeAngleRad: +m.padConeAngleRad.toFixed(4),
+    padConeAngleDeg: +((m.padConeAngleRad * 180) / Math.PI).toFixed(2),
     contactAreaMm2: +(m.right.areaMm2 + m.left.areaMm2).toFixed(1),
     faces: m.right.faces + m.left.faces,
   };
@@ -138,7 +168,13 @@ const doc = {
   what: 'Author-declared nose pad geometry, the only independent check on pad derivation in this tree.',
   definition: 'padSeparationMm is the distance between the two pads\' CONTACT-SAMPLE centroids, '
     + 'area-weighted over faces whose normal leans toward the midline by more than '
-    + `${INWARD_COS}. padAngleRad is the mean lean of those contact normals out of the x axis.`,
+    + `${INWARD_COS}. padAngleRad is the mean YAW of those contact normals about the `
+    + 'VERTICAL axis - atan2(|nz|, |nx|) - which is the angle parametricFrame inverts to '
+    + 'build a pad plane and the one SKIN\'s atan(0.60/0.76) = 0.67 rad was derived as. '
+    + 'padVerticalLeanRad is the downward component the yaw drops, asin(-ny), an optician\'s '
+    + 'frontal angle. padConeAngleRad is the full lean out of the x axis, atan2(hypot(ny, nz), '
+    + '|nx|) - the quantity PAD_INWARD_COS gates on, and the one padAngleRad USED to hold. '
+    + 'They were one number until 2026-08-26 and it was neither.',
   coverage: '2 of 11 assets. The other nine are photogrammetry or image-to-3D output with '
     + 'generic part names or a single fused mesh, and have no author-declared pads to extract.',
   uncertainty: 'Method-dependent at about +/-1.4 mm. On navigator: whole-mesh part centroids give '
@@ -147,13 +183,17 @@ const doc = {
     + 'own samples; the spread is recorded rather than averaged away.',
   corroboration: 'SEPARATION replicates across methods and ANGLE does not, which is the useful '
     + 'part. Two independent extractions agree on navigator to 0.05 mm (13.843 here against '
-    + '13.79 from a plane fit) and on khronos to 0.10 mm. The ANGLE moves with the method: this '
-    + 'area-weighted normal average reads 0.603 rad on navigator where the plane fit reads '
-    + '0.673 — 4 degrees apart. So the claim that the authored pad angle corroborates this '
-    + 'tree\'s anthropometric padAngleRad of 0.67 to within half a percent is TRUE OF ONE '
-    + 'METHOD ONLY; by this one it is 3.8 degrees out. Grade a derivation against separation '
-    + 'with confidence, and against angle with a tolerance no tighter than the methods '
-    + 'disagree with each other.',
+    + '13.79 from a plane fit) and on khronos to 0.10 mm. The ANGLE does not replicate even '
+    + 'across DEFINITIONS of itself: on navigator the same contact faces read 30.80 deg as a '
+    + 'yaw and 34.56 deg as a cone, and on khronos 7.95 against 16.77 - a gap of 3.8 and 8.8 '
+    + 'degrees with no measurement error in it at all, only two readings of one word. '
+    + 'So the claim that the authored pad angle corroborates this tree\'s anthropometric '
+    + 'padAngleRad of 0.67 rad (38.39 deg) to within half a percent is FALSE: against the '
+    + 'authored YAW, which is what 0.67 is, navigator is 7.59 deg out. The old figure of 3.8 '
+    + 'deg was itself an artefact of the naming collision - it compared a CONE measurement '
+    + 'against a constant that only ever produces a yaw, and the two errors partly cancelled. '
+    + 'Grade a derivation against separation with confidence, and against angle with a '
+    + 'tolerance no tighter than the definitions disagree with each other.',
   inwardCos: INWARD_COS,
   measured,
 };

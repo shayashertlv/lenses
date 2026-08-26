@@ -174,11 +174,25 @@ default. One asset, not a population; recorded as corroboration, not as a new va
 - **Only 1 of 10 assets derives.** Nine refuse, each at a named step. That is the
   honest state, and `tests/asset.test.ts` asserts the list EXACTLY so that making
   the derivation credulous turns it red.
-- **`derivePads`' padAngleRad is systematically biased** by +8.7 deg (navigator)
-  and +6.1 deg (khronos): the rearward gate discards the forward-leaning 41.8% of
-  the pad by face count. Nothing in `src/` consumes the field — `contact.ts`
-  deliberately uses the mean pad NORMAL instead — so this is a reporting defect,
-  not a physics one. Not fixed.
+- **`derivePads`' padAngleRad is systematically biased**, and **2026-08-26
+  re-measured it under the corrected definition, where it is worse**. The field
+  was two different angles under one name until then: the parametric path
+  consumes it as a YAW about the vertical (`ny` identically zero) while both
+  measuring sites read it as a CONE angle from the x axis. Split apart:
+
+  | | derivation bias, cone (to 08-25) | bias, yaw (now) | bias on the vertical lean |
+  | --- | --- | --- | --- |
+  | navigator | +8.68 deg | **+10.42** | −2.08 |
+  | khronos | +10.99 (not the +6.1 this line used to claim) | **+17.74** | −3.93 |
+
+  The cone's apparently-moderate bias was partly CANCELLATION: the derivation
+  over-reads the yaw and under-reads the vertical lean, and the cone mixes the
+  two with opposite signs. Splitting them shows that the one quantity this
+  derivation recovers well — the vertical lean, to 2–4 deg — was hidden inside
+  the one it recovers badly. The cause is unchanged: the rearward gate discards
+  the forward-leaning 41.8% of the pad by face count. Nothing in `src/` consumes
+  the field — `contact.ts` deliberately uses the mean pad NORMAL instead — so
+  this is still a reporting defect, not a physics one. Not fixed.
 - **`serve.py` was broken by stage 1, four commits ago.** `faece72` (08-20)
   constructed the server correctly; `ec9c315` (08-25, "v2 owns the assets and the
   runtime") rewrote `main()` to delete the `SHARED_ROOTS` mapping and took the

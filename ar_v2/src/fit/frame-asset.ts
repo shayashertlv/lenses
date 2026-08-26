@@ -57,8 +57,11 @@ export interface FrameAsset {
   /** Distance between the two pad centroids, mm. The number that decides how far
    *  down the wedge the frame settles. */
   readonly padSeparationMm: number;
-  /** Angle of each pad's plane from the sagittal plane, radians. A pad angled to
-   *  match the wearer's sidewall bears flush; one that does not digs an edge in. */
+  /** Yaw of each pad's plane about the VERTICAL axis, radians — how far it turns
+   *  toward the face, with no vertical component in it. A pad angled to match the
+   *  wearer's sidewall bears flush; one that does not digs an edge in. Not a cone
+   *  angle from the x axis: see `derivePads`, where those were one number until
+   *  2026-08-26 and it was neither. */
   readonly padAngleRad: number;
   /** Pad face size, mm. Null when the frame came from a mesh: real geometry has
    *  a contact patch, not a rectangle, and inventing dimensions for it is how
@@ -166,12 +169,20 @@ export interface FrameSpec {
   /** Distance between pad centroids, mm. Typical 14-22. */
   padSeparationMm: number;
   /**
-   * Angle of each pad's plane, radians, measured from the sagittal plane.
+   * Yaw of each pad's plane about the VERTICAL axis, radians.
    *
    * A pad is flush when this matches the wearer's nasal sidewall. On the
    * template that angle is `atan(0.60 / 0.76) = 0.67 rad` (38 degrees), from the
    * measured surface normal at pad height — which is the number a real pad arm
    * is bent to.
+   *
+   * **Note what that derivation drops.** `SKIN` records the template's sidewall
+   * normal as `(-0.76, +0.24, +0.60)`, and `0.67` is `atan(|nz| / |nx|)` — the
+   * `+0.24` vertical component is in the data and deliberately not in the
+   * number. That is what settles the naming: this is a yaw, `parametricFrame`
+   * inverts it as a yaw at line 293 (`n = (-side*cos a, 0, -sin a)`, `ny`
+   * identically zero), and only the two measuring sites — both added later —
+   * ever read it as a cone angle from the x axis.
    */
   padAngleRad: number;
   /** Pad face height and width, mm. */
@@ -462,7 +473,13 @@ export interface PadDerivation {
   padNormals: Float64Array;
   padSide: Int8Array;
   padSeparationMm: number;
+  /** Yaw of the contact normals about the VERTICAL axis, radians —
+   *  `atan2(|nz|, |nx|)`. See the derivation for why it is not a cone angle. */
   padAngleRad: number;
+  /** The downward lean the yaw drops, radians — `asin(-ny)`. An optician's
+   *  frontal angle. Nothing reads it; it exists so that splitting one number
+   *  into two did not silently discard the half this derivation recovers best. */
+  padVerticalLeanRad: number;
 }
 
 /**
@@ -479,9 +496,16 @@ export interface PadDerivation {
  * have outward normals, and none of them has a surface looking at the midline.
  *
  * 0.35 is about 70 degrees off the x axis, which is generous — a real pad
- * leans 15 to 35 degrees (see `assets/glasses/ground-truth.json`) so the band
- * has ample room, and tightening it starts discarding the outer edge of a
- * curved pad before it discards anything else.
+ * leans 15 to 35 degrees so the band has ample room, and tightening it starts
+ * discarding the outer edge of a curved pad before it discards anything else.
+ *
+ * **That 15–35 is a CONE angle and must stay one.** This gate tests `n . x`,
+ * which is the cone angle from the x axis; `padAngleRad` in
+ * `assets/glasses/ground-truth.json` is a YAW as of 2026-08-26 and is a smaller
+ * number for the same pad (navigator 34.56 deg cone against 30.80 yaw, khronos
+ * 16.77 against 7.95). Read `padConeAngleDeg` in that file, not `padAngleDeg` —
+ * which is exactly why it carries all three angles rather than swapping one for
+ * another.
  */
 export const PAD_INWARD_COS = 0.35;
 
@@ -824,12 +848,28 @@ export function derivePads(
     }
   }
 
-  // How far the contact plane leans out of the sagittal plane — the quantity
-  // `padAngleRad` names, and the same one `scripts/extract-pad-truth.mjs`
-  // measures on the two assets that declare their pads.
-  const lean = (n: { nx: number; ny: number; nz: number }) =>
-    Math.atan2(Math.hypot(n.ny, n.nz), Math.abs(n.nx));
-  const angle = (lean(r) + lean(l)) / 2;
+  // **`padAngleRad` is a YAW about the vertical axis**, not a cone angle from
+  // the x axis. It is the quantity `parametricFrame` inverts to build a pad
+  // plane — `n = (-side*cos a, 0, -sin a)`, with `ny` identically zero — and the
+  // one `SKIN`'s `atan(0.60 / 0.76) = 0.67 rad` was derived as, from a template
+  // sidewall normal of `(-0.76, +0.24, +0.60)` whose vertical component is
+  // present in the data and deliberately absent from the constant.
+  //
+  // This measured the CONE angle `atan2(hypot(ny, nz), |nx|)` until 2026-08-26,
+  // and on a parametric frame the two are identical — `ny` is exactly 0, so
+  // every round-trip test passed. On a real pad they are not: a pad's normal
+  // leans DOWN as well as in (mean |ny| is 0.31 on navigator and 0.32 on
+  // khronos), and the two definitions differ by 6.7 and 8.5 degrees.
+  const yaw = (n: { nx: number; nz: number }) =>
+    Math.atan2(Math.abs(n.nz), Math.abs(n.nx));
+  // The vertical component the yaw drops, kept rather than discarded: it is a
+  // real property of a pad — an optician's frontal angle — and this derivation
+  // recovers it BETTER than it recovers the yaw, 2.1 degrees out on navigator
+  // against 10.4. Nothing reads it yet; it is here so that splitting the two
+  // angles does not throw one of them away.
+  const drop = (n: { ny: number }) => Math.asin(Math.max(-1, Math.min(1, -n.ny)));
+  const angle = (yaw(r) + yaw(l)) / 2;
+  const vertical = (drop(r) + drop(l)) / 2;
 
   return {
     ok: true,
@@ -839,6 +879,7 @@ export function derivePads(
     padSide: Int8Array.from(sides),
     padSeparationMm: separation,
     padAngleRad: angle,
+    padVerticalLeanRad: vertical,
   };
 }
 
@@ -850,6 +891,7 @@ const fail = (reason: string): PadDerivation => ({
   padSide: new Int8Array(0),
   padSeparationMm: NaN,
   padAngleRad: NaN,
+  padVerticalLeanRad: NaN,
 });
 
 function vertexNormals(positions: Float64Array, indices: Uint32Array): Float64Array {

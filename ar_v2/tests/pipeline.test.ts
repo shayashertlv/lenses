@@ -1533,7 +1533,9 @@ describe('deriving pad contact from a real mesh, and refusing everything else', 
   );
   const load = (name: string) => readGlb(new Uint8Array(readFileSync(glbPath(name))));
   const truth = JSON.parse(readFileSync(glbPath('ground-truth.json'), 'utf8')) as {
-    measured: Record<string, { padSeparationMm: number; padAngleRad: number }>;
+    measured: Record<string, {
+      padSeparationMm: number; padAngleRad: number; padConeAngleDeg: number;
+    }>;
   };
 
   /**
@@ -1590,6 +1592,87 @@ describe('deriving pad contact from a real mesh, and refusing everything else', 
       `pad separation ${got.padSeparationMm.toFixed(2)} against the asset's own `
       + `${want.padSeparationMm} mm — ${err.toFixed(2)} mm out`,
     );
+  });
+
+  it('padAngleRad is the angle parametricFrame inverts, on a real pad too', () => {
+    // `padAngleRad` was TWO angles under one name. `parametricFrame` consumes it
+    // as a yaw about the vertical — `n = (-side*cos a, 0, -sin a)`, so `ny` is
+    // identically zero — and `SKIN`'s `atan(0.60 / 0.76) = 0.67` was derived
+    // that way, with the template sidewall's `+0.24` vertical component present
+    // in the data and deliberately absent from the number. Both MEASURING sites,
+    // added later, read it as a cone angle from the x axis instead.
+    //
+    // (a) The round trip: the definition must recover what parametricFrame built.
+    for (const a of [0.20, 0.42, 0.67, 0.80]) {
+      const f = parametricFrame({ id: 'rt', padSeparationMm: 17, padAngleRad: a });
+      for (let i = 0; i < f.padNormals.length / 3; i++) {
+        const nx = f.padNormals[i * 3], nz = f.padNormals[i * 3 + 2];
+        assert.ok(Math.abs(Math.atan2(Math.abs(nz), Math.abs(nx)) - a) < 1e-12,
+          `parametric pad ${i} came back at ${Math.atan2(Math.abs(nz), Math.abs(nx))} for ${a}`);
+      }
+    }
+
+    // (b) **THE DISCRIMINATOR, and (a) is worthless without it.** A parametric
+    // pad has `ny == 0`, so a cone angle and a yaw agree on it EXACTLY and the
+    // round trip above passes under either definition — which is precisely how
+    // the collision survived. navigator's authored pads lean down as well as in,
+    // and there the two differ by 3.8 degrees.
+    const asset = load('navigator.glb');
+    const d = derivePads(asset.positions, asset.indices);
+    assert.ok(d.ok, `refused a frame with authored nose pads: ${d.reason}`);
+    let maxAbsNy = 0;
+    for (let i = 0; i < d.padNormals.length / 3; i++) {
+      maxAbsNy = Math.max(maxAbsNy, Math.abs(d.padNormals[i * 3 + 1]));
+    }
+    assert.ok(maxAbsNy > 0.2,
+      `this asset's pad normals peak at |ny| = ${maxAbsNy.toFixed(3)}, so a cone angle and `
+      + 'a yaw agree on it and it cannot discriminate the two definitions — pick another '
+      + 'asset before trusting the assertion below');
+
+    // **A yaw is invariant to a vertical stretch of the frame and a cone angle
+    // is not**, and that is what actually separates them here. Scaling y by s
+    // sends a normal to `(nx, ny/s, nz)` renormalised, which leaves `nz/nx`
+    // — and therefore the yaw — alone, while changing `ny` and therefore the
+    // cone. No ground truth needed, and no dependence on how biased this
+    // derivation is, which is the trap: comparing against the authored yaw
+    // CANNOT discriminate, because `derivePads` over-reads by 10.4 degrees and
+    // its cone reading is only 12.4 degrees out — both inside any tolerance
+    // loose enough to pass at all.
+    //
+    // Measured on navigator over a 4x stretch (y x0.5 against y x2), on the
+    // area-weighted aggregate this function actually returns: the yaw moves
+    // **1.40 degrees** and the cone moves **4.90**. The residual movement in the
+    // yaw is the inward-facing gate admitting slightly different faces as the
+    // normals renormalise, not the definition. The 2.5-degree bar sits with a
+    // 1.79x margin below it and a 1.96x margin above -- deliberately balanced,
+    // because a bar pushed to either end of that gap is a knife edge.
+    const stretched = (s: number) => {
+      const p = new Float64Array(asset.positions);
+      for (let i = 1; i < p.length; i += 3) p[i] *= s;
+      const got = derivePads(p, asset.indices);
+      assert.ok(got.ok, `derivePads refused navigator stretched by ${s}: ${got.reason}`);
+      return got.padAngleRad;
+    };
+    const spreadDeg = Math.abs(stretched(2) - stretched(0.5)) * 180 / Math.PI;
+    assert.ok(spreadDeg < 2.5,
+      `padAngleRad moved ${spreadDeg.toFixed(2)} degrees when the frame was stretched `
+      + 'vertically. A yaw about the vertical axis cannot do that; a cone angle from '
+      + 'the x axis does. This is measuring the wrong quantity.');
+
+    // (c) And it is still in the neighbourhood of the asset's own figure — a
+    // loose bar, because this derivation over-reads the yaw by 10.4 degrees and
+    // that is a separate open item, not this one.
+    const want = truth.measured['navigator.glb'];
+    assert.ok(Math.abs(d.padAngleRad - want.padAngleRad) < 0.25,
+      `derivePads reads ${d.padAngleRad.toFixed(4)} rad against the asset's own `
+      + `${want.padAngleRad}`);
+
+    // (d) ground-truth.json must keep the two apart. If they ever become equal
+    // there, the file has stopped distinguishing them and (b)'s subject is gone.
+    const cone = (want.padConeAngleDeg * Math.PI) / 180;
+    assert.ok(cone - want.padAngleRad > 0.05,
+      `the authored yaw and cone angles now agree to ${(cone - want.padAngleRad).toFixed(4)} rad `
+      + '— ground-truth.json has stopped distinguishing them');
   });
 
   it('gives the same answer mirrored — a frame is a frame either way round', () => {
