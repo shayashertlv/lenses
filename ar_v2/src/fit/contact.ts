@@ -1197,24 +1197,37 @@ function describeSeat(
       per[side].peak = Math.max(per[side].peak, penetration);
       const normalN = kPerSample * penetration;
       per[side].load += normalN;
-      // Only the VERTICAL component of the contact normal carries weight. The
-      // nasal sidewall's normal is about 24% vertical, so a normal force
-      // magnitude compared against the frame's weight overstates the nose's
-      // share by a factor of four — which is how an earlier version of this
-      // report showed every frame carrying 100% of its weight on the pads while
-      // the ear term was demonstrably engaged.
+      // Only the VERTICAL component carries weight. The nasal sidewall leans
+      // about 24% vertical, so a normal force MAGNITUDE compared against the
+      // frame's weight overstates the nose's share by a factor of four — which
+      // is how an earlier version of this report showed every frame carrying
+      // 100% of its weight on the pads while the ear term was demonstrably
+      // engaged.
       //
-      // SIGNED, and the `Math.max(cp.ny, 0)` that used to sit here was wrong.
-      // Some contacts face DOWNWARD and push the frame down — 77 of 1,316
-      // bearing samples over 29 synthetic faces x the 5 catalogue frames, and
-      // all 145 of those solves converged. They are not an artefact to clamp
-      // away: `addOneSided` above builds the solver's own gradient from the
-      // unclamped normal, so it is the SIGNED sum that closes the vertical force
-      // balance at a converged pose. Over the 29 pairs that have a downward
-      // contact, |weight - padLift - earLift + prior| is 7.1e-3 N signed against
-      // 4.7e-2 N clamped, and 5.0e-2 N against 2.6e-1 N at worst. Clamped, this
-      // report had pads carrying 194% of the frame's weight.
-      per[side].lift += normalN * cp.ny;
+      // **The direction the SOLVE pushes, not the surface's own normal.**
+      // `accumulate` builds its contact row from `u = (p - cp)/|p - cp|`, the
+      // gradient of the penetration depth, so with `E = k*d^2/2` the force it
+      // balances is `-k*d*u` and the vertical component is `-normalN * u_y`.
+      // `cp.n` is a barycentrically interpolated VERTEX normal — `meshdist`
+      // says so on the line that computes it — and sits 9.2 degrees from `-u`
+      // at the median over 1,416 bearing samples, 48.2 at the worst. Reporting
+      // a load share against a direction the solve never used describes
+      // different physics from the one that was solved.
+      //
+      // **Mind the sign.** `u` is the gradient of the RESIDUAL, not the
+      // direction of the force. Substituting `+u_y` naively was measured and it
+      // is not a small error: it drives `padLoadFraction` to 0.0% on every frame
+      // in the catalogue (145 of 145 grades change), because `cp.n` and `+u` sit
+      // 170.8 degrees apart.
+      //
+      // SIGNED, and the `Math.max(..., 0)` that used to sit here was wrong: some
+      // contacts push the frame DOWN — 121 of 1,416 bearing samples over 29
+      // faces x 5 frames, where the vertex normal showed only 22 — and it is the
+      // signed sum that closes the vertical balance. By this report's own
+      // criterion, `totalLift / weightN` at a converged pose: median |err| falls
+      // 0.1833 -> 0.1372 over the parametric population and 0.2136 -> 0.1323
+      // over the catalogue, and the worst 1.3897 -> 0.7974.
+      per[side].lift += normalN * (cp.y - p[1]) / Math.max(cp.magnitude, 1e-9);
     }
   }
 

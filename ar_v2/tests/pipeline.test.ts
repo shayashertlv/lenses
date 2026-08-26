@@ -49,7 +49,9 @@ import { createTracker, track } from '../src/track/tracker.js';
 import {
   createFaceModel, type FaceModel, type ScaleEstimate,
 } from '../src/core/facemodel.js';
-import { SKIN, landmarkHungPose, solveSeat } from '../src/fit/contact.js';
+import {
+  SEAT_DEFAULTS, SKIN, energyTerms, landmarkHungPose, solveSeat,
+} from '../src/fit/contact.js';
 import { perVertexUncertainty } from '../src/enroll/enroll.js';
 import { LM } from '../src/core/mesh.js';
 import { noseConfidence } from '../src/core/facemodel.js';
@@ -1203,6 +1205,66 @@ describe('the seat', () => {
     }
     const slope = (medians[medians.length - 1] - medians[0]) / (separations[separations.length - 1] - separations[0]);
     assert.ok(slope > 0.3 && slope < 2.0, `wedge slope ${slope.toFixed(3)} mm per mm`);
+  });
+
+  it('the pad lift it REPORTS is the vertical force the contact energy exerts', () => {
+    // `describeSeat` projected each contact force onto `cp.n` — a
+    // barycentrically interpolated VERTEX normal — while `accumulate` builds
+    // its contact row from `u = (p - cp)/|p - cp|`, the gradient of the
+    // penetration depth. Those sit 9.2 degrees apart at the median over 1,416
+    // bearing samples and 48.2 at the worst, so the wearer-facing "% on the
+    // nose" described different physics from the one that was solved.
+    //
+    // Mind the SIGN, because the obvious substitution is wrong: with
+    // `E = k*d^2/2` the force is `-k*d*u`, so it is MINUS u. Measured, `+u_y`
+    // drives `padLoadFraction` to 0.0% on all 145 catalogue pairs, because
+    // `cp.n` and `+u` sit 170.8 degrees apart.
+    //
+    // The assertion is an exact identity rather than a bar. At a pose where
+    // EVERY pad sample penetrates, the approach spring contributes nothing, so
+    // the reported pad lift must equal `-dE_contact/dt_y` to numerical
+    // precision. `Terms.contact` is the pad term alone — ears are `.ear`,
+    // clearance is `.clearance` — so no options gymnastics are needed.
+    const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+    const model = truthModel(subject.positions);
+    const frame = TEST_FRAMES[1];
+
+    // Push the frame 2.15 mm back into the nose so all 18 pad samples bear.
+    const settled = solveSeat(model, mesh, regions, frame);
+    const t = new Float64Array(settled.pose.t);
+    t[2] -= 2.15;
+    const pose = { R: new Float64Array(settled.pose.R), t };
+    const rep = solveSeat(model, mesh, regions, frame, { maxIterations: 0, initialPose: pose });
+
+    // The precondition, so a later change to the frame or the mesh cannot
+    // silently turn this identity into an inequality.
+    assert.equal(rep.pads[0].bearingFraction, 1, 'not every left pad sample penetrates');
+    assert.equal(rep.pads[1].bearingFraction, 1, 'not every right pad sample penetrates');
+
+    const reportedLiftN = rep.padOverClosure * frame.massG * GRAVITY_N_PER_G;
+
+    const contactVerts = (() => {
+      const s = new Set<number>();
+      for (const v of regions.nose.members) s.add(v);
+      for (const v of regions.cheeks.members) s.add(v);
+      return Uint32Array.from([...s].sort((a, b) => a - b));
+    })();
+    const distance = buildMeshDistance(mesh, model.positions, contactVerts);
+    const E = (dy: number) => {
+      const tt = new Float64Array(pose.t);
+      tt[1] += dy;
+      return energyTerms(model, frame, { R: pose.R, t: tt }, distance, null,
+        { R: pose.R, t: pose.t }, SEAT_DEFAULTS).contact;
+    };
+    const h = 1e-4;
+    const fy = -(E(h) - E(-h)) / (2 * h);
+
+    assert.ok(Math.abs(fy) > 1e-6, 'the contact energy has no vertical gradient here');
+    assert.ok(Math.abs(reportedLiftN - fy) / Math.abs(fy) < 1e-6,
+      `the reported pad lift (${reportedLiftN.toExponential(8)} N) is not the vertical `
+      + `force the contact energy exerts (${fy.toExponential(8)} N), a relative `
+      + `difference of ${(Math.abs(reportedLiftN - fy) / Math.abs(fy)).toFixed(4)}. `
+      + 'The report is describing a direction the solve never used.');
   });
 
   it('a seat solved against the wrong nose fits the right one badly — the control', () => {

@@ -708,10 +708,20 @@ This is the cheapest open question in the file.
 
 ## Q23 — On some seats the ears carry literally nothing, and no verdict says so. **(new 2026-08-22)**
 
-**Measured** over 5 catalogue frames × 29 synthetic faces (145 pairs), ground
-truth geometry: `padLoadFraction` median 0.865, p90 0.970, and **exactly 1.000 on
-9 of 145** — 6.2% of pairs. On the smaller 13-face population it is 8 of 65, and
-the p90 is 1.000 exactly.
+**Re-measured 2026-08-26**, after `describeSeat` stopped projecting each contact
+force onto the interpolated vertex normal and started projecting it onto `-u`,
+the direction the solve balances. Same population — 5 catalogue frames × 29
+synthetic faces, 145 pairs, ground truth geometry:
+
+| | `padLoadFraction` median | p90 | exactly 1.000 |
+| --- | --- | --- | --- |
+| against `cp.n` (to 2026-08-25) | 0.865 | 0.970 | **9 of 145** — 6.2% |
+| against `-u` (now) | 0.872 | **1.000** | **25 of 145** — 17.2% |
+
+**The finding got bigger, not smaller.** Nearly three times as many pairs have
+the ears carrying nothing at all, and the p90 is now 1.000 exactly — so more
+than a tenth of seats put the whole frame on the nose. On the smaller 13-face
+population it is 8 of 65 either way.
 
 A `padLoadFraction` of 1.000 is not a rounding artefact and not the old clamping
 bug — that was fixed, and the value is now `padLift / (padLift + earLift)`. It
@@ -849,6 +859,8 @@ compliant, because a temple arm is a slender beam and it bends.
 in the ledger, with the {k/2, k, 2k} bracket covering the published-E spread).
 Ground truth, count-8 population × 5 catalogue frames × seeds
 {11, 23, 37, 41, 53}; each cell the median over the 5 per-seed medians:
+
+**The pad-load column below predates 2026-08-26**, when `describeSeat` stopped projecting each contact force onto the interpolated vertex normal `cp.n` and started projecting it onto `-u`, the direction the solve actually balances. The two sit 9.2 degrees apart at the median. The figures are kept as the record of what was measured then; do not compare them against a pad load taken today.
 
 | arm | k (N/mm) | \|depth err\| mm | pad load | hook/weight | corneal vertex mm | in 12–16 band | descent mm |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1195,8 +1207,17 @@ term never engages at all (zero of 1,462 solves). The measured causes are the
 improving step" with a vertical gradient still 0–23% of the weight. The full
 explanation is written out at `padOverClosure` in `fit/contact.ts`.
 
-Re-measured over 5 catalogue frames × 29 faces (145 pairs): `padOverClosure`
-median 0.82, p90 0.96, worst **1.264**, above 1 on **11 of 145**.
+Re-measured over 5 catalogue frames × 29 faces (145 pairs), 2026-08-26:
+`padOverClosure` median **0.928**, p90 **1.250**, worst **1.660**, above 1 on
+**58 of 145**.
+
+**That is four times the count this paragraph used to give** (median 0.82, p90
+0.96, worst 1.264, above 1 on 11 of 145), and only part of the move is the
+pad-load redefinition of 2026-08-26 — which took the count from 59 to 58 and
+the worst from 1.900 to 1.660, i.e. *down*. The rest of the gap was already
+there: the 11-of-145 figure predates the 2026-08-25 contact-row fix, which moved
+every settled pose. It is quoted here as a reminder that a re-measurement in a
+document is only as current as the last time somebody ran it.
 
 **The displacement field never scaled.** `applyScale` scaled positions and pose
 translations but not `field.values`, so `displacementRmsMm` carried an `Mm`

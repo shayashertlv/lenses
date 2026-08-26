@@ -155,6 +155,8 @@ everything else identical, over 17 synthetic subjects:
     the BEND         4.07 [ 0.6, 12.1]      0.3 [-2, 11]     90% [69, 100]  17/17
     parametric ref   4.09 [ 0.4, 10.7]      3.9 [ 1, 15]     93% [56, 100]  17/17
 
+**The two pad-load figures in that table predate 2026-08-26**, when `describeSeat` stopped projecting each contact force onto the interpolated vertex normal `cp.n` and started projecting it onto `-u`, the direction the solve actually balances — the two sit 9.2 degrees apart at the median. The shape of the tip-vs-bend result does not depend on it (the tip's bimodality is a descent and pantoscopic story as much as a load one), but the numbers below are from the old projection.
+
 The tip's pad load reads 99% MEDIAN with a 0% worst case — the frame either hangs
 on the nose alone or slides off, and the median hides it.
 
