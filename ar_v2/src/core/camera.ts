@@ -65,13 +65,47 @@ export const verticalFovDeg = (k: Intrinsics): number =>
  */
 export const MEDIAPIPE_ASSUMED_VERTICAL_FOV = 63;
 
+/**
+ * A solved camera carried onto a source of a different pixel size.
+ *
+ * A driver changes modes by **cropping and downscaling**, never by squashing:
+ * 16:9 -> 4:3 crops the sides and the VERTICAL field of view survives
+ * (`sy > sx`); 4:3 -> 16:9 crops top and bottom and the HORIZONTAL one
+ * survives (`sx > sy`). Either way the surviving axis is the larger ratio, so
+ * `f` scales by `max(sx, sy)`.
+ *
+ * `width / k.width` alone - which this was for as long as it had no callers to
+ * be wrong for - is right only when the aspect ratio is unchanged. It hands a
+ * 63-degree 1280x720 record a **78.50-degree** vertical field of view at
+ * 640x480, and costs 115 mm of solved depth on that transfer against 17 mm for
+ * the corrected form (measured, 5 subjects x 18 frames, median |dt| against
+ * the true camera; the 17 mm is the control floor - detector noise plus
+ * template-vs-subject mismatch - and the corrected form sits on it).
+ *
+ * **The crop premise is an assumption, and here is what it costs if it is
+ * wrong.** A driver that genuinely squashed 4:3 into 16:9 would leave this
+ * rescale 151 mm out on that transfer, where refusing and falling back to the
+ * assumed 63 degrees would be 17 mm. Two things make that acceptable: the old
+ * `width / k.width` rule is 151 mm out on the same transfer, so this is never
+ * worse than what it replaces; and every rung where the two rules differ, this
+ * one lands on the control while the old one does not. Refusal is not the safe
+ * default either way - on a 55-degree lid camera reloading at 800x600 it costs
+ * 70 mm of solved depth against 13.6 mm for the rescale, and throws away a
+ * camera that was honestly measured.
+ */
 export function scaleIntrinsics(k: Intrinsics, width: number, height: number): Intrinsics {
-  const s = width / k.width;
+  const sx = width / k.width;
+  const sy = height / k.height;
+  const s = Math.max(sx, sy);
   return {
     f: k.f * s,
-    cx: k.cx * s,
-    cy: k.cy * (height / k.height),
-    k1: k.k1,
+    // Per-axis, which is exact for a symmetric crop of a CENTRAL principal
+    // point - the only kind this tree produces, because `pp` is never solved.
+    // A solved off-centre principal point would need the crop window, which is
+    // not in the record; see `principalPointOffset` in `render/convert.ts`.
+    cx: k.cx * sx,
+    cy: k.cy * sy,
+    k1: k.k1,   // dimensionless: `project` normalises r by z, not by f
     width,
     height,
   };

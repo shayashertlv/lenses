@@ -131,6 +131,31 @@ describe('the wear branch keeps its wiring', () => {
   });
 });
 
+describe('a stored camera is not planted on a source of another size', () => {
+  it('neither intrinsics site takes a solved record verbatim', () => {
+    // Textual for the same reason the two fingerprints above are: main.ts
+    // boots at module scope and cannot be imported under Node.
+    //
+    // This defect is silent by construction and no residual can see it. PnP
+    // absorbs a wrong focal length into DEPTH, so the reprojection rms stays
+    // at 4.95-5.90 px against a 22 px gate and `t[2] > 50` passes on 90 of 90
+    // frames, while the pose is up to 802 mm out and the frame is drawn 185 to
+    // 663 px off the face. The deterministic reproducer needs no hardware
+    // change: scan on a camera, reload with the camera unavailable, and
+    // `startSource` falls back to a 1024x1024 still while the model carries
+    // 1280x720.
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(text, /app\.intrinsics = model\.intrinsicsSolved\s*\?\s*model\.intrinsics\b/,
+      'adoptModel takes a stored record verbatim again - 185 px of misalignment at a '
+      + 'changed camera resolution, with a 5 px reprojection residual that no gate sees');
+    assert.doesNotMatch(text, /app\.intrinsics = app\.model\?\.intrinsics\s*\?\?/,
+      'startSource takes a stored record verbatim again, and it does not even check '
+      + 'intrinsicsSolved - it is masked only by boot ordering');
+    assert.match(text, /function intrinsicsForSource\(/,
+      'the rescale helper is gone; both sites are back to planting a record');
+  });
+});
+
 describe('a new face gets a new occluder calibration', () => {
   it('adopting a model clears the edge-snap field', () => {
     // `CalibrationField.reset()` had NO production caller until the

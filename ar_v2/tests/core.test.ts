@@ -23,7 +23,7 @@ import {
 import { PNP_DEFAULTS, buildCorrespondences, refinePnP } from '../src/track/pnp.js';
 import {
   dProjDIntrinsics, dProjDModelPoint, dProjDPoint, dProjDPose, intrinsicsFromFov,
-  pointAtDepth, project, rayThrough, verticalFovDeg, type Intrinsics,
+  pointAtDepth, project, rayThrough, scaleIntrinsics, verticalFovDeg, type Intrinsics,
 } from '../src/core/camera.js';
 import { hornRotation, rigidAlign } from '../src/enroll/detector-bias.js';
 import { createRng } from '../src/testkit/random.js';
@@ -228,6 +228,43 @@ describe('camera model', () => {
       const k = intrinsicsFromFov(1920, 1080, fov);
       assert.ok(Math.abs(verticalFovDeg(k) - fov) < 1e-9);
     }
+  });
+
+  it('carries a solved camera across a mode change without inventing a field of view', () => {
+    // A driver changes modes by CROPPING and downscaling, never by squashing,
+    // so exactly one axis's field of view survives and it is the one with the
+    // larger pixel ratio. `f = k.f * width / k.width` - which this was until
+    // it acquired its first caller - is right only when the aspect survives:
+    // it hands a 63-degree 1280x720 record a 78.50-degree vertical field of
+    // view at 640x480, and costs 115 mm of solved depth on that transfer.
+    const hfov = (k: Intrinsics) => (2 * Math.atan(k.width / 2 / k.f) * 180) / Math.PI;
+    const k = intrinsicsFromFov(1280, 720, 63);
+
+    // Same aspect: both fields of view survive, and cx/cy stay central.
+    const half = scaleIntrinsics(k, 640, 360);
+    assert.ok(Math.abs(verticalFovDeg(half) - 63) < 1e-9);
+    assert.ok(Math.abs(hfov(half) - hfov(k)) < 1e-9);
+    assert.ok(Math.abs(half.cx - 320) < 1e-9 && Math.abs(half.cy - 180) < 1e-9);
+
+    // 16:9 -> 4:3 is a HORIZONTAL crop: the vertical fov survives, the
+    // horizontal one shrinks.
+    const crop43 = scaleIntrinsics(k, 640, 480);
+    assert.ok(Math.abs(verticalFovDeg(crop43) - 63) < 1e-9,
+      `a 4:3 mode was given a ${verticalFovDeg(crop43).toFixed(2)} deg vertical fov - `
+      + 'the record was stretched, not cropped');
+    assert.ok(hfov(crop43) < hfov(k) - 1e-9,
+      'a side crop did not narrow the horizontal field of view');
+    assert.ok(Math.abs(crop43.cx - 320) < 1e-9 && Math.abs(crop43.cy - 240) < 1e-9,
+      'the principal point left the centre of a symmetric crop');
+
+    // 4:3 -> 16:9 is a VERTICAL crop: the horizontal fov survives.
+    const k43 = intrinsicsFromFov(640, 480, 63);
+    const crop169 = scaleIntrinsics(k43, 1280, 720);
+    assert.ok(Math.abs(hfov(crop169) - hfov(k43)) < 1e-9,
+      `a 16:9 mode was given a ${hfov(crop169).toFixed(2)} deg horizontal fov against `
+      + `${hfov(k43).toFixed(2)} - the record was stretched, not cropped`);
+    assert.ok(verticalFovDeg(crop169) < verticalFovDeg(k43) - 1e-9,
+      'a top-and-bottom crop did not narrow the vertical field of view');
   });
 });
 

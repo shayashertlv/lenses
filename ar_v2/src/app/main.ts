@@ -27,7 +27,8 @@ import {
 import { buildAnthropometricBasis } from '../core/shape/anthropometric.js';
 import type { ShapeBasis } from '../core/shape/basis.js';
 import {
-  intrinsicsFromFov, MEDIAPIPE_ASSUMED_VERTICAL_FOV, type Intrinsics,
+  intrinsicsFromFov, MEDIAPIPE_ASSUMED_VERTICAL_FOV, scaleIntrinsics, verticalFovDeg,
+  type Intrinsics,
 } from '../core/camera.js';
 import { poseIdentity, type Pose } from '../core/linalg.js';
 import {
@@ -588,8 +589,12 @@ async function startSource(app: App): Promise<void> {
   app.lock.resize(app.source.width, app.source.height);
   app.scene.setBackgroundSource(app.lock.display);
   app.scene.setSize(app.source.width, app.source.height);
-  app.intrinsics = app.model?.intrinsics
-    ?? intrinsicsFromFov(app.source.width, app.source.height, MEDIAPIPE_ASSUMED_VERTICAL_FOV);
+  // Through `intrinsicsForSource`, not verbatim: this is a source-SWITCH entry
+  // point, and the source it switches to need not be the size the scan solved
+  // at. The still-image fallback below is 1024x1024 on its own.
+  app.intrinsics = app.model?.intrinsicsSolved
+    ? intrinsicsForSource(app.model.intrinsics, app.source.width, app.source.height)
+    : intrinsicsFromFov(app.source.width, app.source.height, MEDIAPIPE_ASSUMED_VERTICAL_FOV);
   app.scene.applyIntrinsics(app.intrinsics);
 }
 
@@ -1345,6 +1350,37 @@ function templateModel(app: App): FaceModel {
   });
 }
 
+/**
+ * A solved camera moved onto a source of a different size.
+ *
+ * The scan's record is in the pixels of the mode the scan ran in; the tracker's
+ * landmarks are in the pixels of the mode running NOW. Those differ more often
+ * than they look like they should - `getUserMedia` is asked for 1280x720 as an
+ * *ideal* (`sources.ts`), so another app holding the camera silently
+ * renegotiates, and the still-image fallback is **1024x1024**.
+ *
+ * Using the record verbatim across that change is silent and catastrophic.
+ * PnP absorbs a wrong focal length into depth, so the residual stays healthy -
+ * measured 4.95 to 5.90 px against `SCAN_MAX_RMS_PX = 22`, and `t[2] > 50` on
+ * 90 of 90 frames - while the pose is 176 to 802 mm out and the frame is drawn
+ * 185 to 663 px off the face. **No gate in this app can see it**, which is why
+ * this is a precondition rather than a bar.
+ *
+ * Rescale, not refusal: refusing and falling back to the assumed 63 degrees
+ * costs 70 mm of solved depth on a 55-degree lid camera whose field of view had
+ * been honestly measured, against 13.6 mm for the rescale, which is the control.
+ * Throwing away a measured camera is exactly what `core/camera.ts`'s header
+ * argues against.
+ */
+function intrinsicsForSource(k: Intrinsics, width: number, height: number): Intrinsics {
+  if (width === k.width && height === k.height) return k;
+  const scaled = scaleIntrinsics(k, width, height);
+  console.info(`[camera] the scan solved ${k.f.toFixed(1)} px at ${k.width}x${k.height}; `
+    + `this source is ${width}x${height}, so the solve is carried over as `
+    + `${scaled.f.toFixed(1)} px (${verticalFovDeg(scaled).toFixed(1)} deg vertical)`);
+  return scaled;
+}
+
 function adoptModel(app: App, model: FaceModel): void {
   app.model = model;
   // The edge calibration is a property of ONE face's geometry, and this line
@@ -1388,7 +1424,7 @@ function adoptModel(app: App, model: FaceModel): void {
   // strictly worse than an assumed field of view that is already marked as
   // assumed in the readouts.
   app.intrinsics = model.intrinsicsSolved
-    ? model.intrinsics
+    ? intrinsicsForSource(model.intrinsics, app.source?.width ?? 1280, app.source?.height ?? 720)
     : intrinsicsFromFov(
       app.source?.width ?? 1280, app.source?.height ?? 720, MEDIAPIPE_ASSUMED_VERTICAL_FOV,
     );
