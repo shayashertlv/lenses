@@ -31,6 +31,9 @@ import { type Vec3, v3, vnormalize } from '../core/linalg.js';
 
 export type DimensionSource = 'measured' | 'cad' | 'scan-normalised' | 'assumed';
 
+/** How a frame's ear rest was arrived at. See `FrameAsset.earRestSource`. */
+export type EarRestSource = 'measured' | 'derived' | 'assumed';
+
 export interface FrameAsset {
   readonly id: string;
   readonly name: string;
@@ -71,6 +74,35 @@ export interface FrameAsset {
   readonly hinges: readonly [Float64Array, Float64Array];
   /** Where the arms come to rest on the ears, per side, when unsplayed. */
   readonly earRests: readonly [Float64Array, Float64Array];
+  /**
+   * How `earRests` was arrived at, and therefore what the seat is worth.
+   *
+   * The ear rest is the single most sensitive input to the seat — measured over
+   * 10 subjects x 5 specs, a reach of 60 mm buries the pads 12.2 mm and presses
+   * the hook at 74x the frame's weight, where 90-100 mm is flat and quiet. So
+   * where it came from has to travel with it rather than being lost at the
+   * boundary, exactly as `dimensionSource` does for the width.
+   *
+   *   'measured'  a named temple part whose bend was walked directly
+   *   'derived'   the arm found from the mesh's own geometry, its knee fitted
+   *   'assumed'   a wrap or an earhook, which has no rest point at all: the
+   *               WEARER's ear supplies the reach and height, and only the
+   *               lateral position is the asset's own
+   *
+   * Parametric frames are `'derived'`: their rest follows from `templeReachMm`,
+   * which is a swept constant rather than a measurement of any real frame.
+   */
+  readonly earRestSource: EarRestSource;
+  /**
+   * Whether `lensCentres` came from named lens parts or from the frame front.
+   *
+   * `'derived'` means the asset names no lens anywhere and the centres are the
+   * extent centres of the frontmost slice — the rim opening. Good enough to
+   * place and draw a frame, not good enough for the vertex-distance and
+   * pupil-height verdicts, which `score.ts` withholds when it is not
+   * `'measured'`.
+   */
+  readonly lensSource: 'measured' | 'derived';
 
   /** Mass, grams. Heavier frames sit lower — the wedge slide is proportional. */
   readonly massG: number;
@@ -364,6 +396,12 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     splayStiffnessNPerMm: spec.splayStiffnessNPerMm ?? 0.05,
     bridgeType: spec.bridgeType ?? 'pads',
     dimensionSource: 'assumed',
+    // Both follow from the spec's own fields rather than from any real frame:
+    // the rest is `templeReachMm`, a swept constant, and the lens centres are
+    // placed at a fixed fraction of the front width. Neither was measured off a
+    // pair of glasses, and neither is a guess about the wearer.
+    earRestSource: 'derived',
+    lensSource: 'derived',
     provenance: 'parametric — generated from a FrameSpec, not measured',
     // No file behind it: the renderer builds this one from the fields above.
     source: null,

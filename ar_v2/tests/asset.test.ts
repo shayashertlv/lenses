@@ -160,9 +160,10 @@ describe('a real asset becomes a frame the solve can hold', () => {
   it('every catalogue entry either derives or refuses with a reason — none throws', () => {
     const derived: string[] = [];
     const refused: string[] = [];
+    const tiers: Record<string, string> = {};
     for (const e of CATALOGUE) {
       const built = frameFromMesh(load(e.file), e);
-      if (built.ok) derived.push(e.id);
+      if (built.ok) { derived.push(e.id); tiers[e.id] = built.asset.earRestSource; }
       else {
         refused.push(e.id);
         assert.ok(built.reason.length > 20,
@@ -171,13 +172,42 @@ describe('a real asset becomes a frame the solve can hold', () => {
           `${e.id}'s refusal does not name the asset`);
       }
     }
-    // **One of ten, and that is the honest state of this catalogue.** A test
-    // that only asserted "navigator works" would stay green on the day
-    // somebody made the derivation credulous enough to accept the other nine.
-    assert.deepEqual(derived, ['navigator'],
-      `expected only navigator to derive; got [${derived.join(', ')}]. `
-      + 'If a new asset genuinely derives, add it here WITH the measurement that says so.');
-    assert.equal(refused.length, CATALOGUE.length - 1);
+    // **Ten of ten derive, and the tier is the thing under test.**
+    //
+    // This assertion used to read `deepEqual(derived, ['navigator'])`, and it
+    // was right when the only route to an ear rest was a named temple part with
+    // a bend. It would now stay green on a derivation that had gone credulous
+    // in the other direction, so what it pins is no longer WHETHER an asset
+    // derives but WHAT IT ADMITS TO. The three tiers are not interchangeable:
+    // 'measured' is a bend walked on a named part, 'derived' is the arm's knee
+    // fitted from geometry, and 'assumed' means the asset has no rest point at
+    // all and the wearer's ear supplied one.
+    //
+    // Every id below is placed by a measurement, not by preference — see
+    // `deriveArmRest` for the slope-ratio table that separates the last two.
+    assert.equal(refused.length, 0,
+      `every catalogue asset should now derive; [${refused.join(', ')}] refused`);
+    assert.deepEqual(tiers, {
+      navigator: 'measured',
+      khronos: 'assumed',
+      'aviator-tortoiseshell': 'derived',
+      'aviator-amber': 'derived',
+      'horizon-amber': 'derived',
+      'horizon-sage': 'derived',
+      'shield-golden': 'assumed',
+      'crystal-parts': 'derived',
+      'crystal-lenses': 'derived',
+      meshy: 'derived',
+    }, 'an asset changed tier. That is a change in what the catalogue CLAIMS, '
+      + 'not a cosmetic one — re-measure before moving a row.');
+
+    // The two that cannot measure their own rest are the two the geometry says
+    // are wraps. If this count ever reaches zero the discriminator has stopped
+    // discriminating, and every frame in the catalogue would then be reporting
+    // a rest point it does not have.
+    const assumed = Object.values(tiers).filter((t) => t === 'assumed');
+    assert.equal(assumed.length, 2,
+      'exactly two catalogue assets are wraps with no rest point of their own');
   });
 });
 
@@ -210,24 +240,72 @@ describe('the derivation refuses rather than inventing a layout', () => {
     assert.match(built.reason, /upside down/i);
   });
 
-  it('refuses an asset whose parts it cannot name', () => {
+  it('finds navigator\'s arm without its name, and lands where the name did', () => {
+    // **This is the calibration point for the whole geometric-arm tier.**
+    //
+    // navigator is the only asset with a known-good ear rest, because it is the
+    // only one that names a temple part `findBend` can walk. Hide that name and
+    // the derivation has to find the arm the way it finds it on the other nine —
+    // by splitting the whole mesh and fitting the knee. If the two answers
+    // disagree, every DERIVED rest point in the catalogue is suspect and there
+    // is no way to know it from the assets themselves.
+    const named = frameFromMesh(load(entry.file), entry);
+    assert.ok(named.ok);
+    assert.equal(named.asset.earRestSource, 'measured');
+
     const blind: CatalogueEntry = { ...entry, parts: { temple: [], lens: entry.parts.lens } };
     const built = frameFromMesh(load(entry.file), blind);
-    assert.ok(!built.ok);
-    assert.match(built.reason, /temple/i);
-    // The refusal has to list what the file DOES name, or the reader has no
-    // way to fix the catalogue row without opening the asset in Blender.
-    assert.match(built.reason, /Temple_L|Temple_R/,
-      'the refusal must name the parts the file actually has');
+    assert.ok(built.ok, `the geometric arm must find navigator's rest: ${(built as any).reason}`);
+    assert.equal(built.asset.earRestSource, 'derived',
+      'with no temple named, the rest must come from the arm and SAY that it did');
+
+    for (const s of [0, 1]) {
+      const dz = built.asset.earRests[s][2] - named.asset.earRests[s][2];
+      const dy = built.asset.earRests[s][1] - named.asset.earRests[s][1];
+      // The two bounds are sized differently, and on purpose.
+      //
+      // REACH, 12 mm: the two methods answer slightly different questions —
+      // `findBend` walks back to the last level bin, the knee fit intersects
+      // two lines — so they disagree by 8.4 mm here and always will. The bound
+      // is there to catch a method that has stopped finding the arm at all,
+      // which is what a retuned tolerance does.
+      //
+      // HEIGHT, 1.5 mm: this one is tight, because it is the only check in the
+      // suite that can tell the level-run line from the knee bin's mean. Those
+      // two readings are 0.2 mm and 2.0 mm from the measured answer, and NOTHING
+      // ELSE distinguishes them — the seat moves by 0.01 mm of descent, so every
+      // other bar in the tree stays green under either. Loosen this and the
+      // curl-contaminated reading comes back silently.
+      assert.ok(Math.abs(dz) < 12,
+        `derived reach ${(-built.asset.earRests[s][2]).toFixed(1)} mm disagrees with the `
+        + `measured ${(-named.asset.earRests[s][2]).toFixed(1)} by ${Math.abs(dz).toFixed(1)} mm`);
+      assert.ok(Math.abs(dy) < 1.5,
+        `derived height ${built.asset.earRests[s][1].toFixed(1)} mm disagrees with the `
+        + `measured ${named.asset.earRests[s][1].toFixed(1)} by ${Math.abs(dy).toFixed(1)} mm`);
+    }
   });
 
-  it('refuses an earhook: khronos and shield-golden have no bend to rest on', () => {
+  it('will not call a wrap or an earhook a rest: khronos and shield-golden are ASSUMED', () => {
+    // These two used to refuse outright, and refusing was right — neither has a
+    // rest point, because neither arm rests on anything. What changed is that a
+    // frame with no rest point is now WEARABLE with the wearer's own ear
+    // supplying the reach and height, rather than unavailable.
+    //
+    // The falsifiable part is unchanged and is the whole test: the
+    // discriminator must still put them in the assumed tier. If either ever
+    // reads 'derived', the knee fit has started finding rest points in curves
+    // that do not have them, which is exactly the failure that produced
+    // pantoscopic -73 degrees and 13% pad load before any of this existed.
     for (const id of ['khronos', 'shield-golden']) {
       const e = catalogueEntry(id)!;
       const built = frameFromMesh(load(e.file), e);
-      assert.ok(!built.ok, `${id} must refuse: its temple never stops descending`);
-      assert.match(built.reason, /bend|earhook/i,
-        `${id} refused for the wrong reason: ${built.reason}`);
+      assert.ok(built.ok, `${id} must now derive an assumed layout: ${(built as any).reason}`);
+      assert.equal(built.asset.earRestSource, 'assumed',
+        `${id} is a wrap or an earhook and must not claim a derived rest point`);
+      assert.ok(
+        built.notes.some((n) => /ASSUMED/.test(n) && /picture, not a measurement/.test(n)),
+        `${id} must say in its notes that the fit is a picture, not a measurement`,
+      );
     }
   });
 

@@ -410,7 +410,27 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     // collected and then adopting the single pose it happened to hold at the
     // moment it gave up, or nothing at all.
     settleNeutral();
-    if (state.neutral === null && fallback) {
+    // **The beat id is the test, not "the neutral is still null".**
+    //
+    // This guard was `state.neutral === null && fallback` and that is the exact
+    // condition the comment at the bottom of `advance` rejects, for the exact
+    // reason it gives. The fix had landed at the two sites beside that comment
+    // and not at this one, so the defect it describes survived here in full:
+    // when `centre` is abandoned with an empty accumulator AND no sample on the
+    // give-up frame, the neutral stays null, and then the NEXT beat to time out
+    // with a sample latched ITS OWN turned pose as straight-ahead.
+    //
+    // Reproduced end to end: a wearer who turns the wrong way on `turn-right`
+    // has their +50 degree pose adopted as the neutral, after which `turn-left`
+    // reports 50 degrees of turn that never happened and both nod beats read
+    // |dYaw| = 50 at any centre pose and can only time out. Three further beats
+    // fail on a fully co-operative wearer, and the fabricated neutral is
+    // persisted into `model.scan` and printed by diagnostics.
+    //
+    // A null neutral is the honest outcome when centre saw nothing: it is
+    // reported as a skipped beat, and `measure` receives null rather than a
+    // number invented from an unrelated pose.
+    if (beat.id === 'centre' && state.neutral === null && fallback) {
       // Adopting zero would mean measuring every later beat against the camera
       // axis, which is the bug the neutral exists to avoid. Take whatever pose
       // was actually seen instead.

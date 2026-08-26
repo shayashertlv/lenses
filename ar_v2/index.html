@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lenses AR — v2</title>
+<title>Lenses AR</title>
 <link rel="stylesheet" href="styles.css">
 <!--
-  No bundler. The import map resolves three.js from the vendored copy, exactly as
-  v1 did, so the app serves offline from a static directory and nothing is
-  fetched from a network at runtime.
+  No bundler. The import map resolves three.js from the vendored copy, so the
+  app serves offline from a static directory and nothing is fetched from a
+  network at runtime.
 
   The one thing that IS built is TypeScript -> JavaScript (`npm run build`), and
   that is a deliberate reversal of v1's "no build step" property. The trade:
@@ -17,6 +17,16 @@
   offline and no-network properties are kept; only the "open index.html and it
   runs" property is lost, and it is lost to `tsc`, which is not a bundler and
   emits ES modules one-to-one.
+
+  ## The panel is a TRY-ON, and everything that is not one is behind `#details`
+
+  This page used to open on six sections — frame, fit, what an optician would
+  do, catalogue ranking, instruments, and a footer of destructive controls — of
+  which exactly one answered the question a person opening a try-on is asking.
+  The instruments are all still here and none were deleted; they are one click
+  away instead of being the first thing read. Nothing in `app/` was allowed to
+  depend on a panel being visible: `ui.ts` null-guards every node, so a section
+  that is hidden, or removed outright, degrades to a no-op rather than a throw.
 -->
 <script type="importmap">
 {
@@ -39,57 +49,82 @@
 
 <aside id="panel">
   <header>
-    <h1>Lenses <span>v2</span></h1>
+    <h1>Lenses</h1>
     <p id="status">starting…</p>
   </header>
 
-  <section>
-    <h2>Frame</h2>
-    <div id="frames" class="buttons"></div>
+  <!--
+    The face comes first, because nothing below it draws anything until a model
+    exists. `fitFrame` is a no-op without one, so a frame button pressed during
+    `acquire` or `scan` silently did nothing — which read as a broken picker.
+    Both routes to a model are offered here, side by side, with the difference
+    between them stated rather than implied.
+  -->
+  <section id="face-section">
+    <h2>Your face</h2>
     <div class="buttons">
-      <button data-action="rank">Rank for my face</button>
-      <button data-action="steady">Steady: on</button>
-      <button data-action="hook">Hook: wall</button>
-      <button data-action="edge">Edge: on</button>
+      <button data-action="rescan" id="btn-scan">Scan my face</button>
+      <button data-action="average" id="btn-average">Use an average face</button>
     </div>
+    <p class="hint" id="face-hint"></p>
   </section>
 
-  <section>
+  <section id="frames-section">
+    <h2>Glasses</h2>
+    <div id="frames" class="buttons"></div>
+    <h3 class="sub-head">Test shapes</h3>
+    <div id="shapes" class="buttons"></div>
+  </section>
+
+  <section id="fit-section">
     <h2>Fit</h2>
     <div id="verdicts"></div>
+    <p class="hint" id="frame-note"></p>
   </section>
 
-  <section>
-    <h2>What an optician would do</h2>
-    <div id="adjustments"></div>
-  </section>
+  <button id="details-toggle" data-action="details" aria-expanded="false">
+    Details and instruments
+  </button>
 
-  <section id="catalogue-section">
-    <div id="catalogue"></div>
-  </section>
+  <!--
+    Everything that was on the front page before. Hidden, not removed: the
+    readouts are what make the frame lock's latency trade reviewable, and the
+    ranking is the only place absolute-vs-relative scale is visible at all.
+  -->
+  <div id="details" hidden>
+    <section>
+      <h2>Instruments</h2>
+      <pre id="readouts"></pre>
+      <div class="buttons">
+        <button data-action="rank">Rank these for my face</button>
+        <button data-action="steady">Steady: on</button>
+        <button data-action="hook">Hook: wall</button>
+        <button data-action="edge">Edge: on</button>
+      </div>
+      <div class="buttons">
+        <button data-action="diagnostics">Copy diagnostics</button>
+        <button data-action="set-pd">Set my PD</button>
+        <button data-action="save-capture">Save this scan</button>
+      </div>
+      <pre id="diagnostics" hidden></pre>
+    </section>
 
-  <section>
-    <h2>Instruments</h2>
-    <pre id="readouts"></pre>
-    <div class="buttons">
-      <button data-action="diagnostics">Copy diagnostics</button>
-      <button data-action="set-pd">Set my PD</button>
-      <button data-action="save-capture">Save this scan</button>
-    </div>
-    <pre id="diagnostics" hidden></pre>
-  </section>
+    <section id="catalogue-section">
+      <div id="catalogue"></div>
+    </section>
 
-  <footer>
-    <div class="buttons">
-      <button data-action="rescan">Scan again</button>
-      <button data-action="forget" class="danger">Delete my measurements</button>
-    </div>
-    <p class="privacy">
-      Your scan is solved on this device and stored in this browser only.
-      Nothing about your face is uploaded. “Delete my measurements” removes it
-      immediately and completely.
-    </p>
-  </footer>
+    <footer>
+      <div class="buttons">
+        <button data-action="forget" class="danger">Delete my measurements</button>
+      </div>
+      <p class="privacy">
+        Your scan is solved on this device and stored in this browser only.
+        Nothing about your face is uploaded. “Delete my measurements” removes
+        every scan this browser has kept — the current one, the last five, and
+        your PD — immediately and completely.
+      </p>
+    </footer>
+  </div>
 </aside>
 
 <script type="module" src="./dist/src/app/main.js"></script>

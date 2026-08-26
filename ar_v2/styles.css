@@ -226,7 +226,70 @@ button {
 button:hover { border-color: var(--accent); color: var(--accent); }
 button.danger:hover { border-color: var(--poor); color: var(--poor); }
 
+/* ------------------------------------------------------- try-on controls */
+
+/*
+ * The panel opens on three sections and a toggle. Everything that was on the
+ * front page before is under `#details`, which is `hidden` in the markup rather
+ * than display:none here, so the drawer is closed before a stylesheet loads and
+ * a failed CSS fetch cannot leave the instruments spilled across the page.
+ */
+
+#panel h3.sub-head {
+  margin: 14px 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.hint[hidden] { display: none; }
+
+/* The frame on the face, marked in the picker. Border AND weight, because a
+   border alone is a 1 px difference at a glance and the selected frame is the
+   one thing on this panel a wearer looks for. */
+#frames button.selected,
+#shapes button.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+#btn-average[hidden] { display: none; }
+
+#details-toggle {
+  align-self: flex-start;
+  color: var(--muted);
+  border-style: dashed;
+}
+
+#details {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+#details[hidden] { display: none; }
+
 /* --------------------------------------------------------------- verdicts */
+
+.score.ungraded {
+  font-size: 18px;
+  color: var(--muted);
+  font-weight: 500;
+}
 
 .score {
   font-size: 26px;

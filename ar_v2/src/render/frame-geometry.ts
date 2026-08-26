@@ -169,6 +169,27 @@ export function createFrameObject(asset: FrameAsset): any {
     group.add(temple);
   }
 
+  // **The shadow, which this path was not casting at all.**
+  //
+  // `render/scene.ts` builds a whole shadow rig — a key light with
+  // `castShadow`, a `ShadowMaterial` catcher sharing the occluder's geometry
+  // INSTANCE so the depth test does not cull it, and a frustum sized in
+  // millimetres. `frame-mesh.ts:152` opts the glTF assets into it. Nothing here
+  // did, so all five parametric frames rendered without a shadow and the rig
+  // produced a fully transparent catcher for them — the one case where the
+  // apparatus is elaborate enough that its absence reads as "shadows are off"
+  // rather than as a bug.
+  //
+  // Set on the group's children rather than the group: three.js reads the flag
+  // per-`Mesh` when it walks the shadow map, and a Group carries no geometry.
+  // The lens discs are included deliberately — a real lens does darken the
+  // cheek behind it, and they are `transparent` rather than excluded from the
+  // depth pass.
+  for (const child of group.children) {
+    child.castShadow = true;
+    child.receiveShadow = true;
+  }
+
   return group;
 }
 

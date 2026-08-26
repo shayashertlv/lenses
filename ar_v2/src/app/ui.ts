@@ -52,6 +52,22 @@ export interface UI {
    * `handleAction` resolves, since the button carries it as `frame:<id>`.
    */
   addFrame(id: string, name: string): void;
+  /** Marks which frame is currently on the face, so the picker shows state. */
+  selectFrame(id: string): void;
+  /**
+   * The one line under the fit score saying what this frame's numbers are worth.
+   *
+   * The seat's most sensitive input is where the arms rest on the ears, and
+   * eight of the ten catalogue assets cannot measure their own — two because
+   * they are wraps with no rest point at all. `FrameAsset.earRestSource` carries
+   * that distinction all the way from the geometry, and this is where it stops
+   * being an internal field and becomes something the wearer can read. A fit
+   * that is a picture rather than a measurement has to say so on the same
+   * screen as the picture.
+   */
+  frameNote(text: string): void;
+  /** Whether the scan/average-face controls are offered, and what they say. */
+  face(state: { hasModel: boolean; scanning: boolean; hint: string }): void;
   /**
    * Renders a ranked catalogue. `relativeTo` names the frame the ordering was
    * taken AGAINST, when there was one — the heading is a different claim in
@@ -81,23 +97,52 @@ export function createUI(root: HTMLElement): UI {
   let handler: (action: string) => void = () => {};
 
   // Frame buttons, built from the catalogue rather than hand-written, so adding
-  // an asset needs no HTML change. The parametric frames are available at boot;
-  // mesh assets arrive later over the network and come in through `addFrame`.
+  // an asset needs no HTML change.
+  //
+  // **Two lists, and the split is real rather than cosmetic.** `#frames` holds
+  // the eyewear — real scanned and authored assets, which arrive over the
+  // network several seconds after boot and come in through `addFrame`.
+  // `#shapes` holds `TEST_FRAMES`, which are parametric stand-ins generated
+  // from a `FrameSpec` and are not a product anybody can buy. Mixing them put a
+  // frame called `wide-pads` next to one called `Navigator (black acetate)` in
+  // one row, and nothing said which of the two was a real pair of glasses.
   const framesEl = el('frames');
+  const shapesEl = el('shapes');
   const frameButtons = new Map<string, HTMLElement>();
-  const addFrameButton = (id: string, name: string) => {
-    if (!framesEl || frameButtons.has(id)) return;
+  const addFrameButton = (id: string, name: string, into: HTMLElement | null) => {
+    if (!into || frameButtons.has(id)) return;
     const button = document.createElement('button');
     button.textContent = name;
     button.dataset.action = `frame:${id}`;
-    framesEl.appendChild(button);
+    into.appendChild(button);
     frameButtons.set(id, button);
   };
-  for (const frame of TEST_FRAMES) addFrameButton(frame.id, frame.name);
+  for (const frame of TEST_FRAMES) addFrameButton(frame.id, frame.name, shapesEl);
+
+  const detailsEl = el('details');
+  const detailsToggle = el('details-toggle');
+  const noteEl = el('frame-note');
+  const faceHintEl = el('face-hint');
+  const scanButton = el('btn-scan');
+  const averageButton = el('btn-average');
 
   root.addEventListener('click', (event) => {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
-    if (target?.dataset.action) handler(target.dataset.action);
+    if (!target?.dataset.action) return;
+    // The details drawer is pure presentation, so it is opened here rather than
+    // being routed through `handleAction` in `main.ts`. Nothing in the app's
+    // state depends on whether it is open, which is the property that lets the
+    // whole drawer be deleted without touching the loop.
+    if (target.dataset.action === 'details') {
+      if (!detailsEl || !detailsToggle) return;
+      const open = detailsEl.hasAttribute('hidden');
+      if (open) detailsEl.removeAttribute('hidden');
+      else detailsEl.setAttribute('hidden', '');
+      detailsToggle.setAttribute('aria-expanded', String(open));
+      detailsToggle.textContent = open ? 'Hide details' : 'Details and instruments';
+      return;
+    }
+    handler(target.dataset.action);
   });
 
   return {
@@ -170,8 +215,30 @@ export function createUI(root: HTMLElement): UI {
       verdictEl.innerHTML = '';
       const score = document.createElement('div');
       score.className = 'score';
-      score.textContent = `fit score ${assessment.score}`;
+      // **A score of 50 on every frame is not a score, and it printed as one.**
+      //
+      // `scoreOf` shrinks each measure toward neutral in proportion to how
+      // little the scan knows: `points * c + 0.5 * (1 - c)`. On the average
+      // face every confidence is 0, so the weighted mean is exactly 0.5 and the
+      // headline reads `fit score 50` for all fifteen frames — a number that
+      // cannot move, sitting above per-measure rows that all do. That is the
+      // shape of a defect this tree has a name for, even when the arithmetic
+      // underneath is right.
+      //
+      // The measures themselves are still worth showing: they are millimetres
+      // and degrees off a known geometry, and they differ per frame. It is only
+      // the GRADE that requires knowing whose face it is.
+      const graded = assessment.measures.some((m) => m.value !== null && m.confidence > 0.02);
+      score.textContent = graded ? `fit score ${assessment.score}` : 'not graded';
+      score.classList.toggle('ungraded', !graded);
       verdictEl.appendChild(score);
+      if (!graded) {
+        const why = document.createElement('p');
+        why.className = 'hint';
+        why.textContent = 'Grading needs a scan of your own face. The measurements below '
+          + 'are real, but they are against an average head.';
+        verdictEl.appendChild(why);
+      }
       for (const m of assessment.measures) {
         if (m.value === null) continue;
         const row = document.createElement('div');
@@ -191,7 +258,35 @@ export function createUI(root: HTMLElement): UI {
       }
     },
 
-    addFrame(id, name) { addFrameButton(id, name); },
+    addFrame(id, name) { addFrameButton(id, name, framesEl); },
+
+    selectFrame(id) {
+      for (const [key, button] of frameButtons) {
+        button.classList.toggle('selected', key === id);
+      }
+    },
+
+    frameNote(text) {
+      if (!noteEl) return;
+      noteEl.textContent = text;
+      noteEl.hidden = text === '';
+    },
+
+    face({ hasModel, scanning, hint }) {
+      // The scan button is the same control before and after a scan and only
+      // its label changes: "Scan my face" is an invitation, "Scan again" is a
+      // correction, and offering both at once was two buttons doing one job.
+      if (scanButton) {
+        scanButton.textContent = scanning ? 'Scanning…' : hasModel ? 'Scan again' : 'Scan my face';
+        (scanButton as HTMLButtonElement).disabled = scanning;
+      }
+      // The average face is a shortcut past the scan, not an alternative to it,
+      // so it stops being offered once a real scan exists — otherwise the most
+      // prominent thing on the panel is a control that throws the wearer's own
+      // measurements away.
+      if (averageButton) averageButton.hidden = hasModel;
+      if (faceHintEl) { faceHintEl.textContent = hint; faceHintEl.hidden = hint === ''; }
+    },
 
     catalogue(ranked, relativeTo) {
       if (!catalogueEl) return;

@@ -44,16 +44,33 @@
  * agrees to 1.2 mm. That is one asset, not a population, and it is recorded
  * here as corroboration rather than as a new value for the default.
  *
- * ## What it refuses
+ * ## Three tiers, and what each one admits to
  *
- * Every step that cannot be measured refuses instead of guessing, because a
+ * Every step that cannot be measured says so instead of guessing, because a
  * guessed layout is exactly the failure above: it produces numbers, and nothing
- * downstream can tell they are wrong. A frame is refused when its pads do not
- * derive, when its temples cannot be told apart, and — the one that matters —
- * when a temple has no bend at all. `sunglasses-khronos` has none: its earhook
- * descends monotonically from the hinge, because it is a sports wrap whose arm
- * hooks around the ear rather than resting on it. There is no bend to find, and
- * inventing one is how this file would go back to being wrong.
+ * downstream can tell they are wrong. What changed on 2026-08-26 is that
+ * "cannot be measured" stopped meaning "cannot be worn".
+ *
+ *     'measured'  a named temple part whose bend `findBend` walks. navigator.
+ *     'derived'   no temple named, so the arm is found by splitting the mesh
+ *                 and fitting its knee. Seven assets. See `deriveArmRest`.
+ *     'assumed'   a wrap or an earhook, which has NO rest point: its arm never
+ *                 stops descending, so nothing in the geometry is a rest and
+ *                 every tolerance that claims to find one is reporting noise.
+ *                 The WEARER's ear supplies the reach and height instead — the
+ *                 scan measures it from their own canthus and temple landmarks
+ *                 — and only the lateral position is the asset's.
+ *                 `sunglasses-khronos` and `shield-golden`.
+ *
+ * All ten catalogue assets now produce a layout; before this, nine refused and
+ * the try-on could show one pair of real glasses. `FrameAsset.earRestSource`
+ * carries the tier all the way to the wearer-facing note, because a fit that is
+ * a picture rather than a measurement has to say so on the same screen as the
+ * picture.
+ *
+ * Refusals that remain and are still correct: pads that do not derive, a mesh
+ * whose winding is inverted, an upside-down asset, and a frame with no arm
+ * running back toward the ears on one side at all.
  *
  * ## Isolation
  *
@@ -64,7 +81,7 @@
  * the only way that stays true.
  */
 
-import type { DimensionSource, FrameAsset } from './frame-asset.js';
+import type { DimensionSource, EarRestSource, FrameAsset } from './frame-asset.js';
 import { derivePads } from './frame-asset.js';
 import type { MeshAsset, MeshPart } from './mesh-io.js';
 
@@ -256,7 +273,236 @@ const HINGE_SLICE_FRACTION = 0.06;
 /** Bins along Z when profiling a temple's centreline. */
 const TEMPLE_PROFILE_BINS = 24;
 
+/**
+ * How far behind the pad origin the arm starts, mm.
+ *
+ * `measured`. The arm has to be separated from the front before its centreline
+ * means anything, and the front's own rearmost inboard vertex sits at z = -3.4
+ * to -5.7 across the catalogue. -10 clears all ten with margin and costs no
+ * arm: the nearest ear rest any asset produces is 92 mm further back.
+ *
+ * The cut is deliberately generous rather than tight because the knee fit below
+ * is measured to be insensitive to it — moving this between -5 and -30 moves
+ * the recovered knee by at most 5 mm on every asset in the catalogue, which is
+ * the property that makes a geometric arm trustworthy at all.
+ */
+export const ARM_CUT_Z_MM = -10;
+
+/**
+ * How much steeper the curl must be than the level run, for a knee to be a knee.
+ *
+ * `measured` over all ten assets. The ratio of the two fitted slopes separates
+ * an arm that rests on an ear from one that wraps around it, where the absolute
+ * fall `TEMPLE_BEND_TOLERANCE_MM` uses does not:
+ *
+ *     real temples (navigator, 2 aviators, 2 horizons, crystal x2, meshy)  9.4 - 42
+ *     sunglasses-khronos (earhook)                                         5.9
+ *     shield-golden (wrap)                                                 3.1 - 3.4
+ *
+ * 7 sits in the 1.6x gap between the worst real temple and the best wrap. With
+ * eight positive examples and two negative it is bounded on both sides, which
+ * `TEMPLE_LEVEL_RUN_MIN_FRACTION` — one positive example — was not.
+ */
+export const ARM_KNEE_RATIO_MIN = 7;
+
+/** Bins along Z when fitting an arm's two-segment centreline. */
+const ARM_PROFILE_BINS = 32;
+
+/**
+ * The reach and height an ear rest is assumed to have when the arm has no knee.
+ *
+ * `derived`: the median of the eight catalogue assets whose arms DO produce a
+ * measured rest point. Used only for wraps and earhooks — shapes that genuinely
+ * do not rest on an ear from below — so that they can be tried on at all rather
+ * than being unwearable.
+ *
+ * **This is an assumption about the WEARER, not a measurement of the frame**,
+ * and that is the honest way round: the scan knows where this wearer's ear is
+ * (`contact.ts:earRestPoints`, built from their own canthus and temple
+ * landmarks), so the thing being assumed is only that a wrap meets that ear at
+ * the same place every measured frame in this catalogue does. Assets that reach
+ * this tier report `earRestSource: 'assumed'` and say so in the interface.
+ *
+ * The reach matters more than the height. Measured across 10 subjects x 5
+ * specs, a reach of 60 mm buries the pads 12.2 mm and presses the hook at 74x
+ * the frame's weight; 90-100 mm is flat and quiet. Both numbers below sit in
+ * that quiet band.
+ */
+export const ASSUMED_EAR_REACH_MM = 96;
+export const ASSUMED_EAR_HEIGHT_MM = 12;
+
+/**
+ * The reach band a derived rest point must land in to be believed, mm.
+ *
+ * `measured` from the sensitivity sweep above: outside roughly [70, 125] the
+ * seat stops being a seat — short arms ram the hook into the face and bury the
+ * pads, long ones lift the frame off the nose entirely. A knee fit that lands
+ * outside this is reporting a feature that is not an ear rest, and the assumed
+ * rest above is a better answer than a confident wrong one.
+ */
+export const ARM_REACH_MIN_MM = 70;
+export const ARM_REACH_MAX_MM = 125;
+
 const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
+
+/**
+ * Where one arm comes to rest, found from the mesh itself rather than a name.
+ *
+ * ## Why this exists beside `findBend`
+ *
+ * `findBend` needs a part called `temple`, and nine of the ten catalogue assets
+ * do not have one — an image-to-3D scan welds the arms into the frame shell, or
+ * names every part `tripo_part_N`, or is one fused mesh with no names at all.
+ * The arms are nevertheless *there*: splitting the whole mesh by the sign of x
+ * and keeping what is behind the front yields between 1,580 and 44,675 vertices
+ * per side, against `findBend`'s floor of 9.
+ *
+ * ## Why it is not just `findBend` on those vertices
+ *
+ * Because that returns a confident wrong answer rather than refusing.
+ * `TEMPLE_BEND_TOLERANCE_MM` is an ABSOLUTE fall of 1.5 mm, and navigator — an
+ * authored CAD model — is the only asset in the catalogue flat enough to
+ * satisfy it. Slope along the level run, mm of drop per mm of depth:
+ *
+ *     navigator              0.020    ->  1.7 mm over an 85 mm level run
+ *     horizon-amber          0.035    ->  3.0 mm
+ *     horizon-sage           0.053    ->  4.5 mm
+ *     aviator-tortoiseshell  0.058    ->  4.9 mm
+ *     aviator-amber          0.076    ->  6.5 mm
+ *     crystal / meshy        0.082    ->  7.0 mm
+ *
+ * Every scan droops two to four times more than navigator, so a 1.5 mm budget
+ * is spent a third of the way along the arm and the walk stops early. Measured,
+ * `findBend` on these arms returns null on two assets and a rest point **33 to
+ * 56 mm too far forward** on four more — an error larger than the tip-vs-bend
+ * failure `findBend` itself was written to fix, and silent, because the height
+ * it reports stays plausible. No single tolerance fixes it: at 8 mm navigator
+ * overshoots its own shipped answer by 14 mm while horizon-sage is still 5 mm
+ * short.
+ *
+ * ## What this does instead
+ *
+ * A two-segment least-squares fit of the binned centreline, breaking at
+ * whichever bin minimises the total residual. The quantity that decides whether
+ * the break is an ear rest is then the RATIO of the two slopes, not the drop —
+ * a ratio is dimensionless and survives a droopy scan, which is exactly what
+ * the absolute fall does not. See `ARM_KNEE_RATIO_MIN`.
+ *
+ * Stability, measured across four cut planes (-5, -10, -20, -30 mm) and both
+ * sides: the recovered knee moves at most 5 mm with the cut and at most 2 mm
+ * between sides, on assets where `findBend` flips between null and a 55 mm
+ * error. Three separate files of the same underlying scan — `crystal-parts`,
+ * `crystal-lenses` and `meshy` — land within 1 mm of each other, a cross-file
+ * agreement nothing else in this tree checks.
+ *
+ * ## The calibration point, and why navigator does NOT use this
+ *
+ * navigator is the only asset with a known-good answer, and the derived arm
+ * reproduces it without the part name: z -97.8, y +13.3 against the shipped
+ * z -96.2, y +13.5. That agreement is the evidence this method works.
+ *
+ * It is also why `frameFromMesh` still tries `findBend` FIRST. The knee fit's
+ * own answer for navigator is z -105 — 9 mm behind the shipped rest, inside the
+ * band the seat is most sensitive to. Adopting it everywhere would silently
+ * re-tune the one asset every seat number in this tree was measured on, so the
+ * measured path keeps precedence and this runs only where that path refuses.
+ */
+export function deriveArmRest(
+  positions: Float64Array,
+  bins = ARM_PROFILE_BINS,
+): { x: number; y: number; z: number; ratio: number; levelSlope: number } | null {
+  if (positions.length < 9 * 3) return null;
+  let zMin = Infinity, zMax = -Infinity;
+  for (let i = 2; i < positions.length; i += 3) {
+    if (positions[i] < zMin) zMin = positions[i];
+    if (positions[i] > zMax) zMax = positions[i];
+  }
+  const span = zMax - zMin;
+  if (!(span > 0)) return null;
+
+  // Centreline = the MEAN y of each z bin, the same convention `findBend` uses
+  // and for the same reason: a temple is a box in cross-section, so its top
+  // edge stays level right through the curl and a rule written on max y picks
+  // the hinge.
+  const sx = new Float64Array(bins), sy = new Float64Array(bins), n = new Float64Array(bins);
+  for (let i = 0; i < positions.length; i += 3) {
+    const b = Math.min(bins - 1, Math.floor((positions[i + 2] - zMin) / span * bins));
+    sx[b] += positions[i]; sy[b] += positions[i + 1]; n[b]++;
+  }
+  // Bin 0 is the REARMOST slice; bin `bins-1` is the hinge end.
+  const zs: number[] = [], ys: number[] = [], xs: number[] = [], idx: number[] = [];
+  for (let b = 0; b < bins; b++) {
+    if (!n[b]) continue;
+    zs.push(zMin + (b + 0.5) / bins * span);
+    ys.push(sy[b] / n[b]);
+    xs.push(sx[b] / n[b]);
+    idx.push(b);
+  }
+  if (zs.length < 6) return null;
+
+  /** Least-squares line over a slice, returning its slope and residual sum. */
+  const fit = (from: number, to: number): { slope: number; intercept: number; ssr: number } => {
+    const m = to - from + 1;
+    let sZ = 0, sY = 0, sZZ = 0, sZY = 0;
+    for (let i = from; i <= to; i++) { sZ += zs[i]; sY += ys[i]; sZZ += zs[i] * zs[i]; sZY += zs[i] * ys[i]; }
+    const denom = m * sZZ - sZ * sZ;
+    const slope = Math.abs(denom) < 1e-12 ? 0 : (m * sZY - sZ * sY) / denom;
+    const intercept = (sY - slope * sZ) / m;
+    let ssr = 0;
+    for (let i = from; i <= to; i++) { const r = ys[i] - (slope * zs[i] + intercept); ssr += r * r; }
+    return { slope, intercept, ssr };
+  };
+
+  // The break has to leave at least three bins on each side, or a two-segment
+  // fit is just a noisy line with a hinge bolted to one end.
+  let best = -1, bestSsr = Infinity, bestCurl = 0;
+  let bestLevel: { slope: number; intercept: number; ssr: number } | null = null;
+  for (let k = 2; k < zs.length - 3; k++) {
+    const rear = fit(0, k);       // the curl, behind the knee
+    const front = fit(k, zs.length - 1); // the level run, toward the hinge
+    const ssr = rear.ssr + front.ssr;
+    if (ssr < bestSsr) { bestSsr = ssr; best = k; bestCurl = rear.slope; bestLevel = front; }
+  }
+  if (best < 0 || !bestLevel) return null;
+
+  // Both slopes are dy/dz with z increasing FORWARD, so an arm that runs level
+  // and then curls down behind the ear has a small |level| and a large |curl|.
+  const level = Math.abs(bestLevel.slope);
+  const curl = Math.abs(bestCurl);
+  // A perfectly flat level run would divide by zero; the ratio is only ever
+  // compared against a floor, so saturate rather than guard at the call site.
+  const ratio = level < 1e-6 ? Infinity : curl / level;
+
+  // **The height comes from the LEVEL RUN's line, not from the knee bin's mean.**
+  //
+  // The knee bin straddles the transition by construction, so its vertices are
+  // half level run and half curl and its mean y sits below both. The curl is
+  // always downward, so the error has a sign: the bin mean is a systematic
+  // UNDER-estimate of where the arm actually runs, on every asset.
+  //
+  // Measured, blind derivation against the named-part answer on navigator, and
+  // the derived heights across the catalogue:
+  //
+  //     reading        navigator blind   aviator-t   meshy   horizon-sage
+  //     knee bin mean       11.5            3.4        4.7        1.9
+  //     level-run line      13.3            4.3        6.5        2.4
+  //     navigator MEASURED  13.5             —          —          —
+  //
+  // The line is the better estimator on the one asset that can be checked —
+  // 0.2 mm from the measured answer against the bin mean's 2.0 — and the
+  // correction is in the same direction on all nine others.
+  //
+  // **What it does NOT do is change the seat, and that is worth stating
+  // plainly** so nobody re-derives it expecting one. Seated over 10 subjects
+  // the swap moves the two aviators' pantoscopic tilt by about half a degree
+  // and their descent by 0.01 mm, because descent here is set by pad
+  // separation — the aviators derive 19-21 mm against navigator's 14.3, and the
+  // frame slides down the wedge as the pads widen. The suite therefore cannot
+  // tell these two readings apart, and no test below pretends to: this is
+  // adopted because it is the right quantity, not because a bar moved.
+  const y = bestLevel.slope * zs[best] + bestLevel.intercept;
+  return { x: xs[best], y, z: zs[best], ratio, levelSlope: bestLevel.slope };
+}
 
 // -------------------------------------------------------------- geometry aids
 
@@ -465,6 +711,50 @@ export function findBend(
   return { x: sx[bend] / n[bend], y: sy[bend] / n[bend], z, levelRunMm };
 }
 
+/** The vertices behind a z plane — the arm, once the plane clears the front. */
+function behind(positions: Float64Array, z: number): Float64Array {
+  const out: number[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    if (positions[i + 2] < z) out.push(positions[i], positions[i + 1], positions[i + 2]);
+  }
+  return Float64Array.from(out);
+}
+
+/** The vertices in the frontmost `frac` of the depth — the rim. */
+function frontSlice(positions: Float64Array, frac: number): Float64Array {
+  let zMin = Infinity, zMax = -Infinity;
+  for (let i = 2; i < positions.length; i += 3) {
+    if (positions[i] < zMin) zMin = positions[i];
+    if (positions[i] > zMax) zMax = positions[i];
+  }
+  const cut = zMax - (zMax - zMin) * frac;
+  const out: number[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    if (positions[i + 2] >= cut) out.push(positions[i], positions[i + 1], positions[i + 2]);
+  }
+  return Float64Array.from(out);
+}
+
+/**
+ * The arm's lateral position at one depth, mm.
+ *
+ * A mean over a slab rather than a nearest-vertex lookup: an arm is a box in
+ * cross-section, so any single vertex is on one of its faces and reports the
+ * arm's half-width as its position. The slab widens until it finds something,
+ * because an arm with a gap in it at exactly this depth is still an arm.
+ */
+function armXAt(positions: Float64Array, z: number): number {
+  for (const halfWidth of [8, 16, 32, Infinity]) {
+    let sum = 0, n = 0;
+    for (let i = 0; i < positions.length; i += 3) {
+      if (Math.abs(positions[i + 2] - z) > halfWidth) continue;
+      sum += positions[i]; n++;
+    }
+    if (n) return sum / n;
+  }
+  return 0;
+}
+
 /** Centroid of the vertices in the frontmost `frac` of a part's depth. */
 function frontSliceCentroid(positions: Float64Array, frac: number): Float64Array | null {
   let zMin = Infinity, zMax = -Infinity;
@@ -596,38 +886,98 @@ export function frameFromMesh(
   // Parts, re-expressed about the pad origin — the frame of every number below.
   const parts = mesh.parts.map((p) => ({ ...p, positions: applyTo(toFrame, p.positions) }));
 
-  // ---- 3. the temples, and the bend that is the whole point of this file.
-  const temples = selectParts(parts, entry.parts.temple);
-  if (temples.length === 0) {
+  // ---- 3. the temples, and the rest point that is the whole point of this file.
+  //
+  // Three tiers, in falling order of what the asset can prove about itself.
+  // The order is load-bearing: the measured path keeps precedence so that
+  // navigator — the one asset with a known-good answer, and the asset every
+  // seat number in this tree was measured on — is unaffected by the two tiers
+  // below it. See `deriveArmRest`.
+  //
+  //   'measured'  a named temple part with a bend `findBend` can walk to
+  //   'derived'   the arm found geometrically, its knee fitted (8 of 10 assets)
+  //   'assumed'   a wrap or earhook: no rest point exists, so the WEARER's ear
+  //               supplies one. Reported as an assumption, never as a fit.
+  //
+  // What used to happen here instead: nine of the ten catalogue assets refused
+  // outright, so the try-on could show exactly one pair of real glasses.
+  const named = selectParts(parts, entry.parts.temple);
+  const namedSides = named.length ? splitBySide(mergeParts(named)) : null;
+  const namedBends = namedSides && namedSides[0].length >= 9 && namedSides[1].length >= 9
+    ? namedSides.map((p) => findBend(p))
+    : null;
+
+  // The arm from the mesh's own geometry, needed by both lower tiers — as the
+  // knee's source, and as the only thing that can say where a wrap's arm is in
+  // x when its height and reach have to be assumed.
+  const armSides = splitBySide(behind(positions, ARM_CUT_Z_MM));
+  if (armSides[0].length < 9 * 3 || armSides[1].length < 9 * 3) {
     return refuse(
-      `${entry.id}: no part matches the declared temple names [${entry.parts.temple.join(', ')}]. `
-      + `The file names: ${mesh.parts.map((p) => p.name || '(unnamed)').join(', ')}`,
+      `${entry.id}: no arm on one side — behind z ${ARM_CUT_Z_MM} mm the mesh has `
+      + `${armSides[0].length / 3} vertices right and ${armSides[1].length / 3} left. `
+      + 'A frame with nothing running back toward the ears has nothing to hold it on.',
     );
   }
-  const sides = splitBySide(mergeParts(temples));
-  if (sides[0].length < 9 || sides[1].length < 9) {
-    return refuse(
-      `${entry.id}: the temple geometry does not span two sides `
-      + `(${sides[0].length / 3} vertices right, ${sides[1].length / 3} left)`,
+
+  let earRestSource: EarRestSource;
+  let earRests: [Float64Array, Float64Array];
+
+  if (namedBends && namedBends[0] && namedBends[1]) {
+    earRestSource = 'measured';
+    earRests = [
+      Float64Array.of(namedBends[0].x, namedBends[0].y, namedBends[0].z),
+      Float64Array.of(namedBends[1].x, namedBends[1].y, namedBends[1].z),
+    ];
+    notes.push(
+      `ear rests at the temple bend: reach ${(-earRests[0][2]).toFixed(1)} / `
+      + `${(-earRests[1][2]).toFixed(1)} mm, height ${earRests[0][1].toFixed(1)} / `
+      + `${earRests[1][1].toFixed(1)} mm (level run ${namedBends[0].levelRunMm.toFixed(0)} mm)`,
     );
+  } else {
+    const knees = armSides.map((p) => deriveArmRest(p));
+    const believable = (k: ReturnType<typeof deriveArmRest>): boolean => {
+      if (!k) return false;
+      const reach = -k.z;
+      return k.ratio >= ARM_KNEE_RATIO_MIN
+        && reach >= ARM_REACH_MIN_MM && reach <= ARM_REACH_MAX_MM;
+    };
+    if (believable(knees[0]) && believable(knees[1])) {
+      earRestSource = 'derived';
+      earRests = [
+        Float64Array.of(knees[0]!.x, knees[0]!.y, knees[0]!.z),
+        Float64Array.of(knees[1]!.x, knees[1]!.y, knees[1]!.z),
+      ];
+      notes.push(
+        `ear rests DERIVED from the arm's own knee (no temple part named): reach `
+        + `${(-earRests[0][2]).toFixed(1)} / ${(-earRests[1][2]).toFixed(1)} mm, height `
+        + `${earRests[0][1].toFixed(1)} / ${earRests[1][1].toFixed(1)} mm, curl/level slope `
+        + `${knees[0]!.ratio.toFixed(1)} / ${knees[1]!.ratio.toFixed(1)}`,
+      );
+    } else {
+      // A wrap or an earhook. Its arm genuinely does not rest on an ear from
+      // below, so there is no rest point in the geometry to find and every
+      // tolerance that claims to find one is reporting noise. What the system
+      // does know is where THIS WEARER's ear is — the scan measures it from
+      // their own canthus and temple landmarks — so the assumption is reduced
+      // to "a wrap meets that ear where every measured frame in this catalogue
+      // does". Only the x comes from the asset.
+      earRestSource = 'assumed';
+      earRests = [
+        Float64Array.of(armXAt(armSides[0], -ASSUMED_EAR_REACH_MM), ASSUMED_EAR_HEIGHT_MM, -ASSUMED_EAR_REACH_MM),
+        Float64Array.of(armXAt(armSides[1], -ASSUMED_EAR_REACH_MM), ASSUMED_EAR_HEIGHT_MM, -ASSUMED_EAR_REACH_MM),
+      ];
+      const why = knees[0] && knees[1]
+        ? `its arms curl only ${knees[0].ratio.toFixed(1)} / ${knees[1].ratio.toFixed(1)}x `
+          + `steeper than they run level (a rest needs ${ARM_KNEE_RATIO_MIN})`
+        : 'its arms never stop descending';
+      notes.push(
+        `ear rests ASSUMED — ${why}, so this is a wrap or an earhook with no rest `
+        + `point of its own. Reach ${ASSUMED_EAR_REACH_MM} mm and height `
+        + `${ASSUMED_EAR_HEIGHT_MM} mm are the catalogue median; only the lateral `
+        + 'position is this asset\'s. The fit is a picture, not a measurement.',
+      );
+    }
   }
-  const bends = sides.map((p) => findBend(p));
-  if (!bends[0] || !bends[1]) {
-    return refuse(
-      `${entry.id}: a temple has no bend — its centreline never stops descending. `
-      + 'That is an earhook, which wraps around the ear rather than resting on it, and '
-      + 'this method cannot find its rest point. Declare it or leave the asset ungraded.',
-    );
-  }
-  const earRests: [Float64Array, Float64Array] = [
-    Float64Array.of(bends[0].x, bends[0].y, bends[0].z),
-    Float64Array.of(bends[1].x, bends[1].y, bends[1].z),
-  ];
-  notes.push(
-    `ear rests at the temple bend: reach ${(-earRests[0][2]).toFixed(1)} / `
-    + `${(-earRests[1][2]).toFixed(1)} mm, height ${earRests[0][1].toFixed(1)} / `
-    + `${earRests[1][1].toFixed(1)} mm (level run ${bends[0].levelRunMm.toFixed(0)} mm)`,
-  );
 
   // `parametricFrame` refuses a non-positive reach for the same reason: the ear
   // term is one-sided, so a rest at or in front of the pads never engages.
@@ -640,22 +990,40 @@ export function frameFromMesh(
     }
   }
 
-  const hinges = sides.map((p) => frontSliceCentroid(p, HINGE_SLICE_FRACTION));
-  if (!hinges[0] || !hinges[1]) return refuse(`${entry.id}: a temple has no hinge end to measure`);
+  // The hinge is the arm's front end, and it is taken from the geometric arm
+  // rather than from a named part so that all three tiers above measure it the
+  // same way. On navigator, where both routes exist, they agree: the named
+  // temple's front slice and the geometric arm's front slice are the same
+  // vertices, because `ARM_CUT_Z_MM` sits behind the front and the temple part
+  // is the only thing there.
+  const hinges = armSides.map((p) => frontSliceCentroid(p, HINGE_SLICE_FRACTION));
+  if (!hinges[0] || !hinges[1]) return refuse(`${entry.id}: an arm has no hinge end to measure`);
 
   // ---- 4. the lenses.
+  //
+  // Named parts when the file has them, the frame's own front otherwise. Two of
+  // the ten assets name no lens anywhere — `crystal-parts` is eight
+  // `tripo_part_N` nodes and `meshy` is one fused mesh with no name at all — and
+  // refusing them outright made two real pairs of glasses untryable over a
+  // readout neither of them feeds by default.
+  //
+  // The fallback is the frontmost slice of the mesh split by side, which is the
+  // rim: its extent centre is the centre of the rim opening, and on a frame with
+  // lenses in it that is within a couple of millimetres of the lens centre. It
+  // is an estimate and it says so — `lensSource` travels to the verdict, and
+  // `score.ts` withholds the vertex-distance and pupil-height grades when it is
+  // not 'measured', because those are the two numbers this is not good enough
+  // for.
   const lenses = selectParts(parts, entry.parts.lens);
-  if (lenses.length === 0) {
-    return refuse(
-      `${entry.id}: no part matches the declared lens names [${entry.parts.lens.join(', ')}]. `
-      + 'Lens centres carry the vertex-distance and pupil-height verdicts, so guessing them '
-      + 'would put a number on a wearer readout that nothing measured.',
-    );
+  let lensSource: 'measured' | 'derived' = 'measured';
+  let lensSides = lenses.length ? splitBySide(mergeParts(lenses)) : null;
+  if (!lensSides || lensSides[0].length < 9 || lensSides[1].length < 9) {
+    lensSource = 'derived';
+    lensSides = splitBySide(frontSlice(positions, FRONT_SLICE_FRACTION));
   }
-  const lensSides = splitBySide(mergeParts(lenses));
   if (lensSides[0].length < 9 || lensSides[1].length < 9) {
     return refuse(
-      `${entry.id}: the lens geometry does not span two sides `
+      `${entry.id}: the frame front does not span two sides `
       + `(${lensSides[0].length / 3} vertices right, ${lensSides[1].length / 3} left)`,
     );
   }
@@ -663,8 +1031,11 @@ export function frameFromMesh(
     extentCentre(lensSides[0]), extentCentre(lensSides[1]),
   ];
   notes.push(
-    `lens centres from ${lenses.length} named part(s): `
-    + `${Array.from(lensCentres[0]).map((v) => v.toFixed(1)).join(', ')}`,
+    lensSource === 'measured'
+      ? `lens centres from ${lenses.length} named part(s): `
+        + `${Array.from(lensCentres[0]).map((v) => v.toFixed(1)).join(', ')}`
+      : 'lens centres DERIVED from the frame front (the file names no lens): '
+        + `${Array.from(lensCentres[0]).map((v) => v.toFixed(1)).join(', ')}`,
   );
 
   const frontWidthMm = frontWidthOf(positions);
@@ -694,6 +1065,8 @@ export function frameFromMesh(
     lensCentres,
     hinges: [hinges[0], hinges[1]],
     earRests,
+    earRestSource,
+    lensSource,
     massG: entry.massG,
     splayStiffnessNPerMm: entry.splayStiffnessNPerMm ?? 0.05,
     bridgeType: entry.bridgeType ?? 'pads',

@@ -39,25 +39,32 @@
  * an empty list makes `frameFromMesh` refuse. A refusal that names the parts the
  * file actually has is worth more than a layout guessed off a bounding box.
  *
- * ## What derives today, measured rather than hoped
+ * ## What derives today, and what each row can prove about itself
  *
- * Only `navigator` produces a complete, measured layout. Every other row refuses
- * at a named step, and the reasons are worth having in one place because they
- * are the stage-8 work queue:
+ * **All ten wear. What differs is what they can say about their own arms**, and
+ * that is what `FrameAsset.earRestSource` carries out of here. The tiers are set
+ * by `frameFromMesh`, measured per asset — see `deriveArmRest` for the
+ * slope-ratio table that separates the last two:
  *
- *     navigator     pads + temples + lenses all named and measured      DERIVES
- *     khronos       named, but its temple is an EARHOOK with no bend    refuses
- *     shield-golden a wrap: no pair of surfaces facing the midline      refuses
- *     aviator x2    no temple part — front and lenses only              refuses
- *     horizon x2    no temple part — front and lenses only              refuses
- *     crystal-parts eight `tripo_part_N`, nothing named                 refuses
- *     glasses01     lenses named, frame parts are `tripo_part_N`        refuses
- *     meshy         one unnamed fused mesh                              refuses
+ *     navigator     temple named; its bend walked directly       MEASURED
+ *     aviator x2    arms welded into the shell, found by knee    derived
+ *     horizon x2    same                                         derived
+ *     crystal x2    eight `tripo_part_N`, arms found by knee     derived
+ *     meshy         one fused mesh, arms found by knee           derived
+ *     khronos       an EARHOOK: no rest point exists             assumed
+ *     shield-golden a WRAP: no rest point exists                 assumed
  *
- * **One of ten. That is the honest state of this catalogue** and it is the
- * argument for the stage-8 measurement day rather than for more inference: nine
- * of these need either a person with calipers or ten minutes in Blender naming
- * parts, and neither is a geometry problem.
+ * This used to read "one of ten, and that is the honest state of this
+ * catalogue" — true when a rest point could only come from a part called
+ * `temple`. The nine refusals were correct answers to the question being asked;
+ * the question changed. What has NOT changed is that two of these are wraps
+ * whose arms do not rest on anything, and for those the reach and height come
+ * from the wearer's own ear rather than from the asset. `earRestSource` says
+ * `assumed` and the interface repeats it in words.
+ *
+ * The stage-8 measurement day is still owed, and it is now only about WIDTH:
+ * eight rows carry an estimated front width, which is the one quantity no
+ * amount of geometry can recover.
  */
 
 import type { CatalogueEntry } from './frame-from-mesh.js';
@@ -201,11 +208,20 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     widthSource: 'assumed',
     orient: null,
     massG: 30,
-    // A wrap. It has no distinct nose pads at all, and `derivePads` refusing it
-    // is the CORRECT answer rather than a gap — measured, it finds 20 + 17
-    // inward faces against a floor of 20, so it refuses on the side that has
-    // too few. Stage 8's gate turns on this: a run where all eleven assets
-    // produce pads is a run that failed.
+    // A wrap, and the row whose comment was wrong twice over. It was recorded
+    // here as having "no distinct nose pads at all", with `derivePads` finding
+    // "20 + 17 inward faces against a floor of 20" and refusing on the side
+    // with too few. Re-measured through the same orient-and-scale pipeline the
+    // app uses, it finds **2764 + 2631 inward faces and 804 mm2 of contact** —
+    // the LARGEST pad patch in the catalogue. Its pads have always derived; the
+    // refusal it actually hit was the temple's, further down `frameFromMesh`.
+    //
+    // The stage-8 gate that was written on this ("a run where all eleven assets
+    // produce pads is a run that failed") therefore never tested anything, and
+    // it is not restated here. What is real about this asset is that its arms
+    // wrap rather than rest: `earRestSource` is `assumed`, its slope ratio is
+    // 3.2-3.4 against the 7 a rest needs, and that IS a falsifiable claim —
+    // `tests/asset.test.ts` fails if it ever reads `derived`.
     bridgeType: 'saddle',
     provenance: 'Meshy image-to-3D, 196k tris; a wrap with no pads; width 143 mm is a VISUAL ESTIMATE by the owner of the Black Shield sunglasses (oversized fit) (stated range 140-145+ mm, 2026-08-26), not a caliper reading -- the range is wider than the 4 mm band the width verdict grades against, so widthSource stays assumed',
     parts: { temple: TEMPLE_NAMES, lens: LENS_NAMES },

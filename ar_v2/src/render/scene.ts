@@ -554,6 +554,26 @@ export function attachFrame(handle: SceneHandle, asset: FrameAsset, object?: any
 }
 
 /**
+ * Takes the frame off the face, disposing whatever was ours to dispose.
+ *
+ * `frameNode` is a child of `headNode`, so a frame outlives everything the app
+ * clears on a rescan: the model, the tracker, the seat and the calibration
+ * field all go, and the previous wearer's glasses stay drawn — now over a face
+ * that is being re-measured, at a seat solved for somebody else's nose.
+ *
+ * Shares `attachFrameObject`'s cache rule rather than repeating it: a loaded
+ * glTF group belongs to the app's cache and is only unparented, a parametric
+ * group is ours and is destroyed.
+ */
+export function detachFrame(handle: SceneHandle): void {
+  const node = handle.frameNode;
+  for (const child of [...node.children]) {
+    node.remove(child);
+    if (!child.userData?.[CACHED_BY_CALLER]) disposeFrameObject(child);
+  }
+}
+
+/**
  * The swap-and-dispose half, for geometry that was loaded rather than built.
  *
  * `loadFrameMesh` returns a group already placed by the asset's own

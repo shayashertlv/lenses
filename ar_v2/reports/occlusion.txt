@@ -1,4 +1,4 @@
-[provenance] campaign source=020498e8e45066ea canary=7316e7ee41e2f95b
+[provenance] campaign source=211e88b88cbeafea canary=7316e7ee41e2f95b
 OCCLUSION — WHAT THE SCANNED FACE HIDES, MEASURED BEFORE A PIXEL IS DRAWN
 ==========================================================================
 The renderer about to be built will use the scanned face mesh as its
@@ -222,4 +222,4 @@ Whether the renderer should hide a temple tip behind hair it has no
 geometry for is a stage-1 renderer question, not a scan-quality
 question, and no number above speaks to it.
 
-Wall clock: 66.4 s.
+Wall clock: 48.2 s.

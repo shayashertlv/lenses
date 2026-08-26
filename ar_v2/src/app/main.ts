@@ -36,7 +36,7 @@ import {
 } from '../core/facemodel.js';
 import {
   advanceProtocol, createProtocol, sampleFromPose, scanRecord, summarise,
-  type ProtocolState,
+  type ProtocolState, type PoseSample,
 } from '../enroll/protocol.js';
 import type { BundleFrame } from '../enroll/bundle.js';
 import { createTracker, track, type TrackerState, type TrackResult } from '../track/tracker.js';
@@ -56,7 +56,7 @@ import { frameFromMesh } from '../fit/frame-from-mesh.js';
 import { readGlb } from '../fit/mesh-io.js';
 import { loadFrameMesh } from '../render/frame-mesh.js';
 import {
-  CACHED_BY_CALLER, applySeat, attachFrame, createScene, type SceneHandle,
+  CACHED_BY_CALLER, applySeat, attachFrame, createScene, detachFrame, type SceneHandle,
 } from '../render/scene.js';
 import { createFrameLock, detectToSourceScale, scaleLandmarksToSource, type FrameLock } from './framelock.js';
 import { createCameraSource, createStillSource, type Source } from './sources.js';
@@ -443,6 +443,7 @@ async function boot(): Promise<void> {
   app.phase = app.model ? 'wear' : 'acquire';
   if (app.model) adoptModel(app, app.model);
 
+  refreshFaceControls(app);
   startLoop(app);
 
   // Real assets, after the loop is running and never before it. Deliberately
@@ -653,10 +654,21 @@ function tick(app: App, nowMs: number): void {
     // thrown away, so no paste could say how much of a reported delay was
     // this line. `app.busy` is a no-op while this stays synchronous; it is
     // kept because it is the guard the worker version needs.
-    const result = app.detector.detect(
-      app.lock.detect, frame.timestampMs, app.lock.detect.width, app.lock.detect.height,
-    );
-    app.busy = false;
+    //
+    // `finally`, not a bare assignment. `app.busy` gates every submission, and
+    // it is written in exactly two places — here and its initialiser. A throw
+    // out of `detectForVideo` (a lost GPU context is the realistic one) left it
+    // latched true forever: no frame is ever submitted again, the picture
+    // freezes on the last composited frame, and nothing logs. The loop keeps
+    // running at full rate, so even the fps readout looks healthy.
+    let result: ReturnType<Detector['detect']> = null;
+    try {
+      result = app.detector.detect(
+        app.lock.detect, frame.timestampMs, app.lock.detect.width, app.lock.detect.height,
+      );
+    } finally {
+      app.busy = false;
+    }
     if (result && Number.isFinite(result.inferenceMs)) {
       app.detectMs.push(result.inferenceMs);
       if (app.detectMs.length > 300) app.detectMs.shift();
@@ -670,6 +682,31 @@ function tick(app: App, nowMs: number): void {
   app.scene.render();
   renderReadouts(app);
 }
+
+/**
+ * Advances the scan by one frame and shows it, wherever that frame came from.
+ *
+ * **`finished` has to be tested on every path that can set it, and it was not.**
+ * `advanceProtocol` is reached from four places: the good-pose branch, and three
+ * early returns — no detection, too few correspondences, and an unstable fit.
+ * All four can retire the last beat, because the give-up counter deliberately
+ * ticks on faceless frames too (that is what stops a profile hold freezing the
+ * scan). Only the good-pose branch went on to fire enrollment.
+ *
+ * So a scan whose final beat timed out while the face was NOT being tracked sat
+ * in `scan` with a finished protocol, prompt cleared and guide dot hidden,
+ * until the next well-tracked frame arrived. If the wearer had already given up
+ * and walked away, it sat there forever. Measured on the protocol directly, the
+ * all-beats-skipped case takes 1,407 frames — 47 seconds — and ends on exactly
+ * such a frame.
+ */
+function stepScan(app: App, sample: PoseSample | null): void {
+  if (!app.protocol) return;
+  const step = advanceProtocol(app.protocol, sample);
+  app.ui.guide(step);
+  if (step.finished) void runEnrollment(app);
+}
+
 
 function onDetection(
   app: App, result: ReturnType<Detector['detect']>, captureDt: number,
@@ -698,7 +735,7 @@ function onDetection(
     // The protocol still has to hear about it. A beat whose give-up timer only
     // ticks on frames WITH a face freezes forever when the detector loses the
     // wearer — which is exactly what a profile hold provokes.
-    if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
+    if (app.phase === 'scan') stepScan(app, null);
     return;
   }
 
@@ -744,7 +781,7 @@ function onDetection(
       );
       if (correspondences.length < 40) {
         app.ui.tracked(false, 'not enough of your face is visible');
-        if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
+        if (app.phase === 'scan') stepScan(app, null);
         return;
       }
 
@@ -763,7 +800,7 @@ function onDetection(
       if (!(solved.rmsPx <= SCAN_MAX_RMS_PX) || !(solved.pose.t[2] > 50)) {
         app.ui.tracked(false, 'hold steady — the fit is unstable');
         app.lastPose = null;
-        if (app.phase === 'scan') app.ui.guide(advanceProtocol(app.protocol, null));
+        if (app.phase === 'scan') stepScan(app, null);
         return;
       }
 
@@ -779,9 +816,8 @@ function onDetection(
       // The reference is the protocol's own neutral, learned during the opening
       // beat, not the first frame the tracker happened to land on — which is
       // whatever pose the wearer was in while the page was still loading.
-      const step = advanceProtocol(
-        app.protocol, sampleFromPose(solved.pose, app.protocol.neutral),
-      );
+      const sample = sampleFromPose(solved.pose, app.protocol.neutral);
+      const step = advanceProtocol(app.protocol, sample);
       app.ui.guide(step);
 
       collectFrame(app, landmarks, sigmaPx, visibility, step.beat?.id ?? 'done');
@@ -1154,6 +1190,7 @@ function adoptModel(app: App, model: FaceModel): void {
     fitFrame(app, app.frame);
   }
   app.phase = 'wear';
+  refreshFaceControls(app);
 }
 
 /** Solves the seat ONCE and caches it on the scene graph. */
@@ -1165,28 +1202,25 @@ function adoptModel(app: App, model: FaceModel): void {
  * that shows nothing for a minute on a slow connection. The app comes up wearing
  * the parametric default and real frames appear in the picker as they land.
  *
- * A row whose declared part lists are EMPTY is skipped without fetching
- * anything, because `frameFromMesh` refuses it on the part names alone and the
- * bytes would tell us nothing we do not already know. That is not a
- * micro-optimisation: it is 47.7 of the 62.7 MB, including `meshy-glasses` at
- * 23.3 MB on its own, downloaded to reach a refusal that is decidable from a
- * table. What still has to be fetched is anything that names its parts —
- * whether it derives is then a question about geometry, and geometry needs the
- * file.
+ * **Every row is fetched, and that is a reversal.** This loop used to skip any
+ * row whose declared part lists were empty, on the sound reasoning that
+ * `frameFromMesh` refused it on the names alone and the bytes could tell us
+ * nothing — 47.7 of the 62.7 MB downloaded to reach a decidable refusal.
+ *
+ * The premise is gone. The derivation no longer needs a part called `temple`:
+ * it finds each arm by splitting the mesh and fitting its knee, so whether an
+ * asset derives is now a question about geometry for EVERY row, and geometry
+ * needs the file. Seven of the ten reached the picker only after this filter
+ * came out; while it was here they were unreachable no matter what the
+ * derivation did, and the symptom was a frame list with three entries in it.
  *
  * Sequential rather than parallel: it is bandwidth that is scarce here, not
- * latency, and the wearer is looking at a working page throughout.
+ * latency, and the wearer is looking at a working page throughout. The order is
+ * the catalogue's, which puts the two authored assets first, so the frames most
+ * worth looking at arrive while the 23 MB scan is still coming down.
  */
 async function preloadCatalogue(app: App): Promise<void> {
   for (const entry of CATALOGUE) {
-    if (entry.parts.temple.length === 0 || entry.parts.lens.length === 0) {
-      console.info(
-        `[catalogue] ${entry.id}: skipped without fetching — it names no `
-        + `${entry.parts.temple.length === 0 ? 'temple' : 'lens'} parts, so the derivation `
-        + 'refuses on the table alone.',
-      );
-      continue;
-    }
     try {
       const response = await fetch(asset(entry.file));
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1228,6 +1262,45 @@ async function preloadCatalogue(app: App): Promise<void> {
 }
 
 /**
+ * Puts the face controls in the state the app is actually in.
+ *
+ * Called wherever the answer to "does this app have a model, and is it the
+ * wearer's?" changes — boot, adopt, rescan — rather than every frame, because
+ * the panel is not a readout and rewriting it at 30 Hz is how a button stops
+ * being clickable on a slow machine.
+ */
+function refreshFaceControls(app: App): void {
+  const hasModel = app.model !== null;
+  const scanning = app.phase === 'acquire' || app.phase === 'scan' || app.phase === 'solving';
+  // The hint is the only place the difference between the two routes is stated
+  // in words. A degraded model is the average face; anything else came from a
+  // scan of this wearer.
+  const hint = !hasModel
+    ? 'Nothing is drawn until there is a face to draw it on.'
+    : app.model!.degraded
+      ? 'These are placed on an AVERAGE face. The picture is real; the millimetres are not yours.'
+      : 'Placed on your own scan.';
+  app.ui.face({ hasModel, scanning, hint });
+}
+
+/** What this frame's fit numbers are worth, in one line for the wearer. */
+function frameNoteFor(frame: FrameAsset): string {
+  if (frame.source === null) return 'A parametric test shape, not a real pair of glasses.';
+  switch (frame.earRestSource) {
+    case 'measured':
+      return 'Arms measured from the asset’s own temple. This is the reference frame.';
+    case 'derived':
+      return 'Arms found from the model’s geometry — the file names no temple part.';
+    case 'assumed':
+      return 'A wrap: its arms have no rest point, so your ear supplied one. '
+        + 'The picture is right; treat the millimetres as an estimate.';
+    default:
+      return '';
+  }
+}
+
+
+/**
  * Puts a frame on the face: solve the seat, draw it, grade the fit.
  *
  * Stays SYNCHRONOUS, deliberately. `adoptModel` calls it and then sets
@@ -1251,6 +1324,8 @@ function fitFrame(app: App, frame: FrameAsset, object?: any): void {
   frameSanityTripwire(app, frame, seat);
   app.assessment = assessFit(app.model, app.mesh, app.regions, frame, seat);
   app.ui.fit(app.assessment);
+  app.ui.frameNote(frameNoteFor(frame));
+  app.ui.selectFrame(frame.id);
 }
 
 /**
@@ -1347,7 +1422,39 @@ function handleAction(app: App, action: string): void {
       app.snapFrame = 0;
       app.snapBuffer = null;
       app.phase = 'acquire';
+      // The frame is a child of `headNode` and survives a rescan, so without
+      // this the previous face's seat stays drawn over a face that is being
+      // re-measured. Clearing `app.frame` also stops `fitFrame`'s caller
+      // re-attaching it before a model exists.
+      detachFrame(app.scene);
+      // `app.frame` is deliberately KEPT — it is a non-null field whose value is
+      // "which frame the wearer chose", and that choice survives a rescan. What
+      // must not survive is the SEAT, which was solved against a face that no
+      // longer exists.
+      app.seat = null;
+      app.assessment = null;
+      app.ui.frameNote('');
       app.ui.status('starting again');
+      refreshFaceControls(app);
+      break;
+
+    // **The shortcut past the scan, and the reason it exists.**
+    //
+    // Nothing draws a frame until a `FaceModel` exists — `fitFrame` returns
+    // early without one — and the only route to one was a seven-beat guided
+    // scan. Measured on the protocol itself, that is 34 detection frames for a
+    // co-operative wearer but 1,407 (about 47 seconds) when no face is found at
+    // all, which is exactly the state anyone trying the glasses on a laptop
+    // with the camera denied sits in. So the glasses could not be looked at.
+    //
+    // `templateModel` is the average face the tree already carries and already
+    // labels: `degraded: true`, scale `assumed`, and a note saying every number
+    // is the average face. Adopting it deliberately is no less honest than
+    // adopting it on a failed solve, which is what already happened.
+    case 'average':
+      if (app.model) { app.ui.status('you already have a scan — use “Scan again” to replace it'); break; }
+      adoptModel(app, templateModel(app));
+      app.ui.status('average face — the glasses are placed, the measurements are not yours');
       break;
     case 'hook': {
       if (!app.model) { app.ui.status('scan first — there is no seat to adjust yet'); break; }
