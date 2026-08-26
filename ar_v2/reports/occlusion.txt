@@ -1,4 +1,4 @@
-[provenance] campaign source=a708c609d23513a1 canary=7316e7ee41e2f95b body=e6bb2549bf8f2098
+[provenance] campaign source=6e95119c1dae94ac canary=bac84a0dbdba49f8 body=8f65686c68682b48
 OCCLUSION — WHAT THE SCANNED FACE HIDES, MEASURED BEFORE A PIXEL IS DRAWN
 ==========================================================================
 The renderer about to be built will use the scanned face mesh as its
@@ -179,10 +179,12 @@ laptop-lid     480     0            0.45           0.073      0.132           0.
 phone-lap      480     0            0.53           0.045      0.070           0.24
 
   A lost frame is one the tracker refused (solve rejected or held); the
-  boundary numbers are conditioned on tracking. The phone-lap loss rate
-  is a finding of its own: this hold combines 35 degrees of yaw with the
-  ~30 degree pitch a phone in the lap imposes, and the tracker starts
-  refusing solves there.
+  boundary numbers are conditioned on tracking. This legend used to go on
+  to call the phone-lap loss rate "a finding of its own" -- 35 degrees of
+  yaw plus the ~30 degree pitch a phone in the lap imposes -- while the
+  table above it printed lost 0 on all three cameras. Whatever produced
+  that reading, this instrument no longer reproduces it, so the claim is
+  gone rather than restated; the column is the place to look.
 
 HEADLINE — MEDIAN OF THE FIVE SEEDS, PER-SEED RANGE IN BRACKETS
 ----------------------------------------------------------------
@@ -222,4 +224,4 @@ Whether the renderer should hide a temple tip behind hair it has no
 geometry for is a stage-1 renderer question, not a scan-quality
 question, and no number above speaks to it.
 
-Wall clock: 73.8 s.
+Wall clock: 55.9 s.

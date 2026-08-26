@@ -26,8 +26,16 @@ export interface Variant {
   name: string;
   capture?: Partial<CaptureOptions>;
   bundle?: Partial<BundleOptions>;
-  /** Use v1's fixed iris constant rather than this subject's true one. Always
-   *  true for realism; the flag exists so the harness can isolate the bias. */
+  /**
+   * Use THIS SUBJECT's true iris diameter rather than the pooled constant.
+   *
+   * The name is the right way round and the old comment was exactly backwards:
+   * `runEnrollReport` passes `irisMm: variant.useTrueIris ? subject
+   * .irisDiameterMm : undefined`, and `undefined` is what makes `solveScale`
+   * fall back to the pooled `IRIS` assumption. It is also **false on every
+   * variant but one** — `true-iris`, which exists precisely to isolate the
+   * pooled constant's population bias from the reconstruction's own error.
+   */
   useTrueIris?: boolean;
 }
 

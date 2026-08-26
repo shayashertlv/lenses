@@ -1321,10 +1321,12 @@ export function runOcclusionReport(options: OcclusionRunOptions = {}): string {
   ));
   out.push('');
   out.push('  A lost frame is one the tracker refused (solve rejected or held); the');
-  out.push('  boundary numbers are conditioned on tracking. The phone-lap loss rate');
-  out.push('  is a finding of its own: this hold combines 35 degrees of yaw with the');
-  out.push('  ~30 degree pitch a phone in the lap imposes, and the tracker starts');
-  out.push('  refusing solves there.');
+  out.push('  boundary numbers are conditioned on tracking. This legend used to go on');
+  out.push('  to call the phone-lap loss rate "a finding of its own" -- 35 degrees of');
+  out.push('  yaw plus the ~30 degree pitch a phone in the lap imposes -- while the');
+  out.push('  table above it printed lost 0 on all three cameras. Whatever produced');
+  out.push('  that reading, this instrument no longer reproduces it, so the claim is');
+  out.push('  gone rather than restated; the column is the place to look.');
   out.push('');
 
   // ---- headline across seeds ------------------------------------------------

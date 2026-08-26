@@ -31,8 +31,14 @@
  *    rather than from a depth buffer's boundary, and it never imports this
  *    file. That is the divergence this header exists to prevent, currently
  *    live.
- *  - **Render-time occlusion.** There is no occlusion pass in `render/` at
- *    all; the frame is composited without one.
+ *  - **Render-time occlusion.** `render/scene.ts` runs one, and this line used
+ *    to deny it: `setOccluder` builds a depth-only mesh with
+ *    `colorWrite: false` at `renderOrder = -1`, so the scanned HEAD writes depth
+ *    before the frame is drawn and the GPU's own z-test does the cutting. It
+ *    does not go through this file — it is a three.js draw, not a scanline
+ *    rasterisation — which is the real point: THREE surfaces now decide
+ *    occlusion (this buffer, `bundle.ts`'s per-vertex contour test, and the
+ *    GPU), and only the first two are in `core/`.
  *
  * It is deliberately unoptimised: scanline over the triangle's bounding box, no
  * tiles, no SIMD. At 468 vertices and ~900 triangles into a 160x120 buffer it

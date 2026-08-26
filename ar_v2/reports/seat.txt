@@ -1,4 +1,4 @@
-[provenance] seed 11 source=4f7713e7ddcb52ef canary=8b555aeaad7c0891 body=7d21b3beea661f4b
+[provenance] seed 11 source=b32ece98fcc9dfd6 canary=5b15e69c4ebe8e0e body=968f9ef660362e90
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
 Regenerated 2026-08-25 by `npm run report:seat`, which runs
 runSeatReport({ seed: 11 }) and stamps the provenance line above. The seat is
@@ -31,18 +31,21 @@ Seated against ground-truth geometry, to isolate the contact solve.
 
 frame          pad sep  descent mm (med/p90/worst)  |depth err| mm  pad load  panto deg  pad tilt deg   ms  unconverged
 -------------  -------  --------------------------  --------------  --------  ---------  ------------  ---  -----------
-narrow-pads         13         -0.82 / 2.78 / 5.83            0.76      0.92        0.7          20.9  187            0
-standard            17        6.94 / 13.81 / 13.96            0.79      0.57        8.1          19.6  139            0
-wide-pads           22       12.77 / 15.89 / 15.97            0.60      0.92        9.2          20.4  142            1
-heavy-acetate       19       11.82 / 15.82 / 15.91            0.67      0.75        9.7          21.0  160            0
-steep-pads          17        6.09 / 13.93 / 14.39            0.67      0.69        6.2          26.2  199            0
+narrow-pads         13         -0.82 / 2.78 / 5.83            0.76      0.92        0.7          20.9  116            0
+standard            17        6.94 / 13.81 / 13.96            0.79      0.57        8.1          19.6   82            0
+wide-pads           22       12.77 / 15.89 / 15.97            0.60      0.92        9.2          20.4   91            1
+heavy-acetate       19       11.82 / 15.82 / 15.91            0.67      0.75        9.7          21.0  105            0
+steep-pads          17        6.09 / 13.93 / 14.39            0.67      0.69        6.2          26.2  132            0
 
   descent    how far BELOW the nominal placement the frame settles.
              Nominal is v1's answer: pads hung on the bridge landmark.
              A wide-padded frame on a narrow nose settles further.
-  seat err   RMS spread of the pad samples' distance to the skin. Zero
-             is a pad bedded flush; large is a pad touching on one edge,
-             which is what a wearer feels as a pressure point.
+  |depth err|  how far the pads' mean penetration sits from the target
+             contact depth. This legend used to name a column called
+             "seat err" and describe the FLUSHNESS number instead --
+             padSeatErrorMm, the RMS spread of the samples about their
+             own plane. Two different quantities; the table has always
+             carried this one (abs of padDepthErrorMm).
   pad load   share of the frame's weight carried by the nose rather
              than the ears.
 

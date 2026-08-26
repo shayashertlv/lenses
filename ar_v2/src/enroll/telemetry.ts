@@ -71,9 +71,13 @@ export interface CaptureHeader {
   /**
    * Whether an ID-1 card was held in frame during the capture.
    *
-   * `enroll/scale.ts`'s card branch reads 0.80% median scale error against the
-   * pooled iris's 5.14% on the same synthetic runs, and has never seen a real
-   * card. A capture with one is the fixture that changes that.
+   * **There is no card branch to feed.** `enroll/card.ts` was deleted in
+   * `f9c9093` and `scale.ts` says so on its own rung list: the ID-1 card was
+   * built, measured at 0.80% median scale error against the pooled iris's 5.14%
+   * on the same synthetic runs, and taken OUT -- see `docs/SCALE.md`. This flag
+   * survives as a property of the CAPTURE, so that a recording made with a card
+   * in frame is identifiable if the rung is ever rebuilt. It reaches no
+   * estimator today.
    */
   card: boolean;
   /** Free text: lighting, camera, distance, anything a reader would want. */

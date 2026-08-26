@@ -31,7 +31,7 @@ import {
   subjectResidualAgainstBasis, synthesizeCapture,
 } from '../src/testkit/synthetic.js';
 import { compareToTruth, distribution } from '../src/testkit/metrics.js';
-import { measure, standardRegions } from '../src/core/mesh.js';
+import { measure, standardRegions, trackingRigidity } from '../src/core/mesh.js';
 import { basisExplains } from '../src/core/shape/anthropometric.js';
 import { evaluateBasis } from '../src/core/shape/basis.js';
 import { createRng } from '../src/testkit/random.js';
@@ -134,6 +134,38 @@ describe('the template and its regions', () => {
 });
 
 // -------------------------------------------------------------------- basis
+
+describe('the eye corners the tracker silences are the eye corners it names', () => {
+  it('trackingRigidity zeroes every LM.EYE_* corner', () => {
+    // `LID_RING_R`/`LID_RING_L` in `core/mesh.ts` carried a comment saying their
+    // corner indices "are cross-checked against `LM.EYE_*` above, so a template
+    // swap that renumbers them breaks loudly in the tests rather than silently
+    // here". Nothing anywhere performed that check. This is it.
+    //
+    // The property that matters is behavioural, so it is asserted through
+    // `trackingRigidity` rather than by exporting a private array: the eye
+    // region may not vote on the pose, because MediaPipe deforms it with gaze
+    // and a wearer's eyes must not steer their glasses. If a template renumbered
+    // the corners, `LM.EYE_*` would move, the lid rings would not contain them,
+    // and the gaze-driven landmarks would be back in the solve at full weight.
+    const r = trackingRigidity(mesh, regions);
+    for (const [name, i] of [
+      ['EYE_OUTER_R', LM.EYE_OUTER_R], ['EYE_OUTER_L', LM.EYE_OUTER_L],
+      ['EYE_INNER_R', LM.EYE_INNER_R], ['EYE_INNER_L', LM.EYE_INNER_L],
+    ] as const) {
+      assert.equal(r[i], 0,
+        `${name} (vertex ${i}) has rigidity ${r[i]} — it is not on a lid ring, so a `
+        + 'gaze-driven landmark is voting on the pose');
+    }
+
+    // And the check has to be able to fail, so: a landmark that is NOT an eye
+    // corner must not be silenced. Without this the assertion above would pass
+    // on `fill(0)`.
+    assert.ok(r[LM.SUBNASALE] > 0.9,
+      `the subnasale has rigidity ${r[LM.SUBNASALE]} — everything is being silenced, `
+      + 'so the assertions above cannot fail');
+  });
+});
 
 describe('the shape basis', () => {
   it('has interpretable, independent modes at plausible magnitudes', () => {

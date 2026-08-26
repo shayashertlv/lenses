@@ -960,8 +960,15 @@ function currentNormals(state: BundleState): Float64Array {
  * points against ~500 observed samples, per frame, per LM iteration, per round —
  * about 34 million distance evaluations for one scan, and comfortably the
  * dominant cost of the whole solve. A grid at the match radius turns each lookup
- * into a nine-cell visit. Same answer, and the harness pins that it is the same
- * answer rather than trusting it.
+ * into a nine-cell visit.
+ *
+ * **Same answer, and NOTHING pins that** — this line used to say "the harness
+ * pins that it is the same answer rather than trusting it", and no test, report
+ * or script anywhere in the tree references `buildSilhouetteIndex`,
+ * `nearestSilhouette` or `SILHOUETTE_MATCH_PX`. The equivalence rests on the
+ * cell size being exactly the match radius, so a nine-cell visit covers every
+ * point within it; that argument is sound and it is an argument, not a
+ * measurement.
  */
 interface SilhouetteIndex {
   cell: number;

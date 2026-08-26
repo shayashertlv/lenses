@@ -177,10 +177,15 @@ const doc = {
     + 'They were one number until 2026-08-26 and it was neither.',
   coverage: '2 of 11 assets. The other nine are photogrammetry or image-to-3D output with '
     + 'generic part names or a single fused mesh, and have no author-declared pads to extract.',
-  uncertainty: 'Method-dependent at about +/-1.4 mm. On navigator: whole-mesh part centroids give '
-    + '18.48 mm, these inward contact faces give 12.43 mm, a plane-fit of the same faces gives '
-    + '13.79 mm. The contact-face reading is the one that matches how parametricFrame places its '
-    + 'own samples; the spread is recorded rather than averaged away.',
+  uncertainty: 'Method-dependent, and the size of that depends on WHICH methods. On navigator: '
+    + 'whole-mesh part centroids give 18.48 mm, these inward contact faces give 13.843 mm (the '
+    + 'figure emitted below), and a plane-fit of the same faces gives 13.79 mm. So the two '
+    + 'CONTACT-FACE methods agree to 0.05 mm and the whole-mesh centroid is 4.6 mm away from '
+    + 'both -- it is measuring the pad ARMS as well as the pads. This field used to claim '
+    + '"+/-1.4 mm" from a contact-face reading of 12.43 mm, which is not what this script '
+    + 'produces and disagreed with the corroboration note directly below it. The contact-face '
+    + 'reading is the one that matches how parametricFrame places its own samples; the spread '
+    + 'is recorded rather than averaged away.',
   corroboration: 'SEPARATION replicates across methods and ANGLE does not, which is the useful '
     + 'part. Two independent extractions agree on navigator to 0.05 mm (13.843 here against '
     + '13.79 from a plane fit) and on khronos to 0.10 mm. The ANGLE does not replicate even '

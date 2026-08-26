@@ -303,10 +303,15 @@ export function standardRegions(mesh: FaceMesh): Record<string, Region> {
 
 /**
  * The lid rings of the canonical face mesh — the sixteen vertices tracing
- * each eye's contour, corners included. Standard MediaPipe topology; the
- * corner indices are cross-checked against `LM.EYE_*` above, so a template
- * swap that renumbers them breaks loudly in the tests rather than silently
- * here. Not exported: their one job is `trackingRigidity`.
+ * each eye's contour, corners included. Standard MediaPipe topology, and each
+ * ring's first and ninth entries are the eye's outer and inner corners.
+ *
+ * **The cross-check this comment used to claim is now real.** It said the
+ * corner indices "are cross-checked against `LM.EYE_*` above, so a template
+ * swap that renumbers them breaks loudly in the tests" — and nothing anywhere
+ * compared the two. `tests/pipeline.test.ts` now does, which is the cheaper
+ * half of making a sentence true. Not exported: their one job is
+ * `trackingRigidity`.
  */
 const LID_RING_R = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
 const LID_RING_L = [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466];

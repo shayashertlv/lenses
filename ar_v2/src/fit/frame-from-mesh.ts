@@ -229,15 +229,30 @@ export const TEMPLE_BEND_TOLERANCE_MM = 1.5;
  * `measured`, and it is the guard that stopped two assets deriving nonsense.
  *
  * A temple that rests on an ear runs level from the hinge and then turns down.
- * That shape has two degenerate neighbours, and both are in the catalogue:
+ * Below the threshold the arm never runs level — it is a hook that wraps the ear
+ * rather than resting on it, and there is no rest point for this method to find.
+ *
+ * **The derivation table that used to sit here no longer describes this
+ * constant**, and the reason is structural rather than numeric. It read:
  *
  *     asset           depth mm   level run mm   fraction
  *     navigator          135.5           73.4      0.542   a real bend
  *     shield-golden      104.9           13.1      0.125   descends from the hinge
  *     sunglasses-khronos 161.4            0.0      0.000   an earhook, all curve
  *
- * Below the threshold the arm never runs level — it is a hook that wraps the ear
- * rather than resting on it, and there is no rest point for this method to find.
+ * Two things have moved since. This guard lives in `findBend`, which is the
+ * NAMED-TEMPLE-PART path, and the derivation stopped needing a part called
+ * `temple` — it splits the mesh and fits each arm's knee instead. So
+ * shield-golden and khronos no longer reach this test at all: measured today
+ * they are refused by `ARM_KNEE_RATIO_MIN`, whose bar is 7, at curl/level
+ * ratios of **3.4** and **6.3**. And navigator, the one asset that does reach
+ * it, now reports a level run of **96 mm** rather than 73.4.
+ *
+ * So this constant currently gates exactly one asset, and it passes. It is kept
+ * because the named-part path is still live and a fabricated rest point is still
+ * the worst available error — see below — but treat the two "degenerate
+ * neighbours" as a record of why it was written, not as evidence it is what
+ * stops them.
  * The other end is covered separately: an arm that is level all the way to its
  * rearmost bin is a straight rod with no bend either, and `findBend` returns
  * null for that without needing a number.

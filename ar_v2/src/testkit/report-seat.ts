@@ -141,9 +141,12 @@ export function runSeatReport(options: Partial<SeatRunOptions> = {}): string {
   out.push('  descent    how far BELOW the nominal placement the frame settles.');
   out.push('             Nominal is v1\'s answer: pads hung on the bridge landmark.');
   out.push('             A wide-padded frame on a narrow nose settles further.');
-  out.push('  seat err   RMS spread of the pad samples\' distance to the skin. Zero');
-  out.push('             is a pad bedded flush; large is a pad touching on one edge,');
-  out.push('             which is what a wearer feels as a pressure point.');
+  out.push('  |depth err|  how far the pads\' mean penetration sits from the target');
+  out.push('             contact depth. This legend used to name a column called');
+  out.push('             "seat err" and describe the FLUSHNESS number instead --');
+  out.push('             padSeatErrorMm, the RMS spread of the samples about their');
+  out.push('             own plane. Two different quantities; the table has always');
+  out.push('             carried this one (abs of padDepthErrorMm).');
   out.push('  pad load   share of the frame\'s weight carried by the nose rather');
   out.push('             than the ears.');
   out.push('');

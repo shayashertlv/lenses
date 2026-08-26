@@ -190,6 +190,13 @@ export function campaignSeeds(n: number): number[] {
 /**
  * Run a figure at N independent seeds and report the per-seed values.
  *
+ * **Nothing calls this.** It is the campaign's documented estimator — three
+ * other files point readers at it for the median-of-seeds rule — and every
+ * seeded sweep in the tree is written out by hand instead. That is worth
+ * knowing before trusting it: the validation below is exercised only by its own
+ * unit tests, so "the campaign uses `acrossSeeds`" is a statement about
+ * intent, not about code.
+ *
  * `seeds` is either a count (expanded via `campaignSeeds`) or an explicit
  * list. The list is validated rather than trusted: duplicate seeds would
  * silently narrow the spread while claiming N replicates, and the seed

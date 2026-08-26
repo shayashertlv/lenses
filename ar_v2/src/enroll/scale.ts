@@ -137,13 +137,14 @@ export interface IrisReading {
  * is usable as a ruler at all, and it is destroyed by picking two points.
  *
  * Returns null rather than a guess when the iris is too small to measure. Six
- * pixels of diameter is where quantisation exceeds the signal — or when the head
- * is turned far enough that the disc is no longer facing the camera. See
- * `IRIS_MAX_YAW_DEG`.
- */
-/**
+ * pixels of diameter is where quantisation exceeds the signal.
+ *
  * **There is deliberately no yaw gate here, and that was tested rather than
- * assumed.**
+ * assumed.** This paragraph used to end "or when the head is turned far enough
+ * that the disc is no longer facing the camera. See `IRIS_MAX_YAW_DEG`" — a
+ * constant that exists nowhere in this repository, sitting in a second,
+ * orphaned docstring directly above the one that says the gate was measured and
+ * refused.
  *
  * A review flagged this function for accepting a reading at any head angle: no
  * yaw gate, no visibility gate, no eye-openness gate, while measured keyframe
