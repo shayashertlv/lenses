@@ -1,9 +1,28 @@
 # Handoff: finish making ar_v2 the AR system and retire v1
 
-You are picking up a migration that is 2 of 10 stages done. Read this whole file
-before touching anything. It is written to save you the day I spent finding
-things out, and every number in it was measured on this tree rather than
-recalled.
+You are picking up a migration that is **8 of 10 stages done** (2026-08-26).
+Read this whole file before touching anything. It is written to save you the day
+I spent finding things out, and every number in it was measured on this tree
+rather than recalled.
+
+**Status, so the rest of this file is read in the right tense:**
+
+    1  custody                        DONE
+    2  baseline the real face         DONE  -- the recorder AND a real capture
+    3  the asset bridge               DONE
+    4  one surface, one description   DONE  (two of three; see stage 4)
+    5  navigator end to end, headless DONE
+    6  the back of the head           DONE
+    7  navigator rendered on a face   DONE
+    8  the other nine assets          PARTLY -- five widths off the placeholder,
+                                      still `assumed`, nothing weighed
+    9  re-baseline the reports        DONE  (bc28773) -- and the gate caught two
+                                      reports describing code that no longer existed
+    10 retire v1                      NOT DONE -- 4 of 5 preconditions met; the
+                                      parity ledger is the one that is not
+
+The two things that are not done are the two that need a physical day with the
+frames, and a parity ledger nobody has written. Everything else is closed.
 
 ---
 
@@ -33,7 +52,7 @@ other as much as their names suggest:
 - `ar/` — **v1**. JavaScript, 16,407 lines of `src`. The AR try-on that works
   today. It has the rendering: eleven real glTF eyewear assets, materials, lens
   glass, a light probe. Its estimator is the one being replaced.
-- `ar_v2/` — **v2**. TypeScript, 222 tests, three mechanised gates. A much
+- `ar_v2/` — **v2**. TypeScript, 270 tests, four mechanised gates. A much
   better estimator (scan once, track against the scan, seat by contact physics)
   that draws only a **parametric** frame — tubes and ellipses — and until this
   week had no way to read an asset at all.
@@ -277,7 +296,7 @@ separation error, to 100% and +0.42 mm.**
 Stage 2 must land before you trust any measurement taken after it. Stages 4–7
 are the agent-executable spine. **Every stage must leave a working system.**
 
-### Stage 2 — baseline the real face — **recorder DONE, capture still needs Shay**
+### Stage 2 — baseline the real face — **DONE (2026-08-26)**
 
 The recorder half is built and no longer blocks anything:
 `src/enroll/telemetry.ts` plus a **"Save this scan"** button. Finish a scan, press
@@ -302,11 +321,36 @@ is here.
 Also gone with it: the "impossible after v1 dies" dependency. Nothing in the
 recorder touches v1, so stage 10 no longer waits on this.
 
-**What still needs Shay:** one session. Set your PD first (`Set my PD`), hold an
-ID-1 card in frame if you can and add `?card=1` to the URL, scan, then `Save
-this scan`. That fixture is the only thing that can settle the **6.7 mm PD
-disagreement across three captures of one person**, and it is the only route by
-which a real face reaches a harness that is otherwise entirely synthetic.
+**CLOSED 2026-08-26.** The owner ran a session and produced
+`capture-2026-08-26.ndjson`: 141 frames, 1280x720, focal solved, one real face.
+It replays through the shipping estimator and lands cleanly — coverage
+sufficient, not degraded, reprojection 5.70 px against ~4.94 on synthetics,
+24 keyframes, nose sigma 0.67 mm, iris scale x2.1366 +/-4.89%, PD readout
+64.6 +/- 3.2 mm.
+
+Three things the replay taught that no synthetic could:
+
+- **The `centre` beat recorded ONE frame** of 141 (`turn-right` 17,
+  `turn-left` 32, `nod-down` 25, `nod-up` 15, `lean-in` 21, `lean-back` 29).
+  Centre is the beat that establishes the neutral. It did not degrade the scan,
+  but it is thin and nobody designed it that way.
+- **The card instruction above is dead.** `?card=1` refers to a rung deleted in
+  `f9c9093` and rejected by the owner. Do not ask for a card.
+- **No PD was set**, and chasing one cost a long exchange: the owner offered
+  145, then "49 29", both of which are the FRAME's markings (eye size, bridge,
+  temple length) rather than a pupillary distance. The lesson for the UI is that
+  "PD" is not a word a wearer reliably maps to the right number. The iris rung is
+  the shipping default and it is fine for the picture.
+
+**The capture is not committed.** It lives in the owner's `Downloads/`, so this
+stage's fixture depends on a file that could be deleted. Committing it needs his
+consent — it is landmarks and sigmas only, no pixels, but it is still a real
+person's face geometry entering git history permanently. Ask before you do it.
+
+**The 6.7 mm PD disagreement this stage used to cite has no underlying
+measurement.** It is asserted at line ~307 of an earlier draft of this file,
+`telemetry.ts` and `main.ts` both cite THIS FILE back for it, and every hit in
+both workflow journals is an agent reading the doc. Do not treat it as evidence.
 
 *Gate, unchanged and not yet met:* replay asserts within-capture PD spread <= 7%
 on >= 4 of 5 seeds, and a committed cross-capture figure pinned to +-1 mm. The
@@ -450,10 +494,20 @@ pads) and on the acetate saddles. **A run where all eleven produce pads is a run
 that failed.** Every asset carries either a measured or a declared geometry, and
 says which.
 
-### Stage 9 — re-baseline the reports
-Every checked-in report describes a configuration that no longer exists.
-*Gate:* `scripts/check-reports.mjs` hashing each report's declared inputs into
-its header, wired into `npm test`.
+### Stage 9 — re-baseline the reports — **DONE (`bc28773`, 2026-08-26)**
+"Every checked-in report describes a configuration that no longer exists" was
+two-thirds right. `enroll.txt` reproduced EXACTLY at its declared seed, every
+accuracy digit; `seat.txt` and `track.txt` were badly stale.
+
+`scripts/check-reports.mjs` is wired into `npm test`. **It does not hash the
+declared inputs, and the reason is worth keeping:** every constant seat.txt's
+own header names still held exactly the declared value while seat.txt was
+stale, so that gate would have been green throughout — a check that cannot
+fail. It hashes (a) the generator's transitive import graph with comments
+stripped, cheap, every run, and (b) on drift only, a canary run of the
+generator itself with the clock stripped.
+
+`npm run report:<name>` now regenerates AND stamps through the same script.
 
 ### Stage 10 — retire v1 in one act, then read it cold
 **Never module by module** — `ar/src/main.js:34-54` imports `frame.js`,
@@ -462,9 +516,14 @@ its header, wired into `npm test`.
 stages 7–8 need both trees serving.
 Five preconditions, all checkable: (1) `check-selfcontained` has run on every
 commit since stage 1; (2) the recorder runs from its new home and has been used;
-(3) a written side-by-side verdict and screenshot pair exists per asset;
+(3) a written side-by-side verdict and screenshot pair exists per asset —
+**the owner gave a blanket verdict on 2026-08-26 ("v2 is for sure better") but
+not a per-asset pair**; treat that as the precondition met at his discretion and
+say so rather than quietly recording it as the thing that was asked for;
 (4) the pad ground truth is committed (**done**); (5) the parity ledger is
-closed, each row naming a test or a report line that exists.
+closed, each row naming a test or a report line that exists — **this is the one
+still open, and until 2026-08-26 the ledger did not exist as a document at
+all**; see `docs/PARITY.md`.
 Then the cold review of the whole AR project.
 
 **Honest total: about four months.** Roughly 77% of v1 (12,654 of 16,407 lines)
@@ -499,7 +558,7 @@ v1's *tracking* pipeline, **not** an asset loader; the loader is `models.js`
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 git checkout ar-v2-primary
 node scripts/fetch-vendor.mjs      # if vendor/ is absent
-npm test                            # expect 222/222 and three green gates
+npm test                            # expect 270/270 and four green gates
 ```
 
 Then read `src/fit/frame-asset.ts`'s `derivePads` and
