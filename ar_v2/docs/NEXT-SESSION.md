@@ -168,6 +168,158 @@ carries what each does and how it was measured.
    is never questioned. That is deliberate — see `identity.ts`, "What it refuses
    to answer" — but it is a real second case, not a solved one.
 
+## 3b. The open review queue — specified, measured, NOT applied
+
+The 2026-08-26 full-tree review confirmed 47 findings. Roughly a third are fixed
+(see the commits between `c85159d` and `947edf7`); three were in `ar/` and went
+with it. **The rest are below, each with its verdict independently re-measured
+before anyone touched code** — which was worth doing, because the investigation
+corrected the review's own wording on nine of fourteen items and found two of its
+proposed fixes to be wrong.
+
+Read the verdict line before the finding. Several are **not** what the review
+said they were.
+
+### P1 — live, reproducible today, and no residual can see it
+
+**A2. A stored model's intrinsics are planted on a camera of a different size.**
+`src/app/main.ts:1401-1406` in `adoptModel`, and a looser second site the review
+missed at `:599-601` in `startSource` (no `intrinsicsSolved` check at all,
+currently masked only by boot ordering).
+
+*Deterministic reproducer, no hardware change needed:* scan on a camera, reload
+with the camera unavailable. `startSource` falls back to
+`assets/samples/face-a.jpg`, which is **1024x1024**, and the 1280x720 record is
+planted on it. `getUserMedia` is also asked for `{ideal: 1280} x {ideal: 720}`,
+so another app holding the camera renegotiates silently.
+
+*Why nothing notices:* PnP absorbs a wrong focal length into depth, so the
+reprojection residual stays healthy — measured 4.95-5.90 px against
+`SCAN_MAX_RMS_PX = 22`, and `pose.t[2] > 50` passes on 90 of 90 frames. **Every
+gate reads green while the frame is drawn a third of a screen off the face.** The
+fix has to be a precondition check, not a bar.
+
+*And the review was wrong about the remedy:* `scaleIntrinsics` (`core/camera.ts:68`,
+zero callers repo-wide — confirmed) is **not** the exact rescale. It scales `f`
+and `cx` by `width/k.width` and `cy` by `height/k.height`, which is exact only
+when the aspect ratio survives. Transferring a 63-degree 1280x720 record to
+640x480 gives a **78.50-degree** camera. The right focal scale for a webcam mode
+change is `max(sx, sy)`, because browsers crop-and-downscale rather than squash:
+16:9 to 4:3 crops the sides, 4:3 to 16:9 crops top and bottom. Both verified
+exact against ground truth.
+
+### P2 — real accuracy or a wearer-facing number
+
+**C3. The silhouette term is dead in production, and it is worth having.**
+`main.ts:1046` and `enroll.worker.ts:134` hard-code `silhouette: null` while
+`useSilhouette` defaults true, so all five paths in `bundle.ts` enter and
+immediately `continue`. `BundleReport.silhouetteResiduals` is 0 on every real
+scan and has **zero consumers**, so nothing notices. **Verdict: wire it up** —
+measured at a replicated **0.29 mm off the standoff p90**, and the benefit
+survives realistic edge noise. Note the consequence for the harness: the
+`no-silhouette` variant *is* the production configuration today, so every
+published enrolment figure was measured on the wrong arm.
+
+**C4a. A PD the app accepts is then withheld — "worse than stated".** The
+correction gates on [45, 85] (`enroll.ts:187`, matching the UI) and the readout
+on `PD_PLAUSIBLE_MM` [46, 80] (`enroll.ts:313`). Since the correction scales the
+geometry so `interpupillarySpan` equals `knownPdMm` **by construction**, the
+readout gate is being applied to the wearer's own typed number. A wearer who
+types 45 has it used as the absolute ruler and then not shown.
+
+**D1. The wearer-facing "% on the nose" describes different physics from the
+solve — and the review's remedy is a sign error.** `describeSeat`
+(`contact.ts:1217`) projects onto `cp.ny`, the interpolated vertex normal; the
+contact row (`contact.ts:759-763`) is built from `u = (p - cp)/|p - cp|`. But
+`u` is the gradient of the *residual*, not the direction of the force: with
+`E = k*d^2/2`, `F = -k*d*u`, so the vertical component wanted is
+**`+normalN * (cp.y - p[1])/|p - cp|` — minus `u`, not `u`.** Substituting `u_y`
+naively was measured and is wrong.
+
+**B1. `snapOffsets` skips its ridge gate whenever the peak lands at a band end.**
+`snap.ts:189` and `:196` both guard `bestIdx > 0 && bestIdx < steps - 1` with no
+`else`, so 2 of 17 positions skip both the flank check and the sub-pixel
+parabola and emit `offsetPx = +/-searchPx` exactly. Two corrections: "at full
+confidence" understates it — band-end accepts carry **higher** confidence than
+interior ones (median 0.647 against 0.588), because to be the band max and clear
+the median test a spike has to be big; and "clamp it" is not available, the code
+already clamps. Reject, or gate one-sided.
+
+*Exposure is genuinely confined to noisy captures:*
+
+    grain            peak at band end   accepted   share of confident samples
+    +/-4  (spec)       42/352            0          --
+    +/-8  (dim)        42/352           30          37.5%
+    +/-16 (high ISO)   42/352           42          29.4%
+
+At 450 mm, 8 px is 6.13 mm and `contourPushes` caps at 3 mm — so every band-end
+acceptance is a **full-cap push in a direction noise chose**.
+
+**D4. `padAngleRad` is two different angles under one name.** Every claim
+independently reproduced: the parametric path consumes it as a yaw about the
+vertical (`ny` exactly 0), both producers measure a cone angle from the sagittal
+normal, mean `|ny|` is 0.327 / 0.310 on the deriving assets, and dropping `ny`
+moves the mean 6.67 / 8.48 degrees. Decide which definition keeps the name, and
+change `assets/glasses/ground-truth.json`'s stated definition with it.
+
+### P3 — real, and smaller or different than the review said
+
+**D2. Two bars for one decision, and the tree already knows.** `score.ts:214`
+grades on a bare `1.0` while `solveSeat` fires at `PAD_CURVATURE_LIMIT_MM = 0.9`.
+That constant's own docstring names the defect verbatim — and points at
+`advice.ts`, which no longer exists (renamed to `score.ts`). *Related: stale
+`dist/src/fit/advice.js` and `bearing.js` survive with no `src` counterpart.*
+
+**C1. `converged` cannot go false — but the implied fix is worthless and the
+real defect is next door.** `converged === false` iff not one landmark in any
+frame survived. Read the spec before changing it.
+
+**C2. The `visibility` overwrite is one frame per scan, not every frame.** The
+review's blast-radius fingerprint belongs to a bug already fixed. Still worth
+correcting; not worth the priority the review gave it.
+
+**B3. `framesTracked` is session-cumulative against a docstring saying
+per-acquisition — and the implied fix is backwards.** Do not change the counter;
+fix the comment and check each of its three readers.
+
+**C4b. `fieldRmsMm` is in pre-scale gauge units, and the gauge is not constant** —
+it varies per solve by 1.099x to 2.732x, so the field understates the millimetre
+figure by 9.0% to 63.4%, median 31.6%.
+
+**C4c. `landmarkRigidity` is a DOCUMENTATION defect only.** The 0..1 claim is the
+stale half of a docstring whose other half, twenty-two lines above the code,
+already says the nose boost is deliberate. Measured over 72 paired cells, the
+over-weighting does nothing.
+
+**D3. `useEars` is dead, and there is nothing to sweep.** Four references, all in
+`contact.ts`, no caller, no test, no doc. The review's "ledger row" does not
+exist — `SEAT_DEFAULTS` is exempted wholesale.
+
+**A3. The frame-sanity tripwire names its regression in a string** and cannot see
+it: it computes from `seat.pose` and frame-local marks, never from
+`frameNode.matrix`.
+
+### Prose that asserts the opposite of the code
+
+`raster.ts:34` (denies `render/` has an occlusion pass — it does),
+`report-occlusion.ts:1324` (claims a loss rate its own table prints as 0),
+`telemetry.ts:74` (cites a `scale.ts` card branch that never existed there),
+`mesh.ts:307` (promises a cross-check against `LM.EYE_*` that no code performs),
+`scale.ts:124` (documents an iris yaw gate that does not exist),
+`metrics.ts:204` (`acrossSeeds` has no callers), `report-enroll.ts:29`
+(`useTrueIris` docstring inverted), `report-seat.ts:144` (legend defines
+`|depth err|` as the flushness number), `extract-pad-truth.mjs:145` (a +/-1.4 mm
+tolerance built on a number its own data contradicts), `bundle.ts:884` (claims a
+harness pins the silhouette grid; none does),
+`frame-from-mesh.ts:218` (`TEMPLE_LEVEL_RUN_MIN_FRACTION`'s derivation table is
+stale in all three rows).
+
+### Still untested, browser-side
+
+`detect/mediapipe.ts` — no test, no report, no fixture, and now the largest of
+these because the identity watch depends on the sigma it estimates.
+`app/sources.ts` and `app/ui.ts` — no test at all.
+
 ## 4. Blocked on Shay — tell him, don't wait silently
 
 - **One physical day for stage 8: eleven weighings and calipers.** This got more
