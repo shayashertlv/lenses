@@ -163,10 +163,18 @@ Not "write 26 tests". The honest reading of the adversarial pass is that **five
 things are untested in v2 and all five are in the half of the system the
 synthetic harness cannot reach**:
 
-1. `app/framelock.ts` — imported by **no test in the suite**, and
-   `ARCHITECTURE.md` calls the frame lock *"the best idea in that tree"*.
-   Nothing asserts that a busy frame is dropped whole, or that the pixels shown
-   are the pixels the pose was solved from.
+1. ~~`app/framelock.ts` — imported by no test in the suite~~ — **CLOSED
+   2026-08-26.** `tests/framelock.test.ts`, 7 tests: the detect canvas is sized
+   by the long side and never upscaled; **it is drawn from the capture
+   SNAPSHOT and not from the live source** (the claim the whole mechanism
+   rests on, and the one v1's own docstring got wrong); a result from a
+   superseded epoch is refused rather than planted on the new source;
+   `captureDt` measures submitted frames rather than the camera interval and
+   resets across a switch; landmarks convert back to source pixels; brightness
+   is sampled rather than read every frame, off the detect canvas rather than
+   the full-resolution one. Nine sabotages, every test red under at least one.
+   Still NOT covered: drop-whole-when-busy lives in `main.ts`'s loop, not in
+   the lock, so it remains uncited.
 2. `render/scene.ts:setOccluder` — **zero coverage repo-wide**. `scene.test.ts`'s
    four tests are sRGB, environment map, shadow frustum units, and screen light.
 3. `detect/mediapipe.ts` — no test, no report, no fixture.

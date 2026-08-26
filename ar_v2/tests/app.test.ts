@@ -1,6 +1,9 @@
 /**
- * The two pieces of `src/app/` that can be tested without a browser, and both
- * of them are here because the faults they guard were INVISIBLE.
+ * Two pieces of `src/app/` that can be tested without a browser, and both
+ * of them are here because the faults they guard were INVISIBLE. A third,
+ * the frame lock, is in `framelock.test.ts` — it needs a fake `document` on
+ * `globalThis`, and `node --test` gives each FILE its own process, so keeping
+ * it out of here is what stops that fake reaching the enrollment client.
  *
  * A frozen "working out your measurements…" and a loop that quietly moved onto
  * a 60 Hz timer both present to a wearer as "this machine is too slow". Neither
