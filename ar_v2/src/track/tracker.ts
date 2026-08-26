@@ -466,10 +466,23 @@ export interface TrackInput {
    */
   visibility?: Float64Array | null;
   intrinsics: Intrinsics;
-  /** Seconds since the previous frame that was actually *consumed*. Not the
-   *  camera interval: after a dropout the true gap is longer, and feeding the
-   *  short one makes the adaptive cutoff read the accumulated displacement as
-   *  one enormous velocity and land the catch-up as a snap. */
+  /**
+   * Seconds since the previous frame `track()` was CALLED on — the frame lock's
+   * submit interval, not the consumed-frame interval.
+   *
+   * **This docstring used to say the opposite, and no caller has ever honoured
+   * it.** `app/main.ts` passes `FrameLock.captureDt` — "seconds since the
+   * previously SUBMITTED frame" — on missed and consumed frames alike. Time
+   * inside a dropout is banked by `miss()` in `state.lostSeconds` and credited
+   * back on the recovering frame by every clock in `track()`, so a caller that
+   * pre-added the gap here would have it counted twice, by the motion prior and
+   * the stall reset and the velocity clock.
+   *
+   * The old text described the right failure — a short `dt` makes the adaptive
+   * cutoff read the accumulated displacement as one enormous velocity — and put
+   * the remedy in the wrong place. It belongs at the smoother's call site, where
+   * `gapSeconds` is in scope.
+   */
   dt: number;
 }
 
@@ -1112,8 +1125,52 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   const noiseScale = options.smooth === 'adaptive'
     ? noiseScaleFromSigma(input.sigmaPx, options.adaptiveFloorPx)
     : 1;
+  /**
+   * The dropout gap belongs to the filter's clock too, and it was the one clock
+   * that never got it.
+   *
+   * `track()` reads `input.dt` in five places. The motion prior, the stall reset
+   * and the velocity clock all add `gapSeconds` — the time `miss()` banked in
+   * `state.lostSeconds` while the face was gone. This call did not, so on the
+   * frame that recovers a dropout the filter was told one frame had passed when
+   * up to fourteen had. (The latch pursuit below is uncredited as well, and is
+   * left that way deliberately: it walks an anchor toward the raw pose only
+   * while the head reads as still, so nothing observed the gap.)
+   *
+   * **The test that says the credit belongs here is hermeticity.** A gap the
+   * tracker WATCHED go dark and a gap it was simply not called during describe
+   * the same wall clock and must produce the same pose. Measured, noiseless,
+   * a 120 mm/s slide, dropout of N frames:
+   *
+   *     N     shipped |A - B|     credited
+   *      1       0.754 mm            0
+   *      5       2.081               4e-28
+   *     14       2.884 mm            0
+   *
+   * And the recovery lag stops depending on how long the face was gone: 5.798
+   * mm at N=14 becomes 2.914, which is just the filter's steady-state lag at
+   * that speed.
+   *
+   * **What the short `dt` actually did is not only lag.** `raw = dx/dt` inflates
+   * by up to 15x, which blows the beta term's cutoff wide open, so the one frame
+   * of gross lag is followed by about five frames running effectively
+   * unfiltered — a jerk and then a wobble, once per dropout.
+   *
+   * The trade is explicit and small: up to 2.4 mm less recovery lag for up to
+   * 2.7 mm more on the single catch-up step. Gaps of 1-5 frames move nothing
+   * either way (-0.13 to +0.39 mm).
+   *
+   * **It is NOT the mechanism behind the locked latch feeling stuck**, which is
+   * the hypothesis this was measured to test. In `'locked'` at rest the fix is
+   * bit-identical to four decimals over a 600-frame session with 150 dropped
+   * frames, because a latched frame emits `poseClone(state.latchedPose)` and the
+   * One Euro output is never read at all. The honest case for the change is
+   * simpler than the complaint: a filter told the wrong `dt` does not have a
+   * cutoff in Hz.
+   */
   let smoothed = options.smooth
-    ? state.smoother.filter(result.pose, input.dt, noiseScale)
+    ? state.smoother.filter(
+      result.pose, (input.dt > 0 ? input.dt : 1 / 30) + gapSeconds, noiseScale)
     : poseClone(result.pose);
 
   // The gates the latch runs THIS frame. Two noise sources, two mechanisms,

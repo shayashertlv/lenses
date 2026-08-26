@@ -358,14 +358,53 @@ export async function createScene(
       camera.aspect = intrinsics.width / intrinsics.height;
       const offset = principalPointOffset(intrinsics);
       if (offset) {
-        // three.js has no direct principal-point control, so the projection is
-        // built and then sheared. Only reached when the bundle was asked to
-        // solve the principal point, which it is not by default.
-        camera.updateProjectionMatrix();
-        camera.projectionMatrix.elements[8] += offset.x;
-        camera.projectionMatrix.elements[9] += offset.y;
-        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+        /**
+         * An off-centre frustum, three.js's own way.
+         *
+         * **What was here sheared the projection in the WRONG DIRECTION, by
+         * twice the offset — strictly worse than not shearing at all.**
+         * `projectionMatrix.elements[8] += offset.x` looks right and is not:
+         * `Matrix4.makePerspective` sets `te[8] = (right+left)/(right-left)`
+         * and `te[11] = -1`, so a camera-space point `(0,0,-d)` lands at
+         * `clip.x = -te[8]·d, clip.w = d` — **the optical axis sits at NDC
+         * `-te[8]`, not `+te[8]`**. `principalPointOffset` returns the desired
+         * NDC position (that function is correct), so adding it puts the axis
+         * at its negation. Measured against the real three.js at 1280x720,
+         * 63 degrees, a subject at 450 mm:
+         *
+         *     principal point off centre   as shipped    no shear    fixed
+         *     12.8, 7.2 px  (1% of W/H)   -19.6,-11.0   -9.8,-5.5    0, 0  mm
+         *     25.6, 14.4 px (2%)          -39.2,-22.1  -19.6,-11.0   0, 0
+         *     64,   36 px   (5%)          -98.0,-55.1  -49.0,-27.6   0, 0
+         *
+         * **It has never fired.** `principalPointOffset` returns null on every
+         * shipped path: `cx`/`cy` are set only by `intrinsicsFromFov` (exactly
+         * the image centre) and moved only by `applyIntrinsicsDelta` under
+         * `mask.pp`, and every `pp` in this tree is false — the one `pp: true`
+         * is a Jacobian unit test that never reaches a renderer. So no
+         * published number moves. It is worth fixing precisely BECAUSE it is
+         * dormant: the day somebody solves the principal point, the frame will
+         * be drawn tens of millimetres off along the right axis in the wrong
+         * direction, which reads as a solver fault rather than a renderer one.
+         *
+         * `setViewOffset` rather than the corrected `-=`, because patching
+         * `projectionMatrix.elements` is silently wiped by any later
+         * `updateProjectionMatrix()` — measured, `te[8]` goes -0.04 to exactly
+         * 0. Nothing in the current render path calls it, but `setFocalLength`,
+         * the XR paths and the shadow paths all do, and a trap that needs a
+         * comment to survive is a trap.
+         */
+        const dx = intrinsics.cx - intrinsics.width / 2;
+        const dy = intrinsics.cy - intrinsics.height / 2;
+        camera.setViewOffset(
+          intrinsics.width, intrinsics.height, -dx, -dy,
+          intrinsics.width, intrinsics.height,
+        );
       } else {
+        // A previous non-central solve must not stick. `applyIntrinsics` runs
+        // more than once per session, and without this a central intrinsics
+        // arriving after an off-centre one keeps the old shear.
+        camera.clearViewOffset();
         camera.updateProjectionMatrix();
       }
     },

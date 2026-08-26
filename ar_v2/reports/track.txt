@@ -1,4 +1,4 @@
-[provenance] seed 11 source=fed35e3f2805b7c4 canary=cf2fa993e85b1bb2 body=7685ea3bc810d26b
+[provenance] seed 11 source=fcd11eed2af22867 canary=cf2fa993e85b1bb2 body=607fe6aecee31e7b
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
 Regenerated 2026-08-25 by `npm run report:track`, which runs
 runTrackReport({ seed: 11 }) and stamps the provenance line above. The tracker
@@ -37,7 +37,7 @@ Tracked against ground-truth geometry, to isolate the tracker from the scan.
 --- v2 ---
 yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 -------  ------  ------------  ------------  ------  -----------  ------  ----
-0          1677         -0.25          3.41    6.57         0.86    4.76     0
+0          1677         -0.25          3.41    6.55         0.86    4.76     0
 15          400         -0.68          4.35    8.37         3.25    4.87     0
 30          413         -1.66          5.03    8.70         4.20    5.55     0
 45          115          0.26          6.16   11.77         5.46    6.30     0
@@ -49,7 +49,7 @@ yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 --- average-head ---
 yaw deg  frames  depth err mm  total err mm  p90 mm  rot err deg  rms px  lost
 -------  ------  ------------  ------------  ------  -----------  ------  ----
-0          1677          7.73         10.91   37.67         2.73    5.17     7
+0          1677          7.80         10.95   37.67         2.73    5.17     7
 15          400          6.52         11.78   36.83         4.84    5.21     0
 30          413          4.47         12.97   36.47         4.58    5.74     0
 45          115          5.72         15.76   38.71         5.89    6.37     0
@@ -79,7 +79,7 @@ invisible, because the wearer never sees the frame anywhere else.
 arm              depth err at 0 deg  depth err when turned  swing mm
 ---------------  ------------------  ---------------------  --------
 v2                            -0.25                  -4.22      3.97
-average-head                   7.73                   1.08      6.66
+average-head                   7.80                   1.08      6.73
 v2-no-smoothing               -0.53                   0.10      0.64
 
   swing is the number a wearer reports as "it pushes forward when I turn".

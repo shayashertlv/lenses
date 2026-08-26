@@ -152,9 +152,15 @@ function instantiateScene() {
         position = new Vec3();
         projectionMatrix = { elements: new Array(16).fill(0) };
         projectionMatrixInverse = { copy() { return this; }, invert() { return this; } };
+        // Recorded, because the principal-point shear is the one thing
+        // `applyIntrinsics` does that a stub can observe at all.
+        viewOffset: number[] | null = null;
+        viewOffsetClears = 0;
         constructor() { made.push('PerspectiveCamera'); }
         lookAt() { /* stub */ }
         updateProjectionMatrix() { /* stub */ }
+        setViewOffset(...args: number[]) { this.viewOffset = args; }
+        clearViewOffset() { this.viewOffset = null; this.viewOffsetClears++; }
       },
       WebGLRenderer: class {
         shadowMap: Record<string, unknown> = {};
@@ -477,5 +483,62 @@ describe('the occluder is built, shared, and disposed exactly once', () => {
     const moved = Math.hypot(occ[12] - head[12], occ[13] - head[13], occ[14] - head[14]);
     assert.ok(Math.abs(moved - Math.abs(s.OCCLUDER_BIAS_MM)) < 1e-6,
       'the occluder moved ' + moved + ' against a bias of ' + s.OCCLUDER_BIAS_MM);
+  });
+});
+
+describe('an off-centre principal point shifts the frustum the right way', () => {
+  // **Nothing asserted on this, which is why it was wrong.** The shipped code
+  // did `projectionMatrix.elements[8] += offset.x`, and three.js puts the
+  // optical axis at NDC `-te[8]` — so the shear went the wrong way by twice the
+  // offset, which is strictly worse than not shearing at all. It never fired,
+  // because `principalPointOffset` returns null on every shipped path; it would
+  // have fired the day somebody solved the principal point, and it would have
+  // looked like a solver fault.
+
+  const central = { f: 600, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 };
+
+  it('does nothing at all when the principal point IS the image centre', async () => {
+    // RED: shear unconditionally. Every shipped intrinsics is central, so a
+    // shear applied here would move the frame on every frame of every session.
+    const s = instantiateScene();
+    const handle = await s.createScene({} as any, { preferWebGPU: false });
+    handle.applyIntrinsics(central);
+    assert.equal(handle.camera.viewOffset, null,
+      'a centred principal point produced a frustum offset');
+  });
+
+  it('offsets the frustum by MINUS the principal point, not plus', async () => {
+    // The sign is the whole test. `setViewOffset(fullW, fullH, x, y, w, h)`
+    // shifts `left` by x·width/fullWidth, which lands the optical axis at NDC
+    // -2x/W — so reaching a principal point at +dx needs x = -dx.
+    //
+    // RED: pass `+dx, +dy`, or go back to `elements[8] += offset.x`. Either
+    // way the frame is drawn on the correct axis in the wrong direction.
+    const s = instantiateScene();
+    const handle = await s.createScene({} as any, { preferWebGPU: false });
+    const dx = 25.6, dy = 14.4;                       // 2% of width and height
+    handle.applyIntrinsics({ ...central, cx: central.cx + dx, cy: central.cy + dy });
+
+    const off = handle.camera.viewOffset;
+    assert.ok(off, 'an off-centre principal point produced no frustum offset');
+    assert.equal(off[0], central.width, 'fullWidth is not the image width');
+    assert.equal(off[1], central.height, 'fullHeight is not the image height');
+    assert.ok(Math.abs(off[2] + dx) < 1e-9,
+      `offsetX is ${off[2]}, expected ${-dx} — the shear is inverted, which draws `
+      + 'the frame the correct axis and the wrong way');
+    assert.ok(Math.abs(off[3] + dy) < 1e-9, `offsetY is ${off[3]}, expected ${-dy}`);
+  });
+
+  it('clears a previous off-centre solve when a central one arrives', async () => {
+    // `applyIntrinsics` runs more than once per session. Without the clear, a
+    // central intrinsics following an off-centre one keeps the old shear —
+    // which is the shape of bug that survives because it only appears second.
+    // RED: delete `camera.clearViewOffset()` from the else branch.
+    const s = instantiateScene();
+    const handle = await s.createScene({} as any, { preferWebGPU: false });
+    handle.applyIntrinsics({ ...central, cx: central.cx + 30 });
+    assert.ok(handle.camera.viewOffset, 'the setup never offset anything');
+    handle.applyIntrinsics(central);
+    assert.equal(handle.camera.viewOffset, null, 'a stale shear survived a central solve');
   });
 });

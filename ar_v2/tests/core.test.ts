@@ -2315,6 +2315,53 @@ describe("the stillness latch v2 — velocity-gated rest, crossfaded exits", () 
     assert.ok(r4.latched, 'stillness after the dropout never re-earned the latch');
   });
 
+  it('a dropout the tracker WATCHED and one it slept through end in the same place', () => {
+    // **Hermeticity, and it is the whole argument for crediting the gap.**
+    //
+    // Two descriptions of one wall clock. Arm A: the tracker is called on N
+    // faceless frames and then a good one at dt = 1/30. Arm B: the tracker is
+    // not called at all during the gap, then the same good frame at
+    // dt = (N+1)/30. Nothing physical distinguishes them, so the emitted pose
+    // must not either.
+    //
+    // The motion prior, the stall reset and the velocity clock all credited
+    // `gapSeconds` already. The One Euro filter did not, so it was told one
+    // frame had passed when up to fourteen had — and the pose it emitted on
+    // recovery differed between the two arms by up to 2.88 mm.
+    //
+    // RED: drop `+ gapSeconds` from the smoother's call in `track()`.
+    // 4 mm per frame = 120 mm/s at 30 fps. The head has to MOVE through the
+    // gap for the filter's clock to matter at all: the first version of this
+    // test slid it 0 mm and passed under sabotage, which is the same defect it
+    // was written to catch, one level up. A still head is measurably immune —
+    // total emitted travel over the eight frames after a 12-frame dropout is
+    // 0.326 mm shipped against 0.344 credited.
+    const slide = (i: number) => frameAt(0, i * 4, 0.0, 20000 + i);
+    for (const gap of [1, 5, 12]) {
+      const a = createTracker(model, { smooth: true });
+      const b = createTracker(model, { smooth: true });
+      // Both arms see the same lead-in, frame for frame.
+      for (let i = 0; i < 8; i++) {
+        const input = { landmarks: slide(i), sigmaPx: sigma, intrinsics: K, dt: 1 / 30 };
+        track(a, input);
+        track(b, input);
+      }
+      // A watches the gap go dark; B is simply not called.
+      for (let i = 0; i < gap; i++) {
+        track(a, { landmarks: null, sigmaPx: null, intrinsics: K, dt: 1 / 30 });
+      }
+      const ra = track(a, { landmarks: slide(8 + gap), sigmaPx: sigma, intrinsics: K, dt: 1 / 30 });
+      const rb = track(b, { landmarks: slide(8 + gap), sigmaPx: sigma, intrinsics: K, dt: (gap + 1) / 30 });
+      assert.ok(ra.pose && rb.pose, 'a recovery frame was refused');
+      const apart = Math.hypot(
+        ra.pose.t[0] - rb.pose.t[0], ra.pose.t[1] - rb.pose.t[1], ra.pose.t[2] - rb.pose.t[2],
+      );
+      assert.ok(apart < 1e-9,
+        `after a ${gap}-frame gap the watched and unwatched arms land ${apart.toFixed(4)} mm `
+        + 'apart. They describe the same wall clock, so the filter was told the wrong dt.');
+    }
+  });
+
   it('refused solves do not count as acquisitions', () => {
     // 'acquisitions' means times the tracker ACQUIRED — a solve the rms gate
     // then refused acquired nothing. The old counting sat at the solve, so a
