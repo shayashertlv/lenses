@@ -39,7 +39,7 @@ import {
   createDisplacementField, displacementStats, refreshNormals,
 } from '../src/core/shape/displacement.js';
 import { enroll } from '../src/enroll/enroll.js';
-import { createBundleState, runBundle } from '../src/enroll/bundle.js';
+import { createBundleState, landmarkRigidity, runBundle } from '../src/enroll/bundle.js';
 import { assessCoverage, selectKeyframes } from '../src/enroll/keyframes.js';
 import {
   IRIS, PD_PLAUSIBLE_MM, PD_RULER, POPULATION_HVID, solveScale,
@@ -687,6 +687,79 @@ describe('enrollment', () => {
     );
   });
 
+  it('the collapse guard actually fires, and only on collapse', () => {
+    // `BundleReport.converged` was initialised `true` and cleared on exactly one
+    // condition: `reprojectionStats` returning a non-finite rms, which happens
+    // only when NOT ONE landmark in any frame projected in front of the camera.
+    // `degraded` rests on it. Measured over 96 enrolments (60 healthy, 36
+    // deliberately stressed with noise x2 to x14, 3 and 6 mm of detector bias,
+    // no profile, no turn, `fieldPriorScale` 0, `shapePrior` 0, all intrinsics
+    // unlocked) it never once went false.
+    //
+    // It is not being turned into a convergence test, because there is none to
+    // be had: the bundle always converges, and every candidate — the lambda
+    // ceiling, step acceptance, a residual plateau — either never fires or
+    // fires on 92% of healthy scans. What this pins is that the flag does what
+    // it now SAYS it does.
+    //
+    // **And it has to reach the guard to do that.** Driving `enroll` with more
+    // and more landmark noise does NOT: measured on this fixture, at 10 px it
+    // returns `converged: true` beside a nose 15 mm from truth, and from 14 px
+    // upward it returns `rounds: 0` — the pose-initialisation gate rejects the
+    // scan and `enroll` takes its degraded early return, so `runBundle` is
+    // never called at all and the `false` comes from the stub. A test that
+    // stopped there would be asserting on a line it never executed. So the
+    // guard is exercised directly.
+    const geom = CAMERA_LADDER[0];
+    const subject1 = generatePopulation(mesh, basis, { count: 1 })[0];
+    const cap = synthesizeCapture(mesh, subject1, geom, { framesPerBeat: 8 });
+    const frames = () => cap.frames.map((f) => ({
+      landmarks: f.landmarks, sigmaPx: f.sigmaPx, visibility: f.visibility,
+      silhouette: f.silhouette, pose: poseClone(f.pose), beat: f.beat,
+    }));
+    const regionsC = standardRegions(mesh);
+
+    // Healthy: the guard must NOT fire.
+    const healthy = runBundle(createBundleState(
+      mesh, basis, createDisplacementField(mesh, regionsC.nose), regionsC.nose,
+      frames(), intrinsicsFromFov(geom.width, geom.height, 63),
+    ), { rounds: 1 });
+    assert.ok(healthy.converged, 'a healthy solve reported itself collapsed');
+    assert.ok(Number.isFinite(healthy.reprojectionRmsPx));
+
+    // Catastrophe: every pose behind the camera, so `project` refuses every
+    // landmark and `reprojectionStats` has nothing to average.
+    const behind = frames();
+    for (const f of behind) f.pose.t[2] = -500;
+    const dead = runBundle(createBundleState(
+      mesh, basis, createDisplacementField(mesh, regionsC.nose), regionsC.nose,
+      behind, intrinsicsFromFov(geom.width, geom.height, 63),
+    ), { rounds: 1 });
+    assert.ok(!dead.converged,
+      'not one landmark projected in front of the camera and the solve still '
+      + 'reported itself converged');
+
+    // And the gap this leaves, asserted rather than described, so that anyone
+    // who later reads `converged` as an accuracy statement is contradicted by a
+    // test: a scan can be undegraded, converged, and 15 mm wrong.
+    const noisy = enroll({
+      mesh, basis,
+      frames: synthesizeCapture(mesh, subject1, geom, { framesPerBeat: 8, noisePx: 10 })
+        .frames.map((f) => ({
+          landmarks: f.landmarks, sigmaPx: f.sigmaPx, visibility: f.visibility,
+          silhouette: f.silhouette, beat: f.beat,
+        })),
+      imageWidth: geom.width, imageHeight: geom.height,
+    });
+    assert.ok(noisy.bundle.converged && !noisy.model.degraded,
+      'ten pixels of landmark noise now degrades the scan — if that is a real '
+      + 'improvement, this assertion is the thing to update, and the comment above '
+      + 'it about what `converged` cannot see');
+    assert.ok(noisy.bundle.reprojectionRmsPx > 20,
+      `the noisy fixture came back at ${noisy.bundle.reprojectionRmsPx.toFixed(1)} px rms, `
+      + 'so it is no longer the bad-evidence case this is about');
+  });
+
   it('a scan that got no silhouette says so out loud', () => {
     // `useSilhouette` defaults true and every silhouette path in `bundle.ts`
     // then `continue`s on `!frame.silhouette`, so a caller who supplies none
@@ -718,6 +791,40 @@ describe('enrollment', () => {
       'the harness supplied a silhouette and the bundle used none of it');
     assert.ok(!withIt.model.notes.some((n) => /silhouette/.test(n)),
       `a scan WITH a silhouette was told it had none: ${withIt.model.notes.join('; ')}`);
+  });
+
+  it('rigidity is a sigma multiplier, and the nose boost does not move the stats gate', () => {
+    // `landmarkRigidity`'s docstring claimed 0..1 for a function that returns up
+    // to 1.8 — while the SAME docstring, twenty-two lines lower, said the nose
+    // boost was deliberate. The stale half was the range.
+    //
+    // This is a documentation defect and the "over-weighting" it implied is not
+    // one: measured as a paired ablation over 72 enrolments (3 seeds x 8
+    // subjects x 3 geometries, boost on against clamped to 1), nose RMS moves
+    // -0.011 mm on the paired median with 40 of 72 improving and every other
+    // accuracy metric is a coin flip. What IS worth pinning is the trap.
+    const rig = landmarkRigidity(mesh, standardRegions(mesh).nose);
+    const max = Math.max(...rig);
+    assert.ok(max > 1.5 && max <= 1.8,
+      `rigidity peaks at ${max.toFixed(3)} — the nose boost has been normalised away, `
+      + 'which is not the same as clamped: see below');
+
+    // **Clamping is harmless; SCALING is not.** Every consumer divides the
+    // claimed sigma by `sqrt(r)` or multiplies the residual by it, so there is
+    // nothing to normalise against — but `reprojectionStats` also GATES on
+    // `rigidity < 0.5`, and dividing the array through by 1.8 pushes 8 vertices
+    // under that gate: `residualsUsed` drops 7416 -> 7224 and `varianceFactor`
+    // moves with it. Clamping to 1 moves neither, because no vertex crosses 0.5
+    // either way.
+    const gated = (a: Float64Array) => a.reduce((n, v) => n + (v >= 0.5 ? 1 : 0), 0);
+    const clamped = Float64Array.from(rig, (v) => Math.min(v, 1));
+    assert.equal(gated(rig), gated(clamped),
+      'the nose boost now lifts vertices across reprojectionStats\' 0.5 gate, so '
+      + 'residualsUsed and varianceFactor depend on it');
+    const scaled = Float64Array.from(rig, (v) => v / 1.8);
+    assert.ok(gated(scaled) < gated(rig),
+      'dividing rigidity through by its own maximum no longer changes what '
+      + 'reprojectionStats counts — this test has stopped describing the trap it names');
   });
 
   it('the free-form field actually moves — regression for a silent failure', () => {
@@ -1096,7 +1203,7 @@ describe('the silhouette reaches the free-form field, not just the globals', () 
   const fieldOnlyAt = (silhouetteWeight: number) => {
     const field = createDisplacementField(mesh, regionsB.nose);
     const state = createBundleState(mesh, basis, field, regionsB.nose, framesFor(), { ...KB });
-    return runBundle(state, { rounds: 1, iterationsGlobal: 0, silhouetteWeight }).fieldRmsMm;
+    return runBundle(state, { rounds: 1, iterationsGlobal: 0, silhouetteWeight }).fieldRmsGauge;
   };
 
   it('changes the field it solves when the silhouette weight changes', () => {
@@ -1156,9 +1263,13 @@ describe('the silhouette reaches the free-form field, not just the globals', () 
     // must visibly change the field the same capture solves.
     //
     // Measured on this fixture (full default enroll, framesPerBeat 10):
-    // fieldRmsMm 1.2463 at x8 against 1.4446 at x1 — a 0.198 mm gap against
-    // the 0.05 bar. Both solves must also actually factorise: a prior scale
-    // that made the system indefinite would "change the field" by killing it.
+    // fieldRmsGauge 1.2463 at x8 against 1.4446 at x1 — a 0.198 gap against
+    // the 0.05 bar. **In the solve's own gauge, not millimetres**: the bundle
+    // finishes before `solveScale`, and the scale factor applied afterwards runs
+    // 1.099 to 2.732. Comparing two solves of the SAME capture is exactly the
+    // use that gauge is valid for. Both solves must also actually factorise: a
+    // prior scale that made the system indefinite would "change the field" by
+    // killing it.
     const cap = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 10 });
     const solveAt = (fieldPriorScale: number) => enroll({
       mesh, basis,
@@ -1173,12 +1284,45 @@ describe('the silhouette reaches the free-form field, not just the globals', () 
     const base = solveAt(1);
     assert.equal(shipped.fieldFailures, 0, 'the field failed to factorise at the shipped x8');
     assert.equal(base.fieldFailures, 0, 'the field failed to factorise at x1');
-    assert.ok(shipped.fieldRmsMm > 0 && base.fieldRmsMm > 0, 'a field of zero did not run');
+    assert.ok(shipped.fieldRmsGauge > 0 && base.fieldRmsGauge > 0, 'a field of zero did not run');
     assert.ok(
-      Math.abs(shipped.fieldRmsMm - base.fieldRmsMm) > 0.05,
-      `fieldRmsMm ${shipped.fieldRmsMm.toFixed(4)} at x8 against ${base.fieldRmsMm.toFixed(4)} ` +
-      'at x1 — the prior scale no longer reaches the solve, so it is scaling only one side ' +
-      'of the accept test (or none of it)',
+      Math.abs(shipped.fieldRmsGauge - base.fieldRmsGauge) > 0.05,
+      `fieldRmsGauge ${shipped.fieldRmsGauge.toFixed(4)} at x8 against `
+      + `${base.fieldRmsGauge.toFixed(4)} at x1 — the prior scale no longer reaches the `
+      + 'solve, so it is scaling only one side of the accept test (or none of it)',
+    );
+  });
+
+  it('the bundle reports the field in its own gauge and the model reports it in mm', () => {
+    // `BundleReport.fieldRmsGauge` was `fieldRmsMm` and it was not millimetres.
+    // `runBundle` finishes at step 4 of `enroll`; `applyScale` runs at steps 5
+    // and 6, and `enroll` recomputes `displacementStats` afterwards for
+    // `FaceModel.displacementRmsMm`. So the two differ by exactly the scale
+    // factor — verified to full precision in all 18 cells of a 4-subject x
+    // 3-geometry sweep — and the gauge tracks the camera's UNSOLVED focal
+    // length rather than the wearer: the same face on two cameras reported
+    // 0.6965 and 0.4758 for fields that were really 0.9721 and 0.9994 mm.
+    const cap = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 10 });
+    const r = enroll({
+      mesh, basis,
+      frames: cap.frames.map((f) => ({
+        landmarks: f.landmarks, sigmaPx: f.sigmaPx, visibility: f.visibility,
+        silhouette: f.silhouette, beat: f.beat,
+      })),
+      imageWidth: geometry.width, imageHeight: geometry.height,
+    });
+    // The falsifiability guard for the assertion below, and it is not
+    // decoration: at a scale factor near 1 the two gauges are numerically the
+    // same and this test could not tell them apart. Measured range 1.099-2.732.
+    assert.ok(Math.abs(r.model.scale.factor - 1) > 0.05,
+      `the scale factor is ${r.model.scale.factor.toFixed(4)} on this fixture, so this test `
+      + 'could not distinguish a gauge figure from a millimetre one');
+    assert.ok(
+      Math.abs(r.bundle.fieldRmsGauge * r.model.scale.factor - r.model.displacementRmsMm) < 1e-9,
+      `the bundle reports ${r.bundle.fieldRmsGauge} and the model ${r.model.displacementRmsMm} `
+      + `at a scale factor of ${r.model.scale.factor} — the two field magnitudes no longer `
+      + 'differ by exactly the scale factor, so one of them has changed gauge and the '
+      + 'docstring is now lying about which',
     );
   });
 });

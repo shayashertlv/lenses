@@ -289,13 +289,39 @@ export interface BundleReport {
   focalMovedPct: number;
   ms: number;
   perRound: { round: number; rmsPx: number; costGlobal: number; costField: number }[];
+  /**
+   * **The catastrophe guard, not a convergence test.** True unless the solve
+   * left nothing behind at all — no projectable landmark in any frame, or every
+   * round failing to factorise the field. Measured over 96 enrolments it first
+   * goes false at 20 px of landmark noise; at 10 px it is still true beside a
+   * nose 15 mm from truth. See `runBundle`, where the alternatives were measured
+   * and every one of them either never fires or always does.
+   */
   converged: boolean;
   /** Rounds in which the nose field could not be solved. Non-zero means the
    *  reconstruction's nose is the shape basis alone. */
   fieldFailures: number;
-  /** RMS of the solved free-form field, mm. Zero on a real face means the
-   *  stage did not run — it is not a plausible measurement. */
-  fieldRmsMm: number;
+  /**
+   * RMS of the solved free-form field, in the SOLVE'S OWN GAUGE — not mm.
+   *
+   * The bundle finishes before `solveScale`, so this is the field measured in
+   * whatever units the reconstruction came out in, and that gauge tracks the
+   * camera's unsolved focal length rather than the wearer. Measured over 18
+   * enrolments, the scale factor applied afterwards runs 1.099 to 2.732 (median
+   * 1.462), so this number understates the millimetre figure by 9% to 63%
+   * (median 32%) — and the SAME face on two cameras reports 0.6965 and 0.4758
+   * for fields that are really 0.9721 and 0.9994 mm. It is also invariant to the
+   * ruler: with `knownPdMm` 55 / 61.8 / 70 it stays 0.6965 while the true field
+   * goes 0.8654 / 0.9724 / 1.1015 mm.
+   *
+   * The millimetre figure is `FaceModel.displacementRmsMm`, recomputed after
+   * `applyScale`. That is the one to show a wearer and the one `ui.ts` already
+   * shows. Use this only to compare two solves of the SAME capture — which is
+   * exactly what `tests/pipeline.test.ts` does.
+   *
+   * Zero still means the stage did not run; that is gauge-independent.
+   */
+  fieldRmsGauge: number;
   /**
    * The a-posteriori variance factor, `s0^2` — chi-square over redundancy.
    *
@@ -317,7 +343,16 @@ export interface BundleReport {
 // ------------------------------------------------------------------ rigidity
 
 /**
- * How much each mesh landmark is allowed to speak, 0..1.
+ * How much each mesh landmark is allowed to speak: 0.12 at the chin, 1.0 above
+ * the subnasale, and up to 1.8 on the nose.
+ *
+ * **The range is deliberately NOT 0..1** — 141 of the template's 468 vertices
+ * come out above 1, and 121 above 1.5 — and the reason is the nose boost two
+ * paragraphs down. It is a SIGMA MULTIPLIER, not a probability: every consumer
+ * either divides the claimed sigma by `sqrt(r)` (`track/pnp.ts`) or multiplies
+ * the residual by it (`accumulateGlobal`, `solveField`, `costLandmarks`), so
+ * 1.8 means "trust this landmark's own sigma 1.8x" and there is nothing to
+ * normalise it against.
  *
  * Full weight above the subnasale, falling to near nothing below it. That line
  * is not aesthetic: everything below it moves with speech and expression, and
@@ -326,6 +361,22 @@ export interface BundleReport {
  *
  * The nose region gets a further boost, because it is both the smallest target
  * and the one the whole exercise is for.
+ *
+ * **What the boost is worth, measured** as a paired ablation over 72 enrolments
+ * (3 seeds x 8 subjects x 3 camera geometries, boost on against clamped to 1):
+ * nose RMS -0.011 mm on the paired median with 40 of 72 improving, pad strip
+ * -0.019 with 43/72, and bridge, protrusion and standoff all slightly the other
+ * way at 34-35/72. `residualsUsed` is identical in all 72 cells. It is a wash on
+ * accuracy. The only consistent signal is a 0.026 improvement in
+ * `varianceFactor` on 67 of 72, which is a residual-fit statistic and not an
+ * accuracy. It is kept because the argument for it is sound and the cost is nil,
+ * not because it buys millimetres.
+ *
+ * **Do not "normalise" this to 0..1 by dividing through by 1.8.** Clamping is
+ * harmless — `residualsUsed` is identical in all 72 cells, because no vertex
+ * crosses `reprojectionStats`' 0.5 gate either way. SCALING is not: it takes 8
+ * vertices below 0.5, drops `residualsUsed` 7416 -> 7224, and moves
+ * `varianceFactor` and every sigma derived from it.
  */
 export function landmarkRigidity(mesh: FaceMesh, noseRegion: Region): Float64Array {
   const out = new Float64Array(mesh.vertexCount);
@@ -377,7 +428,32 @@ export function runBundle(
   fieldFactorisationFailures = 0;
   const perRound: BundleReport['perRound'] = [];
   const focal0 = state.intrinsics.f;
-  let converged = true;
+  // **NOT "the solve reached a stationary point" — it never fails to.**
+  //
+  // Measured over 96 enrolments (60 healthy, 36 deliberately stressed with
+  // noise x2 to x14, 3 and 6 mm of detector bias, no profile, no turn,
+  // `fieldPriorScale` 0, `shapePrior` 0, all intrinsics unlocked): the global
+  // LM never hit the lambda ceiling, `ldlt` never refused the reduced system,
+  // and the field never failed to factorise. The last accepted step of the last
+  // round improves the cost by 2.8e-6 relative on the median and 9.2e-4 at
+  // worst, and 55 of 60 healthy cells are still accepting steps when the
+  // iteration budget runs out — LM will always find a numerically-downhill step
+  // in a smooth problem, so "still accepting" would fire on ~92% of healthy
+  // scans and mean nothing.
+  //
+  // **There is no convergence test to be had here.** The bundle always
+  // converges; what goes wrong is a converged solve on bad evidence, and no
+  // property of the solver can see that. At 10 px of landmark noise this
+  // pipeline returns `converged: true`, `degraded: false`, `varianceFactor`
+  // 1.05-1.09 — and a nose 15.10 mm from truth. Do not manufacture an accuracy
+  // estimate out of solver internals; `core/facemodel.ts` already records that
+  // this build does not have one.
+  //
+  // So this flag is the CATASTROPHE guard: did the solve leave anything at all
+  // behind. It first goes false at 20 px of landmark noise, where not one
+  // landmark projects in front of the camera and the returned surface is the
+  // untouched template.
+  let solveCollapsed = false;
 
   for (let round = 0; round < opt.rounds; round++) {
     const t = opt.rounds === 1 ? 1 : round / (opt.rounds - 1);
@@ -412,7 +488,7 @@ export function runBundle(
       `round ${round}: rms ${stats.rms.toFixed(3)} px, ` +
       `f ${state.intrinsics.f.toFixed(1)} px, cost ${costGlobal.toFixed(1)}/${costField.toFixed(1)}`,
     );
-    if (!Number.isFinite(stats.rms)) { converged = false; break; }
+    if (!Number.isFinite(stats.rms)) { solveCollapsed = true; break; }
   }
 
   const stats = reprojectionStats(state);
@@ -426,9 +502,12 @@ export function runBundle(
     focalMovedPct: ((state.intrinsics.f - focal0) / focal0) * 100,
     ms: nowMs() - started,
     perRound,
-    converged,
+    // The second term was counted at the line below and read by nobody: every
+    // round left the field unsolved, so the "nose" is the shape basis and
+    // nothing more.
+    converged: !solveCollapsed && fieldFactorisationFailures < opt.rounds,
     fieldFailures: fieldFactorisationFailures,
-    fieldRmsMm: displacementStats(state.field).rmsMm,
+    fieldRmsGauge: displacementStats(state.field).rmsMm,
     // Redundancy: two residual components per landmark observation, less the
     // parameters the solve was free to move — six per frame pose, the shape
     // coefficients, and whichever intrinsics were unlocked.

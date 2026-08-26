@@ -657,7 +657,7 @@ function degraded(
     bundle: {
       rounds: 0, reprojectionRmsPx: NaN, reprojectionP95Px: NaN, residualsUsed: 0,
       silhouetteResiduals: 0, focalPx: intrinsics.f, focalMovedPct: 0, ms: 0,
-      perRound: [], converged: false, fieldFailures: 0, fieldRmsMm: 0,
+      perRound: [], converged: false, fieldFailures: 0, fieldRmsGauge: 0,
       varianceFactor: 1,
     },
     keyframePoses: [],
