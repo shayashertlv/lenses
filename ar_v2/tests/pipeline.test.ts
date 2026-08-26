@@ -50,7 +50,7 @@ import {
   createFaceModel, type FaceModel, type ScaleEstimate,
 } from '../src/core/facemodel.js';
 import {
-  SEAT_DEFAULTS, SKIN, energyTerms, landmarkHungPose, solveSeat,
+  PAD_CURVATURE_LIMIT_MM, SEAT_DEFAULTS, SKIN, energyTerms, landmarkHungPose, solveSeat,
 } from '../src/fit/contact.js';
 import { perVertexUncertainty } from '../src/enroll/enroll.js';
 import { LM } from '../src/core/mesh.js';
@@ -1333,6 +1333,51 @@ describe('the seat', () => {
       bad.measures.some((m) => m.grade === 'poor' || m.grade === 'fair'),
       'a badly-angled pad produced no criterion worse than good',
     );
+  });
+
+  it('a residual the seat refuses cannot grade better than poor', () => {
+    // Two bars for one decision. `solveSeat` fires "this frame does not suit
+    // this face" at `PAD_CURVATURE_LIMIT_MM = 0.9`; the wearer-facing verdict
+    // graded on a bare `1.0`. In the band between them the seat called a frame
+    // unwearable and the score called its pads 'good' — measured on the report's
+    // own realisation, `crystal-lenses` on S02 at residual 0.9080 and tilt
+    // 8.4 deg did exactly that.
+    //
+    // Neither bar had a test. That is the finding, not a reassurance: no test
+    // asserted on the `pads` grade at all and no report imports `score.ts`, so a
+    // wearer-facing verdict with two contradicting bars had nothing of its own.
+    //
+    // The fixture is derived FROM the constant, deliberately: it stays honest if
+    // 0.9 is later re-derived, which it should be — `PAD_CURVATURE_LIMIT_MM`'s
+    // ledger derivation table reproduces on no seed I tried.
+    const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+    const model = truthModel(subject.positions);
+    const frame = TEST_FRAMES[1];
+    const real = solveSeat(model, mesh, regions, frame);
+
+    // Mid-band: past the bar the SEAT refuses at, under the bar the SCORE used.
+    const mid = (PAD_CURVATURE_LIMIT_MM + 1.0) / 2;
+    assert.ok(mid > PAD_CURVATURE_LIMIT_MM && mid < 1.0,
+      `the two bars have converged, so this fixture no longer sits between them`);
+    const seat = {
+      ...real,
+      padSeatErrorArticulatedMm: mid,
+      // Zero tilt, so the ONLY thing that can make this grade poor is the
+      // curvature residual. Without this the test could pass on the tilt.
+      padTiltDeg: [0, 0] as [number, number],
+    };
+    const pads = assessFit(model, mesh, regions, frame, seat)
+      .measures.find((m) => m.id === 'pads')!;
+    assert.equal(pads.grade, 'poor',
+      `the seat says this frame does not suit this face at ${mid.toFixed(3)} mm and the `
+      + `verdict says the pads are '${pads.grade}'. Two bars for one decision.`);
+
+    // And the other side, so the bar is not simply "everything is poor".
+    const under = { ...seat, padSeatErrorArticulatedMm: PAD_CURVATURE_LIMIT_MM - 0.05 };
+    const ok = assessFit(model, mesh, regions, frame, under)
+      .measures.find((m) => m.id === 'pads')!;
+    assert.equal(ok.grade, 'good',
+      `a residual inside the seat's own limit graded '${ok.grade}' with zero tilt`);
   });
 
   it('ranks the catalogue differently for different faces', () => {

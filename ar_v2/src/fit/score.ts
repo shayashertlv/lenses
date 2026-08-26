@@ -28,7 +28,9 @@ import { LM, type FaceMesh, type Region } from '../core/mesh.js';
 import {
   SCALE_DISAGREEMENT_EXPECTED_PCT, noseConfidence, type FaceModel,
 } from '../core/facemodel.js';
-import { solveSeat, type SeatResult, TARGET_CONTACT_MM } from './contact.js';
+import {
+  PAD_CURVATURE_LIMIT_MM, solveSeat, type SeatResult, TARGET_CONTACT_MM,
+} from './contact.js';
 import type { FrameAsset } from './frame-asset.js';
 
 export type Grade = 'good' | 'fair' | 'poor' | 'unknown';
@@ -208,10 +210,21 @@ export function assessFit(
   });
 
   // ---- how the pads bear -------------------------------------------------
+  //
+  // **The same bar `solveSeat` refuses at, and it used to be a different one.**
+  // This graded on a bare `1.0` while `solveSeat` fires its "this frame does not
+  // suit this face" note at `PAD_CURVATURE_LIMIT_MM = 0.9`, so a residual in
+  // (0.9, 1.0] had the seat saying the frame is unwearable and the wearer-facing
+  // verdict calling the pads 'good'. Measured over 29 faces x 15 frames (435
+  // pairs): 19 land in that band, 13 of them change grade, and 7 of the 13 are
+  // navigator — the one asset with author-declared pads, so it is not a
+  // synthetic-frame artefact. The worst case in the report's own realisation is
+  // `crystal-lenses` on S02: residual 0.9080, tilt 8.4 deg, seat note firing,
+  // graded 'good'.
   const tilt = Math.max(seat.padTiltDeg[0], seat.padTiltDeg[1]);
   measures.push({
     id: 'pads',
-    grade: seat.padSeatErrorArticulatedMm > 1.0
+    grade: seat.padSeatErrorArticulatedMm > PAD_CURVATURE_LIMIT_MM
       ? 'poor'
       : gradeBy(tilt, 10, 25),
     confidence: nose.value * scaleCaveat('pads', model),

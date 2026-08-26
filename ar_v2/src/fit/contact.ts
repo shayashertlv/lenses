@@ -445,10 +445,21 @@ export const TARGET_CONTACT_MM = -0.5;
  * rather than carried across.
  *
  * The numbers above are the synthetic population's, so they move when the
- * population does. Two loose ends go with that: `docs/CONSTANTS.md` has no row
- * for this — it was a bare literal, and a bare literal is exactly what
- * `check-constants.mjs` cannot see — and `advice.ts` still grades pad contact
- * against its own bare `1.0` for the same decision. Both should point here.
+ * population does. **Both loose ends this docstring used to name are closed:**
+ * `docs/CONSTANTS.md` now carries a row, and `score.ts` (which is what
+ * `advice.ts` was renamed to, so the old sentence pointed at a file that no
+ * longer existed) grades pad contact against this constant instead of its own
+ * bare `1.0`.
+ *
+ * **The derivation table in that ledger row no longer reproduces**, and that is
+ * open rather than fixed. It claims median 0.54 / p90 0.90 / max 1.67 with a
+ * sensitivity of `0.7:44, 0.8:27, 0.9:14, 1.0:9, 1.2:3` over 145 pairs; measured
+ * today on the same 5 frames x 29 faces it is median 0.41-0.46, p90 0.81-1.02,
+ * max 1.35-1.68 and `0.7:27-34, 0.8:16-30, 0.9:13-23, 1.0:8-16, 1.2:2-8`
+ * depending on the seed, on no seed reproducing the table. The 2026-08-25
+ * contact-row fix moved every settled pose. **Re-derive before moving 0.9
+ * itself**; pointing the two bars at one constant is a consistency fix that is
+ * independent of its value.
  */
 export const PAD_CURVATURE_LIMIT_MM = 0.9;
 
