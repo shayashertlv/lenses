@@ -683,6 +683,39 @@ describe('enrollment', () => {
     );
   });
 
+  it('a scan that got no silhouette says so out loud', () => {
+    // `useSilhouette` defaults true and every silhouette path in `bundle.ts`
+    // then `continue`s on `!frame.silhouette`, so a caller who supplies none
+    // gets the `no-silhouette` ablation and is told nothing. Production did
+    // exactly that on 100% of real frames — 0 of 141 and 0 of 165 on the two
+    // scans in `docs/REAL-FACE.md` — and the only field that could show it,
+    // `BundleReport.silhouetteResiduals`, had no consumers at all.
+    const subject = generatePopulation(mesh, basis, { count: 1 })[0];
+    const geometry = CAMERA_LADDER[0];
+    const capture = synthesizeCapture(mesh, subject, geometry, { framesPerBeat: 8 });
+    const run = (silhouette: (f: { silhouette: Float64Array }) => Float64Array | null) => enroll({
+      mesh, basis,
+      frames: capture.frames.map((f) => ({
+        landmarks: f.landmarks, sigmaPx: f.sigmaPx, visibility: f.visibility,
+        silhouette: silhouette(f), beat: f.beat,
+      })),
+      imageWidth: geometry.width, imageHeight: geometry.height,
+    });
+
+    // Exactly what `collectFrame` and `enroll.worker.ts` used to hand the bundle.
+    const withoutIt = run(() => null);
+    assert.equal(withoutIt.bundle.silhouetteResiduals, 0);
+    assert.ok(withoutIt.model.notes.some((n) => /silhouette/.test(n)),
+      'the contour term was skipped on every frame and the scan did not say so');
+
+    // And the note must not fire when the term did run, or it is noise.
+    const withIt = run((f) => f.silhouette);
+    assert.ok(withIt.bundle.silhouetteResiduals > 0,
+      'the harness supplied a silhouette and the bundle used none of it');
+    assert.ok(!withIt.model.notes.some((n) => /silhouette/.test(n)),
+      `a scan WITH a silhouette was told it had none: ${withIt.model.notes.join('; ')}`);
+  });
+
   it('the free-form field actually moves — regression for a silent failure', () => {
     // The field was inert for an entire build: a truncated Laplacian prior made
     // the normal equations non-positive-definite, `ldlt` returned false, and

@@ -155,6 +155,25 @@ export function enroll(input: EnrollInput): EnrollResult {
     notes.push('camera field of view assumed, not solved (no lean in the scan)');
   }
   const report = runBundle(state, bundleOptions);
+  // **The term was asked for and nothing arrived.**
+  //
+  // `useSilhouette` defaults true, and all five silhouette paths in `bundle.ts`
+  // enter and then `continue` on `!frame.silhouette`. So a caller that hands
+  // every frame `silhouette: null` gets the `no-silhouette` ablation while
+  // believing it got the contour term, and `BundleReport.silhouetteResiduals`
+  // - which is the only place that shows - has no consumers in `src/` or
+  // `tests/`. That is exactly what production did on 100% of real frames
+  // (0 of 141 and 0 of 165 on the two real scans in `docs/REAL-FACE.md`), and
+  // nothing said so for the life of the feature.
+  //
+  // It is not a cosmetic gap. Measured over 5 seeds x 10 subjects x 3 camera
+  // geometries, supplying the contour is worth 0.287 mm off the |standoff| p90
+  // and 0.412 mm off its worst, winning on 5 seeds of 5 - and `docs/CONSTANTS.md`
+  // publishes `silhouetteWeight = 1.0` as `measured` from a sweep that ran
+  // entirely on a term production never executed.
+  if (bundleOptions.useSilhouette !== false && report.silhouetteResiduals === 0) {
+    notes.push('no silhouette was supplied — the profile contour term was skipped');
+  }
   input.trace?.(
     `bundle: ${report.reprojectionRmsPx.toFixed(3)} px rms in ${report.ms.toFixed(0)} ms, ` +
     `f ${report.focalPx.toFixed(1)} (${report.focalMovedPct >= 0 ? '+' : ''}${report.focalMovedPct.toFixed(1)}%)`,
