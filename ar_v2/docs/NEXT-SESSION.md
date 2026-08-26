@@ -168,7 +168,79 @@ carries what each does and how it was measured.
    is never questioned. That is deliberate — see `identity.ts`, "What it refuses
    to answer" — but it is a real second case, not a solved one.
 
-## 3b. The open review queue — specified, measured, NOT applied
+## 3b. ~~The open review queue~~ — ALL APPLIED 2026-08-26
+
+**Every item below landed, plus the eleven prose corrections.** Thirteen
+commits, `8c77816`..`dfee12b`, one fix per commit with its own sabotage table.
+`npm test` went 304 -> 326 and the four gates are green. Read the commit
+messages for the measurements; `docs/FIX-SPECS.md` is left as the brief it was.
+
+**Six things went against the specification, and they are the useful part:**
+
+1. **The reports gate was a coin flip** (not in the queue at all; found while
+   verifying A2). `check-reports.mjs` blanked each report's `ms` column
+   digit-for-digit, so the column's WIDTH survived into the canary hash. The
+   seat canary took four distinct values in ten runs of one unchanged build,
+   one of which was the committed stamp — so `npm test` failed the reports gate
+   at random on an unchanged tree and would have passed it at random on a
+   changed one. Fixed in `38b81ab`. The existing test for `stripTimings` used
+   135 and 106, both three digits, so it was structurally blind to it.
+2. **C3's 0.29 mm was measured at a density production does not produce.** The
+   harness supplies ~500 noise-free contour points; the browser scan produces
+   85–103 snapped ones, and the residual is point-to-NEAREST-POINT, which pulls
+   tangentially when sparse. Measured the density ladder before trusting the
+   wiring: every density down to 12 points still beats supplying nothing on 5
+   seeds of 5, costing ~0.08 mm of a 0.36 mm gain.
+3. **C4a had a second defect underneath it.** With one range the ENDPOINTS
+   still failed, per FACE rather than per number: the PD correction's round trip
+   lands the recomputed span up to 1.4e-14 mm from the typed figure, and 45 and
+   85 are exactly the two numbers the app's own message invites.
+4. **C1's reproducer does not reach the guard.** Driving `enroll` to 28 px of
+   landmark noise returns `rounds: 0` — the pose-initialisation gate rejects the
+   scan and the degraded stub supplies `converged: false` by construction.
+   `runBundle` is never called. The test drives the guard directly instead.
+5. **D4's falsifiable test cannot discriminate.** `|derivePads.padAngleRad -
+   authored| < 0.25 rad` passes under BOTH definitions, because the derivation
+   over-reads by 10.4 deg and its cone reading is only 12.4 deg out. What does
+   discriminate: a yaw is invariant to a vertical stretch of the frame and a
+   cone angle is not (1.40 deg against 4.90 over a 4x stretch).
+6. **`frame-from-mesh.ts`'s stale table is structurally wrong, not numerically.**
+   `TEMPLE_LEVEL_RUN_MIN_FRACTION`'s two "degenerate neighbours" no longer reach
+   it at all; they are refused by `ARM_KNEE_RATIO_MIN`.
+
+**Two tests passed under sabotage on their first draft and had to be rewritten**
+— which is the doctrine earning its keep, not an aside. `snappedContourPoints`'
+guard was asserted by output LENGTH, which the counting pass decides, so
+deleting the guard from the WRITING pass changed nothing; and C4a's range was
+swept using `PD_PLAUSIBLE_MM` itself as the fixture, so narrowing the constant
+moved the fixture with it and three of four sabotages passed.
+
+**Trap 5 bites in both directions.** `tsc` does not strip comments, so a
+`doesNotMatch` fingerprint fails on a CORRECT build when the comment explaining
+why the code is gone contains the string being refused. `tests/app.test.ts` now
+reads comment-stripped bodies through one helper.
+
+### What is left open, deliberately
+
+- `PAD_CURVATURE_LIMIT_MM`'s ledger derivation table reproduces on no seed
+  (recorded in the row). The naming fix landed; **re-derive before moving 0.9**.
+- `derivePads`' `padAngleRad` bias GREW under the corrected definition, +10.4
+  deg on navigator and +17.7 on khronos. Nothing in `src/` reads the field.
+- `CalibrationField`'s agreement gate roughly DOUBLES the flat-light corruption
+  it was built to prevent (median 1.008 mm with it, 0.517 without). Found beside
+  B1, not costed, not fixed.
+- `willReadFrequently` on the display canvas has never taken effect —
+  `framelock.ts` creates that context first and `getContext` ignores attributes
+  on a canvas that already has one. Verified in the live page. Not moved to the
+  creation site because that canvas is also the scene's background texture and
+  nobody has measured the other side of the trade.
+- `runBundle`'s new `fieldFactorisationFailures < opt.rounds` term has never
+  been observed to fire.
+- `acrossSeeds` still has no callers.
+
+---
+
+## 3b-original. The queue as it was specified
 
 The 2026-08-26 full-tree review confirmed 47 findings. Roughly a third are fixed
 (see the commits between `c85159d` and `947edf7`); three were in `ar/` and went
