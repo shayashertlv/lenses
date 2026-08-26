@@ -186,14 +186,43 @@ export function snapOffsets(
     // test that forced this gate to exist). Requiring coherent flanks is what
     // lets the module keep a permissive gradient threshold without
     // hallucinating boundaries at night.
-    if (bestIdx > 0 && bestIdx < steps - 1) {
+    const interior = bestIdx > 0 && bestIdx < steps - 1;
+    if (interior) {
       const flank = (responses[bestIdx - 1] + responses[bestIdx + 1]) / 2;
+      if (flank < 0.45 * best) continue;
+    } else {
+      // **A band end has one neighbour, not two — so run the same test
+      // one-sided rather than not at all.** Until 2026-08-26 there was no
+      // `else` here: a peak at either end of the band, 2 of the 17 shipped
+      // positions, skipped the ridge gate AND the parabola below and was
+      // emitted at `offsetPx = +/-searchPx` exactly, the largest offset the
+      // module can produce.
+      //
+      // It is not a small hole and it is not a low-confidence one. Measured on
+      // a real occluding contour (template rasterised at 224 px, 6 yaws, 352
+      // samples), the peak lands at a band end on 42 of 352 samples at every
+      // grain; at grain +/-8 (a dim room) 30 of those 42 were ACCEPTED, which
+      // is 37.5% of all confident samples on the frame, every one of them at
+      // 8.00 px. At 450 mm with f = 587.5 that is 6.13 mm, against
+      // `contourPushes`' 3 mm cap — so each one was a full-cap push in a
+      // direction noise chose. And band-end accepts carried HIGHER confidence
+      // than the interior evidence beside them (median 0.647 against 0.588,
+      // max 0.872 against 0.829), because to be the band max and clear the
+      // median test a spike has to be big.
+      //
+      // Rejecting outright was measured and is worse: a real edge at or past
+      // the band's edge arrives as a RAMP whose inner neighbour carries it, so
+      // one-sided keeps 100% of genuine snaps out to delta = 8 px where
+      // rejection keeps 3%, and rejection throws away exactly the largest
+      // geometric errors the snap exists to correct.
+      const flank = responses[bestIdx === 0 ? 1 : steps - 2];
       if (flank < 0.45 * best) continue;
     }
 
-    // Sub-pixel: parabola through the peak and its neighbours.
+    // Sub-pixel: parabola through the peak and its neighbours. A band-end peak
+    // has no parabola; its offset stands at the clamp, +/-searchPx.
     let t = bestT;
-    if (bestIdx > 0 && bestIdx < steps - 1) {
+    if (interior) {
       const a = responses[bestIdx - 1], b = responses[bestIdx], c = responses[bestIdx + 1];
       const denom = a - 2 * b + c;
       if (Math.abs(denom) > 1e-9) {

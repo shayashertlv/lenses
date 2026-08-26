@@ -94,8 +94,57 @@ describe('the snapper recovers a known edge offset', () => {
     const snap = snapOffsets(samples, noise, { minGradient: 6 });
     let claimed = 0;
     for (let i = 0; i < samples.length; i++) if (snap.confidence[i] > 0) claimed++;
-    assert.ok(claimed <= samples.length / 4,
+    // Tightened from `samples.length / 4` = 6 on 2026-08-26. The shipped code
+    // sat exactly ON that bar — 6 of 24 — and one of those six was a band-end
+    // acceptance at -8.00 px with confidence 0.67, admitted because the ridge
+    // gate did not run at the ends of the band. A bar a defect sits exactly on
+    // is a bar that cannot see it.
+    assert.ok(claimed <= 5,
       `${claimed}/${samples.length} samples claimed edges in structureless noise`);
+  });
+
+  it('a one-sample spike at a band end is refused like one anywhere else', () => {
+    // `snapOffsets` guarded BOTH its ridge test and its sub-pixel parabola on
+    // `bestIdx > 0 && bestIdx < steps - 1`, with no `else` on either. So a peak
+    // at either end of the band — 2 of the 17 shipped positions — skipped the
+    // gate entirely and was emitted at `offsetPx = +/-searchPx` exactly, the
+    // largest offset the module can produce. At 450 mm with f = 587.5 that is
+    // 6.13 mm against `contourPushes`' 3 mm cap: a full-cap push in a direction
+    // noise chose.
+    //
+    // The interior form of this fixture was already refused; the end form was
+    // not. That asymmetry is the whole finding, in one line.
+    const s = [{ x: 100, y: 100, nx: 1, ny: 0, depthMm: 450 }];
+    const spikeAt = (t0: number) => (x: number): number => {
+      const t = x - 100;                       // along-normal, source px
+      return 140 + (Math.abs(t - t0) < 0.5 ? 60 : 0);
+    };
+    for (const t0 of [-SNAP_DEFAULTS.searchPx, 0, SNAP_DEFAULTS.searchPx]) {
+      const r = snapOffsets(s, spikeAt(t0));
+      assert.equal(r.confidence[0], 0,
+        `a lone spike at t=${t0} was accepted at ${r.offsetPx[0]} px`);
+    }
+  });
+
+  it('a real edge AT the band edge still gets through — one-sided, not rejected', () => {
+    // The reason the fix gates one-sided instead of rejecting band-end peaks
+    // outright. A real edge arrives as a RAMP a couple of pixels wide, so its
+    // inner neighbour carries most of the peak's response and passes the same
+    // 0.45 test. Rejecting would throw away every genuine snap from about
+    // 5.7 mm of geometric error outward — which is the LARGEST error the snap
+    // exists to correct.
+    const samples = Array.from({ length: 12 }, (_, i) => ({
+      x: 100, y: 80 + i * 4, nx: 1, ny: 0, depthMm: 450,
+    }));
+    const atEdge = snapOffsets(samples, verticalEdge(100 + SNAP_DEFAULTS.searchPx));
+    let kept = 0;
+    for (let i = 0; i < samples.length; i++) if (atEdge.confidence[i] > 0) kept++;
+    assert.equal(kept, samples.length,
+      `only ${kept}/${samples.length} kept a real edge sitting exactly at the band edge`);
+    for (let i = 0; i < samples.length; i++) {
+      assert.ok(atEdge.offsetPx[i] > SNAP_DEFAULTS.searchPx - 0.5,
+        `the band-edge offset came back at ${atEdge.offsetPx[i].toFixed(2)}, not the clamp`);
+    }
   });
 });
 
