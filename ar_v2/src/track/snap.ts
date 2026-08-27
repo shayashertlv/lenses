@@ -39,6 +39,7 @@
  */
 
 import type { Pose } from '../core/linalg.js';
+import { huber } from '../core/robust.js';
 import type { Intrinsics } from '../core/camera.js';
 import type { DepthBuffer } from '../core/raster.js';
 
@@ -381,13 +382,51 @@ export interface CalibrationOptions {
   /** Total confidence a vertex can absorb; reaching it freezes the vertex.
    *  At ~0.5 confidence per good frame, 15 is ~30 frames — about a second. */
   weightCap: number;
-  /** Observations farther than this from a converged estimate are rejected,
-   *  mm. Wide enough for honest drift, narrow enough to refuse a passing
-   *  hand or a hair strand. */
+  /**
+   * How far an observation may sit from an established estimate before it
+   * starts losing its say, mm — a Huber scale, **not a rejection threshold**.
+   *
+   * It was a threshold until 2026-08-27, and `core/robust.ts`'s header is the
+   * argument against that in this tree's own words: "v1 defended itself with
+   * gates and clamps... both share its failure: they are correct about the
+   * outlier and wrong about everything within a hair of the threshold." This
+   * was that instrument, in `track/`, unnoticed.
+   *
+   * Its failure here was worse than a boundary effect, because the estimate it
+   * gates against is one it built itself. A hard refusal makes the acceptance
+   * region a window centred on the current value, so once the field has latched
+   * onto something the observations that would pull it back OUT are exactly the
+   * ones it refuses. It does not protect the truth; it protects whatever it saw
+   * first. Measured on 60 frames of the real loop at 25 and 40 degrees of yaw,
+   * 5 noise seeds:
+   *
+   *   arm                          hard gate           Huber weight
+   *   flat light +/-8, truth 0     0.316 / p90 1.007   0.219 / 0.686
+   *   flat light +/-16, truth 0    0.593 / p90 1.778   0.399 / 1.099
+   *   a real +3 px edge            0.173 / 0.292       identical
+   *   a hand across frames 20-27   0.170 / 0.288       0.200 / 0.328
+   *   a hand across frames 2-9     0.259 / p90 1.926   0.228 / p90 0.378
+   *
+   * The last row is the point. The hard gate is not better at rejecting a hand;
+   * it is better at rejecting *the second thing it sees*. When the hand arrives
+   * before the estimate settles, the gate latches the hand and refuses the good
+   * frames — a p90 of 1.93 mm against Huber's 0.38.
+   *
+   * Wide enough for honest drift, narrow enough that a passing hand or a hair
+   * strand at 10 mm counts for 0.15 of a frame.
+   */
   agreementMm: number;
   /** A vertex is considered converged past this fraction of the cap. */
   convergedFraction: number;
 }
+
+/**
+ * The loss the agreement term is measured through: Huber at one unit, because
+ * the disagreement is already whitened by `agreementMm` before it gets here.
+ * Built once — it is a closure over a constant and there is no reason to
+ * allocate one per push.
+ */
+const AGREEMENT_LOSS = huber(1);
 
 export const CALIBRATION_DEFAULTS: CalibrationOptions = {
   weightCap: 15,
@@ -468,20 +507,40 @@ export class CalibrationField {
     return this.applied;
   }
 
-  /** Integrates one frame's pushes. Returns how many were absorbed. */
+  /**
+   * Integrates one frame's pushes. Returns how many were absorbed.
+   *
+   * **Disagreement costs an observation its weight, not its vote.** See
+   * `CalibrationOptions.agreementMm` for what the hard refusal this replaced
+   * did, and why arming it later is not the fix: measured, moving the arming
+   * point from 3 to 9 or 12 lets an early hand in permanently and takes the
+   * p90 from 0.29 mm to 2.08.
+   *
+   * The weight is `huber(1)`'s own IRLS weight on the disagreement whitened by
+   * `agreementMm` — 1 inside, `agreementMm / d` outside — which is the same
+   * instrument every residual in `enroll/` is already robustified with, at the
+   * same place in the arithmetic. It is not open-coded here for that reason.
+   */
   update(pushes: VertexPush[], confidence = 1): number {
     let absorbed = 0;
     for (const push of pushes) {
       const v = push.vertex;
       const w = this.weight[v];
       const o = v * 3;
+      let c = Math.min(confidence, 1);
+      // Still armed at the same point. `w > 3` is about six frames of
+      // evidence, and it is early — but earlier is SAFER now that
+      // disagreement is a weight rather than a veto, and the measurement says
+      // so: the arming point is what protects against an outlier arriving
+      // before the estimate exists.
       if (w > 3) {
         const dx = push.dx - this.correction[o];
         const dy = push.dy - this.correction[o + 1];
         const dz = push.dz - this.correction[o + 2];
-        if (Math.hypot(dx, dy, dz) > this.opt.agreementMm) continue; // outlier
+        const s = Math.hypot(dx, dy, dz) / Math.max(this.opt.agreementMm, 1e-9);
+        c *= AGREEMENT_LOSS.eval(s * s)[1];
       }
-      const c = Math.min(confidence, 1);
+      if (!(c > 0)) continue;
       const wNew = Math.min(this.opt.weightCap, w + c);
       const gain = c / (w + c);
       this.correction[o] += gain * (push.dx - this.correction[o]);

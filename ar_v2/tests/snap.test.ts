@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  CalibrationField, occludingContour, snapOffsets, snappedContourPoints, contourPushes,
-  SNAP_DEFAULTS, SNAP_SLEW_MM_PER_S,
+  CALIBRATION_DEFAULTS, CalibrationField, occludingContour, snapOffsets,
+  snappedContourPoints, contourPushes, SNAP_DEFAULTS, SNAP_SLEW_MM_PER_S,
 } from '../src/track/snap.js';
 import { createDepthBuffer, rasterize, clearDepthBuffer } from '../src/core/raster.js';
 import type { Intrinsics } from '../src/core/camera.js';
@@ -335,15 +335,81 @@ describe('the calibration field is a constant of the face, not of the frame', ()
     assert.ok(field.convergence() > 0.9, `convergence ${field.convergence()}`);
   });
 
-  it('refuses an outlier that disagrees with a converged estimate', () => {
+  it('an outlier barely moves a converged estimate, however far out it is', () => {
     // A hand crossing the face is a confident, wildly-wrong edge. Once the
-    // field knows this vertex, a 3 mm-off observation must bounce.
+    // field knows this vertex, such an observation must not be able to take it.
+    //
+    // This used to assert the outlier BOUNCED — `absorbed === 0`, correction
+    // bit-identical — because the field refused anything past `agreementMm`
+    // outright. That hard refusal is what `core/robust.ts`'s header argues
+    // against in this tree's own words, and here it was worse than a boundary
+    // effect: the estimate the gate tested against was one the gate had built,
+    // so once the field latched onto anything, the observations that would pull
+    // it back out were exactly the ones it refused. Measured, a hand arriving
+    // across frames 2-9 — before the estimate settled — was LATCHED, and the
+    // p90 error came out at 1.926 mm against 0.378 for the rule that ships now.
+    //
+    // What replaces it is Huber's own weight, and the property to hold it to is
+    // BOUNDED INFLUENCE rather than refusal.
     const field = new CalibrationField(2);
     for (let i = 0; i < 20; i++) field.update([push(0, 1)]);
     const before = field.correction[0];
-    const absorbed = field.update([push(0, 1 + 3)]);
-    assert.equal(absorbed, 0, 'the outlier was absorbed');
-    assert.equal(field.correction[0], before);
+
+    // (a) A 3 mm-off observation moves a converged estimate by well under a
+    //     tenth of a millimetre. It is absorbed, and that is the point: it is
+    //     absorbed at 1.5/3 of a frame's weight, out of a cap of 15.
+    const moved = new CalibrationField(2);
+    for (let i = 0; i < 20; i++) moved.update([push(0, 1)]);
+    moved.update([push(0, 1 + 3)]);
+    const step3 = moved.correction[0] - before;
+    assert.ok(step3 > 0 && step3 < 0.15,
+      `one 3 mm outlier moved a converged estimate by ${step3.toFixed(4)} mm`);
+
+    // (b) **Bounded influence, which is the property that makes this a robust
+    //     loss rather than a soft gate.** The estimate moves by
+    //     `c/(w+c) * d` with `c = agreementMm/d`, i.e. `agreementMm/(w + c)` —
+    //     so as the observation goes to infinity the move rises to a CEILING of
+    //     `agreementMm / weightCap` = 1.5/15 = 0.1 mm and stops. It saturates;
+    //     it does not fall away. (A redescending loss would fall away, and
+    //     `robust.ts`'s `cauchy` docstring says why that is not wanted where an
+    //     estimate can lock onto a bad basin.)
+    //
+    //     Written as a bound and not as an ordering, because the first draft of
+    //     this assertion had it backwards — it demanded the 30 mm outlier move
+    //     the estimate LESS than the 3 mm one, and Huber does the opposite:
+    //     0.0997 against 0.0968, both under the ceiling.
+    const CEILING = CALIBRATION_DEFAULTS.agreementMm / CALIBRATION_DEFAULTS.weightCap;
+    const wild = new CalibrationField(2);
+    for (let i = 0; i < 20; i++) wild.update([push(0, 1)]);
+    wild.update([push(0, 1 + 30)]);
+    const step30 = wild.correction[0] - before;
+    assert.ok(step30 < CEILING + 1e-9,
+      `a 30 mm outlier moved a converged estimate ${step30.toFixed(4)} mm, past the `
+      + `${CEILING.toFixed(4)} mm ceiling agreementMm/weightCap sets — influence is not `
+      + 'bounded, so this is a plain down-weighting and not a robust loss');
+
+    // And the ceiling has to be worth having: with no agreement term at all the
+    // same observation moves it `30/(15+1)` = 1.875 mm, nineteen times further.
+    assert.ok(30 / (CALIBRATION_DEFAULTS.weightCap + 1) > 10 * step30,
+      'an ungated update would move the estimate by a similar amount, so this '
+      + 'assertion is not measuring the agreement term at all');
+  });
+
+  it('does not latch an outlier that arrives before the estimate exists', () => {
+    // **The defect the hard gate had, in one fixture.** The gate armed at
+    // `weight > 3` — about six frames — and then refused anything more than
+    // `agreementMm` from whatever it had. So a wrong observation arriving in
+    // those first frames was not rejected: it became the estimate, and every
+    // correct observation afterwards was refused for disagreeing with it.
+    //
+    // Four bad frames, then forty good ones. The truth is 1.0.
+    const field = new CalibrationField(2);
+    for (let i = 0; i < 4; i++) field.update([push(0, 6)]);
+    for (let i = 0; i < 40; i++) field.update([push(0, 1)]);
+    assert.ok(Math.abs(field.correction[0] - 1) < 0.5,
+      `after four bad frames and forty good ones the field sits at `
+      + `${field.correction[0].toFixed(3)} against a truth of 1.0 — it has latched the `
+      + 'first thing it saw and is refusing the evidence that would correct it');
   });
 
 
