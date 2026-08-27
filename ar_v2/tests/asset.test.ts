@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CATALOGUE, catalogueEntry } from '../src/fit/catalogue.js';
-import { derivePads, TEST_FRAMES } from '../src/fit/frame-asset.js';
+import { PAD_MIN_FACES, derivePads, TEST_FRAMES } from '../src/fit/frame-asset.js';
 import {
   PAD_SAMPLE_BUDGET, findBend, frameFromMesh, type CatalogueEntry,
 } from '../src/fit/frame-from-mesh.js';
@@ -152,9 +152,19 @@ describe('a real asset becomes a frame the solve can hold', () => {
 
     // And the un-thinned answer is still available, so the budget's cost stays
     // measurable rather than baked in.
+    //
+    // Asserted RELATIVE to the budget, not as an absolute count. This read
+    // `> 400` until `PAD_CONTACT_CONE_COS` landed, which was a proxy for "the
+    // budget did not run" that quietly also encoded how many faces the SELECTOR
+    // admits — and narrowing the selection from the pad's whole inward
+    // hemisphere to its contact face took navigator from 812 samples to 302.
+    // Both numbers satisfy the thing the assertion is about.
     const full = frameFromMesh(load(entry.file), entry, { padSampleBudget: 0 });
     assert.ok(full.ok);
-    assert.ok(full.asset.padSide.length > 400, 'padSampleBudget: 0 must keep every sample');
+    assert.ok(full.asset.padSide.length > PAD_SAMPLE_BUDGET * 2,
+      `padSampleBudget: 0 kept ${full.asset.padSide.length} samples against a budget of `
+      + `${PAD_SAMPLE_BUDGET} — the un-thinned answer is no longer distinguishable from `
+      + 'the thinned one, so the budget cost cannot be measured');
   });
 
   it('every catalogue entry either derives or refuses with a reason — none throws', () => {
@@ -443,16 +453,63 @@ describe('the derived pads land on the pads their author drew', () => {
       + 'the gate above cannot fail, which makes it a bug');
   });
 
+  it('the contact cone degrades continuously, with no cliff inside its range', () => {
+    // `PAD_CONTACT_CONE_COS` narrows the found faces to the pad's contact face.
+    // When the cone is tighter than the pad's own curvature it can leave fewer
+    // faces than `PAD_MIN_FACES`, and what happens THEN decides whether the
+    // constant has a cliff in the middle of its range.
+    //
+    // The first draft handed the whole inward hemisphere back the moment the
+    // cone left 19 faces. That made the sweep non-monotone — `aviator-amber`
+    // read a 4.36 mm deep patch at 0.95, 9.28 at 0.90 and 7.85 at 0.85, because
+    // the fallback fired at one value and not its neighbours. "A parameter whose
+    // failures are interior to its range is one whose safe values are
+    // coincidences" is `PAD_UP_REFERENCE_FRACTION`'s own argument about its own
+    // sweep, and it applies here.
+    //
+    // The shipped 0.955 leaves every catalogue asset well clear of the floor, so
+    // no sabotage of the shipped configuration can reach this. It is asserted
+    // directly instead.
+    const asset = load('assets/glasses/navigator.glb');
+    const wide = derivePads(asset.positions, asset.indices, { contactConeCos: -1 });
+    assert.ok(wide.ok);
+    let last = wide.padSide.length;
+    for (const cos of [0.9, 0.95, 0.99, 0.999, 0.99999]) {
+      const d = derivePads(asset.positions, asset.indices, { contactConeCos: cos });
+      assert.ok(d.ok, `derivePads refused at cone ${cos}: ${d.reason}`);
+      assert.ok(d.padSide.length <= last,
+        `tightening the cone from the previous value to ${cos} INCREASED the sample count `
+        + `${last} -> ${d.padSide.length}. A tighter cone cannot admit more faces unless `
+        + 'something is handing the whole selection back.');
+      last = d.padSide.length;
+    }
+    // At a cone no real face can satisfy, both sides fall back to exactly the
+    // floor — not to everything.
+    assert.equal(last, PAD_MIN_FACES * 2,
+      `an impossible cone left ${last} samples rather than the ${PAD_MIN_FACES * 2}-sample `
+      + 'floor, so the fallback is returning the whole hemisphere again');
+  });
+
   it('khronos is recorded as a measured ceiling, not gated at 90%', () => {
     // **This is the number that argues for demoting the derivation from
     // PRODUCER to CHECKER.** khronos's frame front is sculpted rather than
-    // flat and carries genuinely rearward-leaning faces of its own, so no
-    // setting of the thresholds reaches 90% on it without breaking navigator.
-    // A ratchet at 0.45 goes red on a regression and can never go green by
+    // flat and carries genuinely rearward-leaning faces of its own.
+    //
+    // **The floor moved 45% -> 70% on 2026-08-27** and the reason is worth
+    // keeping: this test's comment used to say "no setting of the thresholds
+    // reaches 90% on it without breaking navigator", and that was true of the
+    // thresholds that existed. `PAD_CONTACT_CONE_COS` is a new one — a cone
+    // about the pad's OWN mean normal rather than the x axis — and it takes
+    // khronos from 48.2% to 79.0% with navigator unmoved at 100%. So the
+    // ceiling stands and the reasoning behind it does not: it was never that
+    // 90% is unreachable in principle, only that no threshold then in the file
+    // could reach it.
+    //
+    // A ratchet at 0.70 goes red on a regression and can never go green by
     // accident.
     const p = precisionOn('assets/glasses/sunglasses-khronos.glb', /nosepad|nose_pads/i);
-    assert.ok(p >= 0.45,
-      `khronos precision fell to ${(p * 100).toFixed(1)}%, below the recorded 45% floor`);
+    assert.ok(p >= 0.70,
+      `khronos precision fell to ${(p * 100).toFixed(1)}%, below the recorded 70% floor`);
     assert.ok(p < 0.90,
       `khronos precision reached ${(p * 100).toFixed(1)}%. If that is real it is very good `
       + 'news and this assertion should be replaced by the measurement that explains it — '

@@ -509,6 +509,90 @@ export interface PadDerivation {
  */
 export const PAD_INWARD_COS = 0.35;
 
+/**
+ * How far a face's normal may sit from the PAD'S OWN mean normal and still
+ * count as contact surface. Cosine.
+ *
+ * **`PAD_INWARD_COS` was doing two jobs and is only good at one of them.** It
+ * has to be generous — 70 degrees off the x axis — because it is the FINDER:
+ * the test that locates two surfaces facing each other across the midline and
+ * refuses an object that has none, on assets whose pads sit at whatever angle
+ * the author left them. Used as the SELECTOR it is far too loose. Measured over
+ * the ten catalogue assets, the faces it admits span 19 to 29 degrees of normal
+ * spread at the median, 38 to 55 at p90 and up to 80 at the worst, over 3.2 to
+ * 13.5 mm of depth along the pad's own normal. A nose pad's contact face is a
+ * patch a few millimetres deep; that is its whole inward-facing hemisphere,
+ * sides and rolled-off edges included.
+ *
+ * The cost of sampling the edges is not cosmetic. `padSeatErrorArticulatedMm`
+ * removes a rigid pivot from the gap field and reports what is left as
+ * "unfixable curvature of THIS FACE", so an asset whose samples wrap around its
+ * own pad reports that wrap against any nose. Before this gate existed the
+ * wearer-facing pad verdict fired on 85 to 100% of faces for all ten derived
+ * assets, against 2 to 10 of 29 for the parametric frames -- and it was
+ * describing the asset.
+ *
+ * Measured against the pad's own mean normal rather than the x axis, because
+ * that is the axis the question is about: a pad angled 40 degrees out still has
+ * a flat contact face, and a cone about a fixed axis would keep the near half
+ * of it and throw away the far half.
+ *
+ * **Derivation: graded against the pads two authors declared.** Nothing here
+ * reads part names, so `sunglasses-khronos.glb`'s own `Nosepads` part is an
+ * independent target. Precision is the fraction of derived samples that ARE an
+ * authored face centroid — an exact match, not a tolerance, because the samples
+ * are emitted verbatim:
+ *
+ *     cone      faces/side   on the authored pad   mean-normal error
+ *     off           278            48.2%                20.0 deg
+ *     0.85          196            60.2%                12.1
+ *     0.90          167            69.5%                 8.2
+ *     0.93          155            72.3%                 7.9
+ *     0.95          145            77.2%                 7.6
+ *     0.955         138            79.0%                 7.7
+ *     0.96          120            80.8%                 8.2
+ *     0.97          102            81.4%                 7.1
+ *     0.972          49            55.1%                12.7   <- the cliff
+ *     0.975          42            52.4%                12.5
+ *     0.98           33            57.6%                15.0
+ *
+ * The 48.2% at the top is the number `PAD_REAR_COS`'s docstring records as
+ * "~48%" and calls the case for treating this derivation as a CHECKER rather
+ * than a producer. navigator, which is authored CAD, reads 100% at every value
+ * and cannot choose between them.
+ *
+ * **Precision rises monotonically to 0.97 and then falls off a cliff**: past
+ * about 0.972 the cone is tighter than the pad's own curvature, the face count
+ * halves, and what survives is a flattest sliver no longer centred on the pad.
+ * That edge sits at this pad's curvature scale — `acos(0.972)` is 13.6 degrees
+ * — so a more curved pad would cliff at a WIDER cone, and the value has to
+ * stand back from the worst one rather than sit at the best measured point.
+ *
+ * **0.955 gives up 2.4 points of precision for eight times the margin.** 0.97
+ * scores 81.4% and sits 0.002 from the collapse; 0.955 scores 79.0% and sits
+ * 0.017 from it. Failure is worse on the tight side: too loose contaminates the
+ * patch, too tight replaces it with a sliver AND engages the `PAD_MIN_FACES`
+ * floor, past which this constant stops mattering at all.
+ *
+ * **What it does to the population.** 15 frames x 29 faces, seed 11:
+ *
+ *                              pad depth mm    normal spread   fires >0.9
+ *     the 5 parametric frames   0.00 (both)     0.0 (both)     unchanged
+ *     navigator                 3.23 -> 1.23   19.9 -> 11.2    11 -> 1 /29
+ *     khronos                  11.18 -> 3.85   20.0 ->  1.7    28 -> 1 /29
+ *     the other eight           7.3-13.5 -> 2.0-5.9
+ *     TOTAL                                              63.4% -> 22.8%
+ *
+ * The parametric frames do not move at all, by construction: their pads are a
+ * flat rectangle of identical normals, so every face is inside any cone and the
+ * narrowing is the identity. `reports/seat.txt` is generated from those five and
+ * is unaffected.
+ *
+ * **`shield-golden` stays at 24 of 29** and is the honest residue: its pad
+ * genuinely is the wrong shape, and better sampling does not change that.
+ */
+export const PAD_CONTACT_CONE_COS = 0.955;
+
 /** Fewest inward-facing faces per side that can describe a pad surface. */
 export const PAD_MIN_FACES = 20;
 
@@ -543,12 +627,18 @@ export const PAD_FRONT_FRACTION = 1 / 3;
  * measures 0.000.
  *
  * **It does not fix everything, and the number that says so is kept here.** On
- * sunglasses-khronos precision only reaches ~48% and separation lands +2.2 mm,
- * because that asset's frame front is sculpted rather than flat and carries
- * genuinely rearward-leaning faces of its own. One of the two gradeable assets
- * passes a 90% precision bar and one does not; nine of eleven cannot be graded
- * at all. That is the case for treating this derivation as a CHECKER against
- * declared geometry rather than as the producer of it.
+ * sunglasses-khronos this threshold alone reaches ~48% precision and separation
+ * lands +2.2 mm, because that asset's frame front is sculpted rather than flat
+ * and carries genuinely rearward-leaning faces of its own. One of the two
+ * gradeable assets passes a 90% precision bar and one does not; nine of eleven
+ * cannot be graded at all. That is the case for treating this derivation as a
+ * CHECKER against declared geometry rather than as the producer of it.
+ *
+ * **`PAD_CONTACT_CONE_COS` took that 48% to 79% on 2026-08-27** by narrowing
+ * the selection to the pad's contact face rather than its whole inward
+ * hemisphere. It does not change the argument above — 79% is still not 90%, and
+ * nine of eleven assets still cannot be graded at all — but the figure quoted
+ * here is this threshold's contribution, not the derivation's current score.
  */
 export const PAD_REAR_COS = 0.04;
 
@@ -679,11 +769,15 @@ export function derivePads(
     inwardCos?: number;
     /** How far a face must also lean rearward, toward the wearer. */
     rearCos?: number;
+    /** How far a face's normal may sit from the pad's own mean normal and
+     *  still be contact surface rather than the pad's edge. */
+    contactConeCos?: number;
   } = {},
 ): PadDerivation {
   const halfWidth = options.columnHalfWidthMm ?? 18;
   const inwardCos = options.inwardCos ?? PAD_INWARD_COS;
   const rearCos = options.rearCos ?? PAD_REAR_COS;
+  const contactConeCos = options.contactConeCos ?? PAD_CONTACT_CONE_COS;
 
   if (indices.length < 3 || positions.length < 9) {
     return fail('not a mesh — no triangles to read a contact surface from');
@@ -837,10 +931,60 @@ export function derivePads(
     return fail(`contact surfaces ${separation.toFixed(1)} mm apart — one surface, not two pads`);
   }
 
+  // **Found, then SELECTED.** Everything above answers "is there a pad here";
+  // this answers "which of these faces is the part that touches". They are
+  // different questions and `PAD_INWARD_COS` was being asked both — see
+  // `PAD_CONTACT_CONE_COS` for what the second answer costs when the first one
+  // gives it.
+  //
+  // The cone is taken about each side's OWN mean normal, and the mean is then
+  // recomputed from what survived and the cut applied once more. One
+  // refinement, not a loop: the first mean is pulled off-axis by exactly the
+  // edge faces being removed, so a single re-cut is worth having and a second
+  // one moves nothing measurable.
+  // **Keep the best `PAD_MIN_FACES` rather than falling back to everything.**
+  // An all-or-nothing fallback puts a cliff in the middle of the parameter: the
+  // first draft of this took the whole hemisphere back the moment the cone left
+  // 19 faces, and the sweep went non-monotone — `aviator-amber` read a 4.36 mm
+  // deep patch at 0.95, a 9.28 mm one at 0.90 and 7.85 at 0.85, because the
+  // fallback fired at one value and not its neighbours. A constant whose
+  // failures are interior to its range is one whose safe values are
+  // coincidences — the same argument `PAD_UP_REFERENCE_FRACTION` makes about
+  // its own sweep. Sorting and taking a floor is continuous everywhere.
+  //
+  // Refusing instead would be wrong: the asset HAS pads, the finder above just
+  // proved it, and a derivation that refuses a frame it has already located is
+  // worse than one that reports a coarser surface.
+  const narrow = (faces: Face[], mean: { nx: number; ny: number; nz: number }): Face[] => {
+    const scored = faces
+      .map((f) => ({ f, a: f.nx * mean.nx + f.ny * mean.ny + f.nz * mean.nz }))
+      .sort((p, q) => q.a - p.a);
+    const inside = scored.filter((s) => s.a >= contactConeCos);
+    return (inside.length >= PAD_MIN_FACES ? inside : scored.slice(0, PAD_MIN_FACES))
+      .map((s) => s.f);
+  };
+  const refine = (faces: Face[], mean: { nx: number; ny: number; nz: number }): Face[] => {
+    const once = narrow(faces, mean);
+    return narrow(once, summarise(once));
+  };
+  const contactRight = refine(right, r);
+  const contactLeft = refine(left, l);
+
   const samples: number[] = [];
   const outNormals: number[] = [];
   const sides: number[] = [];
-  for (const [faces, side] of [[right, -1], [left, 1]] as const) {
+  // Face centroids VERBATIM, and that is worth stating because it was briefly
+  // not. Projecting them onto a best-fit quadric to remove tessellation noise
+  // was tried and measured: after the contact cone above it removes only
+  // 0.02 mm on navigator and 0.39 on khronos, and it destroys the only
+  // independent grading this derivation has — `tests/asset.test.ts` scores
+  // precision by matching derived samples against the authored pad's own face
+  // centroids EXACTLY, which is a crisp number precisely because the samples
+  // are verbatim. Smoothed, that score becomes a function of the match
+  // tolerance (18% at 0.05 mm, 67% at 0.25, 93% at 0.5) and stops measuring
+  // anything. A second-order cleanup that costs a first-order instrument is
+  // not worth having.
+  for (const [faces, side] of [[contactRight, -1], [contactLeft, 1]] as const) {
     for (const f of faces) {
       samples.push(f.cx, f.cy, f.cz);
       outNormals.push(f.nx, f.ny, f.nz);
