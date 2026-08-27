@@ -578,18 +578,23 @@ export const PAD_INWARD_COS = 0.35;
  *
  *                              pad depth mm    normal spread   fires >0.9
  *     the 5 parametric frames   0.00 (both)     0.0 (both)     unchanged
- *     navigator                 3.23 -> 1.23   19.9 -> 11.2    11 -> 1 /29
- *     khronos                  11.18 -> 3.85   20.0 ->  1.7    28 -> 1 /29
- *     the other eight           7.3-13.5 -> 2.0-5.9
- *     TOTAL                                              63.4% -> 22.8%
+ *     navigator                 3.15 -> 1.26   22.6 -> 11.2    17 -> 1 /29
+ *     khronos                  12.63 -> 4.16   17.4 ->  1.7    28 -> 5 /29
+ *     horizon-amber             7.84 -> 2.15   25.5 ->  9.3    24 -> 1 /29
+ *     horizon-sage             12.43 -> 3.31   26.4 -> 10.9    25 -> 1 /29
+ *     crystal-parts            13.07 -> 2.77   27.5 ->  9.0    23 -> 4 /29
+ *     meshy                     9.04 -> 2.34   26.7 ->  9.1    28 -> 2 /29
+ *     TOTAL                                              65.1% -> 29.9%
  *
  * The parametric frames do not move at all, by construction: their pads are a
  * flat rectangle of identical normals, so every face is inside any cone and the
  * narrowing is the identity. `reports/seat.txt` is generated from those five and
  * is unaffected.
  *
- * **`shield-golden` stays at 24 of 29** and is the honest residue: its pad
- * genuinely is the wrong shape, and better sampling does not change that.
+ * **Three assets barely move**, and they are the honest residue:
+ * `aviator-tortoiseshell` 29 -> 29, `shield-golden` 29 -> 29, `aviator-amber`
+ * 28 -> 25. Their pads genuinely are the wrong shape for most of this
+ * population, and better sampling does not change that.
  */
 export const PAD_CONTACT_CONE_COS = 0.955;
 
