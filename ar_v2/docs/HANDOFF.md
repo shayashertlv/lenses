@@ -180,10 +180,17 @@ default. One asset, not a population; recorded as corroboration, not as a new va
   consumes it as a YAW about the vertical (`ny` identically zero) while both
   measuring sites read it as a CONE angle from the x axis. Split apart:
 
-  | | derivation bias, cone (to 08-25) | bias, yaw (now) | bias on the vertical lean |
-  | --- | --- | --- | --- |
-  | navigator | +8.68 deg | **+10.42** | −2.08 |
-  | khronos | +10.99 (not the +6.1 this line used to claim) | **+17.74** | −3.93 |
+  | | bias, cone (to 08-26) | bias, yaw (08-26) | **bias now (08-27)** | vertical lean now |
+  | --- | --- | --- | --- | --- |
+  | navigator | +8.68 deg | +10.42 | **+11.05** | **−0.71** (was −2.08) |
+  | khronos | +10.99 (not the +6.1 this line used to claim) | +17.74 | **+7.00** | **+2.50** (was −3.93) |
+
+  **`PAD_CONTACT_CONE_COS` cut most of it on 2026-08-27**, by computing the
+  angles off the pad's CONTACT face rather than its whole inward hemisphere.
+  khronos's yaw bias more than halves and its separation error goes +2.24 mm →
+  **+0.31**; navigator's separation goes +0.42 → **−0.03**. navigator's yaw is
+  the one figure that moves the wrong way, by 0.6 of a degree, and it stays
+  here rather than in a footnote.
 
   The cone's apparently-moderate bias was partly CANCELLATION: the derivation
   over-reads the yaw and under-reads the vertical lean, and the cone mixes the

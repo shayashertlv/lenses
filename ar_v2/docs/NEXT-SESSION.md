@@ -429,13 +429,14 @@ these because the identity watch depends on the sigma it estimates.
 - **`model.intrinsics.f` is not a physical focal length** — median 5.45% out,
   worst 43.72%. Accurate only in combination with the solved depth (correlated
   −0.9992). Anything reading it as a lens property is wrong.
-- **`derivePads`' `padAngleRad` is biased +10.4°** (navigator) / **+17.7°**
-  (khronos), re-measured 2026-08-26 under the corrected YAW definition. The
-  figures this line used to give (+8.7 / +6.1) were cone-angle biases, and the
-  khronos one did not reproduce even as that (it is +10.99). The cone's smaller
-  numbers were partly cancellation — the derivation over-reads the yaw and
-  under-reads the vertical lean by 2.1° and 3.9°, and the cone mixes the two
-  with opposite signs. Harmless today: nothing in `src/` reads the field.
+- **`derivePads`' `padAngleRad` bias is +11.1°** (navigator) / **+7.0°**
+  (khronos) as of 2026-08-27, down from +10.4 / +17.7. `PAD_CONTACT_CONE_COS`
+  cut it by computing the angles off the pad's contact face rather than its
+  whole inward hemisphere; the vertical lean came down with it (−0.71 / +2.50
+  against −2.08 / −3.93) and `padSeparationMm` improved most of all, +0.42 →
+  −0.03 mm on navigator and +2.24 → +0.31 on khronos. navigator's yaw is the
+  one figure that went the wrong way, by 0.6 of a degree. Still not zero, and
+  still harmless today: nothing in `src/` reads the angle.
 - **navigator exceeds `PAD_CURVATURE_LIMIT_MM` on 2–3 of 7 subjects** at every
   sample count, against the parametric standard's 1.
 - **`worstClearanceMm` is identically 0.000 across 2250 rows** — a check that

@@ -931,9 +931,12 @@ export function derivePads(
     return fail('the inward surfaces sit back among the temples — is this back to front?');
   }
 
-  const separation = Math.abs(l.cx - r.cx);
-  if (!(separation > 4)) {
-    return fail(`contact surfaces ${separation.toFixed(1)} mm apart — one surface, not two pads`);
+  // The REFUSAL runs on the finder's faces, because it is asking whether there
+  // are two pads here at all; the reported figure comes off the contact faces
+  // below, because that is the separation the seat actually rests on.
+  if (!(Math.abs(l.cx - r.cx) > 4)) {
+    return fail(`contact surfaces ${Math.abs(l.cx - r.cx).toFixed(1)} mm apart `
+      + '— one surface, not two pads');
   }
 
   // **Found, then SELECTED.** Everything above answers "is there a pad here";
@@ -974,6 +977,27 @@ export function derivePads(
   };
   const contactRight = refine(right, r);
   const contactLeft = refine(left, l);
+  // **Everything reported comes off the CONTACT faces, not the finder's.**
+  // Until 2026-08-27 the samples came from one set and the separation and
+  // angles from the other, which is both inconsistent and measurably worse:
+  // the finder's set is the pad's whole inward hemisphere, so its centroid sits
+  // wherever the pad's sides pull it and its mean normal is the average of a
+  // wrap rather than of a contact face. Against the two authored pads, moving
+  // these three onto the contact faces:
+  //
+  //     asset      quantity      from the finder   from the contact faces
+  //     khronos    separation      +2.24 mm             +0.30 mm
+  //     khronos    yaw            +17.75 deg            +7.71 deg
+  //     khronos    lean            -3.93                +2.21
+  //     navigator  separation      +0.42 mm             -0.19 mm
+  //     navigator  yaw            +10.42 deg           +10.53 deg
+  //     navigator  lean            -2.08                -0.82
+  //
+  // Better or level on five of six, and the two that move most are khronos's,
+  // which is the asset the finder is only 48% precise on.
+  const cr = summarise(contactRight);
+  const cl = summarise(contactLeft);
+  const separation = Math.abs(cl.cx - cr.cx);
 
   const samples: number[] = [];
   const outNormals: number[] = [];
@@ -1017,8 +1041,8 @@ export function derivePads(
   // against 10.4. Nothing reads it yet; it is here so that splitting the two
   // angles does not throw one of them away.
   const drop = (n: { ny: number }) => Math.asin(Math.max(-1, Math.min(1, -n.ny)));
-  const angle = (yaw(r) + yaw(l)) / 2;
-  const vertical = (drop(r) + drop(l)) / 2;
+  const angle = (yaw(cr) + yaw(cl)) / 2;
+  const vertical = (drop(cr) + drop(cl)) / 2;
 
   return {
     ok: true,
