@@ -220,23 +220,75 @@ moved the fixture with it and three of four sabotages passed.
 why the code is gone contains the string being refused. `tests/app.test.ts` now
 reads comment-stripped bodies through one helper.
 
-### What is left open, deliberately
+### What was left open — ALL SIX CLOSED 2026-08-27
 
-- `PAD_CURVATURE_LIMIT_MM`'s ledger derivation table reproduces on no seed
-  (recorded in the row). The naming fix landed; **re-derive before moving 0.9**.
-- `derivePads`' `padAngleRad` bias GREW under the corrected definition, +10.4
-  deg on navigator and +17.7 on khronos. Nothing in `src/` reads the field.
-- `CalibrationField`'s agreement gate roughly DOUBLES the flat-light corruption
-  it was built to prevent (median 1.008 mm with it, 0.517 without). Found beside
-  B1, not costed, not fixed.
-- `willReadFrequently` on the display canvas has never taken effect —
-  `framelock.ts` creates that context first and `getContext` ignores attributes
-  on a canvas that already has one. Verified in the live page. Not moved to the
-  creation site because that canvas is also the scene's background texture and
-  nobody has measured the other side of the trade.
-- `runBundle`'s new `fieldFactorisationFailures < opt.rounds` term has never
-  been observed to fire.
-- `acrossSeeds` still has no callers.
+Six commits, `5aa08e6`..`4bfa90e` plus this one. `npm test` 326 -> 328.
+
+1. **`CalibrationField`'s agreement gate protected whatever it saw first.** A
+   hard refusal makes the acceptance region a window centred on the current
+   estimate, so once the field latched onto anything, the observations that
+   would pull it back out were exactly the ones it refused. Replaced with
+   `huber(1)`'s own weight — `core/robust.ts`'s header is the argument, in the
+   tree's own words. Flat light 0.316 -> 0.214 mm; **an outlier arriving before
+   the estimate settles goes from p90 1.93 mm to 0.38**. Costs 0.02-0.05 mm when
+   the outlier arrives late, which is in the commit's headline.
+2. **The pad verdict was describing the ASSET, not the wearer.** `PAD_INWARD_COS`
+   was doing two jobs: FINDING the pads (needs 70 degrees) and SELECTING the
+   contact samples (far too loose at 70). The samples spanned the pad's whole
+   inward hemisphere — 19-29 degrees of normal spread, 3.2-13.5 mm deep — and
+   `padSeatErrorArticulatedMm` reported that wrap as the wearer's own curvature,
+   firing on 85-100% of faces for all ten derived assets. New
+   `PAD_CONTACT_CONE_COS = 0.955`, graded against the two authored pads:
+   khronos precision **48.2% -> 79.0%**, the bar fires on **29.9% of pairs
+   against 65.1%**, parametric frames byte-identical.
+3. **`derivePads`' angles came off the hemisphere while its samples came off the
+   contact face.** Moved onto the contact faces: khronos separation error
+   **+2.24 -> +0.31 mm**, navigator **+0.42 -> -0.03**, khronos yaw bias
+   **+17.75 -> +7.00 deg**. navigator's yaw went 0.6 of a degree the wrong way.
+4. **`PAD_CURVATURE_LIMIT_MM` re-derived, and reclassified `measured` ->
+   `stated`.** Three legs: the physics (its 1.56x worst/RMS ratio is really
+   **2.21x**, implying 0.63-0.68), separating the catalogue's deliberate tilt
+   defect from its deliberate shape defect (peaks at 0.60 and is **weak at every
+   threshold** — best 13 of 29), and the floor under it (a face's best frame
+   reads 0.237 mm, so the bar must clear it). **Held at 0.9 by decision**:
+   moving to 0.65 would take a wearer-facing refusal from 29.9% to ~48% on a
+   discriminator just measured as barely discriminating. The value now carries
+   its own argument instead of a derivation that had stopped supporting it.
+5. **`willReadFrequently` measured on both sides — there is no trade.** The flag
+   never took effect (`framelock.ts` creates the context first). Moving it to
+   the creation site is not worth making: in Chrome at 1280x720, five
+   repetitions, medians — readback 0.389 -> 0.361 ms, upload 1.854 -> 1.822,
+   full draw+read+upload cycle 2.226 -> 2.200, every spread overlapping. One
+   machine, one browser.
+6. **The two checks that could not fire, characterised rather than left.**
+   `runBundle`'s `fieldFactorisationFailures` term cannot be reached by any
+   INPUT — tried `fieldPriorScale` 8/1/0/-1/-100 across 99/3/1/0 frames — and
+   that is the right shape: it guards a CODE defect in the priors, one that has
+   actually happened. `acrossSeeds` has no callers because its SIGNATURE is
+   wrong for the campaign: it takes `figure(seed) => number` and so re-runs a
+   74-second realisation per column, where every campaign here runs once per
+   seed and reads a dozen figures out. The signature that would fit is written
+   on it.
+
+**The one thing this opened that is bigger than what it closed:**
+`padSeatErrorArticulatedMm` separates "an optician can bend these pads" from
+"this frame is the wrong shape for you" by 13 of 29 at its best threshold, with
+the two distributions overlapping heavily. **The thing to build is a statistic
+that separates tilt from shape properly**, not a better threshold on this one.
+
+Two things tried and REMOVED, because they went against me:
+
+- **Quadric smoothing of the pad samples.** After the contact cone it removes
+  0.02 mm on navigator and 0.39 on khronos, and it destroys the only independent
+  grading this derivation has — `tests/asset.test.ts` matches derived samples
+  against authored face centroids EXACTLY, which is crisp only while the samples
+  are verbatim. Smoothed, that score becomes a function of the match tolerance.
+- **An all-or-nothing `PAD_MIN_FACES` fallback**, which put a cliff in the
+  middle of the cone parameter and made the sweep non-monotone.
+
+And one correction: `bc2c14a` published population figures measured on a build
+that included the smoothing I then removed. Corrected in `28b86b1` — 65.1% ->
+29.9%, not 63.4% -> 22.8%.
 
 ---
 

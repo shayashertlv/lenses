@@ -1008,20 +1008,30 @@ function contourLuminance(
   app: App, contour: ContourSample[], intrinsicsWidth: number,
 ): ((x: number, y: number) => number) | null {
   const display = app.lock.display;
-  // **`willReadFrequently` here is inert and has always been**, so it is not
-  // written. `framelock.ts` creates this canvas's 2D context during `resize`,
+  // **`willReadFrequently` is not asked for here, and the measurement is the
+  // reason.** `framelock.ts` creates this canvas's 2D context during `resize`,
   // long before any snap, and `getContext` on a canvas that already has one
-  // returns the existing context and IGNORES the attributes. Verified in the
-  // live page: `display.getContext('2d', {willReadFrequently: true})
-  // .getContextAttributes().willReadFrequently` reads **false**, and Chrome
-  // logs its "multiple readback operations" warning anyway.
+  // returns the existing context and IGNORES the attributes — so the request
+  // that used to sit on this line had never once taken effect. Verified in the
+  // live page: `getContextAttributes().willReadFrequently` reads **false**.
   //
-  // Not simply moved to the creation site, because it is a real trade rather
-  // than an oversight: this canvas is also the scene's background TEXTURE
-  // every frame, and the hint moves a canvas to CPU-backed storage — fast to
-  // read, and a different (possibly slower) upload path to the GPU. Nobody has
-  // measured that side, so the honest state is a comment rather than a flag
-  // that looks measured and is not.
+  // The obvious repair is to move it to the creation site, and it is not worth
+  // making. This canvas is also the scene's background TEXTURE every frame, so
+  // the hint is a trade — CPU-backed storage is meant to be faster to read and
+  // slower to upload — and **measured in Chrome at 1280x720, both halves of
+  // that trade are inside the noise.** Five repetitions, medians, flag off
+  // against on:
+  //
+  //     getImageData of a 500x500 box      0.389 ms  ->  0.361 ms
+  //     texImage2D upload of the canvas    1.854     ->  1.822
+  //     draw + read + upload, one cycle    2.226     ->  2.200
+  //
+  // Every spread overlaps its neighbour's. Chrome logs a "multiple readback
+  // operations are faster with willReadFrequently" warning against this canvas
+  // and, for this workload on this machine, it is advisory rather than true.
+  // Measured on one browser and one machine; a device whose 2D canvases are
+  // GPU-backed could differ, and that is the reason to re-measure rather than
+  // to assume.
   const ctx = display.getContext('2d');
   if (!ctx) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

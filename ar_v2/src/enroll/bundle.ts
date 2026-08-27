@@ -502,9 +502,20 @@ export function runBundle(
     focalMovedPct: ((state.intrinsics.f - focal0) / focal0) * 100,
     ms: nowMs() - started,
     perRound,
-    // The second term was counted at the line below and read by nobody: every
-    // round left the field unsolved, so the "nose" is the shape basis and
-    // nothing more.
+    // **The second term cannot be reached by any INPUT, and that is the right
+    // shape for it.** It fires when every round left the field unsolved, so the
+    // "nose" is the shape basis and nothing more. Tried and failed to provoke
+    // it: `fieldPriorScale` at 8, 1, 0, -1 and -100, and the frame count at 99,
+    // 3, 1 and 0 — `ldlt` factorises the field's normal equations in every
+    // combination, and the one case that does report `converged: false` (zero
+    // frames) does it through the rms guard above instead.
+    //
+    // It is a guard against a CODE defect, not a data one, and there is a
+    // recorded instance: a truncated Laplacian prior once made those equations
+    // non-positive-definite, `solveField` took its early return, and the field
+    // was inert for an entire build with nothing visible changing. See
+    // `accumulateDisplacementPriors`. `tests/pipeline.test.ts` asserts
+    // `fieldFailures === 0` on healthy solves from the other side.
     converged: !solveCollapsed && fieldFactorisationFailures < opt.rounds,
     fieldFailures: fieldFactorisationFailures,
     fieldRmsGauge: displacementStats(state.field).rmsMm,

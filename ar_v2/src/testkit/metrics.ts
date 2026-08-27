@@ -190,12 +190,24 @@ export function campaignSeeds(n: number): number[] {
 /**
  * Run a figure at N independent seeds and report the per-seed values.
  *
- * **Nothing calls this.** It is the campaign's documented estimator — three
- * other files point readers at it for the median-of-seeds rule — and every
- * seeded sweep in the tree is written out by hand instead. That is worth
- * knowing before trusting it: the validation below is exercised only by its own
- * unit tests, so "the campaign uses `acrossSeeds`" is a statement about
- * intent, not about code.
+ * **Nothing calls this, and the reason is its SHAPE rather than neglect.** It
+ * takes `figure(seed) => number`, so it runs the whole realisation once per
+ * FIGURE. Every campaign in this tree runs it once per SEED and then reads a
+ * dozen figures out of each run — `report-occlusion` builds a `SeedRun[]` and
+ * pulls loss rates, crawl, boundary error and depth error from the same five
+ * runs. Using this would re-run a 74-second campaign once per column.
+ *
+ * So the signature that would actually fit is
+ * `acrossSeeds(seeds, run: (seed) => T, figures: Record<string, (t: T) => number>)`
+ * — one realisation per seed, many extractors over it — and that is the change
+ * to make the day somebody wants it, not a caller forced onto this one.
+ *
+ * What is worth keeping either way is the VALIDATION below: duplicate seeds
+ * silently narrow a spread while claiming N replicates, and 0xffffffff aliases
+ * the unseeded historical run through the fork mix. Both are refused loudly.
+ * Today that validation is exercised only by this function's own unit tests, so
+ * "the campaign uses `acrossSeeds`" is a statement about intent and not about
+ * code.
  *
  * `seeds` is either a count (expanded via `campaignSeeds`) or an explicit
  * list. The list is validated rather than trusted: duplicate seeds would
