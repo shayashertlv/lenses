@@ -429,28 +429,74 @@ export const TARGET_CONTACT_MM = -0.5;
  * would bend them flat in seconds"* and starts saying *"this frame's bridge is
  * the wrong shape for you"* — so it has to be defensible in both directions.
  *
- * **Derivation.** `padSeatErrorArticulatedMm` is an RMS over the pad's samples
- * of what a rigid pivot cannot remove. Measured across the catalogue the worst
- * single sample runs 1.56x that RMS (median; 1.95 at p90), so a 0.9 mm RMS puts
- * the pad's worst corner about 1.4 mm off its own best-fit plane. `SKIN`'s
- * derivation has the nasal sidewall compressing about 1 mm under a 24 g frame:
- * below that the tissue simply closes the gap and the wearer feels a pad, above
- * it part of the pad is in the air and the rest is a pressure point. 1.4 mm is
- * half again the whole compression budget, which is the margin that keeps this
- * off faces the skin can absorb.
+ * **This value is HELD, not derived, and that is a change of status made on
+ * 2026-08-27 rather than a wording preference.** Its derivation was re-run in
+ * full and it no longer lands on 0.9. The value stays because the alternative
+ * is worse, and the whole argument is below so that nobody has to rediscover it.
  *
- * **What it does on the population.** 5 catalogue frames x 29 synthetic faces,
- * 145 pairs: median 0.54 mm, p90 0.90, max 1.67. The bar fires on 14 of the 145
- * — 7 on `narrow-pads` (pads too close together for a broad nose, which no
- * amount of bending fixes), 3 on `standard`, 2 on `steep-pads`, 1 each on
- * `wide-pads` and `heavy-acetate`.
+ * **Leg 1, the physics — and its ratio was wrong by 40%.** The derivation ran:
+ * `padSeatErrorArticulatedMm` is an RMS over the pad's samples of what a rigid
+ * pivot cannot remove; the worst single sample runs 1.56x that RMS (1.95 at
+ * p90); so a 0.9 mm RMS puts the worst corner about 1.4 mm off its own best-fit
+ * plane; `SKIN` has the nasal sidewall compressing about 1 mm under a 24 g
+ * frame, so 1.4 mm is half again the compression budget and the tissue cannot
+ * close it. **Re-measured over 2,175 pairs, that ratio is 2.21 (median) and
+ * 3.32 (p90)**, stable to +/-0.03 across five seeds — so 0.9 puts the worst
+ * corner at 1.99 mm, twice the compression budget rather than half again, and
+ * the bar this leg actually implies is **0.63 to 0.68**.
+ *
+ * **Leg 2, separating the two defects — and it is weak at every threshold.**
+ * The parametric catalogue carries one of each on purpose: `steep-pads` is a
+ * pure TILT fault, which is exactly what an optician fixes and which must NOT
+ * fire here; `narrow-pads` is a pure SHAPE fault, which no bending fixes.
+ * Median-of-seeds, faces firing of 29:
+ *
+ *     bar    steep-pads (want low)   narrow-pads (want high)   separation
+ *     0.50            11                      22                  11
+ *     0.60             6                      19                  13   <- peak
+ *     0.70             4                      15                  11
+ *     0.80             3                      11                   8
+ *     0.90             3                       8                   5
+ *     1.00             2                       6                   4
+ *
+ * The peak is 13 of 29 and the two distributions overlap heavily — steep-pads
+ * median 0.412 / p90 0.840 against narrow-pads 0.720 / 1.150. **This statistic
+ * does not cleanly tell the fixable defect from the unfixable one at ANY bar**,
+ * which is the most important thing on this page and was not known before.
+ *
+ * **Leg 3, the floor — the bar must never condemn a wearer's best option.**
+ * Per face, the minimum residual over all fifteen frames is 0.237 mm at the
+ * median and 0.368 at p90 (0.274 / 0.548 over the five parametric frames
+ * alone). 0.9 keeps 2.4x margin over that p90; 0.65 keeps 1.8x on the full
+ * catalogue and only 1.2x on the parametric five.
+ *
+ * **Why 0.9 stays.** Legs 1 and 2 point at 0.60-0.68 and leg 3 tolerates it, so
+ * the arithmetic says move. What says otherwise is leg 2's own weakness: moving
+ * the bar to 0.65 takes the wearer-facing "this frame's bridge is the wrong
+ * shape for you" from 29.9% of pairs to about 48%, and most of that increase
+ * lands on frames that are otherwise fine — on a discriminator just measured as
+ * barely discriminating. Doubling a wearer-facing refusal on a statistic that
+ * separates its two target populations by 13 of 29 is not a trade worth taking
+ * for arithmetic consistency. **The honest state is a held value with its
+ * derivation written out, not a derived value that is not.**
+ *
+ * What would change this: a statistic that separates tilt from shape properly.
+ * That is the thing to build, not a better threshold on this one.
+ *
+ * **What it does on the population**, 15 frames x 29 faces, median-of-seeds:
+ * residual median 0.63 mm, p90 1.50, max 2.13; the bar fires on 130 of 435
+ * pairs (29.9%). Eighty-three of those 130 are three assets whose pads are
+ * genuinely the wrong shape — `aviator-tortoiseshell` and `shield-golden` at
+ * 29 of 29 and `aviator-amber` at 25. Across the other twelve frames it fires
+ * on 47 of 348, which is 13.5%.
  *
  * **Why it is not still 1.0.** The old 1.0 mm bar sat on the old index-based
- * detrend and fired on 55 of those same 145 pairs, 22 of them on `steep-pads`
- * — more than on any other frame in the catalogue, and `steep-pads` is the one
- * whose deliberate defect is TILT. The estimator was converting the fixable
- * fault into the unfixable verdict; the threshold had to be re-derived with it
- * rather than carried across.
+ * detrend and fired on 55 of 145 parametric pairs, 22 of them on `steep-pads`
+ * — more than on any other frame, and `steep-pads` is the one whose deliberate
+ * defect is TILT. The estimator was converting the fixable fault into the
+ * unfixable verdict; the threshold had to be re-derived with it rather than
+ * carried across. That reasoning is still sound; it is the 1.56 ratio it leaned
+ * on that did not survive.
  *
  * The numbers above are the synthetic population's, so they move when the
  * population does. **Both loose ends this docstring used to name are closed:**
