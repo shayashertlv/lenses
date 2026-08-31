@@ -182,6 +182,20 @@ describe('a real asset becomes a frame the solve can hold', () => {
           `${e.id}'s refusal does not name the asset`);
       }
     }
+    // **Which assets reach the vertex-verdict gate.** `score.ts` withholds the
+    // vertex distance when `lensSource` is 'derived', because those centres are
+    // the extent centre of the frontmost quarter-slab of the whole mesh rather
+    // than a lens. Pinned by name: before the gate existed these two showed the
+    // wearer -1.42 mm and -1.33 mm and graded them 'poor', and the count is also
+    // the ground `PAD_UP_REFERENCE_FRACTION`'s ledger row argues from.
+    const derivedLens = CATALOGUE
+      .map((e) => ({ id: e.id, built: frameFromMesh(load(e.file), e) }))
+      .filter((r) => r.built.ok && r.built.asset.lensSource === 'derived')
+      .map((r) => r.id)
+      .sort();
+    assert.deepEqual(derivedLens, ['crystal-parts', 'meshy'],
+      `these assets name no lens part and have their vertex verdict withheld: ${derivedLens.join(', ')}`);
+
     // **Ten of ten derive, and the tier is the thing under test.**
     //
     // This assertion used to read `deepEqual(derived, ['navigator'])`, and it

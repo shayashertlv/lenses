@@ -71,7 +71,15 @@ export interface FrameAsset {
 
   /** Overall front width, temple to temple, mm. */
   readonly frontWidthMm: number;
-  /** Lens optical centres in frame space, for the pupil-height verdict. */
+  /**
+   * Lens optical centres in frame space.
+   *
+   * Documented for years as being "for the pupil-height verdict". There is no
+   * pupil-height verdict in `score.ts` and there never has been. What actually
+   * reads this is the vertex-distance verdict, the frame's centre of mass in
+   * `contact.ts`'s `comOf`, the depth of the clearance ring, and the rim
+   * geometry in `frame-layout.ts`.
+   */
   readonly lensCentres: readonly [Float64Array, Float64Array];
   /** Where the arms leave the front, per side. */
   readonly hinges: readonly [Float64Array, Float64Array];
@@ -99,13 +107,37 @@ export interface FrameAsset {
   /**
    * Whether `lensCentres` came from named lens parts or from the frame front.
    *
-   * `'derived'` means the asset names no lens anywhere and the centres are the
-   * extent centres of the frontmost slice — the rim opening. Good enough to
-   * place and draw a frame, not good enough for the vertex-distance and
-   * pupil-height verdicts, which `score.ts` withholds when it is not
-   * `'measured'`.
+   * `'measured'` is the asset's own named lens parts. `'derived'` means it
+   * names no lens anywhere and the centres are the extent centres of the
+   * frontmost slice of the whole mesh — the rim opening, but with hinge and
+   * forward-temple geometry in the slab. Good enough to place and draw a frame,
+   * not good enough for the vertex-distance verdict, which `score.ts` withholds
+   * on it: the measure is emitted as `'unknown'` with a null value, so the grade
+   * scores neutral and no millimetre figure reaches the readout.
+   *
+   * `'constructed'` is a different thing and is NOT withheld. A parametric frame
+   * places its centres at a fixed fraction of its own front width, so nothing
+   * was measured off a real frame — but nothing was estimated either: the label
+   * describes the plane the renderer actually draws, where a derived label
+   * describes a quarter-slab of a scan the drawn lens is nowhere near.
+   *
+   * Read the verdict it allows with that in mind, though. The constant that
+   * fixes the plane, `lensAheadOfPadsMm`, was chosen by sweeping it until the
+   * vertex verdict landed in its own target band — its docstring prints the
+   * sweep with 7 annotated as centring the 12-to-16 target — and measured over
+   * 210 (face, frame) pairs a parametric frame grades 195 good, 15 fair and
+   * never poor. That is a self-consistent number, not independent evidence, and
+   * the one real wearer's frame in the record sat at 5 mm, below the whole
+   * synthetic range.
+   *
+   * That withholding was documented here, and in `frame-from-mesh.ts`, from the
+   * day the derived fallback was written, and for that whole time this field had
+   * no reader — it was set, stored, and used only to build a note string. The
+   * promise is now real. The other half of it never was: there is no
+   * pupil-height verdict in `score.ts` to withhold, and `lensCentres`' own
+   * comment above still describes one.
    */
-  readonly lensSource: 'measured' | 'derived';
+  readonly lensSource: 'measured' | 'derived' | 'constructed';
 
   /** Mass, grams. Heavier frames sit lower — the wedge slide is proportional. */
   readonly massG: number;
@@ -412,7 +444,7 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     // placed at a fixed fraction of the front width. Neither was measured off a
     // pair of glasses, and neither is a guess about the wearer.
     earRestSource: 'derived',
-    lensSource: 'derived',
+    lensSource: 'constructed',
     provenance: 'parametric — generated from a FrameSpec, not measured',
     // No file behind it: the renderer builds this one from the fields above.
     source: null,

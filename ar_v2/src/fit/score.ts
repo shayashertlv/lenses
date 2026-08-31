@@ -300,26 +300,59 @@ export function assessFit(
   // forward of the line between the canthi, so the raw seat figure overstates it
   // by that much — which put every frame at 22 to 28 mm and graded them all
   // poor.
-  const vertex = (seat.vertexDistanceMm[0] + seat.vertexDistanceMm[1]) / 2 - CORNEAL_APEX_MM;
-  measures.push({
-    id: 'vertex',
-    // 12 to 16 mm is the range prescriptions are written for.
-    grade: vertex >= 10 && vertex <= 18 ? 'good' : vertex >= 8 && vertex <= 22 ? 'fair' : 'poor',
-    // Vertex carries THREE provenance caveats: the scan's scale, the nose, and
-    // the asset's temple reach — the fore-aft input Q16 measured as the
-    // highest-leverage number in the tree. See VERTEX_REACH_CONFIDENCE.
-    //
-    // The scale one used to be the same flat multiply width carried, and that
-    // was backwards. Measured, vertex is the LEAST scale-sensitive claim in the
-    // tree — one point of scale moves it by a fortieth of a millimetre against
-    // a band eight millimetres wide — so it now keeps almost all of its
-    // confidence where width keeps almost none. What actually threatens this
-    // verdict is the reach, and that is the caveat beside it.
-    confidence: scaleCaveat('vertex', model) * nose.value *
-      (frame.dimensionSource === 'assumed' ? VERTEX_REACH_CONFIDENCE : 1),
-    value: vertex,
-    unit: 'mm',
-  });
+  //
+  // **And it is withheld outright when the lens centres were not measured.**
+  // `frame-asset.ts` and `frame-from-mesh.ts` have both promised this since the
+  // derived fallback was written, and neither had a reader: `lensSource` was set
+  // and stored and consulted only to build a note string. Where an asset names
+  // no lens part, its centres are the extent centre of the frontmost slice of
+  // the WHOLE mesh — hinge and forward-temple geometry included — and
+  // `contact.ts` computes `vertexDistanceMm` straight off that z. The offset is
+  // of the order of the entire 8-to-22 band this grade is read against, so the
+  // number is not soft, it is meaningless, and softening it would still leave a
+  // wrong millimetre figure on the wearer's screen.
+  //
+  // `'unknown'` scores exactly neutral in `scoreOf` whatever the confidence, and
+  // `ui.ts` renders no row for a null value, so this verdict leaves the ranking
+  // and the readout without pretending either way. Two shipped assets take this
+  // path — `meshy` and `crystal-parts`, which name no lens — and before the gate
+  // existed they showed the wearer a lens distance of -1.42 mm and -1.33 mm,
+  // graded 'poor'.
+  //
+  // **This contains the verdict, not the number.** The same `lensCentres` are
+  // still the frame's centre of mass in `contact.ts`'s `comOf`, still set the
+  // depth of the clearance ring, and still size the rim in `frame-layout.ts`, so
+  // a wrong centre still moves the seat and every verdict downstream of it. That
+  // is the derivation's own accuracy, not this gate's job, and it is open.
+  //
+  // Only `'derived'` is withheld. A parametric frame reports `'constructed'`:
+  // its centres are placed by its own spec, so they are exact rather than
+  // estimated, and the seat and scale tests are written against those frames
+  // precisely because the geometry is known.
+  if (frame.lensSource === 'derived') {
+    measures.push({ id: 'vertex', grade: 'unknown', confidence: 0, value: null, unit: 'mm' });
+  } else {
+    const vertex = (seat.vertexDistanceMm[0] + seat.vertexDistanceMm[1]) / 2 - CORNEAL_APEX_MM;
+    measures.push({
+      id: 'vertex',
+      // 12 to 16 mm is the range prescriptions are written for.
+      grade: vertex >= 10 && vertex <= 18 ? 'good' : vertex >= 8 && vertex <= 22 ? 'fair' : 'poor',
+      // Vertex carries THREE provenance caveats: the scan's scale, the nose, and
+      // the asset's temple reach — the fore-aft input Q16 measured as the
+      // highest-leverage number in the tree. See VERTEX_REACH_CONFIDENCE.
+      //
+      // The scale one used to be the same flat multiply width carried, and that
+      // was backwards. Measured, vertex is the LEAST scale-sensitive claim in the
+      // tree — one point of scale moves it by a fortieth of a millimetre against
+      // a band eight millimetres wide — so it now keeps almost all of its
+      // confidence where width keeps almost none. What actually threatens this
+      // verdict is the reach, and that is the caveat beside it.
+      confidence: scaleCaveat('vertex', model) * nose.value *
+        (frame.dimensionSource === 'assumed' ? VERTEX_REACH_CONFIDENCE : 1),
+      value: vertex,
+      unit: 'mm',
+    });
+  }
 
   // ---- fouling -----------------------------------------------------------
   if (seat.worstClearanceMm > 0.8) {

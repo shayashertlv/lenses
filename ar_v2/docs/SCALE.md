@@ -106,7 +106,7 @@ so this is the gauge alone. Camera f = 1024 px, 1024×768, face at 500 mm.
 | WIDTH: faces regraded /50 | 6 (12%) | 25 (50%) | 39 (78%) | 36 (72%) |
 | PD readout | ±0.63 mm | ±1.58 mm | ±3.15 mm | ±6.31 mm |
 | CORNEAL VERTEX | ±0.035 mm | ±0.10 mm | ±0.23 mm | ±0.50 mm |
-| PUPIL HEIGHT (optical centre) | ±0.18 mm | ±0.5 mm | ±1.2 mm | ±2.8 mm |
+| PUPIL HEIGHT (optical centre) — *nothing computes this; see below* | ±0.18 mm | ±0.5 mm | ±1.2 mm | ±2.8 mm |
 | SEAT descent | ±0.19 mm | ±0.60 mm | ±1.26 mm | ±2.88 mm |
 | SEAT pantoscopic | ±0.16° | ±0.47° | ±1.02° | ±2.09° |
 | SEAT jumps (>2 mm descent) /250 | 7 | 28 | 77 | 160 |
@@ -125,6 +125,11 @@ so this is the gauge alone. Camera f = 1024 px, 1024×768, face at 500 mm.
   side-by-side A/B, almost certainly not in a single picture of yourself.
   **The iris is already good enough for the try-on image**, and nothing in the
   tree currently says so.
+- **Pupil height: nothing computes it.** The row above is a sensitivity for a
+  verdict that does not exist — `score.ts` has no pupil-height measure and never
+  has, though `frame-asset.ts` described `lensCentres` as being "for the
+  pupil-height verdict" until 2026-08-31. The figures are what it WOULD cost if
+  the verdict were built; nothing in the tree spends them today.
 - **The width verdict: ~1%.** 1.37 mm per 1% against a 4 mm boundary.
 - **The catalogue ranking: better than 1%**, which nothing prop-free delivers.
   See §5 — this is the one worth fixing without a better ruler.

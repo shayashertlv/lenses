@@ -1026,12 +1026,24 @@ export function frameFromMesh(
   // rim: its extent centre is the centre of the rim opening, and on a frame with
   // lenses in it that is within a couple of millimetres of the lens centre. It
   // is an estimate and it says so — `lensSource` travels to the verdict, and
-  // `score.ts` withholds the vertex-distance and pupil-height grades when it is
-  // not 'measured', because those are the two numbers this is not good enough
-  // for.
+  // `score.ts` withholds the vertex-distance grade on 'derived' specifically,
+  // because that is the number this is not good enough for. It emits the measure
+  // as 'unknown' with a null value, which scores neutral and renders nothing.
+  // ('constructed', which a parametric frame reports, is not withheld — see the
+  // field's docstring in `frame-asset.ts`.)
+  //
+  // That sentence used to name a pupil-height grade as well, and to describe a
+  // withholding that no code performed: `lensSource` had no reader anywhere in
+  // the tree until 2026-08-31. There is still no pupil-height verdict to
+  // withhold.
   const lenses = selectParts(parts, entry.parts.lens);
   let lensSource: 'measured' | 'derived' = 'measured';
   let lensSides = lenses.length ? splitBySide(mergeParts(lenses)) : null;
+  // `.length` is FLOATS, so this is three vertices a side and not nine — the
+  // refusal below divides the same length by 3 to report "vertices", which is
+  // where the intended unit is visible. Left at three because no shipped asset
+  // comes near it (the thinnest named lens splits 578/578 floats) and raising it
+  // would change which assets are refused outright rather than derived.
   if (!lensSides || lensSides[0].length < 9 || lensSides[1].length < 9) {
     lensSource = 'derived';
     lensSides = splitBySide(frontSlice(positions, FRONT_SLICE_FRACTION));

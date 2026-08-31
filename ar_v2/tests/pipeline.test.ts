@@ -2868,6 +2868,89 @@ describe('the scale caveat sits where scale actually moves the verdict', () => {
   const exact = at({ source: 'pd', factor: 1, sigma: 0.001, note: 'exact' });
   const iris = at({ source: 'iris', factor: 1, sigma: 0.047, note: 'pooled iris' });
 
+  it('withholds the vertex verdict when the lens centres were only estimated', () => {
+    // Finding 5. `frame-asset.ts` and `frame-from-mesh.ts` had both promised,
+    // since the derived fallback was written, that `score.ts` "withholds the
+    // vertex-distance ... grade when it is not 'measured'". Nothing did:
+    // `lensSource` was set, stored, and read only to build a note string, so the
+    // two shipped assets that name no lens part — `meshy` and `crystal-parts` —
+    // were graded on a lens plane taken from the extent centre of the frontmost
+    // slice of the WHOLE mesh, hinge and forward-temple geometry included, and
+    // the wearer was shown the millimetres that came off it.
+    //
+    // The three cases are one field apart, so they are asserted one field apart:
+    // nothing else about the frame or the face moves between them.
+    const scaleAt: ScaleEstimate = { source: 'pd', factor: 1, sigma: 0.001, note: 'exact' };
+    const m = createFaceModel({
+      positions: new Float64Array(subject.positions),
+      vertexSigmaMm: new Float64Array(mesh.vertexCount).fill(0.2),
+      shapeCoeffs: new Float64Array(0),
+      basisName: 'ground-truth',
+      displacementRmsMm: 0, displacementMaxMm: 0,
+      intrinsics: { f: 600, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 },
+      intrinsicsSolved: true,
+      scale: scaleAt,
+      landmarkBiasMm: new Float64Array(mesh.vertexCount * 3),
+      quality: { nose: { observations: 30, parallaxRms: 0.3, sigmaMm: 0.3 } },
+      pdMm: null, pdSigmaMm: null,
+      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
+    });
+    const vertexOf = (lensSource: FrameAsset['lensSource']) =>
+      assessFit(m, mesh, regions, { ...frame, lensSource }).measures.find((v) => v.id === 'vertex')!;
+
+    // Estimated off a scan: withheld. `'unknown'` scores exactly neutral in
+    // `scoreOf` whatever the confidence, and `ui.ts` renders no row for a null
+    // value, so neither the ranking nor the readout carries it.
+    const derived = vertexOf('derived');
+    assert.equal(derived.grade, 'unknown', 'a derived lens centre still produced a grade');
+    assert.equal(derived.value, null, 'a derived lens centre still put millimetres on the screen');
+    assert.equal(derived.confidence, 0);
+
+    // Measured off named lens parts: graded, with a number.
+    const measured = vertexOf('measured');
+    assert.notEqual(measured.grade, 'unknown', 'a measured lens centre lost its grade');
+    assert.ok(Number.isFinite(measured.value), 'a measured lens centre lost its value');
+
+    // Placed by a parametric spec: NOT withheld. This is the case the first cut
+    // of the gate got wrong — `parametricFrame` also reported `'derived'`, so
+    // gating on `!== 'measured'` silently took the vertex verdict away from
+    // every frame the seat and scale tests are written against. Those centres
+    // are exact by construction; only the scan-derived ones are estimates.
+    const constructed = vertexOf('constructed');
+    assert.notEqual(constructed.grade, 'unknown',
+      'a constructed lens centre was withheld — the gate cannot tell a placed centre from a guessed one');
+    assert.equal(constructed.value, measured.value,
+      'the same geometry graded differently under two labels');
+
+    // And the point of withholding: the untrusted number stops reaching the
+    // VERDICT. Asserted on the vertex measure and not on the score, because the
+    // score is not insensitive to `lensCentres` and cannot be — the same field
+    // is the frame's centre of mass in `comOf`, the depth of the clearance
+    // ring, and the rim size in `frame-layout.ts`, all of which stay graded.
+    // An earlier version of this test asserted the SCORE was unmoved by a 10 mm
+    // shift; it passed at this fixture and this magnitude by grade-band luck and
+    // broke on 55 of 120 (face, frame) pairs, which is a test that cannot tell a
+    // working gate from a gate whose input still steers the ranking.
+    const shifted = (dz: number): FrameAsset['lensCentres'] => [
+      Float64Array.of(frame.lensCentres[0][0], frame.lensCentres[0][1], frame.lensCentres[0][2] + dz),
+      Float64Array.of(frame.lensCentres[1][0], frame.lensCentres[1][1], frame.lensCentres[1][2] + dz),
+    ];
+    const vertexAt = (lensSource: FrameAsset['lensSource'], dz: number) =>
+      assessFit(m, mesh, regions, { ...frame, lensSource, lensCentres: shifted(dz) })
+        .measures.find((v) => v.id === 'vertex')!;
+
+    // Both directions, at the magnitude the frontmost-slice fallback errs by.
+    for (const dz of [-10, 10]) {
+      const v = vertexAt('derived', dz);
+      assert.equal(v.grade, 'unknown', `a derived centre shifted ${dz} mm produced a grade`);
+      assert.equal(v.value, null, `a derived centre shifted ${dz} mm produced a value`);
+    }
+    // The control: the same shifts must move the measured verdict, or this test
+    // cannot see the gate work.
+    assert.notEqual(vertexAt('measured', -10).value, vertexAt('measured', 10).value,
+      'a 20 mm swing in a MEASURED lens centre moved the vertex verdict nowhere');
+  });
+
   it('leaves the least scale-sensitive verdict almost untouched', () => {
     // 0.035 mm per point of scale against a 4 mm band: a 4.7% ruler consumes
     // 4% of the tolerance. Vertex's real exposure is the temple reach, and that
