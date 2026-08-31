@@ -172,6 +172,27 @@ export interface IrisReading {
  *
  * Recorded at this length because the next reviewer will notice the same missing
  * gate and reach for the same fix.
+ *
+ * **Re-measured 2026-08-31, because the harness that decided it was flattering
+ * the iris.** `testkit/synthetic.ts` wrote occluded iris contour points as exact
+ * projections of the subject's own disc with the tightest sigma in the frame,
+ * exempt from the occlusion model it applies to every other landmark — so the
+ * far iris at profile, which is the whole case a yaw gate exists for, was
+ * bit-true. That is fixed: an occluded iris is now pulled toward the detector's
+ * prior, a population-mean disc on the average face, and its sigma inflates the
+ * same way the mesh loop's does.
+ *
+ * The verdict holds. Same probe on both harnesses, median over the campaign
+ * seeds of |implied iris diameter / truth - 1|:
+ *
+ *     exempt harness   ungated 0.213%   gated at 55 deg 0.202%   gate wins 3/5
+ *     honest harness   ungated 0.260%   gated at 55 deg 0.231%   gate wins 3/5
+ *
+ * 3 of 5 is under this tree's 4-of-5 adoption rule, so the gate stays out on
+ * evidence that now survives the harness it was taken on. The honest iris costs
+ * the ruler about a fifth of its accuracy (0.213% to 0.260%) and the shipped
+ * enrolment about 4% of its scale error (1.79% to 1.86%) — the harness was
+ * kinder than reality, but not by enough to have changed this decision.
  */
 export function readIris(
   landmarks: Float64Array, pose: Pose, positions: Float64Array,

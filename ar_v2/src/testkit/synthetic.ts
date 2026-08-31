@@ -197,8 +197,7 @@ function generateSubject(
   const noseDetail = randomNoseField(mesh, noseWeight, rng, opt.noseDetailMm);
   applyNormalField(mesh, positions, noseDetail);
 
-  // Published HVID: group means 11.10 to 11.75, within-group SD ~0.45.
-  const groupMean = [11.10, 11.26, 11.75, 11.60][index % 4];
+  const groupMean = HVID_GROUP_MEANS[index % HVID_GROUP_MEANS.length];
   const irisDiameterMm = groupMean + rng.truncatedNormal(2) * 0.45;
 
   return {
@@ -710,8 +709,8 @@ export function synthesizeCapture(
       }
 
       synthesizeIris(
-        subject, mesh, reportedPose, trueIntrinsics, landmarks, visibility, sigmaPx,
-        rng, opt.noisePx,
+        subject, mesh, observed, reportedPose, trueIntrinsics, landmarks, visibility,
+        sigmaPx, rng, opt.noisePx,
       );
 
       frames.push({
@@ -867,8 +866,19 @@ function applyGaze(
  *   see `EYE_ROTATION_LIMIT_DEG`.
  * - Beyond that the disc turns with the head and its projection foreshortens
  *   into a genuine ellipse.
- * - Visibility is inherited from the eye corner the iris sits between, so an
- *   iris behind the nose is reported as hidden rather than as a clean reading.
+ * - Visibility is inherited from the eye corner the iris sits between, and the
+ *   reading is degraded to match: pulled toward the detector's prior — a
+ *   population-mean circle on the average face, held face-on — quadratically in
+ *   how hidden it is, with sigma inflated the same way the mesh loop inflates
+ *   it. An iris behind the nose is a hallucination, not a clean reading.
+ *
+ *   This used to be a flag and nothing else. The contour points were written as
+ *   exact projections of the subject's own disc whatever the visibility said,
+ *   and `readIris` — the only consumer — reads no visibility, so nothing
+ *   downstream ever saw the flag drop. The ruler this tree takes its absolute
+ *   millimetres from was the one landmark exempt from the file's own occlusion
+ *   model, and the 55-degree yaw gate was removed on a measurement taken under
+ *   that exemption (`enroll/scale.ts`).
  */
 
 /**
@@ -884,9 +894,24 @@ function applyGaze(
  * disc turns with the head and the ruler starts to foreshorten.
  */
 const EYE_ROTATION_LIMIT_DEG = 50;
+
+/** Published HVID group means, 11.10 to 11.75, within-group SD ~0.45. */
+const HVID_GROUP_MEANS = [11.10, 11.26, 11.75, 11.60];
+
+/**
+ * What a detector that cannot see the iris falls back on, mm.
+ *
+ * The mesh loop's prior is the template — the average face. The iris has no
+ * template vertex, so its prior is the same thing said about a diameter: the
+ * mean of the population this harness generates. A network that cannot see the
+ * iris reports a circle of typical size, and on a wearer whose iris is not
+ * typical that is a BIAS in the one quantity this tree reads absolute
+ * millimetres from.
+ */
+const IRIS_PRIOR_MM = HVID_GROUP_MEANS.reduce((a, b) => a + b, 0) / HVID_GROUP_MEANS.length;
 function synthesizeIris(
-  subject: SyntheticSubject, mesh: FaceMesh, pose: Pose, k: Intrinsics,
-  landmarks: Float64Array, visibility: Float64Array, sigmaPx: Float64Array,
+  subject: SyntheticSubject, mesh: FaceMesh, observed: Float64Array, pose: Pose,
+  k: Intrinsics, landmarks: Float64Array, visibility: Float64Array, sigmaPx: Float64Array,
   rng: Rng, noisePx: number, eyeRotationLimitDeg = EYE_ROTATION_LIMIT_DEG,
 ): void {
   const radius = subject.irisDiameterMm / 2;
@@ -911,10 +936,14 @@ function synthesizeIris(
   for (const [anchor, centreIdx, contour] of eyes) {
     // Centre the iris on the midpoint of the inner and outer corner, pushed
     // slightly forward — the eyeball surface, not the lid plane.
+    // `observed`, not `subject.positions`: the iris sits on the geometry the
+    // detector reports, so it inherits the detector-bias field like every other
+    // landmark. Reading the true positions here exempted the ruler from a bias
+    // the rest of the frame carries.
     const outer = anchor === LM.EYE_INNER_R ? LM.EYE_OUTER_R : LM.EYE_OUTER_L;
-    const cxm = (subject.positions[anchor * 3] + subject.positions[outer * 3]) / 2;
-    const cym = (subject.positions[anchor * 3 + 1] + subject.positions[outer * 3 + 1]) / 2;
-    const czm = (subject.positions[anchor * 3 + 2] + subject.positions[outer * 3 + 2]) / 2 + 2;
+    const cxm = (observed[anchor * 3] + observed[outer * 3]) / 2;
+    const cym = (observed[anchor * 3 + 1] + observed[outer * 3 + 1]) / 2;
+    const czm = (observed[anchor * 3 + 2] + observed[outer * 3 + 2]) / 2 + 2;
 
     applyPose(cam, pose, Float64Array.of(cxm, cym, czm), 0);
     if (!project(uv, k, cam)) continue;
@@ -947,37 +976,154 @@ function synthesizeIris(
     }
 
     // Any two in-plane axes will do; the contour is a circle.
-    const helper = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0];
-    let ux = ny * helper[2] - nz * helper[1];
-    let uy = nz * helper[0] - nx * helper[2];
-    let uz = nx * helper[1] - ny * helper[0];
-    const ul = Math.hypot(ux, uy, uz) || 1;
-    ux /= ul; uy /= ul; uz /= ul;
-    const vx = ny * uz - nz * uy;
-    const vy = nz * ux - nx * uz;
-    const vz = nx * uy - ny * ux;
+    const basisFor = (bnx: number, bny: number, bnz: number) => {
+      const helper = Math.abs(bnz) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+      let hx = bny * helper[2] - bnz * helper[1];
+      let hy = bnz * helper[0] - bnx * helper[2];
+      let hz = bnx * helper[1] - bny * helper[0];
+      const hl = Math.hypot(hx, hy, hz) || 1;
+      hx /= hl; hy /= hl; hz /= hl;
+      return {
+        ux: hx, uy: hy, uz: hz,
+        vx: bny * hz - bnz * hy, vy: bnz * hx - bnx * hz, vz: bnx * hy - bny * hx,
+      };
+    };
+    const disc = basisFor(nx, ny, nz);
 
-    // An iris the eye corners cannot see is not a reading.
-    const seen = visibility[anchor];
+    // ---- what a hidden iris actually is ------------------------------
+    //
+    // The mesh loop above makes this argument once already: a landmark network
+    // that cannot see a point falls back on its own prior, so the error is
+    // BIASED and not merely noisy. The iris was exempt from it — occluded
+    // contour points were written as exact projections of the subject's own
+    // disc, with the tightest sigma in the frame, and only `visibility`
+    // dropped. `readIris` is the sole consumer and reads no visibility, so the
+    // flag protected nothing and the docstring's promise that a hidden iris is
+    // "reported as hidden rather than as a clean reading" described a flag
+    // nothing reads.
+    //
+    // It matters most here. The iris is the only landmark this tree reads
+    // absolute millimetres from, `readIris` AVERAGES the two eyes, and the far
+    // eye's corner is invisible from about 45 degrees of yaw — so a harness
+    // that hands back a bit-true foreshortened far iris is not modelling the
+    // ruler's dominant failure mode at all. The 55-degree yaw gate was removed
+    // on a measurement taken under exactly that exemption.
+    //
+    // The prior: the average face's eye, an iris of the population's mean
+    // diameter, held face-on. A prior does not know the head has turned, so it
+    // does not foreshorten.
+    // How hidden the iris is, which is NOT the eye corner's visibility.
+    //
+    // `vertexVisibility` returns the surface's facing cosine where it is
+    // visible and 0 where it is not, so the inner canthus reads about 0.7 even
+    // head-on — it sits in a crease. Driving the hallucination off that would
+    // bias the ruler on a frontal frame, where a real detector sees the iris
+    // perfectly, and would make this harness harsher than reality instead of
+    // kinder. The two things that actually stop a detector reading an iris are
+    // the nose getting in front of it, and the disc turning away once fixation
+    // runs out.
+    //
+    // The occlusion half has to come from the eye REGION and not from one
+    // vertex. `vertexVisibility` returns the vertex's own normal-facing cosine
+    // where it is visible, and the INNER canthus reads exactly 0 on some faces
+    // at zero yaw — it sits in a crease and loses its own pixel in the raster.
+    // Keying off it alone marked 100% of near-frontal frames fully hallucinated
+    // for 2 of 8 subjects, which is the harness inventing an occlusion the
+    // camera does not have.
+    const regionSeen = Math.max(visibility[anchor], visibility[outer]);
+    const discFacing = regionSeen > 0 ? Math.max(0, nx * tx + ny * ty + nz * tz) : 0;
+    const hidden = 1 - discFacing;
+    const pull = hidden * hidden;
+    const inflate = 1 + 6 * hidden * hidden;
+
+    // **The inflation is one displacement of the whole disc, not four
+    // independent draws on its rim.**
+    //
+    // The mesh loop can scatter each landmark on its own because nothing
+    // downstream combines them non-linearly. `readIris` does: it estimates the
+    // radius as mean|contour - centre|, a NORM, and isotropic scatter on the rim
+    // biases a norm upward — +18% at full inflation on this geometry, against a
+    // prior effect worth 2.7-3.6% and signed per wearer. Injecting it per point
+    // would manufacture a one-directional scale bias five to seven times the
+    // size of the thing being modelled, in the one quantity this tree reads
+    // absolute millimetres from.
+    //
+    // A regressor that cannot see the iris does not jitter its rim; it puts a
+    // plausible disc in the wrong place. So the extra width is drawn once per
+    // eye and added to the centre and every contour point alike, where it
+    // cancels in the radius exactly as a placement error should. `sigmaPx` still
+    // reports the inflated figure: the claimed uncertainty is honest, and
+    // `readIris` reading none of it is a separate matter.
+    const displaceX = rng.normal() * noisePx * (inflate - 1) * 0.6;
+    const displaceY = rng.normal() * noisePx * (inflate - 1) * 0.6;
+    const noise = (scale: number) => rng.normal() * noisePx * scale;
+    const sigmaOf = (scale: number) => noisePx * scale * inflate;
+
+    let prior: {
+      cx: number; cy: number; cz: number; r: number;
+      ux: number; uy: number; uz: number; vx: number; vy: number; vz: number;
+    } | null = null;
+    if (hidden > 0.01) {
+      const px = (mesh.positions[anchor * 3] + mesh.positions[outer * 3]) / 2;
+      const py = (mesh.positions[anchor * 3 + 1] + mesh.positions[outer * 3 + 1]) / 2;
+      const pz = (mesh.positions[anchor * 3 + 2] + mesh.positions[outer * 3 + 2]) / 2 + 2;
+      // The same orientation as the subject's own disc. The mesh loop's prior
+      // is the TEMPLATE vertex projected through the same pose, so this is the
+      // template's eye through the same pose and the same fixation — differing
+      // from the truth in exactly the two things a detector's prior differs in,
+      // where the average face keeps that eye and how big the average iris is.
+      // Holding it face-on instead would be inventing a story about
+      // foreshortening that nothing here measured.
+      prior = { cx: px, cy: py, cz: pz, r: IRIS_PRIOR_MM / 2, ...disc };
+    }
+
+    // The centre: pulled toward the prior and displaced with the disc.
+    const pcv = new Float64Array(2);
+    let cbx = 0, cby = 0;
+    if (prior) {
+      applyPose(cam, pose, Float64Array.of(prior.cx, prior.cy, prior.cz), 0);
+      if (project(pcv, k, cam)) {
+        cbx = (pcv[0] - uv[0]) * pull;
+        cby = (pcv[1] - uv[1]) * pull;
+      }
+    }
+    landmarks[centreIdx * 2] = uv[0] + cbx + displaceX + noise(0.5);
+    landmarks[centreIdx * 2 + 1] = uv[1] + cby + displaceY + noise(0.5);
+    sigmaPx[centreIdx] = sigmaOf(0.5);
 
     const pt = v3();
     const puv = new Float64Array(2);
+    const prv = new Float64Array(2);
     for (let c = 0; c < contour.length; c++) {
       const angle = (c / contour.length) * Math.PI * 2;
-      const ca = Math.cos(angle) * radius, sa = Math.sin(angle) * radius;
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const ca = cosA * radius, sa = sinA * radius;
       const idx = contour[c];
       applyPose(pt, pose, Float64Array.of(
-        cxm + ca * ux + sa * vx,
-        cym + ca * uy + sa * vy,
-        czm + ca * uz + sa * vz,
+        cxm + ca * disc.ux + sa * disc.vx,
+        cym + ca * disc.uy + sa * disc.vy,
+        czm + ca * disc.uz + sa * disc.vz,
       ), 0);
       if (!project(puv, k, pt)) { visibility[idx] = 0; continue; }
-      landmarks[idx * 2] = puv[0] + rng.normal() * noisePx * 0.6;
-      landmarks[idx * 2 + 1] = puv[1] + rng.normal() * noisePx * 0.6;
-      visibility[idx] = seen;
-      sigmaPx[idx] = noisePx * 0.6;
+      let bx = 0, by = 0;
+      if (prior) {
+        const pa = cosA * prior.r, pb = sinA * prior.r;
+        applyPose(pt, pose, Float64Array.of(
+          prior.cx + pa * prior.ux + pb * prior.vx,
+          prior.cy + pa * prior.uy + pb * prior.vy,
+          prior.cz + pa * prior.uz + pb * prior.vz,
+        ), 0);
+        if (project(prv, k, pt)) {
+          bx = (prv[0] - puv[0]) * pull;
+          by = (prv[1] - puv[1]) * pull;
+        }
+      }
+      landmarks[idx * 2] = puv[0] + bx + displaceX + noise(0.6);
+      landmarks[idx * 2 + 1] = puv[1] + by + displaceY + noise(0.6);
+      visibility[idx] = regionSeen;
+      sigmaPx[idx] = sigmaOf(0.6);
     }
-    visibility[centreIdx] = seen;
+    visibility[centreIdx] = regionSeen;
   }
 }
 
