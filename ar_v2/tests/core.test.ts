@@ -3881,6 +3881,120 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       `translation bias ${without.err.toFixed(2)} -> ${withCull.err.toFixed(2)} mm — ` +
       'culling the hallucinated half bought nothing');
   });
+
+  /*
+   * The motion prior's stand-aside gate, on the channel that had none.
+   *
+   * Until 2026-08-31 the prior's honesty grade came only from the rotation
+   * residual, and the resulting miss scaled BOTH channels' process noise. So
+   * the lean-in/lean-back beat of an actual try-on — the wearer moving toward
+   * the camera to look at the frames, orientation steady — could contradict
+   * the constant-velocity prediction by millimetres every reversal without the
+   * gate reading anything but rest. These two fixtures pin the mechanism and
+   * the outcome: that the gate SEES a translation reversal, and that the beat
+   * is no longer a multiple-x regression against solving without a prior.
+   */
+  const leanFrames = (
+    priorOn: boolean, seed: number, dzOf: (i: number) => number, yawOf: (i: number) => number,
+  ) => {
+    const state = createTracker(model, { smooth: false, rigidity, motionPrior: priorOn });
+    let st = seed >>> 0 || 1;
+    const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
+    const gauss = () => { let u = 0; while (u === 0) u = rnd();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+    const out: { truth: { R: Float64Array; t: Float64Array };
+      t: Float64Array | null; missRot: number | null; missMm: number | null }[] = [];
+    for (let i = 0; i < 200; i++) {
+      const truth = { R: poseAt(yawOf(i)).R, t: Float64Array.of(0, 0, 520 + dzOf(i)) };
+      const p = projectAll(truth);
+      const lm = new Float64Array(mesh.vertexCount * 2);
+      const sig = new Float64Array(mesh.vertexCount).fill(0.7);
+      const vis = new Float64Array(mesh.vertexCount).fill(1);
+      for (let v = 0; v < mesh.vertexCount * 2; v++) lm[v] = p[v] + gauss() * 0.7;
+      const r = track(state, {
+        landmarks: lm, sigmaPx: sig, visibility: vis, intrinsics: K, dt: 1 / 30,
+      });
+      out.push({
+        truth,
+        t: r.tracked && r.rawPose ? Float64Array.from(r.rawPose.t) : null,
+        missRot: state.priorMissLast, missMm: state.priorMissTransLast,
+      });
+    }
+    return out;
+  };
+  const still = () => 40;
+  const flat = () => 0;
+  const lean = (i: number) => 25 * Math.sin((2 * Math.PI * 1.0 * i) / 30);
+
+  it('the prior grades the translation it predicted, not just the rotation', () => {
+    // The mechanism, stated as the thing that was missing. A 1 Hz lean at a
+    // steady orientation must move the TRANSLATION grade well above its
+    // resting level while leaving the ROTATION grade where it was — which is
+    // exactly the case the old gate could not see, because it had only the
+    // second of those two numbers.
+    const restRun = leanFrames(true, 0x51ee, flat, still);
+    const leanRun = leanFrames(true, 0x51ee, lean, still);
+    const after = <T>(a: T[]) => a.slice(60);
+    const medOf = (a: number[]) => {
+      const v = [...a].sort((x, y) => x - y);
+      return v.length ? v[v.length >> 1] : NaN;
+    };
+    const grab = (rows: typeof restRun, k: 'missRot' | 'missMm') =>
+      medOf(after(rows).map((r) => r[k]).filter((v): v is number => v !== null));
+
+    const restRot = grab(restRun, 'missRot'), restMm = grab(restRun, 'missMm');
+    const leanRot = grab(leanRun, 'missRot'), leanMm = grab(leanRun, 'missMm');
+    assert.ok(Number.isFinite(restMm),
+      'the translation grade is never computed — the prior has no honesty signal for it');
+    // The precondition that makes the rest of it mean anything: with the head
+    // still, both grades sit near one and the prior runs at full strength.
+    assert.ok(restMm < 2 && restRot < 2,
+      `a still head already reads missRot ${restRot.toFixed(2)} / missMm ${restMm.toFixed(2)} — ` +
+      'the gate is standing aside at rest and the resting win is being paid for');
+    // The lean must trip the translation grade. The bar is relative as well as
+    // absolute because the gate is SELF-LIMITING: standing aside shrinks the
+    // very prediction error it grades, so the reading settles well below what
+    // an ungated prior would show (4.2 measured before the stand-aside squares,
+    // ~2.1 after). What has to hold is that it clears the `max(..., 1)` floor
+    // and separates cleanly from rest.
+    assert.ok(leanMm > 1.5 && leanMm > restMm * 2,
+      `a 1 Hz lean reads a translation grade of ${leanMm.toFixed(2)} against a resting ` +
+      `${restMm.toFixed(2)} — the prior is being contradicted by millimetres and does not know it`);
+    // ...and must NOT be visible in the rotation grade, which is why grading
+    // rotation alone could never have caught it.
+    assert.ok(leanRot < restRot * 1.5,
+      `the rotation grade moved ${restRot.toFixed(2)} -> ${leanRot.toFixed(2)} on a pure ` +
+      'translation reversal, so this fixture does not isolate what it claims to');
+  });
+
+  it('and a lean beat is no longer a multiple-x regression against no prior at all', () => {
+    // The outcome the wearer feels. Paired arms on the IDENTICAL noise
+    // realisation, compared only on frames both tracked. Before the
+    // per-channel gate this measured 4.5x at 0.5 Hz and 10.6x at 1 Hz; the bar
+    // is 2x, which the defect fails by a wide margin and which does not pin
+    // the exact strength of the stand-aside.
+    const rms = (rows: ReturnType<typeof leanFrames>, other: ReturnType<typeof leanFrames>) => {
+      let s = 0, n = 0;
+      for (let i = 40; i < rows.length; i++) {
+        if (!rows[i].t || !other[i].t) continue;
+        const t = rows[i].truth.t, g = rows[i].t!;
+        s += (g[0] - t[0]) ** 2 + (g[1] - t[1]) ** 2 + (g[2] - t[2]) ** 2; n++;
+      }
+      return n ? Math.sqrt(s / n) : NaN;
+    };
+    const on = leanFrames(true, 0x6a9, lean, still);
+    const off = leanFrames(false, 0x6a9, lean, still);
+    assert.ok(rms(on, off) < rms(off, on) * 2,
+      `a 1 Hz lean costs ${(rms(on, off) / rms(off, on)).toFixed(2)}x the translation error ` +
+      'with the prior on — the stand-aside is not reaching the translation channel');
+
+    // And the resting win it exists for must survive: the same arms, still.
+    const restOn = leanFrames(true, 0x6a9, flat, still);
+    const restOff = leanFrames(false, 0x6a9, flat, still);
+    assert.ok(rms(restOn, restOff) < rms(restOff, restOn) * 0.85,
+      `the prior no longer steadies a still head (${rms(restOff, restOn).toFixed(3)} -> ` +
+      `${rms(restOn, restOff).toFixed(3)} mm) — the gate is standing aside when it should not`);
+  });
 });
 
 describe('the basin audit — wired through the real path, guarded against flapping', () => {

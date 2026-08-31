@@ -383,9 +383,52 @@ export interface TrackerState {
    *
    * This is the signal that lets one process-noise constant serve both a still
    * head and a reversing one — see the `miss` term in `buildMotionPrior`.
+   *
+   * **Per channel, since 2026-08-31.** Until then only the rotation residual
+   * was graded and the resulting miss scaled BOTH channels' process noise, so
+   * a translation reversal — the lean-in/lean-back beat of an actual try-on —
+   * had no way to trip the gate at all. Measured on the ground-truth model,
+   * 0.7 px landmark noise, 210 frames after burn-in, 5 seeds, paired arms,
+   * translation RMS of the RAW pose with the prior off then on:
+   *
+   *     still                     0.226 -> 0.149 mm   (0.66x, the rest win)
+   *     lean z 0.5 Hz +/-50 mm    0.226 -> 1.026      (4.5x WORSE)
+   *     lean z 1.0 Hz +/-25 mm    0.228 -> 2.336      (10.2x WORSE)
+   *     yaw shake 1.0 Hz +/-10 d  0.225 -> 0.150      (0.67x — the gate working)
+   *
+   * The last row is the point: the gate rescues exactly the channel it grades
+   * and nothing else. The rotation channel's own numbers show the same shape
+   * mirrored — a lateral sway cost rotation 1.83x and a vertical bob 2.62x
+   * while translation barely moved — because a dragged translation leaks into
+   * the coupled solve.
+   *
+   * **And on the pose the wearer is actually shown**, which is the smoothed
+   * one — `smooth: true` and `motionPrior: true` are both app defaults, and
+   * the renderer gets `result.pose`, not `rawPose`. Same construction, same
+   * seeds, `smooth: true`, translation RMS of the EMITTED pose:
+   *
+   *                               before        after
+   *     still                     1.01x         1.01x
+   *     lean z 0.5 Hz +/-50 mm    1.10x         1.01x
+   *     lean z 1.0 Hz +/-25 mm    1.46x         1.01x   (3.749 -> 2.598 mm)
+   *     sway x 1.0 Hz +/-25 mm    1.01x         1.00x
+   *     rotation, lean z 1.0 Hz   3.34x         1.02x
+   *     rotation, sway x 1.0 Hz   3.64x         1.03x
+   *
+   * The One Euro filter absorbs most of the resting difference — which is why
+   * the raw table's 0.66x reads 1.01x here — but it cannot absorb a systematic
+   * drag against a reversal, and that is what the defect was: 1.15 mm of real
+   * wearer-visible error on a lean, and three-and-a-half times the rotation
+   * error on motions with no rotation in them at all.
    */
   priorMissLast: number | null;
   priorMissEma: number | null;
+  /** The same grade for the TRANSLATION channel, against the translational
+   *  sigma the prediction claimed. Kept separate rather than combined: a
+   *  reversal in one channel is not evidence about the other, and the whole
+   *  defect above was one channel's grade standing in for both. */
+  priorMissTransLast: number | null;
+  priorMissTransEma: number | null;
   /** A release/adoption crossfade in flight. `fadeFrom` is armed where the
    *  eye last saw the glasses; the first fade frame converts it into
    *  `fadeOffset` — the error from the live pose, as a translation and a
@@ -477,6 +520,8 @@ export function createTracker(
     vfPrev: null,
     priorMissLast: null,
     priorMissEma: null,
+    priorMissTransLast: null,
+    priorMissTransEma: null,
     fadeFrom: null,
     fadeOffset: null,
     fadeLeft: 0,
@@ -1109,6 +1154,22 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     state.priorMissEma = state.priorMissEma === null
       ? ratio
       : state.priorMissEma + PRIOR_MISS_EMA_RATE * (ratio - state.priorMissEma);
+
+    // And the same question of the translation, which until 2026-08-31 was
+    // never asked. `prior.pose.t` is the constant-velocity prediction and
+    // `result.pose.t` is where the landmarks put it, so their distance in
+    // units of the sigma the prediction CLAIMED is exactly the rotation
+    // channel's grade with the other three degrees of freedom in it.
+    const residMm = Math.hypot(
+      result.pose.t[0] - prior.pose.t[0],
+      result.pose.t[1] - prior.pose.t[1],
+      result.pose.t[2] - prior.pose.t[2],
+    );
+    const ratioMm = residMm / Math.max(prior.sigmaMm, 1e-9);
+    state.priorMissTransLast = ratioMm;
+    state.priorMissTransEma = state.priorMissTransEma === null
+      ? ratioMm
+      : state.priorMissTransEma + PRIOR_MISS_EMA_RATE * (ratioMm - state.priorMissTransEma);
   }
 
   if (Number.isFinite(result.varianceFactor) && result.varianceFactor > 0) {
@@ -1512,7 +1573,7 @@ function marchStrip(
  */
 function buildMotionPrior(
   state: TrackerState, dtPredict: number,
-): { pose: Pose; information: Float64Array; sigmaRot: number } | null {
+): { pose: Pose; information: Float64Array; sigmaRot: number; sigmaMm: number } | null {
   const ring = state.velRing;
   const P = state.lastCovariance;
   if (!P || ring.length < 2 || !(dtPredict > 0)) return null;
@@ -1602,9 +1663,30 @@ function buildMotionPrior(
   // and comes back as soon as the motion is smooth again. `max(last, EMA)`
   // for the same reason `vfScale` below uses it: the recovery should be
   // gradual but the stand-aside must be immediate.
-  const miss = Math.max(state.priorMissLast ?? 1, state.priorMissEma ?? 1, 1);
-  const qRot = MOTION_PRIOR_ACCEL_RAD_S2 * accel * miss;
-  const qMm = MOTION_PRIOR_ACCEL_MM_S2 * accel * miss;
+  // Per channel. One grade scaling both was the defect: a lean reversal left
+  // the rotation grade at rest levels, so `qMm` stayed rest-sized while the
+  // constant-velocity prediction was millimetres wrong and the prior dragged
+  // translation against the reversal at full weight. See `priorMissLast`.
+  const missRot = Math.max(state.priorMissLast ?? 1, state.priorMissEma ?? 1, 1);
+  const missMm = Math.max(state.priorMissTransLast ?? 1, state.priorMissTransEma ?? 1, 1);
+  const qRot = MOTION_PRIOR_ACCEL_RAD_S2 * accel * missRot;
+  // Linear in the grade, the same form the rotation channel uses — the defect
+  // was a channel with no gate, not a gate of the wrong shape.
+  //
+  // **A squared stand-aside was measured here and NOT adopted**, recorded
+  // because it looks attractive on the raw solve. On `rawPose` it takes the
+  // 1 Hz lean from 1.74x of the prior-off error to 1.28x. But the app renders
+  // the SMOOTHED pose (`smooth: true` at `main.ts`, and `result.pose`, not
+  // `rawPose`), and there the two forms are indistinguishable: 2.598 mm
+  // against 2.564 on that cell, with linear marginally ahead at rest (0.078
+  // against 0.079) and on a yaw shake (0.079 against 0.080). Squaring also
+  // makes the gate's own weight chatter — the mean absolute frame-to-frame
+  // step in the prior's translational share more than triples at rest — and on
+  // this tree's own jitter metric, the one `MOTION_PRIOR_ACCEL_MM_S2` was
+  // adopted against, the linear form is the better arm on every cell measured.
+  // Buying 0.03 mm of a quantity nobody sees, by chattering a weight, is not a
+  // trade worth a channel asymmetry.
+  const qMm = MOTION_PRIOR_ACCEL_MM_S2 * accel * missMm;
   const information = new Float64Array(36);
   for (let i = 0; i < 36; i++) information[i] = c * P[i];
   information[0] += qRot * qRot;
@@ -1617,11 +1699,14 @@ function buildMotionPrior(
   // is inverted into information. The next frame grades the prediction
   // against it; see `state.priorMissLast`.
   const sigmaRot = Math.sqrt(Math.max(0, (information[0] + information[7] + information[14]) / 3));
+  // The translational one-sigma, from the other three diagonal blocks and for
+  // the same reason: the next frame grades this prediction against it.
+  const sigmaMm = Math.sqrt(Math.max(0, (information[21] + information[28] + information[35]) / 3));
   if (!invertSymmetric(information, 6)) return null;
   const vfScale = Math.max(state.vfEma ?? 1, state.vfPrev ?? 1);
   if (vfScale !== 1) for (let i = 0; i < 36; i++) information[i] *= vfScale;
 
-  return { pose, information, sigmaRot };
+  return { pose, information, sigmaRot, sigmaMm };
 }
 
 /**
