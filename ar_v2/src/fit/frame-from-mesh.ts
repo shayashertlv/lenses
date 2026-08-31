@@ -1023,8 +1023,11 @@ export function frameFromMesh(
   // readout neither of them feeds by default.
   //
   // The fallback is the frontmost slice of the mesh split by side, which is the
-  // rim: its extent centre is the centre of the rim opening, and on a frame with
-  // lenses in it that is within a couple of millimetres of the lens centre. It
+  // rim. Its extent centre gives x and y; its MEDIAN gives z, because the slab
+  // runs 30 mm back down the temples and a bounding-box midpoint averages the
+  // rim against them — that put the centre about 10 mm behind the lens on every
+  // asset it was checked against. Measured against the seven assets that name a
+  // lens, this estimate is within 0.9 mm in z; see `derivedLensCentre`. It
   // is an estimate and it says so — `lensSource` travels to the verdict, and
   // `score.ts` withholds the vertex-distance grade on 'derived' specifically,
   // because that is the number this is not good enough for. It emits the measure
@@ -1054,9 +1057,12 @@ export function frameFromMesh(
       + `(${lensSides[0].length / 3} vertices right, ${lensSides[1].length / 3} left)`,
     );
   }
-  const lensCentres: [Float64Array, Float64Array] = [
-    extentCentre(lensSides[0]), extentCentre(lensSides[1]),
-  ];
+  // On the measured path `extentCentre` of the named lens part IS the lens
+  // centre, and it is what the derived path below was calibrated against. On the
+  // derived path it is the wrong statistic: see `derivedLensCentre`.
+  const lensCentres: [Float64Array, Float64Array] = lensSource === 'measured'
+    ? [extentCentre(lensSides[0]), extentCentre(lensSides[1])]
+    : [derivedLensCentre(lensSides[0]), derivedLensCentre(lensSides[1])];
   notes.push(
     lensSource === 'measured'
       ? `lens centres from ${lenses.length} named part(s): `
@@ -1142,6 +1148,46 @@ export function frontWidthOf(positions: Float64Array): number {
     if (positions[i] > hi) hi = positions[i];
   }
   return hi > lo ? hi - lo : 0;
+}
+
+/**
+ * A lens centre estimated from the frame front, when the asset names no lens.
+ *
+ * **The slab is fine; the midpoint was not.** `frontSlice` takes the frontmost
+ * quarter of the whole asset's depth — about 35 mm on a 140 mm frame — so it
+ * holds the rim and the first 30 mm of each temple. Taking that slab's
+ * bounding-box midpoint in z averages the rim against the temple tail and lands
+ * the "lens centre" about 10 mm behind the lens. Almost every vertex in the slab
+ * belongs to the rim, so the MEDIAN of the same slab sits on it.
+ *
+ * Calibrated against the seven catalogue assets that name their lens parts,
+ * where `extentCentre` of the named part is the lens centre:
+ *
+ *     bbox midpoint   max |z error|  13.41 mm
+ *     median          max |z error|   0.87 mm
+ *
+ * and directly, since `crystal-parts` and `crystal-lenses` are the same physical
+ * scan with and without named lens parts: measured +1.39 mm, this estimate
+ * +0.08 mm, the midpoint -8.22 mm.
+ *
+ * x and y keep the extent centre, which already places them within 1.9 mm on
+ * every named asset; a band centroid measured worse.
+ *
+ * **What this still cannot do.** `shield-golden`'s lens centre sits 24.7 mm
+ * back, because a wrap recesses the lens behind the frame's frontmost point, and
+ * no statistic taken off the front of the slab finds that — the median is 20.9 mm
+ * out on it. It names its lens parts and so never takes this path, and no shipped
+ * asset does; a wrap that named none would be estimated badly and this is the
+ * shape of asset to distrust here.
+ */
+function derivedLensCentre(side: Float64Array): Float64Array {
+  const centre = extentCentre(side);
+  const zs: number[] = [];
+  for (let i = 2; i < side.length; i += 3) zs.push(side[i]);
+  if (zs.length === 0) return centre;
+  zs.sort((a, b) => a - b);
+  centre[2] = zs[(zs.length - 1) >> 1];
+  return centre;
 }
 
 function extentCentre(positions: Float64Array): Float64Array {

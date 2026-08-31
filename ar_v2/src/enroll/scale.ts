@@ -189,7 +189,16 @@ export interface IrisReading {
  *     honest harness   ungated 0.260%   gated at 55 deg 0.231%   gate wins 3/5
  *
  * 3 of 5 is under this tree's 4-of-5 adoption rule, so the gate stays out on
- * evidence that now survives the harness it was taken on. The honest iris costs
+ * evidence that now survives the harness it was taken on — and read those four
+ * digits against the instrument's own floor. `radius()` above averages
+ * |contour - centre|, a NORM, so independent noise on the centre and the rim
+ * biases the radius upward by about `sigma^2 / (2R)`: +0.29% at eye-level
+ * geometry, where the iris projects to only ~7 px of radius, falling to +0.04%
+ * on the phone-lap rung where it projects to ~18 px. Every figure in the table
+ * sits at or below that floor and the 0.029 pp between the two arms is a tenth
+ * of it. The floor is common to both harnesses and both arms, so it cannot flip
+ * the verdict; what it means is that the gate is not measurably better rather
+ * than measurably worse. The honest iris costs
  * the ruler about a fifth of its accuracy (0.213% to 0.260%) and the shipped
  * enrolment about 4% of its scale error (1.79% to 1.86%) — the harness was
  * kinder than reality, but not by enough to have changed this decision.

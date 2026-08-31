@@ -305,12 +305,21 @@ export function assessFit(
   // `frame-asset.ts` and `frame-from-mesh.ts` have both promised this since the
   // derived fallback was written, and neither had a reader: `lensSource` was set
   // and stored and consulted only to build a note string. Where an asset names
-  // no lens part, its centres are the extent centre of the frontmost slice of
-  // the WHOLE mesh — hinge and forward-temple geometry included — and
-  // `contact.ts` computes `vertexDistanceMm` straight off that z. The offset is
-  // of the order of the entire 8-to-22 band this grade is read against, so the
-  // number is not soft, it is meaningless, and softening it would still leave a
-  // wrong millimetre figure on the wearer's screen.
+  // no lens part, its centres are estimated off the frontmost slice of the WHOLE
+  // mesh — hinge and forward-temple geometry included — and `contact.ts`
+  // computes `vertexDistanceMm` straight off that z.
+  //
+  // That estimate is far better than it was: the derivation now takes the slab's
+  // MEDIAN z rather than its bounding-box midpoint, which brought it from about
+  // 10 mm behind the lens to within 0.9 mm on every asset that names a lens to
+  // check against. The verdict is still withheld, and the reason has changed —
+  // what remains is a failure mode nothing can detect from the asset. A wrap
+  // recesses its lens behind the frame's frontmost point (`shield-golden`
+  // measures 24.7 mm back) and no statistic taken off the front of the slab
+  // finds that: the median is 20.9 mm out on it. Every shipped wrap names its
+  // lens parts, so none takes this path today, but an asset that named none
+  // would be graded on a number that is either within a millimetre or twenty
+  // millimetres out, with nothing to say which.
   //
   // `'unknown'` scores exactly neutral in `scoreOf` whatever the confidence, and
   // `ui.ts` renders no row for a null value, so this verdict leaves the ranking
@@ -320,10 +329,16 @@ export function assessFit(
   // graded 'poor'.
   //
   // **This contains the verdict, not the number.** The same `lensCentres` are
-  // still the frame's centre of mass in `contact.ts`'s `comOf`, still set the
-  // depth of the clearance ring, and still size the rim in `frame-layout.ts`, so
-  // a wrong centre still moves the seat and every verdict downstream of it. That
-  // is the derivation's own accuracy, not this gate's job, and it is open.
+  // also the frame's centre of mass in `contact.ts`'s `comOf`, the depth of the
+  // clearance ring, and the rim size in `frame-layout.ts`, so a wrong centre
+  // moves the seat as well — which withholding a verdict could never have
+  // covered. Measured over 8 faces at the 8 mm error the old bounding-box
+  // midpoint carried: descent moved 0.2 mm at the median and 1.0 mm at the
+  // worst, pantoscopic tilt 0.2 deg and 1.1 deg, and the score by up to 9
+  // points. Small beside a 10 mm error on an 8 mm-wide verdict band, which is
+  // why the verdict was the visible harm — but not nothing, and the derivation
+  // itself is fixed rather than merely gated: `derivedLensCentre` now takes the
+  // slab's median instead of its midpoint and lands within 0.9 mm.
   //
   // Only `'derived'` is withheld. A parametric frame reports `'constructed'`:
   // its centres are placed by its own spec, so they are exact rather than

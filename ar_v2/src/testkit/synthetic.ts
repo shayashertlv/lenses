@@ -1023,13 +1023,22 @@ function synthesizeIris(
     // the nose getting in front of it, and the disc turning away once fixation
     // runs out.
     //
-    // The occlusion half has to come from the eye REGION and not from one
-    // vertex. `vertexVisibility` returns the vertex's own normal-facing cosine
-    // where it is visible, and the INNER canthus reads exactly 0 on some faces
-    // at zero yaw — it sits in a crease and loses its own pixel in the raster.
-    // Keying off it alone marked 100% of near-frontal frames fully hallucinated
-    // for 2 of 8 subjects, which is the harness inventing an occlusion the
-    // camera does not have.
+    // The occlusion half asks the eye REGION, not one vertex.
+    // `vertexVisibility`'s value is the vertex's own normal-facing cosine where
+    // the depth test passes, and the INNER canthus reads exactly 0 on some faces
+    // at zero yaw — it sits in a crease. Keying off it alone marked 100% of
+    // near-frontal frames fully hallucinated for 2 of 8 subjects.
+    //
+    // **A residue survives and a plain depth test is not the cure.** Taking
+    // `max(inner, outer)` leaves 0.76% of frontal eye-observations reading
+    // occluded when nothing occludes them, which is depth-buffer quantisation at
+    // the 192 px visibility raster. The obvious repair — ask `vertexVisibility`
+    // without normals, so it answers occlusion alone — is worse, and measurably:
+    // 3.74% on the same frames. Dropping the normals also drops the SLOPE
+    // TOLERANCE that `raster.ts` widens on grazing surfaces for exactly this
+    // reason, so the depth test gets stricter, not cleaner. A finer raster fixes
+    // it (0.00% at 384 px) at a cost every silhouette number in the tree would
+    // pay, which is not worth 0.76%.
     const regionSeen = Math.max(visibility[anchor], visibility[outer]);
     const discFacing = regionSeen > 0 ? Math.max(0, nx * tx + ny * ty + nz * tz) : 0;
     const hidden = 1 - discFacing;

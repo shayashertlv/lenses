@@ -167,6 +167,52 @@ describe('a real asset becomes a frame the solve can hold', () => {
       + 'the thinned one, so the budget cost cannot be measured');
   });
 
+  it('estimates a lens centre within a millimetre of the named part it stands in for', () => {
+    // Finding 6. The derived fallback took the bounding-box MIDPOINT in z of the
+    // frontmost quarter of the whole asset — a ~35 mm slab holding the rim and
+    // the first 30 mm of each temple — so the temple tail dragged the "lens
+    // centre" about 10 mm behind the lens. The slab was never the problem; the
+    // statistic was. Almost every vertex in it belongs to the rim, so the MEDIAN
+    // sits on the rim.
+    //
+    // Seven assets name their lens parts, which makes them ground truth for the
+    // estimator that stands in when an asset does not: build each one twice,
+    // once as itself and once with its lens parts hidden, and compare.
+    const zOf = (c: readonly [Float64Array, Float64Array]) => (c[0][2] + c[1][2]) / 2;
+    const rows: { id: string; measured: number; derived: number }[] = [];
+    for (const e of CATALOGUE) {
+      if (e.parts.lens.length === 0) continue;
+      const bytes = assetBytes(e.file);
+      const named = frameFromMesh(readGlb(bytes), e);
+      const blind = frameFromMesh(readGlb(bytes), { ...e, parts: { ...e.parts, lens: [] } });
+      assert.ok(named.ok && blind.ok, `${e.id} refused`);
+      assert.equal(named.asset.lensSource, 'measured');
+      assert.equal(blind.asset.lensSource, 'derived');
+      rows.push({ id: e.id, measured: zOf(named.asset.lensCentres), derived: zOf(blind.asset.lensCentres) });
+    }
+    assert.ok(rows.length >= 7, `only ${rows.length} assets name a lens to check against`);
+
+    // A wrap recesses its lens behind the frame's frontmost point, and no
+    // statistic taken off the front of the slab finds that. Pinned, not
+    // excused: this is the one asset shape the estimator cannot do, and the
+    // reason `score.ts` still withholds the verdict on a derived centre.
+    const wrap = rows.find((r) => r.id === 'shield-golden')!;
+    assert.ok(wrap.measured < -20,
+      `shield-golden's lens no longer sits deeply recessed (${wrap.measured.toFixed(1)} mm) — `
+      + 'the estimator limitation this pins may have changed shape');
+    assert.ok(wrap.derived - wrap.measured > 10,
+      'the front-of-slab estimator suddenly handles a wrap — check why before trusting it');
+
+    for (const r of rows) {
+      if (r.id === 'shield-golden') continue;
+      const err = Math.abs(r.derived - r.measured);
+      assert.ok(err < 1.5,
+        `${r.id}: the derived lens centre is ${err.toFixed(2)} mm from the named part's `
+        + `(${r.derived.toFixed(2)} against ${r.measured.toFixed(2)}) — the bounding-box `
+        + 'midpoint this replaced was out by up to 13.4 mm');
+    }
+  });
+
   it('every catalogue entry either derives or refuses with a reason — none throws', () => {
     const derived: string[] = [];
     const refused: string[] = [];
