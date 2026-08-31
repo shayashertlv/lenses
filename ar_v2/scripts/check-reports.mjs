@@ -172,10 +172,13 @@ function sourceHash(entry) {
  * hashing, or the gate reports a drift on every different laptop.
  */
 function stripTimings(text) {
-  const lines = text
-    .replace(/Wall clock:.*$/gm, 'Wall clock: -')
-    .replace(/\b\d+(\.\d+)?\s*ms\b/g, '- ms')
-    .split('\n');
+  // **The columns first, on unmodified geometry.** The free-text rules below
+  // rewrite line LENGTHS, and the column work is positional — it reads the
+  // character span of each column off the table's own underline. Running the
+  // text rules first meant a literal `45 ms` in a cell, or a header whose last
+  // word before `ms` ended in a digit, shortened the header out from under the
+  // span and desynchronised every offset on that table.
+  const lines = text.split('\n');
 
   // The per-row `ms` columns in seat.txt and enroll.txt are BARE integers under
   // an `ms` header, so no unit can find them and their position has to.
@@ -198,25 +201,81 @@ function stripTimings(text) {
   // would stop being able to see it change. These tables underline themselves,
   // so the separator row gives the exact character span of every column, and
   // the header above it says which span is the clock.
-  let span = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^-{3,}(\s+-{3,})+\s*$/.test(line)) {
-      span = null;
-      for (const m of line.matchAll(/-{3,}/g)) {
-        const cell = (lines[i - 1] ?? '').slice(m.index, m.index + m[0].length).trim();
-        if (cell === 'ms') span = [m.index, m.index + m[0].length];
-      }
-      continue;
+  // **The column's WIDTH is the clock too, so the column has to go entirely.**
+  //
+  // Blanking the span digit-for-digit erased the value and kept the width, and
+  // that was fixed by blanking the whole span instead. It was not enough, and
+  // the residue is the same defect one level out: `table()` sizes every column
+  // to its widest cell and the `ms` header is two characters, so a run whose
+  // slowest solve reads 99 emits a TWO-dash column and one that reads 101 emits
+  // three. Different underline, different padding on every row, different hash,
+  // on identical code. The 2-wide case never even reached the blanking: the
+  // separator was matched with `-{3,}`, so a 2-dash run failed the line test,
+  // `span` stayed null, and the raw milliseconds went into the canary.
+  //
+  // A width test cannot be written against a fixture that fixes the width,
+  // which is why the landed fix looked complete: its fast-machine fixture
+  // substituted `99` right-aligned INSIDE a three-wide span, so it exercised
+  // jitter within a width and could not see jitter between widths.
+  //
+  // So match a run of any width, and CUT the column out — header, underline and
+  // every row — along with the two-space gutter in front of it. Every other
+  // column's layout is independent of this one's width, so what survives the cut
+  // is the same string whatever the clock read.
+  const GUTTER = 2;
+
+  // Any run width. `-{3,}` was the bug — a two-digit clock emits a two-dash
+  // column — and `-{2,}` is the mirror of it: a table carrying any
+  // one-character column would fail the test outright and its clock would go
+  // into the hash raw. A data row of single-dash placeholders does match this,
+  // and is harmless: a one-character slice of the line above cannot read as
+  // `ms`, so it yields no columns and is skipped. Nothing is reset by it, which
+  // is the point of identifying spans in a separate pass.
+  const SEPARATOR = /^-+(\s+-+)+\s*$/;
+
+  // A trailing `ms` word, not the exact string, so renaming the header to
+  // `solve ms` does not silently revert this gate to hashing the clock. The
+  // word boundary is what keeps `rms` out.
+  const IS_CLOCK = /(^|\s)ms$/;
+
+  // **Identified in one pass, applied in another.** The header is read from the
+  // ORIGINAL text: cutting in place while a previous table's span was still
+  // live meant two tables with no blank line between them corrupted the second,
+  // whose header had already been cut as a row of the first.
+  const cuts = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    if (!SEPARATOR.test(lines[i])) continue;
+    const header = lines[i - 1];
+    const spans = [];
+    for (const m of lines[i].matchAll(/-{2,}/g)) {
+      const cell = header.slice(m.index, m.index + m[0].length).trim();
+      if (IS_CLOCK.test(cell)) spans.push([Math.max(0, m.index - GUTTER), m.index + m[0].length]);
     }
-    if (line.trim() === '') { span = null; continue; }
-    if (span) {
-      lines[i] = line.slice(0, span[0])
-        + '-'.repeat(Math.min(span[1], line.length) - Math.min(span[0], line.length))
-        + line.slice(span[1]);
+    if (!spans.length) continue;
+    // The header, the underline, and every row down to the blank line that ends
+    // the table. Two tables with no blank line between them overlap here, and
+    // that resolves itself: separators are walked in order, so the second
+    // table's own spans overwrite the entries the first claimed for its lines.
+    for (let j = i - 1; j < lines.length; j++) {
+      if (j > i && lines[j].trim() === '') break;
+      cuts.set(j, spans);
     }
   }
-  return lines.join('\n');
+  // Right to left, so an earlier column's offsets are still valid after a later
+  // one has been removed. Every clock column goes, not just the last: the old
+  // loop reassigned a single `span` per match, so a table with two of them kept
+  // the first one's raw values and its width.
+  for (const [j, spans] of cuts) {
+    let line = lines[j];
+    for (let k = spans.length - 1; k >= 0; k--) {
+      line = line.slice(0, spans[k][0]) + line.slice(spans[k][1]);
+    }
+    lines[j] = line;
+  }
+
+  return lines.join('\n')
+    .replace(/Wall clock:.*$/gm, 'Wall clock: -')
+    .replace(/\b\d+(\.\d+)?\s*ms\b/g, '- ms');
 }
 
 async function canaryHash(report) {

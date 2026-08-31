@@ -30,7 +30,7 @@ import {
   generatePopulation, lastRejectionCount, populationSeedFor,
   subjectResidualAgainstBasis, synthesizeCapture,
 } from '../src/testkit/synthetic.js';
-import { compareToTruth, distribution } from '../src/testkit/metrics.js';
+import { compareToTruth, distribution, table } from '../src/testkit/metrics.js';
 import { measure, standardRegions, trackingRigidity } from '../src/core/mesh.js';
 import { basisExplains } from '../src/core/shape/anthropometric.js';
 import { evaluateBasis } from '../src/core/shape/basis.js';
@@ -3156,10 +3156,51 @@ describe('the gates that run before the tests do', () => {
       assert.equal(stripTimings(faster), stripTimings(withClock),
         'two runs of the same code on machines of different speed hash differently — '
         + 'the strip is erasing the clock\'s value and keeping its width');
-      // Everything else on the row is intact, including the trailing integer
-      // the old positional rule sat next to.
-      assert.match(stripped[2], /narrow-pads\s+13\s+-+\s+0$/);
-      assert.match(stripped[3], /standard\s+17\s+-+\s+1$/);
+      // **And the WIDTH of the column is the clock as well.** The two cases
+      // above both hold the column at three characters wide, which is the shape
+      // of fixture that let the previous repair look complete: it removed the
+      // jitter WITHIN a width and left the jitter BETWEEN widths.
+      //
+      // `table()` sizes every column to its widest cell and the `ms` header is
+      // two characters, so a run whose slowest solve reads 99 emits a TWO-dash
+      // column and one that reads 101 emits three — a different underline, a
+      // different pad on every row, a different hash, on identical code. The
+      // narrow case was worse than a wrong width: the separator was matched
+      // with `-{3,}`, so a two-dash run failed the line test outright and the
+      // raw milliseconds went into the canary.
+      //
+      // These fixtures are built with the generators' own `table()`, so the
+      // widths are the ones a report would really carry rather than ones this
+      // test chose.
+      const clocked = (a: number, b: number) =>
+        `${table(['frame', 'pad sep', 'ms', 'unconverged'],
+          [['narrow-pads', 13, a, 0], ['standard', 17, b, 1]])}\n`;
+
+      const threeWide = clocked(135, 106);
+      const twoWide = clocked(96, 82);
+      assert.equal(twoWide.split('\n')[1].split(/\s+/)[2], '--',
+        'the two-digit fixture did not produce a two-wide column');
+      assert.ok(!/\b(96|82)\b/.test(stripTimings(twoWide)),
+        'a two-wide clock column defeated the separator match and the raw '
+        + 'milliseconds were hashed');
+      assert.equal(stripTimings(twoWide), stripTimings(threeWide),
+        'the same code on a faster machine hashes differently — the strip is '
+        + "erasing the clock's value and keeping its column WIDTH");
+
+      // The boundary, which is what makes it a coin flip rather than a
+      // per-machine constant: one solve either side of 100 on the same laptop.
+      assert.equal(stripTimings(clocked(99, 82)), stripTimings(clocked(101, 82)),
+        'a single solve crossing 100 ms changed the hash');
+      assert.equal(stripTimings(clocked(999, 82)), stripTimings(clocked(1001, 82)),
+        'a single solve crossing 1000 ms changed the hash');
+
+      // Everything else on the row is intact, including the trailing integer the
+      // old positional rule sat next to. Asserted by content rather than by
+      // spacing: whether the clock column is cut out or blanked to a fixed width
+      // is the strip's business, and a test that pins the spacing would refuse a
+      // different correct repair.
+      assert.match(stripped[2], /^narrow-pads\s+13\s+(-+\s+)?0\s*$/, `row rewritten: ${stripped[2]}`);
+      assert.match(stripped[3], /^standard\s+17\s+(-+\s+)?1\s*$/, `row rewritten: ${stripped[3]}`);
 
       // The same shape with no `ms` header. Under the positional rule the 135
       // and 106 here would be blanked too, and a real measurement would stop
@@ -3171,6 +3212,77 @@ describe('the gates that run before the tests do', () => {
         'a table with no clock column was rewritten anyway — the strip is ' +
         'positional again, and the canary has stopped watching a real column',
       );
+    });
+  });
+
+  it('strips the clock out of table shapes no report emits today', () => {
+    // The strip finds the clock by reading a table's underline for column spans
+    // and the header above it for which span is the clock, so its correctness
+    // is a property of table GEOMETRY. Every generator emits one clock column
+    // per table, blank-line separated, with no literal duration in a cell — so
+    // the cases below are all latent. Each of them fails in the same direction
+    // when it goes wrong: the column is not found, the raw milliseconds are
+    // hashed, and a build-blocking gate goes back to being machine-dependent.
+    //
+    // Measured across all four generators at both `{seed:11, subjects:1}` and
+    // their defaults when these were written: narrowest separator run 3, no
+    // one-character columns, no adjacent tables, no dash-placeholder rows.
+    const gate = join(scriptsDir, 'check-reports.mjs');
+    return import(pathToFileURL(gate).href).then(({ stripTimings }) => {
+      const T = (headers: string[], rows: (string | number)[][]) =>
+        `${table(headers, rows)}\n`;
+      // Two runs of the same code at clock readings a decade apart. Nothing
+      // below may distinguish them.
+      const same = (build: (ms: number) => string, what: string) => {
+        assert.equal(stripTimings(build(99)), stripTimings(build(1010)), what);
+        assert.ok(!/\b(99|1010)\b/.test(stripTimings(build(99))),
+          `${what} — and the raw clock reached the hash`);
+      };
+
+      // A table carrying TWO clock columns. The strip used to keep a single
+      // span per separator, so the earlier column survived with its value and
+      // its width.
+      same((ms) => T(['frame', 'ms', 'pad sep', 'ms'],
+        [['narrow-pads', ms, 13, ms], ['standard', ms, 17, ms]]),
+      'a table with two clock columns kept the first one');
+
+      // A renamed header. `ms` -> `solve ms` is an ordinary edit, and this
+      // gate's own preamble records a column being renamed in one of these
+      // very tables.
+      same((ms) => T(['frame', 'pad sep', 'solve ms'],
+        [['narrow-pads', 13, ms], ['standard', 17, ms]]),
+      'a clock column headed `solve ms` was not recognised');
+
+      // ...but `rms` is not a clock, and its column is a real measurement.
+      const rms = T(['frame', 'rms', 'unconverged'], [['narrow-pads', 135, 0]]);
+      assert.equal(stripTimings(rms), rms,
+        'an `rms` column was mistaken for a clock and deleted from the hash');
+
+      // A literal duration inside a cell. The free-text rule rewrites it to
+      // `- ms`, which SHORTENS the line — so if that ran before the column
+      // spans were taken, every offset on the table moved out from under them.
+      same((ms) => T(['stage', 'budget', 'ms'],
+        [['solve', '45 ms', ms], ['pose', '50 ms', ms]]),
+      'a literal duration in a cell desynchronised the column spans');
+
+      // Two tables with no blank line between them. The second table's header
+      // is a row of the first as far as a single-pass strip is concerned.
+      same((ms) => `${T(['frame', 'ms', 'x'], [['n', ms, 1]]).trimEnd()}\n`
+        + T(['other', 'ms', 'y'], [['m', ms, 2]]),
+      'a table butted against the one above it was corrupted');
+
+      // A data row of dash placeholders looks exactly like an underline. It
+      // must not be taken for one — and it must not be able to stop the strip
+      // for the rest of the table either.
+      same((ms) => T(['frame', 'ms', 'x'],
+        [['n', ms, 1], ['-', '-', '-'], ['s', ms, 2]]),
+      'a dash-placeholder row was read as an underline');
+
+      // A one-character column. Requiring every run to be two dashes or more
+      // would exclude the whole table and hash its clock raw — the mirror of
+      // the `-{3,}` defect that started this.
+      same((ms) => T(['f', 'ms', 'x'], [['n', ms, 1], ['s', ms, 2]]),
+      'a table with a one-character column was skipped entirely');
     });
   });
 
