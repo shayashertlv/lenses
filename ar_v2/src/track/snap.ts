@@ -25,9 +25,11 @@
  * The research survey for the occlusion plan found this in the literature
  * (depth edges snapped to image edges — Holynski & Kopf 2018; Niantic 2023's
  * "small depth errors ruin the occlusion mask") and in NO shipped eyewear
- * try-on. The nearest in-tree relative is the card detector's edge search,
- * which walks a perpendicular band for the strongest gradient with a
- * confidence gate; this is the same discipline bent around a contour.
+ * try-on. The nearest relative this tree ever had was the deleted card
+ * detector's edge search — a perpendicular band walked for the strongest
+ * gradient behind a confidence gate. That code is gone and is in no commit
+ * (`f9c9093`, method rejected); this is the same discipline bent around a
+ * contour.
  *
  * ## Everything here is headless
  *

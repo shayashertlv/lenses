@@ -52,7 +52,20 @@ import type { ScanRecord } from '../enroll/protocol.js';
  */
 export const FACE_MODEL_VERSION = 3;
 
-/** How the absolute scale was established. Ordered best-first. */
+/**
+ * How the absolute scale was established.
+ *
+ * `pd` is the best rung that exists: the wearer's own prescription figure,
+ * applied in `enroll.ts` against the reconstructed surface. `iris` is the
+ * shipping default when they supply nothing, and `assumed` says so out loud.
+ *
+ * `card` is **not** a rung. An ID-1 card ruler was built, measured and removed
+ * on 2026-08-25 (`f9c9093`) and the owner rejected the method outright
+ * (`docs/SCALE.md`); no code writes this variant on any wearer path. It
+ * survives as the label the testkit stamps on ground-truth models, and as a
+ * value a stored v3 model could still carry. Do not read the order as a
+ * ranking to restore.
+ */
 export type ScaleSource = 'card' | 'pd' | 'iris' | 'assumed';
 
 export interface ScaleEstimate {
@@ -85,7 +98,7 @@ export interface ScaleEstimate {
    * well-calibrated one-sigma from both sides.
    */
   sigma: number;
-  /** Free-text provenance for the readout: "ISO 7810 card, 34 frames". */
+  /** Free-text provenance: "wearer's PD of 63.0 mm, against the solved surface". */
   note: string;
   /**
    * Signed disagreement between this ruler and the one it displaced, in percent

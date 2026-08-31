@@ -131,15 +131,21 @@ five seeds, per-seed range in brackets:
 | as shipped (pooled iris constant) | 1.54 mm [0.99–1.65] | 1.19 mm [0.74–1.39] | 3.19% [1.79–4.69] |
 | **with this wearer's true iris** | **0.83 mm** [0.74–0.98] | **0.57 mm** [0.52–0.78] | **2.01%** [0.92–2.91] |
 
-The nose gap between those rows is the whole argument for Q3 and it replicates
-cleanly (the true iris wins the nose in 5/5 seeds). Read the scale column more
-carefully than the old table allowed. The pooled-iris figure swings 1.8–4.7%
-by seed because a drawn population's true irises land nearer or farther from
-11.7 mm — it is the ancestry-bias lottery, not measurement noise. And the
-true-iris row no longer reads 0.66%: it is **2.01%** [0.92–2.91], because with
-the diameter assumption removed what remains is the *platform* — the solved
-focal length and depth — which the card campaign independently measured at
-~1.5% (Q3). Supplying the true iris still buys a median 2.3 points of scale
+The nose gap between those rows is the whole argument for a ruler that knows
+this wearer rather than a population mean, and it replicates cleanly (the true
+iris wins the nose in 5/5 seeds). Read the scale column more carefully than the
+old table allowed. The pooled-iris figure swings 1.8–4.7% by seed because a
+drawn population's true irises land nearer or farther from 11.7 mm — it is the
+ancestry-bias lottery, not measurement noise. And the true-iris row no longer
+reads 0.66%: it is **2.01%** [0.92–2.91], because with the diameter assumption
+removed what remains is the *platform* — the solved focal length and depth. This
+paragraph used to put that term at ~1.5% on the card campaign's authority; the
+term never needed a card, and [`docs/SCALE.md`](docs/SCALE.md) has since
+decomposed it card-free over 255 enrolments at **0.37% median** (sd 0.56%),
+with 95.7% of the iris path's error sitting in the population diameter
+assumption — so a better ruler buys nearly all of it, not nearly none. Neither
+number reconciles with the 2.01% row above; which one describes it is open.
+Supplying the true iris still buys a median 2.3 points of scale
 across the paired seeds (from −2.7 better to +0.7 worse — seed 37 inverts),
 and the surface improvement is where the bias bites: nose 1.54 → 0.83 mm, pad
 strip 1.19 → 0.57.
@@ -248,29 +254,60 @@ Measured end to end (median of 5 seeds, per-seed range in brackets):
 
 The scale gap between the rows narrowed against earlier versions of this table
 not because the bias shrank but because the *platform* term — solved focal
-length and depth, ~1.5–2% on its own (Q3) — now dominates both rows; the
-paired seeds still show the true iris buying a median 2.3 points of scale. The
+length and depth, put at ~1.5–2% on its own by the card campaign, which
+`docs/SCALE.md` has since contradicted card-free at 0.37% (see above, and treat
+the attribution as open) — was said to dominate both rows; the paired seeds
+still show the true iris buying a median 2.3 points of scale. The
 nose column is where the bias does its damage, and there the gap is 5/5-seed
 stable.
 
 v1's prose calls iris variation "±0.5 mm of noise". A large part of it is bias,
 correlated with ancestry, in the one quantity the app claims real units for. v2
-reports the uncertainty alongside every millimetre, refuses to print a
-lens-ordering PD from an iris-only scale — and the card protocol is no longer
-just a slot. Measured 2026-08-22 on the synthetic harness (5 seeds × 3
-geometries × 8 subjects, 120 scans per noise level, the basic detector run for
-real against rasterised frames):
+reports the uncertainty alongside every millimetre and refuses to print a
+lens-ordering PD from an iris-only scale.
 
-| ruler | median abs scale error | p90 | worst |
-| --- | --- | --- | --- |
-| pooled iris 11.7 mm (same runs) | 5.14% | 10.28% | 16.49% |
-| **card at 1 px edge noise (synthetic, unwired)** | **0.80%** | 3.16% | 11.70% |
+**That paragraph used to end "and the card protocol is no longer just a slot",
+and what followed measured that card.** The card is gone; the measurement is
+kept, because Q3 was closed by deletion and not by refutation:
 
-The tail is the camera solve, not the card: edge noise from 0.5 to 2 px moves
-the median by 0.15 points, the residual correlates 0.973 with the iris path's
-error once its diameter assumption is subtracted, and the card's signed mean
-error is 0.13% — the ancestry bias is gone. It stays unwired because the
-detector has never seen a real frame (`docs/OPEN-QUESTIONS.md` Q3, Q8).
+> Measured 2026-08-22 on the synthetic harness (5 seeds × 3 geometries × 8
+> subjects, 120 scans per noise level, the basic detector run for real against
+> rasterised frames):
+>
+> | ruler | median abs scale error | p90 | worst |
+> | --- | --- | --- | --- |
+> | pooled iris 11.7 mm (same runs) | 5.14% | 10.28% | 16.49% |
+> | **card at 1 px edge noise (synthetic, unwired)** | **0.80%** | 3.16% | 11.70% |
+>
+> The tail is the camera solve, not the card: edge noise from 0.5 to 2 px moves
+> the median by 0.15 points, the residual correlates 0.973 with the iris path's
+> error once its diameter assumption is subtracted, and the card's signed mean
+> error is 0.13% — the ancestry bias is gone. It stays unwired because the
+> detector has never seen a real frame (`docs/OPEN-QUESTIONS.md` Q3, Q8).
+
+`enroll/card.ts`, its scan beat and the ladder's card rung left the working
+tree on 2026-08-25, at `f9c9093`, and the owner then rejected the method
+outright: *"I don't like the card method, I'd like the algorithm to not rely on
+it at all."* **Do not rebuild it**, and do not go looking for it either:
+`card.ts` was never a tracked file, so no commit holds it — `f9c9093` is where
+the tree stopped carrying it, not a commit you can recover it from, and the row
+above cannot be re-derived. The shipping ladder is `pd → iris → assumed`, and
+nothing in the running path has ever asked a wearer for a card.
+
+What replaces it is not a better ruler but a smaller requirement.
+[`docs/SCALE.md`](docs/SCALE.md) measures what scale error actually costs — at
+±1% the frame front width moves 2.5 px on a 1024-wide render and the top-ranked
+frame changes for 6 wearers in 50 — and sets the target at **1.5%, not 0.1%**.
+The wearer's own prescription PD is the rung aimed at it: a propagated **0.79%**
+against the iris's propagated 4.70%, and it is already built, applied against
+the reconstructed 3-D surface rather than an image-space pupil span. Read those
+two as *ruler sigmas, not measured end-to-end scale errors* — `enroll/scale.ts`
+is explicit that `docs/SCALE.md` quotes the 0.79% without that qualification and
+that it should not be read as a measurement of the PD rung, and no seeded
+end-to-end measurement of that rung exists. The iris stays the shipping default:
+good enough for the try-on picture, and the reason an iris-scaled PD is printed
+with `(iris — not for ordering lenses)` beside it rather than offered as a
+lens-ordering measurement.
 
 ### Things that turned out not to earn their place
 
@@ -317,8 +354,10 @@ Reported because a build that only reports its wins is not a measurement.
   incumbent's published ±1 mm for 7 in 10 — better than the 2.63 mm of the
   last pass and the 4.6 mm before that, and still the same verdict: even the
   best seed's median misses the bar. The system already refuses to present an
-  iris-derived PD for ordering, and the fix is the card protocol (Q3) — but
-  the number is here rather than buried.
+  iris-derived PD for ordering. This bullet used to name the card protocol as
+  the fix; the card was deleted and the method rejected (Q3,
+  [`docs/SCALE.md`](docs/SCALE.md)), so what is left is the wearer's own
+  prescription PD, below. Either way the number is here rather than buried.
 
   Note what the wearer's-own-PD path does and does not fix. Supplying a
   prescription PD drives the reported PD error to **identically zero**, because
@@ -413,8 +452,8 @@ src/
     raster    a tiny depth-buffer rasteriser (visibility, silhouette, occlusion)
     shape/    20-mode anthropometric basis + free-form nose displacement field
     facemodel THE boundary type: what a scan produces
-  enroll/     the four-second scan and its bundle adjustment; the ladder is pd -> iris -> assumed (docs/SCALE.md);
-              built-but-unwired card ruler (Q3)
+  enroll/     the four-second scan and its bundle adjustment;
+              the scale ladder is pd -> iris -> assumed (docs/SCALE.md)
   track/      PnP against the scanned model; One Euro (off)
   fit/        contact-physics seat, frame assets, numeric fit scoring
   detect/     landmark adapter + per-landmark uncertainty
@@ -472,9 +511,14 @@ honest headline is the same one v1 carried:
 > this was written on. The camera path is exercised as far as `getUserMedia` and
 > no further.
 
-That list now includes the card detector (Q3): built and measured, but only
+That list used to include the card detector (Q3), "built and measured, but only
 against images this tree's own rasteriser produced — no real card, hand, glare
-or motion blur — and wired to nothing.
+or motion blur — and wired to nothing". The detector left the tree on
+2026-08-25 and the method was rejected, so the entry is a record rather than a
+gap waiting to be filled: Q3 closed by removal, not by refutation, and its
+measurement is preserved in the iris-bias section above. The live answer to
+absolute scale is the 1.5% target in [`docs/SCALE.md`](docs/SCALE.md) and the
+prescription-PD rung aimed at it.
 
 **This section carried a fourth entry that was false, and it is worth recording
 what it said**, because it was the front-door document reasoning from it:
@@ -540,10 +584,9 @@ campaign digits are the settlement record for each decision; the tables above
 and the checked-in `reports/` are the merged tree, re-measured at seeds
 {11, 23, 37, 41, 53}.
 
-The four that need you: a real camera session (Q8 — which now also gates the
-card ruler, Q3), a detector-bias calibration against scanned faces (Q2),
-caliper measurements of the eleven real frame assets (Q10), and a licence
-click for FLAME 2023 (Q9).
+The four that need you: a real camera session (Q8), a detector-bias calibration
+against scanned faces (Q2), caliper measurements of the eleven real frame
+assets (Q10), and a licence click for FLAME 2023 (Q9).
 
 ---
 

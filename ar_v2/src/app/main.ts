@@ -2017,7 +2017,10 @@ function handleAction(app: App, action: string): void {
           intrinsics: app.intrinsics,
           intrinsicsSolved: app.model?.intrinsicsSolved ?? false,
           knownPdMm: pd,
-          // The wearer says whether a card was in frame; nothing here can tell.
+          // The wearer says whether a card was in frame; nothing here can tell. This is
+          // a telemetry field and nothing more: the card ruler was removed on
+          // 2026-08-25 and the method rejected, so there is no estimator to
+          // feed. See `enroll/telemetry.ts` and `docs/SCALE.md`.
           card: /[?&]card=1/.test(location.search),
           note: `${app.source?.label ?? 'unknown source'}; ${summarise(app.protocol)}`,
           frames: app.lastCapture.length,

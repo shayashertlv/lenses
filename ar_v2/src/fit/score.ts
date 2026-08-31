@@ -15,8 +15,8 @@
  *
  * ## Every verdict carries its own uncertainty
  *
- * A verdict computed from an iris-scaled model is worth less than one from a
- * card-scaled model, and a verdict about a region the scan barely saw is worth
+ * A verdict computed from an iris-scaled model is worth less than one scaled by
+ * the wearer's own PD, and a verdict about a region the scan barely saw is worth
  * less again. `confidence` is not decoration: the UI shows a verdict with a
  * leading tilde when the number behind it is soft, exactly as v1 learned to do
  * for its width verdict — and unlike v1, the softness is computed from the

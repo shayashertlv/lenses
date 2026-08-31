@@ -96,6 +96,29 @@ wanted later, the argument for a card is unchanged and the implementation is in
 `git log` — it was removed for being unvalidated and unwired, not for being
 wrong.
 
+**Correction, 2026-08-31: three of the clauses above are wrong, and they are
+the ones a reader would act on.**
+
+- *"the argument for a card is unchanged"* — it is not. The owner rejected the
+  method outright: *"I don't like the card method, I'd like the algorithm to not
+  rely on it at all."* (`docs/SCALE.md`). That closes the argument; it does not
+  leave it open pending evidence.
+- *"the implementation is in `git log`"* — it is not. `card.ts` was never a
+  tracked file, so `git log --all -- '*card*'` returns nothing across the whole
+  history. The 0.80% row above cannot be re-derived from this repository. It is
+  a record and nothing else.
+- *"it was removed for being unvalidated and unwired, not for being wrong"* —
+  true of the removal on 2026-08-25 and false as a standing invitation. Read
+  today it promises that a real camera session (Q8) would revive the card. It
+  would not: the rejection came after the removal and is about the method, not
+  its validation state.
+
+What replaces the card is not a better ruler but a smaller requirement:
+`docs/SCALE.md` sets the target at 1.5%, and the wearer's own prescription PD is
+the rung aimed at it — a propagated ruler sigma of 0.79%, which
+`enroll/scale.ts` is careful to say is not a measured end-to-end error of that
+rung.
+
 ## Q4 — What is the compliance of nasal skin under a pad? **(needs you)**
 
 **Assumed:** 1.0 N/mm combined across both pads (`fit/contact.ts`, `SKIN`).
@@ -192,7 +215,9 @@ whole build: *there is no webcam on the machine this was written on.* The camera
 path is exercised as far as `getUserMedia` and no further. Everything downstream
 is covered by synthetic fixtures. As of 2026-08-22 the list of subsystems that
 have never seen a real frame includes the card detector (Q3), which was
-validated only against images this tree's own rasteriser produced.
+validated only against images this tree's own rasteriser produced. (2026-08-31:
+the card detector left the tree on 2026-08-25 and is not on the list any more —
+Q3.)
 
 The synthetic model was wrong twice during this build, in ways that changed
 engineering decisions:
@@ -963,6 +988,15 @@ synthetic harness — see Q3 for the table. Still not wired to the app: the
 detector remains unvalidated on real frames, which is the same Q8 reason as
 before.)
 
+**Correction, 2026-08-31: Q3 does not stay open.** It closed on 2026-08-25 by
+removal — `enroll/card.ts` and its scan beat are out of the tree, the ladder is
+`pd > iris > assumed`, and the owner rejected the method outright. Read
+`docs/SCALE.md` for what is true now. This correction reaches the card clause
+above and the 2026-08-22 parenthetical, and nothing else in the section: the
+rest of it — including *"Do not quote a PD error figure from this path"* and
+the account of where the PD correction is applied — still describes the
+shipping code and still holds.
+
 What shipped instead is cheaper and, for a spectacle wearer, already measured:
 **their own PD**, off a prescription. One text field, no computer vision.
 
@@ -981,6 +1015,10 @@ iris's 4.39% and 7.34% — came from the collapsed noise stream, and the worst-c
 column is where the collapse flattered it most. A scan that goes badly goes badly
 whichever ruler it is holding: 9.4% against 12.3% is not a rescue. The median is
 still worth having, and the card protocol (Q3) is still the better answer.
+(2026-08-31: it is not. Q3 closed by removal on 2026-08-25 and the owner
+rejected the method. The shipping default ruler is still the iris; the wearer's
+own PD is the rung above it, entered only when they type the number in, and
+`docs/SCALE.md` sets the 1.5% target any ruler has to meet.)
 
 **Do not quote a PD error figure from this path.** With a wearer's own PD supplied
 the reported `pdMm` error is identically **0.000 mm**, algebraically, because the
@@ -1099,7 +1137,9 @@ Both paths are now tested, with separate bars, plus an assertion that the
 uncertainty the model reports actually covers the error the assumption makes —
 `IRIS.sigmaMm` is honest, so it does. The real repair is the card protocol (Q3),
 which as of 2026-08-22 includes the detector and the scan beat, measured
-synthetically (Q3), and is still deliberately unwired (Q8).
+synthetically (Q3), and is still deliberately unwired (Q8). (2026-08-31: the
+card was deleted on 2026-08-25 and the method rejected. The real repair is the
+wearer's own prescription PD — `docs/SCALE.md`.)
 
 **`browRidge` was an identically-zero field.** Its fade-out ramp was scaled by
 the chin-to-forehead span rather than eye-to-forehead, putting the ramp's lower
