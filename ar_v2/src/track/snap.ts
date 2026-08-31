@@ -47,14 +47,18 @@ import type { DepthBuffer } from '../core/raster.js';
 
 /** One point on the occluder's predicted occluding contour, in SOURCE pixels. */
 export interface ContourSample {
-  /** Image position of the near-side (occluding) edge pixel, source px. */
+  /** Where the geometry puts the occluding boundary, source px — the estimated
+   *  BOUNDARY, not the centre of the last drawn pixel. See `occludingContour`
+   *  for why the difference is millimetres rather than rounding. */
   x: number;
   y: number;
   /** Unit image-space normal, pointing from the NEAR surface toward the far
    *  side — the direction along which the true edge is searched. */
   nx: number;
   ny: number;
-  /** Depth of the near surface at this sample, mm — converts px to mm. */
+  /** Depth of the flagged PIXEL, mm. Not necessarily the depth at `x, y`:
+   *  since 2026-08-31 the reported position is the estimated boundary, which
+   *  can sit just past where the near surface ends. Read nowhere today. */
   depthMm: number;
 }
 
@@ -68,6 +72,121 @@ export interface ContourSample {
  * Coordinates come back in the buffer's own scale-free source pixels (the
  * buffer records its scale), sampled every `stride` buffer pixels to keep the
  * count in the low hundreds.
+ *
+ * ## The sample sits on the estimated boundary, not on the drawn pixel
+ *
+ * This function reports where the geometry thinks the boundary is, and
+ * `snapOffsets` measures the image's disagreement with it. So a systematic
+ * error in the reported POSITION is not noise — it is read out as scan error,
+ * converted to millimetres by `contourPushes`, and frozen into
+ * `CalibrationField` as if it were a property of the wearer's face.
+ *
+ * Until 2026-08-31 the position reported was `(x + 0.5) * inv`: the centre of
+ * the last DRAWN pixel. `core/raster.ts` draws a pixel only when its centre is
+ * inside the projected triangle, so where a surface genuinely ends that centre
+ * lies INSIDE the boundary by 0..1 buffer pixels — never outside — and every
+ * offset the snapper reported carried that gap on top of the real error,
+ * always outward. At production dimensions (224-px buffer against 1280-px
+ * intrinsics, so one buffer pixel is 5.71 source px = 4.38 mm at 450 mm) that
+ * is millimetres, not a rounding detail.
+ *
+ * ### Which samples this is about, because it is not all of them
+ *
+ * The predicate above flags a pixel when a 4-neighbour is `jumpMm` DEEPER —
+ * which is the off-mask case and the interior-occlusion case, but ALSO a steep
+ * continuous flank, because one buffer pixel subtends 4.38 mm laterally at
+ * 450 mm and any surface tilted past about 54 degrees changes depth by more
+ * than 6 mm across one. Rasterising the template at eight poses, 224 px,
+ * `stride: 2`, and asking where the surface actually ends along each reported
+ * normal — analytically, by exact point-in-projected-triangle coverage,
+ * bisected, so the truth carries no quantisation of its own:
+ *
+ *     420 flagged pixels
+ *      174 (41%)  a real boundary INSIDE the +/-8 source px band snapOffsets walks
+ *       21  (5%)  a real boundary 8.2 to 68.1 source px out — beyond the band
+ *      225 (54%)  no boundary at all within 12 buffer pixels: smooth steep flank
+ *
+ * The 174 are the only ones the snap can act on, and every number below is
+ * measured on them. The cut is `SNAP_DEFAULTS.searchPx`, not a taste: outside
+ * the band there is no edge for the module to find, and the sample abstains or
+ * finds something else entirely.
+ *
+ *     reported position          mean residual          mean |residual|
+ *     drawn pixel centre (was)   +2.94 px = +2.25 mm    2.94 source px
+ *     + a flat half pixel        +0.08    = +0.06       1.49
+ *     + `half` below             +0.32    = +0.25       1.35
+ *
+ * The flat half pixel looks better on the mean and is not: split by the
+ * reported normal it is +0.53 mm on axis-aligned normals against -1.10 mm on
+ * diagonal ones, so its pooled figure is a cancellation whose sign follows
+ * whichever edge orientations happen to face the camera. `half` is
+ * +0.53 / -0.46 and carries the smaller mean ABSOLUTE residual, which is the
+ * statistic a per-vertex running mean actually integrates.
+ *
+ * ### Where `half` comes from, and what it does to the other 54%
+ *
+ * Derived, not swept — for the population it describes. Write `u` for the
+ * signed perpendicular distance from a pixel centre to the boundary, negative
+ * inside. The 4-neighbour that crosses first advances `max(|nx|, |ny|)` along
+ * the normal, so a pixel is flagged exactly while `u` is in
+ * `(-max(|nx|,|ny|), 0)`, and the boundary sits `max(|nx|,|ny|) / 2` away in
+ * expectation. For an axis-aligned normal that is the familiar half pixel; for
+ * a diagonal one it is 0.354, and using 0.5 there is the -1.10 mm above.
+ *
+ * On the 54% there is no boundary to move toward, and the shift is a bare 1.5
+ * to 2.2 mm relocation of the search band's centre off the surface. Whether
+ * that helps or hurts depends on what the image does on a cheek flank, and
+ * NOTHING here has measured that — the end-to-end instrument behind this
+ * change modelled those samples as featureless, which is an assumption and not
+ * a finding. What IS measured: there is no straight-edge orientation from 0 to
+ * 90 degrees at which the shift is worse than none, and on the real contour it
+ * costs the enrolment silhouette 6.3% of its genuine-boundary points against
+ * 17.7% of its flank points — so what it thins is mostly the junk.
+ *
+ * **Separating the two populations is the next piece of work, not this one.**
+ * Comparing the forward jump against the backward depth slope on the same axis
+ * and requiring a ratio above about 2.5 keeps 97% of genuine boundaries and
+ * rejects 93% of flanks, measured over the same eight poses. It wants its own
+ * sweep, its own ledger row, and its own answer to what the flagged flanks are
+ * already doing to `contourPushes` — all of which are older than this fix.
+ *
+ * ### What is left, and why there is no Sobel here
+ *
+ * The residual is a CONDITIONING effect, not a projection error. Which
+ * neighbours fire is itself a function of `u`: a straight edge at angle theta
+ * is reported as (1,0) precisely by the pixels whose `u` lies in
+ * `(-cos theta, -sin theta)`, whose expected distance is
+ * `(cos theta + sin theta) / 2` rather than `1/2` — so the axis-normal subset
+ * is systematically UNDER-shifted and the diagonal subset over-shifted, which
+ * is exactly the +0.53 / -0.46 sign pattern. A better normal does not
+ * obviously undo that, and measurement agrees: an 8-neighbour Sobel normal
+ * moves the mean to +0.17 mm but the mean absolute residual the WRONG way,
+ * 1.35 -> 1.49 source px, and a continuous farness weighting is worse on both.
+ *
+ * ### What else moved, stated because a band that moves is not a no-op
+ *
+ * - `snappedContourPoints` emits `s.x + nx*t`, an absolute image position, so
+ *   for a sample whose peak is interior to the band and which clears the
+ *   confidence gate in BOTH arms the emitted point is unchanged — which is why
+ *   the enrolment path never showed this bias. It is not a no-op in general:
+ *   the band's reach relative to the truth goes from [-5.1, +10.9] to [-8, +8]
+ *   source px, so the abstention SET moves (measured on a rendered contour,
+ *   emitted points 89->79, 55->45, 45->33, 57->50, 89->85 over five poses, the
+ *   whole of it the `minGradient` gate) and a peak clamped at a band end moves
+ *   with `s.x`. The direction is favourable — the band is now centred on the
+ *   prediction instead of 2.9 px inside it — and the count stays far above the
+ *   12 points `main.ts`'s `scanSilhouette` measured as still beating supplying
+ *   nothing.
+ * - `contourPushes` gathers vertices within `gatherPx` = 6 source px of the
+ *   sample, and the shift moves that disc by up to 2.86 px — 48% of its
+ *   radius — so WHICH vertices are corrected changes, by about 14% of the
+ *   touched count. Any field comparison across the two conventions is a
+ *   comparison over two vertex sets.
+ * - `depthMm` is still the flagged pixel's own depth, and the reported
+ *   position may now sit just past the boundary, where the surface present is
+ *   the far one. Nothing reads the field today (declared here, written here,
+ *   read nowhere in `src/`); the next consumer that takes it at its word is
+ *   who this note is for.
  */
 export function occludingContour(
   buffer: DepthBuffer, options: { jumpMm?: number; stride?: number } = {},
@@ -99,9 +218,18 @@ export function occludingContour(
       if (!edge) continue;
       const len = Math.hypot(gx, gy);
       if (!(len > 0)) continue;
+      const nx = gx / len, ny = gy / len;
+      // Out to the estimated boundary rather than stopping at the drawn
+      // pixel's centre. Where a surface really ends, this pixel is the last
+      // one covered, which puts the boundary `max(|nx|,|ny|) / 2` buffer
+      // pixels along the normal in expectation. Where the jump was a steep
+      // smooth flank instead — 54% of them at 224 px — there is no boundary
+      // and this only re-centres the search band; see the header for both.
+      // Buffer pixels: the scaling to source px happens once, below.
+      const half = 0.5 * Math.max(Math.abs(nx), Math.abs(ny));
       out.push({
-        x: (x + 0.5) * inv, y: (y + 0.5) * inv,
-        nx: gx / len, ny: gy / len,
+        x: (x + 0.5 + nx * half) * inv, y: (y + 0.5 + ny * half) * inv,
+        nx, ny,
         depthMm: d,
       });
     }

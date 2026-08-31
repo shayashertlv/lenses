@@ -473,3 +473,179 @@ describe('the calibration field is a constant of the face, not of the frame', ()
     assert.equal(field.convergence(), 0);
   });
 });
+
+describe('the contour sample sits on the boundary, not on the last drawn pixel', () => {
+  // Production geometry, because the defect is invisible at scale 1: a 224-px
+  // buffer against 1280-px intrinsics makes one buffer pixel 5.714 source px,
+  // which is 4.38 mm at 450 mm. `rasterize` draws a pixel only when its CENTRE
+  // is covered, so the last drawn pixel's centre lies 0..1 buffer px INSIDE the
+  // true silhouette; reporting it verbatim hands `snapOffsets` a reference that
+  // is always inward and makes every measured offset read outward by half a
+  // buffer pixel on average. `CalibrationField` then freezes that as wearer
+  // geometry.
+  //
+  // The truth here is ANALYTIC — the projected edge of a flat quad is a line in
+  // closed form — so the assertion is not graded against another rasterisation
+  // carrying the same bias. Both cases sweep the edge across a whole buffer
+  // pixel of grid phase, because at any single phase the gap is whatever that
+  // phase happens to be; only the mean over the sweep is the bias.
+  const KP: Intrinsics = { f: 587.5, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 };
+  const IDENTITY = {
+    R: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1),
+    t: Float64Array.of(0, 0, 0),
+  };
+  const Z = 450;
+  const bufferAt = () => createDepthBuffer(224, Math.round((224 * KP.height) / KP.width), KP);
+  const srcPerBufferPx = 1280 / 224;
+  const PHASES = 32;
+  /** Camera-mm step that moves the projected edge exactly one buffer pixel. */
+  const oneBufferPxMm = (srcPerBufferPx * Z) / KP.f;
+
+  /**
+   * 0.30 source px, and the looser 0.6 it replaced was not a guard.
+   *
+   * The shift is exactly linear in the correction, so the pass window for a
+   * FLAT constant `h` buffer px is analytic: |−2.81 + 5.714h| < T on the axis
+   * fixture and |−2.01 + 5.714h| < T on the 45-degree one. Those windows
+   * overlap whenever T > 0.398 — so at 0.6 a flat `h = 0.45`, a constant with
+   * no normal dependence at all, passes the test whose own title says the
+   * half-pixel is along the NORMAL and not the axis. `0.5*max(...)**2` escaped
+   * by 0.017 px, and the derived law's only non-trivial content IS that
+   * exponent. At 0.30 the windows are disjoint — axis (0.439, 0.544) against
+   * diagonal (0.302, 0.407) — so no flat constant passes, the squared law
+   * fails at −0.583, and the shipped policy still clears with ~1.4x margin
+   * across buffer widths 64–448, triangle sizes 20–100 and 16–64 phases.
+   */
+  const TOL = 0.30;
+
+  it('an axis-aligned silhouette is reported on the edge, not half a pixel inside', () => {
+    const buffer = bufferAt();
+    const errs: number[] = [];
+    // 32 phases across one buffer pixel, expressed as the quad's right edge in
+    // camera mm. One buffer px is 5.714 source px = 4.377 mm at this depth.
+    // Load-bearing, and asserted rather than assumed: the sweep must cover
+    // exactly one buffer pixel of grid phase. At half the span the shipped
+    // policy reads +1.08 source px and this test fails — the mean is the bias
+    // only when every phase is equally represented.
+    assert.ok(Math.abs((oneBufferPxMm * KP.f) / Z / srcPerBufferPx - 1) < 1e-9,
+      'the phase sweep must span exactly one buffer pixel');
+    for (let p = 0; p < PHASES; p++) {
+      const edgeX = 20 + (p / PHASES) * oneBufferPxMm;
+      const positions = new Float64Array([
+        -60, -60, Z, edgeX, -60, Z, edgeX, 60, Z, -60, 60, Z,
+      ]);
+      const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+      rasterize(buffer, positions, indices, 4, IDENTITY, KP);
+      const trueEdgePx = KP.cx + (KP.f * edgeX) / Z;
+      // `stride: 1`, not the wear phase's 2. A vertical edge occupies ONE
+      // buffer column at a time, so a stride that keeps only odd columns keeps
+      // either every phase's samples or none of them — the subsample would be
+      // locked to the phase this test sweeps. The convention under test does
+      // not depend on stride; the sampling of it must not either.
+      for (const s of occludingContour(buffer, { jumpMm: 6, stride: 1 })) {
+        if (s.nx !== 1 || s.ny !== 0) continue;         // the right edge only
+        if (Math.abs(s.x - trueEdgePx) > 2 * srcPerBufferPx) continue;
+        errs.push(s.x - trueEdgePx);                    // negative = inside
+      }
+    }
+    assert.ok(errs.length > 100, `only ${errs.length} right-edge samples`);
+    const mean = errs.reduce((a, b) => a + b, 0) / errs.length;
+    assert.ok(Math.abs(mean) < TOL,
+      `mean reported position is ${mean.toFixed(2)} source px from the true silhouette `
+      + `(${(mean / srcPerBufferPx).toFixed(3)} buffer px); a systematic inward reference `
+      + 'is read back out as scan error');
+    // Not `worst < srcPerBufferPx`: a flagged pixel's distance to the boundary
+    // is uniform on (-1, 0) buffer px, so with any shift h in [0, 1] the worst
+    // sample is max(h, 1-h) buffer px and that bar cannot fire — the defect
+    // itself clears it by 2.4%. Scaled to something the defect fails (5.58)
+    // and the shipped policy clears with room (2.82).
+    const worst = Math.max(...errs.map(Math.abs));
+    assert.ok(worst < 0.75 * srcPerBufferPx,
+      `worst sample ${worst.toFixed(2)} source px out`);
+  });
+
+  it('a 45-degree silhouette too — the half-pixel is along the NORMAL, not the axis', () => {
+    // The correction is `max(|nx|,|ny|) / 2` buffer px, not a flat half: a
+    // flagged pixel's centre is uniform over that distance from the boundary,
+    // and on a diagonal normal the neighbour that crosses first only advances
+    // 0.707 px along it. A flat 0.5 overshoots here by 0.146 buffer px =
+    // -0.83 source px, and the axis-aligned case above cannot see that.
+    const buffer = bufferAt();
+    const errs: number[] = [];
+    for (let p = 0; p < PHASES; p++) {
+      const c = 20 + (p / PHASES) * oneBufferPxMm;
+      // Right triangle with a 45-degree hypotenuse from (c,-60) to (-60,c):
+      // the boundary is X + Y = c - 60, outward normal (1,1)/sqrt(2).
+      const positions = new Float64Array([-60, -60, Z, c, -60, Z, -60, c, Z]);
+      const indices = new Uint32Array([0, 1, 2]);
+      rasterize(buffer, positions, indices, 3, IDENTITY, KP);
+      // (x - cx) + (y - cy) = (c - 60) * f / Z  is the boundary in source px.
+      const C = KP.cx + KP.cy + ((c - 60) * KP.f) / Z;
+      // Same reason as above, sharper here: on a 45-degree staircase the
+      // boundary pixels satisfy y = x + k, so demanding both odd keeps ALL of
+      // them for even k and NONE for odd.
+      for (const s of occludingContour(buffer, { jumpMm: 6, stride: 1 })) {
+        if (!(s.nx > 0.7 && s.ny > 0.7)) continue;      // the hypotenuse only
+        const along = (s.x + s.y - C) / Math.SQRT2;     // negative = inside
+        if (Math.abs(along) > 2 * srcPerBufferPx) continue;
+        errs.push(along);
+      }
+    }
+    assert.ok(errs.length > 100, `only ${errs.length} hypotenuse samples`);
+    const mean = errs.reduce((a, b) => a + b, 0) / errs.length;
+    assert.ok(Math.abs(mean) < TOL,
+      `mean reported position is ${mean.toFixed(2)} source px from the 45-degree silhouette `
+      + `(${(mean / srcPerBufferPx).toFixed(3)} buffer px)`);
+  });
+
+  it('an interior peak emits the same point either way — the only case the algebra covers', () => {
+    // `snappedContourPoints` emits `s.x + nx*t`, so moving the band's centre
+    // moves `t` by the same amount and cancels. That is why the enrolment
+    // silhouette never exposed the bias — but the cancellation holds only for
+    // a peak INTERIOR to the band that clears the confidence gate in BOTH
+    // arms, which is exactly what this case constructs. It is not a general
+    // no-op, and the next case is the part that does move.
+    const samples = [{ x: 100, y: 120, nx: 1, ny: 0, depthMm: 450 }];
+    const shifted = [{ x: 100 + 2.86, y: 120, nx: 1, ny: 0, depthMm: 450 }];
+    const image = verticalEdge(103);
+    const a = snappedContourPoints(samples, snapOffsets(samples, image));
+    const b = snappedContourPoints(shifted, snapOffsets(shifted, image));
+    assert.equal(a.length, 2);
+    assert.equal(b.length, 2);
+    assert.ok(Math.abs(a[0] - b[0]) < 0.25,
+      `the emitted image point moved ${(b[0] - a[0]).toFixed(3)} px when only the `
+      + 'band centre moved');
+  });
+
+  it('and the band it walks becomes symmetric about the prediction', () => {
+    // The consequence the case above cannot see. `searchPx` is 8 source px
+    // about the REPORTED position, so with the old reference sitting 2.86 px
+    // inside the boundary the band reached 10.9 px to one side of the truth
+    // and 5.1 px to the other: a scan error outward was refused three px
+    // sooner than the same error inward, on every sample, for no reason but
+    // the raster convention. Centring the reference on the boundary makes the
+    // reach symmetric, which is what a two-sided error deserves.
+    const truth = 200;            // where the geometry says the boundary is
+    // `e` is the real scan-vs-image error: the reference stays put and the
+    // IMAGE edge moves, which is the way round production sees it.
+    const reach = (refAt: number): number[] => {
+      const found: number[] = [];
+      for (let e = -12; e <= 12; e++) {
+        const s = [{ x: refAt, y: 120, nx: 1, ny: 0, depthMm: 450 }];
+        const pts = snappedContourPoints(s, snapOffsets(s, verticalEdge(truth + e)));
+        if (pts.length === 2 && Math.abs(pts[0] - (truth + e)) < 0.5) found.push(e);
+      }
+      return found;
+    };
+    // The old convention reported the boundary 0.5 buffer px inside it.
+    const halfBufferPx = 0.5 * (1280 / 224);
+    const old = reach(truth - halfBufferPx);
+    const now = reach(truth);
+    assert.ok(old.length > 0 && now.length > 0, 'neither arm recovered anything');
+    const skew = (a: number[]) => Math.abs(Math.max(...a) + Math.min(...a));
+    assert.ok(skew(now) < skew(old),
+      `the reach is no less lopsided than before: ${skew(now)} against ${skew(old)}`);
+    assert.ok(skew(now) <= 1,
+      `the reach about the prediction is lopsided by ${skew(now)} source px`);
+  });
+});
