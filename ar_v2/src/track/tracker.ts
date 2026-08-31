@@ -94,8 +94,13 @@ export interface TrackerOptions {
    *  across half a second describes a movement that is over. */
   lostSecondsBeforeReset: number;
   /**
-   * Filter the pose. **Off by default, and that is a measured result rather than
-   * an omission.**
+   * Filter the pose. **Off by default in this library, and that is a measured
+   * result rather than an omission — but the app turns it on.** `app/main.ts`
+   * boots `smooth: true` (decided 2026-08-23; it reaches this repository in
+   * `f9c9093`), so this default governs tests and goldens, not what a wearer
+   * runs — and not `report:track` either, which overrides it for two of its
+   * three arms. The measured verdict below has since reversed on jitter; the
+   * note after the table says how.
    *
    * v1 needed One Euro badly, and tuned it carefully: its pose came from
    * MediaPipe's own similarity fit of the AVERAGE head to the landmarks, which
@@ -123,8 +128,15 @@ export interface TrackerOptions {
    * The code, the tuning and the report all stay, because this is a synthetic
    * result: a real detector's noise may be more correlated across landmarks than
    * the model here, in which case the pose noise would be larger and the filter
-   * would earn its place again. Flip this to `true` and re-run
-   * `npm run report:track` to find out. See `docs/OPEN-QUESTIONS.md` Q7.
+   * would earn its place again. That is what happened: the app has booted
+   * the One Euro since 2026-08-23 — latched first, then plain `smooth: true`
+   * (`app/main.ts`) — so this `false` is the
+   * LIBRARY default — what tests and goldens get — and not the shipped one.
+   * `report:track` overrides it too, running two of its three arms filtered.
+   * Re-measured 2026-08-31, the filtered arm now wins jitter median and p90 5/5
+   * across the campaign seeds and loses on lag. **The four-row sweep above
+   * predates all of this** (it is pre-`f9c9093`) and has never been re-run.
+   * See `docs/OPEN-QUESTIONS.md` Q7.
    *
    * **`'adaptive'`** is the answer to what the first real wearer then reported:
    * the caveat above came true, and it came true YAW-SHAPED. Jiggle grows as

@@ -204,6 +204,28 @@ higher, the filter earns its place again.
 **To settle it:** run `npm run report:track` against a recorded real session with
 `smooth` both ways. Needs Q8.
 
+**Correction, 2026-08-31: the assumption above is not what ships, and the
+falsifier in "Why it is a question anyway" came true.** The app has run the One
+Euro since 2026-08-23 — under the stillness latch first, and as the plain
+`smooth: true` default after that latch was rejected — following the first real
+wearer's report of jiggle that grows with yaw, the correlated-noise failure this
+question wrote down in advance. `TRACKER_DEFAULTS.smooth` is still `false`, which is the library
+default and not the shipped one; `src/app/main.ts`'s `App.smooth` comment
+carries the full history, including the stillness latch that shipped in between
+and was rejected as "stuck and choppy".
+
+The synthetic half has also moved, and it moved the other way. Re-measured
+2026-08-31 with `runTrackReport` at the campaign seeds: the filtered arm now
+wins jitter median 5/5 (0.945 mm against 1.469) and p90 5/5 (1.944 against
+2.519). "Every tuning is worse than none, on lag *and* on jitter" is no longer
+true of jitter on this tree — the filter changed (`derivativeCutoffHz` 1 → 5,
+`ROTATION_DAMPING` 0.25, and the port in `f9c9093`) while the unfiltered arm did
+not. What the filter costs is lag: 4–7× the unfiltered arm's placement error
+through the middle of the yaw sweep, and a forward-push swing of 3.97 mm against
+0.50. So Q7 is no longer "should the filter be on" — it is on — but "is this
+tuning the right trade", and that still needs a real session (Q8) plus the A/B
+against latch v2 the Steady button already carries.
+
 ---
 
 ## Q8 — Nothing here has ever seen a real camera. **(needs you)**
@@ -548,7 +570,8 @@ of the bullets that used to sit here:
   `SKIN.hookStiffnessNPerMm`.
 - **Still resting on a single re-run or an un-rerun bracket**, marked on their
   rows: `silhouetteWeight`, `shapePrior`, `PAD_CURVATURE_LIMIT_MM`,
-  `WEDGE_SLOPE_MM_PER_MM`, `TRACKER_DEFAULTS.smooth` (shipped pair only),
+  `WEDGE_SLOPE_MM_PER_MM`, `TRACKER_DEFAULTS.smooth` (shipped pair only — and
+  the jitter half of it reversed on 2026-08-31, see Q7 and its ledger row),
   `lensAheadOfPadsMm` (sweep predates the seeding fix entirely),
   `EYE_ROTATION_LIMIT_DEG`'s 0.77%→0.59% figure, and `CAMERA_LADDER`'s
   "0 of 600 admitted frames", which is a v1 measurement this tree cannot

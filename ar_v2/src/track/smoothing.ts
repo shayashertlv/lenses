@@ -23,18 +23,25 @@
  *     is never zero on a real detector, so the adaptive cutoff never fully
  *     closes and "still" shimmers. The noise floor is measured and subtracted.
  *
- * ## What changed for v2: this file is now OFF by default
+ * ## What changed for v2: off by default in the library, ON in the app
  *
  * The filter smooths a **pose against a known model** rather than a pose fused
  * with an unknown shape, and that input is about three times cleaner. Measured
- * across the synthetic population, every tuning from v1's own down to a very
- * light one is worse than no filter at all, on lag and on jitter both — see the
- * table on `TrackerOptions.smooth`.
+ * across the synthetic population in 2026-08, every tuning from v1's own down to
+ * a very light one was worse than no filter at all, on lag and on jitter both —
+ * see the table on `TrackerOptions.smooth`.
  *
- * The file stays, complete and tested, for two reasons. The measurement is
+ * **Both halves of that have since moved.** A real detector was noisier in
+ * exactly the way the caveat below predicted, so the app has run this file on
+ * every frame since 2026-08-23 (latched at first, then plain); and re-measured 2026-08-31 the filtered arm now
+ * WINS jitter median and p90 5/5 across the campaign seeds (0.945 against 1.469;
+ * 1.944 against 2.519). What it still costs is lag. `TRACKER_DEFAULTS.smooth`
+ * stays `false` as the library default so tests and goldens are unaffected.
+ *
+ * The file stays, complete and tested, for two reasons. The measurement was
  * synthetic, and a real detector may be noisier in ways the model here does not
- * capture; and the lessons above are worth keeping written down whether or not
- * the code runs today. Turning it on is one flag.
+ * capture — which is what happened; and the lessons above are worth keeping
+ * written down.
  *
  * ## The adaptive mode, and why a fixed tuning cannot serve a turned head
  *

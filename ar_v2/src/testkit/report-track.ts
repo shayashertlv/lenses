@@ -25,7 +25,11 @@
  *
  * ## The three arms
  *
- *   `v2`              pose solved against this wearer's scanned geometry.
+ *   `v2`              pose solved against this wearer's own geometry — ground
+ *                     truth at the default `useTruth: true`, the scan when it is
+ *                     false — with the One Euro ON, which is **the app's shipped
+ *                     smoothing** (`app/main.ts` boots `smooth: true`). The app
+ *                     also runs the motion prior, which this harness does not.
  *   `average-head`    the same solve against the template — v1's situation, since
  *                     MediaPipe's transformation matrix is a rigid fit of the
  *                     average head to the landmarks.

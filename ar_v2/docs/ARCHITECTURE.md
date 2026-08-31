@@ -19,11 +19,16 @@ replaces.** Three consequences:
 
 - **Pose must absorb shape error.** At high yaw the landmarks are worse *and*
   the rigid similarity fit has more shape error to absorb, so the pose swallows
-  it as depth. Measured here (`report:track`, median of 5 seeds, 2026-08-22/23):
-  fitting the average head swings the bridge's depth error by **4.92 mm**
-  between frontal and turned (per-seed 2.77–7.27). Fitting the scanned model
-  swings it by **0.47 mm** on the shipped, unfiltered arm (0.37–0.91) —
-  1.44 mm if the One Euro filter is switched on. Earlier revisions of this
+  it as depth. Measured here (`report:track`, median of 5 seeds, re-measured
+  2026-08-31): fitting the average head swings the bridge's depth error by
+  **6.61 mm** between frontal and turned (per-seed 3.48–10.82). Fitting the
+  wearer's own model — ground truth at `report:track`'s default — swings it by
+  **3.97 mm** on the arm whose smoothing ships, which runs the One Euro, and by
+  **0.50 mm** on the unfiltered `v2-no-smoothing` arm, which is what the library
+  default produces and not what ships. The average-head arm is smoothed too, so
+  it moved with the filter. Of the figures this bullet used to carry, 0.47 was
+  labelled the shipped arm and was the unfiltered one, and 1.44 was labelled
+  correctly but predates the filter change. Earlier revisions of this
   document said 5.1 → 0.37 mm (collapsed-noise harness) and then 4.52 →
   0.53 mm (one seeded draw); the per-seed spread is why both single-number
   versions are retired.
@@ -137,9 +142,16 @@ no per-frame placement.
 There is deliberately **nothing in the tracker that mentions yaw.** The reported
 symptom was a consequence of solving shape and pose together; with shape frozen,
 PnP holds **0.42°** of median rotation error at frontal (per-seed 0.32–0.59),
-**1.30°** at 60° (0.50–1.56) and **1.14°** at full profile (0.47–1.77) —
+**1.25°** at 60° (0.50–1.56) and **1.14°** at full profile (0.47–1.77) —
 median of five seeds across the population and the camera ladder. Adding a yaw
 term would be treating a symptom that no longer exists.
+
+Those are the **raw solve**, which is what `report:track`'s `v2-no-smoothing`
+arm isolates. Running the One Euro on top of it — which is the smoothing the app
+ships — pays for it in angle: 0.84° frontal, 5.51° at 60°, 1.58° at full
+profile on the same seeds, measured on `report:track`'s `v2` arm, which matches
+the app's smoothing and not the rest of its configuration. See README's
+forward-push section.
 
 One published figure about this module was wrong in the other direction and is
 corrected here: the module header used to claim steady-state refinement
@@ -265,8 +277,12 @@ and `enroll/bundle.ts` each multiply lambda by a constant on accept and reject.
 6. **The wedge insight** — height, standoff and roll are one coupled equilibrium
    and a frame slides down until both pads bear.
 7. **"Keep previous, never assume average"** on refused measurements.
-8. **One Euro's four hard-won lessons**, even though the filter itself is now off
-   by default — because a cleaner estimator made it stop earning its place.
+8. **One Euro's four hard-won lessons.** A cleaner estimator made the filter
+   stop earning its place on the synthetic population, and `TRACKER_DEFAULTS`
+   still defaults it off; the first real wearer overturned that, and the app has
+   run the One Euro since 2026-08-23 — latched at first, then plain. Re-measured
+   2026-08-31, the synthetic verdict reversed as well: the filtered arm now wins
+   jitter median and p90 5/5, and pays for it in lag.
 
 ## What is built, and what is not
 
@@ -367,7 +383,7 @@ per-seed spread. The three headlines:
 
 | | v1-equivalent | v2 |
 | --- | --- | --- |
-| Depth swing frontal → turned | 4.92 mm | **0.47 mm** |
+| Depth swing frontal → turned | 6.61 mm | **3.97 mm** shipped smoothing / 0.50 mm unfiltered |
 | Pad depth error (landmark-hung vs contact-solved) | 4.79 mm | **1.06 mm** |
 | Nose surface error | not measurable | **1.54 mm** median (0.83 with a true iris) |
 

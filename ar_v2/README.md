@@ -75,50 +75,111 @@ ablations moved by up to 0.14 mm, no claim changed direction, and the seat
 and track tables did not move at all — at their defaults those reports run
 against ground-truth geometry and never call the selector.
 
+**The track figures were then re-measured on 2026-08-31 and they did move**, for
+an unrelated reason: `f9c9093` rewrote `src/track/` and changed the filter, so
+every SMOOTHED figure taken before it — the v1-equivalent arm as much as the
+filtered one — was stale. The forward-push, rotation and jitter numbers below
+are that re-measurement.
+
 ### The forward push
 
 How much the frame's depth error **changes** between frontal and turned — which
 is what a wearer actually perceives, since a constant offset is invisible.
 
+Re-measured 2026-08-31: `runTrackReport` at the campaign seeds
+{11, 23, 37, 41, 53}, 8 subjects × 3 camera geometries. Seed 11 reproduces the
+checked-in `reports/track.txt` cell for cell.
+
 | arm | swing, median of 5 seeds | per-seed swings |
 | --- | --- | --- |
-| v1-equivalent (fit the average head) | **4.92 mm** | 2.77 / 4.07 / 4.92 / 5.48 / 7.27 |
-| v2, as shipped (filter off) | **0.47 mm** | 0.37 / 0.42 / 0.47 / 0.67 / 0.91 |
-| v2 with the One Euro filter on | 1.44 mm | 1.22 / 1.29 / 1.44 / 1.65 / 1.71 |
+| v1-equivalent (fit the average head) | **6.61 mm** | 3.48 / 4.01 / 6.61 / 6.73 / 10.82 |
+| v2 with the One Euro on — the smoothing that ships | **3.97 mm** | 1.13 / 1.94 / 3.97 / 4.12 / 4.56 |
+| v2 unfiltered (`v2-no-smoothing`) | 0.50 mm | 0.41 / 0.41 / 0.50 / 0.64 / 0.95 |
 
-**A median 8.0× reduction in the artefact that was reported** (per-seed ratios
-6.6 to 14.8), on the arm that ships. The middle row is `v2-no-smoothing` in
-`report:track`, and it is the shipped configuration — `TRACKER_DEFAULTS.smooth`
-is `false`. Which arm the claim quotes is load-bearing: against the filtered
-arm the same comparison is a median 4.0×, not 8.0×. The per-seed column is why
-this table stopped printing one number per cell: earlier single-draw versions
-read 14× (collapsed noise stream), then 8.5× (one post-fix draw), and the
-honest statement is that the v1-equivalent swing alone spans 2.8–7.3 mm across
-five noise realisations of the same population.
+**A median 1.7× reduction in the artefact that was reported**, on the arm whose
+smoothing ships — and on 2 of the 5 seeds that arm is *worse* than fitting the
+average head (per-seed ratios 0.76 / 0.97 / 1.70 / 5.58 / 5.85). The unfiltered
+arm is **10.5×** (8.5 to 13.2), though that pair is not a clean filter ablation:
+the average-head arm is smoothed too. Both figures are medians of per-seed
+ratios; the ratios of the medians are 1.7× and 13.2×.
 
-Rotation error, shipped arm, median of seeds across the population and the
-whole camera ladder: **0.42° at frontal** (per-seed 0.32–0.59), **1.30° at
-60°** (0.50–1.56), **1.14° at 90°** (0.47–1.77). The old text's "falls back to
-0.52° at full profile" was one draw's shape: across seeds the profile figure
-eases below the 60° peak in 4 of 5, but never back near the frontal number. Total placement error of the
-bridge runs **0.82–0.94 mm** at the median out to 60°, 1.70 mm at 75° and
-**2.26 mm** at full profile (per-seed 1.60–3.50). The same solve against the
-average head runs **2.5–3.9°** of rotation error and puts the bridge
-**11.0–14.8 mm** from where it belongs at the median depending on yaw bucket
-(p90s 29.8–39.4 mm).
+**Read every filtered figure here as *shipped-in-smoothing* and nothing more.**
+`report:track`'s `v2` arm matches the app on the One Euro and differs from it in
+four other ways: the app passes `rigidity`, turns the motion prior on, and
+passes `visibility` — the far-half-face cull `tracker.ts` calls load-bearing at
+yaw — and it tracks against an enrolled scan where the harness uses ground
+truth. That gap is not obviously small on a sweep this fast:
+`PRIOR_MISS_EMA_RATE`'s ledger row records the motion prior costing 7.1× at
+1 Hz ±10°. Nobody has measured the configuration a wearer actually runs.
+
+**Which arm the claim quotes is load-bearing, and this section quoted the wrong
+one until 2026-08-31.** It read 4.92 / 0.47 / 1.44 mm and headlined "a median
+8.0× reduction … on the arm that ships". Two things were wrong with that. The
+arm was the unfiltered one — `TRACKER_DEFAULTS.smooth` is `false`, but that is
+the library default, what a caller gets who asks for nothing, and neither the
+app nor `report:track` is such a caller: the app has run the One Euro since
+2026-08-23 (under the stillness latch first, then as the plain `true` default
+once that latch was rejected as "stuck and choppy"), and `report:track` builds
+each arm with `smooth: arm !== 'v2-no-smoothing'`, so two of its three arms are
+filtered. And both smoothed figures predated the filter change carried by
+`f9c9093` (2026-08-25, which also carries `derivativeCutoffHz` 1 → 5 and
+`ROTATION_DAMPING`) — in `reports/track.txt`'s own words, "it is the FILTER that
+moved" — so the v1-equivalent baseline was stale as well, because it is
+smoothed too. The unfiltered arm barely shifted (0.47 → 0.50) and its published
+per-seed rotation brackets still reproduce to the hundredth, which is how the
+two are told apart.
+
+The per-seed column is why this table stopped printing one number per cell:
+earlier single-draw versions read 14× (collapsed noise stream), then 8.5× (one
+post-fix draw), and the honest statement is that the v1-equivalent swing alone
+spans 3.5–10.8 mm across five noise realisations of the same population.
+
+Rotation error of the **unfiltered** solve — the estimator before any smoothing,
+which is what `v2-no-smoothing` isolates — median of seeds across the population
+and the whole camera ladder: **0.42° at frontal** (per-seed 0.32–0.59),
+**1.25° at 60°** (0.50–1.56), **1.14° at 90°** (0.47–1.77). Total placement
+error of the bridge, same arm, runs **0.76–0.95 mm** at the median out to 60°,
+1.79 mm at 75° and **2.26 mm** at full profile (per-seed 1.97–3.47). The old
+text's "falls back to 0.52° at full profile" was one draw's shape: across seeds
+the profile figure eases below the 60° peak in 4 of 5, but never back near the
+frontal number.
+
+**Those are the figures this section used to print under the words "shipped
+arm".** With the One Euro on, median of the same five seeds: rotation
+**0.84° frontal** (0.73–0.95), **4.20° at 30°** (3.98–4.63), **5.51° at 60°**
+(4.98–5.81), **1.58° at 90°** (1.27–2.23); bridge placement **3.53 mm
+frontal**, 5.03 at 30°, **6.12 at 60°** (5.85–6.68), 3.17 at full profile —
+4 to 7× the unfiltered arm through the middle of the sweep.
+
+At mid-yaw the filter very nearly erases the scan's advantage in angle:
+**5.51° against the average head's 5.80°** at 60°. What the scan still buys
+there is placement — 6.12 mm against **16.61 mm** (the average head runs
+10.9–16.6 mm depending on yaw bucket, p90s far worse). So the scan carries the
+frame's *position* and the filter spends most of what it carries in *angle*.
+This is a deliberately fast sweep — 35° in a third of a second — so ordinary
+browsing is slower and the lag correspondingly smaller. `docs/NEXT-SESSION.md`
+§B holds the open question, and it is a question about the shipping tracker
+rather than about an ablation arm.
 
 There is deliberately **no yaw handling anywhere in the tracker.** The symptom
 was a consequence of solving shape and pose together; with shape frozen it has
 no mechanism.
 
-One tail in that report is real, recurring, and unexplained: **worst jitter
-while holding a pose.** Medians and p90s are tight (1.4–1.7 / 2.4–2.9 mm in
-every arm at every seed), but 20–47 mm worst-case outliers appear at 4 of the
-5 seeds — in all three arms at seed 23, in the average-head arm at 37 and 53,
-in the filtered arm at 41. The old text blamed a single 42.2 mm outlier on the
-filtered arm; the outlier class is not the filter's and nobody has found out
-what it is. Do not quote a worst-jitter figure as though it separated the
-arms.
+**The 20–47 mm worst-jitter outlier class is gone, and this paragraph used to
+say it was here.** It reported that class at 4 of the 5 seeds, naming the arms
+it landed on, and called it real, recurring and unexplained. Re-measured
+2026-08-31 at the same five seeds, no such outlier exists: worst jitter runs
+**3.06 to 4.35 mm** across all three arms and all five seeds, with nothing above
+it. Its "tight (1.4–1.7 / 2.4–2.9 mm in every arm at every seed)" bands held on
+the tree they were measured on — the pre-port filtered arm sat at 1.53 / 2.77,
+inside them — and they no longer describe this one: the medians now span
+0.89–1.58 and the p90s 1.89–2.76, because the two filtered arms dropped well
+below the unfiltered one (see the ablation below).
+
+Whether the outlier class was fixed or was an artefact of the pre-`f9c9093`
+filter is unmeasured; it is the same port that moved every other smoothed
+number on this page. What survives unchanged is the instruction: do not quote a
+worst-jitter figure as though it separated the arms.
 
 ### The nose
 
@@ -311,20 +372,42 @@ lens-ordering measurement.
 
 ### Things that turned out not to earn their place
 
-Reported because a build that only reports its wins is not a measurement.
+Reported because a build that only reports its wins is not a measurement. One
+entry has since reversed — the pose filter earned its place back, twice, once in
+the field and once on the harness — and it is kept here with its reversal
+rather than quietly moved.
 
-- **The pose filter is off.** Every One Euro tuning tested — including v1's own —
-  is worse than no filter, on lag *and* on jitter. Once pose comes from six
-  parameters against known geometry with 300+ correspondences, the estimate is
-  cleaner than the filter's time constant. v1 needed it badly; v2's estimator
-  made it redundant. (Synthetic result — Q7.) Re-confirmed for the shipped
-  pair, now across all 5 seeds: unfiltered wins jitter median in **5/5**
-  (median-of-seeds 1.46 vs 1.53 mm) and p90 in **5/5** (2.55 vs 2.77), while
-  holding the depth swing at 0.47 mm against the filtered arm's 1.44. The
-  *worst*-jitter column separates nothing — the 20–47 mm outlier class lands
-  on both arms (see the forward-push section) — and the old text's "4.96 vs
-  42.20" was two draws of that class, not a property of the filter. The full
-  *tuning sweep* behind the word "every" was not re-run.
+- **The pose filter did not earn its place, then a wearer put it back, then it
+  started earning its place.** The original finding: every One Euro tuning
+  tested — including v1's own — was worse than no filter, on lag *and* on
+  jitter, because once pose comes from six parameters against known geometry
+  with 300+ correspondences the estimate is cleaner than the filter's time
+  constant. Measured across 5 seeds on 2026-08-23: unfiltered won jitter median
+  **5/5** (1.46 vs 1.53 mm) and p90 **5/5** (2.55 vs 2.77). (Synthetic result —
+  Q7.)
+
+  Then the first real wearer reported jiggle that grows with yaw — which is the
+  falsifier Q7 had written down in advance, that a real detector's noise is
+  correlated across landmarks in a way this harness's per-landmark independence
+  underestimates. The app has run the One Euro since 2026-08-23 — under the
+  stillness latch first, and as the plain `true` default after that latch was
+  rejected. The library default `TRACKER_DEFAULTS.smooth` is still `false`; both
+  facts are true of different objects, and the arm every wearer has seen is the
+  filtered one.
+
+  **And the jitter verdict has since reversed, which nothing in this repo had
+  noticed.** Re-measured 2026-08-31 at the same five seeds: the **filtered** arm
+  wins jitter median 5/5 (median-of-seeds **0.945 mm** against the unfiltered
+  1.469) and p90 5/5 (**1.944** against 2.519). The unfiltered arm barely moved
+  (1.46 → 1.469) — the filter did, in `f9c9093`, which carries
+  `derivativeCutoffHz` 1 → 5, `ROTATION_DAMPING` 0.25 and the rewrite together.
+  So "worse on lag *and* on jitter" is now only true of lag, and lag is where it
+  is expensive:
+  4–7× the unfiltered placement error through mid-yaw, and a forward-push swing
+  of 3.97 mm against 0.50. Two caveats stand: the *tuning sweep* behind the word
+  "every" has never been re-run, and the 20–47 mm worst-jitter outlier class the
+  old text discussed does not appear on this tree at all (worst jitter runs
+  3.06–4.35 mm across every arm and seed).
 - **The profile beat holds its value; the lean beat's PD evidence stays
   evaporated.** Dropping the profile hold costs a median **+0.14 mm** of nose
   surface error, paired per seed (0.00 to +0.45 across the five), and moves
@@ -454,7 +537,7 @@ src/
     facemodel THE boundary type: what a scan produces
   enroll/     the four-second scan and its bundle adjustment;
               the scale ladder is pd -> iris -> assumed (docs/SCALE.md)
-  track/      PnP against the scanned model; One Euro (off)
+  track/      PnP against the scanned model; One Euro (library off, app on)
   fit/        contact-physics seat, frame assets, numeric fit scoring
   detect/     landmark adapter + per-landmark uncertainty
   render/     three.js; convert.ts is the ONLY CV↔GL conversion in the tree
@@ -497,8 +580,8 @@ intact:
 4. **Constants provenance classes**, and *"a check that cannot fail is a bug"*.
 5. **The wedge insight** — height, standoff and roll are one coupled equilibrium.
 6. **"Keep previous, never assume average"** on refused measurements.
-7. **One Euro's four lessons**, kept written down even though the filter is now
-   off.
+7. **One Euro's four lessons** — load-bearing again, not just on paper: the
+   library default is off and the app ships the filter on.
 
 ---
 
