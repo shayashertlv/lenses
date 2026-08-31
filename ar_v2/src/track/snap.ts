@@ -134,21 +134,71 @@ export interface ContourSample {
  * a diagonal one it is 0.354, and using 0.5 there is the -1.10 mm above.
  *
  * On the 54% there is no boundary to move toward, and the shift is a bare 1.5
- * to 2.2 mm relocation of the search band's centre off the surface. Whether
- * that helps or hurts depends on what the image does on a cheek flank, and
- * NOTHING here has measured that — the end-to-end instrument behind this
- * change modelled those samples as featureless, which is an assumption and not
- * a finding. What IS measured: there is no straight-edge orientation from 0 to
- * 90 degrees at which the shift is worse than none, and on the real contour it
- * costs the enrolment silhouette 6.3% of its genuine-boundary points against
- * 17.7% of its flank points — so what it thins is mostly the junk.
+ * to 2.2 mm relocation of the search band's centre off the surface. What IS
+ * measured about the shift: there is no straight-edge orientation from 0 to 90
+ * degrees at which it is worse than none, and on the real contour it costs the
+ * enrolment silhouette 6.3% of its genuine-boundary points against 17.7% of
+ * its flank points — so what it thins is mostly the junk.
  *
- * **Separating the two populations is the next piece of work, not this one.**
- * Comparing the forward jump against the backward depth slope on the same axis
- * and requiring a ratio above about 2.5 keeps 97% of genuine boundaries and
- * rejects 93% of flanks, measured over the same eight poses. It wants its own
- * sweep, its own ledger row, and its own answer to what the flagged flanks are
- * already doing to `contourPushes` — all of which are older than this fix.
+ * ### The flank population is real and it is NOT harmless
+ *
+ * Measured 2026-08-31 on the tree's own `generatePopulation` — 17 subjects
+ * (`count: 4` returns 6; `count: 15` returns 17, two of them fixed extremes)
+ * across 24 poses, shipped settings, with the same analytic ground truth:
+ *
+ *     21,920 flagged pixels
+ *      8,494 (39%)  a real boundary inside the +/-8 source px snap band
+ *      1,883  (9%)  a real boundary beyond the band
+ *     11,543 (53%)  no boundary along the search direction at all: flank
+ *
+ * So the 53% is a property of the resolution, not of one mesh. And the flanks
+ * do not abstain. Rendered with SMOOTH (per-vertex) Lambertian shading — the
+ * honest model, because a flank is where a surface turns from the light and
+ * carries the strongest gradient on the face — over three light directions
+ * and two grain levels, flank samples are **23-45% of every confident sample
+ * on the frame**, median |offset| **3.5-5.4 mm** against `contourPushes`' 3 mm
+ * cap. All of it invention. The genuine samples in the same frames read
+ * 0.94-1.13 mm against a correct 0.00.
+ *
+ * ### And the obvious separator is not the fix. Measured, and rejected
+ *
+ * The tempting rule is the second difference: a straight depth ramp steps
+ * forward by what it stepped backward, so require the forward jump to exceed
+ * some ratio of the backward slope. It was implemented, measured, and taken
+ * back out on 2026-08-31, for a reason that is structural rather than a matter
+ * of tuning.
+ *
+ * **An off-mask forward neighbour has no ratio.** `farBy` is `Infinity`, so
+ * such a sample passes unconditionally — and 88% of genuine in-band samples
+ * have one, because they sit on the silhouette against the background. The
+ * gate therefore cannot refuse a mask-boundary flank at all, and 100% of what
+ * it does refuse lands on the other 12%: the INTERIOR occluding edges this
+ * function's header opens by calling its reason to exist. On the population
+ * above, off-mask genuine samples lost 0.00% at every threshold while purely
+ * interior genuine samples lost 5.96% at ratio 1.1, **11.7% at 1.5**, 20.1% at
+ * 2.0 and 28.8% at 2.5 — worst at 17-18% at yaw 40, which is exactly where a
+ * rim gets occluded by a nose.
+ *
+ * **There is also no threshold to find.** 7,663 of the 8,494 genuine samples
+ * (90%) have an INFINITE ratio and survive any finite cut, so a sweep's
+ * "genuine kept" column is decided by the other 10%. Their finite ratios run
+ * from 0.083 with a 1st percentile of 0.13 — straight through the flank
+ * cluster, which sits at median 0.90 and p75 1.00. On the template's eight
+ * poses alone the genuine minimum reads 2.04 and the gap looks empty; that
+ * number is the minimum of seventeen samples on one mesh, and the population
+ * erases it.
+ *
+ * **Beware the loop metric that appears to settle it.** Running the whole
+ * calibration loop against a PERFECT scan makes the correct field 0.000 mm at
+ * every vertex, and a mean over vertices is then minimised by touching fewer
+ * of them: an arm that emits nothing scores perfectly, a junk-only arm at
+ * matched count beats the real one, and the metric prefers a larger threshold
+ * monotonically. It cannot choose a value and it cannot tell dropping junk
+ * from dropping signal. A fixture whose correct answer is NON-zero is what the
+ * next attempt needs — an inflated scan against an image rendered from the
+ * true geometry was tried and is not yet sound either, because it charges
+ * vertices that carry no observable constraint with a correction the snap was
+ * never in a position to make.
  *
  * ### What is left, and why there is no Sobel here
  *
