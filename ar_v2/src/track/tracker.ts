@@ -70,11 +70,12 @@ import {
   orthonormalize, poseClone, poseIdentity, rotationAngleBetween, smoothstep, v3,
 } from '../core/linalg.js';
 import type { Intrinsics } from '../core/camera.js';
-import { headEuler } from '../core/camera.js';
+import { headEuler, project } from '../core/camera.js';
 import type { FaceModel } from '../core/facemodel.js';
 import type { SilhouetteStrip } from '../core/mesh.js';
 import {
-  type Correspondence, type PnPResult, buildCorrespondences, refinePnP, solvePnP,
+  type Correspondence, type PnPResult, GROSS_ERROR_PX, buildCorrespondences, refinePnP,
+  solvePnP,
 } from './pnp.js';
 import { ADAPTIVE_SIGMA_FLOOR_PX, PoseSmoother, noiseScaleFromSigma } from './smoothing.js';
 
@@ -1026,9 +1027,10 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     calibrated[i] = (options.rigidity == null || options.rigidity[i] >= 0.999)
       && (input.visibility == null || input.visibility[i] >= VF_CAL_MIN_VIS) ? 1 : 0;
   }
+  const sigmaCulled: number[] = [];
   const correspondences: Correspondence[] = buildCorrespondences(
     input.landmarks, input.sigmaPx, model.vertexCount,
-    rigidity, options.maxSigmaPx, calibrated,
+    rigidity, options.maxSigmaPx, calibrated, sigmaCulled,
   );
   if (correspondences.length < options.minCorrespondences) {
     return miss(state, input.dt, `only ${correspondences.length} usable landmarks`);
@@ -1103,9 +1105,47 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   // The second half of the gate: how much of this frame is describing
   // something that is not this face. Checked AFTER the rms so the reason
   // string names whichever question actually failed.
-  if (result.grossFraction > options.maxGrossFraction) {
+  //
+  // **Counted over the landmarks the sigma cull dropped as well.** `gross` was
+  // documented as "a count and cannot be diluted by weighting", and that was
+  // true and beside the point: it was being diluted by CULLING instead, one
+  // step earlier. A landmark whose sigma passed `maxSigmaPx` never reached
+  // `residualStats`, so a frame could be made to look clean by declaring the
+  // inconvenient landmarks uncertain — and a BETTER sigma stream does exactly
+  // that, isolating an intruding face so cleanly that the solve is handed a
+  // coherent subset of it to fit. Measured on `core.test.ts`'s second-face
+  // stream at 60%: 468 landmarks produced, 49 surviving, 0.102 over the
+  // survivors against 0.355 over the frame, accepted at 11.7 mm from the
+  // INTRUDER's truth and 47.7 mm from the wearer's.
+  //
+  // A culled landmark is counted only if it is actually gross — projected at
+  // the solved pose and more than `GROSS_ERROR_PX` away. Counting its absence
+  // instead was tried and measured to refuse the wearer for TALKING: lip
+  // landmarks are outside the rigidity map and fully visible, sustained speech
+  // inflates them past the cull, and charging that as "elsewhere" refused 22 of
+  // 35 frames on a still frontal face. A lip moves tens of pixels; a second
+  // face's landmarks are fifty off. The threshold already separates them.
+  let grossN = result.grossFraction * result.grossTotal;
+  let grossTotal = result.grossTotal;
+  if (sigmaCulled.length > 0) {
+    const cam = v3();
+    const uv = new Float64Array(2);
+    const R = result.pose.R;
+    for (const i of sigmaCulled) {
+      const x = model.positions[i * 3], y = model.positions[i * 3 + 1], z = model.positions[i * 3 + 2];
+      cam[0] = R[0] * x + R[1] * y + R[2] * z + result.pose.t[0];
+      cam[1] = R[3] * x + R[4] * y + R[5] * z + result.pose.t[1];
+      cam[2] = R[6] * x + R[7] * y + R[8] * z + result.pose.t[2];
+      if (!project(uv, input.intrinsics, cam)) continue;
+      grossTotal++;
+      if (Math.hypot(uv[0] - input.landmarks[i * 2], uv[1] - input.landmarks[i * 2 + 1])
+        > GROSS_ERROR_PX) grossN++;
+    }
+  }
+  const grossFraction = grossTotal > 0 ? grossN / grossTotal : 0;
+  if (grossFraction > options.maxGrossFraction) {
     return miss(state, input.dt,
-      `${(result.grossFraction * 100).toFixed(0)}% of landmarks are elsewhere`);
+      `${(grossFraction * 100).toFixed(0)}% of landmarks are elsewhere`);
   }
   // Counted only past the gate: 'acquisitions' means times the tracker
   // actually acquired from scratch. Counting at the solve, as this used to,

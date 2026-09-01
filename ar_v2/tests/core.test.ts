@@ -3700,6 +3700,77 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     }
   });
 
+  it('the sigma cull cannot hide a second face, and expression is not one', () => {
+    // **`gross` was diluted by the cull, one step before the weighting it says
+    // it cannot be diluted by.** `buildCorrespondences` drops a landmark whose
+    // sigma passes `maxSigmaPx`, and `grossFraction` was counted over what came
+    // back — so declaring a landmark uncertain removed it from the statistic
+    // that exists to notice it is somewhere else. Measured on the fixture above
+    // at 60%: 468 landmarks produced, 49 surviving, 0.102 over the survivors
+    // against 0.355 over the frame, accepted at 11.7 mm from the INTRUDER's
+    // truth and 47.7 mm from the wearer's.
+    //
+    // Both directions are pinned here because the obvious repair — counting a
+    // culled landmark's ABSENCE as gross — refuses the wearer for talking. Lip
+    // landmarks are outside the rigidity map and fully visible at a frontal
+    // pose, sustained speech inflates them past the cull, and charging that as
+    // "elsewhere" refused 22 of 35 frames on a still head. So a culled landmark
+    // counts only when it is actually gross: projected at the solved pose and
+    // more than GROSS_ERROR_PX away. A lip moves tens of pixels; a second face's
+    // landmarks are fifty off.
+    let rs = 0x2f19;
+    const rr = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
+    const gauss = () => { let u = 0; while (u === 0) u = rr(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rr()); };
+    const band = [...Array(mesh.vertexCount).keys()]
+      .sort((a, b) => model.positions[a * 3 + 1] - model.positions[b * 3 + 1])
+      .slice(0, 71);
+
+    const drive = (frames: Float64Array[]) => {
+      const tr = createTracker(model, { smooth: false, rigidity, motionPrior: true });
+      const u = createUncertainty(mesh.vertexCount);
+      let prev: Pose | null = null;
+      let refused = 0;
+      let culled = 0;
+      for (const lm of frames) {
+        const est = estimateSigma(u, {
+          landmarks: lm, mesh, positions: new Float64Array(mesh.positions),
+          intrinsics: K, pose: prev,
+        });
+        for (let v = 0; v < mesh.vertexCount; v++) if (est.sigmaPx[v] > 12) culled++;
+        const r = track(tr, {
+          landmarks: lm, sigmaPx: est.sigmaPx, visibility: est.visibility,
+          intrinsics: K, dt: 1 / 30,
+        });
+        if (r.rawPose) prev = r.rawPose; else refused++;
+      }
+      return { refused, culled };
+    };
+
+    // TALKING. A still frontal head with the lower face moving every frame. The
+    // motion is real and the landmarks DO get culled — the fixture asserts that,
+    // or it would pass while testing nothing — but none of it is fifty pixels
+    // from where the model puts it, so none of it is another face.
+    const frontal = projectAll(poseAt(0));
+    const talking: Float64Array[] = [];
+    for (let f = 0; f < 30; f++) {
+      const lm = new Float64Array(mesh.vertexCount * 2);
+      for (let v = 0; v < mesh.vertexCount; v++) {
+        lm[v * 2] = frontal[v * 2] + gauss() * 0.5;
+        lm[v * 2 + 1] = frontal[v * 2 + 1] + gauss() * 0.5
+          + (band.includes(v) ? (f % 2 ? 22 : -22) : 0);
+      }
+      talking.push(lm);
+    }
+    const spoke = drive(talking);
+    assert.ok(spoke.culled > 0,
+      'fixture sanity: the talking fixture culled no landmarks, so it cannot show '
+      + 'whether a culled landmark is charged as a second face');
+    assert.equal(spoke.refused, 0,
+      `${spoke.refused} of ${talking.length} frames were refused on a still frontal face whose `
+      + 'lower face was moving. Expression is being charged as "elsewhere" — past holdFrames '
+      + 'that hides the glasses, which is the wearer-visible bug this gate already caused once.');
+  });
+
   it('no strip may span the midline — a landmark cannot march across the face', () => {
     // A strip is "which vertex is on the contour at this height", and a row
     // through the midline spans both cheeks: the perpendicularity test could

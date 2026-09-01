@@ -33,16 +33,13 @@
  *     This is the big one and it is the only one that knows the far cheek is
  *     hidden. It requires a pose, so on the very first frame it is unavailable
  *     and everything falls back to (2) and (3).
- *  2. **Temporal disagreement**: how much this landmark has moved relative to a
- *     median TRANSLATION of the whole set. A landmark that jumps while its
+ *  2. **Temporal disagreement**: how much this landmark has moved relative to
+ *     the rigid motion of the whole set, fitted as a 2D similarity so a head
+ *     that rolls or leans removes cleanly. A landmark that jumps while its
  *     neighbours do not is a landmark the detector is unsure about, whatever it
- *     claims. This is the signal that catches blinks, hair and hands.
- *
- *     This used to say "relative to the rigid motion of the whole set", which is
- *     a different and larger claim: a translation is not the rigid motion of a
- *     head that is rolling or leaning. The term therefore charges for some
- *     motion the detector tracked correctly, and the reason it still does is
- *     measured rather than assumed — see the term itself.
+ *     claims. This is the signal that catches blinks, hair and hands. Yaw
+ *     parallax is depth-dependent and is the one rigid motion a 2D fit cannot
+ *     remove; see the term itself.
  *  3. **A floor**, the detector's measured noise on a still, frontal face.
  */
 
@@ -181,57 +178,71 @@ export function estimateSigma(
 
   // ---- 2. temporal disagreement ------------------------------------------
   if (state.previous) {
-    // The rigid part of the frame-to-frame motion, as a median translation.
-    // A median rather than a mean, because the whole point is to be unmoved by
-    // the landmarks that are about to be flagged.
+    // **The rigid part is a SIMILARITY, not a translation.**
     //
-    // **A translation is not the whole rigid motion, and replacing it with one
-    // was tried and rejected on measurement.** A head that rolls or leans moves
-    // perfectly rigidly while only its centre translates, so what is left over
-    // grows with a landmark's distance from that centre — the periphery under
-    // roll, the nose under lean, which are the most pose-informative landmarks
-    // there are. Fitting a 2D similarity (translation, rotation, uniform scale)
-    // removes it exactly: on synthetic rigid motion at 1 deg and 1% a frame the
-    // residual goes from 1.53 / 0.98 / 1.98 px (roll / lean / both) to 0.00, the
-    // floor, and the signal this term exists for sharpens rather than dulls — a
-    // landmark thrown 25 px a frame separates 19.7x from its neighbours against
-    // 14.6x before.
+    // This removed a median translation and called it "the rigid motion of the
+    // whole set", which is what the spec above promises. They are not the same
+    // thing, and the gap is not small: a head that rolls or leans moves
+    // perfectly rigidly, but only its centre translates. Everything else
+    // rotates about that centre or scales toward it, so the leftover grew with
+    // a landmark's distance from the centre — the brow and jaw periphery under
+    // roll, the nose under lean. Those are the most pose-informative landmarks
+    // there are, and they were being down-weighted for tracking the head
+    // correctly, with the 0.25 EMA carrying it about five frames into the hold
+    // that follows.
     //
-    // It is not wired up, because of a coupling worth understanding before
-    // anyone tries again. Inflating sigma LOWERS the weighted reprojection rms
-    // that `track` thresholds on (`maxRmsPx`, 14 px), so a frame can be made
-    // acceptable by declaring its landmarks uncertain. `core.test.ts`'s
-    // second-face fixture depends on that: two faces interleaved across the
-    // landmarks are not moving rigidly at all, a similarity fitted to the
-    // mixture inflates every residual rather than any, and 2 of 10 frames then
-    // land at rms 13.74 and 8.99 and are ACCEPTED as the wearer. The
-    // translation-only rule under-explains the motion, inflates less, and keeps
-    // every one of those frames above the bar.
+    // Measured on noiseless synthetic rigid motion at 1 deg and 1% a frame, the
+    // spurious residual goes from 1.53 / 0.98 / 1.98 px (roll / lean / both) to
+    // 0.00 — the floor, exactly — and the signal this term exists for gets
+    // SHARPER rather than duller: a landmark thrown 25 px a frame separates
+    // 19.7x from its neighbours against 14.6x before, because nothing else is
+    // polluted any more.
     //
-    // Choosing between the two models per frame by their own median residual
-    // does not separate the cases — measured, the similarity wins on the mixture
-    // too. So the real blocker is the coupling, not this term: while a gate is
-    // protected by sigma staying small, no improvement to sigma is safe. Across
-    // 40 independent seeds of that fixture both rules leak equally (2 of 1200),
-    // so the committed pin is one draw of a stochastic bar, which is worth
-    // knowing before reading either number as a verdict.
-    const dx: number[] = [];
-    const dy: number[] = [];
+    // Mean centres rather than medians, deliberately: a per-coordinate median is
+    // not rotation-equivariant — the median of a rotated set is not the rotation
+    // of the median — so median centring leaves a residual under exactly the
+    // roll this is removing. Measured, it left 0.92 px against the 0.70 floor.
+    //
+    // No trimming, also deliberately, and the suite is what settled it. A
+    // trimmed refit assumes the bad landmarks are a MINORITY it can shed — this
+    // tree's own lesson from the redescending kernel — and `core.test.ts`'s
+    // second-face fixture is two populations interleaved at 45% and 60%.
+    // Trimming locks the fit onto one of them and drops its residuals.
+    //
+    // What this cannot remove is yaw parallax, which is depth-dependent and so
+    // not a similarity at all: a protruding nose still earns some residual
+    // during a yaw sweep. That is a real limit of a 2D signal, left standing
+    // rather than papered over, and it is much the smaller of the two.
+    const idx: number[] = [];
     for (let i = 0; i < n; i++) {
-      const a = input.landmarks[i * 2], b = state.previous[i * 2];
-      if (Number.isNaN(a) || Number.isNaN(b)) continue;
-      dx.push(a - b);
-      dy.push(input.landmarks[i * 2 + 1] - state.previous[i * 2 + 1]);
+      if (Number.isNaN(input.landmarks[i * 2]) || Number.isNaN(state.previous[i * 2])) continue;
+      idx.push(i);
     }
-    if (dx.length > 20) {
-      const mx = median(dx);
-      const my = median(dy);
-      for (let i = 0; i < n; i++) {
-        const a = input.landmarks[i * 2], b = state.previous[i * 2];
-        if (Number.isNaN(a) || Number.isNaN(b)) continue;
-        const rx = (a - b) - mx;
-        const ry = (input.landmarks[i * 2 + 1] - state.previous[i * 2 + 1]) - my;
-        const r = Math.hypot(rx, ry);
+    if (idx.length > 20) {
+      let cpx = 0, cpy = 0, cqx = 0, cqy = 0;
+      for (const i of idx) {
+        cpx += state.previous[i * 2]; cpy += state.previous[i * 2 + 1];
+        cqx += input.landmarks[i * 2]; cqy += input.landmarks[i * 2 + 1];
+      }
+      cpx /= idx.length; cpy /= idx.length; cqx /= idx.length; cqy /= idx.length;
+
+      // The complex factor w = a + ib taking centred previous to centred
+      // current: w = sum(q * conj(p)) / sum(|p|^2).
+      let sa = 0, sb = 0, sp = 0;
+      for (const i of idx) {
+        const px = state.previous[i * 2] - cpx, py = state.previous[i * 2 + 1] - cpy;
+        const qx = input.landmarks[i * 2] - cqx, qy = input.landmarks[i * 2 + 1] - cqy;
+        sa += qx * px + qy * py;
+        sb += qy * px - qx * py;
+        sp += px * px + py * py;
+      }
+      const a = sp > 0 ? sa / sp : 1;
+      const b = sp > 0 ? sb / sp : 0;
+
+      for (const i of idx) {
+        const px = state.previous[i * 2] - cpx, py = state.previous[i * 2 + 1] - cpy;
+        const qx = input.landmarks[i * 2] - cqx, qy = input.landmarks[i * 2 + 1] - cqy;
+        const r = Math.hypot(qx - (a * px - b * py), qy - (a * py + b * px));
         // EMA so one noisy frame does not condemn a landmark for the session,
         // and so a landmark that becomes reliable again recovers.
         state.disagreement[i] += 0.25 * (r - state.disagreement[i]);

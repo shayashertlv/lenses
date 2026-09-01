@@ -169,6 +169,9 @@ export interface PnPResult {
    *  "how much of this frame is describing something else". The half of the
    *  gate a weighted mean structurally cannot provide; see GROSS_ERROR_PX. */
   grossFraction: number;
+  /** How many correspondences `grossFraction` was counted over — the denominator,
+   *  so a caller can fold in the landmarks the sigma cull kept from it. */
+  grossTotal: number;
   /** How many correspondences carried at least half their weight. */
   inliers: number;
   iterations: number;
@@ -565,6 +568,7 @@ export function refinePnP(
     cost,
     rmsPx: stats.rms,
     grossFraction: stats.grossFraction,
+    grossTotal: stats.grossTotal,
     inliers: stats.inliers,
     iterations,
     converged,
@@ -620,7 +624,8 @@ function evaluateCost(
 function residualStats(
   positions: ArrayLike<number>, correspondences: Correspondence[],
   intrinsics: Intrinsics, pose: Pose, loss: RobustLoss,
-): { rms: number; grossFraction: number; inliers: number; varianceFactor: number } {
+): { rms: number; grossFraction: number; grossTotal: number; inliers: number;
+  varianceFactor: number } {
   const cam = v3();
   const uv = new Float64Array(2);
   const R = pose.R;
@@ -703,6 +708,7 @@ function residualStats(
   return {
     rms: n > 0 ? Math.sqrt(sum / n) : NaN,
     grossFraction: total ? gross / total : 0,
+    grossTotal: total,
     inliers,
     // `errors.length` is the count of correspondences that actually
     // projected — the same guard the old `n` was. (It briefly WAS the bare
@@ -727,13 +733,25 @@ function residualStats(
 export function buildCorrespondences(
   landmarks: Float64Array, sigmaPx: Float64Array, vertexCount: number,
   rigidity?: Float64Array, maxSigma = 12, calibrated?: Uint8Array,
+  sigmaCulled?: number[],
 ): Correspondence[] {
   const out: Correspondence[] = [];
   for (let i = 0; i < vertexCount; i++) {
     const u = landmarks[i * 2];
     if (Number.isNaN(u)) continue;
     let sigma = sigmaPx[i];
-    if (!(sigma > 0) || sigma > maxSigma) continue;
+    if (!(sigma > 0) || sigma > maxSigma) {
+      // **Dropped for being uncertain — which is not the same as absent.**
+      // `grossFraction` asks how much of this frame describes something else,
+      // and it is counted over the array this function returns. So a landmark
+      // dropped here leaves the statistic that exists to notice it, and
+      // declaring landmarks uncertain became a way to look clean. Callers that
+      // gate on gross pass this array and get the ones that had a real position
+      // and a real rigidity, so the gate can decide for itself. See
+      // `GROSS_ERROR_PX`.
+      if (sigmaCulled && sigma > 0 && (!rigidity || rigidity[i] > 0.01)) sigmaCulled.push(i);
+      continue;
+    }
     // Rigidity enters as a sigma inflation rather than a separate weight, so
     // there is exactly one currency in the solver and one Huber threshold that
     // means the same thing for every residual.
