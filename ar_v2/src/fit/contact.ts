@@ -82,17 +82,39 @@ import { type FrameAsset, GRAVITY_N_PER_G } from './frame-asset.js';
  *
  * What makes it tolerable is that the *shape* of the answer barely depends on
  * it — or so the argument goes: doubling `stiffnessNPerMm` should change the
- * settled height by about 0.5 mm and change which frames fit which faces not at
- * all, because the wedge slope (~0.5 mm of half-width per mm of descent)
- * dominates.
+ * settled height by about 0.5 mm — that figure comes from the stiffness
+ * derivation below, not from the slope — and change which frames fit which
+ * faces not at all, because the wedge slope (~0.5 mm of half-width per mm of
+ * descent) dominates.
  *
- * Half of that argument is measured and half is not, and they are worth keeping
- * apart:
+ * Three things are worth keeping apart here: what is measured, what that
+ * measurement is *not*, and what is not measured at all.
  *
- *  - The wedge slope IS measured. `testkit/report-seat.ts` sweeps pad
- *    separation and fits `WEDGE_SLOPE_MM_PER_MM` (descent per mm of
- *    separation), which is the same quantity seen from the other side —
- *    1/(2 x 0.92) is the ~0.5 mm of half-width per mm of descent quoted above.
+ *  - The wedge slope IS measured, though not under the name this header used
+ *    to give it. `testkit/report-seat.ts` sweeps pad separation and fits an
+ *    ordinary least-squares line through the population-MEDIAN descent curve,
+ *    printing it as "measured slope"; it names no constant. The one this
+ *    header used to cite, `WEDGE_SLOPE_MM_PER_MM`, went out when
+ *    `fit/advice.ts` was rewritten into `fit/score.ts` in `f9c9093`, and it has
+ *    had no definition and no ledger row since — the 0.92 this header used to
+ *    divide by was never carried by any commit, report or row here, and
+ *    README's wedge paragraph records the retraction. The committed reading is
+ *    1.146 mm of descent per mm of pad separation (`reports/seat.txt`, seed
+ *    11); a pad separation is twice a half-width, so that is 1/(2 x 1.146) =
+ *    0.44 mm of half-width per mm of descent, and 0.47 at the five-seed median
+ *    README quotes — the ~0.5 above, to the one significant figure this
+ *    estimator's seed spread supports. It is a soft number: the committed
+ *    reading has moved 0.852 -> 0.642 -> 1.146 across three regenerations, so
+ *    re-read it from `reports/seat.txt` rather than from here. What still
+ *    checks it is `tests/pipeline.test.ts`, which bounds the same sweep's
+ *    end-to-end slope to (0.3, 2.0).
+ *  - The measured slope is not the template's geometry, and the gap is
+ *    physical. The sidewall angle alone (0.2743 rad = 15.72 deg, asserted in
+ *    `tests/core.test.ts`) predicts 1/(2 x tan 15.72 deg) = ~1.78 mm of descent
+ *    per mm of separation, so the frame slides about a third less far than the
+ *    wedge alone would allow: the temple arms take load as it descends. This
+ *    sentence is re-homed from the deleted `WEDGE_SLOPE_MM_PER_MM` ledger row,
+ *    which is the one part of that row worth keeping.
  *  - The stiffness insensitivity is NOT. Nothing in this tree sweeps
  *    stiffness. An earlier version of this header credited a
  *    `tests/contact.test.ts` that has never existed in this repository, and

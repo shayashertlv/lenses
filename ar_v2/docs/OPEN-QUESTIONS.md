@@ -570,12 +570,28 @@ of the bullets that used to sit here:
   `SKIN.hookStiffnessNPerMm`.
 - **Still resting on a single re-run or an un-rerun bracket**, marked on their
   rows: `silhouetteWeight`, `shapePrior`, `PAD_CURVATURE_LIMIT_MM`,
-  `WEDGE_SLOPE_MM_PER_MM`, `TRACKER_DEFAULTS.smooth` (shipped pair only — and
-  the jitter half of it reversed on 2026-08-31, see Q7 and its ledger row),
+  `TRACKER_DEFAULTS.smooth` (shipped pair only — and the jitter half of it
+  reversed on 2026-08-31, see Q7 and its ledger row),
   `lensAheadOfPadsMm` (sweep predates the seeding fix entirely),
   `EYE_ROTATION_LIMIT_DEG`'s 0.77%→0.59% figure, and `CAMERA_LADDER`'s
   "0 of 600 admitted frames", which is a v1 measurement this tree cannot
   reproduce at all.
+- **One name left that list on 2026-09-01, because it is not a constant.**
+  `WEDGE_SLOPE_MM_PER_MM` was listed above as marked on its row. It has had no
+  row and no definition since `f9c9093` rewrote `fit/advice.ts` into
+  `fit/score.ts` and dropped both, so there was nothing to mark. Its last ledger
+  value was 0.74; the 0.92 README quoted was never carried by any commit, report
+  or row here. The only object in this repository that derives 0.92 is a dropped
+  stash (`1ce584f`, 2026-08-22) — unreachable from every ref and deletable by
+  the next `git gc`, so treat this pointer as evidence, not as provenance — and
+  its own docstring calls 0.92 the median-curve fit over eight faces and the low
+  end of a 0.90-to-1.18 range, not the pooled 29-face regression README claimed.
+  The quantity itself is not unmeasured: `report:seat` prints 1.146 at seed 11
+  on this tree, `tests/pipeline.test.ts` bounds it to (0.3, 2.0), and
+  `fit/contact.ts`'s header now divides by the printed number. What has no home
+  is the NAME, and it is not getting one back — a row the ledger's own gate
+  cannot check the value of is the dead provenance this file keeps complaining
+  about.
 - **One caveat the campaign added rather than removed:** its digits were
   measured on a frozen tree state, and fixes to enrollment and the contact
   seat landed in the same pass, so the merged tree measures differently

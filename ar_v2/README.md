@@ -260,13 +260,45 @@ The v1 row is the stable one: **4.6× the baseline at the median ratio**
 (per-seed 2.9–5.1×), and the template-nose control separates in 5/5 seeds
 (ratios 1.25–2.94×). The wedge relationship v1 derived analytically and could
 not test is a measured sweep, and the seeded replication shows how soft its
-one number is: the median-curve fit `report:seat` prints reads **0.64 / 0.66 /
-0.81 / 0.99 / 1.04 mm of descent per mm of pad separation across the five
-seeds** (median 0.81). The ledger constant `WEDGE_SLOPE_MM_PER_MM` stays 0.92
+one number is. At the settlement campaign's frozen tree state the median-curve
+fit `report:seat` prints read **0.64 / 0.66 / 0.81 / 0.99 / 1.04 mm of descent
+per mm of pad separation across the five seeds** (median 0.81). Those are
+settlement figures. Re-run at the same five seeds on the current tree, the same
+fit reads **0.807 / 0.813 / 1.059 / 1.146 / 1.163** (median **1.059**), and the
+one of the five that is an artefact rather than a prose number —
+`reports/seat.txt`, seed 11 — reads **1.146**. Reproduce any of them with
+`runSeatReport({ seed, subjects: 6 })`; `npm run report:seat` writes the seed-11
+one. The estimator is soft either way: the five seeds span a factor of 1.4, and
+the committed reading has moved 0.852 → 0.642 → 1.146 across three
+regenerations. That move happened somewhere in `f9c9093..bc28773` and the report
+was not regenerated in between, so the tree cannot say which commit did it —
+though `586a2a2`, which moved the ear rest from the temple's tip to its bend,
+changed exactly the load path the wedge shortfall runs through.
+
+**There is no ledger constant, and this paragraph has claimed one since
+`f9c9093`.** It read *"The ledger constant `WEDGE_SLOPE_MM_PER_MM` stays 0.92
 — the pooled face-by-separation regression over 29 faces from the 2026-08-22
-single re-run, which the seeded sweep has **not** re-derived — and the per-seed
-spread above is the honest error bar on any sentence that divides by it. Per
-wearer the single-re-run slope ran 0.27 to 1.60, a factor of six.
+single re-run"*, and every load-bearing clause of that is wrong.
+`fit/advice.ts` was rewritten into `fit/score.ts` in `f9c9093`; the constant
+went out with it, and its ledger row went in the same commit that wrote this
+sentence. That row had held **0.74**, never 0.92. The sweep has never run on 29
+faces — `report:seat` defaults to `subjects: 6`, which `generatePopulation`
+turns into eight, and `npm run report:seat` does not override it (only the
+freshness canary does, and it fingerprints the report rather than producing
+it). "Pooled" misnames the estimator too: `report:seat` takes the population
+median at each separation and fits one line through the seven medians, which is
+not a pooled face-by-separation regression. And nothing in this tree emits
+per-wearer slopes, so *"0.27 to 1.60"* cannot be checked here either.
+
+Where 0.92 came from is worth recording, because it was real once. Its only
+surviving derivation is a **dropped stash** — `1ce584f`, 2026-08-22, unreachable
+from every ref and deletable by the next `git gc` — and that derivation refutes
+the sentence it fathered: it calls 0.92 the *median-curve* fit over *eight*
+faces, puts the *pooled* figures at 0.97 and 0.93, calls it "the low end of a
+0.90-to-1.18 range rather than a sharp value", and gives the per-wearer range as
+0.28 to 1.60, not 0.27. It was never committed to any branch. What survives of
+it here is one derivation step in `fit/contact.ts`'s header, and that header now
+divides by the number the instrument prints.
 
 **Where this claim is weaker than it looks.** The *flat-nose* control — a nose
 with its sidewall flare removed, which should not let a frame find a resting
