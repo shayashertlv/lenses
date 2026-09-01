@@ -1,4 +1,4 @@
-[provenance] campaign source=70da8707a5d8b424 canary=6274324995583b84 body=ac5ed9cf6363c067
+[provenance] campaign source=70da8707a5d8b424 canary=6274324995583b84 body=ac5ed9cf6363c067 preamble=e3b0c44298fc1c14
 OCCLUSION — WHAT THE SCANNED FACE HIDES, MEASURED BEFORE A PIXEL IS DRAWN
 ==========================================================================
 The renderer about to be built will use the scanned face mesh as its

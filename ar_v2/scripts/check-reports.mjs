@@ -47,6 +47,10 @@
  *    mesh the fixtures load. Comments in this tree carry the measurements and
  *    change constantly; the code under them does not. Cheap: a fifth of a
  *    second, so it runs on every `npm test`.
+ *  - **`preamble`** — sha-256 of the hand-written lines above the generated
+ *    body. Free. It guards the half `body` does not: the tables a human typed
+ *    into `seat.txt`, `track.txt` and `enroll.txt` above the instrument's own
+ *    output.
  *  - **`canary`** — sha-256 of the report's own generator run, in the report's
  *    own configuration, at `subjects: 1`, with timings stripped. Exact for that
  *    configuration, and expensive: 2 to 30 seconds a report and roughly a
@@ -127,12 +131,35 @@ const TEMPLATE = 'assets/face/canonical_face_model.obj';
  * every report on a fresh clone and teach everyone to ignore this gate.
  */
 const PROVENANCE =
-  /^\[provenance\] (.+?) source=([0-9a-f]{16}) canary=([0-9a-f]{16})(?: body=([0-9a-f]{16}))?$/;
+  /^\[provenance\] (.+?) source=([0-9a-f]{16}) canary=([0-9a-f]{16})(?: body=([0-9a-f]{16}))?(?: preamble=([0-9a-f]{16}))?$/;
 
 /** The committed body, normalised, as the stamp hashes it. */
 function bodyHashOf(lines, bodyAt) {
   const body = lines.slice(bodyAt).join('\n').replace(/\r/g, '');
   return createHash('sha256').update(body).digest('hex').slice(0, 16);
+}
+
+/**
+ * The hand-written preamble, hashed the same way.
+ *
+ * **`body=` guards the generated half and nothing guarded this one.** The
+ * preamble is not decoration: `seat.txt` opens with a 26-line before/after
+ * numeric table, `track.txt` with 30 lines and `enroll.txt` with 14, and every
+ * figure in them was measured somewhere else and typed here. That is precisely
+ * the edit `body=` exists to refuse, one section higher up the same file, and
+ * until 2026-09-01 it passed in silence.
+ *
+ * It is a separate field rather than an extension of `body=` so that adding it
+ * moved no existing hash and regenerated no report. It is also a weaker claim,
+ * and worth stating as one: it proves the preamble has not changed since it was
+ * stamped, not that anything in it was ever true. A deliberate prose edit is
+ * supposed to fail this and be re-stamped — that is the gate asking for the
+ * edit to be deliberate, which is the whole of what a hash over hand-written
+ * text can buy.
+ */
+function preambleHashOf(lines, stamped, bodyAt) {
+  const preamble = lines.slice(stamped ? 1 : 0, bodyAt).join('\n').replace(/\r/g, '');
+  return createHash('sha256').update(preamble).digest('hex').slice(0, 16);
 }
 
 // ------------------------------------------------------------- source hash
@@ -400,13 +427,20 @@ async function write(name) {
   const bodyHash = createHash('sha256')
     .update(body.replace(/\r/g, '')).digest('hex').slice(0, 16);
 
+  // Hashed off the lines about to be written, not off what was read, so the
+  // stamp describes the file this call produces.
+  const preambleHash = createHash('sha256')
+    .update(preamble.join('\n').replace(/\r/g, '')).digest('hex').slice(0, 16);
+
   writeFileSync(path, [
-    `[provenance] ${report.realisation} source=${source} canary=${canary} body=${bodyHash}`,
+    `[provenance] ${report.realisation} source=${source} canary=${canary} `
+    + `body=${bodyHash} preamble=${preambleHash}`,
     ...preamble,
     body,
   ].join('\n'), 'utf8');
   console.log(
-    `wrote ${path} — ${report.realisation}, source ${source}, canary ${canary}, body ${bodyHash}`,
+    `wrote ${path} — ${report.realisation}, source ${source}, canary ${canary}, `
+    + `body ${bodyHash}, preamble ${preambleHash}`,
   );
 }
 
@@ -416,11 +450,15 @@ async function check() {
   for (const report of REPORTS) {
     const { path, stamped, lines, bodyAt } = readReport(report.name);
     if (!stamped) {
-      console.log(`  ${path}  no provenance line — run \`npm run report:${report.name}\``);
+      console.error(
+        `  ${path}  no provenance line, so nothing about this report can be checked — ` +
+        `run \`npm run report:${report.name}\``,
+      );
       unstamped++;
+      failures++;
       continue;
     }
-    const [, realisation, source, canary, body] = stamped;
+    const [, realisation, source, canary, body, preamble] = stamped;
 
     // **The committed bytes first, before either code hash.**
     //
@@ -428,12 +466,14 @@ async function check() {
     // this file still what the generator wrote?", and it is the only question
     // that can catch a number somebody typed. It runs first because a
     // hand-edited report is stale no matter what the code is doing.
-    if (!body) {
-      console.log(
-        `  ${path}  stamped before body hashing existed — re-stamp it with ` +
-        `\`npm run report:${report.name}\``,
+    if (!body || !preamble) {
+      console.error(
+        `  ${path}  stamped before ${body ? 'preamble' : 'body'} hashing existed, so the ` +
+        `${body ? 'hand-written preamble' : 'committed body'} is guarded by nothing — ` +
+        `re-stamp it with \`npm run report:${report.name}\``,
       );
       unstamped++;
+      failures++;
       continue;
     }
     if (bodyAt < 0) {
@@ -451,6 +491,18 @@ async function check() {
         `(body ${body} -> ${liveBody}). A published number that was typed rather ` +
         'than measured is the one thing this gate exists to refuse. Regenerate ' +
         `with \`npm run report:${report.name}\`, or restore the file.`,
+      );
+      failures++;
+      continue;
+    }
+
+    const livePreamble = preambleHashOf(lines, stamped, bodyAt);
+    if (livePreamble !== preamble) {
+      console.error(
+        `  ${path}  the hand-written preamble was EDITED (preamble ${preamble} -> ` +
+        `${livePreamble}). It carries measured figures that no generator produces, so ` +
+        'an edit here is a number typed by hand exactly as much as one in the body. ' +
+        `Re-stamp with \`npm run report:${report.name}\` if the edit was deliberate.`,
       );
       failures++;
       continue;
@@ -481,7 +533,11 @@ async function check() {
     failures++;
   }
   if (unstamped) {
-    console.log(`\n${unstamped} report(s) carry no provenance and cannot be checked.`);
+    console.error(
+      `\n${unstamped} report(s) carry no usable provenance and cannot be checked. That ` +
+      'used to be a note rather than a failure, which made deleting the provenance line ' +
+      'the cheapest way to silence this gate.',
+    );
   }
   if (failures) {
     console.error(
@@ -491,7 +547,7 @@ async function check() {
     );
     process.exit(1);
   }
-  console.log(`reports: ${REPORTS.length - unstamped} checked, none stale`);
+  console.log(`reports: ${REPORTS.length} checked, none stale`);
 }
 
 // Run only when this file IS the command, so a test can import the pure pieces

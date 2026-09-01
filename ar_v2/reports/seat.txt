@@ -1,4 +1,4 @@
-[provenance] seed 11 source=3af5aa05489f345d canary=ee27de8918f05e53 body=b3f5c2cbd57c295c
+[provenance] seed 11 source=3af5aa05489f345d canary=ee27de8918f05e53 body=b3f5c2cbd57c295c preamble=d6583b86f94e59d9
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
 Regenerated 2026-08-25 by `npm run report:seat`, which runs
 runSeatReport({ seed: 11 }) and stamps the provenance line above. The seat is

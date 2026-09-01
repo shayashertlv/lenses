@@ -1,4 +1,4 @@
-[provenance] seed 11 source=1960bdf2d8f5d65a canary=c5f60be52d2567b8 body=0208daba1aaf11ea
+[provenance] seed 11 source=1960bdf2d8f5d65a canary=c5f60be52d2567b8 body=0208daba1aaf11ea preamble=dda88ddf05a2044d
 [checked-in realisation: SEED 11 of the campaign seeds {11, 23, 37, 41, 53}]
 Regenerated 2026-08-25 by `npm run report:enroll`, which runs
 runEnrollReport({ seed: 11 }) and stamps the provenance line above.
