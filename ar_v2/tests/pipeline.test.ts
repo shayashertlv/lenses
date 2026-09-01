@@ -30,7 +30,7 @@ import {
   generatePopulation, lastRejectionCount, populationSeedFor,
   subjectResidualAgainstBasis, synthesizeCapture,
 } from '../src/testkit/synthetic.js';
-import { compareToTruth, distribution, table } from '../src/testkit/metrics.js';
+import { acrossSeeds, compareToTruth, distribution, table } from '../src/testkit/metrics.js';
 import { measure, standardRegions, trackingRigidity } from '../src/core/mesh.js';
 import { basisExplains } from '../src/core/shape/anthropometric.js';
 import { evaluateBasis } from '../src/core/shape/basis.js';
@@ -1065,6 +1065,50 @@ describe('enrollment', () => {
         'draw can once again lose a motion the wearer performed',
       );
     }
+  });
+
+  it('a failed cell poisons the summary instead of vanishing from it', () => {
+    // **The regression this refuses reports itself as an improvement.**
+    // `distribution` is what every published table goes through. It used to
+    // filter non-finite cells out and summarise the survivors, so a change that
+    // made some cells diverge removed them from the median, the p90 AND the
+    // worst at once — every column improves, and the table says the run got
+    // better than the one before it.
+    //
+    // `acrossSeeds` already refuses exactly this a few lines below it, in its
+    // own words: "a figure that failed at one seed in five is a finding, not an
+    // outlier to discard". This pins the same policy one level down, where the
+    // cells are, and pins that the two levels still agree.
+    const good = [1, 2, 3, 4, 100];
+    const clean = distribution(good);
+    assert.equal(clean.n, 5);
+    assert.equal(clean.nonFinite, 0);
+    assert.ok(Number.isFinite(clean.median) && Number.isFinite(clean.worst));
+
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const d = distribution([...good, bad]);
+      assert.equal(d.nonFinite, 1, `${bad} was not counted as a failed cell`);
+      assert.equal(d.n, 5, 'n should still count the finite cells');
+      const cols = { median: d.median, p90: d.p90, worst: d.worst, mean: d.mean };
+      for (const [key, v] of Object.entries(cols)) {
+        assert.ok(Number.isNaN(v),
+          `${key} came back ${v} with a ${bad} cell in the sample. A failed cell was `
+          + 'dropped and the summary now describes only the cells that did not fail — '
+          + 'which is how a regression ships as an improvement.');
+      }
+    }
+
+    // The worst case is the quiet one: the survivors read BETTER than the whole
+    // sample did, so the table moves the right way while the run got worse.
+    const survivors = distribution([1, 2, 3]);
+    assert.ok(survivors.median < clean.median,
+      'this fixture no longer demonstrates the failure it is about');
+
+    // And the two aggregation levels agree, which is why this is pinned here
+    // rather than restated as a policy nobody runs.
+    const sweep = acrossSeeds([11, 23, 37], (seed) => (seed === 37 ? NaN : 1));
+    assert.ok(Number.isNaN(sweep.median) && Number.isNaN(sweep.min) && Number.isNaN(sweep.max),
+      'acrossSeeds stopped poisoning — the two aggregation levels have drifted apart');
   });
 
   it('makes one face\'s scalar error a distribution, not a number', () => {

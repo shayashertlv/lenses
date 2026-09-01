@@ -522,9 +522,9 @@ against its controls.
 
 The count that used to sit here, **300 tests**, was exact through `ad8c695` and
 has been wrong since `947edf7` — both on 2026-08-26, five days before anyone
-noticed. It reads 347 on 2026-09-01 — it read 338 earlier the same day, which is
-the argument — and rising. Take it from the `pass` line `node --test` prints at
-the end of the run rather than from this paragraph.
+noticed. It read 338 on the morning of 2026-09-01 and more by that afternoon,
+which is the argument. This paragraph does not carry the current one on purpose:
+take it from the `pass` line `node --test` prints at the end of the run.
 
 Two qualifications:
 

@@ -137,18 +137,51 @@ export interface Distribution {
   p90: number;
   worst: number;
   mean: number;
+  /** How many values were finite. */
   n: number;
+  /** How many were not — the reason the four above are NaN, when they are. */
+  nonFinite: number;
 }
 
+/**
+ * Summary statistics over cells, where a cell that failed poisons the summary.
+ *
+ * **This used to filter the failures out and summarise the survivors**, which is
+ * the exact policy `acrossSeeds` rejects thirty lines below in its own words: *a
+ * figure that failed at one seed in five is a finding, not an outlier to
+ * discard*. The same argument applies a level down, and more sharply, because
+ * this is the function every published table goes through: a regression that
+ * makes some cells diverge removes them from the median, the p90 AND the worst,
+ * so every column improves at once and the table reports the run as better than
+ * the one before it. The failure is invisible in the only place anyone looks.
+ *
+ * So a single non-finite value takes the whole summary to NaN, and `nonFinite`
+ * says how many there were. NaN in a printed cell is loud and nobody mistakes it
+ * for a measurement; a quietly narrowed sample is not, and they do.
+ *
+ * **Nothing in the tree relies on the old behaviour**, which is why this could
+ * change without moving a committed number: instrumented across all four
+ * reports at their committed configurations, 781 calls to this function filtered
+ * exactly zero cells. The filter was not doing work, it was waiting to hide some.
+ *
+ * `n` still counts the finite values, so `report-track`'s "(N frames)" and
+ * `report-occlusion`'s "over N flips" keep their meaning. A caller that
+ * genuinely wants a summary over survivors must now say so at its own call site,
+ * where the decision is visible, rather than inheriting it from here.
+ */
 export function distribution(values: number[]): Distribution {
   const clean = values.filter((v) => Number.isFinite(v));
-  if (clean.length === 0) return { median: NaN, p90: NaN, worst: NaN, mean: NaN, n: 0 };
+  const nonFinite = values.length - clean.length;
+  if (clean.length === 0 || nonFinite > 0) {
+    return { median: NaN, p90: NaN, worst: NaN, mean: NaN, n: clean.length, nonFinite };
+  }
   return {
     median: percentile(clean, 0.5),
     p90: percentile(clean, 0.9),
     worst: Math.max(...clean.map(Math.abs)),
     mean: clean.reduce((a, b) => a + b, 0) / clean.length,
     n: clean.length,
+    nonFinite: 0,
   };
 }
 
