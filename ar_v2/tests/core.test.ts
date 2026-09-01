@@ -20,7 +20,7 @@ import {
   mat3FromEulerYXZ, m3mul, orthonormalize, poseClone, poseIdentity, poseOplus,
   rotationAngleBetween, smoothstep, solveSymmetric, v3, vlen, weightedMedian, mad, percentile,
 } from '../src/core/linalg.js';
-import { PNP_DEFAULTS, buildCorrespondences, refinePnP } from '../src/track/pnp.js';
+import { PNP_DEFAULTS, buildCorrespondences, pixelGateScale, refinePnP } from '../src/track/pnp.js';
 import {
   dProjDIntrinsics, dProjDModelPoint, dProjDPoint, dProjDPose, intrinsicsFromFov,
   pointAtDepth, project, rayThrough, scaleIntrinsics, verticalFovDeg, type Intrinsics,
@@ -3697,6 +3697,115 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       assert.equal(took, 0,
         `${took} of 10 frames were accepted with a second face taking ${(frac * 100).toFixed(0)}% ` +
         'of the landmarks — the gate is measuring how well it fits SOMEBODY, not whether it is the wearer');
+    }
+  });
+
+  it('the pixel gates are sized for the camera in front of them, not the one they were measured on', () => {
+    // `GROSS_ERROR_PX` (40) and `maxRmsPx` (14) are distances in IMAGE pixels,
+    // and every number behind them was measured at 63 degrees on 1280x720.
+    // A reprojection error for a fixed physical mistake scales with the focal
+    // length, so at 640x360 — half the focal length — the stranger's landmarks
+    // land INSIDE a bar sized for a camera twice as sharp. Measured before the
+    // scale existed: 20 of 20 of these frames accepted, against 0 of 20 at the
+    // reference geometry. `app/main.ts` documents `getUserMedia` renegotiating
+    // to 640x480 when another application holds the camera, and `core/camera.ts`
+    // records 78.5 degrees measured on a real laptop lid — which is f 441 at a
+    // perfectly ordinary 1280x720 and leaked 1 of 20.
+    //
+    // The deep-turn arm is in the same test deliberately. Tightening a gate is
+    // only a fix if the frames it must NOT refuse still pass, and scaling the
+    // other way (f 1423, the phone-lap rung) was measured to take that arm from
+    // 30 of 30 to 0 of 30 — which is why `pixelGateScale` clamps at 1.
+    const smallK = intrinsicsFromFov(640, 360, 63);
+    assert.ok(pixelGateScale(smallK) < 0.51 && pixelGateScale(smallK) > 0.49,
+      `the 640x360 gate scale is ${pixelGateScale(smallK)}, not the half this test is about`);
+    assert.equal(pixelGateScale(K), 1,
+      'the reference geometry must scale by exactly 1, or every measured number moves');
+
+    const smallModel = createFaceModel({
+      positions: new Float64Array(mesh.positions),
+      vertexSigmaMm: new Float64Array(mesh.vertexCount).fill(0.3),
+      shapeCoeffs: new Float64Array(0),
+      basisName: 'ground-truth',
+      displacementRmsMm: 0, displacementMaxMm: 0,
+      intrinsics: smallK, intrinsicsSolved: true,
+      scale: { source: 'card', factor: 1, sigma: 0.001, note: 'ground truth' },
+      landmarkBiasMm: new Float64Array(mesh.vertexCount * 3),
+      quality: { nose: { observations: 30, parallaxRms: 0.3, sigmaMm: 0.3 } },
+      pdMm: null, pdSigmaMm: null,
+      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
+    });
+    const projectSmall = (pose: { R: Float64Array; t: Float64Array }) => {
+      const out = new Float64Array(mesh.vertexCount * 2);
+      for (let v = 0; v < mesh.vertexCount; v++) {
+        const X = mesh.positions[v * 3], Y = mesh.positions[v * 3 + 1], Z = mesh.positions[v * 3 + 2];
+        const cx = pose.R[0] * X + pose.R[1] * Y + pose.R[2] * Z + pose.t[0];
+        const cy = pose.R[3] * X + pose.R[4] * Y + pose.R[5] * Z + pose.t[1];
+        const cz = pose.R[6] * X + pose.R[7] * Y + pose.R[8] * Z + pose.t[2];
+        out[v * 2] = smallK.cx + (smallK.f * cx) / cz;
+        out[v * 2 + 1] = smallK.cy + (smallK.f * cy) / cz;
+      }
+      return out;
+    };
+    let ss = 0x51f3;
+    const sr = () => { ss ^= ss << 13; ss ^= ss >>> 17; ss ^= ss << 5; ss >>>= 0; return ss / 4294967296; };
+    const sg = () => { let u = 0; while (u === 0) u = sr(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * sr()); };
+
+    // A SECOND FACE, on the small camera. Every frame must be refused.
+    for (const [frac, iyaw, itx, itz] of [
+      [0.45, 10, 30, 470], [0.60, 12, 30, 470],
+    ] as const) {
+      const cold = createTracker(smallModel, { smooth: false, rigidity, motionPrior: true });
+      const unc = createUncertainty(mesh.vertexCount);
+      const mine = projectSmall(poseAt(0));
+      const theirs = projectSmall({ R: poseAt(iyaw).R, t: Float64Array.of(itx, 0, itz) });
+      let took = 0;
+      for (let i = 0; i < 10; i++) {
+        const lm = new Float64Array(mesh.vertexCount * 2);
+        for (let v = 0; v < mesh.vertexCount; v++) {
+          const src = sr() < frac ? theirs : mine;
+          lm[v * 2] = src[v * 2] + sg() * 0.5;
+          lm[v * 2 + 1] = src[v * 2 + 1] + sg() * 0.5;
+        }
+        const e = estimateSigma(unc, {
+          landmarks: lm, mesh, positions: new Float64Array(mesh.positions),
+          intrinsics: smallK, pose: null,
+        });
+        if (track(cold, {
+          landmarks: lm, sigmaPx: e.sigmaPx, visibility: e.visibility, intrinsics: smallK, dt: 1 / 30,
+        }).rawPose) took++;
+      }
+      assert.equal(took, 0,
+        `${took} of 10 frames were accepted at 640x360 with a second face taking `
+        + `${(frac * 100).toFixed(0)}% of the landmarks — the pixel gates are still sized `
+        + 'for a 1280x720 camera, so a lower-resolution or wider-angle one gets no gate at all');
+    }
+
+    // A DEEP TURN on the same camera, which must still be accepted.
+    for (const yaw of [55, 70, 80]) {
+      const tr = createTracker(smallModel, { smooth: false, rigidity, motionPrior: true });
+      const unc = createUncertainty(mesh.vertexCount);
+      const truth = projectSmall(poseAt(yaw));
+      const hall = projectSmall(poseAt(yaw * 0.55));
+      let ok = 0;
+      for (let i = 0; i < 10; i++) {
+        const lm = new Float64Array(mesh.vertexCount * 2);
+        for (let v = 0; v < mesh.vertexCount; v++) {
+          const far = mesh.positions[v * 3] < 0;
+          lm[v * 2] = (far ? hall[v * 2] : truth[v * 2]) + sg() * 0.5;
+          lm[v * 2 + 1] = (far ? hall[v * 2 + 1] : truth[v * 2 + 1]) + sg() * 0.5;
+        }
+        const e = estimateSigma(unc, {
+          landmarks: lm, mesh, positions: new Float64Array(mesh.positions),
+          intrinsics: smallK, pose: null,
+        });
+        if (track(tr, {
+          landmarks: lm, sigmaPx: e.sigmaPx, visibility: e.visibility, intrinsics: smallK, dt: 1 / 30,
+        }).rawPose) ok++;
+      }
+      assert.equal(ok, 10,
+        `only ${ok} of 10 frames at ${yaw} degrees of yaw were accepted on a 640x360 camera — `
+        + 'the gate scale has bought the second-face case by refusing legitimate deep turns');
     }
   });
 

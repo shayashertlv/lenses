@@ -157,6 +157,64 @@ export const VF_CAL_MIN_COUNT = 30;
  */
 export const GROSS_ERROR_PX = 40;
 
+/**
+ * The focal length the absolute pixel gates were measured at, px.
+ *
+ * `GROSS_ERROR_PX` and `TRACKER_DEFAULTS.maxRmsPx` are distances in IMAGE
+ * pixels, and every number behind them was taken on ONE camera geometry: 63
+ * degrees vertical at 1280x720, which is `intrinsicsFromFov(1280, 720, 63)` —
+ * 587.47 px of focal length, the eye-level rung of the synthetic ladder and
+ * `tests/core.test.ts`'s own `K`. A reprojection error for a fixed physical
+ * mistake scales with `f`, so on a camera with a smaller `f` those same
+ * pixel counts describe a much bigger mistake, and the gate stops firing.
+ *
+ * **Measured on `core.test.ts`'s own second-face fixture** — a stranger takes
+ * 45% and 60% of the landmarks on a cold acquisition, and every frame must be
+ * refused — driven through the shipped `track()` at each geometry:
+ *
+ *     geometry               f px    accepted, absolute   accepted, scaled
+ *     1280x720, 63 deg        587     0 of 20              0 of 20
+ *     1280x720, 55 deg        692     0 of 20              0 of 20
+ *     1080x1920, 68 deg      1423     0 of 20              0 of 20
+ *     1280x720, 78.5 deg      441     1 of 20              0 of 20
+ *     640x480,  63 deg        392     2 of 20              0 of 20
+ *     640x360,  63 deg        294    20 of 20              0 of 20
+ *     640x480,  78.5 deg      294    20 of 20              0 of 20
+ *
+ * Neither low-`f` row is hypothetical. `core/camera.ts` records 78.5 degrees
+ * vertical measured on a real laptop camera, and `app/main.ts` documents
+ * `getUserMedia` renegotiating to 640x480 when another application holds the
+ * device. At 640 wide the gate whose whole purpose is to stop the tracker
+ * latching onto a stranger does not fire at all.
+ *
+ * **The scale is clamped at 1, and the clamp is measured rather than cautious.**
+ * Scaling UP at large `f` was tried: at the phone-lap rung (f 1423, x2.42) the
+ * second face is still refused, but the DEEP TURN arm — the frames the gate
+ * must NOT refuse — collapses from 30 of 30 accepted to 0 of 30, because the
+ * loosened bar admits a bad cold solve and every warm frame after it fails
+ * against the wrong basin. So this only ever tightens, and only below the
+ * reference: every geometry at or above it is bit-identical to before, which
+ * is the whole synthetic ladder, every committed report, and every test.
+ *
+ * **`maxSigmaPx` is deliberately not scaled by this.** It bounds the SIGMA
+ * stream, whose unit is the detector's own noise carried through
+ * `pixelScale` (detect to source) rather than through `f`, and it is `stated`
+ * rather than measured — there is no calibration of it to preserve.
+ *
+ * 587 rather than 587.47, so the reference geometry itself clamps to exactly
+ * 1 instead of 0.99994 and moves no existing number by a rounding error.
+ */
+export const GATE_REFERENCE_F_PX = 587;
+
+/**
+ * How far this camera's pixels are from the ones the gates were measured in.
+ *
+ * 1 at or above `GATE_REFERENCE_F_PX`, and never above 1 — see there.
+ */
+export function pixelGateScale(k: Intrinsics): number {
+  return Math.min(1, k.f / GATE_REFERENCE_F_PX);
+}
+
 export interface PnPResult {
   pose: Pose;
   /** Robustified cost at the solution. */
@@ -630,6 +688,11 @@ function residualStats(
   const uv = new Float64Array(2);
   const R = pose.R;
   let sum = 0, n = 0, inliers = 0, gross = 0, total = 0;
+  // In THIS camera's pixels, not the reference camera's — see
+  // `GATE_REFERENCE_F_PX`. The residuals below are produced by projecting with
+  // `intrinsics`, so the bar has to be sized by the same `f` that produced
+  // them or it is a bar for a different camera.
+  const grossPx = GROSS_ERROR_PX * pixelGateScale(intrinsics);
   // The robustly-weighted whitened residual sum and its effective degrees of
   // freedom — the per-frame a-posteriori variance factor, the same estimator
   // the enrollment bundle uses to keep its covariance honest. It is what
@@ -692,7 +755,7 @@ function residualStats(
     sum += lossW * e * e;
     n += lossW;
     total++;
-    if (e > GROSS_ERROR_PX) gross++;
+    if (e > grossPx) gross++;
     whitened += lossW * z2;
     wEff += lossW;
     if (c.sigmaCalibrated !== false) {

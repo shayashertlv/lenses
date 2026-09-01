@@ -74,8 +74,8 @@ import { headEuler, project } from '../core/camera.js';
 import type { FaceModel } from '../core/facemodel.js';
 import type { SilhouetteStrip } from '../core/mesh.js';
 import {
-  type Correspondence, type PnPResult, GROSS_ERROR_PX, buildCorrespondences, refinePnP,
-  solvePnP,
+  type Correspondence, type PnPResult, GROSS_ERROR_PX, buildCorrespondences,
+  pixelGateScale, refinePnP, solvePnP,
 } from './pnp.js';
 import { ADAPTIVE_SIGMA_FLOOR_PX, PoseSmoother, noiseScaleFromSigma } from './smoothing.js';
 
@@ -1078,6 +1078,11 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   // covariance — the per-frame statement of how much the solve can know,
   // which the latch gates are normalized against. One 6x6 inversion.
   const COV = { wantCovariance: true };
+  // Both pixel gates below are sized for THIS camera rather than for the one
+  // they were measured on — see `GATE_REFERENCE_F_PX`. 1, and therefore a
+  // no-op, at every geometry in the synthetic ladder.
+  const gateScale = pixelGateScale(input.intrinsics);
+  const rmsBarPx = options.maxRmsPx * gateScale;
   let result: PnPResult;
   let coldAcquired = false;
   if (state.lastRaw) {
@@ -1090,7 +1095,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     // up, because a cold solve at any pose is the whole point of having a model.
     // The cold solve carries NO prior, deliberately: its whole job is to
     // escape wherever the warm chain — prior included — got stuck.
-    if (!(result.rmsPx <= options.maxRmsPx)) {
+    if (!(result.rmsPx <= rmsBarPx)) {
       const cold = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
       if (cold.rmsPx < result.rmsPx) { result = cold; coldAcquired = true; }
     }
@@ -1099,8 +1104,12 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     coldAcquired = true;
   }
 
-  if (!(result.rmsPx <= options.maxRmsPx) || !(result.pose.t[2] > 50)) {
-    return miss(state, input.dt, `reprojection ${result.rmsPx.toFixed(1)} px`);
+  if (!(result.rmsPx <= rmsBarPx) || !(result.pose.t[2] > 50)) {
+    // The bar travels with the number, because on a wide-angle or low-resolution
+    // camera it is no longer the 14 px `docs/CONSTANTS.md` names and a
+    // diagnostics paste would otherwise be unreadable against the ledger.
+    return miss(state, input.dt,
+      `reprojection ${result.rmsPx.toFixed(1)} px (bar ${rmsBarPx.toFixed(1)})`);
   }
   // The second half of the gate: how much of this frame is describing
   // something that is not this face. Checked AFTER the rms so the reason
@@ -1139,7 +1148,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
       if (!project(uv, input.intrinsics, cam)) continue;
       grossTotal++;
       if (Math.hypot(uv[0] - input.landmarks[i * 2], uv[1] - input.landmarks[i * 2 + 1])
-        > GROSS_ERROR_PX) grossN++;
+        > GROSS_ERROR_PX * gateScale) grossN++;
     }
   }
   const grossFraction = grossTotal > 0 ? grossN / grossTotal : 0;
@@ -1160,7 +1169,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
       && state.framesTracked % options.basinAuditInterval === 0) {
     const audit = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
     state.basinAuditsRun++;
-    if (audit.rmsPx <= options.maxRmsPx
+    if (audit.rmsPx <= rmsBarPx
         && audit.rmsPx < result.rmsPx * options.basinRescueRatio) {
       // The adoption deadband: a decisive rms win at a near-identical pose is
       // the same basin, and adopting it would spend a smoother reset on
