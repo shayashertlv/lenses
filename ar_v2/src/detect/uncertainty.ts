@@ -37,9 +37,10 @@
  *     the rigid motion of the whole set, fitted as a 2D similarity so a head
  *     that rolls or leans removes cleanly. A landmark that jumps while its
  *     neighbours do not is a landmark the detector is unsure about, whatever it
- *     claims. This is the signal that catches blinks, hair and hands. Yaw
- *     parallax is depth-dependent and is the one rigid motion a 2D fit cannot
- *     remove; see the term itself.
+ *     claims. This is the signal that catches blinks, hair and hands. What a
+ *     2D fit cannot remove is out-of-plane rotation — yaw AND pitch, both
+ *     depth-dependent — and how much it leaves depends on how fast the head is
+ *     turning. The term itself carries the measurement.
  *  3. **A floor**, the detector's measured noise on a still, frontal face.
  */
 
@@ -209,10 +210,51 @@ export function estimateSigma(
     // second-face fixture is two populations interleaved at 45% and 60%.
     // Trimming locks the fit onto one of them and drops its residuals.
     //
-    // What this cannot remove is yaw parallax, which is depth-dependent and so
-    // not a similarity at all: a protruding nose still earns some residual
-    // during a yaw sweep. That is a real limit of a 2D signal, left standing
-    // rather than papered over, and it is much the smaller of the two.
+    // **What this cannot remove is out-of-plane rotation, and it is two of
+    // them.** Yaw and pitch both move a landmark by an amount that depends on
+    // its depth, which is not a similarity at any rate. Measured on the same
+    // noiseless apparatus as the figures above — template mesh, 468 vertices,
+    // 63 deg at 1280x720, head at 520 mm, both rules replicated verbatim — as
+    // mean / p90 / max spurious residual, px:
+    //
+    //     motion                        translation rule      similarity (ships)
+    //     roll 1 deg/frame              0.97 / 1.58 / 2.02    0.00 / 0.00 / 0.00
+    //     lean 1%/frame                 0.60 / 0.96 / 1.23    0.02 / 0.03 / 0.10
+    //     both                          1.14 / 1.88 / 2.45    0.02 / 0.03 / 0.10
+    //     yaw 1 deg/frame               0.34 / 0.74 / 1.58    0.34 / 0.74 / 1.52
+    //     pitch 1 deg/frame             0.31 / 0.75 / 1.32    0.31 / 0.75 / 1.30
+    //     yaw 3 deg/frame at 40 deg     1.32 / 3.20 / 6.28    1.32 / 2.11 / 5.47
+    //     yaw 5.7 deg/frame at 40 deg   2.55 / 6.16 / 11.95   2.53 / 4.04 / 10.35
+    //
+    // Three things follow, and the first two correct what this comment used to
+    // say — that the leftover was yaw only, was the nose, and was "much the
+    // smaller of the two".
+    //
+    //  - **Smaller only at matched rates.** At 1 deg/frame the leftover is
+    //    about a third of the roll+lean error the similarity removes (0.34
+    //    against 1.14 mean). But 1 deg/frame is 30 deg/s, and the rate this
+    //    tree elsewhere calls a brisk head turn is 3 rad/s = 5.7 deg/frame,
+    //    where the leftover is 2.2x the size of what was removed. Nothing
+    //    commands a 1 deg/frame roll; `enroll/protocol.ts` does command the
+    //    turn.
+    //  - **Not one motion, and not the nose.** Pitch leaks identically — the
+    //    nod beats produce it — and under YAW the nose carries 0.69-0.72x the
+    //    mean residual of the other 335 vertices, because the periphery sits
+    //    further from the rotation axis. The nose leads only under pitch, at
+    //    1.32x.
+    //  - **The similarity bought nothing here, as expected.** The two columns
+    //    agree to 0.02 px on every yaw and pitch cell. What the fit buys is
+    //    real and is confined to roll and lean.
+    //
+    // Left standing rather than papered over, and the size of it is the reason
+    // it can be. At the settled EMA a 5.7 deg/frame turn puts sigma at 1.51 px
+    // against the 0.70 floor, so the bundle believes such a frame about 4.7x
+    // less — far below `maxSigmaPx` (12), so nothing is culled — and that is
+    // arguably not even wrong, since a frame taken mid-turn IS less
+    // trustworthy for motion blur and detector lag this term cannot separate
+    // from parallax. What was wrong was calling it small. `enroll/keyframes.ts`
+    // has no stillness gate and prefers pose extremes, so these are the frames
+    // the bundle most wants.
     const idx: number[] = [];
     for (let i = 0; i < n; i++) {
       if (Number.isNaN(input.landmarks[i * 2]) || Number.isNaN(state.previous[i * 2])) continue;

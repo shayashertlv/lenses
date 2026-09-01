@@ -42,7 +42,13 @@ average face — which is v1's failure mode arriving by a different road.
 
 **To settle it:** a still image, driven through the detector 200 times with
 seeded sub-pixel jitter, reporting the per-landmark spread. About an hour of
-work, and it needs a real camera or a real photograph, which is Q8.
+work, and it needs a real camera or a real photograph, which is Q8. **Still, and
+that word is load-bearing:** the disagreement signal that rides on top of this
+floor cannot remove out-of-plane rotation, so a moving head puts rigid-motion
+parallax into the same number — measured 2026-09-01 at 0.34 px mean for a 1
+deg/frame turn and 2.53 px at 5.7 deg/frame, against a 0.70 px floor
+(`detect/uncertainty.ts`, signal 2). Measure the floor on a held pose or the
+turn will be inside it.
 
 **Worth:** moderate. The solve is not very sensitive to it within a factor of
 two — but nobody has checked that claim either.
