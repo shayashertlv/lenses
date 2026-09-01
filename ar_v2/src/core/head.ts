@@ -131,33 +131,57 @@ export interface HeadShell {
  */
 export function boundaryLoop(indices: Uint32Array | ArrayLike<number>): number[] {
   const counts = new Map<string, number>();
+  // Which way each edge was wound by the triangle that owns it. An interior edge
+  // is wound both ways and this says nothing about it; a boundary edge has one
+  // owner, and that is the whole of the orientation information the walk needs.
+  const wound = new Set<string>();
   const key = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
   for (let t = 0; t + 2 < indices.length; t += 3) {
     const tri = [indices[t], indices[t + 1], indices[t + 2]];
     for (let e = 0; e < 3; e++) {
       const k = key(tri[e], tri[(e + 1) % 3]);
       counts.set(k, (counts.get(k) ?? 0) + 1);
+      wound.add(`${tri[e]},${tri[(e + 1) % 3]}`);
     }
   }
 
-  const neighbours = new Map<number, number[]>();
+  // **The direction comes from the mesh's own winding, not from Map order.**
+  //
+  // This used to collect each boundary vertex's neighbours undirected and take
+  // whichever `find` reached first, which is insertion order, which is the order
+  // the triangles happen to sit in the buffer. The ring direction was therefore
+  // an unpinned accident of the `.obj`, and it is load-bearing: the loft below
+  // inherits its winding from the ring, and `render/scene.ts` draws the shell
+  // with a depth-only material the GPU back-face culls. An inward shell writes
+  // no depth at all, so the temple arms X-ray through the skull.
+  //
+  // Measured, on this template: reversing only the TRIANGLE ORDER — same
+  // triangles, same windings, the kind of change a re-export makes — flipped the
+  // old walk and took the built shell's signed volume from +3.27e6 to −1.87e6.
+  // The loft's own contribution went +2.57e6 to −2.57e6, an exact negation,
+  // while every test and `report:occlusion` stayed green, because the software
+  // rasteriser that validates the loft keeps both windings on purpose.
+  //
+  // A boundary edge belongs to exactly one triangle, so that triangle wound it
+  // in a definite direction. Walking the rim AGAINST that direction is what
+  // makes the loft wind outward — verified against the shipped template, where
+  // this reproduces the previous ring exactly, and against the reordered one,
+  // where the old walk flips and this does not.
+  const nextOf = new Map<number, number>();
   for (const [k, n] of counts) {
     if (n !== 1) continue;
     const [a, b] = k.split(',').map(Number);
-    if (!neighbours.has(a)) neighbours.set(a, []);
-    if (!neighbours.has(b)) neighbours.set(b, []);
-    neighbours.get(a)!.push(b);
-    neighbours.get(b)!.push(a);
+    nextOf.set(wound.has(`${a},${b}`) ? b : a, wound.has(`${a},${b}`) ? a : b);
   }
-  if (neighbours.size === 0) return [];
+  if (nextOf.size === 0) return [];
 
-  const start = Math.min(...neighbours.keys());
+  const start = Math.min(...nextOf.keys());
   const loop = [start];
   const seen = new Set([start]);
   let current = start;
   for (;;) {
-    const next = (neighbours.get(current) ?? []).find((n) => !seen.has(n));
-    if (next === undefined) break;
+    const next = nextOf.get(current);
+    if (next === undefined || seen.has(next)) break;
     seen.add(next);
     loop.push(next);
     current = next;
@@ -372,8 +396,14 @@ export function buildHeadWithEars(
     }
     for (let t = 0; t + 2 < pinna.indices.length; t += 3) {
       // Mirroring reverses winding; swap two corners back on the right side so
-      // the dish faces outward on both. It is drawn double-sided anyway, but a
-      // consistent winding keeps that a safety net rather than load-bearing.
+      // the dish faces outward on both. This comment used to add "it is drawn
+      // double-sided anyway, but a consistent winding keeps that a safety net
+      // rather than load-bearing" — which was false in the one renderer that
+      // matters. Nothing in `render/` set `DoubleSide` on the occluder, so the
+      // winding WAS load-bearing and the safety net did not exist. It does now
+      // (`render/scene.ts` sets it), and the winding is still derived rather
+      // than inherited, because two independent reasons to be right is the
+      // point of a safety net.
       if (side < 0) {
         indices.push(at + pinna.indices[t], at + pinna.indices[t + 2], at + pinna.indices[t + 1]);
       } else {

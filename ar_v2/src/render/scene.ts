@@ -476,7 +476,17 @@ export async function createScene(
       geometry.computeVertexNormals();
       // Depth-only: the universal recipe. Colour writes off, depth writes on,
       // rendered before everything that must be hidden by skin.
-      const material = new THREE.MeshBasicMaterial({ colorWrite: false });
+      // `DoubleSide` because the shell's winding is derived from the template's
+      // own triangles (`core/head.ts`'s `boundaryLoop`) and a template swap is a
+      // stated goal of this tree. With the default `FrontSide` an inward-wound
+      // shell is back-face culled and writes no depth AT ALL — the temple arms
+      // X-ray through the head and every instrument stays green, because the
+      // software rasteriser that validates the loft keeps both windings. The
+      // derivation is the fix; this is the belt to its braces, and it costs a
+      // depth-only pass nothing.
+      const material = new THREE.MeshBasicMaterial({
+        colorWrite: false, side: THREE.DoubleSide,
+      });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.renderOrder = -1;
       occluderNode.add(mesh);

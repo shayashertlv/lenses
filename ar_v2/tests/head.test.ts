@@ -73,6 +73,62 @@ describe('the face mesh closes into a head', () => {
     assert.equal(new Set(ring).size, ring.length, 'the walk revisited a vertex');
   });
 
+  it('winds outward whatever order the template lists its triangles in', () => {
+    // **The one property of this shell that no other instrument can see.**
+    // `render/scene.ts` draws it with a depth-only material, so the GPU
+    // back-face culls it: an inward-wound shell writes no depth at all, the
+    // temple arms X-ray through the skull, and the shadow catcher goes with it.
+    // Nothing else in the tree checks this — `core/raster.ts`, which validates
+    // the loft in `report:occlusion`, keeps BOTH windings on purpose, so every
+    // published occlusion column is winding-blind by construction.
+    //
+    // The ring direction used to fall out of `Map` insertion order, which is the
+    // order the triangles sit in the buffer. Reversing only the TRIANGLE ORDER —
+    // same triangles, same windings, the kind of change a re-export makes, and
+    // exactly the template swap `boundaryLoop`'s own docstring is written to
+    // survive — flipped it. This is that counterfactual, run as a test.
+    const signedVolume = (positions: ArrayLike<number>, indices: ArrayLike<number>): number => {
+      let v = 0;
+      for (let t = 0; t + 2 < indices.length; t += 3) {
+        const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+        v += (positions[a] * (positions[b + 1] * positions[c + 2] - positions[b + 2] * positions[c + 1])
+          - positions[a + 1] * (positions[b] * positions[c + 2] - positions[b + 2] * positions[c])
+          + positions[a + 2] * (positions[b] * positions[c + 1] - positions[b + 1] * positions[c])) / 6;
+      }
+      return v;
+    };
+
+    const tris = mesh.indices.length / 3;
+    const reordered = new Uint32Array(mesh.indices.length);
+    for (let t = 0; t < tris; t++) {
+      const src = (tris - 1 - t) * 3;
+      reordered[t * 3] = mesh.indices[src];
+      reordered[t * 3 + 1] = mesh.indices[src + 1];
+      reordered[t * 3 + 2] = mesh.indices[src + 2];
+    }
+
+    const shipped = buildHeadShell(mesh.positions, mesh.indices);
+    const swapped = buildHeadShell(mesh.positions, reordered);
+    const vShipped = signedVolume(shipped.positions, shipped.indices);
+    const vSwapped = signedVolume(swapped.positions, swapped.indices);
+
+    assert.ok(vShipped > 0,
+      `the shell as shipped winds INWARD (signed volume ${(vShipped / 1e6).toFixed(2)}e6). `
+      + 'The depth occluder is back-face culled and writes no depth.');
+    assert.ok(vSwapped > 0,
+      `listing the same triangles in the opposite order wound the shell INWARD `
+      + `(signed volume ${(vSwapped / 1e6).toFixed(2)}e6 against ${(vShipped / 1e6).toFixed(2)}e6 `
+      + 'as shipped). The ring direction is being taken from buffer order again rather than '
+      + 'from the winding of the triangle that owns each boundary edge, so a template '
+      + 're-export turns the occluder off and nothing else in this tree can tell.');
+    assert.ok(Math.abs(vSwapped - vShipped) < 1e-6 * Math.abs(vShipped),
+      `the two orders built different shells (${vSwapped} against ${vShipped})`);
+
+    // And the ring itself is the same cycle, not merely the same length.
+    assert.deepEqual(boundaryLoop(reordered), boundaryLoop(mesh.indices),
+      'the boundary walk took a different route through the same rim');
+  });
+
   it('the loft is watertight, and shares the face\'s own vertices', () => {
     const shell = buildHeadShell(mesh.positions, mesh.indices);
 
