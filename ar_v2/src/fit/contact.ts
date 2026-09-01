@@ -220,7 +220,7 @@ export const SKIN = {
    *     2k      0.220      0.95        0.85       0.98       13.4        0.54        4.69
    *
    * (vertex is CORNEAL: `SeatResult.vertexDistanceMm` mean of sides minus the
-   * 12 mm corneal offset — the definition `advice.ts` grades.)
+   * 12 mm corneal offset — the definition `score.ts` grades.)
    *
    * The verdict is robust across the section/modulus bracket — k/2 and 2k also
    * fail the depth condition in >= 3 of 5 seeds — and it is not a finding that
@@ -370,11 +370,12 @@ export interface SeatResult {
   /**
    * Vertex distance: lens plane to the eye, mm, per side — where "the eye" is
    * the CANTHAL PLANE, the midpoint of the eye-corner landmarks, because that
-   * is what the mesh has. The optical convention (and the 12-16 mm band the
-   * advice grades against) is lens-to-CORNEA, which sits `CORNEAL_APEX_MM` =
-   * 12 mm further forward — see `advice.ts`, which subtracts it. Compare this
-   * raw number against the band and every frame in the catalogue reads ~13 mm
-   * too far from the eye; the Q15 campaign nearly published exactly that.
+   * is what the mesh has. The optical convention (and the 12-16 mm target
+   * `score.ts` grades a tolerance around — good over 10 to 18, fair to 22) is
+   * lens-to-CORNEA, which sits `CORNEAL_APEX_MM` = 12 mm further forward — see
+   * `score.ts`, which subtracts it. Compare this raw number against the band and
+   * every frame in the catalogue reads ~13 mm too far from the eye; the Q15
+   * campaign nearly published exactly that.
    */
   vertexDistanceMm: [number, number];
   /** How far the lens optical centres sit from the pupils, mm, per side. */

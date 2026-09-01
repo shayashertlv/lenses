@@ -280,6 +280,47 @@ const orphanRows = !REAL_TREE ? [] : rowNames.filter((row) => {
 });
 
 /**
+ * The other document that names constants in the present tense.
+ *
+ * `docs/OPEN-QUESTIONS.md` opens by promising that each entry "names what is
+ * currently assumed", and its `**Assumed:**` paragraph is where that promise is
+ * kept. A constant named there and declared nowhere in `src/` is the same defect
+ * as an orphaned ledger row, reached through the one document a reader consults
+ * to find out what the build is still guessing — and no check above can see it,
+ * because they all start from a `docs/CONSTANTS.md` row or from an
+ * `export const`, and a ghost has neither.
+ *
+ * `PAD_SEPARATION_SWEPT_MM` sat in Q22's Assumed line from `f9c9093` to
+ * 2026-09-01. It is named in no commit in this repository, on any ref; the
+ * clamp the entry built on it belonged to a function the same commit deleted.
+ *
+ * Same weakest test as the orphan-row sweep, for the reason stated there: does
+ * the name occur in `src/` at all. SCREAMING_SNAKE only — these paragraphs also
+ * name files, fields and types, and a gate that fires on `FrameAsset` is a gate
+ * that gets switched off. It reads `**Assumed:**` and nothing else, so
+ * `**Assumed at the time:**` (Q16b's historical sweep) and every retraction
+ * elsewhere in the file stay free to name a deleted constant — which they must,
+ * or a retraction could not say what it retracts.
+ */
+const QUESTIONS = 'docs/OPEN-QUESTIONS.md';
+const ghostAssumptions = [];
+if (REAL_TREE && existsSync(QUESTIONS)) {
+  const qLines = readFileSync(QUESTIONS, 'utf8').split('\n');
+  for (let i = 0; i < qLines.length; i++) {
+    if (!qLines[i].trimStart().startsWith('**Assumed:**')) continue;
+    const line = i + 1;
+    let para = '';
+    for (; i < qLines.length && qLines[i].trim() !== ''; i++) para += `${qLines[i]}\n`;
+    for (const code of para.match(/`[^`]+`/g) ?? []) {
+      for (const name of code.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) ?? []) {
+        if (EXEMPT.has(name) || new RegExp(`\\b${name}\\b`).test(allSource)) continue;
+        if (!ghostAssumptions.some((g) => g.name === name)) ghostAssumptions.push({ name, line });
+      }
+    }
+  }
+}
+
+/**
  * A heading that names the wrong file.
  *
  * The rows are only half the ledger. A `## ` heading says WHERE the numbers
@@ -419,6 +460,17 @@ if (orphanRows.length) {
     + 'reads exactly like provenance for something.',
   );
   failures += orphanRows.length;
+}
+
+if (ghostAssumptions.length) {
+  console.error('\nopen questions assuming a constant that exists nowhere in src/:');
+  for (const g of ghostAssumptions) console.error(`  ${QUESTIONS}:${g.line}  ${g.name}`);
+  console.error(
+    '\nAn `**Assumed:**` line is a claim about the CURRENT tree. Naming a constant '
+    + 'nothing declares makes the whole entry unfalsifiable: there is no code to '
+    + 'check the assumption against, and no way to notice.',
+  );
+  failures += ghostAssumptions.length;
 }
 
 if (deadHeadings.size) {

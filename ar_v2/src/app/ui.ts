@@ -87,7 +87,6 @@ export function createUI(root: HTMLElement): UI {
   const promptEl = el('prompt');
   const progressEl = el('progress-bar');
   const verdictEl = el('verdicts');
-  const adjustEl = el('adjustments');
   const readoutEl = el('readouts');
   const catalogueEl = el('catalogue');
   const dotEl = el('guide-dot');

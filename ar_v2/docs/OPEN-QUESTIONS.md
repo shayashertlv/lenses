@@ -795,28 +795,57 @@ to and nothing to edit.
 
 ---
 
-## Q22 — Nobody has measured how far a nose-pad arm can actually be bent. **(new 2026-08-22)**
+## Q22 — Nobody has measured how far a nose-pad arm can actually be bent. **(new 2026-08-22; every premise under it retracted 2026-09-01)**
 
-**Assumed:** `PAD_SEPARATION_SWEPT_MM` = 12 to 24 mm, which is the range the
-wedge slope was *measured* over, standing in for the range a pad arm can be
-*moved* over. Those are different things and the ledger says so.
+**Assumed:** nothing. Every premise this entry used to rest on is retracted
+below; the title is all that survives.
 
-**Why it matters:** it is the only bound on what `adjustmentsFor` may prescribe.
-Nothing in `FrameAsset` records pad-arm travel, so an instruction is clamped to
-the interval where the number behind it was measured. That clamp is generous, not
-safe: an optician's real travel is a few millimetres, not twelve. An in-band
-prescription like *"Narrow the pads by about 12 mm"* is inside our stated bound
-and almost certainly outside the frame's.
+**The constant it named never existed.** The entry opened *"`PAD_SEPARATION_SWEPT_MM`
+= 12 to 24 mm, which is the range the wedge slope was measured over ... and the
+ledger says so."* No commit in this repository has ever held a constant by that
+name — it occurs exactly once across every ref, in the line it was written on, by
+`f9c9093`. The range itself is real and needs no constant: `testkit/report-seat.ts`
+sweeps pad separation at 12, 14 … 24 mm and names none, and
+`tests/pipeline.test.ts` bounds the same span in steps of three. What the ledger
+"said so" in was the `WEDGE_SLOPE_MM_PER_MM` row, which `f9c9093` deleted along
+with the constant; Q20 above carries that retraction.
 
-The hard geometric limit is further out still — the pads meet at the midline at
-`padWidthMm * sin(padAngleRad)`, about 5 mm for the catalogue — so the clamp
-does prevent asking for geometry that cannot exist. It does not prevent asking
-for geometry the metal will not survive.
+**Why it mattered, and why it does not today.** The bound was described as the
+only limit on what `adjustmentsFor` may prescribe — *"Narrow the pads by about N
+mm"*, computed as `descentMm / WEDGE_SLOPE_MM_PER_MM`. That function lived in
+`fit/advice.ts`, which the same `f9c9093` rewrote into `fit/score.ts`, and the
+rewrite dropped the advice layer entirely: `FitAssessment` is now `frameId`,
+`seat`, graded `measures` and a `score`, with no `adjustments` field and no
+sentence addressed to an optician anywhere in `src/`. The last trace was a dead
+`el('adjustments')` binding in `ui.ts` for an element `index.html` never had,
+removed with this entry.
+
+**And there was never a clamp.** Read the deleted function
+(`faece72:ar_v2/src/fit/advice.ts`): `narrowBy` is a bare division printed at
+`toFixed(0)`, with no bound of any kind. The entry's load-bearing sentence — that
+an instruction "is clamped to the interval where the number behind it was
+measured" — was untrue of the code on the day it was written, and that code had
+already been deleted by the commit that wrote it.
+
+The geometric sentence fails the same way. Pads meeting at the midline at
+`padWidthMm * sin(padAngleRad)` is ~5 mm for `parametricFrame`'s default 8 mm
+pad — the five `TEST_FRAMES` shapes, which are stand-ins nobody can buy. All ten
+catalogue assets carry `padWidthMm: null`, deliberately (*"real geometry has a
+contact patch, not a rectangle"*), and `frame-from-mesh.ts` says in the same
+comment that nothing in `src/` reads the field. No hard limit is computed
+anywhere, for any asset a wearer can be shown.
+
+**What survives is the title.** Nothing in `FrameAsset` records pad-arm travel and
+nobody has measured it. That costs nothing while the tree prescribes nothing —
+but the solver already moves pads freely in `padSeparationMm` (the wedge sweep is
+exactly that), so the first verdict that turns a solved descent back into "narrow
+the pads by N mm" needs this number and will otherwise reinvent the same
+unbounded division.
 
 **To settle it:** one optician, one afternoon, a handful of frames and a caliper.
-This is the cheapest open question in the file.
+Still the cheapest open question in the file.
 
-**Worth:** moderate, rising with every wearer who follows an instruction.
+**Worth:** low today — nothing reads it. Moderate again the moment advice returns.
 
 ---
 
