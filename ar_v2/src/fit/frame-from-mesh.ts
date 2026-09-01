@@ -365,7 +365,7 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  *
  * ## Why this exists beside `findBend`
  *
- * `findBend` needs a part called `temple`, and nine of the ten catalogue assets
+ * `findBend` needs a part called `temple`, and eight of the ten catalogue assets
  * do not have one — an image-to-3D scan welds the arms into the frame shell, or
  * names every part `tripo_part_N`, or is one fused mesh with no names at all.
  * The arms are nevertheless *there*: splitting the whole mesh by the sign of x

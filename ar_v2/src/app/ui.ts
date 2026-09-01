@@ -58,8 +58,13 @@ export interface UI {
    * The one line under the fit score saying what this frame's numbers are worth.
    *
    * The seat's most sensitive input is where the arms rest on the ears, and
-   * eight of the ten catalogue assets cannot measure their own — two because
-   * they are wraps with no rest point at all. `FrameAsset.earRestSource` carries
+   * nine of the ten catalogue assets cannot take theirs from a named temple
+   * part: seven fall back to the knee fit, and on two of those the arm has no
+   * usable bend either, so the wearer's own ear supplies the point. Measured
+   * through `frameFromMesh` on 2026-09-01 — one `measured` (navigator), seven
+   * `derived`, two `assumed` (khronos, shield-golden). This said *eight*, which
+   * was true while khronos still reached the `measured` tier.
+   * `FrameAsset.earRestSource` carries
    * that distinction all the way from the geometry, and this is where it stops
    * being an internal field and becomes something the wearer can read. A fit
    * that is a picture rather than a measurement has to say so on the same

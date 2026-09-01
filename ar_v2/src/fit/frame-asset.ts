@@ -732,7 +732,11 @@ export const PAD_REAR_COS = 0.04;
  *
  * What would be better than any slab is the guard the pads' own anatomy
  * suggests — nose pads sit below the LENS CENTRES, always — but lens centres
- * need part names, and eight of the ten assets do not name one.
+ * need part names, and two of the ten assets name none (`crystal-parts` and
+ * `meshy`). Corrected 2026-09-01 from "eight of the ten do not name one", which
+ * inverted the count this argument rests on; `docs/CONSTANTS.md`'s row for this
+ * constant was corrected on 2026-08-31 and this docstring, which it was copied
+ * from, was not.
  */
 export const PAD_UP_REFERENCE_FRACTION = 0.12;
 

@@ -1628,9 +1628,13 @@ async function preloadCatalogue(app: App): Promise<void> {
       const bytes = new Uint8Array(await response.arrayBuffer());
       const built = frameFromMesh(readGlb(bytes), entry);
       if (!built.ok) {
-        // Not a warning. Nine of ten refuse today and every refusal is the
-        // correct answer for an asset nothing has measured — see
-        // `fit/catalogue.ts` for the per-asset reasons.
+        // Not a warning. **No catalogue asset refuses today** — all ten build
+        // a layout, as `frame-from-mesh.ts` and `ARCHITECTURE.md` have both said
+        // since 2026-08-26, while this line went on saying "nine of ten refuse"
+        // until 2026-09-01. A refusal is still the correct answer for an asset
+        // whose geometry cannot be read, which is why it stays in the log rather
+        // than in the wearer's face — see `fit/catalogue.ts` for the per-asset
+        // reasons, and note that this branch is now unexercised in production.
         console.info(`[catalogue] ${entry.id}: ${built.reason}`);
         continue;
       }
@@ -1709,8 +1713,13 @@ function frameNoteFor(frame: FrameAsset): string {
     case 'derived':
       return 'Arms found from the model’s geometry — the file names no temple part.';
     case 'assumed':
-      return 'A wrap: its arms have no rest point, so your ear supplied one. '
-        + 'The picture is right; treat the millimetres as an estimate.';
+      // "A wrap or an earhook", not "a wrap": the two assets on this tier are
+      // `shield-golden`, which is a wrap, and `khronos`, whose mesh ships parts
+      // named `EarhookLeft`/`EarhookRight`. `frame-from-mesh.ts` has always said
+      // both; this string said only the first, about an asset that is not one.
+      return 'A wrap or an earhook: its arms have no rest point of their own, '
+        + 'so your ear supplied one. The picture is right; treat the millimetres '
+        + 'as an estimate.';
     default:
       return '';
   }

@@ -450,7 +450,7 @@ these because the identity watch depends on the sigma it estimates.
 
 - **One physical day for stage 8: ten weighings and calipers.** This got more
   valuable last session, not less. The comparative width verdict is worth **0.09
-  confidence instead of 1.0** purely because nine of ten catalogue assets and all
+  confidence instead of 1.0** purely because eight of ten catalogue assets and all
   five parametric frames declare `dimensionSource: 'assumed'` — the caveat now
   applies to *both* frames in a comparison. One measured number per asset turns
   the tree's only scale-free width claim from nearly worthless into exact.

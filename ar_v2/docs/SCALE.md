@@ -349,8 +349,9 @@ Two consequences worth carrying forward:
 - **The reference form is worth 0.09 confidence, not 1.0, until the assets are
   measured.** The scale caveat comes off but the asset caveat does not, and it
   now applies to both frames — a difference between two widths is worth what the
-  worse-known of the two is worth. Nine of ten catalogue assets and all five
-  parametric frames declare `dimensionSource: 'assumed'`. One number per asset
+  worse-known of the two is worth. Eight of ten catalogue assets and all five
+  parametric frames declare `dimensionSource: 'assumed'` — only `navigator` and
+  `khronos` declare `cad`. One number per asset
   turns this verdict from 0.09 into 1.0, which is the strongest argument yet for
   the stage-8 measurement day.
 
