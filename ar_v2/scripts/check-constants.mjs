@@ -63,7 +63,14 @@ const EXEMPT = new Set([
   // Both are gone, and the sweep below is what stops the next one lasting a
   // year: an exemption for a name that no longer exists is the same defect as
   // an orphaned ledger row, and until now this was the one list nobody swept.
-  'TRANSLATION_SMOOTHING', 'ROTATION_SMOOTHING', 'LM', 'EPS',
+  // `TRANSLATION_SMOOTHING` and `ROTATION_SMOOTHING` sat here until 2026-09-01,
+  // against this docstring's own rule: both have carried provenance in the
+  // ledger the whole time. They needed the exemption anyway, because their one
+  // row named both of them in a single name cell, and `documented()` matches a
+  // whole name or a dotted prefix — not a comma. The row is now two rows and the
+  // exemption is gone. A packed name cell is a silent exemption; write one row
+  // per exported name.
+  'LM', 'EPS',
   // A userData KEY, not a number — it names an ownership flag on a scene node.
   'CACHED_BY_CALLER',
 ]);

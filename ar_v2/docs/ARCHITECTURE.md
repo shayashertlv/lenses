@@ -134,10 +134,44 @@ under `reports/` carry the merged tree's current figures.
 
 ### 2. Tracking — `src/track/`
 
-Six numbers against known geometry. `tracker.ts` is ~290 lines against v1's
-2,550, and the difference is entirely things that no longer need to exist: no
-shape estimation, no seat search, no identity question, no trust ramp, no gate,
-no per-frame placement.
+Six numbers against known geometry. What v1's `frame.js` spent 2,550 lines on,
+this does not do: no shape estimation, no seat search, no per-frame placement.
+The wearer is a `FaceModel` solved once and the seat is a transform solved once.
+The tracker never sees the seat: the per-frame path solves pose against the
+model, smooths it, says how much to trust the answer, and — on by default in the
+app — fuses a constant-velocity prediction of this frame's pose into the solve's
+own normal equations, with a per-channel gate that stands the prediction aside
+when it is contradicted. Placement is the scene graph carrying that cached seat
+under the head pose — `applySeat` runs when a frame is chosen, `setHeadPose`
+runs per video frame, and neither re-derives where the glasses sit.
+
+**The sentence that used to sit here was wrong in half of what it claimed, and
+how it went wrong is the more useful record.** It read: *"`tracker.ts` is ~290
+lines against v1's 2,550, and the difference is entirely things that no longer
+need to exist: no shape estimation, no seat search, no identity question, no
+trust ramp, no gate, no per-frame placement."* The first, second and last are
+still true. The other three are not. There is a trust ramp, and there are
+several: a variance-factor EMA and a visibility fade that takes a landmark's
+weight down rather than dropping it, on every frame; two prior-miss EMAs
+whenever the motion prior is on, which is the app's default; and a learned latch
+floor under `smooth: 'locked'`. There is a gate, and there are four hard ones —
+no face, too few correspondences, reprojection or depth out of range, too much
+gross error — each ending the frame in `miss()`, on top of the latch's enter
+thresholds, its drift guard, and a hold-then-reset path. And `src/track/` does
+ask the identity question: `identity.ts` is called on every non-degraded wear
+frame and answers on the frames that qualify, off the raw per-frame variance
+factor `tracker.ts` computes. That it is not asked *inside* `tracker.ts` is all
+the sentence could have claimed under a heading that names the directory.
+
+The line count went the same way. `tracker.ts` was 294 lines the day that
+sentence was written and 1,856 at `df63327`, the commit this retraction was
+measured against — 685 of those code, against `frame.js`'s 839 of 2,550. Both
+files run about sixty per cent comment, so code is the fair column and the
+reduction there is 1.2×, not the 8.8× the old sentence implied. The stillness
+latch, the basin audit, the motion prior and the variance-factor calibration all
+arrived afterwards, under a sentence nobody edited; writing this retraction
+pushed the total higher again. Nothing in this tree gates a line count, so take
+the current one from `wc -l` rather than from here.
 
 There is deliberately **nothing in the tracker that mentions yaw.** The reported
 symptom was a consequence of solving shape and pose together; with shape frozen,

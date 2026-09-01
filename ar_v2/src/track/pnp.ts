@@ -14,8 +14,13 @@
  * are free. Three hundred visible correspondences on a known rigid body
  * over-determine six numbers by a factor of a hundred, and the conditioning
  * stays good far past the angle where a shape-and-pose fit falls apart. Nothing
- * in this file has a yaw term, a trust ramp, or a gate; it does not need one,
- * because the estimator is no longer asked a question it cannot answer.
+ * in this file has a yaw term, and nothing in it refuses a frame; it does not
+ * need to, because the estimator is no longer asked a question it cannot answer.
+ * It is not weightless, though, and an earlier version of this sentence claimed
+ * it was: the robust kernel downweights continuously, and the two statistics the
+ * tracker's gates actually refuse on — `rmsPx` and `grossFraction` — are
+ * computed here. The refusal is the tracker's; the evidence for it is this
+ * file's.
  *
  * Two stages:
  *   1. `posit` — a coarse pose from scratch, for acquisition and recovery.

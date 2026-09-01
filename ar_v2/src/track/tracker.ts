@@ -1,7 +1,14 @@
 /**
  * One frame of tracking: landmarks in, a posed frame out.
  *
- * ## How small this file is, is the point
+ * ## What this file no longer re-solves, is the point
+ *
+ * This heading read "How small this file is, is the point" from 2026-08-20 until
+ * it was retired. It broke in a single refactor and then stood unedited while the
+ * file multiplied in size, which is the argument against making smallness the
+ * point of anything. `docs/ARCHITECTURE.md`'s tracking section carries the
+ * stamped line counts and the retraction; they are not repeated here, so that
+ * they cannot rot in two places.
  *
  * v1's equivalent (`frame.js`) is 2,550 lines, because every frame re-solved the
  * placement: it measured anchors, ran them through a weighted median, asked
@@ -17,10 +24,21 @@
  *   2. Smooth them.
  *   3. Say how much to trust the result.
  *
- * There is no shape estimation, no seat search, no identity question, no trust
- * ramp, no gate, and no per-frame placement of any kind. The frame is welded to
- * the head by the cached seat transform. Everything that used to be able to
- * drift, shimmer, or walk up and down the nose has no mechanism to do so.
+ * There is no shape estimation, no seat search, and no per-frame placement: the
+ * frame is welded to the head by the cached seat transform, and nothing here
+ * re-derives where it sits. Everything that used to be able to drift, shimmer, or
+ * walk up and down the nose has no mechanism to do so.
+ *
+ * The sentence that stood here denied what the file grew into. It used to claim
+ * "no trust ramp, no gate, and no identity question" as well, and two of those
+ * three are false of this file. The trust ramps: the variance-factor EMA and the
+ * visibility fade that takes a landmark's weight down instead of dropping it, on
+ * every frame; the two prior-miss EMAs whenever the motion prior is on; the
+ * learned latch floor under `smooth: 'locked'`. The gates: four refusals that end
+ * the frame in `miss()`, the latch's enter thresholds, the drift guard, and the
+ * hold-then-reset path. The identity claim is true of this
+ * file only — `identity.ts` asks that question on every wear frame, off the
+ * variance factor computed here, so it is false of `src/track/` as a whole.
  *
  * ## Why there is no yaw handling
  *
@@ -28,11 +46,22 @@
  * ">40 degrees pushes the frame forward" was not a yaw problem — it was a
  * consequence of solving shape and pose together from one view. Measured across
  * the synthetic population and the whole camera ladder: PnP against a *known*
- * model holds 0.42 degrees of median rotation error at frontal, 0.93 at 60 and
- * 0.88 at 90 — while the same solve against the average head swings the bridge's
- * depth by 5.1 mm across that range against 0.37 mm here. The fix is that the
- * model is known. Adding a yaw term would be treating a symptom that no longer
- * exists.
+ * model holds 0.42 degrees of median rotation error at frontal and single degrees
+ * through the turn, while the same solve against the average head swings the
+ * bridge's depth several times further. Which multiple depends on the smoothing
+ * arm — the unfiltered library default and the app's filtered one differ by an
+ * order of magnitude — so the comparison is only meaningful with the arm named.
+ * The fix is that the model is known. Adding a yaw term would be treating a
+ * symptom that no longer exists.
+ *
+ * The per-angle digits that used to sit here — 0.93 at 60, 0.88 at 90, and 5.1 mm
+ * against 0.37 — were written on 2026-08-20 and were never re-measured, including
+ * when `report:track` was re-run on 2026-08-31 in `421dc30`.
+ * `docs/ARCHITECTURE.md`'s tracking section carries the current rotation figures
+ * as a median of five seeds, and its diagnosis section the current depth swing
+ * per arm. `reports/track.txt` is the single checked-in seed-11 realisation and
+ * will not match those digit for digit. Take them from either, with its basis
+ * named — not from a comment nothing re-runs.
  */
 
 
@@ -211,8 +240,16 @@ export interface TrackerOptions {
    * smoothing INSIDE the estimator: at frontal rest the landmarks carry
    * ~50x the prior's information and nothing changes; at a 40-degree tilt
    * the landmark information collapses and the prior steadies exactly the
-   * axes the solve no longer knows — with no yaw term, no gate, and no
-   * second filter to reconcile with the first.
+   * axes the solve no longer knows — with no yaw term and no second filter
+   * to reconcile with the first.
+   *
+   * It does carry a gate, one per channel, and this sentence claimed it did
+   * not until 2026-09-01. Without one a 1-1.5 Hz reversal made the prior
+   * 7-19x WORSE than no prior at all, because `accel` prices only the
+   * window's timestamps: see `priorMissLast` / `priorMissTransLast` and
+   * `PRIOR_MISS_EMA_RATE`. The rotation channel got its gate first and the
+   * translation channel was graded by it for a while, which is the defect
+   * `ce4da5e` and `792da2c` closed.
    *
    * Off by default so the library's behavior is bit-identical to the
    * pre-prior build; the app turns it on (`?prior=off` is the A/B lever).
@@ -1835,8 +1872,17 @@ function miss(state: TrackerState, dt: number, reason: string): TrackResult {
  *
  * One matrix multiply. That is not a slogan the way it was in v1 — where the
  * README said "the per-frame cost is a matrix multiply" while the code swept a
- * thousand contact bins through a depth field every frame — it is the whole
- * per-frame placement path, and there is nothing else in it.
+ * thousand contact bins through a depth field every frame — it is the whole of
+ * what placement costs once the seat is cached.
+ *
+ * **Nothing calls this.** It used to say it was "the whole per-frame placement
+ * path, and there is nothing else in it", which was never the claim it looked
+ * like: the app composes these same two transforms in the scene graph, with
+ * `applySeat` writing the seat once when a frame is chosen and `setHeadPose`
+ * writing the head pose each frame. This is that composition written out in one
+ * checkable place, and the only thing a headless caller can reach for when it
+ * wants the composed matrix without a scene graph. It is not on the shipped path,
+ * and a reader should not take it for the code that runs.
  */
 export function frameToCamera(out: Pose, headPose: Pose, seat: Pose): Pose {
   const R = out.R;

@@ -1572,7 +1572,7 @@ Add a guard in the same test asserting all 18 samples penetrate at that pose, so
 - `src/fit/contact.ts:1373-1377` — `if (articulation.residualMm > PAD_CURVATURE_LIMIT_MM) notes.push('… this frame does not suit this face')`
 - `src/fit/contact.ts:453` — `export const PAD_CURVATURE_LIMIT_MM = 0.9;`
 
-`PAD_CURVATURE_LIMIT_MM`'s own docstring names the defect verbatim at `contact.ts:451`: *"`advice.ts` still grades pad contact against its own bare `1.0` for the same decision. Both should point here."* **`advice.ts` no longer exists** — it was renamed to `score.ts` (a stale `dist/src/fit/advice.js` with no `src` counterpart is still sitting in `dist/`, along with `bearing.js`). So the one pointer at the known defect points at a deleted file.
+`PAD_CURVATURE_LIMIT_MM`'s own docstring names the defect verbatim at `contact.ts:451`: *"`advice.ts` still grades pad contact against its own bare `1.0` for the same decision. Both should point here."* **`advice.ts` no longer exists** — it was renamed to `score.ts`. So the one pointer at the known defect points at a deleted file.
 
 ### 2. The exact change
 
