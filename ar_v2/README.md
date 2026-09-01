@@ -662,8 +662,12 @@ intact:
 
 ## What this build cannot tell you
 
-Ten open questions, in [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md). The
-honest headline is the same one v1 carried:
+Twenty open questions, in [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) —
+thirty-one entries, eleven of them marked SETTLED or CLOSED and kept in place,
+because a settlement is evidence and deleting it loses the argument. The **ten**
+that used to stand here was exact at `faece72`, when the file held ten entries
+and none of them was closed, and has been wrong since `01d89c0` added the
+eleventh. The honest headline is the same one v1 carried:
 
 > **Nothing here has ever seen a real camera.** There is no webcam on the machine
 > this was written on. The camera path is exercised as far as `getUserMedia` and
@@ -757,9 +761,13 @@ campaign digits are the settlement record for each decision; the tables above
 and the checked-in `reports/` are the merged tree, re-measured at seeds
 {11, 23, 37, 41, 53}.
 
-The four that need you: a real camera session (Q8), a detector-bias calibration
-against scanned faces (Q2), caliper measurements of the eleven real frame
-assets (Q10), and a licence click for FLAME 2023 (Q9).
+The six that need you, which are now exactly the six `docs/OPEN-QUESTIONS.md`
+marks **(needs you)**: a real camera session (Q8), a detector-bias calibration
+against scanned faces (Q2), caliper measurements of the ten real frame assets
+(Q10), a licence click for FLAME 2023 (Q9), a force gauge on a real nose (Q4),
+and half an hour turning against a protractor (Q13). This sentence said **four**
+and named a set the markers did not: it dropped Q4 and Q13, and included Q10,
+which carried no marker until this correction gave it one.
 
 ---
 

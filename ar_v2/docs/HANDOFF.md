@@ -50,9 +50,9 @@ other as much as their names suggest:
   No imports, no templates, nothing. Do not go looking for an integration point;
   there isn't one. "The main pipeline" means the AR project itself.
 - `ar/` — **v1**. JavaScript, 16,407 lines of `src`. The AR try-on that works
-  today. It has the rendering: eleven real glTF eyewear assets, materials, lens
-  glass, a light probe. Its estimator is the one being replaced.
-- `ar_v2/` — **v2**. TypeScript, 270 tests, four mechanised gates. A much
+  today. It has the rendering: ten real glTF eyewear assets plus a `base.obj`,
+  materials, lens glass, a light probe. Its estimator is the one being replaced.
+- `ar_v2/` — **v2**. TypeScript, four mechanised gates. A much
   better estimator (scan once, track against the scan, seat by contact physics)
   that draws only a **parametric** frame — tubes and ellipses — and until this
   week had no way to read an asset at all.
@@ -110,9 +110,11 @@ Verify everything with:
 cd ar_v2 && npm test
 ```
 
-That runs build → isolation → constants → self-contained → 222 tests. All four
-must pass. Do **not** run `npm run build` concurrently from two places; `dist/`
-is shared.
+That runs build → isolation → constants → self-contained → reports → the suite.
+All four gates and every test must pass. Neither count is written here on
+purpose: the gate list used to omit `check-reports`, and the test figure said
+222 long after it was not. Read the `pass` line `node --test` prints. Do **not**
+run `npm run build` concurrently from two places; `dist/` is shared.
 
 ---
 
@@ -448,7 +450,7 @@ pre-agreed precisely so it is not made under sunk cost. That fallback unblocks
 stages 6–10 unchanged.
 *Gate:* ≥90% of returned samples land on author-named pad parts. **navigator is
 at 100% today; khronos is at ~48% and +2.24 mm.** One of the two gradeable
-assets clears the bar and nine of eleven cannot be graded at all.
+assets clears the bar and eight of ten cannot be graded at all.
 
 ### Stage 6 — the back of the head — **DONE (2026-08-25)**
 
@@ -513,10 +515,12 @@ must set `outputColorSpace`, tone mapping, a PMREM environment and
 `shadowMap.enabled`. The other half is a screenshot pair and his verdict.
 
 ### Stage 8 — the other nine, and an honest refusal *(PARTLY BLOCKED)*
-Needs one physical day: eleven weighings and calipers where a real pair exists.
-*Gate:* the run must **refuse** pads on `shield-golden` (a wrap with no distinct
-pads) and on the acetate saddles. **A run where all eleven produce pads is a run
-that failed.** Every asset carries either a measured or a declared geometry, and
+Needs one physical day: ten weighings and calipers where a real pair exists.
+*Gate:* **retracted, and `src/fit/catalogue.ts` says why** — the gate as written
+here ("a run where all eleven assets produce pads is a run that failed") named a
+count this tree never had, and `shield-golden`, its worked example, derives the
+largest pad patch in the catalogue. Nothing replaced it; pads are graded against
+`assets/glasses/ground-truth.json` instead. Every asset carries either a measured or a declared geometry, and
 says which.
 
 ### Stage 9 — re-baseline the reports — **DONE (`bc28773`, 2026-08-26)**

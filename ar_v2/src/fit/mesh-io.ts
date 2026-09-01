@@ -18,7 +18,7 @@
  * transforms that place them. Nothing else — no textures, no animation, no
  * skinning, no cameras.
  *
- * Measured across the eleven assets in `assets/glasses/`: **no Draco, no
+ * Measured across the ten `.glb` assets in `assets/glasses/`: **no Draco, no
  * meshopt, no quantisation, no sparse accessors and no external buffer URIs**.
  * Every one is plain float32 `POSITION` with uint16 or uint32 indices. So the
  * decode below is deliberately narrow, and anything outside it THROWS rather

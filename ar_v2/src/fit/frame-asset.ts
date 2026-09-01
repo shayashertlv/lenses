@@ -667,14 +667,14 @@ export const PAD_FRONT_FRACTION = 1 / 3;
  * sunglasses-khronos this threshold alone reaches ~48% precision and separation
  * lands +2.2 mm, because that asset's frame front is sculpted rather than flat
  * and carries genuinely rearward-leaning faces of its own. One of the two
- * gradeable assets passes a 90% precision bar and one does not; nine of eleven
+ * gradeable assets passes a 90% precision bar and one does not; eight of ten
  * cannot be graded at all. That is the case for treating this derivation as a
  * CHECKER against declared geometry rather than as the producer of it.
  *
  * **`PAD_CONTACT_CONE_COS` took that 48% to 79% on 2026-08-27** by narrowing
  * the selection to the pad's contact face rather than its whole inward
  * hemisphere. It does not change the argument above — 79% is still not 90%, and
- * nine of eleven assets still cannot be graded at all — but the figure quoted
+ * eight of ten assets still cannot be graded at all — but the figure quoted
  * here is this threshold's contribution, not the derivation's current score.
  */
 export const PAD_REAR_COS = 0.04;
@@ -772,7 +772,8 @@ export const PAD_SIDE_IMBALANCE_MAX = 0.15;
  * and reported their vertex normals. It could not refuse anything and it did
  * not measure a pad:
  *
- *  - It returned `ok: true` on all eleven catalogue assets, on all eleven
+ *  - It returned `ok: true` on all eleven assets of the catalogue as it then
+ *    stood — v1's, since `fit/catalogue.ts` did not exist yet — on all eleven
  *    MIRRORED, on a Z-flipped frame, on a sphere, on a flat plate, on a
  *    cylinder and on the human face mesh. Zero refusals across 231 sane
  *    configurations. Its own docstring said "It reports when it failed."
@@ -784,7 +785,7 @@ export const PAD_SIDE_IMBALANCE_MAX = 0.15;
  *    samples came from `Frame_Front`. The rearmost sliver of a rounded pad
  *    points straight back by construction, so its normal is -Z whatever the
  *    pad's plane is doing, which drove `padAngleRad` toward 90 degrees on
- *    nine of eleven assets independently of the asset.
+ *    nine of those eleven independently of the asset.
  *
  * The selection now uses the criterion that defines the thing being looked
  * for. Samples are FACE centroids with FACE normals rather than vertices with

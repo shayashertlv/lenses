@@ -448,7 +448,7 @@ these because the identity watch depends on the sigma it estimates.
 
 ## 4. Blocked on Shay — tell him, don't wait silently
 
-- **One physical day for stage 8: eleven weighings and calipers.** This got more
+- **One physical day for stage 8: ten weighings and calipers.** This got more
   valuable last session, not less. The comparative width verdict is worth **0.09
   confidence instead of 1.0** purely because nine of ten catalogue assets and all
   five parametric frames declare `dimensionSource: 'assumed'` — the caveat now

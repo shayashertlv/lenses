@@ -1445,7 +1445,7 @@ about. Both are about the controls, not the seat.
 
 ---
 
-## Q10 — No real frame assets have measured geometry.
+## Q10 — No real frame assets have measured geometry. **(needs you)**
 
 **Assumed:** five parametric frames generated from numbers
 (`fit/frame-asset.ts`, `TEST_FRAMES`). Every one declares
@@ -1460,5 +1460,7 @@ no amount of solver quality survives it.
 pad surfaces. What is missing is the true physical size of each — a caliper
 measurement of the front width, and ideally the mass.
 
-**Worth:** high, and it is the cheapest high-value item on this list. Eleven
-frames, a caliper, twenty minutes.
+**Worth:** high, and it is the cheapest high-value item on this list. Ten
+frames, a caliper, twenty minutes. (This said *eleven* until 2026-09-01, four
+lines under the *ten* directly above it — v1's catalogue count, which carried
+`base.obj` as an eleventh frame and which this tree has never had.)

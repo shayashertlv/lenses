@@ -4,11 +4,12 @@
  * from the two assets whose authors named their nose pads.
  *
  * `assets/glasses/navigator.glb` ships `NosePad_L` / `NosePad_R`, and
- * `sunglasses-khronos.glb` ships a single `Nosepads` part carrying both. Nine
- * of the eleven assets have nothing of the kind — they are photogrammetry or
- * image-to-3D output with either generic part names or one fused mesh — so
- * this grades 2 of 11, both of the favourable authored kind, and that limit is
- * the headline fact about it rather than a footnote.
+ * `sunglasses-khronos.glb` ships a single `Nosepads` part carrying both. Eight
+ * of the ten catalogue assets have nothing of the kind — they are photogrammetry
+ * or image-to-3D output with either generic part names or one fused mesh — so
+ * this grades 2 of 10, both of the favourable authored kind, and that limit is
+ * the headline fact about it rather than a footnote. (It said 2 of 11 until
+ * 2026-09-01, from v1's catalogue count.)
  *
  * Until now this lived inside two binary files. A derivation cannot be graded
  * against geometry nobody has written down, and `ar/` is scheduled for
@@ -175,8 +176,9 @@ const doc = {
     + 'frontal angle. padConeAngleRad is the full lean out of the x axis, atan2(hypot(ny, nz), '
     + '|nx|) - the quantity PAD_INWARD_COS gates on, and the one padAngleRad USED to hold. '
     + 'They were one number until 2026-08-26 and it was neither.',
-  coverage: '2 of 11 assets. The other nine are photogrammetry or image-to-3D output with '
-    + 'generic part names or a single fused mesh, and have no author-declared pads to extract.',
+  coverage: '2 of 10 catalogue assets. The other eight are photogrammetry or image-to-3D '
+    + 'output with generic part names or a single fused mesh, and have no author-declared '
+    + 'pads to extract.',
   uncertainty: 'Method-dependent, and the size of that depends on WHICH methods. On navigator: '
     + 'whole-mesh part centroids give 18.48 mm, these inward contact faces give 13.843 mm (the '
     + 'figure emitted below), and a plane-fit of the same faces gives 13.79 mm. So the two '
