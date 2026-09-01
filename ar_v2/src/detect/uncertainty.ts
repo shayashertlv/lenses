@@ -33,10 +33,16 @@
  *     This is the big one and it is the only one that knows the far cheek is
  *     hidden. It requires a pose, so on the very first frame it is unavailable
  *     and everything falls back to (2) and (3).
- *  2. **Temporal disagreement**: how much this landmark has moved relative to
- *     the rigid motion of the whole set. A landmark that jumps while its
+ *  2. **Temporal disagreement**: how much this landmark has moved relative to a
+ *     median TRANSLATION of the whole set. A landmark that jumps while its
  *     neighbours do not is a landmark the detector is unsure about, whatever it
  *     claims. This is the signal that catches blinks, hair and hands.
+ *
+ *     This used to say "relative to the rigid motion of the whole set", which is
+ *     a different and larger claim: a translation is not the rigid motion of a
+ *     head that is rolling or leaning. The term therefore charges for some
+ *     motion the detector tracked correctly, and the reason it still does is
+ *     measured rather than assumed — see the term itself.
  *  3. **A floor**, the detector's measured noise on a still, frontal face.
  */
 
@@ -178,6 +184,37 @@ export function estimateSigma(
     // The rigid part of the frame-to-frame motion, as a median translation.
     // A median rather than a mean, because the whole point is to be unmoved by
     // the landmarks that are about to be flagged.
+    //
+    // **A translation is not the whole rigid motion, and replacing it with one
+    // was tried and rejected on measurement.** A head that rolls or leans moves
+    // perfectly rigidly while only its centre translates, so what is left over
+    // grows with a landmark's distance from that centre — the periphery under
+    // roll, the nose under lean, which are the most pose-informative landmarks
+    // there are. Fitting a 2D similarity (translation, rotation, uniform scale)
+    // removes it exactly: on synthetic rigid motion at 1 deg and 1% a frame the
+    // residual goes from 1.53 / 0.98 / 1.98 px (roll / lean / both) to 0.00, the
+    // floor, and the signal this term exists for sharpens rather than dulls — a
+    // landmark thrown 25 px a frame separates 19.7x from its neighbours against
+    // 14.6x before.
+    //
+    // It is not wired up, because of a coupling worth understanding before
+    // anyone tries again. Inflating sigma LOWERS the weighted reprojection rms
+    // that `track` thresholds on (`maxRmsPx`, 14 px), so a frame can be made
+    // acceptable by declaring its landmarks uncertain. `core.test.ts`'s
+    // second-face fixture depends on that: two faces interleaved across the
+    // landmarks are not moving rigidly at all, a similarity fitted to the
+    // mixture inflates every residual rather than any, and 2 of 10 frames then
+    // land at rms 13.74 and 8.99 and are ACCEPTED as the wearer. The
+    // translation-only rule under-explains the motion, inflates less, and keeps
+    // every one of those frames above the bar.
+    //
+    // Choosing between the two models per frame by their own median residual
+    // does not separate the cases — measured, the similarity wins on the mixture
+    // too. So the real blocker is the coupling, not this term: while a gate is
+    // protected by sigma staying small, no improvement to sigma is safe. Across
+    // 40 independent seeds of that fixture both rules leak equally (2 of 1200),
+    // so the committed pin is one draw of a stochastic bar, which is worth
+    // knowing before reading either number as a verdict.
     const dx: number[] = [];
     const dy: number[] = [];
     for (let i = 0; i < n; i++) {
