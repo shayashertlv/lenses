@@ -1026,11 +1026,14 @@ describe('the sigma the detector reports has to be in the landmarks own pixels',
   });
 });
 
-describe("Barron's loss family — one shape parameter, checked like every other derivative here", () => {
+describe("Barron's loss family — one shape parameter, checked like every jacobian here", () => {
   const SCALE = 2.5;
 
   it('drho is the derivative of rho, for every alpha the schedule can reach', () => {
-    // The tree's standard for an analytic derivative: central differences.
+    // The tree's standard for an analytic JACOBIAN: central differences. Not
+    // every analytic derivative gets it — `huber`'s rho', the loss all three
+    // solvers actually run, has no difference test at all. See README's
+    // jacobian-coverage bullet for the standing list.
     // A wrong drho does not crash — it converges slowly to a slightly wrong
     // answer, which is indistinguishable from noisy data.
     for (const alpha of [2, 1.5, 1, 0.5, 0.001, 0, -0.001, -0.5, -1, -2]) {

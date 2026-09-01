@@ -195,8 +195,10 @@ export function pointAtDepth(out: Vec3, k: Intrinsics, px: number, py: number, z
  * The net now reaches past this file: `tests/core.test.ts` also differences
  * `shape/basis.ts`'s `basisJacobian`, `shape/displacement.ts`'s
  * `displacementJacobian` and `fit/contact.ts`'s `pointJacobian`, each in its
- * own case. (An earlier version of this header named those three as untested;
- * they were, and are no longer.)
+ * own case. (This paragraph and those three tests landed together in f9c9093.
+ * The header it replaced pointed at a `tests/jacobians.test.ts` that has never
+ * existed in any commit; the artifact that named the three as untested was
+ * README.md, which went on saying so for a week after the tests were green.)
  *
  * One gap is left, and it is a gap in *coverage of the model*, not of a
  * function: `displacementJacobian`'s check differences it against

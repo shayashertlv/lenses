@@ -18,7 +18,7 @@ Start here:
 ```bash
 cd C:\Users\Shay\PycharmProjects\lenses\ar_v2
 node scripts/fetch-vendor.mjs      # only if vendor/ is absent
-npm test                            # expect 300/300 and FOUR green gates
+npm test                            # expect all green and FOUR green gates
 ```
 
 Read, in this order: `docs/HANDOFF.md` (the ten-stage migration and its traps),

@@ -515,20 +515,57 @@ npm test
 ```
 
 Runs four gates — the isolation boundary, the constants ledger, self-containment
-and the report stamps — and **300 tests**: every *camera* jacobian against
-central differences, the enrollment against ground truth, the seat against its
-controls.
+and the report stamps — and the whole suite: every analytic jacobian in the tree
+against central differences, the enrollment against ground truth, the seat
+against its controls.
 
-Two qualifications, both of which used to be over-claims:
+The count that used to sit here, **300 tests**, was exact through `ad8c695` and
+has been wrong since `947edf7` — both on 2026-08-26, five days before anyone
+noticed. It reads 338 on 2026-09-01, and rising. Take it from the `pass` line
+`node --test` prints at the end of the run rather than from this paragraph.
 
-- **"every analytic jacobian" was false.** Only the four camera jacobians
-  (`dProjDPoint`, `dProjDPose`, `dProjDModelPoint`, `dProjDIntrinsics`) are
-  difference-tested. `shape/basis.ts`'s `basisJacobian`, `shape/displacement.ts`'s
+Two qualifications:
+
+- **The retraction outlived the defect — and was never true.** This bullet used
+  to read: *"Only the four camera jacobians (`dProjDPoint`, `dProjDPose`,
+  `dProjDModelPoint`, `dProjDIntrinsics`) are difference-tested.
+  `shape/basis.ts`'s `basisJacobian`, `shape/displacement.ts`'s
   `displacementJacobian` and `fit/contact.ts`'s `pointJacobian` have no
-  central-difference test anywhere in the tree.
+  central-difference test anywhere in the tree."* All three have one, each in
+  its own case under `tests/core.test.ts`'s `analytic jacobians match central
+  differences` — `d(vertex) / d(shape coefficient)`, `d(vertex) / d(free-form
+  field value)`, and `d(seated point) / d(pose increment), against the increment
+  poseOplus applies`. They always did: f9c9093 added the three tests, the
+  corrected header in `src/core/camera.ts`, and this bullet denying both, in one
+  commit. The window in which the retraction was true is
+  empty; it did not drift, it was born wrong, and it then sat here for a week
+  contradicting the tests in the file it was describing.
+
+  What is true now: `src/` holds exactly seven analytic jacobians — `grep -rE
+  'function [a-zA-Z]*[Jj]acobian' src/` finds `basisJacobian`,
+  `displacementJacobian` and the module-private `pointJacobian`, and the other
+  four are the camera ones above — and all seven are differenced, as are
+  `core/robust.ts`'s `barronDrho`, the seat gradient in both its regimes, and the
+  pad lift `describeSeat` reports.
+
+  **What is still not.** *Every analytic jacobian* is true; *every analytic
+  derivative* is not, and the biggest one missing is the derivative the tree
+  actually runs: `huber`'s rho' has no difference test anywhere, and `huber` is
+  the shipped loss in all three solvers (`track/pnp.ts`, `enroll/bundle.ts`,
+  `track/snap.ts`) — the Barron family beside it is `redescending: false` and
+  unwired. Nor does anything else on this list: `cauchy`'s rho',
+  `enroll/bundle.ts`'s `accumulateGlobal`, `accumulateSilhouette` and
+  `solveField`, the exported `accumulateDisplacementPriors`, and `refinePnP`'s
+  inline gradient and Hessian. And one blind spot is permanent even where the
+  coverage is complete: `duyn` and `dvxn` in `src/core/camera.ts` are assigned
+  the identical expression, so a transpose of the 2x2 distortion block is a
+  no-op that no difference test at any `k1` can see. Sweeping `k1` buys the
+  asymmetric corruptions and nothing more.
 - **The isolation boundary now does two things**: a source-text blacklist, and an
-  actual `import()` of every built headless module from `dist/` (35 today). The
-  import pass needs a build, and `npm run check:isolation` does not build first —
+  actual `import()` of every built headless module from `dist/` — 41 of them on
+  2026-09-01, and the gate prints its own count (`N module(s) imported cleanly in
+  Node.`), which is the figure that stays current. The import pass needs a build,
+  and `npm run check:isolation` does not build first —
   running it directly on a clean tree prints a loud SKIP, which is expected
   rather than a failure.
 
