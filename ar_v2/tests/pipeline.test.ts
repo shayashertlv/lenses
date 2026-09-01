@@ -3369,6 +3369,49 @@ describe('the gates that run before the tests do', () => {
     });
   });
 
+  it('takes the canary at the configuration the committed report was generated at', () => {
+    // F15. The canary ran `{ seed: 11, subjects: 1 }` for every report — a
+    // literal owned by the gate, not the report's own `options`. For `seat`,
+    // `track` and `enroll` that happens to be their configuration written out
+    // by hand. For `occlusion` it was not: its committed copy IS the five-seed
+    // campaign, so it is regenerated with no seed, and a forced seed flips
+    // `singleSeed` (report-occlusion.ts:1047) to the single-realisation branch.
+    // `CAMPAIGN_SEEDS`, the replication-population rule and the across-seed
+    // `spread()` were then unreachable in the hash that certified them, so
+    // rewriting any of them drifted `source`, left the canary bit-identical,
+    // and had the gate print "the report is still true" over a campaign it had
+    // never run. Measured: dropping two campaign seeds moved the old canary not
+    // at all (b219d011d08b41bb either way) and moves the new one to
+    // 9aa044c1290368d1.
+    //
+    // So the invariant is not "the canary uses a seed" — it is that the canary
+    // may not take a branch the committed body did not take. Asserted twice:
+    // structurally, that the population is the ONLY thing the canary overrides,
+    // and against the committed file, that the report whose body says it is a
+    // five-seed campaign is not canaried at one seed.
+    const gate = join(scriptsDir, 'check-reports.mjs');
+    return import(pathToFileURL(gate).href).then(({ REPORTS, canaryOptions }) => {
+      for (const report of REPORTS) {
+        const { subjects, ...rest } = canaryOptions(report);
+        assert.equal(subjects, 1,
+          `${report.name}: the canary runs one subject — the population is the wall clock`);
+        assert.deepEqual(rest, report.options,
+          `${report.name}: the canary runs a configuration the committed body was not `
+          + 'generated at, so what it certifies is not what is in the file');
+      }
+
+      const occlusion = REPORTS.find((r: { name: string }) => r.name === 'occlusion');
+      const committed = readFileSync(join(scriptsDir, '..', 'reports', 'occlusion.txt'), 'utf8');
+      assert.match(committed, /MEDIAN OF THE FIVE SEEDS/,
+        'the committed occlusion report is no longer the five-seed campaign, so this '
+        + 'test is asserting against a body that does not exist');
+      assert.equal(canaryOptions(occlusion).seed, undefined,
+        'the committed occlusion body is the five-seed campaign and its canary forces a '
+        + 'single seed, so the campaign seeds, the replication population and the '
+        + 'across-seed spread are all dead in the hash that certifies it');
+    });
+  });
+
   it('refuses a constants ledger with two rows for one constant', () => {
     // Finding 36: two contradictory `SKIN.hookStiffnessNPerMm` rows, invisible
     // to the old checker. Two rows for one constant means at least one is stale,

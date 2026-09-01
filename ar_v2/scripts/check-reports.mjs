@@ -47,15 +47,26 @@
  *    mesh the fixtures load. Comments in this tree carry the measurements and
  *    change constantly; the code under them does not. Cheap: a fifth of a
  *    second, so it runs on every `npm test`.
- *  - **`canary`** — sha-256 of the report's own generator run at `subjects: 1`,
- *    with timings stripped. Exact, and expensive (3 to 31 seconds), so it runs
- *    only when `source` has already drifted.
+ *  - **`canary`** — sha-256 of the report's own generator run, in the report's
+ *    own configuration, at `subjects: 1`, with timings stripped. Exact for that
+ *    configuration, and expensive: 2 to 30 seconds a report and roughly a
+ *    minute for all four, measured 2026-09-01 on three machines and varying
+ *    15-20% between them — so it runs only when `source` has already drifted.
  *
  * The two together give the honest answer without the cost. A drifted `source`
- * with a matching `canary` means the code moved and the numbers did not — the
- * report is still true, and it says so rather than failing. A drifted `canary`
- * means the committed numbers describe code that no longer exists, and that
- * fails the build.
+ * with a matching `canary` means the code moved and the numbers THE CANARY CAN
+ * SEE did not. This comment used to say it meant the report was still true, and
+ * that was a claim neither hash could support: the canary ran a fixed
+ * `{ seed: 11, subjects: 1 }` rather than the report's own options, so for
+ * `occlusion` — regenerated as the whole five-seed campaign — the campaign
+ * seeds and the replication-population rule were unreachable and the across-seed
+ * spread was degenerate, one realisation where the median, the min and the max
+ * are the same number, so rewriting any of them was certified rather than
+ * caught. The
+ * seed half of that is fixed below; the population half is not, and
+ * `canaryOptions` says exactly what one subject still cannot see. A drifted
+ * `canary` means the committed numbers describe code that no longer exists, and
+ * that fails the build.
  *
  * Regenerate and re-stamp with `npm run report:<name>`.
  */
@@ -77,14 +88,14 @@ const REPORTS = [
   { name: 'track', entry: 'src/testkit/report-track.ts', fn: 'runTrackReport', bodyStartsWith: 'TRACKING — ', realisation: 'seed 11', options: { seed: 11 } },
   { name: 'enroll', entry: 'src/testkit/report-enroll.ts', fn: 'runEnrollReport', bodyStartsWith: 'ENROLLMENT ACCURACY', realisation: 'seed 11', options: { seed: 11 } },
   // The occlusion instrument runs the whole five-seed campaign by default and
-  // its committed copy IS that campaign, so it is regenerated without a seed.
-  // Its CANARY is still a single seed, because a canary is a fingerprint of the
-  // code and not a replication of the result.
+  // its committed copy IS that campaign, so it is regenerated without a seed —
+  // and, since 2026-09-01, so is its canary. A canary is a fingerprint of the
+  // code rather than a replication of the result, but it has to fingerprint the
+  // code the committed body RAN: pinning this one to seed 11 took the other
+  // branch of `singleSeed` (report-occlusion.ts:1047) and left four fifths of
+  // the campaign out of the hash.
   { name: 'occlusion', entry: 'src/testkit/report-occlusion.ts', fn: 'runOcclusionReport', bodyStartsWith: 'OCCLUSION — ', realisation: 'campaign', options: {} },
 ];
-
-/** The seed the canary is taken at, for every report. */
-const SEED = 11;
 
 /** The one file the fixtures read off disk. Every number depends on it. */
 const TEMPLATE = 'assets/face/canonical_face_model.obj';
@@ -95,9 +106,11 @@ const TEMPLATE = 'assets/face/canonical_face_model.obj';
  *   source  the generator's transitive import graph, comments stripped. Cheap,
  *           runs every time, and answers "did the code that produced this
  *           report change?"
- *   canary  a one-subject run of the generator itself. Expensive, runs only
- *           when `source` has drifted, and answers "did the change move the
- *           numbers, or was it a comment?"
+ *   canary  a one-subject run of the generator itself, in the report's own
+ *           configuration. Expensive, runs only when `source` has drifted, and
+ *           answers "did the change move the numbers this configuration can
+ *           see, or was it a comment?" — `canaryOptions` names the ones it
+ *           cannot see.
  *   body    a hash of the COMMITTED BYTES below the preamble.
  *
  * **`body` was missing and its absence was the hole this gate exists to close.**
@@ -282,9 +295,68 @@ function stripTimings(text) {
     .replace(/\b\d+(\.\d+)?\s*ms\b/g, '- ms');
 }
 
+/**
+ * The configuration the canary is taken at: the committed report's own options,
+ * at one subject.
+ *
+ * **The options are the report's, not the gate's.** This was a flat
+ * `{ seed: 11, subjects: 1 }` until 2026-09-01, and for `seat`, `track` and
+ * `enroll` that is their own `options` copied out by hand. For `occlusion` it
+ * was not: its committed copy is the five-seed campaign, so it is regenerated
+ * with no seed at all, and a forced seed made `runOcclusionReport` take the
+ * other branch of `singleSeed` (report-occlusion.ts:1047). `CAMPAIGN_SEEDS`,
+ * the replication-population rule and the across-seed `spread()` — degenerate
+ * at one realisation, where the median, the min and the max are the same number
+ * — were unreachable in the hash that certified them. Measured on a patched
+ * mirror of `dist/`: dropping two campaign seeds left the old canary at
+ * b219d011d08b41bb bit for bit and moves this one to 9aa044c1290368d1;
+ * replacing the across-seed median with a midrange, likewise, and it moves to
+ * ba1f095b3033d019. Both edits rewrite all fourteen headline lines of the
+ * committed body. The price is the campaign: 25 s against 5, paid only after
+ * `source` has drifted.
+ *
+ * **What one subject still cannot see, precisely.** `subjects: 1` stays, because
+ * the population IS the wall clock — the committed bodies run 6 (seat, track),
+ * 8 (enroll) and 10 (occlusion's first seed), and a canary at those costs
+ * minutes. So this hash does not cover:
+ *
+ *   - the DEFAULT subject count itself. It lives in the generator, so changing
+ *     it drifts `source` and moves the committed body, and it cannot move a
+ *     canary that overrides it. Measured: seat's `subjects: 6` -> 4 leaves the
+ *     canary at ee27de8918f05e53 while what a canary at seat's FULL options
+ *     would have seen moves c6fc0ed78c0a1fa0 -> 0473fac54972e79f. Those two are
+ *     hashed the way this canary hashes, through `stripTimings`; they are not
+ *     the `body=` stamp, which is taken over the raw committed bytes and so
+ *     embeds the ms columns — three runs of one unchanged build hash three
+ *     different values, which is why no fixed pair can be quoted for it.
+ *   - anything reachable only past population slot 0 — `HVID_GROUP_MEANS[1..3]`
+ *     (synthetic.ts:200), the per-slot rejection retry, and the pooled-iris
+ *     ablation's index rule (report-occlusion.ts:894-896), which at three
+ *     subjects names all three — so a change to WHICH subjects it names is
+ *     invisible, though a change to HOW MANY is not.
+ *   - the sample size inside `distribution()`: the canary aggregates 3 subjects
+ *     (1 sampled + the two named extremes) where the bodies aggregate 8 to 12.
+ *   - `Math.min(4, fullCount)` (report-occlusion.ts:1055). At one subject both
+ *     arms are 1, so the replication-population rule stays dead even with all
+ *     five seeds live — measured, `min(4)` -> `min(9)` leaves this canary at
+ *     6274324995583b84.
+ *
+ * Nothing in this gate catches those; they surface when somebody regenerates
+ * the report and the body moves. That is why `check()` reports what the canary
+ * ran rather than that the report is true.
+ *
+ * One more axis, because it bounds everything above: `source` is hashed from
+ * `src/` and the canary is imported from `dist/`, and `npm run check:reports`
+ * does not build. So the canary fingerprints whatever the last `npm run build`
+ * emitted, and its answer is only as fresh as that. `npm test` builds first.
+ */
+function canaryOptions(report) {
+  return { ...report.options, subjects: 1 };
+}
+
 async function canaryHash(report) {
   const mod = await import(`file://${resolve('dist/src/testkit/', `report-${report.name}.js`)}`);
-  const text = mod[report.fn]({ seed: SEED, subjects: 1 });
+  const text = mod[report.fn](canaryOptions(report));
   return createHash('sha256').update(stripTimings(text)).digest('hex').slice(0, 16);
 }
 
@@ -393,9 +465,12 @@ async function check() {
     const liveCanary = await canaryHash(report);
     if (liveCanary === canary) {
       console.log(
-        `  ${path}  source ${source} -> ${live}, but the numbers did not move ` +
-        `(canary ${canary}). The report is still true; re-stamp it with ` +
-        `\`npm run report:${report.name}\` when convenient.`,
+        `  ${path}  source ${source} -> ${live}, and the canary did not move ` +
+        `(${canary}). The canary runs the options this gate would regenerate ` +
+        'this report at, at one subject, so the change did not reach anything ' +
+        'it runs — which is not the same as the report being true: a change ' +
+        'that only shows at the committed population is outside it. Regenerate ' +
+        `and re-stamp with \`npm run report:${report.name}\` when convenient.`,
       );
       continue;
     }
@@ -428,4 +503,4 @@ if (process.argv[1] && resolve(process.argv[1]).endsWith('check-reports.mjs')) {
   else await check();
 }
 
-export { stripTimings, importGraph, sourceHash, REPORTS };
+export { stripTimings, importGraph, sourceHash, canaryOptions, REPORTS };

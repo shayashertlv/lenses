@@ -538,7 +538,15 @@ these because the identity watch depends on the sigma it estimates.
     sides, and find the body's start by its title line, not by a fixed offset.
 12. **`npm run report:<name>` now regenerates AND stamps** through
     `scripts/check-reports.mjs --write`. Do not hand-edit a `[provenance]` line;
-    the canary is what makes it mean anything.
+    the canary is what makes it mean anything. The one exception on record is
+    2026-09-01, when the canary's own CONFIGURATION changed — occlusion's canary
+    went from a forced seed to the campaign shape its committed body was
+    generated at — so `canary=` moved while the body stayed byte-for-byte what
+    the generator wrote. That field was typed, because `--write` has no
+    stamp-only path and regenerating a body to land a gate fix would refresh a
+    measurement. It is safe only because occlusion's `source` is drifted: the
+    gate re-derives the canary on the very next run and goes red if the typed
+    value was wrong.
 
 ## 7. Where the evidence lives
 
