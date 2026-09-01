@@ -81,8 +81,18 @@ const EXEMPT = new Set([
  */
 const rows = [];
 const unparsed = [];
+// The section a row sits under. A `## ` line is the ledger's claim about WHERE
+// the numbers below it live, and this loop used to throw every one of them away
+// on the line below — which is how two headings could name files that do not
+// exist, and twenty-five rows could sit under a file that does not declare
+// them, with the gate green throughout.
+let heading = null;
 LEDGER.split('\n').forEach((line, i) => {
   const s = line.trim();
+  if (s.startsWith('## ')) {
+    heading = { text: s.slice(3).trim(), line: i + 1 };
+    return;
+  }
   if (!s.startsWith('|') || !s.endsWith('|')) return;
   // Split on pipes the row did not escape. A `why` cell routinely wants a
   // literal `|` — a sweep written `1 | 3 | 5`, a type written `number | null` —
@@ -108,6 +118,7 @@ LEDGER.split('\n').forEach((line, i) => {
     name: cells[0].replace(/`/g, ''),
     cls: cells[2].replace(/`/g, ''),
     line: i + 1,
+    heading,
   });
 });
 
@@ -261,6 +272,102 @@ const orphanRows = !REAL_TREE ? [] : rowNames.filter((row) => {
   return !new RegExp(`\\b${root}\\b`).test(allSource);
 });
 
+/**
+ * A heading that names the wrong file.
+ *
+ * The rows are only half the ledger. A `## ` heading says WHERE the numbers
+ * under it live, and a reader who follows one to a file that was renamed, or
+ * deleted, or never existed at all, has been sent nowhere by the document whose
+ * entire job is provenance. It is the same defect as an orphaned row, and it is
+ * the one the parser could not see.
+ *
+ * Two rules, both deliberately weak:
+ *
+ *   - every `.ts` path a heading names must exist;
+ *   - a row whose title is an identifier must be DECLARED in one of them.
+ *
+ * Declared, not mentioned. The pattern is anchored at column 0 and wants a
+ * value keyword, so a constant named in a comment is not a home, a
+ * function-local `const` that happens to share the name is not a home, and
+ * neither is a `type` or an `interface` of the same name. What the ledger
+ * legitimately does that this cannot judge, it skips rather than guesses at:
+ * prose titles ("verdict thresholds"), titles naming two constants at once, and
+ * fields of a bag or a spec (`FrameSpec.templeReachMm`), which no line regex
+ * can find a declaration for. It judges SCREAMING_SNAKE titles only, and that
+ * is a rule rather than an accident: a one-word lowercase title like `floorPx`
+ * is an identifier by shape, and would take any unrelated module's column-0
+ * `const floorPx` as its home. That is the same retreat the sweep above made,
+ * for the reason stated there — a gate that fires on correct rows is a gate
+ * that gets switched off. On the tree that first ran it, it fired sixteen times
+ * and every one was a real defect.
+ *
+ * The hole it cannot close: a heading may list several files, so widening one
+ * to cover the file a row actually lives in silences the row without moving it,
+ * and blesses every future row filed there. The failure message says so.
+ *
+ * A heading whose grammar this cannot parse is the same hole reachable by
+ * typo — an ASCII hyphen where the file uses an em dash, a parenthetical — so a
+ * heading that mentions a `.ts` file and yields no path is reported rather than
+ * skipped. The date banner mentions none and stays silent.
+ */
+const headingPaths = (h) => h.text
+  .split('—')[0]   // "core/head.ts — the back of the head, to hide the arms"
+  .split(',')      // "track/pnp.ts, track/tracker.ts"
+  .map((p) => p.trim().replace(/`/g, ''))
+  .filter((p) => p.endsWith('.ts'));
+
+const declares = (text, name) => new RegExp(
+  `^(?:export\\s+)?(?:declare\\s+)?(?:const|let|var)\\s+${name}\\b`,
+  'm',
+).test(text);
+
+const sourceText = new Map();
+if (REAL_TREE) {
+  for (const file of walk('src')) {
+    if (!file.endsWith('.ts')) continue;
+    sourceText.set(relative('.', file).split(sep).join('/'), readFileSync(file, 'utf8'));
+  }
+}
+
+const deadHeadings = new Map();
+const unreadableHeadings = new Map();
+const misfiled = [];
+if (REAL_TREE) {
+  for (const row of rows) {
+    if (!row.heading) continue;
+    const paths = headingPaths(row.heading);
+    if (paths.length === 0) {
+      // A date banner names no file and is not a section. A heading that names
+      // one and still parses to nothing is a grammar this cannot read, and
+      // silence there switches the check off for a whole section.
+      if (row.heading.text.includes('.ts')) {
+        if (!unreadableHeadings.has(row.heading.text)) {
+          unreadableHeadings.set(row.heading.text, row.heading.line);
+        }
+      }
+      continue;
+    }
+    // Against the walked source map, not `existsSync`: the filesystem is
+    // case-insensitive on Windows and case-sensitive on Linux, and a ledger
+    // that fails two different ways on two platforms is worse than either.
+    const absent = paths.filter((p) => !sourceText.has(`src/${p}`));
+    if (absent.length) {
+      // The heading is already the failure. Naming its rows one by one would
+      // report one defect eight times.
+      for (const p of absent) if (!deadHeadings.has(p)) deadHeadings.set(p, row.heading.line);
+      continue;
+    }
+    const root = row.name.split('.')[0].trim();
+    if (!/^[A-Z][A-Z0-9_]*$/.test(root)) continue;
+    const homes = [...sourceText]
+      .filter(([, text]) => declares(text, root))
+      .map(([file]) => file);
+    if (homes.length === 0) continue;
+    if (homes.some((h) => paths.includes(h.replace(/^src\//, '')))) continue;
+    misfiled.push({ row, homes });
+  }
+}
+
 // The class mix, reported not gated.
 const counts = {};
 for (const row of rows) {
@@ -305,6 +412,46 @@ if (orphanRows.length) {
     + 'reads exactly like provenance for something.',
   );
   failures += orphanRows.length;
+}
+
+if (deadHeadings.size) {
+  console.error('\nledger headings naming a file that does not exist:');
+  for (const [path, line] of deadHeadings) {
+    console.error(`  docs/CONSTANTS.md:${line}  ${path}`);
+  }
+  console.error(
+    '\nA section heading is the ledger\'s claim about where a number lives. '
+    + 'Pointed at a renamed or deleted file, it sends the next reader nowhere.',
+  );
+  failures += deadHeadings.size;
+}
+
+if (unreadableHeadings.size) {
+  console.error('\nledger headings that name a .ts file but do not parse as one:');
+  for (const [text, line] of unreadableHeadings) {
+    console.error(`  docs/CONSTANTS.md:${line}  ## ${text}`);
+  }
+  console.error(
+    '\nA path, then optionally a comma-separated second path, then optionally an '
+    + 'em dash and a gloss. Anything else switches this check off for the whole '
+    + 'section, silently, which is why it is a failure instead.',
+  );
+  failures += unreadableHeadings.size;
+}
+
+if (misfiled.length) {
+  console.error('\nledger rows filed under a heading that does not declare them:');
+  for (const m of misfiled) {
+    console.error(
+      `  docs/CONSTANTS.md:${m.row.line}  ${m.row.name}  under '${m.row.heading.text}'`
+      + `  — declared in ${m.homes.join(', ')}`,
+    );
+  }
+  console.error(
+    '\nMove the row under a heading that names its file, or open one. Adding the '
+    + 'file to the heading instead silences the row and blesses the next one.',
+  );
+  failures += misfiled.length;
 }
 
 if (failures) process.exit(1);
