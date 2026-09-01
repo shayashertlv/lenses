@@ -233,7 +233,7 @@ yaw. There is no per-frame placement left to be wrong.**
 
 ### 4. Verification — `src/testkit/`, `tests/`
 
-Four reports and the whole suite (**338** on 2026-09-01; take it from the run,
+Four reports and the whole suite (**346** on 2026-09-01; take it from the run,
 not from here), all headless, all against a synthetic population with known
 ground truth. Two of them spent a day deliberately red — regression bars
 asserting claims the harness fix had disproved — and one of them is green again

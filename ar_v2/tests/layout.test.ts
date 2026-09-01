@@ -10,11 +10,13 @@
  * bridge tube — radius 1.6 mm — by 2.4 mm of clear air, and the error flattered,
  * under-reporting that part's occlusion by 9 to 14 percentage points.
  *
- * **There was no test to catch it, and there could not have been one.** No test
- * in this tree references `frame-geometry.ts`, because it imports three.js and
+ * **There was no test to catch it, and there could not have been one.** Nothing
+ * in this tree referenced `frame-geometry.ts`, because it imports three.js and
  * the suite runs under Node where three is a vendored browser file rather than a
  * dependency. The twin was maintained by two comments asking a reader to keep it
- * in step.
+ * in step. This file is what changed that — it reads the compiled
+ * `frame-geometry.js` below, and `frame-mesh.test.ts` does the same for the
+ * other half of `render/`.
  *
  * Both sides now read `fit/frame-layout.ts`. That makes "do they agree?"
  * vacuous, so it is not what is asserted here. What is asserted is what the
