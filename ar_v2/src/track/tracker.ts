@@ -396,8 +396,23 @@ export interface TrackerState {
    *     lean z 1.0 Hz +/-25 mm    0.228 -> 2.336      (10.2x WORSE)
    *     yaw shake 1.0 Hz +/-10 d  0.225 -> 0.150      (0.67x — the gate working)
    *
-   * The last row is the point: the gate rescues exactly the channel it grades
-   * and nothing else. The rotation channel's own numbers show the same shape
+   * **Every one of those cells is yaw 40, z 520 mm, 0.7 px**, and the residual
+   * is not flat across the operating envelope: the same 1 Hz lean reads 1.78x
+   * nominal, 2.33x at yaw 55 / z 700 mm, 2.57x at 2.5 px of landmark noise and
+   * 2.42x at 5 px. The fix improves all of them — the defect reads 10.3x,
+   * 8.2x, 5.5x and 3.1x on the same four — but 1.74x is the mildest point
+   * measured, not the worst.
+   *
+   * And one cell where per-channel grading is strictly the WEAKER arrangement,
+   * recorded because it is a motion the wearer makes constantly. A neck-pivot
+   * turn translates the head origin along an arc, and under one shared grade a
+   * fast yaw stood the TRANSLATION prior aside as a side effect. It no longer
+   * does. At a 100 mm pivot the exchange is invisible (rotation 1.03x -> 1.04x,
+   * translation 1.00x -> 0.98x); at 200 mm it is a real trade and a favourable
+   * one (rotation 1.00x -> 1.04x, translation 1.45x -> 1.07x).
+   *
+   * The yaw-shake row is the point: the gate rescues exactly the channel it
+   * grades and nothing else. The rotation channel's own numbers show the same shape
    * mirrored — a lateral sway cost rotation 1.83x and a vertical bob 2.62x
    * while translation barely moved — because a dragged translation leaks into
    * the coupled solve.

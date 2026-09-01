@@ -3903,7 +3903,8 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     const gauss = () => { let u = 0; while (u === 0) u = rnd();
       return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
     const out: { truth: { R: Float64Array; t: Float64Array };
-      t: Float64Array | null; missRot: number | null; missMm: number | null }[] = [];
+      t: Float64Array | null; R: Float64Array | null;
+      missRot: number | null; missMm: number | null }[] = [];
     for (let i = 0; i < 200; i++) {
       const truth = { R: poseAt(yawOf(i)).R, t: Float64Array.of(0, 0, 520 + dzOf(i)) };
       const p = projectAll(truth);
@@ -3917,6 +3918,7 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       out.push({
         truth,
         t: r.tracked && r.rawPose ? Float64Array.from(r.rawPose.t) : null,
+        R: r.tracked && r.rawPose ? Float64Array.from(r.rawPose.R) : null,
         missRot: state.priorMissLast, missMm: state.priorMissTransLast,
       });
     }
@@ -3994,6 +3996,44 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     assert.ok(rms(restOn, restOff) < rms(restOff, restOn) * 0.85,
       `the prior no longer steadies a still head (${rms(restOff, restOn).toFixed(3)} -> ` +
       `${rms(restOn, restOff).toFixed(3)} mm) — the gate is standing aside when it should not`);
+  });
+
+  it('and the ROTATION half of the same gate is held by something too', () => {
+    // Added with the translation gate, for a reason worth stating: until then
+    // the rotation half was held by NOTHING. Deleting its `* missRot` outright
+    // passed all 337 tests and all four gates, while costing 4-11x the rotation
+    // error on a head shake — which is the 7.1x-19x regression the
+    // `PRIOR_MISS_EMA_RATE` ledger row exists to record. A decision settled in
+    // prose only is a decision the next edit can undo silently, and the fixture
+    // for the new channel had no business being better guarded than the old one.
+    const shake = (i: number) => 40 + 10 * Math.sin((2 * Math.PI * 1.0 * i) / 30);
+    const rmsRot = (rows: ReturnType<typeof leanFrames>, other: ReturnType<typeof leanFrames>) => {
+      let s = 0, n = 0;
+      for (let i = 40; i < rows.length; i++) {
+        if (!rows[i].t || !other[i].t) continue;
+        n++;
+      }
+      // Angle between the solved and the true rotation, degrees RMS. The pose
+      // is recovered from the same rows the translation metric uses, so the
+      // two arms are compared on exactly the frames both of them tracked.
+      s = 0;
+      for (let i = 40; i < rows.length; i++) {
+        if (!rows[i].t || !other[i].t) continue;
+        const P = rows[i].R!, T = rows[i].truth.R;
+        let tr = 0;
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) tr += P[r * 3 + c] * T[r * 3 + c];
+        const ang = Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2)));
+        s += ang * ang;
+      }
+      return n ? (Math.sqrt(s / n) * 180) / Math.PI : NaN;
+    };
+    const on = leanFrames(true, 0x51ee, flat, shake);
+    const off = leanFrames(false, 0x51ee, flat, shake);
+    assert.ok(Number.isFinite(rmsRot(off, on)) && rmsRot(off, on) > 0,
+      'the shake fixture produced no rotation error at all — it proves nothing');
+    assert.ok(rmsRot(on, off) < rmsRot(off, on) * 2,
+      `a 1 Hz head shake costs ${(rmsRot(on, off) / rmsRot(off, on)).toFixed(2)}x the rotation ` +
+      'error with the prior on — the rotation stand-aside is not firing');
   });
 });
 
