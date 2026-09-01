@@ -391,8 +391,10 @@ change `assets/glasses/ground-truth.json`'s stated definition with it.
 **D2. Two bars for one decision, and the tree already knows.** `score.ts:214`
 grades on a bare `1.0` while `solveSeat` fires at `PAD_CURVATURE_LIMIT_MM = 0.9`.
 That constant's own docstring names the defect verbatim — and points at
-`advice.ts`, which no longer exists (renamed to `score.ts`). *Related: stale
-`dist/src/fit/advice.js` and `bearing.js` survive with no `src` counterpart.*
+`advice.ts`, which no longer exists (renamed to `score.ts`). *Related: this
+line used to name stale `dist/src/fit/advice.js` and `bearing.js` as surviving
+with no `src` counterpart. Both are gone from `dist/` now; the three that do
+survive are listed in `docs/FIX-SPECS.md`.*
 
 **C1. `converged` cannot go false — but the implied fix is worthless and the
 real defect is next door.** `converged === false` iff not one landmark in any

@@ -35,7 +35,8 @@
  *     `docs/SCALE.md` 4 states the 0.79% without that qualification and should
  *     not be read as a measurement of the PD rung. Applied in `enroll.ts`
  *     against the reconstructed surface, not here. (An ID-1 card was tried and
- *     is gone: `f9c9093` deleted it, and the owner has rejected the method.)
+ *     is gone: it left the working tree at `f9c9093` and was never a tracked
+ *     file, so no commit holds it; the owner has rejected the method.)
  *  2. **Reports the uncertainty instead of hiding it.** `ScaleEstimate.sigma`
  *     travels with the number, the UI shows it, and lens-ordering measurements
  *     refuse an iris-only scale. What a symmetric sigma cannot report is a
@@ -53,8 +54,10 @@ import { type Pose } from '../core/linalg.js';
 import { percentile, weightedMedian } from '../core/linalg.js';
 import type { ScaleEstimate } from '../core/facemodel.js';
 
-// There is no card module. `enroll/card.ts` was deleted in f9c9093 and the
-// method is rejected; this file and `enroll.ts` hold the whole ladder.
+// There is no card module. `enroll/card.ts` was never a tracked file, so no
+// commit holds it — `f9c9093` is where the tree stopped carrying it, not a
+// commit you can recover it from. The method is rejected; this file and
+// `enroll.ts` hold the whole ladder.
 
 /**
  * Population mean horizontal visible iris diameter, mm, and its within-group SD.
@@ -272,7 +275,8 @@ export interface ScaleInput {
  * a text field rather than a computer-vision subsystem.
  *
  * **There is no rung above this one.** An ID-1 card was built, measured and
- * deleted (`f9c9093`), and the method is rejected. Measured since, across 5
+ * dropped from the working tree at `f9c9093` — it was never a tracked file,
+ * so no commit holds it — and the method is rejected. Measured since, across 5
  * seeds: 95.7% of the iris path's error is the population HVID assumption,
  * perfect vision would buy 0.11-1.47 percentage points of a 14.5% worst case,
  * and every other physically admissible prop-free signal is dead — autofocus on

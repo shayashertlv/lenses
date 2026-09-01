@@ -220,9 +220,12 @@ E = contact + gravity + ear support + hook + clearance + weak prior
   (median 1.01×) — Q15 is settled on that record.
 
 `fit/bearing.ts` — the constructed seat — was measured inferior to the contact
-seat (Q18) and never ran in the app. It was deleted on 2026-08-25 along with the
-card ruler and the scan-comparison tool, as part of reducing this tree to what a
-production try-on needs.
+seat (Q18) and never ran in the app. It left the working tree on 2026-08-25,
+along with the card ruler and the scan-comparison tool (`core/compare.ts`), as
+part of reducing this tree to what a production try-on needs. None of the three
+was ever a tracked file, so no commit holds any of them: `f9c9093` is where the
+tree stopped carrying them, not a commit you can recover them from. The one
+tracked file that commit deleted was `core/lm.ts`.
 
 Because it is solved once and cached, **nothing in the per-frame path can make
 the frame walk up and down the nose, shimmer, or behave differently at 40° of
@@ -231,16 +234,23 @@ yaw. There is no per-frame placement left to be wrong.**
 ### 4. Verification — `src/testkit/`, `tests/`
 
 Four reports and the whole suite (**338** on 2026-09-01; take it from the run,
-not from here), all headless, all against a synthetic
-population with known ground truth. Two of them spent a day deliberately red —
-regression bars asserting claims the harness fix had disproved — and both are
-green again **by measurement, not by relaxation**: a 5-seed settlement
-campaign replicated each contested claim, the field bar now asserts the
-adopted `fieldPriorScale` 8 configuration (which wins, Q21), and the seat bar
-now asserts the constructed seat's *recorded inferiority* and guards that
-record in both directions (Q18). A bar moved to accommodate a regression is
-not a bar; a bar moved to match a replicated measurement is the bar doing its
-job.
+not from here), all headless, all against a synthetic population with known
+ground truth. Two of them spent a day deliberately red — regression bars
+asserting claims the harness fix had disproved — and one of them is green again
+**by measurement, not by relaxation**: a 5-seed settlement campaign replicated
+the contested claim, and the field bar now asserts the adopted
+`fieldPriorScale` 8 configuration (which wins, Q21). A bar moved to
+accommodate a regression is not a bar; a bar moved to match a replicated
+measurement is the bar doing its job.
+
+The other bar is gone, and this paragraph used to say it had been rewritten. It
+existed and asserted the constructed seat's *superiority*; the rewrite that
+would have asserted the recorded inferiority and guarded it in both directions
+was never written. Nothing in `tests/` mentions the constructed seat, and no
+commit on any ref holds such a test — the superiority version survives only in a
+dropped stash (`1ce584f`, unreachable from every ref and deletable by the next
+`git gc`, so evidence rather than provenance). Q18's verdict is carried by prose
+alone — see the seat paragraph below.
 
 The population exists because v1's real finding was not that its constants were
 wrong — it was that six in seven were **one person's number**, so nothing could
@@ -400,7 +410,8 @@ being wrong, not the fit, and importing it would put a false wearer-facing
 verdict on every frame. See that function's header.
 
 **The card ruler is gone**, and this section asserted otherwise for four
-commits. `enroll/card.ts` was deleted in `f9c9093`; the scale ladder is
+commits. `enroll/card.ts` left the working tree at `f9c9093` and was never a
+tracked file, so no commit holds it; the scale ladder is
 `pd → iris → assumed` and nothing in the running path has ever asked a wearer
 for a card. The owner has since rejected the method outright.
 
@@ -425,11 +436,15 @@ per-seed spread. The three headlines:
 And the one that went against the design, kept in the headline position because
 hiding it in a footnote is how a build starts reporting only its wins. The
 constructed seat (`fit/bearing.ts`) was measured across 5 independent seeds at
-the shipped [2, 36] band and **recorded INFERIOR**: it wins the per-seed median
+the band the settlement adopted, [2, 36], and **recorded INFERIOR**: it wins the per-seed median
 in 2/5 seeds against a 4/5 adoption rule — the same 2/5 at every wide band —
 pooled 1.03 / 5.22 med/p90 mm of passed-through scan error against the contact
 seat's 1.24 / 3.62. Bulk slightly better, tail 1.4× worse, and the tail is what
-drags the seed medians over. Q18 is settled on that record; `bearing.ts` stays
-a testkit instrument and the running app seats with `contact.ts`. (Those are
-the settlement campaign's digits on its frozen tree state; the merged tree
-measures differently — `reports/seat.txt` is the current tree.)
+drags the seed medians over. Q18 is settled on that record. `bearing.ts` did
+not stay a testkit instrument — it left the working tree at `f9c9093`, the same
+commit that wrote this sentence saying it stays — and the running app seats
+with `contact.ts`. (Those are the settlement campaign's digits on its frozen
+tree state, and nothing here can re-derive them: the code that produced the
+constructed arm was never a tracked file and is in no commit.
+`reports/seat.txt` is the current tree, but it carries the contact arm only, so
+it is not a current-tree version of this comparison.)

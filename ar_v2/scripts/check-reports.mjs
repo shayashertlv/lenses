@@ -30,11 +30,15 @@
  * Hashing the report's own text does not work: every report carries a wall
  * clock or a per-solve `ms` column, so a regenerated copy never matches byte
  * for byte on a different machine. Hashing the constants the header names does
- * not work either — all six of them (keyframes 24, rounds 3, fieldPriorScale 8,
- * TYPICAL_VARIANCE_FACTOR 1.9, SIDEWALL_BAND_MM, VERTEX_SEAT_SIGMA_MM) still
- * hold the values seat.txt declares, and seat.txt is stale anyway. A gate built
- * on them would have been green through the whole drift, which by this tree's
- * own rule makes it a bug rather than a check.
+ * not work either. Of the six this comment used to list, four — keyframes 24,
+ * rounds 3, fieldPriorScale 8, TYPICAL_VARIANCE_FACTOR 1.9 — held their values
+ * right through the drift, so a gate on them would have been green the whole
+ * way, which by this tree's own rule makes it a bug rather than a check. The
+ * other two, SIDEWALL_BAND_MM and VERTEX_SEAT_SIGMA_MM, are not constants of
+ * this tree at all: they were exports of `fit/bearing.ts`, which left the
+ * working tree at `f9c9093` and was never a tracked file. And seat.txt names
+ * none of the six. The conclusion holds; the premise it was written on did
+ * not.
  *
  * So two:
  *

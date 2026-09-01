@@ -64,7 +64,8 @@ claims this document used to make inverted outright, and replication settled
 both rather than deleting them: the nose field's loss **un-inverted** (the
 disproof was the one losing realisation in five — it wins, and was adopted at
 a stronger prior), and the constructed seat's loss **confirmed** (its
-inferiority is now the recorded, test-guarded claim). Both stories are below.
+inferiority is the recorded claim — recorded in prose, and guarded by no
+test). Both stories are below.
 
 Re-measured once more on 2026-08-23, at the same five seeds, after the
 keyframe-selector repair (`selectKeyframes` now guarantees the six per-axis
@@ -577,12 +578,16 @@ its place` is no longer a disproved claim: the disproof was a single unseeded
 draw from the seed-41 family — the one losing realisation in five — and
 replicated, the field wins in both configs and was adopted at prior scale ×8
 (nose median-of-seeds shipped 1.439 → 1.269 mm, clean 0.884 → 0.668); the test
-asserts the adopted configuration. The seat bar settled the other way: the
-constructed seat won 2/5 seeds against a 4/5 adoption rule, its **inferiority
-is now the recorded claim**, and the test guards that record in both
-directions — drifting worse than the record is a regression in `bearing.ts`,
-drifting better reopens the adoption question. See "What this build cannot
-tell you".
+asserts the adopted configuration. The seat settled the other way: the
+constructed seat won 2/5 seeds against a 4/5 adoption rule, and its
+**inferiority is the recorded claim**. **There is no seat bar.** This sentence
+used to promise one that guarded the record in both directions; no such test
+exists in `tests/`, and none exists in any commit on any ref. The record is
+unguarded in the plain sense — if the constructed seat became better than the
+contact seat today, nothing would fail — and unguardable in a stricter one,
+because `bearing.ts` left the working tree at `f9c9093` and nothing in this
+tree computes a constructed seat at all. See "What this build cannot tell
+you".
 
 ```bash
 npm run report:enroll    # reconstruction accuracy + ablations
@@ -706,24 +711,39 @@ landed:
   replicated, the field wins in both configs and was adopted at prior scale ×8
   (nose median-of-seeds shipped 1.439 → 1.269 mm, clean 0.884 → 0.668). Q21
   records why the weak-prior field lost: noise-chasing, prior-curable.
-- **The constructed seat's inversion replicated, and is now the recorded
-  claim.** At the now-shipped [2, 36] band over 5 independent seeds (17
-  subjects each, eye-level), it wins the per-seed median in 2/5 against a 4/5
-  adoption rule — pooled 1.03 / 5.22 med/p90 against the contact seat's
+- **The constructed seat's inversion replicated, and is the recorded claim.**
+  At the [2, 36] band the settlement had just adopted, over 5 independent seeds
+  (17 subjects each, eye-level), it won the per-seed median in 2/5 against a
+  4/5 adoption rule — pooled 1.03 / 5.22 med/p90 against the contact seat's
   1.24 / 3.62, bulk slightly better, tail 1.4× worse (1.9× at [4, 34]), and
-  the verdict is identical at every wide band. Q18 is settled as recorded
-  inferiority; `bearing.ts` stays a testkit instrument.
-- **`VERTEX_SEAT_SIGMA_MM` is now 3.03**, the eye-level 5-seed pooled
-  sigma_rms at the shipped band. sigma_med 1.53 describes the bulk; a
-  +1.10 mm mean signed bias — the reconstruction reads longer — which no sigma
+  the verdict was identical at every wide band. Q18 is settled as recorded
+  inferiority. `bearing.ts` did not stay a testkit instrument: it left the
+  working tree at `f9c9093`, the same commit that wrote this bullet, and it was
+  never a tracked file, so no commit holds it, and none of the comparison
+  above can be re-derived here. No band ships now, because nothing in this
+  tree constructs a seat.
+- **`VERTEX_SEAT_SIGMA_MM` was set to 3.03, and then left the tree.** It was
+  an export of `fit/bearing.ts`, and both went out of the working tree at
+  `f9c9093`. The constant has no definition anywhere in `src/` and no ledger
+  row, and nothing replaced it — `fit/score.ts` grades the vertex criterion by
+  threshold and `VERTEX_REACH_CONFIDENCE`, with no population sigma at all.
+  What follows is the record of that setting, not a property of this tree.
+  3.03 was the eye-level 5-seed pooled sigma_rms at the band the settlement
+  adopted. sigma_med 1.53 describes the bulk; a +1.10 mm mean signed bias —
+  the reconstruction reads longer — which no sigma
   carries; p90/med is 5.1 against a half-normal's 2.44, so neither digit is
   faithful alone. The "about 4.8" the old bullet demanded was the full-ladder
   single-draw figure at the OLD [8, 30] band (implied 4.83, consistent with
   the replicated [8, 30] sigma_rms of 4.50); the full-ladder figure at
   [2, 36] has not been measured.
-- **`SIDEWALL_BAND_MM` is now 2–36**, settled by the replicated sweep:
-  med-of-med 1.23 — a tie with 4–34, broken on per-seed median (5/5), pooled
-  p90 (5.22 against 6.88) and zero construction failures. On the template
+- **`SIDEWALL_BAND_MM` was set to 2–36, and then left the tree.** Same story:
+  an export of `fit/bearing.ts`, gone from the working tree at `f9c9093`, with
+  no definition in `src/` and no ledger row, and no successor — `contact.ts`'s
+  `nominalPose` takes the two `NOSE_WALL_HIGH` landmarks directly, with no band
+  and no millimetre extent. The record of the setting, which is all this now
+  is: 2–36, settled by the replicated sweep, med-of-med 1.23 — a tie with
+  4–34, broken on per-seed median (5/5), pooled p90 (5.22 against 6.88) and
+  zero construction failures. On the template
   every wide band selects the whole usable strip (10 pts/side, y 8.0–31.8),
   so the sweep effectively measured whole-strip against trimmed. The plane
   residual still points the wrong way, now replicated: 8–30 has the

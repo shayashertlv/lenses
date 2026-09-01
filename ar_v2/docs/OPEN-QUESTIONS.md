@@ -398,10 +398,10 @@ free — which nothing currently checks.
 
 ---
 
-## Q18 — SETTLED 2026-08-22. The constructed seat is recorded INFERIOR; `bearing.ts` stays a testkit instrument.
+## Q18 — SETTLED 2026-08-22. The constructed seat is recorded INFERIOR; `bearing.ts` is out of the tree.
 
 **The verdict, replicated across 5 independent seeds** (17 subjects each,
-eye-level, frame 'standard', the shipped [2, 36] band; seating each subject on
+eye-level, frame 'standard', the band the settlement adopted, [2, 36]; seating each subject on
 its truth and on its own reconstruction and taking \|difference of mean
 `vertexDistanceMm`\|, per-seed median / p90 mm):
 
@@ -419,15 +419,21 @@ The decision rule required the constructed seat to win the per-seed median in
 Pooled n=85: constructed **1.03 / 5.22** med/p90 against contact **1.24 /
 3.62** — the constructed bulk is slightly better, its tail 1.4× worse (1.9× at
 [4, 34]), and the tail is what drags 3 of 5 seed medians over. So
-`fit/bearing.ts` stays a testkit instrument with its header telling the truth,
-and the pipeline seats with `contact.ts`. These digits are the settlement
+`fit/bearing.ts` did not stay a testkit instrument, and has no header to tell
+the truth: it left the working tree at `f9c9093` — the same commit that wrote
+this sentence saying it stays — and it was never a tracked file, so no commit
+holds it. The pipeline seats with `contact.ts`. These digits are the settlement
 campaign's record, taken on the frozen campaign state; the merged tree
-measures differently but reaches the same verdict — a re-measurement on the
-final tree (recorded in `tests/pipeline.test.ts`) reads **2/5 again** (wins at
-seeds 23 and 37; pooled constructed 0.94 / 7.53 over n=32, with 8 of 40
+measured differently but reached the same verdict — a re-measurement on the
+final tree read **2/5 again** (wins at seeds 23 and 37; pooled constructed
+0.94 / 7.53 over n=32, with 8 of 40
 constructions *failing* on scanned models, against the contact seat's
-1.32 / 3.60 with none). The verdict is what was settled; the digits are its
-evidence.
+1.32 / 3.60 with none). That re-measurement is **not** recorded in
+`tests/pipeline.test.ts`, as this paragraph claimed — nothing in `tests/`
+mentions the constructed seat. It is recorded here, in prose, and no
+re-derivation is possible: the constructed arm's code is in no commit. The
+verdict is what was settled; the digits are its evidence, and prose is now the
+only form that evidence takes.
 
 **Where the error enters — the decomposition answer this question was waiting
 for** (one door at a time, band [4, 34], pooled n=85):
@@ -444,20 +450,25 @@ for** (one door at a time, band [4, 34], pooled n=85):
   contact basins under small joint input changes, which no isolated term
   predicts and nothing at run time flags.
 
-On a TRUE surface the construction still does what it set out to do —
+On a TRUE surface the construction still did what it set out to do —
 \|contactMm\| per-seed medians 0.44–0.49 against the contact seat's 0.78–1.48
-of pad depth error — which is why it is kept as an instrument rather than
-deleted.
+of pad depth error — which is why this paragraph said it was being kept as an
+instrument rather than deleted. It was not kept: the same commit that wrote
+that sentence dropped `bearing.ts` from the working tree.
 
 **The earlier history, kept short:** the single re-run of 2026-08-22 morning
 had already inverted the original claim (2.80 / 7.94 pooled over the ladder
 against 1.47 / 3.95), and the seeding fix was not what made it worse — it
 destroyed the *evidence*, an 8-sample single-geometry sweep whose one frozen
 noise draw sat inside the benign mode of a bimodal distribution. The
-replication above is what turned that one draw into a verdict. The regression
-test that asserted the constructed seat's superiority now asserts the recorded
-inferiority instead — a bar that measures the settled claim, not a bar
-relaxed to pass.
+replication above is what turned that one draw into a verdict. This paragraph
+used to close by saying the regression test that had asserted the constructed
+seat's superiority now asserts the recorded inferiority instead. **The rewrite
+was never written.** The superiority version did exist — it survives in dropped
+stash `1ce584f`, importing `constructSeat` from `fit/bearing.js` — but it was
+never committed, nothing in `tests/` mentions the constructed seat today, and
+`git log --all -S"constructSeat"` is empty across every ref. The verdict above
+is a record; it is not a bar.
 
 The paragraph below is the original assessment, kept because its reasoning about
 roll is undisturbed:
@@ -492,19 +503,24 @@ lens-distance error against every candidate the pipeline already computes:
     varianceFactor            +0.07
     quality.nose.sigmaMm      -0.48   (wrong sign)
 
-The strongest correlate points the wrong way. So `VERTEX_SEAT_SIGMA_MM` is a
-population constant, and no verdict can honestly say *this* scan is better or
-worse than typical.
+The strongest correlate points the wrong way. So `VERTEX_SEAT_SIGMA_MM` was a
+population constant, and no verdict could honestly say *this* scan is better or
+worse than typical. It is not in the tree at all now — it was an export of
+`fit/bearing.ts` and went out of the working tree with it at `f9c9093` — so the
+per-scan verdict this paragraph rules out is not merely dishonest but absent.
 
 **The population constant was re-set deliberately on 2026-08-22** — the
-decision the earlier version of this paragraph said nobody had taken. It is now
-**3.03**, the eye-level 5-seed pooled sigma_rms at the shipped [2, 36] band
-(pooled n=85: med 1.03 / p90 5.22 / worst 12.28). The 4.83 this paragraph used
-to demand was the full-ladder single-draw figure at the OLD [8, 30] band — the
-replicated [8, 30] sigma_rms is 4.50, consistent, and the full-ladder figure at
-[2, 36] has not been measured. What no single sigma can carry is now stated on
-the ledger row: the distribution is heavy-tailed (p90/med 5.1 against 2.44
-half-normal) and biased (+1.10 mm mean signed — the reconstruction reads long).
+decision the earlier version of this paragraph said nobody had taken. It was set
+to **3.03**, the eye-level 5-seed pooled sigma_rms at the band the settlement
+adopted, [2, 36] (pooled n=85: med 1.03 / p90 5.22 / worst 12.28). The 4.83 this
+paragraph used to demand was the full-ladder single-draw figure at the OLD
+[8, 30] band — the replicated [8, 30] sigma_rms is 4.50, consistent, and the
+full-ladder figure at [2, 36] has not been measured. The constant itself went
+out with `fit/bearing.ts` and is not in the tree or the ledger; what is written
+above is the whole of the record. What no single sigma could carry is written
+here rather than on a row: the distribution is heavy-tailed (p90/med 5.1 against
+2.44 half-normal) and biased (+1.10 mm mean signed — the reconstruction reads
+long).
 
 The two-population observation still sharpens this question. The Q18
 decomposition found the tail is **interaction-dominated** — Gauss-Newton
@@ -552,22 +568,28 @@ of the bullets that used to sit here:
   medians, and the checked-in reports are regenerated at a named seed (11)
   with the doc tables quoting median-of-5. Still one machine.
 - ~~"Two claims inverted and both regression tests are red; neither decision
-  has been taken"~~ — **both decisions are taken and both tests are green** by
-  measurement, not by relaxation. The field: replicated, it *wins* in both
-  configs and was adopted at `fieldPriorScale` 8 — the disproof was a single
-  unseeded draw from the seed-41 family, the one losing realisation in five
-  (Q21). The constructed seat: replicated, it *loses* under the 4/5 rule
-  (2/5, band-invariant), the inferiority is the recorded claim, and the test
-  now guards that record in both directions (Q18).
+  has been taken"~~ — **both decisions are taken**, by measurement, not by
+  relaxation. The field: replicated, it *wins* in both configs and was adopted
+  at `fieldPriorScale` 8 — the disproof was a single unseeded draw from the
+  seed-41 family, the one losing realisation in five (Q21) — and `the field
+  earns its place` is the green test. The constructed seat: replicated, it
+  *loses* under the 4/5 rule (2/5, band-invariant), and the inferiority is the
+  recorded claim (Q18). This bullet used to say "both tests are green" and that
+  the seat test guards its record in both directions. There is one test, not
+  two: no bar on the constructed seat exists in `tests/`, and none in any commit
+  on any ref — only in dropped stash `1ce584f`, and that one asserts the
+  opposite. The seat's record is carried by prose and guarded by nothing.
 - ~~"Two `measured` constants are known wrong and still shipping"~~ —
-  resolved. Both were re-derived and applied 2026-08-22: `SIDEWALL_BAND_MM`
-  2–36, `VERTEX_SEAT_SIGMA_MM` 3.03 with an eye-level-only caveat on its row.
+  resolved, then overtaken. Both were re-derived on 2026-08-22 —
+  `SIDEWALL_BAND_MM` 2–36 and `VERTEX_SEAT_SIGMA_MM` 3.03, the latter with an
+  eye-level-only caveat — and neither ships now, because neither is a constant
+  of this tree any more. See the retirement bullet below; there is no row to
+  carry that caveat on, and there never was one.
 - **Constants now resting on replicated (5-seed) measurement:**
   `KEYFRAME_DEFAULTS.count` (24), `BUNDLE_DEFAULTS.rounds` (kept 3 by rule),
-  `BUNDLE_DEFAULTS.fieldPriorScale` (8), `TYPICAL_VARIANCE_FACTOR` (1.9),
-  `SIDEWALL_BAND_MM` (2–36), `VERTEX_SEAT_SIGMA_MM` (3.03), the temple-reach
-  leverage behind `VERTEX_REACH_CONFIDENCE`, and the keep-wall verdict on
-  `SKIN.hookStiffnessNPerMm`.
+  `BUNDLE_DEFAULTS.fieldPriorScale` (8), `TYPICAL_VARIANCE_FACTOR` (1.9), the
+  temple-reach leverage behind `VERTEX_REACH_CONFIDENCE`, and the keep-wall
+  verdict on `SKIN.hookStiffnessNPerMm`.
 - **Still resting on a single re-run or an un-rerun bracket**, marked on their
   rows: `silhouetteWeight`, `shapePrior`, `PAD_CURVATURE_LIMIT_MM`,
   `TRACKER_DEFAULTS.smooth` (shipped pair only — and the jitter half of it
@@ -592,6 +614,27 @@ of the bullets that used to sit here:
   is the NAME, and it is not getting one back — a row the ledger's own gate
   cannot check the value of is the dead provenance this file keeps complaining
   about.
+- **Two more names left that list on 2026-09-01, for the same reason.**
+  `SIDEWALL_BAND_MM` (2–36) and `VERTEX_SEAT_SIGMA_MM` (3.03) were listed above
+  as resting on replicated measurement, and `docs/CONSTANTS.md` called them
+  "the two rows … no longer marked unsettled". Neither is a constant of this
+  tree, and neither has ever had a row here. Both were exports of
+  `fit/bearing.ts`, which left the working tree at `f9c9093` and was never a
+  tracked file, so both went out with it. `grep -rn SIDEWALL_BAND_MM src/`
+  returns nothing at all, and `VERTEX_SEAT_SIGMA_MM` survives in `src/` only
+  as a past-tense line in `testkit/synthetic.ts`. The ledger section that once
+  carried their cells exists only in the same dropped stash as
+  `WEDGE_SLOPE_MM_PER_MM`'s derivation (`1ce584f`), where they read 8-to-30
+  and 1.6 — the pre-settlement values — so no version of this ledger has ever
+  held both the rows and the sentence announcing them. Retirement rather than
+  restored rows, for the reason given just above. Where the quantities went:
+  nowhere. The sidewall band has no successor — `contact.ts`'s `nominalPose`
+  takes the two `NOSE_WALL_HIGH` landmarks directly, with no band and no
+  millimetre extent — and the seat sigma has none either, since `fit/score.ts`
+  grades the vertex criterion by threshold and `VERTEX_REACH_CONFIDENCE`
+  rather than against a population spread. The capability the pair fed —
+  telling a wearer whether *their* scan seats better or worse than typical —
+  is not in this tree.
 - **One caveat the campaign added rather than removed:** its digits were
   measured on a frozen tree state, and fixes to enrollment and the contact
   seat landed in the same pass, so the merged tree measures differently
@@ -608,7 +651,9 @@ start of one.
 
 **To settle what remains:** re-run the three reports on a second machine and
 diff. The other two settle-its from the first version — decide the red tests,
-set `VERTEX_SEAT_SIGMA_MM` deliberately — are done.
+set `VERTEX_SEAT_SIGMA_MM` deliberately — are done, and both have since been
+overtaken: only one of the two "red tests" was ever a test, and the constant
+left the tree with `fit/bearing.ts`.
 
 **Worth:** high. It is the credibility of every other number in this repository.
 
@@ -667,7 +712,9 @@ result behind it instead of a structural argument alone.
 question's own procedure asked for the bias to be reproduced before any
 repair: 17 subjects × campaign seeds {11, 23, 37} (three of the settlement
 campaign's five), eye-level, the shipped configuration — pooled iris,
-framesPerBeat 12, the protocol the `VERTEX_SEAT_SIGMA_MM` row records —
+framesPerBeat 12. The `VERTEX_SEAT_SIGMA_MM` row this sentence pointed at for
+the rest of the protocol does not exist and never did, so the protocol is what
+is written here and nothing more —
 signed depth error at the four eye-corner vertices (LM 33 / 263 / 133 / 362)
 after the tree's standard whole-mesh rigid alignment, the same `rigidAlign`
 every committed grader uses (`compareToTruth`, the detector-bias
@@ -739,9 +786,12 @@ median bar fires at 2.144, worst bar at 2.568).
 gaze-following puts a genuine depth bias into real corners is exactly the
 ground-truth calibration Q2/Q8 already own — the synthetic harness cannot
 answer it, and this settlement shows its gaze model does not manufacture
-one. `fit/bearing.ts`'s header still quotes the +2.28 as a finding awaiting
-investigation; it should point here instead (left to that file's owner —
-it is not this settlement's to edit).
+one. This settlement deferred one correction to `fit/bearing.ts`'s header,
+which it said still quoted the +2.28 as a finding awaiting investigation.
+There is no such header. `bearing.ts` left the working tree at `f9c9093` — the
+commit this settlement was written against — and it was never a tracked file,
+so no commit holds it. The deferral is discharged: there is nobody to hand it
+to and nothing to edit.
 
 ---
 
@@ -1177,8 +1227,9 @@ uncertainty the model reports actually covers the error the assumption makes —
 `IRIS.sigmaMm` is honest, so it does. The real repair is the card protocol (Q3),
 which as of 2026-08-22 includes the detector and the scan beat, measured
 synthetically (Q3), and is still deliberately unwired (Q8). (2026-08-31: the
-card was deleted on 2026-08-25 and the method rejected. The real repair is the
-wearer's own prescription PD — `docs/SCALE.md`.)
+card left the working tree on 2026-08-25 and the method was rejected — it was
+never a tracked file, so no commit holds it. The real repair is the wearer's own
+prescription PD — `docs/SCALE.md`.)
 
 **`browRidge` was an identically-zero field.** Its fade-out ramp was scaled by
 the chin-to-forehead span rather than eye-to-forehead, putting the ramp's lower

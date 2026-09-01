@@ -109,8 +109,18 @@ number silently.
 **Update, 2026-08-22 (the settlement campaign).** The single re-run above was
 itself replicated: a campaign ran the contested sweeps at **five independent
 seeds** and settled the rows that the one re-run had only unsettled.
-`SIDEWALL_BAND_MM` and `VERTEX_SEAT_SIGMA_MM` — the two rows that had changed
-direction — are now set by that replication and are no longer marked unsettled.
+`SIDEWALL_BAND_MM` and `VERTEX_SEAT_SIGMA_MM` — the two figures that had
+changed direction — were set by that replication. **Neither has ever been a row
+in any committed version of this ledger.** Both were exports of
+`fit/bearing.ts`, which was never a tracked file and left the working tree at
+`f9c9093`, so the two constants went out with it. Cells for both did exist once,
+in dropped stash `1ce584f`, at the pre-settlement values 8-to-30 and 1.6 —
+evidence that they were being kept, not provenance for the settled figures.
+Do not go looking for them here, and do not write them back: a row for a
+constant with no export is provenance for nothing that reads exactly like
+provenance for something, and `check-constants.mjs` has no export to check it
+against. The retirement is recorded in `docs/OPEN-QUESTIONS.md`, alongside
+`WEDGE_SLOPE_MM_PER_MM`'s.
 One caveat travels with every campaign digit quoted below: **the campaign
 measured a frozen tree state**, and fixes to enrollment (bundle, keyframes,
 facemodel) and to `contact.ts`/`frame-asset.ts` landed in the same pass, so the
@@ -449,7 +459,7 @@ became shared.
 | `noseDetailMm` | 2.2 mm | `stated` | Amplitude of the non-basis nose detail. Chosen so the basis provably cannot explain it — the falsifiability guard, asserted in `tests/pipeline.test.ts`. |
 | `shapeLimit` | 2.5σ | `stated` | Truncation of the shape draw. |
 | `PLAUSIBLE.*` | see file | `published` | Adult extremes plus margin, transferred as ratios. Rejection sampling, because an orthogonalised basis makes coefficients independent and *measurements* are not. |
-| `CAMERA_LADDER` | 3 geometries | `measured` | `laptop-lid` at 13.5° below the eyes is the geometry v1's seat scored **0 of 600 admitted frames** on. `phone-lap` at 30° is the harder version. The 0-of-600 is a **v1 measurement this tree cannot reproduce** — there is no v1 seat here to score — so it is carried on provenance rather than re-derivable. What *is* re-derivable, and was on 2026-08-22, is that the ladder discriminates: pooled over 14 subjects the constructed seat's lens-distance error runs 1.62 / 7.39 mm (median/p90) at eye-level against 2.92 / 8.00 at laptop-lid and 2.90 / 7.66 at phone-lap. The downward geometries are the hard ones, which is the property the ladder exists to have. |
+| `CAMERA_LADDER` | 3 geometries | `measured` | `laptop-lid` at 13.5° below the eyes is the geometry v1's seat scored **0 of 600 admitted frames** on. `phone-lap` at 30° is the harder version. The 0-of-600 is a **v1 measurement this tree cannot reproduce** — there is no v1 seat here to score — so it is carried on provenance rather than re-derivable. The ladder was shown to discriminate on 2026-08-22: pooled over 14 subjects the constructed seat's lens-distance error ran 1.62 / 7.39 mm (median/p90) at eye-level against 2.92 / 8.00 at laptop-lid and 2.90 / 7.66 at phone-lap. This row used to call that half **re-derivable**, in contrast to the 0-of-600. It is not: it was measured with the constructed seat, `fit/bearing.ts`, which left the working tree at `f9c9093` and was never a tracked file, so both figures in this cell are carried on provenance and neither can be re-run here. The downward geometries are the hard ones, which is the property the ladder exists to have. |
 | `CAPTURE_DEFAULTS.rasterWidth` | 192 px | `stated` | The harness's own visibility raster, deciding which landmarks a synthetic capture reports as occluded. **Deliberately not the same number as `UNCERTAINTY_DEFAULTS.rasterWidth` (160)**, and the difference is not an oversight to be tidied away: the two are separate models of the same physical fact, and making them equal would let a visibility bug in the shipped path hide behind a harness that shares its resolution. The harness is the finer of the two on purpose, so that its ground truth is not the thing under test. |
 | `noisePx` | 0.7 px | `stated` | Mirrors Q1. |
 | `biasMm` | 0.6 mm | `stated` | Per-landmark systematic offset. Mirrors Q2 — this is the harness's model of the thing that is not calibrated. |

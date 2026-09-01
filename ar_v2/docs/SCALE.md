@@ -22,7 +22,9 @@ times by forgetting it"*. Four times now.
 
 ## 0. The card is already gone, and three documents did not say so
 
-`src/enroll/card.ts` was deleted in `f9c9093`. The shipping ladder is
+`src/enroll/card.ts` left the working tree on 2026-08-25, at `f9c9093`. It was
+never a tracked file, so no commit holds it — that is where the tree stopped
+carrying it, not a commit you can recover it from. The shipping ladder is
 **pd → iris → assumed**. Nothing in the running path has ever asked a wearer
 for a card.
 

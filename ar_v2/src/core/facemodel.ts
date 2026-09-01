@@ -60,7 +60,8 @@ export const FACE_MODEL_VERSION = 3;
  * shipping default when they supply nothing, and `assumed` says so out loud.
  *
  * `card` is **not** a rung. An ID-1 card ruler was built, measured and removed
- * on 2026-08-25 (`f9c9093`) and the owner rejected the method outright
+ * from the working tree on 2026-08-25, at `f9c9093` — it was never a tracked
+ * file, so no commit holds it — and the owner rejected the method outright
  * (`docs/SCALE.md`); no code writes this variant on any wearer path. It
  * survives as the label the testkit stamps on ground-truth models, and as a
  * value a stored v3 model could still carry. Do not read the order as a

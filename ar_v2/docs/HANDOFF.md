@@ -357,8 +357,10 @@ Three things the replay taught that no synthetic could:
   `turn-left` 32, `nod-down` 25, `nod-up` 15, `lean-in` 21, `lean-back` 29).
   Centre is the beat that establishes the neutral. It did not degrade the scan,
   but it is thin and nobody designed it that way.
-- **The card instruction above is dead.** `?card=1` refers to a rung deleted in
-  `f9c9093` and rejected by the owner. Do not ask for a card.
+- **The `?card=1` instruction this replay followed is dead**, and it is no
+  longer above — it is nowhere in this document. It named a rung that left the
+  working tree at `f9c9093` and was rejected by the owner; `card.ts` was never
+  a tracked file, so no commit holds it. Do not ask for a card.
 - **No PD was set**, and chasing one cost a long exchange: the owner offered
   145, then "49 29", both of which are the FRAME's markings (eye size, bridge,
   temple length) rather than a pupillary distance. The lesson for the UI is that

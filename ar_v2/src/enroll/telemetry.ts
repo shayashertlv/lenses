@@ -71,8 +71,9 @@ export interface CaptureHeader {
   /**
    * Whether an ID-1 card was held in frame during the capture.
    *
-   * **There is no card branch to feed.** `enroll/card.ts` was deleted in
-   * `f9c9093` and `scale.ts` says so on its own rung list: the ID-1 card was
+   * **There is no card branch to feed.** `enroll/card.ts` left the working
+   * tree at `f9c9093` and was never a tracked file, so no commit holds it, and
+   * `scale.ts` says so on its own rung list: the ID-1 card was
    * built, measured at 0.80% median scale error against the pooled iris's 5.14%
    * on the same synthetic runs, and taken OUT -- see `docs/SCALE.md`. This flag
    * survives as a property of the CAPTURE, so that a recording made with a card
