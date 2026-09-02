@@ -161,6 +161,71 @@ describe('the frame lock pairs the pixels with their own pose', () => {
     assert.equal(lock.present(fresh), true, 'no result can be presented after a source switch');
   });
 
+  it('notices the source changing shape under it, and refuses the frame in flight', () => {
+    // **`resize` used to be called exactly once, from `startSource`, whose only
+    // caller is `boot`.** But a camera `Source`'s width and height are live
+    // getters over `video.videoWidth`, and a track's frame size can change
+    // after boot: rotating an Android phone swaps 1280x720 for 720x1280, and
+    // `getUserMedia`'s `ideal` constraints permit a later renegotiation.
+    // `submit` then runs `drawImage(source, 0, 0, capture.width,
+    // capture.height)`, and with four arguments that maps the WHOLE source rect
+    // onto the WHOLE destination rect — every pixel moved from (u,v) to
+    // (u*W/W', v*H/H'), an anisotropic scale about the ORIGIN.
+    //
+    // Measured through the real `solvePnP` against intrinsics that still
+    // describe the boot mode (scratchpad/f29-squash.mjs, boot 1280x720):
+    //
+    //     new mode     aspect   rms px   translation err   rotation err
+    //     1920x1080     1.000    0.96        0.3 mm           0.04 deg
+    //     640x480       0.750    7.59       50.9 mm           0.36 deg
+    //     1280x960      0.750    7.59       50.9 mm           0.36 deg
+    //     720x1280      0.316   38.50      296.5 mm          61.01 deg
+    //
+    // An aspect-PRESERVING change is free: the origin-anchored rescale exactly
+    // undoes the new mode's intrinsics, so 1920x1080 costs 0.3 mm. The rotation
+    // is loud — 38.5 px is past both `SCAN_MAX_RMS_PX` (22) and the tracker's
+    // `maxRmsPx` (14), so the app degrades to a permanent "hold steady" with no
+    // hint why. **The 4:3 renegotiation is the silent one: 50.9 mm of depth
+    // error at 7.59 px of residual, under every gate in the tree.** That is the
+    // shape `docs/NEXT-SESSION.md`'s A2 investigation recorded at 502 mm behind
+    // a healthy 5.2 px residual — "every gate reads green".
+    //
+    // RED: delete `syncTo`, or make it resize without bumping the epoch.
+    const lock = createFrameLock({ detectLongSide: 640 });
+    lock.resize(1280, 720);
+    assert.equal(detectToSourceScale(lock), 2);
+
+    // A source that has not moved changes nothing at all.
+    const epochBefore = lock.epoch;
+    assert.equal(lock.syncTo(1280, 720), false, 'an unchanged source triggered a resize');
+    assert.equal(lock.epoch, epochBefore, 'an unchanged source bumped the epoch');
+
+    // A frame is in flight when the phone rotates.
+    const inFlight = lock.submit(SOURCE, 1000, 1000, true);
+    assert.equal(lock.syncTo(720, 1280), true, 'a rotated source was not noticed');
+    assert.equal(lock.capture.width, 720, 'the capture canvas kept the old width');
+    assert.equal(lock.capture.height, 1280, 'the capture canvas kept the old height');
+    assert.equal(lock.display.width, 720, 'the display canvas kept the old width');
+    // The detect canvas re-derives from the LONG side, which is now the height.
+    assert.equal(lock.detect.height, 640, 'the detect canvas was not re-derived');
+    assert.equal(lock.detect.width, 360);
+    assert.equal(detectToSourceScale(lock), 2);
+
+    assert.equal(
+      lock.present(inFlight), false,
+      'a result solved against the pre-rotation frame was presented onto the new one — '
+      + 'the epoch is what makes a shape change indistinguishable from a source switch, '
+      + 'and it must be, because it is the same staleness',
+    );
+
+    // A video between modes reports 0 for a frame or two. Resizing to it would
+    // take every canvas to zero and there is no coming back from that.
+    assert.equal(lock.syncTo(0, 0), false, 'a source reporting 0 was adopted');
+    assert.equal(lock.syncTo(720, 0), false, 'a source with no height was adopted');
+    assert.equal(lock.capture.width, 720, 'a zero-sized report resized the capture canvas');
+    assert.equal(lock.capture.height, 1280, 'a zero-sized report resized the capture canvas');
+  });
+
   it('measures the gap between SUBMITTED frames, not the camera interval', () => {
     // `captureDt` feeds the motion prior. Frames offered while the tracker is
     // busy are dropped whole and never submitted, so the interval that matters

@@ -613,14 +613,37 @@ async function startSource(app: App): Promise<void> {
   }
 
   app.lock.resize(app.source.width, app.source.height);
+  adoptSourceSize(app, app.source);
+}
+
+/**
+ * Everything the app derives from the source's SIZE, in one place.
+ *
+ * It was inline in `startSource` and therefore ran once, at boot — which was
+ * the whole of F29. The source is not a boot-time fact: a camera track can
+ * change its frame size mid-session, and every quantity below was then
+ * describing a shape the camera had stopped producing.
+ *
+ * The background texture is rebuilt rather than marked dirty. A `CanvasTexture`
+ * over a canvas whose dimensions have changed is a new allocation on the GPU
+ * either way, and this runs on a source switch or a rotation, not per frame.
+ */
+function adoptSourceSize(app: App, source: Source): void {
+  const { width, height } = source;
   app.scene.setBackgroundSource(app.lock.display);
-  app.scene.setSize(app.source.width, app.source.height);
+  app.scene.setSize(width, height);
   // Through `intrinsicsForSource`, not verbatim: this is a source-SWITCH entry
   // point, and the source it switches to need not be the size the scan solved
-  // at. The still-image fallback below is 1024x1024 on its own.
+  // at. The still-image fallback is 1024x1024 on its own.
+  //
+  // On a mid-session change the same call is a bet rather than a transfer, and
+  // Q8 records which one: `intrinsicsForSource` is exact when the aspect is
+  // unchanged (`sx === sy`) and picks one of two defensible readings when it is
+  // not. Measured, an aspect-preserving renegotiation costs 0.3 mm of pose
+  // through this path, so the exact half is the common one.
   app.intrinsics = app.model?.intrinsicsSolved
-    ? intrinsicsForSource(app.model.intrinsics, app.source.width, app.source.height)
-    : intrinsicsFromFov(app.source.width, app.source.height, MEDIAPIPE_ASSUMED_VERTICAL_FOV);
+    ? intrinsicsForSource(app.model.intrinsics, width, height)
+    : intrinsicsFromFov(width, height, MEDIAPIPE_ASSUMED_VERTICAL_FOV);
   app.scene.applyIntrinsics(app.intrinsics);
 }
 
@@ -661,6 +684,34 @@ function tick(app: App, nowMs: number): void {
       `the render loop is running at ${app.fps.toFixed(0)} fps — it is being driven `
       + 'more than once per frame. Only startLoop() may schedule tick().',
     );
+  }
+
+  // **The source can change shape under us, and until 2026-09-02 nothing
+  // looked.** Rotating a phone swaps 1280x720 for 720x1280; `getUserMedia`'s
+  // `ideal` constraints permit a quieter renegotiation. Measured against
+  // intrinsics that still describe the boot mode, a 4:3 renegotiation costs
+  // **50.9 mm of depth at 7.59 px of residual** — under `SCAN_MAX_RMS_PX` (22)
+  // and under the tracker's `maxRmsPx` (14), so nothing refuses and the glasses
+  // are simply drawn off the face. A rotation costs 296 mm at 38.5 px, which
+  // does refuse, permanently and without saying why.
+  //
+  // Two property reads per frame. `syncTo` ignores a zero-sized report and
+  // returns false when nothing moved, so the common path is two comparisons.
+  if (app.lock.syncTo(app.source.width, app.source.height)) {
+    adoptSourceSize(app, app.source);
+    // **A scan in progress cannot survive this.** `BundleFrame` carries no
+    // intrinsics of its own — `solveBundle` fits ONE camera to every frame it
+    // is given — so frames from before and after the change describe two
+    // different projections and the solve would split the difference. Bumping
+    // `scanGen` is what makes an in-flight `runEnrollment` continuation know
+    // its scan is no longer the scan the app is on.
+    if (app.phase === 'scan' || app.phase === 'acquire') {
+      app.scanGen++;
+      app.collected = [];
+      app.protocol = createProtocol();
+      app.phase = 'acquire';
+      app.ui.status('the camera changed size — starting the scan again');
+    }
   }
 
   const offer = app.source.nextFrame(nowMs);

@@ -255,6 +255,46 @@ describe('a stored camera is not planted on a source of another size', () => {
   });
 });
 
+describe('the source is not a boot-time fact', () => {
+  it('the loop asks the lock whether the source changed shape, and re-derives when it did', () => {
+    // Textual for the reason its neighbours are: `main.ts` boots at module
+    // scope and cannot be imported under Node. The BEHAVIOUR of the check is
+    // pinned properly in `framelock.test.ts`; what is pinned here is that the
+    // loop performs it at all, and what it does about a scan in progress.
+    //
+    // `lock.resize` and the intrinsics assignment ran exactly once, in
+    // `startSource`, whose only caller is `boot`. A camera `Source`'s width and
+    // height are live getters over `video.videoWidth`, so a rotation or a
+    // renegotiation left `submit` mapping the whole new frame onto the whole
+    // old canvas. Measured through the real `solvePnP` against boot intrinsics
+    // (scratchpad/f29-squash.mjs): a 4:3 renegotiation costs **50.9 mm of depth
+    // at 7.59 px of residual**, under `SCAN_MAX_RMS_PX` (22) and under the
+    // tracker's `maxRmsPx` (14) — nothing refuses. A rotation costs 296 mm at
+    // 38.5 px, which refuses permanently and says only "hold steady".
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+
+    assert.match(text, /app\.lock\.syncTo\(app\.source\.width, app\.source\.height\)/,
+      'the render loop no longer asks whether the source changed shape — a rotation or a '
+      + 'renegotiation goes back to being drawn into the boot-sized canvas, 50.9 mm out '
+      + 'with a residual no gate looks at');
+
+    // One place that derives from the size, called from both entry points.
+    assert.match(text, /function adoptSourceSize\(/,
+      'adoptSourceSize is gone; the size-derived quantities are inline again and will '
+      + 'drift apart between the boot path and the mid-session one');
+    const calls = text.match(/adoptSourceSize\(app,/g) ?? [];
+    assert.ok(calls.length >= 2,
+      `adoptSourceSize is called ${calls.length} time(s) — it exists to be the one place `
+      + 'BOTH the source switch and the mid-session change go through');
+
+    // And the scan cannot straddle the change.
+    assert.match(text, /syncTo[\s\S]{0,900}?scanGen\+\+/,
+      'a shape change no longer abandons the scan in progress. `BundleFrame` carries no '
+      + 'intrinsics of its own, so frames from before and after the change describe two '
+      + 'different projections and the bundle fits one camera to both');
+  });
+});
+
 describe('a new face gets a new occluder calibration', () => {
   it('adopting a model clears the edge-snap field', () => {
     // `CalibrationField.reset()` had NO production caller until the

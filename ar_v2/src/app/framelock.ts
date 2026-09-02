@@ -76,6 +76,28 @@ export interface FrameLock {
   droppedFrames: number;
   epoch: number;
   resize(width: number, height: number): void;
+  /**
+   * Re-sizes to a source that has changed shape, and says whether it did.
+   *
+   * **`resize` alone is a boot-time call, and the source is not a boot-time
+   * fact.** A camera `Source`'s width and height are live getters over
+   * `video.videoWidth`; rotating an Android phone swaps 1280x720 for 720x1280,
+   * and `getUserMedia`'s `ideal` constraints permit a later renegotiation.
+   * Until this existed, `submit`'s four-argument `drawImage` went on mapping
+   * the whole new frame onto the whole old canvas — an anisotropic scale about
+   * the origin — while everything derived from the old size stayed put.
+   *
+   * The caller has to re-derive whatever IT sized from the source, which is why
+   * this returns a boolean rather than doing it quietly. Bumping the epoch is
+   * part of the job: a result solved against the old shape is exactly as stale
+   * as one solved against a source that has been switched away, and the frame
+   * lock already has one word for that.
+   *
+   * A source reporting a zero dimension is ignored. A video element between
+   * modes reports 0 for a frame or two, and a canvas taken to zero cannot be
+   * recovered by the next frame that reports honestly.
+   */
+  syncTo(width: number, height: number): boolean;
   /** Copies the source into the capture and detect canvases. Returns the frame
    *  descriptor to hand to the tracker. */
   submit(source: CanvasImageSource, capturedAtMs: number, timestampMs: number,
@@ -116,6 +138,14 @@ export function createFrameLock(options: Partial<FrameLockOptions> = {}): FrameL
       captureCtx = capture.getContext('2d');
       detectCtx = detect.getContext('2d');
       displayCtx = display.getContext('2d');
+    },
+
+    syncTo(width, height) {
+      if (!(width > 0) || !(height > 0)) return false;
+      if (width === capture.width && height === capture.height) return false;
+      lock.resize(width, height);
+      lock.nextEpoch();
+      return true;
     },
 
     submit(source, capturedAtMs, timestampMs, measuredCapture) {
