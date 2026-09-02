@@ -380,6 +380,14 @@ export function enroll(input: EnrollInput): EnrollResult {
   // The detector's own offset from the skin, applied as a correction to the
   // reconstructed surface. Zero by default — see the module for why this cannot
   // be solved per wearer.
+  //
+  // **This is the line that splits the two conventions, so it is worth saying
+  // which side each consumer is on.** What leaves here is SKIN, which is what
+  // the contact solve, the occluder and the edge snap want — they all touch the
+  // wearer. Everything that compares the model against the DETECTOR's own
+  // output wants the other surface, and takes it from `landmarkSurface(model)`:
+  // the tracker's correspondences and the oval strips. The offset is kept on
+  // the model as `landmarkBiasMm` for exactly that.
   const bias = input.bias ?? detectorBias();
   const corrected = new Float64Array(state.positions);
   for (let i = 0; i < corrected.length; i++) corrected[i] -= bias.offsetMm[i] ?? 0;

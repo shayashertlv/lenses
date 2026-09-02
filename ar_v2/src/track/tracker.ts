@@ -71,7 +71,7 @@ import {
 } from '../core/linalg.js';
 import type { Intrinsics } from '../core/camera.js';
 import { headEuler, project } from '../core/camera.js';
-import type { FaceModel } from '../core/facemodel.js';
+import { landmarkSurface, type FaceModel } from '../core/facemodel.js';
 import type { SilhouetteStrip } from '../core/mesh.js';
 import {
   type Correspondence, type PnPResult, GROSS_ERROR_PX, buildCorrespondences,
@@ -380,6 +380,20 @@ export interface TrackerState {
   /** Scratch mapping an oval landmark to the vertex it marched to this
    *  frame, -1 for every landmark that is not an oval one. Same reuse. */
   marchScratch: Int32Array;
+  /**
+   * `model.positions` in the DETECTOR's convention — see `landmarkSurface`.
+   *
+   * Every use of the model's geometry inside `track` is a comparison against
+   * the detector's own output: the PnP correspondences, the cold retry, the
+   * basin audit, the culled-landmark gross fold and the strip march. None of
+   * them wants skin, and `model.positions` is skin — `enroll.ts` subtracts
+   * `landmarkBiasMm` before the model leaves. So the tracker holds the other
+   * surface and never reads `model.positions` at all.
+   *
+   * Identical to `model.positions` while the bias is zero, which it is until a
+   * calibration exists (Q2). Built once here rather than per frame.
+   */
+  landmarkPositions: Float64Array;
   /** The last LATCH_VEL_WINDOW+1 raw poses with arrival times and the
    *  solve's own one-sigma pose uncertainty (mm / deg, from the calibrated
    *  covariance; carried forward when a frame's covariance was singular) —
@@ -555,6 +569,7 @@ export function createTracker(
     rigidityScratch: new Float64Array(model.vertexCount),
     calibratedScratch: new Uint8Array(model.vertexCount),
     marchScratch: new Int32Array(model.vertexCount).fill(-1),
+    landmarkPositions: landmarkSurface(model),
     smoother: new PoseSmoother(),
     lastRaw: null,
     lastSmoothed: null,
@@ -976,6 +991,10 @@ export const LATCH_FADE_FRAMES = 3;
 
 export function track(state: TrackerState, input: TrackInput): TrackResult {
   const { model, options } = state;
+  // The model's geometry in the detector's convention, for every comparison
+  // below — see `TrackerState.landmarkPositions`. `model` itself is still read
+  // for `vertexCount`; its `positions` are skin and belong to the seat.
+  const positions = state.landmarkPositions;
 
   if (!input.landmarks || !input.sigmaPx) {
     return miss(state, input.dt, 'no face detected');
@@ -1044,7 +1063,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   const predicted = prior ? prior.pose : state.lastRaw;
   if (options.ovalStrips && predicted) {
     for (const strip of options.ovalStrips) {
-      state.marchScratch[strip.landmark] = marchStrip(strip, model.positions, predicted);
+      state.marchScratch[strip.landmark] = marchStrip(strip, positions, predicted);
     }
     for (const c of correspondences) {
       const marched = state.marchScratch[c.vertex];
@@ -1103,20 +1122,20 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   let coldAcquired = false;
   if (state.lastRaw) {
     result = prior
-      ? refinePnP(model.positions, correspondences, input.intrinsics, prior.pose,
+      ? refinePnP(positions, correspondences, input.intrinsics, prior.pose,
         { wantCovariance: true, prior, redescending })
-      : refinePnP(model.positions, correspondences, input.intrinsics, state.lastRaw, COV);
+      : refinePnP(positions, correspondences, input.intrinsics, state.lastRaw, COV);
     // A warm start that lands badly is usually a warm start that was stale —
     // the head moved a lot while we were not looking. Retry cold before giving
     // up, because a cold solve at any pose is the whole point of having a model.
     // The cold solve carries NO prior, deliberately: its whole job is to
     // escape wherever the warm chain — prior included — got stuck.
     if (!(result.rmsPx <= rmsBarPx)) {
-      const cold = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+      const cold = solvePnP(positions, correspondences, input.intrinsics, undefined, COV);
       if (cold.rmsPx < result.rmsPx) { result = cold; coldAcquired = true; }
     }
   } else {
-    result = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+    result = solvePnP(positions, correspondences, input.intrinsics, undefined, COV);
     coldAcquired = true;
   }
 
@@ -1157,7 +1176,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     const uv = new Float64Array(2);
     const R = result.pose.R;
     for (const i of sigmaCulled) {
-      const x = model.positions[i * 3], y = model.positions[i * 3 + 1], z = model.positions[i * 3 + 2];
+      const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
       cam[0] = R[0] * x + R[1] * y + R[2] * z + result.pose.t[0];
       cam[1] = R[3] * x + R[4] * y + R[5] * z + result.pose.t[1];
       cam[2] = R[6] * x + R[7] * y + R[8] * z + result.pose.t[2];
@@ -1183,7 +1202,7 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   // the gate is HAPPY with, because that is exactly where a wrong basin hides.
   if (state.lastRaw && options.basinAuditInterval > 0
       && state.framesTracked % options.basinAuditInterval === 0) {
-    const audit = solvePnP(model.positions, correspondences, input.intrinsics, undefined, COV);
+    const audit = solvePnP(positions, correspondences, input.intrinsics, undefined, COV);
     state.basinAuditsRun++;
     if (audit.rmsPx <= rmsBarPx
         && audit.rmsPx < result.rmsPx * options.basinRescueRatio) {

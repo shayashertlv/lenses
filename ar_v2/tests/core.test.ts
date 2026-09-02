@@ -44,8 +44,8 @@ import {
   createUncertainty, estimateSigma, UNCERTAINTY_DEFAULTS,
 } from '../src/detect/uncertainty.js';
 import {
-  LM, measure, silhouetteStrips, standardRegions, trackingRigidity,
-  type SilhouetteStrip,
+  LM, computeVertexNormals, measure, silhouetteStrips, standardRegions,
+  trackingRigidity, type SilhouetteStrip,
 } from '../src/core/mesh.js';
 import { basisJacobian, evaluateBasis } from '../src/core/shape/basis.js';
 import {
@@ -4161,6 +4161,113 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       + 'if you got here by exempting the flat arcs to make the frontal march a no-op, that is '
       + 'the trade this test exists to make visible — and the frontal cost it buys is 0.095 '
       + 'against 0.096, inside the seed noise.');
+  });
+
+  it('the tracker solves against the surface the DETECTOR reports, not the skin one', () => {
+    // `enroll.ts` subtracts `detectorBias().offsetMm` from what the bundle
+    // solved, so `model.positions` is SKIN — which is right, because a pad
+    // bears on skin rather than on a landmark convention. The detector reports
+    // the other surface. Until 2026-09-02 the tracker matched raw detector
+    // landmarks against the skin one, and `detector-bias.ts` asserted that
+    // "Tracking is unaffected either way" — true only while the bias is zero,
+    // which it is until Q2's calibration exists.
+    //
+    // Measured here, with the 0.6 mm normal offset Q2's own harness injects:
+    // solving against skin costs 2.04 mm of pose error at frontal against
+    // 0.089 with the offset added back, while the reprojection rms moves 0.71
+    // to 0.94 px — a fiftieth of the way to `maxRmsPx`, so nothing refuses a
+    // frame and the glasses simply sit 2 mm out for the life of the scan.
+    //
+    // Both arms are here because the pin is worthless without the control: a
+    // zero bias makes them the same run, and this test would then be green
+    // whatever the tracker did.
+    const V = mesh.vertexCount;
+    const skin = new Float64Array(mesh.positions);
+    const normals = computeVertexNormals(skin, mesh.indices, V);
+    const bias = new Float64Array(V * 3);
+    const detectorSurface = new Float64Array(V * 3);
+    for (let v = 0; v < V; v++) {
+      for (let c = 0; c < 3; c++) {
+        bias[v * 3 + c] = normals[v * 3 + c] * 0.6;
+        detectorSurface[v * 3 + c] = skin[v * 3 + c] + bias[v * 3 + c];
+      }
+    }
+
+    const modelWith = (b: Float64Array) => createFaceModel({
+      positions: new Float64Array(skin),
+      vertexSigmaMm: new Float64Array(V).fill(0.3),
+      shapeCoeffs: new Float64Array(0), basisName: 'ground-truth',
+      displacementRmsMm: 0, displacementMaxMm: 0,
+      intrinsics: K, intrinsicsSolved: true,
+      scale: { source: 'card', factor: 1, sigma: 0.001, note: 'ground truth' },
+      landmarkBiasMm: b,
+      quality: { nose: { observations: 30, parallaxRms: 0.3, sigmaMm: 0.3 } },
+      pdMm: null, pdSigmaMm: null,
+      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
+    });
+    const projectDetector = (pose: Pose) => {
+      const out = new Float64Array(V * 2);
+      for (let v = 0; v < V; v++) {
+        const X = detectorSurface[v * 3], Y = detectorSurface[v * 3 + 1], Z = detectorSurface[v * 3 + 2];
+        const cx = pose.R[0] * X + pose.R[1] * Y + pose.R[2] * Z + pose.t[0];
+        const cy = pose.R[3] * X + pose.R[4] * Y + pose.R[5] * Z + pose.t[1];
+        const cz = pose.R[6] * X + pose.R[7] * Y + pose.R[8] * Z + pose.t[2];
+        out[v * 2] = K.cx + (K.f * cx) / cz;
+        out[v * 2 + 1] = K.cy + (K.f * cy) / cz;
+      }
+      return out;
+    };
+    const run = (b: Float64Array, seed: number) => {
+      const state = createTracker(modelWith(b), { smooth: false, rigidity, motionPrior: true });
+      const unc = createUncertainty(V);
+      let st = seed;
+      const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
+      const gauss = () => { let u = 0; while (u === 0) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+      const here = poseAt(0);
+      const truthP = projectDetector(here);
+      let prev: Pose | null = null;
+      const errs: number[] = [];
+      for (let i = 0; i < 40; i++) {
+        const lm = new Float64Array(V * 2);
+        for (let j = 0; j < V * 2; j++) lm[j] = truthP[j] + gauss() * 0.5;
+        const est = estimateSigma(unc, {
+          landmarks: lm, mesh, positions: new Float64Array(skin), intrinsics: K, pose: prev,
+        });
+        const r = track(state, {
+          landmarks: lm, sigmaPx: est.sigmaPx, visibility: est.visibility, intrinsics: K, dt: 1 / 30,
+        });
+        if (!r.tracked || !r.rawPose) continue;
+        prev = r.rawPose;
+        if (i >= 20) {
+          errs.push(Math.hypot(
+            r.rawPose.t[0] - here.t[0], r.rawPose.t[1] - here.t[1], r.rawPose.t[2] - here.t[2],
+          ));
+        }
+      }
+      errs.sort((a, b2) => a - b2);
+      return errs.length ? errs[errs.length >> 1] : NaN;
+    };
+    const SEEDS = [0x51de, 0x11, 0x23, 0x37, 0x53];
+    const mid = (xs: number[]) => {
+      const t = xs.filter(Number.isFinite).sort((p, q) => p - q);
+      return t.length ? t[t.length >> 1] : NaN;
+    };
+    // The control: the model does not declare the bias, so the tracker cannot
+    // compensate. This is what shipped, and it must be badly wrong or the
+    // assertion below is measuring nothing.
+    const blind = mid(SEEDS.map((s) => run(new Float64Array(V * 3), s)));
+    const told = mid(SEEDS.map((s) => run(bias, s)));
+
+    assert.ok(blind > 1.0,
+      `the control landed ${blind.toFixed(3)} mm from truth against the 2.04 measured — a `
+      + '0.6 mm detector bias is supposed to be plainly visible in the pose here, and if it is '
+      + 'not, this fixture has stopped exhibiting the defect and the assertion below is free');
+    assert.ok(told < 0.5,
+      `declaring the bias left the solve ${told.toFixed(3)} mm out against the 0.089 measured, `
+      + `with the blind arm at ${blind.toFixed(3)} — the tracker is still matching detector `
+      + 'landmarks against the SKIN surface. It must use `landmarkSurface(model)`: '
+      + '`model.positions` is skin by `enroll.ts`, and every comparison inside `track` is '
+      + 'against the detector.');
   });
 
   it('the visible half owns the solve', () => {

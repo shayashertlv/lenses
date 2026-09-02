@@ -32,8 +32,8 @@ import {
 } from '../core/camera.js';
 import { poseIdentity, type Pose } from '../core/linalg.js';
 import {
-  createFaceModel, deserializeFaceModel, serializeFaceModel, withScanRecord,
-  type FaceModel,
+  createFaceModel, deserializeFaceModel, landmarkSurface, serializeFaceModel,
+  withScanRecord, type FaceModel,
 } from '../core/facemodel.js';
 import {
   advanceProtocol, createProtocol, sampleFromPose, scanRecord, summarise,
@@ -1550,7 +1550,10 @@ function adoptModel(app: App, model: FaceModel): void {
     motionPrior: app.motionPrior,
     // The oval landmarks track a sliding contour, not a fixed point - built
     // from THIS wearer's solved geometry, so the strips describe their face.
-    ovalStrips: app.marchOval ? silhouetteStrips(app.mesh, model.positions) : null,
+    // From the DETECTOR's surface, not the skin one: a strip's candidates are
+    // matched against the detector's oval landmarks. Identical while the bias
+    // is zero. See `landmarkSurface`.
+    ovalStrips: app.marchOval ? silhouetteStrips(app.mesh, landmarkSurface(model)) : null,
   });
   // A new tracker starts its counters at zero; the readout ring must start
   // with it, or the diagnostics 'recent' block describes frames a different
@@ -1919,7 +1922,7 @@ function handleAction(app: App, action: string): void {
         rigidity: trackingRigidity(app.mesh, app.regions),
         motionPrior: app.motionPrior,
         ovalStrips: app.marchOval && app.model
-          ? silhouetteStrips(app.mesh, app.model.positions) : null,
+          ? silhouetteStrips(app.mesh, landmarkSurface(app.model)) : null,
       });
       // The A/B instrument must not mix modes: a paste taken minutes into
       // 'locked' with 'on' frames still in the ring would judge one mode by

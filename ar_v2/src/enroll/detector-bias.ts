@@ -26,10 +26,26 @@
  *
  * Holds a slot. The default is zero, which is honest: no bias correction is
  * being applied, so the reconstruction is the surface *as the detector sees it*,
- * self-consistently. Tracking is unaffected either way, because tracking matches
- * the same detector against the same surface. Only the **contact solve** cares,
- * because a pad bears on skin rather than on a landmark convention — and a
- * sub-millimetre bias there is worth about a third of a millimetre of seat
+ * self-consistently.
+ *
+ * **"Tracking is unaffected either way" was false, and it was the sentence that
+ * would have let the first real calibration land silently.** It is true only at
+ * zero. `enroll.ts` subtracts this offset into `model.positions`, and until
+ * 2026-09-02 that was the array the tracker matched RAW detector landmarks
+ * against — skin on one side of the correspondence, landmark convention on the
+ * other. Measured on the template with a 0.6 mm normal offset, the size Q2's own
+ * harness injects: **2.04 mm of pose error at frontal**, 1.52 mm at 40 degrees,
+ * against 0.089 and 0.126 when the offset is added back — and the reprojection
+ * rms moves only 0.71 to 0.94 px, so no gate refuses anything. It scales
+ * linearly: 0.8 mm of bias costs 2.71 mm, 1.5 mm costs 5.16.
+ *
+ * The tracker now solves against `landmarkSurface(model)` — `positions` plus
+ * this offset — which is what `FaceModel.landmarkBiasMm` was stored for and what
+ * nothing read. The two conventions are now separated by consumer: everything
+ * that compares against the DETECTOR takes the landmark surface, everything that
+ * touches the WEARER takes skin. Only the **contact solve** wanted skin all
+ * along, because a pad bears on skin rather than on a landmark convention — and
+ * a sub-millimetre bias there is worth about a third of a millimetre of seat
  * height on a typical wedge.
  *
  * `measureDetectorBias` is the function that fills it, and it needs ground-truth

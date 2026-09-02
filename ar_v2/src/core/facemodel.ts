@@ -373,6 +373,31 @@ export function withScanRecord(model: FaceModel, scan: ScanRecord | null): FaceM
  * future format might not — keeps the same id and does not silently invalidate
  * every cached contact solve.
  */
+/**
+ * The same face, in the convention the DETECTOR speaks.
+ *
+ * `model.positions` is skin: `enroll.ts` subtracts `landmarkBiasMm` from what
+ * the bundle solved, because a pad bears on skin rather than on a landmark
+ * convention. Everything that compares the model against the detector's own
+ * output wants the other one — the surface the detector would report — and by
+ * `detector-bias.ts`'s own definition that is `positions + landmarkBiasMm`.
+ *
+ * Zero today, so this is a copy. It is not decoration: measured on the template
+ * with the harness's own 0.6 mm normal-offset bias, solving detector landmarks
+ * against the SKIN surface costs **2.04 mm of pose error at frontal** against
+ * 0.089 mm here — 23x — while the reprojection rms moves 0.71 to 0.94 px, a
+ * fiftieth of the way to `maxRmsPx`. Nothing would have refused a frame; the
+ * glasses would simply have sat 2 mm out for the life of the enrollment.
+ */
+export function landmarkSurface(model: FaceModel): Float64Array {
+  const out = new Float64Array(model.positions);
+  const bias = model.landmarkBiasMm;
+  if (bias && bias.length === out.length) {
+    for (let i = 0; i < out.length; i++) out[i] += bias[i];
+  }
+  return out;
+}
+
 export function hashGeometry(positions: Float64Array): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < positions.length; i++) {
