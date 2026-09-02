@@ -92,6 +92,40 @@ export const MEDIAPIPE_ASSUMED_VERTICAL_FOV = 63;
  * default either way - on a 55-degree lid camera reloading at 800x600 it costs
  * 70 mm of solved depth against 13.6 mm for the rescale, and throws away a
  * camera that was honestly measured.
+ *
+ * ## The two sentences at the top cannot both describe one camera
+ *
+ * They are the same transfer in opposite directions, so composing them must be
+ * the identity, and it is not. Carry a 63-degree 1280x720 record down to
+ * 640x480 and back: `f` comes home multiplied by **exactly 4/3** and the camera
+ * reads **49.37 degrees** vertical. That is the mirror of the defect this rule
+ * replaced - the old `width / k.width` handed the same record 78.50 degrees one
+ * rung DOWN, and this one hands it 49.37 one rung UP.
+ *
+ * The premise reads the DESTINATION as the crop every time, and for a given
+ * sensor that is true of at most one of the two directions. Which one depends
+ * on the sensor's native aspect. Under a native-16:9 sensor the 4:3 modes are
+ * horizontal crops and the truth is `sy` both ways - 0.667 down, 1.5 up. Under
+ * a native-4:3 sensor the 16:9 modes are vertical crops and the truth is `sx`
+ * both ways - 0.5 down, 2.0 up. `max` gives 0.667 and 2.0, so it is exact in
+ * one cell of each column and 33% high in the other.
+ *
+ * **It is pinned rather than changed, because every alternative is right in
+ * exactly as many cells.** `min` gives 0.5 / 1.5 (two right, two 25% low);
+ * "the smaller mode is a crop of the larger" gives 0.667 / 1.5, exact on a
+ * native-16:9 sensor and wrong on both rungs of a native-4:3 one; its inverse
+ * mirrors that. All four score two of four, and the choice between them is a
+ * bet on the sensor rather than on the arithmetic. What is NOT a wash is
+ * inverse-consistency, which only the two direction-aware rules have - so if
+ * the native aspect ever becomes knowable, that is the shape of the fix.
+ *
+ * The measured defense above covers the 1280x720 -> 640x480 rung only. On the
+ * reverse rung the old rule and this one agree (both 2.0), which is why "never
+ * worse than what it replaces" and "every rung where the two rules differ"
+ * both survive while the transfer is wrong. `docs/OPEN-QUESTIONS.md` Q8 carries
+ * what would settle it: one `getCapabilities()` call on a real camera names the
+ * native aspect, and `tests/core.test.ts` pins the 4/3 so a change here has to
+ * be deliberate.
  */
 export function scaleIntrinsics(k: Intrinsics, width: number, height: number): Intrinsics {
   const sx = width / k.width;

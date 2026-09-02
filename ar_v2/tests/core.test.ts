@@ -266,6 +266,27 @@ describe('camera model', () => {
       + `${hfov(k43).toFixed(2)} - the record was stretched, not cropped`);
     assert.ok(verticalFovDeg(crop169) < verticalFovDeg(k43) - 1e-9,
       'a top-and-bottom crop did not narrow the vertical field of view');
+
+    // **And the two assertions above cannot both describe one camera.** They
+    // are the same transfer in opposite directions, so composing them must be
+    // the identity - and it is not. The premise reads the DESTINATION as the
+    // crop every time, which for a given sensor is true of at most one of the
+    // two directions: under a native-16:9 sensor the truth is 0.667 down and
+    // 1.5 up, under a native-4:3 one 0.5 down and 2.0 up, and `max` gives
+    // 0.667 and 2.0 - exact in one cell of each column, 33% high in the other.
+    //
+    // Pinned rather than fixed because `min`, "the smaller mode is a crop of
+    // the larger" and its inverse each score two of those four as well. The
+    // choice is a bet on the sensor's native aspect, which the record does not
+    // carry. See the header and `docs/OPEN-QUESTIONS.md` Q8.
+    const roundTrip = scaleIntrinsics(scaleIntrinsics(k, 640, 480), 1280, 720);
+    assert.ok(Math.abs(roundTrip.f / k.f - 4 / 3) < 1e-12,
+      `720 -> 480 -> 720 multiplied f by ${(roundTrip.f / k.f).toFixed(6)}, not 4/3. If it is now `
+      + '1 the transfer has become inverse-consistent and the header, this comment and Q8 all '
+      + 'need rewriting; if it is anything else the rule moved and nothing measured it');
+    assert.ok(Math.abs(verticalFovDeg(roundTrip) - 49.37) < 0.01,
+      `the round trip returned a ${verticalFovDeg(roundTrip).toFixed(2)} deg camera against the `
+      + '49.37 measured - the mirror of the 78.50 the rule this one replaced produced one rung down');
   });
 });
 

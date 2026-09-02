@@ -258,6 +258,19 @@ engineering decisions:
 
 Both were caught by suspicion, not by the harness. There will be others.
 
+**One thing a real camera settles in a single API call, added 2026-09-02.**
+`scaleIntrinsics` carries a solved camera onto a source of a different pixel
+size by assuming the destination mode is a CROP of the recorded one. That cannot
+be true in both directions — composing the two multiplies `f` by exactly 4/3 and
+turns a 63° record into a 49.37° one — and which direction is the crop depends on
+the sensor's **native aspect**, which nothing here knows. `getCapabilities()`
+reports `width.max` and `height.max`; their ratio is the native aspect, and with
+it the transfer becomes exact in both directions instead of exact in one. Until
+then the rule is right on the rung that was measured (1280×720 → 640×480) and 33%
+high on the reverse, which `src/app/main.ts` documents as reachable whenever
+another application holds the camera during a scan. Nothing gates on it: PnP
+absorbs a wrong focal length into depth with healthy residuals.
+
 **To settle it:** run the app on a machine with a camera. `python serve.py`, open
 `http://127.0.0.1:8020/`, do the scan. What would be most useful back:
 
@@ -265,6 +278,9 @@ Both were caught by suspicion, not by the harness. There will be others.
 2. What does `__ar.model.quality.nose` report after a real scan?
 3. Does the frame stay on the nose past 40 degrees of yaw?
 4. Is the mirror delay (shown in the readouts) noticeable?
+5. `navigator.mediaDevices.getUserMedia({video:true}).then(s=>console.log(
+   s.getVideoTracks()[0].getCapabilities()))` — the `width.max` / `height.max`
+   ratio, which is the one number `scaleIntrinsics` is guessing.
 
 ---
 
