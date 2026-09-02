@@ -47,6 +47,11 @@
  *
  * ## Three tiers, and what each one admits to
  *
+ * Three here, and `EarRestSource` carries a fourth: `constructed`, which is
+ * `templeReachMm`'s shared 95 mm on a parametric shape. Nothing in this file can
+ * produce it — a mesh either measures its arm, derives it, or admits it has
+ * none — and it is listed in `frame-asset.ts` beside the three below.
+ *
  * Every step that cannot be measured says so instead of guessing, because a
  * guessed layout is exactly the failure above: it produces numbers, and nothing
  * downstream can tell they are wrong. What changed on 2026-08-26 is that
@@ -287,9 +292,13 @@ export const TEMPLE_BEND_TOLERANCE_MM = 1.5;
  * the worst available error — see below — but treat the two "degenerate
  * neighbours" as a record of why it was written, not as evidence it is what
  * stops them.
- * The other end is covered separately: an arm that is level all the way to its
- * rearmost bin is a straight rod with no bend either, and `findBend` returns
- * null for that without needing a number.
+ * The other end is covered at both ends now, and it was not. `findBend`
+ * refuses a straight rod on shape alone — an arm still level at its rearmost bin
+ * has `bend === 0` and returns null, no number needed — but this sentence read
+ * as though the shape were covered everywhere, and the geometric path had no
+ * analogue of it at all: it fitted two collinear segments to the rod and put a
+ * rest three bins from the tip. That path now needs a number, and it is
+ * `TEMPLE_BEND_TOLERANCE_MM` — see `deriveArmRest`.
  *
  * 0.25 sits between a 2.2x margin on the one asset that works and a 2x margin
  * on the nearest that does not. With one positive example the threshold is
@@ -407,12 +416,21 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  *
  * ## Why this exists beside `findBend`
  *
- * `findBend` needs a part called `temple`, and eight of the ten catalogue assets
- * do not have one — an image-to-3D scan welds the arms into the frame shell, or
- * names every part `tripo_part_N`, or is one fused mesh with no names at all.
+ * `findBend` needs a part called `temple`, and SEVEN of the ten catalogue
+ * assets do not have one — an image-to-3D scan welds the arms into the frame
+ * shell, or names every part `tripo_part_N`, or is one fused mesh with no names
+ * at all. The three that do are navigator and khronos by node name and
+ * shield-golden through `selectParts`'s material fallback, its `Frame_x` node
+ * carrying the material `Temples_Matte`; on two of those three `findBend` then
+ * returns null anyway, which is what leaves navigator alone on the measured
+ * tier.
+ *
  * The arms are nevertheless *there*: splitting the whole mesh by the sign of x
- * and keeping what is behind the front yields between 1,580 and 44,675 vertices
- * per side, against `findBend`'s floor of 9.
+ * and keeping what is behind the front yields between 1,580 and 41,313 vertices
+ * per side, against this function's own floor of 9 vertices. (`findBend`'s
+ * floor looks like 9 too and is not: `positions.length < 9` counts FLOATS, so
+ * it refuses below three vertices. The two are not comparable and this sentence
+ * used to compare them.)
  *
  * ## Why it is not just `findBend` on those vertices
  *
@@ -1032,7 +1050,7 @@ export function frameFromMesh(
   // below it. See `deriveArmRest`.
   //
   //   'measured'  a named temple part with a bend `findBend` can walk to
-  //   'derived'   the arm found geometrically, its knee fitted (8 of 10 assets)
+  //   'derived'   the arm found geometrically, its knee fitted (7 of 10 assets)
   //   'assumed'   a wrap or earhook: no rest point exists, so the WEARER's ear
   //               supplies one. Reported as an assumption, never as a fit.
   //
@@ -1161,8 +1179,8 @@ export function frameFromMesh(
   // rim. Its extent centre gives x and y; its MEDIAN gives z, because the slab
   // runs 30 mm back down the temples and a bounding-box midpoint averages the
   // rim against them — that put the centre about 10 mm behind the lens on every
-  // asset it was checked against. Measured against the seven assets that name a
-  // lens, this estimate is within 0.9 mm in z; see `derivedLensCentre`. It
+  // asset it was checked against. Measured against the eight assets that DO
+  // name a lens, this estimate is within 0.9 mm in z; see `derivedLensCentre`. It
   // is an estimate and it says so — `lensSource` travels to the verdict, and
   // `score.ts` withholds the vertex-distance grade on 'derived' specifically,
   // because that is the number this is not good enough for. It emits the measure
@@ -1295,7 +1313,7 @@ export function frontWidthOf(positions: Float64Array): number {
  * the "lens centre" about 10 mm behind the lens. Almost every vertex in the slab
  * belongs to the rim, so the MEDIAN of the same slab sits on it.
  *
- * Calibrated against the seven catalogue assets that name their lens parts,
+ * Calibrated against the eight catalogue assets that name their lens parts,
  * where `extentCentre` of the named part is the lens centre:
  *
  *     bbox midpoint   max |z error|  13.41 mm
