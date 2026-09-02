@@ -369,6 +369,16 @@ export interface SilhouetteStrip {
  * nose interior. Twenty dot products per landmark per frame, against normals
  * computed once.
  *
+ * **That last premise fails on the arcs, and the consequence is kept rather
+ * than fixed.** Where the rim runs horizontally — the top and bottom of the
+ * oval — a horizontal row lies ALONG the contour, so its lateral extreme is
+ * the NEXT oval landmark rather than cheek interior, and the perpendicularity
+ * test picks it. At an exact frontal pose that remaps 10 of the 34 strips by
+ * 11.7 to 20.0 mm. It is measured, it is not a prediction artefact (the
+ * choice is identical for a prediction wrong by 2 degrees on any axis), and
+ * those ten strips turn out to carry the ENTIRE marching gain at 25 degrees
+ * of yaw — see `docs/CONSTANTS.md` and the pin in `tests/core.test.ts`.
+ *
  * Built from the POSITIONS the tracker will solve against — the wearer's
  * scanned model, not the template — so the strips describe their face. It is
  * deliberately NOT stored on `FaceModel`: it is a pure function of geometry
@@ -396,6 +406,18 @@ export function silhouetteStrips(
     // Measured on the template, this is exactly two landmarks (10 and 152, at
     // x = 0.0) and the next-nearest sits at 12.9 mm, so the cut is a wide gap
     // rather than a knife edge.
+    //
+    // **The cut is two landmarks; the regime it names is eighteen.** The
+    // argument above — a horizontal strip answers the wrong question where the
+    // rim is horizontal — holds all the way round the top and bottom arcs. On
+    // the template EIGHTEEN of the 36 oval landmarks have a ring tangent
+    // nearer horizontal than vertical, 10 and 152 among them, and ten of the
+    // sixteen that still get strips do remap at an exact frontal pose.
+    // Widening the cut to cover them was measured and refused: it gives back
+    // all of the marching gain at 25 degrees of yaw to buy a frontal cost that
+    // twelve seeds cannot see. This cut stays where it is because the midline case is different in
+    // kind — there the row spans BOTH cheeks — and that is a correctness
+    // problem rather than a trade.
     if (Math.abs(x0) <= midlineMm) continue;
     const cand: number[] = [];
     for (let v = 0; v < mesh.vertexCount; v++) {

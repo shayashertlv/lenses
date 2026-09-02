@@ -45,6 +45,7 @@ import {
 } from '../src/detect/uncertainty.js';
 import {
   LM, measure, silhouetteStrips, standardRegions, trackingRigidity,
+  type SilhouetteStrip,
 } from '../src/core/mesh.js';
 import { basisJacobian, evaluateBasis } from '../src/core/shape/basis.js';
 import {
@@ -2861,6 +2862,30 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     }
     return out;
   };
+  /**
+   * Which strip vertex is on the occluding contour under this pose — the same
+   * perpendicularity test `marchStrip` runs, at describe scope because two
+   * tests need it and a second copy could drift from the first.
+   */
+  const marchTruth = (pose: Pose, strip: SilhouetteStrip) => {
+    let best = strip.landmark, bestDot = Infinity;
+    for (let k = 0; k < strip.candidates.length; k++) {
+      const v = strip.candidates[k];
+      const nx = strip.normals[k * 3], ny = strip.normals[k * 3 + 1], nz = strip.normals[k * 3 + 2];
+      const ncx = pose.R[0] * nx + pose.R[1] * ny + pose.R[2] * nz;
+      const ncy = pose.R[3] * nx + pose.R[4] * ny + pose.R[5] * nz;
+      const ncz = pose.R[6] * nx + pose.R[7] * ny + pose.R[8] * nz;
+      const x = mesh.positions[v * 3], y = mesh.positions[v * 3 + 1], z = mesh.positions[v * 3 + 2];
+      const cx = pose.R[0] * x + pose.R[1] * y + pose.R[2] * z + pose.t[0];
+      const cy = pose.R[3] * x + pose.R[4] * y + pose.R[5] * z + pose.t[1];
+      const cz = pose.R[6] * x + pose.R[7] * y + pose.R[8] * z + pose.t[2];
+      const len = Math.hypot(cx, cy, cz) || 1;
+      const d = Math.abs((ncx * cx + ncy * cy + ncz * cz) / len);
+      if (d < bestDot) { bestDot = d; best = v; }
+    }
+    return best;
+  };
+
   const makeSession = (seedBase: number, wanderRollDeg: number, sigmaScale = 1) => {
     let st = seedBase >>> 0 || 1;
     const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
@@ -3926,25 +3951,6 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     const strips = silhouetteStrips(mesh);
     assert.ok(strips.length > 30, `only ${strips.length} oval strips were built`);
 
-    const marchTruth = (pose: Pose, strip: typeof strips[number]) => {
-      let best = strip.landmark, bestDot = Infinity;
-      for (let k = 0; k < strip.candidates.length; k++) {
-        const v = strip.candidates[k];
-        const nx = strip.normals[k * 3], ny = strip.normals[k * 3 + 1], nz = strip.normals[k * 3 + 2];
-        const ncx = pose.R[0] * nx + pose.R[1] * ny + pose.R[2] * nz;
-        const ncy = pose.R[3] * nx + pose.R[4] * ny + pose.R[5] * nz;
-        const ncz = pose.R[6] * nx + pose.R[7] * ny + pose.R[8] * nz;
-        const x = mesh.positions[v * 3], y = mesh.positions[v * 3 + 1], z = mesh.positions[v * 3 + 2];
-        const cx = pose.R[0] * x + pose.R[1] * y + pose.R[2] * z + pose.t[0];
-        const cy = pose.R[3] * x + pose.R[4] * y + pose.R[5] * z + pose.t[1];
-        const cz = pose.R[6] * x + pose.R[7] * y + pose.R[8] * z + pose.t[2];
-        const len = Math.hypot(cx, cy, cz) || 1;
-        const d = Math.abs((ncx * cx + ncy * cy + ncz * cz) / len);
-        if (d < bestDot) { bestDot = d; best = v; }
-      }
-      return best;
-    };
-
     // Fixture-sanity precondition: the contour must genuinely slide, or the
     // comparison below is a statement about nothing.
     const truth = poseAt(45);
@@ -4033,6 +4039,107 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       `marching scored ${b.median.toFixed(3)} mm against the fixed correspondence's ${a.median.toFixed(3)} — ` +
       'measured -74% at 40 degrees and -81% at 55 with the production cull in the loop, so a result ' +
       'this weak means the march is not finding the contour');
+  });
+
+  it('the strips that remap at FRONTAL are the ones carrying the marching gain', () => {
+    // **The march is not a no-op at frontal, and the strips where it is not are
+    // the ones the rank cannot do without.** A strip is a HORIZONTAL row of
+    // candidates, and on the top and bottom arcs of the oval the rim runs
+    // horizontally too — so the row lies ALONG the contour rather than across
+    // it, and the most edge-on vertex in it is a more lateral neighbour. At an
+    // exact frontal pose 10 of the 34 strips therefore remap, by 11.7 to
+    // 20.0 mm: 338->297, 297->332, 377->400, 400->378, 378->379, their four
+    // mirrors, and 67->103. It is the same regime `silhouetteStrips`' midline
+    // cut already exempts 10 and 152 for, reaching further round the ring.
+    //
+    // The obvious repair is to exempt them, and this test exists because that
+    // repair is a trap. Measured over twelve seeds in the fixture below:
+    //
+    //     yaw     off     all 34    without those ten
+    //       0    0.096     0.095          0.096
+    //      25    0.142     0.097          0.142       <- the whole gain
+    //      40    0.521     0.103          0.125
+    //      55    1.009     0.165          0.223
+    //
+    // At 25 degrees those ten carry ALL of it — removing them lands on the
+    // unmarched median exactly — and at 40 and 55 about a fifth. What they buy
+    // at frontal is nothing either way: twelve seeds put marched at 0.095
+    // against unmarched 0.096, inside a per-seed spread of 0.074 to 0.128.
+    //
+    // 25 degrees rather than the 45 the test above uses, deliberately: that is
+    // where the difference between the arms is total instead of partial, and
+    // it is a pose an ordinary wearer holds.
+    const strips = silhouetteStrips(mesh);
+    const frontal = poseAt(0);
+    const remapping = strips.filter((s) => marchTruth(frontal, s) !== s.landmark);
+    const steady = strips.filter((s) => marchTruth(frontal, s) === s.landmark);
+    assert.ok(remapping.length > 0,
+      'no strip remaps at an exact frontal pose — the arcs this test is about are gone, and '
+      + 'the `silhouetteStrips` ledger row plus the comment at the march call site both '
+      + 'describe a tree that no longer exists');
+    assert.equal(remapping.length + steady.length, strips.length, 'strip partition lost one');
+
+    const run = (used: SilhouetteStrip[] | null, seed: number) => {
+      const state = createTracker(model, {
+        smooth: false, rigidity, motionPrior: true, ovalStrips: used,
+      });
+      const unc = createUncertainty(mesh.vertexCount);
+      let st = seed;
+      const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
+      const gauss = () => { let u = 0; while (u === 0) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+      let prev: Pose | null = null;
+      const errs: number[] = [];
+      for (let i = 0; i < 60; i++) {
+        const here = poseAt(Math.min(25, i * 3));
+        const truthP = projectAll(here);
+        const lm = new Float64Array(mesh.vertexCount * 2);
+        for (let v = 0; v < mesh.vertexCount * 2; v++) lm[v] = truthP[v] + gauss() * 0.5;
+        // Every oval landmark sits on the TRUE contour in every arm. The
+        // fixture must not change with the arm, or it measures itself.
+        for (const strip of strips) {
+          const sv = marchTruth(here, strip);
+          lm[strip.landmark * 2] = truthP[sv * 2] + gauss() * 0.5;
+          lm[strip.landmark * 2 + 1] = truthP[sv * 2 + 1] + gauss() * 0.5;
+        }
+        const est = estimateSigma(unc, {
+          landmarks: lm, mesh, positions: new Float64Array(mesh.positions),
+          intrinsics: K, pose: prev,
+        });
+        const r = track(state, {
+          landmarks: lm, sigmaPx: est.sigmaPx, visibility: est.visibility, intrinsics: K, dt: 1 / 30,
+        });
+        if (!r.tracked || !r.rawPose) continue;
+        prev = r.rawPose;
+        if (i >= 25) {
+          errs.push(Math.hypot(
+            r.rawPose.t[0] - here.t[0], r.rawPose.t[1] - here.t[1], r.rawPose.t[2] - here.t[2],
+          ));
+        }
+      }
+      errs.sort((a, b) => a - b);
+      return errs.length ? errs[errs.length >> 1] : NaN;
+    };
+    const SEEDS = [0x51de, 0x11, 0x23, 0x37, 0x53];
+    const mid = (xs: number[]) => {
+      const t = xs.filter(Number.isFinite).sort((p, q) => p - q);
+      return t.length ? t[t.length >> 1] : NaN;
+    };
+    const off = mid(SEEDS.map((s) => run(null, s)));
+    const every = mid(SEEDS.map((s) => run(strips, s)));
+    const without = mid(SEEDS.map((s) => run(steady, s)));
+
+    assert.ok(off > every * 1.25,
+      `fixture sanity: marching scored ${every.toFixed(3)} mm against the unmarched `
+      + `${off.toFixed(3)} at 25 degrees — measured 0.097 against 0.142, so a result this `
+      + 'weak means the fixture has stopped exhibiting the bias the rank exists for');
+    assert.ok(without > every * 1.25,
+      `dropping the ${remapping.length} strips that remap at frontal scored `
+      + `${without.toFixed(3)} mm against ${every.toFixed(3)} with all of them — measured 0.142 `
+      + 'against 0.097 over twelve seeds, i.e. the entire gain at this yaw. If this now passes '
+      + 'cheaply, the exemption is no longer paying for itself and the ledger row is out of date; '
+      + 'if you got here by exempting the flat arcs to make the frontal march a no-op, that is '
+      + 'the trade this test exists to make visible — and the frontal cost it buys is 0.095 '
+      + 'against 0.096, inside the seed noise.');
   });
 
   it('the visible half owns the solve', () => {

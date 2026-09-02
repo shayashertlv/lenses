@@ -1048,9 +1048,25 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
     }
     for (const c of correspondences) {
       const marched = state.marchScratch[c.vertex];
-      // A strip's landmark maps to itself when it is already the contour
-      // vertex, so this is a no-op at frontal by construction rather than by
-      // a special case.
+      // **This is NOT a no-op at frontal, which this comment used to claim.**
+      // A strip is a HORIZONTAL row of candidates, and on the top and bottom
+      // arcs of the oval the rim runs horizontally too — so the row lies
+      // ALONG the contour instead of across it, and the most edge-on vertex in
+      // it is a more lateral neighbour. At an EXACT frontal pose 10 of the 34
+      // strips remap, by 11.7 to 20.0 mm (mean 15.1): 338->297, 297->332,
+      // 377->400, 400->378, 378->379, their four mirrors, and 67->103. It is
+      // the regime `silhouetteStrips`' `midlineMm` cut already exempts 10 and
+      // 152 for, reaching further round the ring than that cut does.
+      //
+      // Nor is it a prediction artefact: the chosen vertex is IDENTICAL for a
+      // prediction wrong by up to 2 degrees on any axis, and by 10 in pitch or
+      // roll — the first change is one strip at 5 degrees of yaw.
+      //
+      // Left standing, and measured both ways. See `docs/CONSTANTS.md`'s
+      // `silhouetteStrips` row: over twelve seeds the frontal displacement
+      // costs nothing visible, and exempting those ten strips gives back the
+      // ENTIRE marching gain at 25 degrees of yaw. `core.test.ts` pins that
+      // trade so the obvious repair cannot be made quietly.
       if (marched >= 0) c.vertex = marched;
     }
     state.marchScratch.fill(-1);
