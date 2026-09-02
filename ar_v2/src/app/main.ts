@@ -42,7 +42,7 @@ import {
 import type { BundleFrame } from '../enroll/bundle.js';
 import { createTracker, track, type TrackerState, type TrackResult } from '../track/tracker.js';
 import {
-  armWearer, createIdentityWatch, forgetWearer, observeIdentity, qualifies,
+  armWearer, createIdentityWatch, forgetWearer, observeIdentity,
   type IdentityWatch,
 } from '../track/identity.js';
 import {

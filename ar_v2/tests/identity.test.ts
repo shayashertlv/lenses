@@ -225,11 +225,25 @@ describe('the identity watch convicts on a streak and acquits whole', () => {
     assert.equal(verdict, 'changed');
     assert.equal(watch.convictions, 1);
 
+    // The retirement's own streak is STATE and goes; the count of excursions is
+    // a lifetime counter and stays, for the same reason `convictions` does.
+    // RED: drop `watch.sigmaStrikes = 0` from `forgetWearer`, and a part-built
+    // run leaks into the next wearer; or zero `sigmaExcursions` there, and a
+    // session that spent itself on transients cannot report that it did.
+    for (let i = 0; i < IDENTITY_STRIKES - 1; i++) {
+      observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 }));
+    }
+    assert.ok(watch.sigmaStrikes > 0, 'the excursions never built a run to begin with');
+
     forgetWearer(watch);
     assert.ok(!Number.isFinite(watch.reference), 'the reference survived a forget');
     assert.equal(watch.armed, false, 'a forgotten wearer left the watch armed');
     assert.equal(watch.strikes, 0);
+    assert.equal(watch.sigmaStrikes, 0,
+      'a part-built retirement run survived into the next wearer');
     assert.equal(watch.convictions, 1, 'the conviction count was reset with the conviction');
+    assert.equal(watch.sigmaExcursions, IDENTITY_STRIKES - 1,
+      'the excursion count was reset with the thing it counts');
   });
 });
 
@@ -409,8 +423,15 @@ describe('the identity watch knows a moving ruler from a moving face', () => {
     assert.equal(watch.convictions, 0,
       'the wearer was convicted for the detector changing its mind about its own noise');
     assert.equal(watch.recalibrations, 1, 'the stale reference was not retired');
-    assert.equal(verdicts[0], 'recalibrating',
-      'the drift was not noticed on the first frame that showed it');
+    // Noticed on the STREAK, not on the first frame. This assertion used to
+    // read `verdicts[0] === 'recalibrating'` and it was pinning the defect: a
+    // single frame past a bar derived from session halves is not evidence of a
+    // drift, and the same-person sessions in scratchpad/f27-rate.mjs cross it
+    // 8 times in 8. The frames before the streak abstain, so nothing about the
+    // wearer is judged on a reading taken with a suspect denominator.
+    assert.deepEqual(verdicts.slice(0, IDENTITY_STRIKES),
+      [...Array(IDENTITY_STRIKES - 1).fill('abstain'), 'recalibrating'],
+      'the drift was not retired on the streak');
     // ...and it comes back on its own, on the new scale, rather than abstaining
     // for ever. A drifted estimator does not drift back.
     assert.ok(Number.isFinite(watch.reference), 'the reference was never relearned');
@@ -429,6 +450,134 @@ describe('the identity watch knows a moving ruler from a moving face', () => {
     // window is cleared — so a reading that stays high goes on convicting every
     // ninth frame. That is correct: the app resets on the first one.
     assert.ok(watch.convictions >= 1, 'a different face went uncaught');
+  });
+
+  it('a TRANSIENT excursion abstains: it does not retire, and the swap after it still convicts', () => {
+    // **The retirement used to be a one-frame decision.** Everything else in
+    // this module that destroys state demands persistence — the verdict needs a
+    // full window median AND `IDENTITY_STRIKES` consecutive strikes, and its
+    // docstrings say why: per-frame readings are wild. The retirement destroys
+    // strictly more (the reference, the window, the strikes and the learning
+    // arrays) and asked for one frame.
+    //
+    // And the bar it uses is an AGGREGATE. `IDENTITY_SIGMA_DRIFT_MAX`'s own
+    // derivation is "second half of a session against the first"; nothing ever
+    // measured a single frame against a twelve-frame median.
+    //
+    // Measured, through the real `estimateSigma` over synthetic captures of the
+    // SAME person with `varianceFactor` pinned at 1.0 — nothing about the
+    // wearer changing at all (scratchpad/f27-rate.mjs, f27-choose.mjs):
+    //
+    //     rule        false retirements   a real 2x drift   a real wearer SWAP
+    //     shipped         8 of 8            caught, +30       caught 0 of 8
+    //     5 consecutive   0 of 8            caught, +34       caught 8 of 8
+    //
+    // The middle column is the cost and it is four qualifying frames, with zero
+    // false convictions in the gap at any rule tried. The right-hand column is
+    // the point: the one-frame retirement does not degrade this watch, it
+    // DISABLES it. The wearer turns their head, one qualifying frame on the way
+    // back reads 1.8x, the reference and the strikes go, and the relearn adopts
+    // whoever is in front of the camera.
+    //
+    // RED: retire on the first excursion. `convictions` reads 0.
+    const watch = learned(2);
+    const verdicts: string[] = [];
+
+    // A transient one frame short of the streak: real, and over as quickly as a
+    // head turn is. Nothing about the wearer has changed.
+    for (let i = 0; i < IDENTITY_STRIKES - 1; i++) {
+      verdicts.push(observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 })));
+    }
+    assert.ok(verdicts.every((v) => v === 'abstain'),
+      `a transient excursion produced ${verdicts.join(', ')} — it must change nothing, `
+      + 'the way a turned frame does');
+    assert.equal(watch.recalibrations, 0, 'a transient retired the reference');
+    assert.ok(Number.isFinite(watch.reference), 'a transient threw the wearer away');
+
+    // ...and now a real change of wearer, with the ruler steady again.
+    for (let i = 0; i < IDENTITY_WINDOW * (IDENTITY_STRIKES + 2); i++) {
+      observeIdentity(watch, frame(8, { meanSigmaPx: 1 }));
+    }
+    assert.equal(watch.recalibrations, 0, 'a steady ruler was mistaken for a drifting one');
+    assert.ok(watch.convictions >= 1,
+      'the swap went uncaught: the transient had already thrown away the reference it '
+      + 'would have been judged against, and the relearn adopted the stranger');
+  });
+
+  it('and a SUSTAINED excursion still retires, on the streak the rest of the module uses', () => {
+    // The other side of the same bar. A drifted estimator does not drift back,
+    // so the retirement must still happen — just not on one frame's word.
+    // RED: never retire, or require more than IDENTITY_STRIKES.
+    const watch = learned(2);
+    const verdicts: string[] = [];
+    for (let i = 0; i < IDENTITY_STRIKES; i++) {
+      verdicts.push(observeIdentity(watch, frame(8, { meanSigmaPx: 0.5 })));
+    }
+    assert.deepEqual(
+      verdicts,
+      [...Array(IDENTITY_STRIKES - 1).fill('abstain'), 'recalibrating'],
+      'the sustained drift was not retired on exactly the streak',
+    );
+    assert.equal(watch.recalibrations, 1);
+    assert.equal(watch.convictions, 0,
+      'the wearer was convicted for the detector changing its mind about its own noise');
+  });
+
+  it('the streak is a RUN, not a tally: two separate transients do not add up', () => {
+    // A session that turns its head twice must not retire on the sum of the two
+    // turns. `sigmaStrikes` has to reset on the first frame that reads normally,
+    // exactly as `strikes` does when the window turns over.
+    // RED: drop `watch.sigmaStrikes = 0;` after the excursion branch.
+    const watch = learned(2);
+    for (const _ of Array(2)) {
+      for (let i = 0; i < IDENTITY_STRIKES - 1; i++) {
+        observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 }));
+      }
+      for (let i = 0; i < IDENTITY_WINDOW * 2; i++) observeIdentity(watch, frame(2));
+    }
+    assert.equal(watch.recalibrations, 0,
+      'two transients four frames long added up to a retirement');
+    assert.equal(watch.sigmaExcursions, 2 * (IDENTITY_STRIKES - 1),
+      'the excursions were not counted, so a session spending its time on transients '
+      + 'cannot be told from a steady one');
+  });
+
+  it('an excursion is not judged, only skipped: the verdict never sees a suspect denominator', () => {
+    // The frames below sit past the bar AND well over `IDENTITY_VF_RATIO`. If an
+    // excursion fell through to the verdict path instead of abstaining, they
+    // would strike — and a reading whose denominator this watch has just called
+    // untrustworthy is exactly what `IDENTITY_SIGMA_DRIFT_MAX` exists to refuse.
+    // RED: delete the early `return 'abstain'` and let the excursion fall through.
+    const watch = learned(2);
+    for (let i = 0; i < IDENTITY_STRIKES - 1; i++) {
+      observeIdentity(watch, frame(20, { meanSigmaPx: 1.8 }));
+    }
+    assert.equal(watch.asked, IDENTITY_REFERENCE_FRAMES ? watch.asked : 0);
+    assert.equal(watch.struck, 0, 'an excursion frame was allowed to strike');
+    assert.equal(watch.strikes, 0, 'an excursion frame built a streak toward a conviction');
+    assert.equal(watch.recent.length, 0, 'an excursion frame entered the verdict window');
+  });
+
+  it('the streak counts consecutive ASKED frames, so a turned head neither builds nor breaks it', () => {
+    // The same rule the strike streak lives under, and for the same reason: the
+    // window is consecutive frames the watch was ASKED about, not consecutive
+    // frames. A blink or a hard turn is invisible to it.
+    // RED: move the excursion test above the `qualifies` guard, or reset the
+    // streak on a non-qualifying frame.
+    const watch = learned(2);
+    for (let i = 0; i < IDENTITY_STRIKES - 1; i++) {
+      observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 }));
+    }
+    // A turned frame, in the middle of the run.
+    assert.equal(
+      observeIdentity(watch, frame(2, { meanSigmaPx: 1.8, yawRad: (IDENTITY_MAX_YAW_DEG + 5) * Math.PI / 180 })),
+      'abstain',
+    );
+    assert.equal(watch.recalibrations, 0, 'a turned frame completed the retirement streak');
+    // ...and the next asked excursion completes it, because the turn did not
+    // break the run either.
+    assert.equal(observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 })), 'recalibrating',
+      'the turned frame broke a run of asked frames it should have been invisible to');
   });
 
   it('leaves room between the largest identity excursion and the smallest harmful drift', () => {

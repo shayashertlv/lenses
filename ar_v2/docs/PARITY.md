@@ -136,7 +136,13 @@ Three things in it are worth knowing before touching it:
   `IDENTITY_SIGMA_DRIFT_MAX` is the guard, and it works because the denominator
   is observable — a change of wearer moves the mean claimed sigma by at most
   1.35x, a harmful drift by 2x or more. Its cost is that a drift and a swap
-  arriving together make the watch recalibrate onto the stranger.
+  arriving together make the watch recalibrate onto the stranger — and that cost
+  needed no drift at all until 2026-09-02, because the bar is derived from
+  session halves and was being asked of ONE frame. Measured through the real
+  `estimateSigma`, an ordinary same-person session crosses it in 8 of 8 captures
+  and the swap after it was convicted 0 of 8. The retirement now waits for
+  `IDENTITY_STRIKES` consecutive qualifying frames: 0 of 8 false retirements,
+  8 of 8 swaps caught, four frames later on a real drift.
 - **It abstains rather than guessing.** The watch is armed in exactly one place:
   immediately after a scan taken from a camera in this session. A model restored
   from storage was measured elsewhere, possibly on another device, so there is

@@ -151,6 +151,16 @@ carries what each does and how it was measured.
    arrive in the same frames, it recalibrates onto the stranger and detection in
    those arms falls from 93% to **0-5%**.
 
+   That hole needed no drift until 2026-09-02: the bar is derived from session
+   halves and was asked of ONE frame, and an ordinary same-person session
+   crosses it in 8 of 8 synthetic captures. The retirement now waits for
+   `IDENTITY_STRIKES` consecutive qualifying frames (0 of 8 false retirements,
+   8 of 8 swaps convicted). **What is still open is the RELEARN window**: a
+   sustained transient of twelve qualifying frames or more relearns the
+   reference on its own inflated sigma and then retires a second time when it
+   ends — measured, 2 retirements and 32 non-judging frames, saturating there.
+   Under five frames now costs nothing at all.
+
    A real calibration check would close that: compare the claimed sigma against
    the empirical frame-to-frame scatter the estimator already computes
    (`UncertaintyState.disagreement`, an EMA of the unexplained motion after the
