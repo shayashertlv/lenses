@@ -287,6 +287,21 @@ describe('camera model', () => {
     assert.ok(Math.abs(verticalFovDeg(roundTrip) - 49.37) < 0.01,
       `the round trip returned a ${verticalFovDeg(roundTrip).toFixed(2)} deg camera against the `
       + '49.37 measured - the mirror of the 78.50 the rule this one replaced produced one rung down');
+
+    // **And the boundary of the defect, which is the half worth knowing before
+    // touching the rule.** All of the disagreement above lives in the
+    // aspect-CHANGING rungs. Where the aspect is unchanged `sx === sy`, every
+    // candidate rule returns the same number, the transfer is exact, and the
+    // round trip IS the identity. So this is not "scaleIntrinsics does not
+    // compose" — it is "scaleIntrinsics is a bet exactly when the aspect
+    // changes", and `intrinsicsForSource` logs which of the two it just did.
+    const sameAspect = scaleIntrinsics(scaleIntrinsics(k, 640, 360), 1280, 720);
+    assert.equal(sameAspect.f, k.f,
+      `a 16:9 -> 16:9 round trip moved f from ${k.f} to ${sameAspect.f}. It must be exact: the `
+      + 'ambiguity this test documents is entirely about aspect CHANGES, and if a same-aspect '
+      + 'transfer has stopped composing then the defect is bigger than the header says');
+    assert.equal(verticalFovDeg(sameAspect).toFixed(4), verticalFovDeg(k).toFixed(4),
+      'a same-aspect round trip changed the field of view');
   });
 });
 

@@ -119,6 +119,20 @@ export const MEDIAPIPE_ASSUMED_VERTICAL_FOV = 63;
  * inverse-consistency, which only the two direction-aware rules have - so if
  * the native aspect ever becomes knowable, that is the shape of the fix.
  *
+ * **The fifth option is refusing the transfer, and it is measured above rather
+ * than missing from this list:** falling back to the assumed 63 degrees costs
+ * 70 mm of solved depth on a 55-degree lid camera reloading at 800x600 against
+ * 13.6 mm for the rescale, and throws away a camera that was honestly measured.
+ * So it is not a tie-break among the four - it is worse than all of them.
+ *
+ * **And the bet has a boundary worth naming.** When the aspect ratio is
+ * unchanged `sx === sy`, every candidate rule returns the same number and the
+ * transfer is exact - a 1280x720 record carried to 640x360 and back is the
+ * identity, which `tests/core.test.ts` asserts beside the 4/3 that is not. The
+ * whole disagreement lives in the aspect-CHANGING rungs, which is why
+ * `intrinsicsForSource` says so in the line it logs: a reader of a wearer's
+ * paste can tell the two cases apart without knowing any of this.
+ *
  * The measured defense above covers the 1280x720 -> 640x480 rung only. On the
  * reverse rung the old rule and this one agree (both 2.0), which is why "never
  * worse than what it replaces" and "every rung where the two rules differ"

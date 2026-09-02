@@ -1514,9 +1514,20 @@ function templateModel(app: App): FaceModel {
 function intrinsicsForSource(k: Intrinsics, width: number, height: number): Intrinsics {
   if (width === k.width && height === k.height) return k;
   const scaled = scaleIntrinsics(k, width, height);
+  // **Whether this line is a rescale or a guess depends on one thing, so it
+  // says which.** `scaleIntrinsics` is exact when the aspect ratio is
+  // unchanged — every candidate rule agrees there — and a bet on the sensor's
+  // native aspect when it changes, worth up to 33% of the focal length. That
+  // distinction is invisible in the numbers themselves, and this line is what
+  // a wearer pastes.
+  const aspectChanged = Math.abs(width / height - k.width / k.height) > 1e-6;
   console.info(`[camera] the scan solved ${k.f.toFixed(1)} px at ${k.width}x${k.height}; `
     + `this source is ${width}x${height}, so the solve is carried over as `
-    + `${scaled.f.toFixed(1)} px (${verticalFovDeg(scaled).toFixed(1)} deg vertical)`);
+    + `${scaled.f.toFixed(1)} px (${verticalFovDeg(scaled).toFixed(1)} deg vertical)`
+    + (aspectChanged
+      ? ' — and the ASPECT changed, so that is a bet on the sensor being cropped '
+        + 'rather than squashed, worth up to 33% of f. See `scaleIntrinsics`.'
+      : ''));
   return scaled;
 }
 
