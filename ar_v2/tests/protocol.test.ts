@@ -651,4 +651,72 @@ describe('the wearer\'s neutral is a measurement, so it has to come from the rig
       'the four good centre frames were discarded rather than averaged',
     );
   });
+
+  it('keeps them when the wearer is VISIBLE and off-centre, which is the ordinary way to time out', () => {
+    // The same salvage, on the path it could never reach. The test above loses
+    // the FACE, so no unsatisfied frame ever runs; here the wearer is in frame
+    // throughout and simply looking somewhere else — a second monitor, a person
+    // in the room — which is how a centre beat actually times out.
+    //
+    // Every unsatisfied centre frame used to empty the accumulator, and the
+    // give-up frame is by definition unsatisfied, so `settleNeutral` inside
+    // `abandon` always saw n = 0 and the fallback latched the single turned pose
+    // it happened to hold. Measured before the fix: a neutral of yaw 40, from a
+    // wearer whose seven good frames averaged 2.
+    //
+    // The cascade that follows is the same one this file's other tests pin, and
+    // it is why a wrong neutral is worse than none: every later beat is measured
+    // against it, and it is persisted into `model.scan` and printed by
+    // diagnostics.
+    const st = createProtocol();
+
+    // Seven satisfied frames (|yaw| 2 <= goal 14, |pitch| 3 < 38), one short of
+    // holdFrames = 8, so the beat cannot complete on them.
+    for (let i = 0; i < 7; i++) advanceProtocol(st, S(2, 3));
+    assert.equal(st.neutral, null, 'the beat completed early — the fixture is wrong');
+
+    // Then the wearer turns away and stays visible. `attempts` ticks on every
+    // frame, so the give-up lands at attempt 241: 7 + 234.
+    for (let i = 0; i < 234; i++) advanceProtocol(st, S(40, 3));
+
+    assert.ok(st.skipped.includes('centre'), 'the opening beat did not give up');
+    assert.deepEqual(
+      st.neutral, { yawDeg: 2, pitchDeg: 3, distanceMm: 500 },
+      `the neutral came back as ${JSON.stringify(st.neutral)}. The seven good centre frames `
+      + 'were thrown away by the accumulator reset on the first off-centre frame, and the pose '
+      + 'the wearer happened to hold at the give-up was adopted as their straight-ahead — the '
+      + 'exact fallback `abandon`\'s salvage exists to make unnecessary',
+    );
+  });
+
+  it('averages every satisfied centre frame, not just the last unbroken run', () => {
+    // What removing the reset actually changes on the COMPLETING path, stated so
+    // it cannot be mistaken for a side effect. Each accumulated sample has
+    // already passed `beat.satisfied`, so it is inside the centre goal by
+    // construction; a later off-goal frame says nothing about the ones before
+    // it. Averaging all of them is the point of averaging at all — the beat's
+    // own comment says a single frame carries a degree of noise and postural
+    // wander.
+    //
+    // Four frames at yaw 10, one glance away, then frames at yaw 2 until the
+    // hold closes. **The count is set by the decay, not by the loop:** `held`
+    // reaches 4, the off-goal frame decays it to 3, and the beat completes on
+    // the FIFTH frame back — `held` 4, 5, 6, 7, 8 — so nine frames were
+    // accumulated, not twelve. The mean is (4*10 + 5*2) / 9 = 5.556.
+    //
+    // Both numbers are worth writing down because they are the two answers:
+    // 2.000 is the last unbroken run alone, which is what the reset produced.
+    const st = createProtocol();
+    for (let i = 0; i < 4; i++) advanceProtocol(st, S(10, 0));
+    advanceProtocol(st, S(40, 0));
+    for (let i = 0; i < 8 && !st.done.includes('centre'); i++) advanceProtocol(st, S(2, 0));
+
+    assert.ok(st.done.includes('centre'), 'the beat did not complete on the hold');
+    assert.ok(st.neutral !== null, 'no neutral was settled');
+    assert.ok(Math.abs(st.neutral.yawDeg - 50 / 9) < 0.001,
+      `the neutral averaged to ${st.neutral.yawDeg.toFixed(3)} degrees. 2.000 means the `
+      + 'accumulator is being reset on an off-goal frame and only the last unbroken run '
+      + 'survives; 5.556 is the mean of the nine frames that were actually inside the goal '
+      + '(four at 10, then five at 2 before `held` climbed back from its decay to 8)');
+  });
 });

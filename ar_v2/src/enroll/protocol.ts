@@ -261,6 +261,15 @@ export interface ProtocolState {
   skipped: BeatId[];
   attempts: number;
   neutral: Neutral | null;
+  /**
+   * Running sum of the `centre` beat's satisfied frames, averaged into
+   * `neutral` by `settleNeutral` when the beat completes or is abandoned.
+   *
+   * Filled only while `beat.id === 'centre' && neutral === null`, and emptied by
+   * nothing — every sample in it passed `beat.satisfied`, so it stays valid
+   * however the wearer moves afterwards. It used to be emptied on any off-goal
+   * frame, which killed the salvage in `abandon`; see the unsatisfied branch.
+   */
   neutralAccum: { yaw: number; pitch: number; distance: number; n: number };
   /**
    * The plateau REFERENCE: the value `sinceImprovement` is counted against.
@@ -511,9 +520,39 @@ export function advanceProtocol(state: ProtocolState, sample: PoseSample | null)
     } else {
       // Decay rather than reset: one bad frame mid-hold is usually a blink.
       state.held = Math.max(0, state.held - 1);
-      if (beat.id === 'centre' && state.neutral === null) {
-        state.neutralAccum = { yaw: 0, pitch: 0, distance: 0, n: 0 };
-      }
+      // **And the accumulator is not touched here at all, which it used to be.**
+      //
+      // An off-goal frame said "start the average over", and that emptied
+      // `neutralAccum` on EVERY unsatisfied centre frame — including the give-up
+      // frame directly below, which is unsatisfied by definition. So
+      // `settleNeutral` inside `abandon` always found n = 0 on this path and the
+      // fallback latched the single pose the wearer happened to hold at the
+      // moment the beat gave up. The salvage `abandon` documents — "spend the
+      // frames the beat DID see" — could only ever run on the `abandon(null)`
+      // path, where no unsatisfied frame occurs because there is no frame at
+      // all, and that is the only path the suite covered.
+      //
+      // Measured: seven good centre frames averaging yaw 2, then a wearer who
+      // looks at a second monitor and stays in shot, gave a neutral of yaw 40 —
+      // their turned pose adopted as straight-ahead, with the whole cascade this
+      // file's other tests pin following from it.
+      //
+      // The reset was right once and is not any more. It arrived in `f5f5e53`
+      // when the accumulator was guarded by `state.neutral === null` alone, so
+      // ANY beat could feed it and emptying it on a broken hold limited the
+      // damage. `f9c9093` added the `beat.id === 'centre'` test — on this branch
+      // and the one above — and the salvage, in the same commit. From then on
+      // every sample in here had already passed `beat.satisfied`, so it is
+      // inside the centre goal by construction and a later off-goal frame says
+      // nothing about it. The reset survived that change and has only destroyed
+      // evidence since.
+      //
+      // It also changes the COMPLETING path, deliberately: the neutral is now
+      // the mean of every satisfied centre frame rather than of the final
+      // unbroken run. That is the beat's own stated reason for averaging — "a
+      // single frame's pose carries a degree of noise and postural wander" —
+      // applied to all the evidence instead of the last of it. Identical for a
+      // wearer who holds still, because then nothing is ever unsatisfied.
       const limit = beat.optional ? GIVE_UP_FRAMES.optional : GIVE_UP_FRAMES.required;
       if (state.attempts > limit) abandon(sample);
     }
