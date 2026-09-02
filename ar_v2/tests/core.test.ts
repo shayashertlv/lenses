@@ -28,7 +28,7 @@ import {
 import { hornRotation, rigidAlign } from '../src/enroll/detector-bias.js';
 import { createRng } from '../src/testkit/random.js';
 import {
-  createFaceModel, deserializeFaceModel, noseConfidence, serializeFaceModel,
+  createFaceModel, deserializeFaceModel, landmarkSurface, noseConfidence, serializeFaceModel,
 } from '../src/core/facemodel.js';
 import type { ScanRecord } from '../src/enroll/protocol.js';
 import { applyScale } from '../src/enroll/scale.js';
@@ -4289,6 +4289,19 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       `the control landed ${blind.toFixed(3)} mm from truth against the 2.04 measured — a `
       + '0.6 mm detector bias is supposed to be plainly visible in the pose here, and if it is '
       + 'not, this fixture has stopped exhibiting the defect and the assertion below is free');
+    // **And a bias it cannot use is refused, not ignored.** Falling back to
+    // zero on a malformed array would silently restore the 2 mm defect above,
+    // through the one branch no gate can see. Unreachable today —
+    // `deserializeFaceModel` rejects any other format version and
+    // `serializeFaceModel` always writes the full array — which is exactly when
+    // a silent fallback is cheapest to refuse.
+    assert.throws(
+      () => landmarkSurface({ ...modelWith(bias), landmarkBiasMm: new Float64Array(3) }),
+      /landmark-bias/,
+      'landmarkSurface accepted a bias of the wrong length — it must throw rather than treat '
+      + 'it as zero, because zero is the behaviour this whole test exists to forbid',
+    );
+
     assert.ok(told < 0.5,
       `declaring the bias left the solve ${told.toFixed(3)} mm out against the 0.089 measured, `
       + `with the blind arm at ${blind.toFixed(3)} — the tracker is still matching detector `

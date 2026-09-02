@@ -171,6 +171,22 @@ interface App {
    */
   softHook: boolean;
   model: FaceModel | null;
+  /**
+   * `landmarkSurface(app.model)`, cached, and the cache key is the model
+   * OBJECT rather than a flag anybody has to remember to clear.
+   *
+   * `estimateSigma` decides which vertices this pose can see and how far each
+   * landmark has moved against its neighbours — both statements about what the
+   * DETECTOR reports, and the visibility it returns is what gates the tracker's
+   * rigidity ramp, so it has to describe the same surface the tracker solves
+   * against. `model.positions` is skin (see `landmarkSurface`), and this runs
+   * every frame, so it is neither correct nor affordable to build it there.
+   *
+   * Keyed on identity because `app.model` is assigned from three places and a
+   * fourth is one edit away; a stale detector surface would be invisible.
+   */
+  landmarkGeometry: Float64Array | null;
+  landmarkGeometryFor: FaceModel | null;
   seat: SeatResult | null;
   assessment: FitAssessment | null;
   frame: FrameAsset;
@@ -400,6 +416,8 @@ async function boot(): Promise<void> {
     marchOval: /[?&]march=on\b/.test(location.search),
     softHook: false,
     model: null,
+    landmarkGeometry: null,
+    landmarkGeometryFor: null,
     seat: null,
     assessment: null,
     frame: TEST_FRAMES[1],
@@ -722,6 +740,23 @@ function stepScan(app: App, sample: PoseSample | null): void {
 }
 
 
+/**
+ * The model's geometry in the DETECTOR's convention, cached for the frame loop.
+ *
+ * `landmarkSurface` allocates, and this is read once per detected frame, so the
+ * result is memoised against the model OBJECT — not a boolean anybody has to
+ * remember to clear when `app.model` is reassigned. Falls back to the template
+ * before a scan exists, which carries no bias by construction.
+ */
+function detectorGeometry(app: App): Float64Array {
+  if (!app.model) return app.mesh.positions;
+  if (app.landmarkGeometryFor !== app.model || !app.landmarkGeometry) {
+    app.landmarkGeometryFor = app.model;
+    app.landmarkGeometry = landmarkSurface(app.model);
+  }
+  return app.landmarkGeometry;
+}
+
 function onDetection(
   app: App, result: ReturnType<Detector['detect']>, captureDt: number,
 ): void {
@@ -756,7 +791,7 @@ function onDetection(
   const scale = detectToSourceScale(app.lock);
   const landmarks = scaleLandmarksToSource(result.landmarks, scale);
 
-  const geometry = app.model?.positions ?? app.mesh.positions;
+  const geometry = detectorGeometry(app);
   // Both halves of the return, and the second half is the one that used to be
   // dropped on the floor. `estimateSigma` rasterises the mesh to work out which
   // vertices this pose can actually see; taking only `sigmaPx` and handing the
@@ -1328,6 +1363,12 @@ type StateClass = 'person' | 'app' | 'never';
 const PERSON_STATE: Readonly<Record<keyof App, StateClass>> = {
   // ---- the wearer -------------------------------------------------------
   model: 'person',
+  // Derived from `model`, so the wearer's by construction. The identity memo in
+  // `detectorGeometry` would rebuild them anyway; they are classified here so a
+  // rescan cannot leave the previous face's detector surface behind, and so the
+  // manifest stays a complete statement about who owns what.
+  landmarkGeometry: 'person',
+  landmarkGeometryFor: 'person',
   seat: 'person',
   assessment: 'person',
   tracker: 'person',
@@ -1427,6 +1468,12 @@ function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
   app.scanGen++;
 
   app.model = null;
+  // Both, though the identity memo makes the first redundant: `detectorGeometry`
+  // rebuilds whenever `landmarkGeometryFor !== app.model`, and null is not the
+  // next model. Cleared anyway because the manifest calls them the wearer's and
+  // a 11 KB array of somebody else's face is not a thing to keep on a hunch.
+  app.landmarkGeometry = null;
+  app.landmarkGeometryFor = null;
   app.seat = null;
   app.assessment = null;
   app.tracker = null;

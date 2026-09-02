@@ -392,9 +392,21 @@ export function withScanRecord(model: FaceModel, scan: ScanRecord | null): FaceM
 export function landmarkSurface(model: FaceModel): Float64Array {
   const out = new Float64Array(model.positions);
   const bias = model.landmarkBiasMm;
-  if (bias && bias.length === out.length) {
-    for (let i = 0; i < out.length; i++) out[i] += bias[i];
+  // **Throws rather than falling back**, because the fallback IS the defect
+  // this function exists to remove: skipping the add silently restores the
+  // shipped-until-2026-09-02 behaviour of solving detector landmarks against
+  // skin, which no gate can see (0.71 -> 0.94 px of reprojection at a 2.04 mm
+  // pose error). `deserializeFaceModel` refuses any other format version and
+  // `serializeFaceModel` always writes the full array, so this is unreachable
+  // today — which is exactly when a silent branch is cheapest to remove.
+  if (!bias || bias.length !== out.length) {
+    throw new Error(
+      `the model carries ${bias ? bias.length : 'no'} landmark-bias values for `
+      + `${out.length} coordinates — the detector surface cannot be built, and `
+      + 'guessing zero would silently reinstate a 2 mm pose error',
+    );
   }
+  for (let i = 0; i < out.length; i++) out[i] += bias[i];
   return out;
 }
 

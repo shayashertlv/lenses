@@ -278,6 +278,39 @@ describe('a new face gets a new occluder calibration', () => {
     assert.match(body, /app\.snapBuffer = null/,
       'adoptModel no longer clears app.snapBuffer — it caches intrinsics the new model may change');
   });
+
+  it('the sigma estimate is fed the detector surface, and built once per model', () => {
+    // `estimateSigma` answers two questions about the DETECTOR — which vertices
+    // this pose lets it see, and how far each landmark moved against its
+    // neighbours — and the visibility it returns is what gates the tracker's
+    // rigidity ramp. So it has to describe the same surface `track` solves
+    // against, which since 2026-09-02 is `landmarkSurface(model)` and not
+    // `model.positions`. `model.positions` is skin: `enroll.ts` subtracts the
+    // detector bias before the model leaves. Identical while that bias is zero,
+    // which is why nothing but a fingerprint can see this.
+    //
+    // Positively bound at the CALL SITE rather than banned by spelling — the
+    // lesson from the intrinsics guard, which two rewordings could walk past
+    // while a helper it never called sat there satisfying it.
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    assert.match(text, /positions:\s*geometry\b/,
+      'the wear-branch estimateSigma call no longer takes `geometry`');
+    assert.match(text, /const geometry = detectorGeometry\(app\)/,
+      'the per-frame geometry is no longer `detectorGeometry(app)` — if it went back to '
+      + '`app.model.positions`, the sigma estimate describes the SKIN surface while the tracker '
+      + 'solves against the detector one, and at a nonzero detector bias the visibility gating '
+      + 'the rigidity ramp is a statement about the wrong geometry');
+    const fn = text.slice(text.indexOf('function detectorGeometry'));
+    const fnBody = fn.slice(0, fn.indexOf('\nfunction ', 1));
+    assert.match(fnBody, /landmarkSurface\(app\.model\)/,
+      'detectorGeometry no longer builds the surface with landmarkSurface');
+    // The memo, and its key. A boolean flag would need clearing at three
+    // assignment sites; the model object cannot go stale against itself.
+    assert.match(fnBody, /app\.landmarkGeometryFor !== app\.model/,
+      'detectorGeometry no longer keys its cache on the model object — a per-frame '
+      + '`landmarkSurface` allocates 11 KB every frame, and a flag-keyed one goes stale the '
+      + 'first time somebody adds a fourth `app.model =`');
+  });
 });
 
 describe('the render loop', () => {
