@@ -178,12 +178,79 @@ export function readGlb(bytes: Uint8Array, scaleToMm = 1000): MeshAsset {
 
   const parts: MeshPart[] = [];
   const nodes = json.nodes ?? [];
-  const scene = json.scenes?.[json.scene ?? 0];
-  const roots: number[] = scene?.nodes ?? nodes.map((_: unknown, i: number) => i);
+
+  /**
+   * Where the walk starts, and the two ways that used to go wrong.
+   *
+   * The fallback was `nodes.map((_, i) => i)` — every node treated as a root —
+   * while `visit` still recursed into `node.children`. A child was therefore
+   * read TWICE: once through its parent chain with the correct world transform,
+   * and once as a "root" at identity, with both copies landing in `parts` and in
+   * the concatenated arrays. On a one-triangle file that is two parts and six
+   * vertices. `frameFromMesh` would then take pad separation, front width and
+   * scale off a cloud holding an untransformed ghost of the frame, and a doubled
+   * signed volume still passes the winding check — the header above calls a mesh
+   * silently read wrong the failure this tree is least able to notice, and this
+   * was the path that did the guessing.
+   *
+   * `scenes` really is optional (glTF 2.0), so a file without one is legal and
+   * must not be refused; what it needs is the nodes nothing else parents. But an
+   * out-of-range `scene` index is NOT that case — it is a malformed file that
+   * happened to land in the same branch — so it is separated out and thrown.
+   *
+   * Every shipped asset carries a `scenes` array whose scene lists exactly the
+   * parentless nodes, so neither branch changes any of them; `tests/asset.test.ts`
+   * asserts that rather than leaving it as a claim.
+   */
+  let roots: number[];
+  if (json.scenes && json.scenes.length > 0) {
+    const index = json.scene ?? 0;
+    const scene = json.scenes[index];
+    if (!scene) {
+      throw new Error(
+        `GLB names scene ${index} and has ${json.scenes.length}; a scene index that `
+        + 'resolves to nothing is a malformed file, not a scene-less one',
+      );
+    }
+    roots = scene.nodes ?? [];
+  } else {
+    const parented = new Set<number>();
+    for (const node of nodes) for (const c of node.children ?? []) parented.add(c);
+    roots = nodes.map((_: unknown, i: number) => i).filter((i: number) => !parented.has(i));
+  }
+
+  /**
+   * Visited once, or the file is refused.
+   *
+   * glTF 2.0 requires the node hierarchy to be disjoint STRICT trees: no cycles,
+   * at most one parent each. Both violations duplicate geometry the same silent
+   * way the root fallback did — a node with two parents is read twice, and a
+   * cycle recurses until the stack gives out, which is a `RangeError` naming
+   * nothing. One `Set` covers both, and covers a scene that lists the same node
+   * twice as well.
+   */
+  const seen = new Set<number>();
 
   const visit = (index: number, parent: Float64Array): void => {
     const node = nodes[index];
-    if (!node) return;
+    // A dangling index used to `return` here, silently dropping whatever that
+    // branch of the graph held. It is the same class as the duplication above —
+    // the mesh is read wrong and nothing says so — with the sign reversed, and
+    // every other malformed condition in this file throws.
+    if (!node) {
+      throw new Error(
+        `GLB references node ${index} and declares ${nodes.length}; a dangling node index `
+        + 'would silently drop that branch of the graph',
+      );
+    }
+    if (seen.has(index)) {
+      throw new Error(
+        `GLB node ${index}${node.name ? ` ("${node.name}")` : ''} is reachable twice. glTF `
+        + 'requires the node hierarchy to be disjoint strict trees; reading it twice would '
+        + 'silently double its geometry',
+      );
+    }
+    seen.add(index);
     const world = mul4(parent, fromTRS(node));
     if (node.mesh !== undefined) {
       const mesh = json.meshes[node.mesh];

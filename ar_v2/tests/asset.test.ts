@@ -283,6 +283,165 @@ describe('a real asset becomes a frame the solve can hold', () => {
 
 // ------------------------------------------------------------------- refusals
 
+describe('the node graph is read once, or refused', () => {
+  /**
+   * A minimal legal GLB around a caller-supplied glTF JSON.
+   *
+   * Hand-built because no shipped asset has the shapes below — all ten carry a
+   * `scenes` array whose scene lists exactly the true roots — and a defect no
+   * asset exhibits is exactly the one a fixture has to construct.
+   */
+  const buildGlb = (gltf: Record<string, unknown>, bin: Float32Array): Uint8Array => {
+    const jsonText = JSON.stringify(gltf);
+    const enc = new TextEncoder().encode(jsonText);
+    const pad4 = (n: number) => (4 - (n % 4)) % 4;
+    const jsonLen = enc.length + pad4(enc.length);
+    const binBytes = new Uint8Array(bin.buffer, bin.byteOffset, bin.byteLength);
+    const binLen = binBytes.length + pad4(binBytes.length);
+    const total = 12 + 8 + jsonLen + 8 + binLen;
+    const out = new Uint8Array(total);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x46546C67, true);        // 'glTF'
+    dv.setUint32(4, 2, true);                 // version
+    dv.setUint32(8, total, true);
+    dv.setUint32(12, jsonLen, true);
+    dv.setUint32(16, 0x4E4F534A, true);       // 'JSON'
+    out.set(enc, 20);
+    out.fill(0x20, 20 + enc.length, 20 + jsonLen);   // JSON pads with spaces
+    const binOff = 20 + jsonLen;
+    dv.setUint32(binOff, binLen, true);
+    dv.setUint32(binOff + 4, 0x004E4942, true); // 'BIN\0'
+    out.set(binBytes, binOff + 8);
+    return out;
+  };
+
+  /** One triangle, and the accessors that describe it. */
+  const oneTriangle = () => {
+    const bin = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    return {
+      bin,
+      common: {
+        asset: { version: '2.0' },
+        buffers: [{ byteLength: bin.byteLength }],
+        bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: bin.byteLength }],
+        accessors: [{
+          bufferView: 0, componentType: 5126, count: 3, type: 'VEC3',
+          min: [0, 0, 0], max: [1, 1, 0],
+        }],
+        meshes: [{ primitives: [{ attributes: { POSITION: 0 }, mode: 4 }] }],
+      },
+    };
+  };
+
+  it('a scene-less file reads its child meshes ONCE, not once per parent chain', () => {
+    // `scenes` is optional in glTF 2.0, and the fallback for a file without one
+    // was `nodes.map((_, i) => i)` — every node treated as a root — while
+    // `visit` still recursed into `node.children`. A child was therefore read
+    // twice: once through its parent with the correct world transform, and once
+    // as a "root" at IDENTITY. Both copies landed in `parts` and in the
+    // concatenated `positions`/`indices`.
+    //
+    // Measured before the fix on exactly this file: 2 parts and 6 vertices for a
+    // one-triangle mesh, one copy at the parent's [10, 0, 0] and one at the
+    // origin. `frameFromMesh` would then derive pads, front width and scale from
+    // a cloud containing a ghost of the frame, and a doubled signed volume still
+    // passes the winding check — the file's own header calls a mesh silently
+    // read wrong "the failure this tree is least able to notice".
+    const { bin, common } = oneTriangle();
+    const asset = readGlb(buildGlb({
+      ...common,
+      // No `scenes` and no `scene`: legal, and the whole point of the fixture.
+      nodes: [
+        { children: [1], translation: [10, 0, 0] },
+        { mesh: 0, name: 'child' },
+      ],
+    }, bin), 1);
+
+    assert.equal(asset.parts.length, 1,
+      `a one-triangle file produced ${asset.parts.length} parts — the child was read once `
+      + 'through its parent and again as a root, so every downstream measurement is taken '
+      + 'over the frame plus an untransformed ghost of itself');
+    assert.equal(asset.positions.length, 9, 'the concatenated positions were duplicated');
+    // And read through the parent, not at identity: x = 10 is the transform.
+    assert.ok(Math.abs(asset.positions[0] - 10) < 1e-9,
+      `the surviving copy sits at x = ${asset.positions[0]}, so the one that was kept is the `
+      + 'untransformed root rather than the correctly-placed child');
+  });
+
+  it('refuses a node reachable twice, rather than reading it twice', () => {
+    // glTF 2.0 requires the node hierarchy to be disjoint strict trees — no
+    // cycles, at most one parent each. A file that breaks it would otherwise
+    // duplicate silently in the same way, through a different door, and a cycle
+    // would recurse until the stack gave out.
+    const { bin, common } = oneTriangle();
+    const twoParents = buildGlb({
+      ...common,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [
+        { children: [2] },
+        { children: [2] },
+        { mesh: 0, name: 'shared' },
+      ],
+    }, bin);
+    assert.throws(() => readGlb(twoParents, 1), /parent|twice|tree/i,
+      'a node with two parents was read twice instead of refused');
+
+    const cycle = buildGlb({
+      ...common,
+      scenes: [{ nodes: [0] }],
+      nodes: [
+        { children: [1], mesh: 0 },
+        { children: [0] },
+      ],
+    }, bin);
+    assert.throws(() => readGlb(cycle, 1), /parent|twice|tree/i,
+      'a cyclic node graph recursed instead of being refused');
+  });
+
+  it('refuses a node index that names no node', () => {
+    // The mirror of the duplication: a dangling child or scene entry used to
+    // `return` quietly, dropping that branch of the graph. Same silent-wrong-read
+    // class, opposite sign, and every other malformed condition here throws.
+    const { bin, common } = oneTriangle();
+    assert.throws(() => readGlb(buildGlb({
+      ...common,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0, children: [7] }],
+    }, bin), 1), /dangling|node 7/i, 'a dangling child index was silently dropped');
+    assert.throws(() => readGlb(buildGlb({
+      ...common,
+      scenes: [{ nodes: [4] }],
+      nodes: [{ mesh: 0 }],
+    }, bin), 1), /dangling|node 4/i, 'a dangling scene entry was silently dropped');
+  });
+
+  it('refuses a `scene` index that names no scene', () => {
+    // The same fallback was reachable without touching `scenes` at all: an
+    // out-of-range `scene` left `scene` undefined and dropped into the
+    // every-node-is-a-root path. That is a malformed file, not a scene-less one.
+    const { bin, common } = oneTriangle();
+    assert.throws(() => readGlb(buildGlb({
+      ...common,
+      scene: 3,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0 }],
+    }, bin), 1), /scene/i, 'an out-of-range scene index was silently ignored');
+  });
+
+  it('every shipped asset reads the same either way', () => {
+    // The inertness argument, mechanised. All ten carry a `scenes` array whose
+    // scene lists exactly the nodes with no parent, so the fallback is not taken
+    // and would give the same answer if it were. If a future asset arrives
+    // without a scene, this test says whether that changed anything.
+    for (const e of CATALOGUE) {
+      const asset = load(e.file);
+      assert.ok(asset.parts.length > 0, `${e.id} produced no parts`);
+      const seen = new Set(asset.parts.map((p, i) => `${i}:${p.name}:${p.positions.length}`));
+      assert.equal(seen.size, asset.parts.length, `${e.id} has duplicate parts`);
+    }
+  });
+});
+
 describe('the derivation refuses rather than inventing a layout', () => {
   const entry = catalogueEntry('navigator')!;
 
