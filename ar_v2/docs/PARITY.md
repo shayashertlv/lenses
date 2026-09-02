@@ -141,8 +141,10 @@ Three things in it are worth knowing before touching it:
   session halves and was being asked of ONE frame. Measured through the real
   `estimateSigma`, an ordinary same-person session crosses it in 8 of 8 captures
   and the swap after it was convicted 0 of 8. The retirement now waits for
-  `IDENTITY_STRIKES` consecutive qualifying frames: 0 of 8 false retirements,
-  8 of 8 swaps caught, four frames later on a real drift.
+  `IDENTITY_STRIKES` consecutive qualifying frames on the RISE — a fall keeps
+  its per-frame form, because `estimateSigma` is non-decreasing from its floor
+  and cannot produce one transiently. 0 of 8 false retirements, 8 of 8 swaps
+  caught, and every drift arm unchanged from the one-frame rule.
 - **It abstains rather than guessing.** The watch is armed in exactly one place:
   immediately after a scan taken from a camera in this session. A model restored
   from storage was measured elsewhere, possibly on another device, so there is

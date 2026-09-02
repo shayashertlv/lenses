@@ -146,6 +146,14 @@
  * streak, 8 of 8. The drift-plus-swap trade above is real and still stands; it
  * was simply not the only door into it.
  *
+ * The streak is on the RISE only. A fall in the claimed sigma still retires at
+ * once, because `estimateSigma` cannot produce one transiently and because the
+ * fall is the direction that false-convicts. Measured with the variance factor
+ * moving as a real drift moves it, a symmetric streak would have cost 3 of 8
+ * sessions' protection at a sigma scale of 0.55; the asymmetric one matches the
+ * old rule on every drift arm and still retires nothing on a co-operative
+ * session.
+ *
  * ## What it refuses to answer
  *
  * **No reference, no verdict.** The reference is learned from the first
@@ -248,6 +256,10 @@ export interface IdentityWatch {
    * says the RULER has. A frame can only ever feed one of them — an excursion
    * abstains before the verdict path, because a verdict taken with a suspect
    * denominator is exactly what `IDENTITY_SIGMA_DRIFT_MAX` exists to refuse.
+   *
+   * Only a RISE builds it. A fall retires at once and leaves this at zero: the
+   * estimator cannot produce a fall transiently, and waiting for one costs real
+   * drift sensitivity. See `observeIdentity`.
    */
   sigmaStrikes: number;
   /** Lifetime counters. Deliberately NOT reset with the thing they count — v1's
@@ -392,13 +404,17 @@ export const IDENTITY_VF_RATIO = 2.0;
  * interaction is why the constants were calibrated by running the whole
  * mechanism end to end rather than by reasoning about them separately.
  *
- * **It gates the sigma retirement too, and that is a reuse rather than a
- * coincidence.** The question is identical — how many consecutive asked frames
- * before a decision that destroys state — and the retirement destroys strictly
- * more than a conviction does: the reference, the window, the learning arrays
- * and this streak. Measured, at 5 the false-retirement rate on same-person
- * sessions goes 8 of 8 to 0 of 8 while a real drift is still retired 8 of 8,
- * four qualifying frames later. See `observeIdentity`.
+ * **It gates the RISE half of the sigma retirement too, and that is a reuse
+ * rather than a coincidence.** The question is identical — how many consecutive
+ * asked frames before a decision that destroys state — and the retirement
+ * destroys strictly more than a conviction does: the reference, the window, the
+ * learning arrays and this streak. Measured, at 5 the false-retirement rate on
+ * same-person sessions goes 8 of 8 to 0 of 8 while a real drift is still
+ * retired 8 of 8, four qualifying frames later.
+ *
+ * A FALL in the claimed sigma is retired on one frame, unchanged, because
+ * nothing in `estimateSigma` can produce one transiently. See
+ * `observeIdentity` for the measurement that separates the two sides.
  */
 export const IDENTITY_STRIKES = 5;
 
@@ -449,10 +465,17 @@ export const IDENTITY_STRIKES = 5;
  * is a different quantity with a much wider spread: measured through the real
  * `estimateSigma` on same-person synthetic captures, it reaches 1.75-1.97x in
  * every eye-level and laptop session, driven by the temporal disagreement term
- * on the way back from a head turn. That is why `observeIdentity` asks this bar
- * of `IDENTITY_STRIKES` consecutive frames rather than of one; a per-frame form
- * of this constant would have to sit near 2.0 and would then be inside the
- * drift it exists to catch.
+ * on the way back from a head turn. That is why `observeIdentity` asks the UPPER
+ * bar of `IDENTITY_STRIKES` consecutive frames rather than of one; a per-frame
+ * form of it would have to sit near 2.0 and would then be inside the drift it
+ * exists to catch.
+ *
+ * **The lower bar keeps its per-frame form**, and the asymmetry is the
+ * estimator's rather than a preference: `estimateSigma` is non-decreasing from
+ * `floorPx` at every step, so a per-frame excursion can only rise. The measured
+ * ratio spans 0.72 to 1.97 against this band of [0.625, 1.6] — it leaves
+ * through the top in 8 of 8 sessions and never approaches the bottom, and the
+ * fall is also the only direction that can false-convict.
  */
 export const IDENTITY_SIGMA_DRIFT_MAX = 1.6;
 
@@ -578,14 +601,34 @@ export function observeIdentity(
   // same question this module already answers there — how many consecutive
   // asked frames before a decision that destroys state — and the retirement
   // destroys strictly more than the conviction does.
+  //
+  // **And the streak belongs on the RISE only.** The asymmetry is the
+  // estimator's rather than a preference: `estimateSigma` fills at `floorPx`,
+  // multiplies by an occlusion factor of at least 1, folds the disagreement EMA
+  // in through `Math.hypot`, and clamps with `floorPx` as the LOWER bound.
+  // Every step is non-decreasing, so a per-frame excursion can only go UP. A
+  // reading materially below a calm reference has no transient mechanism behind
+  // it at all — the scale moved. Measured, the per-frame ratio on same-person
+  // captures spans 0.72 to 1.97 against a band of [0.625, 1.6]: it leaves
+  // through the top in 8 of 8 sessions and never approaches the bottom.
+  //
+  // Waiting on the fall is therefore pure cost, and it is not small. With the
+  // variance factor moving as 1/scale^2 the way a genuine drift moves it — which
+  // the first version of this measurement wrongly held constant — a symmetric
+  // streak protects 4 of 8 sessions at a sigma scale of 0.55 where one frame
+  // protects 7, and pays 44 false convictions against 28. The fall is also the
+  // only direction that CAN false-convict: an estimator claiming less noise
+  // inflates every whitened residual, while one claiming more merely silences
+  // the watch.
   const sigmaScale = obs.meanSigmaPx / watch.referenceSigma;
-  if (sigmaScale > IDENTITY_SIGMA_DRIFT_MAX || sigmaScale < 1 / IDENTITY_SIGMA_DRIFT_MAX) {
+  const fell = sigmaScale < 1 / IDENTITY_SIGMA_DRIFT_MAX;
+  if (sigmaScale > IDENTITY_SIGMA_DRIFT_MAX || fell) {
     watch.sigmaExcursions++;
     watch.sigmaStrikes++;
     // Short of the streak this frame changes NOTHING — no strike, no acquittal,
     // no entry in the window. The same rule a turned frame lives under, and for
     // the same reason: its denominator is not one this watch can judge against.
-    if (watch.sigmaStrikes < IDENTITY_STRIKES) return 'abstain';
+    if (!fell && watch.sigmaStrikes < IDENTITY_STRIKES) return 'abstain';
     watch.sigmaStrikes = 0;
     watch.recalibrations++;
     watch.reference = NaN;

@@ -423,15 +423,18 @@ describe('the identity watch knows a moving ruler from a moving face', () => {
     assert.equal(watch.convictions, 0,
       'the wearer was convicted for the detector changing its mind about its own noise');
     assert.equal(watch.recalibrations, 1, 'the stale reference was not retired');
-    // Noticed on the STREAK, not on the first frame. This assertion used to
-    // read `verdicts[0] === 'recalibrating'` and it was pinning the defect: a
-    // single frame past a bar derived from session halves is not evidence of a
-    // drift, and the same-person sessions in scratchpad/f27-rate.mjs cross it
-    // 8 times in 8. The frames before the streak abstain, so nothing about the
-    // wearer is judged on a reading taken with a suspect denominator.
-    assert.deepEqual(verdicts.slice(0, IDENTITY_STRIKES),
-      [...Array(IDENTITY_STRIKES - 1).fill('abstain'), 'recalibrating'],
-      'the drift was not retired on the streak');
+    // On the FIRST frame, and that is not the same rule as the one above it.
+    // This fixture is a FALL — sigma 1 to 0.5 — and a fall cannot be a
+    // transient: `estimateSigma` fills at `floorPx` and only ever multiplies UP
+    // (occlusion by a factor >= 1, disagreement through a `hypot`, then a clamp
+    // whose lower bound is the floor again). A reading BELOW a calm reference
+    // therefore has no per-frame mechanism behind it; it is the scale that
+    // moved. Measured over the same-person sessions, the per-frame ratio bottoms
+    // out at 0.72 against a low bar of 0.625 and never approaches it, while the
+    // HIGH side reaches 1.97. See `observeIdentity`.
+    assert.equal(verdicts[0], 'recalibrating',
+      'a FALL in the claimed sigma was not retired at once — nothing in the '
+      + 'estimator can produce one transiently, so waiting costs sensitivity for nothing');
     // ...and it comes back on its own, on the new scale, rather than abstaining
     // for ever. A drifted estimator does not drift back.
     assert.ok(Number.isFinite(watch.reference), 'the reference was never relearned');
@@ -504,23 +507,47 @@ describe('the identity watch knows a moving ruler from a moving face', () => {
       + 'would have been judged against, and the relearn adopted the stranger');
   });
 
-  it('and a SUSTAINED excursion still retires, on the streak the rest of the module uses', () => {
-    // The other side of the same bar. A drifted estimator does not drift back,
+  it('and a SUSTAINED rise still retires, on the streak the rest of the module uses', () => {
+    // The other end of the same bar. A drifted estimator does not drift back,
     // so the retirement must still happen — just not on one frame's word.
     // RED: never retire, or require more than IDENTITY_STRIKES.
     const watch = learned(2);
     const verdicts: string[] = [];
     for (let i = 0; i < IDENTITY_STRIKES; i++) {
-      verdicts.push(observeIdentity(watch, frame(8, { meanSigmaPx: 0.5 })));
+      verdicts.push(observeIdentity(watch, frame(2, { meanSigmaPx: 1.8 })));
     }
     assert.deepEqual(
       verdicts,
       [...Array(IDENTITY_STRIKES - 1).fill('abstain'), 'recalibrating'],
-      'the sustained drift was not retired on exactly the streak',
+      'the sustained rise was not retired on exactly the streak',
     );
     assert.equal(watch.recalibrations, 1);
     assert.equal(watch.convictions, 0,
       'the wearer was convicted for the detector changing its mind about its own noise');
+  });
+
+  it('a FALL is retired at once, because nothing in the estimator can fake one', () => {
+    // The asymmetry is the estimator's, not a preference. `estimateSigma` fills
+    // at `floorPx`, multiplies by an occlusion factor of at least 1, combines
+    // the disagreement EMA through `Math.hypot`, and clamps with `floorPx` as
+    // the LOWER bound. Every step is non-decreasing, so a per-frame excursion
+    // can only be upward: a head turn inflates the claimed sigma and nothing
+    // deflates it.
+    //
+    // Measured on same-person captures the per-frame ratio spans 0.72 to 1.97
+    // against a band of [0.625, 1.6] — it leaves through the top in 8 of 8
+    // sessions and never comes near the bottom. So the streak buys nothing on
+    // this side and costs real drift sensitivity: measured across the eight
+    // sessions with the variance factor moving as 1/scale^2 the way a genuine
+    // drift moves it, a symmetric streak protects 4 of 8 sessions at a sigma
+    // scale of 0.55 where the one-frame rule protects 7, and 44 false
+    // convictions against 28.
+    // RED: put the streak on both sides.
+    const watch = learned(2);
+    assert.equal(observeIdentity(watch, frame(2, { meanSigmaPx: 1 / (IDENTITY_SIGMA_DRIFT_MAX + 0.2) })),
+      'recalibrating', 'a fall in the claimed sigma waited for a streak it cannot need');
+    assert.equal(watch.recalibrations, 1);
+    assert.equal(watch.sigmaStrikes, 0, 'a fall left a run behind it');
   });
 
   it('the streak is a RUN, not a tally: two separate transients do not add up', () => {
