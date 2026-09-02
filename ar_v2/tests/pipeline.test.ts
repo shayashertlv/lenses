@@ -792,6 +792,92 @@ describe('enrollment', () => {
       + 'so it is no longer the bad-evidence case this is about');
   });
 
+  it('the silhouette grid answers what a linear scan would, at the radius and outside it', () => {
+    // `buildSilhouetteIndex` replaced a linear scan — ~40 model contour points
+    // against ~500 observed samples, per frame, per LM iteration, per round,
+    // about 34 million distance evaluations for one scan — with a nine-cell
+    // grid visit. Its own docstring said the equivalence "rests on the cell size
+    // being exactly the match radius, so a nine-cell visit covers every point
+    // within it; that argument is sound and it is an argument, not a
+    // measurement", and that nothing in the tree referenced any of the three
+    // names. This is the measurement.
+    //
+    // It matters more than a speed detail: `nearestSilhouette` returning null is
+    // how a contour point is REFUSED, and since 2026-09-02 it is also how
+    // `silhouetteResiduals` decides whether the contour term did anything at
+    // all. A grid that misses a point inside the radius would refuse a real
+    // correspondence and quietly shrink the term.
+    //
+    // Module-private, so this instantiates the SHIPPED functions out of the
+    // compiled build rather than restating them — a test that re-derives the
+    // thing it is checking is a check that cannot fail.
+    const source = readFileSync(new URL('../src/enroll/bundle.js', import.meta.url), 'utf8');
+    const lift = (name: string) => {
+      const start = source.indexOf(`function ${name}(`);
+      assert.ok(start >= 0, `${name} has been renamed or removed from enroll/bundle`);
+      let depth = 0, end = start;
+      for (let i = source.indexOf('{', start); i < source.length; i++) {
+        if (source[i] === '{') depth++;
+        else if (source[i] === '}' && --depth === 0) { end = i + 1; break; }
+      }
+      return source.slice(start, end);
+    };
+    // The radius the grid is built around, read from the shipped source rather
+    // than retyped — and re-declared inside the lifted scope, because both
+    // functions close over it at module level. If the constant moves and the
+    // cell size does not follow, that is exactly the defect this test is for.
+    const radius = Number(/const SILHOUETTE_MATCH_PX = ([\d.]+)/.exec(source)?.[1]);
+    assert.ok(radius > 0, 'SILHOUETTE_MATCH_PX could not be read from the compiled bundle');
+    const grid = new Function(
+      `const SILHOUETTE_MATCH_PX = ${radius};
+       ${lift('buildSilhouetteIndex')} ${lift('nearestSilhouette')}
+       return { buildSilhouetteIndex, nearestSilhouette };`,
+    )() as {
+      buildSilhouetteIndex: (p: Float64Array) => unknown;
+      nearestSilhouette: (i: unknown, x: number, y: number) => { x: number; y: number } | null;
+    };
+
+    const rng = createRng(4919);
+    for (let trial = 0; trial < 60; trial++) {
+      // A cloud with structure rather than a uniform one: real contours are
+      // sparse in most of the frame and dense along a curve, which is the case
+      // a fixed grid is most likely to get wrong.
+      const n = 40 + Math.floor(rng.next() * 200);
+      const pts = new Float64Array(n * 2);
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2;
+        pts[i * 2] = 640 + Math.cos(t) * 300 + rng.range(-6, 6);
+        pts[i * 2 + 1] = 360 + Math.sin(t) * 180 + rng.range(-6, 6);
+      }
+      const index = grid.buildSilhouetteIndex(pts);
+      assert.ok(index, 'the index refused a non-empty point set');
+
+      for (let q = 0; q < 40; q++) {
+        const qx = rng.range(200, 1080), qy = rng.range(60, 660);
+        // Brute force: nearest within the radius, or none.
+        let bestSq = radius * radius, bx = 0, by = 0, found = false;
+        for (let i = 0; i < n; i++) {
+          const dx = pts[i * 2] - qx, dy = pts[i * 2 + 1] - qy;
+          const sq = dx * dx + dy * dy;
+          if (sq <= bestSq) { bestSq = sq; bx = pts[i * 2]; by = pts[i * 2 + 1]; found = true; }
+        }
+        const got = grid.nearestSilhouette(index, qx, qy);
+        assert.equal(got !== null, found,
+          `at (${qx.toFixed(1)}, ${qy.toFixed(1)}) the grid said ${got ? 'match' : 'no match'} `
+          + `and a linear scan said ${found ? 'match' : 'no match'} — the nine-cell visit does `
+          + `not cover the ${radius} px radius, so real contour correspondences are being `
+          + 'refused (or invented) and the contour term is quietly a different size than it reads');
+        if (got && found) {
+          const gotSq = (got.x - qx) ** 2 + (got.y - qy) ** 2;
+          assert.ok(Math.abs(gotSq - bestSq) < 1e-9,
+            `the grid returned a point ${Math.sqrt(gotSq).toFixed(3)} px away where the nearest `
+            + `is ${Math.sqrt(bestSq).toFixed(3)} px — it is finding A neighbour rather than THE `
+            + 'nearest, which biases every contour residual it touches');
+        }
+      }
+    }
+  });
+
   it('a scan that got no silhouette says so out loud', () => {
     // `useSilhouette` defaults true and every silhouette path in `bundle.ts`
     // then `continue`s on `!frame.silhouette`, so a caller who supplies none
@@ -823,6 +909,49 @@ describe('enrollment', () => {
       'the harness supplied a silhouette and the bundle used none of it');
     assert.ok(!withIt.model.notes.some((n) => /silhouette/.test(n)),
       `a scan WITH a silhouette was told it had none: ${withIt.model.notes.join('; ')}`);
+
+    // **And a silhouette that is SUPPLIED but never matches is the same
+    // ablation**, which is the half the note could not see. `silhouetteResiduals`
+    // counted model-side candidates — a normal-perpendicularity selection with
+    // no projection and no match — so it was nonzero whatever the array held,
+    // and both the note and the assertion above passed on a solve the contour
+    // term had contributed nothing to.
+    //
+    // The trigger is not exotic. Two arms: a bulk displacement, which is the
+    // failure in its unambiguous form, and the SCALE error `bundle.ts` records
+    // as a near-miss — a 192 px raster read as 1280 px image pixels is a 6.7x
+    // error on the same array, and it is the shape a real regression in the
+    // contour producer would take. Both must read 0 and both must say so.
+    //
+    // Measured on this fixture: the true silhouette matches 330 of the 502
+    // candidates the old counter reported, a 10 px displacement (inside the
+    // 20 px gate) still matches 334, and 25 px falls to 219 — so the metric
+    // degrades with the error instead of standing still at 502.
+    const cases: [string, (f: { silhouette: Float64Array }) => Float64Array][] = [
+      ['displaced 5000 px', (f) => {
+        const out = new Float64Array(f.silhouette.length);
+        for (let i = 0; i < out.length; i++) out[i] = f.silhouette[i] + 5000;
+        return out;
+      }],
+      ['a 6.7x raster-to-image scale error', (f) => {
+        const out = new Float64Array(f.silhouette.length);
+        for (let i = 0; i < out.length; i++) out[i] = f.silhouette[i] / 6.7;
+        return out;
+      }],
+    ];
+    for (const [name, mangle] of cases) {
+      const unmatched = run(mangle);
+      assert.equal(unmatched.bundle.silhouetteResiduals, 0,
+        `with ${name}, a silhouette that matches nothing reported `
+        + `${unmatched.bundle.silhouetteResiduals} residuals. The count is of candidates the `
+        + 'perpendicularity test picked, not of correspondences that entered the solve — so '
+        + 'the one field that says whether the contour term did anything cannot tell a '
+        + 'working term from an absent one');
+      assert.ok(unmatched.model.notes.some((n) => /silhouette/.test(n)),
+        `with ${name}, the contour term matched nothing on any frame and the scan did not say `
+        + 'so — the same silent ablation as supplying no silhouette at all, reached by a '
+        + 'different road');
+    }
   });
 
   it('rigidity is a sigma multiplier, and the nose boost does not move the stats gate', () => {

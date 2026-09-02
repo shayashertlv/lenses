@@ -284,6 +284,13 @@ export interface BundleReport {
   reprojectionRmsPx: number;
   reprojectionP95Px: number;
   residualsUsed: number;
+  /**
+   * Contour correspondences the solve has at the final geometry — projected and
+   * matched to an observed sample within `SILHOUETTE_MATCH_PX`, summed over
+   * frames. 0 when the contour term contributed nothing, whether because no
+   * silhouette was supplied or because none of it matched; `enroll.ts` turns
+   * that into a note the wearer sees. See `countSilhouette`.
+   */
   silhouetteResiduals: number;
   focalPx: number;
   focalMovedPct: number;
@@ -950,11 +957,54 @@ function contourVertices(
   return out;
 }
 
+/**
+ * How many contour CORRESPONDENCES the solve has, not how many candidates it
+ * looked at.
+ *
+ * This counted `contourVertices(...).length` — a model-side selection made by a
+ * normal-perpendicularity test, with no projection and no match. That number is
+ * nonzero whenever a frame carries a silhouette array at all, whatever the array
+ * contains, so the one field that reports whether the contour term is doing
+ * anything could not distinguish "matched forty points per frame" from "matched
+ * nothing at all".
+ *
+ * That mattered because of what reads it. `enroll.ts` raises the wearer-facing
+ * "the profile contour term was skipped" note only when this is 0, and
+ * `tests/pipeline.test.ts` asserts it is above 0 with the message "the harness
+ * supplied a silhouette and the bundle used none of it" — a claim the old metric
+ * could not back either way. The field exists because `silhouette: null` was
+ * hard-coded in production for the life of the feature and ran the
+ * `no-silhouette` ablation on every real wearer with nothing noticing
+ * (`app/main.ts` carries that history). The adjacent failure — silhouettes
+ * supplied and systematically unmatched — was invisible to it in exactly the
+ * same way.
+ *
+ * So this now runs the same three gates the residual sites run, in the same
+ * order: project, then `nearestSilhouette` within `SILHOUETTE_MATCH_PX`. It is
+ * evaluated once, at the end, against the final geometry — the honest reading of
+ * "how many correspondences would enter the solve now" — and it reuses the
+ * per-frame index the rounds already built.
+ */
 function countSilhouette(state: BundleState): number {
   const normals = currentNormals(state);
+  const cam = v3();
+  const uv = new Float64Array(2);
   let n = 0;
-  for (const f of state.frames) {
-    if (f.silhouette) n += contourVertices(state, f, normals).length;
+  for (let f = 0; f < state.frames.length; f++) {
+    const frame = state.frames[f];
+    if (!frame.silhouette) continue;
+    const index = silhouetteIndexFor(state, f, frame);
+    if (!index) continue;
+    const R = frame.pose.R;
+    for (const i of contourVertices(state, frame, normals)) {
+      const x = state.positions[i * 3], y = state.positions[i * 3 + 1], z = state.positions[i * 3 + 2];
+      cam[0] = R[0] * x + R[1] * y + R[2] * z + frame.pose.t[0];
+      cam[1] = R[3] * x + R[4] * y + R[5] * z + frame.pose.t[1];
+      cam[2] = R[6] * x + R[7] * y + R[8] * z + frame.pose.t[2];
+      if (!project(uv, state.intrinsics, cam)) continue;
+      if (!nearestSilhouette(index, uv[0], uv[1])) continue;
+      n++;
+    }
   }
   return n;
 }
@@ -973,13 +1023,22 @@ function currentNormals(state: BundleState): Float64Array {
  * dominant cost of the whole solve. A grid at the match radius turns each lookup
  * into a nine-cell visit.
  *
- * **Same answer, and NOTHING pins that** — this line used to say "the harness
- * pins that it is the same answer rather than trusting it", and no test, report
- * or script anywhere in the tree references `buildSilhouetteIndex`,
- * `nearestSilhouette` or `SILHOUETTE_MATCH_PX`. The equivalence rests on the
- * cell size being exactly the match radius, so a nine-cell visit covers every
- * point within it; that argument is sound and it is an argument, not a
- * measurement.
+ * **Same answer, and it is measured now rather than argued.** This paragraph
+ * said "NOTHING pins that", and it was right: the equivalence rested on the cell
+ * size being exactly the match radius, so a nine-cell visit covers every point
+ * within it — sound, and an argument.
+ *
+ * `tests/pipeline.test.ts` lifts both functions out of the compiled build and
+ * compares them against a brute-force scan over 60 contour-shaped clouds x 40
+ * queries: the grid agrees on match-or-not every time, and on WHICH point to the
+ * ninth decimal. Halving the cell against the radius in `dist/` fails it, which
+ * is the specific way the argument could stop holding.
+ *
+ * It is worth pinning beyond speed. A null from `nearestSilhouette` is how a
+ * contour point is REFUSED, and since 2026-09-02 it is also how
+ * `silhouetteResiduals` decides whether the contour term did anything at all —
+ * so a grid that missed a point inside the radius would shrink the term and the
+ * field that reports on it, together and silently.
  */
 interface SilhouetteIndex {
   cell: number;
