@@ -32,7 +32,7 @@ import { type Vec3, v3, vnormalize } from '../core/linalg.js';
 export type DimensionSource = 'measured' | 'cad' | 'scan-normalised' | 'assumed';
 
 /** How a frame's ear rest was arrived at. See `FrameAsset.earRestSource`. */
-export type EarRestSource = 'measured' | 'derived' | 'assumed';
+export type EarRestSource = 'measured' | 'derived' | 'constructed' | 'assumed';
 
 export interface FrameAsset {
   readonly id: string;
@@ -94,14 +94,26 @@ export interface FrameAsset {
    * where it came from has to travel with it rather than being lost at the
    * boundary, exactly as `dimensionSource` does for the width.
    *
-   *   'measured'  a named temple part whose bend was walked directly
-   *   'derived'   the arm found from the mesh's own geometry, its knee fitted
-   *   'assumed'   a wrap or an earhook, which has no rest point at all: the
-   *               WEARER's ear supplies the reach and height, and only the
-   *               lateral position is the asset's own
+   *   'measured'     a named temple part whose bend was walked directly
+   *   'derived'       the arm found from the mesh's own geometry, its knee
+   *                   fitted — a measurement of THIS asset either way
+   *   'constructed'   placed by the spec, which for the rest means
+   *                   `templeReachMm`: a swept constant, not a measurement of
+   *                   any real frame. Parametric frames only, and the same word
+   *                   `lensSource` uses for the same reason — though there it
+   *                   means EXACT, because a spec really does place a lens
+   *                   centre, and here it means the opposite
+   *   'assumed'       a wrap or an earhook, which has no rest point at all: the
+   *                   WEARER's ear supplies the reach and height, and only the
+   *                   lateral position is the asset's own
    *
-   * Parametric frames are `'derived'`: their rest follows from `templeReachMm`,
-   * which is a swept constant rather than a measurement of any real frame.
+   * **The split between `derived` and `constructed` is the whole point of the
+   * flag.** Parametric frames used to report `derived` alongside the mesh assets
+   * whose arms were actually fitted, so the one question a consumer wants to ask
+   * — was this reach measured off THIS frame? — could not be answered from here.
+   * `score.ts`'s vertex caveat asked `dimensionSource` instead, and the width
+   * and the reach travel together only by accident: measured over all fifteen
+   * frames the tree can build, that key was wrong on seven of them.
    */
   readonly earRestSource: EarRestSource;
   /**
@@ -443,7 +455,10 @@ export function parametricFrame(spec: FrameSpec): FrameAsset {
     // the rest is `templeReachMm`, a swept constant, and the lens centres are
     // placed at a fixed fraction of the front width. Neither was measured off a
     // pair of glasses, and neither is a guess about the wearer.
-    earRestSource: 'derived',
+    // `constructed`, not `derived`: nothing was fitted to this frame's arm
+    // because there is no arm to fit — the rest is `templeReachMm`, the same
+    // 95 mm every parametric shape carries. See `EarRestSource`.
+    earRestSource: 'constructed',
     lensSource: 'constructed',
     provenance: 'parametric — generated from a FrameSpec, not measured',
     // No file behind it: the renderer builds this one from the fields above.

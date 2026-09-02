@@ -91,9 +91,28 @@ export const CORNEAL_APEX_MM = 12;
  * The FACTOR is `stated`; the sensitivity behind it is measured. 0.5 halves
  * the verdict's weight in the score's confidence-shrunk average without
  * pretending the number is worthless — it is still centred on the geometry the
- * asset actually declares. Keyed on `dimensionSource === 'assumed'` exactly as
- * the width verdict's caveat is, because that is the provenance flag the asset
- * pipeline carries. Exported now that its `docs/CONSTANTS.md` row exists —
+ * asset actually declares.
+ *
+ * **Keyed on `earRestSource`, which is the flag this caveat is about.** It used
+ * to key on `dimensionSource === 'assumed'` — the WIDTH's provenance — "because
+ * that is the provenance flag the asset pipeline carries", which was true when
+ * the sentence was written and stopped being true when `earRestSource` landed a
+ * day later. The width and the reach travel together only by accident, and
+ * measured over all fifteen frames the tree can build the old key was wrong on
+ * SEVEN of them: `sunglasses-khronos` declares a `cad` width and an ASSUMED
+ * reach, so the single highest-leverage assumed input in the tree was trusted
+ * exactly as much as navigator's directly-walked bend; and six mesh assets paid
+ * the caveat for a rest their own knee fit had found, because their WIDTH is a
+ * placeholder for an unrelated reason. The eight it got right, it got right by
+ * coincidence in every case.
+ *
+ * `assumed` and `constructed` take it: the first is the wearer's own ear
+ * standing in for a rest the asset does not have, the second is
+ * `templeReachMm`'s shared 95 mm on a parametric shape — which is the case this
+ * docstring's first paragraph names. `measured` and `derived` do not: both are
+ * measurements of this asset's own arm.
+ *
+ * Exported now that its `docs/CONSTANTS.md` row exists —
  * `check-constants.mjs` requires a ledger row for every export, and holding
  * the export back was this docstring's own condition until the row landed.
  */
@@ -362,8 +381,9 @@ export function assessFit(
       // a band eight millimetres wide — so it now keeps almost all of its
       // confidence where width keeps almost none. What actually threatens this
       // verdict is the reach, and that is the caveat beside it.
-      confidence: scaleCaveat('vertex', model) * nose.value *
-        (frame.dimensionSource === 'assumed' ? VERTEX_REACH_CONFIDENCE : 1),
+      confidence: scaleCaveat('vertex', model) * nose.value * (
+        frame.earRestSource === 'assumed' || frame.earRestSource === 'constructed'
+          ? VERTEX_REACH_CONFIDENCE : 1),
       value: vertex,
       unit: 'mm',
     });

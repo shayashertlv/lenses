@@ -361,6 +361,7 @@ whether they derive but **what each can prove about its own arms**, which
 | --- | --- | --- |
 | `measured` | `navigator` | a part named `Temple_*`, its bend walked directly |
 | `derived` | both aviators, both horizons, both crystals, `meshy` | no temple named; the arm is found by splitting the mesh and fitting its knee |
+| `constructed` | the five `TEST_FRAMES` shapes | placed by the spec — `templeReachMm`'s shared 95 mm, a swept constant rather than a measurement of any real frame. They reported `derived` until 2026-09-02, which made the flag unable to answer the one question it is asked: was this reach measured off THIS frame? |
 | `assumed` | `sunglasses-khronos`, `shield-golden` | a wrap or an earhook. Its arm never stops descending, so **there is no rest point in the geometry**; the wearer's own ear supplies the reach and height and only the lateral position is the asset's |
 
 The nine refusals this table used to list were correct answers to a narrower
