@@ -164,7 +164,7 @@ on the nose alone or slides off, and the median hides it.
 
 **The bend also checks the tree's highest-leverage constant for the first time.**
 `templeReachMm` defaults to 95 mm, swept against synthetics, never measured on a
-real frame. navigator's bend reads **96.2 mm** of reach — 1.2 mm from the swept
+real frame. navigator's bend reads **95.7 mm** of reach — 0.7 mm from the swept
 default. One asset, not a population; recorded as corroboration, not as a new value.
 
 **Results that went against the plan, in the headline:**

@@ -39,9 +39,10 @@
  * number in the tree" — enough to carry the corneal vertex across the entire
  * 12-16 mm band. Nothing had ever measured it on a real pair of glasses.
  *
- * navigator's bend measures **96.2 mm** of reach at **+13.5 mm** of height
+ * navigator's bend measures **95.7 mm** of reach at **+14.6 mm** of height
  * above the pad origin, against the swept 95 and the conventional +8. The reach
- * agrees to 1.2 mm. That is one asset, not a population, and it is recorded
+ * agrees to 0.7 mm — and to within the 5 mm the tolerance itself moves it, so
+ * read `TEMPLE_BEND_TOLERANCE_MM`'s sweep beside this. That is one asset, not a population, and it is recorded
  * here as corroboration rather than as a new value for the default.
  *
  * ## Three tiers, and what each one admits to
@@ -278,8 +279,8 @@ export const TEMPLE_BEND_TOLERANCE_MM = 1.5;
  * `temple` — it splits the mesh and fits each arm's knee instead. So
  * shield-golden and khronos no longer reach this test at all: measured today
  * they are refused by `ARM_KNEE_RATIO_MIN`, whose bar is 7, at curl/level
- * ratios of **3.4** and **6.3**. And navigator, the one asset that does reach
- * it, now reports a level run of **96 mm** rather than 73.4.
+ * ratios of **3.20-3.36** and **6.26**. And navigator, the one asset that does
+ * reach it, now reports a level run of **96 mm** rather than 73.4.
  *
  * So this constant currently gates exactly one asset, and it passes. It is kept
  * because the named-part path is still live and a fabricated rest point is still
@@ -343,12 +344,14 @@ export const ARM_CUT_Z_MM = -10;
  * an arm that rests on an ear from one that wraps around it, where the absolute
  * fall `TEMPLE_BEND_TOLERANCE_MM` uses does not:
  *
- *     real temples (navigator, 2 aviators, 2 horizons, crystal x2, meshy)  9.4 - 42
- *     sunglasses-khronos (earhook)                                         5.9
- *     shield-golden (wrap)                                                 3.1 - 3.4
+ *     real temples (navigator, 2 aviators, 2 horizons, crystal x2, meshy)  9.84 - 47.13
+ *     sunglasses-khronos (earhook)                                         6.26
+ *     shield-golden (wrap)                                                 3.20 - 3.36
  *
- * 7 sits in the 1.6x gap between the worst real temple and the best wrap. With
- * eight positive examples and two negative it is bounded on both sides, which
+ * 7 sits in the 1.57x gap between the worst real temple and the best wrap —
+ * 1.12x above the wrap and 1.41x below the temple, so the margins are NOT
+ * symmetric and the tighter one is the side that admits a wrap. With eight
+ * positive examples and two negative it is bounded on both sides, which
  * `TEMPLE_LEVEL_RUN_MIN_FRACTION` — one positive example — was not.
  *
  * It is asked only of an arm whose curl has already been shown to FALL, by
@@ -418,21 +421,24 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  * authored CAD model — is the only asset in the catalogue flat enough to
  * satisfy it. Slope along the level run, mm of drop per mm of depth:
  *
- *     navigator              0.020    ->  1.7 mm over an 85 mm level run
- *     horizon-amber          0.035    ->  3.0 mm
- *     horizon-sage           0.053    ->  4.5 mm
+ *     navigator              0.018    ->  1.5 mm over an 85 mm level run
+ *     horizon-amber          0.030    ->  2.5 mm
+ *     horizon-sage           0.050    ->  4.2 mm
  *     aviator-tortoiseshell  0.058    ->  4.9 mm
- *     aviator-amber          0.076    ->  6.5 mm
- *     crystal / meshy        0.082    ->  7.0 mm
+ *     crystal / meshy        0.074-0.077 -> 6.3-6.5 mm
+ *     aviator-amber          0.077    ->  6.5 mm
  *
- * Every scan droops two to four times more than navigator, so a 1.5 mm budget
- * is spent a third of the way along the arm and the walk stops early. Measured,
- * `findBend` on these arms returns null on two assets and a rest point **33 to
- * 56 mm too far forward** on four more — an error larger than the tip-vs-bend
- * failure `findBend` itself was written to fix, and silent, because the height
- * it reports stays plausible. No single tolerance fixes it: at 8 mm navigator
- * overshoots its own shipped answer by 14 mm while horizon-sage is still 5 mm
- * short.
+ * Every scan droops 1.7 to 4.3 times more than navigator, so a 1.5 mm budget is
+ * spent between a quarter and three fifths of the way along the arm and the walk
+ * stops early. Measured, `findBend` on these arms returns null on **five of the
+ * ten** — khronos, both aviators, horizon-sage, shield-golden — and of the five
+ * that answer, four put the rest **22 to 53 mm too far forward** of their own
+ * knee. That is an error larger than the tip-vs-bend failure `findBend` was
+ * written to fix, and silent, because the height it reports stays plausible.
+ * (navigator is the fifth, 9.4 mm forward, and it is the one this path is not
+ * used on.) No single tolerance fixes it: at 4 mm navigator already overshoots
+ * its own shipped answer by 9.0 mm while horizon-sage is 6.5 mm short of its
+ * knee, and at 8 mm navigator is 14.0 mm long.
  *
  * ## What this does instead
  *
@@ -501,12 +507,17 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  * ## The calibration point, and why navigator does NOT use this
  *
  * navigator is the only asset with a known-good answer, and the derived arm
- * reproduces it without the part name: z -97.8, y +13.3 against the shipped
- * z -96.2, y +13.5. That agreement is the evidence this method works.
+ * reproduces its HEIGHT without the part name: y +14.4 against the shipped
+ * +14.6, 0.2 mm. That agreement is the evidence this method works — and it is
+ * the height alone, which this paragraph used to claim for the reach as well.
+ * It read "z -97.8 ... against the shipped z -96.2", a 1.6 mm agreement that
+ * the very next paragraph contradicts with 9 mm; rebuilt at `c85159d`, the
+ * commit that wrote it, the blind answer is z -104.6, so -97.8 was never
+ * produced by anything.
  *
- * It is also why `frameFromMesh` still tries `findBend` FIRST. The knee fit's
- * own answer for navigator is z -105 — 9 mm behind the shipped rest, inside the
- * band the seat is most sensitive to. Adopting it everywhere would silently
+ * The reach is why `frameFromMesh` still tries `findBend` FIRST. The knee fit's
+ * own answer for navigator is z -104.0 — 8.3 mm behind the shipped rest, inside
+ * the band the seat is most sensitive to. Adopting it everywhere would silently
  * re-tune the one asset every seat number in this tree was measured on, so the
  * measured path keeps precedence and this runs only where that path refuses.
  */
@@ -610,9 +621,9 @@ export function deriveArmRest(
   // the derived heights across the catalogue:
   //
   //     reading        navigator blind   aviator-t   meshy   horizon-sage
-  //     knee bin mean       11.5            3.4        4.7        1.9
-  //     level-run line      13.3            4.3        6.5        2.4
-  //     navigator MEASURED  13.5             —          —          —
+  //     knee bin mean       12.6            5.5        4.2        3.8
+  //     level-run line      14.4            6.5        6.0        4.3
+  //     navigator MEASURED  14.6             —          —          —
   //
   // The line is the better estimator on the one asset that can be checked —
   // 0.2 mm from the measured answer against the bin mean's 2.0 — and the
