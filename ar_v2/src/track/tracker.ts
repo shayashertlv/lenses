@@ -936,16 +936,19 @@ export const PRIOR_POINTS = 4;
  * 2% of the solve at frontal and 17% at 40 degrees, so it can move the
  * answer by a bounded fraction and no more.
  *
- * **The corner this used to state as untested is now measured, and it is the
- * quieter half of the sentence that was wrong.** Driving the real tracker at a
- * held 70 degrees, with sigma and visibility from the real `estimateSigma` so
- * the far half of the face is genuinely muted, the rotational share does rise
- * with yaw as predicted — 0.129 frontal to 0.189 at 70. But under HARD
- * acceleration there it collapses to **0.017**, an order of magnitude below the
- * hold, because the same `priorMiss` gate that prices the acceleration also
- * strips the prior's weight. "Landmark information is weakest AND the share is
- * highest" describes a deep hold, not a deep reversal: the two effects oppose
- * each other and the gate wins. The shipped grade reads 5.78 there.
+ * **The corner this used to state as untested is now measured, and the answer
+ * depends on the landmarks.** Driving the real tracker at a held 70 degrees,
+ * with sigma and visibility from the real `estimateSigma` so the far half of
+ * the face is genuinely muted, the rotational share rises with yaw as predicted
+ * — 0.129 frontal to 0.190 at 70. Under HARD acceleration there it collapses,
+ * because the same `priorMiss` gate that prices the acceleration also strips
+ * the prior's weight: to **0.017** at the harness default of 0.7 px, but only to
+ * **0.158** at 2.5 px, a level this constant's own sweep uses. So "landmark
+ * information is weakest AND the share is highest" describes a deep HOLD rather
+ * than a deep reversal, the two effects oppose, and how completely the gate wins
+ * is a property of the detector rather than of the geometry. Do not quote the
+ * 0.017 without the noise it was measured at. See `track`'s grading block for
+ * the translation channel, where the share does not collapse at all.
  */
 export const MOTION_PRIOR_ACCEL_MM_S2 = 37.5;
 export const MOTION_PRIOR_ACCEL_RAD_S2 = 0.375;
@@ -1302,37 +1305,67 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   // this same prior was fused, so the residual is shrunk by the prior's own
   // pull and the grade reads low. It is kept, and here is the measurement.
   //
-  // The bias is bounded by a mechanism rather than by luck: violating the
-  // prediction raises `miss`, `miss` inflates Q, Q weakens the prior, and the
-  // information share falls. So the loop is tightest where the prediction is
-  // being MET and loosest where it is contradicted — the opposite of the
-  // report that raised it. Measured through the real tracker with sigma and
-  // visibility from the real `estimateSigma`, grading each frame a second time
-  // against a prior-LESS solve of itself:
+  // On ROTATION the bias is bounded by a mechanism rather than by luck:
+  // violating the prediction raises `miss`, `miss` inflates Q, Q weakens the
+  // prior, and the information share falls. Measured through the real tracker
+  // with sigma and visibility from the real `estimateSigma`, grading each frame
+  // twice more — against a prior-LESS re-solve of itself, and against TRUTH:
   //
-  //     regime                shareRot   under-read   the shipped grade reads
-  //     frontal hold           0.129        1.99x           0.64
-  //     70 deg hold            0.189        2.28x           0.74
-  //     frontal, hard shake    0.009        1.07x           5.72
-  //     70 deg, hard shake     0.017        1.12x           5.78
+  //                        0.7 px landmarks              2.5 px landmarks
+  //     regime         share  free/ship  TRUTH/ship   share  free/ship  TRUTH/ship
+  //     frontal hold   0.129    1.99x      1.21x      0.368    2.69x      1.71x
+  //     70 deg hold    0.190    2.29x      1.61x      0.444    3.11x      2.25x
+  //     70 deg corner  0.017    1.12x      1.11x      0.158    1.64x      1.64x
   //
-  // The 2.3x is at a HOLD, where the grade sits under its own floor of 1 and
-  // the whole reading is discarded. At the corner `MOTION_PRIOR_ACCEL_MM_S2`
-  // flags untested — hard acceleration past 55 degrees — it is 1.12x, against
-  // a gate reading 5.78 and firing hard. Translation behaves the same way one
-  // channel over: 2.1-2.6x while the translation prediction is being met, and
-  // 1.21x through a 25 mm lean reversal, which is the regime that channel
-  // exists for.
+  // **Three things in that table are corrections to an earlier version of this
+  // comment, which quoted the middle column alone.**
   //
-  // **The cure was measured and is worse.** Grading against a second,
-  // prior-less solve of the same frame costs +6.2 to +6.6% emitted jitter at
-  // rest and on a shake — against the 21.8% rest-jitter win that is the
-  // prior's whole reason for existing — and buys 8.9-11.5% on a RAW lean error
-  // the smoother absorbs: on the emitted pose the lean gets 0.2-0.4% WORSE.
-  // That is the same shape as the squared stand-aside recorded in `buildPrior`
-  // and it is refused for the same reason. `core.test.ts` pins the collapse
-  // that bounds this, so a change that stops the share falling under violation
-  // fails rather than quietly widening the loop.
+  // First, a prior-free re-solve is NOT a truth reference at a hold: it carries
+  // its own solve noise, so it overstates the residual and the earlier
+  // "1.99-2.28x at a hold" is nearer 1.2-1.6x against truth. At the CORNER the
+  // two references agree to 0.02, so the number the decision turns on is sound.
+  //
+  // Second, the corner verdict is conditional on the landmarks. At the harness
+  // default of 0.7 px the share collapses to 0.017 and the under-read is 1.12x;
+  // at 2.5 px — a level `MOTION_PRIOR_ACCEL_MM_S2`'s own sweep uses — the share
+  // is 0.158 and the under-read 1.64x. The collapse still happens; it collapses
+  // an order of magnitude less far, because weaker landmarks leave the prior a
+  // large share even after Q is inflated.
+  //
+  // Third, and the part the earlier comment stated as a general bound when it is
+  // a ROTATION property: **the translation share does not collapse.** At the
+  // corner it reads 0.061 against 0.058 at a hold (0.7 px), 0.245 against 0.255
+  // (2.5 px) — flat. And there the under-read crosses a threshold rather than
+  // shrinking a margin:
+  //
+  //     corner, translation      shipped grade   honest   floor-crossings
+  //     0.7 px                       0.72         1.79        46-53%
+  //     2.5 px                       0.85         3.11        50-51%
+  //
+  // `missMm` is `max(last, EMA, 1)`, so a shipped grade of 0.72-0.93 is pinned
+  // at the floor while the honest one is 1.8-3.1 — on about half the frames of
+  // a hard reversal at depth the translational stand-aside is not weakened, it
+  // is ABSENT. That is F28's real location and neither the report nor the first
+  // pass named it.
+  //
+  // **It is still not fixed, and now for a measured reason rather than a
+  // mis-measured one.** Grading the translation channel alone against a
+  // prior-free re-solve (rotation untouched):
+  //
+  //     0.7 px   +8 to +20% emitted jitter, to buy ~1% of emitted lean error
+  //     2.5 px   +45 to +72% emitted jitter and +34 to +52% emitted error on a
+  //              rotation shake, to buy 17-35% of emitted lean error
+  //
+  // The corner's honest translation reading is large partly BECAUSE the
+  // measurement-only translation is poorly determined at depth — so acting on
+  // it removes the prior that was steadying it. The tree's own adoption rule
+  // for this constant is "largest rest+tilt jitter reduction whose paired lag
+  // cost is at most 1 frame and wave-error cost at most 5%"; a 45-72% jitter
+  // regression fails it outright, at both noise levels. The same shape as the
+  // squared stand-aside recorded in `buildPrior`, refused for the same reason.
+  //
+  // `core.test.ts` pins the rotation collapse AND its decay with noise, so
+  // neither half can be re-derived as a general bound.
   if (prior) {
     const relPrior = m3();
     const wPrior = v3();

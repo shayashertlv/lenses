@@ -4517,46 +4517,71 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     //     frontal, hard shake     0.009        1.07        5.72
     //     70 deg, hard shake      0.017        1.12        5.78
     //
-    // The under-read is 2.3x at a hold — where `miss` sits UNDER its floor of 1
-    // and the whole reading is discarded — and 1.1x at the corner the
-    // `MOTION_PRIOR_ACCEL_MM_S2` ledger row flags untested, where the gate is
-    // reading 5.8 and firing hard.
+    // that collapse DECAYS with landmark noise, and both halves are pinned
+    // below because an earlier version of this comment stated only the first.
     //
-    // Grading honestly instead (a second, prior-less solve of the same frame,
-    // measured) costs **+6.2 to +6.6% emitted jitter** at rest and on a shake —
-    // against the prior's own reason for existing, a 21.8% rest-jitter win —
-    // and buys 8.9-11.5% on a RAW lean error that the smoother absorbs: on the
-    // emitted pose the lean gets 0.2-0.4% WORSE. That is the same trade the
-    // squared stand-aside was rejected for a few lines above, and it is
-    // rejected here for the same reason.
+    //     landmark noise   share held   share shaken   collapse
+    //     0.7 px             0.157        0.014         11.6x
+    //     2.5 px             0.417        0.137          3.1x
+    //     5.0 px             0.546        0.377          1.5x
     //
-    // RED: delete `* missRot` from qRot in `buildPrior`. The share stops
-    // collapsing and the loop stops being bounded.
-    const shareOf = (yawOf: (i: number) => number) => {
+    // At the harness default the gate all but removes the prior under
+    // violation; at 2.5 px -- a level `MOTION_PRIOR_ACCEL_MM_S2`'s own sweep
+    // uses -- it removes two thirds of it, and the under-read in the grade
+    // above goes 1.12x to 1.64x with it. So the bound is real and it is NOT
+    // unconditional, and this test says both.
+    //
+    // The fixture feeds sigma and visibility from the real `estimateSigma`,
+    // which the first version of this test did not: it filled a flat 0.7 px and
+    // visibility 1 while its own comment cited the real path. Both fixtures pass
+    // both assertions — 21.6x and 6.2x flat against 11.6x and 3.1x real — so the
+    // change is for the NUMBERS, not the verdict: the figures quoted above and in
+    // the grading block have to be the ones this test observes, or the next
+    // reader calibrates against a fixture nobody measured.
+    //
+    // RED: delete `* missRot` from qRot in `buildPrior` -- the share stops
+    // collapsing at every noise level. Or restore the flat-sigma fixture, and
+    // the decay assertion stops seeing the regime it is about.
+    const shareOf = (yawOf: (i: number) => number, noisePx: number) => {
       const state = createTracker(model, { smooth: false, rigidity, motionPrior: true });
+      const unc = createUncertainty(mesh.vertexCount);
       let st = 0x51ee;
+      let previous: { R: Float64Array; t: Float64Array } | null = null;
       const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
       const gauss = () => { let u = 0; while (u === 0) u = rnd();
         return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
-      const sig = new Float64Array(mesh.vertexCount).fill(0.7);
-      const vis = new Float64Array(mesh.vertexCount).fill(1);
       const shares: number[] = [];
       for (let i = 0; i < 160; i++) {
         const truth = { R: poseAt(yawOf(i)).R, t: Float64Array.of(0, 0, 520) };
         const p = projectAll(truth);
         const lm = new Float64Array(mesh.vertexCount * 2);
-        for (let v = 0; v < lm.length; v++) lm[v] = p[v] + gauss() * 0.7;
+        for (let v = 0; v < lm.length; v++) lm[v] = p[v] + gauss() * noisePx;
+        // As `main.ts` does it: rasterised against the PREVIOUS pose, so the
+        // far half of a turned head is muted and the share can rise with yaw at
+        // all — which is the mechanism the numbers above were measured under.
+        const est = previous
+          ? estimateSigma(unc, {
+            landmarks: lm, mesh, positions: mesh.positions,
+            intrinsics: K, pose: previous, pixelScale: 1,
+          })
+          : {
+            sigmaPx: new Float64Array(mesh.vertexCount).fill(UNCERTAINTY_DEFAULTS.floorPx),
+            visibility: new Float64Array(mesh.vertexCount).fill(1),
+          };
         const r = track(state, {
-          landmarks: lm, sigmaPx: sig, visibility: vis, intrinsics: K, dt: 1 / 30,
+          landmarks: lm, sigmaPx: est.sigmaPx, visibility: est.visibility,
+          intrinsics: K, dt: 1 / 30,
         });
+        if (r.tracked && r.rawPose) previous = r.rawPose;
         if (i >= 40 && Number.isFinite(r.priorShareRot)) shares.push(r.priorShareRot);
       }
-      shares.sort((a, b) => a - b);
+      shares.sort((x, y) => x - y);
       return shares.length ? shares[shares.length >> 1] : NaN;
     };
+    const shake = (i: number) => 60 + 12 * Math.sin((2 * Math.PI * 1.5 * i) / 30);
 
-    const held = shareOf(() => 60);
-    const shaken = shareOf((i) => 60 + 12 * Math.sin((2 * Math.PI * 1.5 * i) / 30));
+    const held = shareOf(() => 60, 0.7);
+    const shaken = shareOf(shake, 0.7);
     assert.ok(held > 0.03,
       `the prior carries only ${held.toFixed(4)} of a HELD solve — the fixture is not exercising `
       + 'the prior at all, so the collapse below would prove nothing');
@@ -4565,6 +4590,20 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       + `at a hold (${(held / shaken).toFixed(1)}x, needs 4x). The share is what bounds the closed `
       + 'loop in the grade above; if it stops collapsing under violation, the under-read stops '
       + 'being small exactly where it matters and the grade needs rebuilding.');
+
+    // ...and the same collapse on noisier landmarks, where it is measurably
+    // weaker. This half exists so the bound cannot be re-quoted as absolute.
+    const heldNoisy = shareOf(() => 60, 2.5);
+    const shakenNoisy = shareOf(shake, 2.5);
+    assert.ok(shakenNoisy < heldNoisy / 2,
+      `at 2.5 px the collapse is only ${(heldNoisy / shakenNoisy).toFixed(1)}x — if the gate has `
+      + 'stopped working on noisy landmarks then the grade above is biased where the prior is '
+      + 'strongest, which is the case this whole block exists to bound');
+    assert.ok(heldNoisy / shakenNoisy < (held / shaken) / 2,
+      `the collapse reads ${(heldNoisy / shakenNoisy).toFixed(1)}x at 2.5 px against `
+      + `${(held / shaken).toFixed(1)}x at 0.7 px. It is supposed to DECAY with landmark noise — `
+      + 'that decay is why the corner under-read is 1.12x on clean landmarks and 1.64x on noisy '
+      + 'ones, and quoting the clean figure alone is the error this assertion exists to prevent.');
   });
 });
 
