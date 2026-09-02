@@ -210,25 +210,49 @@ export const PAD_SAMPLE_BUDGET = 64;
  * How far the temple's centreline may fall below its highest point and still
  * count as running level, mm.
  *
- * `stated`, and the shape of the answer matters more than the value. On
- * navigator the centreline runs flat at y ~ 10.2-10.3 from the hinge back to
- * z = -94, then falls away to -10.5 at the tip: the level run and the curl are
- * separated by 20 mm of height, so any tolerance between roughly 0.5 and 5 mm
- * finds the same bend to within one bin. 1.5 mm sits in the middle of that
- * plateau.
+ * `stated`, and it decides more than it looks. Swept on navigator's own temple
+ * through the shipped path, the bend this finds:
  *
- * It is NOT a knife edge on navigator and it would be on an asset whose temple
- * droops gently the whole way. That asset has no bend, and `findBend` says so
- * rather than reporting the bin the tolerance happened to land in.
+ *     tolerance mm   0.5   0.8   1.0   1.1   1.2   1.5   2.0   2.5   3.0   4.0   5.0
+ *     reach mm      73.1  84.4  84.4  90.0  95.7  95.7  95.7  95.7 101.3 101.3 107.0
+ *
+ * **The plateau this docstring used to claim is not there.** It read "any
+ * tolerance between roughly 0.5 and 5 mm finds the same bend to within one
+ * bin"; across that range the bend travels 33.9 mm, six of the 24 bins. The
+ * shipped answer holds from 1.2 to 2.5, so 1.5 sits 0.3 mm from the low edge of
+ * a 1.3 mm window rather than in the middle of a 4.5 mm one. Rebuilt at
+ * `c85159d`, the commit that wrote the claim, the sweep reads 73.7 to 107.5 mm
+ * — so this was never true rather than having drifted, and no fix since is
+ * responsible for it.
+ *
+ * It matters because navigator is the calibration asset. Its 95.7 mm of reach
+ * is what corroborates `FrameSpec.templeReachMm`'s swept 95 — the number Q16
+ * calls the highest-leverage in the tree — and the same temple reads 90.0 at a
+ * tolerance of 1.1 and 101.3 at 3.0. That agreement is a property of this
+ * constant as much as of the frame.
+ *
+ * The shape behind it: navigator's centreline holds within 1.2 mm of its
+ * highest point (y 14.6 to 15.7) from the hinge back to z = -95.7 and then
+ * falls to -8.4 at the tip, 24 mm below. The FALL is steep and unambiguous, but
+ * the level run is not flat — the last two bins before the knee sit 1.05 and
+ * 1.15 mm under the peak, and that, not the curl, is what puts the low edge of
+ * the window at 1.2 instead of at 0.5.
+ *
+ * It would be a worse edge still on an asset whose temple droops gently the
+ * whole way. That asset has no bend, and `findBend` says so rather than
+ * reporting the bin the tolerance happened to land in.
  *
  * **Both paths ask this question now.** `findBend` uses it to decide where the
  * level run ends; `deriveArmRest` uses it to decide whether its fitted curl
  * falls far enough to be a curl at all. That is the same question — how far
  * must a centreline drop before it has stopped running level — and giving the
  * geometric path a constant of its own is how the two came to disagree about a
- * straight rod, one refusing it and the other putting a rest at its tip. The
- * catalogue's shallowest arm falls 11.96 mm against this 1.5, so the second use
- * is inert across the whole 0.5-to-5 mm plateau above.
+ * straight rod, one refusing it and the other putting a rest at its tip.
+ *
+ * The second use is the insensitive one, which is worth stating beside the
+ * first: the catalogue's shallowest arm falls 11.96 mm against this 1.5, so it
+ * is inert everywhere in the range swept above — 2.4x margin even at 5.0 — and
+ * mutation moves a catalogue tier only when the bar reaches 25.
  */
 export const TEMPLE_BEND_TOLERANCE_MM = 1.5;
 
@@ -463,7 +487,9 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  *
  * The nearest arm in the catalogue is 8.0x the bar and the nearest that DERIVES
  * is 14.8x, so the floor is inert on every asset in the tree — and stays inert
- * anywhere in the 0.5-to-5 mm plateau `TEMPLE_BEND_TOLERANCE_MM` documents.
+ * across the whole range `TEMPLE_BEND_TOLERANCE_MM` is swept over, 2.4x margin
+ * even at 5.0. It is the insensitive half of that constant; the sensitive half
+ * is `findBend`'s, and its own docstring now carries the sweep.
  *
  * Stability, measured across four cut planes (-5, -10, -20, -30 mm) and both
  * sides: the recovered knee moves at most 5 mm with the cut and at most 2 mm

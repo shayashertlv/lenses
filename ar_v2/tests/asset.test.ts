@@ -626,6 +626,50 @@ describe('the derivation refuses rather than inventing a layout', () => {
     }
   });
 
+  it('navigator\'s bend is a function of the tolerance, not only of the frame', () => {
+    // `TEMPLE_BEND_TOLERANCE_MM`'s docstring used to say the bend was the same
+    // "to within one bin" for any tolerance between roughly 0.5 and 5 mm, and
+    // that 1.5 sat in the middle of that plateau. Neither is true, and neither
+    // ever was: rebuilt at c85159d, the commit that wrote the sentence, the
+    // sweep is the same 34 mm wide.
+    //
+    // This is navigator, so it is not an abstraction. Its reach is what
+    // corroborates `templeReachMm`'s swept 95 mm — Q16's highest-leverage
+    // number — and the tolerance moves that reading by more than the whole
+    // +/-5 mm band Q16 says carries the corneal vertex across 12 to 16 mm.
+    //
+    // Read the SPREAD, not the absolute z: the parts here have not been
+    // recentred on the pad origin, and `findBend`'s walk is invariant under
+    // that translation while its reported z is not.
+    const temple = load(entry.file).parts.filter((p) => /temple/i.test(p.name));
+    assert.equal(temple.length, 2, 'navigator no longer names two temple parts');
+    const right = temple.find((p) => {
+      let sum = 0;
+      for (let i = 0; i < p.positions.length; i += 3) sum += p.positions[i];
+      return sum < 0;
+    });
+    assert.ok(right, 'neither named temple part sits on the wearer\'s right');
+
+    const at = (tol: number): number => {
+      const b = findBend(right.positions, tol);
+      assert.ok(b, `findBend found no bend at a tolerance of ${tol} mm`);
+      return b.z;
+    };
+    const swept = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0].map(at);
+    const spread = Math.max(...swept) - Math.min(...swept);
+    assert.ok(spread > 25,
+      `the bend moves only ${spread.toFixed(1)} mm across 0.5-5.0 mm of tolerance. If the `
+      + 'asset or the binning has changed so that a plateau now exists, say so in '
+      + 'TEMPLE_BEND_TOLERANCE_MM rather than deleting this test — the constant is '
+      + 'justified by which of the two it is.');
+
+    // And the shipped value is near the edge of its own window, not the middle.
+    const shipped = at(TEMPLE_BEND_TOLERANCE_MM);
+    assert.notEqual(at(1.0), shipped, 'a tolerance of 1.0 mm must still find a different bend');
+    assert.notEqual(at(3.0), shipped, 'a tolerance of 3.0 mm must still find a different bend');
+    assert.equal(at(2.5), shipped, 'the upper edge of the window moved');
+  });
+
   it('findBend says no rather than picking a bin, when there is no level run', () => {
     // A straight rod: level from end to end.
     const rod = new Float64Array(300);
