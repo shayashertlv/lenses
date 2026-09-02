@@ -140,8 +140,10 @@
  * waits for a streak: **no drift was required to open the hole.** The bar is
  * derived from session halves and was being asked of one frame, and measured
  * through the real `estimateSigma`, an ordinary same-person session crosses it
- * in 8 of 8 captures at eye-level and laptop geometries — a head turn inflates
- * the disagreement EMA and one frame on the way back reads 1.8x. With the
+ * in 8 of 8 captures at eye-level and laptop geometries — the wearer leaves the
+ * asked band, the disagreement EMA inflates on frames this watch never sees,
+ * and the first frames back inside read 1.8x against a reference learned
+ * within. With the
  * retirement on one frame a swap in those frames convicted 0 of 8; on the
  * streak, 8 of 8. The drift-plus-swap trade above is real and still stands; it
  * was simply not the only door into it.
@@ -465,7 +467,9 @@ export const IDENTITY_STRIKES = 5;
  * is a different quantity with a much wider spread: measured through the real
  * `estimateSigma` on same-person synthetic captures, it reaches 1.75-1.97x in
  * every eye-level and laptop session, driven by the temporal disagreement term
- * on the way back from a head turn. That is why `observeIdentity` asks the UPPER
+ * on the frames back inside the asked band after the wearer has left it — the
+ * same protocol without its profile beats peaks at 1.471 and never crosses.
+ * That is why `observeIdentity` asks the UPPER
  * bar of `IDENTITY_STRIKES` consecutive frames rather than of one; a per-frame
  * form of it would have to sit near 2.0 and would then be inside the drift it
  * exists to catch.
@@ -580,9 +584,13 @@ export function observeIdentity(
   // real `estimateSigma` over synthetic captures of the SAME person, with the
   // variance factor pinned so nothing about the wearer moves at all, the
   // per-frame reading crosses 1.6x in **8 of 8** sessions at eye-level and
-  // laptop geometries: a head turn inflates the disagreement EMA, and one frame
-  // on the way back reads 1.8x. It is not the self-occlusion term — with the
-  // temporal half disabled the same sessions peak at 1.29x.
+  // laptop geometries. It is not the self-occlusion term — with the temporal
+  // half disabled the same sessions peak at 1.29x — and it is not any head
+  // turn: the wearer has to LEAVE the asked band and come back. The EMA
+  // inflates on the frames past `IDENTITY_MAX_YAW_DEG` that this watch never
+  // sees, and the first frames back inside carry it against a reference learned
+  // within. Measured over four subjects at eye-level, the same protocol with
+  // its profile beats removed peaks at **1.471** and never crosses at all.
   //
   // What that cost is not a slower watch. It is the watch: a retirement wipes
   // the reference AND the strikes, so a swap in those frames is relearned as
@@ -596,6 +604,17 @@ export function observeIdentity(
   // the gap at any streak length tried). Medianing the recent sigmas the way
   // the verdict medians `varianceFactor` was measured too and is WORSE on both
   // ends: 6 of 8 false retirements, and 2 of 8 swaps caught.
+  //
+  // **What it does NOT help is a SUSTAINED excursion**, and the honest reading
+  // is that it costs there. A hand on the face for twenty frames still retires,
+  // because the streak's own trigger guarantees the relearn window opens inside
+  // the excursion — the new reference is learned ON it, and the guard fires
+  // again from the other side when it ends. Measured on such a fixture the
+  // retirement count is unchanged at 2 and the blind window LENGTHENS by
+  // `IDENTITY_STRIKES - 1` per retirement, 34 qualifying frames to 42. This
+  // buys the short excursion, which is the class the protocol actually
+  // produces, and pays for it on the long one. The relearn window is the same
+  // door and it is still open; see `docs/NEXT-SESSION.md`.
   //
   // `IDENTITY_STRIKES` rather than a constant of its own, because it is the
   // same question this module already answers there — how many consecutive

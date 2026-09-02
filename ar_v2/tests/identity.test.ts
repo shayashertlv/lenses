@@ -31,6 +31,10 @@ import {
   CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor, synthesizeCapture,
 } from '../src/testkit/synthetic.js';
 import { createTracker, track } from '../src/track/tracker.js';
+import {
+  UNCERTAINTY_DEFAULTS, createUncertainty, estimateSigma,
+} from '../src/detect/uncertainty.js';
+import { intrinsicsFromFov } from '../src/core/camera.js';
 import { templatePath } from '../src/testkit/fixtures.js';
 
 /** A frame that qualifies: frontal, solved, plenty of correspondences. */
@@ -618,5 +622,98 @@ describe('the identity watch knows a moving ruler from a moving face', () => {
     assert.ok(IDENTITY_SIGMA_DRIFT_MAX < 2.0,
       `${IDENTITY_SIGMA_DRIFT_MAX} reaches the 2.0x drift that convicted 36 of 36 genuine `
       + 'wearers — the guard would not fire on the thing it exists for');
+  });
+});
+
+describe('the sigma the APP feeds this watch, which no other test here supplies', () => {
+  /**
+   * Every other measurement in this file hands the watch `f.sigmaPx` — the
+   * synthetic harness's own noise model. The app does not: it calls
+   * `estimateSigma`, which rasterises the mesh for self-occlusion and carries a
+   * per-landmark EMA of unexplained motion. The two are different quantities,
+   * and the difference is the whole of the retirement's behaviour.
+   *
+   * That gap is why a one-frame retirement survived to ship. It is also why the
+   * population arm above cannot see this: its stream has no disagreement term.
+   */
+  const mesh = parseFaceObj(readFileSync(templatePath(), 'utf8'));
+  const basis = buildAnthropometricBasis(mesh);
+  const geometry = CAMERA_LADDER[0];
+  const k = intrinsicsFromFov(geometry.width, geometry.height, geometry.fovDeg);
+
+  /** `meanSigmaPx` per frame, exactly as `main.ts` computes it in the wear phase. */
+  function sigmaTrace(subject: any, capture: Partial<Record<string, unknown>> = {}) {
+    const shot = synthesizeCapture(mesh, subject, geometry, { seed: 11, ...capture } as any);
+    const state = createUncertainty(mesh.vertexCount);
+    const out: { yaw: number; pitch: number; meanSigmaPx: number }[] = [];
+    let previous = null as any;
+    for (const f of shot.frames) {
+      // Against the PREVIOUS pose, which is what `app.lastPose` holds.
+      const sigmaPx = previous
+        ? estimateSigma(state, {
+          landmarks: f.landmarks, mesh, positions: subject.positions,
+          intrinsics: k, pose: previous, pixelScale: 1,
+        }).sigmaPx
+        : new Float64Array(mesh.vertexCount).fill(UNCERTAINTY_DEFAULTS.floorPx);
+      let sum = 0, n = 0;
+      for (let i = 0; i < sigmaPx.length; i++) {
+        if (Number.isFinite(sigmaPx[i])) { sum += sigmaPx[i]; n++; }
+      }
+      out.push({ yaw: f.trueYaw, pitch: f.truePitch, meanSigmaPx: n ? sum / n : NaN });
+      previous = f.pose;
+    }
+    // The watch is armed after enrolment, so the acquisition frame — the one
+    // with no previous pose and a flat floor — is never in its learning set.
+    return out.slice(1);
+  }
+
+  /** Runs the watch over a trace with the wearer pinned, so only sigma can act. */
+  function watchOver(rows: ReturnType<typeof sigmaTrace>) {
+    const watch = createIdentityWatch();
+    armWearer(watch);
+    for (const r of rows) {
+      observeIdentity(watch, {
+        solved: true, varianceFactor: 1, correspondences: 468,
+        meanSigmaPx: r.meanSigmaPx, yawRad: r.yaw, pitchRad: r.pitch,
+      });
+    }
+    return watch;
+  }
+
+  const subject = generatePopulation(mesh, basis, { count: 3, seed: 11 })[0];
+
+  it('a co-operative session raises real excursions, and none of them retires the wearer', () => {
+    // The wearer does the whole protocol and nothing about them changes — the
+    // variance factor is pinned at 1, so the only thing that can act is the
+    // sigma guard. Before the streak this session retired the reference, and a
+    // swap in those frames would have been adopted as the new one.
+    // RED: retire on the first excursion.
+    const watch = watchOver(sigmaTrace(subject));
+    assert.ok(watch.sigmaExcursions > 0,
+      'no excursion at all: this fixture no longer exercises the guard, so the '
+      + 'assertion below passes for the wrong reason. Re-measure before deleting it.');
+    assert.equal(watch.recalibrations, 0,
+      `${watch.sigmaExcursions} excursion frames retired the wearer ${watch.recalibrations} `
+      + 'times on a session where nothing about them changed');
+    assert.ok(Number.isFinite(watch.reference), 'the wearer was thrown away');
+  });
+
+  it('and the excursion needs the wearer to LEAVE the asked band and come back', () => {
+    // The mechanism, pinned. The disagreement EMA inflates on frames the watch
+    // never sees — past IDENTITY_MAX_YAW_DEG — and the first frames back inside
+    // the band carry that inflation against a reference learned within it.
+    //
+    // Measured over four subjects at eye-level: with the profile beats the
+    // per-frame ratio reaches 1.969 and crosses the 1.6 bar; with them removed
+    // it peaks at 1.471 and never does. A turn that stays inside the band
+    // cannot trip this guard, which is why a fixture built only of small turns
+    // reports the excursion as unreachable.
+    // RED: none — this is a property of the fixture pair and it is what makes
+    // the test above meaningful. If it stops holding, the mechanism has moved.
+    const inBand = watchOver(sigmaTrace(subject, { includeProfile: false }));
+    assert.equal(inBand.sigmaExcursions, 0,
+      `a protocol that never leaves the asked band raised ${inBand.sigmaExcursions} `
+      + 'excursions — the mechanism is no longer the one documented in observeIdentity');
+    assert.equal(inBand.recalibrations, 0);
   });
 });

@@ -160,7 +160,16 @@ carries what each does and how it was measured.
    sustained transient of twelve qualifying frames or more relearns the
    reference on its own inflated sigma and then retires a second time when it
    ends — measured, 2 retirements and 32 non-judging frames, saturating there.
-   Under five frames now costs nothing at all.
+
+   **The streak does not shorten that, it lengthens it**, and an earlier version
+   of this paragraph said otherwise. On a sustained excursion (a hand on the
+   face for twenty frames) the retirement count is unchanged at 2 and the blind
+   window goes 34 qualifying frames to 42 — `IDENTITY_STRIKES - 1` per
+   retirement, by construction. What the streak buys is the SHORT excursion,
+   which is the class the protocol actually produces: under five frames now
+   costs nothing at all, where it used to cost the whole reference. Closing the
+   long one needs the relearn window to refuse frames drawn from inside the
+   excursion that triggered it, which is a different mechanism from this one.
 
    A real calibration check would close that: compare the claimed sigma against
    the empirical frame-to-frame scatter the estimator already computes
