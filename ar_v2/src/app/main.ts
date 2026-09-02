@@ -1556,6 +1556,19 @@ function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
     app.intrinsics = intrinsicsFromFov(
       app.source.width, app.source.height, MEDIAPIPE_ASSUMED_VERTICAL_FOV,
     );
+    // **And tell the camera.** There are three assignments to `app.intrinsics`
+    // in this file and this was the only one that did not apply them, so the
+    // solve reverted to the device default while the renderer kept the previous
+    // wearer's solved focal length for the whole of the rescan.
+    //
+    // Stated plainly because it bounds the claim: no visible consequence could
+    // be demonstrated in the current wiring. `app.model` is null and
+    // `detachFrame` has run by the time this executes, so nothing that uses the
+    // projection is in the scene until `adoptModel` applies its own intrinsics
+    // and closes the window. This repairs the invariant the other two sites
+    // hold — that `app.intrinsics` and the render camera describe one camera —
+    // rather than a fault anybody has seen.
+    app.scene.applyIntrinsics(app.intrinsics);
   }
 
   detachFrame(app.scene);

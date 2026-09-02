@@ -288,6 +288,19 @@ describe('the source is not a boot-time fact', () => {
       + 'BOTH the source switch and the mid-session change go through');
 
     // And the scan cannot straddle the change.
+    // Every assignment to app.intrinsics applies it. There are three, and one
+    // of them did not: `resetPerson` reverted the solve to the device default
+    // and left the renderer on the previous wearer's solved focal length. No
+    // visible consequence is demonstrable today — the model is null and the
+    // frame is detached until `adoptModel` — so this pins the invariant, not a
+    // fault: the two must not be able to drift apart at a fourth site either.
+    const assigns = text.match(/app\.intrinsics = /g) ?? [];
+    const applies = text.match(/applyIntrinsics\(app\.intrinsics\)/g) ?? [];
+    assert.ok(applies.length >= assigns.length,
+      `${assigns.length} assignments to app.intrinsics against ${applies.length} calls to `
+      + 'applyIntrinsics - one of them leaves the render camera describing a different '
+      + 'camera from the one the solve is using');
+
     assert.match(text, /syncTo[\s\S]{0,900}?scanGen\+\+/,
       'a shape change no longer abandons the scan in progress. `BundleFrame` carries no '
       + 'intrinsics of its own, so frames from before and after the change describe two '
@@ -602,10 +615,14 @@ return resetPerson;`,
   const PERSON_FIELDS = personFields();
 
   function stubApp() {
+    const applied: unknown[] = [];
     const app: any = {
       mesh: { vertexCount: 468 },
       source: { width: 1280, height: 720, kind: 'camera' },
-      scene: { setHeadPose: () => {} },
+      // Records rather than swallows: `resetPerson` reverts `app.intrinsics`
+      // to the device default, and until 2026-09-02 it was the one of the
+      // three assignment sites that never told the camera.
+      scene: { setHeadPose: () => {}, applied, applyIntrinsics: (k: unknown) => { applied.push(k); } },
       ui: { frameNote: () => {}, status: () => {} },
       identity: { armed: true, reference: 7, window: [1, 2], strikes: 3, convictions: 4 },
     };
@@ -663,6 +680,27 @@ return resetPerson;`,
     assert.ok(calls.includes('detachFrame'),
       'the previous glasses stayed on the face being re-measured');
     assert.ok(calls.includes('forgetWearer'));
+  });
+
+  it('tells the render camera about the intrinsics it just reverted', () => {
+    // Three sites assign `app.intrinsics` in main.ts and this was the only one
+    // that did not apply them: the solve went back to the device default while
+    // the renderer kept the previous wearer's SOLVED focal length for the whole
+    // of the rescan.
+    //
+    // Bounding the claim, because it is an invariant repair rather than a fault
+    // anyone has seen: `app.model` is null and `detachFrame` has run by this
+    // point, so nothing using the projection is in the scene until `adoptModel`
+    // applies its own and closes the window. What this pins is that the two
+    // cannot drift apart — including at a fourth site.
+    // RED: drop the `app.scene.applyIntrinsics(app.intrinsics)` from resetPerson.
+    const { resetPerson } = instantiateReset();
+    const app = stubApp();
+    resetPerson(app, 'rescan');
+    assert.equal(app.scene.applied.length, 1,
+      'resetPerson reverted app.intrinsics without telling the camera');
+    assert.equal(app.scene.applied[0], app.intrinsics,
+      'the camera was given intrinsics other than the ones the solve will now use');
   });
 
   it('lands in acquire, so nothing is drawn until there is a face to draw on', () => {
