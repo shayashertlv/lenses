@@ -344,8 +344,32 @@ export async function createScene(
      * canvas.
      */
     setBackgroundSource(source) {
+      // **Dispose the one being replaced.** This ran exactly once, from
+      // `startSource`, until F29 gave it a second caller — `adoptSourceSize`,
+      // on every accepted source-shape change. A phone rotated back and forth
+      // then strands one full-resolution texture per transition: 3.52 MiB of
+      // base level, 4.69 MiB with the mip pyramid below, on the class of device
+      // where the trigger is a rotation and the GPU budget is smallest. Three
+      // holds no strong reference to a discarded texture, so it is a
+      // GC-deferred leak rather than a permanent one — a few hundred bytes of
+      // JS holding megabytes of VRAM, which is the case `dispose` exists for.
+      // Safe on the first call: disposing a texture that was never uploaded is
+      // a no-op.
+      background?.dispose?.();
       background = new THREE.CanvasTexture(source);
       background.colorSpace = THREE.SRGBColorSpace;
+      // **And no mipmaps, which is the larger of the two costs here.**
+      // `CanvasTexture` defaults to `generateMipmaps` with a
+      // `LinearMipmapLinearFilter` minification, so three regenerates an
+      // eleven-level pyramid on every upload — and `markBackgroundDirty` marks
+      // this texture on every presented frame, so that is thirty to sixty
+      // pyramids a second. The background is drawn as a full-screen quad into a
+      // drawing buffer `setSize` gave the source's own dimensions: it is
+      // sampled at 1:1 and never minified, so every one of those levels is
+      // built to be ignored. Dropping them also takes the allocation from 4.69
+      // MiB to 3.52.
+      background.generateMipmaps = false;
+      background.minFilter = THREE.LinearFilter;
       scene.background = background;
     },
 

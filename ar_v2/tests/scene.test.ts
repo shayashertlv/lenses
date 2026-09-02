@@ -186,7 +186,18 @@ function instantiateScene() {
       ACESFilmicToneMapping: 4,
       PCFShadowMap: 1,
       DoubleSide: 2,
-      CanvasTexture: record('CanvasTexture'),
+      // Real enough to answer two questions a counter cannot: was the
+      // texture it replaced disposed, and did it ask for mipmaps.
+      CanvasTexture: class {
+        disposed = 0;
+        colorSpace = '';
+        generateMipmaps = true;
+        minFilter = 'LinearMipmapLinear';
+        magFilter = 'Linear';
+        constructor(readonly image: unknown) { made.push('CanvasTexture'); }
+        dispose() { this.disposed++; }
+      },
+      LinearFilter: 'Linear',
       // The four below are REAL enough to answer questions, because
       // `setOccluder` is the one method whose whole contract is which objects
       // it built, which it SHARED, and which it disposed. A `record()` stub
@@ -254,6 +265,47 @@ describe('the scene is set up to render a real asset', () => {
     assert.equal(handle.renderer.toneMapping, s.THREE.ACESFilmicToneMapping,
       'no tone mapping — the frame is composited over a camera image that has already '
       + 'been through its own tone curve, so a linear frame reads as a sticker');
+  });
+
+  it('replaces the background texture without stranding the last one, and asks for no mipmaps', async () => {
+    // Two defects in four lines, and the first one was MADE REACHABLE by the
+    // F29 fix rather than found by it. `setBackgroundSource` ran exactly once,
+    // from `startSource`, so the missing `dispose` could not fire twice;
+    // `adoptSourceSize` now calls it on every accepted source-shape change, so
+    // a phone rotated back and forth strands one texture per transition.
+    // Measured against the vendored three: `CanvasTexture` defaults to
+    // `generateMipmaps` with `LinearMipmapLinearFilter`, and a 1280x720 texture
+    // is 3.52 MiB of base level, 4.69 MiB with its eleven mip levels.
+    //
+    // The second is per-frame rather than per-rotation and is the bigger of the
+    // two: `markBackgroundDirty` marks this texture on every presented frame,
+    // so leaving mipmaps on regenerates that pyramid thirty to sixty times a
+    // second — for a background drawn as a full-screen quad at 1:1, which never
+    // samples a mip.
+    //
+    // RED: drop the `background?.dispose?.()`, or either of the two filter
+    // assignments.
+    const s = instantiateScene();
+    const handle = await s.createScene({} as any, { preferWebGPU: false });
+
+    handle.setBackgroundSource({ tag: 'the display canvas' } as any);
+    const first = handle.background as any;
+    assert.ok(first, 'setBackgroundSource built no texture at all');
+    assert.equal(first.generateMipmaps, false,
+      'the background texture still asks for mipmaps — an eleven-level pyramid rebuilt on '
+      + 'every presented frame, for a quad that is never minified');
+    assert.equal(first.minFilter, s.THREE.LinearFilter,
+      'the minification filter still samples mips that are no longer generated');
+    assert.equal(first.disposed, 0, 'the texture was disposed before it was ever used');
+
+    // The source changes shape — a rotation, or a renegotiation.
+    handle.setBackgroundSource({ tag: 'the same canvas, resized' } as any);
+    assert.equal(first.disposed, 1,
+      'the replaced background texture was never disposed. It ran once from startSource '
+      + 'until F29 gave it a second caller, and now every rotation strands 4.69 MiB of VRAM '
+      + 'that only the collector can reclaim');
+    assert.notEqual(handle.background, first, 'the texture was not actually replaced');
+    assert.equal((handle.background as any).disposed, 0, 'the NEW texture was disposed');
   });
 
   it('builds an environment map and hands the generator back', async () => {
