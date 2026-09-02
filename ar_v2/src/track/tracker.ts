@@ -1086,6 +1086,12 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
       // costs nothing visible, and exempting those ten strips gives back the
       // ENTIRE marching gain at 25 degrees of yaw. `core.test.ts` pins that
       // trade so the obvious repair cannot be made quietly.
+      //
+      // All of which holds ONLY where an oval landmark marks the outline and
+      // its 2-D point follows the contour. Where it names a fixed vertex
+      // instead, marching costs 1.19x at 25 degrees and 1.78x at 40 — the same
+      // ledger row carries that arm. Which premise a real detector satisfies is
+      // the reason this flag is off by default.
       if (marched >= 0) c.vertex = marched;
     }
     state.marchScratch.fill(-1);

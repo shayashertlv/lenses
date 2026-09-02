@@ -4074,7 +4074,10 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     // cut already exempts 10 and 152 for, reaching further round the ring.
     //
     // The obvious repair is to exempt them, and this test exists because that
-    // repair is a trap. Measured over twelve seeds in the fixture below:
+    // repair is a trap. Measured over twelve seeds, in this fixture's shape but
+    // NOT by the code below — the campaign probe swept thresholds and seed
+    // counts the suite has no business spending; what runs here is the five-seed
+    // pin of the same trade:
     //
     //     yaw     off     all 34    without those ten
     //       0    0.096     0.095          0.096
@@ -4086,6 +4089,14 @@ describe("the tilt pass — the solve knows how much it knows", () => {
     // unmarched median exactly — and at 40 and 55 about a fifth. What they buy
     // at frontal is nothing either way: twelve seeds put marched at 0.095
     // against unmarched 0.096, inside a per-seed spread of 0.074 to 0.128.
+    //
+    // **And every number above assumes the detector's oval landmarks follow the
+    // contour**, which is what this fixture builds and what marching exists
+    // for. Against the opposite premise — each oval landmark at its own fixed
+    // vertex — marching is a cost rather than a gain (0.101 → 0.120 at 25
+    // degrees, 0.120 → 0.213 at 40, twelve seeds). That regime is not pinned
+    // here because it is an argument about the DETECTOR, not about this code;
+    // `docs/CONSTANTS.md` carries it, and it is why the flag ships off.
     //
     // 25 degrees rather than the 45 the test above uses, deliberately: that is
     // where the difference between the arms is total instead of partial, and
@@ -4155,8 +4166,9 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       + 'weak means the fixture has stopped exhibiting the bias the rank exists for');
     assert.ok(without > every * 1.25,
       `dropping the ${remapping.length} strips that remap at frontal scored `
-      + `${without.toFixed(3)} mm against ${every.toFixed(3)} with all of them — measured 0.142 `
-      + 'against 0.097 over twelve seeds, i.e. the entire gain at this yaw. If this now passes '
+      + `${without.toFixed(3)} mm against ${every.toFixed(3)} with all of them — 0.142 against `
+      + '0.097 at the twelve seeds the campaign swept, and the same ordering at the five here, '
+      + 'i.e. the entire gain at this yaw. If this now passes '
       + 'cheaply, the exemption is no longer paying for itself and the ledger row is out of date; '
       + 'if you got here by exempting the flat arcs to make the frontal march a no-op, that is '
       + 'the trade this test exists to make visible — and the frontal cost it buys is 0.095 '
