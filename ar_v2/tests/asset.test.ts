@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { CATALOGUE, catalogueEntry } from '../src/fit/catalogue.js';
 import { PAD_MIN_FACES, derivePads, TEST_FRAMES } from '../src/fit/frame-asset.js';
 import {
-  PAD_SAMPLE_BUDGET, findBend, frameFromMesh, type CatalogueEntry,
+  ARM_KNEE_RATIO_MIN, PAD_SAMPLE_BUDGET, TEMPLE_BEND_TOLERANCE_MM, deriveArmRest, findBend,
+  frameFromMesh, type CatalogueEntry,
 } from '../src/fit/frame-from-mesh.js';
 import { readGlb, type MeshAsset } from '../src/fit/mesh-io.js';
 import type { FrameAsset } from '../src/fit/frame-asset.js';
@@ -649,6 +650,141 @@ describe('the derivation refuses rather than inventing a layout', () => {
     const bend = findBend(temple);
     assert.ok(bend, 'a temple that runs level and then turns down must have a bend');
     assert.ok(bend.z < -55 && bend.z > -85, `bend at z ${bend.z.toFixed(1)}, expected near -70`);
+  });
+
+  /**
+   * An arm's centreline: `n` samples from the tip at z = -110 forward to the
+   * hinge at z = -10, running at `level` mm of drop per mm of depth and, if
+   * `kneeZ` is given, turning there into a curl of `curl` mm per mm. A POSITIVE
+   * curl falls away behind the knee, which is the shape of an arm that rests on
+   * an ear; a negative one rises.
+   *
+   * One vertex per sample rather than a box cross-section, for the same reason
+   * the rod above is a line: both detectors bin and take the MEAN y, so a
+   * cross-section adds nothing but symmetric noise about the same centreline.
+   */
+  const armProfile = (
+    { level = 0, curl = 0, kneeZ = null as number | null, n = 400 },
+  ): Float64Array => {
+    const out = new Float64Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const z = -110 + (100 * i) / (n - 1);
+      const anchor = kneeZ ?? -10;
+      out[i * 3] = 70;
+      out[i * 3 + 1] = kneeZ !== null && z < anchor ? curl * (z - anchor) : level * (z - anchor);
+      out[i * 3 + 2] = z;
+    }
+    return out;
+  };
+
+  it('will not fit a knee to an arm that never turns down, through any of three doors', () => {
+    // **The geometric path used to fabricate a rest where the named path
+    // refuses one**, and the ratio is why: it is scale-free in the NUMERATOR
+    // too, so an arm with no curl at all scores as well as one with a real
+    // bend. Measured on the shipped code, all three of these shapes came back
+    // `believable` — inside the reach band, over `ARM_KNEE_RATIO_MIN` — and
+    // shipped `earRestSource: 'derived'` with a confident-looking rest point.
+    //
+    //   shape                              old ratio   knee z    curl fall
+    //   dead-level rod, no curl at all     Infinity     -102.2     0.000 mm
+    //   level 1e-4 / curl 1e-3             9.82          -80.3     0.028 mm
+    //   level 0.02 / curl UP 0.7           37.46         -80.3   -19.688 mm
+    //
+    // The first is the 0/0 the code saturated deliberately. **The second needs
+    // no saturation at all** — any level slope under curl/7 clears the floor,
+    // however small the curl — so guarding the division alone would have left
+    // it open. The third is the sign: `Math.abs` was taken of the curl, so an
+    // arm that rises behind the ear scored like one that falls.
+    //
+    // The rod is the one that matters. It is the shape of an authored CAD
+    // frame with extruded, perfectly level temples, its knee lands three bins
+    // from the TIP, and a rest at the tip is the failure this file's header
+    // measures as its worst: 30 mm back, the one-sided ear term never engages,
+    // and the frame hangs on the nose alone at 21.5 degrees of pantoscopic tilt
+    // while the report reads like a measurement.
+    const doors: ReadonlyArray<readonly [string, Float64Array]> = [
+      ['a rod with no bend in it', armProfile({ level: 0, curl: 0 })],
+      ['a whisper of curl (0.03 mm over the whole fall)',
+        armProfile({ level: 1e-4, curl: 1e-3, kneeZ: -80 })],
+      ['an arm that turns UP behind the knee', armProfile({ level: 0.02, curl: -0.7, kneeZ: -80 })],
+    ];
+    for (const [what, profile] of doors) {
+      assert.equal(deriveArmRest(profile), null,
+        `the knee fit found a rest point in ${what}. `
+        + 'That ships as a MEASURED tier on an asset that has nothing to measure.');
+      // The two paths must agree about the same degenerate arm. `findBend`
+      // already refused all three; that disagreement was the finding.
+      assert.equal(findBend(profile), null,
+        `findBend accepted ${what} — the parity this test asserts runs the other way now`);
+    }
+
+    // The positive control, and it is the whole reason the floor is a fall and
+    // not a slope: a real temple clears it by more than an order of magnitude.
+    const real = deriveArmRest(armProfile({ level: 0.02, curl: 0.7, kneeZ: -80 }));
+    assert.ok(real, 'an arm that runs level and then falls away must still fit a knee');
+    assert.ok(Math.abs(real.z + 80) < 4, `knee at z ${real.z.toFixed(1)}, expected near -80`);
+    assert.ok(real.ratio >= ARM_KNEE_RATIO_MIN, `ratio ${real.ratio.toFixed(1)} lost the knee`);
+  });
+
+  it('puts the floor at the fall this file already calls the end of a level run', () => {
+    // The bar is `TEMPLE_BEND_TOLERANCE_MM`, and it is the SAME question both
+    // paths ask: how far must a centreline fall before we believe it has
+    // stopped running level? `findBend` uses it to decide where the level run
+    // ends; the knee fit now uses it to decide whether there is a curl at all.
+    // Reusing it is the point — a second constant would let the two paths drift
+    // apart again, which is exactly the defect above.
+    //
+    // Both rods below fit a knee at z -80.3 over a 28.1 mm curl run, and differ
+    // only in how far that curl falls: 0.75 mm against 3.00 mm, half the bar
+    // and double it. Nothing in the catalogue is anywhere near either — the
+    // shallowest real arm (shield-golden, itself refused as a wrap) falls
+    // 11.96 mm, and the shallowest arm that DERIVES falls 22.23 mm, so the
+    // margin to the nearest shipped asset is 15x.
+    const shallow = deriveArmRest(armProfile({ level: 0.001, curl: 0.0267, kneeZ: -80 }));
+    assert.equal(shallow, null,
+      'a 0.75 mm fall is inside the tolerance this file calls level, so it is not a knee');
+
+    const real = deriveArmRest(armProfile({ level: 0.001, curl: 0.1068, kneeZ: -80 }));
+    assert.ok(real, 'a 3.00 mm fall is twice the bar and must still fit a knee');
+    assert.equal(TEMPLE_BEND_TOLERANCE_MM, 1.5,
+      'the bar moved; re-measure the two rods above, they are placed at half it and double it');
+  });
+
+  it('says what a saturated ratio means instead of printing the word Infinity', () => {
+    // The saturation outlives the fix, and on a HONEST arm rather than a
+    // degenerate one. `ratio` divides by the fitted level slope, and the knee
+    // bin is normally shared between the two segments — its curl contamination
+    // is what keeps that slope off zero. Put the knee exactly on a bin boundary
+    // and the front segment is uncontaminated, so an authored arm that runs
+    // perfectly level and then falls 19.7 mm scores Infinity with everything
+    // else about it correct.
+    const onBoundary = armProfile({ level: 0, curl: 0.7, kneeZ: -110 + (100 / 32) * 10 });
+    const k = deriveArmRest(onBoundary);
+    assert.ok(k, 'a real fall on a dead-flat arm is still a knee');
+    assert.ok(!Number.isFinite(k.ratio),
+      'the saturation is unreachable here now — if that is deliberate, this test should say so '
+      + 'rather than the note formatting being the only thing that depends on it');
+
+    // So no note may carry it through. `toFixed` on a non-finite number yields
+    // the literal string, and these lines are read out of `console.info` by
+    // whoever is asking why an asset landed on the tier it did.
+    for (const e of CATALOGUE) {
+      const built = frameFromMesh(load(e.file), e);
+      assert.ok(built.ok, `${e.id} refused: ${(built as any).reason}`);
+      for (const n of built.notes) {
+        assert.ok(!/Infinity|NaN|undefined/.test(n),
+          `${e.id} shipped a note with a non-number in it: ${n}`);
+      }
+    }
+    // And the shape the formatter gives a finite ratio, on the eight that derive.
+    const derived = CATALOGUE
+      .map((e) => frameFromMesh(load(e.file), e))
+      .filter((b) => b.ok && b.asset.earRestSource === 'derived');
+    assert.equal(derived.length, 7, 'the derived tier changed size; re-read the tiers assertion');
+    for (const b of derived) {
+      assert.ok(b.ok && b.notes.some((n) => /curl\/level slope \d+\.\dx \/ \d+\.\dx/.test(n)),
+        'a derived asset must report both slope ratios as numbers with a unit');
+    }
   });
 });
 

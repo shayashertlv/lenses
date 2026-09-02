@@ -220,6 +220,15 @@ export const PAD_SAMPLE_BUDGET = 64;
  * It is NOT a knife edge on navigator and it would be on an asset whose temple
  * droops gently the whole way. That asset has no bend, and `findBend` says so
  * rather than reporting the bin the tolerance happened to land in.
+ *
+ * **Both paths ask this question now.** `findBend` uses it to decide where the
+ * level run ends; `deriveArmRest` uses it to decide whether its fitted curl
+ * falls far enough to be a curl at all. That is the same question — how far
+ * must a centreline drop before it has stopped running level — and giving the
+ * geometric path a constant of its own is how the two came to disagree about a
+ * straight rod, one refusing it and the other putting a rest at its tip. The
+ * catalogue's shallowest arm falls 11.96 mm against this 1.5, so the second use
+ * is inert across the whole 0.5-to-5 mm plateau above.
  */
 export const TEMPLE_BEND_TOLERANCE_MM = 1.5;
 
@@ -317,6 +326,12 @@ export const ARM_CUT_Z_MM = -10;
  * 7 sits in the 1.6x gap between the worst real temple and the best wrap. With
  * eight positive examples and two negative it is bounded on both sides, which
  * `TEMPLE_LEVEL_RUN_MIN_FRACTION` — one positive example — was not.
+ *
+ * It is asked only of an arm whose curl has already been shown to FALL, by
+ * `TEMPLE_BEND_TOLERANCE_MM`. On its own it cannot refuse an arm with no bend:
+ * both slopes go to zero together and the ratio of two vanishing numbers is
+ * whatever the noise says — 9.8 on one measured rod, and on the exactly flat
+ * one the Infinity a division by a vanishing level run produces on its own.
  */
 export const ARM_KNEE_RATIO_MIN = 7;
 
@@ -403,6 +418,53 @@ const refuse = (reason: string): MeshFrameRefusal => ({ ok: false, reason });
  * a ratio is dimensionless and survives a droopy scan, which is exactly what
  * the absolute fall does not. See `ARM_KNEE_RATIO_MIN`.
  *
+ * ## What the ratio cannot say, and the floor that says it
+ *
+ * A ratio is dimensionless in the DENOMINATOR, which is the property that
+ * survives the droop — and dimensionless in the NUMERATOR too, which was a
+ * hole. An arm with no bend in it fits two collinear segments, so both slopes
+ * are ~0 and the ratio is noise over noise. Three shapes came back believable
+ * on the shipped code, and `findBend` refused all three:
+ *
+ *     the arm                          ratio     knee z    the curl falls
+ *     dead-level rod, no curl at all   Infinity   -102.2      0.000 mm
+ *     level 1e-4, curl 1e-3            9.82        -80.3      0.028 mm
+ *     level 0.02, curl UP 0.7          37.46       -80.3    -19.688 mm
+ *
+ * The first is the one the saturation below was written for, and its comment's
+ * defence — "the ratio is only ever compared against a floor, so saturate
+ * rather than guard at the call site" — was exactly backwards. A floor
+ * comparison is already NaN-safe: `0 / 0` is NaN and `NaN >= 7` is FALSE, so
+ * an unguarded division REFUSES the rod. The saturation was the only thing
+ * turning that refusal into an acceptance, and it bought nothing anywhere else
+ * — a level slope of exactly 0 divides to Infinity by itself, and one just
+ * inside the 1e-6 epsilon divides to a number far above any floor. It is gone.
+ *
+ * The second door needs no saturation at all: ANY level slope under curl/7
+ * clears `ARM_KNEE_RATIO_MIN`, however small the curl, so guarding the division
+ * would have closed one door of three. The third is the sign, thrown away by
+ * taking `Math.abs` of the curl — and it is also why the floor is on the fall
+ * and not on |curl|, which an up-flare passes by 13x.
+ *
+ * All three ship `earRestSource: 'derived'` with the rest at the arm's TIP,
+ * which is the failure this file's header measures as its worst — and the rod
+ * is the shape of an authored CAD frame with extruded, perfectly level temples.
+ *
+ * So the curl must fall before its ratio is asked, and the bar is
+ * `TEMPLE_BEND_TOLERANCE_MM`. Reusing it is the point rather than an economy: a
+ * second constant is how the two paths came to disagree about the same arm in
+ * the first place. Measured, how far the fitted curl actually falls:
+ *
+ *     navigator (name hidden) 22.07   aviator-tortoiseshell 22.72-22.96
+ *     aviator-amber   23.52-23.62     horizon-amber         23.49-23.51
+ *     horizon-sage    22.23-22.25     crystal x2 / meshy    25.82-26.01
+ *     sunglasses-khronos 20.21-20.22 and shield-golden 11.96-11.99, both
+ *     already refused on the ratio
+ *
+ * The nearest arm in the catalogue is 8.0x the bar and the nearest that DERIVES
+ * is 14.8x, so the floor is inert on every asset in the tree — and stays inert
+ * anywhere in the 0.5-to-5 mm plateau `TEMPLE_BEND_TOLERANCE_MM` documents.
+ *
  * Stability, measured across four cut planes (-5, -10, -20, -30 mm) and both
  * sides: the recovered knee moves at most 5 mm with the cut and at most 2 mm
  * between sides, on assets where `findBend` flips between null and a 55 mm
@@ -484,9 +546,32 @@ export function deriveArmRest(
   // and then curls down behind the ear has a small |level| and a large |curl|.
   const level = Math.abs(bestLevel.slope);
   const curl = Math.abs(bestCurl);
-  // A perfectly flat level run would divide by zero; the ratio is only ever
-  // compared against a floor, so saturate rather than guard at the call site.
-  const ratio = level < 1e-6 ? Infinity : curl / level;
+
+  // **The curl has to FALL before its ratio is worth asking.** A ratio is
+  // dimensionless in the numerator too, so two collinear segments — an arm with
+  // no bend in it at all — score as well as a real knee. The bar is
+  // `TEMPLE_BEND_TOLERANCE_MM`, asking the question it always asks: how far must
+  // a centreline drop before it has stopped running level? Signed, because an
+  // arm that turns UP behind the ear is not resting on one either, and
+  // `Math.abs` above throws that away. See the header section on the three
+  // doors this closes.
+  const curlFallMm = bestCurl * (zs[best] - zs[0]);
+  if (!(curlFallMm >= TEMPLE_BEND_TOLERANCE_MM)) return null;
+
+  // No epsilon on the denominator, and its removal is the fix rather than a
+  // tidy-up. `level < 1e-6 ? Infinity : curl / level` read as a defensive
+  // saturation and was the opposite: on a rod BOTH slopes vanish, `0 / 0` is
+  // NaN, and `NaN >= ARM_KNEE_RATIO_MIN` is FALSE — the floor comparison was
+  // already safe, and the saturation was the one thing converting the value
+  // that refuses into the value that accepts. Everywhere else it changed
+  // nothing: a level slope of exactly 0 divides to Infinity on its own, and one
+  // just inside 1e-6 divides to a number far above any floor.
+  //
+  // The guard above now leaves `bestCurl` strictly positive, so this cannot be
+  // 0/0 at all. A dead-flat level run still divides by zero and still saturates
+  // — legitimately, on an authored arm — which is why the note says
+  // 'unbounded' rather than printing what `Infinity.toFixed(1)` returns.
+  const ratio = curl / level;
 
   // **The height comes from the LEVEL RUN's line, not from the knee bin's mean.**
   //
@@ -950,6 +1035,13 @@ export function frameFromMesh(
     );
   } else {
     const knees = armSides.map((p) => deriveArmRest(p));
+    // `ratio` saturates when the fitted level run is exactly flat, and that is
+    // reachable on a real arm now rather than only on a degenerate one: an
+    // authored CAD temple whose knee lands on a bin boundary leaves the front
+    // segment uncontaminated, so its slope is 0 and the ratio is Infinity while
+    // the curl and the reach are both honest. `Infinity.toFixed(1)` puts the
+    // literal word in front of whoever reads the note.
+    const ratioText = (r: number): string => (Number.isFinite(r) ? `${r.toFixed(1)}x` : 'unbounded');
     const believable = (k: ReturnType<typeof deriveArmRest>): boolean => {
       if (!k) return false;
       const reach = -k.z;
@@ -966,7 +1058,7 @@ export function frameFromMesh(
         `ear rests DERIVED from the arm's own knee (no temple part named): reach `
         + `${(-earRests[0][2]).toFixed(1)} / ${(-earRests[1][2]).toFixed(1)} mm, height `
         + `${earRests[0][1].toFixed(1)} / ${earRests[1][1].toFixed(1)} mm, curl/level slope `
-        + `${knees[0]!.ratio.toFixed(1)} / ${knees[1]!.ratio.toFixed(1)}`,
+        + `${ratioText(knees[0]!.ratio)} / ${ratioText(knees[1]!.ratio)}`,
       );
     } else {
       // A wrap or an earhook. Its arm genuinely does not rest on an ear from
@@ -981,10 +1073,16 @@ export function frameFromMesh(
         Float64Array.of(armXAt(armSides[0], -ASSUMED_EAR_REACH_MM), ASSUMED_EAR_HEIGHT_MM, -ASSUMED_EAR_REACH_MM),
         Float64Array.of(armXAt(armSides[1], -ASSUMED_EAR_REACH_MM), ASSUMED_EAR_HEIGHT_MM, -ASSUMED_EAR_REACH_MM),
       ];
+      // The two refusals say different things and used to say the same wrong
+      // one. A knee that FITS but is too shallow reports its ratio; no knee at
+      // all means the two-segment fit found nothing to break — an arm that runs
+      // as a single line to its tip, or turns upward rather than down, or is
+      // too short to fit. 'never stop descending' described none of them.
       const why = knees[0] && knees[1]
-        ? `its arms curl only ${knees[0].ratio.toFixed(1)} / ${knees[1].ratio.toFixed(1)}x `
-          + `steeper than they run level (a rest needs ${ARM_KNEE_RATIO_MIN})`
-        : 'its arms never stop descending';
+        ? `its arms curl only ${ratioText(knees[0].ratio)} / ${ratioText(knees[1].ratio)} `
+          + `steeper than they run level (a rest needs ${ARM_KNEE_RATIO_MIN}x)`
+        : 'no knee fits its arms at all: they run as one line to the tip, turn '
+          + 'upward rather than down, or are too short to break in two';
       notes.push(
         `ear rests ASSUMED — ${why}, so this is a wrap or an earhook with no rest `
         + `point of its own. Reach ${ASSUMED_EAR_REACH_MM} mm and height `
