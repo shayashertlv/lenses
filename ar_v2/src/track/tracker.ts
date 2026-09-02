@@ -934,9 +934,18 @@ export const PRIOR_POINTS = 4;
  * IMPROVES accuracy by 3.0%, in 5 seeds of 5. The mechanism that makes that
  * safe is the information share: even a badly violated prior carries only
  * 2% of the solve at frontal and 17% at 40 degrees, so it can move the
- * answer by a bounded fraction and no more. The untested corner, stated:
- * hard acceleration beyond ~55 degrees, where the landmark information is
- * weakest and the share is highest.
+ * answer by a bounded fraction and no more.
+ *
+ * **The corner this used to state as untested is now measured, and it is the
+ * quieter half of the sentence that was wrong.** Driving the real tracker at a
+ * held 70 degrees, with sigma and visibility from the real `estimateSigma` so
+ * the far half of the face is genuinely muted, the rotational share does rise
+ * with yaw as predicted — 0.129 frontal to 0.189 at 70. But under HARD
+ * acceleration there it collapses to **0.017**, an order of magnitude below the
+ * hold, because the same `priorMiss` gate that prices the acceleration also
+ * strips the prior's weight. "Landmark information is weakest AND the share is
+ * highest" describes a deep hold, not a deep reversal: the two effects oppose
+ * each other and the gate wins. The shipped grade reads 5.78 there.
  */
 export const MOTION_PRIOR_ACCEL_MM_S2 = 37.5;
 export const MOTION_PRIOR_ACCEL_RAD_S2 = 0.375;
@@ -1286,6 +1295,44 @@ export function track(state: TrackerState, input: TrackInput): TrackResult {
   // frames that carried a prior — a prior-less frame says nothing about the
   // constant-velocity model, and letting it decay the estimate would hand the
   // next reversal a stale all-clear.
+  //
+  // **This is a closed loop, and the tree refuses that construction eight
+  // hundred lines up** ("Never the pose being solved for, which would close a
+  // loop around the estimate"). `result.pose` is the MAP posterior into which
+  // this same prior was fused, so the residual is shrunk by the prior's own
+  // pull and the grade reads low. It is kept, and here is the measurement.
+  //
+  // The bias is bounded by a mechanism rather than by luck: violating the
+  // prediction raises `miss`, `miss` inflates Q, Q weakens the prior, and the
+  // information share falls. So the loop is tightest where the prediction is
+  // being MET and loosest where it is contradicted — the opposite of the
+  // report that raised it. Measured through the real tracker with sigma and
+  // visibility from the real `estimateSigma`, grading each frame a second time
+  // against a prior-LESS solve of itself:
+  //
+  //     regime                shareRot   under-read   the shipped grade reads
+  //     frontal hold           0.129        1.99x           0.64
+  //     70 deg hold            0.189        2.28x           0.74
+  //     frontal, hard shake    0.009        1.07x           5.72
+  //     70 deg, hard shake     0.017        1.12x           5.78
+  //
+  // The 2.3x is at a HOLD, where the grade sits under its own floor of 1 and
+  // the whole reading is discarded. At the corner `MOTION_PRIOR_ACCEL_MM_S2`
+  // flags untested — hard acceleration past 55 degrees — it is 1.12x, against
+  // a gate reading 5.78 and firing hard. Translation behaves the same way one
+  // channel over: 2.1-2.6x while the translation prediction is being met, and
+  // 1.21x through a 25 mm lean reversal, which is the regime that channel
+  // exists for.
+  //
+  // **The cure was measured and is worse.** Grading against a second,
+  // prior-less solve of the same frame costs +6.2 to +6.6% emitted jitter at
+  // rest and on a shake — against the 21.8% rest-jitter win that is the
+  // prior's whole reason for existing — and buys 8.9-11.5% on a RAW lean error
+  // the smoother absorbs: on the emitted pose the lean gets 0.2-0.4% WORSE.
+  // That is the same shape as the squared stand-aside recorded in `buildPrior`
+  // and it is refused for the same reason. `core.test.ts` pins the collapse
+  // that bounds this, so a change that stops the share falling under violation
+  // fails rather than quietly widening the loop.
   if (prior) {
     const relPrior = m3();
     const wPrior = v3();

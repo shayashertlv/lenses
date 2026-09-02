@@ -4493,6 +4493,79 @@ describe("the tilt pass — the solve knows how much it knows", () => {
       `a 1 Hz head shake costs ${(rmsRot(on, off) / rmsRot(off, on)).toFixed(2)}x the rotation ` +
       'error with the prior on — the rotation stand-aside is not firing');
   });
+
+  it('the prior\'s share COLLAPSES on the channel it is getting wrong, which is what bounds the closed loop', () => {
+    // **The grade is a closed loop and this is the property that makes it
+    // survivable.** `priorMissLast` compares the prediction to `result.pose` —
+    // the MAP posterior into which that same prior was fused — so the residual
+    // is shrunk by the prior's own pull, and the shrink grows with the prior's
+    // information share. The tree refuses this construction elsewhere in the
+    // same file: "Never the pose being solved for, which would close a loop
+    // around the estimate."
+    //
+    // It is bounded because the share is not a free parameter. Violating the
+    // prediction raises `miss`, `miss` inflates Q, Q weakens the prior, and the
+    // share falls — so the loop is tightest exactly where the prediction is
+    // being MET and loosest where it is being contradicted, which is the
+    // opposite of what the defect report predicted. Measured through the real
+    // tracker with sigma and visibility from the real `estimateSigma`, so the
+    // far half of a turned head is muted the way it is in the app:
+    //
+    //     regime                 shareRot   under-read   missRot
+    //     frontal hold            0.129        1.99        0.64
+    //     70 deg hold             0.189        2.28        0.74
+    //     frontal, hard shake     0.009        1.07        5.72
+    //     70 deg, hard shake      0.017        1.12        5.78
+    //
+    // The under-read is 2.3x at a hold — where `miss` sits UNDER its floor of 1
+    // and the whole reading is discarded — and 1.1x at the corner the
+    // `MOTION_PRIOR_ACCEL_MM_S2` ledger row flags untested, where the gate is
+    // reading 5.8 and firing hard.
+    //
+    // Grading honestly instead (a second, prior-less solve of the same frame,
+    // measured) costs **+6.2 to +6.6% emitted jitter** at rest and on a shake —
+    // against the prior's own reason for existing, a 21.8% rest-jitter win —
+    // and buys 8.9-11.5% on a RAW lean error that the smoother absorbs: on the
+    // emitted pose the lean gets 0.2-0.4% WORSE. That is the same trade the
+    // squared stand-aside was rejected for a few lines above, and it is
+    // rejected here for the same reason.
+    //
+    // RED: delete `* missRot` from qRot in `buildPrior`. The share stops
+    // collapsing and the loop stops being bounded.
+    const shareOf = (yawOf: (i: number) => number) => {
+      const state = createTracker(model, { smooth: false, rigidity, motionPrior: true });
+      let st = 0x51ee;
+      const rnd = () => { st ^= st << 13; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
+      const gauss = () => { let u = 0; while (u === 0) u = rnd();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+      const sig = new Float64Array(mesh.vertexCount).fill(0.7);
+      const vis = new Float64Array(mesh.vertexCount).fill(1);
+      const shares: number[] = [];
+      for (let i = 0; i < 160; i++) {
+        const truth = { R: poseAt(yawOf(i)).R, t: Float64Array.of(0, 0, 520) };
+        const p = projectAll(truth);
+        const lm = new Float64Array(mesh.vertexCount * 2);
+        for (let v = 0; v < lm.length; v++) lm[v] = p[v] + gauss() * 0.7;
+        const r = track(state, {
+          landmarks: lm, sigmaPx: sig, visibility: vis, intrinsics: K, dt: 1 / 30,
+        });
+        if (i >= 40 && Number.isFinite(r.priorShareRot)) shares.push(r.priorShareRot);
+      }
+      shares.sort((a, b) => a - b);
+      return shares.length ? shares[shares.length >> 1] : NaN;
+    };
+
+    const held = shareOf(() => 60);
+    const shaken = shareOf((i) => 60 + 12 * Math.sin((2 * Math.PI * 1.5 * i) / 30));
+    assert.ok(held > 0.03,
+      `the prior carries only ${held.toFixed(4)} of a HELD solve — the fixture is not exercising `
+      + 'the prior at all, so the collapse below would prove nothing');
+    assert.ok(shaken < held / 4,
+      `a hard shake leaves the prior ${shaken.toFixed(4)} of the solve against ${held.toFixed(4)} `
+      + `at a hold (${(held / shaken).toFixed(1)}x, needs 4x). The share is what bounds the closed `
+      + 'loop in the grade above; if it stops collapsing under violation, the under-read stops '
+      + 'being small exactly where it matters and the grade needs rebuilding.');
+  });
 });
 
 describe('the basin audit — wired through the real path, guarded against flapping', () => {
