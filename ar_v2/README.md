@@ -44,7 +44,7 @@ rules, validates report metadata, and runs the Node test suite.
 
 - `src/enroll/` — guided capture and face-model reconstruction
 - `src/track/` — live head-pose tracking
-- `src/fit/` — frame assets, contact fitting, and fit scores
+- `src/fit/` — frame assets and the contact solve that seats them
 - `src/render/` — Three.js scene and occlusion rendering
 - `src/app/` — browser orchestration and UI
 - `tests/` — deterministic unit and pipeline coverage

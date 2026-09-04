@@ -95,7 +95,7 @@ import { type FrameAsset, GRAVITY_N_PER_G } from './frame-asset.js';
  *    ordinary least-squares line through the population-MEDIAN descent curve,
  *    printing it as "measured slope"; it names no constant. The one this
  *    header used to cite, `WEDGE_SLOPE_MM_PER_MM`, went out when
- *    `fit/advice.ts` was rewritten into `fit/score.ts` in `f9c9093`, and it has
+ *    `fit/advice.ts` became `fit/score.ts` in `f9c9093` and both are gone, and it has
  *    had no definition and no ledger row since — the 0.92 this header used to
  *    divide by was never carried by any commit, report or row here, and
  *    README's wedge paragraph records the retraction. The committed reading is

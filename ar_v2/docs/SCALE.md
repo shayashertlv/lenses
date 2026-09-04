@@ -126,20 +126,18 @@ so this is the gauge alone. Camera f = 1024 px, 1024×768, face at 500 mm.
   side-by-side A/B, almost certainly not in a single picture of yourself.
   **The iris is already good enough for the try-on image**, and nothing in the
   tree currently says so.
-- **Pupil height: nothing computes it.** The row above is a sensitivity for a
-  verdict that does not exist — `score.ts` has no pupil-height measure and never
-  has, though `frame-asset.ts` described `lensCentres` as being "for the
-  pupil-height verdict" until 2026-08-31. The figures are what it WOULD cost if
-  the verdict were built; nothing in the tree spends them today.
-- **The width verdict: ~1%.** 1.37 mm per 1% against a 4 mm boundary.
-- **The catalogue ranking: better than 1%**, which nothing prop-free delivers.
-  See §5 — this is the one worth fixing without a better ruler.
-- **The PD readout: ~1.5%** to stay inside the ~1 mm the trade tolerates. The
-  iris at 4.7% is three times too coarse, which the UI already admits.
-- **The corneal vertex: almost nothing** — 10% of scale costs 0.5 mm against a
-  4 mm-wide band. What it needs is a measured `templeReachMm` (Q16), not a ruler.
-- **The seat: 2–3%** for the medians, because the frame is metric and does not
-  scale with the face.
+- **Pupil height: nothing computes it,** and nothing ever did.
+- **The seat: 2-3%** for the medians, because the frame is metric and does not
+  scale with the face. **This is the only consumer left**, and it is the one
+  that matters: the seat decides where the glasses are DRAWN, so scale error
+  here is scale error in the picture.
+
+**Every other row this list used to carry was a verdict sensitivity, and the
+verdicts are gone.** The fit advisor — `fit/score.ts`, its grades, its
+millimetre claims and the catalogue ranking — was deleted on 2026-09-04. What
+survives is a try-on: a frame seated on a face and drawn. So the question
+"how good does the ruler have to be" now has one consumer instead of eight, and
+the answer is set by what a wearer can SEE rather than by what a number claims.
 
 **So the target is 1.5%, not 4.7% and not 0.1%.** That is the number any future
 ruler work has to beat.
@@ -150,17 +148,22 @@ ruler work has to beat.
    **Real, and fixed in `2328f47`.** `scaleTrust` read `model.scale.sigma` and
    never the factor, so a wearer whose true HVID is 11.10 mm carried a 5.4%
    error at exactly the confidence of one the 11.70 mm ruler fits.
-   `ScaleEstimate.disagreementPct` now carries the signed gap between the
-   wearer's PD and the ruler it displaced, and `scaleSigma` in `fit/score.ts`
-   widens the effective sigma by whatever exceeds the 4.8% two behaving rulers
-   explain between them. It has no reach on the shipping single-ruler path, and
-   that is the honest state rather than a gap: nothing else can see it.
-2. ~~**The scale caveat is attached to the wrong verdicts.**~~ **Real, and fixed
-   in `2328f47`.** The caveat is now proportional to a measured sensitivity —
-   5 seeds x 12 subjects x 15 frames, per 1% of scale as a fraction of each
-   verdict's own good band: width 34.1%, height 8.3%, depth 5.6%, panto 4.6%,
-   pads 2.2%, load 2.1%, vertex 0.8%, level 0.3%. Width and vertex differ by a
-   factor of forty and had carried the same flat multiply.
+   `ScaleEstimate.disagreementPct` still carries the signed gap between two
+   rulers when a wearer has two. **The consumer that widened a sigma from it was
+   `fit/score.ts` and it is deleted (2026-09-04), so this fix now has no reach
+   at all** — the field is computed and reported and nothing acts on it. That is
+   a loose end left deliberately: `disagreementPct` is the only signal in the
+   tree that can catch a ruler misbehaving, and deleting it because its one
+   consumer went would throw away the detector along with the thing it fed.
+2. ~~**The scale caveat is attached to the wrong verdicts.**~~ **Superseded by
+   deletion.** It was fixed in `2328f47` by making the caveat proportional to a
+   measured per-verdict sensitivity; the verdicts are gone and so is the caveat.
+   The measurement it rested on is kept here because it says something the try-on
+   still needs to know — per 1% of scale, as a fraction of each quantity's own
+   tolerance: width 34.1%, height 8.3%, depth 5.6%, panto 4.6%, pads 2.2%, load
+   2.1%, vertex 0.8%, level 0.3%. **Width is forty times more scale-sensitive
+   than vertex.** Whatever the try-on ever decides to say about size, that
+   ordering is the one that governs it.
 3. **NOT REAL. "Every rung under-reports its own sigma" does not survive its own
    evidence.** The 4.72 / 5.72 / 7.68 triple was computed **pooled over 150
    rows**, against this document's own >=4-of-5 rule. Per seed the median route
@@ -306,9 +309,12 @@ you" carries ~7 mm at 5%.
 
 ### The attribution in this section was wrong *(measured 2026-08-25)*
 
-This section said `rankCatalogue`'s fixed metric target (`FRAME_TO_FACE_WIDTH` =
-0.90) is "precisely why 12% of faces get a different top recommendation at 1%
-scale error". **It is not, and the measurement is not close.** 5 seeds x 12
+This section said the catalogue ranking's fixed metric target
+(`FRAME_TO_FACE_WIDTH` = 0.90) is "precisely why 12% of faces get a different top
+recommendation at 1% scale error". **It is not, and the measurement is not
+close.** (Both the ranking and that constant were deleted on 2026-09-04 with the
+rest of the fit advisor; the measurement is kept because it is about the RULER,
+which the try-on still depends on.) 5 seeds x 12
 subjects, ground-truth geometry with the factor imposed, on the same five
 parametric frames the 12% was taken on:
 

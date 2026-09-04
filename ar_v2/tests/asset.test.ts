@@ -25,7 +25,6 @@ import {
 import { readGlb, type MeshAsset } from '../src/fit/mesh-io.js';
 import type { FrameAsset } from '../src/fit/frame-asset.js';
 import { solveSeat } from '../src/fit/contact.js';
-import { assessFit } from '../src/fit/score.js';
 import { createFaceModel, type FaceModel } from '../src/core/facemodel.js';
 import { loadBasis, loadRegions, loadTemplateMesh } from '../src/testkit/fixtures.js';
 import { generatePopulation } from '../src/testkit/synthetic.js';
@@ -455,83 +454,6 @@ describe('the node graph is read once, or refused', () => {
 
 describe('the derivation refuses rather than inventing a layout', () => {
   const entry = catalogueEntry('navigator')!;
-
-  it('the vertex reach caveat follows the REACH, not the width', () => {
-    // `VERTEX_REACH_CONFIDENCE` exists for one question: was this frame's
-    // ear-rest reach a measurement of THIS frame? Q16 measured why it matters —
-    // 0.80 mm of corneal vertex per mm of reach, so +/-5 mm carries the verdict
-    // across the whole 12-16 mm band on its own.
-    //
-    // It was keyed on `dimensionSource`, the WIDTH's provenance flag, and the
-    // two travel together only by accident. Measured over all fifteen frames the
-    // tree can build, the key was wrong on SEVEN:
-    //
-    //   khronos           cad width, ASSUMED reach   -> full confidence, wrongly
-    //   six mesh assets   assumed width, own knee fit -> caveat they do not need
-    //
-    // and right on the other eight by coincidence in every case — navigator
-    // (cad + measured), shield-golden (assumed + assumed) and the five
-    // parametric shapes (assumed width, and a reach that is
-    // `FrameSpec.templeReachMm`'s shared constant).
-    const model = truthModel(mesh.positions);
-    const caveated = (frame: FrameAsset) => {
-      const m = assessFit(model, mesh, regions, frame).measures.find((x) => x.id === 'vertex');
-      assert.ok(m, `${frame.id} produced no vertex measure`);
-      return m;
-    };
-    // Two assets that differ in the reach and agree on nothing else that this
-    // verdict reads. Both declare a `cad` width, so the OLD key cannot separate
-    // them — which is the point.
-    const nav = buildAsset('navigator');
-    const kh = buildAsset('khronos');
-    assert.equal(nav.dimensionSource, 'cad');
-    assert.equal(kh.dimensionSource, 'cad');
-    assert.equal(nav.earRestSource, 'measured');
-    assert.equal(kh.earRestSource, 'assumed',
-      'khronos no longer reports an assumed rest — the fixture has stopped exhibiting the case');
-
-    const navM = caveated(nav);
-    const khM = caveated(kh);
-    if (navM.grade !== 'unknown' && khM.grade !== 'unknown') {
-      assert.ok(khM.confidence < navM.confidence * 0.75,
-        `khronos's vertex verdict carries ${khM.confidence.toFixed(3)} against navigator's `
-        + `${navM.confidence.toFixed(3)}. Its reach is ASSUMED_EAR_REACH_MM — the catalogue `
-        + 'median, an assumption about the wearer — and it is being trusted exactly as much as '
-        + "the one asset whose temple bend was walked directly. The caveat is keyed on the "
-        + 'WIDTH, and khronos declares a cad width.');
-    }
-
-    // And the six that pay a caveat for a reach they measured off their own
-    // geometry must not: a knee fitted to this asset's own arm is a measurement
-    // of this asset, whatever its width provenance says.
-    for (const id of ['aviator-amber', 'horizon-sage', 'crystal-parts']) {
-      const a = buildAsset(id);
-      assert.equal(a.dimensionSource, 'assumed');
-      assert.equal(a.earRestSource, 'derived');
-      const m = caveated(a);
-      if (m.grade === 'unknown') continue;
-      const bare = assessFit(model, mesh, regions, { ...a, earRestSource: 'measured' })
-        .measures.find((x) => x.id === 'vertex')!;
-      assert.ok(Math.abs(m.confidence - bare.confidence) < 1e-9,
-        `${id} is charged a reach caveat (${m.confidence.toFixed(3)} against `
-        + `${bare.confidence.toFixed(3)}) for a rest its own knee fit found. The caveat is `
-        + 'reading the width flag, which on this asset says assumed for an unrelated reason');
-    }
-
-    // The parametric shapes keep it: their rest is `templeReachMm`'s shared
-    // 95 mm, which is the case the caveat was written for and the reason its
-    // docstring names them.
-    for (const f of TEST_FRAMES) {
-      const m = caveated(f);
-      if (m.grade === 'unknown') continue;
-      const bare = assessFit(model, mesh, regions, { ...f, earRestSource: 'measured' })
-        .measures.find((x) => x.id === 'vertex')!;
-      assert.ok(m.confidence < bare.confidence * 0.75,
-        `${f.id} lost the reach caveat (${m.confidence.toFixed(3)} against a bare `
-        + `${bare.confidence.toFixed(3)}). Its reach is a shared constant, not a measurement `
-        + 'of anything, and it is the case VERTEX_REACH_CONFIDENCE was written for');
-    }
-  });
 
   it('refuses a mirrored asset whose winding was not reversed', () => {
     const asset = load(entry.file);

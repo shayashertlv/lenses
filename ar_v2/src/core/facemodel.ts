@@ -42,7 +42,7 @@ import type { ScanRecord } from '../enroll/protocol.js';
  * under version 3 rules and a still photograph scores 15.9 degrees of
  * "parallax" against a 12 degree threshold — so `noseConfidence` returns 1.0
  * where the honest measurement is about 0.5, and that number is the gate on
- * whether `assessFit` hedges its advice or speaks like an optician. `scan`,
+ * how much the seat's own inputs can be trusted. `scan`,
  * `varianceFactor` and the `'pd'` scale source arrived in the same change.
  *
  * A migration cannot be written even in principle: recovering a dispersion from
@@ -110,7 +110,7 @@ export interface ScaleEstimate {
    * default. That absence is the honest state and it is load-bearing: `sigma`
    * above is blind to this wearer's own scale error by construction, so a
    * disagreement between two independent rulers is the **only** signal in the
-   * tree that can see it at all. `scaleSigma` in `fit/score.ts` is the consumer.
+   * tree that can see it at all.
    *
    * Optional rather than required because 22 sites construct a `ScaleEstimate`
    * literal, and because a model stored by an older build of this same format

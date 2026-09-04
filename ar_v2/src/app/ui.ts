@@ -21,7 +21,6 @@
 
 import type { FaceModel } from '../core/facemodel.js';
 import type { SeatResult } from '../fit/contact.js';
-import type { FitAssessment, RankedFrame } from '../fit/score.js';
 import type { ProtocolStep } from '../enroll/protocol.js';
 import { TEST_FRAMES } from '../fit/frame-asset.js';
 
@@ -42,7 +41,6 @@ export interface UI {
   status(text: string): void;
   guide(step: ProtocolStep | null): void;
   tracked(on: boolean, reason?: string): void;
-  fit(assessment: FitAssessment): void;
   /**
    * Adds a frame to the picker after boot.
    *
@@ -54,31 +52,8 @@ export interface UI {
   addFrame(id: string, name: string): void;
   /** Marks which frame is currently on the face, so the picker shows state. */
   selectFrame(id: string): void;
-  /**
-   * The one line under the fit score saying what this frame's numbers are worth.
-   *
-   * The seat's most sensitive input is where the arms rest on the ears, and
-   * nine of the ten catalogue assets cannot take theirs from a named temple
-   * part: seven fall back to the knee fit, and on two of those the arm has no
-   * usable bend either, so the wearer's own ear supplies the point. Measured
-   * through `frameFromMesh` on 2026-09-01 — one `measured` (navigator), seven
-   * `derived`, two `assumed` (khronos, shield-golden). This said *eight*, which
-   * was true while khronos still reached the `measured` tier.
-   * `FrameAsset.earRestSource` carries
-   * that distinction all the way from the geometry, and this is where it stops
-   * being an internal field and becomes something the wearer can read. A fit
-   * that is a picture rather than a measurement has to say so on the same
-   * screen as the picture.
-   */
-  frameNote(text: string): void;
   /** Whether the scan/average-face controls are offered, and what they say. */
   face(state: { hasModel: boolean; scanning: boolean; hint: string }): void;
-  /**
-   * Renders a ranked catalogue. `relativeTo` names the frame the ordering was
-   * taken AGAINST, when there was one — the heading is a different claim in
-   * each case and must say which. See `rankCatalogue`.
-   */
-  catalogue(ranked: RankedFrame[], relativeTo?: string): void;
   readouts(values: Readouts): void;
   showDiagnostics(text: string): void;
   /** Asks the wearer for their PD in mm. Null if they cancelled, 0 to clear. */
@@ -209,73 +184,6 @@ export function createUI(root: HTMLElement): UI {
       if (!on && reason && statusEl) statusEl.textContent = reason;
     },
 
-    fit(assessment) {
-      // The fit panel is a SCORE and its parts, not a report. The prose
-      // verdicts and the optician instructions that used to render here were
-      // removed on 2026-08-25: a try-on shows a wearer the frame on their
-      // face, and telling them in sentences what an optician would bend is a
-      // different product with a different duty of care behind it.
-      if (!verdictEl) return;
-      verdictEl.innerHTML = '';
-      const score = document.createElement('div');
-      score.className = 'score';
-      // **A score of 50 on every frame is not a score, and it printed as one.**
-      //
-      // `scoreOf` shrinks each measure toward neutral in proportion to how
-      // little the scan knows: `points * c + 0.5 * (1 - c)`. On the average
-      // face every confidence is 0, so the weighted mean is exactly 0.5 and the
-      // headline reads `fit score 50` for all fifteen frames — a number that
-      // cannot move, sitting above per-measure rows that all do. That is the
-      // shape of a defect this tree has a name for, even when the arithmetic
-      // underneath is right.
-      //
-      // The measures themselves are still worth showing: they are millimetres
-      // and degrees off a known geometry, and they differ per frame. It is only
-      // the GRADE that requires knowing whose face it is.
-      const graded = assessment.measures.some((m) => m.value !== null && m.confidence > 0.02);
-      score.textContent = graded ? `fit score ${assessment.score}` : 'not graded';
-      score.classList.toggle('ungraded', !graded);
-      verdictEl.appendChild(score);
-      if (!graded) {
-        const why = document.createElement('p');
-        why.className = 'hint';
-        why.textContent = 'Grading needs a scan of your own face. The measurements below '
-          + 'are real, but they are against an average head.';
-        verdictEl.appendChild(why);
-      }
-      for (const m of assessment.measures) {
-        if (m.value === null) continue;
-        const row = document.createElement('div');
-        // **How much this row is worth, drawn.** `confidence` has been computed
-        // per measure since the file was written and read exactly once in the
-        // whole UI — for the all-or-nothing headline gate above. So on the
-        // shipping iris rung the width verdict arrives at confidence 0.000 and
-        // was drawn as a coloured grade with millimetres beside it, identical
-        // to a verdict the system stands behind. A confidently wrong fit
-        // verdict is the worst thing this product can say, and it was saying
-        // it in the same typeface as its best answer.
-        const trust = confidenceBand(m.confidence);
-        row.className = `verdict ${m.grade}${trust.className}`;
-        // A relative verdict has to READ as one. `4.0 mm` under a "width"
-        // label means "4 mm from the ideal"; the same number against a
-        // reference means "4 mm wider than that one", and rendering them
-        // identically is the two-meanings-one-number defect this file's width
-        // block already carries a scar from.
-        row.innerHTML =
-          `<span class="label">${escapeHtml(m.id)}${
-            m.relativeTo ? ` vs ${escapeHtml(m.relativeTo)}` : ''
-          }</span>` +
-          `<span class="value">${m.relativeTo && m.value > 0 ? '+' : ''}${
-            m.value.toFixed(1)} ${escapeHtml(m.unit)}</span>`;
-        if (trust.note) {
-          const note = document.createElement('span');
-          note.className = 'detail';
-          note.textContent = trust.note;
-          row.appendChild(note);
-        }
-        verdictEl.appendChild(row);
-      }
-    },
 
     addFrame(id, name) { addFrameButton(id, name, framesEl); },
 
@@ -285,11 +193,6 @@ export function createUI(root: HTMLElement): UI {
       }
     },
 
-    frameNote(text) {
-      if (!noteEl) return;
-      noteEl.textContent = text;
-      noteEl.hidden = text === '';
-    },
 
     face({ hasModel, scanning, hint }) {
       // The scan button is the same control before and after a scan and only
@@ -307,29 +210,6 @@ export function createUI(root: HTMLElement): UI {
       if (faceHintEl) { faceHintEl.textContent = hint; faceHintEl.hidden = hint === ''; }
     },
 
-    catalogue(ranked, relativeTo) {
-      if (!catalogueEl) return;
-      // Say what the ordering is AGAINST. "Ranked for your face" is a claim
-      // about absolute fit and needs a ruler the scan does not have; "ranked
-      // next to the Navigator" is a claim about differences between two frames
-      // whose widths are both known, and it is exact.
-      catalogueEl.innerHTML = relativeTo
-        ? `<h3>Ranked next to ${escapeHtml(relativeTo)}</h3>`
-        : '<h3>Ranked for your face</h3>';
-      for (const entry of ranked) {
-        const row = document.createElement('button');
-        row.className = 'ranked';
-        row.dataset.action = `frame:${entry.frame.id}`;
-        const poor = entry.assessment.measures.filter((m) => m.grade === 'poor');
-        row.innerHTML =
-          `<span class="rank-score">${entry.assessment.score}</span>` +
-          `<span class="rank-name">${escapeHtml(entry.frame.name)}</span>` +
-          `<span class="rank-why">${
-            poor.length ? escapeHtml(poor.map((m) => m.id).join(', ')) : 'no complaints'
-          }</span>`;
-        catalogueEl.appendChild(row);
-      }
-    },
 
     readouts(values) {
       if (!readoutEl) return;
@@ -427,33 +307,6 @@ export function createUI(root: HTMLElement): UI {
 
     onAction(h) { handler = h; },
   };
-}
-
-/**
- * What a measure's `confidence` is allowed to look like.
- *
- * Three bands rather than a number on every row, because the number is not the
- * message: the wearer needs to know whether to ACT on a verdict, and 0.34 does
- * not answer that. The cuts are the ones the rest of the tree already uses —
- * 0.02 is `assessFit`'s own gate for whether anything is gradeable at all, and
- * below roughly a third of full confidence a verdict is being carried by the
- * scale caveat rather than by the measurement.
- *
- * A row never disappears. The millimetres are real even when the grade is not,
- * and hiding a measurement is how a wearer ends up asking why the app went
- * quiet about the one thing they wanted to know.
- */
-function confidenceBand(confidence: number): { className: string; note: string } {
-  if (!(confidence > 0.02)) {
-    return {
-      className: ' unsupported',
-      note: 'this scan cannot support this verdict — the measurement is real, the grade is not',
-    };
-  }
-  if (confidence < 0.35) {
-    return { className: ' soft', note: 'weakly supported — treat the grade as a hint' };
-  }
-  return { className: '', note: '' };
 }
 
 const escapeHtml = (s: string): string =>

@@ -60,7 +60,6 @@ import { serializeCapture, type Capture, type WearFrame } from '../enroll/teleme
 // copies of `45`/`85` in this file and a fourth number in `scale.ts` is how a
 // scan came to accept a ruler it would not report.
 import { PD_PLAUSIBLE_MM } from '../enroll/scale.js';
-import { assessFit, rankCatalogue, type FitAssessment } from '../fit/score.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
 import { CATALOGUE } from '../fit/catalogue.js';
 import { frameFromMesh } from '../fit/frame-from-mesh.js';
@@ -187,7 +186,6 @@ interface App {
   landmarkGeometry: Float64Array | null;
   landmarkGeometryFor: FaceModel | null;
   seat: SeatResult | null;
-  assessment: FitAssessment | null;
   frame: FrameAsset;
   /**
    * Mesh-backed frames that have finished loading, by id.
@@ -484,7 +482,6 @@ async function boot(): Promise<void> {
     landmarkGeometry: null,
     landmarkGeometryFor: null,
     seat: null,
-    assessment: null,
     frame: TEST_FRAMES[1],
     meshFrames: new Map(),
     wantedFrameId: null,
@@ -1588,7 +1585,6 @@ function resetPerson(app: App, reason: 'rescan' | 'identity' | 'forget'): void {
   app.landmarkGeometry = null;
   app.landmarkGeometryFor = null;
   app.seat = null;
-  app.assessment = null;
   app.tracker = null;
   app.protocol = createProtocol();
   app.collected = [];
@@ -1641,7 +1637,6 @@ function resetPerson(app: App, reason: 'rescan' | 'identity' | 'forget'): void {
   forgetWearer(app.identity);
 
   app.phase = 'acquire';
-  app.ui.frameNote('');
   app.ui.status(reason === 'rescan'
     ? 'starting again'
     : reason === 'identity'
@@ -1925,9 +1920,6 @@ function fitFrame(app: App, frame: FrameAsset, object?: any): void {
   // in would only offer a second source to drift from the drawn one — which is
   // the defect this function had.
   frameSanityTripwire(app, frame);
-  app.assessment = assessFit(app.model, app.mesh, app.regions, frame, seat);
-  app.ui.fit(app.assessment);
-  app.ui.frameNote(frameNoteFor(frame));
   app.ui.selectFrame(frame.id);
 }
 
@@ -2120,26 +2112,6 @@ function handleAction(app: App, action: string): void {
         : 'edge snap off — pure geometric occluder, for comparison.');
       break;
     }
-    case 'rank': {
-      if (!app.model) return;
-      // Everything the picker offers, not just the parametric five — a ranked
-      // row is a button, and ranking a frame the click handler cannot resolve
-      // produces a dead button.
-      // Ranked NEXT TO the frame on the face, not against an absolute target.
-      // The width verdict then compares two frames whose widths are both known
-      // to the millimetre, and the scan's scale — the thing no prop-free ruler
-      // delivers better than about 4.7% — cancels out of the difference
-      // exactly. It is not an endorsement of what they are wearing: a
-      // similarity ordering does not require the reference to fit, which is
-      // just as well, because they have not said that it does. See
-      // `rankCatalogue` for what this fixes and, more to the point, what it
-      // does not.
-      const ranked = rankCatalogue(app.model, app.mesh, app.regions, [
-        ...TEST_FRAMES, ...[...app.meshFrames.values()].map((m) => m.asset),
-      ], app.frame);
-      app.ui.catalogue(ranked, app.frame.name);
-      break;
-    }
     case 'diagnostics': {
       const report = JSON.stringify(collectDiagnostics({
         phase: app.phase,
@@ -2159,7 +2131,6 @@ function handleAction(app: App, action: string): void {
         protocol: app.protocol,
         model: app.model,
         seat: app.seat,
-        assessment: app.assessment,
         steady: app.smooth === 'locked' ? 'locked'
           : app.smooth === 'adaptive' ? 'adaptive'
             : app.smooth ? 'on' : 'off',

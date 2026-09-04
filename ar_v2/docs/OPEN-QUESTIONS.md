@@ -862,9 +862,9 @@ of the bullets that used to sit here:
   restored rows, for the reason given just above. Where the quantities went:
   nowhere. The sidewall band has no successor — `contact.ts`'s `nominalPose`
   takes the two `NOSE_WALL_HIGH` landmarks directly, with no band and no
-  millimetre extent — and the seat sigma has none either, since `fit/score.ts`
-  grades the vertex criterion by threshold and `VERTEX_REACH_CONFIDENCE`
-  rather than against a population spread. The capability the pair fed —
+  millimetre extent — and the seat sigma has none either. (The clause that used
+  to sit here named `fit/score.ts`'s vertex threshold as the reason; that file
+  and every verdict in it were deleted on 2026-09-04.) The capability the pair fed —
   telling a wearer whether *their* scan seats better or worse than typical —
   is not in this tree.
 - **One caveat the campaign added rather than removed:** its digits were
@@ -1113,9 +1113,11 @@ temples rather than the pads.
 - It may be the ear model. The template has no ears (Q5); the ear rest is
   extrapolated from `BEHIND_CHEEK_MM`. An ear contact that is placed slightly
   wrong is an ear contact that misses.
-- Nothing distinguishes the two, because there is no verdict on `padLoadFraction`
-  reaching 1. `fit/score.ts` grades a load *below* 0.35 — a frame perched on its
-  temples — and says nothing at the other end.
+- Nothing distinguishes the two. There is no consumer of `padLoadFraction` at
+  either end any more: the grade that read a load *below* 0.35 — a frame perched
+  on its temples — went with `fit/score.ts` on 2026-09-04, and nothing ever read
+  the other end. `SeatResult.padLoadFraction` is computed and reported, and the
+  question of what a load of 1 means to a wearer is now entirely open.
 
 **To settle it:** find out whether the 9 share a frame, a face, or a geometry.
 If they share a frame it is the catalogue; if they share a face it is Q16; if

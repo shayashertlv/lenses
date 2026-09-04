@@ -197,6 +197,23 @@ corrected here: the module header used to claim steady-state refinement
 
 ### 3. Fit — `src/fit/`
 
+**There is no fit advisor, and there must not be one.** `fit/score.ts` — the
+grades, the millimetre verdicts, the fit score, the catalogue ranking and every
+constant behind them — was deleted on 2026-09-04, along with its UI, its tests
+and its ledger rows. This is not a gap waiting to be filled.
+
+The reason is measured, and it is in `docs/REAL-FACE.md`: two scans of one face
+taken minutes apart disagree by 4-10% on every linear dimension, 5.8% of that
+being the ruler behaving exactly as it advertises. A product that states
+millimetres needs an accuracy monocular scanning does not deliver, and the
+advisor was shipping verdicts at confidence 0.000 rendered in the same red as
+its best answer.
+
+What `fit/` is for is placing the frame so it can be DRAWN: `contact.ts` seats
+it, `frame-from-mesh.ts` puts the asset in frame space, `frame-layout.ts`
+describes the parametric one. The seat is a rendering input, not a claim about
+the wearer.
+
 A rigid-body contact solve, once per (face, frame) pair, cached.
 
 ```

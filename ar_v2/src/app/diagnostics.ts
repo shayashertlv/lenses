@@ -21,7 +21,6 @@ import type { FaceModel } from '../core/facemodel.js';
 import type { FaceMeasurements } from '../core/mesh.js';
 import { percentile } from '../core/linalg.js';
 import type { SeatResult } from '../fit/contact.js';
-import type { FitAssessment } from '../fit/score.js';
 import { achievedTurnDeg, summarise, type ProtocolState } from '../enroll/protocol.js';
 import { LATCH_EXIT_RATIO, type TrackerState } from '../track/tracker.js';
 import type { FrameLock } from './framelock.js';
@@ -41,7 +40,6 @@ export interface DiagnosticsInput {
   protocol: ProtocolState;
   model: FaceModel | null;
   seat: SeatResult | null;
-  assessment: FitAssessment | null;
   /** The Steady button's live mode, in its own words. */
   steady: 'off' | 'on' | 'adaptive' | 'locked';
   /** The live tracker, read for its latch/audit counters only. */
@@ -277,7 +275,6 @@ export function collectDiagnostics(input: DiagnosticsInput): unknown {
     })(),
 
     seat: input.seat && {
-      frame: input.assessment?.frameId ?? null,
       descentMm: round(input.seat.descentMm),
       padDepthErrorMm: round(input.seat.padDepthErrorMm),
       padLoadFraction: round(input.seat.padLoadFraction),
@@ -289,12 +286,5 @@ export function collectDiagnostics(input: DiagnosticsInput): unknown {
       notes: input.seat.notes,
     },
 
-    fit: input.assessment && {
-      score: input.assessment.score,
-      measures: input.assessment.measures.map(
-        (m) => `${m.id} ${m.grade} ${m.value === null ? '-' : m.value.toFixed(2)}${m.unit}`
-          + ` @${m.confidence.toFixed(2)}`,
-      ),
-    },
   };
 }

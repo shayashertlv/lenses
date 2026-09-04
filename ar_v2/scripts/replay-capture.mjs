@@ -98,21 +98,19 @@ const { readGlb } = await imp('fit/mesh-io');
 const { frameFromMesh } = await imp('fit/frame-from-mesh');
 const { CATALOGUE } = await imp('fit/catalogue');
 const { solveSeat } = await imp('fit/contact');
-const { assessFit } = await imp('fit/score');
 
 console.log('\n--- every catalogue frame, seated on this face ---');
-console.log('asset                  earSrc     descent  padDepth   panto  padLoad  conv  score');
+console.log('asset                  earSrc     descent  padDepth   panto  padLoad  conv');
 for (const e of CATALOGUE) {
   const built = frameFromMesh(readGlb(new Uint8Array(readFileSync(`${R}/${e.file}`))), e);
   if (!built.ok) { console.log(`${e.id.padEnd(22)} REFUSED  ${built.reason.slice(0, 60)}`); continue; }
   const a = built.asset;
   const s = solveSeat(m, mesh, regions, a);
-  const fit = assessFit(m, mesh, regions, a, s);
   console.log(
     `${e.id.padEnd(22)} ${a.earRestSource.padEnd(9)} ` +
     `${s.descentMm.toFixed(2).padStart(7)} ${s.padDepthErrorMm.toFixed(2).padStart(9)} ` +
     `${s.pantoscopicDeg.toFixed(1).padStart(6)} ${(s.padLoadFraction * 100).toFixed(0).padStart(6)}% ` +
-    `${String(s.converged).padStart(6)} ${String(fit.score).padStart(6)}`);
+    `${String(s.converged).padStart(6)}`);
 }
 
 // ---------------------------------------------------------------- the wear phase

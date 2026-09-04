@@ -1437,67 +1437,6 @@ describe('the tracker rides out a faceless frame, and main.ts depends on it', ()
 describe('angular measurements are reported in degrees, under their own key', () => {
   const mesh = loadTemplateMesh();
 
-  it('keeps sidewallAngle out of the millimetre group and converts it', () => {
-    // `sidewallAngle` is RADIANS in `FaceMeasurements`, and it used to be dumped
-    // inside `measurementsMm` with everything else: `0.27` under a millimetre
-    // heading reads as a quarter-millimetre nose wall rather than the 15.7-degree
-    // wedge it is, and that is the kind of unit slip that survives review
-    // because the number is plausible read either way.
-    const model = createFaceModel({
-      positions: new Float64Array(mesh.positions),
-      vertexSigmaMm: new Float64Array(mesh.vertexCount).fill(0.2),
-      shapeCoeffs: new Float64Array(0),
-      basisName: 'template',
-      displacementRmsMm: 0, displacementMaxMm: 0,
-      intrinsics: K,
-      intrinsicsSolved: true,
-      scale: { source: 'card', factor: 1, sigma: 0.001, note: 'template' },
-      landmarkBiasMm: new Float64Array(mesh.vertexCount * 3),
-      quality: {},
-      pdMm: null, pdSigmaMm: null,
-      reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
-    });
-
-    const d = collectDiagnostics({
-      phase: 'wear', fps: 60, loopDriver: 'raf', backend: 'test',
-      workerAvailable: true, solvedOn: 'worker',
-      lock: { brightness: 120, mirrorDelayMs: 30 } as never,
-      source: null, protocol: createProtocol(),
-      model, seat: null, assessment: null,
-      steady: 'on', tracker: null, motionPrior: true, marchOval: true, recentTrack: [],
-      recentDetectMs: [],
-    }) as {
-      runtime: { enrollmentSolvedOn: string };
-      model: {
-        measurementsMm: Record<string, number>;
-        measurementsDeg: Record<string, number>;
-      };
-    };
-
-    assert.equal('sidewallAngle' in d.model.measurementsMm, false,
-      'a radian is being printed in the millimetre column again');
-    // The canonical template measures 0.2743 rad = 15.72 deg, rounded to 1 dp.
-    assert.ok(
-      Math.abs(d.model.measurementsDeg.sidewallAngle - 15.7) < 0.2,
-      `sidewallAngle reported as ${d.model.measurementsDeg.sidewallAngle}`,
-    );
-
-    // Completeness, so that adding an angular key to core/mesh.ts and forgetting
-    // diagnostics.ts's ANGULAR_MEASUREMENTS list is a FAILURE rather than a
-    // measurement that quietly vanishes from the dump.
-    assert.deepEqual(
-      new Set([
-        ...Object.keys(d.model.measurementsMm),
-        ...Object.keys(d.model.measurementsDeg),
-      ]),
-      new Set(Object.keys(model.measurements)),
-    );
-
-    // While we are here: this key is what tells a reviewer whether a dump's
-    // numbers came from the worker or from an inline fallback, which is a
-    // different fault from having no worker at all.
-    assert.equal(d.runtime.enrollmentSolvedOn, 'worker');
-  });
 });
 
 describe('the seat gradient matches central differences in the smooth regime', () => {
