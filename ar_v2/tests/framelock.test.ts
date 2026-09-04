@@ -187,8 +187,8 @@ describe('the frame lock pairs the pixels with their own pose', () => {
     // `maxRmsPx` (14), so the app degrades to a permanent "hold steady" with no
     // hint why. **The 4:3 renegotiation is the silent one: 50.9 mm of depth
     // error at 7.59 px of residual, under every gate in the tree.** That is the
-    // shape `docs/NEXT-SESSION.md`'s A2 investigation recorded at 502 mm behind
-    // a healthy 5.2 px residual — "every gate reads green".
+    // shape this test guards: a large depth error behind a healthy residual,
+    // with every gate reading green.
     //
     // RED: delete `syncTo`, or make it resize without bumping the epoch.
     const lock = createFrameLock({ detectLongSide: 640 });
@@ -302,6 +302,25 @@ describe('the frame lock pairs the pixels with their own pose', () => {
     // would freeze on the first frame the wearer ever showed it.
     lock.measureBrightness(3);
     assert.equal(detectCtx.reads, 2, 'brightness never sampled again after the first read');
+  });
+
+  it('drops image-derived readouts when a resize replaces the canvases', () => {
+    const lock = createFrameLock({ detectLongSide: 640 });
+    lock.resize(1280, 720);
+    lock.submit(SOURCE, 1000, 1000, true);
+    lock.measureBrightness(100);
+    const detectCtx = ctxOf(lock.detect);
+    const readsBeforeResize = detectCtx.reads;
+    assert.equal(lock.brightness, 128, 'precondition: no brightness reading to invalidate');
+
+    lock.syncTo(720, 1280);
+    assert.ok(Number.isNaN(lock.brightness), 'the resized source kept the old brightness');
+    assert.equal(lock.mirrorDelayMs, 0, 'the resized source kept the old mirror delay');
+
+    lock.submit(SOURCE, 2000, 2000, true);
+    lock.measureBrightness(100);
+    assert.equal(detectCtx.reads, readsBeforeResize + 1,
+      'the old brightness sampling countdown delayed the first reading after a resize');
   });
 
   it('reads brightness off the DETECT canvas, not the full-resolution one', () => {

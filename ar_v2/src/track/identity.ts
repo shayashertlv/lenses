@@ -614,7 +614,7 @@ export function observeIdentity(
   // `IDENTITY_STRIKES - 1` per retirement, 34 qualifying frames to 42. This
   // buys the short excursion, which is the class the protocol actually
   // produces, and pays for it on the long one. The relearn window is the same
-  // door and it is still open; see `docs/NEXT-SESSION.md`.
+  // door and it remains open.
   //
   // `IDENTITY_STRIKES` rather than a constant of its own, because it is the
   // same question this module already answers there — how many consecutive

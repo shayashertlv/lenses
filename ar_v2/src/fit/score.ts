@@ -630,8 +630,8 @@ export interface RankedFrame {
  *
  * **The width channel is fixed completely and the ranking is not, and the
  * reason is a result that goes against the plan this was built from.**
- * `docs/SCALE.md` 5 and `docs/NEXT-SESSION.md` 3B both attribute the ranking's
- * scale sensitivity to this file's fixed metric target, `FRAME_TO_FACE_WIDTH`.
+ * Earlier analysis attributed the ranking's scale sensitivity to this file's
+ * fixed metric target, `FRAME_TO_FACE_WIDTH`.
  * It is not that. Measured on the five parametric TEST_FRAMES — the catalogue
  * those documents' own numbers were taken on — dropping the width measure
  * ENTIRELY changes the top-ranked-frame count not at all:
@@ -648,9 +648,8 @@ export interface RankedFrame {
  * frames land at two different somewhere-elses. That difference does not
  * cancel, so no reference frame can remove it.
  *
- * `NEXT-SESSION.md`'s gate for this change — "materially fewer than 6/50 and
- * 16/50" — is therefore **met at +-2.5% and not met at +-1%**, and cannot be
- * met at +-1% by this mechanism. What remains is the seat's own scale
+ * The material reduction is therefore **at +-2.5%, not at +-1%**, and cannot
+ * occur at +-1% by this mechanism. What remains is the seat's own scale
  * sensitivity, and the tail of it is the frames that JUMP between catching the
  * sidewall and sliding.
  *

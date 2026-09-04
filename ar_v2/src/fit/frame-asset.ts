@@ -27,7 +27,7 @@
  * makes every rotation in the seat a rotation about the wrong pivot.
  */
 
-import { type Vec3, v3, vnormalize } from '../core/linalg.js';
+import { v3, vnormalize } from '../core/linalg.js';
 
 export type DimensionSource = 'measured' | 'cad' | 'scan-normalised' | 'assumed';
 
@@ -1118,25 +1118,3 @@ const fail = (reason: string): PadDerivation => ({
   padAngleRad: NaN,
   padVerticalLeanRad: NaN,
 });
-
-function vertexNormals(positions: Float64Array, indices: Uint32Array): Float64Array {
-  const out = new Float64Array(positions.length);
-  for (let t = 0; t < indices.length; t += 3) {
-    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
-    const e1x = positions[b] - positions[a];
-    const e1y = positions[b + 1] - positions[a + 1];
-    const e1z = positions[b + 2] - positions[a + 2];
-    const e2x = positions[c] - positions[a];
-    const e2y = positions[c + 1] - positions[a + 1];
-    const e2z = positions[c + 2] - positions[a + 2];
-    const nx = e1y * e2z - e1z * e2y;
-    const ny = e1z * e2x - e1x * e2z;
-    const nz = e1x * e2y - e1y * e2x;
-    for (const v of [a, b, c]) { out[v] += nx; out[v + 1] += ny; out[v + 2] += nz; }
-  }
-  for (let i = 0; i < out.length; i += 3) {
-    const l = Math.hypot(out[i], out[i + 1], out[i + 2]) || 1;
-    out[i] /= l; out[i + 1] /= l; out[i + 2] /= l;
-  }
-  return out;
-}

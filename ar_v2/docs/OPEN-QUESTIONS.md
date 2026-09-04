@@ -30,6 +30,57 @@ Deciding needs a real pad on a real nose, which is the same measurement day
 stage 8 already needs. Until then the verdict fires more often on measured
 frames than on parametric ones, and a reader should know that is expected.
 
+## Q-new 2026-09-04 — the ENROLLMENT harness feeds itself a scan the app cannot obtain
+
+The tracking half of this class was closed on 2026-09-04: `report:track` and
+`report-occlusion`'s metric C now build their tracker through
+`track/profile.ts`'s `shippedTrackerOptions`, the same function `app/main.ts`
+calls, and both feed it the sigma and visibility the app *estimates*. Cost of
+what they had been assuming instead: median bridge error 0.989 → 1.846 mm, and
+occlusion crawl 0.080 → 0.212 mm.
+
+**The enrollment half is not closed, and it is larger.** A census of what
+`report-enroll.ts` and `report-seat.ts` hand `enroll()` against what
+`app/main.ts` hands it found four divergences, all confirmed against source:
+
+1. **The protocol asks for a different scan.** `protocol.ts`'s shipped `BEATS`
+   are seven: `centre` (goal 14 deg), `turn-right`/`turn-left` (goal 55, and
+   `reach` beats are plateau-terminated so they routinely finish below it),
+   `nod-down`/`nod-up` (9), `lean-in` (20), `lean-back` (22). **There is no
+   profile beat.** `synthetic.ts`'s `protocolBeats` produces fourteen, including
+   `profile-right`/`profile-left` to **±80 degrees** and two dwells there.
+   `docs/ARCHITECTURE.md` says plainly why that matters — at 80 degrees the nose
+   is *"a shape against the background"* — and the report's own ablation prices
+   it: nose RMS **0.91 mm on `full`, 1.31 on `no-profile`**. The app is
+   permanently nearer the second row, so the headline number describes a capture
+   no wearer has ever been asked for.
+2. **Silhouette density.** The harness supplies ~500 boundary points per frame
+   from a noise-free raster of the TRUE geometry; the browser scan supplied
+   21–27 in the first real session (`main.ts`'s `scanSilhouette`, which snaps to
+   the video's luminance edge and returns null when the contour is unusable).
+   Partly priced already — `silhouetteWeight`'s ledger row thins the harness
+   contour and finds sparsity costs about 0.08 mm of a 0.36 mm gain — but that
+   sweep was run at 85–103 points, not 21–27.
+3. **`frames[].sigmaPx` is the oracle.** The harness passes the exact per-landmark
+   sigma the synthesiser used to corrupt that landmark; the app passes
+   `shippedSigma`'s estimate. On the TRACKING side, replacing the oracle with the
+   estimate was worth 2.3× at turned yaw — the single largest term in that
+   census — and the bundle has no reason to be less sensitive to it.
+4. **`frames[].visibility` is the oracle too**, and the app additionally DROPS
+   every pre-pose frame (`main.ts` returns early when visibility is null) where
+   the harness keeps all of them.
+
+**To settle it:** the same move that closed the tracking half — a shared
+description of what the app actually sends, called by both sides. The protocol
+divergence is the one that needs a decision rather than a refactor: either the
+shipped scan gains a profile beat, or every published enrollment figure is
+re-derived on `includeProfile: false` and the `full` row is retired as an upper
+bound nobody can reach. **Do not do the second silently** — the `no-profile`
+column is already measured and already in `reports/enroll.txt`, so the honest
+interim is to quote that row as the shipped one and say why.
+
+---
+
 ## Q1 — What is the detector's actual landmark noise?
 
 **Assumed:** 0.7 px at 640 px long side, on a well-lit frontal face
@@ -220,17 +271,77 @@ default and not the shipped one; `src/app/main.ts`'s `App.smooth` comment
 carries the full history, including the stillness latch that shipped in between
 and was rejected as "stuck and choppy".
 
-The synthetic half has also moved, and it moved the other way. Re-measured
-2026-08-31 with `runTrackReport` at the campaign seeds: the filtered arm now
-wins jitter median 5/5 (0.945 mm against 1.469) and p90 5/5 (1.944 against
-2.519). "Every tuning is worse than none, on lag *and* on jitter" is no longer
-true of jitter on this tree — the filter changed (`derivativeCutoffHz` 1 → 5,
-`ROTATION_DAMPING` 0.25, and the port in `f9c9093`) while the unfiltered arm did
-not. What the filter costs is lag: 4–7× the unfiltered arm's placement error
-through the middle of the yaw sweep, and a forward-push swing of 3.97 mm against
-0.50. So Q7 is no longer "should the filter be on" — it is on — but "is this
-tuning the right trade", and that still needs a real session (Q8) plus the A/B
-against latch v2 the Steady button already carries.
+The synthetic half appeared to move the other way, and **that reversal was an
+instrument artefact. Retracted 2026-09-03.** The 2026-08-31 figures — filtered
+wins jitter median 5/5 (0.945 against 1.469) and p90 5/5 (1.944 against 2.519) —
+came from a column that computed `|got_t - got_{t-1}|`: the estimate against its
+own previous frame, with the truth `want` computed four lines above and never
+subtracted. That is the wearer's total apparent motion, not the tracker's
+error, and the synthetic wearer is not still — the postural wander moves the
+true bridge **1.328 mm/frame median across the five campaign seeds during the
+`centre` beat, which holds the angle exactly**, and two of the beats the column counted as holds ramped six
+degrees of roll. A filter that lags scores well on that by construction, and the
+column's own table said so: `average-head`, whose bridge sits 10–16 mm from
+truth, tied `v2`.
+
+**What the corrected column says.** `report:track` now differences the error
+against truth, on three lines: `crawl (all frames)`, `crawl (still beats)`
+(derived from the beat table, so a beat cannot be renamed into the window) and
+`shimmer`, the second difference, which a smooth lag cannot inflate. Still-beat
+crawl, five campaign seeds × 6 subjects × 3 cameras, median mm, swept over the
+harness's assumed landmark noise:
+
+| `noisePx` | crawl off | crawl on | error at rest, off → on | error moving, off → on |
+| --- | --- | --- | --- | --- |
+| 0.7 (the default) | 0.340 | **0.293** | 0.857 → 1.250 | 0.994 → 3.615 |
+| 1.5 | 0.670 | **0.354** | 0.957 → 1.267 | 1.132 → 3.623 |
+| 3.0 | 1.340 | **0.504** | 1.292 → 1.344 | 1.420 → 3.516 |
+| 4.0 | 1.780 | **0.678** | 1.534 → **1.421** | 1.785 → 3.670 |
+| 5.0 | 2.294 | **0.940** | 1.976 → **1.638** | 2.553 → 3.808 |
+
+**So "every tuning is worse than none" is true again at the noise this harness
+assumes, and the question has a sharper shape than it did.** At 0.7 px the
+filter buys 0.047 mm of stillness and pays 0.39 mm of placement error at rest
+and 2.6 mm in motion — the retired column hid that by inflating the benefit
+roughly tenfold. Above about 3 px the trade inverts, and by 4 px the filtered
+arm is *more accurate at rest* as well as steadier. The wearer who reported
+yaw-shaped jiggle was describing the high-noise regime; that report is now the
+only evidence the shipped `smooth: true` has, and it is not nothing — it is
+just not a measurement.
+
+**Q7 is therefore downgraded to a corollary of Q1.** One number — the real
+detector's landmark sigma — decides it in either direction, and Q1 is already
+open and already needs the same real session. The filter stays on until that
+number exists, because turning it off on a synthetic verdict whose stimulus is
+uncalibrated is the same mistake in the other direction.
+
+Two results the same run produced in passing, both new:
+
+- **`'adaptive'` is the worst of the three modes**, not the answer to the
+  yaw-shaped jiggle it was built for: 0.361 mm of crawl against the fixed
+  filter's 0.293 and 7.359 mm of moving error against 3.615, at every noise
+  level swept. Its published wander-fixture figures used the retired
+  construction.
+- **`'locked'` is bit-identical to `true` through this harness** at every
+  setting swept, because the stillness latch never engages against a head that
+  wanders 1.328 mm/frame. Nothing in this tree grades the latch.
+
+**Configuration note, 2026-09-04.** Everything above was measured before
+`report:track` ran the configuration the app boots. It now does — options come
+from `track/profile.ts`'s `shippedTrackerOptions`, and the arms are fed the
+sigma and visibility the app *estimates* rather than the synthesiser's true
+ones. The crawl and shimmer verdict on the filter survives that change (it was
+already differencing the error against truth), but the absolute numbers moved
+and the depth swing reversed direction: on the shipped configuration
+`v2` swings **2.83 mm**, `v2-no-smoothing` **3.70** and `v2-no-prior` **1.79**,
+so it is the MOTION PRIOR, not the One Euro, that costs the forward-push swing
+on this protocol. That is a new question and it belongs to the prior, not here.
+
+The remaining stimulus problem is recorded as `CaptureOptions.wanderScale`:
+the wander constant was never calibrated, the crawl verdict flips across it
+(smoothing wins 5/5 below ~0.5 and loses 0/5 above ~0.75 at the default noise),
+and it now has a knob so the sensitivity is one argument away instead of a
+recompile.
 
 ---
 

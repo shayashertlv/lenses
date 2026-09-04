@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   type Pose,
-  eulerYXZ, expSO3, invertSymmetric, ldlt, ldltSolve, logSO3, m3, m3transpose,
+  eulerYXZ, expSO3, invertSymmetric, ldlt, logSO3, m3, m3transpose,
   mat3FromEulerYXZ, m3mul, orthonormalize, poseClone, poseIdentity, poseOplus,
   rotationAngleBetween, smoothstep, solveSymmetric, v3, vlen, weightedMedian, mad, percentile,
 } from '../src/core/linalg.js';
@@ -39,7 +39,6 @@ import {
 } from '../src/fit/contact.js';
 import { emptyClosestPoint, buildMeshDistance } from '../src/core/meshdist.js';
 import { parametricFrame } from '../src/fit/frame-asset.js';
-import { createDepthBuffer, rasterize } from '../src/core/raster.js';
 import {
   createUncertainty, estimateSigma, UNCERTAINTY_DEFAULTS,
 } from '../src/detect/uncertainty.js';
@@ -56,7 +55,7 @@ import { occluderBiasedMatrix, poseToGLMatrix, poseToUnflippedMatrix } from '../
 import { FACE_TO_CAMERA_FLIP } from '../src/core/camera.js';
 import {
   BARRON_ALPHA_HIGH, BARRON_ALPHA_LOW, BARRON_VIS_HI, BARRON_VIS_LO,
-  LATCH_DRIFT_MM, LATCH_ENTER_FRAMES, LATCH_FADE_FRAMES, LATCH_VEL_WINDOW,
+  LATCH_ENTER_FRAMES, LATCH_FADE_FRAMES, LATCH_VEL_WINDOW,
   TRACKER_DEFAULTS, VF_CAL_MIN_VIS, VIS_CULL_HI, VIS_CULL_LO, createTracker, track,
 } from '../src/track/tracker.js';
 import { collectDiagnostics } from '../src/app/diagnostics.js';
@@ -1061,6 +1060,54 @@ describe('the sigma the detector reports has to be in the landmarks own pixels',
     assert.equal(sigma[0], Infinity);
     assert.ok(Number.isFinite(sigma[1]), 'one missing landmark condemned the rest');
   });
+
+  it('rebuilds its visibility raster when the source shape or camera changes', () => {
+    // The raster owns a scale back to source pixels as well as a width. Keeping
+    // it across a rotation made visibility read with the old height and scale,
+    // even though `rasterize` had begun projecting with the new camera.
+    const state = createUncertainty(mesh.vertexCount);
+    const landmarks = new Float64Array(mesh.vertexCount * 2).fill(100);
+    const pose = poseIdentity();
+    pose.t[2] = 520;
+    const wide = intrinsicsFromFov(1280, 720, 63);
+
+    estimateSigma(state, {
+      landmarks, mesh, positions: mesh.positions, intrinsics: wide, pose,
+    });
+    const before = state.buffer;
+    assert.ok(before, 'the visibility raster was not created');
+    assert.equal(before.height, 90);
+
+    const tall = intrinsicsFromFov(720, 1280, 63);
+    estimateSigma(state, {
+      landmarks, mesh, positions: mesh.positions, intrinsics: tall, pose,
+    });
+    const afterRotation = state.buffer;
+    assert.notEqual(afterRotation, before, 'a rotation reused the old visibility raster');
+    assert.equal(afterRotation!.height, 284, 'the rotated source kept the old raster height');
+    assert.equal(afterRotation!.intrinsics, tall, 'the raster retained the old camera');
+
+    // Cover an aspect-preserving renegotiation too. Its raster height is
+    // identical, and this deliberately mutates the same camera object so the
+    // scale guard — not referential inequality — must invalidate the cache.
+    tall.width *= 2; tall.height *= 2;
+    tall.f *= 2; tall.cx *= 2; tall.cy *= 2;
+    estimateSigma(state, {
+      landmarks, mesh, positions: mesh.positions, intrinsics: tall, pose,
+    });
+    const afterScale = state.buffer;
+    assert.notEqual(afterScale, afterRotation,
+      'an aspect-preserving source resize reused the old pixel-to-raster scale');
+    assert.equal(afterScale!.scale, 160 / tall.width);
+
+    const updatedCamera = { ...tall, f: tall.f * 0.95 };
+    estimateSigma(state, {
+      landmarks, mesh, positions: mesh.positions, intrinsics: updatedCamera, pose,
+    });
+    assert.notEqual(state.buffer, afterScale,
+      'a new camera at the same dimensions reused the old pixel-to-raster scale');
+    assert.equal(state.buffer!.intrinsics, updatedCamera);
+  });
 });
 
 describe("Barron's loss family — one shape parameter, checked like every jacobian here", () => {
@@ -1509,7 +1556,7 @@ describe('the seat gradient matches central differences in the smooth regime', (
         id: 'standard', padSeparationMm: 17, padAngleRad: 0.67, massG: 24,
         templeReachMm: reach,
       });
-      const prior = nominalPose(model, frame);
+      const prior = nominalPose(model);
       for (const hook of [undefined, SKIN.hookCantileverNPerMm]) {
         const opt = { ...SEAT_DEFAULTS, hookStiffnessNPerMm: hook };
 
@@ -1602,7 +1649,7 @@ describe('the seat gradient matches central differences in the smooth regime', (
       parametricFrame({ id: 'standard', padSeparationMm: 17, padAngleRad: 0.67, massG: 24 }),
       parametricFrame({ id: 'wide-pads', padSeparationMm: 22, padAngleRad: 0.67, massG: 28 }),
     ]) {
-      const prior = nominalPose(model, frame);
+      const prior = nominalPose(model);
       const opt = SEAT_DEFAULTS;
       const seat = solveSeat(model, mesh, regions, frame, {});
 

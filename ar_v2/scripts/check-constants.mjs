@@ -219,15 +219,14 @@ const missing = found.filter((c) => !EXEMPT.has(c.name) && !documented(c.name));
 /**
  * The other direction, which this gate could not see in either half.
  *
- * `docs/NEXT-SESSION.md` carried the limitation as a standing warning — "it
- * cannot see an orphaned ROW, or an orphaned EXEMPTION; sweep both by hand when
- * you delete a constant" — and a warning that asks for a manual sweep is a
- * warning that gets skipped. It had already been skipped twice: `ID1_CARD` sat
+ * A standing warning used to say it could not see an orphaned ROW or an
+ * orphaned EXEMPTION, and to sweep both by hand when deleting a constant. A
+ * warning that asks for a manual sweep gets skipped. `ID1_CARD` sat
  * in the exemption list for a constant deleted a day earlier, with the comment
  * announcing its removal two lines underneath it, and `LM_DEFAULTS` outlived
  * `core/lm.ts` entirely.
  *
- * Neither is dangerous on its own. What they are is DEAD PROVENANCE, and a
+ * Neither is dangerous on its own. What they are is dead provenance, and a
  * ledger nobody can trust to be current is a ledger nobody reads.
  *
  * A row may legitimately document a field of a bag (`SKIN.stiffnessNPerMm`), so

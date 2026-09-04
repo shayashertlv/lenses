@@ -24,9 +24,9 @@
  *
  * ## Why the worker rebuilds the model rather than receiving it
  *
- * The obvious design ships the mesh, the basis and the regions across. All
- * three are derived deterministically from one 46 KB `.obj`: the basis is
- * twenty constructed fields, the regions are Dijkstra over the same topology.
+ * The obvious design ships the mesh and basis across. Both are derived
+ * deterministically from one 46 KB `.obj`; the basis is twenty constructed
+ * fields.
  * Rebuilding them here costs about 40 ms once, at worker start, in parallel with
  * the wearer still doing the scan — and it removes an entire class of bug, which
  * is the two sides disagreeing about geometry because one of them was built from
@@ -53,7 +53,7 @@
  * reloads the page.
  */
 
-import { parseFaceObj, standardRegions, type FaceMesh, type Region } from '../core/mesh.js';
+import { parseFaceObj, type FaceMesh } from '../core/mesh.js';
 import { buildAnthropometricBasis } from '../core/shape/anthropometric.js';
 import type { ShapeBasis } from '../core/shape/basis.js';
 import { serializeFaceModel } from '../core/facemodel.js';
@@ -104,7 +104,6 @@ export type EnrollWorkerReply =
 
 let mesh: FaceMesh | null = null;
 let basis: ShapeBasis | null = null;
-let regions: Record<string, Region> | null = null;
 
 const post = (message: EnrollWorkerReply) => (self as unknown as Worker).postMessage(message);
 
@@ -119,7 +118,6 @@ self.onmessage = async (event: MessageEvent<EnrollWorkerMessage>) => {
       });
       mesh = parseFaceObj(text);
       basis = buildAnthropometricBasis(mesh);
-      regions = standardRegions(mesh);
       post({ type: 'ready', vertexCount: mesh.vertexCount, basisDim: basis.dim });
     } catch (error) {
       post({ type: 'error', id: -1, message: String((error as Error)?.message ?? error) });

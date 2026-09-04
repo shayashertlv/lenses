@@ -1,4 +1,4 @@
-[provenance] campaign source=70da8707a5d8b424 canary=6274324995583b84 body=ac5ed9cf6363c067 preamble=e3b0c44298fc1c14
+[provenance] campaign source=cfa7fcb234b187c6 canary=0e4d7e63a18ee130 body=4f8a3d4d7837aa57 preamble=e3b0c44298fc1c14
 OCCLUSION — WHAT THE SCANNED FACE HIDES, MEASURED BEFORE A PIXEL IS DRAWN
 ==========================================================================
 The renderer about to be built will use the scanned face mesh as its
@@ -166,7 +166,12 @@ METRIC C — STABILITY UNDER LIVE TRACKING
 ----------------------------------------
 A 40-frame wandering hold near 35 degrees of yaw — the capture
 machinery's own postural wander and landmark noise — tracked with the
-real tracker against the scan. Per frame: banded boundary error of the
+SHIPPED tracker configuration: One Euro smoothing, the constant-velocity
+motion prior, the rigidity map, and the sigma and visibility the app
+ESTIMATES per frame rather than the true ones the synthesiser knows.
+Until 2026-09-04 this ran `createTracker(scan)` bare -- none of those --
+and the crawl it published, 0.080 mm, was 2.6x better than the 0.212 mm
+the app actually produces. Per frame: banded boundary error of the
 scan at the TRACKED pose against truth at the TRUE pose. The crawl is
 the median frame-to-frame change of that error — the wobble the eye
 punishes. The shape-only arm re-poses the same scan with noiseless
@@ -174,9 +179,9 @@ landmarks, so tracked minus shape-only is what tracking itself costs.
 
 camera      frames  lost  tracked err mm  crawl mm (med)  crawl p90  shape-only mm
 ----------  ------  ----  --------------  --------------  ---------  -------------
-eye-level      480     0            0.55           0.085      0.176           0.31
-laptop-lid     480     0            0.45           0.079      0.114           0.31
-phone-lap      480     0            0.57           0.050      0.071           0.23
+eye-level      480     0            1.05           0.278      0.358           0.31
+laptop-lid     480     0            1.29           0.237      0.293           0.31
+phone-lap      480     0            1.26           0.238      0.313           0.23
 
   A lost frame is one the tracker refused (solve rejected or held); the
   boundary numbers are conditioned on tracking. This legend used to go on
@@ -198,8 +203,8 @@ HEADLINE — MEDIAN OF THE FIVE SEEDS, PER-SEED RANGE IN BRACKETS
   forgiven at bias 0           1.29  [0.42 .. 3.47] %
   xray at bias -0.5 mm         11.15  [9.08 .. 21.47] %
   forgiven at bias -0.5 mm     1.54  [0.47 .. 3.62] %
-  tracked boundary err (35deg) 0.87  [0.51 .. 1.13] mm
-  boundary crawl per frame     0.080  [0.072 .. 0.106] mm
+  tracked boundary err (35deg) 1.25  [1.21 .. 1.40] mm
+  boundary crawl per frame     0.212  [0.197 .. 0.297] mm
   shape-only boundary err      0.28  [0.16 .. 0.55] mm
   |pooled - true iris| bound.  0.00  [0.00 .. 0.00] mm
 
@@ -215,7 +220,10 @@ one to watch in metric B: a single X-rayed temple sample is a temple
 drawn through a cheek. The crawl is metric C's verdict on the frozen-
 scan architecture: the scan does not change between frames, so boundary
 wobble can only come from pose noise, and it should sit well under a
-native pixel-equivalent (~0.3-0.9 mm at these distances).
+native pixel-equivalent (~0.3-0.9 mm at these distances). It still does,
+with far less room than this line used to have: 0.212 mm against a
+0.3 mm floor, where the pre-2026-09-04 configuration read 0.080. The
+tracked boundary error moved with it, 0.87 -> 1.25 mm.
 
 A limitation, stated: truth here is the same 468-vertex mask topology
 as the occluder, so everything the mask can never cover — ears, hair,
@@ -224,4 +232,4 @@ Whether the renderer should hide a temple tip behind hair it has no
 geometry for is a stage-1 renderer question, not a scan-quality
 question, and no number above speaks to it.
 
-Wall clock: 53.2 s.
+Wall clock: 51.7 s.

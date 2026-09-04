@@ -154,10 +154,18 @@ export function estimateSigma(
 
   // ---- 1. self-occlusion --------------------------------------------------
   if (input.pose) {
-    const height = Math.round(
+    const height = Math.max(1, Math.round(
       (options.rasterWidth * input.intrinsics.height) / input.intrinsics.width,
-    );
-    if (!state.buffer || state.buffer.width !== options.rasterWidth) {
+    ));
+    // A depth buffer carries both its raster shape and the camera scale that
+    // turns its pixels back into image pixels. Width alone is not a cache key:
+    // a source rotation can retain the fixed width while changing height, and
+    // a camera update at the same dimensions can replace its intrinsics.
+    if (!state.buffer
+      || state.buffer.width !== options.rasterWidth
+      || state.buffer.height !== height
+      || state.buffer.scale !== options.rasterWidth / input.intrinsics.width
+      || state.buffer.intrinsics !== input.intrinsics) {
       state.buffer = createDepthBuffer(options.rasterWidth, height, input.intrinsics);
     }
     const { px, depth } = rasterize(
@@ -301,12 +309,6 @@ export function estimateSigma(
   }
 
   return { sigmaPx: sigma, visibility };
-}
-
-function median(values: number[]): number {
-  const s = [...values].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 /**

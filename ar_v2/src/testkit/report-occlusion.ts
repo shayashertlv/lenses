@@ -77,7 +77,7 @@ import {
   captureSeedFor, generatePopulation, populationSeedFor, synthesizeCapture,
 } from './synthetic.js';
 import { enroll } from '../enroll/enroll.js';
-import { createFaceModel, type FaceModel } from '../core/facemodel.js';
+import type { FaceModel } from '../core/facemodel.js';
 import { computeVertexNormals, type FaceMesh, type Region } from '../core/mesh.js';
 import { solveSeat } from '../fit/contact.js';
 import { TEST_FRAMES, type FrameAsset } from '../fit/frame-asset.js';
@@ -92,6 +92,9 @@ import {
 import { type Pose, poseClone, poseIdentity } from '../core/linalg.js';
 import { buildCorrespondences, solvePnP } from '../track/pnp.js';
 import { createTracker, track } from '../track/tracker.js';
+import { shippedSigma, shippedTrackerOptions } from '../track/profile.js';
+import { createUncertainty } from '../detect/uncertainty.js';
+import { landmarkSurface } from '../core/facemodel.js';
 import { createRng, deriveSeed } from './random.js';
 
 // --------------------------------------------------------------- the options
@@ -672,6 +675,7 @@ export interface StabilityResult {
 export function stabilityRun(
   mesh: FaceMesh, subject: SyntheticSubject, scan: FaceModel,
   seatSamplesScanSpace: Float64Array, geometry: CameraGeometry, seed: number,
+  regions: Record<string, Region>,
   frames = STABILITY_FRAMES,
 ): StabilityResult {
   const k = intrinsicsFromFov(geometry.width, geometry.height, geometry.fovDeg);
@@ -686,7 +690,18 @@ export function stabilityRun(
   for (let i = 0; i < bias.length; i++) bias[i] = rng.truncatedNormal(2.5) * 0.6;
 
   const visBuf = createDepthBuffer(192, Math.round((192 * geometry.height) / geometry.width), k);
-  const state = createTracker(scan);
+  // **The app's configuration, from the app's own module** — `app/main.ts`
+  // calls the same function. This was `createTracker(scan)`, bare, so metric C
+  // graded a tracker with no smoothing, no motion prior and no rigidity map
+  // against an app that runs all three, and the crawl figure it published
+  // ("well under a pixel") described none of them.
+  const state = createTracker(scan, shippedTrackerOptions({ mesh, regions }));
+  // And the app's per-frame uncertainty. The true sigma below is what CORRUPTS
+  // the landmarks; what the tracker is HANDED has to be an estimate, because
+  // that is all the app ever has.
+  const uncertainty = createUncertainty(mesh.vertexCount);
+  const detectorSurface = landmarkSurface(scan);
+  let previousRaw: Pose | null = null;
   const observed = new Float64Array(mesh.vertexCount * 3);
   const uv = new Float64Array(2);
   const uvPrior = new Float64Array(2);
@@ -757,7 +772,20 @@ export function stabilityRun(
       sigmaPx[i] = sigma;
     }
 
-    const result = track(state, { landmarks, sigmaPx, intrinsics: k, dt: 1 / 30 });
+    const estimated = shippedSigma({
+      state: uncertainty, landmarks, mesh, positions: detectorSurface,
+      intrinsics: k, previousPose: previousRaw,
+    });
+    const result = track(state, {
+      landmarks,
+      sigmaPx: estimated.sigmaPx,
+      visibility: estimated.visibility,
+      intrinsics: k,
+      dt: 1 / 30,
+    });
+    // `applyTracked` in `app/main.ts`, exactly: the RAW pose, dropped when the
+    // tracker drops its own.
+    previousRaw = result.rawPose ?? (state.lastRaw ? previousRaw : null);
     if (!result.tracked || !result.pose || result.held) { lost++; continue; }
 
     // The per-frame statistic is the MEAN BOUNDARY OFFSET (XOR area over
@@ -836,23 +864,6 @@ interface SeedRun {
   cells: CellFigures[];
   stability: { geometry: string; result: StabilityResult }[];
   enrollNoseNote: string;
-}
-
-function truthFaceModel(positions: Float64Array, vertexCount: number): FaceModel {
-  return createFaceModel({
-    positions: new Float64Array(positions),
-    vertexSigmaMm: new Float64Array(vertexCount).fill(0.1),
-    shapeCoeffs: new Float64Array(0),
-    basisName: 'ground-truth',
-    displacementRmsMm: 0, displacementMaxMm: 0,
-    intrinsics: { f: 600, cx: 640, cy: 360, k1: 0, width: 1280, height: 720 },
-    intrinsicsSolved: true,
-    scale: { source: 'card', factor: 1, sigma: 0.001, note: 'ground truth' },
-    landmarkBiasMm: new Float64Array(vertexCount * 3),
-    quality: {},
-    pdMm: null, pdSigmaMm: null,
-    reprojectionRmsPx: 0, framesUsed: 0, solveMs: 0, degraded: false, notes: [],
-  });
 }
 
 function scanOf(
@@ -967,6 +978,7 @@ function runSeed(
         result: stabilityRun(
           mesh, subject, scan, seatSamples, geometry,
           deriveSeed(captureSeedFor(campaignSeed) ?? 0xc0ffee, 0x0cc1 + si * 8 + CAMERA_LADDER.indexOf(geometry)),
+          regions,
         ),
       });
     }
@@ -1296,7 +1308,12 @@ export function runOcclusionReport(options: OcclusionRunOptions = {}): string {
   out.push('----------------------------------------');
   out.push(`A ${STABILITY_FRAMES}-frame wandering hold near ${STABILITY_YAW_DEG} degrees of yaw — the capture`);
   out.push('machinery\'s own postural wander and landmark noise — tracked with the');
-  out.push('real tracker against the scan. Per frame: banded boundary error of the');
+  out.push('SHIPPED tracker configuration: One Euro smoothing, the constant-velocity');
+  out.push('motion prior, the rigidity map, and the sigma and visibility the app');
+  out.push('ESTIMATES per frame rather than the true ones the synthesiser knows.');
+  out.push('Until 2026-09-04 this ran `createTracker(scan)` bare -- none of those --');
+  out.push('and the crawl it published, 0.080 mm, was 2.6x better than the 0.212 mm');
+  out.push('the app actually produces. Per frame: banded boundary error of the');
   out.push('scan at the TRACKED pose against truth at the TRUE pose. The crawl is');
   out.push('the median frame-to-frame change of that error — the wobble the eye');
   out.push('punishes. The shape-only arm re-poses the same scan with noiseless');
@@ -1366,7 +1383,10 @@ export function runOcclusionReport(options: OcclusionRunOptions = {}): string {
   out.push('drawn through a cheek. The crawl is metric C\'s verdict on the frozen-');
   out.push('scan architecture: the scan does not change between frames, so boundary');
   out.push('wobble can only come from pose noise, and it should sit well under a');
-  out.push('native pixel-equivalent (~0.3-0.9 mm at these distances).');
+  out.push('native pixel-equivalent (~0.3-0.9 mm at these distances). It still does,');
+  out.push('with far less room than this line used to have: 0.212 mm against a');
+  out.push('0.3 mm floor, where the pre-2026-09-04 configuration read 0.080. The');
+  out.push('tracked boundary error moved with it, 0.87 -> 1.25 mm.');
   out.push('');
   out.push('A limitation, stated: truth here is the same 468-vertex mask topology');
   out.push('as the occluder, so everything the mask can never cover — ears, hair,');

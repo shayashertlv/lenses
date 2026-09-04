@@ -129,15 +129,44 @@ describe('the wear branch keeps its wiring', () => {
     assert.match(text, /landmarks,\s*sigmaPx,\s*visibility,\s*intrinsics/,
       'the wear-branch track() call no longer passes visibility — the far-side cull is dead in production');
   });
+
+  it('builds its tracker from the shared profile, not from a second copy', () => {
+    // The shipped configuration used to exist ONLY as a list of arguments at
+    // one call site here. A headless module may not import `app/`, so both
+    // measurement reports re-derived that list from memory and both got it
+    // wrong — `report-track.ts` ran with no motion prior and no rigidity,
+    // `report-occlusion.ts` with no smoothing either. Measured, the difference
+    // was 0.989 -> 1.846 mm of median bridge error and 0.080 -> 0.212 mm of
+    // occlusion crawl: the published figures described a system nobody ships.
+    //
+    // The failure mode is not a wrong value, it is a SECOND COPY, so what this
+    // pins is that the app delegates rather than what it delegates to.
+    const builder = codeOf('main', 'createCurrentTracker');
+    assert.match(builder, /createTracker\(\s*model,\s*shippedTrackerOptions\(/,
+      'createCurrentTracker no longer builds its options through shippedTrackerOptions — ' +
+      'if the app hand-rolls them again, the reports in src/testkit/ are measuring ' +
+      'a different tracker and nothing will say so');
+    for (const option of ['rigidity:', 'adaptiveFloorPx:']) {
+      assert.ok(!builder.includes(option),
+        `createCurrentTracker sets ${option} itself. That option belongs to ` +
+        'track/profile.ts, which the reports also call; setting it here is how ' +
+        'the app and its instruments drift apart.');
+    }
+
+    const sigma = codeOf('main', 'onDetection');
+    assert.match(sigma, /shippedSigma\(/,
+      'the wear path no longer gets its sigma and visibility from shippedSigma — ' +
+      'the reports call it to reproduce this exact path, and a second estimator ' +
+      'here would silently give them an oracle the app does not have');
+  });
 });
 
 /**
  * One compiled function body, **with its comments removed**.
  *
  * `tsc` does not strip comments, so every docstring and `//` line in `main.ts`
- * is sitting in `dist/src/app/main.js` — which is trap 5 in
- * `docs/NEXT-SESSION.md` section 6 ("a textual gate on an English word is a
- * check that cannot fail"), and it bites in BOTH directions. The two
+ * is sitting in `dist/src/app/main.js`, so a textual gate on an English word
+ * can never establish behavior. It bites in BOTH directions. The two
  * assertions below are `doesNotMatch` on `fill(1)` and on `seat.pose`, and the
  * comments explaining why those are gone say the words `fill(1)` and
  * `seat.pose`. Written naively, both tests fail on a correct build, which is
@@ -150,7 +179,8 @@ function codeOf(file: string, fn: string): string {
   const text = readFileSync(new URL(`../src/app/${file}.js`, import.meta.url), 'utf8');
   const at = text.indexOf(`function ${fn}`);
   assert.ok(at >= 0, `${fn} has been renamed or moved out of app/${file}`);
-  const body = text.slice(at, text.indexOf('\nfunction ', at + 1));
+  const start = text.slice(Math.max(0, at - 6), at) === 'async ' ? at - 6 : at;
+  const body = text.slice(start, text.indexOf('\nfunction ', at + 1));
   return body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
 }
 
@@ -301,10 +331,50 @@ describe('the source is not a boot-time fact', () => {
       + 'applyIntrinsics - one of them leaves the render camera describing a different '
       + 'camera from the one the solve is using');
 
-    assert.match(text, /syncTo[\s\S]{0,900}?scanGen\+\+/,
-      'a shape change no longer abandons the scan in progress. `BundleFrame` carries no '
-      + 'intrinsics of its own, so frames from before and after the change describe two '
-      + 'different projections and the bundle fits one camera to both');
+    const tick = codeOf('main', 'tick');
+    assert.match(tick, /syncTo[\s\S]*?resetImageSpaceState\(app\)[\s\S]*?restartScanAfterSourceResize\(app\)/,
+      'a shape change no longer resets its image-space state and abandons every active scan');
+    const restart = codeOf('main', 'restartScanAfterSourceResize');
+    assert.match(restart, /app\.scanGen\+\+/,
+      'a size change does not invalidate an enrollment already solving in the worker');
+  });
+
+  it('makes an enrollment an immutable snapshot before it yields', () => {
+    // A camera can renegotiate while the status update yields to the browser.
+    // Reading either the collected frames or source dimensions afterwards pairs
+    // landmarks in one pixel space with a camera from another.
+    const enrollment = codeOf('main', 'runEnrollment');
+    const yieldAt = enrollment.indexOf('await new Promise');
+    const generationAt = enrollment.indexOf('const gen = app.scanGen');
+    const framesAt = enrollment.indexOf('const frames = app.collected');
+    const widthAt = enrollment.indexOf('const imageWidth = source?.width ?? 0');
+    const heightAt = enrollment.indexOf('const imageHeight = source?.height ?? 0');
+    assert.ok(generationAt >= 0 && framesAt >= 0 && widthAt >= 0 && heightAt >= 0,
+      'enrollment no longer snapshots its generation, frames, and source dimensions');
+    assert.ok(generationAt < yieldAt && framesAt < yieldAt && widthAt < yieldAt && heightAt < yieldAt,
+      'enrollment reads a scan input after yielding, where a resize can replace it');
+    assert.match(enrollment, /source\.width === imageWidth && source\.height === imageHeight/,
+      'enrollment no longer verifies its source stayed at the snapshotted dimensions');
+    assert.match(enrollment, /restartScanAfterSourceResize\(app\)/,
+      'a source-size change during the enrollment yield leaves the app in solving state');
+
+    const imageReset = codeOf('main', 'resetImageSpaceState');
+    assert.match(imageReset, /app\.snapBuffer = null/,
+      'the snap raster survives into a different image coordinate system');
+    assert.match(imageReset, /app\.uncertainty = createUncertainty/,
+      'the uncertainty visibility raster and disagreement history survive a resize');
+    assert.match(imageReset, /app\.lastPose = null/,
+      'the next camera mode warm-starts from a pose in the old pixel space');
+    assert.match(imageReset, /createCurrentTracker/,
+      'the tracker keeps a temporal state and sigma floor from the old source scale');
+
+    const raster = codeOf('main', 'snapRaster');
+    assert.match(raster, /snapBuffer\.height !== height/,
+      'the snap cache is keyed only by width and survives a source rotation');
+    assert.match(raster, /snapBuffer\.scale !== SNAP_RASTER_WIDTH \/ intrinsics\.width/,
+      'the snap cache keeps an old source-pixel scale across an aspect-preserving resize');
+    assert.match(raster, /snapBuffer\.intrinsics !== intrinsics/,
+      'the snap cache survives a camera update at the same dimensions');
   });
 });
 
@@ -540,16 +610,8 @@ describe('the render loop', () => {
 describe('forgetting the wearer forgets ALL of the wearer', () => {
   /**
    * Slices `resetPerson` out of the compiled app and runs it against a stub.
-   *
-   * The manifest above it — `PERSON_STATE` — is a `Record<keyof App, ...>`, so
-   * TypeScript already refuses to compile an `App` field nobody classified.
-   * That caught the identity watch the day it was added and it is the stronger
-   * of the two checks. What it CANNOT check is whether the reset actually does
-   * what the manifest says: a field can be classified `'person'` and never
-   * assigned, which is exactly the state `rescan` was in for seven fields.
-   *
-   * So this runs the real function over a stub app whose every person-owned
-   * field holds a recognisable sentinel, and asserts that none of them survives.
+   * Every live biometric field starts as a recognisable sentinel, then the test
+   * verifies that the production reset actually removes it.
    */
   function instantiateReset() {
     const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
@@ -583,39 +645,16 @@ return resetPerson;`,
     return { resetPerson, calls };
   }
 
-  /**
-   * Every field the manifest calls the wearer's, READ OUT OF THE MANIFEST.
-   *
-   * Not a list repeated here. A copy would drift the first time somebody
-   * classified a new field as `'person'` and forgot this file, and the drift
-   * would be silent in exactly the direction that matters — a field nobody
-   * checks is a field nobody clears. This is what v1 meant by calling its
-   * equivalent "machine-readable": the classification is data, and the test
-   * consumes it rather than restating it.
-   */
-  function personFields(): string[] {
-    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
-    const at = text.indexOf('const PERSON_STATE = {');
-    assert.ok(at >= 0, 'PERSON_STATE was renamed or removed — the reset is unreviewable');
-    const open = text.indexOf('{', at);
-    let depth = 0, end = open;
-    for (let i = open; i < text.length; i++) {
-      if (text[i] === '{') depth++;
-      else if (text[i] === '}' && --depth === 0) { end = i + 1; break; }
-    }
-    const manifest = new Function(`return ${text.slice(open, end)};`)() as Record<string, string>;
-    const fields = Object.entries(manifest)
-      .filter(([, cls]) => cls === 'person')
-      .map(([key]) => key);
-    assert.ok(fields.length >= 15,
-      `the manifest calls only ${fields.length} fields the wearer's — it has been gutted`);
-    return fields;
-  }
-
-  const PERSON_FIELDS = personFields();
+  const RESET_FIELDS = [
+    'model', 'landmarkGeometry', 'landmarkGeometryFor', 'seat', 'assessment',
+    'tracker', 'protocol', 'collected', 'snapField', 'snapFrame', 'snapBuffer',
+    'snapStats', 'trackStats', 'lastCapture', 'lastPose', 'uncertainty',
+    'knownPdMm', 'intrinsics', 'phase',
+  ] as const;
 
   function stubApp() {
     const applied: unknown[] = [];
+    const statuses: string[] = [];
     const app: any = {
       mesh: { vertexCount: 468 },
       source: { width: 1280, height: 720, kind: 'camera' },
@@ -623,43 +662,58 @@ return resetPerson;`,
       // to the device default, and until 2026-09-02 it was the one of the
       // three assignment sites that never told the camera.
       scene: { setHeadPose: () => {}, applied, applyIntrinsics: (k: unknown) => { applied.push(k); } },
-      ui: { frameNote: () => {}, status: () => {} },
+      ui: { frameNote: () => {}, status: (text: string) => statuses.push(text) },
       identity: { armed: true, reference: 7, window: [1, 2], strikes: 3, convictions: 4 },
     };
-    for (const key of PERSON_FIELDS) {
-      if (key === 'identity') continue;
-      app[key] = key === 'scanGen' ? 41 : `SENTINEL:${key}`;
-    }
+    for (const key of RESET_FIELDS) app[key] = `SENTINEL:${key}`;
+    app.scanGen = 41;
     // The choices, which must SURVIVE. A change of wearer is not a change of taste.
     app.frame = 'SENTINEL:frame';
     app.wantedFrameId = 'SENTINEL:wantedFrameId';
     app.softHook = true;
     app.meshFrames = 'SENTINEL:meshFrames';
+    app.statuses = statuses;
     return app;
   }
 
-  it("clears every field the manifest calls the wearer's", () => {
-    // RED: delete any single `app.<field> = ...` line from `resetPerson`. This
-    // is the check that would have caught `rescan` keeping `lastCapture`,
-    // `lastPose`, `uncertainty`, `intrinsics` and `knownPdMm` — five fields
-    // whose survival meant the next wearer was measured with the previous
-    // wearer's PD, warm-started from their pose, and scored against their
-    // landmark history.
+  it('clears every live biometric field for a different wearer', () => {
     const { resetPerson } = instantiateReset();
     const app = stubApp();
     resetPerson(app, 'identity');
 
-    for (const key of PERSON_FIELDS) {
-      if (key === 'identity') continue;
-      if (key === 'scanGen') {
-        assert.equal(app.scanGen, 42,
-          'scanGen must ADVANCE, not clear — a solve suspended inside enroller.run '
-          + 'compares it across the await to find out its scan was abandoned');
-        continue;
-      }
+    for (const key of RESET_FIELDS) {
       assert.notEqual(app[key], `SENTINEL:${key}`,
         `resetPerson left the previous wearer's ${key} in place`);
     }
+    assert.equal(app.scanGen, 42,
+      'scanGen must advance so a suspended enrollment cannot restore old measurements');
+  });
+
+  it('keeps a self-entered PD only for an explicit self-rescan', () => {
+    const { resetPerson } = instantiateReset();
+
+    const self = stubApp();
+    self.knownPdMm = 62.5;
+    resetPerson(self, 'rescan');
+    assert.equal(self.knownPdMm, 62.5,
+      'a self-rescan discarded the ruler it tells the wearer it will use');
+
+    const changed = stubApp();
+    changed.knownPdMm = 62.5;
+    resetPerson(changed, 'identity');
+    assert.equal(changed.knownPdMm, null,
+      'a different wearer inherited the previous wearer\'s PD');
+
+    const deleted = stubApp();
+    resetPerson(deleted, 'forget');
+    for (const key of RESET_FIELDS) {
+      assert.notEqual(deleted[key], `SENTINEL:${key}`,
+        `deletion left the live biometric ${key} behind`);
+    }
+    assert.equal(deleted.scanGen, 42,
+      'deletion did not invalidate a solve already in flight');
+    assert.equal(deleted.statuses.at(-1),
+      'measurements deleted — looking for a face to start a new scan');
   });
 
   it("keeps the wearer's CHOICES, and the watch's lifetime counters", () => {
@@ -711,5 +765,122 @@ return resetPerson;`,
     const app = stubApp();
     resetPerson(app, 'rescan');
     assert.equal(app.phase, 'acquire');
+  });
+});
+
+describe('deleting measurements clears persistent and live state together', () => {
+  it('removes every stored biometric key before it resets the live wearer', () => {
+    const events: string[] = [];
+    const forgetMeasurements = new Function(
+      'localStorage', 'STORAGE_KEY', 'LEGACY_HISTORY_KEY', 'PD_KEY', 'resetPerson',
+      `${codeOf('main', 'forgetMeasurements')}
+return forgetMeasurements;`,
+    )(
+      { removeItem: (key: string) => events.push(`remove:${key}`) },
+      'model', 'history', 'pd',
+      (_app: unknown, reason: string) => events.push(`reset:${reason}`),
+    ) as (app: unknown) => void;
+
+    forgetMeasurements({});
+    assert.deepEqual(events, [
+      'remove:model', 'remove:history', 'remove:pd', 'reset:forget',
+    ]);
+
+    assert.match(codeOf('main', 'handleAction'), /case 'forget':\s*forgetMeasurements\(app\);\s*break;/,
+      'the Delete control bypasses the reset that clears live biometric state');
+  });
+});
+
+describe('enrollment cancellation', () => {
+  it('cannot miss a reset that happens during its initial paint yield', async () => {
+    let paintScheduled = false;
+    let resumePaint: () => void = () => { throw new Error('paint was not scheduled'); };
+    let enrollmentRuns = 0;
+    const runEnrollment = new Function(
+      'setTimeout', 'console',
+      `${codeOf('main', 'runEnrollment')}
+return runEnrollment;`,
+    )(
+      (fn: () => void) => { paintScheduled = true; resumePaint = fn; return 1; },
+      { info: () => {}, error: () => {} },
+    ) as (app: any) => Promise<void>;
+
+    const app: any = {
+      phase: 'scan',
+      scanGen: 12,
+      source: { width: 1280, height: 720 },
+      collected: 'new-scan-frames',
+      ui: { status: () => {}, guide: () => {} },
+      enroller: { run: () => { enrollmentRuns++; throw new Error('must not run'); } },
+    };
+    const pending = runEnrollment(app);
+    assert.ok(paintScheduled, 'runEnrollment no longer yielded before solving');
+
+    // This is the state change `forgetMeasurements` performs through
+    // `resetPerson`: the old async call must not consume the fresh scan.
+    app.scanGen++;
+    app.phase = 'acquire';
+    resumePaint();
+    await pending;
+
+    assert.equal(enrollmentRuns, 0, 'a deleted scan still reached the enrollment worker');
+    assert.equal(app.collected, 'new-scan-frames', 'the old solve consumed fresh frames');
+    assert.equal(app.phase, 'acquire', 'the old solve overwrote the reset phase');
+  });
+});
+
+describe('detector failure handling', () => {
+  it('enters a visible error state and invalidates a pending solve', () => {
+    const events: string[] = [];
+    const stopForTrackingFailure = new Function(
+      'console',
+      `${codeOf('main', 'stopForTrackingFailure')}
+return stopForTrackingFailure;`,
+    )({ error: () => {} }) as (app: any, status: string, error?: unknown) => void;
+    const app: any = {
+      phase: 'wear',
+      scanGen: 4,
+      scene: { setHeadPose: (pose: unknown) => events.push(`pose:${pose}`) },
+      ui: {
+        guide: (step: unknown) => events.push(`guide:${step}`),
+        tracked: (tracked: boolean) => events.push(`tracked:${tracked}`),
+        status: (text: string) => events.push(`status:${text}`),
+      },
+    };
+
+    stopForTrackingFailure(app, 'face tracking stopped — reload to try again', new Error('lost GPU context'));
+    assert.equal(app.phase, 'error');
+    assert.equal(app.scanGen, 5, 'a pending enrollment can still overwrite the detector error');
+    assert.deepEqual(events, [
+      'pose:null', 'guide:null', 'tracked:false',
+      'status:face tracking stopped — reload to try again',
+    ]);
+
+    const tick = codeOf('main', 'tick');
+    assert.match(tick, /catch \(error\)\s*\{\s*stopForTrackingFailure\(app, '[^']+', error\);\s*return;/,
+      'a detector exception can escape tick and terminate the animation callback');
+    assert.match(tick, /finally\s*\{\s*app\.busy = false;/,
+      'a detector exception leaves the submission gate latched');
+  });
+});
+
+describe('query options', () => {
+  it('uses URLSearchParams for confidence and capture-card options', () => {
+    const queryParam = new Function(
+      'location',
+      `${codeOf('main', 'queryParam')}
+return queryParam;`,
+    )({ search: '?confidence=0.3&card=1&prior=off' }) as (name: string) => string | null;
+
+    assert.equal(queryParam('confidence'), '0.3');
+    assert.equal(queryParam('card'), '1');
+    assert.equal(queryParam('missing'), null);
+
+    const text = readFileSync(new URL('../src/app/main.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(text, /\u0008/, 'a literal backspace remains in URL matching');
+    assert.match(text, /const conf = Number\(queryParam\('confidence'\)\)/,
+      'confidence no longer reads its exact query parameter');
+    assert.match(codeOf('main', 'handleAction'), /card:\s*queryParam\('card'\) === '1'/,
+      'capture metadata no longer reads its exact card query parameter');
   });
 });

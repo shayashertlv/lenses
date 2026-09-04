@@ -818,9 +818,7 @@ function accumulateGlobal(
  *
  * "Sub-pixel" is the textbook argument for the approximation, not a number
  * measured here; the alternative (differentiating the contour generator) was
- * never implemented, so there is nothing to compare against. There is no
- * decision record for it either — an earlier version of this comment cited a
- * `docs/DECISIONS.md` D7 that has never existed in this repository.
+ * never implemented, so there is nothing to compare against.
  */
 function accumulateSilhouette(
   state: BundleState, opt: BundleOptions, loss: RobustLoss,

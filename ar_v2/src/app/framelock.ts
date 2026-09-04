@@ -138,6 +138,11 @@ export function createFrameLock(options: Partial<FrameLockOptions> = {}): FrameL
       captureCtx = capture.getContext('2d');
       detectCtx = detect.getContext('2d');
       displayCtx = display.getContext('2d');
+      // Both values describe pixels from the old canvases. Keep neither around
+      // until the resized detect surface has produced a frame of its own.
+      brightnessCountdown = 0;
+      lock.brightness = NaN;
+      lock.mirrorDelayMs = 0;
     },
 
     syncTo(width, height) {

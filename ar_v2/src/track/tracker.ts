@@ -85,9 +85,10 @@ export interface TrackerOptions {
   /** Below this many usable correspondences the frame is refused. */
   minCorrespondences: number;
   /**
-   * Reprojection error above which the solve is treated as failed, px —
-   * read against `RMS_PERCENTILE` of the raw residuals, so it means "a
-   * quarter of these landmarks are further off than this".
+   * Reprojection error above which the solve is treated as failed, px, scaled
+   * for the camera by `pixelGateScale` — read against `rmsPx`, which `pnp.ts`
+   * documents as **the RMS of the raw residuals with each one weighted by the
+   * robust weight the solve gave it**.
    *
    * A hard threshold, and one of the few in the tree. It is not a quality
    * judgement — it is "these landmarks do not describe this face", which happens
@@ -95,12 +96,25 @@ export interface TrackerOptions {
    * face, and the right response is to keep the previous pose rather than to
    * accept a confident fit of the wrong thing.
    *
-   * 25, re-derived when the statistic changed (see `RMS_PERCENTILE` for why
-   * it had to). Legitimate held turns measure 12.5-13.7 px all the way from
-   * 60 to 85 degrees; a cold acquisition that has locked onto a second face
-   * measures 71-89. 25 sits between them with 1.8x headroom above anything
-   * legitimate and 2.8x margin below anything wrong. The old 14 belonged to
-   * a quadratic mean and would refuse a 75-degree turn outright.
+   * **The value is 14 and the three paragraphs that used to sit here described
+   * 25.** They also cited an `RMS_PERCENTILE` that exists nowhere in this tree
+   * — the two mentions in this docstring were its only occurrences — and read
+   * the statistic as "a quarter of these landmarks are further off than this",
+   * which is a percentile and not what `pnp.ts` computes. The retired text:
+   * *"25, re-derived when the statistic changed. Legitimate held turns measure
+   * 12.5-13.7 px all the way from 60 to 85 degrees; a cold acquisition that has
+   * locked onto a second face measures 71-89. The old 14 belonged to a
+   * quadratic mean and would refuse a 75-degree turn outright."*
+   *
+   * That last sentence is the checkable one and it is false on this tree: at 14,
+   * `report:track`'s shipped arm loses **0 frames in every yaw bucket including
+   * 75 and 90 degrees**, on a robust-weighted mean that measures 3.8-4.8 px
+   * across the whole sweep. The bar sits about 3x above anything legitimate.
+   * What has never been re-measured against the current statistic is the other
+   * side — the second-face separation the 71-89 figure came from — so the
+   * headroom above is measured and the margin below is inherited. See
+   * `GATE_REFERENCE_F_PX` in the ledger, whose own second-face fixture is the
+   * place to re-derive it.
    */
   maxRmsPx: number;
   /**
@@ -155,6 +169,14 @@ export interface TrackerOptions {
    * estimate is cleaner than the filter's own time constant, the filter is only
    * adding error.
    *
+   * **That sentence described the metric correctly and the code had stopped
+   * agreeing with it.** From some point before `f9c9093` until 2026-09-03,
+   * `report-track.ts` computed its jitter column as `|got_t - got_{t-1}|` —
+   * the estimate against itself, with truth available four lines above and
+   * never subtracted — so it was NOT deviation from the head's true motion, it
+   * was total motion, and a filter earned credit for lagging. The column is
+   * fixed and this paragraph is the specification it is now written to.
+   *
    * The code, the tuning and the report all stay, because this is a synthetic
    * result: a real detector's noise may be more correlated across landmarks than
    * the model here, in which case the pose noise would be larger and the filter
@@ -163,10 +185,16 @@ export interface TrackerOptions {
    * (`app/main.ts`) — so this `false` is the
    * LIBRARY default — what tests and goldens get — and not the shipped one.
    * `report:track` overrides it too, running two of its three arms filtered.
-   * Re-measured 2026-08-31, the filtered arm now wins jitter median and p90 5/5
-   * across the campaign seeds and loses on lag. **The four-row sweep above
-   * predates all of this** (it is pre-`f9c9093`) and has never been re-run.
-   * See `docs/OPEN-QUESTIONS.md` Q7.
+   * The 2026-08-31 "filtered wins jitter 5/5" re-measurement is **retracted** —
+   * it came from the broken column described above. On the corrected column the
+   * verdict at the harness's own assumed detector noise goes back to this
+   * table's: at `noisePx` 0.7 the filter buys 0.047 mm of crawl and pays 0.39 mm
+   * of placement error at rest and 2.6 mm in motion. It turns net-positive above
+   * roughly 3 px, and the app ships it because one real wearer reported that
+   * regime. The full table and the noise sweep are in `smoothing.ts`'s header;
+   * measuring the real detector's sigma (Q1) settles it. **The four-row sweep
+   * above predates all of this** (it is pre-`f9c9093`) and has never been
+   * re-run. See `docs/OPEN-QUESTIONS.md` Q7.
    *
    * **`'adaptive'`** is the answer to what the first real wearer then reported:
    * the caveat above came true, and it came true YAW-SHAPED. Jiggle grows as
@@ -183,6 +211,16 @@ export interface TrackerOptions {
    * quiet hold 1.458 / 0.873 / 0.554 — for one extra frame of response to a
    * step turn (3 against fixed's 2 frames to 90%). `false` and `true` are
    * bit-identical to the pre-adaptive build, asserted in core.test.ts.
+   *
+   * Those adaptive figures are from the wander fixture and the retired
+   * frame-to-frame-of-the-estimate construction. Re-run through `report:track`'s
+   * corrected, truth-referenced crawl, **`'adaptive'` loses to the fixed filter
+   * on every column at every noise level swept** — 0.361 mm of crawl against
+   * 0.293, and 7.359 mm of moving error against 3.615, at `noisePx` 0.7. It is
+   * not currently the answer to the yaw-shaped jiggle; it is the worst of the
+   * three. **And `'locked'` is bit-identical to `true` through that harness**,
+   * because the latch never engages against a synthetic head that wanders
+   * 1.328 mm/frame, so nothing in this tree grades the latch.
    */
   smooth: boolean | 'adaptive' | 'locked';
   /**

@@ -31,12 +31,52 @@
  * a very light one was worse than no filter at all, on lag and on jitter both —
  * see the table on `TrackerOptions.smooth`.
  *
- * **Both halves of that have since moved.** A real detector was noisier in
- * exactly the way the caveat below predicted, so the app has run this file on
- * every frame since 2026-08-23 (latched at first, then plain); and re-measured 2026-08-31 the filtered arm now
- * WINS jitter median and p90 5/5 across the campaign seeds (0.945 against 1.469;
- * 1.944 against 2.519). What it still costs is lag. `TRACKER_DEFAULTS.smooth`
- * stays `false` as the library default so tests and goldens are unaffected.
+ * **The first half moved; the second half was an artefact and is withdrawn.** A
+ * real detector was noisier in exactly the way the caveat below predicted, so
+ * the app has run this file on every frame since 2026-08-23 (latched at first,
+ * then plain). The 2026-08-31 re-measurement that appeared to confirm it —
+ * "the filtered arm WINS jitter median and p90 5/5, 0.945 against 1.469 and
+ * 1.944 against 2.519" — **came from a broken column** and is retracted:
+ * `report-track.ts` differenced the ESTIMATE against its own previous frame
+ * instead of the error against truth, so it charged an estimator for following
+ * the wearer's own postural wander (1.328 mm/frame median, measured, during the
+ * beats that hold the angle fixed). A lagging filter wins that by construction.
+ * `TRACKER_DEFAULTS.smooth` stays `false` as the library default so tests and
+ * goldens are unaffected.
+ *
+ * ## What the corrected instrument says, 2026-09-03
+ *
+ * Truth-referenced crawl on the beats that genuinely hold still, five campaign
+ * seeds x 6 subjects x 3 cameras, median mm. The rows are the harness's assumed
+ * landmark noise, `CAPTURE_DEFAULTS.noisePx`, which **nobody has measured on a
+ * real detector** (Q1):
+ *
+ *     noisePx    crawl off   crawl on    err@rest off   on     err moving off   on
+ *     0.7          0.340       0.293        0.857      1.250       0.994       3.615
+ *     1.5          0.670       0.354        0.957      1.267       1.132       3.623
+ *     3.0          1.340       0.504        1.292      1.344       1.420       3.516
+ *     4.0          1.780       0.678        1.534      1.421       1.785       3.670
+ *     5.0          2.294       0.940        1.976      1.638       2.553       3.808
+ *
+ * **The filter's worth is a function of one unmeasured number.** At the
+ * harness's own 0.7 px it buys 0.047 mm of stillness and pays 0.39 mm of
+ * placement error at rest and 2.6 mm in motion — a bad trade that the retired
+ * column hid by inflating the benefit tenfold. Above roughly 3 px it is
+ * winning outright: by 4 px the filtered arm is more accurate AT REST as well
+ * as steadier, because the noise it removes now exceeds the lag it adds.
+ *
+ * So the four-row sweep below and this file's original "worse on both axes"
+ * verdict were **right for the noise level they were run at**, and the reason
+ * the app ships the filter anyway is that one real wearer reported the
+ * high-noise regime. Measuring the detector's actual landmark sigma decides
+ * this with a single number, in either direction. Nothing else will.
+ *
+ * Two things the same run settled in passing: `'adaptive'` is worse than the
+ * fixed filter on every column at every noise level tested (crawl 0.361
+ * against 0.293, moving error 7.359 against 3.615 at 0.7 px), and `'locked'`
+ * is **bit-identical to `true`** through this harness at every setting swept —
+ * the stillness latch never engages against a head that wanders this much, so
+ * the harness cannot currently grade it at all.
  *
  * The file stays, complete and tested, for two reasons. The measurement was
  * synthetic, and a real detector may be noisier in ways the model here does not

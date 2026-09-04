@@ -340,8 +340,8 @@ export function solveScale(input: ScaleInput): {
   // keyframe count. So the printed sigma is the HVID constant's population
   // one-sigma and nothing else, and no amount of vision work moves it.
   //
-  // `docs/SCALE.md` 2 and `docs/NEXT-SESSION.md` 3A both say it is under-reported
-  // — "prints 4.72% while its p90 implies 5.72% and its median implies 7.68%".
+  // Earlier analysis said it was under-reported — "prints 4.72% while its p90
+  // implies 5.72% and its median implies 7.68%".
   // Re-checked against the probe those came from, the claim does not survive
   // this tree's own adoption rule:
   //

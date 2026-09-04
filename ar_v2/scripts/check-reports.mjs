@@ -21,9 +21,8 @@
  *                  frames went 15/3/2/4/25 -> 0 across the board and jitter
  *                  improved 1.686 -> 1.052 mm.
  *
- * `docs/NEXT-SESSION.md` said all three were stale. Two were. The one it named
- * first was the one that was fine, which is its own argument for a gate over a
- * recollection.
+ * An earlier manual review called all three stale. Two were. The one it named
+ * first was fine, which is its own argument for a gate over recollection.
  *
  * ## What is hashed, and why it is two hashes rather than one
  *

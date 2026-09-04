@@ -22,7 +22,7 @@
  */
 
 import {
-  parseFaceObj, silhouetteStrips, standardRegions, trackingRigidity, type FaceMesh,
+  parseFaceObj, silhouetteStrips, standardRegions, type FaceMesh,
 } from '../core/mesh.js';
 import { buildAnthropometricBasis } from '../core/shape/anthropometric.js';
 import type { ShapeBasis } from '../core/shape/basis.js';
@@ -41,6 +41,7 @@ import {
 } from '../enroll/protocol.js';
 import type { BundleFrame } from '../enroll/bundle.js';
 import { createTracker, track, type TrackerState, type TrackResult } from '../track/tracker.js';
+import { shippedSigma, shippedTrackerOptions } from '../track/profile.js';
 import {
   armWearer, createIdentityWatch, forgetWearer, observeIdentity,
   type IdentityWatch,
@@ -51,9 +52,7 @@ import {
 } from '../track/snap.js';
 import { createDepthBuffer, rasterize, type DepthBuffer } from '../core/raster.js';
 import { solvePnP, buildCorrespondences } from '../track/pnp.js';
-import {
-  createUncertainty, estimateSigma, acquisitionSigma, UNCERTAINTY_DEFAULTS,
-} from '../detect/uncertainty.js';
+import { createUncertainty } from '../detect/uncertainty.js';
 import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../detect/mediapipe.js';
 import { earRestPoints, solveSeat, type SeatResult } from '../fit/contact.js';
 import { serializeCapture, type Capture } from '../enroll/telemetry.js';
@@ -211,8 +210,8 @@ interface App {
   wantedFrameId: string | null;
   protocol: ProtocolState;
   /**
-   * Which scan the app is currently on. Bumped by anything that abandons the
-   * scan in progress — today that is the rescan button.
+   * Which scan the app is currently on. Bumped by every path that abandons the
+   * active scan, so an older async solve cannot reappear afterwards.
    *
    * `runEnrollment` suspends for a second or more inside `enroller.run`, and
    * `handleAction` is free to run during that await: `case 'rescan'` REPLACES
@@ -319,6 +318,11 @@ const SCAN_MAX_RMS_PX = 22;
  */
 const asset = (path: string): string => new URL(path, document.baseURI).href;
 
+/** Reads one URL query parameter without depending on delimiter regexes. */
+function queryParam(name: string): string | null {
+  return new URLSearchParams(location.search).get(name);
+}
+
 /**
  * Fails a promise that takes too long, rather than letting it hang.
  *
@@ -369,8 +373,7 @@ async function boot(): Promise<void> {
   // different place and read as a pop. Nothing in this tree can measure that
   // — see DetectorConfidence — so it ships off and waits for a wearer who
   // sees pops to try it.
-  const confMatch = /[?&]confidence=([0-9]*\.?[0-9]+)/.exec(location.search);
-  const conf = confMatch ? Number(confMatch[1]) : NaN;
+  const conf = Number(queryParam('confidence'));
   const confidence = Number.isFinite(conf) && conf > 0 && conf < 1
     ? { detection: conf, presence: conf, tracking: conf }
     : null;
@@ -412,8 +415,8 @@ async function boot(): Promise<void> {
     trackStats: [],
     // On by default; `?prior=off` is the wearer's A/B lever. Read once at
     // boot rather than per frame, so a paste describes one arm throughout.
-    motionPrior: !/[?&]prior=off\b/.test(location.search),
-    marchOval: /[?&]march=on\b/.test(location.search),
+    motionPrior: queryParam('prior') !== 'off',
+    marchOval: queryParam('march') === 'on',
     softHook: false,
     model: null,
     landmarkGeometry: null,
@@ -592,9 +595,8 @@ async function startSource(app: App): Promise<void> {
   app.lock.nextEpoch();
   try {
     app.source = await createCameraSource({
-      onLost: () => {
-        app.ui.status('the camera went away');
-        app.phase = 'error';
+    onLost: () => {
+        stopForTrackingFailure(app, 'the camera went away — reload to try again');
       },
     });
   } catch (error) {
@@ -645,6 +647,77 @@ function adoptSourceSize(app: App, source: Source): void {
     ? intrinsicsForSource(app.model.intrinsics, width, height)
     : intrinsicsFromFov(width, height, MEDIAPIPE_ASSUMED_VERTICAL_FOV);
   app.scene.applyIntrinsics(app.intrinsics);
+}
+
+/**
+ * Builds a tracker for the current frame lock.
+ *
+ * This said "whose pixel-space options match the current frame lock" and only
+ * one of them does. `adaptiveFloorPx` is scaled by `detectToSourceScale` and is
+ * inert unless `smooth` is `'adaptive'`, which the app cannot reach;
+ * `maxSigmaPx` is not scaled at all and bounds a sigma stream whose floor IS —
+ * see the note above `shippedTrackerOptions`.
+ *
+ * **Every option comes from `shippedTrackerOptions` and none is written here.**
+ * This used to be the only place the shipped configuration existed, and a
+ * headless module cannot import `app/`, so the two measurement reports each
+ * re-derived it from memory and each got it wrong — one ran with no motion
+ * prior and no rigidity, the other with no smoothing either. See
+ * `track/profile.ts`. `tests/app.test.ts` asserts this function stays a
+ * forwarder, because the failure mode is not a wrong value, it is a second
+ * copy.
+ */
+function createCurrentTracker(app: App, model: FaceModel): TrackerState {
+  return createTracker(model, shippedTrackerOptions({
+    mesh: app.mesh,
+    regions: app.regions,
+    pixelScale: detectToSourceScale(app.lock),
+    smooth: app.smooth,
+    motionPrior: app.motionPrior,
+    ovalStrips: app.marchOval ? silhouetteStrips(app.mesh, landmarkSurface(model)) : null,
+  }));
+}
+
+/** Drops state expressed in the old image coordinate system. */
+function resetImageSpaceState(app: App): void {
+  app.lastPose = null;
+  app.uncertainty = createUncertainty(app.mesh.vertexCount);
+  app.snapBuffer = null;
+  app.snapFrame = 0;
+  app.snapStats = [0, 0, NaN];
+  app.scene.setHeadPose(null);
+
+  const model = app.model;
+  app.tracker = model ? createCurrentTracker(app, model) : null;
+  app.trackStats = [];
+
+  // Sigma is in source pixels, so an identity reference learned at the old
+  // scale cannot safely judge the first frames at the new one.
+  if (app.identity.armed) armWearer(app.identity);
+}
+
+/** Abandons a scan whose frames no longer share one camera projection. */
+function restartScanAfterSourceResize(app: App): void {
+  app.scanGen++;
+  app.collected = [];
+  app.lastCapture = null;
+  app.protocol = createProtocol();
+  app.phase = 'acquire';
+  app.ui.guide(null);
+  app.ui.status('the camera changed size — starting the scan again');
+}
+
+/** Stops safely when tracking can no longer continue. */
+function stopForTrackingFailure(app: App, status: string, error?: unknown): void {
+  if (error !== undefined) console.error('face detector failed; stopping AR session', error);
+  // A solve may still be awaiting the enrollment worker. It must not adopt or
+  // persist a model after this session has entered an error state.
+  app.scanGen++;
+  app.phase = 'error';
+  app.scene.setHeadPose(null);
+  app.ui.guide(null);
+  app.ui.tracked(false);
+  app.ui.status(status);
 }
 
 /**
@@ -699,18 +772,15 @@ function tick(app: App, nowMs: number): void {
   // returns false when nothing moved, so the common path is two comparisons.
   if (app.lock.syncTo(app.source.width, app.source.height)) {
     adoptSourceSize(app, app.source);
+    resetImageSpaceState(app);
     // **A scan in progress cannot survive this.** `BundleFrame` carries no
     // intrinsics of its own — `solveBundle` fits ONE camera to every frame it
     // is given — so frames from before and after the change describe two
     // different projections and the solve would split the difference. Bumping
     // `scanGen` is what makes an in-flight `runEnrollment` continuation know
     // its scan is no longer the scan the app is on.
-    if (app.phase === 'scan' || app.phase === 'acquire') {
-      app.scanGen++;
-      app.collected = [];
-      app.protocol = createProtocol();
-      app.phase = 'acquire';
-      app.ui.status('the camera changed size — starting the scan again');
+    if (app.phase === 'scan' || app.phase === 'acquire' || app.phase === 'solving') {
+      restartScanAfterSourceResize(app);
     }
   }
 
@@ -749,6 +819,9 @@ function tick(app: App, nowMs: number): void {
       result = app.detector.detect(
         app.lock.detect, frame.timestampMs, app.lock.detect.width, app.lock.detect.height,
       );
+    } catch (error) {
+      stopForTrackingFailure(app, 'face tracking stopped — reload to try again', error);
+      return;
     } finally {
       app.busy = false;
     }
@@ -857,18 +930,16 @@ function onDetection(
   // seen in too few frames could never fire.
   //
   // Every test passed the synthesizer's true visibility, so nothing caught it.
-  const { sigmaPx, visibility } = app.lastPose
-    ? estimateSigma(app.uncertainty, {
-      landmarks, mesh: app.mesh, positions: geometry,
-      intrinsics: app.intrinsics, pose: app.lastPose,
-      // `landmarks` above were just scaled up to source pixels; `floorPx` is
-      // calibrated at the detect resolution. Without this the sigma is half
-      // what it should be and the bundle trusts it four times too much.
-      pixelScale: scale,
-    })
-    // Before the first pose there is nothing to rasterise against, so nothing is
-    // known to be hidden. `null` rather than a confident `fill(1)`.
-    : { sigmaPx: acquisitionSigma(app.mesh.vertexCount, { floorPx: UNCERTAINTY_DEFAULTS.floorPx * scale }), visibility: null };
+  //
+  // Both branches — the estimate against the previous pose, and the
+  // acquisition floor before there is one — live in `shippedSigma` so the
+  // harness can run this exact path rather than feeding itself the
+  // synthesiser's true sigma, which is an oracle the app does not have.
+  const { sigmaPx, visibility } = shippedSigma({
+    state: app.uncertainty,
+    landmarks, mesh: app.mesh, positions: geometry,
+    intrinsics: app.intrinsics, previousPose: app.lastPose, pixelScale: scale,
+  });
 
   switch (app.phase) {
     case 'acquire':
@@ -1034,6 +1105,23 @@ function applyTracked(
  * move, the edge of the glasses will").
  */
 const SNAP_MONITOR_STRIDE = 8;
+const SNAP_RASTER_WIDTH = 224;
+
+/** Returns a snap raster keyed by its complete image-space geometry. */
+function snapRaster(app: App, intrinsics: Intrinsics): DepthBuffer {
+  const height = Math.max(1, Math.round(
+    (SNAP_RASTER_WIDTH * intrinsics.height) / intrinsics.width,
+  ));
+  if (!app.snapBuffer
+    || app.snapBuffer.width !== SNAP_RASTER_WIDTH
+    || app.snapBuffer.height !== height
+    || app.snapBuffer.scale !== SNAP_RASTER_WIDTH / intrinsics.width
+    || app.snapBuffer.intrinsics !== intrinsics) {
+    app.snapBuffer = createDepthBuffer(SNAP_RASTER_WIDTH, height, intrinsics);
+  }
+  return app.snapBuffer;
+}
+
 function runEdgeSnap(app: App, pose: Pose, dt: number): void {
   if (!app.edgeSnap || !app.model || app.phase !== 'wear') return;
   const V = app.mesh.vertexCount;
@@ -1050,11 +1138,9 @@ function runEdgeSnap(app: App, pose: Pose, dt: number): void {
   }
 
   const k = app.intrinsics;
-  if (!app.snapBuffer || app.snapBuffer.width !== 224) {
-    app.snapBuffer = createDepthBuffer(224, Math.round((224 * k.height) / k.width), k);
-  }
-  rasterize(app.snapBuffer, app.model.positions, app.mesh.indices, V, pose, k);
-  const contour = occludingContour(app.snapBuffer, { jumpMm: 6, stride: 2 });
+  const buffer = snapRaster(app, k);
+  rasterize(buffer, app.model.positions, app.mesh.indices, V, pose, k);
+  const contour = occludingContour(buffer, { jumpMm: 6, stride: 2 });
 
   if (contour.length >= 8) {
     const lum = contourLuminance(app, contour, k.width);
@@ -1204,11 +1290,9 @@ function contourLuminance(
 function scanSilhouette(app: App, pose: Pose): Float64Array | null {
   const k = app.intrinsics;
   const V = app.mesh.vertexCount;
-  if (!app.snapBuffer || app.snapBuffer.width !== 224) {
-    app.snapBuffer = createDepthBuffer(224, Math.round((224 * k.height) / k.width), k);
-  }
-  rasterize(app.snapBuffer, app.mesh.positions, app.mesh.indices, V, pose, k);
-  const contour = occludingContour(app.snapBuffer, { jumpMm: 6, stride: 1 });
+  const buffer = snapRaster(app, k);
+  rasterize(buffer, app.mesh.positions, app.mesh.indices, V, pose, k);
+  const contour = occludingContour(buffer, { jumpMm: 6, stride: 1 });
   if (contour.length < 8) return null;
   const lum = contourLuminance(app, contour, k.width);
   if (!lum) return null;
@@ -1282,6 +1366,18 @@ function collectFrame(
 }
 
 async function runEnrollment(app: App): Promise<void> {
+  // Capture this before yielding. A reset can run while the status message is
+  // painting; recording the generation afterwards would make that abandoned
+  // solve look current.
+  const gen = app.scanGen;
+  // The worker receives one coherent scan: its frames, camera and scale all
+  // belong to this instant. None may be re-read after the paint yield, when a
+  // camera renegotiation or a reset can already have replaced them.
+  const frames = app.collected;
+  const source = app.source;
+  const imageWidth = source?.width ?? 0;
+  const imageHeight = source?.height ?? 0;
+  const knownPdMm = app.knownPdMm;
   app.phase = 'solving';
   app.ui.status('working out your measurements…');
   app.ui.guide(null);
@@ -1296,15 +1392,22 @@ async function runEnrollment(app: App): Promise<void> {
   // writing the comment explaining that rAF can be dead.
   await new Promise((r) => setTimeout(r, 0));
 
-  // The scan this call is solving. Every resumption point below re-reads
-  // `app.scanGen` and gives up if the wearer has started again in the
-  // meantime — see `App.scanGen` for what the unguarded version did.
-  const gen = app.scanGen;
+  // Every resumption point below re-reads `app.scanGen` and gives up if the
+  // scan was abandoned in the meantime — see `App.scanGen` for what the
+  // unguarded version did.
   const superseded = (): boolean => {
-    if (gen === app.scanGen) return false;
-    console.info('[enroll] discarding a solve for a scan the wearer restarted');
+    if (gen !== app.scanGen) {
+      console.info('[enroll] discarding a solve for a scan that is no longer current');
+      return true;
+    }
+    if (source && app.source === source && imageWidth > 0 && imageHeight > 0
+      && source.width === imageWidth && source.height === imageHeight) return false;
+    console.info('[enroll] discarding a solve after its source changed size');
+    restartScanAfterSourceResize(app);
     return true;
   };
+
+  if (superseded()) return;
 
   try {
     // Off the main thread when a worker is available, which is the normal case.
@@ -1312,20 +1415,18 @@ async function runEnrollment(app: App): Promise<void> {
     // them — dropped explicitly here rather than by the handoff, both to release
     // the memory and because the enrollment client's fallback needs them intact
     // if the worker dies.
-    const frames = app.collected;
     app.collected = [];
-    // Held for `save-capture`. The bundle is about to consume these and nothing
-    // else keeps them; a wearer who has just been scanned is exactly the person
-    // who can be asked whether to keep the capture.
-    app.lastCapture = frames;
     const result = await app.enroller.run({
       frames,
-      imageWidth: app.source!.width,
-      imageHeight: app.source!.height,
-      knownPdMm: app.knownPdMm,
+      imageWidth,
+      imageHeight,
+      knownPdMm,
     });
     console.info('[enroll] coverage', result.coverage, summarise(app.protocol), `on the ${result.ranOn} thread`);
     if (superseded()) return;
+    // Held for `save-capture` only after this exact solve has succeeded. A
+    // source resize must never leave an abandoned frame set downloadable.
+    app.lastCapture = frames;
     // Attach the scan BEFORE adopting or storing, so the record travels with the
     // model into localStorage and comes back on the next page load. Reading the
     // live protocol at diagnostics time instead is what produced a real dump
@@ -1368,139 +1469,20 @@ async function runEnrollment(app: App): Promise<void> {
 }
 
 /**
- * Which class of state each field of `App` belongs to.
- *
- * **This exists because `rescan` was already wrong, and nothing could tell.**
- * The reset was written by hand, field by field, and it cleared eleven of the
- * roughly eighteen person-derived fields. The seven it missed were not obscure:
- *
- *   - `lastCapture` — the PREVIOUS wearer's raw landmark frames, 1.8-3.6 MB of
- *     them, which **Save this scan** then writes to disk under the NEW wearer's
- *     PD. One person's biometrics in a file labelled with another's.
- *   - `knownPdMm` — person A's typed PD becomes the absolute ruler the next
- *     bundle scales person B's whole face by.
- *   - `intrinsics` — if A completed the lean beat, B's entire scan runs on A's
- *     solved focal length.
- *   - `lastPose` — warm-starts B's first PnP from A's pose, and gates whether
- *     `estimateSigma` runs at all.
- *   - `uncertainty` — its per-landmark disagreement EMA holds A's landmarks, so
- *     B's first frames are scored against a shape difference. Measured on two
- *     synthetic subjects: median disagreement 0.33 px -> 1.49 px on the swap
- *     frame, max 0.35 -> 4.41, decaying over about 15 frames. Those numbers are
- *     the sigmas the bundle weights by.
- *   - `trackStats`, `snapStats` — the previous face's instrument readings.
- *
- * A hand-written reset cannot be reviewed against a growing interface, so the
- * classification is data and `tests/app.test.ts` asserts that **every key of
- * `App` appears here exactly once**. Add a field and forget it, and the test
- * goes red naming the field. That is the check; the reset below is just a loop.
- *
- * v1 had the same idea and called it `PER_SESSION_STATE`. Its shape is worth
- * keeping: the classes are about WHO a field belongs to, not about when it
- * happens to be convenient to clear it.
- *
- *   'person'  belongs to the wearer. Cleared by a rescan AND by an identity
- *             change. If in doubt, a field goes here — clearing something
- *             person-independent costs a recompute; keeping something
- *             person-derived is the bug this manifest exists to stop.
- *   'app'     belongs to the session, the device or the wearer's CHOICES.
- *             Survives both. A change of wearer is not a change of taste, and
- *             the loop's own clocks are statements about frames, not people.
- *   'never'   immutable for the life of the page — the template, the renderer,
- *             the detector, the DOM.
- */
-type StateClass = 'person' | 'app' | 'never';
-
-const PERSON_STATE: Readonly<Record<keyof App, StateClass>> = {
-  // ---- the wearer -------------------------------------------------------
-  model: 'person',
-  // Derived from `model`, so the wearer's by construction. The identity memo in
-  // `detectorGeometry` would rebuild them anyway; they are classified here so a
-  // rescan cannot leave the previous face's detector surface behind, and so the
-  // manifest stays a complete statement about who owns what.
-  landmarkGeometry: 'person',
-  landmarkGeometryFor: 'person',
-  seat: 'person',
-  assessment: 'person',
-  tracker: 'person',
-  protocol: 'person',
-  collected: 'person',
-  snapField: 'person',
-  snapFrame: 'person',
-  snapBuffer: 'person',
-  snapStats: 'person',
-  trackStats: 'person',
-  lastCapture: 'person',
-  lastPose: 'person',
-  uncertainty: 'person',
-  knownPdMm: 'person',
-  // Person-owned, but reset through `forgetWearer` rather than by replacement:
-  // the reference and the streak go, the LIFETIME COUNTERS stay. A counter that
-  // resets with the thing it counts cannot report the reset, and `convictions`
-  // is the only way a paste from a live session says whether this mechanism has
-  // ever fired.
-  identity: 'person',
-  // Camera geometry is a property of the DEVICE, but `adoptModel` overwrites it
-  // with the scan's SOLVED value, at which point the number in this field is a
-  // thing measured about one wearer's session. It reverts to the device default
-  // rather than to nothing.
-  intrinsics: 'person',
-  // The phase machine is where the reset lands, so it is person-owned by
-  // definition: no wearer, no `wear`.
-  phase: 'person',
-  // The anti-resurrection counter. Person-owned because it must ADVANCE on
-  // every reset — a solve suspended inside `enroller.run` compares it across
-  // the await to find out that the scan it is solving is no longer the scan the
-  // app is on. It increments rather than zeroing; see `App.scanGen`.
-  scanGen: 'person',
-
-  // ---- the session, the device, and the wearer's choices ----------------
-  frame: 'app',            // which glasses. A new wearer keeps the same pair on screen.
-  wantedFrameId: 'app',
-  meshFrames: 'app',       // loaded assets; person-independent, and expensive
-  softHook: 'app',         // an A/B toggle
-  smooth: 'app',
-  edgeSnap: 'app',
-  motionPrior: 'app',
-  marchOval: 'app',
-  source: 'app',           // the camera; a source switch has its own path
-  busy: 'app',
-  fps: 'app',
-  lastRenderMs: 'app',
-  loopDriver: 'app',
-  detectMs: 'app',
-  warnedRunaway: 'app',
-
-  // ---- fixed for the life of the page -----------------------------------
-  mesh: 'never',
-  basis: 'never',
-  regions: 'never',
-  scene: 'never',
-  lock: 'never',
-  ui: 'never',
-  detector: 'never',
-  enroller: 'never',
-};
-
-
-/**
  * Forgets the wearer. The single reset, used by every path that has one.
  *
- * Two callers, and they must not drift: the **Scan again** button, and an
- * identity change convicted by `track/identity.ts`. They differ in exactly one
- * thing — whether the wearer asked — and that difference belongs in the message,
- * not in two hand-written lists of assignments.
+ * Three callers share this reset: **Scan again**, an identity change convicted
+ * by `track/identity.ts`, and **Delete my measurements**. They differ only in
+ * their storage policy and message, not in which live biometric state is reset.
  *
- * Everything `PERSON_STATE` calls the wearer's is cleared here, and the manifest
- * is what makes that reviewable. `tests/app.test.ts` asserts the two agree.
+ * The reset is intentionally explicit: every live face-derived value is cleared
+ * here, and the behavioral checks in `tests/app.test.ts` cover the contract.
  *
  * **What is deliberately NOT touched, and why each:**
  *
- *  - `localStorage`. A different person walking into the room is not a reason to
- *    destroy the first person's saved scan. `rescan` removes the stored model
- *    itself, before calling this, because a wearer who asked to start again has
- *    said what they want; an identity change has not. "Delete my measurements"
- *    is the control for that, and it is the only one.
+ *  - `localStorage`. An identity change does not destroy a saved scan. A
+ *    self-rescan removes the stored model before calling this; deletion removes
+ *    every biometric key before calling this.
  *  - `app.frame` and `wantedFrameId`. A change of wearer is not a change of
  *    taste — v1's phrase, and it is right. The glasses stay chosen.
  *  - The pose filter's level, the loop's clocks, the frame lock. Those are
@@ -1510,7 +1492,7 @@ const PERSON_STATE: Readonly<Record<keyof App, StateClass>> = {
  *    reference and the streak and keeps `convictions`, because a counter that
  *    resets with the thing it counts cannot report the reset.
  */
-function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
+function resetPerson(app: App, reason: 'rescan' | 'identity' | 'forget'): void {
   // FIRST, before anything below is overwritten. A solve may be suspended
   // inside `enroller.run` right now and its continuation is about to resume
   // against exactly this state; comparing the counter across the await is what
@@ -1545,9 +1527,9 @@ function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
   // Its per-landmark disagreement EMA is a memory of the previous face's
   // landmarks; on the first frames after a swap every residual reads as noise.
   app.uncertainty = createUncertainty(app.mesh.vertexCount);
-  // Person A's typed PD is not person B's ruler. The stored value is left alone
-  // — this clears the one in play, and the wearer is told.
-  app.knownPdMm = null;
+  // A self-rescan is still the same wearer, so their explicitly entered ruler
+  // remains in use. A different face or an explicit deletion clears it.
+  if (reason !== 'rescan') app.knownPdMm = null;
   // Back to the device default rather than to nothing: `adoptModel` replaced
   // this with the scan's SOLVED focal length, which belongs to that session.
   // The device's own default, from the live source's dimensions — not the
@@ -1579,7 +1561,9 @@ function resetPerson(app: App, reason: 'rescan' | 'identity'): void {
   app.ui.frameNote('');
   app.ui.status(reason === 'rescan'
     ? 'starting again'
-    : 'this looks like a different face — measuring again');
+    : reason === 'identity'
+      ? 'this looks like a different face — measuring again'
+      : 'measurements deleted — looking for a face to start a new scan');
   refreshFaceControls(app);
 }
 
@@ -1657,26 +1641,7 @@ function adoptModel(app: App, model: FaceModel): void {
   app.snapField = null;
   app.snapFrame = 0;
   app.snapBuffer = null;
-  // The same floor rule as the Steady handler, and it must stay the same:
-  // the sigma stream this app feeds track() is in SOURCE pixels, so the
-  // adaptive floor scales by the same factor. Dormant while 'adaptive' sits
-  // outside the Steady cycle, but a tracker built here with the detect-
-  // resolution floor would read every clean frame as ~2x noise the day that
-  // mode returns — the two creation sites disagreeing is the actual bug.
-  app.tracker = createTracker(model, {
-    smooth: app.smooth,
-    adaptiveFloorPx: UNCERTAINTY_DEFAULTS.floorPx * detectToSourceScale(app.lock),
-    // The eye region may not vote on the pose: MediaPipe deforms it with
-    // gaze, and the wearer's eyes must not steer their glasses.
-    rigidity: trackingRigidity(app.mesh, app.regions),
-    motionPrior: app.motionPrior,
-    // The oval landmarks track a sliding contour, not a fixed point - built
-    // from THIS wearer's solved geometry, so the strips describe their face.
-    // From the DETECTOR's surface, not the skin one: a strip's candidates are
-    // matched against the detector's oval landmarks. Identical while the bias
-    // is zero. See `landmarkSurface`.
-    ovalStrips: app.marchOval ? silhouetteStrips(app.mesh, landmarkSurface(model)) : null,
-  });
+  app.tracker = createCurrentTracker(app, model);
   // A new tracker starts its counters at zero; the readout ring must start
   // with it, or the diagnostics 'recent' block describes frames a different
   // tracker produced.
@@ -1965,6 +1930,14 @@ function frameSanityTripwire(app: App, frame: FrameAsset): void {
   }
 }
 
+/** Removes every persisted biometric record, then clears this live session too. */
+function forgetMeasurements(app: App): void {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_HISTORY_KEY);
+  localStorage.removeItem(PD_KEY);
+  resetPerson(app, 'forget');
+}
+
 function handleAction(app: App, action: string): void {
   switch (action) {
     case 'set-pd': {
@@ -2035,17 +2008,7 @@ function handleAction(app: App, action: string): void {
       // at rest, velocity-gated release through a short crossfade — layered
       // on the fixed filter the same wearer judged acceptable while moving.
       app.smooth = app.smooth === false ? true : app.smooth === true ? 'locked' : false;
-      const scale = detectToSourceScale(app.lock);
-      app.tracker = createTracker(app.model, {
-        smooth: app.smooth,
-        // The sigma stream main feeds track() is in SOURCE pixels; the floor
-        // must be too, or every clean frame reads as 2x noise.
-        adaptiveFloorPx: UNCERTAINTY_DEFAULTS.floorPx * scale,
-        rigidity: trackingRigidity(app.mesh, app.regions),
-        motionPrior: app.motionPrior,
-        ovalStrips: app.marchOval && app.model
-          ? silhouetteStrips(app.mesh, landmarkSurface(app.model)) : null,
-      });
+      app.tracker = createCurrentTracker(app, app.model);
       // The A/B instrument must not mix modes: a paste taken minutes into
       // 'locked' with 'on' frames still in the ring would judge one mode by
       // the other's numbers.
@@ -2155,7 +2118,7 @@ function handleAction(app: App, action: string): void {
           // a telemetry field and nothing more: the card ruler was removed on
           // 2026-08-25 and the method rejected, so there is no estimator to
           // feed. See `enroll/telemetry.ts` and `docs/SCALE.md`.
-          card: /[?&]card=1/.test(location.search),
+          card: queryParam('card') === '1',
           note: `${app.source?.label ?? 'unknown source'}; ${summarise(app.protocol)}`,
           frames: app.lastCapture.length,
         },
@@ -2180,11 +2143,7 @@ function handleAction(app: App, action: string): void {
       break;
     }
     case 'forget':
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(LEGACY_HISTORY_KEY);
-      localStorage.removeItem(PD_KEY);
-      app.knownPdMm = null;
-      app.ui.status('your measurements have been deleted from this device');
+      forgetMeasurements(app);
       break;
     default:
       if (action.startsWith('frame:')) {

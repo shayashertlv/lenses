@@ -26,18 +26,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBasis, loadRegions, loadTemplateMesh } from '../src/testkit/fixtures.js';
 import {
-  CAMERA_LADDER, PLAUSIBLE, assertDistinctNoiseStreams, captureSeedFor,
-  generatePopulation, lastRejectionCount, populationSeedFor,
+  CAMERA_LADDER, CAPTURE_DEFAULTS, PLAUSIBLE, assertDistinctNoiseStreams, captureSeedFor,
+  generatePopulation, lastRejectionCount, populationSeedFor, protocolBeats,
   subjectResidualAgainstBasis, synthesizeCapture,
 } from '../src/testkit/synthetic.js';
+import { runTrackReport } from '../src/testkit/report-track.js';
+import { shippedTrackerOptions } from '../src/track/profile.js';
 import { acrossSeeds, compareToTruth, distribution, table } from '../src/testkit/metrics.js';
 import { measure, standardRegions, trackingRigidity } from '../src/core/mesh.js';
 import { basisExplains } from '../src/core/shape/anthropometric.js';
 import { evaluateBasis } from '../src/core/shape/basis.js';
 import { createRng } from '../src/testkit/random.js';
-import {
-  createDisplacementField, displacementStats, refreshNormals,
-} from '../src/core/shape/displacement.js';
+import { createDisplacementField } from '../src/core/shape/displacement.js';
 import { enroll } from '../src/enroll/enroll.js';
 import { createBundleState, landmarkRigidity, runBundle } from '../src/enroll/bundle.js';
 import { assessCoverage, selectKeyframes } from '../src/enroll/keyframes.js';
@@ -50,17 +50,15 @@ import {
   createFaceModel, type FaceModel, type ScaleEstimate,
 } from '../src/core/facemodel.js';
 import {
-  PAD_CURVATURE_LIMIT_MM, SEAT_DEFAULTS, SKIN, energyTerms, landmarkHungPose, solveSeat,
+  PAD_CURVATURE_LIMIT_MM, SEAT_DEFAULTS, energyTerms, landmarkHungPose, solveSeat,
 } from '../src/fit/contact.js';
 import { perVertexUncertainty } from '../src/enroll/enroll.js';
 import { LM } from '../src/core/mesh.js';
 import { noseConfidence } from '../src/core/facemodel.js';
-import { buildMeshDistance, emptyClosestPoint } from '../src/core/meshdist.js';
+import { buildMeshDistance } from '../src/core/meshdist.js';
 import {
-  intrinsicsFromFov, pointAtDepth, poseRotationFromHeadEuler, project,
-  type Intrinsics,
+  intrinsicsFromFov, poseRotationFromHeadEuler, project,
 } from '../src/core/camera.js';
-import { createDepthBuffer, rasterize } from '../src/core/raster.js';
 import { poseClone, poseIdentity, type Pose } from '../src/core/linalg.js';
 import {
   GRAVITY_N_PER_G, TEST_FRAMES, derivePads, parametricFrame, type FrameAsset,
@@ -855,11 +853,11 @@ describe('enrollment', () => {
       for (let q = 0; q < 40; q++) {
         const qx = rng.range(200, 1080), qy = rng.range(60, 660);
         // Brute force: nearest within the radius, or none.
-        let bestSq = radius * radius, bx = 0, by = 0, found = false;
+        let bestSq = radius * radius, found = false;
         for (let i = 0; i < n; i++) {
           const dx = pts[i * 2] - qx, dy = pts[i * 2 + 1] - qy;
           const sq = dx * dx + dy * dy;
-          if (sq <= bestSq) { bestSq = sq; bx = pts[i * 2]; by = pts[i * 2 + 1]; found = true; }
+          if (sq <= bestSq) { bestSq = sq; found = true; }
         }
         const got = grid.nearestSilhouette(index, qx, qy);
         assert.equal(got !== null, found,
@@ -3916,6 +3914,128 @@ describe('the eye-corner reference plane (Q24)', () => {
       `worst per-subject eye-corner depth error ${d.worst.toFixed(3)} mm ` +
       '(fixture record: 0.459) — one subject\'s corner plane came out badly, which the ' +
       'Q24 settlement population never showed',
+    );
+  });
+});
+
+describe('the tracking instrument', () => {
+  // `report:track`'s crawl and shimmer lines are the only synthetic evidence
+  // anything in this tree has about pose SMOOTHING, and for most of the build
+  // they were measuring the wrong quantity: the column differenced the
+  // ESTIMATE against its own previous frame — `|got_t - got_{t-1}|` — with the
+  // truth `want` computed four lines above and never subtracted. That is only
+  // the shimmer a wearer sees if the head is still, and the synthetic head is
+  // not still: the postural wander runs an AR(1) velocity that moves the true
+  // bridge 1.328 mm/frame median during the beats that hold the ANGLE fixed.
+  //
+  // So the column paid an estimator for FAILING TO FOLLOW REAL MOTION, and a
+  // lagging filter won it. These two tests pin the property that makes the
+  // metric a measurement: it is referenced to truth, so how fast the wearer
+  // moves does not change what a good estimator scores.
+
+  it('the still beats are the beats that actually hold still', () => {
+    // The retired column called the two `profile-hold-*` beats holds. They ramp
+    // [80,2,3] -> [82,-2,-3]: two degrees of yaw, four of pitch and six of ROLL
+    // across ten frames, which at 80 degrees of yaw put a floor of
+    // 0.704 mm/frame of true bridge motion into the one window that was supposed
+    // to have none. They are `profile-dwell-*` now. The report derives its
+    // still set from this table rather than naming beats; this keeps any future
+    // beat from re-acquiring a name it does not deserve.
+    const beats = protocolBeats(CAPTURE_DEFAULTS);
+    const still = beats.filter((b) => b.from.every((v, i) => v === b.to[i])
+      && (b.distanceFrom ?? 1) === (b.distanceTo ?? 1));
+
+    assert.ok(still.length > 0, 'no beat holds a pose — the still-beat window is empty');
+    for (const b of beats) {
+      if (!/hold/.test(b.name)) continue;
+      assert.ok(
+        still.some((x) => x.name === b.name),
+        `beat "${b.name}" is named a hold but moves ${b.from} -> ${b.to}. Either ` +
+        'stop calling it a hold or stop moving it — a window named for stillness ' +
+        'that contains a six-degree roll ramp is how the jitter column came to ' +
+        'reward a filter for lagging.',
+      );
+    }
+  });
+
+  it('both reports build their tracker from the shared shipped profile', () => {
+    // The other half of the pin in `tests/app.test.ts`. That one says the APP
+    // delegates; this one says the INSTRUMENTS do. Either alone leaves the
+    // drift this closed available again: until 2026-09-04 `report-track.ts`
+    // ran with no motion prior and no rigidity map and `report-occlusion.ts`
+    // with no smoothing either, so the published tracking and crawl figures
+    // described a configuration the app has never booted.
+    //
+    // The contract first, so the source check below is not the only thing
+    // holding it: whatever the profile returns must not be the library
+    // defaults, or delegating to it would mean nothing.
+    const options = shippedTrackerOptions({ mesh, regions });
+    assert.equal(options.smooth, true, 'the profile no longer smooths — the app boots smooth: true');
+    assert.equal(options.motionPrior, true, 'the profile no longer runs the motion prior — the app boots it on');
+    assert.ok(options.rigidity, 'the profile returns a null rigidity map — every lid landmark votes at full weight');
+    assert.deepEqual(
+      Array.from(options.rigidity), Array.from(trackingRigidity(mesh, regions)),
+      'the profile’s rigidity map is not trackingRigidity’s — the app and the reports would ' +
+      'disenfranchise different landmarks',
+    );
+    assert.ok(options.rigidity.some((r) => r === 0),
+      'no landmark is fully disenfranchised — the lid rings are supposed to get no vote at all, ' +
+      'and a map with no zeros is a map that is not being built from the eye region');
+
+    // Comments are not stripped by tsc, and the comments in both reports say
+    // the words `createTracker(scan)` and `shippedTrackerOptions` while
+    // explaining the bug — so a naive text search passes on the broken file.
+    const stripped = (name: string): string => readFileSync(
+      new URL(`../src/testkit/${name}.js`, import.meta.url), 'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+    for (const name of ['report-track', 'report-occlusion']) {
+      const code = stripped(name);
+      assert.match(code, /createTracker\([^)]*shippedTrackerOptions\(/,
+        `${name} builds its tracker without shippedTrackerOptions — it is measuring ` +
+        'whatever the library defaults happen to be, not what the app ships');
+      assert.match(code, /visibility:/,
+        `${name} passes no visibility to track() — the far-side cull is off, which was ` +
+        'worth 27% of the bridge error at turned yaw when it was measured');
+    }
+  });
+
+  it('crawl is referenced to truth, so the wearer’s own speed does not inflate it', () => {
+    // The falsifiable version of the fix. Scale the synthetic head's wander by
+    // 4x and re-run: the TRUE bridge motion during the still beats grows by
+    // ~80%, so the retired construction — which differenced the estimate —
+    // would report ~80% more "jitter" for an estimator that got no worse.
+    // The corrected construction differences the error, so the unsmoothed arm
+    // (which follows the head almost exactly) must barely move.
+    // Against the `raw` arm — no filter, no motion prior, true sigma — because
+    // the property only holds for an estimator that does not lag. Every other
+    // arm now carries the shipped prior, whose constant-velocity prediction
+    // misses harder when the head accelerates harder, so its error legitimately
+    // moves with the wander and it cannot serve as the reference here.
+    const crawlOf = (text: string): number => {
+      const at = text.indexOf('--- raw ---');
+      assert.ok(at >= 0, 'the bare-solver arm is gone from the report');
+      const line = text.slice(at).split('\n').find((l) => l.trim().startsWith('crawl (still beats)'));
+      assert.ok(line, 'the report no longer prints a still-beat crawl line');
+      const m = /([\d.]+) mm median/.exec(line);
+      assert.ok(m, `could not read a median from "${line}"`);
+      return Number(m[1]);
+    };
+
+    const opts = { subjects: 2, geometries: [CAMERA_LADDER[0].name], seed: 11 };
+    const slow = crawlOf(runTrackReport({ ...opts, wanderScale: 0.25 }));
+    const fast = crawlOf(runTrackReport({ ...opts, wanderScale: 1 }));
+
+    assert.ok(slow > 0 && fast > 0, 'crawl is identically zero — the metric is vacuous');
+    const growth = fast / slow;
+    assert.ok(
+      growth < 1.25,
+      `the unsmoothed arm's still-beat crawl grew ${growth.toFixed(2)}x (${slow.toFixed(3)} -> ` +
+      `${fast.toFixed(3)} mm) when only the WEARER got faster. A truth-referenced ` +
+      'metric cannot do that: the estimator did not change. This is the exact ' +
+      'signature of differencing the estimate instead of the error, which is what ' +
+      'the retired jitter column did — and what made a lagging filter beat a ' +
+      'correct one 5/5 across the campaign seeds.',
     );
   });
 });

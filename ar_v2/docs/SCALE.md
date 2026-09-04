@@ -13,10 +13,9 @@ sigma") and §5's attribution of the ranking's instability to
 `FRAME_TO_FACE_WIDTH` are both wrong, and both were wrong for the same reason:
 a number computed **pooled** rather than median-of-seeds, on a population whose
 last two members are hard-coded and identical in every seed. The corrections are
-in place below, marked and dated. The rule that catches this is the one at the
-top of `docs/NEXT-SESSION.md`, and this document quotes it while breaking it
-twice — *"a single draw is a coin flip; this tree has reversed a verdict three
-times by forgetting it"*. Four times now.
+in place below, marked and dated. The rule is to report medians across
+independent seeds rather than pooling all rows: a single draw cannot establish
+a reliable direction of effect.
 
 ---
 
@@ -337,9 +336,8 @@ so no reference frame can remove it.
     width alone, reference     0.0%     0.0%     <- 0/60 cells, every factor
 
 The width channel is fixed **completely and exactly**; the whole ranking is
-roughly halved at +-2.5% and unmoved at +-1%. `docs/NEXT-SESSION.md`'s gate for
-the change — "materially fewer than 6/50 and 16/50" — is met at +-2.5% and
-**not met at +-1%, and cannot be** by this mechanism.
+roughly halved at +-2.5% and unmoved at +-1%. The material reduction occurs at
++-2.5%, **not at +-1%, and cannot** by this mechanism.
 
 Two consequences worth carrying forward:
 

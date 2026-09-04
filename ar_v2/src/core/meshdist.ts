@@ -100,13 +100,6 @@ export function buildMeshDistance(
   const nz = Math.max(1, Math.ceil((maxZ - minZ) / cellSize) + 1);
   const lists: number[][] = Array.from({ length: nx * ny * nz }, () => []);
 
-  const cellOf = (x: number, y: number, z: number): number => {
-    const ix = clamp(Math.floor((x - minX) / cellSize), 0, nx - 1);
-    const iy = clamp(Math.floor((y - minY) / cellSize), 0, ny - 1);
-    const iz = clamp(Math.floor((z - minZ) / cellSize), 0, nz - 1);
-    return (iz * ny + iy) * nx + ix;
-  };
-
   for (const t of tris) {
     let tminX = Infinity, tminY = Infinity, tminZ = Infinity;
     let tmaxX = -Infinity, tmaxY = -Infinity, tmaxZ = -Infinity;

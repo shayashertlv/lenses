@@ -47,9 +47,7 @@ import {
 import {
   type Intrinsics, intrinsicsFromFov, poseRotationFromHeadEuler, project,
 } from '../core/camera.js';
-import {
-  type Pose, m3, mat3FromEulerYXZ, poseIdentity, v3,
-} from '../core/linalg.js';
+import { type Pose, poseIdentity, v3 } from '../core/linalg.js';
 import {
   createDepthBuffer, normalsToCamera, rasterize, vertexVisibility,
 } from '../core/raster.js';
@@ -435,6 +433,25 @@ export interface CaptureOptions {
    * `docs/OPEN-QUESTIONS.md` Q13 for what it would take to calibrate properly.
    */
   yawUnderRotation: number;
+  /**
+   * Multiplier on the postural and angular wander a resting head performs.
+   *
+   * **This exists because the wander speed is what decides a filter's verdict,
+   * and nothing was ever measured to set it.** The lateral wander is an AR(1)
+   * velocity driven at 0.8 mm/frame, which lands at a steady-state spread near
+   * 1.06 mm/frame per axis — around 45 mm/s of combined lateral drift at 30 fps,
+   * with the *angle* frozen, during the beats that ask the wearer to hold still.
+   * A seated person watching a screen sways an order slower than that.
+   *
+   * A lagging estimator's error moves with the true trajectory's ACCELERATION,
+   * so this multiplier scales the penalty the harness charges for smoothing
+   * almost directly. `report:track`'s crawl and shimmer lines cannot be read as
+   * a verdict on the One Euro without sweeping it — see `TrackerOptions.smooth`.
+   *
+   * `1` reproduces the previous behaviour bit for bit: it multiplies the drawn
+   * value rather than the number of draws, so the random stream is untouched.
+   */
+  wanderScale: number;
   framesPerBeat: number;
   /** Buffer resolution for the visibility rasteriser. */
   rasterWidth: number;
@@ -448,6 +465,7 @@ export const CAPTURE_DEFAULTS: CaptureOptions = {
   includeLean: true,
   gazeAmplitudeMm: 1.5,
   yawUnderRotation: 0,
+  wanderScale: 1,
   framesPerBeat: 22,
   rasterWidth: 192,
 };
@@ -533,9 +551,18 @@ export function protocolBeats(options: CaptureOptions): Beat[] {
   if (options.includeProfile) {
     beats.push(
       { name: 'profile-right', from: [0, 0, 0], to: [80, 0, 0] },
-      { name: 'profile-hold-r', from: [80, 2, 3], to: [82, -2, -3] },
+      // `profile-dwell-*` LINGER near profile; they do not hold. Each ramps two
+      // degrees of yaw, four of pitch and six of roll across the beat, on
+      // purpose — a wearer asked to look sideways does not freeze, and the
+      // bundle wants the small angular spread. They were called `profile-hold-*`
+      // until 2026-09-03, and `report-track.ts` believed the name: it pooled
+      // them into a window meant to contain a MOTIONLESS head, where six degrees
+      // of roll at 80 degrees of yaw is 0.704 mm/frame of true bridge
+      // motion, measured with the wander switched off entirely. Nothing in this tree branches on a beat's name; only humans and
+      // their metrics do, which is exactly why it has to be true.
+      { name: 'profile-dwell-r', from: [80, 2, 3], to: [82, -2, -3] },
       { name: 'profile-left', from: [80, 0, 0], to: [-80, 0, 0] },
-      { name: 'profile-hold-l', from: [-80, 2, -3], to: [-82, -2, 3] },
+      { name: 'profile-dwell-l', from: [-80, 2, -3], to: [-82, -2, 3] },
       { name: 'recentre', from: [-80, 0, 0], to: [0, 0, 0] },
     );
   }
@@ -595,9 +622,9 @@ export function synthesizeCapture(
 
       // Angular wander is smoothed the same way: a head does not jitter about
       // its own axis by a degree and back between two frames.
-      angleWx += (rng.truncatedNormal(2) * 0.25 - angleWx * 0.3) * (Math.PI / 180);
-      angleWy += (rng.truncatedNormal(2) * 0.25 - angleWy * 0.3) * (Math.PI / 180);
-      angleWz += (rng.truncatedNormal(2) * 0.25 - angleWz * 0.3) * (Math.PI / 180);
+      angleWx += (rng.truncatedNormal(2) * 0.25 * opt.wanderScale - angleWx * 0.3) * (Math.PI / 180);
+      angleWy += (rng.truncatedNormal(2) * 0.25 * opt.wanderScale - angleWy * 0.3) * (Math.PI / 180);
+      angleWz += (rng.truncatedNormal(2) * 0.25 * opt.wanderScale - angleWz * 0.3) * (Math.PI / 180);
 
       const yaw = lerp(beat.from[0], beat.to[0], t) * (Math.PI / 180) + angleWy;
       const pitch = lerp(beat.from[1], beat.to[1], t) * (Math.PI / 180) + angleWx + basePitch;
@@ -629,8 +656,8 @@ export function synthesizeCapture(
       // because it was correctly smoothing noise that the ground truth also
       // contained. A filter can only be judged against a trajectory a head could
       // actually follow.
-      wanderVx += (rng.truncatedNormal(2) * 0.8 - wanderVx * 0.25);
-      wanderVy += (rng.truncatedNormal(2) * 0.8 - wanderVy * 0.25);
+      wanderVx += (rng.truncatedNormal(2) * 0.8 * opt.wanderScale - wanderVx * 0.25);
+      wanderVy += (rng.truncatedNormal(2) * 0.8 * opt.wanderScale - wanderVy * 0.25);
       wanderX = Math.max(-14, Math.min(14, wanderX + wanderVx));
       wanderY = Math.max(-14, Math.min(14, wanderY + wanderVy));
       pose.t.set([wanderX, wanderY, distance]);
@@ -640,7 +667,7 @@ export function synthesizeCapture(
       observed.set(subject.positions);
       for (let i = 0; i < observed.length; i++) observed[i] += bias[i];
       if (opt.gazeAmplitudeMm > 0) {
-        applyGaze(mesh, observed, rng, opt.gazeAmplitudeMm, t);
+        applyGaze(observed, rng, opt.gazeAmplitudeMm, t);
       }
 
       // The pose the landmarks are actually drawn from. Identical to `pose`
@@ -793,14 +820,6 @@ export function assertDistinctNoiseStreams(captures: SyntheticCapture[]): void {
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
-function mul3(out: Float64Array, A: Float64Array, B: Float64Array): void {
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) {
-      out[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c];
-    }
-  }
-}
-
 function applyPose(out: Float64Array, pose: Pose, p: ArrayLike<number>, o: number): void {
   const x = p[o], y = p[o + 1], z = p[o + 2];
   const R = pose.R;
@@ -825,7 +844,7 @@ function applyPose(out: Float64Array, pose: Pose, p: ArrayLike<number>, o: numbe
  * Generating it here is how that claim gets tested rather than asserted.
  */
 function applyGaze(
-  mesh: FaceMesh, observed: Float64Array, rng: Rng, amplitudeMm: number, phase: number,
+  observed: Float64Array, rng: Rng, amplitudeMm: number, phase: number,
 ): void {
   // A slow sweep plus jitter — gaze is not white noise, it dwells.
   const gx = Math.sin(phase * Math.PI * 2.5) * amplitudeMm + rng.truncatedNormal(2) * 0.3;

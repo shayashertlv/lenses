@@ -40,7 +40,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import {
-  eulerYXZ, m3, poseIdentity, type Mat3, type Pose,
+  eulerYXZ, poseIdentity, type Mat3, type Pose,
 } from '../src/core/linalg.js';
 import {
   FACE_TO_CAMERA_FLIP, headEuler, intrinsicsFromFov, poseRotationFromHeadEuler, project,

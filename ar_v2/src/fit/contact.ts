@@ -65,7 +65,7 @@ import {
 } from '../core/linalg.js';
 import { LM, type FaceMesh, type Region } from '../core/mesh.js';
 import {
-  type ClosestPoint, type MeshDistance, buildMeshDistance, emptyClosestPoint,
+  type MeshDistance, buildMeshDistance, emptyClosestPoint,
 } from '../core/meshdist.js';
 import type { FaceModel } from '../core/facemodel.js';
 import { type FrameAsset, GRAVITY_N_PER_G } from './frame-asset.js';
@@ -606,7 +606,7 @@ export function solveSeat(
   // The prior is always the nominal placement, whatever the solve starts from:
   // `descentMm` is measured against v1's answer, so that it stays directly
   // comparable to the behaviour this replaces.
-  const prior = nominalPose(model, frame);
+  const prior = nominalPose(model);
   const pose = opt.initialPose ? poseClone(opt.initialPose) : poseClone(prior);
 
   const H = new Float64Array(36);
@@ -676,7 +676,7 @@ export function solveSeat(
   }
   if (iterations >= opt.maxIterations) terminationReason = 'iteration budget';
 
-  const report = describeSeat(model, mesh, frame, pose, prior, distance, clearance, notes, hookK);
+  const report = describeSeat(model, frame, pose, prior, distance, clearance, notes, hookK);
   opt.trace?.(
     `seat ${frame.id}: descent ${report.descentMm.toFixed(2)} mm, ` +
     `pads ${(report.padLoadFraction * 100).toFixed(0)}% load, ` +
@@ -1076,24 +1076,19 @@ export function clearanceSamples(frame: FrameAsset): Float64Array[] {
 /**
  * Where the temples come to rest on the ears, in face space.
  *
- * The mesh has no ears — MediaPipe's face model stops at the silhouette and its
- * rearmost point is only ~24 mm behind the cheek. So the rest point is
- * extrapolated from this wearer's own ear-top and cheek landmarks, exactly as
- * v1 did, with v1's constants. Approximate by construction; the alternative is
- * arms that run inside the skull.
+ * The mesh has no ears, so the rest point is constructed from the wearer's
+ * outer-canthal landmarks plus stated anthropometric offsets. It is approximate
+ * by construction; the alternative is arms that run inside the skull.
  *
  * This is a real limitation of the template and it caps how well the ear support
  * term can work. `docs/OPEN-QUESTIONS.md` Q5 is about replacing the template
  * with one that has ears.
  */
-const BEHIND_CHEEK_MM = 17;
 /**
  * The ear rest's depth: how far BEHIND the outer eye corner the tragion sits,
  * as a posterior offset in face space, mm.
  *
- * This replaced the cheek extrapolation (`cheek.z - BEHIND_CHEEK_MM`, kept
- * above only for its history) after the first real wearer, and the reasoning
- * deserves its length. Fore-aft is the seat's most consequential axis and its
+ * This replaces cheek extrapolation. Fore-aft is the seat's most consequential axis and its
  * anchor was the scan's WORST surface: cheeks repeat at ~1.5 mm on a real face
  * (nose: 0.4), their reconstruction error is larger still, and the ledger's own
  * sensitivity row records 9 mm of cheek moving the lens distance by 5 mm. On
@@ -1176,7 +1171,7 @@ export function earRestPoints(model: FaceModel): [Vec3, Vec3] {
  * makes the report directly comparable to a landmark-hung placement: it is how
  * far a frame hung off a landmark is from where it would actually rest.
  */
-export function nominalPose(model: FaceModel, frame: FrameAsset): Pose {
+export function nominalPose(model: FaceModel): Pose {
   const pose = poseIdentity();
   const p = model.positions;
   // The sidewall strip the pads bear on, at bridge height.
@@ -1247,7 +1242,7 @@ function rotationVectorBetween(out: Vec3, to: Mat3, from: Mat3): Vec3 {
 // --------------------------------------------------------------- reporting
 
 function describeSeat(
-  model: FaceModel, mesh: FaceMesh, frame: FrameAsset, pose: Pose, prior: Pose,
+  model: FaceModel, frame: FrameAsset, pose: Pose, prior: Pose,
   distance: MeshDistance, clearance: MeshDistance | null, notes: string[],
   hookK: number,
 ): Omit<SeatResult,
@@ -1410,7 +1405,7 @@ function describeSeat(
   const padWorstGapMm = signed.length ? Math.max(...signed) : 0;
   const padWorstBuryMm = signed.length ? -Math.min(...signed) : 0;
 
-  const articulation = padArticulation(model, frame, pose, distance);
+  const articulation = padArticulation(frame, pose, distance);
 
   // Euler of the settled pose. Pantoscopic tilt is rotation about X: positive
   // when the bottom of the front comes toward the face, which is the convention
@@ -1517,7 +1512,7 @@ function describeSeat(
  * the version that did exactly that.
  */
 function padArticulation(
-  model: FaceModel, frame: FrameAsset, pose: Pose, distance: MeshDistance,
+  frame: FrameAsset, pose: Pose, distance: MeshDistance,
 ): { tiltDeg: [number, number]; residualMm: number } {
   const cp = emptyClosestPoint();
   const p = v3();

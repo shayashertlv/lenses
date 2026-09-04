@@ -29,7 +29,7 @@ import {
   intrinsicsFromFov, project,
 } from '../core/camera.js';
 import {
-  type Pose, invertSymmetric, poseClone, poseIdentity, v3, weightedMedian,
+  type Pose, invertSymmetric, poseClone, v3, weightedMedian,
 } from '../core/linalg.js';
 import {
   LM, type FaceMesh, type Region, standardRegions,

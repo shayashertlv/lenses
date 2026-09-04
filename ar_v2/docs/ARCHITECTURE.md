@@ -21,17 +21,21 @@ replaces.** Three consequences:
   the rigid similarity fit has more shape error to absorb, so the pose swallows
   it as depth. Measured here (`report:track`, median of 5 seeds, re-measured
   2026-08-31): fitting the average head swings the bridge's depth error by
-  **6.61 mm** between frontal and turned (per-seed 3.48–10.82). Fitting the
-  wearer's own model — ground truth at `report:track`'s default — swings it by
-  **3.97 mm** on the arm whose smoothing ships, which runs the One Euro, and by
-  **0.50 mm** on the unfiltered `v2-no-smoothing` arm, which is what the library
-  default produces and not what ships. The average-head arm is smoothed too, so
-  it moved with the filter. Of the figures this bullet used to carry, 0.47 was
-  labelled the shipped arm and was the unfiltered one, and 1.44 was labelled
-  correctly but predates the filter change. Earlier revisions of this
-  document said 5.1 → 0.37 mm (collapsed-noise harness) and then 4.52 →
-  0.53 mm (one seeded draw); the per-seed spread is why both single-number
-  versions are retired.
+  **6.87 mm** between frontal and turned. Fitting the wearer's own model — ground
+  truth at `report:track`'s default — swings it by **2.83 mm**, a 2.4x
+  improvement. **Both figures are re-derived on the configuration the app
+  actually boots** (2026-09-04): One Euro smoothing, the constant-velocity
+  motion prior, the rigidity map and the sigma and visibility the app estimates
+  per frame. Every earlier number in this bullet came from a harness that ran
+  none of the last three, so the comparison it drew was between two systems
+  nobody ships.
+
+  The ablation arms say where the remaining swing comes from, and it is not the
+  filter: `v2-no-prior` swings **1.79 mm** and `v2-no-smoothing` **3.70 mm**, so
+  the motion prior costs a millimetre of swing on this protocol and turning the
+  filter off makes it worse rather than better. Retired, in order: 5.1 → 0.37 mm
+  (collapsed-noise harness), 4.52 → 0.53 (one seeded draw), and 6.61 → 3.97 /
+  0.50 (five seeds, but on the pre-2026-09-04 harness configuration).
 - **Depth stays borrowed forever.** The nose — the only surface that carries the
   glasses — is the average nose.
 - **The escape route is closed by construction.** v1's own audit found why:
@@ -326,9 +330,15 @@ and `enroll/bundle.ts` each multiply lambda by a constant on accept and reject.
 8. **One Euro's four hard-won lessons.** A cleaner estimator made the filter
    stop earning its place on the synthetic population, and `TRACKER_DEFAULTS`
    still defaults it off; the first real wearer overturned that, and the app has
-   run the One Euro since 2026-08-23 — latched at first, then plain. Re-measured
-   2026-08-31, the synthetic verdict reversed as well: the filtered arm now wins
-   jitter median and p90 5/5, and pays for it in lag.
+   run the One Euro since 2026-08-23 — latched at first, then plain. The
+   2026-08-31 claim that the synthetic verdict had reversed too is **retracted**:
+   it came from a jitter column that differenced the estimate against its own
+   previous frame rather than against truth, so it paid a filter for lagging
+   behind the wearer's own postural wander. Corrected 2026-09-03, the synthetic
+   verdict at the harness's assumed detector noise is what it always was —
+   the filter costs more than it buys — and it flips only above roughly 3 px of
+   landmark noise, which nobody has measured (Q1). The wearer's report is
+   therefore the only evidence the shipped default has. Q7.
 
 ## What is built, and what is not
 
@@ -431,7 +441,7 @@ per-seed spread. The three headlines:
 
 | | v1-equivalent | v2 |
 | --- | --- | --- |
-| Depth swing frontal → turned | 6.61 mm | **3.97 mm** shipped smoothing / 0.50 mm unfiltered |
+| Depth swing frontal → turned | 6.87 mm | **2.83 mm** — the shipped configuration, all of it |
 | Pad depth error (landmark-hung vs contact-solved) | 4.79 mm | **1.06 mm** |
 | Nose surface error | not measurable | **1.54 mm** median (0.83 with a true iris) |
 

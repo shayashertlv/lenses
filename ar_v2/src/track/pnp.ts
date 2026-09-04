@@ -46,7 +46,7 @@ import {
   type Intrinsics, dProjDPose, project,
 } from '../core/camera.js';
 import {
-  type Pose, type Vec3, invertSymmetric, ldlt, ldltSolve, logSO3, m3, m3mul,
+  type Pose, invertSymmetric, ldlt, ldltSolve, logSO3, m3, m3mul,
   m3transpose, orthonormalize, poseClone, poseIdentity, poseOplus, v3, vcross,
   vnormalize,
 } from '../core/linalg.js';
