@@ -315,6 +315,17 @@ button.danger:hover { border-color: var(--poor); color: var(--poor); }
 .verdict.poor .label { color: var(--poor); }
 .verdict.unknown .label { color: var(--muted); }
 
+/* A verdict the scan cannot support must not read like one it can. The grade
+   keeps its position so the layout does not jump, and loses its colour and its
+   weight so the eye stops treating it as an answer. */
+.verdict.soft .label,
+.verdict.unsupported .label { font-weight: 400; }
+.verdict.unsupported .label,
+.verdict.unsupported .value { color: var(--muted); }
+.verdict.unsupported { opacity: 0.72; }
+.verdict.soft .detail,
+.verdict.unsupported .detail { font-style: italic; }
+
 .adjust {
   padding: 7px 10px;
   margin-bottom: 5px;

@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node scripts/check-isolation.mjs && node scripts/check-constants.mjs && node scripts/check-selfcontained.mjs && node scripts/check-reports.mjs && node --test \"dist/tests/**/*.test.js\"",
+    "test": "npm run build && node --test \"dist/tests/**/*.test.js\" && node scripts/check-isolation.mjs && node scripts/check-constants.mjs && node scripts/check-selfcontained.mjs && node scripts/check-reports.mjs",
     "test:only": "node --test \"dist/tests/**/*.test.js\"",
     "serve": "python serve.py",
     "check:isolation": "node scripts/check-isolation.mjs",

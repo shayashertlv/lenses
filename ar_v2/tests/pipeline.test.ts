@@ -4039,3 +4039,46 @@ describe('the tracking instrument', () => {
     );
   });
 });
+
+describe('the tests run before the gates, not after', () => {
+  // The describe above is named for how it used to be. `npm test` chained all
+  // four gates ahead of `node --test`, so on 2026-09-03 the suite exited 1 with
+  // ZERO of 388 tests run — and the thing that stopped them was a trailing
+  // newline in a report file, which flipped a body hash and fired the gate's
+  // "a published number that was typed rather than measured" alarm on pure
+  // whitespace.
+  //
+  // That ordering also sets an incentive, which is the worse half: when a prose
+  // edit can hide the arithmetic, the cheapest way to see your tests run is to
+  // delete a gate. Tests first; the gates still fail the command.
+  it('npm test puts node --test ahead of every gate script', () => {
+    const pkg = JSON.parse(readFileSync(
+      new URL('../../package.json', import.meta.url), 'utf8',
+    )) as { scripts: Record<string, string> };
+    const script = pkg.scripts.test;
+
+    const testAt = script.indexOf('node --test');
+    assert.ok(testAt >= 0, 'npm test no longer runs node --test at all');
+
+    const gates = [
+      'check-isolation.mjs', 'check-constants.mjs',
+      'check-selfcontained.mjs', 'check-reports.mjs',
+    ];
+    for (const gate of gates) {
+      const at = script.indexOf(gate);
+      assert.ok(at >= 0, `npm test no longer runs ${gate} — a gate was dropped, not reordered`);
+      assert.ok(
+        at > testAt,
+        `${gate} runs BEFORE node --test in npm test. It exits non-zero on a stale report or a `
+        + 'hand-edited line, and && short-circuits, so the whole suite would be skipped by an '
+        + 'edit that changes no arithmetic. That is how 388 tests went unrun on 2026-09-03.',
+      );
+    }
+
+    // The build still has to come first or `node --test` runs last session's
+    // JavaScript, which is the failure this ordering could otherwise introduce.
+    const buildAt = script.indexOf('npm run build');
+    assert.ok(buildAt >= 0 && buildAt < testAt,
+      'npm test no longer builds before running the tests — the suite would grade a stale dist/');
+  });
+});

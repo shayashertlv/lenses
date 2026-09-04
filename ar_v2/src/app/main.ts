@@ -353,6 +353,34 @@ function queryParam(name: string): string | null {
 }
 
 /**
+ * `?smooth=` as a tracker mode, or null for the default.
+ *
+ * Measured on the first wear recording (2026-09-04, `docs/REAL-FACE.md`),
+ * median over 900 frames of one real session — shimmer is the second difference
+ * of the bridge and lag is the emitted pose against the raw one:
+ *
+ *     mode        shimmer mm    lag mm
+ *     off            0.458       0.000
+ *     on (ships)     0.161       0.927
+ *     locked         0.162       1.204
+ *     adaptive       0.097       2.145
+ *
+ * `'adaptive'` takes shimmer lowest and pays 2.3x the shipped lag for it, which
+ * is the retirement's own words — "it bought delay, not steadiness" — arriving
+ * as a number for the first time. A frozen pose scores zero shimmer, so the
+ * column cannot pick a mode on its own; the wearer does.
+ */
+function smoothFromQuery(): boolean | 'adaptive' | 'locked' | null {
+  switch (queryParam('smooth')) {
+    case 'off': return false;
+    case 'on': return true;
+    case 'locked': return 'locked';
+    case 'adaptive': return 'adaptive';
+    default: return null;
+  }
+}
+
+/**
  * Fails a promise that takes too long, rather than letting it hang.
  *
  * Boot awaits four things that can each stall without erroring — a fetch, a
@@ -435,7 +463,12 @@ async function boot(): Promise<void> {
     uncertainty: createUncertainty(mesh.vertexCount),
     identity: createIdentityWatch(),
     tracker: null,
-    smooth: true,
+    // `?smooth=off|on|locked|adaptive`. The BUTTON cycles off -> on -> locked
+    // and deliberately omits `'adaptive'`, which the first real wearer rejected
+    // (see `case 'steady'`). This lever exists so that verdict can be re-tested
+    // on a real face without a code change, not so it can be shipped by
+    // accident: the default is unchanged and nothing here reaches it.
+    smooth: smoothFromQuery() ?? true,
     edgeSnap: true,
     snapField: null,
     snapFrame: 0,

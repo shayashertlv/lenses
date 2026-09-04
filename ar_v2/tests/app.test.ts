@@ -884,3 +884,51 @@ return queryParam;`,
       'capture metadata no longer reads its exact card query parameter');
   });
 });
+
+describe('a verdict the scan cannot support does not draw like one it can', () => {
+  // `FitMeasure.confidence` has existed since `score.ts` was written and was
+  // read exactly ONCE in the whole UI — for the all-or-nothing headline gate.
+  // So on the shipping iris rung the width verdict arrives at confidence 0.000
+  // and was drawn as a coloured grade with millimetres beside it, in the same
+  // typeface as the app's best answer. A confidently wrong fit verdict is the
+  // worst thing this product can say.
+
+  const band = new Function(
+    `${codeOf('ui', 'confidenceBand')}
+return confidenceBand;`,
+  )() as (c: number) => { className: string; note: string };
+
+  it('separates unsupported, weak and trusted, and never hides the measurement', () => {
+    const zero = band(0);
+    assert.match(zero.className, /unsupported/,
+      'a confidence of exactly 0 draws with no marker at all — this is the shipping iris '
+      + 'rung, where the width verdict is not supported by anything');
+    assert.ok(zero.note.length > 0, 'an unsupported verdict says nothing about why');
+
+    // `assessFit`'s own gate for "is anything gradeable" is 0.02, and the bands
+    // have to agree with it or the headline and the rows contradict each other.
+    assert.match(band(0.02).className, /unsupported/, 'the band disagrees with the headline gate at 0.02');
+    assert.match(band(0.021).className, /soft/, 'just above the headline gate is not merely soft');
+
+    const weak = band(0.2);
+    assert.match(weak.className, /soft/);
+    assert.ok(weak.note.length > 0);
+
+    const good = band(0.9);
+    assert.equal(good.className, '', 'a well-supported verdict is being decorated as doubtful');
+    assert.equal(good.note, '', 'a well-supported verdict is being explained away');
+  });
+
+  it('the renderer actually uses it, on every row', () => {
+    // The band function is worthless if the row does not carry it. Textual,
+    // for the same reason `app.test.ts` fingerprints the wear-branch
+    // `visibility`: deleting the call leaves the whole suite green, and the
+    // defect is invisible until a wearer acts on a verdict nothing supports.
+    const text = readFileSync(new URL('../src/app/ui.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+    assert.match(text, /confidenceBand\(\s*m\.confidence\s*\)/,
+      'the verdict rows no longer band their confidence — every grade draws as trusted again');
+    assert.match(text, /verdict \$\{m\.grade\}\$\{[a-zA-Z]+\.className\}/,
+      'the band is computed and not applied to the row');
+  });
+});

@@ -246,7 +246,16 @@ export function createUI(root: HTMLElement): UI {
       for (const m of assessment.measures) {
         if (m.value === null) continue;
         const row = document.createElement('div');
-        row.className = `verdict ${m.grade}`;
+        // **How much this row is worth, drawn.** `confidence` has been computed
+        // per measure since the file was written and read exactly once in the
+        // whole UI — for the all-or-nothing headline gate above. So on the
+        // shipping iris rung the width verdict arrives at confidence 0.000 and
+        // was drawn as a coloured grade with millimetres beside it, identical
+        // to a verdict the system stands behind. A confidently wrong fit
+        // verdict is the worst thing this product can say, and it was saying
+        // it in the same typeface as its best answer.
+        const trust = confidenceBand(m.confidence);
+        row.className = `verdict ${m.grade}${trust.className}`;
         // A relative verdict has to READ as one. `4.0 mm` under a "width"
         // label means "4 mm from the ideal"; the same number against a
         // reference means "4 mm wider than that one", and rendering them
@@ -258,6 +267,12 @@ export function createUI(root: HTMLElement): UI {
           }</span>` +
           `<span class="value">${m.relativeTo && m.value > 0 ? '+' : ''}${
             m.value.toFixed(1)} ${escapeHtml(m.unit)}</span>`;
+        if (trust.note) {
+          const note = document.createElement('span');
+          note.className = 'detail';
+          note.textContent = trust.note;
+          row.appendChild(note);
+        }
         verdictEl.appendChild(row);
       }
     },
@@ -412,6 +427,33 @@ export function createUI(root: HTMLElement): UI {
 
     onAction(h) { handler = h; },
   };
+}
+
+/**
+ * What a measure's `confidence` is allowed to look like.
+ *
+ * Three bands rather than a number on every row, because the number is not the
+ * message: the wearer needs to know whether to ACT on a verdict, and 0.34 does
+ * not answer that. The cuts are the ones the rest of the tree already uses —
+ * 0.02 is `assessFit`'s own gate for whether anything is gradeable at all, and
+ * below roughly a third of full confidence a verdict is being carried by the
+ * scale caveat rather than by the measurement.
+ *
+ * A row never disappears. The millimetres are real even when the grade is not,
+ * and hiding a measurement is how a wearer ends up asking why the app went
+ * quiet about the one thing they wanted to know.
+ */
+function confidenceBand(confidence: number): { className: string; note: string } {
+  if (!(confidence > 0.02)) {
+    return {
+      className: ' unsupported',
+      note: 'this scan cannot support this verdict — the measurement is real, the grade is not',
+    };
+  }
+  if (confidence < 0.35) {
+    return { className: ' soft', note: 'weakly supported — treat the grade as a hint' };
+  }
+  return { className: '', note: '' };
 }
 
 const escapeHtml = (s: string): string =>
