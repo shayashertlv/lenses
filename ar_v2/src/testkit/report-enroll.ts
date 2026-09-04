@@ -14,7 +14,7 @@
 
 import { loadBasis, loadRegions, loadTemplateMesh } from './fixtures.js';
 import {
-  CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor,
+  AS_MEASURED, CAMERA_LADDER, captureSeedFor, generatePopulation, populationSeedFor,
   subjectResidualAgainstBasis, synthesizeCapture,
   type CaptureOptions, type SyntheticSubject,
 } from './synthetic.js';
@@ -46,6 +46,20 @@ export const VARIANTS: Variant[] = [
   { name: 'no-silhouette', bundle: { useSilhouette: false } },
   { name: 'no-lean', capture: { includeLean: false } },
   { name: 'true-iris', useTrueIris: true },
+  /**
+   * The three stimulus constants set to what a real session actually produced,
+   * instead of to three numbers nobody measured. See `AS_MEASURED`.
+   *
+   * **This is the row that describes the scan a wearer gives.** Every other row
+   * here runs at `turnYawDeg` 35 WITH two profile beats out to 80 degrees, and
+   * `enroll/protocol.ts` has no profile beat at all — so `full` grades a capture
+   * the app never asks for. The first real session reached 43 degrees of
+   * measured yaw using the app's own beats.
+   *
+   * A variant and not a new default, because it is n = 1. A second capture, on
+   * another camera and another face, is what would move a default.
+   */
+  { name: 'as-measured', capture: AS_MEASURED },
 ];
 
 export interface RunOptions {

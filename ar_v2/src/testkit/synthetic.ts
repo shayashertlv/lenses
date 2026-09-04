@@ -452,6 +452,28 @@ export interface CaptureOptions {
    * value rather than the number of draws, so the random stream is untouched.
    */
   wanderScale: number;
+  /**
+   * How far the turn beats go, degrees either side of centre.
+   *
+   * **The third stimulus nobody measured, and the one that decides the
+   * enrollment headline.** The bundle's depth observability comes from turn: at
+   * a large enough angle the nose is a shape against the background rather than
+   * a depth guess, which is why `report-enroll`'s `no-profile` ablation costs
+   * 0.40 mm of nose RMS.
+   *
+   * The shipped protocol and this one are not the same protocol.
+   * `enroll/protocol.ts`'s `BEATS` are seven — `turn-right`/`turn-left` with a
+   * goal of 55 degrees, and they are `reach` beats, so they finish wherever the
+   * wearer stops. There is no profile beat in the app at all. This file adds
+   * two, out to 80 degrees. The first real session (2026-09-04) reached
+   * **43 degrees of measured yaw** with the app's own beats, which is neither
+   * 35 nor 80 — so the published `full` row (which sees 80) and the
+   * `no-profile` row (which sees 35) are BOTH wrong about the shipping scan,
+   * in opposite directions.
+   *
+   * 35 is the historical value and changes nothing. See `AS_MEASURED`.
+   */
+  turnYawDeg: number;
   framesPerBeat: number;
   /** Buffer resolution for the visibility rasteriser. */
   rasterWidth: number;
@@ -466,8 +488,45 @@ export const CAPTURE_DEFAULTS: CaptureOptions = {
   gazeAmplitudeMm: 1.5,
   yawUnderRotation: 0,
   wanderScale: 1,
+  turnYawDeg: 35,
   framesPerBeat: 22,
   rasterWidth: 192,
+};
+
+/**
+ * The three stimulus constants, as measured on a real session rather than
+ * assumed — the arm that answers "what would these numbers be for a scan a
+ * wearer actually gives?"
+ *
+ * From the first wear recording, 2026-09-04 (`docs/REAL-FACE.md`), one webcam,
+ * one face, one room:
+ *
+ *   `noisePx` 1.19    the detector's per-landmark spread over quiet frames,
+ *                     against 0.7 assumed — so the harness has been 1.7x
+ *                     optimistic about its own detector. (`floorPx`, a
+ *                     different constant in different units, measured 0.594
+ *                     against 0.7 assumed and is nearly right.)
+ *   `wanderScale` 0.14  this wearer's bridge travels 0.181 mm/frame while
+ *                     holding still; the synthetic head travels 1.328.
+ *   `turnYawDeg` 43   the yaw the app's own beats actually reached, with no
+ *                     profile beat, because the app does not have one.
+ *
+ * **Not the defaults, deliberately.** These are n = 1. Adopting a number
+ * measured on one person as the population's stimulus is the exact failure this
+ * whole tree exists to avoid — v1's audit found six constants in seven were one
+ * person's number, and `synthetic.ts` opens by saying so. What they are for is
+ * the delta: running a report both ways says how much of a published figure is
+ * the estimator and how much is the stimulus, and until now nothing could ask.
+ *
+ * A second capture, on a different camera and a different face, is what would
+ * justify moving a default. Until then these travel together — sweeping one
+ * while the other two stay assumed measures a session nobody had.
+ */
+export const AS_MEASURED: Partial<CaptureOptions> = {
+  noisePx: 1.19,
+  wanderScale: 0.14,
+  turnYawDeg: 43,
+  includeProfile: false,
 };
 
 // -------------------------------------------------------------- campaign seeds
@@ -540,11 +599,12 @@ export interface Beat {
 }
 
 export function protocolBeats(options: CaptureOptions): Beat[] {
+  const turn = options.turnYawDeg;
   const beats: Beat[] = [
     { name: 'centre', from: [0, 0, 0], to: [0, 0, 0] },
-    { name: 'yaw-right', from: [0, 0, 0], to: [35, 0, 0] },
-    { name: 'yaw-left', from: [35, 0, 0], to: [-35, 0, 0] },
-    { name: 'return', from: [-35, 0, 0], to: [0, 0, 0] },
+    { name: 'yaw-right', from: [0, 0, 0], to: [turn, 0, 0] },
+    { name: 'yaw-left', from: [turn, 0, 0], to: [-turn, 0, 0] },
+    { name: 'return', from: [-turn, 0, 0], to: [0, 0, 0] },
     { name: 'pitch-down', from: [0, 0, 0], to: [0, 15, 0] },
     { name: 'pitch-up', from: [0, 15, 0], to: [0, -15, 0] },
   ];

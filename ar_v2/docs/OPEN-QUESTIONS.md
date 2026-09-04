@@ -43,17 +43,28 @@ occlusion crawl 0.080 → 0.212 mm.
 `report-enroll.ts` and `report-seat.ts` hand `enroll()` against what
 `app/main.ts` hands it found four divergences, all confirmed against source:
 
-1. **The protocol asks for a different scan.** `protocol.ts`'s shipped `BEATS`
-   are seven: `centre` (goal 14 deg), `turn-right`/`turn-left` (goal 55, and
-   `reach` beats are plateau-terminated so they routinely finish below it),
-   `nod-down`/`nod-up` (9), `lean-in` (20), `lean-back` (22). **There is no
-   profile beat.** `synthetic.ts`'s `protocolBeats` produces fourteen, including
-   `profile-right`/`profile-left` to **±80 degrees** and two dwells there.
-   `docs/ARCHITECTURE.md` says plainly why that matters — at 80 degrees the nose
-   is *"a shape against the background"* — and the report's own ablation prices
-   it: nose RMS **0.91 mm on `full`, 1.31 on `no-profile`**. The app is
-   permanently nearer the second row, so the headline number describes a capture
-   no wearer has ever been asked for.
+1. **The protocol asks for a different scan — MEASURED 2026-09-04, and the
+   first version of this bullet was wrong twice.** `protocol.ts`'s shipped
+   `BEATS` are seven: `centre` (goal 14 deg), `turn-right`/`turn-left` (goal 55,
+   and `reach` beats are plateau-terminated so they routinely finish below it),
+   `nod-down`/`nod-up` (9), `lean-in` (20), `lean-back` (22). **There is no beat
+   named profile.** `synthetic.ts`'s `protocolBeats` produces fourteen,
+   including `profile-right`/`profile-left` to ±80 degrees and two dwells there.
+
+   What that bullet then claimed — that the app never obtains a profile view and
+   sits at the `no-profile` row — is false on both counts. `assessCoverage`'s
+   `hasProfile` is **geometric**, not a beat name: max measured yaw ≥ 38 deg.
+   The first real session **passed it at 43 degrees**, using the app's own turn
+   beats. So the shipping scan is neither `full` (which sees 80) nor
+   `no-profile` (which stops at 35); it is between them, and NEARER `full`.
+
+   Measured, seed 11, nose RMS: **0.91 `full` · 1.13 at 43 deg with no profile
+   beats · 1.31 `no-profile` · 1.48 with all three stimulus constants set to the
+   real session's** (`AS_MEASURED`). Median-of-seeds over five seeds the same
+   comparison is 1.46 → 1.60, and nose protrusion error 0.63 → 0.92 mm. **Turn
+   amplitude is the dominant term**; the noise and wander corrections are
+   second-order for enrollment and partly cancel. `report:enroll` now carries
+   `as-measured` as a standing variant so the delta cannot go stale.
 2. **Silhouette density.** The harness supplies ~500 boundary points per frame
    from a noise-free raster of the TRUE geometry; the browser scan supplied
    21–27 in the first real session (`main.ts`'s `scanSilhouette`, which snaps to

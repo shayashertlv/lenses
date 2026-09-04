@@ -445,6 +445,18 @@ per-seed spread. The three headlines:
 | Pad depth error (landmark-hung vs contact-solved) | 4.79 mm | **1.06 mm** |
 | Nose surface error | not measurable | **1.54 mm** median (0.83 with a true iris) |
 
+**Read that last row with `as-measured` beside it.** Every figure in this table
+is produced at three stimulus constants nobody had measured: the detector's
+landmark noise, how fast a resting head moves, and how far the turn beats go.
+All three now have a number from a real session (`AS_MEASURED`, 2026-09-04),
+and the harness's turn beats reach 80 degrees where the app's own reached 43.
+At the measured stimulus the nose figure degrades about 10% on the
+median-of-seeds basis and nose protrusion error by 46%; at seed 11, the
+committed realisation, nose RMS reads 1.48 mm against `full`'s 0.91. The
+constants are NOT adopted as defaults — one capture is one person — but no
+number in this table should be quoted without knowing that the row describing
+the scan a wearer actually gives is the worse one.
+
 And the one that went against the design, kept in the headline position because
 hiding it in a footnote is how a build starts reporting only its wins. The
 constructed seat (`fit/bearing.ts`) was measured across 5 independent seeds at
