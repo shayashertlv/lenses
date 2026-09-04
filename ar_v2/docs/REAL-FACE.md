@@ -176,8 +176,93 @@ verdict. Two harness constants that had never been measured now have a number:
 should be about 0.14 — this wearer's bridge moves 0.181 mm/frame while holding
 still, where the harness's moves 1.328.
 
-**What it did not settle.** Scale, because no PD was entered. One capture, one
+**What it did not settle.** Scale, because no PD was entered — see the second session below, which measures exactly what that costs. One capture, one
 camera, one face, one room's lighting — every figure above is n=1 and should be
 read as an order of magnitude with a direction, not a constant. The capture
 itself is not committed and must not be: it is a 478-point landmark stream of a
 named person. See `docs/PRIVACY.md`.
+
+---
+
+## 2026-09-04, second session — the first REPEATED measurement of one face
+
+Same webcam, same wearer, minutes apart, **different lighting**. 199 scan frames
+and 830 wear frames; the wearer's turn reached 44 degrees against the first
+session's 43, and the lean-back beat was abandoned rather than satisfied.
+
+This is the first time this project has measured the same face twice, and it is
+worth more than either session on its own.
+
+### Repeatability: every dimension disagrees by 4 to 10%
+
+| measurement | session 1 | session 2 | raw | after removing one common factor |
+| --- | --- | --- | --- | --- |
+| templeWidth | 158.43 | 152.00 | +4.2% | −1.5% |
+| noseWidth | 22.17 | 20.81 | +6.5% | +0.7% |
+| nasalRootDepth | 16.80 | 15.68 | +7.2% | +1.3% |
+| bridgeStandoff | 21.76 | 20.57 | +5.8% | 0.0% |
+| cheekDepth | 73.55 | 70.69 | +4.1% | −1.6% |
+| noseProtrusion | 19.90 | 18.07 | +10.1% | +4.1% |
+| bridgeHeight | 42.28 | 41.29 | +2.4% | −3.2% |
+| outerEyeSpan | 91.38 | 86.54 | +5.6% | −0.2% |
+
+**A single common factor of 5.8% explains most of it, and that factor is the
+ruler doing exactly what it says.** Neither session had a PD typed, so both ran
+on the iris rung, and both declared their own scale to ±5.04% and ±4.91%. A
+5.8% disagreement between two draws of a ±5% ruler is not a defect; it is the
+number the ruler has been advertising all along, observed for the first time.
+The PD reads 63.0 against 59.4 mm — 3.7 mm apart, against declared sigmas of
+±3.2 and ±2.9 — and lands the same way.
+
+**What survives the common factor is the reconstruction: 1.6% mean, 4.1%
+worst.** That is the shape disagreeing with itself, and no ruler fixes it.
+`bridgeHeight` (−3.2%) and `noseProtrusion` (+4.1%) are the two that move.
+
+**Two hypotheses were measured and refuted before that decomposition:**
+
+- *Coverage.* Session 2 abandoned its lean-back beat, so the obvious suspect was
+  a starved distance span leaving the focal length under-constrained. Both scans
+  are 2–3× over every threshold: yaw span 81.5 and 84.8 against 50, pitch 31.5
+  and 27.2 against 12, distance span 69.6% and 57.7% against 25%.
+- *The intrinsics solve.* f came out **933.1 and 695.8** on one physical camera,
+  25% apart, which looks like the cause of everything. It is not: **locking the
+  camera at the assumed field of view makes the disagreement worse**, temple
+  width 167.11 against 154.86 — 12.25 mm apart against the solved path's 6.43.
+  The intrinsics solve is absorbing disagreement, not creating it.
+
+**The actionable one: type a PD.** `docs/SCALE.md` puts the wearer's own
+prescription PD at 0.79% against the iris rung's ~5%, and the target at 1.5%.
+The 5.8% common factor is what the iris rung costs, measured; the 1.6% shape
+residual is already near the target. A third session with a PD entered is the
+cheapest experiment left in this document.
+
+### The stimulus constants, at n = 2
+
+| constant | session 1 | session 2 | assumed | verdict |
+| --- | --- | --- | --- | --- |
+| resting bridge speed | 0.181 mm/frame | 0.227 | 1.328 | **confirmed 6–7× too fast** |
+| turn reached | 43° | 44° | 35°, plus profile to 80° | **confirmed** |
+| detector noise, quiet | 1.188 px | 0.654 | 0.7 | **brackets the assumption** |
+
+**The noise result overturns what the first session appeared to show.** One
+capture said 1.188 and this document said the harness was 1.7× optimistic. The
+second says 0.654 with only the light changed — 1.8× apart — and the assumed 0.7
+sits between them. `noisePx` was removed from `AS_MEASURED` on that evidence.
+The lesson is the obvious one and it was cheap to learn: **a constant measured
+once is a constant measured in one room.**
+
+### The wear replay, second session
+
+815 frames after the warm-up, emitted pose reproduced to 1.4e-3 mm median,
+within 0.1 mm on 94.7% and 1 mm on 99.1%. **Seven frames diverge by more than a
+millimetre**, worst 7.146 mm — against zero in the first session. This capture
+moves much faster (bridge speed p90 3.97 mm/frame against 2.00), and the
+tracker's gates and basin audit are threshold decisions, so fast frames are
+where landmark quantisation flips a branch. Not a code divergence; the floor
+that recording precision can buy.
+
+Filter behaviour reproduces the first session's shape: shimmer 1.787 with
+neither smoothing nor prior, 0.768 with the prior alone, 0.623 with smoothing
+alone, **0.331 shipped**, against 0.987 mm of lag. `'adaptive'` again takes
+shimmer lowest (0.225) at roughly double the shipped lag (2.030), which is the
+retirement's own verdict for the second time.

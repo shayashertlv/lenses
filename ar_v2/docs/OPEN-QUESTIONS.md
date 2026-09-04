@@ -133,17 +133,26 @@ frames its spread is the detector's noise. Measured, in SOURCE pixels:
 | every quiet frame (225, bottom quartile of head speed) | **1.188** | 2.029 | 3.53 |
 | every frame (900) | 2.081 | 3.783 | 6.46 |
 
-**The floor's assumed value is close to right.** 1.188 source px is 0.594 at the
-detect resolution the constant is calibrated in, against the assumed **0.7**.
-`UNCERTAINTY_DEFAULTS.floorPx` was `stated`; it is now measured, on one camera,
-and it is 15% high rather than a factor out. The advice this question already
-gave — *"measure the floor on a held pose or the turn will be inside it"* — is
-visible in the table: the all-frames row is 1.8x the quiet row.
+**A SECOND session, same camera and face, different lighting, moved this by
+1.8x — and that is the answer, not the first number.** Quiet-frame residual read
+**1.188 source px in one and 0.654 in the other**. Whatever else is true, the
+detector's noise is a property of the room as much as of the camera:
 
-**The harness's noise is 1.7x optimistic.** `CAPTURE_DEFAULTS.noisePx` is 0.7 at
-capture resolution, which is the SOURCE column, against 1.188 measured. That is
-a different constant from the floor and it moves every synthetic accuracy figure
-in the tree, so it is **not changed here** — see the note under Q7.
+| session | quiet frames | all frames | in detect px |
+| --- | --- | --- | --- |
+| first | 1.188 | 2.081 | 0.594 |
+| second, different light | 0.654 | 1.815 | 0.327 |
+
+**So both assumed constants are defensible and neither is wrong.**
+`UNCERTAINTY_DEFAULTS.floorPx` assumes 0.7 detect px against 0.594 and 0.327
+measured — high, but the right order and on the safe side.
+`CAPTURE_DEFAULTS.noisePx` assumes 0.7 source px and the two sessions **bracket
+it**. An earlier revision of this answer said the harness was "1.7x optimistic";
+that was one lighting condition quoted as a constant, and it is withdrawn.
+
+The advice this question already gave — *"measure the floor on a held pose or
+the turn will be inside it"* — is visible in both rows: all-frames runs 1.8x and
+2.8x the quiet figure.
 
 **The noise is strongly non-stationary, and that is the finding this question
 did not anticipate.** 0.18 px through the quietest second, 1.19 across quiet

@@ -498,33 +498,42 @@ export const CAPTURE_DEFAULTS: CaptureOptions = {
  * assumed — the arm that answers "what would these numbers be for a scan a
  * wearer actually gives?"
  *
- * From the first wear recording, 2026-09-04 (`docs/REAL-FACE.md`), one webcam,
- * one face, one room:
+ * From two wear recordings, 2026-09-04 (`docs/REAL-FACE.md`) — one webcam, one
+ * face, two lighting conditions. **The second one is why `noisePx` is not in
+ * this object.**
  *
- *   `noisePx` 1.19    the detector's per-landmark spread over quiet frames,
- *                     against 0.7 assumed — so the harness has been 1.7x
- *                     optimistic about its own detector. (`floorPx`, a
- *                     different constant in different units, measured 0.594
- *                     against 0.7 assumed and is nearly right.)
- *   `wanderScale` 0.14  this wearer's bridge travels 0.181 mm/frame while
- *                     holding still; the synthetic head travels 1.328.
- *   `turnYawDeg` 43   the yaw the app's own beats actually reached, with no
- *                     profile beat, because the app does not have one.
+ *   `wanderScale` 0.15   the wearer's bridge travels 0.181 and 0.227 mm/frame
+ *                        while holding still, against the synthetic head's
+ *                        1.328. Two sessions, one answer: the harness's resting
+ *                        head is six to seven times too fast.
+ *   `turnYawDeg` 43      the yaw the app's own beats actually reached — 43 and
+ *                        44 degrees — with `includeProfile: false`, because the
+ *                        app has no profile beat and the harness has two out to
+ *                        80. Two sessions, one answer again.
  *
- * **Not the defaults, deliberately.** These are n = 1. Adopting a number
- * measured on one person as the population's stimulus is the exact failure this
- * whole tree exists to avoid — v1's audit found six constants in seven were one
- * person's number, and `synthetic.ts` opens by saying so. What they are for is
- * the delta: running a report both ways says how much of a published figure is
- * the estimator and how much is the stimulus, and until now nothing could ask.
+ * `noisePx` is deliberately absent, and the first version of this object had it
+ * at 1.19. **That was one lighting condition.** The detector's per-landmark
+ * spread over quiet frames measured 1.188 SOURCE px in the first session and
+ * **0.654 in the second — 1.8x apart on the same camera and the same face,
+ * with only the light changed.** The assumed 0.7 sits between them. A constant
+ * that swings by nearly two with the room is not a constant the harness can
+ * carry as a single number, and 0.7 is a defensible middle; pinning it to
+ * either session's value would be worse than leaving it alone.
  *
- * A second capture, on a different camera and a different face, is what would
- * justify moving a default. Until then these travel together — sweeping one
- * while the other two stay assumed measures a session nobody had.
+ * **Not the defaults, deliberately.** Two sessions of one face on one camera is
+ * not a population. Adopting a number measured on one person as the
+ * population's stimulus is the exact failure this whole tree exists to avoid —
+ * v1's audit found six constants in seven were one person's number, and this
+ * file opens by saying so. What they are for is the delta: running a report
+ * both ways says how much of a published figure is the estimator and how much
+ * is the stimulus, and until these existed nothing could ask.
+ *
+ * A different camera and a different face is what would justify moving a
+ * default. These travel together — sweeping one while the others stay assumed
+ * measures a session nobody had.
  */
 export const AS_MEASURED: Partial<CaptureOptions> = {
-  noisePx: 1.19,
-  wanderScale: 0.14,
+  wanderScale: 0.15,
   turnYawDeg: 43,
   includeProfile: false,
 };
