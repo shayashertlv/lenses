@@ -29,7 +29,23 @@
  *
  *     line 0   the header: subject, date, image size, intrinsics, the wearer's
  *              own PD if they typed one, whether an ID-1 card was in frame
- *     line N   one frame: { beat, l:[...], s:[...], v:[...] }
+ *     line N   one SCAN frame: { beat, l:[...], s:[...], v:[...] }
+ *     line M   one WEAR frame: { w:1, dt, l:[...], e:[12]|null, r:[12]|null }
+ *
+ * ## Why the wear frames carry so much less
+ *
+ * A scan frame records `sigmaPx` and `visibility` because the bundle is handed
+ * them. The wear path is not: `app/main.ts` derives both from the landmarks and
+ * the previous pose through `track/profile.ts`'s `shippedSigma`, so a replay
+ * that is given the landmarks and `dt` reproduces the ENTIRE shipped per-frame
+ * path — the uncertainty estimator included — rather than being handed its
+ * output. Recording sigma would replace the thing under test with a fixture of
+ * itself.
+ *
+ * `e` and `r` are the poses the app emitted and solved for that frame, and they
+ * are not inputs. They are the **check**: replaying the landmarks must
+ * reproduce them, and a replay that does not is not a replay of the session.
+ * Twelve numbers each, row-major R then t.
  *
  * Landmarks at 3 decimals of a pixel — a thousandth of a pixel is four orders
  * below detector noise and keeps the file small. Sigmas and visibilities at 4,
@@ -42,14 +58,28 @@
 
 import type { BundleFrame } from './bundle.js';
 import type { Intrinsics } from '../core/camera.js';
+import { poseIdentity, type Pose } from '../core/linalg.js';
 
 /** Decimal places for landmark pixels. See the header. */
 const LANDMARK_DP = 3;
+/**
+ * Wear landmarks get an extra digit, and it is not cosmetic.
+ *
+ * A scan frame is one of hundreds feeding a least-squares solve, where a
+ * thousandth of a pixel is four orders below the noise. A WEAR frame is
+ * replayed through a tracker whose gates, basin audit and stillness latch are
+ * threshold decisions, so the last digit can flip a branch and the pose after
+ * it. Measured on the first real session: perturbing landmarks by half of
+ * `LANDMARK_DP`'s precision moved the emitted pose by up to 0.029 mm, which was
+ * the floor the replay's fidelity check could reach. At four decimals that
+ * floor is a tenth of it.
+ */
+const WEAR_LANDMARK_DP = 4;
 const WEIGHT_DP = 4;
 
 export interface CaptureHeader {
   /** Format version. Bumped when a reader would otherwise mis-read an old file. */
-  v: 1;
+  v: 1 | 2;
   /** Whatever the wearer called themselves. Not an identity. */
   subject: string;
   /** ISO date, passed in rather than read from a clock, so a replay is reproducible. */
@@ -83,13 +113,40 @@ export interface CaptureHeader {
   card: boolean;
   /** Free text: lighting, camera, distance, anything a reader would want. */
   note: string;
-  /** How many frames follow. */
+  /** How many SCAN frames follow. */
   frames: number;
+  /**
+   * How many WEAR frames follow them. Absent on a v1 file, which is the only
+   * difference a reader has to care about.
+   */
+  wear?: number;
+}
+
+/**
+ * One frame of the WEAR phase — the half of the pipeline a wearer actually
+ * watches, and the half nothing in this tree could replay until 2026-09-04.
+ */
+export interface WearFrame {
+  /** Detector landmarks in SOURCE pixels, 2 per landmark. NaN where absent. */
+  landmarks: Float64Array;
+  /**
+   * Seconds since `track()` was last CALLED — `FrameLock.captureDt`, which is
+   * what the app passes and not the consumed-frame interval. See
+   * `TrackInput.dt`, which documents why the two differ and why a caller that
+   * pre-adds a dropout gap would have it counted twice.
+   */
+  dt: number;
+  /** The pose the app rendered: smoothed. Null on a frame the tracker refused. */
+  emitted: Pose | null;
+  /** The raw solve behind it, before the filter. Null on a refused frame. */
+  raw: Pose | null;
 }
 
 export interface Capture {
   header: CaptureHeader;
   frames: Omit<BundleFrame, 'pose'>[];
+  /** Empty on a v1 file and on any session that never left the scan. */
+  wear: WearFrame[];
 }
 
 const round = (x: number, dp: number): number => {
@@ -105,9 +162,18 @@ const round = (x: number, dp: number): number => {
  * short — a browser tab closed, a camera unplugged — is still readable up to
  * the last complete line, and a truncated JSON document is not readable at all.
  */
+const poseOut = (p: Pose | null): number[] | null =>
+  (p ? [...Array.from(p.R, (x) => round(x, 6)), ...Array.from(p.t, (x) => round(x, 4))] : null);
+
 export function serializeCapture(capture: Capture): string {
+  const wear = capture.wear ?? [];
   const lines: string[] = [
-    JSON.stringify({ ...capture.header, frames: capture.frames.length }),
+    JSON.stringify({
+      ...capture.header,
+      v: wear.length ? 2 : capture.header.v,
+      frames: capture.frames.length,
+      ...(wear.length ? { wear: wear.length } : {}),
+    }),
   ];
   for (const f of capture.frames) {
     lines.push(JSON.stringify({
@@ -119,6 +185,17 @@ export function serializeCapture(capture: Capture): string {
       s: Array.from(f.sigmaPx, (x) => (Number.isFinite(x) ? round(x, WEIGHT_DP) : null)),
       v: Array.from(f.visibility, (x) => round(x, WEIGHT_DP)),
       ...(f.silhouette ? { sil: Array.from(f.silhouette, (x) => round(x, LANDMARK_DP)) } : {}),
+    }));
+  }
+  // Wear frames after every scan frame, so a reader that stops at the declared
+  // scan count still sees a whole, valid scan.
+  for (const f of wear) {
+    lines.push(JSON.stringify({
+      w: 1,
+      dt: round(f.dt, 6),
+      l: Array.from(f.landmarks, (x) => (Number.isFinite(x) ? round(x, WEAR_LANDMARK_DP) : null)),
+      e: poseOut(f.emitted),
+      r: poseOut(f.raw),
     }));
   }
   return lines.join('\n') + '\n';
@@ -141,13 +218,25 @@ export function parseCapture(text: string): Capture {
   } catch (error) {
     throw new Error(`capture header is not JSON: ${(error as Error).message}`);
   }
-  if (header.v !== 1) {
-    throw new Error(`capture format v${header.v}; this reader understands v1 only`);
+  if (header.v !== 1 && header.v !== 2) {
+    throw new Error(`capture format v${header.v}; this reader understands v1 and v2`);
   }
 
+  const back = (xs: (number | null)[]) =>
+    Float64Array.from(xs, (x) => (x === null ? NaN : x));
+  const poseIn = (xs: number[] | null | undefined): Pose | null => {
+    if (!xs || xs.length !== 12) return null;
+    const p = poseIdentity();
+    for (let i = 0; i < 9; i++) p.R[i] = xs[i];
+    for (let i = 0; i < 3; i++) p.t[i] = xs[9 + i];
+    return p;
+  };
+
   const frames: Omit<BundleFrame, 'pose'>[] = [];
+  const wear: WearFrame[] = [];
   for (let i = 1; i < lines.length; i++) {
     let raw: {
+      w?: 1; dt?: number; e?: number[] | null; r?: number[] | null;
       beat: string; l: (number | null)[]; s: (number | null)[]; v: number[];
       sil?: number[];
     };
@@ -156,8 +245,15 @@ export function parseCapture(text: string): Capture {
     } catch (error) {
       throw new Error(`capture line ${i + 1} is not JSON: ${(error as Error).message}`);
     }
-    const back = (xs: (number | null)[]) =>
-      Float64Array.from(xs, (x) => (x === null ? NaN : x));
+    if (raw.w === 1) {
+      wear.push({
+        landmarks: back(raw.l),
+        dt: raw.dt ?? 0,
+        emitted: poseIn(raw.e),
+        raw: poseIn(raw.r),
+      });
+      continue;
+    }
     frames.push({
       landmarks: back(raw.l),
       sigmaPx: back(raw.s),
@@ -177,5 +273,11 @@ export function parseCapture(text: string): Capture {
     );
   }
 
-  return { header, frames };
+  if (typeof header.wear === 'number' && header.wear !== wear.length) {
+    throw new Error(
+      `capture header declares ${header.wear} wear frames and the file holds ${wear.length}.`,
+    );
+  }
+
+  return { header, frames, wear };
 }

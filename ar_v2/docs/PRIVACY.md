@@ -14,8 +14,20 @@ The saved model contains geometry, uncertainty, scale information, and camera
 intrinsics. It does not contain a camera image or texture.
 
 Capture frames are held only in memory while the current tab needs them. Choosing
-**Save this scan** explicitly creates a local download; the app does not upload
+**Save this session** explicitly creates a local download; the app does not upload
 or retain that download itself.
+
+That download holds two things, and neither is an image:
+
+- the scan frames the face model was solved from — landmarks in pixels, their
+  per-landmark uncertainty, and visibility
+- the most recent thirty seconds of **wear** — landmarks, the interval between
+  frames, and the two head poses the tracker produced
+
+Landmarks are coordinates, not pixels: nothing in the file can reconstruct a
+face image, and the app never sends it anywhere. The wear window is a rolling
+buffer that is discarded when the measurements are deleted, when a different
+face is detected, and when the camera changes size.
 
 ## Delete my measurements
 

@@ -30,7 +30,7 @@ import {
   intrinsicsFromFov, MEDIAPIPE_ASSUMED_VERTICAL_FOV, scaleIntrinsics, verticalFovDeg,
   type Intrinsics,
 } from '../core/camera.js';
-import { poseIdentity, type Pose } from '../core/linalg.js';
+import { poseClone, poseIdentity, type Pose } from '../core/linalg.js';
 import {
   createFaceModel, deserializeFaceModel, landmarkSurface, serializeFaceModel,
   withScanRecord, type FaceModel,
@@ -55,7 +55,7 @@ import { solvePnP, buildCorrespondences } from '../track/pnp.js';
 import { createUncertainty } from '../detect/uncertainty.js';
 import { createMediaPipeDetector, DETECT_LONG_SIDE, type Detector } from '../detect/mediapipe.js';
 import { earRestPoints, solveSeat, type SeatResult } from '../fit/contact.js';
-import { serializeCapture, type Capture } from '../enroll/telemetry.js';
+import { serializeCapture, type Capture, type WearFrame } from '../enroll/telemetry.js';
 // The one range a PD has to fall inside, shared with the estimator. Three
 // copies of `45`/`85` in this file and a fourth number in `scale.ts` is how a
 // scan came to accept a ruler it would not report.
@@ -237,6 +237,24 @@ interface App {
    * recording protocol that could drift from the shipping one.
    */
   lastCapture: Omit<BundleFrame, 'pose'>[] | null;
+  /**
+   * A rolling window of the WEAR phase, for `save-capture`.
+   *
+   * **Nothing in this tree could replay the wear phase until this existed.**
+   * `lastCapture` records the scan, so `enroll()` can be re-run on a real face;
+   * the half a wearer actually watches — the tracker, the filter, the motion
+   * prior — had no recorded input at all, which is why every decision about it
+   * was made on a synthetic stimulus or on a spoken report of a session nobody
+   * could run again.
+   *
+   * Rolling rather than complete: a wear session has no end, and a wearer who
+   * has just seen the frame do something wants THAT, not the first twenty
+   * seconds after the scan. `WEAR_CAPTURE_FRAMES` is the window.
+   *
+   * Landmarks and `dt` only, plus the two poses as a checksum. Sigma and
+   * visibility are deliberately absent — see `enroll/telemetry.ts`.
+   */
+  wearCapture: WearFrame[];
   lastPose: Pose | null;
   busy: boolean;
   fps: number;
@@ -302,6 +320,17 @@ const LEGACY_HISTORY_KEY = 'ar-v2.scanhistory';
  * second person, a warm start that went stale during a fast turn.
  */
 const SCAN_MAX_RMS_PX = 22;
+
+/**
+ * How many wear frames `save-capture` keeps, at roughly 30 a second.
+ *
+ * 900 is about thirty seconds, which is long enough to hold still for ten and
+ * then move for twenty — the two regimes the recording exists to separate. A
+ * frame is 478 landmarks at three decimals plus two poses, so the window is
+ * around 7 MB of NDJSON: large for a download, small next to a video, and this
+ * file never holds a pixel.
+ */
+const WEAR_CAPTURE_FRAMES = 900;
 
 /**
  * Where the served assets live, relative to the PAGE rather than to this module.
@@ -430,6 +459,7 @@ async function boot(): Promise<void> {
     scanGen: 0,
     collected: [],
     lastCapture: null,
+    wearCapture: [],
     lastPose: null,
     busy: false,
     fps: 0,
@@ -701,6 +731,7 @@ function restartScanAfterSourceResize(app: App): void {
   app.scanGen++;
   app.collected = [];
   app.lastCapture = null;
+  app.wearCapture = [];
   app.protocol = createProtocol();
   app.phase = 'acquire';
   app.ui.guide(null);
@@ -1000,9 +1031,25 @@ function onDetection(
 
     case 'wear': {
       if (!app.tracker) return;
-      applyTracked(app, track(app.tracker, {
+      const tracked = track(app.tracker, {
         landmarks, sigmaPx, visibility, intrinsics: app.intrinsics, dt: captureDt,
-      }), captureDt, undefined, meanFinite(sigmaPx));
+      });
+      // **Recorded before `applyTracked`, and from the tracker's own return.**
+      // Reading the poses back off `app` afterwards would record what the app
+      // decided to keep rather than what the tracker produced, and the two
+      // differ on exactly the frames that matter: `applyTracked` drops
+      // `app.lastPose` when the tracker resets, so a refused frame would look
+      // like a solved one carried forward.
+      app.wearCapture.push({
+        // `landmarks` is owned by this frame; the tracker does not retain it,
+        // but the rolling window does, so it is copied.
+        landmarks: new Float64Array(landmarks),
+        dt: captureDt,
+        emitted: tracked.pose ? poseClone(tracked.pose) : null,
+        raw: tracked.rawPose ? poseClone(tracked.rawPose) : null,
+      });
+      if (app.wearCapture.length > WEAR_CAPTURE_FRAMES) app.wearCapture.shift();
+      applyTracked(app, tracked, captureDt, undefined, meanFinite(sigmaPx));
       return;
     }
 
@@ -1519,8 +1566,11 @@ function resetPerson(app: App, reason: 'rescan' | 'identity' | 'forget'): void {
   app.trackStats = [];
   // The previous wearer's raw landmark frames. Held live at 1.8-3.6 MB, and
   // `save-capture` writes them out under whatever PD is current — which after a
-  // swap is somebody else's.
+  // swap is somebody else's. The wear window goes with it for the same reason,
+  // and for a stronger one: its frames were tracked against the OLD model, so
+  // replaying them against the new one would reproduce nothing.
   app.lastCapture = null;
+  app.wearCapture = [];
   // Warm-starts the next PnP and gates `estimateSigma`. A new face solved from
   // the old face's pose is a solve starting in the wrong basin.
   app.lastPose = null;
@@ -2123,6 +2173,9 @@ function handleAction(app: App, action: string): void {
           frames: app.lastCapture.length,
         },
         frames: app.lastCapture,
+        // The wear window as it stands. Empty if the wearer saved before
+        // trying a frame on, which is a valid v1 capture and reads as one.
+        wear: app.wearCapture.slice(),
       };
       const text = serializeCapture(capture);
       const blob = new Blob([text], { type: 'application/x-ndjson' });
@@ -2137,8 +2190,11 @@ function handleAction(app: App, action: string): void {
       // the download has started cancels it in some browsers.
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       app.ui.status(
-        `saved ${capture.frames.length} frames`
-        + (pd === null ? ' — no PD set, so this capture cannot settle scale' : ` with PD ${pd} mm`),
+        `saved ${capture.frames.length} scan frames`
+        + (capture.wear.length
+          ? ` and ${capture.wear.length} wear frames`
+          : ' and no wear frames — put a frame on and move about before saving')
+        + (pd === null ? '; no PD set, so this capture cannot settle scale' : `; PD ${pd} mm`),
       );
       break;
     }

@@ -136,3 +136,48 @@ node scripts/replay-capture.mjs "<path to capture.ndjson>"
 
 The numbers above are the record. If a future change moves them, that is the
 finding.
+
+---
+
+## 2026-09-04 — the first WEAR recording, and the first replay of one
+
+Everything above this line is enrollment: a scan, solved again offline. The half
+a wearer actually watches — the tracker, the One Euro, the motion prior — had no
+recorded input at all until this date, which is why every decision about it had
+been made on a synthetic stimulus or on a spoken report of a session nobody
+could run again.
+
+`enroll/telemetry.ts` now carries a `wear` section (landmarks, `dt`, and the two
+poses the app produced), `app/main.ts` keeps a rolling 900-frame window, and
+`scripts/replay-capture.mjs` drives it back through the shipping tracker.
+
+**The first capture.** USB webcam, 1280x720, f solved at 933.1, no PD entered
+(so the iris rung). 227 scan frames, 900 wear frames — about thirty seconds of a
+wearer holding still, turning slowly, turning fast, and holding still again.
+
+**The replay is faithful.** Of 885 frames after a 15-frame warm-up, the emitted
+pose reproduces the session to **3.5e-3 mm median**, within 0.01 mm on 86% of
+frames, 0.1 mm on 98.1% and 1 mm on **100%**. The floor is landmark
+quantisation: perturbing the recorded landmarks by half their stored precision
+moves the emitted pose by up to 0.029 mm, which is the same order as the
+residual gap, and wear frames now record an extra decimal because of it.
+
+**The 15 excluded frames are a property of the format, not a defect.** The
+window is rolling, so it opens mid-session with the app's tracker already warm —
+a previous pose, a smoother with history, a velocity — and a replay starts cold.
+The worst warm-up frame is 3.162 mm and the gap is gone by frame 7. A recorder
+that wanted those frames would have to serialise the tracker's state, and it is
+not worth it: nothing is measured on the first half-second.
+
+**What it settled.** See Q1 for the detector's landmark noise (1.19 source px on
+quiet frames, against 0.7 assumed) and Q7 for what that does to the filter
+verdict. Two harness constants that had never been measured now have a number:
+`CAPTURE_DEFAULTS.noisePx` is 1.7x optimistic, and `CaptureOptions.wanderScale`
+should be about 0.14 — this wearer's bridge moves 0.181 mm/frame while holding
+still, where the harness's moves 1.328.
+
+**What it did not settle.** Scale, because no PD was entered. One capture, one
+camera, one face, one room's lighting — every figure above is n=1 and should be
+read as an order of magnitude with a direction, not a constant. The capture
+itself is not committed and must not be: it is a 478-point landmark stream of a
+named person. See `docs/PRIVACY.md`.

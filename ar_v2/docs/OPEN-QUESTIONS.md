@@ -106,6 +106,51 @@ two — but nobody has checked that claim either.
 
 ---
 
+**MEASURED 2026-09-04, on a real camera and a real face.** The wear-phase
+recorder landed the same day (`enroll/telemetry.ts`'s `WearFrame`), so a real
+session can now be replayed through the shipping tracker offline. First capture:
+a USB webcam at 1280x720, 227 scan frames and 900 wear frames, solved f = 933.1.
+
+The estimator is the per-landmark spread of the reprojection residual against
+each frame's OWN raw pose — the pose absorbs the rigid head motion, and what the
+model gets wrong about a landmark is static in face space, so over a set of
+frames its spread is the detector's noise. Measured, in SOURCE pixels:
+
+| frames used | residual, median | p90 | worst |
+| --- | --- | --- | --- |
+| the quietest 0.8 s (23 contiguous) | 0.183 | 0.276 | 0.37 |
+| every quiet frame (225, bottom quartile of head speed) | **1.188** | 2.029 | 3.53 |
+| every frame (900) | 2.081 | 3.783 | 6.46 |
+
+**The floor's assumed value is close to right.** 1.188 source px is 0.594 at the
+detect resolution the constant is calibrated in, against the assumed **0.7**.
+`UNCERTAINTY_DEFAULTS.floorPx` was `stated`; it is now measured, on one camera,
+and it is 15% high rather than a factor out. The advice this question already
+gave — *"measure the floor on a held pose or the turn will be inside it"* — is
+visible in the table: the all-frames row is 1.8x the quiet row.
+
+**The harness's noise is 1.7x optimistic.** `CAPTURE_DEFAULTS.noisePx` is 0.7 at
+capture resolution, which is the SOURCE column, against 1.188 measured. That is
+a different constant from the floor and it moves every synthetic accuracy figure
+in the tree, so it is **not changed here** — see the note under Q7.
+
+**The noise is strongly non-stationary, and that is the finding this question
+did not anticipate.** 0.18 px through the quietest second, 1.19 across quiet
+frames spread over the session, 2.08 overall. A single-sigma iid model cannot
+represent a sixfold swing, whatever value it is given.
+
+**What it is NOT.** A first pass here claimed the real detector's noise couples
+into pose 31x more strongly than an iid model would — i.e. that the harness was
+wrong in KIND. That was an artefact of pairing the 0.8-second window's unusually
+low residual with that window's pose jitter. Re-measured with residual and
+jitter on the SAME frames, real coupling is **3.1x** at the tightest cut, 4.7x
+and 6.3x as the cut loosens and real head motion leaks in; the synthetic
+harness's own coupling, with the head held perfectly still, is **7.6x** at every
+noise level swept. The real detector couples into pose no more than the model
+does, and probably less. The magnitude is wrong; the shape is not.
+
+---
+
 ## Q2 — What is the detector's bias against real skin? **(needs you)**
 
 **Assumed:** zero (`enroll/detector-bias.ts`).
@@ -314,6 +359,40 @@ detector's landmark sigma — decides it in either direction, and Q1 is already
 open and already needs the same real session. The filter stays on until that
 number exists, because turning it off on a synthetic verdict whose stimulus is
 uncalibrated is the same mistake in the other direction.
+
+**That number now exists (2026-09-04), and it keeps the filter on.** Q1 measures
+the detector at **1.19 source px** on quiet frames and 2.08 over a whole
+session, against the harness's assumed 0.7 — so the real camera sits between the
+1.5 and 3.0 rows of the sweep above, where the filter's crawl win is 0.32-0.84
+mm rather than the 0.047 mm the harness's own noise produces. The other
+uncalibrated stimulus moved the same way: this wearer's bridge travels **0.181
+mm/frame** while holding still against the harness's 1.328, so
+`CaptureOptions.wanderScale` should be about **0.14**, deep inside the band
+where smoothing wins 5/5.
+
+And the wearer's own landmarks, replayed through the shipping tracker with
+nothing but the configuration changed (shimmer is the second difference of the
+bridge; no ground truth exists on a real capture, so this is absolute motion and
+lag is its counterweight):
+
+| configuration | shimmer med | shimmer p90 | lag med |
+| --- | --- | --- | --- |
+| neither | 1.027 | 4.507 | 0.000 |
+| motion prior only | 0.458 | 1.304 | 0.000 |
+| smoothing only | 0.313 | 1.811 | 0.972 |
+| **shipped (both)** | **0.161** | **0.624** | **0.927** |
+| locked | 0.162 | 0.637 | 1.204 |
+| adaptive | 0.097 | 0.404 | 2.145 |
+
+Both earn their place on real data: the prior alone halves shimmer, smoothing
+alone cuts it 3.3x, together 6.4x. **`'adaptive'` is not the worst mode here** —
+it takes shimmer lowest of all, at more than double the shipped lag, which is
+the opposite of the synthetic verdict recorded above and is worth a wearer's
+A/B rather than a table.
+
+Read the whole table with its limit in view: **a frozen pose scores zero
+shimmer and infinite error**, so shimmer alone cannot pick a configuration. What
+the real capture settles is the input Q7 was missing, not the trade itself.
 
 Two results the same run produced in passing, both new:
 
