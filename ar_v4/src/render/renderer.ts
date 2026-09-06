@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Detection } from '../runtime/detector.ts';
 import { FaceSurface } from './face-surface.ts';
 import { correctedBridgePose } from './bridge-pose.ts';
+import { refineLocalNasalBoundary } from './nasal-boundary.ts';
 import { VIRTUAL_CAMERA } from './projection.ts';
 /** MediaPipe's default virtual camera. This is an assumed camera, not calibration. */
 export const VERTICAL_FOV_DEGREES = VIRTUAL_CAMERA.verticalFovDegrees;
@@ -98,6 +99,7 @@ export class TryOnRenderer {
   private backgroundTexture: CanvasTexture | null = null;
   private environmentTarget: WebGLRenderTarget | null = null;
   private canonicalPositions: number[] = [];
+  private canonicalIndices: number[] = [];
   private faceSurface: FaceSurface | null = null;
   private surfaceMesh: Mesh | null = null;
   private headProxy: Mesh | null = null;
@@ -197,6 +199,7 @@ export class TryOnRenderer {
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.canonicalPositions = face.positions;
+    this.canonicalIndices = face.indices;
 
     const asset = new Group();
     asset.name = 'Amber Horizon bridge attachment';
@@ -262,7 +265,8 @@ export class TryOnRenderer {
     }
   }
 
-  present(frame: HTMLCanvasElement, detection: Detection): boolean {
+  /** Replay supplies the surface captured with this exact image/detection pair. */
+  present(frame: HTMLCanvasElement, detection: Detection, recordedSurface?: readonly number[]): boolean {
     if (this.disposed) return false;
     if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
     if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
@@ -304,6 +308,21 @@ export class TryOnRenderer {
       const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
       this.facePose.visible = surfaceValid;
       if (surfaceValid) {
+        if (recordedSurface !== undefined) {
+          if (recordedSurface.length !== 468 * 3 || !recordedSurface.every(Number.isFinite)
+            || recordedSurface.some((value, index) => index % 3 === 2 && value >= -VIRTUAL_CAMERA.nearCm)) {
+            throw new Error('The recorded face surface is invalid.');
+          }
+          this.faceSurface!.positions.set(recordedSurface);
+        } else if (this.canonicalIndices.length) {
+          const context = frame.getContext('2d');
+          if (context) {
+            const pixels = context.getImageData(0, 0, frame.width, frame.height);
+            const refined = refineLocalNasalBoundary(this.faceSurface!.positions,
+              this.canonicalPositions, this.canonicalIndices, pixels);
+            this.faceSurface!.positions.set(refined.positions);
+          }
+        }
         const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
         const eyewearMatrix = attachment.matrix;
         this.facePose.matrix.fromArray(attachment.matrix);
@@ -363,6 +382,7 @@ export class TryOnRenderer {
     disposeObjects([this.scene, ...this.assetScenes]);
     this.assetScenes = [];
     this.canonicalPositions = [];
+    this.canonicalIndices = [];
     this.faceSurface = null;
     this.surfaceMesh = null;
     this.headProxy = null;

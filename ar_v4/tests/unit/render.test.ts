@@ -150,6 +150,19 @@ test('present projects a translated, yawed canonical face over its matching nati
   assert.deepEqual(renderer.captureSnapshot?.rawMatrix, matrix);
   assert.deepEqual(renderer.captureSnapshot?.eyewearMatrix, eyewear.matrix.elements);
 
+  // Replay must retain the recorded occluder even if JPEG decoding changes RGB
+  // evidence. Re-estimating it would break the captured geometry/image pairing.
+  const recordedSurface = Array.from(renderer.captureSnapshot!.surfacePositions);
+  recordedSurface[3] = recordedSurface[3]! + 0.05;
+  const expectedSurface = new Float32Array(recordedSurface);
+  Object.assign(renderer, { canonicalIndices: canonical.indices });
+  const replayFrame = { width, height, getContext() { throw new Error('Replay read RGB again'); } } as unknown as HTMLCanvasElement;
+  renderer.present(replayFrame, { landmarks, matrix, inferenceMs: 1 }, recordedSurface);
+  assert.deepEqual(renderer.captureSnapshot!.surfacePositions, expectedSurface);
+  recordedSurface[3] = recordedSurface[3]! + 1;
+  assert.deepEqual(renderer.captureSnapshot!.surfacePositions, expectedSurface, 'recorded input is copied, not retained by reference');
+  assert.throws(() => renderer.present(replayFrame, { landmarks, matrix, inferenceMs: 1 }, [0]), /recorded face surface is invalid/);
+
   const absent: Detection = { landmarks: [], matrix: null, inferenceMs: 1 };
   renderer.present(frame, absent);
   assert.equal(face.visible, false, 'missing face hides the full attachment and occluder parent');

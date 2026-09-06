@@ -4,7 +4,7 @@ Local visual eyewear try-on for Windows Chrome/Edge. Current mirror is the
 wearer's preferred baseline; the experimental shared-face fitters were removed.
 This is an approximate preview, not a personal scan or a physical fit measurement.
 The active frame is **Amber Horizon**, exported from the supplied Blender model.
-This development app lives under `ar_v4/` on `main`. The parent directory contains
+This development app lives under `ar_v4/`. The parent directory contains
 the separate live Lenses Python demo deployed to Railway. AR is not deployed there.
 The abandoned v2/v3 applications remain archived and absent from the active tree.
 
@@ -42,7 +42,8 @@ belongs to the live demo; no AR deployment or live route is configured.
 **Open camera → Record head turn → Finish recording → Previous/Next → Download
 capture**. Replay closes the camera and worker and shows the saved image with its
 original detection. Downloads contain JPEGs, timestamps, detections, raw/corrected
-poses and estimated surfaces. Recording is bounded to 30 seconds, 96 frames or
+poses and estimated surfaces. Replay uses the captured surface so JPEG decoding
+does not change the nose refinement. Recording is bounded to 30 seconds, 96 frames or
 24 MiB of JPEG data. Notes are optional. **Discard capture** releases replay and
 allows a fresh camera session. There is no saved-file import UI.
 The `ar_v4` capture schema identifier and download names remain compatible with
@@ -63,8 +64,10 @@ the session. Stop/discard removes the in-memory recording.
   correction and observed face depth surface. The glasses stay rigid. Raw pose
   reconstructs the face; corrected X/Y translation places the glasses and rear
   head proxy. GLB meters convert once to canonical centimeters. Lighting,
-  projection, tracking and occlusion retain the baseline values. The current
-  model's fixed attachment is described below.
+  projection and tracking retain the baseline values. A local RGB-supported
+  nasal boundary correction changes only selected surface X coordinates; glasses
+  and transmissive lenses retain ordinary face depth testing. The current model's
+  fixed attachment is described below.
 - `src/capture/`: bounded immutable image/result storage, replay and explicit JSON
   export. `public/` contains only local runtime assets, provenance and licenses.
 
@@ -84,8 +87,15 @@ intrinsics, learned face depth, rear-head geometry and lighting are approximate;
 ears/hair and true skin contact are not reconstructed. Synthetic browser checks
 do not establish real-camera motion, phone performance or anatomical accuracy.
 
-Research is pending on actual image boundaries and color contrast during a scan.
-No such algorithm, reconstruction experiment or wearer-specific tuning is included.
+The limited nasal correction looks for a coherent local color boundary connected
+to an external background region. It retains the original surface when evidence
+or geometry checks fail. Upper nose/eye/skin boundaries can remain ambiguous and
+uncorrected. It does not measure physical fit or use recorded-frame/yaw offsets.
+Sparse matched tests show small improvements in both turn directions; upper
+crossings remain.
+The local test added roughly 6 ms per frame including image readback, with about
+11 ms at the 95th percentile. This is not a live wearer or device-wide benchmark.
+No personal scan or multiview reconstruction is included.
 See [HANDOFF.md](HANDOFF.md) for the checkpoint and [docs/REVIEWS.md](docs/REVIEWS.md)
 for cleanup verification. Asset attribution is in [ATTRIBUTION.md](ATTRIBUTION.md).
 

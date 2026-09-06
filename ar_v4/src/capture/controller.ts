@@ -76,6 +76,7 @@ export class CaptureController {
       projection: { ...VIRTUAL_CAMERA, calibrated: false },
       coordinates: 'unmirrored normalized image; canonical centimeters, +Y up and +Z anterior',
       imageEncoding: 'JPEG; original matched detection retained without redetection',
+      occlusion: 'Local nasal RGB boundary v1; captured surface retained during replay',
     };
     this.store.start();
     this.panel.dataset.state = 'recording';
@@ -174,7 +175,9 @@ export class CaptureController {
         } finally { bitmap.close(); }
       }
       if (token !== this.renderGeneration) return;
-      renderer.present(this.image, validateDetection(recorded.detection));
+      // JPEG encoding can change a color boundary. Retain the surface from the
+      // original presentation instead of deriving a new one from decoded pixels.
+      renderer.present(this.image, validateDetection(recorded.detection), recorded.metadata?.surfacePositions);
       const count = this.store.snapshot.frames.length;
       element('replay-position').textContent = `${index + 1} / ${count}`;
       element('replay-metrics').textContent = `Captured ${(recorded.relativeMs / 1000).toFixed(1)}s · estimated yaw ${recorded.yawDegrees?.toFixed(1) ?? 'unknown'}°.`;
