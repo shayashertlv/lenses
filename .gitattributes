@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Prepared assets are verified byte-for-byte, including their line endings.
+public/models/* -text
+tests/fixtures/* -text

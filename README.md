@@ -1,378 +1,99 @@
-# Lenses — AI-Powered Glasses Tools
+# Lenses — Current mirror
 
-AI-powered glasses tools powered by Google Gemini — three CLI pipelines plus a web UI for glasses recommendation, virtual try-on, and lens recoloring.
+Local visual eyewear try-on for Windows Chrome/Edge. Current mirror is the
+wearer's preferred baseline; the experimental shared-face fitters were removed.
+This is an approximate preview, not a personal scan or a physical fit measurement.
+The active frame is **Amber Horizon**, exported from the supplied Blender model.
+The cleaned v4 application is now the sole app at the repository root on `main`.
+Earlier Python, v2 and v3 applications have been removed from the active tree.
 
-## Prerequisites
+## Run and check
 
-- **Python 3.10+**
-- **Gemini API key** with image generation enabled (paid plan required)
-- Get your key from: https://aistudio.google.com/apikey
+Requires Node.js 22.18+ and a camera-capable browser on localhost or HTTPS.
+Run these commands from the repository root:
 
-## Installation
-
-```bash
-cd lenses
-pip install -r requirements.txt
+```sh
+npm ci
+npm run assets
+npm run dev
 ```
 
-Set your API key (one-time — all three tools use this):
+Open http://127.0.0.1:8040 and choose **Open camera**.
 
-```bash
-export GEMINI_API_KEY='your-key-here'       # Linux/Mac
-set GEMINI_API_KEY=your-key-here            # Windows
-$env:GEMINI_API_KEY = "your-key-here"       # PowerShell
+```sh
+npx playwright install chromium
+npm test
+npm run build
+npm run preview
 ```
 
-Or create a `.env` file in this directory (copy from `.env.example`).
-
----
-
-## Project Structure
-
-```
-lenses/
-├── .env.example              # API key template
-├── requirements.txt          # All dependencies
-├── README.md                 # This file
-├── Procfile                  # Deployment entry point (web: python -m UI.app)
-│
-├── catalog_manager.py        # Build/validate/list catalog descriptions (build-time, gitignored)
-├── tag_schema.py             # Product tag vocabulary + description generator (build-time, gitignored)
-│
-├── lenses/                   # Shared Catalog
-│   └── catalog/              #   Product database (shared by all features)
-│       ├── catalog.json      #     Products — full tags + descriptions
-│       └── images/           #     Product photos
-│
-├── UI/                       # Web Interface
-│   ├── app.py                #   HTTP server entry point (localhost:8080)
-│   ├── config.py             #   Paths, session store, constants
-│   ├── handler.py            #   HTTP request routing + multipart parsing
-│   ├── pipelines.py          #   Async pipeline execution (background threads)
-│   └── templates.py          #   HTML + JavaScript frontend
-│
-├── lens_recolor/             # Feature 1: Lens Color Swap
-│   ├── main.py               #   CLI entry point
-│   ├── config.py             #   Model names, defaults
-│   ├── recolor.py            #   Gemini API call logic
-│   ├── prompt_engine.py      #   Prompt builder for lens recoloring
-│   ├── utils.py              #   Image loading/saving/validation
-│   └── tests/
-│       └── test_recolor.py   #   19 tests
-│
-├── optimal_configuration/    # Feature 2: Optimal Configuration
-│   ├── main.py               #   CLI entry point
-│   ├── config.py             #   Model names, catalog paths
-│   ├── search_engine.py      #   Tag-overlap catalog search
-│   ├── query_interpreter.py  #   LLM query parsing (any language)
-│   ├── tryon_engine.py       #   Nano Banana 2-image try-on
-│   ├── tryon_prompt_builder.py#  Try-on prompt construction
-│   ├── utils.py              #   Image loading/saving/validation
-│   └── tests/
-│       └── test_search.py    #   23 tests
-│
-└── face_analysis/            # Feature 3: Face Analysis
-    ├── main.py               #   CLI entry point
-    ├── config.py             #   Model names, paths
-    ├── face_analyzer.py      #   Gemini 2.5 Flash face analysis
-    ├── analysis_prompt.py    #   Face analysis prompt (outputs tags + gender)
-    ├── inventory_matcher.py  #   Tag-overlap match against catalog
-    ├── tryon_engine.py       #   Nano Banana 2-image try-on
-    ├── tryon_prompt.py       #   Try-on prompt with face placement data
-    ├── report_builder.py     #   Human-readable analysis report
-    ├── utils.py              #   Image loading/saving/validation
-    └── tests/
-        └── test_pipeline.py  #   40 tests
-```
-
----
-
-## Feature 1: Lens Color Swap
-
-**What it does:** Takes a photo of someone wearing glasses and changes ONLY the lens color — everything else stays pixel-perfect.
-
-**Pipeline:** `Input Image → Nano Banana API → Output Image` (1 API call)
-
-### How to run
-
-```bash
-cd lens_recolor
-
-# Basic usage
-python main.py -i photo.jpg -c "ocean blue"
-
-# With options
-python main.py -i photo.jpg -c "rose gold" --intensity light --finish gradient
-python main.py -i photo.jpg -c "emerald green" --intensity dark --finish mirror -m nano-banana-pro
-
-# Compare both models side-by-side
-python main.py -i photo.jpg -c "amber" --compare
-
-# Dry run (see the prompt without calling the API — free)
-python main.py -i photo.jpg -c "emerald green" --dry-run
-```
-
-### All Parameters
-
-| Parameter | Required | Default | Description |
-|---|---|---|---|
-| `--input / -i` | **Yes** | — | Path to input image (portrait with glasses) |
-| `--output / -o` | No | auto-generated | Path for the output image |
-| `--color / -c` | **Yes** | — | Target lens color — any descriptive string |
-| `--intensity` | No | `medium` | Tint darkness: `light` (25-30% opacity), `medium` (50-60%), `dark` (80-90%) |
-| `--finish` | No | `standard` | Lens finish style: `standard` (uniform tint), `gradient` (dark top → clear bottom), `mirror` (reflective), `polarized` (subtle sheen) |
-| `--model / -m` | No | `nano-banana-2` | Model: `nano-banana-2` (fast) or `nano-banana-pro` (higher quality) |
-| `--preserve-reflections` | No | `True` | Keep natural lens reflections. Use `--no-preserve-reflections` to disable |
-| `--compare` | No | `False` | Run BOTH models and save a side-by-side comparison image |
-| `--dry-run` | No | `False` | Print the full prompt without calling the API (no cost) |
-
-### Supported Colors
-
-Any natural language works — the model interprets it:
-
-- **Basic:** `blue`, `red`, `green`, `yellow`, `purple`, `pink`, `brown`, `gray`
-- **Specific shades:** `ocean blue`, `rose gold`, `amber`, `emerald green`, `deep burgundy`, `warm honey brown`, `steel gray`, `midnight blue`, `champagne gold`
-- **Industry standard:** `classic aviator green (G-15)`, `Ray-Ban brown (B-15)`, `smoke`, `yellow night-driving`, `photochromic gray`
-- **Creative:** `cotton candy pink`, `electric blue`, `sunset orange gradient`, `holographic purple`, `vintage sepia`, `ice blue`
-
-### Tests
-
-```bash
-cd lens_recolor
-python -m unittest tests.test_recolor -v   # 19 tests
-```
-
----
-
-## Feature 2: Optimal Configuration
-
-**What it does:** Takes a text query describing the glasses you want (in any language) + your portrait, finds the best-matching glasses from a product catalog using tag-based search, then generates a virtual try-on image.
-
-**Pipeline:** `Query + Portrait → Gemini Flash (parse query → tags) → Tag-overlap ranking → Best match → Nano Banana (try-on) → Output Image` (2 API calls)
-
-### First-Time Setup — The Shared Catalog
-
-The catalog ships ready to use (`lenses/catalog/catalog.json` + `images/`). `catalog_manager.py` is an optional build-time helper:
-
-```bash
-# Run from project root (catalog_manager.py is a build-time tool, gitignored)
-python catalog_manager.py build      # Regenerate product descriptions from tags (offline, no API)
-python catalog_manager.py validate   # Verify images exist and tags are valid
-python catalog_manager.py list       # List all products
-```
-
-The catalog lives in `lenses/catalog/` and is shared by Optimal Configuration, Face Analysis, and the Web UI.
-
-### How to run
-
-```bash
-cd optimal_configuration
-
-# Basic usage — interactive product selection
-python main.py -p selfie.jpg -q "round glasses with thin gold frame"
-
-# Auto-select best match
-python main.py -p selfie.jpg -q "black sunglasses" --auto
-
-# Multi-language queries work
-python main.py -p selfie.jpg -q "משקפיים עגולות עם מסגרת זהב"
-python main.py -p selfie.jpg -q "lunettes de soleil aviateur dorées"
-
-# Search only, no try-on (saves API cost)
-python main.py -p selfie.jpg -q "luxury cat-eye frames" --dry-run
-
-# Show more results
-python main.py -p selfie.jpg -q "aviator sunglasses" -k 5
-
-# Use higher quality model
-python main.py -p selfie.jpg -q "round gold frames" --auto -m nano-banana-pro
-```
-
-### All Parameters
-
-| Parameter | Required | Default | Description |
-|---|---|---|---|
-| `--portrait / -p` | **Yes** | — | Path to user's portrait photo |
-| `--query / -q` | **Yes** | — | Natural language description of desired glasses (any language) |
-| `--output / -o` | No | `tryon_result.png` | Output image path |
-| `--model / -m` | No | `nano-banana-2` | Model: `nano-banana-2` (fast) or `nano-banana-pro` (higher quality) |
-| `--top-k / -k` | No | `3` | Number of search results to display |
-| `--auto` | No | `False` | Auto-select the #1 match (skip interactive selection) |
-| `--dry-run` | No | `False` | Search only — show results but skip the try-on API call |
-| `--results-dir` | No | `./results/` | Directory to save output files |
-
-### How Search Works
-
-1. **Query Interpretation** — Gemini Flash parses your freeform text (any language) into structured query tags + optional filters (price, gender)
-2. **Tag-Overlap Ranking** — Your query tags are scored against each product's tags via weighted overlap (instant, local, no API)
-3. **Ranking** — Top-K results shown with match scores, filtered by stock status
-4. **Display Scores** — the raw overlap score ranks; it is not what the cards show. The top three results are re-expressed into descending bands (`DISPLAY_BANDS` in `tag_matcher.py`) so every number on a promoted card reads above 80 and below 100, most of its position inside its band earned by the raw score and the rest jittered from a digest of the query and the product — stable across polls and restarts, different between searches. Pass `display=False` to `rank_products` for the engine's own arithmetic.
-
-### Adding Products to the Catalog
-
-1. Add product image to `lenses/catalog/images/` (front-facing, clean background, JPG/PNG/WEBP)
-2. Add product entry to `lenses/catalog/catalog.json` with full tags
-3. Run `python catalog_manager.py build` from the project root to regenerate descriptions (optional)
-
-### Tests
-
-```bash
-cd optimal_configuration
-python -m unittest tests.test_search -v   # 24 tests
-```
-
----
-
-## Feature 3: Face Analysis
-
-**What it does:** Analyzes facial features from a portrait, recommends the optimal glasses based on optician-grade face-shape-to-frame rules, matches the recommendation against the real product catalog, and generates a try-on image. Gender is detected and used to filter the catalog to relevant products.
-
-**Pipeline:** `Portrait → Gemini 2.5 Flash (analyze face + recommend tags + detect gender) → Filter by gender → Tag-overlap match against catalog → Nano Banana (try-on with real product photo) → Output Image` (2 API calls + local tag-overlap ranking)
-
-**Depends on:** `lenses/catalog/` (ships ready to use — `catalog.json` + `images/`).
-
-### How to run
-
-```bash
-cd face_analysis
-
-# Full pipeline — analysis + matching + try-on
-python main.py -p selfie.jpg
-python main.py -p selfie.jpg -o result.png --auto
-
-# Analysis only — just face analysis, no matching or try-on (1 API call)
-python main.py -p selfie.jpg --dry-run
-python main.py -p selfie.jpg --dry-run --save-analysis analysis.json
-
-# Analysis + matching — see what glasses match, skip try-on (2 API calls)
-python main.py -p selfie.jpg --report-only
-python main.py -p selfie.jpg --report-only -k 5 --save-report report.txt
-
-# Full pipeline with report saved
-python main.py -p selfie.jpg -o result.png --auto --save-report report.txt --save-analysis analysis.json
-
-# Higher quality try-on
-python main.py -p selfie.jpg -o result_pro.png -m nano-banana-pro --auto
-```
-
-### All Parameters
-
-| Parameter | Required | Default | Description |
-|---|---|---|---|
-| `--portrait / -p` | **Yes** | — | Path to portrait photo (chest-up, face visible) |
-| `--output / -o` | No | `face_analysis_result.png` | Output image path |
-| `--model / -m` | No | `nano-banana-2` | Nano Banana model: `nano-banana-2` (fast) or `nano-banana-pro` (higher quality) |
-| `--analysis-model` | No | `gemini-2.5-flash` | Model for face analysis (keep default in most cases) |
-| `--top-k / -k` | No | `3` | Number of inventory matches to show |
-| `--auto` | No | `False` | Auto-select #1 match without interactive selection |
-| `--save-report` | No | — | Save human-readable report to a text file |
-| `--save-analysis` | No | — | Save raw analysis JSON to a file |
-| `--report-only` | No | `False` | Do analysis + matching, skip the try-on image generation |
-| `--dry-run` | No | `False` | Do analysis only, skip matching + try-on |
-
-### What the Analysis Covers
-
-The face analysis extracts:
-- **Face shape** — oval, round, square, heart, diamond, oblong, rectangular, triangle
-- **Gender** — detected from the portrait; used to filter catalog to relevant products
-- **Forehead** — width, height, hairline shape
-- **Cheekbones** — prominence, width relative to jaw
-- **Jawline** — shape, definition, width relative to forehead
-- **Chin** — shape, size
-- **Nose bridge** — width, height (critical for glasses fit)
-- **Eyes** — spacing, size, shape, color
-- **Eyebrows** — shape, thickness
-- **Skin** — tone, undertone (warm/cool/neutral — affects frame color recommendation)
-- **Hair** — color, style, texture, length
-- **Facial hair** — presence, type
-- **Photo context** — lighting, setting, face angle
-
-The recommendation applies optician rules:
-- Round face → angular frames; square face → rounder frames
-- Warm skin undertone → gold/tortoiseshell; cool → silver/black
-- Narrow nose bridge → metal frames with adjustable pads
-- Frame width should match face width at temples
-
-### How the Pipeline Connects to the Catalog
-
-The face analysis outputs `recommended_tags` using the **exact same tag vocabulary** as the product catalog (`lenses/catalog/catalog.json`). The recommended tags are scored directly against each product's tags via weighted overlap. Because both sides share one vocabulary, the recommendation and catalog match on **identical structured attributes** — no embeddings or external API needed.
-
-### Tests
-
-```bash
-cd face_analysis
-python -m unittest tests.test_pipeline -v   # 41 tests
-```
-
----
-
-## Web UI
-
-**What it does:** Browser-based interface with four modes — **Smart Fit** (face analysis pipeline), **Free Search** (preference-based search pipeline), **Lens Recolor** (lens color swap pipeline), and **Storefront** (browse the full product catalog and try on any product). Results load progressively as each try-on finishes.
-
-### How to run
-
-```bash
-python -m UI.app
-```
-
-Open http://127.0.0.1:8080 in your browser.
-
-### Modes
-
-- **Smart Fit** (`/`) — Upload a portrait. Analyzes facial features and gender, matches against the catalog (filtered by gender), and generates try-on images for the top 3 recommended products.
-- **Free Search** (`/free-search`) — Upload a portrait + choose preferences (frame shape, color, material, thickness, rim type, lens type, lens size, aesthetic, gender, occasion, max price). Runs semantic search against the catalog and generates try-on images.
-- **Lens Recolor** (`/lens-recolor`) — Upload a photo of someone wearing glasses + pick up to 3 lens colors from a 16-color palette. Generates recolored versions for each color.
-- **Storefront** (`/storefront`) — Browse the full product catalog in a grid. Click any product to upload a portrait and get a virtual try-on. Click a color swatch to recolor the lenses on a product photo.
-
-Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-status/<id>`, `/api/storefront-recolor-status/<id>`).
-
-### API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Smart Fit / landing page |
-| `GET` | `/free-search` | Free Search page |
-| `GET` | `/lens-recolor` | Lens Recolor page |
-| `GET` | `/storefront` | Storefront catalog page |
-| `GET` | `/api/catalog` | JSON list of all products |
-| `GET` | `/api/catalog-image/<filename>` | Serve a product image |
-| `GET` | `/api/status/<id>` | Poll Smart Fit / Free Search result |
-| `GET` | `/api/recolor-status/<id>` | Poll Lens Recolor result |
-| `GET` | `/api/storefront-recolor-status/<id>` | Poll Storefront recolor result |
-| `POST` | `/api/upload` | Start Smart Fit pipeline |
-| `POST` | `/api/free-search` | Start Free Search pipeline |
-| `POST` | `/api/lens-recolor` | Start Lens Recolor pipeline |
-| `POST` | `/api/storefront-tryon` | Start Storefront try-on |
-| `POST` | `/api/storefront-recolor` | Start Storefront single-color recolor |
-
----
-
-## Models Used
-
-| Model | Purpose | Used by |
-|---|---|---|
-| `gemini-3.1-flash-image-preview` (nano-banana-2) | Image generation — fast | All features + Web UI |
-| `gemini-3-pro-image-preview` (nano-banana-pro) | Image generation — high quality | All features + Web UI |
-| `gemini-2.5-flash` | Face analysis (vision + reasoning) | Face Analysis, Web UI (Smart Fit) |
-| `gemini-2.5-flash` | Query interpretation (text) | Optimal Configuration, Free Search |
-
-## Troubleshooting
-
-| Issue | Solution |
-|---|---|
-| `GEMINI_API_KEY not set` | Set the env var or create a `.env` file — key from aistudio.google.com |
-| `Rate limited / 429` | Wait a moment, then retry |
-| `Safety filter blocked` | The image was flagged — try a different photo |
-| `No image in response` | Tools retry automatically. If persistent, try a different portrait or model |
-| `API key issue / 403` | Ensure your key has image generation enabled (paid plan) |
-| `Catalog not found` | Ensure `lenses/catalog/catalog.json` and `images/` are present |
-| `Low match scores` | Add more diverse products to the catalog |
-
-## Running All Tests
-
-```bash
-cd lens_recolor && python -m unittest tests.test_recolor -v && cd ../optimal_configuration && python -m unittest tests.test_search -v && cd ../face_analysis && python -m unittest tests.test_pipeline -v
-```
-
-All 82 tests should pass (19 + 23 + 40).
+`npm test` runs 15 focused Node tests, strict TypeScript, a production build and
+five browser lifecycle flows using real local MediaPipe with a simulated camera.
+`npm run build` verifies the prepared model/mesh/fixture hashes and copies the
+pinned runtime from node_modules. No assets are read from sibling projects.
+
+For deployment, build with development dependencies installed and publish `dist/`
+at the origin root over HTTPS. Configure `Cross-Origin-Opener-Policy: same-origin`
+and `Cross-Origin-Embedder-Policy: require-corp`, as the local Vite server does.
+The old Python `Procfile` was removed; an external host must use this static build.
+
+## Use
+
+**Open camera → Record head turn → Finish recording → Previous/Next → Download
+capture**. Replay closes the camera and worker and shows the saved image with its
+original detection. Downloads contain JPEGs, timestamps, detections, raw/corrected
+poses and estimated surfaces. Recording is bounded to 30 seconds, 96 frames or
+24 MiB of JPEG data. Notes are optional. **Discard capture** releases replay and
+allows a fresh camera session. There is no saved-file import UI.
+The `ar_v4` capture schema identifier and download names remain compatible with
+existing recordings.
+
+Frames stay in memory until an explicit download; nothing is uploaded or written
+to browser storage. Close camera, a hidden live page, navigation or an error ends
+the session. Stop/discard removes the in-memory recording.
+
+## Architecture
+
+- `src/main.ts`: one session owns the camera, worker, renderer and callbacks.
+  One frozen image is downsampled for detection, then presented with that result;
+  no inference backlog or independent video overlay. CSS mirrors the whole canvas.
+- `src/runtime/`: camera acquisition, validated detector messages, local MediaPipe
+  worker; GPU startup falls back to a fresh CPU worker. Old sessions cannot publish.
+- `src/render/`: Three.js renderer, fixed virtual projection, original bridge
+  correction and observed face depth surface. The glasses stay rigid. Raw pose
+  reconstructs the face; corrected X/Y translation places the glasses and rear
+  head proxy. GLB meters convert once to canonical centimeters. Lighting,
+  projection, tracking and occlusion retain the baseline values. The current
+  model's fixed attachment is described below.
+- `src/capture/`: bounded immutable image/result storage, replay and explicit JSON
+  export. `public/` contains only local runtime assets, provenance and licenses.
+
+The assumed vertical FOV is 63°, with camera aspect from each frame. Amber's
+attachment is `100 * glb_position + (0, 3.271027, 6.531958919387042)` centimeters.
+Its normalized source is given an assumed 145 mm width; bridge height uses
+canonical landmark 168 and the frame front retains Current mirror's original
+6.691763 cm depth. These are fixed preview conventions, not wearer measurements.
+The 3.7 MB GLB embeds its 2K tortoiseshell texture and baked brown lens gradient;
+the roughly 100,000-triangle mesh preserves the supplied shape at lower detail.
+The observed face is already in camera space and must not receive that pose again.
+
+## Limits and next work
+
+The far lens/rim can show through the side of the nose at larger yaw. Camera
+intrinsics, learned face depth, rear-head geometry and lighting are approximate;
+ears/hair and true skin contact are not reconstructed. Synthetic browser checks
+do not establish real-camera motion, phone performance or anatomical accuracy.
+
+Research is pending on actual image boundaries and color contrast during a scan.
+No such algorithm, reconstruction experiment or wearer-specific tuning is included.
+See [HANDOFF.md](HANDOFF.md) for the checkpoint and [docs/REVIEWS.md](docs/REVIEWS.md)
+for cleanup verification. Asset attribution is in [ATTRIBUTION.md](ATTRIBUTION.md).
+
+The untouched wearer export is in [recordings/](recordings/README.md). The full
+pre-cleanup project and original export are recoverable from
+`.recovery/ar_v4-before-cleanup-2026-09-06.tar.gz`; instructions and SHA-256 receipts
+are in `.recovery/`. These local files are ignored by Git and excluded from the
+production build.
+The older applications' final working files, including uncommitted changes, are
+also saved in `.recovery/promotion-2026-09-06/`, with a verified archive, Git bundle
+and restoration instructions. Recovery files and private recordings stay local.

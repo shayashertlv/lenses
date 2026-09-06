@@ -1,0 +1,18 @@
+{
+  "public/models/amber-horizon.glb": {
+    "bytes": 3670784,
+    "sha256": "78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004"
+  },
+  "public/models/face_landmarker.task": {
+    "bytes": 3758596,
+    "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+  },
+  "public/models/canonical-face.json": {
+    "bytes": 22937,
+    "sha256": "566302c1734dc3b096f7651f46a3a568de4d7a47ba662425b963880f7640cf14"
+  },
+  "tests/fixtures/face-a.jpg": {
+    "bytes": 552034,
+    "sha256": "b6491464eb87c023a8e07e2004cb4d30e2a57025857a0de43810d0191dd7208e"
+  }
+}

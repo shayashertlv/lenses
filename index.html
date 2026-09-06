@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101715" />
+    <title>Lenses — AR v4</title>
+  </head>
+  <body>
+    <main class="workspace">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Lenses home"
+          >lenses<span class="brand-dot">.</span></a
+        ><span class="version">AR / V4 <span>WORKING BASELINE</span></span>
+      </header>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">THE VIRTUAL MIRROR</p>
+          <h1>See yourself in Amber Horizon.</h1>
+        </div>
+        <p class="intro-note">A quieter frame. A different perspective.</p>
+      </section>
+      <div class="tryon-layout">
+        <section
+          class="stage"
+          aria-label="Virtual try-on mirror"
+          data-state="idle"
+        >
+          <canvas
+            id="mirror"
+            hidden
+            aria-label="Mirrored camera view with virtual glasses"
+          ></canvas>
+          <div class="stage-top">
+            <span class="stage-label"
+              ><span id="status-dot"></span
+              ><span id="stage-status">CAMERA OFF</span></span
+            ><span class="private-label">ON YOUR DEVICE</span>
+          </div>
+          <div class="welcome" id="welcome">
+            <div class="frame-symbol" aria-hidden="true">
+              <i></i><b></b><i></i>
+            </div>
+            <h2>Your mirror, ready when you are.</h2>
+            <p>
+              Find some soft light and take off your glasses.<br />Then look
+              towards your camera.
+            </p>
+            <button id="start" class="primary">
+              Open camera <span aria-hidden="true">↗</span>
+            </button>
+            <p class="privacy">
+              Video stays in this browser. Nothing is uploaded.
+            </p>
+          </div>
+          <div class="stage-bottom">
+            <p id="guidance" role="status" aria-live="polite">
+              Ready for a first look.
+            </p>
+            <button id="stop" class="quiet" hidden>Close camera</button>
+          </div>
+        </section>
+        <aside class="sidebar">
+          <section class="capture" id="capture" aria-labelledby="capture-title" data-state="idle" data-frames="0">
+            <p class="eyebrow">RECORDING</p>
+            <h2 id="capture-title">Record and replay.</h2>
+            <p class="capture-copy">Face forward, turn slowly to each side, then return. Add a small look up and down. Keep this tab visible.</p>
+            <p id="capture-status" role="status" aria-live="polite">Open the camera to begin.</p>
+            <button id="record-turn" class="primary" disabled>Record head turn</button>
+            <button id="finish-recording" class="quiet" hidden>Finish recording</button>
+            <p class="capture-copy" id="capture-coverage">Still frames stay in this tab until you discard them. Download only if you want to save.</p>
+            <div id="replay-controls" hidden>
+              <label for="replay-frame">Recorded frame <output id="replay-position"></output></label>
+              <input id="replay-frame" type="range" min="0" max="0" step="1" value="0" />
+              <div class="capture-buttons"><button id="previous-frame" class="quiet">Previous</button><button id="next-frame" class="quiet">Next</button></div>
+              <p id="replay-metrics" class="capture-copy"></p>
+              <label for="capture-note">What changes across the turn?</label>
+              <textarea id="capture-note" rows="2" maxlength="1500" placeholder="Optional notes about this recording."></textarea>
+              <div class="capture-buttons"><button id="download-capture" class="primary">Download capture</button><button id="discard-capture" class="quiet">Discard capture</button></div>
+            </div>
+          </section>
+          <div class="product">
+            <p class="eyebrow">01 / THE FRAME</p>
+            <h2>Amber Horizon</h2>
+            <p class="product-description">
+              A rectangular tortoiseshell frame with warm brown gradient lenses.
+            </p>
+            <div class="swatch-row">
+              <span class="swatch" aria-hidden="true"></span>Amber tortoiseshell<span
+                class="selected"
+                >Selected</span
+              >
+            </div>
+          </div>
+          <div class="howto">
+            <p class="eyebrow">A BETTER FIRST LOOK</p>
+            <ol>
+              <li><span>01</span>Face the camera in even light.</li>
+              <li><span>02</span>Move slowly, then turn a little.</li>
+              <li><span>03</span>Check the bridge and the far arm.</li>
+            </ol>
+          </div>
+          <div class="baseline-note">
+            <span class="pill">Approximate try-on</span>
+            <p>
+              A visual preview with estimated size and placement. It does not
+              measure your fit.
+            </p>
+          </div>
+          <details class="diagnostics">
+            <summary>Session details</summary>
+            <dl>
+              <div>
+                <dt>Tracking</dt>
+                <dd id="tracking">Off</dd>
+              </div>
+              <div>
+                <dt>Display</dt>
+                <dd id="fps">—</dd>
+              </div>
+              <div>
+                <dt>Processing</dt>
+                <dd id="latency">—</dd>
+              </div>
+              <div>
+                <dt>Camera</dt>
+                <dd id="resolution">—</dd>
+              </div>
+            </dl>
+            <p>
+              The video and glasses are displayed together from the same
+              captured frame.
+            </p>
+          </details>
+        </aside>
+      </div>
+      <footer>
+        <span>Made for a closer look.</span
+        ><span>Local processing · Current mirror</span>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

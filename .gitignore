@@ -1,62 +1,21 @@
-__pycache__/
-*.pyc
-.env
-*.egg-info/
-dist/
-build/
-.idea/
-
-# Binary files
-*.jpg
-*.jpeg
-*.png
-*.npy
-*.log
-
-# Whitelist catalog assets required at runtime
-!lenses/catalog/images/
-!lenses/catalog/images/*.jpg
-!lenses/catalog/images/*.jpeg
-!lenses/catalog/images/*.png
-
-# Test output / results
-**/results/
-downloaded_images/
-
-# Windows shortcuts
-*.lnk
-
-# Build-time tools (local only)
-/catalog_manager.py
-/tag_schema.py
-
-# Analysis cache (Smart Fit consistency)
-face_analysis/.analysis_cache/
-
-# pip artifacts
-=*
-
-# Local Claude Code settings (machine-specific, never commit)
-.claude/settings.local.json
-
-# Claude Code worktrees (each is its own working tree, never a submodule)
-.claude/worktrees/
-
-# Generated output (decks, build scripts, pricing maps)
-out/
-
-# Node toolchain (impeccable design tooling runs via npx; nothing is vendored)
 node_modules/
+dist/
+test-results/
+playwright-report/
+.recovery/
+recordings/*.json
+public/mediapipe/
 
-# Impeccable design tooling (per-machine install: npx impeccable install --project)
-.claude/skills/
-.claude/agents/
-
-# Impeccable working state (critique reports and design.json are shared; the rest is ephemeral)
-.impeccable/live/
-.impeccable/sketches/
-.impeccable/screenshots/
-.impeccable/config.local.json
-
-# Commercial proposal (local only, never commit)
+# Machine-local tools, credentials and recovery material are never published.
+.env
+.env.*
+.idea/
+.vscode/
+.claude/
+.impeccable/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+*.lnk
 lenses_erroca_proposal.*
