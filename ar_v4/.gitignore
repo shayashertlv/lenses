@@ -1,0 +1,24 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.recovery/
+recordings/*.json
+public/mediapipe/
+
+# The parent live app ignores photos; this synthetic test asset must be committed.
+!tests/fixtures/face-a.jpg
+
+# Machine-local tools, credentials and recovery material are never published.
+.env
+.env.*
+.idea/
+.vscode/
+.claude/
+.impeccable/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+*.lnk
+lenses_erroca_proposal.*

@@ -1,0 +1,960 @@
+/* ══════════════════════════════════════════════════
+   Lens recolour — the tint bench
+   Shelf edge direction, seed e4d16858. Experience.
+
+   Small input, large output: pick exactly three of sixteen named tints and
+   the renders lead. Self-contained on tokens.css; does not load common.css.
+   ══════════════════════════════════════════════════ */
+
+/* ── Category band ────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+}
+.topbar .back-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--on-field-2);
+  text-decoration: none;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.topbar .back-btn:hover { color: var(--on-field); }
+.topbar .logo {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1;
+}
+.topbar-note {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+}
+
+/* ══════════════════════════════════════════════════
+   The options screen is a screen, not a document
+   ══════════════════════════════════════════════════
+   Everything the visitor has to do here — hand over a photo, pick exactly
+   three of sixteen tints, press the button — has to be visible at once. It
+   was not: at 375x667 the form ran 550px past the fold, and 573px of the
+   1217px document was the colour grid alone, so a visitor scrolled past the
+   picker to reach the control that acts on it and could never see their
+   three choices and the button together. The three overlay views on this
+   page were already built as screens (`position: fixed; inset: 0`, line 405);
+   the form was the odd one out.
+
+   Height comes from the initial containing block — the same box those
+   overlays resolve against — so there is no vh, no dvh, and no mobile
+   toolbar bug to have. It has to be `height`, not `min-height`: a
+   content-sized column is never under pressure, so nothing inside it ever
+   gives a pixel back and the page simply grows, which is the bug this
+   replaced. Nothing is clipped by it either — body overflow propagates to
+   the viewport, so where a viewport genuinely cannot hold sixteen readable
+   tints (a 320px handset, 200% zoom, a phone on its side) the grid stops at
+   its floor and the page scrolls again. Fitting is the design; a row of
+   unreadable targets is not. */
+html { height: 100%; }
+body { height: 100%; display: flex; flex-direction: column; }
+main { display: flex; flex: 1 1 auto; min-height: 0; }
+
+/* ── Form ─────────────────────────────────────── */
+/* The house shell-and-elastic-child pattern, the one .res-inner (line 586)
+   and landing.css:446 already use: one column, `min-height: 0` at every
+   level so the squeeze passes down, `flex: 0 0 auto` on everything that
+   keeps its natural height, and only what should negotiate negotiating —
+   here the tray takes the slack and the grid gives height back. Centring
+   places what is left once the tray has topped out at its cap. */
+#form-view {
+  display: flex;
+  flex-direction: column;
+  /* `safe`, because plain `center` centres an overflow too: on a viewport the
+     column cannot fit, it pushes the tray up behind the band and out of the
+     top of the page, where no amount of scrolling reaches it. Safe alignment
+     falls back to the start the moment there is not enough room. */
+  justify-content: safe center;
+  gap: var(--s-4);
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: var(--s-5);
+}
+#form-view > * { flex: 0 0 auto; }
+/* The tray is the one thing worth making bigger with height nobody else
+   needs, so it takes the slack on a tall screen and gives it back first on
+   a short one.
+
+   The basis is a number, not `auto`, and that is the whole trick behind the
+   photo not resizing the page: `auto` would measure the tray's contents, and
+   its contents are three different things at three different sizes — an icon
+   over two lines, a thumbnail beside a filename, and on the restore path the
+   second of those is the first paint. A stated basis makes the band the same
+   height in every one of them. 124px is the empty tray's own content: a 34px
+   icon, a 24px label, an 18px hint, two 8px gaps and 32px of padding. */
+#form-view > .rc-upload { flex: 1 1 124px; max-height: 280px; }
+#form-view > .colours-block { flex: 0 1 auto; }
+
+/* ── Data posture: the compliance answer, at the point of upload ──
+   It stays here, in the open, under the tray. A data-protection statement
+   you have to open a tooltip to read is not a statement made before the
+   question is asked, which is the whole of its job.
+
+   This used to be `#form-view > p`, one rule setting a measure and a 24px
+   bottom margin on every paragraph in the form — and at (1,0,1) it beat
+   `.posture`'s and `.section-note`'s own margins, so those rules rendered
+   nothing they declared and 72px of the overflow sat where no one could turn
+   it off without the override this stylesheet is not allowed to use. The
+   column's `gap` owns the rhythm now. */
+#form-view > .posture {
+  max-width: var(--measure);
+  margin: 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ── Category signage band ──
+   Now doing the job DESIGN.md gives it in full: the group name left, the
+   live count right in --on-field-2. The count was a paragraph of its own
+   below the grid, 42px spent to say the same thing further from the thing
+   it counts. */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 6px var(--s-3);
+  background-color: var(--field);
+  color: var(--on-field);
+  border-radius: var(--r-tag) var(--r-tag) 0 0;
+}
+.section-title h2 { margin: 0; }
+
+/* Band and grid are one shelf unit, so they sit flush inside the column's
+   gap rather than 16px apart under a radius that says otherwise. The
+   `min-height: 0` passes the squeeze straight through to the grid, whose own
+   `min-height` is where the screen's floor is stated. */
+.colours-block { display: flex; flex-direction: column; min-height: 0; }
+
+.rc-upload {
+  display: grid;
+  place-items: center;
+  gap: var(--s-2);
+  /* A <button> shrink-wraps: without this the tray rendered 164px wide in a
+     792px column, reading as a stray chip rather than a target. */
+  width: 100%;
+  min-height: 124px;
+  padding: var(--s-4);
+  background-color: var(--card);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.rc-upload:hover { border-color: var(--field); background-color: var(--paper); }
+.rc-upload.has-file { border-style: solid; border-color: var(--field); }
+.rc-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
+.up-label { font-size: var(--t-base); font-weight: 700; }
+.up-hint {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── A chosen photo must not resize the screen it was chosen on ──
+   The preview used to be a 220px-tall block dropped into the middle of the
+   tray, which grew it by 147px the moment a file landed — and on the
+   restore-from-session path that is the FIRST paint, so the page that had
+   just been made to fit arrived 147px too tall. The tray becomes a row
+   instead — thumbnail, then which photo — inside exactly the band it
+   already occupied. */
+.up-preview { display: none; }
+.rc-upload.has-file {
+  grid-auto-flow: column;
+  grid-template-columns: auto minmax(0, 1fr);
+  /* One row, explicitly `minmax(0, 1fr)`, because that is what gives the row
+     a definite height for the thumbnail's `height: 100%` to resolve against.
+     Left to `auto` the row is sized by its content, the percentage has
+     nothing to measure, and the image falls back to its intrinsic size — a
+     900x1200 photo painted at 900x1200 inside a 200px tray. */
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--s-3);
+  text-align: left;
+}
+.rc-upload.has-file .up-preview {
+  display: block;
+  order: -1;
+  height: 100%;
+  width: auto;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: var(--r-ctl);
+}
+/* The filename is arbitrary text written by JS, so it is clamped to the one
+   line the row reserves for it rather than allowed to wrap the tray taller. */
+.rc-upload.has-file .up-label {
+  align-self: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-upload.has-file svg, .rc-upload.has-file .up-hint { display: none; }
+#rc-file { display: none; }
+
+/* ── The sixteen tints ──
+   A fixed eight across, two down. `auto-fill, minmax(96px, 1fr)` gave seven
+   columns and three rows at every desktop width — 303px of grid where two
+   rows of eight fit the same sixteen tints in 191px — and three columns and
+   SIX rows on a phone, 573px, which was half the document on its own.
+   Eight and four both divide sixteen, so no row is left ragged.
+
+   `minmax(0, 1fr)` on the rows is the grid spelling of `min-height: 0`, and
+   it is the only spelling that works: any row whose minimum is `auto` — a
+   bare `1fr`, or `minmax(64px, 1fr)`, both of which read as if they said
+   this — leaves the row's base at max-content when the grid is measured, so
+   the grid reports its natural height as its smallest, the column above it
+   finds nothing to compress, and the page grows instead. Measured: the
+   block held 352px against a 314px allowance and simply overflowed.
+
+   The floor is therefore stated here, in rows, rather than inferred — and
+   stated in the tokens it is made of rather than as a number that was true
+   once. --rc-row is one cell at its smallest: 2 border, three --s-1 (the
+   padding above, the padding below, and the gap between mark and name), the
+   swatch mark, and the two lines .color-pick-name reserves. That comes to
+   71.5px at the default root size, which is the 72 this used to hard-code,
+   and it clears the 66px DESIGN.md gives a shape tag.
+
+   As a literal it was only true at one text size. The caption's reserve is
+   `2.5em` and the padding is rem, so both grow when a visitor raises the
+   browser's minimum font size — and 72 did not. Measured at 320x568 with a
+   24px root: all sixteen cells painted their name outside their own border,
+   because the grid still floored at 284px while each cell now needed 87.
+   Nothing scrolled its way out of it either — the rows are `minmax(0, 1fr)`,
+   so the overflow had nowhere to go but over the row beneath. Derived, the
+   floor rises with the text it is holding and the page scrolls instead,
+   which is the outcome this screen chooses everywhere else.
+
+   --rc-mark carries the swatch's own floor, so the row and the mark cannot
+   drift apart: change one and the other follows. */
+.color-pick-grid {
+  --rc-mark: 30px;
+  --rc-row: calc(2px + 3 * var(--s-1) + var(--rc-mark) + 2.5 * var(--t-2xs));
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  min-height: calc(2 * var(--rc-row) + var(--s-2));
+  align-content: stretch;
+  gap: var(--s-2);
+}
+.color-pick { display: flex; position: relative; cursor: pointer; }
+.color-pick input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+.color-pick-inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-1) 2px;
+  background-color: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.color-pick-inner:hover { border-color: var(--rule-strong); background-color: var(--card); }
+
+/* Selection is :has(), not an adjacent-sibling rule, so restructuring the
+   markup cannot silently stop the selected state from rendering. */
+.color-pick:has(input:checked) .color-pick-inner {
+  background-color: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.color-pick:has(input:checked) .color-pick-inner::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--r-pill);
+  background-color: var(--signal);
+}
+/* The ring is drawn 2px outside the cell, and the cells are 4px apart on a
+   phone, so half of it landed underneath whichever neighbour painted after
+   it — the keyboard visitor's position on a sixteen-item grid, shown on two
+   sides out of four. Raising the focused cell puts the whole ring on top. */
+.color-pick:has(input:focus-visible) { z-index: 1; }
+.color-pick:has(input:focus-visible) .color-pick-inner {
+  outline: 2px solid var(--field);
+  outline-offset: 2px;
+}
+
+/* The swatch is the content, so it is the thing that negotiates inside the
+   cell: 44px where there is room, shrinking square before the name gives up
+   a line, and never past the point where a tint stops being a tint.
+   `aspect-ratio` with `width: auto` keeps it square while its height moves.
+
+   `min-height` here is the whole screen's floor. Every level above passes
+   the squeeze down until it reaches this number; when the viewport cannot
+   afford sixteen of them, nothing shrinks further and the page scrolls
+   instead. It reads --rc-mark rather than restating it, so the mark and the
+   row that has to hold it are one number. 30px is what DESIGN.md gives the
+   Colour Swatch, and a shape tag is allowed to come down a step below 560 —
+   the component's own height does, 66 to 60 — so the mark comes down with
+   it rather than the tint becoming something you cannot read a colour off. */
+.color-swatch {
+  flex: 0 1 auto;
+  width: auto;
+  height: 44px;
+  min-height: var(--rc-mark);
+  aspect-ratio: 1;
+  border-radius: var(--r-tag);
+  border: 1px solid var(--rule);
+}
+/* "Clear" is the absence of a tint: a dashed outline on paper, never a
+   white-on-white gradient. */
+.color-swatch[data-clear] { background-color: var(--paper); border: 2px dashed var(--rule-strong); }
+/* The palette's longest word, CHAMPAGNE, sets at 80px in the label treatment,
+   which is the number the four-column grid is built around. `hyphens` is the
+   floor under that: on a handset narrower than about 356px the word breaks
+   properly instead of running out of its cell into the next tint's border. */
+.color-pick-name {
+  flex: 0 0 auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.25;
+  hyphens: auto;
+  /* Two lines whether or not the name uses them. Fifteen of the sixteen are
+     two words and wrap; Clear is one, and on a centred cell that one short
+     caption lifted its swatch about 7px above the seven beside it — a row of
+     tints that do not line up is the one thing a comparison cannot have. It
+     is also what makes the 72px floor above exact rather than approximate. */
+  min-height: 2.5em;
+}
+
+/* The live count on the band. It reads on --field now, not on paper, so the
+   states are the band's own two inks: the muted one at rest, full white and
+   700 at three of three. --field on --field would have been no state at all.
+   No utility class here — updateCounter() assigns className wholesale. */
+#color-counter {
+  margin: 0 0 0 auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+  font-variant-numeric: tabular-nums;
+}
+#color-counter.full { color: var(--on-field); font-weight: 700; }
+#color-counter.over { color: var(--signal); }
+@media (prefers-reduced-motion: no-preference) {
+  #color-counter.nudge { animation: rcNudge .28s var(--ease); }
+}
+@keyframes rcNudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+.submit-row { margin: 0; }
+.submit-btn {
+  width: 100%;
+  min-height: 52px;
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-md);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
+}
+.submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+/* Four strings of different length cycle through here, and on a layout with
+   no slack a line that appears and disappears moves the grid above it. The
+   line is reserved whether or not it is occupied. */
+.submit-hint {
+  max-width: var(--measure);
+  min-height: 17px;
+  margin: var(--s-2) auto 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════
+   Loading / results / error screens
+   ══════════════════════════════════════════════════ */
+#loading-view, #results-view, #error-view {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background-color: var(--paper);
+  overflow-y: auto;
+}
+#loading-view, #error-view { align-items: center; justify-content: center; padding: var(--s-4); }
+
+.load-card {
+  width: min(600px, 100%);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-panel);
+  text-align: center;
+}
+.load-portrait { width: 96px; margin: 0 auto var(--s-4); }
+.load-portrait img { display: block; width: 100%; border-radius: var(--r-tag); border: 1px solid var(--rule); }
+
+.rc-steps { display: flex; align-items: center; justify-content: center; gap: var(--s-3); margin-bottom: var(--s-4); }
+.rc-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rc-sdot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-strong);
+  font-variant-numeric: tabular-nums;
+}
+.rc-step.active { color: var(--ink); }
+.rc-step.active .rc-sdot { background-color: var(--field); border-color: var(--field); color: var(--on-field); }
+.rc-step.done .rc-sdot { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.rc-sline { width: 56px; height: 2px; background-color: var(--card-sunk); }
+.rc-sline.done { background-color: var(--field); }
+
+.load-prog { height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
+.load-prog-fill { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background-color: var(--field); }
+#load-stage { margin: 0; font-size: var(--t-base); font-weight: 500; }
+
+/* ── The wait, narrated with the job's own material ── */
+.load-notes { margin-top: var(--s-4); text-align: left; }
+.load-notes .lnote {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.load-notes .lnote.in { opacity: 1; transform: none; }
+.load-notes .lnote-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lframe {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--rule);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.lframe.in { opacity: 1; transform: none; }
+.lframe-name { font-size: var(--t-sm); color: var(--ink); }
+.lframe-status {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.lframe-status.done { color: var(--field); font-weight: 700; }
+.lframe-status.fail { color: var(--danger); }
+.load-cancel {
+  min-height: 44px;
+  margin-top: var(--s-4);
+  padding: 0 var(--s-4);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.load-cancel:hover { border-color: var(--ink); color: var(--ink); }
+
+/* ── Results: the render leads ── */
+/* A flex column, so the row below can be given the height the band leaves and
+   nothing more. This declaration was inert until now — showView() forced
+   `display: block` — and the results view was a 1650px document scrolling in a
+   900px window as a result. */
+#results-view { flex-direction: column; }
+/* The band carries the screen's title, the way the Smart fit results bar does
+   (landing.css:400-418). It used to hold the back button alone under a
+   `space-between` written for a second child that was never there, while the
+   title sat again 24px below it at 40px — two headers for one screen, and 61px
+   of height taken off the pictures to say the same thing twice. */
+.res-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.res-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background: none;
+  border: 1px solid var(--on-field-2);
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.res-back .back-caret { width: 14px; height: 14px; }
+.res-back:hover { background-color: var(--field-hi); }
+.res-back:active { background-color: var(--field-deep); }
+
+.res-bar-title {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1;
+}
+/* The heading takes focus when the results replace the form, so its ring has to
+   read on the band it sits in — --field on --field is no ring at all. */
+.res-bar-title:focus-visible { outline: 2px solid var(--on-field); outline-offset: 3px; }
+
+/* The row takes the height left under the band and no more, the way Smart fit's
+   does (landing.css:446-464). Three portrait renders are limited by height, not
+   width, so a fixed container is wrong at both ends: at 1100px the row ran 8px
+   past the fold on a 625px-tall laptop — clipping the very control the screen
+   was rebuilt around — and left a band of unused paper on a tall monitor.
+
+   Width follows height. A card is a 4:5 well over a 69px bar, and the height it
+   may have is the viewport less the band (68) and this padding (48):
+   1.25w + 69 <= vh - 116, so w <= 0.8vh - 148. Three of those plus two 12px
+   gaps plus the padding is 2.4vh - 372. Clamped to the system's 1320 container
+   above and to a card still worth looking at below. Re-derive it if the bar's
+   height changes, or if anything is put back above the row: too generous and
+   the well letterboxes to make up the difference, which is the thing the
+   derivation exists to avoid.
+
+   `justify-content: center` places the leftover when the picture tops out
+   first; `min-height: 0` lets the well give height back rather than scroll. */
+.res-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  max-width: clamp(720px, calc(240vh - 372px), 1320px);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--s-5);
+}
+.res-inner .results-row { flex: 0 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-content: stretch; }
+
+/* ── The three renders ────────────────────────────
+   The row itself is .results-row from results.css, the same one Smart fit and
+   Free Search use, and it is here for the reason recorded there: this screen
+   used to give the first colour the full 1052px width with the other two
+   beneath it. A portrait letterboxed inside that band painted 418px wide
+   against 634px of empty card, so the "selected" colour came out SMALLER than
+   the two alternates below it — and those started at y=714 on a 900px screen,
+   below the fold, which is where a visitor who asked to compare three tints
+   could not see two of them. Three equal columns size the picture to the card
+   and put all three on one line at the same scale, which is the only
+   arrangement a colour comparison can actually be made in.
+
+   Only what is specific to this page lives below; the well, the card and the
+   wait/fail states are the shared ones. */
+/* A finished card is itself the <button>, so the UA's own font, colour and
+   padding have to be put back before the shared .result-card rules mean
+   anything. The picture is what a visitor aims at, and it was the one part of
+   the card that did nothing — only the label strip under it was live. */
+button.result-card {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--d-base) var(--ease);
+}
+button.result-card:hover { border-color: var(--ink); }
+button.result-card:hover .rc-card-action { background-color: var(--card); }
+button.result-card:hover .rc-card-cta { color: var(--ink); }
+
+/* Two fixed lines, not one. The tint name is the answer the visitor came for
+   and DESIGN.md:328 gives a result card's body the 17px condensed brand voice —
+   but at 17px the name, its swatch and the action all on one line measure past
+   a 281px column at the 900px viewport, so "Champagne Gold" would wrap on one
+   card and not on the next. Ragged bars are the one thing a comparison row
+   cannot afford, so the stack is fixed for every card at every width. */
+.rc-card-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 68px;
+  padding: var(--s-2) var(--s-3);
+  background-color: var(--paper);
+  border-top: 1px solid var(--rule);
+  transition: background-color var(--d-fast) var(--ease);
+}
+.rc-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+}
+.rc-card-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 70%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1.1;
+}
+/* The chip the visitor picked, carried through to the render it produced, so
+   the name over the picture is anchored to something they already chose. */
+.rc-swatch {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-tag);
+  border: 1px solid var(--rule);
+}
+.rc-swatch[data-clear] { background-color: var(--paper); border: 2px dashed var(--rule-strong); }
+.rc-card-cta {
+  flex: 0 0 auto;
+  margin-top: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── Full size ──
+   The hero used to be where a render could be looked at properly. The row
+   trades that for comparison, so the close look moves here and the button
+   that always said "View full size" finally does it. */
+/* It borrows the photo-tips backdrop but not its fade. `visibility` is a
+   discrete property: while a transition to `visible` is running the computed
+   value is still `hidden` on the first frame, and nothing inside a hidden
+   subtree can take focus — so the dialog opened with focus left on the card
+   behind the backdrop. Appearing at once removes the frame that bug lives in. */
+#rc-zoom { transition: none; }
+.zoom-box {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: 92vh;
+  padding: var(--s-3);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+}
+.zoom-well {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  background-color: var(--card);
+  border-radius: var(--r-ctl);
+  overflow: hidden;
+}
+.zoom-well img { display: block; max-width: 100%; max-height: 78vh; object-fit: scale-down; }
+.zoom-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+}
+.zoom-name {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.zoom-close {
+  min-height: 44px;
+  padding: 0 var(--s-4);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.zoom-close:hover { background-color: var(--ink); color: var(--paper); }
+
+/* ── Error ── */
+.err-card {
+  width: min(420px, 100%);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  text-align: center;
+}
+.error-mark {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background-color: var(--danger);
+  color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.err-card h2 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.err-card p { margin: 0 0 var(--s-4); color: var(--ink-2); overflow-wrap: anywhere; }
+.start-over {
+  min-height: 48px;
+  padding: 0 var(--s-5);
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── Photo tips ── */
+.uptip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
+}
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.uptip-box {
+  width: min(360px, 100%);
+  padding: var(--s-5);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+  text-align: center;
+}
+.uptip-icon svg { width: 40px; height: 40px; fill: none; stroke: var(--field); stroke-width: 1.6; }
+.uptip-box h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.uptip-box p { margin: 0 0 var(--s-4); font-size: var(--t-sm); color: var(--ink-2); }
+.uptip-ok {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--field);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  #form-view { padding: var(--s-4); gap: var(--s-3); }
+  #form-view > .rc-upload { max-height: 200px; }
+  .submit-btn { min-height: 48px; }
+  /* Four across, four down. Eight columns need a 92px cell to set CHAMPAGNE —
+     the longest word in the palette — at the 11px label and its 0.08em; below
+     748px they would be 60px and the name would break. Four and eight both
+     divide sixteen, so no row is ever left ragged. */
+  .color-pick-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-height: calc(4 * var(--rc-row) + 3 * var(--s-2));
+  }
+  /* Fill-the-screen is a desktop shape. Below 900 there is not enough height to
+     hold three renders and their labels at any useful size, so the results view
+     goes back to being a document that scrolls. */
+  .res-inner { display: block; flex: none; max-width: none; padding: var(--s-4); }
+  .res-inner .results-row { grid-template-rows: auto; }
+}
+
+@media (max-width: 560px) {
+  .topbar { padding: var(--s-2) var(--s-4); gap: var(--s-3); }
+  .topbar-note { display: none; }
+  #form-view { padding: var(--s-3); }
+  /* The gap closes to 4px so the four columns clear 80px — the width
+     CHAMPAGNE sets at — on a 360px handset, the narrowest in common use.
+     Below about 356px the word no longer fits its cell and hyphenates. */
+  /* The shape tag's step down below 560 — 66px to 60px — taken on the mark,
+     which the row derives itself from, so both come down together. */
+  .color-pick-grid {
+    --rc-mark: 26px;
+    gap: var(--s-1);
+    min-height: calc(4 * var(--rc-row) + 3 * var(--s-1));
+  }
+  .color-swatch { height: 36px; }
+  /* Same derivation as the 124 above, with the phone's 28px icon and 12px
+     padding: 28 + 24 + 18 + two 8px gaps + 24. */
+  #form-view > .rc-upload { flex-basis: 102px; }
+  .rc-upload { min-height: 102px; padding: var(--s-3); }
+  .rc-upload svg { width: 28px; height: 28px; }
+  .submit-hint { margin-top: var(--s-1); }
+  .rc-sline { width: 28px; }
+}
+
+/* ── Short and wide ──
+   A phone on its side, and the small desktop window that has the same shape:
+   the width its portrait self did not have, and almost none of the height.
+   Stacked, the column is ~120px short however hard the tints are squeezed,
+   so it becomes two — the tray keeps the left, the posture and the button
+   stack up beside it on height the tray was already spending, and the band
+   and the sixteen tints take the full width underneath at the desktop's
+   eight across. Two rows of eight is the only arrangement of sixteen that
+   fits under a 290px ceiling, and the full width is what pays for it: 92px
+   cells, wide enough for the longest name at the label size, which four
+   columns at half width would not be.
+
+   580px is where the stacked column stops closing: 68 band + 48 padding +
+   124 tray + 33 posture + 30 signage + 152 grid + 69 action + 48 gaps.
+   `min-width` is on it because two columns of a 375px phone would be 40px
+   cells; 560 is the system's own value, so no breakpoint is added by using
+   it from the other side. */
+@media (max-height: 580px) and (min-width: 560px) {
+  .topbar { padding: var(--s-1) var(--s-4); }
+  #form-view {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "tray posture"
+      "tray action"
+      "colours colours";
+    align-content: start;
+    padding: var(--s-2);
+    gap: var(--s-2) var(--s-3);
+  }
+  /* The tray spans both right-hand rows, so its height is the posture and the
+     button added together and it needs no floor of its own — one that was
+     larger would push the tints down for nothing. */
+  #form-view > .rc-upload { grid-area: tray; flex: none; max-height: none; }
+  /* The gap closes so the empty tray's stack measures what the posture and
+     the button measure beside it, and the band stops moving between the two
+     states by a few pixels. */
+  .rc-upload { min-height: 0; padding: var(--s-3); gap: var(--s-1); }
+  .rc-upload svg { width: 26px; height: 26px; }
+  /* A stated height, because here the tray's own is not: it spans two auto
+     rows whose size it also contributes to, so a percentage height on the
+     thumbnail has nothing to resolve against, falls back to the photo's
+     intrinsic size, and takes the tray to 484px on the viewport with the
+     least height to spare. 72px sits inside the 87px the two rows leave. */
+  .rc-upload.has-file .up-preview { height: 72px; }
+  #form-view > .posture { grid-area: posture; }
+  #form-view > .colours-block { grid-area: colours; }
+  .submit-row { grid-area: action; align-self: end; }
+  .color-pick-grid {
+    --rc-mark: 26px;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    min-height: calc(2 * var(--rc-row) + var(--s-1));
+    gap: var(--s-1);
+  }
+  .submit-btn { min-height: 44px; }
+  .submit-hint { margin-top: var(--s-1); }
+}
+
+@media (max-height: 500px) and (max-width: 900px) {
+  #loading-view, #error-view { align-items: flex-start; }
+  .load-portrait { width: 64px; }
+  .load-portrait { width: 64px; }
+  /* Landscape phone: the well may take the height the stacked layout gives it. */
+  .result-img { max-height: 70vh; }
+  .zoom-well img { max-height: 62vh; }
+}

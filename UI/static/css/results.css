@@ -1,0 +1,218 @@
+/* ══════════════════════════════════════════════════
+   Results — the shelf-edge language for a rendered try-on
+   Shared by / (Smart fit) and /free-search.
+   Shelf edge direction, seed e4d16858.
+   ══════════════════════════════════════════════════ */
+
+/* Three renders, one row. The first used to span the full width with the
+   alternates beneath it, which made the primary card about 950px wide holding
+   a portrait photo: object-fit: contain then letterboxed it, leaving a band of
+   empty card either side of the face, and the two alternates were pushed below
+   the fold where they could not be compared against it.
+
+   Three equal columns size the picture to the card instead, and the best match
+   is marked by its border and its label rather than by being three times the
+   size of the things it is meant to be compared with. */
+.results-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+  align-content: start;
+}
+.result-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  overflow: hidden;
+  background-color: var(--paper);
+}
+.result-card.is-primary { border-color: var(--ink); }
+/* A photo well of a fixed 4:5, which is about what the renders come back as.
+   The box used to take the picture's own size, so three renders that came back
+   at three slightly different shapes gave three cards whose brand lines started
+   at three different heights — the one thing a comparison row cannot afford.
+   The well is the constant; the picture is centred in it and never cropped.
+   `flex: 0 1 auto` lets it give height back when the screen is short. */
+.result-img {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  aspect-ratio: 4 / 5;
+  background-color: var(--card);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+/* The picture's box is the well, and `object-fit` does the fitting.
+
+   Two earlier attempts relied on `max-height: 100%` bounding an auto-sized
+   picture, and both failed on a real render: a percentage max-height has to
+   resolve against a definite containing block, and every box in this chain took
+   its height from its own content, so 100% meant 100% of the picture and
+   constrained nothing. Stretching .tryon-done did not fix it and neither did an
+   explicit 1fr track — measured at 414x552 inside a 414x518 well both times,
+   which is a render hanging out of the bottom of its own card.
+
+   Nothing here is a percentage of an indefinite thing any more. `inset: 0` sizes
+   the box from the well's used padding box, and object-fit does the fitting
+   inside it. No min/max resolution, no auto-margin centring, no intrinsic
+   sizing — the well is the frame and the picture cannot leave it.
+
+   `scale-down`, not `contain`. The box is the well whatever the render's real
+   size is — 828x1035 device pixels on a 1440x900 laptop at 2x — and `contain`
+   scales the picture up to fill it, so a render that came back at 400x500 was
+   being enlarged 2.07x and shown soft. The layout the well replaced never did
+   that: an auto-sized picture with a max cap stops at its own resolution.
+   `scale-down` is `contain` with that ceiling put back — the smaller of the two
+   — so a large render still fits and a small one is shown at the size the model
+   actually produced. */
+.result-img img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+/* The frame the recolour button is pinned to, so it is stretched to the well
+   rather than shrink-wrapped to the picture. Shrink-wrapped it took the
+   overflowing picture's height, which put the button below the well's foot
+   where `overflow: hidden` cut it in half. Stretched, the button sits on the
+   well's own bottom edge whatever shape the render came back as. */
+.tryon-done { position: relative; place-self: stretch; }
+.tryon-done .recolor-btn {
+  position: absolute;
+  right: var(--s-2);
+  bottom: var(--s-2);
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.tryon-done .recolor-btn:hover { background-color: var(--ink); color: var(--paper); }
+.tryon-wait, .tryon-fail {
+  display: grid;
+  gap: var(--s-2);
+  place-items: center;
+  padding: var(--s-6) var(--s-4);
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: center;
+  /* A provider error arrives as one long unbroken string. The well is
+     `overflow: hidden`, so without this it is clipped rather than wrapped and
+     the reason the render failed is the part that goes missing. */
+  overflow-wrap: anywhere;
+}
+.tryon-wait-bar {
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--card-sunk);
+  overflow: hidden;
+  position: relative;
+}
+@keyframes waitSlide { from { transform: translateX(-100%); } to { transform: translateX(220%); } }
+.tryon-wait-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 45%;
+  background-color: var(--field);
+  animation: waitSlide 1.2s var(--ease) infinite;
+}
+
+/* Grows but never shrinks. Growing is what keeps the price rows on one line
+   across three cards whose spec lines wrap to different depths; refusing to
+   shrink is what sends a short screen's squeeze to the well instead of clipping
+   the text. */
+.result-body { display: flex; flex-direction: column; gap: 3px; padding: var(--s-3); flex: 1 0 auto; }
+/* The label marks the picture, so it sits on the picture. Held in the body it
+   cost a whole line above the brand — and every line the body takes is a line
+   the render does not get, on a screen where the render is the point. */
+.result-label {
+  position: absolute;
+  top: var(--s-2);
+  left: var(--s-2);
+  z-index: 1;
+  padding: 2px 6px;
+  border-radius: var(--r-tag);
+  background-color: var(--field);
+  color: var(--on-field);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.result-brand { font-size: var(--t-md); font-weight: 800; font-stretch: 70%; text-transform: uppercase; line-height: 1; }
+.result-name { font-size: var(--t-sm); font-weight: 500; }
+/* Two lines are reserved whether or not the second is used. A spec that wraps
+   on one card and not on the next made that card's body taller, and since the
+   body may grow but not shrink the difference came out of the photo well — so
+   three renders of the same face arrived at three different sizes, which is the
+   one thing a comparison row cannot afford. */
+.result-spec {
+  min-height: 3.2em;
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Wraps, because a card is a third of a row now rather than a whole one and
+   three score tiles no longer always fit on one line. Key beside value rather
+   than over it: stacked, three chips took 40px of a body that is competing with
+   the render for height, and a two-word key over a two-digit number was never
+   reading as a column anyway. */
+.scores { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-2); }
+.score {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 8px;
+  background-color: var(--card);
+  border-radius: var(--r-tag);
+}
+.score-k {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.score-v { font-size: var(--t-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+.result-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: auto;
+  padding-top: var(--s-2);
+}
+.result-thumb { width: 54px; height: 34px; object-fit: contain; }
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+
+   The row's own responsive behaviour lives with the row, so a page that adopts
+   it adopts the whole component rather than the desktop half of it. landing.css
+   and free-search.css state the same two rules for their own shells; this is
+   the copy every page gets for free.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 560px) {
+  /* A phone cannot hold three renders side by side and keep a face legible, so
+     they stack. One per row means each can be taller than it was in the line. */
+  .results-row { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, a card is the full width of the phone and the 4:5 well would run
+     past the fold on its own. Capped, the well shortens and the render sits
+     centred in it. */
+  .result-img { max-height: 58vh; }
+}

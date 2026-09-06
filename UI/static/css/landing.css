@@ -1,0 +1,640 @@
+/* ══════════════════════════════════════════════════
+   Landing — the dispensing counter
+   Shelf edge direction, seed e4d16858. Persuade.
+
+   Self-contained on tokens.css; does not load common.css.
+   ══════════════════════════════════════════════════ */
+
+body.sf-open { overflow: hidden; }
+
+/* ── Category band ────────────────────────────── */
+.band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+}
+.band-mark {
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1;
+}
+.band-note {
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+}
+
+/* ── The counter: the pitch, addressed to a retailer ───────── */
+/* One column since the tray beside the headline went. Nothing sits opposite
+   the pitch now, so a second track would only be a measured void. */
+.counter {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: var(--s-7) var(--s-5) var(--s-6);
+}
+.counter-pitch h1 {
+  margin: 0;
+  font-size: var(--t-3xl);
+  font-weight: 800;
+  font-stretch: 62%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+.counter-pitch p {
+  margin: var(--s-4) 0 0;
+  max-width: var(--measure);
+  font-size: var(--t-md);
+  color: var(--ink-2);
+}
+
+/* .tray / .tray-title / .tray-sub lived here for the hero's upload zone. The
+   hero no longer has one — the directory's first row opens the picker — so the
+   rules went with it rather than lingering as an unreachable component.
+   .start stays: the error card's "Try again" wears it. */
+.start {
+  width: 100%;
+  min-height: 52px;
+  margin-top: var(--s-2);
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-md);
+  font-weight: 700;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
+}
+.start:hover { filter: brightness(1.06); }
+
+.posture {
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ── Directory: the four capabilities, filed ──── */
+.directory { max-width: 1320px; margin: 0 auto; padding: 0 var(--s-5) var(--s-7); }
+.dir-h {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.dir-list { list-style: none; margin: 0; padding: 0; border-top: 2px solid var(--ink); }
+.dir-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 220px) minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.dir-no {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--field);
+  letter-spacing: .02em;
+}
+.dir-name {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  font-size: var(--t-lg);
+  font-weight: 700;
+  font-stretch: 84%;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+.dir-name:hover { color: var(--field); text-decoration: underline; text-underline-offset: 3px; }
+.dir-what { font-size: var(--t-sm); color: var(--ink-2); }
+.dir-dur {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+/* ══════════════════════════════════════════════════
+   The wait — a dispensing docket
+   ══════════════════════════════════════════════════ */
+.docket-screen,
+.results-screen,
+.error-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background-color: var(--paper);
+  overflow-y: auto;
+}
+.docket-screen, .error-screen { align-items: center; justify-content: center; padding: var(--s-4); }
+
+.docket {
+  width: min(900px, 100%);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+  box-shadow: var(--sh-panel);
+}
+.docket-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background-color: var(--field);
+  color: var(--on-field);
+}
+.docket-no {
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.docket-kind {
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+}
+.docket-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--s-5);
+  padding: var(--s-4);
+}
+
+/* The photo and the readings taken off it, side by side — the customer, then
+   what was read from them, then the frame that answers it. Stacked instead, the
+   photo sat above three short rows and left the width beside it empty; floated,
+   as it was before that, it narrowed every reading to dodge a thumbnail. */
+.docket-main {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: 150px;
+}
+/* A fixed 3:4 well, filled rather than fitted. An upload arrives at whatever
+   shape the phone took it in, and sizing the box to the picture let a landscape
+   snap come out twice the width of a portrait one — the docket changed shape
+   with the file. The box is the constant now and the photo crops into it,
+   biased up the frame so the crop takes the shoulders, never the forehead. */
+.portrait { flex: 0 0 192px; margin: 0; }
+.portrait img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  object-position: center 30%;
+  border-radius: var(--r-tag);
+  border: 1px solid var(--rule);
+}
+
+/* ── The face profile rows ── */
+/* The read takes about a third of the wait to come back, and until it did this
+   column held nothing: 498px of blank paper with an 84px thumbnail floated into
+   the middle of it. The rows are laid in at the start now — labelled, values
+   pending — so the card reads as a docket being filled, which is what it is.
+   Each placeholder is replaced in place by its real value. */
+.skel {
+  display: block;
+  height: .72em;
+  border-radius: var(--r-tag);
+  background-color: var(--card-sunk);
+  background-image: linear-gradient(90deg, transparent 0%, var(--card) 45%, transparent 90%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: skelSweep 1.5s linear infinite;
+}
+.skel-val { width: 44%; }
+@keyframes skelSweep {
+  from { background-position: 220% 0; }
+  to { background-position: -120% 0; }
+}
+
+/* Stretched, and the three rules divide the height evenly: the readings and the
+   photo they were taken off end level, and the column reads as a form that has
+   been filled rather than three lines floating in the middle of a panel. */
+.docket-main .profile { align-self: stretch; display: flex; flex-direction: column; }
+.docket-main .prow { flex: 1; align-content: center; }
+
+.profile { flex: 1 1 auto; min-width: 0; margin: 0; opacity: 0; transition: opacity var(--d-slow) var(--ease); }
+.profile.in { opacity: 1; }
+.prow {
+  display: grid;
+  grid-template-columns: 106px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.prow:first-child { border-top: 1px solid var(--rule); }
+.prow dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* One glyph per reading, so the three are told apart at a glance rather than
+   by reading three uppercase labels. */
+.prow-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--field);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.prow dd { margin: 0; font-size: var(--t-base); font-weight: 500; }
+.cdots { display: inline-flex; gap: 5px; margin-left: var(--s-2); vertical-align: middle; }
+.cdot { width: 13px; height: 13px; border-radius: var(--r-pill); border: 1px solid var(--rule); }
+
+/* ── The pulled frame, named before it is rendered ── */
+.docket-side { display: flex; flex-direction: column; }
+.pulled {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--s-3);
+  background-color: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.pulled.in { opacity: 1; transform: none; }
+.pulled-label {
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: var(--s-2);
+}
+.pulled-img {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 66px;
+  margin-bottom: var(--s-2);
+  object-fit: contain;
+  color: var(--rule-strong);
+}
+.pulled-img .frame-glyph { width: 70%; height: auto; }
+.pulled-brand { font-size: var(--t-md); font-weight: 800; font-stretch: 70%; text-transform: uppercase; line-height: 1; }
+.pulled-name { font-size: var(--t-sm); font-weight: 500; }
+.pulled-spec {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Pinned to the foot of the slot, the way a shelf-edge label carries its price,
+   so the card reads the same height whether it is still a placeholder or the
+   real frame. */
+.pulled-price {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: var(--s-2);
+}
+.pulled-price .amount {
+  display: inline-block;
+  background-color: var(--signal);
+  color: var(--signal-ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--r-tag);
+  padding: 2px 7px;
+}
+
+/* The placeholder shapes, one per line the slot is waiting on. Signal is a
+   price and a primary action only, so the pending price is sunk stock until
+   there is a real figure to put in it. */
+.skel-brand { width: 74%; height: 1em; }
+.skel-name  { width: 58%; }
+.skel-spec  { width: 84%; }
+.skel-price { width: 52px; height: 22px; border-radius: var(--r-tag); }
+
+/* ── The pace: the whole job's, so it runs the whole width ── */
+.docket-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--rule);
+}
+.pace { flex: 1 1 auto; min-width: 0; }
+.pace-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.pace-row span:last-child { font-variant-numeric: tabular-nums; }
+.bar { display: block; height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; }
+.bar-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--field);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.cancel {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--s-4);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.cancel:hover { border-color: var(--ink); color: var(--ink); }
+
+/* ══════════════════════════════════════════════════
+   Results
+   ══════════════════════════════════════════════════ */
+.results-screen { flex-direction: column; }
+.results-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.results-title {
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.results-back {
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background: none;
+  border: 1px solid var(--on-field-2);
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.results-back:hover { background-color: var(--field-hi); }
+.results-back:active { background-color: var(--field-deep); }
+
+/* The profile used to hold a 300px column of its own beside the renders. Three
+   short readings do not fill 629px of it — 419px, two thirds of the column, was
+   empty once the essay went — and the column was taking width off the only
+   thing on the page anyone came to look at. It lies across the top as a strip
+   now, and the renders get the width back.
+
+   One column, one measure. The strip ran to 1320 while the renders were capped
+   at 1080, so the two things on the page had different left and right edges and
+   the 120px either side of the cards read as a mistake rather than a margin.
+   The cap moved up here, where it governs both. */
+.results-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-4);
+  flex: 1;
+  min-height: 0;               /* so the row may shrink instead of scrolling */
+  /* Width follows height, because height is what actually limits a row of three
+     portrait renders. A card is a 4:5 well over a 186px body, and the height it
+     may have is the viewport less the band, the strip, the gap and the padding:
+     1.25w + 186 <= vh - 180, so the widest row that still fills is 2.4vh - 806.
+     Fixed at any single number the page is wrong at both ends — letterboxed
+     pictures on a laptop, or 320px of unused paper on a 1080p monitor. Clamped
+     to the system's 1320 container above and to a legible card below. */
+  max-width: clamp(880px, calc(240vh - 806px), 1320px);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--s-5);
+}
+.profile-panel {
+  order: -1;                      /* above the renders, whatever the DOM order */
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  background-color: var(--card);
+  border-radius: var(--r-ctl);
+}
+.profile-panel .profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3) var(--s-5);
+}
+/* In the strip a reading is a label and a value on one line, not a table row. */
+.profile-panel .prow {
+  grid-template-columns: auto auto;
+  gap: var(--s-2);
+  align-items: center;
+  padding: 0;
+  border: 0;
+}
+.profile-panel .prow:first-child { border-top: 0; }
+.pp-h {
+  margin: 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* The renders take whatever height is left under the strip and no more. The row
+   used to be a block of its own height in a scrolling screen, which left 103px
+   of paper below the cards on a laptop and made the results view the only
+   surface in the product that ends in a band of nothing. It fills the screen
+   now; where the pictures cannot use the height — a monitor tall enough that a
+   4:5 render tops out first — the leftover is split above and below the whole
+   block by justify-content, rather than dumped at the bottom. */
+.results-screen .results-row {
+  flex: 0 1 auto;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+
+/* ══════════════════════════════════════════════════
+   Error
+   ══════════════════════════════════════════════════ */
+.error-card {
+  width: min(420px, 100%);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  text-align: center;
+}
+.error-mark {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background-color: var(--danger);
+  color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.error-card p { margin: var(--s-3) 0 var(--s-4); color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* ══════════════════════════════════════════════════
+   Photo tips
+   ══════════════════════════════════════════════════ */
+.uptip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
+}
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.uptip-box {
+  width: min(360px, 100%);
+  padding: var(--s-5);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+  text-align: center;
+}
+.uptip-icon svg { width: 40px; height: 40px; color: var(--field); }
+.uptip-box h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.uptip-box p { margin: 0 0 var(--s-4); font-size: var(--t-sm); color: var(--ink-2); }
+.uptip-ok {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--field);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .counter { padding: var(--s-6) var(--s-4) var(--s-5); }
+  .directory { padding: 0 var(--s-4) var(--s-6); }
+  .dir-row { grid-template-columns: 34px minmax(0, 1fr) 72px; }
+  .dir-what { display: none; }
+  .docket-body { grid-template-columns: minmax(0, 1fr); }
+  /* Fill-the-screen is a desktop shape. Below 900 there is not enough height to
+     hold three renders and their labels at any useful size, so the results view
+     goes back to being a document that scrolls. */
+  .results-inner {
+    display: block;
+    flex: none;
+    max-width: 1320px;
+    padding: var(--s-4);
+  }
+  .results-screen .results-row { grid-template-rows: auto; }
+  /* The strip is a desktop shape, for a column that only exists there. On a
+     phone the profile stays what it already was: a stacked card under the
+     renders, which was the part that did not need changing. */
+  .profile-panel { order: 0; display: block; margin-top: var(--s-4); padding: var(--s-4); }
+  .profile-panel .profile { display: block; }
+  .profile-panel .prow {
+    grid-template-columns: 106px minmax(0, 1fr);
+    gap: var(--s-3);
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .profile-panel .prow:first-child { border-top: 1px solid var(--rule); }
+  .pp-h { margin: 0 0 var(--s-3); }
+}
+
+@media (max-width: 560px) {
+  .band { padding: var(--s-2) var(--s-4); }
+  .counter { padding-top: var(--s-5); }
+  /* Narrower well, so a 311px docket column still leaves the readings a usable
+     measure beside the photo. */
+  .portrait { flex: 0 0 112px; }
+  .prow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .results-bar { padding: var(--s-2) var(--s-4); }
+  /* A phone cannot hold three renders side by side and keep a face legible, so
+     they stack. One per row means each can be taller than it was in the line. */
+  .results-row { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, a card is the full width of the phone and the 4:5 well would run
+     past the fold on its own. Capped, the well shortens and the render sits
+     centred in it. */
+  .result-img { max-height: 58vh; }
+}
+
+@media (max-height: 500px) and (max-width: 900px) {
+  .counter { padding-top: var(--s-4); padding-bottom: var(--s-4); }
+  .docket-screen, .error-screen { align-items: flex-start; }
+  .result-img { max-height: 70vh; }
+}

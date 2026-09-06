@@ -1,0 +1,559 @@
+/* ══════════════════════════════════════════════════
+   Free search — the spec sheet
+   Shelf edge direction, seed e4d16858.
+
+   Operate discipline inside a showcase: 94 controls across 11 groups, filed
+   under category signage. Expression never obscures the task or the state.
+
+   Facet controls live in facets.css. This file is the page chrome only.
+   Self-contained on tokens.css; does not load common.css.
+   ══════════════════════════════════════════════════ */
+
+/* ── Category band ────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+}
+.topbar .back-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--on-field-2);
+  text-decoration: none;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.topbar .back-btn:hover { color: var(--on-field); }
+.topbar .logo {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: 1;
+}
+.topbar-note {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+}
+
+/* ── Form ─────────────────────────────────────── */
+#form-view { max-width: 940px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-7); }
+
+/* Every group heading is a signage band: name left, live count right. */
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin: var(--s-5) 0 var(--s-3);
+  padding: 6px var(--s-3);
+  background-color: var(--field);
+  color: var(--on-field);
+  border-radius: var(--r-tag) var(--r-tag) 0 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+#form-view > .section-title:first-of-type { margin-top: 0; }
+.section-count { color: var(--on-field-2); font-weight: 400; }
+
+/* ── The dispensing tray ── */
+.fs-upload {
+  display: grid;
+  place-items: center;
+  gap: var(--s-2);
+  /* A <button> shrink-wraps: without this the tray rendered 164px wide under
+     a full-width signage band, reading as a stray chip rather than a target. */
+  width: 100%;
+  min-height: 140px;
+  padding: var(--s-4);
+  background-color: var(--card);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.fs-upload:hover { border-color: var(--field); background-color: var(--paper); }
+.fs-upload.has-file { border-style: solid; border-color: var(--field); }
+.fs-upload svg { width: 34px; height: 34px; fill: none; stroke: var(--field); stroke-width: 1.5; }
+.up-label { font-size: var(--t-base); font-weight: 700; }
+.up-hint {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.up-preview { display: none; max-width: 100%; max-height: 200px; border-radius: var(--r-ctl); }
+.fs-upload.has-file .up-preview { display: block; }
+.fs-upload.has-file svg, .fs-upload.has-file .up-hint { display: none; }
+#fs-file { display: none; }
+
+/* ── Data posture: the compliance answer, at the point of upload ── */
+.posture {
+  max-width: var(--measure);
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ── Advanced disclosure ── */
+#advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  margin: var(--s-5) 0 0;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+#advanced-toggle:hover { background-color: var(--card); }
+#advanced-toggle .adv-caret { width: 16px; height: 16px; transition: transform var(--d-fast) var(--ease); }
+#advanced-toggle.open .adv-caret { transform: rotate(180deg); }
+#advanced-section { display: none; margin-top: var(--s-4); }
+#advanced-section.open { display: block; }
+
+.field { margin-top: var(--s-4); }
+.field label {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.field input[type="number"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-variant-numeric: tabular-nums;
+}
+.field input[type="number"]:focus { border-color: var(--field); outline: none; box-shadow: var(--focus); }
+
+/* ── Submit ── */
+.submit-row { margin-top: var(--s-6); }
+.submit-btn {
+  width: 100%;
+  min-height: 54px;
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-md);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
+}
+.submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+.submit-hint {
+  max-width: var(--measure);
+  margin: var(--s-2) auto 0;
+  font-size: var(--t-2xs);
+  color: var(--ink-3);
+  text-align: center;
+}
+/* The no-photo hint is a real control: it jumps back to the tray it names. */
+.submit-hint .hint-jump {
+  min-height: 44px;
+  padding: var(--s-2) var(--s-3);
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.submit-hint .hint-jump:hover { color: var(--ink); }
+
+/* ══════════════════════════════════════════════════
+   Loading — the docket
+   ══════════════════════════════════════════════════ */
+#loading-view, #results-view, #error-view {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background-color: var(--paper);
+  overflow-y: auto;
+}
+#loading-view, #error-view { align-items: center; justify-content: center; padding: var(--s-4); }
+
+.load-card {
+  width: min(640px, 100%);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-panel);
+  text-align: center;
+}
+.load-portrait { width: 96px; margin: 0 auto var(--s-4); }
+.load-portrait img { display: block; width: 100%; border-radius: var(--r-tag); border: 1px solid var(--rule); }
+
+.fs-steps { display: flex; align-items: center; justify-content: center; gap: var(--s-3); margin-bottom: var(--s-4); }
+.fs-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fs-sdot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-strong);
+  font-variant-numeric: tabular-nums;
+}
+.fs-step.active { color: var(--ink); }
+.fs-step.active .fs-sdot { background-color: var(--field); border-color: var(--field); color: var(--on-field); }
+.fs-step.done .fs-sdot { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.fs-sline { width: 56px; height: 2px; background-color: var(--card-sunk); }
+.fs-sline.done { background-color: var(--field); }
+
+.load-prog { height: 6px; background-color: var(--card-sunk); border-radius: 3px; overflow: hidden; margin-bottom: var(--s-3); }
+.load-prog-fill { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background-color: var(--field); }
+#load-stage { margin: 0; font-size: var(--t-base); font-weight: 500; }
+
+/* ── The wait, narrated with the job's own material ── */
+.load-notes { margin-top: var(--s-4); text-align: left; }
+.load-notes .lnote {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.load-notes .lnote.in { opacity: 1; transform: none; }
+.load-notes .lnote-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lframe {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--rule);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--d-slow) var(--ease), transform var(--d-slow) var(--ease);
+}
+.lframe.in { opacity: 1; transform: none; }
+/* The 17px shelf-label brand voice — the system has no in-between size. */
+.lframe-brand { font-size: var(--t-md); font-weight: 800; font-stretch: 70%; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+.lframe-name { font-size: var(--t-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lframe-price { margin-left: auto; font-size: var(--t-sm); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lframe-status {
+  min-width: 76px;
+  text-align: right;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.lframe-status.done { color: var(--field); font-weight: 700; }
+.lframe-status.fail { color: var(--danger); }
+.load-cancel {
+  min-height: 44px;
+  margin-top: var(--s-4);
+  padding: 0 var(--s-4);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.load-cancel:hover { border-color: var(--ink); color: var(--ink); }
+
+/* ══════════════════════════════════════════════════
+   Results
+   ══════════════════════════════════════════════════ */
+#results-view { flex-direction: column; }
+.results-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.results-title {
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.results-back, .results-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--s-3);
+  background: none;
+  border: 1px solid var(--on-field-2);
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.results-back .back-caret { width: 14px; height: 14px; }
+.results-back:hover, .results-compare:hover { background-color: var(--field-hi); }
+.results-back:active, .results-compare:active { background-color: var(--field-deep); }
+
+.results-row {
+  display: grid;
+  /* Three in a line, as on the landing results — the shared rule in
+     results.css, restated here only because this file also sets the width and
+     padding and would otherwise have to split the selector. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+  /* Narrower than the shelf's 1320. With no side panel here the three cards
+     would otherwise be wider than a portrait render can fill at its height cap,
+     and the picture would sit in a letterbox again — the thing this layout
+     exists to stop. Sized so the card is about what the render wants to be. */
+  max-width: 1040px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--s-5);
+  align-content: start;
+}
+
+/* ── Compare ── */
+.compare-modal { position: fixed; inset: 0; z-index: 80; display: none; }
+.compare-backdrop { position: absolute; inset: 0; background: rgba(14, 19, 16, .55); }
+.compare-content {
+  position: relative;
+  width: min(1180px, 94vw);
+  max-height: 90vh;
+  margin: 5vh auto;
+  overflow-y: auto;
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+}
+.compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background-color: var(--field);
+  color: var(--on-field);
+  position: sticky;
+  top: 0;
+}
+.compare-header h2 {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.compare-close {
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 0;
+  color: var(--on-field);
+  font-size: var(--t-lg);
+  cursor: pointer;
+  border-radius: var(--r-ctl);
+}
+.compare-close:hover { background-color: var(--field-hi); }
+.compare-close:active { background-color: var(--field-deep); }
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+
+/* ══════════════════════════════════════════════════
+   Error
+   ══════════════════════════════════════════════════ */
+.err-card {
+  width: min(420px, 100%);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  text-align: center;
+}
+.error-mark {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background-color: var(--danger);
+  color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.err-card h2 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.err-card p { margin: 0 0 var(--s-4); color: var(--ink-2); overflow-wrap: anywhere; }
+.start-over {
+  min-height: 48px;
+  padding: 0 var(--s-5);
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════
+   Photo tips
+   ══════════════════════════════════════════════════ */
+.uptip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
+}
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.uptip-box {
+  width: min(360px, 100%);
+  padding: var(--s-5);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+  text-align: center;
+}
+.uptip-icon svg { width: 40px; height: 40px; fill: none; stroke: var(--field); stroke-width: 1.6; }
+.uptip-box h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.uptip-box p { margin: 0 0 var(--s-4); font-size: var(--t-sm); color: var(--ink-2); }
+.uptip-ok {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--field);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  #form-view { padding: var(--s-4) var(--s-4) var(--s-6); }
+  .results-row, .compare-grid { padding: var(--s-4); }
+  .compare-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .topbar { padding: var(--s-2) var(--s-4); gap: var(--s-3); }
+  .topbar-note { display: none; }
+  .fs-steps { gap: var(--s-2); }
+  .fs-sline { width: 28px; }
+  .results-controls { padding: var(--s-2) var(--s-4); }
+  .results-row, .compare-grid { grid-template-columns: minmax(0, 1fr); }
+  .load-card { padding: var(--s-4); }
+  /* Narrow load-card: the frame name is the narration's centrepiece, so it
+     takes its own line instead of ellipsising to three characters. */
+  .lframe { flex-wrap: wrap; row-gap: 2px; }
+  .lframe-brand { order: 1; }
+  .lframe-price { order: 2; }
+  .lframe-status { order: 3; min-width: 0; }
+  .lframe-name { order: 4; flex: 1 1 100%; white-space: normal; }
+}
+
+@media (max-height: 500px) and (max-width: 900px) {
+  #loading-view, #error-view { align-items: flex-start; }
+  .load-portrait { width: 64px; }
+  .fs-steps { margin-bottom: var(--s-3); }
+}

@@ -1,0 +1,919 @@
+/* ══════════════════════════════════════════════════
+   Storefront — the shelf run
+   Shelf edge direction, seed e4d16858.
+
+   A fictional store browsing a real 147-frame catalogue. Every product wears
+   a shelf-edge label; AI jobs open a counter ticket in the dock and the
+   visitor keeps browsing.
+
+   Self-contained: loads tokens.css and facets.css, not common.css, so the
+   pages still on the old dark design keep working untouched.
+   ══════════════════════════════════════════════════ */
+
+/* ── Top bar: the store's category band ───────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background-color: var(--field);
+  color: var(--on-field);
+}
+.topbar .back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--s-2);
+  margin-left: calc(var(--s-2) * -1);
+  color: var(--on-field-2);
+  text-decoration: none;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.topbar .back-btn:hover { color: var(--on-field); }
+.topbar .brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 72%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  color: var(--on-field);
+  text-decoration: none;
+  line-height: 1;
+}
+.topbar .powered {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--on-field-2);
+}
+.topbar .powered span { color: var(--on-field); }
+
+/* ── Hero ─────────────────────────────────────── */
+.hero {
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  max-width: 1320px;
+  margin: 0 auto;
+}
+.hero h1 {
+  margin: 0;
+  font-size: var(--t-2xl);
+  font-weight: 800;
+  font-stretch: 66%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+.hero p {
+  margin: var(--s-3) 0 0;
+  max-width: var(--measure);
+  color: var(--ink-2);
+}
+
+/* ── The two AI entry points ──────────────────── */
+.ai-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-3);
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 var(--s-5) var(--s-5);
+}
+.ai-action-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 64px;
+  padding: var(--s-3) var(--s-4);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.ai-action-btn:hover {
+  background-color: var(--ink);
+  color: var(--paper);
+  box-shadow: var(--sh-lift);
+}
+.ai-action-btn .ai-ico { flex: none; width: 34px; height: 34px; display: grid; place-items: center; }
+.ai-action-btn .ai-ico svg { width: 30px; height: 30px; }
+.ai-action-btn .ai-txt { display: flex; flex-direction: column; gap: 2px; }
+.ai-action-btn .ai-txt strong {
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: -.01em;
+  line-height: 1.1;
+}
+.ai-action-btn .ai-txt small {
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ai-action-btn:hover .ai-txt small { color: var(--on-field-2); }
+
+/* ── Grid header + gender filter ──────────────── */
+.container { max-width: 1320px; margin: 0 auto; padding: 0 var(--s-5) var(--s-7); }
+
+.grid-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: 2px solid var(--ink);
+}
+.grid-header h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 800;
+  font-stretch: 74%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.grid-header .count {
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-strip {
+  display: flex;
+  gap: var(--s-2);
+  padding: var(--s-3) 0 var(--s-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.filter-strip::-webkit-scrollbar { display: none; }
+.filter-pill {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--s-4);
+  background-color: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.filter-pill:hover { border-color: var(--rule-strong); background-color: var(--card); }
+.filter-pill.active { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pill-count { color: var(--ink-3); }
+.filter-pill.active .pill-count { color: var(--on-field-2); }
+
+/* ── The shelf run ────────────────────────────── */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-4);
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  overflow: hidden;
+  transition: border-color var(--d-base) var(--ease), transform var(--d-base) var(--ease);
+}
+.product-card:hover {
+  border-color: var(--ink);
+  transform: translateY(-2px);
+  box-shadow: var(--sh-lift);
+}
+
+.product-card .img-wrap {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  background-color: var(--card);
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--rule);
+}
+/* The drawn silhouette sits under the photo and shows through until it
+   decodes, so an unloaded label reads as filed stock, not a broken image. */
+.product-card .img-wrap .frame-glyph {
+  position: absolute;
+  width: 46%;
+  height: auto;
+  color: var(--rule-strong);
+}
+.product-card .img-wrap img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: var(--s-3);
+  transition: transform var(--d-slow) var(--ease);
+}
+.product-card:hover .img-wrap img { transform: scale(1.04); }
+
+.product-card .badge {
+  position: absolute;
+  top: var(--s-2);
+  left: var(--s-2);
+  z-index: 1;
+  padding: 2px 6px;
+  border-radius: var(--r-tag);
+  background-color: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+.product-card .badge.men,
+.product-card .badge.women,
+.product-card .badge.unisex { border-color: var(--rule-strong); color: var(--ink-2); }
+
+.product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--s-3);
+  flex: 1;
+}
+.product-info .brand-name { font-size: var(--t-md); line-height: 1; }
+.product-info .prod-name {
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.product-info .prod-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.product-info .prod-tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.product-info .price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: auto;
+  padding-top: var(--s-3);
+}
+.product-info .price-row .tryon-btn { flex: none; margin-left: auto; }
+.product-info .price { font-size: var(--t-sm); }
+.shelf-ix {
+  margin-right: auto;
+  padding-left: var(--s-2);
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  color: var(--ink-3);
+}
+
+.tryon-btn {
+  min-height: 36px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.tryon-btn:hover { background-color: var(--ink); color: var(--paper); }
+
+/* Placeholder labels while the catalogue loads: the world's own drawn
+   silhouette in a card photo well, not a shimmer gradient. */
+.product-card.is-placeholder { border-style: dashed; }
+.product-card.is-placeholder .img-wrap .frame-glyph { color: var(--rule); }
+.product-card.is-placeholder .ph-line {
+  height: 10px;
+  border-radius: var(--r-tag);
+  background-color: var(--card);
+}
+.product-card.is-placeholder .ph-line + .ph-line { margin-top: 6px; width: 62%; }
+
+/* Scroll-to highlight when "Shop this frame" is used. */
+@keyframes sfCardPulse {
+  0%, 100% { border-color: var(--rule); }
+  35%      { border-color: var(--ink); }
+}
+.product-card.sf-highlight { animation: sfCardPulse 1.6s var(--ease) 2; }
+
+/* ══════════════════════════════════════════════════
+   Counter tickets — the dock
+   Replaces the floating circle. Same RingTimer pacing, painted as a bar.
+   ══════════════════════════════════════════════════ */
+.tryon-dock {
+  position: fixed;
+  right: var(--s-4);
+  bottom: var(--s-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: var(--s-2);
+  pointer-events: none;
+}
+.tryon-dock > * { pointer-events: auto; }
+
+.sf-ticket {
+  position: relative;
+  width: 220px;
+  padding: 0;
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  box-shadow: var(--sh-panel);
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform var(--d-base) var(--ease), border-color var(--d-base) var(--ease);
+}
+.sf-ticket:hover { transform: translateY(-2px); box-shadow: var(--sh-modal); }
+
+/* One row, packed: the number holds the left, everything else rides the right.
+   `margin-right: auto` on the number does the splitting, so the kind, the error
+   badge and the dismiss stay a single group with real gaps between them rather
+   than being spread apart by space-between. */
+.sf-tk-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 5px var(--s-2);
+  background-color: var(--field);
+  color: var(--on-field);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+.sf-tk-no { flex: none; margin-right: auto; }
+/* The kind is the only elastic item, so a long label truncates instead of
+   pushing the dismiss out of the ticket. */
+.sf-tk-kind {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--on-field-2);
+}
+
+.sf-tk-body { display: block; padding: var(--s-2); }
+.sf-tk-row { display: flex; align-items: center; gap: var(--s-2); margin-bottom: 6px; }
+
+.sf-thumb {
+  flex: none;
+  width: 40px;
+  height: 30px;
+  border-radius: var(--r-tag);
+  background-color: var(--card);
+  object-fit: contain;
+  display: grid;
+  place-items: center;
+  color: var(--rule-strong);
+}
+.sf-thumb svg { width: 30px; height: 14px; }
+.sf-color-dot {
+  flex: none;
+  width: 12px; height: 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+}
+
+.sf-caption {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.sf-bar { display: block; height: 5px; background-color: var(--card-sunk); border-radius: 2px; overflow: hidden; }
+.sf-bar-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--field);
+  transform-origin: left center;
+  transform: scaleX(0);
+  /* scaleX is repainted per frame by the timer and must stay untransitioned;
+     the colour is the one thing that changes at completion, so let it sweep in
+     over the same beat the fill takes to land rather than snapping. */
+  transition: background-color var(--d-slow) var(--ease);
+}
+.sf-tk-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: 5px;
+  font-size: var(--t-2xs);
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── Done ── */
+.sf-ticket.is-done { border-color: var(--signal); }
+.sf-ticket.is-done .sf-tk-head { background-color: var(--signal); color: var(--signal-ink); }
+.sf-ticket.is-done .sf-tk-kind { color: var(--signal-ink); }
+.sf-ticket.is-done .sf-bar-fill { background-color: var(--signal); }
+
+/* ── Error ── */
+.sf-ticket.is-error { border-color: var(--danger); }
+.sf-ticket.is-error .sf-tk-head { background-color: var(--danger); }
+.sf-ticket.is-error .sf-bar-fill { background-color: var(--danger); }
+
+/* Both of these used to be absolutely positioned over the head, which is what
+   put the dismiss on top of the kind label. They are head children now, so the
+   flex row spaces them and nothing can overlap. The done state carried a white
+   tick here too — redundant signage, since the whole ticket turns signal
+   orange the moment it is ready. Only the error badge earns its place. */
+.sf-badge {
+  flex: none;
+  display: none;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background-color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+  color: var(--danger);
+}
+.sf-badge svg { width: 11px; height: 11px; }
+.sf-badge-err svg { color: var(--danger); }
+.sf-ticket.is-error .sf-badge-err { display: grid; }
+
+.sf-dismiss {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin-right: -4px;
+  color: var(--on-field-2);
+  font-size: var(--t-sm);
+  line-height: 1;
+  border-radius: var(--r-tag);
+}
+.sf-ticket.is-done .sf-dismiss { color: var(--signal-ink); }
+.sf-dismiss svg { width: 12px; height: 12px; }
+.sf-dismiss:hover { color: var(--on-field); }
+
+/* Tapped while still working. Mechanical nudge, no bounce. */
+@keyframes sfNudge {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+.sf-ticket.is-wobble { animation: sfNudge 260ms var(--ease); }
+.sf-ticket.is-removing { opacity: 0; transform: translateY(8px); transition: all var(--d-base) var(--ease-in); }
+
+/* More than one ticket docked: tighten, keep the bars readable. */
+.tryon-dock.sf-multi .sf-ticket { width: 190px; }
+.tryon-dock.sf-multi .sf-caption { -webkit-line-clamp: 1; }
+
+/* Carries whatever the phone cap collapsed. Rides above the stack — in a
+   column-reverse dock the highest order sits furthest from the bottom — so the
+   cards you can act on stay nearest the thumb. Inert anywhere the cap does not
+   apply: desktop shows every ticket, so this never appears there. */
+.sf-more {
+  display: none;
+  order: 999;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--sh-panel);
+}
+.sf-more:hover { color: var(--ink); border-color: var(--field); }
+
+/* ══════════════════════════════════════════════════
+   Modal
+   The shell, the intake card, the band and the action all live in intake.css,
+   which this page loads first and shares with the landing page. Only the
+   storefront's own steps are below.
+   ══════════════════════════════════════════════════ */
+.shop-btn, .recolor-btn, .rc-back-btn {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s-2);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.shop-btn:hover, .recolor-btn:hover, .rc-back-btn:hover {
+  background-color: var(--ink);
+  color: var(--paper);
+}
+
+/* The photo used to be `width: 100%; height: auto`, so a portrait try-on
+   rendered 663px tall inside a 662px modal and pushed the product line and
+   every button past the fold — the whole card had to be scrolled to be read.
+   It is the only elastic thing here now: heading, product line and buttons
+   take their height first and the photo gets exactly what is left. */
+.tryon-result {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tryon-result img {
+  display: block;
+  flex: 0 1 auto;          /* may shrink to fit; never stretches past its size */
+  /* A face has to stay legible. Left to shrink freely this reached 32x56 on a
+     landscape phone — everything visible, and the one thing the user came to
+     see reduced to a stamp. Below this floor the card scrolls again, which is
+     the honest outcome for a viewport that cannot hold a result at all. */
+  min-height: 200px;
+  /* `width: auto` rather than 100%: as flex shrinks the height, the intrinsic
+     ratio pulls the width in with it, so the box keeps hugging the photo. A
+     full-width box would letterbox instead, rounding corners nothing sits in
+     and hanging the picture in the middle of an invisible frame. */
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  /* Insurance only: if the floor above ever outsizes a small result, letterbox
+     it rather than stretch a face. A no-op whenever the box hugs. */
+  object-fit: contain;
+  border-radius: var(--r-ctl);
+  margin: 0 auto var(--s-3);
+}
+
+/* ── Recolour picker ── */
+.rc-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.rc-color-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: var(--s-2) 4px;
+  background-color: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  transition: border-color var(--d-fast) var(--ease);
+}
+.rc-color-opt:hover { border-color: var(--rule-strong); }
+.rc-color-opt.selected { background-color: var(--ink); border-color: var(--ink); color: var(--paper); }
+.rc-swatch { width: 32px; height: 32px; border-radius: var(--r-tag); border: 1px solid var(--rule); }
+.rc-cname { font-size: var(--t-2xs); letter-spacing: var(--tr-label); text-transform: uppercase; text-align: center; line-height: 1.2; }
+
+/* The band itself is in intake.css; the panel only needs its first one flush
+   with the top of the scrolling body. */
+.fs-panel-body > .section-title:first-of-type { margin-top: 0; }
+
+/* ══════════════════════════════════════════════════
+   Free Search overlay
+   ══════════════════════════════════════════════════ */
+/* Free search is the same card as smart fit and try-on: centred, same width,
+   same radius, same scrim. Only taller, because there is more in it.
+
+   It used to be a right-edge drawer, which is the convention for filters over
+   a list you can watch respond — and the justification for that convention is
+   absent here. This panel lays a scrim over the shelf, declares aria-modal,
+   and nothing behind it moves. It is a blocking one-shot intake form, exactly
+   like the other two, so it is shaped like them now. */
+.fs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .55);
+}
+.fs-overlay.active { display: flex; }
+.fs-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 92vh;
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+  overflow: hidden;            /* the radius has to clip the scrolling body */
+}
+/* Pinned head and foot, scrolling middle. The action was previously the last
+   thing in a ~1800px column, so the fastest path through an all-optional form
+   was to scroll past every option you had already decided to skip. */
+.fs-panel-head {
+  flex: 0 0 auto;
+  /* clear of the close button, which is absolute against the panel */
+  padding: var(--s-5) calc(var(--s-5) + 44px) var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+.fs-panel-head .fs-panel-sub { margin-bottom: 0; }
+.fs-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-4) var(--s-5) var(--s-5);
+}
+.fs-panel-foot {
+  flex: 0 0 auto;
+  padding: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--rule);
+  background-color: var(--paper);
+}
+.fs-panel-foot .submit-row { margin-top: 0; }
+.fs-panel-title {
+  margin: 0 0 var(--s-1);
+  font-size: var(--t-xl);
+  font-weight: 800;
+  font-stretch: 70%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+  line-height: var(--lh-tight);
+}
+.fs-panel-sub {
+  margin: 0 0 var(--s-5);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+
+/* ── Data posture: the compliance answer, at the point of upload ── */
+.posture {
+  max-width: var(--measure);
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+  text-align: left;
+}
+#modal-upload .posture { margin: var(--s-3) 0 0; }
+
+/* ── Advanced disclosure (the toggle was a no-op: these rules only
+      existed in free-search.css, which this page does not load) ── */
+.fs-panel-body .advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  margin: var(--s-5) 0 0;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.fs-panel-body .advanced-toggle:hover { background-color: var(--card); }
+.fs-panel-body .advanced-toggle .adv-caret { width: 16px; height: 16px; transition: transform var(--d-fast) var(--ease); }
+.fs-panel-body .advanced-toggle.open .adv-caret { transform: rotate(180deg); }
+#sf-advanced-section { display: none; margin-top: var(--s-4); }
+#sf-advanced-section.open { display: block; }
+/* Scoped to the panel, not its scrolling body — the action lives in the
+   pinned foot now, outside .fs-panel-body. */
+.fs-panel .submit-btn {
+  width: 100%;
+  min-height: 48px;
+  background-color: var(--signal);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--signal-ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--d-fast) var(--ease);
+}
+.fs-panel .submit-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.fs-panel .submit-btn:disabled { background-color: var(--card-sunk); color: var(--ink-2); cursor: not-allowed; }
+#sf-fs-file { display: none; }
+
+/* ── Same omission as the toggle above, and the rest of it: the panel's
+      markup came over from free-search.html, its CSS did not, so the tray
+      and the number fields were rendering as raw OS controls — an outset
+      grey button and inset 3-D inputs in the middle of the shelf. ── */
+/* The tray, its labels and its action now live with the shared intake card
+   above — this panel is one of its three surfaces, not a variant of it. */
+.fs-panel-body .field { margin-top: var(--s-4); }
+.fs-panel-body .field label {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fs-panel-body .field input[type="number"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--s-3);
+  background-color: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-variant-numeric: tabular-nums;
+}
+.fs-panel-body .field input[type="number"]:focus { border-color: var(--field); outline: none; box-shadow: var(--focus); }
+
+/* The try-on modal's error step carries this too, and it was bare text. */
+.error-mark {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background-color: var(--danger);
+  color: var(--paper);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tr-label);
+  text-transform: uppercase;
+}
+
+/* ══════════════════════════════════════════════════
+   Photo-tips popup (kept local while the other pages
+   still run on common.css)
+   ══════════════════════════════════════════════════ */
+.uptip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background: rgba(14, 19, 16, .6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--d-fast) var(--ease), visibility var(--d-fast) var(--ease);
+}
+.uptip-overlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.uptip-box {
+  width: min(360px, 100%);
+  padding: var(--s-5);
+  background-color: var(--paper);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-modal);
+  text-align: center;
+}
+.uptip-icon svg { width: 40px; height: 40px; fill: none; stroke: var(--field); stroke-width: 1.6; }
+.uptip-box h3 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--t-md);
+  font-weight: 800;
+  font-stretch: 78%;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-display);
+}
+.uptip-box p { margin: 0 0 var(--s-4); font-size: var(--t-sm); color: var(--ink-2); }
+.uptip-ok {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--field);
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--on-field);
+  font-family: inherit;
+  font-size: var(--t-base);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════
+   Breakpoints: 560 / 900 / 1280 only.
+   ══════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .hero, .ai-actions, .container { padding-left: var(--s-4); padding-right: var(--s-4); }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .topbar { padding: var(--s-2) var(--s-4); gap: var(--s-3); }
+  .topbar .powered { display: none; }
+  .hero { padding-top: var(--s-5); }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
+  .product-info { padding: var(--s-2); }
+
+  /* The rail is gone. Two side-by-side tickets was its ceiling — a legible
+     header needs ~160px and the rail is ~360px — so a third could only be
+     reached by scrolling, and the card that scrolled off was as likely to be
+     the finished one as not. It stacks instead: full width, so nothing
+     truncates; capped, so the height stays bounded however many jobs are in
+     flight; and ranked, so what you can act on is nearest the thumb. There is
+     no longer an axis along which a ticket can be pushed off screen. */
+  .tryon-dock {
+    left: var(--s-2);
+    right: var(--s-2);
+    bottom: var(--s-2);
+    align-items: flex-end;     /* a column in the corner, as on desktop */
+  }
+  /* Half the rail rather than all of it, so the stack sits lightly over the
+     shelf instead of covering it. The floor keeps the header whole on a 320px
+     screen, where half would be 152px and the kind label would start to go. */
+  .sf-ticket, .tryon-dock.sf-multi .sf-ticket {
+    flex: 0 0 auto;
+    width: max(160px, 50%);
+    max-width: none;
+  }
+  .sf-more { width: max(160px, 50%); }
+  /* The cap only bites here. The class is set on every surface; desktop has the
+     room to show everything, so there it means nothing. */
+  .sf-ticket.is-stacked { display: none; }
+  .sf-more:not([hidden]) { display: block; }
+  /* Expanding is opt-in and bounded: enough jobs would otherwise run the stack
+     off the top of the screen, which is the bug this replaced. It takes pointer
+     events only in this state, so the collapsed dock still lets taps through to
+     the shelf between its cards. */
+  .tryon-dock.is-expanded {
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    pointer-events: auto;
+    scrollbar-width: none;
+  }
+  .tryon-dock.is-expanded::-webkit-scrollbar { display: none; }
+  body.dock-active .container { padding-bottom: 300px; }
+  .modal-body, .fs-panel-body { padding: var(--s-4); }
+}
+
+@media (max-height: 500px) and (max-width: 900px) {
+  .hero { padding-top: var(--s-4); padding-bottom: var(--s-3); }
+  .modal { max-height: 96vh; }
+  .fs-panel-body { padding: var(--s-3) var(--s-4); }
+
+  /* Pinning stops paying here. On a 345px panel the head and foot take 66% of
+     it, and the 140px tray no longer fits the strip left between them — you
+     would scroll to see a single control. Below this height the card scrolls
+     as one column: an always-reachable action is not worth making the form
+     unreachable to get it. */
+  .fs-panel { display: block; overflow-y: auto; max-height: 96vh; }
+  .fs-panel-head { padding: var(--s-4) calc(var(--s-4) + 44px) 0 var(--s-4); border-bottom: 0; }
+  .fs-panel-body { overflow: visible; }
+  .fs-panel-foot { padding: var(--s-3) var(--s-4) var(--s-4); border-top: 0; }
+  /* Height is the scarce axis here, and the result card spends most of it on
+     chrome. Trim the chrome rather than the photo: the photo is the result. */
+  .modal-body { padding: var(--s-3) var(--s-4); }
+  .modal-body h3 { font-size: var(--t-md); margin-bottom: 2px; }
+  .tryon-result .modal-subtitle { margin-bottom: var(--s-2); }
+  .tryon-result img { margin-bottom: var(--s-2); }
+  .tryon-result .modal-submit { min-height: 40px; margin-top: var(--s-2); }
+  .tryon-result .shop-btn,
+  .tryon-result .recolor-btn { min-height: 38px; margin-top: 6px; }
+}
