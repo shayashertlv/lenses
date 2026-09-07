@@ -11,23 +11,32 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Detection } from '../runtime/detector.ts';
 import { FaceSurface } from './face-surface.ts';
 import { correctedBridgePose } from './bridge-pose.ts';
-import { refineLocalNasalBoundary } from './nasal-boundary.ts';
+import { createNasalShape, NASAL_SHAPE_ID, NASAL_SHAPE_VERSION } from './nasal-shape.ts';
 import { VIRTUAL_CAMERA } from './projection.ts';
+import { DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS } from './eyewear.ts';
+import type { EyewearDefinition } from './eyewear.ts';
+export { GLASSES_METERS_TO_CENTIMETERS, GLASSES_OFFSET_CM } from './eyewear.ts';
 /** MediaPipe's default virtual camera. This is an assumed camera, not calibration. */
 export const VERTICAL_FOV_DEGREES = VIRTUAL_CAMERA.verticalFovDegrees;
-export const GLASSES_METERS_TO_CENTIMETERS = 100;
-/** Bridge height uses canonical 168; front plane retains the baseline's 6.691763 cm depth. */
-export const GLASSES_OFFSET_CM = Object.freeze([0, 3.271027, 6.531958919387042] as const);
 const MAX_RENDER_WIDTH = 1280;
 const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
 
 /** Copies of the exact presentation geometry, made only for requested captures. */
 export interface CaptureGeometry {
+  eyewearModelId: string;
   rawMatrix: number[];
   correctedMatrix: number[];
   eyewearMatrix: number[];
   surfacePositions: Float32Array;
   yawDegrees: number;
+  /** Optional for historical saved surfaces; new captures identify the actual path. */
+  occlusion?: {
+    method: string;
+    selectedShapeId: string | null;
+    appliedShapeId: string | null;
+    status: 'applied' | 'raw-fallback' | 'recorded';
+    rejectionReasons: string[];
+  };
 }
 
 interface CanonicalFace {
@@ -90,6 +99,10 @@ function disposeObjects(roots: Object3D[]): void {
  * The caller may mirror the whole output canvas in CSS, exactly once.
  */
 export class TryOnRenderer {
+  readonly eyewear: EyewearDefinition;
+  readonly occlusionConfiguration = Object.freeze({ method: NASAL_SHAPE_VERSION,
+    selectedShapeId: NASAL_SHAPE_ID, rgbRepair: false,
+    fallback: 'original paired raw surface', replay: 'exact captured surface' });
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(VERTICAL_FOV_DEGREES, 1, VIRTUAL_CAMERA.nearCm, VIRTUAL_CAMERA.farCm);
@@ -99,7 +112,7 @@ export class TryOnRenderer {
   private backgroundTexture: CanvasTexture | null = null;
   private environmentTarget: WebGLRenderTarget | null = null;
   private canonicalPositions: number[] = [];
-  private canonicalIndices: number[] = [];
+  private nasalShape: ReturnType<typeof createNasalShape> | null = null;
   private faceSurface: FaceSurface | null = null;
   private surfaceMesh: Mesh | null = null;
   private headProxy: Mesh | null = null;
@@ -115,10 +128,12 @@ export class TryOnRenderer {
   private lastCaptureFrame: {
     rawMatrix: number[]; correctedMatrix: number[]; eyewearMatrix: number[];
     yawDegrees: number;
+    occlusion: NonNullable<CaptureGeometry['occlusion']>;
   } | null = null;
 
-  private constructor(renderer: WebGLRenderer) {
+  private constructor(renderer: WebGLRenderer, eyewear: EyewearDefinition = eyewearById(DEFAULT_EYEWEAR_ID)) {
     this.renderer = renderer;
+    this.eyewear = eyewear;
     this.scene.background = new Color(0x080b10);
     this.facePose.name = 'Tracked canonical face (centimeters)';
     this.facePose.matrixAutoUpdate = false;
@@ -134,19 +149,22 @@ export class TryOnRenderer {
   get projectionResidualPx(): number | null { return this.residual; }
   get bridgeCorrectionPx(): number | null { return this.bridgeCorrection; }
   get yawDegrees(): number | null { return this.yaw; }
-  /** Copies data only when requested; ordinary live presentation does not copy the surface. */
+  /** Returns owned copies of the latest valid presentation when requested. */
   get captureSnapshot(): CaptureGeometry | null {
     const frame = this.lastCaptureFrame;
     if (!frame || !this.faceSurface || this.disposed) return null;
     return {
+      eyewearModelId: this.eyewear.id,
       rawMatrix: frame.rawMatrix.slice(), correctedMatrix: frame.correctedMatrix.slice(),
       eyewearMatrix: frame.eyewearMatrix.slice(),
       surfacePositions: this.faceSurface.positions.slice(), yawDegrees: frame.yawDegrees,
+      occlusion: { ...frame.occlusion, rejectionReasons: frame.occlusion.rejectionReasons.slice() },
     };
   }
 
-  static async create(canvas: HTMLCanvasElement, signal: AbortSignal): Promise<TryOnRenderer> {
+  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, eyewearId = DEFAULT_EYEWEAR_ID): Promise<TryOnRenderer> {
     if (signal.aborted) throw abortError();
+    const eyewear = eyewearById(eyewearId);
     const loading = new AbortController();
     let instance: TryOnRenderer | null = null;
     let gltf: GLTF | null = null;
@@ -159,7 +177,7 @@ export class TryOnRenderer {
     signal.addEventListener('abort', onAbort, { once: true });
     try {
       const [glasses, face] = await Promise.all([
-        fetchAsset('/models/amber-horizon.glb', loading.signal).then(response => response.arrayBuffer()),
+        fetchAsset(eyewear.assetUrl, loading.signal).then(response => response.arrayBuffer()),
         fetchAsset('/models/canonical-face.json', loading.signal).then(response => response.json()).then(validateFace),
       ]);
       if (signal.aborted) throw abortError();
@@ -170,7 +188,7 @@ export class TryOnRenderer {
       context = canvas.getContext('webgl2', { alpha: false, antialias: true, powerPreference: 'high-performance' });
       if (!context) throw new Error('WebGL 2 is unavailable on this browser.');
       webgl = new WebGLRenderer({ canvas, context, alpha: false, antialias: true });
-      instance = new TryOnRenderer(webgl);
+      instance = new TryOnRenderer(webgl, eyewear);
       instance.removeAbortListener = () => signal.removeEventListener('abort', onAbort);
       instance.assetScenes = gltf.scenes;
       const eyewearScene = gltf.scene;
@@ -199,12 +217,12 @@ export class TryOnRenderer {
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.canonicalPositions = face.positions;
-    this.canonicalIndices = face.indices;
+    this.nasalShape = createNasalShape(face.positions, face.indices);
 
     const asset = new Group();
-    asset.name = 'Amber Horizon bridge attachment';
+    asset.name = `${this.eyewear.name} bridge attachment`;
     asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS);
-    asset.position.set(...GLASSES_OFFSET_CM);
+    asset.position.set(...this.eyewear.offsetCm);
     eyewearScene.traverse(object => {
       if (!(object instanceof Mesh)) return;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
@@ -308,20 +326,25 @@ export class TryOnRenderer {
       const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
       this.facePose.visible = surfaceValid;
       if (surfaceValid) {
+        let occlusion: NonNullable<CaptureGeometry['occlusion']>;
         if (recordedSurface !== undefined) {
           if (recordedSurface.length !== 468 * 3 || !recordedSurface.every(Number.isFinite)
             || recordedSurface.some((value, index) => index % 3 === 2 && value >= -VIRTUAL_CAMERA.nearCm)) {
             throw new Error('The recorded face surface is invalid.');
           }
           this.faceSurface!.positions.set(recordedSurface);
-        } else if (this.canonicalIndices.length) {
-          const context = frame.getContext('2d');
-          if (context) {
-            const pixels = context.getImageData(0, 0, frame.width, frame.height);
-            const refined = refineLocalNasalBoundary(this.faceSurface!.positions,
-              this.canonicalPositions, this.canonicalIndices, pixels);
-            this.faceSurface!.positions.set(refined.positions);
-          }
+          occlusion = { method: 'recorded-surface', selectedShapeId: null,
+            appliedShapeId: null, status: 'recorded', rejectionReasons: [] };
+        } else {
+          if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
+          // Apply the fixed shape to this detection's raw face, without RGB correction.
+          // Existing geometry guards return exact raw data if the shape is rejected.
+          const shaped = this.nasalShape.apply({ surfacePositions: this.faceSurface!.positions, rawMatrix: matrix });
+          this.faceSurface!.positions.set(shaped.surfacePositions);
+          occlusion = { method: NASAL_SHAPE_VERSION, selectedShapeId: NASAL_SHAPE_ID,
+            appliedShapeId: shaped.accepted ? NASAL_SHAPE_ID : null,
+            status: shaped.accepted ? 'applied' : 'raw-fallback',
+            rejectionReasons: [...shaped.diagnostics.rejectionReasons] };
         }
         const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
         const eyewearMatrix = attachment.matrix;
@@ -340,6 +363,7 @@ export class TryOnRenderer {
         this.lastCaptureFrame = {
           rawMatrix: matrix.slice(), correctedMatrix: attachment.matrix.slice(), eyewearMatrix,
           yawDegrees: attachment.yawDegrees,
+          occlusion,
         };
       }
     }
@@ -382,7 +406,7 @@ export class TryOnRenderer {
     disposeObjects([this.scene, ...this.assetScenes]);
     this.assetScenes = [];
     this.canonicalPositions = [];
-    this.canonicalIndices = [];
+    this.nasalShape = null;
     this.faceSurface = null;
     this.surfaceMesh = null;
     this.headProxy = null;

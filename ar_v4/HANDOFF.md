@@ -1,108 +1,80 @@
-# Current mirror / Amber Horizon handoff — 2026-09-06
+# Current AR development handoff — September 7, 2026
 
-The cleaned v4 application lives in `ar_v4/` and remains in development.
-Continue the nasal-occlusion work on `codex/ar-v4-nose-occlusion`; keep `main`
-unchanged because it is the live Python application's deployment branch.
-The parent directory is the live Lenses Python application connected to Railway;
-its original UI, catalog, dependencies and `Procfile` are restored from `cb564a8`.
-Run AR commands here and keep all AR manifests/assets/tests inside this directory.
-Package name is `ar-v4`; capture identifiers remain `ar_v4` / `ar-v4-*`.
+Work inside `ar_v4/` on `codex/ar-v4-nose-occlusion`. The parent Python Lenses
+application and Railway deployment remain separate and unchanged. The owner
+authorized committing and pushing this baseline as `perfect nose occlusion`.
+That requested label is not a claim of anatomical or all-face accuracy. No merge
+or deployment is requested. Preserve recordings, recovery evidence and worktrees.
 
-Current mirror now uses the owner's Amber Horizon Blender model. The source file
-is unchanged; `public/models/amber-horizon.glb` is a self-contained 3.7 MB export
-with 99,521 triangles, a 2K frame texture and baked gradient lenses. README records
-the fixed model scale/attachment. Its front plane retains the prior mirror depth.
-Imported texture bitmaps now close on disposal. That model swap changed no
-tracker, face-surface, occlusion, reconstruction or wearer-specific fitting algorithm.
+## Current decision and implementation
 
-The owner preferred Current mirror over experimental shared-face fitters. Those
-fitters, comparison UI/runners, outputs and historical documents remain archived
-and absent from the active project.
+The owner explicitly chose to integrate **Raw + Option 17 (ablation)** after the
+bounded repair/shape-composition experiment failed to improve marked Bad262.
+That rejected mechanism remains private; it is not the implemented path.
 
-The surviving application is `src/main.ts` → `runtime/`, `render/`, `capture/`.
-Retain exact image/detection/pose ownership; invalidate sessions before disposal.
-Replay retains its renderer but closes the camera/worker. Discard closes replay;
-the next camera session gets a new canvas, worker and abort owner.
+The current renderer reconstructs the original raw `FaceSurface`, then applies
+the frozen `central-wp020-dp015` shape through `src/render/nasal-shape.ts`:
+central width parameter 0.20 and forward depth parameter 0.15. Both Amber Horizon
+and Tom Ford use this fixed path. Original geometry guards are retained; rejected
+shapes show the exact raw surface. There is no RGB repair, yaw switch, lighting
+classifier, parameter retuning or added temporal state in this path.
 
-Use `npm ci`, `npm run assets`, `npm run dev` (localhost:8040). Run `npm test` for
-Node checks + strict production build + actual local MediaPipe browser checks.
-Only the existing Node test runner and Playwright are used. See README for usage,
-geometry conventions and limits; docs/REVIEWS.md holds the final cleanup review.
-The preceding cleanup passed 15 units + five browser flows and verified identical
-baseline renders. Model-swap verification is recorded in docs/REVIEWS.md and
-`../.recovery/model-swap/`. Physical camera start/stop/restart passed during cleanup
-with no face detected; actual wearer tracking remains an empirical check.
+Glasses placement, projection, rigid pose, hard depth/material behavior, assets,
+tracking and session lifecycle remain unchanged. Amber Horizon stays the default;
+the pre-existing Tom Ford clear-lens option and model-locked sessions are retained.
+The old `src/render/nasal-boundary.ts` remains byte-identical only for historical
+private harness imports and hash checks. The active renderer does not import it.
 
-The original cleanup archive is under `../.recovery/`; an additional verified
-pre-promotion working-file archive and complete Git bundle are in
-`../.recovery/promotion-2026-09-06/`. See their READMEs and receipts before restoration.
-All are local and ignored by Git. The original 96-frame wearer export is preserved
-byte-for-byte in `recordings/`, including two missing-face detections. Do not
-replace original detections by rerunning a tracker or merge unrelated poses.
-The archive also retains the removed experiments; they are historical evidence,
-not active implementation or instructions to resume them.
+New captures keep the original image/detection/pose and actual shown surface.
+Optional per-frame `occlusion` metadata records method `raw-nasal-shape-v1`,
+selected/applied shape IDs, status and rejection reasons. A shape fallback is
+identified as raw. Replay restores the saved surface without applying 17 again;
+runtime provenance is `recorded-surface`, and old captures are not relabelled.
+No-face presentations keep null geometry. Schema identifiers and download names
+stay compatible; immutable storage and session ownership remain required.
 
-Current mirror now includes a limited local RGB-supported nasal contour correction.
-It changes selected camera-space X coordinates only, preserving observed depth,
-glasses placement and ordinary depth testing for transmissive lenses. It uses
-depth-visible nasal edges and coherent image evidence, with geometry guards and
-fallback to the observed surface; no frame/yaw lookup or personal fitter is used.
-Capture retains the resulting surface, and replay restores that exact paired
-surface instead of deriving a different refinement from decoded JPEG pixels.
+## Evidence and remaining acceptance
 
-The owner confirmed visible improvement on September 6 after viewing the matched
-comparison. Acceptance is limited: independent held-out RGB review finds small far-rim gains
-in frames 43 and 93, with no clear material near-rim/background regression in the
-five evaluation views. Upper crossings and physical seating remain unresolved;
-some central-band changes are visually uncertain. Development 66 improves only
-partially, 24 is unchanged, and this does not reproduce every preferred probe.
-Sparse temporal checks are not live-video validation. Local warm processing cost
-is about 6 ms median / 11 ms p95 including readback, excluding tracking/render.
+The owner preferred raw+17 on exact right-turn Bad262, while slightly preferring
+RGB+17 on the previously displayed opposite frame476. Integration follows the
+owner's explicit later choice and removes that small opposite-angle RGB
+contribution. Static preference is not anatomical depth truth or all-angle
+acceptance. Physical-camera verification of this integrated path is still needed
+for far cut-through, near rim/bridge/pad preservation and motion in both turns.
+The previously resolved rapid nose-cutoff flicker must be checked for regression.
+Temples/ear contact, pose jitter and reconstruction experiments remain deferred.
 
-The fresh September 6 capture (16:04 UTC, downloaded at 16:05) is preserved in
-`.recovery/nose-fresh-2026-09-06-160512/`. Its 91 frames include 72 valid surfaces
-and 19 empty detections, with no stale pose/surface pairing. Held-out frames 38
-and 72 retain small far-side gains; four evaluation views are pixel-identical.
-Stress frame 42 has a tiny ambiguous central-frame exposure change. The supplied
-depth is consistent with rendering: clear remaining nasal-skin crossings hit
-far-eye/cheek geometry behind the glasses. The upper internal nose/eye boundary
-remains insufficiently supported by the current background-connected RGB cue.
-The subsequent private internal-boundary prototype was implemented and rejected:
-its initial texture cue admitted shading; after fixing that defect and restricting
-the region, all four development and seven reserved views stayed pixel-identical.
-No additional correction is enabled. Preserve this accepted version; 300 ms capture
-sampling and changing pitch/roll leave live flicker unverified. The bounded attempt,
-frozen code and receipts are under `.recovery/nose-internal-2026-09-06/`.
+The product targets desktop/mobile ecommerce, provisionally sustained 30 FPS for
+the complete app. Physical mobile, thermal, display-FPS and end-to-end latency
+measurements are unavailable. Software rendering, callback cadence and historical
+RGB-stage timing do not establish those results.
 
-See docs/REVIEWS.md and private `.recovery/nose-local-boundary-2026-09-06/` for the
-frozen method, matched before/after images, integrated parity/lifecycle checks,
-independent reviews and remaining uncertainty. Earlier rejected experiments and
-owner ratings remain in the other private `nose-*` recovery directories. The
-verified original baseline archive in `nose-2026-09-06/` remains recoverable.
-Keep the original recording byte-identical; no tracking was rerun. No physical
-fit, anatomical accuracy or broad reconstruction result is established.
+## Validation and recovery
 
-The September 6 primary-source research scout recommends one frozen SegFace
-MobileNet512 boundary-only offline test next, before any further geometry change.
-Its semantic nose mask is a candidate cue, not independent depth truth; exact
-preprocessing, held-out cutoff gains, false hiding and browser cost remain untested.
-Depth Anything V2 Small is an optional relative-depth comparator; 3DDFA_V3 is a
-conditional geometry reference with unresolved asset terms. No model was installed
-or accepted. The cited report and verification are private under
-`.recovery/nose-research-2026-09-06/`; preserve the current accepted correction.
+Final `CI=1 npm test` passed: strict TypeScript, asset verification, production
+build, 23 unit tests and all 8 browser flows. The port matches the frozen raw17
+generator exactly on 145 original paired surfaces; 19 no-face entries were
+excluded. All 15 matched native rendered views are byte-identical to the reviewed
+ablation images. Exact saved-surface replay, no RGB geometry readback, raw fallback
+and cancellation/failure/stop/restart behavior are covered. Renderer loading stays
+lazy; the legacy RGB module and private experiments are absent from the bundle.
+Final diff and preservation checks passed: 24 protected originals, 1,073 prior
+evidence files, parent files and the 76-entry dependency graph are unchanged.
+Evidence and hashes are in the new recovery directory below. The owner performs
+physical-camera acceptance; use only one heavy browser/test process at a time.
+Current review details are in [docs/REVIEWS.md](docs/REVIEWS.md).
 
-Product constraint: this is intended for ecommerce on mobile and desktop browsers.
-Windows-only research feasibility is insufficient for choosing a production model.
-Before geometry integration, check commercial code/weight/asset provenance and the
-exact browser inference path on representative iPhone Safari, midrange Android
-Chrome and ordinary laptops, including integrated GPUs. Use sustained 30 fps as a
-provisional whole-app target, measuring latency, loading, memory and thermal
-slowdown separately. Any optional refinement must retain exact image/pose/session
-ownership and leave the accepted mirror available when unsupported or too slow.
-No smooth cross-device performance has been established for SegFace or the current
-complete app. The offline cue test remains exploratory, not a deployment decision.
+The complete pre-integration working files, including the prior uncommitted
+clear-lens changes, are archived under
+[.recovery/nose-ablation-integration-2026-09-07/before/](.recovery/nose-ablation-integration-2026-09-07/before/).
+`start-receipt.json` and `before-diff.patch` beside it preserve hashes and context.
+The former lengthy handoff and reviews are retained verbatim in that archive;
+older experiments remain in their original sealed recovery directories. Existing
+private live playgrounds are unchanged. Do not rewrite or delete these archives.
 
-The publication checkpoint passed a fresh `CI=1 npm test`: 15 unit tests, strict
-TypeScript, asset verification, production build and all five browser lifecycle
-flows. Independent geometry and lifecycle reviews found no blockers. The source
-and dependency graph match the accepted correction; publication adds no model.
+Especially preserve `recordings/ar-v4-nose-2026-09-05T08-04-00-213Z.json` and
+`.recovery/nose-fresh-2026-09-06-160512/capture.json` byte-for-byte. Their expected
+SHA256 values are respectively
+`8a16382c541093562eb1fc817f3d77889ae46c8450deacc3b792740fffe46e9c` and
+`6001ead5e37bf6791b6a1d97ca7f642b75b0b944d7d588cc5225140e0a07ae2f`.
+Git is not their backup. Root restoration archives remain under `../.recovery/`.

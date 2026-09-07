@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
+import { FaceSurface } from '../../src/render/face-surface.ts';
+import { createNasalShape, NASAL_SHAPE_ID, NASAL_SHAPE_VERSION } from '../../src/render/nasal-shape.ts';
 import type { Detection, DetectorRequest, DetectorResponse } from '../../src/runtime/protocol.ts';
 
 interface CameraHarness {
@@ -11,6 +13,7 @@ interface CameraHarness {
   blank: boolean;
   holdNextResult: boolean;
   delegates: string[];
+  imageReadbacks: { width: number; height: number }[];
   held: (() => void)[];
   releaseHeld(): void;
 }
@@ -45,7 +48,15 @@ async function installCamera(page: Page, permissionDelayMs = 0, failGpu = false)
     portrait.src = '/test-fixtures/camera-face.jpg';
     const state: CameraHarness = {
       streams: [], workers: [], results: [], marker: 'red', blank: false,
-      holdNextResult: false, delegates: [], held: [], releaseHeld: () => {},
+      holdNextResult: false, delegates: [], imageReadbacks: [], held: [], releaseHeld: () => {},
+    };
+    const readPixels = CanvasRenderingContext2D.prototype.getImageData;
+    CanvasRenderingContext2D.prototype.getImageData = function (...args) {
+      // The harness samples one pixel to identify each worker submission. Any
+      // larger readback would reintroduce camera-RGB work into the app path.
+      if (args[2] !== 1 || args[3] !== 1)
+        state.imageReadbacks.push({ width: args[2], height: args[3] });
+      return readPixels.apply(this, args);
     };
     state.releaseHeld = () => {
       for (const deliver of state.held.splice(0)) deliver();
@@ -150,6 +161,36 @@ async function resources(page: Page): Promise<{ closed: boolean; workers: number
 
 async function storedFrames(page: Page): Promise<number> {
   return Number(await page.locator('#capture').getAttribute('data-frames'));
+}
+
+async function expectRawShapeCaptures(frames: readonly ExportedFrame[]): Promise<void> {
+  const canonical = JSON.parse(await readFile(new URL('../../public/models/canonical-face.json', import.meta.url), 'utf8')) as {
+    positions: number[]; indices: number[];
+  };
+  const reconstruction = new FaceSurface(canonical.positions);
+  const shape = createNasalShape(canonical.positions, canonical.indices);
+  let shapedFrames = 0;
+  for (const frame of frames) {
+    if (!frame.metadata) continue;
+    expect(frame.detection.matrix).not.toBeNull();
+    expect(reconstruction.reconstruct(frame.detection.landmarks, frame.detection.matrix!, frame.width / frame.height)).toBe(true);
+    const raw = reconstruction.positions.slice();
+    const expected = shape.apply({ surfacePositions: raw, rawMatrix: frame.detection.matrix! });
+    expect(frame.metadata.surfacePositions).toEqual(Array.from(expected.surfacePositions));
+    expect(frame.metadata.occlusion).toEqual({
+      method: NASAL_SHAPE_VERSION, selectedShapeId: NASAL_SHAPE_ID,
+      appliedShapeId: expected.accepted ? NASAL_SHAPE_ID : null,
+      status: expected.accepted ? 'applied' : 'raw-fallback',
+      rejectionReasons: expected.diagnostics.rejectionReasons,
+    });
+    if (expected.surfacePositions.some((value, index) => value !== raw[index])) shapedFrames++;
+  }
+  expect(shapedFrames).toBeGreaterThan(0);
+}
+
+async function expectNoImageReadbacks(page: Page): Promise<void> {
+  expect(await page.evaluate(() =>
+    (window as unknown as { cameraHarness: CameraHarness }).cameraHarness.imageReadbacks)).toEqual([]);
 }
 
 async function startRecording(page: Page): Promise<void> {
@@ -294,6 +335,7 @@ test('recorded image and detection pairs replay locally without restarting infer
       expect(Math.abs(decoded.marker[channel]! - original!.marker[channel]!)).toBeLessThanOrEqual(5);
   }
   expect(artifact.frames.filter(frame => frame.metadata !== null).length).toBeGreaterThanOrEqual(6);
+  await expectRawShapeCaptures(artifact.frames);
   const blank = artifact.frames.find(frame => frame.metadata === null);
   expect(blank).toBeDefined();
   await page.locator('#replay-frame').focus();
@@ -318,6 +360,10 @@ test('recorded image and detection pairs replay locally without restarting infer
   expect(downloads).toHaveLength(1);
   expect(await resources(page)).toEqual(stopped);
   expect([...origins]).toEqual([new URL(page.url()).origin]);
+  await page.locator('#replay-frame').focus();
+  await page.locator('#replay-frame').press('Home');
+  await expect(page.locator('.stage')).toHaveAttribute('data-replay-frame', '0');
+  expect((await page.locator('#mirror').screenshot()).equals(firstImage)).toBe(true);
   await page.locator('#discard-capture').click();
   await expect(page.locator('#replay-controls')).toBeHidden();
   await expect(page.locator('#mirror')).toBeHidden();
@@ -326,6 +372,7 @@ test('recorded image and detection pairs replay locally without restarting infer
   await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
   await page.getByRole('button', { name: 'Close camera' }).click();
   await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expectNoImageReadbacks(page);
   expect(errors).toEqual([]);
 });
 
@@ -381,6 +428,7 @@ test('capture cancellation rejects late detection and replay context loss permit
   await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
   await page.getByRole('button', { name: 'Close camera' }).click();
   await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expectNoImageReadbacks(page);
   expect(errors).toEqual([]);
 });
 
@@ -417,6 +465,7 @@ test('missing model closes resources, retry recovers, and a disconnected camera 
   });
   await expect(page.locator('#guidance')).toContainText('disconnected');
   await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expectNoImageReadbacks(page);
 });
 
 test('GPU startup failure tracks through a fresh real CPU worker', async ({ page }) => {
@@ -433,5 +482,167 @@ test('GPU startup failure tracks through a fresh real CPU worker', async ({ page
   })).toEqual({ delegates: ['GPU', 'CPU'], terminated: [true, false] });
   await page.getByRole('button', { name: 'Close camera' }).click();
   await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('clear-lens selection belongs to its capture and unlocks only after discard', async ({ page }) => {
+  const errors: string[] = [];
+  const models: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('.glb')) models.push(path);
+  });
+  await installCamera(page);
+  await page.goto('/');
+  const selection = page.locator('#eyewear-select');
+  await expect(selection).toBeEnabled();
+  await expect(selection).toHaveValue('amber-horizon');
+  await expect(selection.locator('option[value="tom-ford-clear"]')).toHaveText('Tom Ford · Clear lenses');
+  await expect(page.locator('#eyewear-hint')).toContainText(/choose.*before/i);
+  await selection.selectOption('tom-ford-clear');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('See yourself in Tom Ford.');
+  await expect(page.locator('#frame-name')).toHaveText('Tom Ford');
+  await page.getByRole('button', { name: 'Open camera' }).click();
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+  await expect(selection).toBeDisabled();
+  await expect(page.locator('#eyewear-hint')).toContainText(/close.*camera/i);
+  expect(models).toEqual(['/models/tom-ford-clear.glb']);
+  await page.locator('#record-turn').click();
+  await expect(page.locator('#capture')).toHaveAttribute('data-state', 'recording');
+  await expect(selection).toBeDisabled();
+  await expect.poll(() => storedFrames(page)).toBeGreaterThanOrEqual(3);
+  const count = await finishRecording(page);
+  const stopped = await resources(page);
+  await expect(selection).toBeDisabled();
+  await expect(selection).toHaveValue('tom-ford-clear');
+  await expect(page.locator('#eyewear-hint')).toContainText(/discard.*capture/i);
+  await page.locator('#replay-frame').focus();
+  await page.locator('#replay-frame').press('End');
+  await expect(page.locator('.stage')).toHaveAttribute('data-replay-frame', String(count - 1));
+  await page.locator('#mirror').screenshot({ path: test.info().outputPath('tom-ford-clear-replay.png') });
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#download-capture').click();
+  const download = await downloadPromise;
+  const capturePath = test.info().outputPath('clear-lens-synthetic-capture.json');
+  await download.saveAs(capturePath);
+  const artifact = JSON.parse(await readFile(capturePath, 'utf8')) as {
+    header: { eyewear: { id: string } }; frames: ExportedFrame[];
+  };
+  expect(artifact.header.eyewear.id).toBe('tom-ford-clear');
+  expect(artifact.frames).toHaveLength(count);
+  await expectRawShapeCaptures(artifact.frames);
+  const delivered = await page.evaluate(() =>
+    (window as unknown as { cameraHarness: CameraHarness }).cameraHarness.results);
+  for (const frame of artifact.frames) {
+    expect(frame.metadata).not.toBeNull();
+    expect(frame.metadata!.eyewearModelId).toBe('tom-ford-clear');
+    expect(frame.metadata!.rawMatrix).toEqual(frame.detection.matrix);
+    expect(frame.metadata!.surfacePositions).toHaveLength(1404);
+    expect(frame.detection).toEqual(delivered.find(result => result.capturedAt === frame.capturedAt)?.detection);
+  }
+  expect(await resources(page)).toEqual(stopped);
+  expect(models).toEqual(['/models/tom-ford-clear.glb']);
+  await page.locator('#discard-capture').click();
+  await expect(selection).toBeEnabled();
+  await expect(page.locator('#eyewear-hint')).toContainText(/choose.*before/i);
+  await expect(page.locator('#capture')).toHaveAttribute('data-frames', '0');
+  await selection.selectOption('amber-horizon');
+  await page.getByRole('button', { name: 'Open camera' }).click();
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+  await expect(page.locator('#frame-name')).toHaveText('Amber Horizon');
+  await expect(selection).toBeDisabled();
+  expect(models).toEqual(['/models/tom-ford-clear.glb', '/models/amber-horizon.glb']);
+  await page.getByRole('button', { name: 'Close camera' }).click();
+  await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expect(selection).toBeEnabled();
+  await expectNoImageReadbacks(page);
+  expect(errors).toEqual([]);
+});
+
+test('failed clear-lens asset releases selection and permits a successful retry', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await installCamera(page);
+  await page.route('**/models/tom-ford-clear.glb', route => route.fulfill({ status: 404, body: 'Missing clear frame' }));
+  await page.goto('/');
+  const selection = page.locator('#eyewear-select');
+  await selection.selectOption('tom-ford-clear');
+  await page.getByRole('button', { name: 'Open camera' }).click();
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'error');
+  await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  expect((await resources(page)).workers).toBe(0);
+  await expect(selection).toBeEnabled();
+  await expect(selection).toHaveValue('tom-ford-clear');
+  await expect(page.locator('#mirror')).toBeHidden();
+  await page.unroute('**/models/tom-ford-clear.glb');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+  await expect(selection).toBeDisabled();
+  await expect(page.locator('#frame-name')).toHaveText('Tom Ford');
+  await page.getByRole('button', { name: 'Close camera' }).click();
+  await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expect(selection).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test('cancelled clear-lens startup cannot publish into the next Amber session', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await installCamera(page);
+  await page.addInitScript(() => {
+    const state = { held: false, delivered: false, release: () => {} };
+    const gate = new Promise<void>(resolve => { state.release = resolve; });
+    Object.assign(window, { assetHarness: state });
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await nativeFetch(input, init);
+      const url = input instanceof Request ? input.url : String(input);
+      if (!new URL(url, location.href).pathname.endsWith('/tom-ford-clear.glb')) return response;
+      // Buffer a real asset first, then simulate a dependency that resolves late
+      // despite cancellation. The following session must retain its own model.
+      const bytes = await response.arrayBuffer();
+      state.held = true;
+      await gate;
+      state.delivered = true;
+      return new Response(bytes, { status: response.status, headers: response.headers });
+    };
+  });
+  await page.goto('/');
+  const selection = page.locator('#eyewear-select');
+  await selection.selectOption('tom-ford-clear');
+  await page.getByRole('button', { name: 'Open camera' }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { assetHarness: { held: boolean } }).assetHarness.held)).toBe(true);
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'starting');
+  await expect(selection).toBeDisabled();
+  const oldCanvas = await page.locator('#mirror').elementHandle();
+  await page.getByRole('button', { name: 'Close camera' }).click();
+  await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expect(selection).toBeEnabled();
+  await expect(page.locator('#mirror')).toBeHidden();
+  await selection.selectOption('amber-horizon');
+  await page.getByRole('button', { name: 'Open camera' }).click();
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+  const activeWorkers = (await resources(page)).workers;
+  const beforeRelease = Number(await page.locator('.stage').getAttribute('data-presented-at'));
+  await page.evaluate(() =>
+    (window as unknown as { assetHarness: { release(): void } }).assetHarness.release());
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { assetHarness: { delivered: boolean } }).assetHarness.delivered)).toBe(true);
+  await expect.poll(async () => Number(await page.locator('.stage').getAttribute('data-presented-at')))
+    .toBeGreaterThan(beforeRelease);
+  await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+  await expect(selection).toHaveValue('amber-horizon');
+  await expect(selection).toBeDisabled();
+  await expect(page.locator('#frame-name')).toHaveText('Amber Horizon');
+  await expect(page.locator('#mirror')).toBeVisible();
+  expect((await resources(page)).workers).toBe(activeWorkers);
+  expect(await oldCanvas!.evaluate(canvas => canvas.isConnected)).toBe(false);
+  await oldCanvas!.dispose();
+  await page.getByRole('button', { name: 'Close camera' }).click();
+  await expect.poll(async () => (await resources(page)).closed).toBe(true);
+  await expect(selection).toBeEnabled();
   expect(errors).toEqual([]);
 });

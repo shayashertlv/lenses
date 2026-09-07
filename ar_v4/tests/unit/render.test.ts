@@ -11,6 +11,7 @@ import {
 } from '../../src/render/renderer.ts';
 import type { Detection } from '../../src/runtime/detector.ts';
 import { FaceSurface } from '../../src/render/face-surface.ts';
+import { createNasalShape, NASAL_SHAPE_ID, NASAL_SHAPE_VERSION } from '../../src/render/nasal-shape.ts';
 
 const [assetBytes, canonicalText] = await Promise.all([
   readFile(new URL('../../public/models/amber-horizon.glb', import.meta.url)),
@@ -111,13 +112,24 @@ test('present projects a translated, yawed canonical face over its matching nati
   };
   // Exercise the actual presentation path without requiring a GPU in unit tests.
   const renderer = Reflect.construct(TryOnRenderer, [backend]) as TryOnRenderer;
-  Object.assign(renderer, { canonicalPositions: canonical.positions, faceSurface: new FaceSurface(canonical.positions) });
+  const captureSnapshot = () => {
+    const snapshot = renderer.captureSnapshot;
+    assert.ok(snapshot, 'the current presentation has capture geometry');
+    return snapshot;
+  };
+  const nasalShape = createNasalShape(canonical.positions, canonical.indices);
+  Object.assign(renderer, {
+    canonicalPositions: canonical.positions, faceSurface: new FaceSurface(canonical.positions), nasalShape,
+  });
   t.after(() => renderer.dispose());
   const width = 1600, height = 900;
-  const frame = { width, height } as HTMLCanvasElement;
+  const frame = { width, height, getContext() { throw new Error('Live geometry read source RGB'); } } as unknown as HTMLCanvasElement;
   const c = Math.sqrt(3) / 2, s = 0.5;
   const matrix = [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 1.5, -2, -45, 1];
   const focalPixels = height / (2 * Math.tan(63 * Math.PI / 360));
+  const meanDepth = Array.from({ length: 468 }, (_, index) =>
+    s * canonical.positions[index * 3]! - c * canonical.positions[index * 3 + 2]! + 45)
+    .reduce((sum, depth) => sum + depth / 468, 0);
   // Independent pinhole equations: no Three matrix/projection utility is used
   // to produce these expected image observations.
   const landmarks = Array.from({ length: 478 }, (_, index) => {
@@ -130,10 +142,18 @@ test('present projects a translated, yawed canonical face over its matching nati
     return {
       x: 0.5 + focalPixels * cameraX / (-cameraZ * width),
       y: 0.5 - focalPixels * cameraY / (-cameraZ * height),
-      z: 0,
+      // Encode the same known face depth, rather than an unrelated flat mesh.
+      z: (-cameraZ / meanDepth - 1) * focalPixels / width,
     };
   });
-  renderer.present(frame, { landmarks, matrix, inferenceMs: 1 });
+  const detection = { landmarks, matrix, inferenceMs: 1 };
+  const raw = new FaceSurface(canonical.positions);
+  assert.ok(raw.reconstruct(landmarks, matrix, width / height));
+  const expectedShape = nasalShape.apply({ surfacePositions: raw.positions, rawMatrix: matrix });
+  assert.ok(expectedShape.accepted);
+  assert.ok(expectedShape.surfacePositions.some((value, index) => value !== raw.positions[index]),
+    'this observation exercises a nonzero nasal shape');
+  renderer.present(frame, detection);
   assert.deepEqual(size, [1280, 720]);
   assert.ok(renderer.projectionResidualPx !== null && renderer.projectionResidualPx < 1e-8);
   const scene = renderedScene as Scene | null;
@@ -149,19 +169,43 @@ test('present projects a translated, yawed canonical face over its matching nati
   assert.deepEqual(eyewear.matrix.elements, matrix, 'the known matching pose reaches the rendered glasses');
   assert.deepEqual(renderer.captureSnapshot?.rawMatrix, matrix);
   assert.deepEqual(renderer.captureSnapshot?.eyewearMatrix, eyewear.matrix.elements);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'live presentation applies the fixed shape once to its original reconstructed surface');
+  assert.deepEqual(captureSnapshot().occlusion, {
+    method: NASAL_SHAPE_VERSION, selectedShapeId: NASAL_SHAPE_ID,
+    appliedShapeId: NASAL_SHAPE_ID, status: 'applied', rejectionReasons: [],
+  });
 
-  // Replay must retain the recorded occluder even if JPEG decoding changes RGB
-  // evidence. Re-estimating it would break the captured geometry/image pairing.
-  const recordedSurface = Array.from(renderer.captureSnapshot!.surfacePositions);
+  const otherPixels = { width, height, getContext() { throw new Error('Changed image read source RGB'); } } as unknown as HTMLCanvasElement;
+  renderer.present(otherPixels, detection);
+  assert.equal((scene.background as Texture).image, otherPixels, 'the newly paired source reaches the background');
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'surface geometry depends on its detection, not the source image pixels');
+  renderer.present(frame, detection);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'A/B/A presentation does not accumulate the shape');
+
+  // A captured shaped surface must bypass live shaping. Historical captures can
+  // also contain different saved geometry, without current-method metadata.
+  const liveSurface = Array.from(captureSnapshot().surfacePositions);
+  renderer.present(otherPixels, detection, liveSurface);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'replay does not apply the fixed shape a second time');
+  assert.equal(captureSnapshot().occlusion?.method, 'recorded-surface');
+  assert.equal(captureSnapshot().occlusion?.status, 'recorded');
+  const recordedSurface = Array.from(captureSnapshot().surfacePositions);
   recordedSurface[3] = recordedSurface[3]! + 0.05;
   const expectedSurface = new Float32Array(recordedSurface);
-  Object.assign(renderer, { canonicalIndices: canonical.indices });
   const replayFrame = { width, height, getContext() { throw new Error('Replay read RGB again'); } } as unknown as HTMLCanvasElement;
-  renderer.present(replayFrame, { landmarks, matrix, inferenceMs: 1 }, recordedSurface);
-  assert.deepEqual(renderer.captureSnapshot!.surfacePositions, expectedSurface);
+  renderer.present(replayFrame, detection, recordedSurface);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedSurface);
   recordedSurface[3] = recordedSurface[3]! + 1;
-  assert.deepEqual(renderer.captureSnapshot!.surfacePositions, expectedSurface, 'recorded input is copied, not retained by reference');
-  assert.throws(() => renderer.present(replayFrame, { landmarks, matrix, inferenceMs: 1 }, [0]), /recorded face surface is invalid/);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedSurface, 'recorded input is copied, not retained by reference');
+  assert.throws(() => renderer.present(replayFrame, detection, [0]), /recorded face surface is invalid/);
+  assert.equal(renderer.captureSnapshot, null, 'failed replay cannot expose a prior snapshot');
+  renderer.present(frame, detection);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'live presentation resumes from raw observations after a failed replay');
 
   const absent: Detection = { landmarks: [], matrix: null, inferenceMs: 1 };
   renderer.present(frame, absent);
@@ -169,10 +213,15 @@ test('present projects a translated, yawed canonical face over its matching nati
   assert.equal(renderer.projectionResidualPx, null);
   assert.equal(renderer.captureSnapshot, null);
   assert.equal((scene.background as Texture).image, frame, 'camera remains visible without a face');
+  renderer.present(otherPixels, detection);
+  assert.deepEqual(captureSnapshot().surfacePositions, expectedShape.surfacePositions,
+    'a face after an empty detection has fresh single-application geometry');
   renderer.dispose();
   renderer.dispose();
   assert.equal(disposals, 1);
   assert.equal(contextLosses, 1);
+  assert.equal(renderer.present(frame, detection), false, 'retired renderer cannot present into a new session');
+  assert.equal(renderer.captureSnapshot, null);
 });
 
 test('an asset parsed after cancellation is fully disposed without acquiring WebGL', async (t) => {

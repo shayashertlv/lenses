@@ -66,17 +66,19 @@ export class CaptureController {
   }
 
   private begin(): void {
-    if (!this.liveFace || !this.hooks.renderer() || this.record.disabled) return;
+    const renderer = this.hooks.renderer();
+    if (!this.liveFace || !renderer || this.record.disabled) return;
     this.reset();
     this.header = {
       renderer: 'current-mirror',
+      eyewear: renderer.eyewear,
       recordedAt: new Date().toISOString(),
       browser: navigator.userAgent,
       camera: this.hooks.captureInfo(),
       projection: { ...VIRTUAL_CAMERA, calibrated: false },
       coordinates: 'unmirrored normalized image; canonical centimeters, +Y up and +Z anterior',
       imageEncoding: 'JPEG; original matched detection retained without redetection',
-      occlusion: 'Local nasal RGB boundary v1; captured surface retained during replay',
+      occlusion: { ...renderer.occlusionConfiguration },
     };
     this.store.start();
     this.panel.dataset.state = 'recording';
@@ -162,6 +164,9 @@ export class CaptureController {
     if (!renderer || !recorded) return;
     const token = ++this.renderGeneration;
     try {
+      if (recorded.metadata?.eyewearModelId && recorded.metadata.eyewearModelId !== renderer.eyewear.id) {
+        throw new Error('The recorded frame belongs to a different glasses session.');
+      }
       if (index !== this.cachedIndex) {
         const bitmap = await createImageBitmap(recorded.jpeg);
         try {
@@ -175,8 +180,8 @@ export class CaptureController {
         } finally { bitmap.close(); }
       }
       if (token !== this.renderGeneration) return;
-      // JPEG encoding can change a color boundary. Retain the surface from the
-      // original presentation instead of deriving a new one from decoded pixels.
+      // Restore the captured surface exactly, including older RGB-corrected data.
+      // Replay never applies the current shape again or infers geometry from JPEG.
       renderer.present(this.image, validateDetection(recorded.detection), recorded.metadata?.surfacePositions);
       const count = this.store.snapshot.frames.length;
       element('replay-position').textContent = `${index + 1} / ${count}`;

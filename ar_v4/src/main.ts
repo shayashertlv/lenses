@@ -4,6 +4,8 @@ import type { CameraSession } from "./runtime/camera.ts";
 import { DetectorClient } from "./runtime/detector.ts";
 import type { TryOnRenderer } from "./render/renderer.ts";
 import { CaptureController } from "./capture/controller.ts";
+import { DEFAULT_EYEWEAR_ID, EYEWEAR, eyewearById } from "./render/eyewear.ts";
+import type { EyewearId } from "./render/eyewear.ts";
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -20,8 +22,31 @@ const tracking = element("tracking");
 const fps = element("fps");
 const latency = element("latency");
 const resolution = element("resolution");
+const eyewearSelect = element<HTMLSelectElement>("eyewear-select");
+const eyewearHint = element("eyewear-hint");
+let selectedEyewear: EyewearId = DEFAULT_EYEWEAR_ID;
+for (const model of Object.values(EYEWEAR)) {
+  eyewearSelect.add(new Option(model.optionLabel, model.id));
+}
+eyewearSelect.value = selectedEyewear;
+
+function showSelectedEyewear(): void {
+  const model = eyewearById(selectedEyewear);
+  element("mirror-title").textContent = `See yourself in ${model.name}.`;
+  element("frame-name").textContent = model.name;
+  element("frame-description").textContent = model.description;
+  element("frame-finish").textContent = model.finish;
+}
+
+function updateEyewearControl(): void {
+  eyewearSelect.disabled = current !== null;
+  eyewearHint.textContent = current?.phase === 'replay'
+    ? 'Discard the capture to change frames.'
+    : current ? 'Close the camera to change frames.' : 'Choose a frame before opening the camera.';
+}
 
 interface Session {
+  eyewearId: EyewearId;
   phase: 'live' | 'replay';
   liveGeneration: number;
   abort: AbortController;
@@ -48,6 +73,7 @@ function closeSession(
 ): void {
   const session = current;
   current = null; // Invalidate first: none of the awaited work may publish after this point.
+  updateEyewearControl();
   captureController.reset();
   if (session) {
     session.liveGeneration++;
@@ -224,6 +250,7 @@ async function openSession(): Promise<void> {
   const canvas = oldCanvas.cloneNode(false) as HTMLCanvasElement;
   oldCanvas.replaceWith(canvas);
   const session: Session = {
+    eyewearId: selectedEyewear,
     phase: 'live',
     liveGeneration: 1,
     abort: new AbortController(),
@@ -233,6 +260,7 @@ async function openSession(): Promise<void> {
     cleanups: [],
   };
   current = session;
+  updateEyewearControl();
   delete stage.dataset.frames;
   delete stage.dataset.inferenceMs;
   delete stage.dataset.presentedAt;
@@ -282,7 +310,7 @@ async function openSession(): Promise<void> {
     );
     const { TryOnRenderer } = await import("./render/renderer.ts");
     if (current !== session) return;
-    session.renderer = await TryOnRenderer.create(canvas, session.abort.signal);
+    session.renderer = await TryOnRenderer.create(canvas, session.abort.signal, session.eyewearId);
     if (current !== session) {
       session.renderer.dispose();
       return;
@@ -315,6 +343,7 @@ const captureController = new CaptureController({
     // Invalidate live callbacks before releasing the stream and in-flight worker.
     // Keep this session's renderer and abort owner for memory-only replay.
     session.phase = 'replay';
+    updateEyewearControl();
     session.liveGeneration++;
     session.cancelFrame?.();
     session.cancelFrame = undefined;
@@ -334,6 +363,19 @@ const captureController = new CaptureController({
   },
   close: () => closeSession('Capture discarded. Open the camera to record another turn.'),
 });
+
+eyewearSelect.addEventListener("change", () => {
+  // The session owns its chosen model, including asynchronous startup and replay.
+  if (current) { eyewearSelect.value = current.eyewearId; return; }
+  if (!Object.hasOwn(EYEWEAR, eyewearSelect.value)) {
+    eyewearSelect.value = selectedEyewear;
+    return;
+  }
+  selectedEyewear = eyewearSelect.value as EyewearId;
+  showSelectedEyewear();
+});
+showSelectedEyewear();
+updateEyewearControl();
 
 start.addEventListener("click", () => {
   void openSession();

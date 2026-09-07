@@ -3,6 +3,10 @@
     "bytes": 3670784,
     "sha256": "78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004"
   },
+  "public/models/tom-ford-clear.glb": {
+    "bytes": 2900984,
+    "sha256": "06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f"
+  },
   "public/models/face_landmarker.task": {
     "bytes": 3758596,
     "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"

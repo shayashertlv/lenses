@@ -7,6 +7,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 // Prepared assets belong to this project. Never borrow missing files from v2/v3.
 const assets = {
   'public/models/amber-horizon.glb': '78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004',
+  'public/models/tom-ford-clear.glb': '06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f',
   'public/models/face_landmarker.task': '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff',
   'public/models/canonical-face.json': '566302c1734dc3b096f7651f46a3a568de4d7a47ba662425b963880f7640cf14',
   'tests/fixtures/face-a.jpg': 'b6491464eb87c023a8e07e2004cb4d30e2a57025857a0de43810d0191dd7208e',
