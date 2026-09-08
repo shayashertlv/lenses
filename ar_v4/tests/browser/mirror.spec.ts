@@ -18,6 +18,8 @@ interface CameraHarness {
   releaseHeld(): void;
 }
 
+type TempleCoverage = 'alpha-to-coverage' | 'ordered-dither';
+
 interface ExportedFrame {
   index: number;
   capturedAt: number;
@@ -26,7 +28,14 @@ interface ExportedFrame {
   height: number;
   jpegDataUrl: string;
   detection: Detection;
-  metadata: { surfacePositions: number[]; [key: string]: unknown } | null;
+  metadata: {
+    surfacePositions: number[];
+    templeClip?: { method: string; negativeXCutoffLocalZM: number; positiveXCutoffLocalZM: number;
+      fadeLengthLocalM?: number; coverage?: TempleCoverage } | null;
+    templeVisibility?: { method: string; negativeXWeight: number; positiveXWeight: number;
+      coverage: TempleCoverage; frontalOcclusionWeight?: number } | null;
+    [key: string]: unknown;
+  } | null;
   yawDegrees: number | null;
 }
 
@@ -163,7 +172,28 @@ async function storedFrames(page: Page): Promise<number> {
   return Number(await page.locator('#capture').getAttribute('data-frames'));
 }
 
-async function expectRawShapeCaptures(frames: readonly ExportedFrame[]): Promise<void> {
+async function templeCoverage(page: Page): Promise<TempleCoverage> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#mirror')!;
+    const context = canvas.getContext('webgl2');
+    if (!context) throw new Error('The real mirror WebGL context is unavailable.');
+    return context.getParameter(context.SAMPLES) > 0 ? 'alpha-to-coverage' : 'ordered-dither';
+  });
+}
+
+async function expectTempleHeader(page: Page, header: Record<string, unknown>, cutoff: number): Promise<void> {
+  const coverage = await templeCoverage(page);
+  expect(header.templeClip).toEqual({ method: 'temple-end-blend-v3',
+    negativeXCutoffLocalZM: cutoff, positiveXCutoffLocalZM: cutoff, fadeLengthLocalM: 0.015 });
+  expect(header.templeClipPolicy).toMatch(/Fixed endpoints per model.*15 mm dissolve into the paired camera image/);
+  expect(header.templeVisibility).toEqual(expect.objectContaining({
+    method: 'temple-side-depth-v3', coverage, parameters: expect.any(Object),
+  }));
+  expect(header.templeVisibilityPolicy).toMatch(/paired projected head-mask occlusion.*frontal occlusion weight/);
+}
+
+async function expectRawShapeCaptures(page: Page, frames: readonly ExportedFrame[]): Promise<void> {
+  const coverage = await templeCoverage(page);
   const canonical = JSON.parse(await readFile(new URL('../../public/models/canonical-face.json', import.meta.url), 'utf8')) as {
     positions: number[]; indices: number[];
   };
@@ -183,6 +213,22 @@ async function expectRawShapeCaptures(frames: readonly ExportedFrame[]): Promise
       status: expected.accepted ? 'applied' : 'raw-fallback',
       rejectionReasons: expected.diagnostics.rejectionReasons,
     });
+    expect(['amber-horizon', 'tom-ford-clear']).toContain(frame.metadata.eyewearModelId);
+    const fixedCutoff = frame.metadata.eyewearModelId === 'amber-horizon' ? -0.105 : -0.110;
+    expect(frame.metadata.templeClip).toEqual({
+      method: 'temple-end-blend-v3', fadeLengthLocalM: 0.015,
+      negativeXCutoffLocalZM: fixedCutoff, positiveXCutoffLocalZM: fixedCutoff,
+    });
+    expect(frame.metadata.templeVisibility).toEqual({
+      method: 'temple-side-depth-v3', coverage,
+      negativeXWeight: expect.any(Number), positiveXWeight: expect.any(Number), frontalOcclusionWeight: expect.any(Number),
+    });
+    for (const weight of [frame.metadata.templeVisibility!.negativeXWeight,
+      frame.metadata.templeVisibility!.positiveXWeight, frame.metadata.templeVisibility!.frontalOcclusionWeight!]) {
+      expect(Number.isFinite(weight)).toBe(true);
+      expect(weight).toBeGreaterThanOrEqual(0);
+      expect(weight).toBeLessThanOrEqual(1);
+    }
     if (expected.surfacePositions.some((value, index) => value !== raw[index])) shapedFrames++;
   }
   expect(shapedFrames).toBeGreaterThan(0);
@@ -222,6 +268,28 @@ test('recorded image and detection pairs replay locally without restarting infer
     if (request.url().startsWith('http')) origins.add(new URL(request.url()).origin);
   });
   page.on('download', download => downloads.push(download.suggestedFilename()));
+  // Capture after the replay callback mutates its index, before the compositor
+  // releases the non-preserved WebGL framebuffer. CSS screenshots also include
+  // backdrop-filtered labels, whose pixels can vary with page scrolling.
+  await page.addInitScript(() => {
+    const state: {image: {index: string; png: string} | null} = {image: null};
+    Object.assign(window, {nativeReplayImage: state});
+    new MutationObserver(changes => {
+      for (const change of changes) {
+        const stage = change.target as HTMLElement;
+        const canvas = stage.querySelector<HTMLCanvasElement>('#mirror');
+        if (canvas && stage.dataset.replayFrame !== undefined)
+          state.image = {index: stage.dataset.replayFrame, png: canvas.toDataURL()};
+      }
+    }).observe(document, {subtree: true, attributes: true, attributeFilter: ['data-replay-frame']});
+  });
+  const nativeReplayImage = () => page.evaluate(() => {
+    const {image} = (window as unknown as {
+      nativeReplayImage: {image: {index: string; png: string} | null};
+    }).nativeReplayImage;
+    if (!image) throw new Error('No rendered replay image was captured.');
+    return image;
+  });
   await installCamera(page);
   await page.goto('/');
   await expect(page.locator('#replay-controls')).toBeHidden();
@@ -253,11 +321,18 @@ test('recorded image and detection pairs replay locally without restarting infer
   await page.locator('#replay-frame').focus();
   await page.locator('#replay-frame').press('Home');
   await expect(page.locator('.stage')).toHaveAttribute('data-replay-frame', '0');
+  const firstNative = await nativeReplayImage();
+  expect(firstNative.index).toBe('0');
   const firstImage = await page.locator('#mirror').screenshot();
+  await writeFile(test.info().outputPath('replay-first-ui.png'), firstImage);
+  await writeFile(test.info().outputPath('replay-first-native.png'), Buffer.from(firstNative.png.split(',')[1]!, 'base64'));
   await page.locator('#replay-frame').press('End');
   await expect(page.locator('.stage')).toHaveAttribute('data-replay-frame', String(count - 1));
   await page.locator('#replay-frame').press('ArrowRight');
   await expect(page.locator('#replay-frame')).toHaveValue(String(count - 1));
+  const lastNative = await nativeReplayImage();
+  expect(lastNative.index).toBe(String(count - 1));
+  expect(lastNative.png === firstNative.png).toBe(false);
   const lastImage = await page.locator('#mirror').screenshot();
   expect(lastImage.equals(firstImage)).toBe(false);
   await writeFile(test.info().outputPath('replay-baseline.png'), lastImage);
@@ -286,6 +361,7 @@ test('recorded image and detection pairs replay locally without restarting infer
     camera: expect.any(Object), projection: expect.any(Object),
     assets: expect.any(Object),
   }));
+  await expectTempleHeader(page, artifact.header, -0.105);
   const delivered = await page.evaluate(() =>
     (window as unknown as { cameraHarness: CameraHarness }).cameraHarness.results);
   let compressedBytes = 0;
@@ -335,7 +411,7 @@ test('recorded image and detection pairs replay locally without restarting infer
       expect(Math.abs(decoded.marker[channel]! - original!.marker[channel]!)).toBeLessThanOrEqual(5);
   }
   expect(artifact.frames.filter(frame => frame.metadata !== null).length).toBeGreaterThanOrEqual(6);
-  await expectRawShapeCaptures(artifact.frames);
+  await expectRawShapeCaptures(page, artifact.frames);
   const blank = artifact.frames.find(frame => frame.metadata === null);
   expect(blank).toBeDefined();
   await page.locator('#replay-frame').focus();
@@ -363,7 +439,11 @@ test('recorded image and detection pairs replay locally without restarting infer
   await page.locator('#replay-frame').focus();
   await page.locator('#replay-frame').press('Home');
   await expect(page.locator('.stage')).toHaveAttribute('data-replay-frame', '0');
-  expect((await page.locator('#mirror').screenshot()).equals(firstImage)).toBe(true);
+  const returnedNative = await nativeReplayImage();
+  expect(returnedNative.index).toBe('0');
+  await writeFile(test.info().outputPath('replay-returned-native.png'), Buffer.from(returnedNative.png.split(',')[1]!, 'base64'));
+  await writeFile(test.info().outputPath('replay-returned-ui.png'), await page.locator('#mirror').screenshot());
+  expect(returnedNative.png === firstNative.png).toBe(true);
   await page.locator('#discard-capture').click();
   await expect(page.locator('#replay-controls')).toBeHidden();
   await expect(page.locator('#mirror')).toBeHidden();
@@ -377,6 +457,9 @@ test('recorded image and detection pairs replay locally without restarting infer
 });
 
 test('capture cancellation rejects late detection and replay context loss permits restart', async ({ page }) => {
+  // Four real renderer/worker startups share this total budget; each assertion
+  // keeps the configured 20-second limit.
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -528,11 +611,12 @@ test('clear-lens selection belongs to its capture and unlocks only after discard
   const capturePath = test.info().outputPath('clear-lens-synthetic-capture.json');
   await download.saveAs(capturePath);
   const artifact = JSON.parse(await readFile(capturePath, 'utf8')) as {
-    header: { eyewear: { id: string } }; frames: ExportedFrame[];
+    header: Record<string, unknown> & { eyewear: { id: string } }; frames: ExportedFrame[];
   };
   expect(artifact.header.eyewear.id).toBe('tom-ford-clear');
+  await expectTempleHeader(page, artifact.header, -0.110);
   expect(artifact.frames).toHaveLength(count);
-  await expectRawShapeCaptures(artifact.frames);
+  await expectRawShapeCaptures(page, artifact.frames);
   const delivered = await page.evaluate(() =>
     (window as unknown as { cameraHarness: CameraHarness }).cameraHarness.results);
   for (const frame of artifact.frames) {

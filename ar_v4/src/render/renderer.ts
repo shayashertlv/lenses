@@ -15,6 +15,11 @@ import { createNasalShape, NASAL_SHAPE_ID, NASAL_SHAPE_VERSION } from './nasal-s
 import { VIRTUAL_CAMERA } from './projection.ts';
 import { DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS } from './eyewear.ts';
 import type { EyewearDefinition } from './eyewear.ts';
+import { createTempleClip, createTempleBlendConfiguration } from './temple-clip.ts';
+import type { TempleClipConfiguration } from './temple-clip.ts';
+import { createTempleVisibility, createTempleVisibilityConfiguration, TEMPLE_VISIBILITY_METHOD,
+  TEMPLE_VISIBILITY_PARAMETERS } from './temple-visibility.ts';
+import type { TempleVisibilityConfiguration } from './temple-visibility.ts';
 export { GLASSES_METERS_TO_CENTIMETERS, GLASSES_OFFSET_CM } from './eyewear.ts';
 /** MediaPipe's default virtual camera. This is an assumed camera, not calibration. */
 export const VERTICAL_FOV_DEGREES = VIRTUAL_CAMERA.verticalFovDegrees;
@@ -29,6 +34,10 @@ export interface CaptureGeometry {
   eyewearMatrix: number[];
   surfacePositions: Float32Array;
   yawDegrees: number;
+  /** Missing/null on legacy replay means the original, unclipped temples. */
+  templeClip?: TempleClipConfiguration | null;
+  /** Missing/null preserves historical rendering without the side-depth overlay. */
+  templeVisibility?: TempleVisibilityConfiguration | null;
   /** Optional for historical saved surfaces; new captures identify the actual path. */
   occlusion?: {
     method: string;
@@ -113,6 +122,8 @@ export class TryOnRenderer {
   private environmentTarget: WebGLRenderTarget | null = null;
   private canonicalPositions: number[] = [];
   private nasalShape: ReturnType<typeof createNasalShape> | null = null;
+  private templeClip: ReturnType<typeof createTempleClip> | null = null;
+  private templeVisibility: ReturnType<typeof createTempleVisibility> | null = null;
   private faceSurface: FaceSurface | null = null;
   private surfaceMesh: Mesh | null = null;
   private headProxy: Mesh | null = null;
@@ -149,6 +160,14 @@ export class TryOnRenderer {
   get projectionResidualPx(): number | null { return this.residual; }
   get bridgeCorrectionPx(): number | null { return this.bridgeCorrection; }
   get yawDegrees(): number | null { return this.yaw; }
+  get templeClipConfiguration(): TempleClipConfiguration {
+    return createTempleBlendConfiguration(this.eyewear.templeClipLocalZM);
+  }
+  get templeVisibilityPolicy() {
+    return {method: TEMPLE_VISIBILITY_METHOD,
+      coverage: (this.renderer.capabilities?.samples ?? 0) > 0 ? 'alpha-to-coverage' : 'ordered-dither',
+      parameters: {...TEMPLE_VISIBILITY_PARAMETERS}};
+  }
   /** Returns owned copies of the latest valid presentation when requested. */
   get captureSnapshot(): CaptureGeometry | null {
     const frame = this.lastCaptureFrame;
@@ -158,6 +177,8 @@ export class TryOnRenderer {
       rawMatrix: frame.rawMatrix.slice(), correctedMatrix: frame.correctedMatrix.slice(),
       eyewearMatrix: frame.eyewearMatrix.slice(),
       surfacePositions: this.faceSurface.positions.slice(), yawDegrees: frame.yawDegrees,
+      templeClip: this.templeClip?.configuration ?? null,
+      templeVisibility: this.templeVisibility?.configuration ?? null,
       occlusion: { ...frame.occlusion, rejectionReasons: frame.occlusion.rejectionReasons.slice() },
     };
   }
@@ -238,6 +259,7 @@ export class TryOnRenderer {
     });
     asset.add(eyewearScene);
     this.eyewearPose.add(asset);
+    this.templeClip = createTempleClip(eyewearScene);
 
     const occlusionMaterial = new MeshBasicMaterial({
       colorWrite: false, depthWrite: true, depthTest: true, side: DoubleSide,
@@ -266,6 +288,9 @@ export class TryOnRenderer {
     head.renderOrder = -2;
     this.headProxy = head;
     this.facePose.add(head);
+    this.templeVisibility = createTempleVisibility(eyewearScene, {
+      renderer: this.renderer, scene: this.scene, camera: this.camera, eyewearPose: this.eyewearPose,
+    });
 
     const key = new DirectionalLight(0xffffff, 2);
     key.position.set(-10, 15, 20);
@@ -284,8 +309,11 @@ export class TryOnRenderer {
   }
 
   /** Replay supplies the surface captured with this exact image/detection pair. */
-  present(frame: HTMLCanvasElement, detection: Detection, recordedSurface?: readonly number[]): boolean {
+  present(frame: HTMLCanvasElement, detection: Detection, recordedSurface?: readonly number[],
+    recordedTempleClip?: TempleClipConfiguration | null,
+    recordedTempleVisibility?: TempleVisibilityConfiguration | null): boolean {
     if (this.disposed) return false;
+    this.clearPresentation();
     if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
     if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
       this.frameWidth = frame.width;
@@ -313,64 +341,88 @@ export class TryOnRenderer {
     const matrix = detection.matrix;
     this.facePose.visible = matrix !== null && matrix.length === 16 && matrix.every(Number.isFinite)
       && detection.landmarks.length >= 468;
-    this.residual = null;
-    this.bridgeCorrection = null;
-    this.yaw = null;
+    try {
+      if (this.facePose.visible && matrix) {
+        // Recover the detector's face using its ORIGINAL global pose. The face
+        // surface supplies occlusion; the rigid glasses use a local bridge anchor.
+        const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
+        this.facePose.visible = surfaceValid;
+        if (surfaceValid) {
+          let occlusion: NonNullable<CaptureGeometry['occlusion']>;
+          if (recordedSurface !== undefined) {
+            if (recordedSurface.length !== 468 * 3 || !recordedSurface.every(Number.isFinite)
+              || recordedSurface.some((value, index) => index % 3 === 2 && value >= -VIRTUAL_CAMERA.nearCm)) {
+              throw new Error('The recorded face surface is invalid.');
+            }
+            this.faceSurface!.positions.set(recordedSurface);
+            occlusion = { method: 'recorded-surface', selectedShapeId: null,
+              appliedShapeId: null, status: 'recorded', rejectionReasons: [] };
+          } else {
+            if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
+            // Apply the fixed shape to this detection's raw face, without RGB correction.
+            // Existing geometry guards return exact raw data if the shape is rejected.
+            const shaped = this.nasalShape.apply({ surfacePositions: this.faceSurface!.positions, rawMatrix: matrix });
+            this.faceSurface!.positions.set(shaped.surfacePositions);
+            occlusion = { method: NASAL_SHAPE_VERSION, selectedShapeId: NASAL_SHAPE_ID,
+              appliedShapeId: shaped.accepted ? NASAL_SHAPE_ID : null,
+              status: shaped.accepted ? 'applied' : 'raw-fallback',
+              rejectionReasons: [...shaped.diagnostics.rejectionReasons] };
+          }
+          const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
+          const eyewearMatrix = attachment.matrix;
+          this.facePose.matrix.fromArray(attachment.matrix);
+          this.facePose.matrixWorldNeedsUpdate = true;
+          this.eyewearPose.matrix.fromArray(eyewearMatrix);
+          this.eyewearPose.matrixWorldNeedsUpdate = true;
+          // Replay restores actual saved endpoints; legacy surfaces keep full arms.
+          // Live removes only the rear hook. Face contact must not shorten the stem.
+          const replay = recordedSurface !== undefined || recordedTempleClip !== undefined || recordedTempleVisibility !== undefined;
+          if (replay && recordedTempleClip?.method === 'temple-end-fade-v2'
+              && recordedTempleClip.coverage === 'alpha-to-coverage' && (this.renderer.capabilities?.samples ?? 0) === 0) {
+            throw new Error('The recorded temple fade requires multisampling.');
+          }
+          this.templeClip?.set(replay ? recordedTempleClip ?? null : this.templeClipConfiguration);
+          this.templeVisibility?.set(replay ? recordedTempleVisibility ?? null
+            : createTempleVisibilityConfiguration(matrix, this.renderer.capabilities?.samples ?? 0));
+          this.eyewearPose.visible = true;
+          this.camera.updateMatrixWorld();
+          this.bridgeCorrection = attachment.correctionNormalized * this.frameHeight;
+          this.yaw = attachment.yawDegrees;
+          this.residual = this.measureProjectionResidual(detection);
+          if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
+          if (this.surfaceMesh) this.surfaceMesh.visible = true;
+          if (this.headProxy) this.headProxy.visible = true;
+          this.lastCaptureFrame = {
+            rawMatrix: matrix.slice(), correctedMatrix: attachment.matrix.slice(), eyewearMatrix,
+            yawDegrees: attachment.yawDegrees,
+            occlusion,
+          };
+        }
+      }
+      // The background is part of this scene, so transmission can see the same
+      // camera image as the main render, rather than an unrelated DOM video.
+      const renderWidth = Math.min(this.frameWidth, MAX_RENDER_WIDTH);
+      const renderHeight = Math.max(1, Math.round(renderWidth * this.frameHeight / this.frameWidth));
+      this.templeClip?.prepareRender(this.backgroundTexture, renderWidth, renderHeight);
+      if (this.facePose.visible && matrix && this.templeVisibility?.configuration) {
+        this.templeVisibility.prepare(matrix, this.backgroundTexture);
+      }
+      this.renderer.render(this.scene, this.camera);
+      return this.facePose.visible;
+    } catch (error) {
+      this.clearPresentation();
+      throw error;
+    }
+  }
+
+  private clearPresentation(): void {
     this.lastCaptureFrame = null;
-    this.eyewearPose.visible = false;
+    this.residual = this.bridgeCorrection = this.yaw = null;
+    this.facePose.visible = this.eyewearPose.visible = false;
     if (this.surfaceMesh) this.surfaceMesh.visible = false;
     if (this.headProxy) this.headProxy.visible = false;
-    if (this.facePose.visible && matrix) {
-      // Recover the detector's face using its ORIGINAL global pose. The face
-      // surface supplies occlusion; the rigid glasses use a local bridge anchor.
-      const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
-      this.facePose.visible = surfaceValid;
-      if (surfaceValid) {
-        let occlusion: NonNullable<CaptureGeometry['occlusion']>;
-        if (recordedSurface !== undefined) {
-          if (recordedSurface.length !== 468 * 3 || !recordedSurface.every(Number.isFinite)
-            || recordedSurface.some((value, index) => index % 3 === 2 && value >= -VIRTUAL_CAMERA.nearCm)) {
-            throw new Error('The recorded face surface is invalid.');
-          }
-          this.faceSurface!.positions.set(recordedSurface);
-          occlusion = { method: 'recorded-surface', selectedShapeId: null,
-            appliedShapeId: null, status: 'recorded', rejectionReasons: [] };
-        } else {
-          if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
-          // Apply the fixed shape to this detection's raw face, without RGB correction.
-          // Existing geometry guards return exact raw data if the shape is rejected.
-          const shaped = this.nasalShape.apply({ surfacePositions: this.faceSurface!.positions, rawMatrix: matrix });
-          this.faceSurface!.positions.set(shaped.surfacePositions);
-          occlusion = { method: NASAL_SHAPE_VERSION, selectedShapeId: NASAL_SHAPE_ID,
-            appliedShapeId: shaped.accepted ? NASAL_SHAPE_ID : null,
-            status: shaped.accepted ? 'applied' : 'raw-fallback',
-            rejectionReasons: [...shaped.diagnostics.rejectionReasons] };
-        }
-        const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
-        const eyewearMatrix = attachment.matrix;
-        this.facePose.matrix.fromArray(attachment.matrix);
-        this.facePose.matrixWorldNeedsUpdate = true;
-        this.eyewearPose.matrix.fromArray(eyewearMatrix);
-        this.eyewearPose.matrixWorldNeedsUpdate = true;
-        this.eyewearPose.visible = true;
-        this.camera.updateMatrixWorld();
-        this.bridgeCorrection = attachment.correctionNormalized * this.frameHeight;
-        this.yaw = attachment.yawDegrees;
-        this.residual = this.measureProjectionResidual(detection);
-        if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
-        if (this.surfaceMesh) this.surfaceMesh.visible = true;
-        if (this.headProxy) this.headProxy.visible = true;
-        this.lastCaptureFrame = {
-          rawMatrix: matrix.slice(), correctedMatrix: attachment.matrix.slice(), eyewearMatrix,
-          yawDegrees: attachment.yawDegrees,
-          occlusion,
-        };
-      }
-    }
-    // The background is part of this scene, so transmission can see the same
-    // camera image as the main render, rather than an unrelated DOM video.
-    this.renderer.render(this.scene, this.camera);
-    return this.facePose.visible;
+    this.templeVisibility?.set(null);
+    this.templeClip?.set(null);
   }
 
   private measureProjectionResidual(detection: Detection): number | null {
@@ -403,6 +455,10 @@ export class TryOnRenderer {
     this.backgroundTexture = null;
     this.environmentTarget?.dispose();
     this.environmentTarget = null;
+    this.templeVisibility?.dispose();
+    this.templeVisibility = null;
+    this.templeClip?.dispose();
+    this.templeClip = null;
     disposeObjects([this.scene, ...this.assetScenes]);
     this.assetScenes = [];
     this.canonicalPositions = [];

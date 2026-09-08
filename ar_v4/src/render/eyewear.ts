@@ -11,6 +11,8 @@ export interface EyewearDefinition {
   readonly assetUrl: string;
   readonly offsetCm: readonly [number, number, number];
   readonly assumedWidthMm: number;
+  /** Fixed preview endpoint before the rear hook, in original GLB local meters. */
+  readonly templeClipLocalZM: number;
 }
 
 /** Local, self-contained assets. Dimensions are visual assumptions, not measured fit. */
@@ -19,13 +21,13 @@ export const EYEWEAR = Object.freeze({
     id: 'amber-horizon', name: 'Amber Horizon', optionLabel: 'Amber Horizon · Tinted lenses',
     description: 'A rectangular tortoiseshell frame with warm brown gradient lenses.',
     finish: 'Amber tortoiseshell', assetUrl: '/models/amber-horizon.glb',
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145,
+    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.105,
   }),
   'tom-ford-clear': Object.freeze({
     id: 'tom-ford-clear', name: 'Tom Ford', optionLabel: 'Tom Ford · Clear lenses',
     description: 'A rounded tortoiseshell frame with clear lenses for a closer look at the eyes and temples.',
     finish: 'Tortoiseshell · Clear lenses', assetUrl: '/models/tom-ford-clear.glb',
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145,
+    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.110,
   }),
 } satisfies Record<string, EyewearDefinition>);
 

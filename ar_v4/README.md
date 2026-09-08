@@ -75,8 +75,10 @@ the session. Stop/discard removes the in-memory recording.
   projection and tracking retain the baseline values. `nasal-shape.ts` applies the
   frozen Option 17 shape to the original reconstructed surface for both models,
   without RGB boundary repair. Its original geometry guards fall back to the exact
-  raw surface when rejected. Glasses and transmissive lenses retain ordinary face
-  depth testing. The fixed attachment is described below.
+  raw surface when rejected. The original frame and transmissive lenses retain
+  ordinary face depth testing. A separate temple overlay restores near-arm color
+  over the side of the head without writing depth or entering lens transmission.
+  The fixed attachment is described below.
 - `src/capture/`: bounded immutable image/result storage, replay and explicit JSON
   export. `public/` contains only local runtime assets, provenance and licenses.
 
@@ -121,7 +123,29 @@ occlusion at all angles. The integrated path still needs physical-camera review
 for far cut-through, near rim/bridge/pad hiding and motion across both turns,
 including the previously resolved rapid cutoff flicker.
 
-Temples/ear contact and pose jitter remain deferred. No personal scan, ear
+Temple ends retain the accepted near-ear caps: Amber at −105 mm and Tom Ford at
+−110 mm in original GLB coordinates. The final 15 mm dissolves smoothly into the
+exact paired camera image. This is image composition with the camera background;
+it does not reconstruct hair or shorten the accepted cap. Historical 4 mm
+multisample/dither fading and hard clipping remain available to saved replay.
+
+`temple-visibility.ts` restores missing sections of the near arm over lateral
+head depth, with permission based on both camera bearing and head orientation.
+During frontal up/down tilt, a separate posterior-temple correction uses the
+current paired face/head silhouette to hide arm color that incorrectly passes
+ordinary depth. Projected samples along the remaining arm continue that occlusion
+through terminal gaps. The original optics are excluded, and the frontal
+correction is excluded from lens transmission. Its current output contract is
+the native ACES-mapped canvas; ordinary offscreen render targets omit it.
+
+The original meshes, Raw + Option 17 and rigid pose stay unchanged. These are
+visual occlusion corrections, not physical collision resolution, measured fit,
+or ear/hair tracking. New captures store endpoints, dissolve length, coverage
+policy and actual per-side/frontal weights. Replay restores those saved values;
+missing/null metadata retains full legacy temples without these corrections.
+Recorded multisample coverage requires a compatible multisampled context.
+Current evidence and remaining live-motion checks are in `docs/REVIEWS.md`.
+Pose jitter remains deferred. No personal scan, ear
 occluder, multiview reconstruction or smoothing change is included. Sustained
 whole-app 30 FPS remains a target; physical mobile, thermal, display-FPS and
 end-to-end latency measurements are unavailable. Old RGB-stage timings do not

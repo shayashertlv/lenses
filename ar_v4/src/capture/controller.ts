@@ -40,8 +40,10 @@ export class CaptureController {
   private timer: number | null = null;
   private header: Record<string, unknown> = {};
   private exportAbort: AbortController | null = null;
+  private readonly hooks: Hooks;
 
-  constructor(private readonly hooks: Hooks) {
+  constructor(hooks: Hooks) {
+    this.hooks = hooks;
     this.record.addEventListener('click', () => this.begin());
     this.finishButton.addEventListener('click', () => { void this.finish(); });
     this.slider.addEventListener('input', () => { void this.replay(); });
@@ -79,6 +81,10 @@ export class CaptureController {
       coordinates: 'unmirrored normalized image; canonical centimeters, +Y up and +Z anterior',
       imageEncoding: 'JPEG; original matched detection retained without redetection',
       occlusion: { ...renderer.occlusionConfiguration },
+      templeClip: { ...renderer.templeClipConfiguration },
+      templeClipPolicy: 'Fixed endpoints per model near the rear-hook onset, with a 15 mm dissolve into the paired camera image; frame metadata stores the actual endpoints and dissolve width. Visibility coverage is recorded separately.',
+      templeVisibility: structuredClone(renderer.templeVisibilityPolicy),
+      templeVisibilityPolicy: 'Pose-based side visibility and paired projected head-mask occlusion for frontal temple camera composition; frame metadata stores the actual side weights, frontal occlusion weight and coverage method.',
     };
     this.store.start();
     this.panel.dataset.state = 'recording';
@@ -182,7 +188,11 @@ export class CaptureController {
       if (token !== this.renderGeneration) return;
       // Restore the captured surface exactly, including older RGB-corrected data.
       // Replay never applies the current shape again or infers geometry from JPEG.
-      renderer.present(this.image, validateDetection(recorded.detection), recorded.metadata?.surfacePositions);
+      // Explicit null keeps absent historical appearance disabled and prevents a
+      // previous replay frame's clipping or visibility from carrying into it.
+      renderer.present(this.image, validateDetection(recorded.detection),
+        recorded.metadata?.surfacePositions, recorded.metadata?.templeClip ?? null,
+        recorded.metadata?.templeVisibility ?? null);
       const count = this.store.snapshot.frames.length;
       element('replay-position').textContent = `${index + 1} / ${count}`;
       element('replay-metrics').textContent = `Captured ${(recorded.relativeMs / 1000).toFixed(1)}s · estimated yaw ${recorded.yawDegrees?.toFixed(1) ?? 'unknown'}°.`;
