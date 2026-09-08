@@ -1,123 +1,85 @@
-# Current AR development handoff — September 8, 2026
+# Current AR handoff — perfect_temples
 
-Work inside `ar_v4/` on `codex/ar-v4-nose-occlusion`. The parent Python Lenses
-application and Railway deployment remain separate and unchanged. The owner
-accepted the current temple corrections and authorized committing and pushing
-them as `perfecto`. The preceding nose checkpoint is `0f95deb` (`perfect nose
-occlusion`). These labels do not establish anatomical or all-face accuracy.
-No merge or deployment is requested. Preserve recordings, recovery evidence
-and worktrees.
+The owner accepted the rear-temple correction after live use on September 8,
+2026 and authorized commit/push as `perfect_temples` on
+`codex/ar-v4-nose-occlusion`. The accepted entry point is
+`experiments/temple-sagittal/live.html`. Start its Vite config from ar_v4:
 
-## Current decision and implementation
+```powershell
+npm run dev -- --config experiments/temple-sagittal/vite.config.ts
+```
 
-The owner explicitly chose to integrate **Raw + Option 17 (ablation)** after the
-bounded repair/shape-composition experiment failed to improve marked Bad262.
-That rejected mechanism remains private; it is not the implemented path.
+Perfecto `31df28eb8ca0c698467fd9bfb16f737f9a74e915` remains the unchanged renderer
+and reference app at `/`. Keep that comparison available. The parent Python
+Lenses application and Railway deployment remain separate. No merge or deployment
+is authorized by this checkpoint. Leave unrelated model_studio work alone.
 
-The current renderer reconstructs the original raw `FaceSurface`, then applies
-the frozen `central-wp020-dp015` shape through `src/render/nasal-shape.ts`:
-central width parameter 0.20 and forward depth parameter 0.15. Both Amber Horizon
-and Tom Ford use this fixed path. Original geometry guards are retained; rejected
-shapes show the exact raw surface. There is no RGB repair, yaw switch, lighting
-classifier, parameter retuning or added temporal state in this path.
+## Accepted implementation
 
-Glasses placement, projection, rigid pose and assets remain unchanged. The
-original frame/lenses retain ordinary depth testing; the separate temple overlay
-described below does not write depth. Amber Horizon stays the default;
-the pre-existing Tom Ford clear-lens option and model-locked sessions are retained.
-The old `src/render/nasal-boundary.ts` remains byte-identical only for historical
-private harness imports and hash checks. The active renderer does not import it.
+The new renderer runs two independent native scenes. The first is untouched
+perfecto. The second applies a smooth posterior Y-only curve to cloned temple
+geometry, beginning 15 mm behind the lens rear plane and reaching a maximum
+20 mm lowering at the existing Z cutoff. Head and camera must agree on downward
+pitch; the correction tapers out with yaw. X/Z, optical/proximal geometry, original
+GLBs, attachment and camera are preserved. Normals/tangents follow the curve.
+This is an authored preview convention, not a physical hinge or measured fit.
 
-New captures keep the original image/detection/pose and actual shown surface.
-Optional per-frame `occlusion` metadata records method `raw-nasal-shape-v1`,
-selected/applied shape IDs, status and rejection reasons. A shape fallback is
-identified as raw. Replay restores the saved surface without applying 17 again;
-runtime provenance is `recorded-surface`, and old captures are not relabelled.
-No-face presentations keep null geometry. Schema identifiers and download names
-stay compatible; immutable storage and session ownership remain required.
+The original Z cutoffs stay Amber −105 mm / Tom Ford −110 mm, with the 15 mm
+paired-camera fade. Existing temple visibility policies remain unchanged.
+The original face reconstruction and Raw + Option17 shape remain fixed:
+`central-wp020-dp015`, width parameter .20 and forward-depth parameter .15, with
+original raw fallback guards. No RGB nose repair or reconstruction experiment
+was added. The old nasal-boundary source remains untouched for historical imports.
 
-## Evidence and remaining acceptance
+Final integer pixel composition copies perfecto under the full depth-independent
+optical/proximal bounds and central eye/nose guard, and outside bounded arm
+corridors. This prevents candidate depth changes from altering protected final
+lens/nose pixels. Branch/mask/replay failures fall back to perfecto. Through-lens
+and reflection appearances retain the original rendering. Broad guards can limit
+the correction or create a join; two renderers/readback work have no measured
+mobile/30 FPS claim.
 
-The owner preferred raw+17 on exact right-turn Bad262, while slightly preferring
-RGB+17 on the previously displayed opposite frame476. Integration follows the
-owner's explicit later choice and removes that small opposite-angle RGB
-contribution. Static preference is not anatomical depth truth or all-angle
-acceptance. Physical-camera verification of this integrated path is still needed
-for far cut-through, near rim/bridge/pad preservation and motion in both turns.
-The previously resolved rapid nose-cutoff flicker must be checked for regression.
-Temple/ear investigation is now authorized, with findings below. Pose jitter and
-reconstruction experiments remain deferred.
+The comparison owns one exact source image and detection. Hold problem frame
+stops camera/worker work and retains that pair for toggling and explicit local
+lossless diagnostic download. Holding cannot overlap recording. Replay restores
+actual saved surface, Z cutoffs, visibility, drop and protection. The internal
+variant value `candidate` remains for compatibility; its UI is Perfect temples.
+New capture/diagnostic metadata identifies `acceptedRevisionLabel: perfect_temples`
+and `candidateAccepted: true`; `baselineCommit` identifies perfecto. The older
+`acceptedCommit` field retains its historical baseline-reference meaning.
 
-The product targets desktop/mobile ecommerce, provisionally sustained 30 FPS for
-the complete app. Physical mobile, thermal, display-FPS and end-to-end latency
-measurements are unavailable. Software rendering, callback cadence and historical
-RGB-stage timing do not establish those results.
+## Evidence and limits
 
-## Temple endpoints, fade and pitch visibility
+The owner’s live acceptance follows the completed matched evaluation. The original
+16 pairs × 2 models reach about 20 degrees pitch: only two Tom Ford recordings
+changed, and Amber recordings were unchanged. Do not convert that limited recorded
+coverage into proof of all-angle or all-face accuracy. Separate synthetic native
+40–50 degree views demonstrate both curves; they are not wearer recordings.
+All original nasal ROIs, protected optical pixels and inactive controls remain
+exact in the recorded audit. See docs/REVIEWS.md and the local study report.
 
-The owner prefers the previous side-view improvement and the fixed near-ear
-caps: **Amber −105 mm**, **Tom Ford −110 mm**, in original GLB Z. Preserve these
-lengths. Head contact must not restore the rejected global near-root truncation.
-The glasses remain rigid; no deformation, reconstruction or pose smoothing was
-introduced.
+The system does not segment hair or reconstruct ears/hair depth, and has no
+gender-specific path. Hair stays in the camera background; the head/face masks
+and end fade do not reliably put loose hair or bangs in front of glasses. Hair
+away from the frame should be easier, but hairstyle-diverse live evidence is
+missing. Substantial face covering may also degrade tracking; that is an expected
+limitation, not a result measured in this study. Any future hair mask must preserve
+this accepted nose/front behavior and earn acceptance on exact paired recordings.
+No new hair feature or reconstruction work is authorized merely by discussing it.
 
-The endpoint now uses `temple-end-blend-v3`: a 15 mm RGB dissolve to the current
-paired sRGB background texture, with matching viewport and UV transform. It
-retains ordinary depth and does not accumulate duplicate transparent tail layers.
-The historical hard-v1 and 4 mm coverage-v2 paths retain their saved meanings.
+## Checks and recovery
 
-`temple-side-depth-v3` keeps the lateral color-only overlay but conservatively
-requires lateral camera bearing and head orientation to agree. For frontal tilt,
-it hides posterior-temple color with the current face/head silhouette, including
-four projected samples toward the optical rear to avoid detached ends. This
-additional image composition changes neither the original nasal surface nor frame/lens geometry.
-The optical front is excluded. It is a rendering convention, not a measured head
-volume or proof of physical contact.
+Baseline npm test passed 52 unit tests, 8 browser flows, strict types, assets and
+build. The isolated implementation passed 14 unit tests and 10 browser flows.
+Independent recorded auditing checked 32 cases; 8 additional cases cover no-MSAA
+fallback. Historical private fixture tests skip when those recordings are absent
+from a fresh checkout; other browser flows use the checked-in synthetic fixture.
+Run one heavy browser/test process at a time. Optional replay/audit/gallery tools
+require private local evidence. The generated comparison.html remains Git-ignored.
 
-The overlay remains excluded from internal lens transmission. The frontal RGB
-correction runs only in the mapped native main pass: Three's transmission pass
-uses NoToneMapping, and production uses ACES. Ordinary offscreen beauty targets
-therefore omit it; diagnostics use the native canvas for appearance. Do not
-change that output contract without revisiting transmission isolation.
-
-Captures store actual side/frontal weights rather than recomputing them on
-replay. Null, v1 and v2 replay clear the new frontal effect and borrowed camera
-source; new policies borrow only the current presentation's image. Failure,
-no-face, restart and disposal clear or restore owned state. Saved multisample
-coverage still requires a compatible context.
-
-See [current review](docs/REVIEWS.md) and the
-[pitch/fade report](.recovery/temple-pitch-fade-2026-09-08/REPORT.md).
-The available recordings lack a paired steep frontal-up view matching the new
-screenshot. Static comparisons cannot establish that angle, real motion, hair/ear
-occlusion, all-face fit or mobile performance. Only one heavy browser/test process
-should run at a time.
-
-The accepted rendering code matches the sealed pitch/fade evaluation. Commit
-review found no runtime blockers; the replay test additionally verifies that
-different recorded frames produce different native images before checking an
-exact return to the first frame. No ranking JSON is pending.
-
-## Recovery
-
-This correction's starting source and prior documentation are preserved in
-[its snapshot](.recovery/temple-pitch-fade-2026-09-08/before/). Its starting receipt
-records 281 workspace files and 9,678 protected earlier evidence files. Final
-identities belong in the preservation audit and evidence receipt. Previous
-studies, including rejected alternatives, remain private in their original
-recovery directories.
-
-The complete pre-integration working files, including the prior uncommitted
-clear-lens changes, are archived under
-[.recovery/nose-ablation-integration-2026-09-07/before/](.recovery/nose-ablation-integration-2026-09-07/before/).
-`start-receipt.json` and `before-diff.patch` beside it preserve hashes and context.
-The former lengthy handoff and reviews are retained verbatim in that archive;
-older experiments remain in their original sealed recovery directories. Existing
-private live playgrounds are unchanged. Do not rewrite or delete these archives.
-
-Especially preserve `recordings/ar-v4-nose-2026-09-05T08-04-00-213Z.json` and
-`.recovery/nose-fresh-2026-09-06-160512/capture.json` byte-for-byte. Their expected
-SHA256 values are respectively
-`8a16382c541093562eb1fc817f3d77889ae46c8450deacc3b792740fffe46e9c` and
-`6001ead5e37bf6791b6a1d97ca7f642b75b0b944d7d588cc5225140e0a07ae2f`.
-Git is not their backup. Root restoration archives remain under `../.recovery/`.
+Preserve recordings, all earlier .recovery material and linked worktrees.
+The evaluated source and evidence are in .recovery/temple-rethink-2026-09-08/;
+pre-acceptance docs/source are in .recovery/perfect-temples-acceptance-2026-09-08/.
+The preceding perfecto handoff and rejected experiments remain archived locally.
+The study preservation audit verified 29,180 earlier recording/recovery files
+and 49 baseline tracked files byte-for-byte. Git is not their backup.

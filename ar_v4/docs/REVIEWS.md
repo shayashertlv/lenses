@@ -1,51 +1,69 @@
 # Current AR review — September 8, 2026
 
-The owner accepted the current temple corrections and requested the `perfecto`
-commit. Review found no runtime blockers. The current renderer retains
-**Amber −105 mm / Tom Ford −110 mm** original-GLB caps and dissolves the last
-**15 mm** into the exact paired camera background.
+**The owner accepted perfect_temples after live use** and authorized commit/push
+under that name. Its entry point remains `experiments/temple-sagittal/live.html`.
+Perfecto `31df28eb8ca0c698467fd9bfb16f737f9a74e915` stays preserved at `/` with
+unchanged rendering source and assets. Pre-acceptance docs/source are archived
+in `.recovery/perfect-temples-acceptance-2026-09-08/`.
 
-Frontal tilt now uses the current face/head silhouette to suppress posterior-arm
-color that incorrectly passes ordinary depth. Four projected samples toward the
-optical rear continue occlusion through terminal gaps. Lateral relief remains
-available when camera bearing and head heading agree. The original geometry,
-normals, rigid pose, optical front and Raw + Option 17 nasal source are unchanged.
-The frontal correction is excluded from internal lens transmission; its current
-appearance output contract is the native ACES canvas. This is approximate visual
-occlusion, not a personal scan, measured head volume or physical fit correction.
+The downward failure involves the posterior trajectory and incomplete head/ear
+occlusion. Pitch projects the rigid arms toward the forehead; this is not by
+itself evidence of a projection bug or increased inward convergence. Baseline
+recorded ablations found no side-overlay contribution in the strongest frontal
+down view; its frontal visibility approximation already hides much of the rear
+arm. The supplied steep screenshot has no original paired pose. Recordings reach
+about 20 degrees and do not reproduce that extreme view.
 
-Final `CI=1 npm test` passes **52 unit tests**, **8 browser flows**, strict
-TypeScript, asset verification and production build. New capture metadata owns
-actual per-frame side/frontal weights and dissolve length. Legacy hard-v1,
-coverage-v2, visibility-v1/v2 and null replay retain their meanings. Cancellation,
-failure, no-face, replay and restart clear borrowed image/state correctly.
+The new candidate curves only the posterior Y coordinates downward, preserving
+original X/Z, optical/proximal geometry, nose configuration, attachment, camera,
+visibility policy, original Z cutoffs and 15 mm fade. Its default maximum is 20 mm,
+activated only when head/camera agree on down and tapered out with yaw. This is
+an authored preview convention, not measured fit or a physical hinge.
 
-Replay compares native canvas output, with a distinct-frame check before exact
-A/B/A restoration so a cleared framebuffer cannot satisfy the equality check.
-UI screenshots are retained separately. The earlier CSS comparison diagnostic
-remains in the sealed pitch/fade study. Commit preparation preserves the accepted
-runtime bytes and the recorded rendering evidence.
+A separate untouched native perfecto renderer now owns the final protected
+optical/nasal pixels. This closes a weakness in earlier safeguards: moving opaque
+arms can affect the main depth pass and later lens appearance even if the nose
+mesh and internal transmission geometry are unchanged. Final integer composition
+copies perfecto under full depth-independent optical/proximal bounds and a
+central eye/nose guard, and everywhere outside bounded arm corridors. Invalid
+candidate/replay/mask state falls back to perfecto. Through-lens and reflection
+appearances retain baseline pixels; broad guards can limit the correction or
+produce a join. Extra rendering/readback work has no frame-rate claim.
 
-Fifteen original image/detection/pose pairs across both models give **30 cases /
-60 before-after images**, including all **18 byte-exact earlier baseline
-overlaps**. Four additional zero-MSAA cases pass. Optical front/lens coverage
-and far-arm gains within nasal guards are unchanged. Guard and full-lens RGB
-changes are at most **1/255**, including lens edges; two Amber guard exceptions
-are optical edge pixels, so complete optical RGB identity is not claimed.
-Replay/lifecycle permutations run on four main smoke cases and four fallback
-cases; the remaining static cases verify exact pairing and baseline restoration.
+The completed recorded sweep contains 16 exact original pairs for each model.
+Every before image matches an independently loaded original perfecto renderer;
+original source/detection/poses, current Option17 surface, hidden optical footprint
+coverage were checked, with eight cases exercising replay/ownership/failure paths. Independent
+PNG auditing confirms all frozen nasal ROIs, 1,918,734 protected pixel samples and
+all pixels outside arm corridors remain byte-exact. Twenty-six inactive controls
+remain fully exact. Only Tom Ford dropout459 and flicker70 change, by 174 and 392
+pixels; all 16 Amber outputs remain unchanged. Recorded improvement is not
+established; the owner's subsequent positive live review is the acceptance basis.
 
-Both models suppress the prominent shaft and detached tip in the strongest
-available near-frontal down recording. Earlier angled shafts stay continuous;
-profile views show a softer endpoint at the same cap length. Milder mixed-angle
-views intentionally receive partial suppression and may retain visible arms.
-The down source is blurred, and no paired recording matches the owner's steep
-frontal-up screenshot. Those screenshots were not used for detector inference.
-Live steep-up/down motion, all-face fit and mobile performance remain unverified.
+Separate synthetic math and native renders show a changed rear path at 40–50
+degrees down in both models, without widening and with upward/both-yaw controls
+exact. Generated canonical images/landmarks/poses are not wearer recordings or
+anatomical validation. No detector was run on the supplied overlaid screenshot.
 
-See the [current report](../.recovery/temple-pitch-fade-2026-09-08/REPORT.md) and
-[before/after comparison](../.recovery/temple-pitch-fade-2026-09-08/review/final-span/live-review.png).
-Previous reviews/source and rejected candidates remain private in recovery.
-Recordings and preceding sealed evidence stay protected; work remains inside
-`ar_v4`. The preceding pushed nose checkpoint is `0f95deb`; the accepted temple
-checkpoint is named `perfecto`.
+The live comparison can hold the last displayed original image/detection pair,
+stop camera/worker callbacks, switch its two outputs and explicitly download a
+lossless diagnostic. Holding cannot overlap a recording. User live judgment,
+including steep angles, joins, motion and nose appearance, remains decisive.
+`npm test` passes 52 unit tests, eight browser flows, strict types, assets and
+build. Candidate strict types, 14 unit tests and ten browser flows pass. The
+preservation audit confirms all 29,180 recordings/earlier recovery files and 49
+baseline tracked files remained byte-exact before the authorized checkpoint.
+Detailed test/preservation receipts are recorded in the linked study report.
+
+See [study report](../.recovery/temple-rethink-2026-09-08/REPORT.md),
+[matched gallery](../experiments/temple-sagittal/comparison.html), and
+[live comparison](../experiments/temple-sagittal/live.html). Earlier archives,
+original recordings and unrelated model_studio remain outside this task's edits.
+The authorized checkpoint includes this accepted implementation and its docs/tests.
+Private generated galleries/recordings remain excluded. No parent Python change,
+Railway deployment or unrelated model_studio work is included.
+
+Hair remains ordinary camera background: there is no hair segmentation or
+gender-specific rendering. Loose hair/bangs across glasses may have incorrect
+foreground order; the temple fade only softens ends. Hair/ear coverage and
+hairstyle-diverse live behavior remain unverified and unchanged by this acceptance.

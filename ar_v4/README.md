@@ -1,4 +1,18 @@
-# Lenses AR v4 — Current mirror
+# Lenses AR v4 — Perfect temples
+
+The owner accepted **perfect_temples** after live use on September 8, 2026.
+Run `npm run dev -- --config experiments/temple-sagittal/vite.config.ts` and open
+[Perfect temples](http://127.0.0.1:8040/experiments/temple-sagittal/live.html).
+It adds the accepted downward rear-arm curve and exact-frame comparison/diagnostic
+controls while preserving perfecto's nose/front pixels. See
+[its README](experiments/temple-sagittal/README.md) for implementation and checks.
+
+The original **perfecto** reference stays at `/`, with its rendering source and
+assets unchanged from `31df28eb8ca0c698467fd9bfb16f737f9a74e915`. The reference
+app is described below; the accepted new entry point stays separate. Neither
+version segments hair or reconstructs ears. Long hair over the temples or bangs
+over the frame can therefore have incorrect foreground ordering. The pipeline
+does not distinguish women and men; hairstyle coverage and face visibility matter.
 
 Local visual eyewear try-on for Windows Chrome/Edge. The owner selected the
 Raw + Option 17 nasal shape for the current development app. This is an
