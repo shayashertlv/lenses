@@ -1,6 +1,8 @@
 # Working in ar_v4
 
-- Read README.md and HANDOFF.md first. Current mirror is the accepted baseline.
+- Read README.md and HANDOFF.md first. The owner selected Test 2 as the current
+  speed-testing base on September 9, 2026. Preserve its renderer and keep future
+  optimizations separate until reviewed. Earlier accepted visual checkpoints remain available.
 - The owner accepted `perfecto long hair but slow` on September 9, 2026.
   Preserve that checkpoint and the earlier `perfect_temples` reference
   (`b26b5584c0dccbc2b30e4f12cdd432f10df577ea`). Build and review future candidates

@@ -1,0 +1,5 @@
+@import '../hair-live-preview/live.css';
+.pipeline-controls{padding:20px;border:1px solid #7ca385;border-radius:12px;background:#1c3024;margin-bottom:8px}.pipeline-controls .eyebrow{display:block;margin-bottom:12px}.pipeline-controls select{width:100%;background:#101d16;color:inherit;padding:12px;border:1px solid #708874;border-radius:7px;font:inherit;font-size:13px}.pipeline-controls button{margin-top:12px;width:100%;font-size:13px;padding:12px}.active-pipeline{color:#d5f2bb;font-size:14px;font-weight:600}.stage[data-pipeline="test"] .stage-label{color:#d5f2bb}.diagnostics dd{font-variant-numeric:tabular-nums}
+
+.stage-switch{pointer-events:auto;padding:8px 12px!important;background:#15281ee8!important;color:#d5f2bb!important;border:1px solid #759a7b!important;font-size:12px!important}.stage-switch:disabled{opacity:.5}
+.pipeline-controls{grid-column:1/-1}

@@ -9,7 +9,7 @@ export default defineConfig({
   use: {baseURL: 'http://127.0.0.1:8042', viewport: {width: 1440, height: 1000},
     screenshot: 'only-on-failure', trace: 'retain-on-failure',
     launchOptions: {args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']}},
-  webServer: {command: 'npm run preview -- --port 8042',
+  webServer: {command: 'npm run preview:long-hair -- --port 8042',
     cwd: fileURLToPath(new URL('../../', import.meta.url)), url: 'http://127.0.0.1:8042',
     timeout: 30_000, reuseExistingServer: false},
 });

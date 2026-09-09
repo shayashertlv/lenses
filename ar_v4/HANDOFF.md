@@ -1,4 +1,44 @@
-# Current AR handoff — perfecto long hair but slow
+# Current AR handoff — speed testing
+
+On September 9, 2026 the owner explicitly selected **Test 2 as the current base**
+and authorized commit/push as **speed testing**. Default dev/build/preview now
+use `vite.speed.config.ts`; the root route opens the Test 2 comparison with
+**Current · Test 2** selected. The four-way Test 3 comparison remains available.
+This changes the launch choice, not Test 2's rendering implementation.
+
+The `current` report ID still denotes the original long-hair checkpoint;
+`test2` denotes the new base. IDs and legacy `candidateAccepted` diagnostics
+are preserved for historical comparability; they do not describe the new default.
+User-visible labels distinguish the two. Future experiments must preserve this
+base and earn matched evidence and owner visual acceptance.
+
+The original long-hair checkpoint is `9997050`; its page, renderer and
+`vite.hair.config.ts` remain unchanged. Use `dev:long-hair`, `build:long-hair`
+and `preview:long-hair` for that launch choice. All default builds retain its
+page, perfect temples and original index. Parent Python/Railway deployment,
+private recordings, linked worktrees and unrelated trial-model edits are separate.
+
+The uploaded four-way report contains 1,139 measured frames across four complete
+30-second windows with full face/mask coverage. Test 2 led at 10.16 fps versus
+7.71 for the original checkpoint and 9.96 for Test 3. Reported video delivery was
+29.6 fps. First nonzero rear-drop activations caused large stalls in Tests 2/3;
+Test 2 also spent a median 24.74 ms waiting for its next callback. Different live
+poses and absent source images prevent exact same-image visual conclusions.
+Mobile smoothness, thermal behavior and motion-to-photon latency remain unknown.
+
+Commit scope includes the three implemented performance comparisons and their
+reproducible runtime/tests, plus launch/docs changes. Optional evidence tools
+still need ignored local archives; no recording or generated wearer image is
+published. Current verification and next research directions are in
+[docs/REVIEWS.md](docs/REVIEWS.md).
+
+Current clean-export verification: strict types/build, 90 focused speed checks
+and all seven promoted browser cases passed. Full npm test passed 110 unit
+tests and all eight baseline browser cases, then failed the preserved long-hair
+multiclass restart while waiting for a valid category mask; hair-only passed.
+No failed test was retried or given a longer deadline.
+
+## Preserved long-hair checkpoint handoff
 
 The owner approved integration and commit/push with the exact message
 **perfecto long hair but slow** on September 9, 2026, after positive live/still
