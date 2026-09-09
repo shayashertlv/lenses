@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101715" />
+    <title>Lenses — Perfecto / Rear-temple candidate</title>
+    <style>
+      .comparison { display: grid; grid-template-columns: minmax(240px, 360px) 1fr; gap: 16px 28px; align-items: center; padding: 22px 0; border-bottom: 1px solid #ffffff20; }
+      .comparison label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+      .comparison select { width: 100%; padding: 12px; color: inherit; background: #17221c; border: 1px solid #a6c591; border-radius: 8px; font: inherit; }
+      .comparison p { margin: 0 0 6px; max-width: 70ch; line-height: 1.5; font-size: 13px; color: #c2cec4; }
+      .comparison a { color: #c9e4ad; }
+      .diagnostic-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 8px; }
+      @media (max-width: 680px) { .comparison { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main class="workspace">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Lenses home"
+          >lenses<span class="brand-dot">.</span></a
+        ><span class="version">AR / V4 <span>LOCAL COMPARISON</span></span>
+      </header>
+      <section class="comparison" aria-label="Perfecto and rear-temple candidate comparison">
+        <div>
+          <label for="variant-select">Choose a version</label>
+          <select id="variant-select" aria-describedby="variant-hint comparison-scope">
+            <option value="perfecto">Perfecto — preserved reference</option>
+            <option value="candidate">Perfect temples — accepted</option>
+          </select>
+        </div>
+        <div>
+          <p id="variant-hint" role="status" aria-live="polite">Choose a version before opening the camera.</p>
+          <p id="comparison-scope">The candidate lowers the rear temples while looking down, with a maximum 20 mm drop. This is a preview convention, not measured fit. Both retain the accepted nose configuration, optical front, near-ear caps and 15 mm end fade.</p>
+          <div class="diagnostic-actions">
+            <button id="hold-frame" class="quiet" disabled>Hold problem frame</button>
+            <button id="download-diagnostic" class="quiet" hidden disabled>Download diagnostic</button>
+          </div>
+          <p id="diagnostic-status" role="status" aria-live="polite">Hold a visible problem frame to save its exact source and diagnostic views.</p>
+          <p><a href="/?checkpoint=perfecto" target="_blank" rel="noopener">Open the untouched perfecto app</a></p>
+        </div>
+      </section>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">THE VIRTUAL MIRROR</p>
+          <h1 id="mirror-title">See yourself in Amber Horizon.</h1>
+        </div>
+        <p class="intro-note">A quieter frame. A different perspective.</p>
+      </section>
+      <div class="tryon-layout">
+        <section
+          class="stage"
+          aria-label="Virtual try-on mirror"
+          data-state="idle"
+        >
+          <canvas
+            id="mirror"
+            hidden
+            aria-label="Mirrored camera view with virtual glasses"
+          ></canvas>
+          <div class="stage-top">
+            <span class="stage-label"
+              ><span id="status-dot"></span
+              ><span id="stage-status">CAMERA OFF</span></span
+            ><span class="private-label">ON YOUR DEVICE</span>
+          </div>
+          <div class="welcome" id="welcome">
+            <div class="frame-symbol" aria-hidden="true">
+              <i></i><b></b><i></i>
+            </div>
+            <h2>Your mirror, ready when you are.</h2>
+            <p>
+              Find some soft light and take off your glasses.<br />Then look
+              towards your camera.
+            </p>
+            <button id="start" class="primary">
+              Open camera <span aria-hidden="true">↗</span>
+            </button>
+            <p class="privacy">
+              Video stays in this browser. Nothing is uploaded.
+            </p>
+          </div>
+          <div class="stage-bottom">
+            <p id="guidance" role="status" aria-live="polite">
+              Ready for a first look.
+            </p>
+            <button id="stop" class="quiet" hidden>Close camera</button>
+          </div>
+        </section>
+        <aside class="sidebar">
+          <section class="product" aria-labelledby="frame-name">
+            <label class="eyebrow" for="eyewear-select">01 / CHOOSE A FRAME</label>
+            <select id="eyewear-select" aria-describedby="eyewear-hint"></select>
+            <p id="eyewear-hint">Choose a frame before opening the camera.</p>
+            <h2 id="frame-name">Amber Horizon</h2>
+            <p class="product-description" id="frame-description">
+              A rectangular tortoiseshell frame with warm brown gradient lenses.
+            </p>
+            <div class="swatch-row">
+              <span class="swatch" aria-hidden="true"></span><span id="frame-finish">Amber tortoiseshell</span>
+            </div>
+          </section>
+          <section class="capture" id="capture" aria-labelledby="capture-title" data-state="idle" data-frames="0">
+            <p class="eyebrow">RECORDING</p>
+            <h2 id="capture-title">Record and replay.</h2>
+            <p class="capture-copy">Face forward, turn slowly to each side, then return. Add a small look up and down. Keep this tab visible.</p>
+            <p id="capture-status" role="status" aria-live="polite">Open the camera to begin.</p>
+            <button id="record-turn" class="primary" disabled>Record head turn</button>
+            <button id="finish-recording" class="quiet" hidden>Finish recording</button>
+            <p class="capture-copy" id="capture-coverage">Still frames stay in this tab until you discard them. Download only if you want to save.</p>
+            <div id="replay-controls" hidden>
+              <label for="replay-frame">Recorded frame <output id="replay-position"></output></label>
+              <input id="replay-frame" type="range" min="0" max="0" step="1" value="0" />
+              <div class="capture-buttons"><button id="previous-frame" class="quiet">Previous</button><button id="next-frame" class="quiet">Next</button></div>
+              <p id="replay-metrics" class="capture-copy"></p>
+              <label for="capture-note">What changes across the turn?</label>
+              <textarea id="capture-note" rows="2" maxlength="1500" placeholder="Optional notes about this recording."></textarea>
+              <div class="capture-buttons"><button id="download-capture" class="primary">Download capture</button><button id="discard-capture" class="quiet">Discard capture</button></div>
+            </div>
+          </section>
+          <div class="howto">
+            <p class="eyebrow">A BETTER FIRST LOOK</p>
+            <ol>
+              <li><span>01</span>Face the camera in even light.</li>
+              <li><span>02</span>Move slowly, then turn a little.</li>
+              <li><span>03</span>Check the bridge and the far arm.</li>
+            </ol>
+          </div>
+          <div class="baseline-note">
+            <span class="pill">Approximate try-on</span>
+            <p>
+              A visual preview with estimated size and placement. It does not
+              measure your fit.
+            </p>
+          </div>
+          <details class="diagnostics">
+            <summary>Session details</summary>
+            <dl>
+              <div>
+                <dt>Tracking</dt>
+                <dd id="tracking">Off</dd>
+              </div>
+              <div>
+                <dt>Display</dt>
+                <dd id="fps">—</dd>
+              </div>
+              <div>
+                <dt>Processing</dt>
+                <dd id="latency">—</dd>
+              </div>
+              <div>
+                <dt>Camera</dt>
+                <dd id="resolution">—</dd>
+              </div>
+            </dl>
+            <p>
+              The video and glasses are displayed together from the same
+              captured frame.
+            </p>
+          </details>
+        </aside>
+      </div>
+      <footer>
+        <span>Made for a closer look.</span
+        ><span>Local processing · Perfect temples</span>
+      </footer>
+    </main>
+    <script type="module" src="./live-main.ts"></script>
+  </body>
+</html>

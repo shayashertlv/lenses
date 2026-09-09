@@ -1,5 +1,15 @@
 # Assets and dependencies
 
+`public/models/hair/`: the unmodified Google HairSegmenter and SelfieMulticlass
+weights used by the accepted long-hair version, distributed under Apache 2.0.
+Exact versioned sources, hashes, model-card license statements and attribution
+are in [the hair asset attribution](public/models/hair/ATTRIBUTION.md) and manifest.
+
+`references/perfect-temples/`: exact repository source from accepted commit
+`b26b5584c0dccbc2b30e4f12cdd432f10df577ea`, retained with a pinned manifest to
+preserve the reviewed renderer. Existing asset and dependency attribution below
+continues to apply.
+
 `public/models/tom-ford-clear.glb`: converted from the owner-supplied `Tom_Ford_FTS_FT11_19_D_52A_47.blend`, SHA-256 `33b21501c1fed524fd2d7d10be57e307ceaf3a683f7e43aea19ef44163179067`. The original desktop file is unchanged. The source has 1,736,644 triangles and one opaque textured material, including its modeled lens surfaces. Blender reduces it to 86,831 triangles with embedded 2K color and 1K metallic-roughness/normal maps. Existing lens surfaces receive an authored neutral clear test material, replacing their opaque paint and demo-lens marking; frame markings remain. The 145 mm normalized width and fixed bridge attachment are assumptions, not measured product dimensions. This adaptation does not establish product optical properties or assert authorship of the supplied asset. Private export scripts, material boundaries and proof views are in `.recovery/clear-lens-option-2026-09-06/asset/`.
 
 `public/models/amber-horizon.glb`: converted from the user-supplied `Meshy_AI_Amber_Horizon_Sunglas_0813121934_texture (1)_seamfix.blend`, SHA-256 `58d2abde997458eae74d88b0af5e44fb53789399932ca9397056481a0da4d5c0`. The original file in Downloads is unchanged. Blender 5.2 applied the existing seam-smoothing modifier, reduced the mesh to 99,521 triangles, resized the frame atlas to 2048 × 2048 and baked the procedural lens gradient. Textures are embedded, with source transmission, IOR and roughness retained. Normalized source coordinates use an assumed 145 mm preview width, not a measured physical size. Original texture markings are retained; this project does not assert authorship of the supplied model. Export notes are in `../.recovery/model-swap/`. The previous Navigator asset remains in the recovery archive.

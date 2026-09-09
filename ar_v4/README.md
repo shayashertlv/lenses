@@ -1,177 +1,91 @@
-# Lenses AR v4 — Perfect temples
+# Lenses AR v4 — Perfecto long hair but slow
 
-The owner accepted **perfect_temples** after live use on September 8, 2026.
-Run `npm run dev -- --config experiments/temple-sagittal/vite.config.ts` and open
-[Perfect temples](http://127.0.0.1:8040/experiments/temple-sagittal/live.html).
-It adds the accepted downward rear-arm curve and exact-frame comparison/diagnostic
-controls while preserving perfecto's nose/front pixels. See
-[its README](experiments/temple-sagittal/README.md) for implementation and checks.
+The owner accepted the reviewed long-hair version and authorized its integration,
+commit and push as **perfecto long hair but slow** on September 9, 2026.
+This is the current AR entry point. Performance work remains: mobile smoothness,
+sustained frame rate and thermal behavior have not been established.
 
-The original **perfecto** reference stays at `/`, with its rendering source and
-assets unchanged from `31df28eb8ca0c698467fd9bfb16f737f9a74e915`. The reference
-app is described below; the accepted new entry point stays separate. Neither
-version segments hair or reconstructs ears. Long hair over the temples or bangs
-over the frame can therefore have incorrect foreground ordering. The pipeline
-does not distinguish women and men; hairstyle coverage and face visibility matter.
+This development app stays inside `ar_v4/`. The parent Lenses Python application,
+its Railway deployment and unrelated model-studio work are separate.
 
-Local visual eyewear try-on for Windows Chrome/Edge. The owner selected the
-Raw + Option 17 nasal shape for the current development app. This is an
-approximate preview, not a personal scan or a physical fit measurement.
-Choose **Amber Horizon** (the default) or **Tom Ford · Clear lenses**, both exported
-from the owner's supplied Blender models.
-This development app lives under `ar_v4/`. The parent directory contains
-the separate live Lenses Python demo deployed to Railway. AR is not deployed there.
-The abandoned v2/v3 applications remain archived and absent from the active tree.
-
-## Run and check
+## Run
 
 Requires Node.js 22.18+ and a camera-capable browser on localhost or HTTPS.
-Run these commands from `ar_v4/`:
+Run from `ar_v4/`:
 
-```sh
+```powershell
 npm ci
 npm run assets
 npm run dev
 ```
 
-Open http://127.0.0.1:8040, choose a frame, then choose **Open camera**.
+Open [the AR mirror](http://127.0.0.1:8040/). The default route opens
+`experiments/hair-live-preview/live.html`. Select Amber Horizon or Tom Ford and
+one hair model, then Open camera. Hair-only is selected initially. Only the
+selected model runs. Compare hair on/off, or Hold frame to stop camera/workers
+and compare one exact image. Download held comparison is an explicit local action;
+Resume starts a fresh session. Camera frames are processed locally.
 
-```sh
-npx playwright install chromium
+## Preserved references
+
+- [Perfect temples without hair](http://127.0.0.1:8040/experiments/temple-sagittal/live.html)
+  preserves `perfect_temples` (`b26b5584c0dccbc2b30e4f12cdd432f10df577ea`).
+- [Original perfecto](http://127.0.0.1:8040/index.html) preserves the original
+  renderer from `31df28eb8ca0c698467fd9bfb16f737f9a74e915`. Its recording/replay
+  workflow remains available.
+- `npm run dev:reference` starts the original development configuration. Default
+  hair routing belongs only to `vite.hair.config.ts`; `index.html`, the original
+  Vite configuration and shared rendering sources are not replaced.
+
+The hair server resolves reference imports to the hash-verified
+`references/perfect-temples/` snapshot. Those 45 files are exact copies from
+`b26b558`, so unrelated local model changes cannot alter the reviewed renderer.
+A fresh or shallow checkout needs no old Git objects or private recovery files.
+Both pinned hair weights are included under `public/models/hair/` and verified
+during preparation and startup. See their attribution and manifest.
+
+## Behavior and limits
+
+The reviewed face detector, image/pose pairing, optical front, Raw + Option 17
+nose configuration, rear-temple curve and 15 mm fade are unchanged. A same-frame
+hair mask can replace eligible visible arm pixels with their original camera
+pixels. The reviewed continuity rule removes rear fragments that hair newly
+detaches from a connected arm. Every existing nose/front/outside-arm protection
+remains active. Hair over the protected optical front is deliberately limited;
+the masks provide neither measured hair depth nor anatomical fit.
+
+The implementation uses local workers, hardware GPU where available with fresh
+CPU initialization fallback, category-only live masks, overlapping work and no
+new hair inference when hair is off. It remains slow. Short desktop simulated
+camera measurements reached about 5.35–5.48 updates/second with hair and
+8.18–8.57 without; these are not phone or sustained physical-camera results.
+Generated portraits and exact recorded pairs support bounded visual checks,
+not proof of realistic motion or universal non-regression.
+
+## Build and check
+
+```powershell
 npm test
 npm run build
 npm run preview
 ```
 
-`npm test` runs focused Node tests, strict TypeScript, a production build and
-browser lifecycle flows using real local MediaPipe with a simulated camera.
-`npm run build` verifies the prepared model/mesh/fixture hashes and copies the
-pinned runtime from node_modules. No assets are read from sibling projects.
+The build includes long hair, perfect temples and original perfecto pages, the
+verified reference renderer and both local hair weights. The default preview
+route opens long hair. `npm run preview:reference` retains the original landing
+route for the baseline recording/lifecycle tests. The standard tests include
+strict types, reference and hair unit tests, baseline browser flows and the
+long-hair production lifecycle using a checked-in synthetic fixture.
 
-The local Vite server provides the camera and worker isolation headers. Keep this
-app's `package.json`, build output and assets here. The parent's Python `Procfile`
-belongs to the live demo; no AR deployment or live route is configured.
+Checkpoint verification passed strict types, build, 110 unit tests and both
+new production hair lifecycle tests. All 56 matched generated/recorded
+comparisons preserve the reviewed pixels and geometry. The full `npm test`
+still exits nonzero: seven baseline browser tests pass, while the existing
+60-second recorded-replay test times out during final camera restart after
+its exact replay image check passes. Its deadline was not changed.
 
-## Use
-
-**Choose a frame → Open camera → Record head turn → Finish recording → Previous/Next → Download
-capture**. Replay closes the camera and worker and shows the saved image with its
-original detection. Downloads contain JPEGs, timestamps, detections, raw/corrected
-poses and estimated surfaces. Replay restores the captured surface directly,
-without applying the nasal shape again. Recording is bounded to 30 seconds, 96 frames or
-24 MiB of JPEG data. Notes are optional. **Discard capture** releases replay and
-allows a fresh camera session. There is no saved-file import UI.
-The frame selector stays fixed during startup, live camera and replay. Close the
-camera or discard the capture before changing pairs. Each session loads only its
-selected GLB. New downloads identify that model in the header and frame metadata;
-original recordings are unchanged. First use starts live tracking after camera
-permission; no personal scan or calibration step is implemented.
-The `ar_v4` capture schema identifier and download names remain compatible with
-existing recordings. New metadata identifies the occlusion method, selected and
-applied shape, and any geometry fallback. Older saved surfaces retain their
-original meaning; replay does not relabel them as Raw + Option 17.
-
-Frames stay in memory until an explicit download; nothing is uploaded or written
-to browser storage. Close camera, a hidden live page, navigation or an error ends
-the session. Stop/discard removes the in-memory recording.
-
-## Architecture
-
-- `src/main.ts`: one session owns the camera, worker, renderer and callbacks.
-  One frozen image is downsampled for detection, then presented with that result;
-  no inference backlog or independent video overlay. CSS mirrors the whole canvas.
-- `src/runtime/`: camera acquisition, validated detector messages, local MediaPipe
-  worker; GPU startup falls back to a fresh CPU worker. Old sessions cannot publish.
-- `src/render/`: Three.js renderer, fixed virtual projection, original bridge
-  correction and observed face depth surface. The glasses stay rigid. Raw pose
-  reconstructs the face; corrected X/Y translation places the glasses and rear
-  head proxy. GLB meters convert once to canonical centimeters. Lighting,
-  projection and tracking retain the baseline values. `nasal-shape.ts` applies the
-  frozen Option 17 shape to the original reconstructed surface for both models,
-  without RGB boundary repair. Its original geometry guards fall back to the exact
-  raw surface when rejected. The original frame and transmissive lenses retain
-  ordinary face depth testing. A separate temple overlay restores near-arm color
-  over the side of the head without writing depth or entering lens transmission.
-  The fixed attachment is described below.
-- `src/capture/`: bounded immutable image/result storage, replay and explicit JSON
-  export. `public/` contains only local runtime assets, provenance and licenses.
-
-The fixed shape is `central-wp020-dp015`, with central width parameter 0.20 and
-forward depth parameter 0.15 in the existing preview conventions. It adds no
-lighting classifier, yaw switch, smoothing or personalized fit. The old
-`src/render/nasal-boundary.ts` stays byte-identical solely because historical
-private recovery harnesses import and hash it; the active renderer does not use it.
-
-The assumed vertical FOV is 63°, with camera aspect from each frame. Both models'
-attachment is `100 * glb_position + (0, 3.271027, 6.531958919387042)` centimeters.
-Their normalized sources are given an assumed 145 mm width; bridge height uses
-canonical landmark 168 and the frame front retains Current mirror's original
-6.691763 cm depth. These are fixed preview conventions, not wearer measurements.
-The 3.7 MB GLB embeds its 2K tortoiseshell texture and baked brown lens gradient;
-the roughly 100,000-triangle mesh preserves the supplied shape at lower detail.
-The observed face is already in camera space and must not receive that pose again.
-
-Tom Ford's self-contained 2.9 MB GLB has 86,831 triangles, a 2K frame color atlas
-and 1K normal/metallic-roughness maps. The supplied mesh includes lens surfaces
-but only an opaque material. An authored neutral transmissive material replaces
-the lens paint for this testing option; the frame texture and shape are retained.
-It is an optical approximation, not measured prescription or coating behavior.
-Transmission still softens fine image detail and adds edge highlights; use the
-original paired RGB when judging very subtle eye/temple boundaries.
-Asset preparation and proof views stay private in
-`.recovery/clear-lens-option-2026-09-06/`. See ATTRIBUTION for source identity.
-The smaller file/mesh does not establish lower rendering cost; the extra frame
-maps and physical transmission still consume GPU resources.
-
-## Limits and next work
-
-The far lens/rim can show through the side of the nose at larger yaw. Camera
-intrinsics, learned face depth, rear-head geometry and lighting are approximate;
-ears/hair and true skin contact are not reconstructed. Synthetic browser checks
-do not establish real-camera motion, phone performance or anatomical accuracy.
-The owner preferred Raw + Option 17 on the marked right-turn overcut image and
-later explicitly chose its integration. Earlier feedback slightly favored RGB
-repair at one opposite-turn angle; removing that stage also removes its small
-local contribution. This is a chosen appearance tradeoff, not proof of correct
-occlusion at all angles. The integrated path still needs physical-camera review
-for far cut-through, near rim/bridge/pad hiding and motion across both turns,
-including the previously resolved rapid cutoff flicker.
-
-Temple ends retain the accepted near-ear caps: Amber at −105 mm and Tom Ford at
-−110 mm in original GLB coordinates. The final 15 mm dissolves smoothly into the
-exact paired camera image. This is image composition with the camera background;
-it does not reconstruct hair or shorten the accepted cap. Historical 4 mm
-multisample/dither fading and hard clipping remain available to saved replay.
-
-`temple-visibility.ts` restores missing sections of the near arm over lateral
-head depth, with permission based on both camera bearing and head orientation.
-During frontal up/down tilt, a separate posterior-temple correction uses the
-current paired face/head silhouette to hide arm color that incorrectly passes
-ordinary depth. Projected samples along the remaining arm continue that occlusion
-through terminal gaps. The original optics are excluded, and the frontal
-correction is excluded from lens transmission. Its current output contract is
-the native ACES-mapped canvas; ordinary offscreen render targets omit it.
-
-The original meshes, Raw + Option 17 and rigid pose stay unchanged. These are
-visual occlusion corrections, not physical collision resolution, measured fit,
-or ear/hair tracking. New captures store endpoints, dissolve length, coverage
-policy and actual per-side/frontal weights. Replay restores those saved values;
-missing/null metadata retains full legacy temples without these corrections.
-Recorded multisample coverage requires a compatible multisampled context.
-Current evidence and remaining live-motion checks are in `docs/REVIEWS.md`.
-Pose jitter remains deferred. No personal scan, ear
-occluder, multiview reconstruction or smoothing change is included. Sustained
-whole-app 30 FPS remains a target; physical mobile, thermal, display-FPS and
-end-to-end latency measurements are unavailable. Old RGB-stage timings do not
-describe the current path.
-See [HANDOFF.md](HANDOFF.md) for the checkpoint and [docs/REVIEWS.md](docs/REVIEWS.md)
-for cleanup verification. Asset attribution is in [ATTRIBUTION.md](ATTRIBUTION.md).
-
-The untouched wearer export is in [recordings/](recordings/README.md). The full
-pre-cleanup project and original export are recoverable from
-`../.recovery/ar_v4-before-cleanup-2026-09-06.tar.gz`; instructions and SHA-256 receipts
-are in `../.recovery/`. These local files are ignored by Git and excluded from the
-production build.
-The older applications' final working files, including uncommitted changes, are
-also saved in `../.recovery/promotion-2026-09-06/`, with a verified archive, Git bundle
-and restoration instructions. Recovery files and private recordings stay local.
+The earlier private generated galleries, masks and wearer recordings remain
+Git-ignored and are not bundled. Optional original studies require those files.
+See [HANDOFF.md](HANDOFF.md), [current review](docs/REVIEWS.md),
+[hair implementation](experiments/hair-live-preview/README.md) and
+[asset attribution](ATTRIBUTION.md).

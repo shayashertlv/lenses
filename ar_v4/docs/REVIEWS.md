@@ -1,69 +1,56 @@
-# Current AR review — September 8, 2026
+# Current AR review — September 9, 2026
 
-**The owner accepted perfect_temples after live use** and authorized commit/push
-under that name. Its entry point remains `experiments/temple-sagittal/live.html`.
-Perfecto `31df28eb8ca0c698467fd9bfb16f737f9a74e915` stays preserved at `/` with
-unchanged rendering source and assets. Pre-acceptance docs/source are archived
-in `.recovery/perfect-temples-acceptance-2026-09-08/`.
+The owner authorized implementing the reviewed long-hair version and committing
+and pushing it as **perfecto long hair but slow**. This follows positive live
+and generated-still feedback and disclosure that the current version is slow.
+Approval is visual acceptance of this checkpoint, not a mobile performance claim.
 
-The downward failure involves the posterior trajectory and incomplete head/ear
-occlusion. Pitch projects the rigid arms toward the forehead; this is not by
-itself evidence of a projection bug or increased inward convergence. Baseline
-recorded ablations found no side-overlay contribution in the strongest frontal
-down view; its frontal visibility approximation already hides much of the rear
-arm. The supplied steep screenshot has no original paired pose. Recordings reach
-about 20 degrees and do not reproduce that extreme view.
+Promotion makes the reviewed hair page the default launch and build entry while
+retaining perfect_temples and original perfecto. Exact b26 reference sources and
+both reviewed hair weights are packaged for a fresh checkout. The compositor,
+continuity rule, input/pose ownership, geometry, nose/front guards and 15 mm fade
+remain unchanged. Only entry/packaging, acceptance labels and additive diagnostic
+identity change. The parent Python/Railway app and unrelated model work are excluded.
 
-The new candidate curves only the posterior Y coordinates downward, preserving
-original X/Z, optical/proximal geometry, nose configuration, attachment, camera,
-visibility policy, original Z cutoffs and 15 mm fade. Its default maximum is 20 mm,
-activated only when head/camera agree on down and tapered out with yaw. This is
-an authored preview convention, not measured fit or a physical hinge.
+Prior independent evidence covers 32 new generated-still cases and 24 exact
+short-haired wearer-recording pairs, both frames/hair models, down/up/both yaw.
+All reference image/geometry and final nose/front/outside-arm checks pass within
+those inputs. These tests do not establish long-hair motion or measured fit.
+The generated pose estimates span approximately −31° to +22° elevation and
+−42° to +30° yaw; requested 60° profiles were not achieved.
 
-A separate untouched native perfecto renderer now owns the final protected
-optical/nasal pixels. This closes a weakness in earlier safeguards: moving opaque
-arms can affect the main depth pass and later lens appearance even if the nose
-mesh and internal transmission geometry are unchanged. Final integer composition
-copies perfecto under full depth-independent optical/proximal bounds and a
-central eye/nose guard, and everywhere outside bounded arm corridors. Invalid
-candidate/replay/mask state falls back to perfecto. Through-lens and reflection
-appearances retain baseline pixels; broad guards can limit the correction or
-produce a join. Extra rendering/readback work has no frame-rate claim.
+Performance remains limited. Short Intel Arc 140T/D3D11 simulated-camera samples
+measured about 5.35–5.48 updates/second with hair versus 8.18–8.57 without.
+Mobile/physical-camera/sustained/thermal/battery evidence is missing. Model-only
+segmentation timings must not be reported as full AR frame rate.
 
-The completed recorded sweep contains 16 exact original pairs for each model.
-Every before image matches an independently loaded original perfecto renderer;
-original source/detection/poses, current Option17 surface, hidden optical footprint
-coverage were checked, with eight cases exercising replay/ownership/failure paths. Independent
-PNG auditing confirms all frozen nasal ROIs, 1,918,734 protected pixel samples and
-all pixels outside arm corridors remain byte-exact. Twenty-six inactive controls
-remain fully exact. Only Tom Ford dropout459 and flicker70 change, by 174 and 392
-pixels; all 16 Amber outputs remain unchanged. Recorded improvement is not
-established; the owner's subsequent positive live review is the acceptance basis.
+Promotion verification used the exact staged tree
+`8f1601c694f30853cf6027728521a1a9f927d570` in a fresh export without an app
+Git directory, private recovery files or unrelated trial-model changes.
+Fresh npm ci, strict types, pinned asset checks, production build and all
+110 unit tests passed. Seven of eight baseline browser tests passed.
+The existing cumulative 60-second recorded-replay test timed out during
+final camera restart, after its exact native replay PNG comparison passed.
+The full npm test exited 1. Both new production hair lifecycle tests passed
+separately, with real local hair-only/multiclass workers, exact held pairs,
+export and session cleanup/restart. No limits were raised and no retry was
+used. The exported source remained byte-exact throughout these checks.
+Only these documentation results were added after the tested tree.
 
-Separate synthetic math and native renders show a changed rear path at 40–50
-degrees down in both models, without widening and with upward/both-yaw controls
-exact. Generated canonical images/landmarks/poses are not wearer recordings or
-anatomical validation. No detector was run on the supplied overlaid screenshot.
+All 32 generated and 24 original recorded promotion comparisons exactly
+match the previously reviewed accepted/hair images and geometry. Independent
+PNG audits verified 226 files; nose/front/outside-arm checks remain zero.
+Source images, detections, poses and masks were reused with exact ownership;
+there was no reinference or substitution of synthetic geometry for recorded
+evidence. Ten packaging checks also verified dev/preview model delivery,
+hashes, build aliases, unknown requests and rejection of tampered weights.
 
-The live comparison can hold the last displayed original image/detection pair,
-stop camera/worker callbacks, switch its two outputs and explicitly download a
-lossless diagnostic. Holding cannot overlap a recording. User live judgment,
-including steep angles, joins, motion and nose appearance, remains decisive.
-`npm test` passes 52 unit tests, eight browser flows, strict types, assets and
-build. Candidate strict types, 14 unit tests and ten browser flows pass. The
-preservation audit confirms all 29,180 recordings/earlier recovery files and 49
-baseline tracked files remained byte-exact before the authorized checkpoint.
-Detailed test/preservation receipts are recorded in the linked study report.
+The fresh-run logs, replay failure trace and separate hair lifecycle receipt
+are in the current acceptance archive. The prior shared-tree replay timeout
+and all older study receipts are retained in their original archives.
 
-See [study report](../.recovery/temple-rethink-2026-09-08/REPORT.md),
-[matched gallery](../experiments/temple-sagittal/comparison.html), and
-[live comparison](../experiments/temple-sagittal/live.html). Earlier archives,
-original recordings and unrelated model_studio remain outside this task's edits.
-The authorized checkpoint includes this accepted implementation and its docs/tests.
-Private generated galleries/recordings remain excluded. No parent Python change,
-Railway deployment or unrelated model_studio work is included.
-
-Hair remains ordinary camera background: there is no hair segmentation or
-gender-specific rendering. Loose hair/bangs across glasses may have incorrect
-foreground order; the temple fade only softens ends. Hair/ear coverage and
-hairstyle-diverse live behavior remain unverified and unchanged by this acceptance.
+Current acceptance artifacts:
+[packaging and verification](../.recovery/perfecto-long-hair-acceptance-2026-09-09/),
+[latest still review](../.recovery/hair-angle-review-2026-09-09/RESULTS.md),
+[recorded/performance evidence](../.recovery/hair-live-performance-2026-09-08/RESULTS.md).
+Historical experiments and previous full review text remain in their archives.
