@@ -378,3 +378,51 @@ No parent application, Railway configuration, trial model, private camera image,
 recording or recovery output is included. The old Stage3 QA preservation manifest
 intentionally rejects the changed selector/test source boundary; historical
 receipts remain unchanged and future experiments need a new explicit base manifest.
+
+## G Combined selected as current base — September 9
+
+The owner reported that F and G felt far superior, then explicitly requested
+implementing G and committing/pushing it. G is the initial selection for default
+dev/build/preview. The eight-way comparison keeps Test 2 (8baa16c) as the
+previous reference, with its own launch commands and unchanged renderer.
+
+G combines source-pixel reuse, fewer source copies, temple prewarming and real
+WebGL2 PBO/fence downloads with bounded two-image scheduling and inference
+overlap. Each image retains its exact source, pose and mask. Only the selected
+renderer processes live frames. Hold/switch drains work; Stop revokes ownership.
+Async failures use a bounded, explicitly counted same-pair synchronous fallback.
+Geometry, resolution, continuity and final nose/front safeguards are unchanged.
+
+The tested G renderer/options are unchanged by promotion. Existing matched
+checks and independent PNG audit pass 56 generated/recorded pairs and 16 control
+groups, both glasses/hair models, down/up/both yaw, exact pixels/geometry and
+nose/front/outside-arm protections. All 56 use source reuse and borrowing;
+36 have visible hair edits and 12 exercise nonzero rear drop. Hardware uses PBO
+in 32/32; software in 19/24 with five declared 500.3–510 ms fallbacks. No fallback
+counts as an async speed gain. The color/size study passes 36 comparisons and
+eight alpha/cancellation/recovery controls, independently checking 302 PNGs.
+All 186 protected base files in the original worktree still match their manifest.
+Its historical CRLF hashes require that byte representation; optional QA documents
+the distinction from normalized Git text. Frozen inputs and
+prior receipts, including the initial strict-mechanism and browser failures,
+remain unchanged in ignored archives. Optional reproduction is documented in
+[Speed lab QA](../experiments/speed-lab/qa/README.md).
+
+The lab fixes queued selection during Hold, strips image identities from timing
+exports, and preserves opaque canvas history for unsupported transparent input.
+The benchmark compares Test 2 and the selected mode with separate warmed windows,
+reversible order, actual-path counters, tracking/mask coverage and frame age.
+Timing exports contain no images, masks, landmarks or image hashes.
+
+Clean staged-export verification passes npm ci, strict types, the production
+build, all 172 unit checks (110 existing plus 62 lab) and all 21 browser cases:
+11 G default/comparison/lifecycle, eight reference and two long-hair integration.
+The strengthened exact checkpoint-title test also passes; camera-off layout
+passes at 1440, 390 and 360 pixels without overflow or page errors. G development
+and previous Test 2 preview redirects preserve their expected entry and query.
+No tests were retried to obtain a pass or given longer deadlines. The export
+excludes unrelated trial-model work and private artifacts. Test receipts are
+retained under the ignored G promotion archive; the production preview is on
+port 8090. The commit contains only AR runtime, comparison, tests and documentation.
+The owner's feedback is qualitative; physical-camera throughput, motion-to-photon
+latency, sustained mobile smoothness and thermal behavior remain unmeasured.

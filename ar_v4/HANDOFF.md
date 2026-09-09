@@ -1,42 +1,39 @@
-# Current AR handoff — speed testing
+# Current AR handoff — G Combined
 
-On September 9, 2026 the owner explicitly selected **Test 2 as the current base**
-and authorized commit/push as **speed testing**. Default dev/build/preview now
-use `vite.speed.config.ts`; the root route opens the Test 2 comparison with
-**Current · Test 2** selected. The four-way Test 3 comparison remains available.
-This changes the launch choice, not Test 2's rendering implementation.
+On September 9, 2026 the owner reported that F and G felt far superior to the
+other speed experiments, then explicitly requested implementing G and committing
+and pushing it. G Combined is the selected current base. Default dev/build/preview
+use `vite.combined.config.ts`, opening `experiments/speed-lab/live.html` with
+**Current · G Combined** selected before startup and on the first published image.
 
-The `current` report ID still denotes the original long-hair checkpoint;
-`test2` denotes the new base. IDs and legacy `candidateAccepted` diagnostics
-are preserved for historical comparability; they do not describe the new default.
-User-visible labels distinguish the two. Future experiments must preserve this
-base and earn matched evidence and owner visual acceptance.
+G uses the reviewed bounded two-image scheduler and inference overlap, source
+RGBA reuse, fewer source copies, real PBO/fence downloads and nonzero-temple
+prewarming. This promotion retains the previously checked renderer, geometry,
+models, resolution, exact image/pose/mask ownership and final safeguards.
+The same eight-way comparison remains available; its report IDs and historical
+`baseCommit`/`candidateAccepted` fields stay stable. Additive `currentBase`,
+`ownerSelectedG` and `previousBase` fields identify the selection explicitly.
 
-The original long-hair checkpoint is `9997050`; its page, renderer and
-`vite.hair.config.ts` remain unchanged. Use `dev:long-hair`, `build:long-hair`
-and `preview:long-hair` for that launch choice. All default builds retain its
-page, perfect temples and original index. Parent Python/Railway deployment,
-private recordings, linked worktrees and unrelated trial-model edits are separate.
+Test 2 (`8baa16c`, **speed testing**) remains independently launchable with
+`dev:test2`, `build:test2` and `preview:test2`, using unchanged `vite.speed.config.ts`.
+Accepted long hair (`9997050`), perfect temples (`b26b558`) and original perfecto
+remain available. The parent Python/Railway deployment, linked worktrees,
+private recordings/recovery files and unrelated trial-model work are separate.
 
-The uploaded four-way report contains 1,139 measured frames across four complete
-30-second windows with full face/mask coverage. Test 2 led at 10.16 fps versus
-7.71 for the original checkpoint and 9.96 for Test 3. Reported video delivery was
-29.6 fps. First nonzero rear-drop activations caused large stalls in Tests 2/3;
-Test 2 also spent a median 24.74 ms waiting for its next callback. Different live
-poses and absent source images prevent exact same-image visual conclusions.
-Mobile smoothness, thermal behavior and motion-to-photon latency remain unknown.
+The existing full G study and independent audit preserve all pixels and geometry
+on 56 matched generated/recorded pairs, including both glasses, both hair models,
+down/up/both yaw and nose/front checks. Hardware used PBO in 32/32; software in 19/24
+with five exact bounded-fence fallbacks. Color/size/alpha/cancellation checks also
+passed. No rendering retuning occurs during promotion. The owner's new feedback
+is qualitative; physical-camera FPS, motion-to-photon latency, sustained mobile
+smoothness and thermal behavior remain unmeasured for G.
 
-Commit scope includes the three implemented performance comparisons and their
-reproducible runtime/tests, plus launch/docs changes. Optional evidence tools
-still need ignored local archives; no recording or generated wearer image is
-published. Current verification and next research directions are in
-[docs/REVIEWS.md](docs/REVIEWS.md).
-
-Current clean-export verification: strict types/build, 90 focused speed checks
-and all seven promoted browser cases passed. Full npm test passed 110 unit
-tests and all eight baseline browser cases, then failed the preserved long-hair
-multiclass restart while waiting for a valid category mask; hair-only passed.
-No failed test was retried or given a longer deadline.
+Default checks now include the lab's strict types, renderer/scheduler/temple/QA
+unit checks and production G default/lifecycle suite. The preserved Test 2 browser
+suite has its own launch alias. Clean staged-export verification passes strict
+types/build, all 172 unit checks and all 21 production browser cases, including
+the preserved reference and long-hair suites. See docs/REVIEWS.md for evidence
+details and the optional historical manifest's line-ending boundary.
 
 ## Preserved long-hair checkpoint handoff
 

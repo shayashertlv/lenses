@@ -1,9 +1,11 @@
-# Lenses AR v4 — Speed testing
+# Lenses AR v4 — G Combined
 
-Test 2 is the owner-selected current base as of September 9, 2026, saved as
-**speed testing**. The default launch opens the three-way comparison with
-**Current · Test 2** selected. It retains Test 2's exact renderer, models,
-image/pose/mask ownership and final nose/front safeguards.
+G Combined is the owner-selected current base as of September 9, 2026.
+The default launch opens the comparison with **Current · G Combined** selected.
+It combines bounded overlap between successive images, source-pixel reuse,
+fewer source copies, asynchronous GPU downloads and temple prewarming.
+Models, resolution, image/pose/mask pairing and final nose/front safeguards remain.
+Test 2 (**speed testing**, `8baa16c`) remains an independently launchable reference.
 
 The visually accepted **perfecto long hair but slow** checkpoint (`9997050`)
 and **perfect_temples** (`b26b558`) remain available. This default selection is
@@ -23,7 +25,7 @@ adds Current / Test 1 / Test 2 switching, measured AR and camera delivery rates,
 and a timed three-way comparison. Run `npm run dev:stage2` and open
 [the profiling preview](http://127.0.0.1:8072/experiments/performance-stage2/live.html).
 Test 2 shares the native camera rendering context while preserving the existing
-image/pose/mask pairing and final safeguards. It is now the selected development base;
+image/pose/mask pairing and final safeguards. It is the previous development base;
 30 fps is a target, not an established result.
 
 A separate [Test 3 GPU hair experiment](experiments/performance-stage3/README.md)
@@ -37,6 +39,14 @@ fallback where required. This remains a separate experiment awaiting visual revi
 
 ## Run
 
+The [speed comparison](experiments/speed-lab/README.md) retains Test 2, six
+individual speed ideas and the selected G Combined mode. Run
+`npm run dev:speed-lab`, or build and preview with
+`npm run build:speed-lab` and `npm run preview:speed-lab`.
+[Open the experiment comparison](http://127.0.0.1:8083/experiments/speed-lab/live.html).
+It includes live switching, a base-versus-selected timed run, and an exact held
+comparison across all eight. G is selected initially in both launch modes.
+
 Requires Node.js 22.18+ and a camera-capable browser on localhost or HTTPS.
 Run from `ar_v4/`:
 
@@ -47,7 +57,7 @@ npm run dev
 ```
 
 Open [the AR mirror](http://127.0.0.1:8040/). The default route opens
-`experiments/performance-stage2/live.html`, with Test 2 selected. Select Amber Horizon or Tom Ford and
+`experiments/speed-lab/live.html`, with G Combined selected. Select Amber Horizon or Tom Ford and
 one hair model, then Open camera. Hair-only is selected initially. Only the
 selected model runs. Compare hair on/off, or Hold frame to stop camera/workers
 and compare one exact image. Download held comparison is an explicit local action;
@@ -62,8 +72,10 @@ Resume starts a fresh session. Camera frames are processed locally.
   workflow remains available.
 - `npm run dev:long-hair` / `build:long-hair` / `preview:long-hair` retain the
   accepted long-hair launch configuration (`vite.hair.config.ts`).
+- `npm run dev:test2` / `build:test2` / `preview:test2` retain Test 2's launch
+  configuration (`vite.speed.config.ts`) and its old comparison entry.
 - `npm run dev:reference` / `preview:reference` retain the original landing route.
-  The new default belongs only to `vite.speed.config.ts`.
+  The new G default belongs only to `vite.combined.config.ts`.
 
 The speed and hair servers resolve reference imports to the hash-verified
 `references/perfect-temples/` snapshot. Those 45 files are exact copies from
@@ -99,10 +111,13 @@ not proof of realistic motion or universal non-regression.
 
 ## Build and check
 
-`npm run test:speed` checks all three performance pipelines.
-`npm run test:speed:browser` tests the promoted production entry with both frame
-and hair models, held equality, cancellation and restart. Optional recorded
-evidence harnesses require the preserved private inputs and are not part of a
+`npm test` now includes G's strict types, unit checks and production default-entry
+tests before the preserved reference and long-hair browser suites.
+`npm run test:speed-lab` includes its renderer, scheduler, temple and QA protocol
+checks. `npm run test:speed:browser` tests the promoted G production entry with
+both frame and hair models, held equality, cancellation and restart.
+`npm run test:test2:browser` retains the earlier Test 2 default-entry suite.
+Optional recorded evidence harnesses require the preserved private inputs and are not part of a
 fresh checkout. See the latest validation in [docs/REVIEWS.md](docs/REVIEWS.md).
 
 ```powershell
@@ -113,18 +128,20 @@ npm run preview
 
 The build includes long hair, perfect temples and original perfecto pages, the
 verified reference renderer and both local hair weights. The default preview
-route opens Test 2; comparison and prior reference pages are included. `npm run preview:reference` retains the original landing
+route opens G Combined; comparison and prior reference pages are included. `npm run preview:reference` retains the original landing
 route for the baseline recording/lifecycle tests. The standard tests include
 strict types, reference and hair unit tests, baseline browser flows and the
 long-hair production lifecycle using a checked-in synthetic fixture.
 
-Prior matched evidence includes 56 generated/recorded comparisons preserving
-the reviewed pixels and geometry. Current promotion validation passed strict types/build, 90 focused checks and
-all seven promoted browser cases. Full npm test passed 110 unit and eight
-baseline browser tests, but failed the preserved long-hair multiclass restart
-while waiting for a valid mask; hair-only passed. See
-[docs/REVIEWS.md](docs/REVIEWS.md). The earlier long-hair checkpoint had a
-recorded-replay timeout; its deadline has not been changed.
+G's matched evidence includes all 56 generated/recorded pairs with exact pixels,
+geometry and safeguards, followed by an independent PNG audit. Hardware used
+asynchronous downloads in all 32 cases; five of 24 software cases used the
+explicit bounded-time synchronous fallback. The owner reported F and G felt
+far superior and explicitly selected G. This is qualitative owner feedback,
+not a quantified new camera benchmark or mobile/thermal measurement.
+Clean promotion verification passes strict types/build, all 172 unit checks and
+all 21 browser cases. Details are recorded in [docs/REVIEWS.md](docs/REVIEWS.md);
+preserved test deadlines remain unchanged.
 
 The earlier private generated galleries, masks and wearer recordings remain
 Git-ignored and are not bundled. Optional original studies require those files.
