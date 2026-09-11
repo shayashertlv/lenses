@@ -1,0 +1,936 @@
+{
+  "schema": "speed-lab-base-v1",
+  "commit": "8baa16c9ffae945130b936821d5948c2f1cac720",
+  "files": [
+    {
+      "path": "experiments/hair-live-preview/README.md",
+      "sha256": "c2b04829830d91e448836159289be0f473eaaa3c3be594160e3f082e21fd5c64",
+      "bytes": 4493
+    },
+    {
+      "path": "experiments/hair-live-preview/accepted-reference.ts",
+      "sha256": "d058ac16e3f1e1b90a3491de4473ac7e8c7043fb2ff61be6465bfd109b7c286b",
+      "bytes": 3212
+    },
+    {
+      "path": "experiments/hair-live-preview/background.ts",
+      "sha256": "8c842258175a7904d59525f4ee541653cfe2e7b87f8e4779e6866e20a5b86409",
+      "bytes": 3665
+    },
+    {
+      "path": "experiments/hair-live-preview/continuity.test.ts",
+      "sha256": "81fabca7967e464c22435653c54381d8478012ae9e797c9ff34732a884eeb61c",
+      "bytes": 8803
+    },
+    {
+      "path": "experiments/hair-live-preview/continuity.ts",
+      "sha256": "8a856d335eb9780d1eb38e7a9452b66863280cf044215163bbba4d54b77b5b19",
+      "bytes": 18361
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-compose.test.ts",
+      "sha256": "fd8e279c5661dd5771e3d094dc6bb07c7c7aed746ec3329b0e302f2aa11a8167",
+      "bytes": 8185
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-compose.ts",
+      "sha256": "088da15720bc1ff15c05088daf35b6a053c6d73b71126e3df0a0e14b4012be57",
+      "bytes": 13395
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-guard.test.ts",
+      "sha256": "1ebf4d3f6633b1837608fc58d2d1945f83253e49b1c7a469a8b68ea984e07111",
+      "bytes": 4422
+    },
+    {
+      "path": "experiments/hair-live-preview/frame-budget.test.ts",
+      "sha256": "66c6c964b44a686094a4307956666a7427fc7527b2b16747e4f05d96584ebf47",
+      "bytes": 1692
+    },
+    {
+      "path": "experiments/hair-live-preview/frame-budget.ts",
+      "sha256": "1508c289b7bb922e8ae11aa97eaea5cae5f6802f960257835c76f3f09d7760a7",
+      "bytes": 1452
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-backend.test.ts",
+      "sha256": "f1c3f1216f524563e545e08230770422c9e9d937328da9994ce66aac58646bd8",
+      "bytes": 768
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-backend.ts",
+      "sha256": "17f7d5c14381b25a752340fbf839ce57ebc29b59569a06b81bf4de15589422be",
+      "bytes": 1518
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-client.test.ts",
+      "sha256": "06ab2af955f4d83730a8d38bf287272cf65cc3f84c6a3b321d5379c03d9b58cb",
+      "bytes": 14301
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-client.ts",
+      "sha256": "ac604d3126a55d34783051c618b2a76c7f732562d9cdd5b1b741c064059fe474",
+      "bytes": 8415
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-protocol.test.ts",
+      "sha256": "8b51bb7166725306898bc92e22fe626ed21032e987b18d4a13f02d7b0ef8dbce",
+      "bytes": 6308
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-protocol.ts",
+      "sha256": "5ed5319fa8641a7444d6741f848a8f38a4493cc3df405e4a9524bd8a191284cb",
+      "bytes": 10299
+    },
+    {
+      "path": "experiments/hair-live-preview/hair.worker.ts",
+      "sha256": "6d2c975443fc4f1d7cabe298f24b8fc74b594572ca635f8256cf5f0a5c9fb392",
+      "bytes": 6862
+    },
+    {
+      "path": "experiments/hair-live-preview/integration.spec.ts",
+      "sha256": "75162bbeecce6c46f3900e4e54ca1c1fadf28c384c598fcc9fb3ae31cba8212b",
+      "bytes": 10014
+    },
+    {
+      "path": "experiments/hair-live-preview/live-main.ts",
+      "sha256": "2b8951fbe127b73e077500dffa144cc6a06c4fc270582463582a334709f37499",
+      "bytes": 26997
+    },
+    {
+      "path": "experiments/hair-live-preview/live-mask.ts",
+      "sha256": "c555ec767f1cdec917a48a36fd4b7ccbbcf08995c3aad9dcd995c0be1fb084eb",
+      "bytes": 477
+    },
+    {
+      "path": "experiments/hair-live-preview/live.css",
+      "sha256": "2b6efeaaebe8670aed63c7c005e1dbcbff995fded289bf9efcd4168c838a2e56",
+      "bytes": 1070
+    },
+    {
+      "path": "experiments/hair-live-preview/live.html",
+      "sha256": "429a8bcba1db51f69c4d996b2f3655ef43e0c22200caf4161f854f356a25aae1",
+      "bytes": 4988
+    },
+    {
+      "path": "experiments/hair-live-preview/models.ts",
+      "sha256": "02c32ab954a8af4097c11cfdc8287ec0e4d6d89ac14d4e1c74be65c3eb6154e7",
+      "bytes": 1942
+    },
+    {
+      "path": "experiments/hair-live-preview/ownership.test.ts",
+      "sha256": "148d90e8edd1ce6eac0a29d83c5efdcf30b2fe254ce83479248bf578c06eef91",
+      "bytes": 3495
+    },
+    {
+      "path": "experiments/hair-live-preview/ownership.ts",
+      "sha256": "ea14045a4877e30c51af90ea61d257e45bdd7b9d68cfa9d5a2bf7f8c287b7c46",
+      "bytes": 2528
+    },
+    {
+      "path": "experiments/hair-live-preview/playwright.integration.config.ts",
+      "sha256": "71eb463f4eb2937b811ab1927d4b083d9f1c62136e231904bf03039bf3340079",
+      "bytes": 856
+    },
+    {
+      "path": "experiments/hair-live-preview/renderer.ts",
+      "sha256": "5b115e8f1d0d23c7521168f5555e64f1064799567b1eb61737b1dfe2bca5f5e9",
+      "bytes": 23076
+    },
+    {
+      "path": "experiments/hair-live-preview/revision.ts",
+      "sha256": "7c5fc89bb43d12400d4d576fe640b4ba74c3c44fd8978c5bf32a1d9019f0b2c8",
+      "bytes": 147
+    },
+    {
+      "path": "experiments/hair-live-preview/tsconfig.json",
+      "sha256": "3efc3b812723a41156dfc32f299d6b976bcec978ac5ef2bbe75aac9da5420cc2",
+      "bytes": 55
+    },
+    {
+      "path": "experiments/hair-live-preview/vite.config.ts",
+      "sha256": "b748c6eb804e0b0605ddaa83539d276f95cca4aaed52a3311990dca8d76ea78f",
+      "bytes": 3397
+    },
+    {
+      "path": "experiments/performance-candidate/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37
+    },
+    {
+      "path": "experiments/performance-candidate/README.md",
+      "sha256": "4fa910a34492eab6c2faf1bf2766b08f6a2a4ea94f5159aae01e5f5dcdeab483",
+      "bytes": 4222
+    },
+    {
+      "path": "experiments/performance-candidate/background.ts",
+      "sha256": "c9fc711ccd2891b01d791f6ee584801854e84b1eb57370b5e0db9f12118dae0c",
+      "bytes": 3692
+    },
+    {
+      "path": "experiments/performance-candidate/comparison-ownership.test.ts",
+      "sha256": "3690703e475fea819e522d8ac1a4dbc9e7dfdc81b72bf84c97f3d41a888cfbe5",
+      "bytes": 14428
+    },
+    {
+      "path": "experiments/performance-candidate/comparison-renderer.ts",
+      "sha256": "ec11f1fa9269d6a3fb00ca2b26f8fbaf268f114072b5d1f1b760403aef75148b",
+      "bytes": 6937
+    },
+    {
+      "path": "experiments/performance-candidate/comparison.spec.ts",
+      "sha256": "57031a449071a67a6c6b6c58f378691d8df3837e0af9db4b0bc6c455447a1187",
+      "bytes": 9318
+    },
+    {
+      "path": "experiments/performance-candidate/controls.spec.ts",
+      "sha256": "b268fd13191cd0340ba418d312aeb4bc6c5c37c9317d181b6ade4c39072b6454",
+      "bytes": 14857
+    },
+    {
+      "path": "experiments/performance-candidate/fast-compose.test.ts",
+      "sha256": "76df200b5bd136a44a0a868cdf456b66ec4a7bbc4f8ed2111070c5c36c3fbf4f",
+      "bytes": 12171
+    },
+    {
+      "path": "experiments/performance-candidate/fast-compose.ts",
+      "sha256": "c4a475052080f28be1dc64a3385a8c1d1d6d2b83b1b019bd6368cc8a90634800",
+      "bytes": 16481
+    },
+    {
+      "path": "experiments/performance-candidate/live-main.ts",
+      "sha256": "bf22e79cc6a3b2a62211dda63b349d464f0ccb9fd4a4600f5dfdb92a0c0380f2",
+      "bytes": 30176
+    },
+    {
+      "path": "experiments/performance-candidate/live.css",
+      "sha256": "7b2bd8aa59bec029f53cb812558509e5ef7cd39b01412d606cbf1f1de59e5f10",
+      "bytes": 868
+    },
+    {
+      "path": "experiments/performance-candidate/live.html",
+      "sha256": "db01c57c3fffb34aed103f05c48525182a7d2ead8b7b7be8f284ebf4dcacbf1f",
+      "bytes": 5840
+    },
+    {
+      "path": "experiments/performance-candidate/native/native-pixels.test.ts",
+      "sha256": "382016d16b51938b107968e7aeee195b1f23c585dc70fdd55e0057ee536df123",
+      "bytes": 2081
+    },
+    {
+      "path": "experiments/performance-candidate/native/native-pixels.ts",
+      "sha256": "b4811b7d7147d7e50f7bc9888081dedce59a2caffab49093f9bd743b98b0a871",
+      "bytes": 994
+    },
+    {
+      "path": "experiments/performance-candidate/native/renderer.ts",
+      "sha256": "2b0a2c184c0f71302580fe9da9301878e458c18834bf7b4c343cd3692effb680",
+      "bytes": 23660
+    },
+    {
+      "path": "experiments/performance-candidate/native/temple-visibility.ts",
+      "sha256": "e6715dfc90a485a275c93d87fc2d101dec3495fe3b92de89499f5f1ab0fdc818",
+      "bytes": 27475
+    },
+    {
+      "path": "experiments/performance-candidate/native/visibility.test.ts",
+      "sha256": "0624bfff8de948578a7bd231b0c3c04605d30aa05d99468cbd768780062ddbd8",
+      "bytes": 1093
+    },
+    {
+      "path": "experiments/performance-candidate/playwright.config.ts",
+      "sha256": "5fc27505c9885171ae28deab51648a7824e713d36c716ba8d7cce4f594555cea",
+      "bytes": 909
+    },
+    {
+      "path": "experiments/performance-candidate/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8
+    },
+    {
+      "path": "experiments/performance-candidate/qa/README.md",
+      "sha256": "8571ab0b9c045115fa5263b66d9743626ed328f66b8e6a77a1f03095f4466cc7",
+      "bytes": 6625
+    },
+    {
+      "path": "experiments/performance-candidate/qa/audit-pngs.py",
+      "sha256": "5fc2cb8633a51c5e3273b66e7c41c2bdf0922dc65916deb7abcc7ace20ad23ae",
+      "bytes": 5476
+    },
+    {
+      "path": "experiments/performance-candidate/qa/browser.mjs",
+      "sha256": "d4f22fcb4ad250824ed03bacd3b808da308426b9dc8c8f019a41fab20a2bea58",
+      "bytes": 19825
+    },
+    {
+      "path": "experiments/performance-candidate/qa/matched.mjs",
+      "sha256": "fd7415af3cc4e8fb0bbab3559428b37a5c579cfac92cc734a79e08c9e22ff28e",
+      "bytes": 20179
+    },
+    {
+      "path": "experiments/performance-candidate/renderer-lifecycle-test.mjs",
+      "sha256": "3b5637595ee5327bb00edc0a138c70e899dd5edcae74a6ae3cf0e3b8e712dd35",
+      "bytes": 956
+    },
+    {
+      "path": "experiments/performance-candidate/renderer-lifecycle.test-source.ts",
+      "sha256": "385202894c65e7af4a126bb3c814691aa459ca4f0ea0adddc48539807296eeea",
+      "bytes": 9249
+    },
+    {
+      "path": "experiments/performance-candidate/renderer.ts",
+      "sha256": "d350a4403ad9404a384723c7691186628637d8b4a86f672c5b13deaaee95f002",
+      "bytes": 24612
+    },
+    {
+      "path": "experiments/performance-candidate/temples/branch-renderer.ts",
+      "sha256": "a2cca2839e49c0e68a7ebfe4d5591a319688fe10675309a05bafffb8471eb2ba",
+      "bytes": 25719
+    },
+    {
+      "path": "experiments/performance-candidate/temples/branch-transitions.test.ts",
+      "sha256": "80e99fec038f1b93e376c078c31b9a286a25f6d72be74e9d68079488eb8645c8",
+      "bytes": 2962
+    },
+    {
+      "path": "experiments/performance-candidate/temples/protection.test.ts",
+      "sha256": "f2210ec3693f1bd039f539499854ebfc9366b53c94808deee7f29f51ce2dfd79",
+      "bytes": 2663
+    },
+    {
+      "path": "experiments/performance-candidate/temples/protection.ts",
+      "sha256": "af5fb65fc81ae62994a67497db5bdb9e087d7f83ef4dcf6d38f14df07a1e963a",
+      "bytes": 3146
+    },
+    {
+      "path": "experiments/performance-candidate/temples/renderer-ownership.test.ts",
+      "sha256": "8051c02f658c930e6991aa4b1f1781af6183a3209f0b8cd57064270b8705d068",
+      "bytes": 11176
+    },
+    {
+      "path": "experiments/performance-candidate/temples/renderer.ts",
+      "sha256": "f099e5275525586d6bdc8b58fdbbfc6998d765e4bf57f04744f3a0f889f291a7",
+      "bytes": 19933
+    },
+    {
+      "path": "experiments/performance-candidate/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110
+    },
+    {
+      "path": "experiments/performance-candidate/vite.config.ts",
+      "sha256": "527fa1f842d9dcea3220f3c0dd59f1fd92a023c453edd5471b953d0eb381b6a0",
+      "bytes": 1146
+    },
+    {
+      "path": "experiments/performance-stage2/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37
+    },
+    {
+      "path": "experiments/performance-stage2/README.md",
+      "sha256": "ebdec017ababcb0df4b5b3d05d903bffd23d63b6ada0c61fe544f4a28be9613b",
+      "bytes": 6034
+    },
+    {
+      "path": "experiments/performance-stage2/background.ts",
+      "sha256": "28f1782c72c5dd659b981186d6f2da9bdd6867be658113480ff617bf78aaecbd",
+      "bytes": 719
+    },
+    {
+      "path": "experiments/performance-stage2/comparison-ownership.test.ts",
+      "sha256": "ab64387874b9fe7f69e669a217fe824edfb50ace5492e5af31370e5fbeaa8912",
+      "bytes": 18727
+    },
+    {
+      "path": "experiments/performance-stage2/comparison-renderer.ts",
+      "sha256": "5dd214f130878810f3489eefca23ec5d20ae4f58167dc033035a876180ff5cb7",
+      "bytes": 7757
+    },
+    {
+      "path": "experiments/performance-stage2/comparison.spec.ts",
+      "sha256": "643b18772536c583b968d10fa7faf3cfb169bde1039128924cc4de10d9c9220e",
+      "bytes": 13066
+    },
+    {
+      "path": "experiments/performance-stage2/controls.spec.ts",
+      "sha256": "9cd9cc385e04328f04786747325166c5b0b3a2a5d68adc15c80edf1b8e3dedc9",
+      "bytes": 16710
+    },
+    {
+      "path": "experiments/performance-stage2/direct-present.test.ts",
+      "sha256": "aa33575b162a95db7e6cbb13813cb505b41f3a08d23703647e8ceaabed1dc396",
+      "bytes": 5050
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.test.ts",
+      "sha256": "60b2e2919e055c0d31b0dd847fe744bbda6ad7486b9828f7d1fca353bb7ffb9d",
+      "bytes": 11385
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.ts",
+      "sha256": "f0e92691fd2f4836d14818691fc45fe34d978292247c9f1cda4124bd7aa9ef1e",
+      "bytes": 10939
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.worker.ts",
+      "sha256": "3e3dacbd0114f97cdddfe695ca30125c5c03a04771e84720c5a5171b5e281228",
+      "bytes": 4011
+    },
+    {
+      "path": "experiments/performance-stage2/face-timing.ts",
+      "sha256": "03547ee4be96507c69ab0e336bdd243d5621b1c659543c24665236cd795732a6",
+      "bytes": 3548
+    },
+    {
+      "path": "experiments/performance-stage2/face-worker.test.ts",
+      "sha256": "f579d6569276bb03786568e5912a9448a869669e75c64b83422ec9da7f901191",
+      "bytes": 9732
+    },
+    {
+      "path": "experiments/performance-stage2/frame-profiler.test.ts",
+      "sha256": "23ff9f4a9297b6b99b753f46fdd01cb6f2db77174bc0f154ac4ec3c900c68e11",
+      "bytes": 9628
+    },
+    {
+      "path": "experiments/performance-stage2/frame-profiler.ts",
+      "sha256": "572f413a1ad40c0a8b337b24b96c73cad2015e34b252e8a7295e0f1a46d97e73",
+      "bytes": 13992
+    },
+    {
+      "path": "experiments/performance-stage2/live-main.ts",
+      "sha256": "ca019a3b81413b7e7f2d399f2e061e3fdc71d859d994cc23716fdca2377c6c38",
+      "bytes": 41206
+    },
+    {
+      "path": "experiments/performance-stage2/live.css",
+      "sha256": "66586533bbca7110916c588335f962ae0b35b3d6ac6e0231e1f5ac4fb73d57d6",
+      "bytes": 3114
+    },
+    {
+      "path": "experiments/performance-stage2/live.html",
+      "sha256": "c926a8285ff708c586c900256f30940659c246a42d8abae4b335aacd8df42c26",
+      "bytes": 9300
+    },
+    {
+      "path": "experiments/performance-stage2/native/background.test.ts",
+      "sha256": "c8d385482e80502d9c98120250e14f85262cfaac02b805965b276a2ea0f406a0",
+      "bytes": 721
+    },
+    {
+      "path": "experiments/performance-stage2/native/native-pixels.test.ts",
+      "sha256": "761fb07d704f8eb17de65686c639cdc9c783e33ebd8fa8814e167e768cbcdcac",
+      "bytes": 2452
+    },
+    {
+      "path": "experiments/performance-stage2/native/native-pixels.ts",
+      "sha256": "45918f3b7b165a7d8a513688da3d54f2035b04375b7c7b465b0888187f024c26",
+      "bytes": 1395
+    },
+    {
+      "path": "experiments/performance-stage2/native/presentation.test.ts",
+      "sha256": "7a700c6c06257905a43dc0e3268ff6901be29098a2442ea334c5465b02d34f72",
+      "bytes": 3454
+    },
+    {
+      "path": "experiments/performance-stage2/native/renderer.ts",
+      "sha256": "94f7e664a9f88c65744171ba82c4eed4497d693cc5306c3b5e4e53f049fab7d8",
+      "bytes": 27161
+    },
+    {
+      "path": "experiments/performance-stage2/native/shared-readback.test.ts",
+      "sha256": "61639cc65ae5ef28ea40a3c4152ab36047335310ef0dfef4fa32fbcb063a99e5",
+      "bytes": 3615
+    },
+    {
+      "path": "experiments/performance-stage2/native/shared-readback.ts",
+      "sha256": "7e791fce62e2d1c0662739d85fc7d5018ae82653eefaecdfa50144d6aa2b1468",
+      "bytes": 4695
+    },
+    {
+      "path": "experiments/performance-stage2/playwright.base.config.ts",
+      "sha256": "64ccc2bd416f7d7e1a266a484763db428dd96f13a3dc4759167d37be2cabf6e8",
+      "bytes": 957
+    },
+    {
+      "path": "experiments/performance-stage2/playwright.config.ts",
+      "sha256": "e2a33418a683cee625fcaf325ede0b515b0612256700fd496a4e40197f5a176e",
+      "bytes": 901
+    },
+    {
+      "path": "experiments/performance-stage2/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8
+    },
+    {
+      "path": "experiments/performance-stage2/qa/README.md",
+      "sha256": "7d85a3688f92f1463ddc838512c35457d5f9c142546e5484969f88c81f4ab55f",
+      "bytes": 13785
+    },
+    {
+      "path": "experiments/performance-stage2/qa/audit-pngs.py",
+      "sha256": "60196b39026762fda19d5d426f56cb7455be3eac75f7e491ce0643136d4b2ca7",
+      "bytes": 5805
+    },
+    {
+      "path": "experiments/performance-stage2/qa/browser.mjs",
+      "sha256": "3cea3d7ce38a3e70d12207f0aa31510bf92bd89029af63ff0a1d46385be7b8b5",
+      "bytes": 21845
+    },
+    {
+      "path": "experiments/performance-stage2/qa/gl-errors.mjs",
+      "sha256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "bytes": 1995
+    },
+    {
+      "path": "experiments/performance-stage2/qa/matched.mjs",
+      "sha256": "5cb8238ce91f3af747a0b96377ecec4904da26b77afecaf0150a0d175f04fdb2",
+      "bytes": 22159
+    },
+    {
+      "path": "experiments/performance-stage2/qa/profile-browser.mjs",
+      "sha256": "cad4560b887128b86fe6ac5449ebb64fa3cb84ad633d174b0bbd673843d03345",
+      "bytes": 6633
+    },
+    {
+      "path": "experiments/performance-stage2/qa/sustained.mjs",
+      "sha256": "af2922d1802d0a405c7b1ffc1a7af5928e51cfe4ff0a23e4d0a800c082e05df1",
+      "bytes": 15957
+    },
+    {
+      "path": "experiments/performance-stage2/renderer.ts",
+      "sha256": "e517a0a9ab37f039888dd52bbd821f8b02e5df0e84ab09189223fba4006268ac",
+      "bytes": 26709
+    },
+    {
+      "path": "experiments/performance-stage2/temples/renderer.ts",
+      "sha256": "761b6316d5b115ab52ec2540eae94acae35260ce6b1081e07808e3bbecb8d00f",
+      "bytes": 22953
+    },
+    {
+      "path": "experiments/performance-stage2/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110
+    },
+    {
+      "path": "experiments/performance-stage2/vite.config.ts",
+      "sha256": "4bf9d16461cba542999b46af71be7f7bb2eb9d05c8e4f54b0bbc8f16388e2b92",
+      "bytes": 1149
+    },
+    {
+      "path": "experiments/performance-stage3/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37
+    },
+    {
+      "path": "experiments/performance-stage3/README.md",
+      "sha256": "b964c9e97380f9bb03d5b12da7626d5c9cfafd18f758fab59b021fbc109050c2",
+      "bytes": 15259
+    },
+    {
+      "path": "experiments/performance-stage3/comparison-ownership.test.ts",
+      "sha256": "0b2bc08ca17488facb380358754f31d098cd4615861535233da09fa5895017a9",
+      "bytes": 19696
+    },
+    {
+      "path": "experiments/performance-stage3/comparison-renderer.ts",
+      "sha256": "f37bfd38a2071308f59dd96820cbb8a2d394e2bfd686d06aebb5ae297f90875d",
+      "bytes": 9436
+    },
+    {
+      "path": "experiments/performance-stage3/comparison.spec.ts",
+      "sha256": "4055b862e69f4a2b346f2b7daa7faae972682d8539928959872e29705dd0d583",
+      "bytes": 12186
+    },
+    {
+      "path": "experiments/performance-stage3/controls.spec.ts",
+      "sha256": "a7d7ead923df72f04924ce6e3c47a7a0b5e57893bc6043373e543f332ac4c5bc",
+      "bytes": 16764
+    },
+    {
+      "path": "experiments/performance-stage3/frame-profiler.test.ts",
+      "sha256": "2a07fc36fdd9129880af3848c6aebcf23214fd82c39a5c9f119a5bd96d21d6b2",
+      "bytes": 10564
+    },
+    {
+      "path": "experiments/performance-stage3/frame-profiler.ts",
+      "sha256": "972ffbf5db5bb0ad77551b8d6bb0c32de331b90491df557fb5cbbe423a779174",
+      "bytes": 14232
+    },
+    {
+      "path": "experiments/performance-stage3/gpu-rules.test.ts",
+      "sha256": "ea97127b50405443b336f0b66423b3d2b5a18e4ef5c942a54eac54db2ea46295",
+      "bytes": 16289
+    },
+    {
+      "path": "experiments/performance-stage3/gpu-rules.ts",
+      "sha256": "25ca1e129a3140a3880bca17b4eb221e1cbd8fc79a283c35db9b1037aaaccb04",
+      "bytes": 24801
+    },
+    {
+      "path": "experiments/performance-stage3/live-main.ts",
+      "sha256": "398f3d1c65304ad1341de1749cc39236fbbdf42f5b6918b8ee5d0655f00398cd",
+      "bytes": 41947
+    },
+    {
+      "path": "experiments/performance-stage3/live.css",
+      "sha256": "3c27471e788d36d49b0fe6b685e39c9d6ce43c6c47bff517bcbb667493bc67a6",
+      "bytes": 3173
+    },
+    {
+      "path": "experiments/performance-stage3/live.html",
+      "sha256": "650c64fb5789f0bd680210cb9b856c586b735ddb2fd14479f37a750757376688",
+      "bytes": 9504
+    },
+    {
+      "path": "experiments/performance-stage3/native/gpu-frame.ts",
+      "sha256": "0943c027daee3a52424e27c1b6d5f7f3204d17014dfe4a902359b55b9b4750c9",
+      "bytes": 26541
+    },
+    {
+      "path": "experiments/performance-stage3/native/presentation.test.ts",
+      "sha256": "c011f76661f1d63109a40e891fbfc0e18e2ac1999b9b5f794a62894b7f55e922",
+      "bytes": 5348
+    },
+    {
+      "path": "experiments/performance-stage3/native/renderer.ts",
+      "sha256": "e4dc77ee8fd4c2be1e5ae9bae0b3036bca5865ba36513340c38123c0469db660",
+      "bytes": 27815
+    },
+    {
+      "path": "experiments/performance-stage3/playwright.config.ts",
+      "sha256": "a6848ba37d870ba292ba9295ef11eb9d0011f3f2455f0f9c1e5a7e178003cc9a",
+      "bytes": 901
+    },
+    {
+      "path": "experiments/performance-stage3/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8
+    },
+    {
+      "path": "experiments/performance-stage3/qa/README.md",
+      "sha256": "8d09eed3260d2eb0e7ca10411a649b71e80b8a5f174c96203152b0cc8581c296",
+      "bytes": 16039
+    },
+    {
+      "path": "experiments/performance-stage3/qa/audit-pngs.py",
+      "sha256": "2afab5e95767073ab6a91c5810afd60a13a55c07e72d742cf8e25a2637442aea",
+      "bytes": 8425
+    },
+    {
+      "path": "experiments/performance-stage3/qa/browser.mjs",
+      "sha256": "b9c248e72b8d0523908a243d2a41764466aeea4043558443a6e9e0f83f5e46b5",
+      "bytes": 22472
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gl-errors.mjs",
+      "sha256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "bytes": 1995
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gpu-contract.mjs",
+      "sha256": "ea236c78624a08d102d2910125882dce604705ae53397466ca17b7a6b9104a68",
+      "bytes": 4315
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gpu-contract.test.mjs",
+      "sha256": "1a3ea883829b5f699413973d6fb9daefb49c906839da5b9b2548d0d5f1cfda45",
+      "bytes": 3841
+    },
+    {
+      "path": "experiments/performance-stage3/qa/matched.mjs",
+      "sha256": "9c4c052dfb8e9e36d7c946fc7f300fcbfbf6eb7eb0f95028770c4b69772be6a2",
+      "bytes": 26007
+    },
+    {
+      "path": "experiments/performance-stage3/qa/native-capture-probe.mjs",
+      "sha256": "40fb7430554f66c4faccee160b0b7ecb165ae686efea61cfac5ff60d2766778e",
+      "bytes": 2319
+    },
+    {
+      "path": "experiments/performance-stage3/qa/preservation.mjs",
+      "sha256": "1a4366dcb55521476055d743aca6e3887330f8f857ed9a8e0970dc0200b6f106",
+      "bytes": 1219
+    },
+    {
+      "path": "experiments/performance-stage3/qa/production-build.mjs",
+      "sha256": "b45d2d38e2fe5b65b8f86b39c517fe37b4ea8c1de2f4c9931a489ab0d5b811ba",
+      "bytes": 2371
+    },
+    {
+      "path": "experiments/performance-stage3/qa/profile-browser.mjs",
+      "sha256": "65cfd3af12264c444f73a3e02b2b3178ff86a9aa52efc4419efbc094d9407344",
+      "bytes": 6633
+    },
+    {
+      "path": "experiments/performance-stage3/qa/summarize-sustained.mjs",
+      "sha256": "ca489b7a588c6a6eed1d0659f20a68d11233e255ae492f021535d1651d643c53",
+      "bytes": 4752
+    },
+    {
+      "path": "experiments/performance-stage3/qa/sustained.mjs",
+      "sha256": "b14d00e7493a7c9872769bd6f80e7f2480669132a7d06ddf51b9caa24f641af1",
+      "bytes": 17645
+    },
+    {
+      "path": "experiments/performance-stage3/renderer.ts",
+      "sha256": "002c2812114a609d456a00979712063d369b4982a758ee3bdddcdf44a3065783",
+      "bytes": 34552
+    },
+    {
+      "path": "experiments/performance-stage3/temples/renderer.ts",
+      "sha256": "cd878aa2298821a0d7f5e4c8b0c23bc8d17a8a096fbfcaa7b84126a74dd334bc",
+      "bytes": 24886
+    },
+    {
+      "path": "experiments/performance-stage3/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110
+    },
+    {
+      "path": "experiments/performance-stage3/vite.config.ts",
+      "sha256": "4b013e3c14d476d88c747fa5520d1df2b8d5a14b0dc8b4b9cfefd9247a3b954f",
+      "bytes": 1149
+    },
+    {
+      "path": "experiments/performance-stage3/wrapper-lease.test.ts",
+      "sha256": "e0df9f56937330f2e19b1a2c3cc565ecf9cdfbdac75ffa1a9d1f78e631618e8b",
+      "bytes": 5397
+    },
+    {
+      "path": "references/perfect-temples/.gitattributes",
+      "sha256": "80535b5fd2c6742a88b526e02f763be5687624561f06111159c31937e9d48f3f",
+      "bytes": 88
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/.gitignore",
+      "sha256": "92861ee314cc48e3193d04ec44704d474aeab9d15583823e20b168bf7de4291c",
+      "bytes": 94
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/README.md",
+      "sha256": "9a9f81c1bf6885009e7c42cb28d45331a200b3fab6b11e08151f37e4582c9d60",
+      "bytes": 4043
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/branch-renderer.ts",
+      "sha256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e",
+      "bytes": 24780
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/capture-controller.ts",
+      "sha256": "90ca7d501d399eb60c68aaca9afefc8b7e7599ea40b91f8e59d639808f96954c",
+      "bytes": 14009
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/contracts.ts",
+      "sha256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19",
+      "bytes": 1842
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/final-audit.mjs",
+      "sha256": "c4a9b02c2d36f6ad7218401a6db84fc2b4e09075e94709330e35976d3d61581c",
+      "bytes": 9236
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/final-pixels.py",
+      "sha256": "d71cec6d632d7b2389bb703ea8c53a6f0f2846505bebfbb2682061a02eefb37a",
+      "bytes": 7424
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/geometry-check.mjs",
+      "sha256": "d01fbb665f1677f5a6510205b18467dad872111b487b7077e1b57f407fe4b9a2",
+      "bytes": 13654
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/live-main.ts",
+      "sha256": "74db88de21a8e345fca7f9cc4cf990b967b3d33d9dd32390ace64c93b3eb1407",
+      "bytes": 21029
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/live.html",
+      "sha256": "ad7b838346922098959ebfb926bc45e706b135d6c8390476d972a8e89dded199",
+      "bytes": 8466
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/make-review.mjs",
+      "sha256": "36bbbafbd2b4e1104b66638b78eb880b3474ec318d0aff2a2acf11780274a433",
+      "bytes": 7603
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/mirror.spec.ts",
+      "sha256": "ca792ee6a4d4e568fd6f60a91e3225032d86af760e15a8474ca060c180dc77b5",
+      "bytes": 54317
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/playwright.config.ts",
+      "sha256": "0fd863e24aea1749f478996ba3d29a659b94c5fd6fbdf3497817c838b19e0c36",
+      "bytes": 836
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/preservation-audit.mjs",
+      "sha256": "5ccb12b1a7a1088e7dcf797284f8f5e1568e07c0eaa0171732fa5249aa700d4a",
+      "bytes": 4409
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/protection.test.ts",
+      "sha256": "aba7bbea68511b3d34328aa6db25302838ed69ebdc4d653a2ee99145e1b17466",
+      "bytes": 5755
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/protection.ts",
+      "sha256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0",
+      "bytes": 6527
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/qa-gallery.mjs",
+      "sha256": "3397477d9f336940348ae36f40dad2726a1713e3f25b0b927bc4c4263e206d60",
+      "bytes": 2353
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/rear-drop.test.ts",
+      "sha256": "decca36a5b4bda98f5f1dcf049b030b96602fb210223c58cf088831c2114bc39",
+      "bytes": 13269
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/rear-drop.ts",
+      "sha256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166",
+      "bytes": 13201
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/renderer-ownership.test.ts",
+      "sha256": "c191a854adf7ec6a339ac658bb7e6e04aa3e0137fe41616634f262fc23daf952",
+      "bytes": 5066
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/renderer.ts",
+      "sha256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef",
+      "bytes": 18927
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/replay-browser.mjs",
+      "sha256": "062d853cf4569f57547bab4017b1dccf94bb7c80b92e780985b722878f9e9a0f",
+      "bytes": 9679
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/replay.mjs",
+      "sha256": "9af8f7a351a707aa25d94666a68bad50ba9d196bead7b9624f326a571d7957cf",
+      "bytes": 5053
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/synthetic-pair.mjs",
+      "sha256": "b6e817708f332ac4d70d67ca245470b7d0cc278f2959f0f4eb9371b68bc2436f",
+      "bytes": 2951
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/synthetic-render.mjs",
+      "sha256": "d85a537b64d2695b07e9ef98f5b96213928456248073c1177f42cda1194165af",
+      "bytes": 2903
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/tsconfig.json",
+      "sha256": "1ba8fc37b8042c2a3eb19f0224a77fe77b63d75174aa83b42be8e0a3e2b983c3",
+      "bytes": 77
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/vite.config.ts",
+      "sha256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906",
+      "bytes": 202
+    },
+    {
+      "path": "references/perfect-temples/manifest.json",
+      "sha256": "eb34c6073741d8d9b76a37e6946dadebd7cf82ba0c0b2c07d6a2c828c4cb71c2",
+      "bytes": 10707
+    },
+    {
+      "path": "references/perfect-temples/src/capture/controller.ts",
+      "sha256": "c7a1fa6afe76d4b814d7e4c2b7a9bb79c0f4e2747973ac5ad3a005e77341855f",
+      "bytes": 13233
+    },
+    {
+      "path": "references/perfect-temples/src/capture/store.ts",
+      "sha256": "4dc15babccea1eb22b4681b20b77960fdb66e9545ebaf431f99a48e72c07f2de",
+      "bytes": 10608
+    },
+    {
+      "path": "references/perfect-temples/src/main.ts",
+      "sha256": "503b1952f96daa352270d7c0951339f311b6bae8472c36e12d071d85dbd1e580",
+      "bytes": 14248
+    },
+    {
+      "path": "references/perfect-temples/src/render/bridge-pose.ts",
+      "sha256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c",
+      "bytes": 5147
+    },
+    {
+      "path": "references/perfect-temples/src/render/eyewear.ts",
+      "sha256": "8873d4dfd21c2fece07cf74cfd0068f1d551d87e49578a47deefa6b697ef486a",
+      "bytes": 1929
+    },
+    {
+      "path": "references/perfect-temples/src/render/face-surface.ts",
+      "sha256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d",
+      "bytes": 6522
+    },
+    {
+      "path": "references/perfect-temples/src/render/nasal-boundary.ts",
+      "sha256": "3ed2e7a593671662b7a208287c853c393fdf9e09011ad7547b111a29355d66c2",
+      "bytes": 15806
+    },
+    {
+      "path": "references/perfect-temples/src/render/nasal-shape.ts",
+      "sha256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e",
+      "bytes": 9654
+    },
+    {
+      "path": "references/perfect-temples/src/render/projection.ts",
+      "sha256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53",
+      "bytes": 179
+    },
+    {
+      "path": "references/perfect-temples/src/render/renderer.ts",
+      "sha256": "530e8e101af5d9c63ece72d34beb04504b8af803dd017b9a03835f4cf6b7fab3",
+      "bytes": 23218
+    },
+    {
+      "path": "references/perfect-temples/src/render/temple-clip.ts",
+      "sha256": "ed572dd9c53f8b9e7ce74c73c59e302f8ca463e8707cae052e169e66fcb4373c",
+      "bytes": 12492
+    },
+    {
+      "path": "references/perfect-temples/src/render/temple-visibility.ts",
+      "sha256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c",
+      "bytes": 26848
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/camera.ts",
+      "sha256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2",
+      "bytes": 4916
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/detector.ts",
+      "sha256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9",
+      "bytes": 6461
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/detector.worker.ts",
+      "sha256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da",
+      "bytes": 2498
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/protocol.ts",
+      "sha256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7",
+      "bytes": 2415
+    },
+    {
+      "path": "references/perfect-temples/src/style.css",
+      "sha256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a",
+      "bytes": 9195
+    },
+    {
+      "path": "references/perfect-temples/tsconfig.json",
+      "sha256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7",
+      "bytes": 532
+    }
+  ]
+}

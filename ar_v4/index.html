@@ -16,7 +16,7 @@
       <section class="intro">
         <div>
           <p class="eyebrow">THE VIRTUAL MIRROR</p>
-          <h1>See yourself in Amber Horizon.</h1>
+          <h1 id="mirror-title">See yourself in Amber Horizon.</h1>
         </div>
         <p class="intro-note">A quieter frame. A different perspective.</p>
       </section>
@@ -61,6 +61,18 @@
           </div>
         </section>
         <aside class="sidebar">
+          <section class="product" aria-labelledby="frame-name">
+            <label class="eyebrow" for="eyewear-select">01 / CHOOSE A FRAME</label>
+            <select id="eyewear-select" aria-describedby="eyewear-hint"></select>
+            <p id="eyewear-hint">Choose a frame before opening the camera.</p>
+            <h2 id="frame-name">Amber Horizon</h2>
+            <p class="product-description" id="frame-description">
+              A rectangular tortoiseshell frame with warm brown gradient lenses.
+            </p>
+            <div class="swatch-row">
+              <span class="swatch" aria-hidden="true"></span><span id="frame-finish">Amber tortoiseshell</span>
+            </div>
+          </section>
           <section class="capture" id="capture" aria-labelledby="capture-title" data-state="idle" data-frames="0">
             <p class="eyebrow">RECORDING</p>
             <h2 id="capture-title">Record and replay.</h2>
@@ -79,19 +91,6 @@
               <div class="capture-buttons"><button id="download-capture" class="primary">Download capture</button><button id="discard-capture" class="quiet">Discard capture</button></div>
             </div>
           </section>
-          <div class="product">
-            <p class="eyebrow">01 / THE FRAME</p>
-            <h2>Amber Horizon</h2>
-            <p class="product-description">
-              A rectangular tortoiseshell frame with warm brown gradient lenses.
-            </p>
-            <div class="swatch-row">
-              <span class="swatch" aria-hidden="true"></span>Amber tortoiseshell<span
-                class="selected"
-                >Selected</span
-              >
-            </div>
-          </div>
           <div class="howto">
             <p class="eyebrow">A BETTER FIRST LOOK</p>
             <ol>

@@ -1,0 +1,53 @@
+{
+  "schema": "ar-v4-hair-model-assets-v1",
+  "documentationUrl": "https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter",
+  "licenseVerifiedFrom": "Official model cards, first page, verified 2026-09-09",
+  "models": [
+    {
+      "id": "hair-only",
+      "title": "MediaPipe HairSegmenter 512 (float32, version 1)",
+      "path": "hair-only.tflite",
+      "servingPath": "/hair-preview-models/hair-only.tflite",
+      "sourceUrl": "https://storage.googleapis.com/mediapipe-models/image_segmenter/hair_segmenter/float32/1/hair_segmenter.tflite",
+      "modelCardUrl": "https://storage.googleapis.com/mediapipe-assets/Model%20Card%20-%20Hair%20Segmentation.pdf",
+      "sha256": "2628cf3ce5f695f604cbea2841e00befcaa3624bf80caf3664bef2656d59bf84",
+      "bytes": 781618,
+      "labels": [
+        "background",
+        "hair"
+      ],
+      "hairIndex": 1,
+      "inputSize": [
+        512,
+        512
+      ],
+      "license": "Apache-2.0",
+      "modified": false
+    },
+    {
+      "id": "selfie-multiclass",
+      "title": "MediaPipe SelfieMulticlass 256 (float32, version 1)",
+      "path": "selfie-multiclass.tflite",
+      "servingPath": "/hair-preview-models/selfie-multiclass.tflite",
+      "sourceUrl": "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite",
+      "modelCardUrl": "https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf",
+      "sha256": "c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0",
+      "bytes": 16371837,
+      "labels": [
+        "background",
+        "hair",
+        "body-skin",
+        "face-skin",
+        "clothes",
+        "others"
+      ],
+      "hairIndex": 1,
+      "inputSize": [
+        256,
+        256
+      ],
+      "license": "Apache-2.0",
+      "modified": false
+    }
+  ]
+}

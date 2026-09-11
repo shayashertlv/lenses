@@ -2,9 +2,16 @@
 
 The repository root is the live Lenses application on Railway, started by
 `Procfile` with `python -m UI.app`. The [live demo](https://web-production-ef3ca.up.railway.app)
-serves Lenses features only. [ar_v4/](ar_v4/README.md) contains the separate AR
-development app; run its commands inside that directory. Keep its build and
-package manifests out of the root and its routes out of the live demo.
+serves the Lenses tools and the owner-authorized AR testing page below.
+[ar_v4/](ar_v4/README.md) contains the separate AR development app; run its commands
+inside that directory and keep its package manifests and assets there.
+
+The owner-authorized **ar_testing** landing-page option now opens a separate
+[mobile AR comparison](https://web-production-ef3ca.up.railway.app/ar_testing/).
+It serves the explicit `ar_v4/mobile-site/` package through the existing Python
+app and saves continuous comparison video/measurements locally. Other Lenses
+tools and the Railway start command remain unchanged. See the
+[mobile build and recording guide](ar_v4/experiments/efficiency-lab/MOBILE.md).
 
 AI-powered glasses tools powered by Google Gemini — three CLI pipelines plus a web UI for glasses recommendation, virtual try-on, and lens recoloring.
 

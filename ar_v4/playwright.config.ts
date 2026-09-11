@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "npm run preview -- --port 8041",
+    command: "npm run preview:reference -- --port 8041",
     url: "http://127.0.0.1:8041",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

@@ -4,6 +4,9 @@ import type { TestContext } from 'node:test';
 import { CAPTURE_LIMITS, CaptureStore } from '../../src/capture/store.ts';
 import type { CaptureCanvas, CaptureEncoder } from '../../src/capture/store.ts';
 import type { Detection } from '../../src/runtime/protocol.ts';
+import { CaptureController } from '../../src/capture/controller.ts';
+import type { CaptureGeometry, TryOnRenderer } from '../../src/render/renderer.ts';
+import type { TempleClipConfiguration } from '../../src/render/temple-clip.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -165,4 +168,225 @@ test('explicit export carries exact bytes, immutable header, provenance, times a
   env.store.reset();
   await assert.rejects(stale, { name: 'AbortError' });
   assert.equal(env.store.snapshot.frames.length, 0);
+});
+
+type PortableGeometry = Omit<CaptureGeometry, 'surfacePositions'> & { surfacePositions: number[] };
+type TempleVisibilityConfiguration = NonNullable<CaptureGeometry['templeVisibility']>;
+
+function geometry(model: string): PortableGeometry {
+  return {
+    eyewearModelId: model, rawMatrix: detection().matrix!, correctedMatrix: detection().matrix!,
+    eyewearMatrix: detection().matrix!, surfacePositions: [0.1, 0.2, -40], yawDegrees: 0,
+    occlusion: { method: 'historical-test-surface', selectedShapeId: null,
+      appliedShapeId: null, status: 'recorded', rejectionReasons: [] },
+  };
+}
+
+test('clipping provenance freezes with its paired surface and exports without relabeling historical frames', async t => {
+  const pending = deferred<Blob>();
+  let encodes = 0;
+  const store = new CaptureStore<PortableGeometry>({
+    now: () => 1_000, encode: () => ++encodes === 1 ? pending.promise : Promise.resolve(jpeg()),
+  });
+  t.after(() => store.reset());
+  const clip = { method: 'temple-end-clip-v1', negativeXCutoffLocalZM: -0.071,
+    positiveXCutoffLocalZM: -0.084 } satisfies TempleClipConfiguration;
+  const current = { ...geometry('tom-ford-clear'), templeClip: clip };
+  const expected = structuredClone(current);
+  store.start();
+  const capturing = store.capture(canvas(), detection(), { capturedAt: 1_000, metadata: current });
+  clip.negativeXCutoffLocalZM = -0.1;
+  clip.positiveXCutoffLocalZM = -0.11;
+  current.surfacePositions[0] = 9;
+  pending.resolve(jpeg('paired clipping image'));
+  assert.equal(await capturing, true);
+  const old = geometry('tom-ford-clear');
+  assert.equal(await store.capture(canvas(), detection(), { capturedAt: 1_300, metadata: old }), true);
+  await store.finish();
+  const saved = store.snapshot.frames[0]!.metadata;
+  assert.deepEqual(saved, expected);
+  assert.equal(Object.isFrozen(saved.templeClip), true);
+  assert.equal(Reflect.set(saved.templeClip!, 'negativeXCutoffLocalZM', -0.2), false);
+  assert.equal(Reflect.set(saved.templeClip!, 'positiveXCutoffLocalZM', -0.2), false);
+  const header = { templeClip: { method: 'temple-end-blend-v3', negativeXCutoffLocalZM: -0.110,
+    positiveXCutoffLocalZM: -0.110, fadeLengthLocalM: 0.015 },
+    templeVisibility: { method: 'temple-side-depth-v3', coverage: 'alpha-to-coverage', parameters: {} },
+    occlusion: { method: 'raw-nasal-shape-v1' } };
+  const expectedHeader = structuredClone(header);
+  const exporting = store.exportJson(header);
+  header.templeClip.negativeXCutoffLocalZM = -0.3;
+  header.templeClip.positiveXCutoffLocalZM = -0.3;
+  const document = JSON.parse(await exporting);
+  assert.deepEqual(document.header.templeClip, expectedHeader.templeClip);
+  assert.notDeepEqual(document.frames[0].metadata.templeClip, document.header.templeClip,
+    'the stored frame retains its asymmetric historical cutoffs independently of the fixed model header');
+  assert.deepEqual(document.frames[0].metadata, expected);
+  assert.deepEqual(document.frames[1].metadata, old);
+  assert.equal('templeClip' in document.frames[1].metadata, false,
+    'a historical frame does not gain current clipping provenance');
+  assert.equal('templeVisibility' in document.frames[0].metadata, false,
+    'an asymmetric hard-v1 record does not gain current visibility provenance');
+  assert.equal('templeVisibility' in document.frames[1].metadata, false,
+    'a legacy surface does not gain current visibility provenance');
+  assert.deepEqual(document.frames[1].metadata.occlusion, old.occlusion,
+    'clipping provenance does not relabel a historical face surface');
+});
+
+test('camera dissolve and frontal visibility metadata freeze before encoding for both models', async t => {
+  for (const [model, cutoff, coverage] of [
+    ['amber-horizon', -0.105, 'alpha-to-coverage'],
+    ['tom-ford-clear', -0.110, 'ordered-dither'],
+  ] as const) {
+    const pending = deferred<Blob>();
+    const store = new CaptureStore<PortableGeometry>({ now: () => 1_000, encode: () => pending.promise });
+    t.after(() => store.reset());
+    const clip = { method: 'temple-end-blend-v3', negativeXCutoffLocalZM: cutoff,
+      positiveXCutoffLocalZM: cutoff, fadeLengthLocalM: 0.015 } satisfies TempleClipConfiguration;
+    const visibility = { method: 'temple-side-depth-v3', negativeXWeight: 0.17,
+      positiveXWeight: 0.83, frontalOcclusionWeight: .64, coverage } satisfies TempleVisibilityConfiguration;
+    const current = { ...geometry(model), templeClip: clip, templeVisibility: visibility };
+    const expected = structuredClone(current);
+    store.start();
+    const capturing = store.capture(canvas(), detection(), { capturedAt: 1_000, metadata: current });
+    clip.fadeLengthLocalM = 0.002;
+    visibility.negativeXWeight = 0.99;
+    visibility.positiveXWeight = 0.01;
+    visibility.frontalOcclusionWeight = .02;
+    current.surfacePositions[0] = 99;
+    pending.resolve(jpeg('exact paired appearance'));
+    assert.equal(await capturing, true);
+    await store.finish();
+    const saved = store.snapshot.frames[0]!.metadata;
+    assert.deepEqual(saved, expected);
+    assert.equal(Object.isFrozen(saved.templeClip), true);
+    assert.equal(Object.isFrozen(saved.templeVisibility), true);
+    assert.equal(Reflect.set(saved.templeVisibility!, 'negativeXWeight', 0), false);
+    assert.equal(Reflect.set(saved.templeVisibility!, 'frontalOcclusionWeight', 0), false);
+    assert.equal(Reflect.set(saved.templeClip!, 'fadeLengthLocalM', 0), false);
+    const header = { templeClip: structuredClone(expected.templeClip),
+      templeVisibility: { method: 'temple-side-depth-v3', coverage,
+        parameters: { lateralCm: [3.5, 4.5] } } };
+    const expectedHeader = structuredClone(header);
+    const exporting = store.exportJson(header);
+    header.templeVisibility.parameters.lateralCm[0] = 99;
+    header.templeClip.fadeLengthLocalM = 0.01;
+    const exported = JSON.parse(await exporting);
+    assert.deepEqual(exported.header, expectedHeader);
+    assert.deepEqual(exported.frames[0].metadata, expected);
+    assert.equal(exported.frames[0].jpegDataUrl,
+      `data:image/jpeg;base64,${btoa('exact paired appearance')}`);
+  }
+});
+
+test('controller replays exact saved appearance and clears legacy and no-face state for both models', async t => {
+  const elements = new Map<string, { textContent: string }>();
+  const replacements: Record<string, unknown> = {
+    document: { getElementById(id: string) {
+      if (!elements.has(id)) elements.set(id, { textContent: '' });
+      return elements.get(id);
+    } },
+    createImageBitmap: async () => ({ close() {} }),
+  };
+  for (const [key, value] of Object.entries(replacements)) {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    });
+  }
+  for (const model of ['amber-horizon', 'tom-ford-clear']) {
+    const store = new CaptureStore<PortableGeometry | null>({ now: () => 1_000, encode: async () => jpeg() });
+    t.after(() => store.reset());
+    const clip: TempleClipConfiguration = { method: 'temple-end-clip-v1',
+      negativeXCutoffLocalZM: -0.068, positiveXCutoffLocalZM: -0.087 };
+    const fade: TempleClipConfiguration = { method: 'temple-end-fade-v2',
+      negativeXCutoffLocalZM: -0.091, positiveXCutoffLocalZM: -0.099,
+      fadeLengthLocalM: 0.003, coverage: 'ordered-dither' };
+    const visibility: TempleVisibilityConfiguration = { method: 'temple-side-depth-v1',
+      negativeXWeight: 0.25, positiveXWeight: 0.9, coverage: 'ordered-dither' };
+    const fixedCutoff = model === 'amber-horizon' ? -0.105 : -0.110;
+    const liveDefault: TempleClipConfiguration = { method: 'temple-end-blend-v3',
+      negativeXCutoffLocalZM: fixedCutoff, positiveXCutoffLocalZM: fixedCutoff,
+      fadeLengthLocalM: 0.015 };
+    const dissolve: TempleClipConfiguration = { method: 'temple-end-blend-v3',
+      negativeXCutoffLocalZM: -.101, positiveXCutoffLocalZM: -.108, fadeLengthLocalM: .012 };
+    const viewVisibility: TempleVisibilityConfiguration = { method: 'temple-side-depth-v2',
+      negativeXWeight: .18, positiveXWeight: .76, coverage: 'ordered-dither' };
+    const frontalVisibility: TempleVisibilityConfiguration = { method: 'temple-side-depth-v3',
+      negativeXWeight: .13, positiveXWeight: .28, frontalOcclusionWeight: .67, coverage: 'ordered-dither' };
+    const frames: (PortableGeometry | null)[] = [
+      { ...geometry(model), templeClip: clip },
+      { ...geometry(model), templeClip: fade, templeVisibility: visibility }, geometry(model),
+      { ...geometry(model), templeClip: null, templeVisibility: null }, null, null,
+      { ...geometry(model), templeClip: dissolve, templeVisibility: frontalVisibility },
+      { ...geometry(model), templeClip: dissolve, templeVisibility: viewVisibility },
+      { ...geometry(model === 'amber-horizon' ? 'tom-ford-clear' : 'amber-horizon'),
+        templeClip: fade, templeVisibility: visibility },
+    ];
+    store.start();
+    for (const [index, metadata] of frames.entries()) {
+      const paired = index === 4 ? { landmarks: [], matrix: null, inferenceMs: 1 } : detection();
+      assert.equal(await store.capture(canvas(), paired,
+        { capturedAt: 1_000 + index * 300, metadata }), true);
+    }
+    await store.finish();
+    const calls: { detection: Detection; surface: readonly number[] | undefined;
+      clipping: TempleClipConfiguration | null | undefined;
+      visibility: TempleVisibilityConfiguration | null | undefined }[] = [];
+    const renderer = { eyewear: { id: model }, templeClipConfiguration: liveDefault, present(_image: HTMLCanvasElement,
+      paired: Detection, surface?: readonly number[], clipping?: TempleClipConfiguration | null,
+      savedVisibility?: TempleVisibilityConfiguration | null) {
+      calls.push({ detection: paired, surface, clipping, visibility: savedVisibility });
+      return paired.matrix !== null;
+    } } as unknown as TryOnRenderer;
+    const slider = { value: '0' }, status = { textContent: '' };
+    // Exercise the real replay method and real immutable store. Only UI/image
+    // decoding and the renderer boundary are replaced; no GPU is needed here.
+    const controller = Object.assign(Object.create(CaptureController.prototype) as CaptureController, {
+      hooks: { renderer: () => renderer, replayPresented() {} }, store,
+      panel: { dataset: { state: 'replay' } }, slider, status, renderGeneration: 0,
+      cachedIndex: -1, image: { width: 1, height: 1, getContext: () => ({ drawImage() {} }) },
+    });
+    const replay = Reflect.get(controller, 'replay') as () => Promise<void>;
+    for (let index = 0; index < frames.length; index++) {
+      slider.value = String(index);
+      await replay.call(controller);
+    }
+    assert.equal(calls.length, 8, 'cross-model metadata must not reach the renderer');
+    assert.match(status.textContent, /different glasses session/);
+    assert.deepEqual(calls.map(call => call.clipping), [clip, fade, null, null, null, null, dissolve, dissolve]);
+    assert.deepEqual(calls.map(call => call.visibility), [null, visibility, null, null, null, null, frontalVisibility, viewVisibility]);
+    assert.notDeepEqual(calls[0]!.clipping, liveDefault,
+      'replay must retain both saved side cutoffs instead of substituting the fixed model endpoint');
+    assert.equal(calls[0]!.clipping!.negativeXCutoffLocalZM, -0.068);
+    assert.equal(calls[0]!.clipping!.positiveXCutoffLocalZM, -0.087);
+    assert.notDeepEqual(calls[1]!.clipping, liveDefault,
+      'saved fade width, coverage and asymmetric endpoints must not follow the new live defaults');
+    assert.deepEqual(calls[6]!.clipping, dissolve, 'saved v3 width and asymmetric endpoints remain exact');
+    assert.deepEqual(calls[6]!.visibility, frontalVisibility, 'saved nonzero frontal occlusion weight stays exact');
+    assert.equal(calls[6]!.surface, store.snapshot.frames[6]!.metadata!.surfacePositions);
+    assert.deepEqual(calls[7]!.visibility, viewVisibility, 'saved v2 weights and coverage do not gain v3 occlusion');
+    for (let index = 0; index < 4; index++) {
+      assert.equal(calls[index]!.surface, store.snapshot.frames[index]!.metadata!.surfacePositions,
+        'replay forwards the exact immutable saved surface');
+      assert.deepEqual(calls[index]!.detection, store.snapshot.frames[index]!.detection);
+    }
+    assert.equal(calls[4]!.surface, undefined);
+    assert.deepEqual(calls[4]!.detection, { landmarks: [], matrix: null, inferenceMs: 1 });
+    assert.equal(calls[5]!.surface, undefined);
+    assert.deepEqual(calls[5]!.detection, detection(),
+      'geometry-free historical face records still get explicit null appearance');
+    assert.equal('templeClip' in store.snapshot.frames[2]!.metadata!, false,
+      'replay must not annotate legacy source metadata');
+    assert.equal('templeVisibility' in store.snapshot.frames[2]!.metadata!, false);
+    for (const index of [1, 7, 6, 0]) {
+      slider.value = String(index);
+      await replay.call(controller);
+    }
+    assert.deepEqual(calls[8], calls[1], 'saved v2 fade and v1 visibility return exactly after v3 replay');
+    assert.deepEqual(calls[9], calls[7], 'saved v2 visibility returns without acquiring frontal occlusion');
+    assert.deepEqual(calls[10], calls[6], 'saved dissolve and v3 occlusion return after historical replay');
+    assert.deepEqual(calls[11], calls[0], 'historical hard-v1 remains hard-v1 after current-style replay');
+  }
 });

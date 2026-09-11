@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "assets/arTesting-Cv6yu_EG.js",
+      "size": 111927,
+      "sha256": "d7ea7fb1c8e9088ccf7a37620f3e88d449a7f3022fa2e1e54a6a77a8e3f0f31d"
+    },
+    {
+      "path": "assets/arTesting-D3JM6r0S.css",
+      "size": 12508,
+      "sha256": "d3b80a9ec926664b658460f2ff1435d295fb317bcc02323bcdd2a812e94ad0f0"
+    },
+    {
+      "path": "assets/comparison-renderer-BCc_h91E.js",
+      "size": 815850,
+      "sha256": "cb735916c865ef280ab9e3e5d0ad4a807e71c69575c383fc31121022622fe2c0"
+    },
+    {
+      "path": "assets/face-detector.worker-DvXt9Zsn.js",
+      "size": 156546,
+      "sha256": "19a92da7f87f1f14f7ec11af91597ce291218525d4c92d1754f7bec703e83de3"
+    },
+    {
+      "path": "assets/worker-IlW5QMei.js",
+      "size": 162070,
+      "sha256": "381a6e8da31271ac8e8c691136a2142149dc0a919ed1f7fb4c31b16031afe96a"
+    },
+    {
+      "path": "experiments/efficiency-lab/live.html",
+      "size": 13351,
+      "sha256": "e32fa45c84614da22faeb52144f249a7565b7dbfa1da9325e56498d35765694b"
+    },
+    {
+      "path": "hair-preview-models/hair-only.tflite",
+      "size": 781618,
+      "sha256": "2628cf3ce5f695f604cbea2841e00befcaa3624bf80caf3664bef2656d59bf84"
+    },
+    {
+      "path": "hair-preview-models/selfie-multiclass.tflite",
+      "size": 16371837,
+      "sha256": "c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0"
+    },
+    {
+      "path": "licenses/Apache-2.0.txt",
+      "size": 12331,
+      "sha256": "8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8"
+    },
+    {
+      "path": "licenses/Three-MIT.txt",
+      "size": 1081,
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+    },
+    {
+      "path": "mediapipe/vision_wasm_module_internal.js",
+      "size": 323415,
+      "sha256": "da8934057f147b622e82cfb4c0dbd85461c598e268588b5a8ba9ca963a8ff82d"
+    },
+    {
+      "path": "mediapipe/vision_wasm_module_internal.wasm",
+      "size": 11756972,
+      "sha256": "2dabd8e23c60984628beb7bb338764c81a08e6837145273f59578684b5d53c1b"
+    },
+    {
+      "path": "models/amber-horizon.glb",
+      "size": 3670784,
+      "sha256": "78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004"
+    },
+    {
+      "path": "models/canonical-face.json",
+      "size": 22937,
+      "sha256": "566302c1734dc3b096f7651f46a3a568de4d7a47ba662425b963880f7640cf14"
+    },
+    {
+      "path": "models/face_landmarker.task",
+      "size": 3758596,
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "path": "models/hair/ATTRIBUTION.md",
+      "size": 2258,
+      "sha256": "c31d354a44a36647538d569fabf79dd7375c820a6e9f4db64f7228918ba48f9c"
+    },
+    {
+      "path": "models/hair/LICENSE-2.0.txt",
+      "size": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "models/hair/manifest.json",
+      "size": 1878,
+      "sha256": "d78bfaf335a8d5e127af3c8ce87f3dff32bbb85fd4ef3a0baf0bb152f287d5e3"
+    },
+    {
+      "path": "models/manifest.json",
+      "size": 735,
+      "sha256": "1dc9d9e19d063a03d7fe94323bf256ce0813bf359be14fb31ea8efa3d9131166"
+    },
+    {
+      "path": "models/tom-ford-clear.glb",
+      "size": 2900984,
+      "sha256": "06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f"
+    },
+    {
+      "path": "release.json",
+      "size": 255,
+      "sha256": "25c90f745a3c516689583f837a73bf63abe101d8016be1db2946b1a0c672d4ab"
+    }
+  ]
+}

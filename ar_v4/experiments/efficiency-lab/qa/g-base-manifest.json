@@ -1,0 +1,1919 @@
+{
+  "schema": "efficiency-lab-g-base-v1",
+  "commit": "b9142b2a3b957445f378d8012eea7e27ca68fd0b",
+  "scope": "Unchanged G and accepted renderer dependencies, with separate local-byte and Git-blob identities. Historical manifests remain unchanged.",
+  "files": [
+    {
+      "path": "experiments/hair-live-preview/README.md",
+      "sha256": "c2b04829830d91e448836159289be0f473eaaa3c3be594160e3f082e21fd5c64",
+      "bytes": 4493,
+      "gitSHA256": "17e8862931012c7c7c4be3af370ca070161e0d68961ff4ef352b0a9a47bc4d04",
+      "gitBytes": 4416,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/accepted-reference.ts",
+      "sha256": "d058ac16e3f1e1b90a3491de4473ac7e8c7043fb2ff61be6465bfd109b7c286b",
+      "bytes": 3212,
+      "gitSHA256": "d058ac16e3f1e1b90a3491de4473ac7e8c7043fb2ff61be6465bfd109b7c286b",
+      "gitBytes": 3212,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/background.ts",
+      "sha256": "8c842258175a7904d59525f4ee541653cfe2e7b87f8e4779e6866e20a5b86409",
+      "bytes": 3665,
+      "gitSHA256": "8c842258175a7904d59525f4ee541653cfe2e7b87f8e4779e6866e20a5b86409",
+      "gitBytes": 3665,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/continuity.test.ts",
+      "sha256": "81fabca7967e464c22435653c54381d8478012ae9e797c9ff34732a884eeb61c",
+      "bytes": 8803,
+      "gitSHA256": "81fabca7967e464c22435653c54381d8478012ae9e797c9ff34732a884eeb61c",
+      "gitBytes": 8803,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/continuity.ts",
+      "sha256": "8a856d335eb9780d1eb38e7a9452b66863280cf044215163bbba4d54b77b5b19",
+      "bytes": 18361,
+      "gitSHA256": "8a856d335eb9780d1eb38e7a9452b66863280cf044215163bbba4d54b77b5b19",
+      "gitBytes": 18361,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-compose.test.ts",
+      "sha256": "fd8e279c5661dd5771e3d094dc6bb07c7c7aed746ec3329b0e302f2aa11a8167",
+      "bytes": 8185,
+      "gitSHA256": "fd8e279c5661dd5771e3d094dc6bb07c7c7aed746ec3329b0e302f2aa11a8167",
+      "gitBytes": 8185,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-compose.ts",
+      "sha256": "088da15720bc1ff15c05088daf35b6a053c6d73b71126e3df0a0e14b4012be57",
+      "bytes": 13395,
+      "gitSHA256": "088da15720bc1ff15c05088daf35b6a053c6d73b71126e3df0a0e14b4012be57",
+      "gitBytes": 13395,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/fast-guard.test.ts",
+      "sha256": "1ebf4d3f6633b1837608fc58d2d1945f83253e49b1c7a469a8b68ea984e07111",
+      "bytes": 4422,
+      "gitSHA256": "1ebf4d3f6633b1837608fc58d2d1945f83253e49b1c7a469a8b68ea984e07111",
+      "gitBytes": 4422,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/frame-budget.test.ts",
+      "sha256": "66c6c964b44a686094a4307956666a7427fc7527b2b16747e4f05d96584ebf47",
+      "bytes": 1692,
+      "gitSHA256": "66c6c964b44a686094a4307956666a7427fc7527b2b16747e4f05d96584ebf47",
+      "gitBytes": 1692,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/frame-budget.ts",
+      "sha256": "1508c289b7bb922e8ae11aa97eaea5cae5f6802f960257835c76f3f09d7760a7",
+      "bytes": 1452,
+      "gitSHA256": "1508c289b7bb922e8ae11aa97eaea5cae5f6802f960257835c76f3f09d7760a7",
+      "gitBytes": 1452,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-backend.test.ts",
+      "sha256": "f1c3f1216f524563e545e08230770422c9e9d937328da9994ce66aac58646bd8",
+      "bytes": 768,
+      "gitSHA256": "f1c3f1216f524563e545e08230770422c9e9d937328da9994ce66aac58646bd8",
+      "gitBytes": 768,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-backend.ts",
+      "sha256": "17f7d5c14381b25a752340fbf839ce57ebc29b59569a06b81bf4de15589422be",
+      "bytes": 1518,
+      "gitSHA256": "17f7d5c14381b25a752340fbf839ce57ebc29b59569a06b81bf4de15589422be",
+      "gitBytes": 1518,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-client.test.ts",
+      "sha256": "06ab2af955f4d83730a8d38bf287272cf65cc3f84c6a3b321d5379c03d9b58cb",
+      "bytes": 14301,
+      "gitSHA256": "06ab2af955f4d83730a8d38bf287272cf65cc3f84c6a3b321d5379c03d9b58cb",
+      "gitBytes": 14301,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-client.ts",
+      "sha256": "ac604d3126a55d34783051c618b2a76c7f732562d9cdd5b1b741c064059fe474",
+      "bytes": 8415,
+      "gitSHA256": "ac604d3126a55d34783051c618b2a76c7f732562d9cdd5b1b741c064059fe474",
+      "gitBytes": 8415,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-protocol.test.ts",
+      "sha256": "8b51bb7166725306898bc92e22fe626ed21032e987b18d4a13f02d7b0ef8dbce",
+      "bytes": 6308,
+      "gitSHA256": "8b51bb7166725306898bc92e22fe626ed21032e987b18d4a13f02d7b0ef8dbce",
+      "gitBytes": 6308,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair-protocol.ts",
+      "sha256": "5ed5319fa8641a7444d6741f848a8f38a4493cc3df405e4a9524bd8a191284cb",
+      "bytes": 10299,
+      "gitSHA256": "5ed5319fa8641a7444d6741f848a8f38a4493cc3df405e4a9524bd8a191284cb",
+      "gitBytes": 10299,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/hair.worker.ts",
+      "sha256": "6d2c975443fc4f1d7cabe298f24b8fc74b594572ca635f8256cf5f0a5c9fb392",
+      "bytes": 6862,
+      "gitSHA256": "6d2c975443fc4f1d7cabe298f24b8fc74b594572ca635f8256cf5f0a5c9fb392",
+      "gitBytes": 6862,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/integration.spec.ts",
+      "sha256": "75162bbeecce6c46f3900e4e54ca1c1fadf28c384c598fcc9fb3ae31cba8212b",
+      "bytes": 10014,
+      "gitSHA256": "75162bbeecce6c46f3900e4e54ca1c1fadf28c384c598fcc9fb3ae31cba8212b",
+      "gitBytes": 10014,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/live-main.ts",
+      "sha256": "2b8951fbe127b73e077500dffa144cc6a06c4fc270582463582a334709f37499",
+      "bytes": 26997,
+      "gitSHA256": "2b8951fbe127b73e077500dffa144cc6a06c4fc270582463582a334709f37499",
+      "gitBytes": 26997,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/live-mask.ts",
+      "sha256": "c555ec767f1cdec917a48a36fd4b7ccbbcf08995c3aad9dcd995c0be1fb084eb",
+      "bytes": 477,
+      "gitSHA256": "c555ec767f1cdec917a48a36fd4b7ccbbcf08995c3aad9dcd995c0be1fb084eb",
+      "gitBytes": 477,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/live.css",
+      "sha256": "2b6efeaaebe8670aed63c7c005e1dbcbff995fded289bf9efcd4168c838a2e56",
+      "bytes": 1070,
+      "gitSHA256": "2b6efeaaebe8670aed63c7c005e1dbcbff995fded289bf9efcd4168c838a2e56",
+      "gitBytes": 1070,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/live.html",
+      "sha256": "429a8bcba1db51f69c4d996b2f3655ef43e0c22200caf4161f854f356a25aae1",
+      "bytes": 4988,
+      "gitSHA256": "287fe37b1a4dbe322c9aeb2efef8bdd7ac9ae8d1ae8e9881598b1f6bf36f54f4",
+      "gitBytes": 4963,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/models.ts",
+      "sha256": "02c32ab954a8af4097c11cfdc8287ec0e4d6d89ac14d4e1c74be65c3eb6154e7",
+      "bytes": 1942,
+      "gitSHA256": "02c32ab954a8af4097c11cfdc8287ec0e4d6d89ac14d4e1c74be65c3eb6154e7",
+      "gitBytes": 1942,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/ownership.test.ts",
+      "sha256": "148d90e8edd1ce6eac0a29d83c5efdcf30b2fe254ce83479248bf578c06eef91",
+      "bytes": 3495,
+      "gitSHA256": "148d90e8edd1ce6eac0a29d83c5efdcf30b2fe254ce83479248bf578c06eef91",
+      "gitBytes": 3495,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/ownership.ts",
+      "sha256": "ea14045a4877e30c51af90ea61d257e45bdd7b9d68cfa9d5a2bf7f8c287b7c46",
+      "bytes": 2528,
+      "gitSHA256": "ea14045a4877e30c51af90ea61d257e45bdd7b9d68cfa9d5a2bf7f8c287b7c46",
+      "gitBytes": 2528,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/playwright.integration.config.ts",
+      "sha256": "71eb463f4eb2937b811ab1927d4b083d9f1c62136e231904bf03039bf3340079",
+      "bytes": 856,
+      "gitSHA256": "71eb463f4eb2937b811ab1927d4b083d9f1c62136e231904bf03039bf3340079",
+      "gitBytes": 856,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/renderer.ts",
+      "sha256": "5b115e8f1d0d23c7521168f5555e64f1064799567b1eb61737b1dfe2bca5f5e9",
+      "bytes": 23076,
+      "gitSHA256": "5b115e8f1d0d23c7521168f5555e64f1064799567b1eb61737b1dfe2bca5f5e9",
+      "gitBytes": 23076,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/revision.ts",
+      "sha256": "7c5fc89bb43d12400d4d576fe640b4ba74c3c44fd8978c5bf32a1d9019f0b2c8",
+      "bytes": 147,
+      "gitSHA256": "7c5fc89bb43d12400d4d576fe640b4ba74c3c44fd8978c5bf32a1d9019f0b2c8",
+      "gitBytes": 147,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/tsconfig.json",
+      "sha256": "3efc3b812723a41156dfc32f299d6b976bcec978ac5ef2bbe75aac9da5420cc2",
+      "bytes": 55,
+      "gitSHA256": "3efc3b812723a41156dfc32f299d6b976bcec978ac5ef2bbe75aac9da5420cc2",
+      "gitBytes": 55,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/hair-live-preview/vite.config.ts",
+      "sha256": "b748c6eb804e0b0605ddaa83539d276f95cca4aaed52a3311990dca8d76ea78f",
+      "bytes": 3397,
+      "gitSHA256": "bd320ae6fb7a36e52a5526d410d255e41f2279fa48b302fe3e88508e05147993",
+      "gitBytes": 3396,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37,
+      "gitSHA256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "gitBytes": 37,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/README.md",
+      "sha256": "4fa910a34492eab6c2faf1bf2766b08f6a2a4ea94f5159aae01e5f5dcdeab483",
+      "bytes": 4222,
+      "gitSHA256": "4fa910a34492eab6c2faf1bf2766b08f6a2a4ea94f5159aae01e5f5dcdeab483",
+      "gitBytes": 4222,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/background.ts",
+      "sha256": "c9fc711ccd2891b01d791f6ee584801854e84b1eb57370b5e0db9f12118dae0c",
+      "bytes": 3692,
+      "gitSHA256": "c9fc711ccd2891b01d791f6ee584801854e84b1eb57370b5e0db9f12118dae0c",
+      "gitBytes": 3692,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/comparison-ownership.test.ts",
+      "sha256": "3690703e475fea819e522d8ac1a4dbc9e7dfdc81b72bf84c97f3d41a888cfbe5",
+      "bytes": 14428,
+      "gitSHA256": "3690703e475fea819e522d8ac1a4dbc9e7dfdc81b72bf84c97f3d41a888cfbe5",
+      "gitBytes": 14428,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/comparison-renderer.ts",
+      "sha256": "ec11f1fa9269d6a3fb00ca2b26f8fbaf268f114072b5d1f1b760403aef75148b",
+      "bytes": 6937,
+      "gitSHA256": "ec11f1fa9269d6a3fb00ca2b26f8fbaf268f114072b5d1f1b760403aef75148b",
+      "gitBytes": 6937,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/comparison.spec.ts",
+      "sha256": "57031a449071a67a6c6b6c58f378691d8df3837e0af9db4b0bc6c455447a1187",
+      "bytes": 9318,
+      "gitSHA256": "57031a449071a67a6c6b6c58f378691d8df3837e0af9db4b0bc6c455447a1187",
+      "gitBytes": 9318,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/controls.spec.ts",
+      "sha256": "b268fd13191cd0340ba418d312aeb4bc6c5c37c9317d181b6ade4c39072b6454",
+      "bytes": 14857,
+      "gitSHA256": "b268fd13191cd0340ba418d312aeb4bc6c5c37c9317d181b6ade4c39072b6454",
+      "gitBytes": 14857,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/fast-compose.test.ts",
+      "sha256": "76df200b5bd136a44a0a868cdf456b66ec4a7bbc4f8ed2111070c5c36c3fbf4f",
+      "bytes": 12171,
+      "gitSHA256": "76df200b5bd136a44a0a868cdf456b66ec4a7bbc4f8ed2111070c5c36c3fbf4f",
+      "gitBytes": 12171,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/fast-compose.ts",
+      "sha256": "c4a475052080f28be1dc64a3385a8c1d1d6d2b83b1b019bd6368cc8a90634800",
+      "bytes": 16481,
+      "gitSHA256": "c4a475052080f28be1dc64a3385a8c1d1d6d2b83b1b019bd6368cc8a90634800",
+      "gitBytes": 16481,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/live-main.ts",
+      "sha256": "bf22e79cc6a3b2a62211dda63b349d464f0ccb9fd4a4600f5dfdb92a0c0380f2",
+      "bytes": 30176,
+      "gitSHA256": "bf22e79cc6a3b2a62211dda63b349d464f0ccb9fd4a4600f5dfdb92a0c0380f2",
+      "gitBytes": 30176,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/live.css",
+      "sha256": "7b2bd8aa59bec029f53cb812558509e5ef7cd39b01412d606cbf1f1de59e5f10",
+      "bytes": 868,
+      "gitSHA256": "7b2bd8aa59bec029f53cb812558509e5ef7cd39b01412d606cbf1f1de59e5f10",
+      "gitBytes": 868,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/live.html",
+      "sha256": "db01c57c3fffb34aed103f05c48525182a7d2ead8b7b7be8f284ebf4dcacbf1f",
+      "bytes": 5840,
+      "gitSHA256": "76986a9f20c777ca3ce8549735ac1094198693e3872615befaa5cfb6ad41ca9d",
+      "gitBytes": 5815,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/native/native-pixels.test.ts",
+      "sha256": "382016d16b51938b107968e7aeee195b1f23c585dc70fdd55e0057ee536df123",
+      "bytes": 2081,
+      "gitSHA256": "382016d16b51938b107968e7aeee195b1f23c585dc70fdd55e0057ee536df123",
+      "gitBytes": 2081,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/native/native-pixels.ts",
+      "sha256": "b4811b7d7147d7e50f7bc9888081dedce59a2caffab49093f9bd743b98b0a871",
+      "bytes": 994,
+      "gitSHA256": "b4811b7d7147d7e50f7bc9888081dedce59a2caffab49093f9bd743b98b0a871",
+      "gitBytes": 994,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/native/renderer.ts",
+      "sha256": "2b0a2c184c0f71302580fe9da9301878e458c18834bf7b4c343cd3692effb680",
+      "bytes": 23660,
+      "gitSHA256": "2b0a2c184c0f71302580fe9da9301878e458c18834bf7b4c343cd3692effb680",
+      "gitBytes": 23660,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/native/temple-visibility.ts",
+      "sha256": "e6715dfc90a485a275c93d87fc2d101dec3495fe3b92de89499f5f1ab0fdc818",
+      "bytes": 27475,
+      "gitSHA256": "e6715dfc90a485a275c93d87fc2d101dec3495fe3b92de89499f5f1ab0fdc818",
+      "gitBytes": 27475,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/native/visibility.test.ts",
+      "sha256": "0624bfff8de948578a7bd231b0c3c04605d30aa05d99468cbd768780062ddbd8",
+      "bytes": 1093,
+      "gitSHA256": "0624bfff8de948578a7bd231b0c3c04605d30aa05d99468cbd768780062ddbd8",
+      "gitBytes": 1093,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/playwright.config.ts",
+      "sha256": "5fc27505c9885171ae28deab51648a7824e713d36c716ba8d7cce4f594555cea",
+      "bytes": 909,
+      "gitSHA256": "5fc27505c9885171ae28deab51648a7824e713d36c716ba8d7cce4f594555cea",
+      "gitBytes": 909,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8,
+      "gitSHA256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "gitBytes": 8,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/qa/README.md",
+      "sha256": "8571ab0b9c045115fa5263b66d9743626ed328f66b8e6a77a1f03095f4466cc7",
+      "bytes": 6625,
+      "gitSHA256": "8571ab0b9c045115fa5263b66d9743626ed328f66b8e6a77a1f03095f4466cc7",
+      "gitBytes": 6625,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/qa/audit-pngs.py",
+      "sha256": "5fc2cb8633a51c5e3273b66e7c41c2bdf0922dc65916deb7abcc7ace20ad23ae",
+      "bytes": 5476,
+      "gitSHA256": "5fc2cb8633a51c5e3273b66e7c41c2bdf0922dc65916deb7abcc7ace20ad23ae",
+      "gitBytes": 5476,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/qa/browser.mjs",
+      "sha256": "d4f22fcb4ad250824ed03bacd3b808da308426b9dc8c8f019a41fab20a2bea58",
+      "bytes": 19825,
+      "gitSHA256": "d4f22fcb4ad250824ed03bacd3b808da308426b9dc8c8f019a41fab20a2bea58",
+      "gitBytes": 19825,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/qa/matched.mjs",
+      "sha256": "fd7415af3cc4e8fb0bbab3559428b37a5c579cfac92cc734a79e08c9e22ff28e",
+      "bytes": 20179,
+      "gitSHA256": "fd7415af3cc4e8fb0bbab3559428b37a5c579cfac92cc734a79e08c9e22ff28e",
+      "gitBytes": 20179,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/renderer-lifecycle-test.mjs",
+      "sha256": "3b5637595ee5327bb00edc0a138c70e899dd5edcae74a6ae3cf0e3b8e712dd35",
+      "bytes": 956,
+      "gitSHA256": "3b5637595ee5327bb00edc0a138c70e899dd5edcae74a6ae3cf0e3b8e712dd35",
+      "gitBytes": 956,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/renderer-lifecycle.test-source.ts",
+      "sha256": "385202894c65e7af4a126bb3c814691aa459ca4f0ea0adddc48539807296eeea",
+      "bytes": 9249,
+      "gitSHA256": "385202894c65e7af4a126bb3c814691aa459ca4f0ea0adddc48539807296eeea",
+      "gitBytes": 9249,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/renderer.ts",
+      "sha256": "d350a4403ad9404a384723c7691186628637d8b4a86f672c5b13deaaee95f002",
+      "bytes": 24612,
+      "gitSHA256": "d350a4403ad9404a384723c7691186628637d8b4a86f672c5b13deaaee95f002",
+      "gitBytes": 24612,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/branch-renderer.ts",
+      "sha256": "a2cca2839e49c0e68a7ebfe4d5591a319688fe10675309a05bafffb8471eb2ba",
+      "bytes": 25719,
+      "gitSHA256": "a2cca2839e49c0e68a7ebfe4d5591a319688fe10675309a05bafffb8471eb2ba",
+      "gitBytes": 25719,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/branch-transitions.test.ts",
+      "sha256": "80e99fec038f1b93e376c078c31b9a286a25f6d72be74e9d68079488eb8645c8",
+      "bytes": 2962,
+      "gitSHA256": "80e99fec038f1b93e376c078c31b9a286a25f6d72be74e9d68079488eb8645c8",
+      "gitBytes": 2962,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/protection.test.ts",
+      "sha256": "f2210ec3693f1bd039f539499854ebfc9366b53c94808deee7f29f51ce2dfd79",
+      "bytes": 2663,
+      "gitSHA256": "f2210ec3693f1bd039f539499854ebfc9366b53c94808deee7f29f51ce2dfd79",
+      "gitBytes": 2663,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/protection.ts",
+      "sha256": "af5fb65fc81ae62994a67497db5bdb9e087d7f83ef4dcf6d38f14df07a1e963a",
+      "bytes": 3146,
+      "gitSHA256": "af5fb65fc81ae62994a67497db5bdb9e087d7f83ef4dcf6d38f14df07a1e963a",
+      "gitBytes": 3146,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/renderer-ownership.test.ts",
+      "sha256": "8051c02f658c930e6991aa4b1f1781af6183a3209f0b8cd57064270b8705d068",
+      "bytes": 11176,
+      "gitSHA256": "8051c02f658c930e6991aa4b1f1781af6183a3209f0b8cd57064270b8705d068",
+      "gitBytes": 11176,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/temples/renderer.ts",
+      "sha256": "f099e5275525586d6bdc8b58fdbbfc6998d765e4bf57f04744f3a0f889f291a7",
+      "bytes": 19933,
+      "gitSHA256": "f099e5275525586d6bdc8b58fdbbfc6998d765e4bf57f04744f3a0f889f291a7",
+      "gitBytes": 19933,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110,
+      "gitSHA256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "gitBytes": 110,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-candidate/vite.config.ts",
+      "sha256": "527fa1f842d9dcea3220f3c0dd59f1fd92a023c453edd5471b953d0eb381b6a0",
+      "bytes": 1146,
+      "gitSHA256": "527fa1f842d9dcea3220f3c0dd59f1fd92a023c453edd5471b953d0eb381b6a0",
+      "gitBytes": 1146,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37,
+      "gitSHA256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "gitBytes": 37,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/README.md",
+      "sha256": "ebdec017ababcb0df4b5b3d05d903bffd23d63b6ada0c61fe544f4a28be9613b",
+      "bytes": 6034,
+      "gitSHA256": "ebdec017ababcb0df4b5b3d05d903bffd23d63b6ada0c61fe544f4a28be9613b",
+      "gitBytes": 6034,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/background.ts",
+      "sha256": "28f1782c72c5dd659b981186d6f2da9bdd6867be658113480ff617bf78aaecbd",
+      "bytes": 719,
+      "gitSHA256": "28f1782c72c5dd659b981186d6f2da9bdd6867be658113480ff617bf78aaecbd",
+      "gitBytes": 719,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/comparison-ownership.test.ts",
+      "sha256": "ab64387874b9fe7f69e669a217fe824edfb50ace5492e5af31370e5fbeaa8912",
+      "bytes": 18727,
+      "gitSHA256": "ab64387874b9fe7f69e669a217fe824edfb50ace5492e5af31370e5fbeaa8912",
+      "gitBytes": 18727,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/comparison-renderer.ts",
+      "sha256": "5dd214f130878810f3489eefca23ec5d20ae4f58167dc033035a876180ff5cb7",
+      "bytes": 7757,
+      "gitSHA256": "5dd214f130878810f3489eefca23ec5d20ae4f58167dc033035a876180ff5cb7",
+      "gitBytes": 7757,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/comparison.spec.ts",
+      "sha256": "643b18772536c583b968d10fa7faf3cfb169bde1039128924cc4de10d9c9220e",
+      "bytes": 13066,
+      "gitSHA256": "643b18772536c583b968d10fa7faf3cfb169bde1039128924cc4de10d9c9220e",
+      "gitBytes": 13066,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/controls.spec.ts",
+      "sha256": "9cd9cc385e04328f04786747325166c5b0b3a2a5d68adc15c80edf1b8e3dedc9",
+      "bytes": 16710,
+      "gitSHA256": "9cd9cc385e04328f04786747325166c5b0b3a2a5d68adc15c80edf1b8e3dedc9",
+      "gitBytes": 16710,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/direct-present.test.ts",
+      "sha256": "aa33575b162a95db7e6cbb13813cb505b41f3a08d23703647e8ceaabed1dc396",
+      "bytes": 5050,
+      "gitSHA256": "aa33575b162a95db7e6cbb13813cb505b41f3a08d23703647e8ceaabed1dc396",
+      "gitBytes": 5050,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.test.ts",
+      "sha256": "60b2e2919e055c0d31b0dd847fe744bbda6ad7486b9828f7d1fca353bb7ffb9d",
+      "bytes": 11385,
+      "gitSHA256": "60b2e2919e055c0d31b0dd847fe744bbda6ad7486b9828f7d1fca353bb7ffb9d",
+      "gitBytes": 11385,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.ts",
+      "sha256": "f0e92691fd2f4836d14818691fc45fe34d978292247c9f1cda4124bd7aa9ef1e",
+      "bytes": 10939,
+      "gitSHA256": "f0e92691fd2f4836d14818691fc45fe34d978292247c9f1cda4124bd7aa9ef1e",
+      "gitBytes": 10939,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/face-detector.worker.ts",
+      "sha256": "3e3dacbd0114f97cdddfe695ca30125c5c03a04771e84720c5a5171b5e281228",
+      "bytes": 4011,
+      "gitSHA256": "3e3dacbd0114f97cdddfe695ca30125c5c03a04771e84720c5a5171b5e281228",
+      "gitBytes": 4011,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/face-timing.ts",
+      "sha256": "03547ee4be96507c69ab0e336bdd243d5621b1c659543c24665236cd795732a6",
+      "bytes": 3548,
+      "gitSHA256": "03547ee4be96507c69ab0e336bdd243d5621b1c659543c24665236cd795732a6",
+      "gitBytes": 3548,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/face-worker.test.ts",
+      "sha256": "f579d6569276bb03786568e5912a9448a869669e75c64b83422ec9da7f901191",
+      "bytes": 9732,
+      "gitSHA256": "f579d6569276bb03786568e5912a9448a869669e75c64b83422ec9da7f901191",
+      "gitBytes": 9732,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/frame-profiler.test.ts",
+      "sha256": "23ff9f4a9297b6b99b753f46fdd01cb6f2db77174bc0f154ac4ec3c900c68e11",
+      "bytes": 9628,
+      "gitSHA256": "23ff9f4a9297b6b99b753f46fdd01cb6f2db77174bc0f154ac4ec3c900c68e11",
+      "gitBytes": 9628,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/frame-profiler.ts",
+      "sha256": "572f413a1ad40c0a8b337b24b96c73cad2015e34b252e8a7295e0f1a46d97e73",
+      "bytes": 13992,
+      "gitSHA256": "572f413a1ad40c0a8b337b24b96c73cad2015e34b252e8a7295e0f1a46d97e73",
+      "gitBytes": 13992,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/live-main.ts",
+      "sha256": "ca019a3b81413b7e7f2d399f2e061e3fdc71d859d994cc23716fdca2377c6c38",
+      "bytes": 41206,
+      "gitSHA256": "ca019a3b81413b7e7f2d399f2e061e3fdc71d859d994cc23716fdca2377c6c38",
+      "gitBytes": 41206,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/live.css",
+      "sha256": "66586533bbca7110916c588335f962ae0b35b3d6ac6e0231e1f5ac4fb73d57d6",
+      "bytes": 3114,
+      "gitSHA256": "66586533bbca7110916c588335f962ae0b35b3d6ac6e0231e1f5ac4fb73d57d6",
+      "gitBytes": 3114,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/live.html",
+      "sha256": "c926a8285ff708c586c900256f30940659c246a42d8abae4b335aacd8df42c26",
+      "bytes": 9300,
+      "gitSHA256": "0971660413ca3886ffacf5f7f77182d8605bae99da6f148f37987f65ad537ea8",
+      "gitBytes": 9276,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/background.test.ts",
+      "sha256": "c8d385482e80502d9c98120250e14f85262cfaac02b805965b276a2ea0f406a0",
+      "bytes": 721,
+      "gitSHA256": "c8d385482e80502d9c98120250e14f85262cfaac02b805965b276a2ea0f406a0",
+      "gitBytes": 721,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/native-pixels.test.ts",
+      "sha256": "761fb07d704f8eb17de65686c639cdc9c783e33ebd8fa8814e167e768cbcdcac",
+      "bytes": 2452,
+      "gitSHA256": "761fb07d704f8eb17de65686c639cdc9c783e33ebd8fa8814e167e768cbcdcac",
+      "gitBytes": 2452,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/native-pixels.ts",
+      "sha256": "45918f3b7b165a7d8a513688da3d54f2035b04375b7c7b465b0888187f024c26",
+      "bytes": 1395,
+      "gitSHA256": "45918f3b7b165a7d8a513688da3d54f2035b04375b7c7b465b0888187f024c26",
+      "gitBytes": 1395,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/presentation.test.ts",
+      "sha256": "7a700c6c06257905a43dc0e3268ff6901be29098a2442ea334c5465b02d34f72",
+      "bytes": 3454,
+      "gitSHA256": "7a700c6c06257905a43dc0e3268ff6901be29098a2442ea334c5465b02d34f72",
+      "gitBytes": 3454,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/renderer.ts",
+      "sha256": "94f7e664a9f88c65744171ba82c4eed4497d693cc5306c3b5e4e53f049fab7d8",
+      "bytes": 27161,
+      "gitSHA256": "94f7e664a9f88c65744171ba82c4eed4497d693cc5306c3b5e4e53f049fab7d8",
+      "gitBytes": 27161,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/shared-readback.test.ts",
+      "sha256": "61639cc65ae5ef28ea40a3c4152ab36047335310ef0dfef4fa32fbcb063a99e5",
+      "bytes": 3615,
+      "gitSHA256": "61639cc65ae5ef28ea40a3c4152ab36047335310ef0dfef4fa32fbcb063a99e5",
+      "gitBytes": 3615,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/native/shared-readback.ts",
+      "sha256": "7e791fce62e2d1c0662739d85fc7d5018ae82653eefaecdfa50144d6aa2b1468",
+      "bytes": 4695,
+      "gitSHA256": "7e791fce62e2d1c0662739d85fc7d5018ae82653eefaecdfa50144d6aa2b1468",
+      "gitBytes": 4695,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/playwright.base.config.ts",
+      "sha256": "64ccc2bd416f7d7e1a266a484763db428dd96f13a3dc4759167d37be2cabf6e8",
+      "bytes": 957,
+      "gitSHA256": "64ccc2bd416f7d7e1a266a484763db428dd96f13a3dc4759167d37be2cabf6e8",
+      "gitBytes": 957,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/playwright.config.ts",
+      "sha256": "e2a33418a683cee625fcaf325ede0b515b0612256700fd496a4e40197f5a176e",
+      "bytes": 901,
+      "gitSHA256": "e2a33418a683cee625fcaf325ede0b515b0612256700fd496a4e40197f5a176e",
+      "gitBytes": 901,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8,
+      "gitSHA256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "gitBytes": 8,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/README.md",
+      "sha256": "7d85a3688f92f1463ddc838512c35457d5f9c142546e5484969f88c81f4ab55f",
+      "bytes": 13785,
+      "gitSHA256": "7d85a3688f92f1463ddc838512c35457d5f9c142546e5484969f88c81f4ab55f",
+      "gitBytes": 13785,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/audit-pngs.py",
+      "sha256": "60196b39026762fda19d5d426f56cb7455be3eac75f7e491ce0643136d4b2ca7",
+      "bytes": 5805,
+      "gitSHA256": "60196b39026762fda19d5d426f56cb7455be3eac75f7e491ce0643136d4b2ca7",
+      "gitBytes": 5805,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/browser.mjs",
+      "sha256": "3cea3d7ce38a3e70d12207f0aa31510bf92bd89029af63ff0a1d46385be7b8b5",
+      "bytes": 21845,
+      "gitSHA256": "3cea3d7ce38a3e70d12207f0aa31510bf92bd89029af63ff0a1d46385be7b8b5",
+      "gitBytes": 21845,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/gl-errors.mjs",
+      "sha256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "bytes": 1995,
+      "gitSHA256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "gitBytes": 1995,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/matched.mjs",
+      "sha256": "5cb8238ce91f3af747a0b96377ecec4904da26b77afecaf0150a0d175f04fdb2",
+      "bytes": 22159,
+      "gitSHA256": "5cb8238ce91f3af747a0b96377ecec4904da26b77afecaf0150a0d175f04fdb2",
+      "gitBytes": 22159,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/profile-browser.mjs",
+      "sha256": "cad4560b887128b86fe6ac5449ebb64fa3cb84ad633d174b0bbd673843d03345",
+      "bytes": 6633,
+      "gitSHA256": "cad4560b887128b86fe6ac5449ebb64fa3cb84ad633d174b0bbd673843d03345",
+      "gitBytes": 6633,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/qa/sustained.mjs",
+      "sha256": "af2922d1802d0a405c7b1ffc1a7af5928e51cfe4ff0a23e4d0a800c082e05df1",
+      "bytes": 15957,
+      "gitSHA256": "af2922d1802d0a405c7b1ffc1a7af5928e51cfe4ff0a23e4d0a800c082e05df1",
+      "gitBytes": 15957,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/renderer.ts",
+      "sha256": "e517a0a9ab37f039888dd52bbd821f8b02e5df0e84ab09189223fba4006268ac",
+      "bytes": 26709,
+      "gitSHA256": "e517a0a9ab37f039888dd52bbd821f8b02e5df0e84ab09189223fba4006268ac",
+      "gitBytes": 26709,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/temples/renderer.ts",
+      "sha256": "761b6316d5b115ab52ec2540eae94acae35260ce6b1081e07808e3bbecb8d00f",
+      "bytes": 22953,
+      "gitSHA256": "761b6316d5b115ab52ec2540eae94acae35260ce6b1081e07808e3bbecb8d00f",
+      "gitBytes": 22953,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110,
+      "gitSHA256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "gitBytes": 110,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage2/vite.config.ts",
+      "sha256": "4bf9d16461cba542999b46af71be7f7bb2eb9d05c8e4f54b0bbc8f16388e2b92",
+      "bytes": 1149,
+      "gitSHA256": "4bf9d16461cba542999b46af71be7f7bb2eb9d05c8e4f54b0bbc8f16388e2b92",
+      "gitBytes": 1149,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37,
+      "gitSHA256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "gitBytes": 37,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/README.md",
+      "sha256": "b964c9e97380f9bb03d5b12da7626d5c9cfafd18f758fab59b021fbc109050c2",
+      "bytes": 15259,
+      "gitSHA256": "b964c9e97380f9bb03d5b12da7626d5c9cfafd18f758fab59b021fbc109050c2",
+      "gitBytes": 15259,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/comparison-ownership.test.ts",
+      "sha256": "0b2bc08ca17488facb380358754f31d098cd4615861535233da09fa5895017a9",
+      "bytes": 19696,
+      "gitSHA256": "0b2bc08ca17488facb380358754f31d098cd4615861535233da09fa5895017a9",
+      "gitBytes": 19696,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/comparison-renderer.ts",
+      "sha256": "f37bfd38a2071308f59dd96820cbb8a2d394e2bfd686d06aebb5ae297f90875d",
+      "bytes": 9436,
+      "gitSHA256": "f37bfd38a2071308f59dd96820cbb8a2d394e2bfd686d06aebb5ae297f90875d",
+      "gitBytes": 9436,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/comparison.spec.ts",
+      "sha256": "4055b862e69f4a2b346f2b7daa7faae972682d8539928959872e29705dd0d583",
+      "bytes": 12186,
+      "gitSHA256": "4055b862e69f4a2b346f2b7daa7faae972682d8539928959872e29705dd0d583",
+      "gitBytes": 12186,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/controls.spec.ts",
+      "sha256": "a7d7ead923df72f04924ce6e3c47a7a0b5e57893bc6043373e543f332ac4c5bc",
+      "bytes": 16764,
+      "gitSHA256": "a7d7ead923df72f04924ce6e3c47a7a0b5e57893bc6043373e543f332ac4c5bc",
+      "gitBytes": 16764,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/frame-profiler.test.ts",
+      "sha256": "2a07fc36fdd9129880af3848c6aebcf23214fd82c39a5c9f119a5bd96d21d6b2",
+      "bytes": 10564,
+      "gitSHA256": "2a07fc36fdd9129880af3848c6aebcf23214fd82c39a5c9f119a5bd96d21d6b2",
+      "gitBytes": 10564,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/frame-profiler.ts",
+      "sha256": "972ffbf5db5bb0ad77551b8d6bb0c32de331b90491df557fb5cbbe423a779174",
+      "bytes": 14232,
+      "gitSHA256": "972ffbf5db5bb0ad77551b8d6bb0c32de331b90491df557fb5cbbe423a779174",
+      "gitBytes": 14232,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/gpu-rules.test.ts",
+      "sha256": "ea97127b50405443b336f0b66423b3d2b5a18e4ef5c942a54eac54db2ea46295",
+      "bytes": 16289,
+      "gitSHA256": "ea97127b50405443b336f0b66423b3d2b5a18e4ef5c942a54eac54db2ea46295",
+      "gitBytes": 16289,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/gpu-rules.ts",
+      "sha256": "25ca1e129a3140a3880bca17b4eb221e1cbd8fc79a283c35db9b1037aaaccb04",
+      "bytes": 24801,
+      "gitSHA256": "25ca1e129a3140a3880bca17b4eb221e1cbd8fc79a283c35db9b1037aaaccb04",
+      "gitBytes": 24801,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/live-main.ts",
+      "sha256": "398f3d1c65304ad1341de1749cc39236fbbdf42f5b6918b8ee5d0655f00398cd",
+      "bytes": 41947,
+      "gitSHA256": "398f3d1c65304ad1341de1749cc39236fbbdf42f5b6918b8ee5d0655f00398cd",
+      "gitBytes": 41947,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/live.css",
+      "sha256": "3c27471e788d36d49b0fe6b685e39c9d6ce43c6c47bff517bcbb667493bc67a6",
+      "bytes": 3173,
+      "gitSHA256": "3c27471e788d36d49b0fe6b685e39c9d6ce43c6c47bff517bcbb667493bc67a6",
+      "gitBytes": 3173,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/live.html",
+      "sha256": "650c64fb5789f0bd680210cb9b856c586b735ddb2fd14479f37a750757376688",
+      "bytes": 9504,
+      "gitSHA256": "1f3239e85685b87fd7aa18fc2dca69852039bf194dc9a5cb50cad6bb6c4d787f",
+      "gitBytes": 9480,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/native/gpu-frame.ts",
+      "sha256": "0943c027daee3a52424e27c1b6d5f7f3204d17014dfe4a902359b55b9b4750c9",
+      "bytes": 26541,
+      "gitSHA256": "0943c027daee3a52424e27c1b6d5f7f3204d17014dfe4a902359b55b9b4750c9",
+      "gitBytes": 26541,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/native/presentation.test.ts",
+      "sha256": "c011f76661f1d63109a40e891fbfc0e18e2ac1999b9b5f794a62894b7f55e922",
+      "bytes": 5348,
+      "gitSHA256": "c011f76661f1d63109a40e891fbfc0e18e2ac1999b9b5f794a62894b7f55e922",
+      "gitBytes": 5348,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/native/renderer.ts",
+      "sha256": "e4dc77ee8fd4c2be1e5ae9bae0b3036bca5865ba36513340c38123c0469db660",
+      "bytes": 27815,
+      "gitSHA256": "e4dc77ee8fd4c2be1e5ae9bae0b3036bca5865ba36513340c38123c0469db660",
+      "gitBytes": 27815,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/playwright.config.ts",
+      "sha256": "a6848ba37d870ba292ba9295ef11eb9d0011f3f2455f0f9c1e5a7e178003cc9a",
+      "bytes": 901,
+      "gitSHA256": "a6848ba37d870ba292ba9295ef11eb9d0011f3f2455f0f9c1e5a7e178003cc9a",
+      "gitBytes": 901,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8,
+      "gitSHA256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "gitBytes": 8,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/README.md",
+      "sha256": "8d09eed3260d2eb0e7ca10411a649b71e80b8a5f174c96203152b0cc8581c296",
+      "bytes": 16039,
+      "gitSHA256": "8d09eed3260d2eb0e7ca10411a649b71e80b8a5f174c96203152b0cc8581c296",
+      "gitBytes": 16039,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/audit-pngs.py",
+      "sha256": "2afab5e95767073ab6a91c5810afd60a13a55c07e72d742cf8e25a2637442aea",
+      "bytes": 8425,
+      "gitSHA256": "2afab5e95767073ab6a91c5810afd60a13a55c07e72d742cf8e25a2637442aea",
+      "gitBytes": 8425,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/browser.mjs",
+      "sha256": "b9c248e72b8d0523908a243d2a41764466aeea4043558443a6e9e0f83f5e46b5",
+      "bytes": 22472,
+      "gitSHA256": "b9c248e72b8d0523908a243d2a41764466aeea4043558443a6e9e0f83f5e46b5",
+      "gitBytes": 22472,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gl-errors.mjs",
+      "sha256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "bytes": 1995,
+      "gitSHA256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "gitBytes": 1995,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gpu-contract.mjs",
+      "sha256": "ea236c78624a08d102d2910125882dce604705ae53397466ca17b7a6b9104a68",
+      "bytes": 4315,
+      "gitSHA256": "ea236c78624a08d102d2910125882dce604705ae53397466ca17b7a6b9104a68",
+      "gitBytes": 4315,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/gpu-contract.test.mjs",
+      "sha256": "1a3ea883829b5f699413973d6fb9daefb49c906839da5b9b2548d0d5f1cfda45",
+      "bytes": 3841,
+      "gitSHA256": "1a3ea883829b5f699413973d6fb9daefb49c906839da5b9b2548d0d5f1cfda45",
+      "gitBytes": 3841,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/matched.mjs",
+      "sha256": "9c4c052dfb8e9e36d7c946fc7f300fcbfbf6eb7eb0f95028770c4b69772be6a2",
+      "bytes": 26007,
+      "gitSHA256": "9c4c052dfb8e9e36d7c946fc7f300fcbfbf6eb7eb0f95028770c4b69772be6a2",
+      "gitBytes": 26007,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/native-capture-probe.mjs",
+      "sha256": "40fb7430554f66c4faccee160b0b7ecb165ae686efea61cfac5ff60d2766778e",
+      "bytes": 2319,
+      "gitSHA256": "40fb7430554f66c4faccee160b0b7ecb165ae686efea61cfac5ff60d2766778e",
+      "gitBytes": 2319,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/preservation.mjs",
+      "sha256": "1a4366dcb55521476055d743aca6e3887330f8f857ed9a8e0970dc0200b6f106",
+      "bytes": 1219,
+      "gitSHA256": "1a4366dcb55521476055d743aca6e3887330f8f857ed9a8e0970dc0200b6f106",
+      "gitBytes": 1219,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/production-build.mjs",
+      "sha256": "b45d2d38e2fe5b65b8f86b39c517fe37b4ea8c1de2f4c9931a489ab0d5b811ba",
+      "bytes": 2371,
+      "gitSHA256": "b45d2d38e2fe5b65b8f86b39c517fe37b4ea8c1de2f4c9931a489ab0d5b811ba",
+      "gitBytes": 2371,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/profile-browser.mjs",
+      "sha256": "65cfd3af12264c444f73a3e02b2b3178ff86a9aa52efc4419efbc094d9407344",
+      "bytes": 6633,
+      "gitSHA256": "65cfd3af12264c444f73a3e02b2b3178ff86a9aa52efc4419efbc094d9407344",
+      "gitBytes": 6633,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/summarize-sustained.mjs",
+      "sha256": "ca489b7a588c6a6eed1d0659f20a68d11233e255ae492f021535d1651d643c53",
+      "bytes": 4752,
+      "gitSHA256": "ca489b7a588c6a6eed1d0659f20a68d11233e255ae492f021535d1651d643c53",
+      "gitBytes": 4752,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/qa/sustained.mjs",
+      "sha256": "b14d00e7493a7c9872769bd6f80e7f2480669132a7d06ddf51b9caa24f641af1",
+      "bytes": 17645,
+      "gitSHA256": "b14d00e7493a7c9872769bd6f80e7f2480669132a7d06ddf51b9caa24f641af1",
+      "gitBytes": 17645,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/renderer.ts",
+      "sha256": "002c2812114a609d456a00979712063d369b4982a758ee3bdddcdf44a3065783",
+      "bytes": 34552,
+      "gitSHA256": "002c2812114a609d456a00979712063d369b4982a758ee3bdddcdf44a3065783",
+      "gitBytes": 34552,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/temples/renderer.ts",
+      "sha256": "cd878aa2298821a0d7f5e4c8b0c23bc8d17a8a096fbfcaa7b84126a74dd334bc",
+      "bytes": 24886,
+      "gitSHA256": "cd878aa2298821a0d7f5e4c8b0c23bc8d17a8a096fbfcaa7b84126a74dd334bc",
+      "gitBytes": 24886,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110,
+      "gitSHA256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "gitBytes": 110,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/vite.config.ts",
+      "sha256": "4b013e3c14d476d88c747fa5520d1df2b8d5a14b0dc8b4b9cfefd9247a3b954f",
+      "bytes": 1149,
+      "gitSHA256": "4b013e3c14d476d88c747fa5520d1df2b8d5a14b0dc8b4b9cfefd9247a3b954f",
+      "gitBytes": 1149,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/performance-stage3/wrapper-lease.test.ts",
+      "sha256": "e0df9f56937330f2e19b1a2c3cc565ecf9cdfbdac75ffa1a9d1f78e631618e8b",
+      "bytes": 5397,
+      "gitSHA256": "e0df9f56937330f2e19b1a2c3cc565ecf9cdfbdac75ffa1a9d1f78e631618e8b",
+      "gitBytes": 5397,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/.gitignore",
+      "sha256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "bytes": 37,
+      "gitSHA256": "066516beeda30f40dfb065a7b7a6cdc9f8a0080c28ad6040346dbe0a9c489f25",
+      "gitBytes": 37,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/README.md",
+      "sha256": "05787c0f5a867ce9c5a8d0c7b441b5d8482dc7ba2e8d3fceccbbfdec11f458a7",
+      "bytes": 5233,
+      "gitSHA256": "05787c0f5a867ce9c5a8d0c7b441b5d8482dc7ba2e8d3fceccbbfdec11f458a7",
+      "gitBytes": 5233,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/comparison-renderer.ts",
+      "sha256": "4321543c66327951ccc07a16821de288ca9c3ad6fcc85688d91b24872a6c652d",
+      "bytes": 8937,
+      "gitSHA256": "4321543c66327951ccc07a16821de288ca9c3ad6fcc85688d91b24872a6c652d",
+      "gitBytes": 8937,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/comparison.spec.ts",
+      "sha256": "63e09ba315d5ada008396c1e7a0753c75b686dd439c488ca715d126cdf8155f0",
+      "bytes": 12219,
+      "gitSHA256": "63e09ba315d5ada008396c1e7a0753c75b686dd439c488ca715d126cdf8155f0",
+      "gitBytes": 12219,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/controls.spec.ts",
+      "sha256": "20e2284b663c15fe323aaa8a262f7706d08174d49486d47c521a568b9e71163f",
+      "bytes": 31021,
+      "gitSHA256": "20e2284b663c15fe323aaa8a262f7706d08174d49486d47c521a568b9e71163f",
+      "gitBytes": 31021,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/entry.spec.ts",
+      "sha256": "1edde4087a0439a888044257aacc645488d721f3308b517df48bd131efd92e14",
+      "bytes": 1752,
+      "gitSHA256": "1edde4087a0439a888044257aacc645488d721f3308b517df48bd131efd92e14",
+      "gitBytes": 1752,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/frame-profiler.test.ts",
+      "sha256": "4ddedcaa8f93b04cf145eb9296b8b3bf67736a4437f185f9f13f97e5076ecd2a",
+      "bytes": 11844,
+      "gitSHA256": "4ddedcaa8f93b04cf145eb9296b8b3bf67736a4437f185f9f13f97e5076ecd2a",
+      "gitBytes": 11844,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/frame-profiler.ts",
+      "sha256": "375403b982433b9c9400421dff1f4e76e13b971706d0db09559827c70b061a44",
+      "bytes": 14911,
+      "gitSHA256": "375403b982433b9c9400421dff1f4e76e13b971706d0db09559827c70b061a44",
+      "gitBytes": 14911,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/frame-pump.test.ts",
+      "sha256": "131da6c1ec8221b2d635a9b8def0e1d9c34365bff1b8f2f5354eb07f1470ed5a",
+      "bytes": 15717,
+      "gitSHA256": "131da6c1ec8221b2d635a9b8def0e1d9c34365bff1b8f2f5354eb07f1470ed5a",
+      "gitBytes": 15717,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/frame-pump.ts",
+      "sha256": "73222887741690460e63a280106955a1b7dd1e8daab1405b80ed6d36fbf853f3",
+      "bytes": 11754,
+      "gitSHA256": "73222887741690460e63a280106955a1b7dd1e8daab1405b80ed6d36fbf853f3",
+      "gitBytes": 11754,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/live-main.ts",
+      "sha256": "af750e2e5fa0e70be5d08c858b8e556ffc3e39f453c7fd2a668f60e82ad93ffc",
+      "bytes": 48379,
+      "gitSHA256": "af750e2e5fa0e70be5d08c858b8e556ffc3e39f453c7fd2a668f60e82ad93ffc",
+      "gitBytes": 48379,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/live-pump.ts",
+      "sha256": "983f84f7fd0999e9119927dfd9cb3929608331f3e121db307d0f8978690726ee",
+      "bytes": 13051,
+      "gitSHA256": "983f84f7fd0999e9119927dfd9cb3929608331f3e121db307d0f8978690726ee",
+      "gitBytes": 13051,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/live.css",
+      "sha256": "7d4aa586582f8bdfad63721ebafeeb170c465461db8f70ebb463e53f080fec54",
+      "bytes": 3327,
+      "gitSHA256": "7d4aa586582f8bdfad63721ebafeeb170c465461db8f70ebb463e53f080fec54",
+      "gitBytes": 3327,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/live.html",
+      "sha256": "070b075a6e6919b963c1ad35af55c1f2508ca9d4a1cafd45184bfe02c310caf7",
+      "bytes": 10168,
+      "gitSHA256": "a521b82b5e63114a80ea053039aede6d27c5f740dc952798afd805f249814f26",
+      "gitBytes": 10145,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/pbo-readback.test.ts",
+      "sha256": "4690a13a44fb5e04aba3840e528465ecd10df4decee038dd725cdae8b389bad8",
+      "bytes": 5457,
+      "gitSHA256": "4690a13a44fb5e04aba3840e528465ecd10df4decee038dd725cdae8b389bad8",
+      "gitBytes": 5457,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/pbo-readback.ts",
+      "sha256": "aaad125bb6ffa994cebf3c8ab8256fb39be66d063fafd89cb2fe709a43d94fc1",
+      "bytes": 7602,
+      "gitSHA256": "aaad125bb6ffa994cebf3c8ab8256fb39be66d063fafd89cb2fe709a43d94fc1",
+      "gitBytes": 7602,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/presentation.test.ts",
+      "sha256": "7a700c6c06257905a43dc0e3268ff6901be29098a2442ea334c5465b02d34f72",
+      "bytes": 3454,
+      "gitSHA256": "7a700c6c06257905a43dc0e3268ff6901be29098a2442ea334c5465b02d34f72",
+      "gitBytes": 3454,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/renderer.ts",
+      "sha256": "0128e3b07d630154c54eeaea9be9430d8b95a64977717ac5cdf3cd9e3d9ed232",
+      "bytes": 34764,
+      "gitSHA256": "0128e3b07d630154c54eeaea9be9430d8b95a64977717ac5cdf3cd9e3d9ed232",
+      "gitBytes": 34764,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/shared-readback.ts",
+      "sha256": "018c3685bb411baac564305df053b0bd5985226d4b466b70737406a4bb1d9a2c",
+      "bytes": 5012,
+      "gitSHA256": "018c3685bb411baac564305df053b0bd5985226d4b466b70737406a4bb1d9a2c",
+      "gitBytes": 5012,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/source-camera.test.ts",
+      "sha256": "313532205b2ac362640497991a5adcfa00a3584a5c68f459dc01301f63002962",
+      "bytes": 5669,
+      "gitSHA256": "313532205b2ac362640497991a5adcfa00a3584a5c68f459dc01301f63002962",
+      "gitBytes": 5669,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/native/source-camera.ts",
+      "sha256": "5b02a8c883d720a882c4592b41db63e33c90b54b4bd5577998ec0222bdc90c4d",
+      "bytes": 1033,
+      "gitSHA256": "5b02a8c883d720a882c4592b41db63e33c90b54b4bd5577998ec0222bdc90c4d",
+      "gitBytes": 1033,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/playwright.config.ts",
+      "sha256": "45be06ae85922e3ac71c991673bfe6d5d07d5ddb4b985113bb81bb323832501b",
+      "bytes": 741,
+      "gitSHA256": "45be06ae85922e3ac71c991673bfe6d5d07d5ddb4b985113bb81bb323832501b",
+      "gitBytes": 741,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/playwright.current.config.ts",
+      "sha256": "4bcd8449b511c1bb65f46f7ee6889f6b900ce1ce30a922ea843d65f64d502cc7",
+      "bytes": 596,
+      "gitSHA256": "4bcd8449b511c1bb65f46f7ee6889f6b900ce1ce30a922ea843d65f64d502cc7",
+      "gitBytes": 596,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/playwright.test2.config.ts",
+      "sha256": "d91dfc2639c431d64fa38b72e85f6e9c59f76e4d1a43a27dd693c8090c1671e9",
+      "bytes": 534,
+      "gitSHA256": "d91dfc2639c431d64fa38b72e85f6e9c59f76e4d1a43a27dd693c8090c1671e9",
+      "gitBytes": 534,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/profiles.ts",
+      "sha256": "9de73190f2b20bccec84790f4cab354cf1923425426f78b27f1ee480c1abda6b",
+      "bytes": 2579,
+      "gitSHA256": "9de73190f2b20bccec84790f4cab354cf1923425426f78b27f1ee480c1abda6b",
+      "gitBytes": 2579,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/.gitignore",
+      "sha256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "bytes": 8,
+      "gitSHA256": "b5726d3ec9335a09c124469eca039523847a6b0f08a083efaefd002b83326600",
+      "gitBytes": 8,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/README.md",
+      "sha256": "4c86eb9dcdf3bd6ac1025311341a03fb267e62cd6fbc5d9328de2908aca72db5",
+      "bytes": 7956,
+      "gitSHA256": "4c86eb9dcdf3bd6ac1025311341a03fb267e62cd6fbc5d9328de2908aca72db5",
+      "gitBytes": 7956,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/audit-pngs.py",
+      "sha256": "bbced97e1eb0b281057d92097aaed8132ddf1ba6b519c83e1806da4cf9cfe689",
+      "bytes": 10291,
+      "gitSHA256": "bbced97e1eb0b281057d92097aaed8132ddf1ba6b519c83e1806da4cf9cfe689",
+      "gitBytes": 10291,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/audit_protocol.py",
+      "sha256": "9cda31bb58010124a8f902113b1b455bea824cd665b7d3bba320d1696e1fe5bf",
+      "bytes": 2951,
+      "gitSHA256": "9cda31bb58010124a8f902113b1b455bea824cd665b7d3bba320d1696e1fe5bf",
+      "gitBytes": 2951,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/base-manifest.json",
+      "sha256": "527c94adedbd1fb11ae1159fc1414c90d9a875bd70d248661d428cf446ecd990",
+      "bytes": 34927,
+      "gitSHA256": "527c94adedbd1fb11ae1159fc1414c90d9a875bd70d248661d428cf446ecd990",
+      "gitBytes": 34927,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/browser.mjs",
+      "sha256": "8be514c6d017b0e81f08754242a1c09fddbcdd0b81fbe46be805e3696ba8cfc6",
+      "bytes": 25796,
+      "gitSHA256": "8be514c6d017b0e81f08754242a1c09fddbcdd0b81fbe46be805e3696ba8cfc6",
+      "gitBytes": 25796,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/gl-errors.mjs",
+      "sha256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "bytes": 1995,
+      "gitSHA256": "a04af01b16a6a8c0d0814aadb2ed84122332e560936ca189f76319ae4fef17df",
+      "gitBytes": 1995,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/layout.mjs",
+      "sha256": "4d324f6c212750b0c26dd6ea7b7202080918280782fd693bc9e2f935cdefc44a",
+      "bytes": 1994,
+      "gitSHA256": "4d324f6c212750b0c26dd6ea7b7202080918280782fd693bc9e2f935cdefc44a",
+      "gitBytes": 1994,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/matched.mjs",
+      "sha256": "ea24d2f2b78a1075dc9caf302b868f7017f4bb2b28adbd2f8d96e6539c4f27b4",
+      "bytes": 24214,
+      "gitSHA256": "ea24d2f2b78a1075dc9caf302b868f7017f4bb2b28adbd2f8d96e6539c4f27b4",
+      "gitBytes": 24214,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/preservation.mjs",
+      "sha256": "4cb3d6f46a4b69b13a1ad4789cb3d2fd8725faa3bec82aa629cdf17586b51a48",
+      "bytes": 1534,
+      "gitSHA256": "4cb3d6f46a4b69b13a1ad4789cb3d2fd8725faa3bec82aa629cdf17586b51a48",
+      "gitBytes": 1534,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/protocol.mjs",
+      "sha256": "085d484bb48dd78a7d96056d9d7f12d65807d606ca757b6f58c699b7b6684541",
+      "bytes": 6520,
+      "gitSHA256": "085d484bb48dd78a7d96056d9d7f12d65807d606ca757b6f58c699b7b6684541",
+      "gitBytes": 6520,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/protocol.test.mjs",
+      "sha256": "2076c57a3e3ab9d46e7c8c163d7bc53ffcb63f297eb559802a21dfc5d5e30cdc",
+      "bytes": 8294,
+      "gitSHA256": "2076c57a3e3ab9d46e7c8c163d7bc53ffcb63f297eb559802a21dfc5d5e30cdc",
+      "gitBytes": 8294,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/source-edges-browser.mjs",
+      "sha256": "9acb37489883de70a7cbf46f68da9a95233f56a1d5f1945db122a8c6974596bb",
+      "bytes": 17342,
+      "gitSHA256": "9acb37489883de70a7cbf46f68da9a95233f56a1d5f1945db122a8c6974596bb",
+      "gitBytes": 17342,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/source-edges.mjs",
+      "sha256": "fd0821b2ebbea79d60f57feb1de0165f79901266897b09813c47c503708878a4",
+      "bytes": 11258,
+      "gitSHA256": "fd0821b2ebbea79d60f57feb1de0165f79901266897b09813c47c503708878a4",
+      "gitBytes": 11258,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/source-edges.test.mjs",
+      "sha256": "94056933e2dd7ec6302fa89e5afd8a7adbca4e1c887956668ee50e8f8c91c34b",
+      "bytes": 1985,
+      "gitSHA256": "94056933e2dd7ec6302fa89e5afd8a7adbca4e1c887956668ee50e8f8c91c34b",
+      "gitBytes": 1985,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/qa/test_audit_protocol.py",
+      "sha256": "d08f082285e4fc3ed5ca088bf3b0aac61309ae1e67c2cb077f30adc18f35dc07",
+      "bytes": 3755,
+      "gitSHA256": "d08f082285e4fc3ed5ca088bf3b0aac61309ae1e67c2cb077f30adc18f35dc07",
+      "gitBytes": 3755,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/renderer-ownership.test.ts",
+      "sha256": "5af1dfa84679efd894e9937c0f294d9b1e09848875d0eefeb258dcad327aa0b8",
+      "bytes": 23530,
+      "gitSHA256": "5af1dfa84679efd894e9937c0f294d9b1e09848875d0eefeb258dcad327aa0b8",
+      "gitBytes": 23530,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/renderer.ts",
+      "sha256": "efde68a4b098b5f8d0864128fd03db039bd55582d0c8fb642c33f9b71cb7cfa5",
+      "bytes": 34046,
+      "gitSHA256": "efde68a4b098b5f8d0864128fd03db039bd55582d0c8fb642c33f9b71cb7cfa5",
+      "gitBytes": 34046,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/speed-options.test.ts",
+      "sha256": "8e462167e171e07a35bc4b52859c8a5db79ff0777afb4de53d79be5e182708c0",
+      "bytes": 4166,
+      "gitSHA256": "8e462167e171e07a35bc4b52859c8a5db79ff0777afb4de53d79be5e182708c0",
+      "gitBytes": 4166,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/speed-options.ts",
+      "sha256": "9181f4c47ed6c906254e24e8fd6a4af5794402568d75e46dc1d68adea95ff1a8",
+      "bytes": 5112,
+      "gitSHA256": "9181f4c47ed6c906254e24e8fd6a4af5794402568d75e46dc1d68adea95ff1a8",
+      "gitBytes": 5112,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/temples/prewarm.test.ts",
+      "sha256": "9e98035243fa87d7ee0d1dc0388d07abe1b90eee0b45b93dad046b1a49e22413",
+      "bytes": 4271,
+      "gitSHA256": "9e98035243fa87d7ee0d1dc0388d07abe1b90eee0b45b93dad046b1a49e22413",
+      "gitBytes": 4271,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/temples/renderer.ts",
+      "sha256": "5a018585d60bd6fe0a3f9c5f72c6cf37f650703735d556c79a912350f38893db",
+      "bytes": 31447,
+      "gitSHA256": "40d090e2acf27074f65fd67d66ee997ef0a1191cf64093a4e9852e5b2c7be1bf",
+      "gitBytes": 31050,
+      "representation": "CRLF checkout / LF Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/temples/source-copy.test.ts",
+      "sha256": "f7eaf8950c091391f911d1d287e59f93616df4f0ff244009935955edd2af1154",
+      "bytes": 4227,
+      "gitSHA256": "f7eaf8950c091391f911d1d287e59f93616df4f0ff244009935955edd2af1154",
+      "gitBytes": 4227,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "bytes": 110,
+      "gitSHA256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75",
+      "gitBytes": 110,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "experiments/speed-lab/vite.config.ts",
+      "sha256": "e00279577ecd4dd0067b9c2940d8c96eba9063ecebff1c8975bedfb1c84944b4",
+      "bytes": 635,
+      "gitSHA256": "e00279577ecd4dd0067b9c2940d8c96eba9063ecebff1c8975bedfb1c84944b4",
+      "gitBytes": 635,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/.gitattributes",
+      "sha256": "80535b5fd2c6742a88b526e02f763be5687624561f06111159c31937e9d48f3f",
+      "bytes": 88,
+      "gitSHA256": "80535b5fd2c6742a88b526e02f763be5687624561f06111159c31937e9d48f3f",
+      "gitBytes": 88,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/.gitignore",
+      "sha256": "92861ee314cc48e3193d04ec44704d474aeab9d15583823e20b168bf7de4291c",
+      "bytes": 94,
+      "gitSHA256": "92861ee314cc48e3193d04ec44704d474aeab9d15583823e20b168bf7de4291c",
+      "gitBytes": 94,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/README.md",
+      "sha256": "9a9f81c1bf6885009e7c42cb28d45331a200b3fab6b11e08151f37e4582c9d60",
+      "bytes": 4043,
+      "gitSHA256": "9a9f81c1bf6885009e7c42cb28d45331a200b3fab6b11e08151f37e4582c9d60",
+      "gitBytes": 4043,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/branch-renderer.ts",
+      "sha256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e",
+      "bytes": 24780,
+      "gitSHA256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e",
+      "gitBytes": 24780,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/capture-controller.ts",
+      "sha256": "90ca7d501d399eb60c68aaca9afefc8b7e7599ea40b91f8e59d639808f96954c",
+      "bytes": 14009,
+      "gitSHA256": "90ca7d501d399eb60c68aaca9afefc8b7e7599ea40b91f8e59d639808f96954c",
+      "gitBytes": 14009,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/contracts.ts",
+      "sha256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19",
+      "bytes": 1842,
+      "gitSHA256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19",
+      "gitBytes": 1842,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/final-audit.mjs",
+      "sha256": "c4a9b02c2d36f6ad7218401a6db84fc2b4e09075e94709330e35976d3d61581c",
+      "bytes": 9236,
+      "gitSHA256": "c4a9b02c2d36f6ad7218401a6db84fc2b4e09075e94709330e35976d3d61581c",
+      "gitBytes": 9236,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/final-pixels.py",
+      "sha256": "d71cec6d632d7b2389bb703ea8c53a6f0f2846505bebfbb2682061a02eefb37a",
+      "bytes": 7424,
+      "gitSHA256": "d71cec6d632d7b2389bb703ea8c53a6f0f2846505bebfbb2682061a02eefb37a",
+      "gitBytes": 7424,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/geometry-check.mjs",
+      "sha256": "d01fbb665f1677f5a6510205b18467dad872111b487b7077e1b57f407fe4b9a2",
+      "bytes": 13654,
+      "gitSHA256": "d01fbb665f1677f5a6510205b18467dad872111b487b7077e1b57f407fe4b9a2",
+      "gitBytes": 13654,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/live-main.ts",
+      "sha256": "74db88de21a8e345fca7f9cc4cf990b967b3d33d9dd32390ace64c93b3eb1407",
+      "bytes": 21029,
+      "gitSHA256": "74db88de21a8e345fca7f9cc4cf990b967b3d33d9dd32390ace64c93b3eb1407",
+      "gitBytes": 21029,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/live.html",
+      "sha256": "ad7b838346922098959ebfb926bc45e706b135d6c8390476d972a8e89dded199",
+      "bytes": 8466,
+      "gitSHA256": "ad7b838346922098959ebfb926bc45e706b135d6c8390476d972a8e89dded199",
+      "gitBytes": 8466,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/make-review.mjs",
+      "sha256": "36bbbafbd2b4e1104b66638b78eb880b3474ec318d0aff2a2acf11780274a433",
+      "bytes": 7603,
+      "gitSHA256": "36bbbafbd2b4e1104b66638b78eb880b3474ec318d0aff2a2acf11780274a433",
+      "gitBytes": 7603,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/mirror.spec.ts",
+      "sha256": "ca792ee6a4d4e568fd6f60a91e3225032d86af760e15a8474ca060c180dc77b5",
+      "bytes": 54317,
+      "gitSHA256": "ca792ee6a4d4e568fd6f60a91e3225032d86af760e15a8474ca060c180dc77b5",
+      "gitBytes": 54317,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/playwright.config.ts",
+      "sha256": "0fd863e24aea1749f478996ba3d29a659b94c5fd6fbdf3497817c838b19e0c36",
+      "bytes": 836,
+      "gitSHA256": "0fd863e24aea1749f478996ba3d29a659b94c5fd6fbdf3497817c838b19e0c36",
+      "gitBytes": 836,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/preservation-audit.mjs",
+      "sha256": "5ccb12b1a7a1088e7dcf797284f8f5e1568e07c0eaa0171732fa5249aa700d4a",
+      "bytes": 4409,
+      "gitSHA256": "5ccb12b1a7a1088e7dcf797284f8f5e1568e07c0eaa0171732fa5249aa700d4a",
+      "gitBytes": 4409,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/protection.test.ts",
+      "sha256": "aba7bbea68511b3d34328aa6db25302838ed69ebdc4d653a2ee99145e1b17466",
+      "bytes": 5755,
+      "gitSHA256": "aba7bbea68511b3d34328aa6db25302838ed69ebdc4d653a2ee99145e1b17466",
+      "gitBytes": 5755,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/protection.ts",
+      "sha256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0",
+      "bytes": 6527,
+      "gitSHA256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0",
+      "gitBytes": 6527,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/qa-gallery.mjs",
+      "sha256": "3397477d9f336940348ae36f40dad2726a1713e3f25b0b927bc4c4263e206d60",
+      "bytes": 2353,
+      "gitSHA256": "3397477d9f336940348ae36f40dad2726a1713e3f25b0b927bc4c4263e206d60",
+      "gitBytes": 2353,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/rear-drop.test.ts",
+      "sha256": "decca36a5b4bda98f5f1dcf049b030b96602fb210223c58cf088831c2114bc39",
+      "bytes": 13269,
+      "gitSHA256": "decca36a5b4bda98f5f1dcf049b030b96602fb210223c58cf088831c2114bc39",
+      "gitBytes": 13269,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/rear-drop.ts",
+      "sha256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166",
+      "bytes": 13201,
+      "gitSHA256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166",
+      "gitBytes": 13201,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/renderer-ownership.test.ts",
+      "sha256": "c191a854adf7ec6a339ac658bb7e6e04aa3e0137fe41616634f262fc23daf952",
+      "bytes": 5066,
+      "gitSHA256": "c191a854adf7ec6a339ac658bb7e6e04aa3e0137fe41616634f262fc23daf952",
+      "gitBytes": 5066,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/renderer.ts",
+      "sha256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef",
+      "bytes": 18927,
+      "gitSHA256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef",
+      "gitBytes": 18927,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/replay-browser.mjs",
+      "sha256": "062d853cf4569f57547bab4017b1dccf94bb7c80b92e780985b722878f9e9a0f",
+      "bytes": 9679,
+      "gitSHA256": "062d853cf4569f57547bab4017b1dccf94bb7c80b92e780985b722878f9e9a0f",
+      "gitBytes": 9679,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/replay.mjs",
+      "sha256": "9af8f7a351a707aa25d94666a68bad50ba9d196bead7b9624f326a571d7957cf",
+      "bytes": 5053,
+      "gitSHA256": "9af8f7a351a707aa25d94666a68bad50ba9d196bead7b9624f326a571d7957cf",
+      "gitBytes": 5053,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/synthetic-pair.mjs",
+      "sha256": "b6e817708f332ac4d70d67ca245470b7d0cc278f2959f0f4eb9371b68bc2436f",
+      "bytes": 2951,
+      "gitSHA256": "b6e817708f332ac4d70d67ca245470b7d0cc278f2959f0f4eb9371b68bc2436f",
+      "gitBytes": 2951,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/synthetic-render.mjs",
+      "sha256": "d85a537b64d2695b07e9ef98f5b96213928456248073c1177f42cda1194165af",
+      "bytes": 2903,
+      "gitSHA256": "d85a537b64d2695b07e9ef98f5b96213928456248073c1177f42cda1194165af",
+      "gitBytes": 2903,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/tsconfig.json",
+      "sha256": "1ba8fc37b8042c2a3eb19f0224a77fe77b63d75174aa83b42be8e0a3e2b983c3",
+      "bytes": 77,
+      "gitSHA256": "1ba8fc37b8042c2a3eb19f0224a77fe77b63d75174aa83b42be8e0a3e2b983c3",
+      "gitBytes": 77,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/experiments/temple-sagittal/vite.config.ts",
+      "sha256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906",
+      "bytes": 202,
+      "gitSHA256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906",
+      "gitBytes": 202,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/manifest.json",
+      "sha256": "eb34c6073741d8d9b76a37e6946dadebd7cf82ba0c0b2c07d6a2c828c4cb71c2",
+      "bytes": 10707,
+      "gitSHA256": "eb34c6073741d8d9b76a37e6946dadebd7cf82ba0c0b2c07d6a2c828c4cb71c2",
+      "gitBytes": 10707,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/capture/controller.ts",
+      "sha256": "c7a1fa6afe76d4b814d7e4c2b7a9bb79c0f4e2747973ac5ad3a005e77341855f",
+      "bytes": 13233,
+      "gitSHA256": "c7a1fa6afe76d4b814d7e4c2b7a9bb79c0f4e2747973ac5ad3a005e77341855f",
+      "gitBytes": 13233,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/capture/store.ts",
+      "sha256": "4dc15babccea1eb22b4681b20b77960fdb66e9545ebaf431f99a48e72c07f2de",
+      "bytes": 10608,
+      "gitSHA256": "4dc15babccea1eb22b4681b20b77960fdb66e9545ebaf431f99a48e72c07f2de",
+      "gitBytes": 10608,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/main.ts",
+      "sha256": "503b1952f96daa352270d7c0951339f311b6bae8472c36e12d071d85dbd1e580",
+      "bytes": 14248,
+      "gitSHA256": "503b1952f96daa352270d7c0951339f311b6bae8472c36e12d071d85dbd1e580",
+      "gitBytes": 14248,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/bridge-pose.ts",
+      "sha256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c",
+      "bytes": 5147,
+      "gitSHA256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c",
+      "gitBytes": 5147,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/eyewear.ts",
+      "sha256": "8873d4dfd21c2fece07cf74cfd0068f1d551d87e49578a47deefa6b697ef486a",
+      "bytes": 1929,
+      "gitSHA256": "8873d4dfd21c2fece07cf74cfd0068f1d551d87e49578a47deefa6b697ef486a",
+      "gitBytes": 1929,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/face-surface.ts",
+      "sha256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d",
+      "bytes": 6522,
+      "gitSHA256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d",
+      "gitBytes": 6522,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/nasal-boundary.ts",
+      "sha256": "3ed2e7a593671662b7a208287c853c393fdf9e09011ad7547b111a29355d66c2",
+      "bytes": 15806,
+      "gitSHA256": "3ed2e7a593671662b7a208287c853c393fdf9e09011ad7547b111a29355d66c2",
+      "gitBytes": 15806,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/nasal-shape.ts",
+      "sha256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e",
+      "bytes": 9654,
+      "gitSHA256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e",
+      "gitBytes": 9654,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/projection.ts",
+      "sha256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53",
+      "bytes": 179,
+      "gitSHA256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53",
+      "gitBytes": 179,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/renderer.ts",
+      "sha256": "530e8e101af5d9c63ece72d34beb04504b8af803dd017b9a03835f4cf6b7fab3",
+      "bytes": 23218,
+      "gitSHA256": "530e8e101af5d9c63ece72d34beb04504b8af803dd017b9a03835f4cf6b7fab3",
+      "gitBytes": 23218,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/temple-clip.ts",
+      "sha256": "ed572dd9c53f8b9e7ce74c73c59e302f8ca463e8707cae052e169e66fcb4373c",
+      "bytes": 12492,
+      "gitSHA256": "ed572dd9c53f8b9e7ce74c73c59e302f8ca463e8707cae052e169e66fcb4373c",
+      "gitBytes": 12492,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/render/temple-visibility.ts",
+      "sha256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c",
+      "bytes": 26848,
+      "gitSHA256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c",
+      "gitBytes": 26848,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/camera.ts",
+      "sha256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2",
+      "bytes": 4916,
+      "gitSHA256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2",
+      "gitBytes": 4916,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/detector.ts",
+      "sha256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9",
+      "bytes": 6461,
+      "gitSHA256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9",
+      "gitBytes": 6461,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/detector.worker.ts",
+      "sha256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da",
+      "bytes": 2498,
+      "gitSHA256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da",
+      "gitBytes": 2498,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/runtime/protocol.ts",
+      "sha256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7",
+      "bytes": 2415,
+      "gitSHA256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7",
+      "gitBytes": 2415,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/src/style.css",
+      "sha256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a",
+      "bytes": 9195,
+      "gitSHA256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a",
+      "gitBytes": 9195,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "references/perfect-temples/tsconfig.json",
+      "sha256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7",
+      "bytes": 532,
+      "gitSHA256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7",
+      "gitBytes": 532,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "vite.combined.config.ts",
+      "sha256": "546369c92deb2f3137808f13fabf5d8e1815c2ef79088fad0ccb5d15dfa64e3d",
+      "bytes": 1509,
+      "gitSHA256": "546369c92deb2f3137808f13fabf5d8e1815c2ef79088fad0ccb5d15dfa64e3d",
+      "gitBytes": 1509,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "vite.hair.config.ts",
+      "sha256": "238a3f1eb64c6ecf667e633e5724bfa09817eed7d257d7ada503409d779f48c3",
+      "bytes": 1708,
+      "gitSHA256": "238a3f1eb64c6ecf667e633e5724bfa09817eed7d257d7ada503409d779f48c3",
+      "gitBytes": 1708,
+      "representation": "exact Git blob"
+    },
+    {
+      "path": "vite.speed.config.ts",
+      "sha256": "47cc0a0dae1bda638823ad3f3499eafcd02294ffea31d026819bb0dd1ba50c5f",
+      "bytes": 2419,
+      "gitSHA256": "47cc0a0dae1bda638823ad3f3499eafcd02294ffea31d026819bb0dd1ba50c5f",
+      "gitBytes": 2419,
+      "representation": "exact Git blob"
+    }
+  ]
+}
