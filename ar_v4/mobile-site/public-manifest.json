@@ -2,19 +2,19 @@
   "schemaVersion": 1,
   "files": [
     {
-      "path": "assets/arTesting-Cv6yu_EG.js",
-      "size": 111927,
-      "sha256": "d7ea7fb1c8e9088ccf7a37620f3e88d449a7f3022fa2e1e54a6a77a8e3f0f31d"
+      "path": "assets/arTesting-BXbl1-re.css",
+      "size": 12894,
+      "sha256": "83c54a01400cf1c8a4f372509f1ca7c56426191ffc0ce1a72177baa35c0ae6d4"
     },
     {
-      "path": "assets/arTesting-D3JM6r0S.css",
-      "size": 12508,
-      "sha256": "d3b80a9ec926664b658460f2ff1435d295fb317bcc02323bcdd2a812e94ad0f0"
+      "path": "assets/arTesting-D7I3LRN4.js",
+      "size": 123222,
+      "sha256": "d42dfbdce04cae6995fb8c48b61af05526686af9e783ebb9390aee703c330efc"
     },
     {
-      "path": "assets/comparison-renderer-BCc_h91E.js",
-      "size": 815850,
-      "sha256": "cb735916c865ef280ab9e3e5d0ad4a807e71c69575c383fc31121022622fe2c0"
+      "path": "assets/comparison-renderer-zXCbrt5X.js",
+      "size": 815967,
+      "sha256": "d97d97ddbca7973d36f72072d3db535d1f6ab94d69cd15668e2855c2e9586ed7"
     },
     {
       "path": "assets/face-detector.worker-DvXt9Zsn.js",
@@ -28,8 +28,8 @@
     },
     {
       "path": "experiments/efficiency-lab/live.html",
-      "size": 13351,
-      "sha256": "e32fa45c84614da22faeb52144f249a7565b7dbfa1da9325e56498d35765694b"
+      "size": 14245,
+      "sha256": "f643fead6fa70970488a2514b158996820d2bd0adc36ccaa54c5e92b17520830"
     },
     {
       "path": "hair-preview-models/hair-only.tflite",
@@ -104,7 +104,7 @@
     {
       "path": "release.json",
       "size": 255,
-      "sha256": "25c90f745a3c516689583f837a73bf63abe101d8016be1db2946b1a0c672d4ab"
+      "sha256": "054718a89a6fb788c43a0a12f2427cf2fa5dffb5afaaca18ec73738fefe3d789"
     }
   ]
 }

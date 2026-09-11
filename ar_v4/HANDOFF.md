@@ -2,6 +2,13 @@
 
 ## Authorized mobile comparison — September 11, 2026
 
+Latest phone follow-up: an iPhone 17 Pro remained on Opening for over one minute.
+The lab now displays exact startup stages/elapsed time, supports **Save startup
+report** before the first frame and bounds failed startup with cancellation/retry.
+Collect that phone's report before changing GPU/inference/rendering policy; the
+actual stalled phase is still unconfirmed. See the latest review entry for the
+passing blocked-load tests and desktop WebKit evidence limitations.
+
 The owner explicitly requested an **ar_testing** landing-page option in the live
 Lenses application and a continuous mobile comparison with video + measurements
 in one file. `/ar_testing/` serves only the generated `mobile-site/` allowlist

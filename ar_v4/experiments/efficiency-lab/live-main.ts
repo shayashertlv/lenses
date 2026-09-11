@@ -6,6 +6,8 @@ import {ContinuousComparisonRun} from './continuous-run.ts';
 import type {ContinuousRunStatus} from './continuous-run.ts';
 import {ContinuousCanvasRecorder} from './continuous-recorder.ts';
 import {createRunArchive} from './run-export.ts';
+import {StartupWatchdog} from './startup-watchdog.ts';
+import type {StartupReceipt, StartupStage} from './startup-watchdog.ts';
 import {runExperimentPump} from './live-pump.ts';
 import {openCamera} from '../../references/perfect-temples/src/runtime/camera.ts';
 import type {CameraSession} from '../../references/perfect-temples/src/runtime/camera.ts';
@@ -90,8 +92,134 @@ interface Session {
   firstPublishedAtMs:number|null;
   firstMaskedAtMs:number|null;
   uiCadence:UiSummaryCadence;
+  startup: StartupInfo | null;
 }
 let current: Session | null = null;
+
+interface StartupInfo {
+  watchdog: StartupWatchdog;
+  progressTimer: number | null;
+  error: string | null;
+  milestones: {name: string; atMs: number}[];
+}
+let lastStartupReport: Record<string, unknown> | null = null;
+const STARTUP_LABELS: Record<StartupStage, string> = {
+  module: 'Loading mirror code', 'g-renderer': 'Preparing G glasses',
+  'candidate-renderer': 'Preparing comparison glasses', face: 'Starting face tracking',
+  'first-ar': 'Waiting for the first AR image',
+};
+function startupErrorText(value: unknown): string {
+  return (value instanceof Error ? value.message : String(value)).replace(/data:[^\s"']+/gi, '[data URL omitted]').slice(0, 1000);
+}
+function startupCapabilities(): Record<string, unknown> {
+  return {offscreenCanvasMain: typeof OffscreenCanvas !== 'undefined', offscreenCanvasWorker: null,
+    workerCapabilityStatus: 'Not reported by the worker; main-thread support does not establish worker support.',
+    requestVideoFrameCallback: typeof HTMLVideoElement.prototype.requestVideoFrameCallback === 'function',
+    canvasCaptureStream: typeof HTMLCanvasElement.prototype.captureStream === 'function',
+    mediaRecorder: typeof MediaRecorder !== 'undefined', createImageBitmap: typeof createImageBitmap === 'function',
+    workerConstructor: typeof Worker !== 'undefined', webAssembly: typeof WebAssembly !== 'undefined',
+    crossOriginIsolated, secureContext: isSecureContext};
+}
+function startupResourceTimings(): Record<string, unknown>[] {
+  return performance.getEntriesByType('resource').slice(-120).flatMap(entry => {
+    try {
+      const url = new URL(entry.name, location.href);
+      if (url.origin !== location.origin || !/^\/(ar_testing\/|models\/|mediapipe\/|assets\/|experiments\/)/.test(url.pathname)) return [];
+      const timing = entry as PerformanceResourceTiming & {responseStatus?: number};
+      return [{path: url.pathname.slice(0, 400), initiatorType: timing.initiatorType, startTimeMs: timing.startTime,
+        durationMs: timing.duration, transferBytes: timing.transferSize, encodedBytes: timing.encodedBodySize,
+        decodedBytes: timing.decodedBodySize, responseStatus: typeof timing.responseStatus === 'number' ? timing.responseStatus : null}];
+    } catch {return [];}
+  });
+}
+function startupReport(session: Session, includeResources = false): Record<string, unknown> | null {
+  const startup = session.startup;
+  if (!startup) return null;
+  return {schema: 'ar-startup-diagnostic-v1', ...CURRENT_BASE_METADATA,
+    build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
+    createdAt: new Date().toISOString(), performanceTimeOriginMs: performance.timeOrigin,
+    cameraRequestedAtMs: session.openedAtMs, startup: startup.watchdog.snapshot(),
+    milestones: startup.milestones.map(value => ({...value})),
+    workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant, pipeline: selectedPipeline},
+    device: deviceMetadata(session),
+    capabilities: startupCapabilities(),
+    acceleration: {hairRequested: session.backend.requested, hairActive: session.backend.active,
+      faceActive: session.detector.delegate, renderer: session.backend.renderer,
+      hairFallbackReason: session.backend.fallbackReason ? startupErrorText(session.backend.fallbackReason) : null},
+    errors: {startup: startup.error, hair: session.hairError ? startupErrorText(session.hairError) : null},
+    privacy: 'Startup status, selected workload and bounded scalar device details only. No camera images, image identities, detections, landmarks, hair masks, device IDs or camera labels.',
+    clock: 'Milestones use performance.now on this page. Mirror setup deadlines begin after the camera is ready; camera permission and playback keep their existing separate deadlines.',
+    ...(includeResources ? {resourceTimings: startupResourceTimings(),
+      resourceTimingPolicy: 'At most the latest 120 page resource entries, restricted to same-origin AR asset paths with query strings omitted. No request bodies or response contents. Zero sizes/status may mean browser metadata is unavailable.'} : {})};
+}
+function showStartupProgress(session: Session): void {
+  const info = session.startup;
+  if (!info) return;
+  const receipt = info.watchdog.snapshot();
+  const label = receipt.stage ? STARTUP_LABELS[receipt.stage] : 'Opening camera';
+  let message: string;
+  if (receipt.state === 'idle') message = `Opening camera · ${Math.floor((performance.now() - session.openedAtMs) / 1000)} s elapsed`;
+  else if (receipt.state === 'running') message = `${label} · ${Math.floor(receipt.stageElapsedMs / 1000)} s elapsed`;
+  else if (receipt.state === 'complete') message = `Mirror ready · ${(receipt.elapsedMs / 1000).toFixed(1)} s to prepare after the camera opened.`;
+  else message = `Setup ${receipt.state === 'cancelled' ? 'cancelled' : 'stopped'} · ${label}. ${info.error ?? receipt.reason ?? 'Save the startup report for details.'}`;
+  for (const id of ['startup-status', 'startup-stage-progress']) {
+    const target = element(id); if (target.textContent !== message) target.textContent = message;
+  }
+  element('startup-stage-progress').hidden = receipt.state === 'complete';
+  element('startup-panel').hidden = false;
+  stage.dataset.startupStage = receipt.stage ?? 'camera';
+  stage.dataset.startupState = receipt.state;
+}
+function enterStartupStage(session: Session, phase: StartupStage): void {
+  if (current !== session || session.abort.signal.aborted || !session.startup) return;
+  const previous = session.startup.watchdog.snapshot().stage;
+  session.startup.watchdog.enter(phase);
+  if (current !== session || session.abort.signal.aborted) return;
+  if (previous !== phase) session.startup.milestones.push({name: `stage-${phase}`, atMs: performance.now()});
+  setState('starting', STARTUP_LABELS[phase].toUpperCase(), `${STARTUP_LABELS[phase]}… You can close the camera to cancel.`);
+  showStartupProgress(session);
+}
+function settleStartup(session: Session, failed: boolean, message: string): void {
+  const info = session.startup;
+  if (!info) return;
+  if (info.progressTimer !== null) window.clearInterval(info.progressTimer);
+  info.progressTimer = null;
+  const receipt = info.watchdog.snapshot();
+  if (receipt.state !== 'complete') {
+    if (failed) {info.error = startupErrorText(message); info.watchdog.fail(info.error);}
+    else info.watchdog.cancel('Camera session closed.');
+  }
+  showStartupProgress(session); lastStartupReport = startupReport(session);
+}
+function latestStartupReport(includeResources = false): Record<string, unknown> | null {
+  if (current?.startup) return startupReport(current, includeResources);
+  if (!lastStartupReport) return null;
+  return {...structuredClone(lastStartupReport), ...(includeResources ? {
+    resourceTimings: startupResourceTimings(),
+    resourceTimingPolicy: 'At most the latest 120 page resource entries, restricted to same-origin AR asset paths with query strings omitted. No request bodies or response contents. Zero sizes/status may mean browser metadata is unavailable.',
+  } : {})};
+}
+function saveStartupReport(): void {
+  if (continuousActive()) return;
+  const report = latestStartupReport(true);
+  if (!report) return;
+  const json = JSON.stringify(report, null, 2);
+  element<HTMLTextAreaElement>('startup-json').value = json;
+  element<HTMLDetailsElement>('startup-report-copy').open = true;
+  element<HTMLButtonElement>('select-startup-json').disabled = false;
+  element('startup-export-status').textContent = 'Startup JSON is ready. If the file does not appear, select and copy it below. No images or face data are included.';
+  let url: string | null = null;
+  try {
+    url = URL.createObjectURL(new Blob([json], {type: 'application/json'}));
+    const link = document.createElement('a'); link.href = url;
+    link.download = `ar-startup-${new Date().toISOString().replaceAll(':', '-')}.json`;
+    document.body.append(link); link.click(); link.remove();
+  } catch {
+    element('startup-export-status').textContent = 'The file download could not start. Select and copy the startup JSON below.';
+  } finally {
+    if (url) {const ownedUrl = url; window.setTimeout(() => URL.revokeObjectURL(ownedUrl), 10000);}
+  }
+}
 
 interface ContinuousContext {
   controller: ContinuousComparisonRun;
@@ -349,6 +477,7 @@ function updateControls(): void {
   writeValue(benchmark,'disabled',recording || !current?.presented || held || current.heldBusy || profiler.running || selectedPipeline==='g');
   writeValue(element<HTMLSelectElement>('benchmark-order'),'disabled',recording);
   writeValue(downloadMetrics,'disabled',recording || !profiler.hasSamples);
+  writeValue(element<HTMLButtonElement>('download-startup'),'disabled',recording || !current?.startup && !lastStartupReport);
   writeValue(continuousStart,'disabled',recording || current?.phase !== 'live' || !!current.switching || !!current.holdRequested
     || !current.performanceSample?.hasFace || selectedVariant === 'hair' && !current.performanceSample.hasMask);
   writeValue(continuousVideo,'disabled',recording);
@@ -504,6 +633,7 @@ function closeSession(message = 'Camera closed. Ready whenever you are.', failed
   const session = current;
   current = null;
   if (session) {
+    settleStartup(session, failed, message);
     profiler.recordEvent(session.id,failed?'session-failed':'session-closed',performance.now());
     releaseLive(session);
     for (const cleanup of session.cleanups.splice(0)) cleanup();
@@ -568,12 +698,20 @@ function runPumpedFrames(session:Session):void {
         continuousRun.controller.observe(session.performanceSample, input.publishedAtMs);
       }
       if(session.firstPublishedAtMs===null) {
+        const startupReceipt = session.startup?.watchdog.complete();
+        if (!owns()) return;
+        if (startupReceipt?.state !== 'complete') {
+          closeSession('The first AR image arrived after startup was cancelled. Open the camera again to retry.', true); return;
+        }
         session.firstPublishedAtMs=input.publishedAtMs;
         profiler.recordEvent(session.id,'first-publication',input.publishedAtMs,input.publishedAtMs-session.openedAtMs);
         element('profile-startup').textContent=((input.publishedAtMs-session.openedAtMs)/1000).toFixed(2)+' s';
+        session.startup?.milestones.push({name: 'first-publication', atMs: input.publishedAtMs});
+        settleStartup(session, false, 'Mirror ready.');
       }
       if(input.hasMask&&session.firstMaskedAtMs===null) {
         session.firstMaskedAtMs=input.publishedAtMs;
+        session.startup?.milestones.push({name: 'first-masked-publication', atMs: input.publishedAtMs});
         profiler.recordEvent(session.id,'first-masked-publication',input.publishedAtMs,input.publishedAtMs-session.openedAtMs);
         element('profile-masked-startup').textContent=((input.publishedAtMs-session.openedAtMs)/1000).toFixed(2)+' s';
       }
@@ -625,9 +763,21 @@ async function openSession(): Promise<void> {
     hair: new HairClient(selectedHair, {delegate: backend.requested, outputMode: 'category-only'}), backend,
     hairReady: false, hairError: null, canvas, liveCleanups: [], cleanups: [], nextSequence: 0, presented: null, heldAt: null,
     heldBusy: false, processing: false, holdRequested: false, budgetMisses: 0, timing: null, performanceSample:null,
-    openedAtMs,firstPublishedAtMs:null,firstMaskedAtMs:null,uiCadence:new UiSummaryCadence()};
+    openedAtMs,firstPublishedAtMs:null,firstMaskedAtMs:null,uiCadence:new UiSummaryCadence(), startup: null};
+  session.startup = {watchdog: new StartupWatchdog({sessionId: session.id, onTimeout: receipt => {
+    if (current !== session) return;
+    const label = receipt.stage ? STARTUP_LABELS[receipt.stage] : 'Mirror setup';
+    closeSession(`${label} took too long. Save the startup report below, then try again.`, true);
+  }}), progressTimer: null, error: null, milestones: [{name: 'camera-request', atMs: openedAtMs}]};
+  lastStartupReport = null;
+  element<HTMLTextAreaElement>('startup-json').value = '';
+  element<HTMLDetailsElement>('startup-report-copy').open = false;
+  element<HTMLButtonElement>('select-startup-json').disabled = true;
+  element('startup-export-status').textContent = 'Save this attempt’s startup report if setup stops. It contains device details and timings, with no images or face data.';
   profiler.recordEvent(session.id,'camera-request',openedAtMs);
   current = session; stage.dataset.sessionId = session.id;
+  session.startup.progressTimer = window.setInterval(() => {if (current === session) showStartupProgress(session);}, 1000);
+  showStartupProgress(session);
   start.disabled = true; start.textContent = 'Opening…'; stop.hidden = false;
   setState('starting', 'STARTING CAMERA', 'Allow camera access when your browser asks.');
   updateControls(); showHairStatus();
@@ -635,6 +785,8 @@ async function openSession(): Promise<void> {
     session.camera = await openCamera(session.abort.signal);
     if (current !== session) { session.camera.stop(); return; }
     profiler.recordEvent(session.id,'camera-ready',performance.now());
+    session.startup.milestones.push({name: 'camera-ready', atMs: performance.now()});
+    session.startup.watchdog.start();
     const ended = () => { if (current === session && session.phase === 'live') closeSession('Your camera disconnected. Reconnect it and try again.', true); };
     const stream = session.camera.video.srcObject as MediaStream;
     for (const track of stream.getTracks()) {
@@ -647,26 +799,38 @@ async function openSession(): Promise<void> {
     };
     canvas.addEventListener('webglcontextlost', lost);
     session.cleanups.push(() => canvas.removeEventListener('webglcontextlost', lost));
-    setState('starting', 'PREPARING MIRROR', 'Loading the glasses and local face tracker…');
+    enterStartupStage(session, 'module');
     const {ComparisonRenderer: LiveHairRenderer} = await import('./comparison-renderer.ts');
     if (current !== session) return;
-    session.renderer = await LiveHairRenderer.create(canvas, session.abort.signal, session.eyewearId);
+    session.startup.milestones.push({name: 'module-ready', atMs: performance.now()});
+    session.renderer = await LiveHairRenderer.create(canvas, session.abort.signal, session.eyewearId, phase => {
+      if (current !== session) return;
+      if (phase === 'candidate-renderer') session.startup!.milestones.push({name: 'g-renderer-ready', atMs: performance.now()});
+      enterStartupStage(session, phase);
+    });
     if (current !== session) { session.renderer.dispose(); return; }
+    session.startup.milestones.push({name: 'candidate-renderer-ready', atMs: performance.now()});
     profiler.recordEvent(session.id,'renderers-ready',performance.now());
     session.renderer.selectVariant(selectedVariant);
     session.renderer.selectPipeline(selectedPipeline);
     // Optional hair startup never blocks a usable accepted mirror.
     void initializeHair(session, () => current === session && session.phase === 'live').then(() => {
       if (current === session && session.phase === 'live') { session.hairReady = true;
+        session.startup?.milestones.push({name: 'hair-ready', atMs: performance.now()});
         profiler.recordEvent(session.id,'hair-ready',performance.now());showHairStatus(); }
     }).catch(error => {
       if (current === session && session.phase === 'live') {
         session.hairError = messageFor(error); session.hairReady = false; session.hair.close(); showHairStatus();
       }
     });
+    enterStartupStage(session, 'face');
+    if (current !== session) return;
     await session.detector.initialize(session.abort.signal);
     if (current !== session) return;
     profiler.recordEvent(session.id,'face-ready',performance.now());
+    session.startup.milestones.push({name: 'face-ready', atMs: performance.now()});
+    enterStartupStage(session, 'first-ar');
+    if (current !== session) return;
     runFrames(session);
   } catch (error) { if (current === session) closeSession(friendlyError(error), true); }
 }
@@ -705,6 +869,10 @@ for (const id of ['toggle-pipeline', 'stage-toggle-pipeline']) element(id).addEv
 });
 start.addEventListener('click', () => { void openSession(); });
 stop.addEventListener('click', () => closeSession());
+element('download-startup').addEventListener('click', saveStartupReport);
+element('select-startup-json').addEventListener('click', () => {
+  const field = element<HTMLTextAreaElement>('startup-json'); field.focus(); field.select();
+});
 continuousStart.addEventListener('click', beginContinuous);
 continuousStop.addEventListener('click', () => cancelContinuous('Stopped by the user; partial measurements retained.'));
 element('continuous-save').addEventListener('click', saveContinuousFile);
@@ -882,6 +1050,7 @@ declare global {
   interface Window { hairLivePreview: {diagnostics(): Record<string, unknown>; exportDiagnostic(): Record<string, unknown> | null}; }
   interface Window { arPerformanceProfiler: {snapshot(): Record<string, unknown>; samplesAfter(serial: number): FrameSample[]}; }
   interface Window { arContinuousComparison: {status(): ContinuousRunStatus | null; report(): Record<string, unknown> | null}; }
+  interface Window { arStartupDiagnostics: {status(): StartupReceipt | null; report(): Record<string, unknown> | null}; }
 }
 // Read-only local inspection for exact-pair QA. It cannot start a camera or modify session state.
 window.hairLivePreview = Object.freeze({
@@ -898,5 +1067,10 @@ window.arPerformanceProfiler=Object.freeze({snapshot:()=>profiler.snapshot(),sam
 window.arContinuousComparison = Object.freeze({
   status: () => continuousRun?.controller.status ?? null,
   report: () => continuousRun ? {...continuousRun.controller.export(), recording: continuousRun.recorder.snapshot()} : lastContinuousReport,
+});
+window.arStartupDiagnostics = Object.freeze({
+  status: () => current?.startup?.watchdog.snapshot()
+    ?? (lastStartupReport?.startup ? structuredClone(lastStartupReport.startup) as StartupReceipt : null),
+  report: () => latestStartupReport(),
 });
 showEyewear(); updateControls(); showHairStatus(); updateProfileUi();

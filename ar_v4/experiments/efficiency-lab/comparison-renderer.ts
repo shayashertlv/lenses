@@ -29,9 +29,14 @@ export class ComparisonRenderer {
   private heldInput: HeldHairInput | null = null;
   private cachedDiagnostic: Record<string,unknown> | null = null;
   private constructor(private display: HTMLCanvasElement, private base: BaseRenderer, private candidate: CandidateRenderer) {}
-  static async create(display: HTMLCanvasElement, signal: AbortSignal, id: EyewearId = DEFAULT_EYEWEAR_ID): Promise<ComparisonRenderer> {
+  static async create(display: HTMLCanvasElement, signal: AbortSignal, id: EyewearId = DEFAULT_EYEWEAR_ID,
+    onStartupStage?: (stage: 'g-renderer' | 'candidate-renderer') => void): Promise<ComparisonRenderer> {
+    onStartupStage?.('g-renderer');
     const base = await BaseRenderer.create(display,signal,id);
-    try { const candidate = await CandidateRenderer.create(display,signal,id);
+    try {
+      if(signal.aborted) throw new DOMException('Startup cancelled.','AbortError');
+      onStartupStage?.('candidate-renderer');
+      const candidate = await CandidateRenderer.create(display,signal,id);
       if(signal.aborted) {candidate.dispose();throw new DOMException('Startup cancelled.','AbortError');}
       return new ComparisonRenderer(display,base,candidate);
     } catch(error) {base.dispose();throw error;}

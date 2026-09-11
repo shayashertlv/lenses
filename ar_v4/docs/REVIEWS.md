@@ -496,3 +496,50 @@ preserved output line endings are retained byte-for-byte for their manifest.
 Desktop Chromium/D3D11 with a synthetic camera is functional evidence only.
 Actual phone camera, wearer motion, codec/download behavior, peak memory,
 sustained smoothness and thermal effects remain to be measured by the owner.
+
+### iPhone loading report and bounded recovery — September 11
+
+The owner reported an iPhone 17 Pro remaining on Opening/Preparing Mirror for
+more than one minute. The old label spans module import, G/candidate renderer
+creation, face-worker startup and first publication; it does not locate the
+phone's stall. Renderer import/fetch/GLB decoding and first-frame preparation
+had no overall startup deadline. Face-worker attempts already have 45-second
+deadlines; missing non-SIMD assets cannot explain the pinned forced-ESM loader.
+
+The lab now reports each setup stage and elapsed time, with a small local startup
+JSON available before the first image and after failure/cancellation. It includes
+safe browser/capability/settings/milestone/error data and at most 120 same-origin
+resource timing entries on manual export, stripping query strings and excluding
+images, face data, camera device IDs and request/response contents. A copyable
+text fallback accompanies the file. Worker canvas capability remains explicitly
+unknown when only main-thread support is observed.
+
+After camera readiness, module/G/candidate phases each have 60 seconds, face has
+an outer 100 seconds, and first publication has 30 seconds, with a 240-second
+overall setup cap. Existing camera and worker limits remain. Timeout closes the
+owned session; completion/cancel clears its timers and stale results cannot
+revive it or affect a retry. The comparison wrapper adds only stage notifications
+and an abort check before candidate creation. All 239 accepted G dependency
+identities remain exact. Renderer, geometry, models, resolution and inference
+remain unchanged; no experiment is promoted.
+
+Strict types and all 183 efficiency checks pass, including 16 new timer and
+renderer-orchestration checks. Required npm test again passes 172 units and all
+21 G/reference/long-hair browser cases. Both new production startup browser cases
+pass: a delayed real module response exposes a pre-frame report and permits
+cancel/late-result rejection/retry; a blocked real GLB response reaches the actual
+60-second deadline, releases streams and permits a new masked G session. No
+production timers or clocks are accelerated by these tests.
+
+The updated public build also passes the independent network boundary check and
+the real Tom Ford/multiclass G-to-Q measurement/partial-save/held-guard/background
+cleanup regression. Its runtime release fingerprint starts `274f30e02554`.
+
+Desktop WebKit 26.6 successfully imports the published renderer module and
+creates/disposes its four render contexts. That Windows port lacks the camera,
+worker-canvas and video-callback capabilities needed to reproduce the complete
+iPhone pipeline, so it is not an iPhone startup pass. Probe scripts/receipts and
+test logs are preserved in ignored QA/recovery output. The phone's actual stalled
+stage and root cause remain unconfirmed until its startup report is collected.
+These changes provide bounded recovery and diagnosis, not proof of a phone fix.
+Timers cannot forcibly interrupt a synchronously blocked browser/GPU event loop.

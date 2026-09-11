@@ -30,6 +30,21 @@ when supported. Keep it visible; a background interval is not a valid benchmark.
 
 ## Read the result
 
+If the mirror remains on **Opening**, the startup panel identifies the current
+step and elapsed time. **Save startup report** works before the first image,
+including after a failure or cancellation; a text-copy fallback is also provided.
+The small JSON contains loading milestones, browser capabilities, selected
+settings and bounded same-origin resource timings. It contains no camera images,
+landmarks, masks, camera device IDs or request/response contents.
+
+After the camera opens, module loading and each renderer setup have a 60-second
+deadline, face startup has an outer 100-second deadline, and the first AR image
+has 30 seconds. Setup as a whole is capped at 240 seconds. The face worker's
+existing 45-second attempts and camera permission/playback deadlines remain in
+force. A timeout closes the owned session and permits a fresh attempt; late
+results cannot restart it. These timers can act only when the browser's event
+loop runs; they cannot forcibly interrupt a synchronous GPU/driver stall.
+
 The report retains each completed AR frame's scalar timing and actual experiment
 counters, independent camera-delivery observations, exact window/switch boundaries,
 startup timings, tracking/mask coverage, and browser/camera/build metadata.
