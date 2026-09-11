@@ -18,7 +18,7 @@ import type {EyewearId} from '../../references/perfect-temples/src/render/eyewea
 
 interface Packet {
   sequence:number;capturedAtMs:number;canvas:HTMLCanvasElement;rgba:ImageData;disposed:boolean;
-  drawMs:number;readMs:number;videoFrames:number|null;mediaTime:number;presentation:number|null;
+  drawMs:number;readMs:number;videoFrames:number|null;mediaTime:number|null;presentation:number|null;
   pipeline:Pipeline;variant:'hair'|'accepted';source?:OwnedSourceFrame;
   reads:Promise<unknown>[];canvasReads:number;
 }
@@ -54,10 +54,12 @@ function flatten(value:unknown):NonNullable<FrameInput['native']> {
 }
 
 export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Promise<void>;stats:()=>unknown} {
-  let stopped=false,draining=false,cancel:()=>void=()=>{},lastMedia=-1,lastVideoTime=-1,lastVideoAt=performance.now(),hairTail:Promise<unknown>=Promise.resolve();
+  let stopped=false,draining=false,cancel:()=>void=()=>{},lastFrame=-1,lastVideoFrame=-1,lastVideoAt=performance.now(),hairTail:Promise<unknown>=Promise.resolve();
   const owns=()=>!stopped&&c.owns();
   const profile=PROFILES[c.pipeline];
   let hasPublished=false,prePrepareRequests=0,prePrepareSkipped=0;
+  const startup={faceBitmapRequests:0,faceBitmapReady:0,faceRequests:0,faceCompleted:0,
+    sourceHashes:0,hairRequests:0,inferred:0,prepareCalls:0,prepared:0};
   const admission=new CaptureRateAdmission(profile.captureRateHz);
   const capturePool=new InputCanvasPool(profile.leanInputs),facePool=new InputCanvasPool(profile.leanInputs);
   const releaseTasks=new Set<Promise<void>>();
@@ -68,7 +70,7 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       c.onBusy();const alive=()=>owns()&&!p.disposed&&!signal.aborted;
       const inferenceStartedAt=performance.now(),hashStart=performance.now();let hashMs=0;
       let sourceHash!:InputHashResult;
-      const sha=hashInput(p.rgba.data,profile.leanInputs).then(result=>{sourceHash=result;hashMs=performance.now()-hashStart;return result.value;});
+      const sha=hashInput(p.rgba.data,profile.leanInputs).then(result=>{startup.sourceHashes++;sourceHash=result;hashMs=performance.now()-hashStart;return result.value;});
       const hairBitmapStart=performance.now();let hairBitmapMs=0;
       const readHair=c.hairReady()&&p.variant==='hair';p.canvasReads=Number(readHair);
       const hairBitmap=readHair?createImageBitmap(p.canvas).then(bitmap=>{hairBitmapMs=performance.now()-hairBitmapStart;return bitmap;}).finally(()=>{p.canvasReads--;}):Promise.resolve(null);
@@ -79,7 +81,7 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       const previousHair=hairTail;
       const hair=Promise.all([sha,hairBitmap,previousHair]).then(async([sourceSHA256,bitmap])=>{
         if(!bitmap){markHairStarted();return null;}if(!alive()){bitmap.close();markHairStarted();return null;}
-        try {const result=c.hair().segment(bitmap,sourceSHA256,p.sequence,profile.hairExtractionMode);markHairStarted();return await result;}
+        try {startup.hairRequests++;const result=c.hair().segment(bitmap,sourceSHA256,p.sequence,profile.hairExtractionMode);markHairStarted();return await result;}
         catch(error){if(alive())c.onHairError(error);return null;}
         finally{markHairStarted();}
       }).catch(async(error)=>{const bitmap=await hairBitmap.catch(()=>null);bitmap?.close();markHairStarted();if(alive())c.onHairError(error);return null;});
@@ -89,10 +91,10 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       let bitmap:ImageBitmap,detectorDrawMs:number,faceBitmapMs:number;
       try {
         const drawStart=performance.now();inputContext(input).drawImage(p.canvas,0,0,input.width,input.height);detectorDrawMs=performance.now()-drawStart;
-        const bitmapStart=performance.now();bitmap=await createImageBitmap(input);faceBitmapMs=performance.now()-bitmapStart;
+        const bitmapStart=performance.now();startup.faceBitmapRequests++;bitmap=await createImageBitmap(input);startup.faceBitmapReady++;faceBitmapMs=performance.now()-bitmapStart;
       } finally {facePool.release(input);}
       if(!alive()){bitmap.close();throw new DOMException('Frame revoked.','AbortError');}
-      const faceStart=performance.now();const detection=await c.detector.detect(bitmap,p.capturedAtMs);
+      const faceStart=performance.now();startup.faceRequests++;const detection=await c.detector.detect(bitmap,p.capturedAtMs);startup.faceCompleted++;
       const faceWallMs=performance.now()-faceStart,face=c.detector.lastTiming;
       const sourceSHA256=await sha;const detectionHashStart=performance.now();
       const detectionSHA256=await hash(new TextEncoder().encode(JSON.stringify(detection)));
@@ -105,10 +107,11 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       p.source=createOwnedSourceFrame(p.canvas,p.rgba,{sourceSHA256,generation:p.sequence,sessionId:c.id,isCurrent:alive});
       const result:Inferred={detection,sourceSHA256,detectionSHA256,face,hashMs,detectorDrawMs,faceBitmapMs,faceWallMs,
         detectionHashMs,hair,hairResult:null,inferenceStartedAt,hairAdmissionWaitMs,sourceHash,hairBitmapMs};
-      void hair.then(value=>{if(alive())result.hairResult=value;});return result;
+      void hair.then(value=>{if(alive())result.hairResult=value;});startup.inferred++;return result;
     },
     prepare:async(p,i,signal,beginPrefetch)=>{
       if(!owns()||signal.aborted)throw new DOMException('Frame revoked.','AbortError');
+      startup.prepareCalls++;
       const variant=c.variant();
       c.renderer.selectPipeline(p.pipeline);
       const prePrepareStarted=performance.now();prePrepareRequests++;
@@ -136,6 +139,7 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       if(!owns()||signal.aborted)throw new DOMException('Frame revoked.','AbortError');
       if(hair&&(hair.sequence!==p.sequence||hair.sourceSHA256!==i.sourceSHA256))throw new Error('Hair result belongs to another image.');
       const mask=hair&&variant==='hair'?{...hair,detectionSHA256:i.detectionSHA256}:null;
+      startup.prepared++;
       return {visible,mask,hair,prepareMs,hairWaitMs:performance.now()-waitStart,nativeSubmittedMs,prePrepareSkipped:skip,prePrepareMs};
     },
     publish:(p,i,r)=>{
@@ -197,8 +201,15 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
     if(!owns()||draining)return;
     const callback=(_now:number,metadata?:VideoFrameCallbackMetadata):void=>{
       if(!owns()||draining)return;
-      if(c.video.readyState>=2&&c.video.currentTime!==lastVideoTime){lastVideoTime=c.video.currentTime;lastVideoAt=performance.now();}
-      const distinctReady=c.video.readyState>=2&&admission.observeReady(c.video.currentTime);
+      // WebKit live-stream currentTime advances on each getter. It is a playback
+      // clock, not a stable image identity. Snapshot in this callback's task;
+      // use its frame counter for admission, even when its PTS remains zero.
+      const pairedMetadata=metadata&&Number.isSafeInteger(metadata.presentedFrames)&&metadata.presentedFrames>=0?metadata:null;
+      const frameIdentity=pairedMetadata?.presentedFrames??c.video.currentTime;
+      const mediaTime=pairedMetadata?(Number.isFinite(pairedMetadata.mediaTime)?pairedMetadata.mediaTime:null):frameIdentity;
+      const presentation=pairedMetadata&&Number.isFinite(pairedMetadata.presentationTime)?pairedMetadata.presentationTime:null;
+      if(c.video.readyState>=2&&frameIdentity!==lastVideoFrame){lastVideoFrame=frameIdentity;lastVideoAt=performance.now();}
+      const distinctReady=c.video.readyState>=2&&admission.observeReady(frameIdentity);
       // An early rejection preserves a replaceable pending pair: FramePump
       // disposes that pair before invoking the lazy capture callback. Recheck
       // inside the factory at the actual snapshot start; never delay old pixels.
@@ -208,19 +219,20 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       let captureInvoked=false;
       pump.offer(()=>{
         captureInvoked=true;
-        const mediaTime=c.video.currentTime;if(c.video.readyState<2||mediaTime===lastMedia)return null;
+        if(c.video.readyState<2||frameIdentity===lastFrame)return null;
         const capturedAtMs=performance.now();
         if(!admission.canCapture(capturedAtMs)){if(distinctReady)admission.skipRate();return null;}
         const scale=Math.min(1,1280/Math.max(c.video.videoWidth,c.video.videoHeight));
         const canvas=capturePool.acquire(Math.max(1,Math.round(c.video.videoWidth*scale)),Math.max(1,Math.round(c.video.videoHeight*scale)));
         try {
           const ctx=inputContext(canvas),drawStart=performance.now();ctx.drawImage(c.video,0,0,canvas.width,canvas.height);const drawMs=performance.now()-drawStart;
-          if(c.video.currentTime!==mediaTime){capturePool.release(canvas);return null;}
+          // drawImage freezes the source in owned canvas storage. Every hash,
+          // face/hair bitmap and render below uses these same pixels. A later
+          // playback-clock read cannot validate that pairing and must not veto it.
           const readStart=performance.now(),rgba=ctx.getImageData(0,0,canvas.width,canvas.height);
-          const pairedMetadata=metadata&&Math.abs(metadata.mediaTime-mediaTime)<.001?metadata:null;
           const packet:Packet={sequence:c.nextSequence(),capturedAtMs,canvas,rgba,disposed:false,drawMs,readMs:performance.now()-readStart,
-            videoFrames:pairedMetadata?.presentedFrames??null,mediaTime,presentation:pairedMetadata?.presentationTime??null,pipeline:c.pipeline,variant:c.variant(),reads:[],canvasReads:0};
-          admission.accepted(capturedAtMs);lastMedia=mediaTime;return packet;
+            videoFrames:pairedMetadata?.presentedFrames??null,mediaTime,presentation,pipeline:c.pipeline,variant:c.variant(),reads:[],canvasReads:0};
+          admission.accepted(capturedAtMs);lastFrame=frameIdentity;return packet;
         } catch(error) {capturePool.release(canvas);throw error;}
       });
       if(distinctReady&&!captureInvoked)admission.skipBackpressure();
@@ -236,5 +248,5 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
   schedule();
   return {stop(){stopped=true;cancel();clearInterval(watchdog);pump.stop();capturePool.dispose();facePool.dispose();},
     async finishCurrent(){draining=true;cancel();clearInterval(watchdog);await pump.finishCurrent();await hairTail;
-      await Promise.allSettled([...releaseTasks]);capturePool.dispose();facePool.dispose();},stats:()=>({...pump.stats,admission:admission.stats})};
+      await Promise.allSettled([...releaseTasks]);capturePool.dispose();facePool.dispose();},stats:()=>({...pump.stats,admission:admission.stats,startup:{...startup}})};
 }

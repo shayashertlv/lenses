@@ -33,8 +33,11 @@ when supported. Keep it visible; a background interval is not a valid benchmark.
 If the mirror remains on **Opening**, the startup panel identifies the current
 step and elapsed time. **Save startup report** works before the first image,
 including after a failure or cancellation; a text-copy fallback is also provided.
-The small JSON contains loading milestones, browser capabilities, selected
-settings and bounded same-origin resource timings. It contains no camera images,
+The small JSON contains loading milestones, browser capabilities, the settings
+requested when the camera opened, bounded same-origin resource timings, and
+scalar capture/inference/preparation counters. Those counters and video state
+freeze at the first publication or before failure/cancellation cleanup; later
+experiment switches cannot relabel startup. It contains no camera images,
 landmarks, masks, camera device IDs or request/response contents.
 
 After the camera opens, module loading and each renderer setup have a 60-second

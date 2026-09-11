@@ -8,6 +8,8 @@ import {ContinuousCanvasRecorder} from './continuous-recorder.ts';
 import {createRunArchive} from './run-export.ts';
 import {StartupWatchdog} from './startup-watchdog.ts';
 import type {StartupReceipt, StartupStage} from './startup-watchdog.ts';
+import {startupPumpDiagnostic, startupPumpLabel} from './startup-pump-diagnostic.ts';
+import type {StartupPumpDiagnostic} from './startup-pump-diagnostic.ts';
 import {runExperimentPump} from './live-pump.ts';
 import {openCamera} from '../../references/perfect-temples/src/runtime/camera.ts';
 import type {CameraSession} from '../../references/perfect-temples/src/runtime/camera.ts';
@@ -101,6 +103,8 @@ interface StartupInfo {
   progressTimer: number | null;
   error: string | null;
   milestones: {name: string; atMs: number}[];
+  frameProgress: StartupPumpDiagnostic | null;
+  workload: {eyewearId: EyewearId; hairModelId: HairModelId; variant: 'accepted' | 'hair'; pipeline: Pipeline};
 }
 let lastStartupReport: Record<string, unknown> | null = null;
 const STARTUP_LABELS: Record<StartupStage, string> = {
@@ -132,6 +136,14 @@ function startupResourceTimings(): Record<string, unknown>[] {
     } catch {return [];}
   });
 }
+function startupFrameProgress(session: Session, settled = false): StartupPumpDiagnostic {
+  if (session.startup?.frameProgress) return structuredClone(session.startup.frameProgress);
+  const video = session.camera?.video;
+  return startupPumpDiagnostic(session.pump?.stats() ?? null, video ? {readyState: video.readyState,
+    paused: video.paused, ended: video.ended, currentTime: video.currentTime,
+    width: video.videoWidth, height: video.videoHeight} : null, performance.now(),
+  session.firstPublishedAtMs !== null, settled);
+}
 function startupReport(session: Session, includeResources = false): Record<string, unknown> | null {
   const startup = session.startup;
   if (!startup) return null;
@@ -139,8 +151,11 @@ function startupReport(session: Session, includeResources = false): Record<strin
     build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
     createdAt: new Date().toISOString(), performanceTimeOriginMs: performance.timeOrigin,
     cameraRequestedAtMs: session.openedAtMs, startup: startup.watchdog.snapshot(),
+    frameProgress: startupFrameProgress(session),
+    frameProgressPolicy: 'Only allowlisted scalar counters and video state. Preserved before startup cleanup or immediately at the first publication callback. The pump publication count increments after that callback returns; publicationObserved records the callback itself. Concurrent face/hair work is not a serial stage timeline.',
     milestones: startup.milestones.map(value => ({...value})),
-    workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant, pipeline: selectedPipeline},
+    workload: {...startup.workload},
+    workloadPolicy: 'Selections requested when this camera session opened. Later controls do not relabel the startup attempt.',
     device: deviceMetadata(session),
     capabilities: startupCapabilities(),
     acceleration: {hairRequested: session.backend.requested, hairActive: session.backend.active,
@@ -156,7 +171,8 @@ function showStartupProgress(session: Session): void {
   const info = session.startup;
   if (!info) return;
   const receipt = info.watchdog.snapshot();
-  const label = receipt.stage ? STARTUP_LABELS[receipt.stage] : 'Opening camera';
+  const label = receipt.stage === 'first-ar' && receipt.state === 'running'
+    ? startupPumpLabel(startupFrameProgress(session)) : receipt.stage ? STARTUP_LABELS[receipt.stage] : 'Opening camera';
   let message: string;
   if (receipt.state === 'idle') message = `Opening camera · ${Math.floor((performance.now() - session.openedAtMs) / 1000)} s elapsed`;
   else if (receipt.state === 'running') message = `${label} · ${Math.floor(receipt.stageElapsedMs / 1000)} s elapsed`;
@@ -182,6 +198,9 @@ function enterStartupStage(session: Session, phase: StartupStage): void {
 function settleStartup(session: Session, failed: boolean, message: string): void {
   const info = session.startup;
   if (!info) return;
+  // Snapshot once while this attempt still owns its camera/pump resources.
+  // Later cancelled callbacks, pipeline switches and cleanup cannot rewrite it.
+  info.frameProgress ??= startupFrameProgress(session, true);
   if (info.progressTimer !== null) window.clearInterval(info.progressTimer);
   info.progressTimer = null;
   const receipt = info.watchdog.snapshot();
@@ -768,7 +787,8 @@ async function openSession(): Promise<void> {
     if (current !== session) return;
     const label = receipt.stage ? STARTUP_LABELS[receipt.stage] : 'Mirror setup';
     closeSession(`${label} took too long. Save the startup report below, then try again.`, true);
-  }}), progressTimer: null, error: null, milestones: [{name: 'camera-request', atMs: openedAtMs}]};
+  }}), progressTimer: null, error: null, milestones: [{name: 'camera-request', atMs: openedAtMs}], frameProgress: null,
+    workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant, pipeline: selectedPipeline}};
   lastStartupReport = null;
   element<HTMLTextAreaElement>('startup-json').value = '';
   element<HTMLDetailsElement>('startup-report-copy').open = false;

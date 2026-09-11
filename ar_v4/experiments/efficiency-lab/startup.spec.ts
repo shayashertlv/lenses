@@ -2,6 +2,7 @@ import {test, expect} from '@playwright/test';
 import type {Page, Route} from '@playwright/test';
 import {readFile, writeFile} from 'node:fs/promises';
 import type {StartupReceipt} from './startup-watchdog.ts';
+import type {StartupPumpDiagnostic} from './startup-pump-diagnostic.ts';
 
 interface StartupCamera {
   streams: MediaStream[]; workers: {terminated: boolean}[];
@@ -17,16 +18,30 @@ const sensitiveMarker = 'startup-qa-private-marker-7d29';
 
 /** Camera input and request latency are simulated. All setup, renderer/worker
  * deadlines, watchdog timers, cancellation and first-frame work remain real. */
-async function installCamera(page: Page): Promise<void> {
+async function installCamera(page: Page, portraitClock = false): Promise<void> {
   const fixture = await readFile(new URL('../../tests/fixtures/face-a.jpg', import.meta.url));
   await page.route('**/ar_testing/startup-camera.jpg', route => route.fulfill({contentType: 'image/jpeg', body: fixture}));
-  await page.addInitScript(marker => {
-    const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 427;
+  await page.addInitScript(({marker, portraitClock}) => {
+    const canvas = document.createElement('canvas'); canvas.width = portraitClock ? 720 : 640; canvas.height = portraitClock ? 1280 : 427;
     const context = canvas.getContext('2d')!, image = new Image();
     const ready = new Promise<void>((resolve, reject) => {image.onload = () => resolve(); image.onerror = reject;});
     image.src = '/ar_testing/startup-camera.jpg';
     const state: StartupCamera = {streams: [], workers: [], pendingTimers: new Map()}; window.startupCamera = state;
-    const draw = (): void => {if (image.complete && image.naturalWidth) context.drawImage(image, 0, 0, 640, 427);};
+    const draw = (): void => {if (image.complete && image.naturalWidth) {
+      context.fillStyle = '#808080'; context.fillRect(0, 0, canvas.width, canvas.height);
+      if (portraitClock) context.drawImage(image, 0, 400, 720, 480);
+      else context.drawImage(image, 0, 0, 640, 427);
+    }};
+    if (portraitClock) {
+      // Model WebKit's playing MediaStream clock while keeping real video
+      // callbacks, pixels, workers and renderer. A getter delta is guaranteed
+      // even when this test machine rounds performance.now().
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime')!;
+      let reads = 0;
+      Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {...descriptor,
+        get(this: HTMLMediaElement) {return this.srcObject instanceof MediaStream
+          ? performance.now() / 1000 + ++reads / 1e6 : descriptor.get!.call(this) as number;}});
+    }
     setInterval(draw, 33);
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {configurable: true, value: async () => {
       await ready; draw(); const stream = canvas.captureStream(30); state.streams.push(stream);
@@ -57,7 +72,7 @@ async function installCamera(page: Page): Promise<void> {
     window.clearTimeout = (...args: Parameters<typeof window.clearTimeout>): void => {
       const [id] = args; if (typeof id === 'number') state.pendingTimers.delete(id); nativeClearTimeout(...args);
     };
-  }, sensitiveMarker);
+  }, {marker: sensitiveMarker, portraitClock});
 }
 async function gateFirstResponse(page: Page, pattern: RegExp): Promise<{
   reached: Promise<void>; release(): void; settled: Promise<void>; requests(): number;
@@ -110,6 +125,61 @@ async function saveReport(page: Page, label: string): Promise<StartupReport> {
   return report;
 }
 const fixturePrefix = (): string => 'data:image/jpeg;base64,';
+
+for (const eyewear of ['amber-horizon', 'tom-ford-clear'] as const) for (const hair of ['hair-only', 'selfie-multiclass'] as const) {
+  test(`startup: advancing camera clock preserves portrait pairs for ${eyewear}/${hair}`, async ({page}) => {
+    test.setTimeout(120_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await installCamera(page, true); await page.goto('/ar_testing/');
+    await page.selectOption('#eyewear-select', eyewear); await page.selectOption('#hair-model-select', hair);
+    await page.click('#start');
+    try {
+      await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+      await expect(page.locator('#continuous-start')).toBeEnabled();
+      const firstProgress = await page.evaluate(() => window.arStartupDiagnostics.report()!.frameProgress) as StartupPumpDiagnostic;
+      expect(firstProgress.settled).toBe(true); expect(firstProgress.publicationObserved).toBe(true);
+      expect(firstProgress.pump!.captured).toBeGreaterThan(0); expect(firstProgress.pump!.captureMisses).toBe(0);
+      expect(firstProgress.pump!.startup.inferred).toBeGreaterThan(0); expect(firstProgress.pump!.startup.prepared).toBeGreaterThan(0);
+      expect(firstProgress.video!.width).toBe(720); expect(firstProgress.video!.height).toBe(1280);
+      const rows = await page.evaluate(() => window.arPerformanceProfiler.samplesAfter(0));
+      expect(rows.some(row => row.hasFace && row.hasMask)).toBe(true);
+      for (const row of rows) {
+        expect(row.sourceWidth).toBe(720); expect(row.sourceHeight).toBe(1280);
+        expect(row.videoPresentedFrames).not.toBeNull(); expect(row.pipeline).toBe('g');
+        expect(Number(row.native!['pump.maxOwnedFrames'])).toBeLessThanOrEqual(2);
+      }
+      await page.click('#hold-frame'); await expect(page.locator('.stage')).toHaveAttribute('data-state', 'held');
+      await expect.poll(() => page.evaluate(() => window.hairLivePreview.diagnostics().heldBusy)).toBe(false);
+      const outputs = await page.evaluate(() => window.hairLivePreview.exportDiagnostic()) as Record<string, {
+        pair: unknown; detection: unknown; mask: unknown; sourcePngDataUrl: string; acceptedPngDataUrl: string; hairPngDataUrl: string;
+        captureSnapshot: {surfacePositions: unknown; eyewearMatrix: unknown; protection: unknown};
+        stats: {hasMask: boolean; [key: string]: unknown};
+      }>;
+      for (const pipeline of ['g', 'publish', 'region', 'lens', 'ui']) {
+        const output = outputs[pipeline]!; expect(output.stats.hasMask).toBe(true);
+        for (const key of ['pair', 'detection', 'mask', 'sourcePngDataUrl', 'acceptedPngDataUrl', 'hairPngDataUrl'] as const)
+          expect(output[key], `${pipeline}/${key}`).toEqual(outputs.g![key]);
+        for (const key of ['surfacePositions', 'eyewearMatrix', 'protection'] as const)
+          expect(output.captureSnapshot[key]).toEqual(outputs.g!.captureSnapshot[key]);
+        for (const key of ['protectedCheck', 'noseCheck', 'outsideEditableCheck', 'backgroundPreservationCheck'])
+          expect((output.stats[key] as {changedPixels: number}).changedPixels).toBe(0);
+      }
+      await expect.poll(() => closed(page)).toBe(true);
+      expect(await page.evaluate(() => window.arStartupDiagnostics.report()!.frameProgress)).toEqual(firstProgress);
+      await page.selectOption('#pipeline-select', 'publish'); await page.selectOption('#variant-select', 'accepted');
+      expect(await page.evaluate(() => window.arStartupDiagnostics.report()!.workload))
+        .toEqual({eyewearId: eyewear, hairModelId: hair, pipeline: 'g', variant: 'hair'});
+      await page.selectOption('#pipeline-select', 'g'); await page.selectOption('#variant-select', 'hair');
+      await page.click('#resume-live'); await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
+      await expect(page.locator('#continuous-start')).toBeEnabled();
+      expect(errors).toEqual([]);
+    } finally {
+      const report = await page.evaluate(() => window.arStartupDiagnostics.report());
+      await writeFile(test.info().outputPath('advancing-clock-startup.json'), JSON.stringify(report, null, 2));
+      if (await page.locator('#stop').isVisible() && await page.locator('#stop').isEnabled()) await page.click('#stop');
+      await expect.poll(() => closed(page)).toBe(true);
+    }
+  });
+}
 async function retryToFirstFrame(page: Page, oldSession: string): Promise<StartupReceipt> {
   await expect(page.locator('#start')).toBeEnabled(); await page.click('#start');
   await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');

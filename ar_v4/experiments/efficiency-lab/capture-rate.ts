@@ -1,6 +1,6 @@
 export interface CaptureAdmissionStats {
   readonly rateHz: number | null;
-  /** Distinct ready video images observed, including busy and intentionally skipped ones. */
+  /** Distinct rVFC frames (or best-effort rAF playback positions), including busy/skipped callbacks. */
   readonly candidateCallbacks: number;
   readonly duplicateCallbacks: number;
   readonly rateSkipped: number;
@@ -14,7 +14,7 @@ export class CaptureRateAdmission {
   readonly rateHz: number | null;
   private readonly intervalMs: number;
   private lastCaptureAtMs: number | null = null;
-  private lastObservedMediaTime: number | null = null;
+  private lastObservedIdentity: number | null = null;
   private counts = {candidateCallbacks: 0, duplicateCallbacks: 0, rateSkipped: 0,
     backpressureSkipped: 0, captures: 0};
 
@@ -26,9 +26,9 @@ export class CaptureRateAdmission {
 
   get stats(): CaptureAdmissionStats {return {rateHz: this.rateHz, ...this.counts};}
 
-  observeReady(mediaTime: number): boolean {
-    if (mediaTime === this.lastObservedMediaTime) {this.counts.duplicateCallbacks++; return false;}
-    this.lastObservedMediaTime = mediaTime; this.counts.candidateCallbacks++; return true;
+  observeReady(frameIdentity: number): boolean {
+    if (frameIdentity === this.lastObservedIdentity) {this.counts.duplicateCallbacks++; return false;}
+    this.lastObservedIdentity = frameIdentity; this.counts.candidateCallbacks++; return true;
   }
 
   canCapture(startAtMs: number): boolean {

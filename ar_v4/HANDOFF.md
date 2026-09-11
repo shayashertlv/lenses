@@ -2,12 +2,30 @@
 
 ## Authorized mobile comparison — September 11, 2026
 
-Latest phone follow-up: an iPhone 17 Pro remained on Opening for over one minute.
-The lab now displays exact startup stages/elapsed time, supports **Save startup
-report** before the first frame and bounds failed startup with cancellation/retry.
-Collect that phone's report before changing GPU/inference/rendering policy; the
-actual stalled phase is still unconfirmed. See the latest review entry for the
-passing blocked-load tests and desktop WebKit evidence limitations.
+Latest phone follow-up: the owner's iPhone 17 Pro startup report
+`ar-startup-2026-09-11T14-11-15.304Z.json` locates the failure at first AR publication.
+Camera settings are 720×1280 at 30 fps; both renderers and GPU face/hair workers
+finish setup within about 1.6 seconds after camera readiness. No AR image appears
+before the existing 30-second deadline. The setting is not measured camera FPS.
+
+The lab capture guard incorrectly required identical playback-clock readings
+before and after a synchronous snapshot. Current upstream WebKit's live-stream
+clock advances on each read, explaining how valid images can all be discarded
+while camera callbacks keep their watchdog alive. The lab correction uses rVFC
+`presentedFrames` for duplicate suppression and its `mediaTime` for frame-timestamp
+telemetry; all processing still uses one owned pixel snapshot. The rAF fallback
+uses one playback-clock sample with explicitly limited frame-delivery evidence.
+New allowlisted startup counters freeze before timeout cleanup to distinguish
+capture rejection, bitmap/inference waits and rendering if failure persists.
+
+The accepted G dependencies, rendering resolution and pairing/safeguards remain.
+The upstream source is not a revision identification of the owner's Safari build;
+the cause still needs confirmation by a physical-phone retry. The reproduced
+failure now passes all four portrait glasses/hair cases with real workers and
+exact held comparisons. Required npm test passes 172 unit/21 browser checks;
+efficiency checks pass 189 and the mobile regression passes eight browser cases.
+The public runtime fingerprint starts `9df9d0b9c9bf`. See the latest
+[review entry](docs/REVIEWS.md) for evidence and source links.
 
 The owner explicitly requested an **ar_testing** landing-page option in the live
 Lenses application and a continuous mobile comparison with video + measurements

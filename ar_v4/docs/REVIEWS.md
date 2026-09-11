@@ -543,3 +543,78 @@ test logs are preserved in ignored QA/recovery output. The phone's actual stalle
 stage and root cause remain unconfirmed until its startup report is collected.
 These changes provide bounded recovery and diagnosis, not proof of a phone fix.
 Timers cannot forcibly interrupt a synchronously blocked browser/GPU event loop.
+
+### iPhone first-publication capture finding — September 11
+
+The owner's private `ar-startup-2026-09-11T14-11-15.304Z.json`, from runtime
+fingerprint `274f30e02554`, now locates the stall after successful setup. Camera
+settings are 720×1280 at 30 fps; camera-ready is 2,569 ms, both renderers are ready
+at 3,683 ms, face GPU at 4,079 ms and hair GPU at 4,147 ms on the page clock.
+First publication times out after 30,001.5 ms, without a published AR image, hair
+error or reported GPU fallback. Thus setup takes about 1.6 seconds after camera
+readiness; the report does not measure delivered camera FPS or sustained AR speed.
+The original private report remains outside the repository and is not modified.
+
+The lab's capture factory reads `video.currentTime`, draws into its owned canvas,
+then discards the snapshot unless a second `currentTime` read is exactly equal.
+That assumption is incompatible with current upstream WebKit's MediaStream path:
+[HTMLMediaElement::currentMediaTime](https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/html/HTMLMediaElement.cpp#:~:text=MediaTime%20HTMLMediaElement%3A%3AcurrentMediaTime%28%29%20const)
+queries the player on every read while playing, and
+[MediaPlayerPrivateMediaStreamAVFObjC::currentTime](https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.mm#:~:text=MediaTime%20MediaPlayerPrivateMediaStreamAVFObjC%3A%3AcurrentTime%28%29%20const)
+returns the current monotonic time minus the stream start. Playback time can
+therefore change without a different decoded image. Rejected snapshots never
+start inference, while advancing callback observations refresh the separate
+six-second camera watchdog. This explains the observed failure pattern, but
+upstream source does not identify the exact WebKit revision on this phone.
+
+The correction stays in the efficiency lab: rVFC `presentedFrames` supplies
+duplicate/admission identity and `mediaTime` supplies callback frame-timestamp
+telemetry, including a possible zero timestamp for live streams. No second
+playback-clock read vetoes the synchronous snapshot. Source hash, face/hair
+bitmaps, detections, pose, mask and rendering retain the same owned pixels and
+session. The rAF fallback samples playback time once for best-effort duplicate
+suppression, leaving camera-frame counters unavailable. Allowlisted scalar
+startup counters are frozen before timeout cleanup so a further failure can
+separate capture rejection from bitmap, inference and preparation waits without
+exporting images, identities, detections or masks.
+
+The change preserves the 239 accepted G dependencies, model/resolution policy,
+geometry and final nose/front safeguards; no optimization is promoted. An
+independent byte audit verifies all 239 against their exact pinned Git blobs;
+231 also match the recorded original local bytes. The other eight are the
+documented LF checkout representation. The historical raw-byte verifier still
+rejects that representation, as expected; it and its manifest remain unchanged.
+No normalization was used to accept an arbitrary source change.
+
+Both regressions reproduce the original defect: a Node load hook runs the old
+committed pump against an advancing getter and observes zero captures; the old
+published bundle with real workers and a 720×1280 synthetic camera reaches the
+same first-AR 30-second timeout. The latter's failure cleanup initially tried to
+click a hidden Stop button; the retained report already records the target
+timeout. The test now checks visibility before cleanup without changing any
+application deadline. Logs, report and trace retain the failed attempt.
+
+Required npm test passes all 172 unit checks and 21 G/reference/long-hair browser
+cases. Strict efficiency types and all 189 checks pass. The pump tests check
+frame-counter deduplication with zero or unavailable PTS, rAF's single clock
+sample, full-resolution source/face/hair/hash/mask pairing, and revoked callbacks
+or inference after restart. Scalar startup diagnostics retain their own copy and
+the initial session selections, excluding arbitrary image/identity fields.
+
+The updated production bundle passes all four 720×1280 portrait combinations,
+both glasses × both hair models, under the advancing-clock simulation. Each
+starts and restarts real workers, then compares exact held source/detection/mask,
+rendered images and geometry across G/Q/R/S/T with zero nose/front/background/
+outside-arm guard changes. These are static synthetic portrait tests. The prior
+56-case down/up/both-yaw matched rendering evidence is retained; no new wearer
+motion or physical-phone visual acceptance is implied. The owner must retry on
+the phone to confirm its startup; mobile smoothness remains unmeasured.
+
+All eight final production mobile browser cases pass (three minutes): the four
+portrait cases above, unchanged real module/60-second GLB timeout-and-retry
+checks, the local-network boundary check, and Tom Ford/multiclass G-to-Q timing,
+partial video/telemetry save, exact held safeguards and background cleanup.
+Receipts are in ignored `test-results/mobile-2026-09-11T14-49-11.528Z/` and the
+`logs/clock-*` files. Runtime fingerprint is `9df9d0b9c9bf`; all 21 staged public
+files match their exact generated size/hash. Every changed path is inside
+`ar_v4`; this fix changes no parent Python application or deployment settings.
