@@ -3,12 +3,13 @@ import type {HairExpectedPair as OriginalExpectedPair, HairRawOutput as Original
   HairSegmentationResult as OriginalSegmentationResult, HairWorkerRequest as OriginalWorkerRequest,
   HairWorkerResponse as OriginalWorkerResponse} from '../../hair-live-preview/hair-protocol.ts';
 import type {CategoryExtractionMode, CategoryExtractionMetrics} from './extraction.ts';
+import type {HairWorkerTiming} from './delivery.ts';
 
 export const CATEGORY_EXTRACTION_PROTOCOL = 'hair-category-extraction-v1';
 export type {CategoryExtractionMode, CategoryExtractionMetrics} from './extraction.ts';
 export type HairExpectedPair = OriginalExpectedPair & {categoryExtractionMode: CategoryExtractionMode};
-export type HairRawOutput = OriginalRawOutput & {categoryExtraction: CategoryExtractionMetrics};
-export type HairSegmentationResult = OriginalSegmentationResult & {categoryExtraction: CategoryExtractionMetrics};
+export type HairRawOutput = OriginalRawOutput & {categoryExtraction: CategoryExtractionMetrics; workerTiming?: HairWorkerTiming};
+export type HairSegmentationResult = OriginalSegmentationResult & {categoryExtraction: CategoryExtractionMetrics; workerTiming?: HairWorkerTiming};
 export type HairWorkerRequest = Extract<OriginalWorkerRequest, {type: 'initialize'}>
   | (Extract<OriginalWorkerRequest, {type: 'segment'}> & {categoryExtractionMode: CategoryExtractionMode});
 export type HairWorkerResponse = Extract<OriginalWorkerResponse, {type: 'error'}>
@@ -17,6 +18,16 @@ export type HairWorkerResponse = Extract<OriginalWorkerResponse, {type: 'error'}
 
 export function assertCategoryExtractionMode(value: unknown): asserts value is CategoryExtractionMode {
   if (value !== 'sdk' && value !== 'direct') throw new Error('Unknown category extraction mode.');
+}
+
+/** Optional for historical fixtures; present extensions must describe an owned span. */
+export function validateHairWorkerTiming(value: unknown, inferenceMs: number, extractionMs: number): HairWorkerTiming | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || typeof value.inputValidationMs !== 'number' || !Number.isFinite(value.inputValidationMs)
+    || value.inputValidationMs < 0 || typeof value.totalMs !== 'number' || !Number.isFinite(value.totalMs)
+    || value.totalMs < 0 || value.totalMs + 1e-6 < value.inputValidationMs + inferenceMs + extractionMs)
+    throw new Error('Invalid hair worker timing span.');
+  return {inputValidationMs: value.inputValidationMs, totalMs: value.totalMs};
 }
 
 /** Extend the original boundary without bypassing any pinned input checks. */

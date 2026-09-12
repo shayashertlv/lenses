@@ -2,7 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {defineConfig} from '@playwright/test';
 
 export default defineConfig({
-  testDir: '.', testMatch: ['mobile.spec.ts', 'startup.spec.ts'],
+  testDir: '.', testMatch: ['mobile.spec.ts', 'startup.spec.ts', 'hair-delivery.spec.ts'],
   // Ten unmodified production windows take at least 350 seconds, plus real
   // worker startup, safe switches, local video finalization and export checks.
   timeout: 480_000, expect: {timeout: 45_000}, workers: 1, fullyParallel: false,

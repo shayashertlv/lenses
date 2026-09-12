@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {validateHairCostRequest, validateCategoryExtractionMetrics} from './protocol.ts';
+import {validateHairCostRequest, validateCategoryExtractionMetrics, validateHairWorkerTiming} from './protocol.ts';
 import type {HairExpectedPair} from './protocol.ts';
 import {extractCategoryMask} from './extraction.ts';
 import type {CategoryMaskSource} from './extraction.ts';
+
+test('optional worker timing is copied and rejects nonfinite, negative or overlapping claimed durations', () => {
+  assert.equal(validateHairWorkerTiming(undefined, 5, 3), undefined);
+  const input = {inputValidationMs: .25, totalMs: 8.5, privateWorkerField: 'not retained'};
+  const measured = validateHairWorkerTiming(input, 5, 3); input.totalMs = 100;
+  assert.deepEqual(measured, {inputValidationMs: .25, totalMs: 8.5});
+  for (const malformed of [null, {}, {inputValidationMs: -1, totalMs: 10},
+    {inputValidationMs: Infinity, totalMs: 10}, {inputValidationMs: 0, totalMs: NaN},
+    {inputValidationMs: 0, totalMs: -1}, {inputValidationMs: .5, totalMs: 8.4}])
+    assert.throws(() => validateHairWorkerTiming(malformed, 5, 3), /timing span/);
+});
 
 test('request extension freezes extraction selection without bypassing original nonce, image, shape, hash or sequence checks', () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'ImageBitmap');

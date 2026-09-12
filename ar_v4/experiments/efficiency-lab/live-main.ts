@@ -2,10 +2,11 @@ import '../../src/style.css';
 import './live.css';
 import {PROFILES, initialPipeline, studyPipelines, CURRENT_BASE_METADATA} from './profiles.ts';
 import {UiSummaryCadence} from './ui-cadence.ts';
-import {ContinuousComparisonRun} from './continuous-run.ts';
+import {ContinuousComparisonRun, CONTINUOUS_STUDIES} from './continuous-run.ts';
 import type {ContinuousRunStatus} from './continuous-run.ts';
 import {ContinuousCanvasRecorder} from './continuous-recorder.ts';
 import {createRunArchive} from './run-export.ts';
+import {HairDeliveryLog} from './hair-delivery.ts';
 import {StartupWatchdog} from './startup-watchdog.ts';
 import type {StartupReceipt, StartupStage} from './startup-watchdog.ts';
 import {startupPumpDiagnostic, startupPumpLabel} from './startup-pump-diagnostic.ts';
@@ -43,10 +44,22 @@ let selectedHair: HairModelId = 'hair-only';
 let selectedVariant: 'accepted' | 'hair' = 'hair';
 let selectedPipeline: Pipeline = initialPipeline(location.search);
 const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
+pipelineSelect.add(new Option(PIPELINE_LABELS['hair-release'], 'hair-release'));
 const focusedStudy = new URLSearchParams(location.search).get('study');
+const continuousStudy = focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
+const continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy];
 const visiblePipelines = studyPipelines(location.search);
 for (const option of [...pipelineSelect.options]) if (!visiblePipelines.includes(option.value as Pipeline)) option.remove();
-if (focusedStudy === 'review') {
+if (focusedStudy === 'hair-delivery') {
+  element('study-intro').textContent = 'Compare G with U: earlier hair processing for the next owned image. Measure completed updates, frame age and matching hair coverage.';
+  element('study-notice').textContent = 'U is a separate scheduling experiment. G remains your reference; the same rendering, resolution and nose/front safeguards stay active.';
+  element('continuous-title').textContent = 'Compare G and U.';
+  element('continuous-protocol').textContent = 'Automatically test G, U, U, G. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Allow about 2.5 minutes and repeat the same movement cues.';
+  element('continuous-video-hint').textContent = 'Start with measurements only to avoid video encoding load. Enable video to review tracking, hair and nose/front quality on a separate run. No audio or uploads.';
+  element('baseline-detail').textContent = 'G remains your accepted baseline. U tests earlier availability of the hair worker while keeping rendering, models, resolution and exact image/pose/mask pairing. Review down, up, both yaw directions and nose/front protection with both glasses and hair models. Compare tracking and hair coverage as well as updates, image age and stalls; no candidate has been accepted.';
+  element('hair-delivery-study').setAttribute('aria-current', 'page');
+} else if (focusedStudy === 'review') {
+  element('review-study').setAttribute('aria-current', 'page');
   element('study-intro').textContent = 'Compare G with four separate ideas: fewer repeat uploads, smaller temple downloads, leaner temple rendering and lighter statistics.';
   element('study-notice').textContent = 'Q–T are separate experiments. Switch while moving, then Hold for the same-image comparison. G remains your reference.';
 } else if (focusedStudy === 'mask') {
@@ -253,6 +266,8 @@ interface ContinuousContext {
   wakeLockAcquired: boolean;
   wakeLockReason: string | null;
   events: {name: string; atMs: number; durationMs: number | null}[];
+  hairDelivery: HairDeliveryLog | null;
+  hairDrain: {state: 'drained' | 'incomplete'; startedAtMs: number; endedAtMs: number; reason: string | null} | null;
 }
 let continuousRun: ContinuousContext | null = null;
 let continuousFile: File | null = null;
@@ -261,6 +276,12 @@ let lastContinuousReport: Record<string, unknown> | null = null;
 const continuousStart = element<HTMLButtonElement>('continuous-start');
 const continuousStop = element<HTMLButtonElement>('continuous-stop');
 const continuousVideo = element<HTMLInputElement>('continuous-video');
+continuousVideo.checked = continuousStudyOptions.defaultVideo;
+function showContinuousRecordingChoice(): void {
+  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
+}
+continuousVideo.addEventListener('change', showContinuousRecordingChoice);
+showContinuousRecordingChoice();
 
 function setContinuousText(id: string, value: string): void {
   const node = element(id); if (node.textContent !== value) node.textContent = value;
@@ -315,7 +336,11 @@ async function switchContinuous(context: ContinuousContext, status: ContinuousRu
     if (continuousRun !== context || context.finalizing || !context.controller.status.running) {
       // Stopping a run while a switch drains must not strand the manual mirror
       // with a stopped pump. Resume its last selected algorithm in this session.
-      session.switching = false; runFrames(session); return;
+      session.switching = false;
+      // The focused finalizer owns the restart after collecting late hair
+      // outcomes. Starting here would create fresh requests during that drain.
+      if (!context.hairDelivery) runFrames(session);
+      return;
     }
     selectedPipeline = status.pipeline; pipelineSelect.value = status.pipeline;
     element('experiment-detail').textContent = PROFILES[status.pipeline].detail;
@@ -353,6 +378,26 @@ function canShareContinuousFile(): boolean {
   try {return !!continuousFile && typeof navigator.canShare === 'function' && navigator.canShare({files: [continuousFile]});}
   catch {return false;}
 }
+async function drainContinuousHair(context: ContinuousContext): Promise<void> {
+  const session = context.session, pump = session.pump, startedAtMs = performance.now();
+  session.switching = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    if (pump) await Promise.race([pump.finishCurrent(), new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Pending frame work did not finish within 20 seconds.')), 20000);
+    })]);
+    context.hairDrain = {state: 'drained', startedAtMs, endedAtMs: performance.now(), reason: null};
+  } catch (error) {
+    const reason = messageFor(error);
+    context.hairDrain = {state: 'incomplete', startedAtMs, endedAtMs: performance.now(), reason};
+    if (current === session) closeSession('The test stopped while finishing pending frame work. Save the partial diagnostic file, then reopen the camera.', true);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    pump?.stop();
+    if (session.pump === pump) session.pump = undefined;
+    session.processing = false;
+  }
+}
 async function finishContinuous(context: ContinuousContext): Promise<void> {
   if (continuousRun !== context || context.finalizing) return;
   context.finalizing = true;
@@ -364,10 +409,15 @@ async function finishContinuous(context: ContinuousContext): Promise<void> {
   element('run-stage-cue').hidden = true;
   continuousStop.disabled = true;
   setContinuousText('continuous-status', 'Finishing the local recording and preparing one comparison file…');
-  const video = await context.recorder.stop(performance.now());
+  // End optional encoding at the measurement boundary. Late hair outcomes are
+  // collected separately and never become measured frames or extra video.
+  const stoppedVideo = context.recorder.stop(performance.now());
+  if (context.hairDelivery) await drainContinuousHair(context);
+  const video = await stoppedVideo;
   const recording = context.recorder.snapshot();
   const report = {...context.controller.export(), recording, deviceAtEnd: deviceMetadata(context.session),
-    clientEvents: context.events, wakeLock: {requested: true, acquired: context.wakeLockAcquired, reason: context.wakeLockReason}};
+    clientEvents: context.events, wakeLock: {requested: true, acquired: context.wakeLockAcquired, reason: context.wakeLockReason},
+    ...(context.hairDelivery ? {hairDelivery: context.hairDelivery.export(), hairDeliveryDrain: context.hairDrain} : {})};
   lastContinuousReport = report;
   try {
     const extension = recording.mimeType?.includes('mp4') ? 'mp4' : 'webm';
@@ -378,8 +428,10 @@ async function finishContinuous(context: ContinuousContext): Promise<void> {
     element('continuous-save-actions').hidden = false;
     element('continuous-share').hidden = !canShareContinuousFile();
     const status = context.controller.status;
-    setContinuousText('continuous-status', status.state === 'complete'
-      ? 'All ten measurement windows finished. Save the comparison ZIP and send it back for analysis.'
+    setContinuousText('continuous-status', context.hairDrain?.state === 'incomplete'
+      ? 'Measurements were retained, but pending frame work could not finish. Save the diagnostic ZIP, then reopen the camera. Unresolved hair requests remain identified.'
+      : status.state === 'complete'
+      ? `All ${status.windowCount} measurement windows finished. Save the comparison ZIP and send it back for analysis.`
       : `Partial recording retained: ${status.reason ?? 'The test stopped.'} Save the ZIP; its incomplete windows stay identified.`);
     setContinuousText('continuous-recording-status', video
       ? `${(continuousFile.size / (1024 * 1024)).toFixed(1)} MB · timings and AR video${recording.status === 'failed' ? ' (video partial)' : ''}. ${recording.reason ?? ''}`
@@ -395,6 +447,15 @@ async function finishContinuous(context: ContinuousContext): Promise<void> {
     setContinuousText('continuous-status', `Archive preparation failed: ${messageFor(error)}. Save the retained timing JSON.`);
   } finally {
     if (continuousRun === context) continuousRun = null;
+    if (context.hairDelivery) {
+      const session = context.session;
+      session.switching = false;
+      if (context.hairDrain?.state === 'drained' && current === session && session.phase === 'live'
+        && !session.abort.signal.aborted && !session.pump && session.camera
+        && (session.camera.video.srcObject as MediaStream | null)?.getVideoTracks().some(track => track.readyState === 'live')) {
+        runFrames(session);
+      }
+    }
     continuousStop.disabled = false; updateControls();
     if (matchMedia('(max-width: 720px)').matches) {
       element('continuous-save-actions').scrollIntoView({block: 'center', behavior: 'auto'});
@@ -418,7 +479,7 @@ function beginContinuous(): void {
   const sample = session.performanceSample;
   const recorder = new ContinuousCanvasRecorder(session.canvas, continuousVideo.checked,
     {onIssue: reason => cancelContinuous(`Video recording interrupted: ${reason}`)});
-  const controller = new ContinuousComparisonRun({sessionId: session.id,
+  const controller = new ContinuousComparisonRun({sessionId: session.id, studyOptions: continuousStudy,
     workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant,
       sourceWidth: sample.sourceWidth, sourceHeight: sample.sourceHeight},
     metadata: {...CURRENT_BASE_METADATA, build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
@@ -426,7 +487,8 @@ function beginContinuous(): void {
       sessionStartup: {openedAtMs: session.openedAtMs, firstPublishedAtMs: session.firstPublishedAtMs, firstMaskedAtMs: session.firstMaskedAtMs},
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
   const context: ContinuousContext = {controller, session, recorder, timer: null, videoCallback: null, switchToken: null,
-    finalizing: false, startedAtMs: performance.now(), wakeLock: null, wakeLockAcquired: false, wakeLockReason: null, events: []};
+    finalizing: false, startedAtMs: performance.now(), wakeLock: null, wakeLockAcquired: false, wakeLockReason: null, events: [],
+    hairDelivery: continuousStudy === 'hair-delivery' ? new HairDeliveryLog(session.id) : null, hairDrain: null};
   continuousRun = context;
   element('continuous-save-actions').hidden = true; element('run-stage-cue').hidden = false;
   setContinuousText('continuous-recording-status', recorder.snapshot().status === 'recording'
@@ -695,6 +757,7 @@ async function restartPump(session: Session):Promise<void> {
 function runPumpedFrames(session:Session):void {
   const mode=PROFILES[selectedPipeline].mode;
   const generation=session.generation,pipeline=selectedPipeline;
+  const hairTraceContext = continuousRun?.session === session && continuousRun.hairDelivery ? continuousRun : null;
   const owns=()=>current===session&&session.phase==='live'&&session.generation===generation;
   session.pump=runExperimentPump({id:session.id,video:session.camera!.video,renderer:session.renderer!,detector:session.detector,
     hair:()=>session.hair,hairId:session.hairId,eyewearId:session.eyewearId,hairReady:()=>session.hairReady&&!session.hairError,
@@ -702,6 +765,9 @@ function runPumpedFrames(session:Session):void {
     onBusy:()=>{if(owns())session.processing=true;},
     onHairError:error=>{if(owns()){session.hairError=messageFor(error);session.hairReady=false;session.hair.close();}},
     onError:error=>{if(owns())closeSession(friendlyError(error),true);},backend:()=>session.backend,
+    onHairTrace: hairTraceContext ? trace => {
+      if (continuousRun === hairTraceContext && trace.capturedAtMs >= hairTraceContext.startedAtMs) hairTraceContext.hairDelivery!.record(trace);
+    } : undefined,
     onPublished:(input,identity)=>{
       if(!owns())return;
       const throttleUi=PROFILES[input.pipeline].throttleUi;

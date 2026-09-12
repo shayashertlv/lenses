@@ -60,3 +60,19 @@ test('Q and T independently retain G rendering, input, extraction and scheduling
   }
   assert.equal(usesBaseRenderer('region'), false); assert.equal(usesBaseRenderer('lens'), false);
 });
+
+test('U changes only early hair-worker release while preserving all G rendering and quality options', () => {
+  const {detail: _gDetail, releaseHairWorkerEarly: _gRelease, ...baseline} = PROFILES.g;
+  const {detail: _uDetail, releaseHairWorkerEarly: release, ...candidate} = PROFILES['hair-release'];
+  assert.deepEqual(candidate, baseline); assert.equal(release, true);
+  assert.equal(usesBaseRenderer('hair-release'), true);
+  for (const id of PIPELINES) assert.equal(PROFILES[id].releaseHairWorkerEarly, id === 'hair-release');
+});
+
+test('hair delivery study exposes exactly G and U and never selects U implicitly', () => {
+  assert.deepEqual(studyPipelines('?study=hair-delivery'), ['g', 'hair-release']);
+  assert.equal(initialPipeline('?study=hair-delivery'), 'g');
+  assert.equal(initialPipeline('?study=hair-delivery&pipeline=hair-release'), 'hair-release');
+  assert.equal(initialPipeline('?study=hair-delivery&pipeline=publish'), 'g');
+  assert.equal(initialPipeline('?study=review&pipeline=hair-release'), 'g');
+});

@@ -5,10 +5,34 @@ served by the existing Python application. The Railway start command remains
 `python -m UI.app`. The page begins with the accepted G renderer and offers the
 independent Q, R, S and T experiments. No candidate is promoted by this page.
 
+The **G vs U · hair processing** link opens
+`/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.
+This focused preview compares G with earlier hair-worker reuse, using G/U/U/G
+and the same five-second/three-masked-frame warmup plus 30-second measurement
+windows. Four windows take about 2.5 minutes. Start with measurements only
+(the focused default), then enable video for a separate visual run. The earlier
+five-option preview retains its video-on default. Every run keeps glasses, hair
+model and resolution fixed and repeats front/nose, down, up, left and right cues.
+
+Focused exports additionally contain `hairDelivery`: up to 10,000 scalar request
+records, including results that missed publication. Each has its session,
+generation, sequence, pipeline, capture/publication/disposal times and validated
+request timing. `usedAtPublication` distinguishes a completed but unused mask
+from one actually attached to its own displayed image. No image/mask hashes,
+pixels or detections enter this log. Overflow/rejected observations are explicit;
+existing entries may still finish after the retention limit is reached.
+
+At focused completion, optional video stops immediately. The pump then drains
+all pending results before the archive is made; these late observations do not
+extend measured windows. Successful export resumes the manual mirror. A separate
+20-second finalization watchdog closes a stranded session and exports an explicit
+`hairDeliveryDrain.incomplete` diagnostic with any unresolved requests. Existing
+15-second hair deadlines are unchanged. Stop/cancel cannot restart a closed camera.
+
 ## Record a comparison
 
 Open the HTTPS site on the phone, select glasses and a hair model, open the camera
-and wait for tracking and hair. Choose **Record all five options**. Video is on
+and wait for tracking and hair. Choose **Video + measurements · all five options**. Video is on
 by default and records the displayed AR canvas without audio. Every window asks
 for the same front/nose, down, up, left and right movements.
 

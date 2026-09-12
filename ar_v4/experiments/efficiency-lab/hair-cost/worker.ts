@@ -19,6 +19,7 @@ const closeBitmap = (value: unknown): void => {
 };
 
 scope.onmessage = async (event: MessageEvent<unknown>) => {
+  const workerStarted = performance.now();
   const raw = event.data;
   let message: HairWorkerRequest;
   try { message = validateHairCostRequest(raw); }
@@ -29,6 +30,7 @@ scope.onmessage = async (event: MessageEvent<unknown>) => {
     }
     return;
   }
+  const inputValidationMs = performance.now() - workerStarted;
   if (busy) { closeBitmap(message); post({type: 'error', sessionNonce: message.sessionNonce, requestId: message.requestId,
     message: 'The hair worker already owns a request.'}); return; }
   busy = true;
@@ -92,7 +94,8 @@ scope.onmessage = async (event: MessageEvent<unknown>) => {
       const output = copied as HairRawOutput | null;
       if (!output) throw new Error('The hair segmenter did not complete its synchronous result callback.');
       const transfer = output.outputMode === 'category-only' ? [output.category.buffer] : [output.category.buffer, output.confidence.buffer];
-      post({type: 'result', requestId: message.requestId, sessionNonce: message.sessionNonce, output}, transfer);
+      post({type: 'result', requestId: message.requestId, sessionNonce: message.sessionNonce,
+        output: {...output, workerTiming: {inputValidationMs, totalMs: performance.now() - workerStarted}}}, transfer);
     }
   } catch (error) {
     if (message.type === 'initialize') { segmenter?.close(); segmenter = null; model = null; }

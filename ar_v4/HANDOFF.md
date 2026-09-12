@@ -1,3 +1,18 @@
+# Latest efficiency preview — September 12, 2026
+
+The completed iPhone recording confirms the startup fix and finds no Q–T winner.
+G remains accepted. The owner authorized U (`hair-release`), a separate earlier
+hair-worker admission experiment with the original G renderer, exact pairing and
+a strict two-image lifetime bound including late results. Its focused preview is
+`/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.
+
+Four G/U/U/G windows take about 2.5 minutes. Measurements are on and video off by
+default; the owner can enable video for a separate visual check. The export now
+includes all hair-request timing and publication disposition, including late
+results. See [MOBILE.md](experiments/efficiency-lab/MOBILE.md) and the latest
+[review](docs/REVIEWS.md) for protocol, evidence and missing physical-U validation.
+G, Q–T, prior checkpoints and the parent application/deployment remain intact.
+
 # Current AR handoff — G Combined
 
 ## Authorized mobile comparison — September 11, 2026

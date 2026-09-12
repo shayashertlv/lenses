@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {ContinuousComparisonRun, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
-import type {ContinuousRunOptions, RecordedRunFrame, ReviewPipeline} from './continuous-run.ts';
+import {ContinuousComparisonRun, CONTINUOUS_STUDIES, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
+import type {ContinuousRunOptions, ContinuousPipeline, RecordedRunFrame} from './continuous-run.ts';
 import type {FrameInput} from './frame-profiler.ts';
 
 const options = (extra: Partial<ContinuousRunOptions> = {}): ContinuousRunOptions => ({sessionId: 'session',
   workload: {eyewearId: 'amber-horizon', hairModelId: 'hair-only', variant: 'hair', sourceWidth: 640, sourceHeight: 427}, ...extra});
-function frame(at: number, sequence = at, pipeline: ReviewPipeline = 'g', extra: Partial<FrameInput> = {}): FrameInput {
+function frame(at: number, sequence = at, pipeline: ContinuousPipeline = 'g', extra: Partial<FrameInput> = {}): FrameInput {
   return {sessionId: 'session', sequence, pipeline, variant: 'hair', eyewearId: 'amber-horizon', hairModelId: 'hair-only',
     capturedAtMs: at - 20, publishedAtMs: at, videoPresentedFrames: sequence * 3, videoMediaTime: at / 1000,
     videoPresentationTimeMs: null, cameraSettingFps: 30, sourceWidth: 640, sourceHeight: 427,
@@ -46,6 +46,43 @@ test('ten windows reverse the same five choices, retaining separate adjacent mid
   assert.deepEqual((reverse.export().protocol as {order: string[]}).order, ['ui', 'lens', 'region', 'publish', 'g', 'g', 'publish', 'region', 'lens', 'ui']);
   assert.equal(run.status.state, 'idle'); assert.throws(() => run.begin(NaN), /clock/);
   run.begin(0); assert.throws(() => run.begin(1), /restarted/);
+});
+
+test('focused G/U comparison uses four counterbalanced windows and measurements-only UI defaults', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'hair-delivery'}));
+  const protocol = run.export().protocol as Record<string, unknown>;
+  assert.deepEqual(protocol.order, ['g', 'hair-release', 'hair-release', 'g']);
+  assert.equal(protocol.studyOptions, 'hair-delivery'); assert.equal(run.status.windowCount, 4);
+  assert.equal(protocol.warmupMs, 5000); assert.equal(protocol.measureMs, 30000);
+  assert.equal(protocol.minimumTrackedMaskedWarmupFrames, 3);
+  const reverse = new ContinuousComparisonRun(options({studyOptions: 'hair-delivery', direction: 'reverse'}));
+  assert.deepEqual((reverse.export().protocol as Record<string, unknown>).order, ['hair-release', 'g', 'g', 'hair-release']);
+  assert.equal(CONTINUOUS_STUDIES['hair-delivery'].defaultVideo, false);
+  assert.equal(CONTINUOUS_STUDIES['hair-delivery'].approximateMinutes, 2.5);
+  assert.equal(CONTINUOUS_STUDIES.review.defaultVideo, true);
+  assert.equal(CONTINUOUS_STUDIES.review.approximateMinutes, 6);
+  assert.throws(() => new ContinuousComparisonRun(options({studyOptions: 'other' as never})), /Unsupported.*study/);
+  assert.throws(() => new ContinuousComparisonRun(options({studyOptions: '__proto__' as never})), /Unsupported.*study/);
+});
+
+test('G/U windows retain exact workload, mask warmup and adjacent U switch boundaries', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'hair-delivery'})); let sequence = 0; run.begin(0);
+  for (let index = 0; index < 4; index++) {
+    const start = index * 35000, status = run.status;
+    assert.equal(status.windowIndex, index); run.switched(status.token, start);
+    run.observe(frame(start + 50, ++sequence, status.pipeline, {hasMask: false}));
+    for (const offset of [100, 200, 300]) run.observe(frame(start + offset, ++sequence, status.pipeline));
+    run.tick(start + 5000); assert.equal(run.status.state, 'measuring');
+    run.observe(frame(start + 5100, ++sequence, status.pipeline));
+    run.observe(frame(start + 34999, ++sequence, status.pipeline)); run.tick(start + 35000);
+  }
+  const report = run.export(), rounds = report.windows as (WindowResult & {token: number; pipeline: ContinuousPipeline})[];
+  assert.equal(report.completed, true); assert.equal(rounds.length, 4);
+  assert.ok(rounds.every(window => window.completed && window.validWarmupFrames === 3));
+  assert.ok(windows(run).every(window => window.summary.durationMs === 30000 && window.summary.frames === 2));
+  assert.deepEqual(rounds.map(window => window.token), [1, 2, 3, 4]);
+  assert.equal(rounds[1]!.pipeline, 'hair-release'); assert.equal(rounds[2]!.pipeline, 'hair-release');
+  assert.equal(report.endedAtMs, 140000);
 });
 
 test('wall timer times out startup with zero frames and preserves a partial downloadable report', () => {

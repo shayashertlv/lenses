@@ -41,6 +41,35 @@ Camera access starts only after Open camera. Processing stays local.
 | R · Smaller temple download | Draw the complete temple branch, then download only its consumed row band. Rendering resolution, projection and final protections remain fixed. |
 | S · Lean temple render | Omit lens materials only from the additional temple-branch draw, after classification. The main beauty render, geometry and protection bounds remain unchanged. |
 | T · Lighter statistics | Refresh repeated human-facing statistics every 500 ms and avoid unchanged text writes while retaining every profiling sample and immediate state/control transitions. |
+| U · Earlier hair processing | Release the serial hair worker after its matched reply so the next owned image can start while the previous result finishes client validation/hashing. Publication still waits for the validated, hashed result for that exact image. Retain at most two source images, including late results. |
+
+### Focused G/U preview
+
+Use `live.html?study=hair-delivery` for G and U, including a four-window
+G/U/U/G comparison with measurements only by default. Optional video uses the
+same recorder as the earlier review. See [MOBILE.md](MOBILE.md) for the protocol.
+U uses the accepted G renderer directly, with unchanged model, resolution,
+source/detection/pose/mask checks and the existing eight-millisecond mask wait.
+Its two-image cap includes images already published while their late hair result
+is still being validated. A third image is rejected before capture or inference.
+
+The September 12 phone recording found no Q–T winner: Q exceeded G by one
+completed update over 60 measured seconds, with substantially less mask coverage.
+G completed 13.87 AR updates/second while camera delivery remained about 28–29
+FPS. Hair timings were previously visible only for results available at
+publication. That censored sample cannot measure the complete hair-request tail.
+
+The focused run now retains scalar timings for every submitted hair request,
+including late, cancelled and failed results, alongside its eventual publication
+disposition. Both G and U receive identical instrumentation. Worker-local fields
+are durations; main-page timestamps identify actual submission, receipt,
+validation and hash completion. A resolved admission promise is not evidence of
+simultaneous GPU execution. Client validation still runs synchronously on the
+main thread; the next submission can run only once that work yields to hashing.
+Compare the next request's actual submission with the prior hash completion to
+measure this overlap. U's benefit is unmeasured; earlier work may contend
+with rendering, and stricter lifetime backpressure may reduce update throughput.
+Preserve G until phone measurements and visual review justify any promotion.
 
 ### Review experiments Q–T
 

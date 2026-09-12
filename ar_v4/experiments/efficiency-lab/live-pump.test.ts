@@ -9,6 +9,8 @@ import type {CaptureAdmissionStats} from './capture-rate.ts';
 import type {FramePumpStats} from './frame-pump.ts';
 import type {OwnedSourceFrame} from './speed-options.ts';
 import type {HairMask} from './comparison-renderer.ts';
+import type {HairDeliveryTrace} from './hair-delivery.ts';
+import type {HairRequestTiming} from './hair-cost/delivery.ts';
 
 function browserFixture() {
   const saved = new Map<string, PropertyDescriptor | undefined>();
@@ -414,4 +416,103 @@ test('lean live pump reuses released canvases while each published packet owns a
     assert.deepEqual(errors, []); await pump.finishCurrent();
     assert.ok(f.canvases.every(canvas => canvas.width === 0)); assert.deepEqual(pairs[0]!.rgba.data, firstPixels);
   } finally {pump.stop(); f.restore();}
+});
+
+function hairDeliveryFixture(f:ReturnType<typeof browserFixture>,pipeline:'g'|'hair-release') {
+  type Snapshot=ImageBitmap&{pixels:Uint8ClampedArray<ArrayBuffer>};
+  f.replace('createImageBitmap',async(canvas:HTMLCanvasElement)=>({width:canvas.width,height:canvas.height,pixels:f.pixels(canvas),close(){}}));
+  const requests:{sequence:number;release:()=>void;complete:()=>void}[]=[],rows:FrameInput[]=[],traces:HairDeliveryTrace[]=[],errors:unknown[]=[];
+  const sources:OwnedSourceFrame[]=[],callbacks:(()=>void)[]=[];let sequence=0,detects=0;
+  const changed=()=>{for(const callback of [...callbacks])callback();};
+  const wait=(predicate:()=>boolean)=>new Promise<void>(resolve=>{const check=()=>{if(predicate()){callbacks.splice(callbacks.indexOf(check),1);resolve();}};callbacks.push(check);check();});
+  const renderer={pipeline,variant:'hair',stats:{hasMask:false,fallbackReason:null,changedPixels:0,
+    timings:{cleanCameraMs:0,composeMs:0,continuityMs:0,finalChecksMs:0,publishMs:0}},selectPipeline(){},selectVariant(){},
+    async prepare(canvas:HTMLCanvasElement,detection:{landmarks:number[]},pair:{sourceSHA256:string},_model:unknown,_hair:boolean,source:OwnedSourceFrame) {
+      assert.equal(source.canvas,canvas);assert.equal(source.isCurrent(),true);assert.equal(source.rgba.data[0],detection.landmarks[0]);
+      assert.equal(pair.sourceSHA256,createHash('sha256').update(source.rgba.data).digest('hex'));sources.push(source);return true;
+    },finish(mask:HairMask|null) {if(mask){assert.equal(mask.sourceSHA256,sources.at(-1)!.sourceSHA256);assert.ok('sequence' in mask);assert.equal(mask.sequence,sources.at(-1)!.generation);}
+      renderer.stats.hasMask=!!mask;return !!mask;}};
+  const pump=runExperimentPump({id:'hair-delivery-test',generation:3,video:f.video,pipeline,mode:'overlap',owns:()=>true,
+    nextSequence:()=>++sequence,hairReady:()=>true,variant:()=> 'hair',onBusy(){},
+    onError:(error:unknown)=>{errors.push(error);changed();},onHairError:(error:unknown)=>{errors.push(error);changed();},renderer,
+    detector:{async detect(bitmap:Snapshot){detects++;changed();return {landmarks:[bitmap.pixels[0]]};},lastTiming:null,delegate:'CPU'},
+    hair:()=>({beginSegment(bitmap:Snapshot,sourceSHA256:string,seq:number,_mode:unknown,early:boolean,observer:(timing:HairRequestTiming)=>void) {
+      assert.equal(early,pipeline==='hair-release');assert.equal(sourceSHA256,createHash('sha256').update(bitmap.pixels).digest('hex'));
+      const resultGate=completion(),workerGate=completion();
+      const timing:HairRequestTiming={requestId:seq,sequence:seq,releaseWorkerEarly:early,categoryExtractionMode:'sdk',
+        submittedAtMs:performance.now(),receivedAtMs:null,workerReleasedAtMs:null,validatedAtMs:null,hashStartedAtMs:null,completedAtMs:null,
+        validationMs:null,hashMs:null,workerValidationMs:null,workerInferenceMs:null,workerExtractionMs:null,workerElapsedMs:null,
+        pendingAtSubmission:1,outcome:'pending',reason:null};
+      const emit=()=>observer({...timing});emit();
+      requests.push({sequence:seq,release(){timing.receivedAtMs=performance.now();if(early){timing.workerReleasedAtMs=performance.now();workerGate.resolve();}emit();},
+        complete(){timing.completedAtMs=performance.now();timing.outcome='completed';timing.workerReleasedAtMs??=timing.completedAtMs;emit();workerGate.resolve();resultGate.resolve();}});changed();
+      return {workerReleased:workerGate.promise,result:resultGate.promise.then(()=>({sequence:seq,sourceSHA256,inferenceMs:1,extractionMs:1}))};
+    }}),hairId:'hair-only',eyewearId:'amber',backend:()=>({active:'CPU',renderer:null}),
+    onPublished:(row:FrameInput)=>{rows.push(row);changed();},onHairTrace:(trace:HairDeliveryTrace)=>{traces.push(trace);},
+  } as unknown as PumpContext);
+  return {pump,requests,rows,traces,errors,sources,wait,detects:()=>detects,
+    stats:()=>pump.stats() as FramePumpStats&{hairDelivery:{ownedImages:number|null;maxOwnedImages:number|null;pendingResults:number}}};
+}
+
+test('U reuses the worker before a late result completes without owning a third source image or reusing its mask',async()=>{
+  const f=browserFixture(),h=hairDeliveryFixture(f,'hair-release');
+  try {
+    f.paintVideo(37);f.offer(1);await h.wait(()=>h.requests.length===1);h.requests[0]!.release();await h.wait(()=>h.rows.length===1);
+    assert.equal(h.rows[0]!.hasMask,false);assert.equal(h.sources[0]!.isCurrent(),false);
+    const firstPixels=h.sources[0]!.rgba.data.slice();
+    f.paintVideo(91);f.offer(2);await h.wait(()=>h.requests.length===2);
+    assert.equal(h.traces.filter(t=>t.timing?.outcome==='completed').length,0,'Second worker request starts before first result validation/hash completes.');
+    h.requests[1]!.release();await h.wait(()=>h.rows.length===2);
+    assert.equal(h.stats().ownedFrames,0);assert.equal(h.stats().hairDelivery.ownedImages,2,'Published but validating images remain owned.');
+    const before=f.counts();f.paintVideo(203);f.offer(3);
+    assert.deepEqual(f.counts(),before,'The third image is rejected before draw, readback, hashing and bitmap allocation.');
+    assert.equal(h.requests.length,2);assert.deepEqual(h.sources[0]!.rgba.data,firstPixels);
+    h.requests[0]!.complete();await new Promise<void>(resolve=>setImmediate(resolve));
+    f.offer(4);await h.wait(()=>h.requests.length===3);h.requests[2]!.release();h.requests[2]!.complete();await h.wait(()=>h.rows.length===3);
+    assert.equal(h.rows[2]!.hasMask,true);assert.equal(h.sources[2]!.rgba.data[0],203);
+    assert.equal(h.stats().hairDelivery.maxOwnedImages,2);
+    const late=h.traces.filter(t=>t.sequence===1).at(-1)!;
+    assert.equal(late.timing!.outcome,'completed');assert.equal(late.usedAtPublication,false);assert.ok(late.disposedAtMs!==null);
+    let drained=false;const drain=h.pump.finishCurrent().then(()=>{drained=true;});await new Promise<void>(resolve=>setImmediate(resolve));
+    assert.equal(drained,false,'Graceful switching/export waits for every full result, not merely worker release.');
+    h.requests[1]!.complete();await drain;
+    assert.equal(h.stats().hairDelivery.ownedImages,0);assert.equal(h.stats().hairDelivery.pendingResults,0);assert.deepEqual(h.errors,[]);
+  } finally {for(const request of h.requests)request.complete();h.pump.stop();await h.pump.finishCurrent();f.restore();}
+});
+
+test('instrumented G still waits for full hair validation before submitting its next request',async()=>{
+  const f=browserFixture(),h=hairDeliveryFixture(f,'g');
+  try {
+    f.offer(1);await h.wait(()=>h.requests.length===1);h.requests[0]!.release();await h.wait(()=>h.rows.length===1);
+    f.offer(2);await h.wait(()=>h.detects()===2);await new Promise<void>(resolve=>setImmediate(resolve));
+    assert.equal(h.requests.length,1,'A worker message alone does not release the G gate.');
+    h.requests[0]!.complete();await h.wait(()=>h.requests.length===2);h.requests[1]!.complete();await h.wait(()=>h.rows.length===2);
+    await h.pump.finishCurrent();assert.deepEqual(h.errors,[]);
+  } finally {for(const request of h.requests)request.complete();h.pump.stop();await h.pump.finishCurrent();f.restore();}
+});
+
+test('stopping U revokes publication but retains late-result cleanup and telemetry ownership',async()=>{
+  const f=browserFixture(),h=hairDeliveryFixture(f,'hair-release');
+  try {
+    f.offer(1);await h.wait(()=>h.requests.length===1);h.requests[0]!.release();h.pump.stop();
+    h.requests[0]!.complete();await h.pump.finishCurrent();
+    assert.equal(h.rows.length,0);assert.equal(h.stats().hairDelivery.ownedImages,0);assert.equal(h.stats().hairDelivery.pendingResults,0);
+    assert.equal(h.traces.at(-1)!.timing!.outcome,'completed');assert.equal(h.traces.at(-1)!.publicationAtMs,null);
+    assert.deepEqual(h.errors,[]);
+  } finally {for(const request of h.requests)request.complete();h.pump.stop();await h.pump.finishCurrent();f.restore();}
+});
+
+test('U preserves replacement of a pending snapshot before inference while keeping two image leases',async()=>{
+  const f=browserFixture(),started=completion(),release=completion();
+  const h=rateFixture(f,'hair-release',{detect:async()=>{started.resolve();await release.promise;return {landmarks:[]};}});
+  try {
+    f.offer(1);await started.promise;f.offer(2);f.offer(3);
+    assert.equal(h.stats().captured,3);assert.equal(h.stats().replaced,1);assert.equal(h.stats().pendingFrames,1);
+    assert.equal((h.pump.stats() as {hairDelivery:{ownedImages:number;maxOwnedImages:number}}).hairDelivery.ownedImages,2);
+    release.resolve();await h.published(2);await h.pump.finishCurrent();
+    assert.deepEqual(h.rows.map(row=>row.sequence),[1,3],'The latest unprocessed image replaces its older pending predecessor.');
+    assert.equal((h.pump.stats() as {hairDelivery:{ownedImages:number;maxOwnedImages:number}}).hairDelivery.maxOwnedImages,2);
+    assert.equal((h.pump.stats() as {hairDelivery:{ownedImages:number;maxOwnedImages:number}}).hairDelivery.ownedImages,0);
+    assert.deepEqual(h.errors,[]);
+  } finally {release.resolve();h.pump.stop();await h.pump.finishCurrent();f.restore();}
 });

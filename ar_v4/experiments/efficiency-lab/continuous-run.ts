@@ -2,8 +2,15 @@ import type {FrameInput} from './frame-profiler.ts';
 import {distribution} from './frame-profiler.ts';
 import {G_COMMIT} from './profiles.ts';
 
-export const REVIEW_PIPELINES = ['g', 'publish', 'region', 'lens', 'ui'] as const;
+export const REVIEW_PIPELINES = Object.freeze(['g', 'publish', 'region', 'lens', 'ui'] as const);
 export type ReviewPipeline = typeof REVIEW_PIPELINES[number];
+export const HAIR_DELIVERY_PIPELINES = Object.freeze(['g', 'hair-release'] as const);
+export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number];
+export const CONTINUOUS_STUDIES = Object.freeze({
+  review: Object.freeze({pipelines: REVIEW_PIPELINES, defaultVideo: true, approximateMinutes: 6}),
+  'hair-delivery': Object.freeze({pipelines: HAIR_DELIVERY_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
+});
+export type ContinuousStudy = keyof typeof CONTINUOUS_STUDIES;
 type Scalar = number | boolean | string | null;
 type Phase = 'switching' | 'warmup' | 'measured' | 'excluded';
 export interface ContinuousWorkload {
@@ -12,16 +19,16 @@ export interface ContinuousWorkload {
 export interface ContinuousRunOptions {
   sessionId: string; workload: ContinuousWorkload; metadata?: Record<string, unknown>;
   direction?: 'forward' | 'reverse'; warmupMs?: number; measureMs?: number; maxWarmupMs?: number;
-  rowLimit?: number; id?: string;
+  rowLimit?: number; id?: string; studyOptions?: ContinuousStudy;
 }
 export interface ContinuousRunStatus {
   state: 'idle' | 'switching' | 'warmup' | 'measuring' | 'complete' | 'partial'; running: boolean;
-  windowIndex: number; token: number; pipeline: ReviewPipeline; windowCount: number;
+  windowIndex: number; token: number; pipeline: ContinuousPipeline; windowCount: number;
   phaseElapsedMs: number; remainingMs: number; reason: string | null; rows: number;
 }
 export interface VideoObservation {atMs: number; presentedFrames: number; mediaTime: number | null;}
 interface RunWindow {
-  index: number; token: number; round: number; pipeline: ReviewPipeline;
+  index: number; token: number; round: number; pipeline: ContinuousPipeline;
   requestedAtMs: number | null; switchedAtMs: number | null; firstFrameAtMs: number | null;
   measureStartedAtMs: number | null; plannedEndAtMs: number | null; endedAtMs: number | null;
   transitionObservedAtMs: number | null; validWarmupFrames: number; thirdWarmupAtMs: number | null;
@@ -81,7 +88,7 @@ const validTime = (value: number): boolean => Number.isFinite(value) && value >=
 
 /** A wall-clock experiment, independent of publication cadence. No renderer or scheduler changes occur here. */
 export class ContinuousComparisonRun {
-  private readonly options: Required<Pick<ContinuousRunOptions, 'warmupMs' | 'measureMs' | 'maxWarmupMs' | 'rowLimit' | 'direction'>>;
+  private readonly options: Required<Pick<ContinuousRunOptions, 'warmupMs' | 'measureMs' | 'maxWarmupMs' | 'rowLimit' | 'direction' | 'studyOptions'>>;
   private readonly sessionId: string;
   private readonly workload: ContinuousWorkload;
   private readonly metadata: Record<string, unknown>;
@@ -103,18 +110,20 @@ export class ContinuousComparisonRun {
   constructor(options: ContinuousRunOptions) {
     this.options = {warmupMs: options.warmupMs ?? 5000, measureMs: options.measureMs ?? 30000,
       maxWarmupMs: options.maxWarmupMs ?? 15000, rowLimit: options.rowLimit ?? 30000,
-      direction: options.direction ?? 'forward'};
+      direction: options.direction ?? 'forward', studyOptions: options.studyOptions ?? 'review'};
     const {warmupMs, measureMs, maxWarmupMs, rowLimit, direction} = this.options;
     if (!options.sessionId || !validTime(warmupMs) || !validTime(measureMs) || !validTime(maxWarmupMs)
       || measureMs === 0 || maxWarmupMs < warmupMs || !Number.isInteger(rowLimit) || rowLimit < 1
       || rowLimit > 100000 || !['forward', 'reverse'].includes(direction)) throw new Error('Invalid continuous comparison configuration.');
+    if (!Object.hasOwn(CONTINUOUS_STUDIES, this.options.studyOptions)) throw new Error('Unsupported continuous comparison study.');
     if (!options.workload.eyewearId || !options.workload.hairModelId
       || !['hair', 'accepted'].includes(options.workload.variant)
       || !Number.isInteger(options.workload.sourceWidth) || options.workload.sourceWidth < 1
       || !Number.isInteger(options.workload.sourceHeight) || options.workload.sourceHeight < 1) throw new Error('Invalid fixed comparison workload.');
     this.id = options.id ?? crypto.randomUUID(); this.sessionId = options.sessionId;
     this.workload = {...options.workload}; this.metadata = sanitizeRunMetadata(options.metadata);
-    const first = direction === 'forward' ? [...REVIEW_PIPELINES] : [...REVIEW_PIPELINES].reverse();
+    const studyPipelines: readonly ContinuousPipeline[] = CONTINUOUS_STUDIES[this.options.studyOptions].pipelines;
+    const first = direction === 'forward' ? [...studyPipelines] : [...studyPipelines].reverse();
     this.windows = [...first, ...[...first].reverse()].map((pipeline, index) => ({index, token: index + 1,
       round: index < first.length ? 1 : 2, pipeline, requestedAtMs: null, switchedAtMs: null,
       firstFrameAtMs: null, measureStartedAtMs: null, plannedEndAtMs: null, endedAtMs: null,

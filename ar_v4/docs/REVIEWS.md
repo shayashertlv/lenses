@@ -1,3 +1,69 @@
+# Current efficiency follow-up — September 12, 2026
+
+The owner's completed iPhone 17 Pro recording confirms that the camera-clock fix
+starts real AR: first publication 4.129 seconds and first matching mask 4.627
+seconds after the camera-open request. The complete 359.687-second recording has
+10 measured windows and 4,065 measured AR updates. G averaged 13.87 completed
+updates/second; camera delivery was about 28–29 FPS. Q produced one additional
+update over 60 measured seconds but had 28.40% matched-mask coverage versus
+G's 41.95%. The later options and every second pass were slower. Unequal
+movements/mask workloads and recording load prevent a winner or thermal claim.
+There were no measured completion gaps above 200 ms. Age ends at publication,
+not physical display. Detailed private audit/media remain in ignored recovery.
+
+The owner requested a new live preview. U (`hair-release`) is isolated from G,
+uses the accepted renderer directly, and changes only hair request admission.
+A matched worker reply releases the next request while the previous validated
+output awaits hashing; synchronous client validation itself cannot run in
+parallel with main-thread submission. At most one worker computation and two
+owned requests are admitted. U retains source-image leases through late result
+settlement, including after publication, so no third source is captured. All
+source/detection/pose/mask/session checks, model pixels, resolution, the existing
+8 ms optional-mask wait and final nose/front safeguards remain. Earlier work may
+increase GPU contention or backpressure; a speed/quality benefit is hypothetical.
+
+The focused `?study=hair-delivery` preview compares G/U/U/G with identical
+instrumentation, fixed workload, 5-second/3-masked-frame warmup and 30-second
+measurement windows. It defaults to measurements only; optional video is retained.
+Both glasses/hair settings and all five movement cues remain available. The ZIP
+adds a bounded scalar ledger of every hair request, including late/failed/cancelled
+results and whether its mask was used at publication. Actual submissions,
+receipts, validation/hash completion and worker durations distinguish client
+waiting from computation; admission timestamps alone do not establish GPU
+parallelism. Final export drains late results without extending measured time.
+A 20-second finalization watchdog explicitly reports incomplete cleanup, closes
+the session and keeps unresolved records rather than hanging or restarting it.
+
+Initial verification: 215 efficiency unit checks pass, including delayed-hash
+release, G serialization, two-image lifetime bounds, original output validation,
+late/cancelled ownership, frozen/private telemetry and strict run protocols.
+The 239 pinned G dependencies retain their exact accepted Git blob bytes; the
+historical original-CRLF manifest distinction is preserved without normalization.
+Required npm test passes 172 unit and 21 browser checks. The packaged portrait
+startup regression passes all four glasses/hair cases. Seven focused production
+browser cases pass: full unmodified four-window measurement-only export, all
+four held G/U image/detection/mask/geometry/guard comparisons and restart, plus
+optional-video partial export and Stop during an asynchronous switch. A final
+case also waits through the real 20-second drain watchdog, verifies the incomplete
+archive and closed resources, reopens the camera and safely resolves the old bitmap.
+
+The full desktop run retained 1,264 hair requests without rejection/truncation
+and drained all submitted outcomes. Of 593 completed U requests, 192 had a next
+actual submission during prior hashing. This establishes application scheduling
+overlap, not concurrent GPU kernels. U completed 8.30/8.50 updates/second versus
+G's 9.37/9.70, all with matched masks; synthetic camera delivery also differed.
+This desktop functional run demonstrates no speed gain. The owner's physical
+phone had much lower mask availability and remains the intended next comparison.
+
+These new image checks use static portrait input and shared held G rendering.
+Five movement cues are checked in the real timed protocol; new matched U motion
+recordings for down/up/both yaw and physical nose/front quality are still missing.
+Earlier accepted direction/geometry evidence is preserved, not relabelled as a
+new scheduling-quality proof. Logs, screenshots and test archives stay ignored.
+The public runtime fingerprint is
+`0b4686e03825db646f2f688e9fd3409317c4dc93ce37359315164bab34547bf6`.
+No candidate is promoted and no new physical-phone U result is available yet.
+
 # Current AR review — September 9, 2026
 
 The owner authorized implementing the reviewed long-hair version and committing

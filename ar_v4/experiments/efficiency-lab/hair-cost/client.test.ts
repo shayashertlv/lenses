@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HairClient} from './client.ts';
-import type {HairWorkerPort} from './client.ts';
+import type {HairWorkerPort, HairClientOptions, HairRequestTiming} from './client.ts';
 import {HAIR_MODELS} from '../../hair-live-preview/models.ts';
 import type {HairModelId} from '../../hair-live-preview/models.ts';
 import type {HairOutputMode} from '../../hair-live-preview/hair-protocol.ts';
+import {hashHairMasks} from '../../hair-live-preview/hair-protocol.ts';
+import type {HairRawOutput} from '../../hair-live-preview/hair-protocol.ts';
 import {CATEGORY_EXTRACTION_PROTOCOL} from './protocol.ts';
 import type {HairWorkerRequest, CategoryExtractionMode, CategoryExtractionMetrics} from './protocol.ts';
 
@@ -51,9 +53,9 @@ function bitmap(width = 2, height = 2): {image: ImageBitmap; closed: () => numbe
   let closed = 0;
   return {image: {width, height, close: () => { closed++; }} as ImageBitmap, closed: () => closed};
 }
-async function ready(model: HairModelId = 'hair-only', outputMode: HairOutputMode = 'full') {
+async function ready(model: HairModelId = 'hair-only', outputMode: HairOutputMode = 'full', options: HairClientOptions = {}) {
   const worker = new FakeWorker(), controller = new AbortController();
-  const client = new HairClient(model, {createWorker: () => worker, outputMode});
+  const client = new HairClient(model, {...options, createWorker: () => worker, outputMode});
   const startup = client.initialize(controller.signal); worker.ready(); await startup;
   return {worker, controller, client};
 }
@@ -286,4 +288,168 @@ test('a cancelled direct response cannot publish after hashing or replace a fres
   late?.({data: {type: 'result', categoryExtractionMode: 'direct'}} as MessageEvent<unknown>);
   fresh.worker.result(); assert.equal((await next).categoryExtraction.mode, 'sdk');
   assert.equal(image.closed(), 1); assert.equal(second.closed(), 1); fresh.client.close();
+});
+
+function controlledHashes() {
+  const pending: {output: HairRawOutput; resolve(): void; reject(error: Error): void}[] = [];
+  const hashMasks = ((output: HairRawOutput) => {
+    let resolve!: () => void, reject!: (error: Error) => void;
+    const gate = new Promise<void>((yes, no) => {resolve = yes; reject = no;});
+    pending.push({output, resolve, reject});
+    return gate.then(() => hashHairMasks(output));
+  }) as typeof hashHairMasks;
+  return {pending, hashMasks, releaseAll: () => {for (const item of pending) item.resolve();}};
+}
+
+test('explicit early release admits the next worker job during real mask hashing, with two owned results at most', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+  const traces: Readonly<HairRequestTiming>[] = [], images = [bitmap(), bitmap(), bitmap(), bitmap()];
+  const first = client.beginSegment(images[0]!.image, source, 10, 'sdk', true, trace => {traces.push(trace);});
+  let firstCompleted = false; void first.result.then(() => {firstCompleted = true;});
+  try {
+    worker.result({workerTiming: {inputValidationMs: .2, totalMs: 6}}); await first.workerReleased;
+    assert.equal(firstCompleted, false); assert.equal(hashes.pending.length, 1);
+    const second = client.beginSegment(images[1]!.image, 'b'.repeat(64), 11, 'direct', true);
+    assert.equal(worker.messages.length, 3, 'The second worker request posts before the first hash completes.');
+    assert.equal(second.timing().pendingAtSubmission, 2);
+    assert.deepEqual(worker.transfers.at(-1), [images[1]!.image]);
+    const busy = client.beginSegment(images[2]!.image, source, 12, 'sdk', true);
+    await assert.rejects(busy.result, /already owns/); await assert.rejects(busy.workerReleased, /already owns/);
+    assert.equal(images[2]!.closed(), 1);
+    worker.result(); await second.workerReleased;
+    assert.equal(hashes.pending.length, 2); assert.equal(firstCompleted, false);
+    const bothHashing = client.beginSegment(images[3]!.image, source, 12, 'sdk', true);
+    await assert.rejects(bothHashing.result, /already owns/);
+    assert.equal(worker.messages.length, 3, 'Two validating masks still consume both ownership slots.');
+    hashes.pending[1]!.resolve(); const secondResult = await second.result;
+    assert.equal(secondResult.sequence, 11); assert.equal(secondResult.sourceSHA256, 'b'.repeat(64));
+    assert.equal(firstCompleted, false, 'Valid hash completions can arrive in either order without mixing identities.');
+    hashes.pending[0]!.resolve(); const firstResult = await first.result;
+    assert.equal(firstResult.sequence, 10); assert.equal(firstResult.sourceSHA256, source);
+    assert.equal(firstResult.categorySHA256, secondResult.categorySHA256); assert.deepEqual(firstResult.category, secondResult.category);
+    assert.ok(images.every(image => image.closed() === 1));
+    const t = first.timing();
+    assert.equal(t.outcome, 'completed'); assert.equal(t.pendingAtSubmission, 1);
+    assert.equal(t.workerValidationMs, .2); assert.equal(t.workerInferenceMs, 5);
+    assert.equal(t.workerExtractionMs, .1); assert.equal(t.workerElapsedMs, 6);
+    assert.ok(t.submittedAtMs! <= t.receivedAtMs! && t.receivedAtMs! <= t.workerReleasedAtMs!);
+    assert.ok(t.workerReleasedAtMs! <= t.validatedAtMs! && t.validatedAtMs! <= t.hashStartedAtMs!);
+    assert.ok(t.hashStartedAtMs! <= t.completedAtMs!); assert.ok(t.validationMs! >= 0 && t.hashMs! >= 0);
+    assert.equal(traces.filter(trace => trace.outcome !== 'pending').length, 1);
+    assert.ok(traces.every(Object.isFrozen)); assert.equal(Object.isFrozen(t), true);
+    assert.ok(Object.values(t).every(value => value === null || ['string', 'number', 'boolean'].includes(typeof value)));
+    assert.equal(JSON.stringify(traces).includes(source), false); assert.equal('sessionNonce' in t, false);
+    assert.equal('category' in t, false); assert.equal('image' in t, false);
+  } finally {hashes.releaseAll(); client.close(); await first.result.catch(() => {});}
+});
+
+test('default G release waits for full validation and hash completion and cannot be bypassed by an early request', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+  const firstImage = bitmap(), first = client.beginSegment(firstImage.image, source, 1);
+  let released = false; void first.workerReleased.then(() => {released = true;});
+  try {
+    worker.result(); await Promise.resolve(); assert.equal(hashes.pending.length, 1); assert.equal(released, false);
+    const secondImage = bitmap(), second = client.beginSegment(secondImage.image, source, 2, 'sdk', true);
+    await assert.rejects(second.result, /already owns/); assert.equal(secondImage.closed(), 1);
+    assert.equal(worker.messages.length, 2);
+    hashes.pending[0]!.resolve(); await first.workerReleased; const result = await first.result;
+    assert.equal(result.sequence, 1); assert.equal(firstImage.closed(), 1);
+    assert.ok(first.timing().workerReleasedAtMs! >= first.timing().hashStartedAtMs!);
+    assert.ok(first.timing().workerReleasedAtMs! <= first.timing().completedAtMs!);
+    const thirdImage = bitmap(), third = client.beginSegment(thirdImage.image, source, 2);
+    worker.result(); hashes.pending[1]!.resolve(); await third.result;
+    assert.equal(thirdImage.closed(), 1);
+  } finally {hashes.releaseAll(); client.close(); await first.result.catch(() => {});}
+});
+
+test('duplicate and stale first replies cannot free the second image computation slot', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+  const first = client.beginSegment(bitmap().image, source, 1, 'sdk', true);
+  try {
+    const firstRequest = worker.messages.at(-1)!; worker.result(); await first.workerReleased;
+    const second = client.beginSegment(bitmap().image, source, 2, 'sdk', true);
+    worker.result({}, {requestId: firstRequest.requestId});
+    worker.result({}, {sessionNonce: 'different-session'});
+    const rejectedImage = bitmap(); await assert.rejects(client.beginSegment(rejectedImage.image, source, 3, 'sdk', true).result, /already owns/);
+    assert.equal(hashes.pending.length, 1); assert.equal(worker.messages.length, 3);
+    hashes.pending[0]!.resolve(); await first.result;
+    worker.result({}, {requestId: firstRequest.requestId});
+    const stillBusy = bitmap(); await assert.rejects(client.beginSegment(stillBusy.image, source, 3, 'sdk', true).result, /already owns/);
+    worker.result(); await second.workerReleased; hashes.pending[1]!.resolve(); await second.result;
+    assert.equal(rejectedImage.closed(), 1); assert.equal(stillBusy.closed(), 1);
+  } finally {hashes.releaseAll(); client.close(); await first.result.catch(() => {});}
+});
+
+test('a malformed second result fails both the previous validating mask and current request', async () => {
+  for (const patch of [{sourceSHA256: 'b'.repeat(64)}, {category: new Uint8Array([0, 9, 1, 0])},
+    {workerTiming: {inputValidationMs: 0, totalMs: 1}}, {workerTiming: {inputValidationMs: -1, totalMs: 9}}]) {
+    const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+    const firstImage = bitmap(), secondImage = bitmap();
+    const first = client.beginSegment(firstImage.image, source, 1, 'sdk', true);
+    worker.result(); await first.workerReleased;
+    const second = client.beginSegment(secondImage.image, source, 2, 'sdk', true);
+    worker.result(patch); await Promise.all([assert.rejects(first.result), assert.rejects(second.result)]);
+    const terminalFirst = first.timing(), terminalSecond = second.timing();
+    assert.equal(terminalFirst.outcome, 'failed'); assert.equal(terminalSecond.outcome, 'failed');
+    assert.equal(worker.terminated, 1); assert.equal(hashes.pending.length, 1);
+    hashes.releaseAll(); await Promise.resolve();
+    assert.deepEqual(first.timing(), terminalFirst); assert.deepEqual(second.timing(), terminalSecond);
+    assert.equal(firstImage.closed(), 1); assert.equal(secondImage.closed(), 1); client.close();
+  }
+});
+
+test('close, session abort, unreadable replies and worker errors reject both early-release owners', async () => {
+  for (const action of ['close', 'abort', 'unreadable', 'worker-error'] as const) {
+    const hashes = controlledHashes(), {worker, client, controller} = await ready('hair-only', 'category-only', hashes);
+    const traces: Readonly<HairRequestTiming>[] = [], firstImage = bitmap(), secondImage = bitmap();
+    const first = client.beginSegment(firstImage.image, source, 1, 'sdk', true, trace => {traces.push(trace);});
+    worker.result(); await first.workerReleased;
+    const second = client.beginSegment(secondImage.image, source, 2, 'sdk', true, trace => {traces.push(trace);});
+    const late = worker.onmessage;
+    if (action === 'close') client.close();
+    else if (action === 'abort') controller.abort();
+    else if (action === 'unreadable') worker.emit(null);
+    else worker.emit({type: 'error', sessionNonce: worker.messages.at(-1)!.sessionNonce,
+      requestId: worker.messages.at(-1)!.requestId, message: 'Synthetic worker error'});
+    await Promise.all([assert.rejects(first.result), assert.rejects(second.result), assert.rejects(second.workerReleased)]);
+    const terminal = [first.timing(), second.timing()];
+    assert.equal(terminal[0]!.outcome, action === 'close' || action === 'abort' ? 'cancelled' : 'failed');
+    assert.equal(terminal[1]!.workerReleasedAtMs, null);
+    assert.equal(traces.filter(trace => trace.outcome !== 'pending').length, 2);
+    assert.equal(firstImage.closed(), 1); assert.equal(secondImage.closed(), 1); assert.equal(worker.terminated, 1);
+    hashes.releaseAll(); late?.({data: {type: 'result'}} as MessageEvent<unknown>); await Promise.resolve();
+    assert.deepEqual([first.timing(), second.timing()], terminal); client.close();
+  }
+});
+
+test('each original deadline remains active during hashing and times out both owned requests', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', {...hashes, segmentTimeoutMs: 15});
+  const firstImage = bitmap(), secondImage = bitmap();
+  const first = client.beginSegment(firstImage.image, source, 1, 'sdk', true);
+  worker.result(); await first.workerReleased;
+  const second = client.beginSegment(secondImage.image, source, 2, 'sdk', true);
+  worker.result(); await second.workerReleased;
+  await Promise.all([assert.rejects(first.result, /timed out/), assert.rejects(second.result, /timed out/)]);
+  assert.equal(first.timing().outcome, 'timed-out'); assert.equal(second.timing().outcome, 'timed-out');
+  assert.equal(first.timing().reason, 'deadline'); assert.equal(second.timing().reason, 'deadline');
+  assert.equal(firstImage.closed(), 1); assert.equal(secondImage.closed(), 1); assert.equal(worker.terminated, 1);
+  const terminal = first.timing(); hashes.releaseAll(); await Promise.resolve(); assert.deepEqual(first.timing(), terminal); client.close();
+});
+
+test('hash failure revokes both owners and preflight rejection reports a safe complete trace', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+  const rejectedImage = bitmap(), rejectedTraces: Readonly<HairRequestTiming>[] = [];
+  const rejected = client.beginSegment(rejectedImage.image, 'invalid-source', 1, 'sdk', true, trace => {rejectedTraces.push(trace);});
+  await assert.rejects(rejected.result); assert.equal(rejectedImage.closed(), 1);
+  assert.equal(rejectedTraces.length, 1); assert.equal(rejected.timing().outcome, 'rejected');
+  assert.equal(rejected.timing().requestId, null); assert.equal(rejected.timing().submittedAtMs, null);
+  assert.equal(rejected.timing().reason, 'invalid-input'); assert.equal(typeof rejected.timing().completedAtMs, 'number');
+  const firstImage = bitmap(), secondImage = bitmap();
+  const first = client.beginSegment(firstImage.image, source, 1, 'sdk', true, () => {throw new Error('A diagnostic observer cannot break a valid request.');});
+  worker.result(); await first.workerReleased;
+  const second = client.beginSegment(secondImage.image, source, 2, 'sdk', true);
+  hashes.pending[0]!.reject(new Error('Synthetic hash failure'));
+  await Promise.all([assert.rejects(first.result, /hash failure/), assert.rejects(second.result, /hash failure/)]);
+  assert.equal(first.timing().outcome, 'failed'); assert.ok(first.timing().hashMs! >= 0);
+  assert.equal(firstImage.closed(), 1); assert.equal(secondImage.closed(), 1); assert.equal(worker.terminated, 1); client.close();
 });

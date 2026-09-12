@@ -2,19 +2,19 @@
   "schemaVersion": 1,
   "files": [
     {
-      "path": "assets/arTesting-BXbl1-re.css",
-      "size": 12894,
-      "sha256": "83c54a01400cf1c8a4f372509f1ca7c56426191ffc0ce1a72177baa35c0ae6d4"
+      "path": "assets/arTesting-BnnWbBni.js",
+      "size": 141173,
+      "sha256": "30e708677c8cd0f9390c546f262da1d5df0dc40288e64ae2ea67b879b715802d"
     },
     {
-      "path": "assets/arTesting-DEEsXsQt.js",
-      "size": 126177,
-      "sha256": "6cf2848284404eeb7196985593cc9972ddb305ed667c8e0c92cdd63121ed8695"
+      "path": "assets/arTesting-DKisj5zb.css",
+      "size": 13099,
+      "sha256": "2ea3e263e915a59b2b5819446ee02a8818d4affa9f0ac7c21f0ad2ce08cebc09"
     },
     {
-      "path": "assets/comparison-renderer-DtoHTzeT.js",
+      "path": "assets/comparison-renderer-CpBvyWb6.js",
       "size": 815967,
-      "sha256": "992fc671bf53f25cb3d71a213eeed48858036b63c3971595243ec70151544940"
+      "sha256": "e13b6b3a0a836ae9c8dc6da9a1d79778beebdabc12a7cf55657e21fb68736eef"
     },
     {
       "path": "assets/face-detector.worker-DvXt9Zsn.js",
@@ -22,14 +22,14 @@
       "sha256": "19a92da7f87f1f14f7ec11af91597ce291218525d4c92d1754f7bec703e83de3"
     },
     {
-      "path": "assets/worker-IlW5QMei.js",
-      "size": 162070,
-      "sha256": "381a6e8da31271ac8e8c691136a2142149dc0a919ed1f7fb4c31b16031afe96a"
+      "path": "assets/worker-DLXGqSze.js",
+      "size": 162184,
+      "sha256": "1c04325989448e1aa60c8b5d7cb4d3c3ff613270d7ba82516ae76e5495496875"
     },
     {
       "path": "experiments/efficiency-lab/live.html",
-      "size": 14245,
-      "sha256": "37b8197aa66df16a946bba19952821f69717d3cd685b1353cea4ddbbe6d60a41"
+      "size": 14582,
+      "sha256": "cb6f8215d038723615c2d52880dd9a01fa16f9cef13f09d9b05218cea9761292"
     },
     {
       "path": "hair-preview-models/hair-only.tflite",
@@ -104,7 +104,7 @@
     {
       "path": "release.json",
       "size": 255,
-      "sha256": "d070101f374126a7e049332300c6d807ee65e777fed6c66d87a0c1616314da7b"
+      "sha256": "62ab55703b60b581f9cc4066b03057c07ba311e9cbaaf7f2edb5ae67fca43a21"
     }
   ]
 }

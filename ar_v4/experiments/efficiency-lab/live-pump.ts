@@ -11,6 +11,8 @@ import type {ComparisonRenderer,HairMask} from './comparison-renderer.ts';
 import type {DetectorClient} from '../performance-stage2/face-detector.ts';
 import type {FaceStageTiming} from '../performance-stage2/face-timing.ts';
 import type {HairClient,HairSegmentationResult} from './hair-cost/client.ts';
+import type {HairRequestTiming} from './hair-cost/delivery.ts';
+import type {HairDeliveryTrace} from './hair-delivery.ts';
 import type {Detection} from '../../references/perfect-temples/src/runtime/detector.ts';
 import {hairModelById} from '../hair-live-preview/models.ts';
 import type {HairModelId} from '../hair-live-preview/models.ts';
@@ -20,7 +22,8 @@ interface Packet {
   sequence:number;capturedAtMs:number;canvas:HTMLCanvasElement;rgba:ImageData;disposed:boolean;
   drawMs:number;readMs:number;videoFrames:number|null;mediaTime:number|null;presentation:number|null;
   pipeline:Pipeline;variant:'hair'|'accepted';source?:OwnedSourceFrame;
-  reads:Promise<unknown>[];canvasReads:number;
+  reads:Promise<unknown>[];canvasReads:number;inferenceStarted:boolean;
+  hairTiming?:HairRequestTiming;publicationAtMs?:number;usedAtPublication?:boolean;disposedAtMs?:number;
 }
 interface Inferred {
   detection:Detection;sourceSHA256:string;detectionSHA256:string;face:FaceStageTiming|null;
@@ -38,6 +41,7 @@ export interface PumpContext {
   owns:()=>boolean;nextSequence:()=>number;onBusy:()=>void;onHairError:(error:unknown)=>void;
   onError:(error:unknown)=>void;
   onPublished:(row:FrameInput,identity:{sourceSHA256:string;detectionSHA256:string})=>void;
+  onHairTrace?:(trace:HairDeliveryTrace)=>void;
   backend:()=>{active:string|null;renderer:string|null};
 }
 const hash=async(bytes:Uint8Array|Uint8ClampedArray):Promise<string>=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes).buffer)),v=>v.toString(16).padStart(2,'0')).join('');
@@ -63,11 +67,21 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
   const admission=new CaptureRateAdmission(profile.captureRateHz);
   const capturePool=new InputCanvasPool(profile.leanInputs),facePool=new InputCanvasPool(profile.leanInputs);
   const releaseTasks=new Set<Promise<void>>();
+  const hairTasks=new Set<Promise<unknown>>(),ownedImages=new Set<Packet>();
+  let maxOwnedImages=0,maxPendingResults=0;
+  const traceHair=(p:Packet):void=>{
+    if(!c.onHairTrace||!p.hairTiming)return;
+    // Observations contain only scalar request identity and timing. They never
+    // hold source pixels, masks or hashes and cannot affect frame delivery.
+    try {c.onHairTrace({sessionId:c.id,generation:c.generation,sequence:p.sequence,pipeline:p.pipeline,
+      capturedAtMs:p.capturedAtMs,observedAtMs:performance.now(),publicationAtMs:p.publicationAtMs??null,
+      usedAtPublication:p.usedAtPublication??null,disposedAtMs:p.disposedAtMs??null,timing:p.hairTiming});} catch { /* An observer cannot own processing. */ }
+  };
   const stream=c.video.srcObject;
   const cameraFps=stream instanceof MediaStream?stream.getVideoTracks()[0]?.getSettings().frameRate??null:null;
   const pump=new FramePump<Packet,Inferred,Prepared>({mode:c.mode,deferPrefetch:profile.deferPrefetch,identity:p=>p,
     infer:async(p,signal)=>{
-      c.onBusy();const alive=()=>owns()&&!p.disposed&&!signal.aborted;
+      p.inferenceStarted=true;c.onBusy();const alive=()=>owns()&&!p.disposed&&!signal.aborted;
       const inferenceStartedAt=performance.now(),hashStart=performance.now();let hashMs=0;
       let sourceHash!:InputHashResult;
       const sha=hashInput(p.rgba.data,profile.leanInputs).then(result=>{startup.sourceHashes++;sourceHash=result;hashMs=performance.now()-hashStart;return result.value;});
@@ -79,13 +93,29 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       const hairStarted=new Promise<void>(resolve=>{markHairStarted=resolve;});
       // One serial hair worker; at most the pump's second owned image can wait.
       const previousHair=hairTail;
+      let releaseWorker:()=>void=()=>{};
+      const workerReleased=new Promise<void>(resolve=>{releaseWorker=resolve;});
       const hair=Promise.all([sha,hairBitmap,previousHair]).then(async([sourceSHA256,bitmap])=>{
         if(!bitmap){markHairStarted();return null;}if(!alive()){bitmap.close();markHairStarted();return null;}
-        try {startup.hairRequests++;const result=c.hair().segment(bitmap,sourceSHA256,p.sequence,profile.hairExtractionMode);markHairStarted();return await result;}
+        try {
+          startup.hairRequests++;
+          const client=c.hair();
+          if(profile.releaseHairWorkerEarly||c.onHairTrace) {
+            const request=client.beginSegment(bitmap,sourceSHA256,p.sequence,profile.hairExtractionMode,
+              profile.releaseHairWorkerEarly,c.onHairTrace?timing=>{p.hairTiming=timing;traceHair(p);}:undefined);
+            void request.workerReleased.then(releaseWorker,releaseWorker);
+            markHairStarted();return await request.result;
+          }
+          const result=client.segment(bitmap,sourceSHA256,p.sequence,profile.hairExtractionMode);
+          markHairStarted();return await result;
+        }
         catch(error){if(alive())c.onHairError(error);return null;}
-        finally{markHairStarted();}
-      }).catch(async(error)=>{const bitmap=await hairBitmap.catch(()=>null);bitmap?.close();markHairStarted();if(alive())c.onHairError(error);return null;});
-      hairTail=hair.then(()=>undefined);
+        finally{markHairStarted();releaseWorker();}
+      }).catch(async(error)=>{const bitmap=await hairBitmap.catch(()=>null);bitmap?.close();markHairStarted();if(alive())c.onHairError(error);return null;})
+        .finally(releaseWorker);
+      hairTail=profile.releaseHairWorkerEarly?workerReleased:hair.then(()=>undefined);
+      p.reads.push(hair);hairTasks.add(hair);maxPendingResults=Math.max(maxPendingResults,hairTasks.size);
+      void hair.then(()=>{hairTasks.delete(hair);});
       const scale=Math.min(1,640/Math.max(p.canvas.width,p.canvas.height));
       const input=facePool.acquire(Math.max(1,Math.round(p.canvas.width*scale)),Math.max(1,Math.round(p.canvas.height*scale)));
       let bitmap:ImageBitmap,detectorDrawMs:number,faceBitmapMs:number;
@@ -147,6 +177,7 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       const finishStart=performance.now();c.renderer.finish(r.mask);const publishedAtMs=performance.now(),finishMs=publishedAtMs-finishStart;
       hasPublished=true;
       const stats=c.renderer.stats!;const backend=c.backend();
+      p.publicationAtMs=publishedAtMs;p.usedAtPublication=!!r.mask&&stats.hasMask;traceHair(p);
       const native=flatten((stats as unknown as {candidatePerformance?:unknown}).candidatePerformance);
       for(const [key,value] of Object.entries(pump.stats))if(typeof value==='number'||typeof value==='boolean')native['pump.'+key]=value;
       for(const [key,value] of Object.entries(admission.stats))native['admission.'+key]=value;
@@ -155,6 +186,13 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       native['pump.mode']=c.mode;
       native['pump.deferPrefetch']=profile.deferPrefetch;
       native['pump.nativeSubmittedMs']=r.nativeSubmittedMs;
+      native['hairDelivery.releaseWorkerEarly']=profile.releaseHairWorkerEarly;
+      native['hairDelivery.pendingResults']=hairTasks.size;
+      native['hairDelivery.maxPendingResults']=maxPendingResults;
+      if(profile.releaseHairWorkerEarly) {
+        native['hairDelivery.ownedImages']=ownedImages.size;
+        native['hairDelivery.maxOwnedImages']=maxOwnedImages;
+      }
       native['publication.suppressUnchangedRequested']=profile.suppressUnchangedPublication;
       native['publication.prePrepareRequests']=prePrepareRequests;
       native['publication.prePrepareSkipped']=prePrepareSkipped;
@@ -188,7 +226,19 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       c.onPublished(row,{sourceSHA256:i.sourceSHA256,detectionSHA256:i.detectionSHA256});
     },
     disposeFrame:p=>{
-      p.disposed=true;
+      p.disposed=true;p.disposedAtMs=performance.now();traceHair(p);
+      if(profile.releaseHairWorkerEarly) {
+        // Preserve G's replacement of an unprocessed pending snapshot. No
+        // asynchronous reader has received it, so its lease ends synchronously
+        // before FramePump invokes the next lazy capture factory.
+        if(!p.inferenceStarted){capturePool.release(p.canvas);ownedImages.delete(p);return;}
+        // A published image can still own a late validating mask. Keep that
+        // image's lease until every reader and result settles; otherwise a new
+        // capture would silently become a third owned image outside FramePump.
+        const task=Promise.allSettled(p.reads).then(()=>{capturePool.release(p.canvas);ownedImages.delete(p);})
+          .finally(()=>{releaseTasks.delete(task);});
+        releaseTasks.add(task);return;
+      }
       if(!profile.leanInputs||p.canvasReads===0){capturePool.release(p.canvas);return;}
       // Failures can settle inference before a bitmap snapshot has finished.
       // Revocation is immediate, but reuse waits for every canvas reader.
@@ -216,10 +266,15 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       if(profile.captureRateHz!==null&&(!distinctReady||!admission.canCapture(performance.now()))) {
         if(distinctReady)admission.skipRate();schedule();return;
       }
+      if(profile.releaseHairWorkerEarly&&ownedImages.size>=2
+        &&![...ownedImages].some(p=>!p.disposed&&!p.inferenceStarted)) {
+        if(distinctReady)admission.skipBackpressure();schedule();return;
+      }
       let captureInvoked=false;
       pump.offer(()=>{
         captureInvoked=true;
         if(c.video.readyState<2||frameIdentity===lastFrame)return null;
+        if(profile.releaseHairWorkerEarly&&ownedImages.size>=2){if(distinctReady)admission.skipBackpressure();return null;}
         const capturedAtMs=performance.now();
         if(!admission.canCapture(capturedAtMs)){if(distinctReady)admission.skipRate();return null;}
         const scale=Math.min(1,1280/Math.max(c.video.videoWidth,c.video.videoHeight));
@@ -231,7 +286,8 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
           // playback-clock read cannot validate that pairing and must not veto it.
           const readStart=performance.now(),rgba=ctx.getImageData(0,0,canvas.width,canvas.height);
           const packet:Packet={sequence:c.nextSequence(),capturedAtMs,canvas,rgba,disposed:false,drawMs,readMs:performance.now()-readStart,
-            videoFrames:pairedMetadata?.presentedFrames??null,mediaTime,presentation,pipeline:c.pipeline,variant:c.variant(),reads:[],canvasReads:0};
+            videoFrames:pairedMetadata?.presentedFrames??null,mediaTime,presentation,pipeline:c.pipeline,variant:c.variant(),reads:[],canvasReads:0,inferenceStarted:false};
+          if(profile.releaseHairWorkerEarly){ownedImages.add(packet);maxOwnedImages=Math.max(maxOwnedImages,ownedImages.size);}
           admission.accepted(capturedAtMs);lastFrame=frameIdentity;return packet;
         } catch(error) {capturePool.release(canvas);throw error;}
       });
@@ -248,5 +304,8 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
   schedule();
   return {stop(){stopped=true;cancel();clearInterval(watchdog);pump.stop();capturePool.dispose();facePool.dispose();},
     async finishCurrent(){draining=true;cancel();clearInterval(watchdog);await pump.finishCurrent();await hairTail;
-      await Promise.allSettled([...releaseTasks]);capturePool.dispose();facePool.dispose();},stats:()=>({...pump.stats,admission:admission.stats,startup:{...startup}})};
+      await Promise.allSettled([...hairTasks]);await Promise.allSettled([...releaseTasks]);capturePool.dispose();facePool.dispose();},
+    stats:()=>({...pump.stats,admission:admission.stats,startup:{...startup},hairDelivery:{releaseWorkerEarly:profile.releaseHairWorkerEarly,
+      pendingResults:hairTasks.size,maxPendingResults,ownedImages:profile.releaseHairWorkerEarly?ownedImages.size:null,
+      maxOwnedImages:profile.releaseHairWorkerEarly?maxOwnedImages:null}})};
 }
