@@ -3,7 +3,34 @@
 The Lenses landing page links to `/ar_testing/`, a separate static AR preview
 served by the existing Python application. The Railway start command remains
 `python -m UI.app`. The page begins with the accepted G renderer and offers the
-independent Q, R, S and T experiments. No candidate is promoted by this page.
+independent experiments. No candidate is promoted by this page.
+
+The current **G / V / W / X** testing ground is:
+`/ar_testing/experiments/efficiency-lab/live.html?study=per-image`.
+V tests full-resolution RGBA8 hair-mask retrieval, W avoids four repeated PACK
+state queries within one owned image, and X compares four-channel pixels as
+32-bit words during the first composition scan. All retain G's admission,
+resolution, geometry and final guards. Each changes one mechanism independently.
+G is selected initially. The owner rejected U as worse than G; U remains a
+separate historical experiment and is not included in this new comparison.
+
+For an immediate visual comparison, open the camera and switch G/V/W/X while
+moving. For a measured run, choose **Measure only · G / V / W / X · ~5 min**.
+The order is G/V/W/X, then X/W/V/G, with the same five-second/three-masked-frame
+warmup and 30-second measurement in each window. Follow front/nose, down, up,
+left and right cues. Repeat with Amber Horizon and Tom Ford Clear, each using
+hair-only and selfie-multiclass. Save each ZIP before starting another run.
+Enable video for separate visual runs; optional recording has the same behavior
+and local-only export described below. Keep workload, lighting and movements
+similar across options and allow the phone to cool between repeated runs.
+
+This study also records the all-request `hairDelivery` ledger and drains late
+results before export. Actual extraction paths distinguish `rgba8-readback`
+from an explicit safe SDK fallback, including its reason and readback bytes.
+W reports actual query savings and X reports actual word comparisons. A requested
+option or successful fallback alone is not evidence that its optimization ran.
+Compare completed AR updates, frame age, stalls, tracking and matching-mask
+availability together; camera FPS alone cannot select a winner.
 
 The **G vs U · hair processing** link opens
 `/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.

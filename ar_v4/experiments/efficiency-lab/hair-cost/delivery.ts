@@ -4,7 +4,17 @@ export interface HairRequestTiming {
   requestId: number | null;
   sequence: number | null;
   releaseWorkerEarly: boolean;
-  categoryExtractionMode: 'sdk' | 'direct' | null;
+  categoryExtractionMode: 'sdk' | 'direct' | 'rgba8' | null;
+  /** Additive all-request extraction fields, including results missed by publication. */
+  categoryPath?: string;
+  categoryRetrievalMs?: number;
+  categoryConversionMs?: number;
+  categoryCopyMs?: number;
+  categoryTotalMs?: number;
+  /** V attempt including a later SDK fallback; null when V was not requested. */
+  categoryAttemptMs?: number | null;
+  categoryReadbackBytes?: number | null;
+  categoryFallbackReason?: string | null;
   submittedAtMs: number | null;
   receivedAtMs: number | null;
   workerReleasedAtMs: number | null;

@@ -12,8 +12,8 @@ import {DEFAULT_EYEWEAR_ID} from '../../references/perfect-temples/src/render/ey
 import type {EyewearId} from '../../references/perfect-temples/src/render/eyewear.ts';
 import {copyHairMask, liveNasalRoi} from '../hair-live-preview/ownership.ts';
 import type {LiveVariant, OwnedPixels} from '../hair-live-preview/ownership.ts';
-import {composeHairArmsFast, checkHairProtection, CompositionScratch} from '../performance-candidate/fast-compose.ts';
-import type {CompositionAllocationStats} from '../performance-candidate/fast-compose.ts';
+import {composeHairArmsFast, checkHairProtection, CompositionScratch} from './fast-compose.ts';
+import type {CompositionAllocationStats} from './fast-compose.ts';
 import {loadTempleContinuityModel, projectTempleContinuity, findDetachedTemplePixels, TEMPLE_CONTINUITY_POLICY} from '../hair-live-preview/continuity.ts';
 import type {TempleContinuityModel, ContinuityDiagnostics} from '../hair-live-preview/continuity.ts';
 const CANDIDATE_REVISION = 'Efficiency lab: separate experiments based on owner-selected G Combined';
@@ -45,6 +45,7 @@ export interface LiveHairStats {
   candidatePerformance: CompositionAllocationStats & {
     acceptedPixelReadbacksAvoided: number; acceptedPixelBytesBorrowed: number;
     diagnosticWeightBytesAvoided: number;
+    wordComparisonRequested: boolean; wordComparisonUsed: boolean; wordComparedPixels: number;
     sourceCopyMs: number; hairRequested: boolean; eagerCleanWithoutMask: boolean;
     nativePipeline: TempleStageTimings; cpuReadbackCalls: number; cpuReadbackBytes: number;
     cleanCameraContextsAvoided: number; sourceTextureUploadsAvoided: number;
@@ -288,7 +289,8 @@ export class LiveHairRenderer {
         protectedCheck: null, noseCheck: null, outsideEditableCheck: null, backgroundPreservationCheck: null,
         acceptedDiagnostics: null, continuity: null,
         candidatePerformance: {acceptedPixelReadbacksAvoided: 1, acceptedPixelBytesBorrowed: ownedPixels.data.byteLength,
-          diagnosticWeightBytesAvoided: 0, regionBytesAllocated: 0, coordinateBytesAllocated: 0,
+          diagnosticWeightBytesAvoided: 0, wordComparisonRequested: this.frameOptions.wordCompose, wordComparisonUsed: false, wordComparedPixels: 0,
+          regionBytesAllocated: 0, coordinateBytesAllocated: 0,
           regionsReused: false, coordinatesReused: false, sourceCopyMs, hairRequested, eagerCleanWithoutMask: false,
           nativePipeline, cpuReadbackCalls: nativePipeline.baselineReadbackCalls + nativePipeline.branchReadbackCalls
             + (sharedReadback?.readbackCalls ?? 0) + (nativePipeline.speedLab?.prewarmReadbackCalls ?? 0)
@@ -352,8 +354,10 @@ export class LiveHairRenderer {
           geometryPair: {sourceSHA256: ownedPair.sourceSHA256, detectionSHA256: ownedPair.detectionSHA256, eyewearModel: this.eyewear.id},
           mask, expectedModel, protection, noseRoi: this.noseRoi};
         const composeStarted = performance.now(), result = composeHairArmsFast(input,
-          {collectEligibleResidualIndices: !!this.continuityModel, collectWeights: false, scratch: this.compositionScratch});
+          {collectEligibleResidualIndices: !!this.continuityModel, collectWeights: false, scratch: this.compositionScratch, wordCompose: this.frameOptions.wordCompose});
         this.latestStats.timings.composeMs = performance.now() - composeStarted;
+        Object.assign(this.latestStats.candidatePerformance, {wordComparisonRequested: result.wordComparisonRequested,
+          wordComparisonUsed: result.wordComparisonUsed, wordComparedPixels: result.wordComparedPixels});
         Object.assign(this.latestStats.candidatePerformance, {diagnosticWeightBytesAvoided: width * height * 4},
           result.regions ? this.compositionScratch.lastAllocation : {});
         this.latestStats.backgroundReferenceCheck = result.backgroundReferenceCheck;

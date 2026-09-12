@@ -1,11 +1,14 @@
 import type {MPMask} from '@mediapipe/tasks-vision';
+import {readRgba8Mask} from './rgba8-extraction.ts';
+import type {Rgba8AttemptMetrics} from './rgba8-extraction.ts';
 
-export type CategoryExtractionMode = 'sdk' | 'direct';
-export type CategoryExtractionPath = 'sdk-copy' | 'direct-byte-copy' | 'direct-float-conversion';
+export type CategoryExtractionMode = 'sdk' | 'direct' | 'rgba8';
+export type CategoryExtractionPath = 'sdk-copy' | 'direct-byte-copy' | 'direct-float-conversion' | 'rgba8-readback' | 'rgba8-sdk-fallback';
 export type CategoryMaskSource = Pick<MPMask, 'width' | 'height' | 'hasUint8Array' |
-  'hasFloat32Array' | 'hasWebGLTexture' | 'getAsUint8Array' | 'getAsFloat32Array'>;
+  'hasFloat32Array' | 'hasWebGLTexture' | 'getAsUint8Array' | 'getAsFloat32Array'> &
+  Partial<Pick<MPMask, 'canvas' | 'getAsWebGLTexture'>>;
 
-export interface CategoryExtractionMetrics {
+export interface CategoryExtractionMetrics extends Partial<Rgba8AttemptMetrics> {
   mode: CategoryExtractionMode;
   path: CategoryExtractionPath;
   hasUint8: boolean;
@@ -37,9 +40,10 @@ export interface CategoryExtractionResult {
 
 /** Call within the MediaPipe result callback. Only the returned category is owned here. */
 export function extractCategoryMask(mask: CategoryMaskSource,
-  mode: CategoryExtractionMode = 'sdk'): CategoryExtractionResult {
+  mode: CategoryExtractionMode = 'sdk', categoryOnly = true): CategoryExtractionResult {
   const start = performance.now();
-  if (mode !== 'sdk' && mode !== 'direct') throw new Error('Unknown category extraction mode.');
+  if (mode !== 'sdk' && mode !== 'direct' && mode !== 'rgba8') throw new Error('Unknown category extraction mode.');
+  if (typeof categoryOnly !== 'boolean') throw new Error('Unknown category output policy.');
   const pixels = mask.width * mask.height;
   if (!Number.isSafeInteger(mask.width) || mask.width <= 0 ||
     !Number.isSafeInteger(mask.height) || mask.height <= 0 || !Number.isSafeInteger(pixels)) {
@@ -51,7 +55,23 @@ export function extractCategoryMask(mask: CategoryMaskSource,
   if (!hasUint8 && !hasFloat32 && !hasWebGLTexture) {
     throw new Error('Category mask has no available representation.');
   }
-  const path: CategoryExtractionPath = mode === 'sdk' ? 'sdk-copy' :
+  let rgba8: Rgba8AttemptMetrics | undefined;
+  if (mode === 'rgba8') {
+    if (!categoryOnly || hasUint8 || hasFloat32 || !hasWebGLTexture) {
+      rgba8 = {rgba8WorkMs: 0, rgba8ReadbackBytes: 0, rgba8ResourcesReused: false,
+        rgba8FallbackReason: categoryOnly ? 'not-gpu-only' : 'full-output'};
+    } else {
+      const attempt = readRgba8Mask(mask); rgba8 = attempt.metrics;
+      if (attempt.ok) return {category: attempt.category, metrics: {
+        mode, path: 'rgba8-readback', hasUint8, hasFloat32, hasWebGLTexture,
+        retrievalMs: attempt.retrievalMs, conversionMs: attempt.conversionMs, copyMs: 0,
+        totalMs: performance.now() - start, maskPixels: pixels, retrievedArrayBytes: pixels * 4,
+        categoryBytesCopied: 0, categoryBytesConverted: pixels, ownedCategoryBytesAllocated: pixels,
+        explicitFloatTemporaryBytesAvoided: pixels * 4, explicitCategoryCopyBytesAvoided: pixels, ...rgba8,
+      }};
+    }
+  }
+  const path: CategoryExtractionPath = mode === 'rgba8' ? 'rgba8-sdk-fallback' : mode === 'sdk' ? 'sdk-copy' :
     hasUint8 ? 'direct-byte-copy' : 'direct-float-conversion';
   let category: Uint8Array<ArrayBuffer>, retrievalMs = 0, conversionMs = 0, copyMs = 0;
   const retrievalStart = performance.now();
@@ -85,5 +105,6 @@ export function extractCategoryMask(mask: CategoryMaskSource,
     ownedCategoryBytesAllocated: category.byteLength,
     explicitFloatTemporaryBytesAvoided: path === 'direct-float-conversion' ? pixels * 4 : 0,
     explicitCategoryCopyBytesAvoided: path === 'direct-float-conversion' ? pixels : 0,
+    ...(rgba8 ? rgba8 : {}),
   }};
 }

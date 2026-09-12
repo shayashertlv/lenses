@@ -1,7 +1,7 @@
 import {normalizeSpeedOptions} from './speed-options.ts';
 
 export const G_COMMIT = 'b9142b2a3b957445f378d8012eea7e27ca68fd0b';
-export const PIPELINES = ['g', 'scratch', 'lean', 'deferred', 'temples', 'combined', 'rate12', 'rate10', 'rate8', 'mask', 'publish', 'region', 'lens', 'ui', 'hair-release'] as const;
+export const PIPELINES = ['g', 'scratch', 'lean', 'deferred', 'temples', 'combined', 'rate12', 'rate10', 'rate8', 'mask', 'publish', 'region', 'lens', 'ui', 'hair-release', 'mask-bytes', 'gl-state', 'word-compose'] as const;
 export type Pipeline = typeof PIPELINES[number];
 export const DEFAULT_PIPELINE: Pipeline = 'g';
 export const CURRENT_BASE_METADATA = Object.freeze({currentBase: 'g', ownerSelectedG: true,
@@ -13,11 +13,12 @@ export const PIPELINE_LABELS: Record<Pipeline, string> = {
   mask: 'P · Lean hair-mask extraction',
   publish: 'Q · Skip repeat image upload', region: 'R · Smaller temple download',
   lens: 'S · Lean temple render', ui: 'T · Lighter statistics', 'hair-release': 'U · Earlier hair processing',
+  'mask-bytes': 'V · Byte-format hair download', 'gl-state': 'W · Fewer graphics queries', 'word-compose': 'X · Faster pixel comparisons',
 };
 const g = {reuseSourcePixels: true, fewerCopies: true, asyncReadback: true, prewarmTemples: true};
-const profile = (extra: {poolReadbackScratch?: boolean; asyncTemples?: boolean; cropBranchReadback?: boolean; omitBranchLenses?: boolean}, detail: string,
+const profile = (extra: {poolReadbackScratch?: boolean; asyncTemples?: boolean; cropBranchReadback?: boolean; omitBranchLenses?: boolean; ownedPackState?: boolean; wordCompose?: boolean}, detail: string,
   leanInputs = false, deferPrefetch = false, captureRateHz: number | null = null,
-  hairExtractionMode: 'sdk' | 'direct' = 'sdk', suppressUnchangedPublication = false,
+  hairExtractionMode: 'sdk' | 'direct' | 'rgba8' = 'sdk', suppressUnchangedPublication = false,
   throttleUi = false, releaseHairWorkerEarly = false) => Object.freeze({options: normalizeSpeedOptions({...g, ...extra}),
   mode: 'overlap' as const, leanInputs, deferPrefetch, captureRateHz, hairExtractionMode, suppressUnchangedPublication, throttleUi, releaseHairWorkerEarly, detail});
 export const PROFILES = {
@@ -36,14 +37,17 @@ export const PROFILES = {
   lens: profile({omitBranchLenses: true}, 'G omits lenses from the extra rear-temple rendering. The main glasses image stays complete. Compare both frames, hair models, turns and nose/front protection before accepting this candidate.'),
   ui: profile({}, 'G refreshes repeated statistics every half second and avoids unchanged text writes. Every completed frame is still measured; camera, tracking, toggles and measurement transitions remain immediate.', false, false, null, 'sdk', false, true),
   'hair-release': profile({}, 'G with earlier release of the hair worker for the next owned image. The same model, rendering, image pairing and safeguards remain. Compare hair coverage, completed updates and frame age.', false, false, null, 'sdk', false, false, true),
+  'mask-bytes': profile({}, 'V tests a byte-format hair-mask download at the same resolution. G scheduling and rendering stay fixed. Compare hair edges, matching-mask availability and completed updates.', false, false, null, 'rgba8'),
+  'gl-state': profile({ownedPackState: true}, 'W avoids repeated graphics-state queries during the same owned image download. Rendering, error checks and G scheduling stay fixed. Compare freshness and stalls as well as updates.'),
+  'word-compose': profile({wordCompose: true}, 'X compares complete pixels in the first hair-composition scan. It keeps every pixel check, the same hair edges and all final nose/front safeguards. Compare both frames and hair models.'),
 } as const;
 /** The unchanged G implementation is imported directly for these paths. */
-export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id === 'lean' || id === 'mask' || id === 'publish' || id === 'ui' || id === 'hair-release' || PROFILES[id].captureRateHz !== null;}
+export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id === 'lean' || id === 'mask' || id === 'publish' || id === 'ui' || id === 'hair-release' || id === 'mask-bytes' || PROFILES[id].captureRateHz !== null;}
 
 /** Focused previews hide unrelated choices without removing them from the lab. */
 export function studyPipelines(search: string): readonly Pipeline[] {
   const study = new URLSearchParams(search).get('study');
-  return study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
+  return study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
 }
 
 /** An explicit preview link may select a candidate; ordinary entry remains G. */

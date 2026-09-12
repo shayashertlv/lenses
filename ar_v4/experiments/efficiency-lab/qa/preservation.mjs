@@ -12,7 +12,7 @@ const normalized = bytes => bytes.toString('utf8').replaceAll('\r\n', '\n');
 
 /** A new G boundary records Git content and this checkout's actual bytes independently.
  * Older CRLF manifests and every historical receipt remain untouched. */
-export async function verifyBase() {
+export async function verifyBase({gitExact = false} = {}) {
   const bytes = await fs.readFile(manifestPath), manifest = JSON.parse(bytes);
   assert.equal(digest(bytes), '17e8e7543fd6ba3b4643232d53396ef9d6b574a32b29bca5681f3dc72c60364f');
   assert.equal(manifest.schema, 'efficiency-lab-g-base-v1');
@@ -26,14 +26,19 @@ export async function verifyBase() {
     const current = await fs.readFile(filename), committed = blob(item.path);
     assert.equal(committed.length, item.gitBytes, `G blob size differs: ${item.path}`);
     assert.equal(digest(committed), item.gitSHA256, `G blob differs: ${item.path}`);
-    assert.equal(current.length, item.bytes, `Local G byte length differs: ${item.path}`);
-    assert.equal(digest(current), item.sha256, `Local G bytes differ: ${item.path}`);
-    if (!current.equals(committed)) {
+    if (gitExact) {
+      assert.ok(current.equals(committed), `This isolated checkout must retain exact G Git bytes: ${item.path}`);
+    } else {
+      assert.equal(current.length, item.bytes, `Local G byte length differs: ${item.path}`);
+      assert.equal(digest(current), item.sha256, `Local G bytes differ: ${item.path}`);
+    }
+    if (!gitExact && !current.equals(committed)) {
       assert.equal(item.representation, 'CRLF checkout / LF Git blob');
       assert.equal(normalized(current), committed.toString('utf8'), `Beyond-line-ending G change: ${item.path}`);
-    } else assert.equal(item.representation, 'exact Git blob');
+    } else if (!gitExact) assert.equal(item.representation, 'exact Git blob');
   }
-  return {manifest: {path: manifestPath, sha256: digest(bytes), bytes: bytes.length}, commit, filesVerified: unique.size};
+  return {manifest: {path: manifestPath, sha256: digest(bytes), bytes: bytes.length}, commit, filesVerified: unique.size,
+    ...(gitExact ? {localRepresentation: 'exact Git blob'} : {})};
 }
 
 if (process.argv.includes('--create')) {
@@ -51,4 +56,4 @@ if (process.argv.includes('--create')) {
   await fs.writeFile(manifestPath, JSON.stringify({schema: 'efficiency-lab-g-base-v1', commit,
     scope: 'Unchanged G and accepted renderer dependencies, with separate local-byte and Git-blob identities. Historical manifests remain unchanged.', files}, null, 2) + '\n', {flag: 'wx'});
 }
-if (process.argv.includes('--verify') || process.argv.includes('--create')) console.log(JSON.stringify(await verifyBase()));
+if (process.argv.includes('--verify') || process.argv.includes('--create')) console.log(JSON.stringify(await verifyBase({gitExact: process.argv.includes('--git-exact')})));

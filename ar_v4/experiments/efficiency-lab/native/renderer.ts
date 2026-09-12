@@ -530,7 +530,16 @@ export class TryOnRenderer {
       if (wantsCamera || asyncCapture) {
         try {
           const readbackStarted = performance.now();
-          if (asyncCapture) {this.pbo ??= new PboNativeReadback(this.renderer); this.pbo.begin(renderWidth, renderHeight, options.poolReadbackScratch);}
+          if (asyncCapture) {
+            this.pbo ??= new PboNativeReadback(this.renderer);
+            const packOwnerGeneration = this.pairGeneration;
+            // This renderer/context stays private and cannot render another pair
+            // during retrieval. Cache only queried PACK values within this pair;
+            // Three's reset/MSAA paths make cross-draw state assumptions invalid.
+            this.pbo.begin(renderWidth, renderHeight, options.poolReadbackScratch, options.ownedPackState ? {
+              isCurrent: () => !this.disposed && packOwnerGeneration === this.pairGeneration && (!source || source.isCurrent()),
+            } : undefined);
+          }
           else {this.pairedReadback ??= new SharedNativeReadback(this.renderer); this.pairedReadback.begin(renderWidth, renderHeight);}
           this.stages.readbackSetupMs = performance.now() - readbackStarted;
           // Save original native beauty bytes before another pass touches them.
@@ -538,6 +547,7 @@ export class TryOnRenderer {
           if (wantsCamera && !this.stages.speedLab.reuseSourcePixelsUsed) {
             const cleanStarted = performance.now();
             this.cleanScene.background = this.backgroundTexture;
+            if (asyncCapture && options.ownedPackState) this.pbo!.invalidatePackState();
             this.renderer.render(this.cleanScene, this.camera);
             this.stages.cleanSubmitMs = performance.now() - cleanStarted;
             if (asyncCapture) this.pbo!.capture(1); else this.pairedReadback!.capture(1);

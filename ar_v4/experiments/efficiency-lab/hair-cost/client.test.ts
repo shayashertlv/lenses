@@ -11,6 +11,11 @@ import {CATEGORY_EXTRACTION_PROTOCOL} from './protocol.ts';
 import type {HairWorkerRequest, CategoryExtractionMode, CategoryExtractionMetrics} from './protocol.ts';
 
 function metrics(mode: CategoryExtractionMode = 'sdk'): CategoryExtractionMetrics {
+  if (mode === 'rgba8') return {mode, path: 'rgba8-sdk-fallback', hasUint8: true, hasFloat32: false,
+    hasWebGLTexture: false, retrievalMs: .01, copyMs: .02, conversionMs: 0, totalMs: .04,
+    retrievedArrayBytes: 4, categoryBytesCopied: 4, categoryBytesConverted: 0,
+    maskPixels: 4, ownedCategoryBytesAllocated: 4, explicitFloatTemporaryBytesAvoided: 0, explicitCategoryCopyBytesAvoided: 0,
+    rgba8WorkMs: 0, rgba8ReadbackBytes: 0, rgba8ResourcesReused: false, rgba8FallbackReason: 'not-gpu-only'};
   return {mode, path: mode === 'sdk' ? 'sdk-copy' : 'direct-byte-copy', hasUint8: true, hasFloat32: false,
     hasWebGLTexture: false, retrievalMs: .01, copyMs: .02, conversionMs: 0, totalMs: .04,
     retrievedArrayBytes: 4, categoryBytesCopied: 4, categoryBytesConverted: 0,
@@ -241,6 +246,36 @@ test('SDK default and explicit direct requests freeze mode independently and kee
   assert.equal(direct.categoryExtraction.mode, 'direct'); assert.equal(direct.categoryExtraction.totalMs, .04);
   assert.equal(direct.categoryExtraction.explicitCategoryCopyBytesAvoided, 0); assert.equal(first.closed(), 1); assert.equal(second.closed(), 1);
   client.close();
+});
+
+test('RGBA8 delivery reports validated extraction for late hashing, keeps G admission and preserves exact bytes and hashes', async () => {
+  const hashes = controlledHashes(), {worker, client} = await ready('hair-only', 'category-only', hashes);
+  const observations: Readonly<HairRequestTiming>[] = [], image = bitmap();
+  const delivery = client.beginSegment(image.image, source, 0, 'rgba8', false, timing => observations.push(timing));
+  worker.result();
+  assert.equal(hashes.pending.length, 1); assert.equal(delivery.timing().outcome, 'pending');
+  assert.equal(delivery.timing().categoryExtractionMode, 'rgba8');
+  assert.equal(delivery.timing().categoryPath, 'rgba8-sdk-fallback');
+  assert.equal(delivery.timing().categoryReadbackBytes, 0); assert.equal(delivery.timing().categoryFallbackReason, 'not-gpu-only');
+  assert.equal(delivery.timing().categoryRetrievalMs, .01); assert.equal(delivery.timing().categoryCopyMs, .02);
+  const next = bitmap(); await assert.rejects(client.segment(next.image, source, 1, 'rgba8'), /already owns/);
+  assert.equal(worker.messages.length, 2); assert.equal(next.closed(), 1);
+  hashes.pending[0]!.resolve(); const output = await delivery.result;
+  assert.deepEqual(output.category, new Uint8Array([0, 1, 1, 0]));
+  assert.equal(output.categorySHA256, (await hashHairMasks(output)).categorySHA256);
+  assert.equal(delivery.timing().outcome, 'completed'); assert.equal(image.closed(), 1);
+  assert.equal(Object.isFrozen(observations.at(-1)), true);
+  assert.doesNotMatch(JSON.stringify(observations), /sourceSHA256|categorySHA256|landmarks|categoryBase64/);
+  client.close();
+});
+
+test('RGBA8 full diagnostics explicitly keep SDK extraction and retain confidence output', async () => {
+  const {worker, client} = await ready(), image = bitmap();
+  const request = client.segment(image.image, source, 0, 'rgba8');
+  worker.result({categoryExtraction: {...metrics('rgba8'), rgba8FallbackReason: 'full-output'}});
+  const output = await request; assert.equal(output.outputMode, 'full'); assert.ok(output.confidenceSHA256);
+  assert.equal(output.categoryExtraction.path, 'rgba8-sdk-fallback');
+  assert.equal(output.categoryExtraction.rgba8FallbackReason, 'full-output'); client.close();
 });
 
 test('invalid extraction selection closes only its rejected image without consuming the next sequence', async () => {

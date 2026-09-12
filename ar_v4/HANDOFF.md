@@ -1,3 +1,42 @@
+## Current testing ground: G / V / W / X - September 12, 2026
+
+The owner authorized creating and pushing the three per-image cost experiments
+for iPhone testing. Open
+`https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=per-image`.
+G remains selected initially and accepted. V changes callback-local hair-mask
+retrieval to full-size RGBA8 with exact SDK byte conversion and explicit fallback;
+W reuses four queried PACK values only within one exclusively owned native
+image; X uses exact word equality in the initial full-image composition scan.
+Scheduling, image/detection/pose/mask pairing, model/render resolution, geometry
+and final nose/front guards remain. These are independent experiments, not a
+combined candidate or a speed/quality promotion. U remains rejected as worse than G.
+
+Manual switching and a G/V/W/X/X/W/V/G measurement-only run are available.
+Every window retains the existing five-second/three-masked-frame warmup and
+30-second measurement. Optional video is separate. Repeat both glasses and
+both hair models, with front/nose, down/up/both yaw and hair-continuity review.
+The all-request scalar hair ledger includes late costs and actual fallback,
+alongside completed updates, camera delivery, mask/tracking coverage and age/stalls.
+See [MOBILE.md](experiments/efficiency-lab/MOBILE.md) and [REVIEWS.md](docs/REVIEWS.md).
+
+Continue from the isolated deployed source at
+`C:/Users/Shay/PycharmProjects/lenses/ar_v4/.recovery/mobile-railway-2026-09-11/checkout/ar_v4`
+on `codex/ar-mobile-testing`. Build and commit the explicit `mobile-site/` package
+there. The original checkout has unrelated uncommitted work: do not replace or
+clean it, its recordings, recovery archives or linked worktrees. The existing
+Python route serves the package; no parent application changes are needed.
+The candidate runtime fingerprint is
+`69d218964435964b7cef4a44f622bca0f86ab0ea2b42953c0b284c191cdcdcc5`.
+Current validation and its physical-phone limits are recorded in the review.
+
+## Current owner decision: retain G - September 12, 2026
+
+The owner tried U and reports it is worse than G. U (`hair-release`) is rejected
+for promotion; G remains the accepted baseline. Record this as qualitative
+feedback, with no new G/U telemetry archive or matched motion evidence provided.
+The isolated U implementation remains available for diagnosis. This decision is
+preserved here; cf1d96d was the preceding published U preview. See docs/REVIEWS.md.
+
 # Latest efficiency preview — September 12, 2026
 
 The completed iPhone recording confirms the startup fix and finds no Q–T winner.

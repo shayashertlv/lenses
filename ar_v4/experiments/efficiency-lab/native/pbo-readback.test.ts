@@ -14,12 +14,13 @@ function backend(canvasReader = false) {
   const state = new Map<number, unknown>([[0x8caa, originalRead], [0x88ed, originalPack], [0x8ca6, null], [0xd05, 8], [0xd02, 9], [0xd04, 2], [0xd03, 3]]);
   const targets: Uint8Array[] = [];
   let pixels: Uint8Array = new Uint8Array(16).map((_, index) => index), reads = 0, retrieves = 0, polls = 0, deleted = 0;
+  let queries = 0, errorChecks = 0;
   const gl = {DRAW_FRAMEBUFFER_BINDING: 0x8ca6, READ_FRAMEBUFFER_BINDING: 0x8caa, READ_FRAMEBUFFER: 0x8ca8, PIXEL_PACK_BUFFER_BINDING: 0x88ed,
     PIXEL_PACK_BUFFER: 0x88eb, PACK_ALIGNMENT: 0xd05, PACK_ROW_LENGTH: 0xd02, PACK_SKIP_PIXELS: 0xd04, PACK_SKIP_ROWS: 0xd03,
     STREAM_READ: 0x88e1, RGBA: 0x1908, UNSIGNED_BYTE: 0x1401, NO_ERROR: 0, SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
     ALREADY_SIGNALED: 0x911a, CONDITION_SATISFIED: 0x911c, WAIT_FAILED: 0x911d, TIMEOUT_EXPIRED: 0x911b,
-    getParameter: (key: number) => state.get(key), isContextLost: () => lost,
-    getError: () => {const current = error; error = 0; return current;},
+    getParameter: (key: number) => {queries++; return state.get(key);}, isContextLost: () => lost,
+    getError: () => {errorChecks++; const current = error; error = 0; return current;},
     createBuffer: () => ({}), deleteBuffer: (buffer: object) => data.delete(buffer),
     bindFramebuffer: (_: number, value: object | null) => {state.set(0x8caa, value);},
     bindBuffer: (_: number, value: object | null) => {state.set(0x88ed, value);},
@@ -33,8 +34,84 @@ function backend(canvasReader = false) {
   const renderer = {getContext: () => gl, getRenderTarget: () => null, state: {bindFramebuffer: gl.bindFramebuffer}} as unknown as WebGLRenderer;
   return {reader: new PboNativeReadback(canvasReader ? {getContext: () => gl} as unknown as HTMLCanvasElement : renderer), gl, state, originalRead, originalPack, targets,
     setPixels: (value: Uint8Array) => {pixels = value;}, setStatus: (value: number) => {status = value;},
-    lose: () => {lost = true;}, failRead: () => {failRead = true;}, counts: () => ({reads, retrieves, polls, deleted})};
+    lose: () => {lost = true;}, failRead: () => {failRead = true;}, counts: () => ({reads, retrieves, polls, deleted, queries, errorChecks})};
 }
+
+test('owned PACK snapshot avoids four queries within a pair while retaining every error check, binding query and exact output', async () => {
+  const control = backend(), candidate = backend();
+  control.reader.begin(2, 2); candidate.reader.begin(2, 2, false, {isCurrent: () => true});
+  control.reader.capture(0); candidate.reader.capture(0);
+  // Bindings remain dynamic even though the four PACK values are exclusively
+  // owned. No previous binding may be restored over this later state.
+  const nextRead = {}, nextPack = {};
+  candidate.state.set(candidate.gl.READ_FRAMEBUFFER_BINDING, nextRead);
+  candidate.state.set(candidate.gl.PIXEL_PACK_BUFFER_BINDING, nextPack);
+  const baseline = await control.reader.finish(() => true), result = await candidate.reader.finish(() => true);
+  assert.deepEqual(result.beauty.data, baseline.beauty.data); assert.equal(result.camera, null);
+  assert.equal(candidate.state.get(candidate.gl.READ_FRAMEBUFFER_BINDING), nextRead);
+  assert.equal(candidate.state.get(candidate.gl.PIXEL_PACK_BUFFER_BINDING), nextPack);
+  for (const [key, value] of [[candidate.gl.PACK_ALIGNMENT, 8], [candidate.gl.PACK_ROW_LENGTH, 9],
+    [candidate.gl.PACK_SKIP_PIXELS, 2], [candidate.gl.PACK_SKIP_ROWS, 3]]) assert.equal(candidate.state.get(key!), value);
+  assert.equal(control.reader.metrics.stateQueryCalls, 12); assert.equal(candidate.reader.metrics.stateQueryCalls, 8);
+  assert.equal(candidate.counts().queries, 8); assert.equal(control.counts().errorChecks, candidate.counts().errorChecks);
+  assert.equal(candidate.reader.metrics.packStateQueriesAvoided, 4); assert.equal(candidate.reader.metrics.packStateCacheHits, 1);
+  assert.equal(candidate.reader.metrics.ownedPackStateRequested, true); assert.equal(candidate.reader.metrics.ownedPackStateUsed, true);
+  assert.equal(control.reader.metrics.ownedPackStateRequested, false); assert.equal(control.reader.metrics.ownedPackStateUsed, false);
+  assert.ok(Number.isFinite(candidate.reader.metrics.stateQueryMs) && candidate.reader.metrics.stateQueryMs >= 0);
+  const held = result.beauty.data.slice();
+  candidate.reader.begin(2, 2, false, {isCurrent: () => true}); candidate.setPixels(new Uint8Array(16).fill(61));
+  candidate.reader.capture(0); await candidate.reader.finish(() => true);
+  assert.equal(candidate.reader.metrics.stateQueryCalls, 8, 'each new pair queries PACK state afresh');
+  assert.deepEqual(result.beauty.data, held); control.reader.dispose(); candidate.reader.dispose();
+});
+
+test('intervening Three work explicitly invalidates PACK cache and a fresh query preserves its changed arbitrary state', async () => {
+  const b = backend(); b.reader.begin(2, 2, false, {isCurrent: () => true}); b.reader.capture(0);
+  b.reader.invalidatePackState();
+  b.gl.pixelStorei(b.gl.PACK_ALIGNMENT, 4); b.gl.pixelStorei(b.gl.PACK_ROW_LENGTH, 11);
+  b.gl.pixelStorei(b.gl.PACK_SKIP_PIXELS, 5); b.gl.pixelStorei(b.gl.PACK_SKIP_ROWS, 7);
+  b.setPixels(new Uint8Array(16).fill(42)); b.reader.capture(1);
+  const result = await b.reader.finish(() => true);
+  assert.ok(result.camera!.data.every(value => value === 42));
+  assert.equal(b.state.get(b.gl.PACK_ROW_LENGTH), 11); assert.equal(b.state.get(b.gl.PACK_SKIP_PIXELS), 5);
+  assert.equal(b.state.get(b.gl.PACK_SKIP_ROWS), 7); assert.equal(b.state.get(b.gl.PACK_ALIGNMENT), 4);
+  assert.equal(b.reader.metrics.stateQueryCalls, 14); assert.equal(b.reader.metrics.packStateInvalidations, 1);
+  assert.equal(b.reader.metrics.packStateQueriesAvoided, 4); b.reader.dispose();
+});
+
+test('missing, revoked and public-canvas ownership retain fully queried restoration without a cached-state assumption', async () => {
+  for (const mode of ['missing', 'revoked', 'initially-revoked', 'canvas'] as const) {
+    const b = backend(mode === 'canvas'); let current = mode !== 'initially-revoked';
+    b.reader.begin(2, 2, false, mode === 'missing' ? undefined : {isCurrent: () => current}); b.reader.capture(0);
+    if (mode === 'revoked') current = false;
+    b.gl.pixelStorei(b.gl.PACK_ROW_LENGTH, 17);
+    await b.reader.finish(() => true);
+    assert.equal(b.state.get(b.gl.PACK_ROW_LENGTH), 17, mode);
+    assert.equal(b.reader.metrics.stateQueryCalls, mode === 'canvas' ? 13 : 12, mode);
+    assert.equal(b.reader.metrics.ownedPackStateUsed, false, mode); assert.equal(b.reader.metrics.packStateQueriesAvoided, 0, mode);
+    if (mode !== 'missing') assert.ok(b.reader.metrics.packStateFallbackReason, mode);
+    b.reader.dispose();
+  }
+});
+
+test('owned cache cancellation and retrieval failures retain the existing no-stale-result boundaries', async () => {
+  for (const mode of ['cancel', 'lost', 'wait', 'timeout', 'revoked'] as const) {
+    const b = backend(); b.reader.begin(2, 2, false, {isCurrent: () => true}); b.reader.capture(0);
+    if (mode === 'lost') b.lose();
+    if (mode === 'wait') b.setStatus(b.gl.WAIT_FAILED);
+    if (mode === 'timeout' || mode === 'cancel') b.setStatus(b.gl.TIMEOUT_EXPIRED);
+    const pending = b.reader.finish(() => mode !== 'revoked', mode === 'cancel' ? 500 : 0);
+    if (mode === 'cancel') b.reader.cancel();
+    await assert.rejects(pending); assert.equal(b.counts().retrieves, 0); assert.equal(b.reader.metrics.completed, false);
+    if (mode !== 'lost') {
+      b.reader.begin(2, 2); b.setStatus(b.gl.ALREADY_SIGNALED); b.reader.capture(0); await b.reader.finish(() => true);
+      assert.equal(b.reader.metrics.stateQueryCalls, 12); assert.equal(b.reader.metrics.ownedPackStateUsed, false);
+    }
+    b.reader.dispose();
+  }
+  const failed = backend(); failed.reader.begin(2, 2, false, {isCurrent: () => true}); failed.failRead();
+  assert.throws(() => failed.reader.capture(0), /0x502/); assert.equal(failed.counts().retrieves, 0); failed.reader.dispose();
+});
 
 test('PBO pair snapshots both native draws, retrieves only after a fence, flips exact rows and restores pack/read state', async () => {
   const b = backend(); b.reader.begin(2, 2); b.reader.capture(0);

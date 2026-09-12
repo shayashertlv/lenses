@@ -53,3 +53,30 @@ test('real helper metrics pass the boundary for every available representation a
     else assert.equal(validated.explicitFloatTemporaryBytesAvoided, 0);
   }
 });
+
+test('RGBA8 metrics require actual byte retrieval, full original dimensions and honest fallback disposition', () => {
+  const expected: HairExpectedPair = {width: 2, height: 2, sourceSHA256: 'a'.repeat(64), sequence: 0,
+    outputMode: 'category-only', categoryExtractionMode: 'rgba8'};
+  const metrics = {mode: 'rgba8', path: 'rgba8-readback', hasUint8: false, hasFloat32: false, hasWebGLTexture: true,
+    retrievalMs: 1, conversionMs: .2, copyMs: 0, totalMs: 1.5, maskPixels: 4, ownedCategoryBytesAllocated: 4,
+    retrievedArrayBytes: 16, categoryBytesCopied: 0, categoryBytesConverted: 4,
+    explicitFloatTemporaryBytesAvoided: 16, explicitCategoryCopyBytesAvoided: 4,
+    rgba8WorkMs: 1.4, rgba8ReadbackBytes: 16, rgba8ResourcesReused: true, rgba8FallbackReason: null};
+  assert.deepEqual(validateCategoryExtractionMetrics(metrics, expected, 2), metrics);
+  for (const patch of [{path: 'sdk-copy'}, {hasUint8: true}, {hasFloat32: true}, {hasWebGLTexture: false},
+    {maskPixels: 1}, {retrievedArrayBytes: 4}, {rgba8ReadbackBytes: 4}, {rgba8ReadbackBytes: undefined},
+    {rgba8WorkMs: -1}, {rgba8WorkMs: Infinity}, {rgba8WorkMs: 1.6}, {rgba8ResourcesReused: 'true'},
+    {rgba8FallbackReason: 'readback-failure'}, {copyMs: .1}])
+    assert.throws(() => validateCategoryExtractionMetrics({...metrics, ...patch}, expected, 2), /extraction/);
+  assert.throws(() => validateCategoryExtractionMetrics(metrics, {...expected, outputMode: 'full'}, 2), /disposition/);
+  const fallback = {...metrics, path: 'rgba8-sdk-fallback', retrievalMs: .3, conversionMs: 0, copyMs: .1,
+    retrievedArrayBytes: 4, categoryBytesCopied: 4, categoryBytesConverted: 0,
+    explicitFloatTemporaryBytesAvoided: 0, explicitCategoryCopyBytesAvoided: 0,
+    rgba8ReadbackBytes: 0, rgba8FallbackReason: 'readback-failure'};
+  assert.deepEqual(validateCategoryExtractionMetrics(fallback, expected, 2), fallback);
+  for (const patch of [{rgba8FallbackReason: null}, {rgba8FallbackReason: 'private driver error'},
+    {rgba8FallbackReason: 'not-gpu-only'}, {rgba8FallbackReason: 'full-output'}, {rgba8ReadbackBytes: 16}])
+    assert.throws(() => validateCategoryExtractionMetrics({...fallback, ...patch}, expected, 2), /extraction|fallback/);
+  assert.throws(() => validateCategoryExtractionMetrics({...metrics, mode: 'sdk', path: 'sdk-copy'},
+    {...expected, categoryExtractionMode: 'sdk'}, 2), /RGBA8/);
+});

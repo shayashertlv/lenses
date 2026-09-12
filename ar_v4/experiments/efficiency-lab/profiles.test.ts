@@ -76,3 +76,18 @@ test('hair delivery study exposes exactly G and U and never selects U implicitly
   assert.equal(initialPipeline('?study=hair-delivery&pipeline=publish'), 'g');
   assert.equal(initialPipeline('?study=review&pipeline=hair-release'), 'g');
 });
+
+test('per-image study isolates three uncapped changes and leaves G admission and protections intact', () => {
+  assert.deepEqual(studyPipelines('?study=per-image'), ['g', 'mask-bytes', 'gl-state', 'word-compose']);
+  assert.equal(initialPipeline('?study=per-image'), 'g');
+  assert.equal(initialPipeline('?study=per-image&pipeline=hair-release'), 'g');
+  for (const id of ['mask-bytes', 'gl-state', 'word-compose'] as const) {
+    assert.equal(initialPipeline('?study=per-image&pipeline='+id), id);
+    for (const key of ['mode', 'leanInputs', 'deferPrefetch', 'captureRateHz', 'releaseHairWorkerEarly', 'throttleUi', 'suppressUnchangedPublication'] as const)
+      assert.equal(PROFILES[id][key], PROFILES.g[key], `${id}: ${key}`);
+    const expected = {...PROFILES.g.options, ownedPackState: id === 'gl-state', wordCompose: id === 'word-compose'};
+    assert.deepEqual(PROFILES[id].options, expected);
+    assert.equal(PROFILES[id].hairExtractionMode, id === 'mask-bytes' ? 'rgba8' : 'sdk');
+    assert.equal(usesBaseRenderer(id), id === 'mask-bytes');
+  }
+});

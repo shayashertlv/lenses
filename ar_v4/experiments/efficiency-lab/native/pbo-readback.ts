@@ -4,13 +4,26 @@ export interface PboReadbackMetrics {
   queuedCalls: number; queuedBytes: number; retrievedCalls: number; retrievedBytes: number; polls: number; waitMs: number;
   submitMs: number; extractMs: number; bufferBytesAllocated: number;
   scratchBytesAllocated: number; scratchBytesReused: number; outputBytesAllocated: number;
+  stateQueryCalls: number; stateQueryMs: number;
+  ownedPackStateRequested: boolean; ownedPackStateUsed: boolean; packStateCacheHits: number;
+  packStateQueriesAvoided: number; packStateInvalidations: number; packStateFallbackReason: string | null;
   completed: boolean; fallbackReason: string | null;
 }
 const empty = (): PboReadbackMetrics => ({queuedCalls: 0, queuedBytes: 0, retrievedCalls: 0, retrievedBytes: 0, polls: 0, waitMs: 0,
   submitMs: 0, extractMs: 0, bufferBytesAllocated: 0, scratchBytesAllocated: 0, scratchBytesReused: 0,
-  outputBytesAllocated: 0, completed: false, fallbackReason: null});
+  outputBytesAllocated: 0, stateQueryCalls: 0, stateQueryMs: 0,
+  ownedPackStateRequested: false, ownedPackStateUsed: false, packStateCacheHits: 0,
+  packStateQueriesAvoided: 0, packStateInvalidations: 0, packStateFallbackReason: null,
+  completed: false, fallbackReason: null});
 const abort = (): DOMException => new DOMException('The asynchronous native pair was cancelled.', 'AbortError');
 interface Slot {buffer: WebGLBuffer; bytes: number;}
+
+/** The private native renderer is the sole context owner for this one pair.
+ * It must invalidatePackState before any intervening Three/context operation,
+ * and revoke this lease on cancellation or replacement. The cache contains
+ * queried values, never inferred defaults, and never survives begin/finish.
+ * A public canvas/context cannot make this ownership promise. */
+export interface PackStateLease {readonly isCurrent: () => boolean;}
 
 /** One pending pair only. Native read commands precede any later default-buffer
  * draw; CPU retrieval occurs only after their fence signals. No previous bytes
@@ -29,6 +42,8 @@ export class PboNativeReadback {
   private measured = empty();
   private scratch = new Uint8Array(0);
   private poolScratch = false;
+  private packStateLease: PackStateLease | null = null;
+  private cachedPackValues: readonly number[] | null = null;
   constructor(renderer: WebGLRenderer | HTMLCanvasElement) {
     this.renderer = 'getRenderTarget' in renderer ? renderer : null;
     const gl = this.renderer ? this.renderer.getContext() : (renderer as HTMLCanvasElement).getContext('webgl2');
@@ -36,7 +51,7 @@ export class PboNativeReadback {
     this.gl = gl;
   }
   get metrics(): PboReadbackMetrics {return {...this.measured};}
-  begin(width: number, height: number, poolScratch = false): void {
+  begin(width: number, height: number, poolScratch = false, packStateLease?: PackStateLease): void {
     if (this.pending) throw new Error('A native readback pair is already pending.');
     this.cancel(); this.measured = empty();
     if (this.disposed || this.gl.isContextLost()) throw new Error('The native readback context is unavailable.');
@@ -44,12 +59,16 @@ export class PboNativeReadback {
       throw new Error('The native readback dimensions are invalid.');
     this.width = width; this.height = height; this.count = 0; this.pending = true;
     this.poolScratch = poolScratch;
+    this.measured.ownedPackStateRequested = packStateLease !== undefined;
+    if (packStateLease && this.renderer && packStateLease.isCurrent()) this.packStateLease = packStateLease;
+    else if (packStateLease) this.measured.packStateFallbackReason = this.renderer
+      ? 'The native PACK-state owner is no longer current.' : 'A canvas reader has no exclusive native context owner.';
     // A disabled or resized policy cannot retain an oversized previous image.
     if (!poolScratch || this.scratch.byteLength !== width * height * 4) this.scratch = new Uint8Array(0);
   }
   capture(slot: 0 | 1): void {
     if (!this.pending || slot !== this.count || this.sync) throw new Error('Native reads must follow beauty then optional camera.');
-    const target = this.renderer ? this.renderer.getRenderTarget() : this.gl.getParameter(this.gl.DRAW_FRAMEBUFFER_BINDING);
+    const target = this.renderer ? this.renderer.getRenderTarget() : this.queryState(this.gl.DRAW_FRAMEBUFFER_BINDING);
     if (target !== null || this.gl.isContextLost()) throw new Error('The native default framebuffer is unavailable.');
     const gl = this.gl, started = performance.now(), bytes = this.width * this.height * 4;
     try {this.withPackState(() => {
@@ -116,7 +135,10 @@ export class PboNativeReadback {
     } catch (error) {this.measured.fallbackReason = error instanceof Error ? error.message : String(error); throw error;}
     finally {
       this.measured.waitMs ||= performance.now() - started;
-      if (generation === this.generation) {this.pending = false; if (this.sync) gl.deleteSync(this.sync); this.sync = null;}
+      if (generation === this.generation) {
+        this.pending = false; if (this.sync) gl.deleteSync(this.sync); this.sync = null;
+        this.packStateLease = null; this.cachedPackValues = null;
+      }
     }
   }
   private check(label: string): void {
@@ -124,10 +146,22 @@ export class PboNativeReadback {
     if (error !== this.gl.NO_ERROR || this.gl.isContextLost()) throw new Error(`Native PBO ${label} failed (GL 0x${error.toString(16)}).`);
   }
   private withPackState<T>(operation: () => T): T {
-    const gl = this.gl, read = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
-    const pack = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING) as WebGLBuffer | null;
+    // Framebuffer/PBO bindings are always queried. Three changes framebuffer
+    // bindings during target/MSAA work; PACK state ownership cannot cover them.
+    const gl = this.gl, read = this.queryState(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    const pack = this.queryState(gl.PIXEL_PACK_BUFFER_BINDING) as WebGLBuffer | null;
     const keys = [gl.PACK_ALIGNMENT, gl.PACK_ROW_LENGTH, gl.PACK_SKIP_PIXELS, gl.PACK_SKIP_ROWS];
-    const values = keys.map(key => Number(gl.getParameter(key)));
+    const owned = this.packStateLease?.isCurrent() === true;
+    if (this.packStateLease && !owned) {
+      this.invalidatePackState(); this.packStateLease = null;
+      this.measured.packStateFallbackReason = 'The native PACK-state owner was revoked; using queried state.';
+    }
+    const cached = owned ? this.cachedPackValues : null;
+    const values = cached ?? keys.map(key => Number(this.queryState(key)));
+    if (cached) {
+      this.measured.ownedPackStateUsed = true; this.measured.packStateCacheHits++;
+      this.measured.packStateQueriesAvoided += keys.length;
+    }
     try {
       keys.forEach(key => gl.pixelStorei(key, key === gl.PACK_ALIGNMENT ? 1 : 0));
       return operation();
@@ -135,10 +169,25 @@ export class PboNativeReadback {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read); this.renderer?.state.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pack);
       keys.forEach((key, index) => gl.pixelStorei(key, values[index]!));
+      // Cache only after restoring the exact queried state. A revoked pair or
+      // error/cancellation cannot leave a cache eligible for another image.
+      this.cachedPackValues = owned && this.packStateLease?.isCurrent() ? values : null;
     }
+  }
+  private queryState(key: number): unknown {
+    const started = performance.now();
+    try {return this.gl.getParameter(key);}
+    finally {this.measured.stateQueryCalls++; this.measured.stateQueryMs += performance.now() - started;}
+  }
+  /** Call before every intervening Three draw/state reset while a pair is live.
+   * The next read establishes a new queried snapshot under the same owner. */
+  invalidatePackState(): void {
+    if (this.cachedPackValues) this.measured.packStateInvalidations++;
+    this.cachedPackValues = null;
   }
   cancel(): void {
     this.generation++; this.pending = false; this.count = 0;
+    this.packStateLease = null; this.cachedPackValues = null;
     if (this.sync) this.gl.deleteSync(this.sync); this.sync = null;
   }
   dispose(): void {

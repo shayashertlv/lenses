@@ -15,11 +15,12 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'QA attaches only to an explic
 const currentModule = option('current', '/experiments/speed-lab/renderer.ts');
 const candidateModule = option('candidate', '/experiments/efficiency-lab/renderer.ts');
 const profile = option('profile', 'scratch');
-assert.ok(['scratch','temples','combined','deferred','region','lens'].includes(profile), 'Unknown rendering profile.');
+assert.ok(['scratch','temples','combined','deferred','region','lens','gl-state','word-compose'].includes(profile), 'Unknown rendering profile.');
 const profileOptions = PROFILES[profile].options;
 const allowAsyncFallback = args.includes('--allow-async-fallback');
 assert.ok(!allowAsyncFallback || profileOptions.asyncReadback, '--allow-async-fallback applies only to async or combined profiles.');
-const basePreservation = await verifyBase();
+const preservationOptions = {gitExact: args.includes('--git-exact')};
+const basePreservation = await verifyBase(preservationOptions);
 const selectedSource = option('source', null);
 const observeGl = args.includes('--gl-errors');
 const warmup = Number(option('warmup', '0')), samples = Number(option('samples', '0'));
@@ -27,7 +28,7 @@ const diagnosticCase = option('diagnostic-case', null), repetitions = Number(opt
 assert.ok(Number.isSafeInteger(warmup) && warmup >= 0 && Number.isSafeInteger(samples) && samples >= 0);
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0);
 if (diagnosticCase) assert.notEqual(phase, 'all', 'A bounded diagnostic must identify its one phase.');
-const workspace = process.cwd(), sha = bytes => createHash('sha256').update(bytes).digest('hex');
+const workspace = process.cwd(), archiveRoot = path.resolve(option('archive-root', workspace)), sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const specs = [
   {id: 'generated32', generated: true, filename: '.recovery/hair-angle-review-2026-09-09/runs/2026-09-09T08-18-33.789Z/report.json', count: 32,
     browserArgs: ['--enable-gpu', '--use-angle=d3d11']},
@@ -38,18 +39,18 @@ assert.ok(specs.length, 'Use --phase=all, --phase=generated32 or --phase=recorde
 const frozen = new Map(), runtime = new Map(), resources = new Map();
 const read = async artifact => {
   assert.ok(artifact?.path && /^[0-9a-f]{64}$/.test(artifact.sha256), 'Incomplete input receipt.');
-  const filename = path.resolve(workspace, artifact.path), relative = path.relative(path.join(workspace, '.recovery'), filename);
+  const filename = path.resolve(archiveRoot, artifact.path), relative = path.relative(path.join(archiveRoot, '.recovery'), filename);
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Private QA artifact must stay inside the preserved recovery archive.');
   const bytes = await fs.readFile(filename);
   assert.equal(sha(bytes), artifact.sha256, `Frozen artifact differs: ${filename}`);
   if (artifact.bytes !== undefined) assert.equal(bytes.length, artifact.bytes, `Frozen artifact size differs: ${filename}`);
   frozen.set(filename, artifact.sha256); resources.set(artifact.sha256, bytes);
-  return {...artifact, url: `${base}/qa-performance-artifact/${artifact.sha256}`};
+  return {...artifact, path: filename, url: `${base}/qa-performance-artifact/${artifact.sha256}`};
 };
 const verifyRecording = async artifact => {
-  const filename = path.resolve(workspace, artifact.path);
+  const filename = path.resolve(archiveRoot, artifact.path);
   assert.ok(['.recovery', 'recordings'].some(root => {
-    const relative = path.relative(path.join(workspace, root), filename);
+    const relative = path.relative(path.join(archiveRoot, root), filename);
     return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
   }), 'Original recording receipt must stay inside its preservation directory.');
   const bytes = await fs.readFile(filename); assert.equal(sha(bytes), artifact.sha256, `Original recording differs: ${filename}`);
@@ -57,7 +58,7 @@ const verifyRecording = async artifact => {
 };
 const plans = [];
 for (const spec of specs) {
-  const filename = path.resolve(spec.filename), bytes = await fs.readFile(filename), prior = JSON.parse(bytes);
+  const filename = path.resolve(archiveRoot, spec.filename), bytes = await fs.readFile(filename), prior = JSON.parse(bytes);
   assert.equal(prior.complete, true); assert.equal(prior.cases.length, spec.count);
   frozen.set(filename, sha(bytes));
   const sources = [], masks = [], cases = [];
@@ -125,7 +126,7 @@ await fs.mkdir(out, {recursive: true});
 const report = {schema: diagnosticCase ? 'ar-efficiency-lab-bounded-repeat-v1' : 'ar-efficiency-lab-matched-v1', complete: false, passed: false, createdAt: new Date().toISOString(),
   base, currentModule, candidateModule, profile, profileOptions, allowAsyncFallback, basePreservation, implementationLabels: {current: 'Current G Combined / b9142b2', candidate: `Efficiency lab ${profile}`}, out, phases: [], runtimeHashes: Object.fromEntries(runtime),
   frozenInputs: [...frozen].map(([filename, sha256]) => ({path: filename, sha256})), errors: [],
-  scope: {selectedSource, partialArchiveSelection: Boolean(selectedSource), singlePresentationPerPair: warmup === 0 && samples === 0, reusedSessionsPerEyewearAndPhase: true},
+  scope: {archiveRoot, selectedSource, partialArchiveSelection: Boolean(selectedSource), singlePresentationPerPair: warmup === 0 && samples === 0, reusedSessionsPerEyewearAndPhase: true},
   diagnosticGlAttribution: observeGl,
   timingProtocol: {warmupPerGeneratedPair: warmup, samplesPerGeneratedPair: samples, order: 'alternating current/candidate for each repetition',
     measured: 'Awaited native present wall time, including each implementation\'s owned rendering/readback/composition. Diagnostics and PNG encoding are outside timed sections.',
@@ -298,7 +299,7 @@ try {
   }
   for (const [filename, digest] of [...frozen, ...runtime]) assert.equal(sha(await fs.readFile(filename)), digest, `Input/runtime changed while QA ran: ${filename}`);
   report.frozenInputs = [...frozen].map(([filename, sha256]) => ({path: filename, sha256}));
-  report.basePreservationAfter = await verifyBase();
+  report.basePreservationAfter = await verifyBase(preservationOptions);
   report.complete = true;
   report.passed = diagnosticCase ? report.phases.every(item => item.diagnostic.everySampleExact) : true; await save();
 } catch (error) {

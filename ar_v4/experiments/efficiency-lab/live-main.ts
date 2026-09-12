@@ -44,13 +44,22 @@ let selectedHair: HairModelId = 'hair-only';
 let selectedVariant: 'accepted' | 'hair' = 'hair';
 let selectedPipeline: Pipeline = initialPipeline(location.search);
 const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
-pipelineSelect.add(new Option(PIPELINE_LABELS['hair-release'], 'hair-release'));
+for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose'] as const)
+  pipelineSelect.add(new Option(PIPELINE_LABELS[id], id));
 const focusedStudy = new URLSearchParams(location.search).get('study');
-const continuousStudy = focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
+const continuousStudy = focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
 const continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy];
 const visiblePipelines = studyPipelines(location.search);
 for (const option of [...pipelineSelect.options]) if (!visiblePipelines.includes(option.value as Pipeline)) option.remove();
-if (focusedStudy === 'hair-delivery') {
+if (focusedStudy === 'per-image') {
+  element('study-intro').textContent = 'Compare G with three ways to make each AR update cheaper. Switch while moving and inspect hair, tracking and nose/front quality.';
+  element('study-notice').textContent = 'V, W and X are separate experiments. G stays selected initially. Resolution, models and G scheduling stay fixed; no candidate has been accepted.';
+  element('continuous-title').textContent = 'Compare G, V, W and X.';
+  element('continuous-protocol').textContent = 'Automatically test G, V, W, X, then X, W, V, G. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Allow about 5 minutes and repeat the movement cues.';
+  element('continuous-video-hint').textContent = 'Start with measurements only. Enable video for a separate visual run; recording adds load. No audio or uploads.';
+  element('baseline-detail').textContent = 'G remains your accepted baseline. V tests the hair download, W graphics queries and X pixel comparisons. All keep G scheduling, resolution, geometry and final safeguards. Review both glasses and hair models, down, up, both yaw directions, nose/front and hair transitions. Compare matching-mask coverage, tracking, image age and stalls along with completed updates.';
+  element('per-image-study').setAttribute('aria-current', 'page');
+} else if (focusedStudy === 'hair-delivery') {
   element('study-intro').textContent = 'Compare G with U: earlier hair processing for the next owned image. Measure completed updates, frame age and matching hair coverage.';
   element('study-notice').textContent = 'U is a separate scheduling experiment. G remains your reference; the same rendering, resolution and nose/front safeguards stay active.';
   element('continuous-title').textContent = 'Compare G and U.';
@@ -278,7 +287,7 @@ const continuousStop = element<HTMLButtonElement>('continuous-stop');
 const continuousVideo = element<HTMLInputElement>('continuous-video');
 continuousVideo.checked = continuousStudyOptions.defaultVideo;
 function showContinuousRecordingChoice(): void {
-  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
+  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'per-image' ? 'G / V / W / X' : continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
 }
 continuousVideo.addEventListener('change', showContinuousRecordingChoice);
 showContinuousRecordingChoice();
@@ -488,7 +497,7 @@ function beginContinuous(): void {
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
   const context: ContinuousContext = {controller, session, recorder, timer: null, videoCallback: null, switchToken: null,
     finalizing: false, startedAtMs: performance.now(), wakeLock: null, wakeLockAcquired: false, wakeLockReason: null, events: [],
-    hairDelivery: continuousStudy === 'hair-delivery' ? new HairDeliveryLog(session.id) : null, hairDrain: null};
+    hairDelivery: continuousStudy === 'hair-delivery' || continuousStudy === 'per-image' ? new HairDeliveryLog(session.id) : null, hairDrain: null};
   continuousRun = context;
   element('continuous-save-actions').hidden = true; element('run-stage-cue').hidden = false;
   setContinuousText('continuous-recording-status', recorder.snapshot().status === 'recording'

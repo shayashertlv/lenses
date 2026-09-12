@@ -278,3 +278,20 @@ test('large continuous report retains rows beyond the ordinary profiler ring cap
   assert.equal(rows(run).length, 4203); assert.equal(rows(run)[0]!.fields.publishedAtMs, 100);
   assert.equal(windows(run)[0]!.summary.frames, 4200);
 });
+
+test('per-image run retains eight distinct full-duration windows in forward and reverse order', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'per-image'}));
+  const order = ['g', 'mask-bytes', 'gl-state', 'word-compose', 'word-compose', 'gl-state', 'mask-bytes', 'g'];
+  let sequence = 0; run.begin(0);
+  for (const [index, id] of order.entries()) {
+    const start = index * 35000, status = run.status;
+    assert.equal(status.pipeline, id); run.switched(status.token, start);
+    for (const offset of [100, 200, 300]) run.observe(frame(start+offset, ++sequence, status.pipeline));
+    run.tick(start+5000); run.observe(frame(start+6000, ++sequence, status.pipeline)); run.tick(start+35000);
+  }
+  assert.equal(run.status.state, 'complete');
+  assert.equal(windows(run).length, 8);
+  assert.ok(windows(run).every(value => value.summary.durationMs === 30000 && value.summary.frames === 1));
+  const reverse = new ContinuousComparisonRun(options({studyOptions: 'per-image', direction: 'reverse'}));
+  assert.deepEqual((reverse.export().protocol as {order: string[]}).order, ['word-compose', 'gl-state', 'mask-bytes', 'g', 'g', 'mask-bytes', 'gl-state', 'word-compose']);
+});

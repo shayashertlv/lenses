@@ -23,7 +23,9 @@ verified = {}
 
 
 def read(artifact):
-    filename = (workspace / artifact['path']).resolve()
+    artifact_path = Path(artifact['path'])
+    root = Path(report.get('scope', {}).get('archiveRoot', workspace)) if artifact_path.parts[0] in ('.recovery', 'recordings') else workspace
+    filename = (root / artifact_path).resolve()
     value = filename.read_bytes()
     digest = hashlib.sha256(value).hexdigest()
     assert digest == artifact['sha256'], filename
@@ -42,10 +44,14 @@ assert report['basePreservation']['manifest']['sha256'] == '17e8e7543fd6ba3b4643
 assert base['schema'] == 'efficiency-lab-g-base-v1' and base['commit'] == report['basePreservation']['commit']
 assert len(base['files']) == report['basePreservation']['filesVerified'] == 239
 for item in base['files']:
-    local = read(item)
     blob = subprocess.check_output(['git', 'show', base['commit'] + ':ar_v4/' + item['path']])
     assert len(blob) == item['gitBytes'] and hashlib.sha256(blob).hexdigest() == item['gitSHA256']
-    assert local == blob or (item['representation'] == 'CRLF checkout / LF Git blob' and local.replace(b'\r\n', b'\n') == blob)
+    if report['basePreservation'].get('localRepresentation') == 'exact Git blob':
+        local = read({**item, 'bytes': item['gitBytes'], 'sha256': item['gitSHA256']})
+        assert local == blob
+    else:
+        local = read(item)
+        assert local == blob or (item['representation'] == 'CRLF checkout / LF Git blob' and local.replace(b'\r\n', b'\n') == blob)
 assert report['basePreservationAfter'] == report['basePreservation']
 
 geometry_fields = ['eyewearModelId', 'rawMatrix', 'correctedMatrix', 'eyewearMatrix',

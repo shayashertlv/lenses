@@ -42,6 +42,26 @@ Camera access starts only after Open camera. Processing stays local.
 | S · Lean temple render | Omit lens materials only from the additional temple-branch draw, after classification. The main beauty render, geometry and protection bounds remain unchanged. |
 | T · Lighter statistics | Refresh repeated human-facing statistics every 500 ms and avoid unchanged text writes while retaining every profiling sample and immediate state/control transitions. |
 | U · Earlier hair processing | Release the serial hair worker after its matched reply so the next owned image can start while the previous result finishes client validation/hashing. Publication still waits for the validated, hashed result for that exact image. Retain at most two source images, including late results. |
+| V · Byte-format hair download | Convert the callback-local GPU category texture into a full-size RGBA8 target, retrieve four bytes per pixel and retain the exact SDK category conversion. Unsupported paths explicitly fall back to the SDK. |
+| W · Fewer graphics queries | Reuse four PACK values between PBO submission and retrieval for the same exclusively owned native image. Query dynamic bindings and retain all error, fence and cancellation checks. |
+| X · Faster pixel comparisons | Use aligned Uint32 equality for the first accepted/background RGBA residual scan; keep byte fallback, all pixel arithmetic and final guards. |
+
+### Current G/V/W/X testing ground
+
+Use `live.html?study=per-image`. The page starts G and offers only G/V/W/X,
+with manual switching and eight equal timed windows: G/V/W/X/X/W/V/G.
+Measurements are on and video off by default. Each candidate keeps G's admission
+and resolution and changes only its named mechanism. The scalar all-request hair
+ledger includes late extraction paths/costs; W and X report actual mechanism use.
+See [MOBILE.md](MOBILE.md) for the phone protocol and export.
+
+The owner tried U and reported it worse than G on September 12. U is rejected
+for promotion and is excluded from this new study. No V/W/X speed benefit or
+physical-phone visual acceptance is implied by desktop tests. Their assessment
+must include both glasses, both hair models, down/up/both yaw, front/nose and
+hair continuity, with completed updates and matching-mask coverage considered
+together. V's held image uses the same retained SDK mask as G; its independent
+callback-local GPU differential checks are separate evidence for extraction.
 
 ### Focused G/U preview
 

@@ -122,7 +122,7 @@ export class ComparisonRenderer {
         nextOutputs.set(profile,{diagnostic,accepted,hair,snapshot:target.captureSnapshot});
       }
       this.cachedDiagnostic={schema:'ar-efficiency-comparison-v1',baseCommit:G_COMMIT,
-        candidateAccepted:false,inputPolicy:'Every output uses the same exact held source, detection and mask. Input-only mode I, rate modes M/N/O, extraction mode P, publication mode Q and statistics mode T share G held pixels. R and S render their own held outputs. The held diagnostic upgrades to the SDK full mask for all choices; it does not independently test P extraction or temporal effects. P category conversion is checked separately against the installed SDK on matching masks.',
+        candidateAccepted:false,inputPolicy:'Every output uses the same exact held source, detection and mask. Input-only mode I, rate modes M/N/O, extraction modes P/V, publication mode Q, statistics mode T and scheduling mode U share G held pixels. Renderer candidates including R/S/W/X render their own held outputs. The held diagnostic upgrades to the SDK full mask for all choices; it does not independently test live extraction or temporal effects. P/V extraction is checked separately against the installed SDK on matching masks.',
         ...Object.fromEntries([...nextOutputs].map(([id,value])=>[id,value.diagnostic]))};
       this.outputs=nextOutputs;this.heldInput=input;this.held=true;
       if(previousInput)previousInput.source.width=previousInput.source.height=0;

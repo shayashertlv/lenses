@@ -136,7 +136,7 @@ export class HairClient {
     const delivery: DeliveryState = {released: false, terminalNotified: false, release, rejectRelease, observer: onTiming,
       trace: {requestId: null, sequence: Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : null,
         releaseWorkerEarly: releaseWorkerEarly === true,
-        categoryExtractionMode: categoryExtractionMode === 'sdk' || categoryExtractionMode === 'direct' ? categoryExtractionMode : null,
+        categoryExtractionMode: categoryExtractionMode === 'sdk' || categoryExtractionMode === 'direct' || categoryExtractionMode === 'rgba8' ? categoryExtractionMode : null,
         submittedAtMs: null, receivedAtMs: null, workerReleasedAtMs: null, validatedAtMs: null, hashStartedAtMs: null,
         completedAtMs: null, validationMs: null, hashMs: null, workerValidationMs: null, workerInferenceMs: null,
         workerExtractionMs: null, workerElapsedMs: null, pendingAtSubmission: null, outcome: 'pending', reason: null}};
@@ -215,6 +215,11 @@ export class HairClient {
       validationStarted = performance.now();
       const output = validateHairOutput(message.output, this.model, pending.expected);
       const categoryExtraction = validateCategoryExtractionMetrics(message.output.categoryExtraction, pending.expected, output.extractionMs);
+      Object.assign(delivery.trace, {categoryPath: categoryExtraction.path, categoryRetrievalMs: categoryExtraction.retrievalMs,
+        categoryConversionMs: categoryExtraction.conversionMs, categoryCopyMs: categoryExtraction.copyMs,
+        categoryTotalMs: categoryExtraction.totalMs, categoryAttemptMs: categoryExtraction.rgba8WorkMs ?? null,
+        categoryReadbackBytes: categoryExtraction.rgba8ReadbackBytes ?? null,
+        categoryFallbackReason: categoryExtraction.rgba8FallbackReason ?? null});
       const workerTiming = validateHairWorkerTiming(message.output.workerTiming, output.inferenceMs, output.extractionMs);
       delivery.trace.validatedAtMs = performance.now(); delivery.trace.validationMs = delivery.trace.validatedAtMs - validationStarted;
       delivery.trace.workerInferenceMs = output.inferenceMs; delivery.trace.workerExtractionMs = output.extractionMs;

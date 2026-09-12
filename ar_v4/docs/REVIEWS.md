@@ -1,3 +1,108 @@
+## Authorized per-image experiments V/W/X - September 12, 2026
+
+The owner requested implementation and publication of the three researched
+experiments for iPhone testing. G stays accepted and selected initially; U remains
+rejected as worse than G. The focused `?study=per-image` page offers G/V/W/X and
+eight unmodified 5-second/three-masked-frame warmups plus 30-second measurement
+windows in G/V/W/X/X/W/V/G order. Measurement-only is the default; optional video
+and manual switching remain. Both glasses/hair choices and all movement cues
+are retained. No additional async scheduling or admission limit is introduced.
+
+V uses the same callback-local MediaPipe texture and a cached full-size RGBA8
+target. The shader reproduces the installed SDK's exact float32-to-category byte
+semantics; an independent category buffer leaves the callback. It restores shared
+GL state and uses explicit SDK fallback for unsupported/failed paths and full
+diagnostics. W saves four repeated PACK queries only between one owned native
+PBO submission/retrieval, invalidating around intervening context work and cleanup.
+Dynamic bindings, fence/error checks and bounded fallback remain. X changes only
+the initial RGBA residual comparison to aligned word equality, retaining byte
+fallback, pixel arithmetic and every final protection check. The 239 pinned G
+dependencies remain exact Git blobs; the original CRLF-manifest distinction is
+preserved without normalization.
+
+The all-request ledger retains actual extraction path, retrieval/conversion/copy,
+total and attempted-V costs, bytes and fallback reason, including late masks.
+W and X report actual mechanism use. A requested profile or safe fallback is not
+an optimized-path success. Completed AR updates, camera delivery, frame-age tails,
+stalls, startup, tracking and matching-mask coverage remain separate measures.
+No phone improvement is inferred from reduced byte/query/comparison counts.
+
+Strict efficiency types and 242 unit checks pass. Actual GPU shader comparison
+passed 403,461 designed float32 inputs with zero byte differences, including
+rounding boundaries, invalid values, GL/error-state preservation and owned output.
+Eight actual GPU masks and eight explicit CPU SDK fallbacks match exactly across
+both hair models and portrait/landscape/odd sizes. Sixteen GPU masks from the eight
+preserved directional inputs also match SDK bytes exactly. V's held comparison
+uses G's retained SDK mask; that shared output is not its extraction proof.
+
+Required `npm test` passed 172 unit and 20/21 browser cases on its first run.
+The unchanged long-hair multiclass restart case hit its 55-second latest-mask
+assertion: a fresh matching-mask frame appeared before the separate stats poll,
+followed by sustained missing masks under SwiftShader/CPU inference. The trace
+does not establish the precise worker cause. An unchanged targeted recheck passed
+in 43.4 seconds; do not label the initial full run green. Its original failure log
+and the recheck log remain in ignored `logs/per-image-2026-09-12/`. No deadline or
+baseline behavior was relaxed. GPU codec/model receipts remain in ignored
+`test-results/production-2026-09-12T14-47-18.081Z/`; the initial missing-build
+preview-readiness failure is retained separately.
+
+W passes all 56 matched generated/recorded pairs and the independent PNG audit
+(`qa/output/matched-2026-09-12T14-50-44.852Z/`). All accepted/hair pixels and
+geometry are exact, with zero nose/front/outside/background/alpha violations.
+All 32 hardware cases use W and save four queries each; all 24 SwiftShader cases
+use the existing bounded fence fallback and claim no W query savings. Both
+glasses/hair models, down/up/both yaw and 16 lifecycle/control checks are covered.
+The audit reverified 245 runtime files and 302 frozen inputs without modifying
+the original archives. The checkout can read them through explicit
+`--archive-root`, while `--git-exact` enforces the accepted Git bytes rather than
+silently rewriting the historical original-CRLF manifest.
+
+X also passes all 56 pairs and its independent PNG audit
+(`qa/output/matched-2026-09-12T14-59-36.442Z/`), with exact accepted/hair pixels,
+geometry and final safeguards. Word comparison runs over the full image on all
+56 cases; software PBO fallback is still reported separately. These matrices
+exercise rendering and frozen pairing, not camera/worker scheduling or wearer
+motion. Actual iPhone speed, masks under motion, thermal behavior and visual
+acceptance of V/W/X remain for the owner's matched runs; no candidate is promoted.
+
+The production Python-mounted mobile package passes seven short browser cases:
+the SDK/CSP network boundary; all four portrait glasses/hair combinations using
+real GPU face/hair workers and actual V/W/X mechanisms; exact held pixels,
+detections/masks/geometry/guards and restart; optional-video partial export and
+Stop during switching; and one deliberately delayed real mask hash with its
+original late publication disposition retained through final drain. Layout fits
+the 390-pixel viewport and was visually inspected. Each source is 720x1280;
+static synthetic input is functional coverage, not personal wearer-motion proof.
+Logs and receipts remain ignored under the lab's `logs/` and `test-results/`.
+
+The full eight-window production run and independent ZIP/CRC/scalar audit pass
+with unchanged clocks, windows and deadlines (7.7-minute browser check, including
+the export audit). The measurement-only session lasted 280.822 seconds and
+retained 1,829 frame rows and 1,834 hair-request rows without rejection/truncation;
+all pending requests drained. All 1,562 measured updates had tracking and matching
+masks. Desktop completed updates/s by round: G 5.90/5.93, V 11.63/5.93,
+W 5.13/5.70, X 6.00/5.83. V's first-pass gain did not repeat; this synthetic,
+traced desktop run does not select an iPhone winner. The full archive is retained
+under `test-results/mobile-2026-09-12T15-12-33.939Z/`.
+The public package contains 21 allowlisted files and matches source fingerprint
+`69d218964435964b7cef4a44f622bca0f86ab0ea2b42953c0b284c191cdcdcc5`.
+
+## Owner comparison: U rejected for promotion - September 12, 2026
+
+After trying the preview, the owner reports U is worse than G. Keep G as the
+accepted baseline; U (`hair-release`) is rejected for promotion. Preserve the
+separate experiment and its evidence rather than inferring acceptance from
+successful scheduling or image checks.
+
+This is qualitative owner feedback. No new G/U measurement ZIP or matched
+motion recording accompanied it, so the affected quality/performance dimensions
+and device conditions are not quantified. The earlier synthetic desktop run
+also favored G (9.37/9.70 versus U8.30/8.50 updates/s), despite demonstrated
+next-request overlap during hashing. Increased GPU contention remains a possible
+explanation, not a diagnosed cause. Earlier Q-T phone evidence must not be
+relabelled as a U measurement. This update changes local findings only; it does
+not change runtime, accepted G dependencies or Railway deployment.
+
 # Current efficiency follow-up — September 12, 2026
 
 The owner's completed iPhone 17 Pro recording confirms that the camera-clock fix

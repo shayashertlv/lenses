@@ -3,6 +3,14 @@ import {test} from 'node:test';
 import {HairDeliveryLog} from './hair-delivery.ts';
 import type {HairDeliveryTrace} from './hair-delivery.ts';
 import type {HairRequestTiming} from './hair-cost/delivery.ts';
+import {HairClient} from './hair-cost/client.ts';
+import type {HairWorkerPort} from './hair-cost/client.ts';
+import type {HairWorkerRequest} from './hair-cost/protocol.ts';
+import {CATEGORY_EXTRACTION_PROTOCOL} from './hair-cost/protocol.ts';
+import {extractCategoryMask} from './hair-cost/extraction.ts';
+import {HAIR_MODELS} from '../hair-live-preview/models.ts';
+import {hashHairMasks} from '../hair-live-preview/hair-protocol.ts';
+import type {HairRawOutput} from '../hair-live-preview/hair-protocol.ts';
 
 const pending = (extra: Partial<HairRequestTiming> = {}): HairRequestTiming => ({
   requestId: 2, sequence: 11, releaseWorkerEarly: false, categoryExtractionMode: 'sdk',
@@ -31,6 +39,91 @@ test('request completion after publication retains both the missed deadline and 
   assert.equal(result.requests[0]!.publicationAtMs, 134); assert.equal(result.requests[0]!.usedAtPublication, false);
   assert.equal(result.requests[0]!.disposedAtMs, 136); assert.equal(result.requests[0]!.timing!.completedAtMs, 150);
   assert.equal(result.requests[0]!.timing!.outcome, 'completed');
+});
+
+test('late V and SDK outcomes retain exact scalar extraction accounting without private payloads', () => {
+  for (const path of ['rgba8-readback', 'rgba8-sdk-fallback', 'sdk-copy'] as const) {
+    const timing: HairRequestTiming = {...completed(), categoryExtractionMode: path === 'sdk-copy' ? 'sdk' : 'rgba8',
+      categoryPath: path, categoryRetrievalMs: 5, categoryConversionMs: 1, categoryCopyMs: .2,
+      categoryTotalMs: 7.8, categoryAttemptMs: path === 'sdk-copy' ? null : path === 'rgba8-readback' ? 7.5 : 1.5,
+      categoryReadbackBytes: path === 'rgba8-readback' ? 3686400 : path === 'sdk-copy' ? null : 0,
+      categoryFallbackReason: path === 'rgba8-sdk-fallback' ? 'not-gpu-only' : null};
+    const log = new HairDeliveryLog('session');
+    log.record(frame({pipeline: 'mask-bytes', timing: pending({categoryExtractionMode: timing.categoryExtractionMode})}));
+    log.record(frame({pipeline: 'mask-bytes', observedAtMs: 160, publicationAtMs: 134, usedAtPublication: false, disposedAtMs: 135,
+      timing: Object.assign(timing, {categoryPixels: new Uint8Array([1, 2, 3]), sourceSHA256: 'private'})}));
+    const result = log.export(); assert.equal(result.rejected, 0); assert.equal(result.requests.length, 1);
+    assert.equal(result.requests[0]!.usedAtPublication, false);
+    const copy = result.requests[0]!.timing!;
+    assert.equal(copy.categoryPath, path); assert.equal(copy.categoryRetrievalMs, 5);
+    assert.equal(copy.categoryTotalMs, 7.8); assert.equal(copy.categoryAttemptMs, timing.categoryAttemptMs);
+    assert.equal(copy.categoryReadbackBytes, timing.categoryReadbackBytes);
+    assert.equal(copy.categoryFallbackReason, timing.categoryFallbackReason);
+    assert.equal(JSON.stringify(result).includes('private'), false);
+    assert.equal(JSON.stringify(result).includes('categoryPixels'), false);
+  }
+});
+
+test('extraction trace rejects arbitrary failure text and invalid byte or timing counters', () => {
+  const valid: HairRequestTiming = {...completed(), categoryExtractionMode: 'rgba8', categoryPath: 'rgba8-readback',
+    categoryRetrievalMs: 1, categoryConversionMs: 0, categoryCopyMs: 0, categoryReadbackBytes: 16, categoryFallbackReason: null};
+  for (const delta of [{categoryPath: 'unknown'}, {categoryFallbackReason: 'private stack trace'},
+    {categoryReadbackBytes: -1}, {categoryReadbackBytes: 1.5}, {categoryRetrievalMs: NaN},
+    {categoryTotalMs: 2}, {categoryAttemptMs: 1}, {categoryTotalMs: NaN, categoryAttemptMs: 0},
+    {categoryTotalMs: 2, categoryAttemptMs: -1}, {categoryTotalMs: .5, categoryAttemptMs: 0},
+    {categoryTotalMs: 9, categoryAttemptMs: 1}, {categoryTotalMs: 2, categoryAttemptMs: 3}]) {
+    const log = new HairDeliveryLog('session');
+    log.record(frame({observedAtMs: 160, timing: {...valid, ...delta}}));
+    assert.equal(log.export().rejected, 1); assert.equal(log.export().requests.length, 0);
+  }
+});
+
+test('real client forwards complete SDK and failed-V-attempt costs through delayed hashing into the late ledger', async () => {
+  for (const mode of ['sdk', 'rgba8'] as const) {
+    let last!: HairWorkerRequest;
+    const worker: HairWorkerPort = {onmessage: null, onerror: null, onmessageerror: null,
+      postMessage(message) {last = message;}, terminate() {}};
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {release = resolve;});
+    const hashMasks = ((output: HairRawOutput) => gate.then(() => hashHairMasks(output))) as typeof hashHairMasks;
+    const client = new HairClient('hair-only', {createWorker: () => worker, outputMode: 'category-only', delegate: 'GPU', hashMasks});
+    const model = HAIR_MODELS['hair-only'];
+    try {
+      const initialized = client.initialize(new AbortController().signal);
+      worker.onmessage!({data: {type: 'ready', requestId: last.requestId, sessionNonce: last.sessionNonce,
+        model: model.id, modelSHA256: model.sha256, labels: [...model.labels], hairIndex: model.hairIndex,
+        runningMode: 'IMAGE', delegate: 'GPU', outputMode: 'category-only', initializationMs: 1,
+        categoryExtractionProtocol: CATEGORY_EXTRACTION_PROTOCOL}} as MessageEvent<unknown>);
+      await initialized;
+      let sdkReads = 0;
+      const extracted = extractCategoryMask({width: 2, height: 2,
+        hasUint8Array: () => mode === 'sdk', hasFloat32Array: () => false, hasWebGLTexture: () => mode === 'rgba8',
+        canvas: {getContext: () => null} as unknown as OffscreenCanvas, getAsWebGLTexture: () => ({} as WebGLTexture),
+        getAsUint8Array: () => {sdkReads++; return new Uint8Array([0, 1, 1, 0]);},
+        getAsFloat32Array: () => {throw new Error('Unexpected float getter');}}, mode);
+      assert.equal(sdkReads, 1); assert.equal(extracted.metrics.path, mode === 'sdk' ? 'sdk-copy' : 'rgba8-sdk-fallback');
+      const log = new HairDeliveryLog('session'), capturedAtMs = performance.now();
+      let publicationAtMs: number | null = null;
+      const observe = (timing: Readonly<HairRequestTiming>): void => log.record({sessionId: 'session', generation: 1, sequence: 11,
+        pipeline: mode === 'sdk' ? 'g' : 'mask-bytes', capturedAtMs, observedAtMs: performance.now(),
+        publicationAtMs, usedAtPublication: publicationAtMs === null ? null : false, disposedAtMs: null, timing});
+      const request = client.beginSegment({width: 2, height: 2, close() {}} as ImageBitmap, 'a'.repeat(64), 11, mode, false, observe);
+      worker.onmessage!({data: {type: 'result', requestId: last.requestId, sessionNonce: last.sessionNonce, output: {
+        sourceSHA256: 'a'.repeat(64), sequence: 11, model: model.id, modelSHA256: model.sha256, labels: [...model.labels], hairIndex: model.hairIndex,
+        width: 2, height: 2, category: extracted.category, outputMode: 'category-only', delegate: 'GPU',
+        inferenceMs: 1, extractionMs: extracted.metrics.totalMs + .5, categoryExtraction: extracted.metrics,
+      }}} as MessageEvent<unknown>);
+      assert.equal(request.timing().outcome, 'pending'); assert.equal(request.timing().categoryTotalMs, extracted.metrics.totalMs);
+      publicationAtMs = performance.now(); observe(request.timing()); release(); await request.result;
+      const exported = log.export(); assert.equal(exported.rejected, 0); assert.equal(exported.requests.length, 1);
+      const trace = exported.requests[0]!, timing = trace.timing!;
+      assert.equal(trace.usedAtPublication, false); assert.equal(timing.outcome, 'completed');
+      assert.ok(timing.completedAtMs! >= publicationAtMs); assert.equal(timing.categoryTotalMs, extracted.metrics.totalMs);
+      assert.equal(timing.categoryAttemptMs, mode === 'sdk' ? null : extracted.metrics.rgba8WorkMs);
+      assert.equal(timing.categoryFallbackReason, mode === 'sdk' ? null : 'webgl2-unavailable');
+      if (mode === 'rgba8') assert.ok(timing.categoryTotalMs! >= timing.categoryAttemptMs! + timing.categoryRetrievalMs! + timing.categoryCopyMs!);
+    } finally {release(); client.close();}
+  }
 });
 
 test('terminal timing survives a later publication snapshot carrying old pending fields', () => {

@@ -1,6 +1,7 @@
 import {PIPELINES} from './profiles.ts';
 import type {Pipeline} from './profiles.ts';
 import type {HairRequestTiming} from './hair-cost/delivery.ts';
+import {RGBA8_FALLBACK_REASONS} from './hair-cost/rgba8-extraction.ts';
 
 /** One full observation of an owned frame's hair request; no image identities or output bytes. */
 export interface HairDeliveryTrace {
@@ -32,7 +33,7 @@ function copyTiming(value: unknown, trace: Omit<HairDeliveryTrace, 'timing'>): H
   requireValid(raw.requestId === null || identity(raw.requestId));
   requireValid(raw.sequence === null || (identity(raw.sequence) && raw.sequence === trace.sequence));
   requireValid(typeof raw.releaseWorkerEarly === 'boolean');
-  requireValid(raw.categoryExtractionMode === null || raw.categoryExtractionMode === 'sdk' || raw.categoryExtractionMode === 'direct');
+  requireValid(raw.categoryExtractionMode === null || raw.categoryExtractionMode === 'sdk' || raw.categoryExtractionMode === 'direct' || raw.categoryExtractionMode === 'rgba8');
   requireValid(OUTCOMES.includes(raw.outcome as HairRequestTiming['outcome']));
   requireValid(raw.reason === null || REASONS.includes(raw.reason as NonNullable<HairRequestTiming['reason']>));
   requireValid(raw.pendingAtSubmission === null || identity(raw.pendingAtSubmission));
@@ -49,6 +50,30 @@ function copyTiming(value: unknown, trace: Omit<HairDeliveryTrace, 'timing'>): H
     pendingAtSubmission: raw.pendingAtSubmission as number | null,
     outcome: raw.outcome as HairRequestTiming['outcome'], reason: raw.reason as HairRequestTiming['reason'],
   };
+  // Optional fields keep older saved traces compatible while retaining actual
+  // extraction paths even when a validated result misses image publication.
+  if (raw.categoryPath !== undefined) {
+    requireValid(['sdk-copy', 'direct-byte-copy', 'direct-float-conversion', 'rgba8-readback', 'rgba8-sdk-fallback'].includes(raw.categoryPath as string));
+    result.categoryPath = raw.categoryPath as string;
+    for (const key of ['categoryRetrievalMs', 'categoryConversionMs', 'categoryCopyMs'] as const) {
+      requireValid(time(raw[key])); result[key] = raw[key] as number;
+    }
+    // Older traces omit both fields. New traces retain failed V attempt cost
+    // separately from the subsequent SDK getter, even after publication.
+    if (raw.categoryTotalMs !== undefined || raw.categoryAttemptMs !== undefined) {
+      requireValid(time(raw.categoryTotalMs));
+      requireValid(raw.categoryExtractionMode === 'rgba8' ? time(raw.categoryAttemptMs) : raw.categoryAttemptMs === null);
+      const total = raw.categoryTotalMs as number, attempt = raw.categoryAttemptMs as number | null;
+      requireValid(total + 1e-6 >= result.categoryRetrievalMs! + result.categoryConversionMs! + result.categoryCopyMs!);
+      requireValid(attempt === null || attempt <= total + 1e-6);
+      requireValid(result.workerExtractionMs === null || total <= result.workerExtractionMs + 1e-6);
+      result.categoryTotalMs = total; result.categoryAttemptMs = attempt;
+    }
+    requireValid(raw.categoryReadbackBytes === null || identity(raw.categoryReadbackBytes));
+    result.categoryReadbackBytes = raw.categoryReadbackBytes as number | null;
+    requireValid(raw.categoryFallbackReason === null || RGBA8_FALLBACK_REASONS.includes(raw.categoryFallbackReason as typeof RGBA8_FALLBACK_REASONS[number]));
+    result.categoryFallbackReason = raw.categoryFallbackReason as string | null;
+  }
   for (const key of TIMESTAMPS) {
     const at = result[key];
     requireValid(at === null || (at >= trace.capturedAtMs && at <= trace.observedAtMs));
@@ -106,6 +131,11 @@ function merge(old: HairDeliveryTrace, next: HairDeliveryTrace): HairDeliveryTra
       requireValid(previous[key] === null || incoming[key] === null || previous[key] === incoming[key]);
       if (previous[key] !== null) timing[key] = previous[key];
     }
+    for (const key of ['categoryTotalMs', 'categoryAttemptMs'] as const) {
+      requireValid(previous[key] === undefined || incoming[key] === undefined || previous[key] === incoming[key]);
+    }
+    if (previous.categoryTotalMs !== undefined) timing.categoryTotalMs = previous.categoryTotalMs;
+    if (previous.categoryAttemptMs !== undefined) timing.categoryAttemptMs = previous.categoryAttemptMs;
   }
   const result = {...next, timing,
     publicationAtMs: old.publicationAtMs ?? next.publicationAtMs,

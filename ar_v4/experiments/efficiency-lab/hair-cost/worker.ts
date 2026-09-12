@@ -7,6 +7,7 @@ import type {HairOutputMode} from '../../hair-live-preview/hair-protocol.ts';
 import {CATEGORY_EXTRACTION_PROTOCOL, validateHairCostRequest} from './protocol.ts';
 import type {HairRawOutput, HairWorkerRequest, HairWorkerResponse} from './protocol.ts';
 import {extractCategoryMask} from './extraction.ts';
+import {disposeRgba8Extraction} from './rgba8-extraction.ts';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let segmenter: ImageSegmenter | null = null, model: HairModel | null = null;
@@ -73,7 +74,7 @@ scope.onmessage = async (event: MessageEvent<unknown>) => {
           if (categoryMask.width !== message.image.width || categoryMask.height !== message.image.height) {
             throw new Error('Hair output dimensions differ from the exact source image.');
           }
-          const extracted = extractCategoryMask(categoryMask, message.categoryExtractionMode);
+          const extracted = extractCategoryMask(categoryMask, message.categoryExtractionMode, outputMode === 'category-only');
           const common = {sourceSHA256: message.sourceSHA256, sequence: message.sequence, model: selected.id, modelSHA256: selected.sha256,
             labels: [...selected.labels], hairIndex: selected.hairIndex, width: categoryMask.width, height: categoryMask.height,
             category: extracted.category, categoryExtraction: extracted.metrics, inferenceMs: extractionStart - start, delegate};
@@ -98,7 +99,7 @@ scope.onmessage = async (event: MessageEvent<unknown>) => {
         output: {...output, workerTiming: {inputValidationMs, totalMs: performance.now() - workerStarted}}}, transfer);
     }
   } catch (error) {
-    if (message.type === 'initialize') { segmenter?.close(); segmenter = null; model = null; }
+    if (message.type === 'initialize') { disposeRgba8Extraction(); segmenter?.close(); segmenter = null; model = null; }
     post({type: 'error', requestId: message.requestId, sessionNonce: message.sessionNonce, message: error instanceof Error ? error.message : String(error)});
   } finally { closeBitmap(message); busy = false; }
 };

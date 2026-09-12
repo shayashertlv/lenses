@@ -98,6 +98,35 @@ def audit_renderer(row, name, candidate_options, byte_count, *, allow_async_fall
             assert pbo['scratchBytesAllocated'] + pbo['scratchBytesReused'] == pbo['retrievedBytes']
             assert pbo['outputBytesAllocated'] == pbo['retrievedBytes']
             assert options['poolReadbackScratch'] or pbo['scratchBytesReused'] == 0
+    per_image = {}
+    if 'ownedPackState' in options:
+        assert beauty['ownedPackStateRequested'] is options['ownedPackState']
+        for field in ['stateQueryCalls', 'packStateCacheHits', 'packStateQueriesAvoided', 'packStateInvalidations']:
+            assert type(beauty[field]) is int and beauty[field] >= 0
+        assert type(beauty['stateQueryMs']) in (int, float) and math.isfinite(beauty['stateQueryMs']) and beauty['stateQueryMs'] >= 0
+        assert beauty['packStateQueriesAvoided'] == beauty['packStateCacheHits'] * 4
+        scopes = beauty['queuedCalls'] + int(beauty['retrievedCalls'] > 0)
+        assert beauty['stateQueryCalls'] + beauty['packStateQueriesAvoided'] == 6 * scopes
+        assert beauty['packStateFallbackReason'] is None and beauty['packStateInvalidations'] == 0
+        # First-use temple prewarm is separate. Only the already verified,
+        # explicitly allowed native fence fallback excuses missing PACK reuse.
+        if options['ownedPackState'] and not result['acceptedAsyncFallback']:
+            assert beauty['ownedPackStateUsed'] is True
+            assert beauty['packStateCacheHits'] == 1 and beauty['packStateQueriesAvoided'] == 4
+        else:
+            assert beauty['ownedPackStateUsed'] is False
+            assert beauty['packStateCacheHits'] == beauty['packStateQueriesAvoided'] == 0
+        per_image.update(actualOwnedPackStateUsed=beauty['ownedPackStateUsed'],
+                         packStateQueriesAvoided=beauty['packStateQueriesAvoided'], stateQueryCalls=beauty['stateQueryCalls'])
+    if 'wordCompose' in options:
+        assert perf['wordComparisonRequested'] is options['wordCompose']
+        if options['wordCompose']:
+            assert row[name]['stats']['hasMask'] is True and row[name]['stats']['fallbackReason'] is None
+            assert perf['wordComparisonUsed'] is True and type(perf['wordComparedPixels']) is int
+            assert perf['wordComparedPixels'] == row['width'] * row['height']
+        else:
+            assert perf['wordComparisonUsed'] is False and perf['wordComparedPixels'] == 0
+        per_image.update(actualWordComparisonUsed=perf['wordComparisonUsed'], wordComparedPixels=perf['wordComparedPixels'])
     review = {}
     if 'cropBranchReadback' in options:
         assert region['requested'] == options['cropBranchReadback']
@@ -118,7 +147,7 @@ def audit_renderer(row, name, candidate_options, byte_count, *, allow_async_fall
     return {**result, 'actualFastPathUsed': result['actualFastPathUsed'] and not accepted_branch_fallback,
             'actualAsyncTemplesUsed': efficiency['asyncTemplesUsed'], 'acceptedBranchFallback': accepted_branch_fallback,
             'branchFallbackReason': efficiency['branchFallback'], 'firstPairPrewarm': warm['prewarmAttempted'],
-            'scratchBytesReused': beauty.get('scratchBytesReused', 0) + branch.get('scratchBytesReused', 0), **review}
+            'scratchBytesReused': beauty.get('scratchBytesReused', 0) + branch.get('scratchBytesReused', 0), **per_image, **review}
 
 
 def audit_async_readback(options, native, byte_count, *, allow_async_fallback=False, phase_id=None, renderer=None):
@@ -157,6 +186,14 @@ def summarize_mechanisms(rows):
         if reason:
             reasons[reason] = reasons.get(reason, 0) + 1
     review = {}
+    per_image = {}
+    if any('actualOwnedPackStateUsed' in row['mechanism'] for row in rows):
+        per_image.update(actualOwnedPackStateCases=sum(row['mechanism'].get('actualOwnedPackStateUsed', False) for row in rows),
+                         packStateQueriesAvoided=sum(row['mechanism'].get('packStateQueriesAvoided', 0) for row in rows),
+                         stateQueryCalls=sum(row['mechanism'].get('stateQueryCalls', 0) for row in rows))
+    if any('actualWordComparisonUsed' in row['mechanism'] for row in rows):
+        per_image.update(actualWordComparisonCases=sum(row['mechanism'].get('actualWordComparisonUsed', False) for row in rows),
+                         wordComparedPixels=sum(row['mechanism'].get('wordComparedPixels', 0) for row in rows))
     if any('actualRegionUsed' in row['mechanism'] for row in rows):
         review = {'actualRegionCases': sum(row['mechanism'].get('actualRegionUsed', False) for row in rows),
                   'branchRegionBytesSaved': sum(row['mechanism'].get('branchRegionBytesSaved', 0) for row in rows),
@@ -169,4 +206,4 @@ def summarize_mechanisms(rows):
             'actualAsyncTempleCases': sum(row['mechanism'].get('actualAsyncTemplesUsed', False) for row in rows),
             'acceptedBranchFallbackCases': sum(row['mechanism'].get('acceptedBranchFallback', False) for row in rows),
             'firstPairPrewarmCases': sum(row['mechanism'].get('firstPairPrewarm', False) for row in rows),
-            'scratchBytesReused': sum(row['mechanism'].get('scratchBytesReused', 0) for row in rows), **review}
+            'scratchBytesReused': sum(row['mechanism'].get('scratchBytesReused', 0) for row in rows), **per_image, **review}

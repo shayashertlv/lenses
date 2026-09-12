@@ -11,6 +11,7 @@ import type {CategoryExtractionMetrics} from './extraction.ts';
 
 const sha = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex');
 const workspace = fileURLToPath(new URL('../../../', import.meta.url));
+const privateWorkspace = process.env.AR_PRIVATE_ROOT ? path.resolve(process.env.AR_PRIVATE_ROOT) : workspace;
 const preview = '/experiments/efficiency-lab/live.html?pipeline=mask&study=mask';
 // A module worker loaded by the isolated production page must retain its COEP
 // boundary. Playwright's fulfilled responses do not inherit Vite's headers.
@@ -38,6 +39,7 @@ async function installDifferentialWorker(page: Page): Promise<Record<string, str
   const definitions = [
     ['worker.mjs', new URL('./extraction-qa.worker.ts', import.meta.url)],
     ['extraction.mjs', new URL('./extraction.ts', import.meta.url)],
+    ['rgba8-extraction.mjs', new URL('./rgba8-extraction.ts', import.meta.url)],
     ['models.mjs', new URL('../../hair-live-preview/models.ts', import.meta.url)],
     ['vision_bundle.mjs', new URL('../../../node_modules/@mediapipe/tasks-vision/vision_bundle.mjs', import.meta.url)],
   ] as const;
@@ -47,7 +49,8 @@ async function installDifferentialWorker(page: Page): Promise<Record<string, str
     const body = name === 'vision_bundle.mjs' ? source : stripTypeScriptTypes(source, {mode: 'strip'})
       .replaceAll("'@mediapipe/tasks-vision'", "'./vision_bundle.mjs'")
       .replaceAll("'../../hair-live-preview/models.ts'", "'./models.mjs'")
-      .replaceAll("'./extraction.ts'", "'./extraction.mjs'");
+      .replaceAll("'./extraction.ts'", "'./extraction.mjs'")
+      .replaceAll("'./rgba8-extraction.ts'", "'./rgba8-extraction.mjs'");
     resources.set(name, body);
   }
   await page.route('**/qa-hair-extraction/*', route => {
@@ -60,13 +63,13 @@ async function installDifferentialWorker(page: Page): Promise<Record<string, str
 
 test('optional frozen real masks: direct extraction exactly matches the installed SDK before cleanup', async ({page}) => {
   test.skip(process.env.AR_HAIR_EXTRACTION_FROZEN !== '1', 'Set AR_HAIR_EXTRACTION_FROZEN=1 to use preserved private angle inputs.');
-  const archive = path.join(workspace, '.recovery/hair-angle-review-2026-09-09/runs/2026-09-09T08-18-33.789Z/report.json');
+  const archive = path.join(privateWorkspace, '.recovery/hair-angle-review-2026-09-09/runs/2026-09-09T08-18-33.789Z/report.json');
   const reportBytes = await readFile(archive), report = JSON.parse(reportBytes.toString()) as {complete: boolean; images: FrozenImage[]};
   expect(report.complete).toBe(true); expect(report.images).toHaveLength(8);
   const frozen = new Map<string, string>([[archive, sha(reportBytes)]]);
   const resources = new Map<string, Buffer>();
   for (const image of report.images) {
-    const filename = path.resolve(workspace, image.capture.path), within = path.relative(path.join(workspace, '.recovery'), filename);
+    const filename = path.resolve(privateWorkspace, image.capture.path), within = path.relative(path.join(privateWorkspace, '.recovery'), filename);
     expect(within.startsWith('..') || path.isAbsolute(within)).toBe(false);
     const bytes = await readFile(filename); expect(sha(bytes)).toBe(image.capture.sha256); expect(bytes.length).toBe(image.capture.bytes);
     frozen.set(filename, sha(bytes)); resources.set(image.id, bytes);
@@ -135,6 +138,110 @@ test('optional frozen real masks: direct extraction exactly matches the installe
     sourcePoses: report.images.map(({id, attributes, quality}) => ({id, attributes, quality})),
     exactSameRealMask: true, frozenInputsUnchanged: true,
     scope: '32 real-model mask comparisons: both pinned hair models, GPU and CPU, eight preserved generated images including down/up/both yaw. Direct is called before SDK on the same actual MPMask. SDK therefore sees cached float retrieval: these durations are not a fair speed comparison. This is extraction equality and ownership evidence, not physical-camera motion, anatomical accuracy or new renderer acceptance.'}, null, 2));
+});
+
+test('RGBA8 actual worker GPU shader preserves SDK float32 conversion, GL state and owned bytes', async ({page}) => {
+  const modules = await installDifferentialWorker(page); await page.goto(preview);
+  const receipt = await page.evaluate(async () => {
+    const worker = new Worker('/qa-hair-extraction/worker.mjs', {type: 'module'});
+    try {
+      return await new Promise<Record<string, unknown>>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => event.data.ok ? resolve(event.data) : reject(new Error(String(event.data.message)));
+        worker.onerror = event => reject(new Error(event.message)); worker.postMessage({id: 1, type: 'codec'});
+      });
+    } finally {worker.terminate();}
+  });
+  expect(receipt.comparedValues).toBeGreaterThan(400_000); expect(receipt.differences).toBe(0); expect(receipt.firstDifferences).toEqual([]);
+  expect(receipt.firstHash).toBe(receipt.expectedHash); expect(receipt.secondHash).toBe(receipt.expectedHash);
+  for (const field of ['stateRestored', 'textureStateRestored', 'errorStatePreserved', 'independentBuffers', 'survivesResourceDisposal'])
+    expect(receipt[field], field).toBe(true);
+  expect((receipt.first as CategoryExtractionMetrics).rgba8FallbackReason).toBeNull();
+  expect((receipt.second as CategoryExtractionMetrics).rgba8ResourcesReused).toBe(true);
+  await writeFile(test.info().outputPath('rgba8-codec-receipt.json'), JSON.stringify({modules, receipt,
+    scope: 'Actual WebGL2 shader conversion against the installed SDK numerical formula, including half thresholds and every float exponent/sign. This is correctness, state and resource evidence, not a throughput benchmark.'}, null, 2));
+});
+
+interface DifferentialSource {id: string; url: string; width?: number; height?: number;}
+async function runRgba8Differential(page: Page, model: HairModelId, delegate: 'GPU' | 'CPU', images: DifferentialSource[]) {
+  return page.evaluate(async ({model, delegate, images}) => {
+    const worker = new Worker('/qa-hair-extraction/worker.mjs', {type: 'module'}); let id = 0;
+    const send = (message: Record<string, unknown>, transfer: Transferable[] = []): Promise<Record<string, unknown>> =>
+      new Promise((resolve, reject) => {
+        const currentId = ++id;
+        worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+          if (event.data.id !== currentId) return;
+          if (event.data.ok) resolve(event.data); else reject(new Error(String(event.data.message)));
+        };
+        worker.onerror = event => reject(new Error(event.message)); worker.postMessage({...message, id: currentId}, transfer);
+      });
+    try {
+      const initialized = await send({type: 'initialize', model, delegate}), rows: MaskComparison[] = [];
+      for (const image of images) {
+        const blob = await (await fetch(image.url)).blob();
+        const bitmap = image.width && image.height ? await createImageBitmap(blob, {resizeWidth: image.width, resizeHeight: image.height}) : await createImageBitmap(blob);
+        rows.push(await send({type: 'compare', mode: 'rgba8', sourceId: image.id, image: bitmap}, [bitmap]) as unknown as MaskComparison);
+      }
+      return {model, delegate, initialized, rows, closed: await send({type: 'close'})};
+    } finally {worker.terminate();}
+  }, {model, delegate, images});
+}
+function checkRgba8Row(row: MaskComparison, gpu: boolean): void {
+  expect(row.width).toBe(row.imageWidth); expect(row.height).toBe(row.imageHeight);
+  expect(row.categoryBytes).toBe(row.width * row.height); expect(row.sdkCategoryBytes).toBe(row.categoryBytes);
+  expect(row.differences).toBe(0); expect(row.firstDifferences).toEqual([]); expect(row.directSHA256).toBe(row.sdkSHA256);
+  expect(row.previousBefore && row.previousAfter && row.comparedAfterResultClose && row.confidenceAbsent && row.independentBuffers).toBe(true);
+  expect(row.direct.mode).toBe('rgba8'); expect(row.sdk.mode).toBe('sdk'); expect(row.sdk.path).toBe('sdk-copy');
+  expect(row.direct.path).toBe(gpu ? 'rgba8-readback' : 'rgba8-sdk-fallback');
+  expect(row.direct.rgba8ReadbackBytes).toBe(gpu ? row.categoryBytes * 4 : 0);
+  expect(row.direct.rgba8FallbackReason).toBe(gpu ? null : 'not-gpu-only');
+  if (gpu) {expect(row.direct.hasWebGLTexture).toBe(true); expect(row.direct.hasUint8 || row.direct.hasFloat32).toBe(false);}
+}
+
+test('RGBA8 same real model masks are exact at portrait, landscape and odd sizes with CPU fallback', async ({page}) => {
+  const modules = await installDifferentialWorker(page), fixture = await readFile(new URL('../../../tests/fixtures/face-a.jpg', import.meta.url));
+  await page.route('**/rgba8-source.jpg', route => route.fulfill({headers: isolationHeaders, contentType: 'image/jpeg', body: fixture}));
+  await page.goto(preview);
+  const runs = [];
+  for (const model of ['hair-only', 'selfie-multiclass'] as const) for (const delegate of ['GPU', 'CPU'] as const) {
+    const run = await runRgba8Differential(page, model, delegate, [[720, 1280], [720, 1280], [1280, 853], [641, 427]].map(([width, height], i) =>
+      ({id: `fixture-${width}x${height}-${i}`, url: '/rgba8-source.jpg', width, height})));
+    for (const row of run.rows) checkRgba8Row(row, delegate === 'GPU');
+    expect(run.closed.lastOutputSurvivesSegmenterClose).toBe(true); runs.push(run);
+  }
+  await writeFile(test.info().outputPath('rgba8-real-model-receipt.json'), JSON.stringify({modules, fixtureSHA256: sha(fixture), runs,
+    scope: '16 comparisons on the same real MediaPipe mask before SDK cleanup: both pinned models, GPU extraction and CPU fallback, full-size portrait/landscape/odd dimensions and retained previous outputs. Static input is not wearer motion evidence; same-mask timings are not a speed comparison.'}, null, 2));
+});
+
+test('RGBA8 optional frozen directions exactly match the same actual GPU masks for both hair models', async ({page}) => {
+  test.skip(process.env.AR_HAIR_RGBA8_FROZEN !== '1', 'Set AR_HAIR_RGBA8_FROZEN=1 and AR_PRIVATE_ROOT to read the preserved private angle inputs.');
+  const archive = path.join(privateWorkspace, '.recovery/hair-angle-review-2026-09-09/runs/2026-09-09T08-18-33.789Z/report.json');
+  const reportBytes = await readFile(archive), report = JSON.parse(reportBytes.toString()) as {complete: boolean; images: FrozenImage[]};
+  expect(report.complete).toBe(true); expect(report.images).toHaveLength(8);
+  const frozen = new Map<string, string>([[archive, sha(reportBytes)]]), resources = new Map<string, Buffer>();
+  for (const image of report.images) {
+    const filename = path.resolve(privateWorkspace, image.capture.path), within = path.relative(path.join(privateWorkspace, '.recovery'), filename);
+    expect(within.startsWith('..') || path.isAbsolute(within)).toBe(false);
+    const bytes = await readFile(filename); expect(sha(bytes)).toBe(image.capture.sha256); expect(bytes.length).toBe(image.capture.bytes);
+    frozen.set(filename, sha(bytes)); resources.set(image.id, bytes);
+  }
+  expect(Math.min(...report.images.map(image => image.quality.forwardElevationDegrees))).toBeLessThan(-20);
+  expect(Math.max(...report.images.map(image => image.quality.forwardElevationDegrees))).toBeGreaterThan(15);
+  expect(Math.min(...report.images.map(image => image.quality.headYawDegrees))).toBeLessThan(-25);
+  expect(Math.max(...report.images.map(image => image.quality.headYawDegrees))).toBeGreaterThan(25);
+  await page.route('**/rgba8-frozen/*', route => {
+    const bytes = resources.get(new URL(route.request().url()).pathname.split('/').at(-1)!);
+    return route.fulfill({status: bytes ? 200 : 404, headers: isolationHeaders, contentType: 'image/png', body: bytes ?? 'Missing frozen source'});
+  });
+  const modules = await installDifferentialWorker(page); await page.goto(preview); const runs = [];
+  for (const model of ['hair-only', 'selfie-multiclass'] as const) {
+    const run = await runRgba8Differential(page, model, 'GPU', report.images.map(image => ({id: image.id, url: '/rgba8-frozen/' + image.id})));
+    for (const row of run.rows) checkRgba8Row(row, true);
+    expect(run.closed.lastOutputSurvivesSegmenterClose).toBe(true); runs.push(run);
+  }
+  for (const [filename, expected] of frozen) expect(sha(await readFile(filename)), filename).toBe(expected);
+  await writeFile(test.info().outputPath('rgba8-frozen-receipt.json'), JSON.stringify({modules, frozen: Object.fromEntries(frozen), runs,
+    directions: report.images.map(({id, attributes, quality}) => ({id, attributes, quality})),
+    scope: '16 exact same actual GPU mask comparisons, both pinned hair models and frozen down/up/both-yaw inputs. Original archives are read only and unchanged. Eyewear rendering and moving-wearer acceptance are separate validations; this is not a performance benchmark.'}, null, 2));
 });
 
 async function installCamera(page: Page): Promise<void> {
