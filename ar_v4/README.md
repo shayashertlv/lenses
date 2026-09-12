@@ -17,8 +17,10 @@ its Railway deployment and unrelated model-studio work are separate.
 
 On September 11 the owner explicitly requested a public **ar_testing** option
 on the Lenses landing page. The [mobile comparison](https://web-production-ef3ca.up.railway.app/ar_testing/)
-offers G and separate Q/R/S/T experiments, plus a continuous six-minute run that
-saves video and measurements in one local ZIP. See the [mobile guide](experiments/efficiency-lab/MOBILE.md).
+opens the focused G/V preview, with a continuous G/V/V/G comparison taking about
+2.5 minutes. Measurements are on and optional video is off initially; the run
+saves one local ZIP. Repeat both glasses and both hair models with the movement
+cues. See the [mobile guide](experiments/efficiency-lab/MOBILE.md).
 This uses an explicit static package inside `ar_v4/` and retains the Python
 deployment entry point. G remains the default; no candidate has been promoted.
 

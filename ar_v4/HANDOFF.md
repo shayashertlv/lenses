@@ -1,4 +1,25 @@
-## Current testing ground: G / V / W / X - September 12, 2026
+## Current preview: G / V - September 12, 2026
+
+The owner authorized the focused preview and push after the phone comparison.
+Current entry: `/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.
+The mobile landing/brand entry opens G/V with G selected. Its G/V/V/G run takes
+about 2.5 minutes with unchanged warmup and measurement windows, measurements
+on and optional video off. Both glasses/hair choices and movement cues remain.
+Old experiment navigation is removed; explicit historical URLs and their source,
+automated checks, recordings, recovery archives and accepted entry points remain.
+Focused Hold exports only G/V on the same SDK diagnostic mask; live V extraction
+still needs the separate path/byte checks and visual review. See MOBILE.md.
+The focused runtime fingerprint is
+`8acef53052f9a2d9ed3869f5a7a133dfaf7e71fa665754902e33577c996d16f8`.
+
+## Preceding testing ground: G / V / W / X
+
+Latest owner phone upload is measurement-only, Amber/hair-only: V delivered
+16.17 AR updates/s with 100% matching masks versus G 15.58/s with 70.59%; W/X
+each delivered 14.65/s. V halved category extraction cost but has an initial
+activation gap and no new visual acceptance. G remains accepted/default.
+See [REVIEWS.md](docs/REVIEWS.md) for time drift, startup, other-model/video
+limitations and the byte-verified private archive location.
 
 The owner authorized creating and pushing the three per-image cost experiments
 for iPhone testing. Open
@@ -25,7 +46,7 @@ on `codex/ar-mobile-testing`. Build and commit the explicit `mobile-site/` packa
 there. The original checkout has unrelated uncommitted work: do not replace or
 clean it, its recordings, recovery archives or linked worktrees. The existing
 Python route serves the package; no parent application changes are needed.
-The candidate runtime fingerprint is
+The preceding G/V/W/X runtime fingerprint is
 `69d218964435964b7cef4a44f622bca0f86ab0ea2b42953c0b284c191cdcdcc5`.
 Current validation and its physical-phone limits are recorded in the review.
 

@@ -102,15 +102,24 @@ export class ComparisonRenderer {
     if(!context)throw new Error('Missing comparison display.');
     return context.getImageData(0,0,this.display.width,this.display.height);
   }
-  async setHeld():Promise<void> {
+  async setHeld(pipelines: readonly Pipeline[] = PIPELINES):Promise<void> {
     if(this.pending || this.disposed)throw new Error('Finish the owned pair before Hold.');
+    if(!Array.isArray(pipelines) || pipelines.length===0 || pipelines.length>PIPELINES.length)
+      throw new Error('Invalid held comparison choices.');
+    const choices=[...pipelines];
+    if(choices.some(id=>!PIPELINES.includes(id)) || new Set(choices).size!==choices.length
+      || !choices.includes('g') || !choices.includes(this.active))
+      throw new Error('Held comparison choices must be unique known profiles and include G and the selected profile.');
+    // Own the requested scope before asynchronous work; canonical order renders
+    // G first so its input-only aliases always share a complete owned output.
+    const heldPipelines=Object.freeze(PIPELINES.filter(id=>choices.includes(id)));
     const input=this.copyHeldInput();if(!input)throw new Error('The held pair is unavailable.');
     const previousInput=this.heldInput, previousOutputs=this.outputs, previousDiagnostic=this.cachedDiagnostic;
     const previousPixels=this.pixels(), nextOutputs=new Map<Pipeline,HeldOutput>();
     const selected=this.active, variant=this.selectedVariant, mask=this.mask;
     this.held=false;
     try {
-      for(const profile of PIPELINES) {
+      for(const profile of heldPipelines) {
         if(this.disposed)return;
         if(profile!=='g' && usesBaseRenderer(profile)) {nextOutputs.set(profile,nextOutputs.get('g')!);continue;}
         this.requested=profile;
@@ -122,7 +131,10 @@ export class ComparisonRenderer {
         nextOutputs.set(profile,{diagnostic,accepted,hair,snapshot:target.captureSnapshot});
       }
       this.cachedDiagnostic={schema:'ar-efficiency-comparison-v1',baseCommit:G_COMMIT,
-        candidateAccepted:false,inputPolicy:'Every output uses the same exact held source, detection and mask. Input-only mode I, rate modes M/N/O, extraction modes P/V, publication mode Q, statistics mode T and scheduling mode U share G held pixels. Renderer candidates including R/S/W/X render their own held outputs. The held diagnostic upgrades to the SDK full mask for all choices; it does not independently test live extraction or temporal effects. P/V extraction is checked separately against the installed SDK on matching masks.',
+        candidateAccepted:false,comparedPipelines:[...heldPipelines],
+        inputPolicy:heldPipelines.length===2 && heldPipelines.includes('mask-bytes')
+          ? 'G and V share the exact held source, detection, pose and SDK full mask. V reuses the owned G held pixels because both use the same renderer. This shared SDK full mask comparison does not independently test V live mask extraction or temporal effects; live extraction requires separate matching-mask evidence.'
+          : 'Every output uses the same exact held source, detection and mask. Input-only mode I, rate modes M/N/O, extraction modes P/V, publication mode Q, statistics mode T and scheduling mode U share G held pixels. Renderer candidates including R/S/W/X render their own held outputs. The held diagnostic upgrades to the SDK full mask for all choices; it does not independently test live extraction or temporal effects. P/V extraction is checked separately against the installed SDK on matching masks.',
         ...Object.fromEntries([...nextOutputs].map(([id,value])=>[id,value.diagnostic]))};
       this.outputs=nextOutputs;this.heldInput=input;this.held=true;
       if(previousInput)previousInput.source.width=previousInput.source.height=0;

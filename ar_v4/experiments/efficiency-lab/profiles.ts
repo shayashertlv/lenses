@@ -47,7 +47,17 @@ export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id
 /** Focused previews hide unrelated choices without removing them from the lab. */
 export function studyPipelines(search: string): readonly Pipeline[] {
   const study = new URLSearchParams(search).get('study');
-  return study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
+  return study === 'mask-preview' ? ['g', 'mask-bytes'] : study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
+}
+
+/** The existing Python mount redirects to study=review. Update its destination
+ * within the AR package; explicit historical URLs remain available for QA. */
+export function previewSearch(search: string, mobile: boolean): string {
+  const params = new URLSearchParams(search);
+  const study = params.get('study');
+  if (!mobile || params.get('legacy') === '1' || (study !== null && study !== 'review')) return search;
+  params.set('study', 'mask-preview');
+  return '?' + params.toString();
 }
 
 /** An explicit preview link may select a candidate; ordinary entry remains G. */

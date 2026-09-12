@@ -6,11 +6,13 @@ export const REVIEW_PIPELINES = Object.freeze(['g', 'publish', 'region', 'lens',
 export type ReviewPipeline = typeof REVIEW_PIPELINES[number];
 export const HAIR_DELIVERY_PIPELINES = Object.freeze(['g', 'hair-release'] as const);
 export const PER_IMAGE_PIPELINES = Object.freeze(['g', 'mask-bytes', 'gl-state', 'word-compose'] as const);
+export const MASK_PREVIEW_PIPELINES = Object.freeze(['g', 'mask-bytes'] as const);
 export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number];
 export const CONTINUOUS_STUDIES = Object.freeze({
   review: Object.freeze({pipelines: REVIEW_PIPELINES, defaultVideo: true, approximateMinutes: 6}),
   'hair-delivery': Object.freeze({pipelines: HAIR_DELIVERY_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
   'per-image': Object.freeze({pipelines: PER_IMAGE_PIPELINES, defaultVideo: false, approximateMinutes: 5}),
+  'mask-preview': Object.freeze({pipelines: MASK_PREVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
 });
 export type ContinuousStudy = keyof typeof CONTINUOUS_STUDIES;
 type Scalar = number | boolean | string | null;

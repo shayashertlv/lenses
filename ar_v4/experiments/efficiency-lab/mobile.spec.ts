@@ -92,8 +92,8 @@ const closed = (page: Page): Promise<boolean> => page.evaluate(() =>
     .every(stream => stream.getTracks().every(track => track.readyState === 'ended'))
   && window.mobileCamera.workers.every(worker => worker.terminated));
 async function open(page: Page, eyewear: string, hair: string): Promise<void> {
-  await installCamera(page); await page.goto('/ar_testing/');
-  await expect(page).toHaveURL(/\/ar_testing\/experiments\/efficiency-lab\/live\.html\?study=review$/);
+  await installCamera(page); await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=review&legacy=1');
+  await expect(page).toHaveURL(/\/ar_testing\/experiments\/efficiency-lab\/live\.html\?study=review&legacy=1$/);
   await expect(page.locator('#pipeline-select')).toHaveValue('g');
   expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value))).toEqual(REVIEW);
   expect(await page.evaluate(() => window.mobileCamera.cameraStreams.length)).toBe(0);

@@ -5,19 +5,17 @@ served by the existing Python application. The Railway start command remains
 `python -m UI.app`. The page begins with the accepted G renderer and offers the
 independent experiments. No candidate is promoted by this page.
 
-The current **G / V / W / X** testing ground is:
-`/ar_testing/experiments/efficiency-lab/live.html?study=per-image`.
-V tests full-resolution RGBA8 hair-mask retrieval, W avoids four repeated PACK
-state queries within one owned image, and X compares four-channel pixels as
-32-bit words during the first composition scan. All retain G's admission,
-resolution, geometry and final guards. Each changes one mechanism independently.
-G is selected initially. The owner rejected U as worse than G; U remains a
-separate historical experiment and is not included in this new comparison.
+The current **G / V** preview is:
+`/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.
+The `/ar_testing/` landing option and query-free mobile entry also open it.
+V retains the tested full-resolution RGBA8 hair-mask retrieval. G is selected
+initially and remains accepted. Scheduling, resolution, models, geometry, exact
+image/detection/pose/mask pairing and final safeguards are unchanged.
 
-For an immediate visual comparison, open the camera and switch G/V/W/X while
-moving. For a measured run, choose **Measure only · G / V / W / X · ~5 min**.
-The order is G/V/W/X, then X/W/V/G, with the same five-second/three-masked-frame
-warmup and 30-second measurement in each window. Follow front/nose, down, up,
+For an immediate visual comparison, open the camera and switch G/V while
+moving. For a measured run, choose **Measure only · G / V · ~2.5 min**.
+The order is G/V/V/G, with the same five-second/three-masked-frame warmup and
+30-second measurement in each window. Follow front/nose, down, up,
 left and right cues. Repeat with Amber Horizon and Tom Ford Clear, each using
 hair-only and selfie-multiclass. Save each ZIP before starting another run.
 Enable video for separate visual runs; optional recording has the same behavior
@@ -27,12 +25,23 @@ similar across options and allow the phone to cool between repeated runs.
 This study also records the all-request `hairDelivery` ledger and drains late
 results before export. Actual extraction paths distinguish `rgba8-readback`
 from an explicit safe SDK fallback, including its reason and readback bytes.
-W reports actual query savings and X reports actual word comparisons. A requested
-option or successful fallback alone is not evidence that its optimization ran.
+A requested option or successful fallback alone is not evidence that its optimization ran.
 Compare completed AR updates, frame age, stalls, tracking and matching-mask
 availability together; camera FPS alone cannot select a winner.
 
-The **G vs U · hair processing** link opens
+Hold compares only G/V on the focused preview and exports only their outputs.
+Both use the same SDK full diagnostic mask; identical held pixels do not test
+V's live extraction. Inspect live motion and use separate video-enabled runs
+for nose/front, hair continuity, down/up and both yaw directions. The prior exact
+SDK/GPU extraction checks remain available; no new visual acceptance is claimed.
+
+Obsolete experiment links are removed from the public menu. Historical studies
+remain at explicit URLs for reproducing evidence: `?study=per-image` for G/V/W/X,
+`?study=review&legacy=1` for Q–T, and `?study=hair-delivery` for rejected U.
+The existing Python redirect is unchanged; the AR page canonicalizes its mobile
+default to `mask-preview`. Local full-lab and accepted reference entry points stay.
+
+The historical **G vs U · hair processing** URL is
 `/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.
 This focused preview compares G with earlier hair-worker reuse, using G/U/U/G
 and the same five-second/three-masked-frame warmup plus 30-second measurement
@@ -56,16 +65,16 @@ extend measured windows. Successful export resumes the manual mirror. A separate
 `hairDeliveryDrain.incomplete` diagnostic with any unresolved requests. Existing
 15-second hair deadlines are unchanged. Stop/cancel cannot restart a closed camera.
 
-## Record a comparison
+## Save the comparison
 
 Open the HTTPS site on the phone, select glasses and a hair model, open the camera
-and wait for tracking and hair. Choose **Video + measurements · all five options**. Video is on
-by default and records the displayed AR canvas without audio. Every window asks
+and wait for tracking and hair. Enable video for a separate visual run, then choose
+**Video + measurements · G / V · ~2.5 min**. It records the displayed AR canvas without audio. Every window asks
 for the same front/nose, down, up, left and right movements.
 
-The order is G/Q/R/S/T, then T/S/R/Q/G. Each window has at least five seconds of
+The order is G/V/V/G. Each window has at least five seconds of
 warmup and three tracked frames with matching hair masks, followed by a fixed
-30-second measurement window. Ten windows take approximately six minutes. The
+30-second measurement window. Four windows take approximately 2.5 minutes. The
 glasses, hair setting and source dimensions remain fixed for that run. Repeat
 for the other glasses/hair combinations before making a general quality claim.
 

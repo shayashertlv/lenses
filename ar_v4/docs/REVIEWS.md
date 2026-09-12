@@ -1,3 +1,120 @@
+## Focused G/V preview - September 12, 2026
+
+The owner authorized a preview and push after the phone comparison. The current
+mobile entry is `?study=mask-preview`: G/V only, G selected, measurements on and
+optional video off. G/V/V/G retains four independent five-second/three-matching-
+mask warmups and full 30-second measurement windows. Both glasses/hair selectors,
+front/nose, down/up/both-yaw cues, all-request hair timing, late-result drain,
+camera delivery, completed AR updates, mask coverage, age/stalls and startup stay.
+No live inference, extraction, rendering, scheduling, model, resolution or guard change
+is introduced. V is still a candidate; the phone evidence below is not promotion.
+
+Obsolete experiment navigation is removed from the preview. Historical choices
+remain through explicit URLs and their automated checks are retained. The mobile
+page canonicalizes the existing Python redirect to `mask-preview`; the parent
+application is untouched. Query-free entry and the brand link also stay focused.
+Local full-lab and accepted checkpoints, private recordings and recovery archives
+remain available. Scope is the isolated deployed checkout described in HANDOFF.
+
+Focused Hold now computes/exports only G/V, retaining the owned source/detection/
+pose and SDK full diagnostic mask. It performs one G render and shares its output
+with V; this is explicitly not independent evidence of V's live mask extraction.
+The optional held scope is validated and copied before awaits, with G first and
+the selected profile included. Cancellation, failure rollback and disposal stay.
+Historical held comparisons retain their full default scope.
+
+Strict efficiency types, the mobile production build and all 249 efficiency unit
+checks pass, including bounded held scope, caller mutation, failure and disposal.
+The 239 pinned G dependencies still match their exact accepted Git blobs. Required
+`npm test` passes all 172 unit and 21 browser checks, including G, reference and
+both long-hair lifecycle cases with unchanged deadlines. The mobile suite passes
+the complete real four-window run, default/brand/legacy navigation, optional video
+with 720x1280 decoding, stop-during-switch, delayed mask-hash disposition and SDK/CSP
+network boundary. Independent ZIP CRC/window recomputation confirms 140.216 s,
+1,339 AR rows (1,141 measured), 1,342 fully drained hair requests, full measured
+tracking/mask coverage and no AR-row rejection/truncation. Seven nonmonotonic
+camera callbacks are explicitly rejected; this is desktop functional evidence.
+The full run used fingerprint `1b3c4ca7cdc1...`. A subsequent text-only correction
+keeps the G/V Hold hint from being overwritten by obsolete rate-option guidance;
+the final package fingerprint starts `8acef53052f9`.
+
+Four new portrait checks initially failed because the QA assertion wrongly
+treated export-envelope metadata as additional profiles. Only the assertion was
+corrected to check the actual profile keys and declared scope while retaining
+metadata, pixel/pair/mask/geometry checks, final safeguards and restart assertions.
+All four affected cases pass against the final package, including actual V GPU
+readback, exact held output, final nose/front/outside/background checks, cleanup
+and a fresh session after restart. The nine focused mobile cases are covered by
+five initial passes and four corrected passes. Original failure logs and artifacts
+are retained; no runtime protection or deadline changed.
+Receipts are under ignored `logs/mask-preview-2026-09-12/` and timestamped mobile
+`test-results/` within the efficiency lab. The original owner ZIP is byte-exact.
+Four model-studio files changed concurrently in the original checkout and were
+left alone; the other 694 sampled original files remained unchanged.
+
+The generated public package contains 21 allowlisted files. Publication receipts
+are stored in the ignored QA output directory after the authorized push.
+No physical phone visual acceptance for V, other glasses/hair performance or
+thermal conclusions are established by this preview cleanup.
+
+## First physical-phone V/W/X measurements - September 12, 2026
+
+The owner supplied `ar-mobile-comparison-2026-09-12T15-57-21.924Z.zip`:
+telemetry only, video disabled, Amber Horizon/hair-only at 720x1280. Correct
+fingerprint `69d218964435...`, complete eight-window protocol and 240 measured
+seconds. Independent recomputation matches every exported window/stage/native
+numeric summary. All 4,373 hair requests completed and drained without ledger
+rejection/truncation. The 4,366 retained AR rows include 3,663 measured updates,
+all reporting a face. Detection availability is not tracking-quality proof.
+
+| Profile | AR updates/s, 60 s total | Matching-mask coverage | Updates with matching mask/s | Age median / p95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| G | 15.583 | 70.59% | 11.000 | 110.86 / 181.04 |
+| V | 16.167 | 100% | 16.167 | 114.79 / 173.82 |
+| W | 14.650 | 77.93% | 11.417 | 126.58 / 177.30 |
+| X | 14.650 | 50.51% | 7.400 | 114.06 / 173.52 |
+
+V delivered 35 additional updates (+3.74%) and 46.97% more updates with matching
+hair masks. All 1,148 V requests used actual RGBA8 retrieval with zero fallback;
+all 970 measured V publications had a matching mask. Across requests captured
+in measured windows, including late outcomes, median category extraction was
+G 26.90 ms versus V 13.30 ms; inference was similar (24.86 versus 24.28 ms).
+Reduced worker time did not translate one-for-one into result delivery: V's
+transport/dispatch residual grew. These wall times do not isolate GPU work.
+
+First-use cost remains separate: V's first category extraction took 282.92 ms
+and its first activation caused a 376.14 ms publication gap; first W caused a
+483.80 ms gap. Both were before measurement. Actual warmed-window completion
+gaps were at most 113.64 ms, with none over 200 ms. The eligible-frame/endpoint
+metric has a different maximum, 166.68 ms. Initial opening to first AR was
+4.001 s and to first matching mask 4.460 s. V's median frame age was slightly
+worse than G, while its p95 was better; no blanket responsiveness claim follows.
+
+W saved four queries on all 879 measured images (3,516 total), but measured query
+wall time was median 0 / p95 0.02 ms. X's word scan ran on all 444 masked images,
+over 409,190,400 pixels; its other 435 images lacked masks. Mask-conditioned
+composition was lower for X (4.26 ms versus G 5.02 ms), but unequal motion/time
+workloads prevent attributing this solely to word comparison. W/X each completed
+5.99% fewer total updates than G; neither improved throughput in this run.
+
+Camera delivery was 28.54-29.19 FPS, separate from AR updates. One nonmonotonic
+callback was rejected in final G; its offending values are not retained.
+All mediaTime values were zero, so camera rate uses presented-frame counters
+and callback time. Observations cover over 99.78% of each window. G fell from
+17.47 to 13.70 AR/s between passes; V from 17.80 to 14.53. Symmetric order balances
+linear drift but cannot eliminate nonlinear drift/different motion or diagnose
+a thermal cause. Earlier video-on results are not an equivalent workload.
+
+V is the strongest follow-up candidate; G remains accepted/default. No video or
+other glasses/hair combinations are present, so down/up/both yaw, nose/front and
+hair-continuity quality cannot be verified from this ZIP. Next evidence should
+focus on G/V across both glasses and hair models with matched movement cues and
+separate video-on visual review. No promotion follows from this run.
+The upload is unchanged; a byte-identical copy and recomputed `audit.json` are
+retained under `.recovery/phone-per-image-2026-09-12/` in this deployed checkout.
+ZIP SHA-256: `2ce3ccf0e4c2d31eaca3ad72091725386cb6263152657643bee9f9c3f3e6dd72`.
+This records findings only; runtime and deployment are unchanged.
+
 ## Authorized per-image experiments V/W/X - September 12, 2026
 
 The owner requested implementation and publication of the three researched

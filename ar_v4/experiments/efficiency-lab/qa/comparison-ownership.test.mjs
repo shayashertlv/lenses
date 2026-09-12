@@ -71,3 +71,77 @@ test('held Q and T reuse the exact G output while R and S render independent can
   renderer.selectPipeline('ui');renderer.selectVariant('hair');
   assert.equal(renderer.captureSnapshot.hairPreview.variant,'hair');
 });
+
+function focusedFixture(t, prepare=async()=>true) {
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'ImageData');
+  Object.defineProperty(globalThis,'ImageData',{configurable:true,value:OwnedImageData});
+  t.after(()=>{if(previous)Object.defineProperty(globalThis,'ImageData',previous);else delete globalThis.ImageData;});
+  const calls={base:0,candidate:0,inputs:[],disposed:0};
+  const boundary=kind=>({setPreparationHairEnabled(){},selectVariant(){},
+    async prepare(...args){calls[kind]++;return prepare(...args);},finish(){return true;},
+    copyHeldInput:()=>{const source=canvas();calls.inputs.push(source);return {source,
+      detection:{landmarks:[],matrix:null},pair:{sourceSHA256:'a'.repeat(64)},expectedModel:{id:'hair-only'}};},
+    exportDiagnostic:()=>({stats:{hasFace:true},pair:{sourceSHA256:'a'.repeat(64)}}),
+    captureSnapshot:{pose:1,hairPreview:{variant:'hair',applied:false}},dispose(){calls.disposed++;}});
+  return {calls,renderer:new ComparisonRenderer(canvas(),boundary('base'),boundary('candidate'))};
+}
+
+test('focused G/V Hold owns its scope before awaits, orders G first and renders no old candidate',async t=>{
+  let release;
+  const waiting=new Promise(resolve=>{release=resolve;});
+  const {renderer,calls}=focusedFixture(t,async()=>{await waiting;return true;});
+  renderer.active=renderer.requested='mask-bytes';
+  const choices=['mask-bytes','g'];
+  const holding=renderer.setHeld(choices);
+  choices.splice(0,choices.length,'g','word-compose','unknown');
+  release();await holding;
+  assert.deepEqual([...renderer.outputs.keys()],['g','mask-bytes']);
+  assert.equal(calls.base,1);assert.equal(calls.candidate,0);
+  assert.equal(renderer.outputs.get('mask-bytes'),renderer.outputs.get('g'));
+  assert.equal(renderer.pipeline,'mask-bytes');assert.equal(renderer.requestedPipeline,'mask-bytes');
+  const report=renderer.exportDiagnostic();
+  assert.deepEqual(report.comparedPipelines,['g','mask-bytes']);
+  assert.deepEqual(Object.keys(report).sort(),['baseCommit','candidateAccepted','comparedPipelines','g','inputPolicy','mask-bytes','schema','selectedPipeline'].sort());
+  assert.equal(report.candidateAccepted,false);
+  assert.match(report.inputPolicy,/shared SDK full mask comparison does not independently test V live mask extraction/);
+  report.comparedPipelines.push('word-compose');report.g.pair.sourceSHA256='changed';
+  assert.deepEqual(renderer.exportDiagnostic().comparedPipelines,['g','mask-bytes']);
+  assert.equal(renderer.exportDiagnostic().g.pair.sourceSHA256,'a'.repeat(64));
+});
+
+test('invalid focused Hold scopes fail before copying input or replacing the selected output',async t=>{
+  const {renderer,calls}=focusedFixture(t);
+  renderer.active=renderer.requested='mask-bytes';
+  for(const choices of [null,[],['g','g','mask-bytes'],['g','unknown','mask-bytes'],['mask-bytes'],['g']]) {
+    await assert.rejects(renderer.setHeld(choices),/held comparison choices/i);
+    assert.equal(renderer.pipeline,'mask-bytes');assert.equal(renderer.requestedPipeline,'mask-bytes');
+    assert.equal(renderer.held,false);assert.equal(renderer.exportDiagnostic(),null);
+  }
+  assert.equal(calls.inputs.length,0);assert.equal(calls.base,0);assert.equal(calls.candidate,0);
+});
+
+test('failed focused Hold releases new input and retains the previous owned held comparison',async t=>{
+  const failure=new Error('owned render failure');
+  let fail=false;
+  const {renderer,calls}=focusedFixture(t,async()=>{if(fail)throw failure;return true;});
+  await renderer.setHeld(['g','mask-bytes']);
+  const previous=renderer.exportDiagnostic(),previousInput=calls.inputs[0];
+  fail=true;
+  await assert.rejects(renderer.setHeld(['g','mask-bytes']),error=>error===failure);
+  assert.deepEqual(renderer.exportDiagnostic(),previous);assert.equal(renderer.held,true);
+  assert.equal(previousInput.width,2);assert.equal(previousInput.height,1);
+  assert.equal(calls.inputs[1].width,0);assert.equal(calls.inputs[1].height,0);
+  assert.equal(calls.candidate,0);
+});
+
+test('disposing during focused Hold releases its input and cannot publish a late alias',async t=>{
+  let release;
+  const waiting=new Promise(resolve=>{release=resolve;});
+  const {renderer,calls}=focusedFixture(t,async()=>{await waiting;return true;});
+  const holding=renderer.setHeld(['g','mask-bytes']);
+  renderer.dispose();release();
+  await assert.rejects(holding,error=>error.name==='AbortError');
+  assert.equal(renderer.exportDiagnostic(),null);assert.equal(renderer.outputs.size,0);
+  assert.equal(calls.inputs[0].width,0);assert.equal(calls.inputs[0].height,0);
+  assert.equal(calls.base,1);assert.equal(calls.candidate,0);assert.equal(calls.disposed,2);
+});

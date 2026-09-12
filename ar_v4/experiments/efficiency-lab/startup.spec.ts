@@ -129,7 +129,7 @@ const fixturePrefix = (): string => 'data:image/jpeg;base64,';
 for (const eyewear of ['amber-horizon', 'tom-ford-clear'] as const) for (const hair of ['hair-only', 'selfie-multiclass'] as const) {
   test(`startup: advancing camera clock preserves portrait pairs for ${eyewear}/${hair}`, async ({page}) => {
     test.setTimeout(120_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-    await installCamera(page, true); await page.goto('/ar_testing/');
+    await installCamera(page, true); await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=review&legacy=1');
     await page.selectOption('#eyewear-select', eyewear); await page.selectOption('#hair-model-select', hair);
     await page.click('#start');
     try {

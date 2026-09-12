@@ -85,6 +85,37 @@ test('G/U windows retain exact workload, mask warmup and adjacent U switch bound
   assert.equal(report.endedAtMs, 140000);
 });
 
+test('G/V preview retains four complete windows and separate adjacent V ownership boundaries', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'mask-preview'}));
+  const protocol = run.export().protocol as Record<string, unknown>;
+  assert.deepEqual(protocol.order, ['g', 'mask-bytes', 'mask-bytes', 'g']);
+  assert.equal(protocol.studyOptions, 'mask-preview'); assert.equal(run.status.windowCount, 4);
+  assert.equal(protocol.warmupMs, 5000); assert.equal(protocol.measureMs, 30000);
+  assert.equal(protocol.minimumTrackedMaskedWarmupFrames, 3);
+  assert.equal(CONTINUOUS_STUDIES['mask-preview'].defaultVideo, false);
+  assert.equal(CONTINUOUS_STUDIES['mask-preview'].approximateMinutes, 2.5);
+  const reverse = new ContinuousComparisonRun(options({studyOptions: 'mask-preview', direction: 'reverse'}));
+  assert.deepEqual((reverse.export().protocol as Record<string, unknown>).order, ['mask-bytes', 'g', 'g', 'mask-bytes']);
+  let sequence = 0; run.begin(0);
+  for (let index = 0; index < 4; index++) {
+    const start = index * 35000, status = run.status;
+    assert.equal(status.windowIndex, index); run.switched(status.token, start);
+    run.observe(frame(start + 50, ++sequence, status.pipeline, {hasMask: false}));
+    for (const offset of [100, 200, 300]) run.observe(frame(start + offset, ++sequence, status.pipeline));
+    run.tick(start + 5000); assert.equal(run.status.state, 'measuring');
+    run.observe(frame(start + 5010, ++sequence, status.pipeline, {capturedAtMs: start + 4990}));
+    run.observe(frame(start + 5100, ++sequence, status.pipeline));
+    run.observe(frame(start + 34999, ++sequence, status.pipeline)); run.tick(start + 35000);
+  }
+  const report = run.export(), result = report.windows as (WindowResult & {token: number; pipeline: ContinuousPipeline})[];
+  assert.equal(report.completed, true); assert.equal(result.length, 4); assert.equal(report.endedAtMs, 140000);
+  assert.ok(result.every(window => window.completed && window.validWarmupFrames === 3));
+  assert.ok(result.every(window => window.summary.durationMs === 30000 && window.summary.frames === 2));
+  assert.deepEqual(result.map(window => window.token), [1, 2, 3, 4]);
+  assert.deepEqual(result.map(window => window.pipeline), ['g', 'mask-bytes', 'mask-bytes', 'g']);
+  assert.equal(rows(run).filter(row => row.phase === 'measured').length, 8);
+});
+
 test('wall timer times out startup with zero frames and preserves a partial downloadable report', () => {
   const run = new ContinuousComparisonRun(options()); run.begin(100);
   assert.equal(run.tick(15099).state, 'switching');

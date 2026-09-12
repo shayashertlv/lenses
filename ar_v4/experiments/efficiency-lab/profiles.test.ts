@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {initialPipeline, PIPELINES, PROFILES, studyPipelines, usesBaseRenderer} from './profiles.ts';
+import {initialPipeline, PIPELINES, PROFILES, previewSearch, studyPipelines, usesBaseRenderer} from './profiles.ts';
 
 test('rate experiments retain original G rendering and input options', () => {
   for (const [id, rate] of [['rate12', 12], ['rate10', 10], ['rate8', 8]] as const) {
@@ -90,4 +90,28 @@ test('per-image study isolates three uncapped changes and leaves G admission and
     assert.equal(PROFILES[id].hairExtractionMode, id === 'mask-bytes' ? 'rgba8' : 'sdk');
     assert.equal(usesBaseRenderer(id), id === 'mask-bytes');
   }
+});
+
+test('focused preview exposes only G and V while requiring explicit selection of V', () => {
+  assert.deepEqual(studyPipelines('?study=mask-preview'), ['g', 'mask-bytes']);
+  assert.equal(initialPipeline('?study=mask-preview'), 'g');
+  assert.equal(initialPipeline('?study=mask-preview&pipeline=mask-bytes'), 'mask-bytes');
+  for (const pipeline of PIPELINES.filter(id => id !== 'g' && id !== 'mask-bytes'))
+    assert.equal(initialPipeline('?study=mask-preview&pipeline=' + pipeline), 'g');
+});
+
+test('mobile entry opens the focused preview and keeps explicit historical URLs available', () => {
+  for (const search of ['', '?study=review']) {
+    const normalized = previewSearch(search, true);
+    assert.equal(new URLSearchParams(normalized).get('study'), 'mask-preview');
+    assert.equal(initialPipeline(normalized), 'g');
+    assert.equal(previewSearch(normalized, true), normalized);
+  }
+  const selected = new URLSearchParams(previewSearch('?study=review&pipeline=mask-bytes&capture=scalar', true));
+  assert.equal(selected.get('study'), 'mask-preview');
+  assert.equal(selected.get('pipeline'), 'mask-bytes'); assert.equal(selected.get('capture'), 'scalar');
+  for (const search of ['?study=review&legacy=1', '?study=per-image', '?study=hair-delivery', '?study=mask-preview'])
+    assert.equal(previewSearch(search, true), search);
+  for (const search of ['', '?study=review', '?study=review&pipeline=region'])
+    assert.equal(previewSearch(search, false), search);
 });

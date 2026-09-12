@@ -71,7 +71,7 @@ async function open(page: Page, eyewear = 'amber-horizon', hair = 'hair-only'): 
     .toEqual(['g', 'hair-release']);
   await expect(page.locator('#continuous-video')).not.toBeChecked();
   await expect(page.locator('#continuous-start')).toContainText('Measure only');
-  await expect(page.locator('#review-study')).toHaveAttribute('href', '?study=review');
+  await expect(page.locator('#mask-preview-study')).toHaveAttribute('href', '?study=mask-preview');
   await page.selectOption('#eyewear-select', eyewear); await page.selectOption('#hair-model-select', hair);
   await page.click('#start'); await expect(page.locator('#continuous-start')).toBeEnabled();
   await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');

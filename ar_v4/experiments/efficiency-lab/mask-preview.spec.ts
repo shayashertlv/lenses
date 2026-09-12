@@ -5,15 +5,16 @@ import type {RecordedRunFrame} from './continuous-run.ts';
 import type {RecorderMetadata} from './continuous-recorder.ts';
 import type {HairDeliveryExport} from './hair-delivery.ts';
 import type {FrameSample} from './frame-profiler.ts';
+import {PIPELINES} from './profiles.ts';
 
-const URL_PATH = '/ar_testing/experiments/efficiency-lab/live.html?study=per-image';
-const CHOICES = ['g', 'mask-bytes', 'gl-state', 'word-compose'] as const;
+const URL_PATH = '/ar_testing/';
+const CHOICES = ['g', 'mask-bytes'] as const;
 const ORDER = [...CHOICES, ...[...CHOICES].reverse()];
 type Pipeline = typeof CHOICES[number];
 interface CameraObservation {streams: MediaStream[]; recordings: MediaStream[]; workers: {terminated: boolean}[];}
 
 interface HashGate {reached: boolean; release(): void; restore(): void;}
-declare global {interface Window {perImageCamera: CameraObservation; perImageHashGate?: HashGate;}}
+declare global {interface Window {maskPreviewCamera: CameraObservation; maskPreviewHashGate?: HashGate;}}
 interface Report {
   schema: string; baseCommit: string; sessionId: string; completed: boolean; partial: boolean; startedAtMs: number; endedAtMs: number;
   metadata: {build: {id: string; createdAt: string}; device: {crossOriginIsolated: boolean; secureContext: boolean}};
@@ -38,13 +39,13 @@ interface HeldOutput {
  * This checks lifecycle and matching pixels, not physical-phone or wearer motion quality. */
 async function installCamera(page: Page): Promise<void> {
   const fixture = await readFile(new URL('../../tests/fixtures/face-a.jpg', import.meta.url));
-  await page.route('**/ar_testing/per-image-camera.jpg', route => route.fulfill({contentType: 'image/jpeg', body: fixture}));
+  await page.route('**/ar_testing/mask-preview-camera.jpg', route => route.fulfill({contentType: 'image/jpeg', body: fixture}));
   await page.addInitScript(() => {
-    const state: CameraObservation = {streams: [], recordings: [], workers: []}; window.perImageCamera = state;
+    const state: CameraObservation = {streams: [], recordings: [], workers: []}; window.maskPreviewCamera = state;
     const canvas = document.createElement('canvas'); canvas.width = 720; canvas.height = 1280;
     const context = canvas.getContext('2d')!, image = new Image();
     const ready = new Promise<void>((resolve, reject) => {image.onload = () => resolve(); image.onerror = reject;});
-    image.src = '/ar_testing/per-image-camera.jpg';
+    image.src = '/ar_testing/mask-preview-camera.jpg';
     const draw = (): void => {if (image.complete && image.naturalWidth) {
       context.fillStyle = '#808080'; context.fillRect(0, 0, 720, 1280); context.drawImage(image, 0, 400, 720, 480);
     }};
@@ -72,20 +73,25 @@ async function installCamera(page: Page): Promise<void> {
 }
 async function open(page: Page, eyewear = 'amber-horizon', hair = 'hair-only'): Promise<void> {
   await installCamera(page); await page.goto(URL_PATH);
+  await expect(page).toHaveURL(/\/ar_testing\/experiments\/efficiency-lab\/live\.html\?study=mask-preview$/);
+  await expect(page.locator('#pipeline-select')).toHaveValue('g');
+  expect(await page.evaluate(() => window.maskPreviewCamera.streams.length)).toBe(0);
   expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
     .toEqual(CHOICES);
   await expect(page.locator('#continuous-video')).not.toBeChecked();
   await expect(page.locator('#continuous-start')).toContainText('Measure only');
+  await expect(page.locator('.study-links a')).toHaveCount(1);
   await expect(page.locator('#mask-preview-study')).toHaveAttribute('href', '?study=mask-preview');
+  await expect(page.locator('#mask-preview-study')).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.selectOption('#eyewear-select', eyewear); await page.selectOption('#hair-model-select', hair);
   await page.click('#start'); await expect(page.locator('#continuous-start')).toBeEnabled();
   await expect(page.locator('.stage')).toHaveAttribute('data-state', 'tracking');
 }
 const closed = (page: Page): Promise<boolean> => page.evaluate(() =>
-  window.perImageCamera.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))
-  && window.perImageCamera.recordings.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))
-  && window.perImageCamera.workers.every(worker => worker.terminated));
+  window.maskPreviewCamera.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))
+  && window.maskPreviewCamera.recordings.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))
+  && window.maskPreviewCamera.workers.every(worker => worker.terminated));
 async function cleanup(page: Page): Promise<void> {
   if (await page.locator('#stop').isVisible()) await page.click('#stop');
   await expect.poll(() => closed(page)).toBe(true);
@@ -153,9 +159,9 @@ function observeNetwork(page: Page): {errors: string[]; badResponses: string[]; 
 
 function assertReport(report: Report, complete: boolean): void {
   expect(report.schema).toBe('ar-continuous-comparison-v1'); expect(report.completed).toBe(complete); expect(report.partial).toBe(!complete);
-  expect(report.protocol.studyOptions).toBe('per-image'); expect(report.protocol.order).toEqual(ORDER);
+  expect(report.protocol.studyOptions).toBe('mask-preview'); expect(report.protocol.order).toEqual(ORDER);
   expect(report.protocol.warmupMs).toBe(5000); expect(report.protocol.measureMs).toBe(30000);
-  expect(report.protocol.minimumTrackedMaskedWarmupFrames).toBe(3); expect(report.windows).toHaveLength(8);
+  expect(report.protocol.minimumTrackedMaskedWarmupFrames).toBe(3); expect(report.windows).toHaveLength(4);
   expect(report.workload.sourceWidth).toBe(720); expect(report.workload.sourceHeight).toBe(1280);
   expect(report.hairDeliveryDrain.state).toBe('drained'); expect(report.hairDeliveryDrain.reason).toBeNull();
   expect(report.hairDelivery.sessionId).toBe(report.sessionId); expect(report.hairDelivery.rejected).toBe(0);
@@ -194,10 +200,10 @@ function assertReport(report: Report, complete: boolean): void {
       expect(request!.usedAtPublication).toBe(true); expect(request!.pipeline).toBe(row.fields.pipeline);
     }
   }
-  if (complete) expect(report.endedAtMs - report.startedAtMs).toBeGreaterThanOrEqual(280000);
+  if (complete) expect(report.endedAtMs - report.startedAtMs).toBeGreaterThanOrEqual(140000);
   for (const [index, window] of report.windows.entries()) {
     expect(window.index).toBe(index); expect(window.token).toBe(index + 1); expect(window.pipeline).toBe(ORDER[index]);
-    expect(window.round).toBe(index < 4 ? 1 : 2); if (complete) expect(window.completed).toBe(true);
+    expect(window.round).toBe(index < 2 ? 1 : 2); if (complete) expect(window.completed).toBe(true);
     if (!window.completed) continue;
     expect(window.validWarmupFrames).toBeGreaterThanOrEqual(3);
     expect(window.measureStartedAtMs! - window.switchedAtMs!).toBeGreaterThanOrEqual(5000);
@@ -215,16 +221,9 @@ function assertActualPath(sample: Pick<FrameSample, 'pipeline' | 'hasMask' | 'fa
   expect(native['nativePipeline.native.speedLab.pbo.completed']).toBe(true);
   if (sample.pipeline === 'mask-bytes') {
     expect(native['hairCategory.requestedMode']).toBe('rgba8'); expect(native['hairCategory.path']).toBe('rgba8-readback');
-    expect(Number(native['hairCategory.rgba8ReadbackBytes'])).toBeGreaterThan(0); expect(native['hairCategory.rgba8FallbackReason']).toBeNull();
+    expect(Number(native['hairCategory.rgba8ReadbackBytes'])).toBe(sample.sourceWidth * sample.sourceHeight * 4); expect(native['hairCategory.rgba8FallbackReason']).toBeNull();
   } else expect(native['hairCategory.requestedMode']).toBe('sdk');
-  if (sample.pipeline === 'gl-state') {
-    expect(native['nativePipeline.native.speedLab.pbo.ownedPackStateUsed']).toBe(true);
-    expect(Number(native['nativePipeline.native.speedLab.pbo.packStateQueriesAvoided'])).toBeGreaterThan(0);
-  }
-  if (sample.pipeline === 'word-compose') {
-    expect(native['wordComparisonRequested']).toBe(true); expect(native['wordComparisonUsed']).toBe(true);
-    expect(native['wordComparedPixels']).toBe(sample.sourceWidth * sample.sourceHeight);
-  }
+
 }
 
 async function livePath(page: Page, pipeline: Pipeline): Promise<FrameSample> {
@@ -241,7 +240,15 @@ async function heldAndRestart(page: Page): Promise<void> {
   const oldSession = await page.evaluate(() => window.hairLivePreview.diagnostics().sessionId);
   await page.click('#hold-frame'); await expect(page.locator('.stage')).toHaveAttribute('data-state', 'held');
   await expect.poll(() => page.evaluate(() => window.hairLivePreview.diagnostics().heldBusy)).toBe(false);
-  const outputs = await page.evaluate(() => window.hairLivePreview.exportDiagnostic()) as Record<string, HeldOutput>;
+  const diagnostic = await page.evaluate(() => window.hairLivePreview.exportDiagnostic()) as Record<string, unknown>;
+  expect(diagnostic.schema).toBe('ar-efficiency-comparison-v1'); expect(diagnostic.candidateAccepted).toBe(false);
+  expect(diagnostic.ownerSelectedG).toBe(true); expect(diagnostic.comparedPipelines).toEqual(CHOICES);
+  expect(diagnostic.inputPolicy).toContain('does not independently test V live mask extraction');
+  expect(PIPELINES.filter(id => Object.hasOwn(diagnostic, id))).toEqual(CHOICES);
+  const outputs = diagnostic as Record<string, HeldOutput>;
+  await expect(page.locator('#hold-hint')).toContainText('G and V share this exact image and diagnostic mask');
+  await expect(page.locator('#hold-hint')).not.toContainText('Rate options');
+  await page.screenshot({path: test.info().outputPath('mask-preview-held.png'), fullPage: true});
   const g = outputs.g!;
   // V deliberately shares G's SDK full diagnostic mask on Hold. The independent
   // same-MPMask extraction study, not this held alias, proves V category equality.
@@ -266,16 +273,38 @@ async function heldAndRestart(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.hairLivePreview.diagnostics().sessionId)).not.toBe(oldSession);
 }
 
-test('per image: full eight-window measurement-only run preserves source cadence, all hair outcomes and production boundaries', async ({page}) => {
-  test.setTimeout(480_000); const network = observeNetwork(page); await open(page);
+test('mask preview: default and candidate links stay focused while explicit historical studies remain accessible', async ({page}) => {
+  const network = observeNetwork(page); await installCamera(page); await page.goto(URL_PATH);
+  await expect(page).toHaveURL(/\?study=mask-preview$/);
+  await expect(page.locator('#pipeline-select')).toHaveValue('g');
+  await expect(page.locator('.study-links a')).toHaveCount(1);
+  await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview&pipeline=mask-bytes');
+  await expect(page.locator('#pipeline-select')).toHaveValue('mask-bytes');
+  await expect(page.locator('#continuous-video')).not.toBeChecked();
+  await page.click('.brand'); await expect(page).toHaveURL(/\?study=mask-preview$/);
+  await expect(page.locator('#pipeline-select')).toHaveValue('g');
+  await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=review&legacy=1');
+  expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+    .toEqual(['g', 'publish', 'region', 'lens', 'ui']);
+  await page.click('#mask-preview-study');
+  await expect(page).toHaveURL(/\?study=mask-preview$/);
+  expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+    .toEqual(CHOICES);
+  expect(await page.evaluate(() => window.maskPreviewCamera.streams.length)).toBe(0);
+  expect(await page.evaluate(() => window.maskPreviewCamera.workers.length)).toBe(0);
+  expect(network).toEqual({errors: [], badResponses: [], unscoped: []});
+});
+
+test('mask preview: full four-window measurement-only run preserves source cadence, all hair outcomes and production boundaries', async ({page}) => {
+  test.setTimeout(300_000); const network = observeNetwork(page); await open(page);
   try {
-    const downloaded = page.waitForEvent('download', {timeout: 390_000}); await page.click('#continuous-start');
+    const downloaded = page.waitForEvent('download', {timeout: 210_000}); await page.click('#continuous-start');
     for (const selector of ['#pipeline-select', '#variant-select', '#continuous-video', '#hold-frame', '#toggle-pipeline', '#stage-toggle-pipeline'])
       await expect(page.locator(selector)).toBeDisabled();
     await expect.poll(() => page.evaluate(() => window.arContinuousComparison.status()?.state)).toBe('measuring');
     for (const cue of ['Face forward · check nose/front', 'Slowly look down', 'Slowly look up', 'Slowly turn left', 'Slowly turn right'])
       await expect(page.locator('#run-movement')).toHaveText(cue, {timeout: 8000});
-    const {report, files} = await downloadReport(await downloaded, 'g-v-w-x-full'); assertReport(report, true);
+    const {report, files} = await downloadReport(await downloaded, 'g-v-full'); assertReport(report, true);
     expect([...files.keys()]).toEqual(['telemetry.json']); expect(report.recording.requested).toBe(false);
     expect(report.recording.status).toBe('disabled'); expect(report.recording.bytes).toBe(0);
     expect(report.hairDelivery.requests.length).toBeGreaterThan(0);
@@ -289,51 +318,66 @@ test('per image: full eight-window measurement-only run preserves source cadence
     expect(report.metadata.build).toEqual({id: release.sourceFingerprint, createdAt: release.createdAt});
     expect(report.baseCommit).toBe(release.baseCommit); expect(report.metadata.device.crossOriginIsolated).toBe(true);
     expect(report.metadata.device.secureContext).toBe(true); await expect(page.locator('#continuous-start')).toBeEnabled();
-    expect(await page.evaluate(() => window.perImageCamera.recordings.length)).toBe(0);
+    expect(await page.evaluate(() => window.maskPreviewCamera.recordings.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({path: test.info().outputPath('per-image-after-full-run.png'), fullPage: true});
+    await page.screenshot({path: test.info().outputPath('mask-preview-after-full-run.png'), fullPage: true});
     expect(network).toEqual({errors: [], badResponses: [], unscoped: []});
   } finally {await cleanup(page);}
 });
 
 for (const eyewear of ['amber-horizon', 'tom-ford-clear']) for (const hair of ['hair-only', 'selfie-multiclass']) {
-  test(`per image: real G/V/W/X paths, exact held portrait and restart for ${eyewear}/${hair}`, async ({page}) => {
+  test(`mask preview: real G/V paths, exact held portrait and restart for ${eyewear}/${hair}`, async ({page}) => {
     test.setTimeout(180_000); const network = observeNetwork(page); await open(page, eyewear, hair);
     try {
       const samples: FrameSample[] = [];
       for (const pipeline of [...CHOICES, 'g'] as const) samples.push(await livePath(page, pipeline));
       expect(samples[0]!.gpuRenderer).toMatch(/Direct3D11|D3D11/i); expect(samples[0]!.gpuRenderer).not.toMatch(/SwiftShader|software/i);
-      await writeFile(test.info().outputPath('per-image-live-paths.json'), JSON.stringify(samples, null, 2));
+      await writeFile(test.info().outputPath('mask-preview-live-paths.json'), JSON.stringify(samples, null, 2));
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({path: test.info().outputPath('per-image-mobile-layout.png'), fullPage: true});
+      await page.screenshot({path: test.info().outputPath('mask-preview-mobile-layout.png'), fullPage: true});
       await heldAndRestart(page); expect(network).toEqual({errors: [], badResponses: [], unscoped: []});
     } finally {await cleanup(page);}
   });
 }
 
-test('per image: optional partial video and Stop during switch preserve evidence and resume once', async ({page}) => {
+test('mask preview: optional partial video and Stop during switch preserve evidence and resume once', async ({page}) => {
   test.setTimeout(120_000); const network = observeNetwork(page); await open(page);
   try {
     await page.check('#continuous-video'); const downloaded = page.waitForEvent('download'); await page.click('#continuous-start');
     await expect.poll(() => page.evaluate(() => window.arContinuousComparison.status()?.phaseElapsedMs ?? 0)).toBeGreaterThan(2000);
-    await page.click('#continuous-stop'); const video = await downloadReport(await downloaded, 'g-v-w-x-video-partial'); assertReport(video.report, false);
+    await page.click('#continuous-stop'); const video = await downloadReport(await downloaded, 'g-v-video-partial'); assertReport(video.report, false);
     expect(video.report.recording.requested).toBe(true); expect(video.report.recording.audio).toBe(false);
     expect(video.report.recording.bytes).toBeGreaterThan(0); expect(video.report.recording.status).toBe('stopped');
-    expect([...video.files.keys()].some(name => /^ar-mirror\.(webm|mp4)$/.test(name))).toBe(true);
+    expect(video.report.recording.width).toBe(720); expect(video.report.recording.height).toBe(1280);
+    const videoName = [...video.files.keys()].find(name => /^ar-mirror\.(webm|mp4)$/.test(name));
+    expect(videoName).toBeDefined(); const videoBytes = video.files.get(videoName!)!;
+    expect(videoBytes.length).toBe(video.report.recording.bytes);
+    await page.route('**/ar_testing/mask-preview-video', route => route.fulfill({body: videoBytes,
+      contentType: video.report.recording.mimeType!}));
+    const decoded = await page.evaluate(async () => {
+      const element = document.createElement('video'); element.muted = true; element.playsInline = true;
+      const loaded = new Promise<void>((resolve, reject) => {
+        element.onloadeddata = () => resolve(); element.onerror = () => reject(new Error(element.error?.message));
+      });
+      element.src = '/ar_testing/mask-preview-video'; document.body.append(element); await loaded;
+      await element.play(); await new Promise<void>(resolve => element.requestVideoFrameCallback(() => resolve()));
+      const dimensions = {width: element.videoWidth, height: element.videoHeight}; element.pause(); element.remove(); return dimensions;
+    });
+    expect(decoded).toEqual({width: 720, height: 1280});
     await expect(page.locator('#continuous-start')).toBeEnabled(); await page.uncheck('#continuous-video');
     const stoppedDownload = page.waitForEvent('download');
     const stoppedIn = await page.evaluate(() => {
       document.getElementById('continuous-start')!.click(); const state = window.arContinuousComparison.status()?.state;
       document.getElementById('continuous-stop')!.click(); return state;
     });
-    expect(stoppedIn).toBe('switching'); const stopped = await downloadReport(await stoppedDownload, 'g-v-w-x-stop-switch'); assertReport(stopped.report, false);
+    expect(stoppedIn).toBe('switching'); const stopped = await downloadReport(await stoppedDownload, 'g-v-stop-switch'); assertReport(stopped.report, false);
     expect(stopped.report.rows).toHaveLength(0); expect(stopped.report.recording.requested).toBe(false);
     await expect(page.locator('#continuous-start')).toBeEnabled(); await livePath(page, 'g');
     expect(network).toEqual({errors: [], badResponses: [], unscoped: []});
   } finally {await cleanup(page);}
 });
 
-test('per image: a real late mask hash keeps its original publication disposition in the drained archive', async ({page}) => {
+test('mask preview: a real late mask hash keeps its original publication disposition in the drained archive', async ({page}) => {
   test.setTimeout(120_000); const network = observeNetwork(page); await open(page);
   try {
     await page.click('#continuous-start'); await expect.poll(() => page.evaluate(() => window.arContinuousComparison.status()?.state)).toBe('measuring');
@@ -343,7 +387,7 @@ test('per image: a real late mask hash keeps its original publication dispositio
       const original = crypto.subtle.digest.bind(crypto.subtle); let release!: () => void, armed = true;
       const waiting = new Promise<void>(resolve => {release = resolve;});
       const gate: HashGate = {reached: false, release, restore: () => {crypto.subtle.digest = original; release();}};
-      window.perImageHashGate = gate;
+      window.maskPreviewHashGate = gate;
       crypto.subtle.digest = async (algorithm: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> => {
         const result = await original(algorithm, data);
         if (armed && data.byteLength === 720 * 1280) {armed = false; gate.reached = true; await waiting;}
@@ -351,14 +395,14 @@ test('per image: a real late mask hash keeps its original publication dispositio
       };
     });
     const serial = await page.evaluate(() => window.arPerformanceProfiler.samplesAfter(0).at(-1)!.serial);
-    await expect.poll(() => page.evaluate(() => window.perImageHashGate!.reached)).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.maskPreviewHashGate!.reached)).toBe(true);
     await expect.poll(() => page.evaluate(serial => window.arPerformanceProfiler.samplesAfter(serial).some(sample => sample.hasFace && !sample.hasMask), serial)).toBe(true);
-    await page.evaluate(() => window.perImageHashGate!.release());
+    await page.evaluate(() => window.maskPreviewHashGate!.release());
     const downloaded = page.waitForEvent('download'); await page.click('#continuous-stop');
-    const {report} = await downloadReport(await downloaded, 'g-v-w-x-late-mask'); assertReport(report, false);
+    const {report} = await downloadReport(await downloaded, 'g-v-late-mask'); assertReport(report, false);
     const late = report.hairDelivery.requests.filter(request => request.publicationAtMs !== null && request.timing?.outcome === 'completed'
       && request.timing.completedAtMs! > request.publicationAtMs);
     expect(late.length).toBeGreaterThan(0); for (const request of late) expect(request.usedAtPublication).toBe(false);
     await expect(page.locator('#continuous-start')).toBeEnabled(); expect(network).toEqual({errors: [], badResponses: [], unscoped: []});
-  } finally {await page.evaluate(() => window.perImageHashGate?.restore()); await cleanup(page);}
+  } finally {await page.evaluate(() => window.maskPreviewHashGate?.restore()); await cleanup(page);}
 });
