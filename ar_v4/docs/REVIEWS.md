@@ -1,5 +1,24 @@
 ## FPS review experiments - September 13, 2026
 
+Railway entry correction: the all-options package at `84762f7` was pushed and
+served correctly, but the normal `/ar_testing/` redirect was still canonicalized
+by the AR client into `mask-preview`. It now resolves in the browser to
+`?study=fps-review`, with all six options and G first. A visible All FPS experiments
+link is available from the preserved G/V and historical studies. Python routes,
+rendering, measurement protocol and private files are unchanged by this correction.
+The entry-corrected package fingerprint is
+`11991d87efe8c485a431ee32980d42a4b2cdd6934d5d7af39407acfd4452eca1`.
+Strict TypeScript and 292 focused checks pass. Entry validation now tests actual
+browser navigation from the normal landing link, alongside the existing
+published-byte check; an HTTP redirect/manifest check alone did not expose the
+previous client-side default mismatch.
+The camera-off entry regression passes (1/1), including query-free and old
+default URLs, all-six/G-first controls, explicit G/V links and historical studies.
+`qa/verify-published-entry.mjs` also passes against the local production Python
+routes, following the actual website landing link and returning through G/V.
+Camera requests and worker construction remain zero throughout both checks.
+Logs and local navigation receipt are in `.recovery/landing-entry-2026-09-13/`.
+
 Owner follow-up: the bare `?study=fps-review` entry now contains all six choices
 in one camera session: G, CPU face, render worker, VideoFrame copy, compositor
 reuse and V. G remains selected first. The new `fps-all` recording protocol runs

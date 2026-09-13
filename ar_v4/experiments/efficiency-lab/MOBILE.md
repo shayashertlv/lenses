@@ -1,5 +1,9 @@
 # FPS review testing ground — September 13, 2026
 
+The normal Railway **ar_testing** link (`/ar_testing/`) and query-free mobile
+entry now open this all-options preview. Every study also has an **All FPS
+experiments** navigation link. Reload an already-open page to load a new release.
+
 Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review` for the
 four new options: CPU face tracking, worker rendering, VideoFrame camera copy
 and compositor reuse, alongside G and the V reference. All six are now in the
@@ -36,9 +40,9 @@ served by the existing Python application. The Railway start command remains
 `python -m UI.app`. The page begins with the accepted G renderer and offers the
 independent experiments. No candidate is promoted by this page.
 
-The current **G / V** preview is:
+The preserved focused **G / V** preview is:
 `/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.
-The `/ar_testing/` landing option and query-free mobile entry also open it.
+Open that explicit URL for G/V; the landing and query-free entry open all FPS options.
 V retains the tested full-resolution RGBA8 hair-mask retrieval. G is selected
 initially and remains accepted. Scheduling, resolution, models, geometry, exact
 image/detection/pose/mask pairing and final safeguards are unchanged.
@@ -70,7 +74,7 @@ Obsolete experiment links are removed from the public menu. Historical studies
 remain at explicit URLs for reproducing evidence: `?study=per-image` for G/V/W/X,
 `?study=review&legacy=1` for Q–T, and `?study=hair-delivery` for rejected U.
 The existing Python redirect is unchanged; the AR page canonicalizes its mobile
-default to `mask-preview`. Local full-lab and accepted reference entry points stay.
+default to `fps-review`. Local full-lab and accepted reference entry points stay.
 
 The historical **G vs U · hair processing** URL is
 `/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.

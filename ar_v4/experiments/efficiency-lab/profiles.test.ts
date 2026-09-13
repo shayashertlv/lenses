@@ -140,15 +140,16 @@ test('focused preview exposes only G and V while requiring explicit selection of
     assert.equal(initialPipeline('?study=mask-preview&pipeline=' + pipeline), 'g');
 });
 
-test('mobile entry opens the focused preview and keeps explicit historical URLs available', () => {
+test('mobile entry opens all FPS experiments and keeps explicit historical URLs available', () => {
   for (const search of ['', '?study=review']) {
     const normalized = previewSearch(search, true);
-    assert.equal(new URLSearchParams(normalized).get('study'), 'mask-preview');
+    assert.equal(new URLSearchParams(normalized).get('study'), 'fps-review');
+    assert.deepEqual(studyPipelines(normalized), FPS_REVIEW_PIPELINES);
     assert.equal(initialPipeline(normalized), 'g');
     assert.equal(previewSearch(normalized, true), normalized);
   }
   const selected = new URLSearchParams(previewSearch('?study=review&pipeline=mask-bytes&capture=scalar', true));
-  assert.equal(selected.get('study'), 'mask-preview');
+  assert.equal(selected.get('study'), 'fps-review');
   assert.equal(selected.get('pipeline'), 'mask-bytes'); assert.equal(selected.get('capture'), 'scalar');
   for (const search of ['?study=review&legacy=1', '?study=per-image', '?study=hair-delivery', '?study=mask-preview'])
     assert.equal(previewSearch(search, true), search);

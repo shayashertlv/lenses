@@ -7,7 +7,9 @@ import type {HairDeliveryExport} from './hair-delivery.ts';
 import type {FrameSample} from './frame-profiler.ts';
 import {PIPELINES} from './profiles.ts';
 
-const URL_PATH = '/ar_testing/';
+const LIVE_PATH = '/ar_testing/experiments/efficiency-lab/live.html';
+const URL_PATH = LIVE_PATH + '?study=mask-preview';
+const ALL_CHOICES = ['g', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'mask-bytes'] as const;
 const CHOICES = ['g', 'mask-bytes'] as const;
 const ORDER = [...CHOICES, ...[...CHOICES].reverse()];
 type Pipeline = typeof CHOICES[number];
@@ -80,7 +82,7 @@ async function open(page: Page, eyewear = 'amber-horizon', hair = 'hair-only'): 
     .toEqual(CHOICES);
   await expect(page.locator('#continuous-video')).not.toBeChecked();
   await expect(page.locator('#continuous-start')).toContainText('Measure only');
-  await expect(page.locator('.study-links a')).toHaveCount(1);
+  await expect(page.locator('.study-links a')).toHaveCount(2);
   await expect(page.locator('#mask-preview-study')).toHaveAttribute('href', '?study=mask-preview');
   await expect(page.locator('#mask-preview-study')).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -273,17 +275,43 @@ async function heldAndRestart(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.hairLivePreview.diagnostics().sessionId)).not.toBe(oldSession);
 }
 
-test('mask preview: default and candidate links stay focused while explicit historical studies remain accessible', async ({page}) => {
-  const network = observeNetwork(page); await installCamera(page); await page.goto(URL_PATH);
+test('mobile entry: default routes expose all FPS experiments while focused and historical links remain accessible', async ({page}) => {
+  const network = observeNetwork(page); await installCamera(page);
+  const assertAllOptions = async (): Promise<void> => {
+    await expect(page).toHaveURL(/\?study=fps-review$/);
+    await expect(page.locator('#pipeline-select')).toHaveValue('g');
+    expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+      .toEqual(ALL_CHOICES);
+    await expect(page.locator('#review-candidate')).toHaveValue('all');
+    await expect(page.locator('#continuous-video')).not.toBeChecked();
+    await expect(page.locator('#continuous-start')).toContainText('Measure only · all six options · ~7 min');
+    await expect(page.locator('#continuous-title')).toHaveText('All six options · about 7 minutes');
+    await expect(page.locator('.study-links a')).toHaveCount(2);
+    await expect(page.locator('#fps-review-study')).toHaveAttribute('href', '?study=fps-review');
+    await expect(page.locator('#fps-review-study')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#mask-preview-study')).toHaveAttribute('href', '?study=mask-preview');
+    await expect(page.locator('#mask-preview-study')).toHaveText('Earlier G / V preview');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.evaluate(() => window.maskPreviewCamera.streams.length)).toBe(0);
+    expect(await page.evaluate(() => window.maskPreviewCamera.workers.length)).toBe(0);
+  };
+  // The production Python route still redirects through study=review; the AR
+  // client must resolve both that entry and query-free direct bookmarks.
+  for (const path of ['/ar_testing/', LIVE_PATH, LIVE_PATH + '?study=review']) {
+    await page.goto(path); await assertAllOptions();
+  }
+  await page.screenshot({path: test.info().outputPath('default-all-fps-options.png'), fullPage: true});
+  await page.click('#mask-preview-study');
   await expect(page).toHaveURL(/\?study=mask-preview$/);
-  await expect(page.locator('#pipeline-select')).toHaveValue('g');
-  await expect(page.locator('.study-links a')).toHaveCount(1);
-  await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview&pipeline=mask-bytes');
+  expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+    .toEqual(CHOICES);
+  await expect(page.locator('#mask-preview-study')).toHaveAttribute('aria-current', 'page');
+  await page.click('#fps-review-study'); await assertAllOptions();
+  await page.goto(LIVE_PATH + '?study=mask-preview&pipeline=mask-bytes');
   await expect(page.locator('#pipeline-select')).toHaveValue('mask-bytes');
   await expect(page.locator('#continuous-video')).not.toBeChecked();
-  await page.click('.brand'); await expect(page).toHaveURL(/\?study=mask-preview$/);
-  await expect(page.locator('#pipeline-select')).toHaveValue('g');
-  await page.goto('/ar_testing/experiments/efficiency-lab/live.html?study=review&legacy=1');
+  await page.click('.brand'); await assertAllOptions();
+  await page.goto(LIVE_PATH + '?study=review&legacy=1');
   expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
     .toEqual(['g', 'publish', 'region', 'lens', 'ui']);
   await page.click('#mask-preview-study');

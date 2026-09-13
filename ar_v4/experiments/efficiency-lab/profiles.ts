@@ -73,7 +73,7 @@ export function previewSearch(search: string, mobile: boolean): string {
   const params = new URLSearchParams(search);
   const study = params.get('study');
   if (!mobile || params.get('legacy') === '1' || (study !== null && study !== 'review')) return search;
-  params.set('study', 'mask-preview');
+  params.set('study', 'fps-review');
   return '?' + params.toString();
 }
 

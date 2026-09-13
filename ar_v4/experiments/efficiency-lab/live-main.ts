@@ -74,6 +74,7 @@ reviewCandidateSelect.addEventListener('change', () => {
 if (focusedStudy === 'fps-review') {
   document.title = 'Lenses · FPS review tests';
   document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=fps-review';
+  element('fps-review-study').setAttribute('aria-current', 'page');
   element('fps-review-options').hidden = false;
   element('mask-preview-study').textContent = 'Earlier G / V preview';
   element('study-heading').textContent = 'Test the next smoother mirror.';

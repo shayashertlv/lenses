@@ -1,5 +1,13 @@
 # FPS review candidates — September 13, 2026
 
+Entry-point correction: the normal Railway `/ar_testing/` link and query-free
+mobile page now open all six FPS options. The previous package was deployed,
+but the AR client still mapped the Python landing redirect to the older G/V
+study. Only AR entry mapping/navigation changed; Python routes remain unchanged.
+Every preview now links to **All FPS experiments** and the preserved G/V study.
+Entry-corrected package fingerprint:
+`11991d87efe8c485a431ee32980d42a4b2cdd6934d5d7af39407acfd4452eca1`.
+
 The owner requested a ready-to-test, pushed preview based on the attached FPS
 review. New entry: `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review`.
 The owner's follow-up requests all experiments in one preview. This entry now
@@ -19,7 +27,7 @@ See [assessment and test protocol](docs/FPS_REVIEW_2026-09-13.md),
 [mobile guide](experiments/efficiency-lab/MOBILE.md) and current REVIEWS.md findings
 for mechanisms, measured versus hypothetical claims and validation limits.
 
-The all-options package fingerprint is
+The preceding all-options package fingerprint is
 `c235caea31a9582cc32e97e200365abade322146ad908f05b3682f6b1c388fe1`.
 The preceding focused FPS-review package fingerprint is
 `71666ebb3f29f36e1031b8a0ee871b374738e0cddfe5492c68e9c05f89cd6f0b`.
@@ -41,7 +49,7 @@ See the latest docs/REVIEWS.md and original-checkout private evidence under
 
 The owner authorized the focused preview and push after the phone comparison.
 Current entry: `/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.
-The mobile landing/brand entry opens G/V with G selected. Its G/V/V/G run takes
+This explicit G/V entry keeps G selected. Its G/V/V/G run takes
 about 2.5 minutes with unchanged warmup and measurement windows, measurements
 on and optional video off. Both glasses/hair choices and movement cues remain.
 Old experiment navigation is removed; explicit historical URLs and their source,
