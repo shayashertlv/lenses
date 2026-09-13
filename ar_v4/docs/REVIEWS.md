@@ -1,3 +1,107 @@
+## Phone orientation failure and completed FPS tests - September 13, 2026
+
+The owner reports that the other tests showed a camera image rotated 90 degrees
+and no glasses. The three supplied ZIPs contain only successful CPU-face,
+render-worker and compositor comparisons; none contains the failed state. The
+camera-copy implementation had a concrete orientation defect consistent with
+that symptom: absent `VideoFrame.rotation` was treated as zero, and transform
+fallback drew the same raw VideoFrame. This is a code finding, not a trace proving
+which phone option failed. V does not use this capture helper.
+
+Camera copying now requires explicit valid rotation/flip metadata, zero rotation,
+no flip and matching visible/display dimensions. Unknown orientation or a known
+transform uses G's upright HTMLVideoElement snapshot synchronously in the
+original admitted camera callback, before any await. The unused VideoFrame closes
+once. An asynchronous copy failure may use only the already verified untransformed
+frozen frame; it never rereads live video. Resolution, source/detection/pose/mask
+ownership and downstream rendering remain unchanged. The UI identifies upright
+fallback, and exports include actual capture path, reason and source/frame
+orientation/dimensions. Fallback is not evidence of a native-copy speedup.
+See [capture contract and primary implementation references](../experiments/efficiency-lab/review-options/README.md).
+
+Independent CRC/raw-clock/pairing audits pass for all three 47ba023a9cc0 packages:
+four complete 30-second windows each, fresh runtime generations 2/3/4/5, no row
+truncation, all hair requests completed and drained. Within each ZIP, balanced
+G / option / option / G aggregates are:
+
+| Option | Recording | Completed AR/s, option / G | Change | Matching masks, option / G |
+| --- | --- | ---: | ---: | ---: |
+| CPU face | Actual video on | 15.817 / 16.267 | -2.77% | 75.55% / 57.17% |
+| Render worker | Off | 14.700 / 15.917 | -7.64% | 100% / 64.50% |
+| Compositor reuse | Off | 14.150 / 14.450 | -2.08% | 40.87% / 64.59% |
+
+There is no measured FPS winner. Fresh runtime teardown did not remove drift:
+first/final G rates are 18.367/14.167, 17.600/14.233 and 15.633/13.267 AR/s,
+declines of 22.9%, 19.1% and 15.1%. Camera delivery remains about 28.48-29.99 FPS,
+tracking is 100%, and no measured completion gap exceeds 200 ms. First/final G
+frame-age p95 increases from 146 to 174, 156 to 169 and 167 to 193 ms. Runtime
+setup is excluded and separately reported; these declines are not startup FPS.
+Thermal load, browser-wide state and pose differences remain hypotheses, not
+established causes. Runtime rebuilding does not establish fresh-page equivalence.
+
+The worker backend actually ran on all 882 measured candidate frames, with 100%
+matching masks but more total render cost (prepare RPC median about 44 ms,
+complete RPC about 14-17 ms). Compositor reuse actually ran on its 347 masked
+candidate frames; 502 other candidate frames lacked a matching mask at publication.
+Its lower aggregate composition timing therefore does not represent equivalent
+work. Full-resolution residual scanning, initial copying and final safeguards
+remain. CPU delegate use is verified. Do not pool these absolute rates across
+ZIPs: only the CPU run includes an actual 23,032,735-byte video.
+
+All uploads are Amber Horizon, hair-only, hair on, 720x1280. Twenty CPU-video
+samples show an upright view and visible glasses at front, down, up and both yaw
+directions across the four windows. Motion amplitudes are unequal and samples do
+not establish temporal quality. There is no Tom Ford or selfie-multiclass phone
+video here, and no worker/compositor video. Higher mask coverage alone is not
+visual acceptance. No candidate is promoted; G remains accepted.
+
+Private byte-identical ZIP copies, source SHA-256 manifest, reproducible independent
+audit and sampled-video review remain under
+`.recovery/phone-fps-2026-09-13-new/`. Original recordings are unchanged and excluded
+from Git and the mobile package.
+
+Strict TypeScript and all 305 efficiency checks pass. Five production browser
+orientation cases pass without retry on release `3de1525f7c6d`: missing rotation/
+flip across both glasses and both hair models, plus explicit 90-degree rotation
+and swapped storage dimensions. Each follows G / camera copy / V / G using one
+camera and real GPU workers. All keep upright 720x1280 output, tracked matching
+masks, exact held input/detection/pose/mask and matching geometry/output pixels,
+with unchanged nose/front/background guards. The deliberately sideways copy path
+is never invoked; all 234 VideoFrames, 50 workers and five camera streams close.
+Amber and Tom Ford screenshots show upright faces and glasses. These static
+synthetic checks do not establish phone throughput or down/up/yaw motion quality.
+Receipts are under `experiments/efficiency-lab/test-results/mobile-2026-09-13T15-53-28.448Z/`.
+
+Three real Chromium capture checks also pass: native portrait RGBA copy remains
+active with exact downstream canvas bytes, asynchronous fallback retains the
+frozen image after camera advancement, and cancellation closes before writing.
+Logs are `.recovery/phone-fps-2026-09-13-new/orientation-browser.log`,
+`native-capture.log` and `efficiency-tests.log`. Physical iPhone orientation
+recovery still requires a new run; the failed state was not present in the ZIPs.
+
+The required `npm test` completed 172 unit checks and 20 browser cases, then
+failed the unchanged long-hair reference's selfie-multiclass resume check: no
+matching category mask was observed during its 55-second polling deadline. The
+same case passed in 53.9 seconds when rerun alone with unchanged assertions and
+timeouts. No reference code was edited. The full command therefore had one failure;
+the focused rerun does not erase it or establish the cause of the timeout.
+The failure trace and source hashes are preserved under
+`.recovery/phone-fps-2026-09-13-new/reference-integration-failure/`, with original
+`npm-test.log` and separate `reference-retry.log`. The five new production
+orientation cases passed initially; this separate software-rendered reference
+check does not exercise the camera-copy helper. All 239 G dependencies still
+match their pinned Git blobs, all 461 original-checkout files retain their hashes,
+and all three phone ZIP originals remain byte-identical.
+
+For the phone retest, refresh the corrected page and select camera copy first;
+confirm an upright view and glasses. Then test V independently and the all-options
+run. Keep video off for throughput and save a separate video run for visual review.
+Cover Amber Horizon and Tom Ford Clear with both hair-only and selfie-multiclass,
+including front/nose, down, up, both yaw directions, hair edges, tracking and
+responsiveness. Compare full-window completed AR/s, age/stalls, startup and matching
+masks, and use separate refreshed runs with reversed order to investigate the
+remaining drift. Native-copy fallback must remain identifiable in comparisons.
+
 ## Fresh runtime switching - September 13, 2026
 
 The owner reports lower FPS after algorithm switches, with the highest rates

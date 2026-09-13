@@ -1,3 +1,26 @@
+# Upright camera-copy correction - September 13, 2026
+
+The owner reports sideways camera/no glasses in the tests that did not work.
+Unknown VideoFrame orientation must not be treated as zero: the camera-copy
+candidate now falls back synchronously to G's upright camera snapshot before any
+await when metadata is missing or transformed. Exports retain actual fallback
+and dimensions/orientation; the UI explains it. Native copying is attempted only
+for verified untransformed frames. G and V implementations remain unchanged.
+
+The three new successful phone ZIPs are CPU face, render worker and compositor
+reuse. None establishes an FPS win; first/final G declines by 15-23% despite fresh
+runtime teardown. All use Amber/hair-only; only CPU contains video. The user did
+not identify the failed option in a trace, so the capture bug is consistent with
+the symptom rather than proof that V failed. See the newest docs/REVIEWS.md entry
+for exact rates, matching-mask coverage, private audit paths and retest controls.
+Current corrected package fingerprint:
+`3de1525f7c6df92755cdc49d93f33324a13d9ee0a49f1d1d3a14b1e158b42f03`.
+
+Continue only in the isolated deployed checkout below; original dirty files,
+recordings, recovery archives, all 239 pinned G files and parent deployment
+remain preserved. Physical iPhone orientation recovery and sustained FPS recovery
+still require new phone evidence; no candidate is promoted.
+
 # Fresh runtime FPS preview - September 13, 2026
 
 Current change addresses the owner's report that switched tests run slower

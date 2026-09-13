@@ -1,11 +1,16 @@
 export type CapturePath = 'video-frame-copy' | 'canvas-video-frame-fallback' | 'canvas-video-fallback';
 export type CaptureFallback = 'video-frame-unavailable' | 'video-frame-construction-failed'
   | 'rgba-copy-unavailable' | 'dimensions-or-transform' | 'rgba-copy-failed'
-  | 'rgba-layout-unavailable' | 'rgba-alpha-unavailable';
+  | 'rgba-layout-unavailable' | 'rgba-alpha-unavailable' | 'orientation-metadata-unavailable';
 export interface CaptureTelemetry {
   requestedPath: 'video-frame-copy'; actualPath: CapturePath; fallbackReason: CaptureFallback | null;
   snapshotMs: number; copyToMs: number; canvasWriteMs: number; readbackMs: number; totalMs: number;
   width: number; height: number; copiedBytes: number;
+  videoWidth: number | null; videoHeight: number | null;
+  frameCodedWidth: number | null; frameCodedHeight: number | null;
+  frameVisibleWidth: number | null; frameVisibleHeight: number | null;
+  frameDisplayWidth: number | null; frameDisplayHeight: number | null;
+  frameRotation: number | null; frameFlip: boolean | null; orientationMetadataAvailable: boolean;
 }
 export interface CapturedPixels {
   /** Storage is ready only after ready resolves; every consumer must await it. */
@@ -14,6 +19,7 @@ export interface CapturedPixels {
 }
 /** Minimal, typed native boundary also used by lifecycle tests. */
 export interface OwnedVideoFrame {
+  readonly codedWidth?: number; readonly codedHeight?: number;
   readonly displayWidth: number; readonly displayHeight: number;
   readonly visibleRect: {readonly x: number; readonly y: number; readonly width: number; readonly height: number} | null;
   readonly rotation?: number; readonly flip?: boolean;
@@ -26,6 +32,7 @@ export interface CaptureDependencies {
   now?: () => number;
 }
 const revoked = (): DOMException => new DOMException('The captured image was revoked.', 'AbortError');
+const dimension = (value: unknown): number | null => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 
 /** One session, one asynchronous copy. Call capture synchronously in the same
  * camera callback / FramePump lazy factory as metadata admission. Keep canvas
@@ -61,7 +68,10 @@ export class ExactVideoFrameCapture {
     const start = this.now(), rgba = this.makeImageData(canvas.width, canvas.height);
     const telemetry: CaptureTelemetry = {requestedPath: 'video-frame-copy', actualPath: 'video-frame-copy', fallbackReason: null,
       snapshotMs: 0, copyToMs: 0, canvasWriteMs: 0, readbackMs: 0, totalMs: 0,
-      width: canvas.width, height: canvas.height, copiedBytes: 0};
+      width: canvas.width, height: canvas.height, copiedBytes: 0,
+      videoWidth: dimension(video.videoWidth), videoHeight: dimension(video.videoHeight),
+      frameCodedWidth: null, frameCodedHeight: null, frameVisibleWidth: null, frameVisibleHeight: null,
+      frameDisplayWidth: null, frameDisplayHeight: null, frameRotation: null, frameFlip: null, orientationMetadataAvailable: false};
     let frame: OwnedVideoFrame | null = null;
     let fallback: CaptureFallback | null = null;
     const alive = (): boolean => !this.stopped && isCurrent();
@@ -92,21 +102,38 @@ export class ExactVideoFrameCapture {
         telemetry.totalMs = this.now() - start;
         return {rgba, ready: Promise.resolve(telemetry)};
       }
+      const rect = frame.visibleRect;
+      const rotation = frame.rotation, flip = frame.flip;
+      telemetry.frameCodedWidth = dimension(frame.codedWidth); telemetry.frameCodedHeight = dimension(frame.codedHeight);
+      telemetry.frameVisibleWidth = dimension(rect?.width); telemetry.frameVisibleHeight = dimension(rect?.height);
+      telemetry.frameDisplayWidth = dimension(frame.displayWidth); telemetry.frameDisplayHeight = dimension(frame.displayHeight);
+      telemetry.frameRotation = typeof rotation === 'number' && [0, 90, 180, 270].includes(rotation) ? rotation : null;
+      telemetry.frameFlip = typeof flip === 'boolean' ? flip : null;
+      telemetry.orientationMetadataAvailable = telemetry.frameRotation !== null && telemetry.frameFlip !== null;
+      // Some browsers retain camera orientation internally without exposing it
+      // and draw VideoFrames without applying that orientation. Missing metadata
+      // cannot mean zero rotation. Use G's video snapshot in THIS camera task,
+      // before any asynchronous copy can let the live image advance.
+      if (!telemetry.orientationMetadataAvailable) fallback = 'orientation-metadata-unavailable';
+      else if (!rect || rect.width !== canvas.width || rect.height !== canvas.height
+        || frame.displayWidth !== canvas.width || frame.displayHeight !== canvas.height
+        || rotation !== 0 || flip !== false) fallback = 'dimensions-or-transform';
+      if (fallback) {
+        const unusedFrame = frame; frame = null;
+        unusedFrame.close(); this.counts.framesClosed++;
+        canvasFallback(video, fallback, false);
+        telemetry.totalMs = this.now() - start;
+        return {rgba, ready: Promise.resolve(telemetry)};
+      }
       const ownedFrame = frame;
       const task = (async (): Promise<CaptureTelemetry> => {
         try {
-          const rect = ownedFrame.visibleRect;
           if (typeof ownedFrame.copyTo !== 'function') fallback = 'rgba-copy-unavailable';
-          // copyTo does not resize, orient, or apply display aspect adjustments.
-          // Preserve G's exact dimensions by explicitly falling back for those.
-          else if (!rect || rect.width !== canvas.width || rect.height !== canvas.height
-            || ownedFrame.displayWidth !== canvas.width || ownedFrame.displayHeight !== canvas.height
-            || (ownedFrame.rotation ?? 0) !== 0 || ownedFrame.flip === true) fallback = 'dimensions-or-transform';
           else {
             const copyStart = this.now();
             try {
               const layout = await ownedFrame.copyTo(rgba.data, {format: 'RGBA', colorSpace: 'srgb',
-                rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+                rect: {x: rect!.x, y: rect!.y, width: rect!.width, height: rect!.height},
                 layout: [{offset: 0, stride: canvas.width * 4}]});
               telemetry.copyToMs = this.now() - copyStart;
               if (!alive()) throw revoked();

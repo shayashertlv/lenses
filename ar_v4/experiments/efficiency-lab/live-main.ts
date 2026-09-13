@@ -740,7 +740,10 @@ function updateProfileUi(session?: Session, sharedSummary?: ProfileSummary, forc
     const id=session.performanceSample.pipeline;
     const path=id==='face-cpu'?`Face delegate: ${session.performanceSample.faceDelegate ?? 'unavailable'}`
       :id==='render-worker'?`Render backend: ${metric('renderWorker.backend') ?? 'not observed'}`
-      :id==='frame-copy'?`Camera path: ${native?.['capture.actualPath'] ?? 'not observed'}${native?.['capture.fallbackReason'] ? ' · Fallback: '+native['capture.fallbackReason'] : ''}`
+      :id==='frame-copy'?(native?.['capture.fallbackReason']==='orientation-metadata-unavailable'
+        || native?.['capture.fallbackReason']==='dimensions-or-transform'
+        ? 'Using upright camera capture; direct image copy is unavailable for this camera'
+        : `Camera path: ${native?.['capture.actualPath'] ?? 'not observed'}${native?.['capture.fallbackReason'] ? ' · Fallback: '+native['capture.fallbackReason'] : ''}`)
       :id==='reuse-compose'?`Compositor: ${active(metric('reviewCompose.used'))} · Output reused: ${metric('reviewCompose.outputBufferReused')===true?'yes':'no'}`
       :id==='mask-bytes'?`Hair download: ${native?.['hairCategory.path'] ?? 'not observed'}`:'Accepted G pipeline';
     writeText('actual-path',path+'. Completed updates include all transfer and publication costs.');

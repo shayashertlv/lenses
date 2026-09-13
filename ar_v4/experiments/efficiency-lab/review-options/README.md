@@ -13,14 +13,27 @@ owned canvas. Hashing, face/hair bitmaps and rendering must await `ready` and us
 that pair. The canvas lease must outlive capture and its downstream readers.
 Callers must count deferred leases toward the existing two-image bound.
 
-The helper preserves the caller's dimensions, including 720×1280. `copyTo` does
-not resize or apply display transforms: incompatible dimensions/rotation use
-the retained frozen frame through the canvas path. Missing construction support
-uses a synchronous video snapshot in the original callback; rejected conversion
-uses the retained frozen frame, never a later live video image. Actual path,
-fallback reason and stage timings are explicit. The accepted G capture is
-unchanged. See the [WebCodecs specification](https://www.w3.org/TR/webcodecs/)
-for RGBA layout, target color space, visible rectangle and display transforms.
+The helper preserves the caller's dimensions, including 720×1280. Native copying
+requires explicit valid rotation and flip metadata, zero rotation, no flip and
+matching visible/display dimensions. Missing metadata is not evidence of zero
+rotation. Unknown orientation, known transforms or incompatible dimensions use
+G's synchronous video snapshot in the original camera callback, before any
+asynchronous work. The unused VideoFrame is closed immediately. This avoids
+relying on `drawImage(VideoFrame)` to repair an unknown camera transform.
+Missing construction support also uses that synchronous video snapshot.
+Rejected asynchronous conversion can use only its verified untransformed frozen
+frame, never a later live video image. Actual path, fallback reason, source/frame
+dimensions, orientation metadata and stage timings are explicit. Fallback rows
+are not evidence that native camera copying works or improves performance.
+The accepted G capture is unchanged.
+
+The [WebCodecs specification](https://www.w3.org/TR/webcodecs/) distinguishes
+raw copying from rendered display transforms. The inspected
+[WebKit interface](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webcodecs/WebCodecsVideoFrame.idl)
+does not expose rotation/flip, and its
+[canvas VideoFrame path](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/html/canvas/CanvasRenderingContext2DBase.cpp)
+passes no orientation to video-frame drawing. These upstream sources support
+the capability guard; they do not identify the exact engine build on the phone.
 
 Run from `ar_v4/`:
 
@@ -31,9 +44,12 @@ node --test experiments/efficiency-lab/review-options/capture.browser.mjs
 node --test experiments/efficiency-lab/review-options/face.browser.mjs
 ```
 
-The 11 unit tests cover delegate failure/ownership and capture exact pixels,
+Unit tests cover delegate failure/ownership and capture exact pixels,
 missing features, frozen fallback, revocation, wrong layouts/transforms and
-recovery. The real live-pump regression exercises delayed copies, replacement
+recovery. Orientation cases include absent/invalid metadata with deliberately
+different frozen pixels, 90/180/270-degree rotation, mirroring, swapped dimensions,
+same-task video capture before advancement, cancellation and one-time closure.
+The real live-pump regression exercises delayed copies, replacement
 before inference, late hair, four published images across stop/restart, exact
 source/hash/detection/mask pairing and the two-canvas bound through deferred
 leases. Removing the synchronous replacement release makes it fail. Three real
