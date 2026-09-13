@@ -65,12 +65,23 @@ try {
       assert.equal(await page.locator('#review-candidate').inputValue(), 'all');
       assert.equal(await page.locator('#fps-review-study').getAttribute('aria-current'), 'page');
       assert.equal(await page.locator('#mask-preview-study').textContent(), 'Earlier G / V preview');
-      assert.equal(await page.locator('#continuous-title').textContent(), 'All six options · about 7 minutes');
-      assert.equal(observation.measureButton, 'Measure only · all six options · ~7 min');
+      assert.equal(await page.locator('#continuous-title').textContent(), 'All six options · 7 minutes + setup');
+      assert.equal(observation.measureButton, 'Measure only · all six options · ~7 min + setup');
+      assert.equal(await page.locator('#runtime-policy').textContent(), 'Fresh runtime for each switch. Setup time is separate from measured FPS.');
+      assert.equal(await page.locator('#refresh-pipeline').isVisible(), true);
+      assert.equal(await page.locator('#refresh-pipeline').isEnabled(), true);
+      assert.equal(await page.locator('#refresh-pipeline').textContent(), 'Refresh selected test');
+      assert.match(await page.locator('#continuous-protocol').textContent(), /released and rebuilt before every window, including repeated options/);
+      assert.equal(await page.evaluate(() => window.hairLivePreview.diagnostics().runtimeIsolation), 'fresh-runtime');
+      observation.runtimeIsolation = 'fresh-runtime';
+      observation.refreshSelectedTest = true;
       observation.scope = 'all';
     } else {
       assert.equal(await page.locator('#mask-preview-study').getAttribute('aria-current'), 'page');
       assert.match(observation.measureButton, /Measure only.*G \/ V/);
+      assert.equal(await page.locator('#refresh-pipeline').isVisible(), false);
+      assert.equal(await page.locator('#runtime-policy').textContent(), '');
+      observation.refreshSelectedTest = false;
     }
     checks.push(observation);
   }

@@ -18,7 +18,7 @@ its Railway deployment and unrelated model-studio work are separate.
 On September 11 the owner explicitly requested a public **ar_testing** option
 on the Lenses landing page. The [mobile comparison](https://web-production-ef3ca.up.railway.app/ar_testing/)
 opens all six current FPS options, with an automatic forward/reverse comparison
-taking about seven minutes. G is selected first; measurements are on and video
+taking about seven minutes plus fresh runtime setup at each switch. G is selected first; measurements are on and video
 is off initially. The run
 saves one local ZIP. Repeat both glasses and both hair models with the movement
 cues. See the [mobile guide](experiments/efficiency-lab/MOBILE.md).

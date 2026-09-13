@@ -26,6 +26,8 @@ export interface ContinuousWorkload {
 export interface ContinuousRunOptions {
   sessionId: string; workload: ContinuousWorkload; metadata?: Record<string, unknown>;
   direction?: 'forward' | 'reverse'; warmupMs?: number; measureMs?: number; maxWarmupMs?: number;
+  /** When present, runtime setup has its own deadline and warmup timing begins at switch-ready. */
+  maxSwitchMs?: number;
   rowLimit?: number; id?: string; studyOptions?: ContinuousStudy; candidate?: FpsReviewCandidate;
 }
 export interface ContinuousRunStatus {
@@ -95,7 +97,8 @@ const validTime = (value: number): boolean => Number.isFinite(value) && value >=
 
 /** A wall-clock experiment, independent of publication cadence. No renderer or scheduler changes occur here. */
 export class ContinuousComparisonRun {
-  private readonly options: Required<Pick<ContinuousRunOptions, 'warmupMs' | 'measureMs' | 'maxWarmupMs' | 'rowLimit' | 'direction' | 'studyOptions'>>;
+  private readonly options: Required<Pick<ContinuousRunOptions, 'warmupMs' | 'measureMs' | 'maxWarmupMs' | 'rowLimit' | 'direction' | 'studyOptions'>>
+    & Pick<ContinuousRunOptions, 'maxSwitchMs'>;
   private readonly sessionId: string;
   private readonly workload: ContinuousWorkload;
   private readonly metadata: Record<string, unknown>;
@@ -117,11 +120,14 @@ export class ContinuousComparisonRun {
   constructor(options: ContinuousRunOptions) {
     this.options = {warmupMs: options.warmupMs ?? 5000, measureMs: options.measureMs ?? 30000,
       maxWarmupMs: options.maxWarmupMs ?? 15000, rowLimit: options.rowLimit ?? 30000,
-      direction: options.direction ?? 'forward', studyOptions: options.studyOptions ?? 'review'};
+      direction: options.direction ?? 'forward', studyOptions: options.studyOptions ?? 'review',
+      ...(options.maxSwitchMs === undefined ? {} : {maxSwitchMs: options.maxSwitchMs})};
     const {warmupMs, measureMs, maxWarmupMs, rowLimit, direction} = this.options;
     if (!options.sessionId || !validTime(warmupMs) || !validTime(measureMs) || !validTime(maxWarmupMs)
       || measureMs === 0 || maxWarmupMs < warmupMs || !Number.isInteger(rowLimit) || rowLimit < 1
       || rowLimit > 100000 || !['forward', 'reverse'].includes(direction)) throw new Error('Invalid continuous comparison configuration.');
+    if (options.maxSwitchMs !== undefined && (!validTime(options.maxSwitchMs) || options.maxSwitchMs === 0))
+      throw new Error('Invalid continuous comparison switch deadline.');
     if (!Object.hasOwn(CONTINUOUS_STUDIES, this.options.studyOptions)) throw new Error('Unsupported continuous comparison study.');
     if (!options.workload.eyewearId || !options.workload.hairModelId
       || !['hair', 'accepted'].includes(options.workload.variant)
@@ -147,7 +153,7 @@ export class ContinuousComparisonRun {
     const start = state === 'measuring' ? window.measureStartedAtMs : state === 'warmup' ? window.switchedAtMs : window.requestedAtMs;
     const limit = state === 'measuring' ? window.plannedEndAtMs : state === 'warmup'
       ? (window.switchedAtMs ?? this.nowMs) + this.options.warmupMs
-      : (window.requestedAtMs ?? this.nowMs) + this.options.maxWarmupMs;
+      : (window.requestedAtMs ?? this.nowMs) + (this.options.maxSwitchMs ?? this.options.maxWarmupMs);
     return {state, running: state === 'switching' || state === 'warmup' || state === 'measuring',
       windowIndex: window.index, token: window.token, pipeline: window.pipeline, windowCount: this.windows.length,
       phaseElapsedMs: start === null ? 0 : Math.max(0, this.nowMs - start),
@@ -254,6 +260,9 @@ export class ContinuousComparisonRun {
   /** Export scans retained rows only on explicit save, never in the hot frame path. */
   export(): Record<string, unknown> {
     const windows = this.windows.map(window => ({...window,
+      switchDeadlineAtMs: window.requestedAtMs === null ? null
+        : window.requestedAtMs + (this.options.maxSwitchMs ?? this.options.maxWarmupMs),
+      warmupDeadlineAtMs: this.warmupDeadline(window),
       switchWaitMs: window.switchedAtMs === null || window.requestedAtMs === null ? null : window.switchedAtMs - window.requestedAtMs,
       switchToFirstFrameMs: window.firstFrameAtMs === null || window.requestedAtMs === null ? null : window.firstFrameAtMs - window.requestedAtMs,
       timerOvershootMs: window.transitionObservedAtMs === null || window.plannedEndAtMs === null ? null : Math.max(0, window.transitionObservedAtMs - window.plannedEndAtMs),
@@ -264,9 +273,13 @@ export class ContinuousComparisonRun {
       observedAtMs: this.nowMs, completed: this.complete, partial: this.reason !== null, cancelledReason: this.reason,
       status: this.status, workload: {...this.workload}, metadata: structuredClone(this.metadata),
       protocol: {...this.options, minimumTrackedMaskedWarmupFrames: 3, order: this.windows.map(window => window.pipeline),
+        warmupTimeoutStartsAt: this.options.maxSwitchMs === undefined ? 'switch-requested' : 'switch-ready',
         measurementBoundary: 'Half-open [start,end): capture and publication must both belong to this measurement window; old pump, session and pre-boundary captures are excluded and retained.',
         clock: 'All atMs fields use performance.now on this page. Publication is completed canvas submission, not display scanout.',
-        warmup: 'Warmup needs the minimum wall duration after switch-ready and three tracked frames with a same-image mask when hair is enabled. The maximum includes switch wait and stops on wall time even without frames.',
+        warmup: 'Warmup needs the minimum wall duration after switch-ready and three tracked frames with a same-image mask when hair is enabled. '
+          + (this.options.maxSwitchMs === undefined
+            ? 'The maximum includes switch wait and stops on wall time even without frames.'
+            : 'Runtime setup has a separate maxSwitchMs deadline from switch-requested, with switch-timeout on expiry. The maxWarmupMs deadline starts at switch-ready and stops on wall time even without frames; setup time is excluded from warmup and measurement.'),
         fps: 'completedArFps uses the full actual measurement window, including zero-output time. Camera delivery uses independent video observations and reports its shorter observed span explicitly. Camera settings are a requested configuration, not a measurement.',
         gaps: 'Endpoint gaps include measurement start to first completion and last completion to window end. With no output the one gap is the entire window.',
         age: 'Frame age is source capture to completed canvas submission. It excludes sensor buffering, display scanout and unobserved motion-to-photon latency.',
@@ -288,14 +301,21 @@ export class ContinuousComparisonRun {
     this.nowMs = nowMs;
     const window = this.windows[this.currentIndex]!;
     if (window.measureStartedAtMs === null) {
+      if (window.switchedAtMs === null && this.options.maxSwitchMs !== undefined) {
+        if (nowMs >= window.requestedAtMs! + this.options.maxSwitchMs) {
+          this.cancel('switch-timeout', nowMs); return false;
+        }
+        return true;
+      }
+      const warmupDeadline = this.warmupDeadline(window)!;
       const canStart = window.switchedAtMs !== null && window.thirdWarmupAtMs !== null
         && nowMs >= window.switchedAtMs + this.options.warmupMs;
       if (canStart) {
         const at = Math.max(window.switchedAtMs! + this.options.warmupMs, window.thirdWarmupAtMs!);
-        if (at > window.requestedAtMs! + this.options.maxWarmupMs) {this.cancel('warmup-timeout', nowMs); return false;}
+        if (at > warmupDeadline) {this.cancel('warmup-timeout', nowMs); return false;}
         window.measureStartedAtMs = at; window.plannedEndAtMs = at + this.options.measureMs;
         this.event('measurement-started', at);
-      } else if (nowMs >= window.requestedAtMs! + this.options.maxWarmupMs) {
+      } else if (nowMs >= warmupDeadline) {
         this.cancel('warmup-timeout', nowMs); return false;
       }
     }
@@ -308,6 +328,11 @@ export class ContinuousComparisonRun {
       this.currentIndex++; this.windows[this.currentIndex]!.requestedAtMs = nowMs; this.event('switch-requested', nowMs);
     }
     return this.status.running;
+  }
+
+  private warmupDeadline(window: RunWindow): number | null {
+    const start = this.options.maxSwitchMs === undefined ? window.requestedAtMs : window.switchedAtMs;
+    return start === null ? null : start + this.options.maxWarmupMs;
   }
 
   private event(name: string, atMs: number, detail: string | null = null, windowIndex = this.currentIndex): void {

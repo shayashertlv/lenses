@@ -197,6 +197,128 @@ test('wall timer times out startup with zero frames and preserves a partial down
   assert.equal(windows(run)[0]!.summary.completedArFps, null);
 });
 
+test('separate runtime setup allows a twenty-second switch before the unchanged masked warmup', () => {
+  const run = new ContinuousComparisonRun(options({maxSwitchMs: 90000})); run.begin(100);
+  assert.equal(run.status.remainingMs, 90000);
+  assert.equal(run.tick(20100).state, 'switching'); assert.equal(run.status.remainingMs, 70000);
+  assert.equal(run.switched(1, 20100).state, 'warmup');
+  assert.equal(run.status.phaseElapsedMs, 0); assert.equal(run.status.remainingMs, 5000);
+  run.observe(frame(20200, 1)); run.observe(frame(20300, 2));
+  run.observe(frame(20400, 3, 'g', {hasMask: false}));
+  assert.equal(run.tick(25100).state, 'warmup', 'setup time and maskless output cannot satisfy warmup');
+  assert.equal(run.observe(frame(25200, 4)).state, 'measuring');
+  const result = windows(run)[0]!;
+  assert.equal(result.switchWaitMs, 20000); assert.equal(result.validWarmupFrames, 3);
+  assert.equal(result.measureStartedAtMs, 25200); assert.equal(result.summary.frames, 0);
+  const exported = run.export();
+  const protocol = exported.protocol as Record<string, unknown>;
+  assert.equal(protocol.maxSwitchMs, 90000); assert.equal(protocol.maxWarmupMs, 15000);
+  assert.equal(protocol.warmupTimeoutStartsAt, 'switch-ready');
+  assert.match(String(protocol.warmup), /separate maxSwitchMs deadline/);
+  assert.match(String(protocol.warmup), /setup time is excluded/);
+  const timing = (exported.windows as {switchDeadlineAtMs: number | null; warmupDeadlineAtMs: number | null}[])[0]!;
+  assert.equal(timing.switchDeadlineAtMs, 90100); assert.equal(timing.warmupDeadlineAtMs, 35100);
+});
+
+test('runtime setup times out without output at its own exact deadline and cannot be revived', () => {
+  const run = new ContinuousComparisonRun(options({maxSwitchMs: 90000})); run.begin(100);
+  assert.equal(run.tick(90099).state, 'switching'); assert.equal(run.status.remainingMs, 1);
+  assert.equal(run.tick(90100).state, 'partial'); assert.equal(run.status.reason, 'switch-timeout');
+  assert.equal(run.status.remainingMs, 0); assert.equal(run.status.rows, 0);
+  assert.equal(run.switched(1, 90101).state, 'partial');
+  const report = run.export(), result = windows(run)[0]!;
+  assert.equal(report.endedAtMs, 90100); assert.equal(report.partial, true); assert.equal(report.completed, false);
+  assert.equal(result.switchedAtMs, null); assert.equal(result.measureStartedAtMs, null);
+  assert.equal(result.summary.completedArFps, null); assert.equal(result.summary.durationMs, 0);
+  assert.equal((report.windows as {warmupDeadlineAtMs: number | null}[])[0]!.warmupDeadlineAtMs, null);
+});
+
+test('post-ready mask timeout is independent of setup duration and still applies without more frames', () => {
+  const run = new ContinuousComparisonRun(options({maxSwitchMs: 90000})); run.begin(0); run.switched(1, 20000);
+  run.observe(frame(20100, 1)); run.observe(frame(20200, 2));
+  run.observe(frame(20300, 3, 'g', {hasMask: false})); run.observe(frame(20400, 4, 'g', {hasFace: false}));
+  assert.equal(run.tick(34999).state, 'warmup');
+  assert.equal(run.tick(35000).state, 'partial'); assert.equal(run.status.reason, 'warmup-timeout');
+  assert.equal(windows(run)[0]!.validWarmupFrames, 2); assert.equal(windows(run)[0]!.measureStartedAtMs, null);
+  assert.equal(windows(run)[0]!.summary.frames, 0); assert.equal(run.export().endedAtMs, 35000);
+});
+
+test('switch readiness must precede its deadline, while an already-satisfied warmup can start at its limit', () => {
+  const before = new ContinuousComparisonRun(options({maxSwitchMs: 90000})); before.begin(0);
+  assert.equal(before.switched(1, 89999.5).state, 'warmup');
+  assert.equal(before.tick(90000).state, 'warmup', 'the old switch deadline no longer applies after readiness');
+  const exact = new ContinuousComparisonRun(options({maxSwitchMs: 90000})); exact.begin(0);
+  assert.equal(exact.switched(1, 90000).state, 'partial');
+  assert.equal(exact.status.reason, 'switch-timeout'); assert.equal(windows(exact)[0]!.switchedAtMs, null);
+  const warmup = new ContinuousComparisonRun(options({maxSwitchMs: 90000, maxWarmupMs: 5000}));
+  warmup.begin(0); warmup.switched(1, 20000);
+  for (const at of [20100, 20200, 20300]) warmup.observe(frame(at));
+  assert.equal(warmup.tick(24999).state, 'warmup'); assert.equal(warmup.tick(25000).state, 'measuring');
+  assert.equal(windows(warmup)[0]!.measureStartedAtMs, 25000);
+  const missing = new ContinuousComparisonRun(options({maxSwitchMs: 90000, maxWarmupMs: 5000}));
+  missing.begin(0); missing.switched(1, 20000);
+  missing.observe(frame(20100, 1)); missing.observe(frame(20200, 2));
+  assert.equal(missing.observe(frame(25000, 3)).state, 'partial', 'a third frame arriving at timeout cannot start measurement');
+  assert.equal(missing.status.reason, 'warmup-timeout'); assert.equal(windows(missing)[0]!.measureStartedAtMs, null);
+});
+
+test('repeated slow setup keeps full measurement windows, endpoint stalls and acknowledgement ownership', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'fps-review', candidate: 'frame-copy', maxSwitchMs: 90000}));
+  let sequence = 0; run.begin(0);
+  for (let index = 0; index < 4; index++) {
+    const requestedAt = index * 55000, readyAt = requestedAt + 20000, measuredAt = readyAt + 5000;
+    const status = run.status; assert.equal(status.windowIndex, index);
+    run.tick(requestedAt + 16000); assert.equal(run.status.state, 'switching');
+    if (index > 0) {
+      run.switched(status.token - 1, readyAt);
+      assert.equal(run.status.state, 'switching', 'the adjacent candidate still requires the current window token');
+    }
+    run.switched(status.token, readyAt);
+    run.observe(frame(readyAt + 10, ++sequence, status.pipeline, {capturedAtMs: readyAt - 1}));
+    for (const offset of [100, 200, 300]) run.observe(frame(readyAt + offset, ++sequence, status.pipeline));
+    run.tick(measuredAt); assert.equal(run.status.state, 'measuring');
+    run.observe(frame(measuredAt + 10, ++sequence, status.pipeline, {capturedAtMs: measuredAt - 1}));
+    if (index !== 1) {
+      run.observe(frame(measuredAt + 1000, ++sequence, status.pipeline));
+      run.observe(frame(measuredAt + 2000, ++sequence, status.pipeline));
+    }
+    run.tick(measuredAt + 30000);
+  }
+  assert.equal(run.status.state, 'complete'); assert.equal(run.export().endedAtMs, 220000);
+  const results = windows(run);
+  assert.ok(results.every(result => result.completed && result.switchWaitMs === 20000 && result.validWarmupFrames === 3
+    && result.summary.durationMs === 30000));
+  const zero = results[1]!.summary;
+  assert.equal(zero.frames, 0); assert.equal(zero.completedArFps, 0);
+  assert.equal(zero.initialNoCompletionMs, 30000); assert.equal(zero.trailingNoCompletionMs, 30000);
+  assert.equal(zero.completionGapMsIncludingEndpoints!.max, 30000);
+  for (const result of results.filter((_, index) => index !== 1)) {
+    assert.equal(result.summary.frames, 2); assert.equal(result.summary.completedArFps, 2 / 30);
+    assert.equal(result.summary.initialNoCompletionMs, 1000); assert.equal(result.summary.trailingNoCompletionMs, 28000);
+  }
+  assert.equal(rows(run).filter(row => row.exclusion === 'captured-before-switch').length, 4);
+  assert.equal(rows(run).filter(row => row.exclusion === 'captured-before-measurement').length, 4);
+});
+
+test('omitting maxSwitchMs retains switch-inclusive legacy timeouts and exports that policy', () => {
+  const slow = new ContinuousComparisonRun(options()); slow.begin(100);
+  assert.equal(slow.status.remainingMs, 15000); assert.equal(slow.switched(1, 20100).state, 'partial');
+  assert.equal(slow.status.reason, 'warmup-timeout'); assert.equal(windows(slow)[0]!.switchedAtMs, null);
+  const ready = new ContinuousComparisonRun(options()); ready.begin(100); ready.switched(1, 14100);
+  assert.equal(ready.tick(15099).state, 'warmup'); assert.equal(ready.tick(15100).state, 'partial');
+  assert.equal(ready.status.reason, 'warmup-timeout');
+  const report = ready.export(), protocol = report.protocol as Record<string, unknown>;
+  assert.equal(Object.hasOwn(protocol, 'maxSwitchMs'), false);
+  assert.equal(protocol.warmupTimeoutStartsAt, 'switch-requested'); assert.match(String(protocol.warmup), /maximum includes switch wait/);
+  const timing = (report.windows as {switchDeadlineAtMs: number | null; warmupDeadlineAtMs: number | null}[])[0]!;
+  assert.equal(timing.switchDeadlineAtMs, 15100); assert.equal(timing.warmupDeadlineAtMs, 15100);
+});
+
+test('a separate switch deadline must be finite and positive', () => {
+  for (const maxSwitchMs of [-1, 0, NaN, Infinity])
+    assert.throws(() => new ContinuousComparisonRun(options({maxSwitchMs})), /switch deadline/);
+});
+
 test('five seconds alone cannot replace three tracked and masked warmup frames', () => {
   const run = new ContinuousComparisonRun(options()); run.begin(0); run.switched(1, 0);
   run.observe(frame(100, 1)); run.observe(frame(200, 2));

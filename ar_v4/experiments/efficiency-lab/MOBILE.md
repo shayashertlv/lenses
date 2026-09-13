@@ -8,15 +8,27 @@ Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review` for the
 four new options: CPU face tracking, worker rendering, VideoFrame camera copy
 and compositor reuse, alongside G and the V reference. All six are now in the
 same Algorithm menu and can be switched without closing the camera. G is selected
-first. **Measure only · all six options · ~7 min** automatically tests every
+first. **Measure only · all six options · ~7 min + setup** automatically tests every
 option forward and in reverse, using 12 windows and saving one local ZIP.
 Every window retains the five-second/three-matching-mask warmup and full
-30-second measurement. The original G/V entry remains available.
+30-second measurement. Before each window, including repeated options, the old
+workers and graphics resources are released and rebuilt. Setup has its own
+90-second limit; masked warmup has 15 seconds after setup to satisfy the gate.
+The original G/V entry remains available with its previous shared runtime.
+
+Manual switches also start a fresh processing runtime. Expect a setup pause;
+it is not a measured FPS interval. The live rolling estimate resets for every
+runtime. For a real page-start control, **Refresh selected test** preserves the
+algorithm, glasses, hair model, hair on/off and power selection; tap **Open
+camera** afterward. Save your ZIP before refreshing. Runtime teardown does not
+reset the whole browser or establish that phone thermal state has recovered.
+An explicit `&switch=shared` FPS URL retains the old switch behavior for a
+separate diagnostic; its exported isolation label distinguishes those results.
 
 The Preview options menu defaults to **All experiments · one preview**. A focused
 choice (or explicit `&candidate=...` link) still provides a shorter G / option /
 option / G run. Change the preview scope with the camera closed; switch algorithms
-freely during manual viewing. The automatic run keeps algorithm controls locked
+during manual viewing, allowing each fresh runtime to start. The automatic run keeps algorithm controls locked
 until completion or Stop. The seven-minute run retains up to 30,000 scalar hair
 requests to match the existing frame/video row bound; focused runs retain 10,000.
 

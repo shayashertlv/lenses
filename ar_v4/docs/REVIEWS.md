@@ -1,3 +1,94 @@
+## Fresh runtime switching - September 13, 2026
+
+The owner reports lower FPS after algorithm switches, with the highest rates
+seen after refreshing into a selected option. The prior harness cached both
+face delegates, a render worker after first use, and the V hair-extraction GPU
+cache. A fresh page did not have the same resource history. Idle retained
+workers are not evidence of GPU execution or proof of the phone slowdown.
+The saved synthetic desktop all-options run also varied substantially inside
+measured windows: G 4.93 then 2.07 completed AR/s, with several candidates faster
+on their return pass. Tracking and matching-mask coverage were 100%; this is
+neither a monotonic leak diagnosis nor a valid physical-phone ranking.
+
+The default FPS review now drains the old pump and all late hair results,
+revokes its runtime, terminates face/hair/render workers, disposes renderer
+contexts and caches, and creates the selected runtime afresh. This applies to
+manual changes, initial G-to-G run setup, and adjacent repeated windows. Camera,
+recording canvas and scalar run ownership remain continuous; sequence IDs never
+reset within a session. Captured runtime identity fences asynchronous startup,
+fallback, stop and restart. G and candidate rendering algorithms are unchanged.
+Main-thread renderer disposal invokes the existing context-loss cleanup; no
+pinned renderer or geometry implementation was edited.
+
+Face/render runtime setup has a 90-second deadline. Once ready, the unchanged minimum
+five seconds and three tracked same-image masks precede each full 30-second
+measurement. Masked warmup has its separate 15-second deadline. Setup is
+reported separately, not erased or folded into measured FPS. Hair initialization
+still starts in parallel, as on page startup; any remaining hair startup occupies
+the gated warmup, and the three-matching-mask requirement is never bypassed. Original shared
+studies retain their previous timing policy. Explicit `&switch=shared` on FPS
+review retains the old resource-sharing control and marks its telemetry; do
+not pool it with the new default. Each frame records runtime generation and
+isolation policy. The live rolling counter gets a new serial boundary for
+every pump, including the same option twice, while exported history remains.
+
+**Refresh selected test** retains algorithm, glasses, hair model, hair on/off
+and power choices across a real page navigation. Tap Open camera afterward.
+Save any result before refreshing. This is a direct control for browser-wide
+state not reset by runtime teardown. The UI labels its rolling estimate; rank
+using the ZIP's full-window completed AR/s, camera delivery, frame-age tails,
+endpoint stalls, startup and tracking/matching-mask availability separately.
+
+Strict TypeScript and 302 efficiency checks pass. Seven focused browser cases
+pass: all six options then G across all four model combinations, delayed hair
+readiness through Stop/restart, automatic separate setup and adjacent CPU epochs,
+and hair-toggle live counter recovery. The resource matrix keeps two active
+workers (three for worker rendering) and four active main WebGL contexts, with
+all preceding epoch workers terminated and preceding contexts lost. One camera
+stream remains throughout. Receipts are in
+`test-results/mobile-2026-09-13T15-05-45.772Z/` (resource/lifecycle cases) and
+`test-results/mobile-2026-09-13T15-09-35.300Z/` (automatic/counter cases).
+The first automatic harness attempt sampled an eligible old manual-G row while
+setup drained; the corrected check requires the new runtime epoch. The original
+failure is retained. No runtime failure was established by that sampling error.
+
+The real-clock partial run completes G and CPU for 30 seconds each and reaches
+a separate second CPU runtime. CPU setup includes an injected 16-second ready
+reply delay (18.238 seconds total switch wait), beyond the former 15-second
+switch-inclusive limit. It retains 553 rows and 556 unique completed hair
+requests, with no rejection/truncation and a drained ledger. Independent ZIP CRC,
+raw boundary/denominator and measured-pair checks pass in
+`.recovery/switch-isolation-2026-09-13/auto-independent-audit.json`; an independent
+all-eligible-row hair audit accompanies the browser receipt. ZIP SHA-256:
+`f703ed6aa2c3fbf90a24f722193341346397a87279e352e475f28666d22048cb`.
+This is an intentional partial lifecycle test, not a new full twelve-window or
+physical-phone throughput benchmark. Full-run order/window behavior is also
+covered by protocol checks; earlier full-run evidence remains historical.
+
+The four existing all-options live/held/export/resume cases also pass with
+fresh runtimes for both glasses and both hair models; held accepted/hair pixels,
+geometry and nose/front checks remain matched. Two camera-off refresh/navigation
+regressions pass, including a second actual reload of an identical URL and no
+automatic camera/worker startup. Log: `.recovery/switch-isolation-2026-09-13/refresh-held.log`.
+The final package is `47ba023a9cc05a27a835031599ab6fca9d1765f7e5b7db7155c98c2d968f37f1`.
+Its last rebuild registers the new refresh test and normalizes edited text line
+endings; no runtime logic changed after the 8b89804e3df6 automatic/counter and
+held integration checks. Final-package refresh tests pass again (2/2), and all
+244 fingerprinted source inputs match the package. The local website landing
+navigation passes. Published verification uses `qa/verify-published.py` and
+`qa/verify-published-entry.mjs` against this same release.
+
+`npm test` also passes: 172 unit checks and 21 browser tests, including
+accepted-source replay, cancellation/failure recovery and both hair models.
+Log: `.recovery/switch-isolation-2026-09-13/npm-test.log`.
+
+All 239 accepted G dependencies verify as exact pinned Git blobs and the 461
+original-checkout files match their prior hashes. Existing recordings and recovery
+archives are unchanged. Physical iPhone recovery is not yet measured. Re-test both
+Amber Horizon and Tom Ford Clear, each with hair-only and selfie-multiclass:
+front/nose, down, up, left and right yaw, hair edges, tracking and responsiveness.
+Use a separate video run for visual acceptance; no candidate is promoted.
+
 ## FPS review experiments - September 13, 2026
 
 Railway entry correction: the all-options package at `84762f7` was pushed and

@@ -102,6 +102,7 @@ export class FrameProfiler {
   private nextPipeline: Pipeline | null = null;
   private comparisonVersion = 0;
   private readonly capacity: number;
+  private recentSegment: {sessionId: string; pipeline: Pipeline; variant: 'hair' | 'accepted'; afterSerial: number} | null = null;
   private readonly events: {sessionId:string;name:string;atMs:number;durationMs:number|null}[] = [];
   recordEvent(sessionId:string,name:string,atMs:number,durationMs:number|null=null):void {
     if(!sessionId || !/^[a-z-]+$/.test(name) || !Number.isFinite(atMs)
@@ -185,13 +186,23 @@ export class FrameProfiler {
   samplesAfter(serial: number): FrameSample[] {
     return this.rows.filter(row=>row.serial>serial).map(row=>({...row,native:row.native?{...row.native}:null}));
   }
+  /** Start a fresh live readout for each pump, even when the selection is unchanged.
+   * Historical exports and the independent measurement windows retain every row. */
+  beginSegment(sessionId: string, pipeline: Pipeline, variant: 'hair' | 'accepted'): void {
+    if (!sessionId || !PIPELINES.includes(pipeline) || !['hair','accepted'].includes(variant))
+      throw new Error('Invalid live profiling segment.');
+    this.recentSegment={sessionId,pipeline,variant,afterSerial:this.serial};
+  }
   recent(sessionId: string, pipeline: Pipeline, variant: string): FrameSample[] {
+    const segment=this.recentSegment;
+    if(segment && (segment.sessionId!==sessionId || segment.pipeline!==pipeline || segment.variant!==variant)) return [];
     const end=this.rows.at(-1)?.publishedAtMs ?? 0;
     // Never mix pre-switch samples into the current contiguous segment.
     const result: FrameSample[]=[];
     for(let index=this.rows.length-1;index>=0;index--) {
       const row=this.rows[index]!;
-      if(row.sessionId!==sessionId || row.pipeline!==pipeline || row.variant!==variant || end-row.publishedAtMs>10000) break;
+      if(row.serial<=(segment?.afterSerial ?? 0) || row.sessionId!==sessionId || row.pipeline!==pipeline
+        || row.variant!==variant || end-row.publishedAtMs>10000) break;
       result.push(row);
     }
     return result.reverse();

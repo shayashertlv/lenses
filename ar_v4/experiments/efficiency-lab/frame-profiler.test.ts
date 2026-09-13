@@ -62,6 +62,52 @@ test('recent samples never cross pipeline or session changes and exports do not 
   assert.equal(output.baseCommit,'b9142b2a3b957445f378d8012eea7e27ca68fd0b');
 });
 
+test('a new same-pipeline pump clears the live readout without deleting previous completions or including its restart gap',()=>{
+  const p=new FrameProfiler();p.beginSegment('session','g','hair');
+  p.add(frame(100,'g',1));p.add(frame(200,'g',2));
+  const before=p.samplesAfter(0);assert.equal(summarize(p.recent('session','g','hair')).processedFps,10);
+  p.beginSegment('session','g','hair');
+  assert.deepEqual(p.recent('session','g','hair'),[]);assert.deepEqual(p.samplesAfter(0),before);
+  p.add(frame(9000,'g',3));
+  assert.equal(summarize(p.recent('session','g','hair')).processedFps,null);
+  p.add(frame(9100,'g',4));
+  const recent=p.recent('session','g','hair');
+  assert.deepEqual(recent.map(row=>row.sequence),[3,4]);
+  assert.equal(summarize(recent).processedFps,10);assert.equal(summarize(recent).frameInterval?.max,100);
+  const exported=JSON.parse(p.exportJSON()) as {samples:{sequence:number}[]};
+  assert.deepEqual(exported.samples.map(row=>row.sequence),[1,2,3,4]);
+  assert.equal(summarize(p.samplesAfter(0)).frameInterval?.max,8800);
+});
+
+test('switching away and back before an intermediate publication cannot resurrect earlier live FPS',()=>{
+  const p=new FrameProfiler();p.beginSegment('session','g','hair');
+  p.add(frame(100,'g',1));p.add(frame(200,'g',2));
+  p.beginSegment('session','face-cpu','hair');
+  assert.deepEqual(p.recent('session','g','hair'),[]);
+  assert.deepEqual(p.recent('session','face-cpu','hair'),[]);
+  p.beginSegment('session','g','hair');
+  assert.deepEqual(p.recent('session','g','hair'),[]);
+  p.add(frame(250,'g',3));assert.deepEqual(p.recent('session','g','hair').map(row=>row.sequence),[3]);
+  assert.equal(summarize(p.recent('session','g','hair')).processedFps,null);
+  assert.deepEqual(p.samplesAfter(0).map(row=>row.sequence),[1,2,3]);
+});
+
+test('live segment ownership and serial boundaries survive retained-row eviction and preserve benchmark samples',()=>{
+  const p=new FrameProfiler(3);p.begin('session','hair',0,['g']);p.beginSegment('session','g','hair');
+  for(const [index,at] of [100,1000,2000,5100].entries())p.add(frame(at,'g',index+1));
+  const measurementBefore=(p.snapshot().benchmark as {segments:{samples:unknown[]}[]}).segments[0]!.samples;
+  p.beginSegment('next-session','g','accepted');
+  assert.deepEqual(p.recent('session','g','hair'),[]);
+  assert.deepEqual(p.recent('next-session','g','accepted'),[]);
+  assert.deepEqual((p.snapshot().benchmark as {segments:{samples:unknown[]}[]}).segments[0]!.samples,measurementBefore);
+  assert.deepEqual(p.samplesAfter(0).map(row=>row.serial),[2,3,4]);
+  p.add({...frame(5200,'g',1),sessionId:'next-session',variant:'accepted'});
+  assert.deepEqual(p.recent('next-session','g','accepted').map(row=>row.serial),[5]);
+  assert.deepEqual(p.recent('next-session','g','hair'),[]);
+  assert.throws(()=>p.beginSegment('','g','hair'),/Invalid live profiling segment/);
+  assert.deepEqual(p.recent('next-session','g','accepted').map(row=>row.serial),[5]);
+});
+
 test('benchmark requires warmup and thirty seconds per pipeline, drains switches once and retains complete numeric samples',()=>{
   const p=new FrameProfiler();assert.equal(p.begin('session','hair',0,['g','scratch','combined']),'g');
   let at=100;

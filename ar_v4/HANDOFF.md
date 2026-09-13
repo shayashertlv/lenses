@@ -1,3 +1,23 @@
+# Fresh runtime FPS preview - September 13, 2026
+
+Current change addresses the owner's report that switched tests run slower
+than freshly opened tests. The default FPS study now fully retires and rebuilds
+processing workers, renderer contexts and caches at every manual/automatic
+switch, including repeated options. Camera and recording stay open. Setup has
+its own 90-second budget, followed by the existing five-second/three-mask warmup
+and full 30-second measurement. All six options remain in one preview/ZIP.
+Runtime generation and isolation are exported. The live counter resets at every
+pump boundary; the real page-refresh control preserves the selected workload.
+Explicit `&switch=shared` retains the prior resource-sharing diagnostic only.
+See the newest REVIEWS.md entry for evidence and validation limits.
+Current package fingerprint:
+`47ba023a9cc05a27a835031599ab6fca9d1765f7e5b7db7155c98c2d968f37f1`.
+
+Continue in the isolated deployed checkout named below. G's pinned dependencies,
+the original dirty checkout, recordings, recovery archives and parent deployment
+remain untouched. This is a test-isolation correction, not a candidate promotion
+or a measured iPhone speedup.
+
 # FPS review candidates — September 13, 2026
 
 Entry-point correction: the normal Railway `/ar_testing/` link and query-free
