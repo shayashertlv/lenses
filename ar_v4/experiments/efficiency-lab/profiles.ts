@@ -2,7 +2,12 @@ import {normalizeSpeedOptions} from './speed-options.ts';
 
 export const G_COMMIT = 'b9142b2a3b957445f378d8012eea7e27ca68fd0b';
 export const FPS_REVIEW_CANDIDATES = ['face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'mask-bytes'] as const;
+export const FPS_REVIEW_PIPELINES = Object.freeze(['g', ...FPS_REVIEW_CANDIDATES] as const);
 export type FpsReviewCandidate = typeof FPS_REVIEW_CANDIDATES[number];
+export function fpsReviewIsAll(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return params.get('study') === 'fps-review' && !params.has('candidate');
+}
 export function fpsReviewCandidate(search: string): FpsReviewCandidate {
   const candidate = new URLSearchParams(search).get('candidate');
   return FPS_REVIEW_CANDIDATES.includes(candidate as FpsReviewCandidate) ? candidate as FpsReviewCandidate : 'face-cpu';
@@ -58,7 +63,7 @@ export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id
 /** Focused previews hide unrelated choices without removing them from the lab. */
 export function studyPipelines(search: string): readonly Pipeline[] {
   const study = new URLSearchParams(search).get('study');
-  if (study === 'fps-review') return ['g', fpsReviewCandidate(search)];
+  if (study === 'fps-review') return fpsReviewIsAll(search) ? FPS_REVIEW_PIPELINES : ['g', fpsReviewCandidate(search)];
   return study === 'mask-preview' ? ['g', 'mask-bytes'] : study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
 }
 

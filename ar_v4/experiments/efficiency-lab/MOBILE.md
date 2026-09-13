@@ -2,10 +2,19 @@
 
 Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review` for the
 four new options: CPU face tracking, worker rendering, VideoFrame camera copy
-and compositor reuse. G is initially selected; V is available as a fifth
-reference option. Choose one option while the camera is closed, then run
-G / option / option / G. The explicit G/V URL and existing landing remain
-available. No accepted renderer or resolution is replaced.
+and compositor reuse, alongside G and the V reference. All six are now in the
+same Algorithm menu and can be switched without closing the camera. G is selected
+first. **Measure only · all six options · ~7 min** automatically tests every
+option forward and in reverse, using 12 windows and saving one local ZIP.
+Every window retains the five-second/three-matching-mask warmup and full
+30-second measurement. The original G/V entry remains available.
+
+The Preview options menu defaults to **All experiments · one preview**. A focused
+choice (or explicit `&candidate=...` link) still provides a shorter G / option /
+option / G run. Change the preview scope with the camera closed; switch algorithms
+freely during manual viewing. The automatic run keeps algorithm controls locked
+until completion or Stop. The seven-minute run retains up to 30,000 scalar hair
+requests to match the existing frame/video row bound; focused runs retain 10,000.
 
 The page records actual delegates, copy fallbacks, worker transfer/completion
 costs, compositor reuse and user-reported power. A failed worker setup stops

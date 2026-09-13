@@ -1,6 +1,6 @@
 import '../../src/style.css';
 import './live.css';
-import {PROFILES, initialPipeline, studyPipelines, previewSearch, CURRENT_BASE_METADATA, FPS_REVIEW_CANDIDATES, fpsReviewCandidate} from './profiles.ts';
+import {PROFILES, initialPipeline, studyPipelines, previewSearch, CURRENT_BASE_METADATA, FPS_REVIEW_CANDIDATES, fpsReviewCandidate, fpsReviewIsAll} from './profiles.ts';
 import {UiSummaryCadence} from './ui-cadence.ts';
 import {ContinuousComparisonRun, CONTINUOUS_STUDIES} from './continuous-run.ts';
 import type {ContinuousRunStatus} from './continuous-run.ts';
@@ -51,32 +51,46 @@ const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
 for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const)
   pipelineSelect.add(new Option(PIPELINE_LABELS[id], id));
 const focusedStudy = new URLSearchParams(studySearch).get('study');
-const continuousStudy = focusedStudy === 'fps-review' ? 'fps-review' : focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
+const allReviewOptions = fpsReviewIsAll(studySearch);
+const continuousStudy = allReviewOptions ? 'fps-all' : focusedStudy === 'fps-review' ? 'fps-review' : focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
 const continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy];
 const visiblePipelines = studyPipelines(studySearch);
 for (const option of [...pipelineSelect.options]) if (!visiblePipelines.includes(option.value as Pipeline)) option.remove();
+if (allReviewOptions) pipelineSelect.replaceChildren(...visiblePipelines.map(id => new Option(PIPELINE_LABELS[id], id)));
 const reviewCandidate = fpsReviewCandidate(studySearch);
 const reviewCandidateSelect = element<HTMLSelectElement>('review-candidate');
 const powerContext = element<HTMLSelectElement>('power-context');
+reviewCandidateSelect.add(new Option('All experiments · one preview', 'all'));
 for (const id of FPS_REVIEW_CANDIDATES) reviewCandidateSelect.add(new Option(PIPELINE_LABELS[id], id));
-reviewCandidateSelect.value = reviewCandidate;
+reviewCandidateSelect.value = allReviewOptions ? 'all' : reviewCandidate;
 reviewCandidateSelect.addEventListener('change', () => {
-  if (current || continuousActive()) {reviewCandidateSelect.value = reviewCandidate; return;}
+  if (current || continuousActive()) {reviewCandidateSelect.value = allReviewOptions ? 'all' : reviewCandidate; return;}
   const query = new URLSearchParams(studySearch); query.set('study', 'fps-review');
-  query.set('candidate', reviewCandidateSelect.value); query.delete('pipeline');
+  if (reviewCandidateSelect.value === 'all') query.delete('candidate');
+  else query.set('candidate', reviewCandidateSelect.value);
+  query.delete('pipeline');
   location.search = query.toString();
 });
 if (focusedStudy === 'fps-review') {
   document.title = 'Lenses · FPS review tests';
+  document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=fps-review';
   element('fps-review-options').hidden = false;
   element('mask-preview-study').textContent = 'Earlier G / V preview';
   element('study-heading').textContent = 'Test the next smoother mirror.';
-  element('study-intro').textContent = 'Choose one idea from the FPS review and compare it directly with your accepted G mirror.';
+  element('study-intro').textContent = allReviewOptions
+    ? 'All FPS experiments in one mirror. Switch between G, CPU face tracking, worker rendering, camera copy, compositor reuse and V without closing the camera.'
+    : 'Choose one idea from the FPS review and compare it directly with your accepted G mirror.';
   element('study-notice').textContent = 'Four new options are separate experiments. G stays selected first. No speed or visual improvement has been assumed.';
-  element('continuous-title').textContent = 'G / selected option · about 2½ minutes';
-  element('continuous-protocol').textContent = 'Automatically run G, selected option, selected option, G. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Repeat the movement cues.';
+  element('continuous-title').textContent = allReviewOptions ? 'All six options · about 7 minutes' : 'G / selected option · about 2½ minutes';
+  element('continuous-protocol').textContent = allReviewOptions
+    ? 'Automatically run G, CPU face tracking, worker rendering, VideoFrame camera copy, compositor reuse and V, then repeat in reverse order. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Follow the same movement cues in all 12 windows; save one ZIP at the end.'
+    : 'Automatically run G, selected option, selected option, G. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Repeat the movement cues.';
   element('continuous-video-hint').textContent = 'Use measurements only for speed. Enable video for a separate visual run. Recording adds load. No audio or uploads.';
-  element('continuous-repeat').textContent = 'Save each ZIP before another test. Repeat Amber + hair-only, Amber + multiclass, Tom Ford + hair-only, Tom Ford + multiclass. Follow front/nose, down, up, left and right cues. Check tracking, hair edges and responsiveness, then choose the next option with the camera closed.';
+  element('continuous-repeat').textContent = 'Save each ZIP before another test. Repeat Amber + hair-only, Amber + multiclass, Tom Ford + hair-only, Tom Ford + multiclass. Follow front/nose, down, up, left and right cues. Check tracking, hair edges and responsiveness.'
+    + (allReviewOptions ? ' Every run includes all six options. Close the camera to change glasses or hair model.' : ' Choose the next option with the camera closed.');
+  element('review-options-hint').textContent = allReviewOptions
+    ? 'All six options are in the Algorithm menu below. Switch freely during manual viewing, or run the automatic comparison and save one ZIP.'
+    : 'This focused preview compares one option with G. Choose All experiments to compare every option in one session.';
   element('baseline-detail').textContent = 'G stays accepted. All options keep full resolution, exact image/detection/pose/mask pairing, geometry and nose/front safeguards. CPU landmarks and VideoFrame colors can differ and require live review. Unsupported paths are reported; fallback frames do not prove an optimization worked.';
 } else if (focusedStudy === 'mask-preview') {
   document.title = 'Lenses · G / V preview';
@@ -324,7 +338,7 @@ const continuousStop = element<HTMLButtonElement>('continuous-stop');
 const continuousVideo = element<HTMLInputElement>('continuous-video');
 continuousVideo.checked = continuousStudyOptions.defaultVideo;
 function showContinuousRecordingChoice(): void {
-  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'fps-review' ? 'G / selected option' : continuousStudy === 'mask-preview' ? 'G / V' : continuousStudy === 'per-image' ? 'G / V / W / X' : continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
+  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'fps-all' ? 'all six options' : continuousStudy === 'fps-review' ? 'G / selected option' : continuousStudy === 'mask-preview' ? 'G / V' : continuousStudy === 'per-image' ? 'G / V / W / X' : continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
 }
 continuousVideo.addEventListener('change', showContinuousRecordingChoice);
 showContinuousRecordingChoice();
@@ -546,12 +560,12 @@ function beginContinuous(): void {
       sourceWidth: sample.sourceWidth, sourceHeight: sample.sourceHeight},
     metadata: {...CURRENT_BASE_METADATA, build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
       device: deviceMetadata(session), recording: recorder.snapshot(), performanceTimeOriginMs: performance.timeOrigin,
-      review: continuousStudy === 'fps-review' ? {candidate: reviewCandidate, inputPolicy: 'Exact current image only; fallback is recorded per frame. No older masks.'} : null,
+      review: focusedStudy === 'fps-review' ? {candidate: allReviewOptions ? 'all' : reviewCandidate, inputPolicy: 'Exact current image only; fallback is recorded per frame. No older masks.'} : null,
       sessionStartup: {openedAtMs: session.openedAtMs, firstPublishedAtMs: session.firstPublishedAtMs, firstMaskedAtMs: session.firstMaskedAtMs},
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
   const context: ContinuousContext = {controller, session, recorder, timer: null, videoCallback: null, switchToken: null, switchTask: null,
     finalizing: false, startedAtMs: performance.now(), wakeLock: null, wakeLockAcquired: false, wakeLockReason: null, events: [],
-    hairDelivery: continuousStudy !== 'review' ? new HairDeliveryLog(session.id) : null, hairDrain: null};
+    hairDelivery: continuousStudy !== 'review' ? new HairDeliveryLog(session.id, allReviewOptions ? 30000 : 10000) : null, hairDrain: null};
   continuousRun = context;
   element('continuous-save-actions').hidden = true; element('run-stage-cue').hidden = false;
   setContinuousText('continuous-recording-status', recorder.snapshot().status === 'recording'
@@ -1111,7 +1125,9 @@ async function completeHeldHair(session: Session): Promise<void> {
         const heldPipelines=focusedStudy === 'mask-preview'||focusedStudy==='fps-review' ? visiblePipelines : PIPELINES;
         const different=base?heldPipelines.filter(id=>{const item=result![id] as typeof base;return item?.acceptedPngDataUrl!==base.acceptedPngDataUrl||item?.hairPngDataUrl!==base.hairPngDataUrl;}):[];
         element('held-result').textContent=base?(different.length?'Held differences found: '+different.map(id=>PIPELINE_LABELS[id]).join(', '):focusedStudy === 'mask-preview'?'G and V match on this shared diagnostic mask. Review live movement separately.':'All held experiment images match G pixel-for-pixel on this image.'):'Held comparison unavailable.';
-        if(base&&focusedStudy==='fps-review'&&(reviewCandidate==='face-cpu'||reviewCandidate==='frame-copy'))
+        if(base&&allReviewOptions)
+          element('held-result').textContent += ' CPU, camera copy and V share G held inputs/rendering; review their tracking, conversion and mask extraction live.';
+        else if(base&&focusedStudy==='fps-review'&&(reviewCandidate==='face-cpu'||reviewCandidate==='frame-copy'))
           element('held-result').textContent='Shared G rendering on this held detection and image. This does not test CPU tracking or camera conversion; review those live.';
         session.heldBusy = false; download.disabled = false; updateControls(); showHairStatus();
       }

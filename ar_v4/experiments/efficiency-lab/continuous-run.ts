@@ -1,6 +1,6 @@
 import type {FrameInput} from './frame-profiler.ts';
 import {distribution} from './frame-profiler.ts';
-import {G_COMMIT, FPS_REVIEW_CANDIDATES} from './profiles.ts';
+import {G_COMMIT, FPS_REVIEW_CANDIDATES, FPS_REVIEW_PIPELINES} from './profiles.ts';
 import type {FpsReviewCandidate} from './profiles.ts';
 
 export const REVIEW_PIPELINES = Object.freeze(['g', 'publish', 'region', 'lens', 'ui'] as const);
@@ -15,6 +15,7 @@ export const CONTINUOUS_STUDIES = Object.freeze({
   'per-image': Object.freeze({pipelines: PER_IMAGE_PIPELINES, defaultVideo: false, approximateMinutes: 5}),
   'mask-preview': Object.freeze({pipelines: MASK_PREVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
   'fps-review': Object.freeze({pipelines: Object.freeze(['g', 'face-cpu'] as const), defaultVideo: false, approximateMinutes: 2.5}),
+  'fps-all': Object.freeze({pipelines: FPS_REVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 7}),
 });
 export type ContinuousStudy = keyof typeof CONTINUOUS_STUDIES;
 type Scalar = number | boolean | string | null;

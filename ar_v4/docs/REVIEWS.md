@@ -1,7 +1,50 @@
 ## FPS review experiments - September 13, 2026
 
+Owner follow-up: the bare `?study=fps-review` entry now contains all six choices
+in one camera session: G, CPU face, render worker, VideoFrame copy, compositor
+reuse and V. G remains selected first. The new `fps-all` recording protocol runs
+all six forward and in reverse (12 windows, about seven minutes, one ZIP).
+Explicit candidate links preserve the focused four-window protocol below.
+Warmup, 30-second measured windows, pairing, algorithms, geometry and guards are
+unchanged. The longer run retains at most 30,000 scalar hair requests, matching
+the existing frame/video row bound; overflow is still explicit. This change
+assembles existing experiments in one testing ground; it does not combine their
+implementations or establish a new speed or visual result.
+
+All-options package fingerprint:
+`c235caea31a9582cc32e97e200365abade322146ad908f05b3682f6b1c388fe1`.
+The package has 22 public files, checked against their sizes and SHA-256 hashes;
+244 fingerprinted inputs match the build. The 239 G dependencies remain exact
+pinned Git blobs and all 461 original-checkout source/doc/config hashes match.
+`npm test` passes 172 unit checks and 21 browser tests; strict TypeScript and
+292 efficiency checks pass. New protocol tests cover both run directions,
+separate ownership for adjacent V windows, a zero-output worker window and
+full 30-second denominators with pre-window captures excluded.
+
+Six production browser checks pass, including all six live paths in one camera
+session, matching held outputs/display pixels, export and restart for both
+glasses and both hair models, plus preserved focused/fallback behavior.
+Receipts: `test-results/mobile-2026-09-13T09-38-34.304Z/`. The full automatic run
+completed all 12 real-clock windows and saved 2,420 frame rows, 2,063 measured
+rows and 2,431 hair requests with a completed drain. Its ZIP SHA-256 is
+`c8f1e04f93e83774e8aef02e2435b4efa896524cd507c93219d5b7c72bd85fa9`.
+The initial Playwright wrapper exceeded its 630-second test budget during the
+subsequent per-value matcher audit; the recording had already completed.
+An independent Python audit of the retained ZIP passes CRC/byte identity, all
+full-window clocks, CPU/GPU delegates, session/mask publication pairing and raw
+FPS, age, stall and coverage calculations. It is retained privately at
+`.recovery/all-preview-2026-09-13/independent-pipeline-audit.json`. This is
+synthetic-browser evidence; the physical iPhone comparison still needs owner runs.
+The browser test now shares `qa/fps-all-audit.ts`, using ordinary Node assertions
+instead of thousands of traced matcher steps. The same retained report passes
+that audit in 1.03 seconds, including rejection of eight deliberately corrupted
+copies covering order, denominator, session, mask pairing, delegate, worker path,
+age and coverage. Receipt: `.recovery/all-preview-2026-09-13/fps-all-retained-audit.json`.
+Strict TypeScript passes after the harness correction. The runtime fingerprint
+is unchanged; the full camera run was not repeated just for matcher overhead.
+
 The owner requested implemented tests and a pushed iPhone preview from the attached
-FPS review. New study `?study=fps-review` keeps G selected first and compares one
+FPS review. The first focused study kept G selected first and compared one
 option using G / option / option / G: CPU face, worker rendering, VideoFrame
 capture and compositor reuse. Existing V is an optional reference. No new
 candidate is accepted; U remains rejected. Older masks, altered resolution,
@@ -51,7 +94,7 @@ wearer visual acceptance remain for the owner's new tests. Hold aliases for CPU,
 VideoFrame and V do not independently test their input/inference changes. Both
 frame models, both hair models and all five movement controls remain required.
 
-Final package fingerprint:
+Preceding focused package fingerprint:
 `71666ebb3f29f36e1031b8a0ee871b374738e0cddfe5492c68e9c05f89cd6f0b`
 (244 fingerprinted inputs, 22 public files). Recomputing the source fingerprint
 and checking every packaged file's SHA-256 and size matches this build.

@@ -1,29 +1,18 @@
 import {test, expect} from '@playwright/test';
 import type {Download, Page} from '@playwright/test';
 import {readFile, writeFile} from 'node:fs/promises';
-import type {RecordedRunFrame} from './continuous-run.ts';
-import type {RecorderMetadata} from './continuous-recorder.ts';
-import type {HairDeliveryExport} from './hair-delivery.ts';
 import type {FrameSample} from './frame-profiler.ts';
+import {auditFpsAllReport} from './qa/fps-all-audit.ts';
+import type {Report,Release} from './qa/fps-all-audit.ts';
 
-const CHOICES = ['g', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const;
+const CHOICES = ['g', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'mask-bytes'] as const;
+const ALL_PATH = '/ar_testing/experiments/efficiency-lab/live.html?study=fps-review';
 type Pipeline = typeof CHOICES[number];
 interface CameraObservation {streams: MediaStream[]; recordings: MediaStream[]; workers: {terminated: boolean}[];}
 
 interface HashGate {reached: boolean; release(): void; restore(): void;}
 declare global {interface Window {fpsReviewCamera: CameraObservation; fpsReviewHashGate?: HashGate;}}
-interface Report {
-  schema: string; baseCommit: string; sessionId: string; completed: boolean; partial: boolean; startedAtMs: number; endedAtMs: number;
-  metadata: {build: {id: string; createdAt: string}; device: {crossOriginIsolated: boolean; secureContext: boolean}};
-  protocol: {studyOptions: string; warmupMs: number; measureMs: number; minimumTrackedMaskedWarmupFrames: number; order: string[]};
-  workload: {eyewearId: string; hairModelId: string; variant: string; sourceWidth: number; sourceHeight: number};
-  recording: RecorderMetadata; rows: RecordedRunFrame[];
-  hairDelivery: HairDeliveryExport;
-  hairDeliveryDrain: {state: string; startedAtMs: number; endedAtMs: number; reason: string | null};
-  windows: {index: number; token: number; pipeline: string; completed: boolean; validWarmupFrames: number; switchedAtMs: number | null; thirdWarmupAtMs: number | null; round: number;
-    measureStartedAtMs: number | null; endedAtMs: number | null; summary: {frames: number; durationMs: number; completedArFps: number | null}}[];
-  retention: {truncated: boolean; rejectedRows: number; frameRows: number};
-}
+
 interface HeldOutput {
   pair: unknown; detection: unknown; mask: unknown; sourcePngDataUrl: string; acceptedPngDataUrl: string; hairPngDataUrl: string;
   captureSnapshot: {surfacePositions: unknown; eyewearMatrix: unknown; protection: unknown};
@@ -146,7 +135,7 @@ async function published(page: Page, pipeline: Pipeline, after=0): Promise<Frame
   return await page.evaluate(({pipeline,after})=>window.arPerformanceProfiler.samplesAfter(after)
     .filter(row=>row.sessionId===window.hairLivePreview.diagnostics().sessionId&&row.pipeline===pipeline&&row.hasFace&&row.hasMask).at(-1)!,{pipeline,after});
 }
-function mechanism(row: FrameSample): void {
+function mechanism(row: Pick<FrameSample,'pipeline'|'sourceWidth'|'sourceHeight'|'faceDelegate'|'native'>): void {
   expect(row.sourceWidth).toBe(720);expect(row.sourceHeight).toBe(1280);
   expect(Number(row.native?.['pump.maxOwnedFrames'])).toBeLessThanOrEqual(2);
   expect(Number(row.native?.['pump.maxInFlightInference'])).toBeLessThanOrEqual(1);
@@ -164,21 +153,33 @@ function mechanism(row: FrameSample): void {
     expect(Number(row.native?.['capture.maxOwnedImages'])).toBeLessThanOrEqual(2);
   }
   if(row.pipeline==='reuse-compose')expect(row.native?.['reviewCompose.used']).toBe(true);
+  if(row.pipeline==='mask-bytes') {
+    expect(row.native?.['hairCategory.requestedMode']).toBe('rgba8');
+    expect(row.native?.['hairCategory.path']).toBe('rgba8-readback');
+    expect(row.native?.['hairCategory.rgba8FallbackReason']).toBeNull();
+    expect(Number(row.native?.['hairCategory.rgba8ReadbackBytes'])).toBe(720*1280*4);
+  }
 }
-async function heldPixels(page:Page,candidate:string):Promise<void> {
+async function heldPixels(page:Page,candidate:string|readonly Pipeline[]):Promise<void> {
+  const ids=typeof candidate==='string'?['g',candidate]:[...candidate];
   await page.click('#hold-frame');await expect(page.locator('.stage')).toHaveAttribute('data-state','held');
   await expect.poll(()=>page.evaluate(()=>window.hairLivePreview.diagnostics().heldBusy)).toBe(false);
   const report=await page.evaluate(()=>window.hairLivePreview.exportDiagnostic()) as Record<string,unknown>;
-  expect(report.comparedPipelines).toEqual(['g',candidate]);expect(report.candidateAccepted).toBe(false);
-  const outputs=report as Record<string,HeldOutput>, g=outputs.g!, next=outputs[candidate]!;
-  for(const key of ['pair','detection','mask','sourcePngDataUrl'] as const)expect(next[key]).toEqual(g[key]);
-  for(const key of ['surfacePositions','eyewearMatrix','protection'] as const)expect(next.captureSnapshot[key]).toEqual(g.captureSnapshot[key]);
-  for(const output of [g,next])for(const key of ['protectedCheck','noseCheck','outsideEditableCheck','backgroundPreservationCheck'] as const)
-    expect(output.stats[key].changedPixels).toBe(0);
-  const hashes=await page.evaluate(async candidate=>{
+  if(typeof candidate==='string')expect(report.comparedPipelines).toEqual(ids);
+  else {expect(report.comparedPipelines).toHaveLength(ids.length);expect([...(report.comparedPipelines as string[])].sort()).toEqual([...ids].sort());}
+  expect(report.candidateAccepted).toBe(false);
+  const outputs=report as Record<string,HeldOutput>, g=outputs.g!;
+  for(const id of ids) {
+    const next=outputs[id]!;expect(next.stats.hasMask).toBe(true);
+    for(const key of ['pair','detection','mask','sourcePngDataUrl'] as const)expect(next[key]).toEqual(g[key]);
+    for(const key of ['surfacePositions','eyewearMatrix','protection'] as const)expect(next.captureSnapshot[key]).toEqual(g.captureSnapshot[key]);
+    for(const key of ['protectedCheck','noseCheck','outsideEditableCheck','backgroundPreservationCheck'] as const)
+      expect(next.stats[key].changedPixels).toBe(0);
+  }
+  const hashes=await page.evaluate(async ids=>{
     const diagnostic=window.hairLivePreview.exportDiagnostic()! as Record<string,{acceptedPngDataUrl:string;hairPngDataUrl:string}>;
     const result:Record<string,string>={};
-    for(const id of ['g',candidate])for(const variant of ['accepted','hair'] as const) {
+    for(const id of ids)for(const variant of ['accepted','hair'] as const) {
       const image=new Image();image.src=diagnostic[id]![variant==='hair'?'hairPngDataUrl':'acceptedPngDataUrl'];await image.decode();
       const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
       const ctx=canvas.getContext('2d')!;ctx.drawImage(image,0,0);
@@ -186,12 +187,18 @@ async function heldPixels(page:Page,candidate:string):Promise<void> {
       result[id+'.'+variant]=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).join(',');
     }
     return result;
-  },candidate);
-  for(const variant of ['accepted','hair'])expect(hashes[candidate+'.'+variant]).toBe(hashes['g.'+variant]);
+  },ids);
+  for(const id of ids)for(const variant of ['accepted','hair'])expect(hashes[id+'.'+variant]).toBe(hashes['g.'+variant]);
   if(candidate==='face-cpu'||candidate==='frame-copy')await expect(page.locator('#held-result')).toContainText('does not test CPU tracking');
-  for(const pipeline of ['g',candidate])for(const variant of ['accepted','hair']) {
+  for(const pipeline of ids)for(const variant of ['accepted','hair']) {
     await page.selectOption('#pipeline-select',pipeline);await page.selectOption('#variant-select',variant);
     await expect(page.locator('#mirror')).toBeVisible();
+    const displayed=await page.locator('#mirror').evaluate(async element=>{
+      const canvas=element as HTMLCanvasElement;
+      const bytes=canvas.getContext('2d')!.getImageData(0,0,canvas.width,canvas.height).data;
+      return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).join(',');
+    });
+    expect(displayed).toBe(hashes[pipeline+'.'+variant]);
   }
 }
 
@@ -252,4 +259,55 @@ test('FPS review capture fallback stays visible and unavailable worker cannot pr
   await expect(page.locator('.stage')).toHaveAttribute('data-state','error');
   await expect(page.locator('#guidance')).toContainText('does not support');await expect(page.locator('#continuous-start')).toBeDisabled();
   expect(await page.evaluate(()=>window.arPerformanceProfiler.samplesAfter(0).length)).toBe(0);await expect.poll(()=>closed(page)).toBe(true);
+});
+
+for(const eyewear of ['amber-horizon','tom-ford-clear'])for(const hair of ['hair-only','selfie-multiclass'])
+  test(`FPS all options one camera, held export and resume: ${eyewear} / ${hair}`,async({page})=>{
+    const network=observeNetwork(page);await installCamera(page);await page.goto(ALL_PATH);
+    await expect(page.locator('#review-candidate')).toHaveValue('all');
+    await expect(page.locator('#pipeline-select')).toHaveValue('g');
+    expect(await page.locator('#pipeline-select option').evaluateAll(nodes=>nodes.map(n=>(n as HTMLOptionElement).value))).toEqual(CHOICES);
+    await expect(page.locator('#continuous-start')).toContainText('all six options');
+    await expect(page.locator('#continuous-video')).not.toBeChecked();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.selectOption('#eyewear-select',eyewear);await page.selectOption('#hair-model-select',hair);
+    await page.click('#start');let previous=await published(page,'g');const originalSession=previous.sessionId;
+    const samples:FrameSample[]=[previous];mechanism(previous);
+    await expect(page.locator('#review-candidate')).toBeDisabled();
+    for(const pipeline of CHOICES.slice(1)) {
+      await page.selectOption('#pipeline-select',pipeline);const row=await published(page,pipeline,previous.serial);
+      expect(row.sessionId).toBe(originalSession);mechanism(row);
+      expect(row.faceDelegate).toBe(pipeline==='face-cpu'?'CPU':'GPU');
+      expect(row.eyewearId).toBe(eyewear);expect(row.hairModelId).toBe(hair);
+      expect(await page.evaluate(()=>window.fpsReviewCamera.streams.length)).toBe(1);
+      samples.push(row);previous=row;
+    }
+    await writeFile(test.info().outputPath('all-live-mechanisms.json'),JSON.stringify({eyewear,hair,samples},null,2));
+    await heldPixels(page,CHOICES);
+    await expect(page.locator('#held-result')).toContainText('review their tracking, conversion and mask extraction live');
+    const downloaded=page.waitForEvent('download');await page.click('#download-diagnostic');
+    const file=await downloaded;expect(file.suggestedFilename()).toMatch(/^efficiency-comparison-.*\.json$/);
+    const output=test.info().outputPath('all-held-comparison.json');await file.saveAs(output);
+    const diagnostic=JSON.parse(await readFile(output,'utf8')) as Record<string,unknown>;
+    expect(diagnostic.comparedPipelines).toHaveLength(CHOICES.length);
+    expect([...(diagnostic.comparedPipelines as string[])].sort()).toEqual([...CHOICES].sort());expect(diagnostic.candidateAccepted).toBe(false);
+    for(const pipeline of CHOICES)expect(diagnostic[pipeline]).toBeDefined();
+    await page.screenshot({path:test.info().outputPath('all-options-mobile.png'),fullPage:true});
+    await page.selectOption('#pipeline-select','g');await page.click('#resume-live');
+    const resumed=await published(page,'g');expect(resumed.sessionId).not.toBe(originalSession);
+    expect(await page.evaluate(()=>window.fpsReviewCamera.streams.length)).toBe(2);
+    await cleanup(page);expect(network).toEqual({errors:[],badResponses:[],unscoped:[]});
+  });
+
+test('FPS all options complete twelve real windows in one independently audited ZIP',async({page})=>{
+  test.setTimeout(630000);
+  const network=observeNetwork(page);await installCamera(page);await page.goto(ALL_PATH);
+  await page.selectOption('#power-context','battery');await page.click('#start');await published(page,'g');
+  const file=page.waitForEvent('download',{timeout:570000});await page.click('#continuous-start');
+  const {report,files}=await downloadReport(await file,'fps-all');
+  expect(files.size).toBe(1);
+  const releaseResponse=await page.request.get('/ar_testing/release.json');expect(releaseResponse.ok()).toBe(true);
+  const receipt=auditFpsAllReport(report,await releaseResponse.json() as Release);
+  await writeFile(test.info().outputPath('fps-all-audit.json'),JSON.stringify(receipt,null,2));
+  await cleanup(page);expect(network).toEqual({errors:[],badResponses:[],unscoped:[]});
 });

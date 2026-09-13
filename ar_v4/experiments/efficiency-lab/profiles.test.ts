@@ -1,12 +1,31 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialPipeline, PIPELINES, PROFILES, previewSearch, studyPipelines, usesBaseRenderer} from './profiles.ts';
-import {FPS_REVIEW_CANDIDATES, fpsReviewCandidate} from './profiles.ts';
+import {FPS_REVIEW_CANDIDATES, FPS_REVIEW_PIPELINES, fpsReviewCandidate, fpsReviewIsAll} from './profiles.ts';
+
+test('FPS review without a candidate exposes all current experiments together and starts at G', () => {
+  const search = '?study=fps-review';
+  assert.equal(fpsReviewIsAll(search), true);
+  assert.deepEqual(studyPipelines(search), ['g', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'mask-bytes']);
+  assert.deepEqual(studyPipelines(search), FPS_REVIEW_PIPELINES);
+  assert.equal(initialPipeline(search), 'g');
+  for (const pipeline of FPS_REVIEW_PIPELINES)
+    assert.equal(initialPipeline(search + '&pipeline=' + pipeline), pipeline);
+  for (const pipeline of PIPELINES.filter(id => !FPS_REVIEW_PIPELINES.includes(id as never)))
+    assert.equal(initialPipeline(search + '&pipeline=' + pipeline), 'g');
+  assert.equal(previewSearch(search, true), search);
+  for (const value of ['', '__proto__', 'g', 'hair-release', 'invalid']) {
+    const focused = search + '&candidate=' + value;
+    assert.equal(fpsReviewIsAll(focused), false);
+    assert.deepEqual(studyPipelines(focused), ['g', 'face-cpu']);
+  }
+  assert.equal(fpsReviewIsAll('?study=mask-preview'), false);
+});
 
 test('FPS review selects one bounded candidate against G without changing baseline admission or resolution', () => {
-  assert.deepEqual(studyPipelines('?study=fps-review'), ['g','face-cpu']);
   for(const id of FPS_REVIEW_CANDIDATES) {
     const search='?study=fps-review&candidate='+id;
+    assert.equal(fpsReviewIsAll(search), false);
     assert.deepEqual(studyPipelines(search), ['g',id]);
     assert.equal(initialPipeline(search),'g');
     assert.equal(initialPipeline(search+'&pipeline='+id),id);

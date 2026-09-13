@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {ContinuousComparisonRun, CONTINUOUS_STUDIES, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
 import type {ContinuousRunOptions, ContinuousPipeline, RecordedRunFrame} from './continuous-run.ts';
 import type {FrameInput} from './frame-profiler.ts';
-import {FPS_REVIEW_CANDIDATES} from './profiles.ts';
+import {FPS_REVIEW_CANDIDATES, FPS_REVIEW_PIPELINES} from './profiles.ts';
 
 const options = (extra: Partial<ContinuousRunOptions> = {}): ContinuousRunOptions => ({sessionId: 'session',
   workload: {eyewearId: 'amber-horizon', hairModelId: 'hair-only', variant: 'hair', sourceWidth: 640, sourceHeight: 427}, ...extra});
@@ -38,6 +38,58 @@ interface WindowResult {
 }
 const windows = (run: ContinuousComparisonRun): WindowResult[] => run.export().windows as WindowResult[];
 const rows = (run: ContinuousComparisonRun): RecordedRunFrame[] => run.export().rows as RecordedRunFrame[];
+
+test('all FPS experiments run two balanced rounds with the same masked warmup and measurement defaults', () => {
+  for (const direction of ['forward', 'reverse'] as const) {
+    const run = new ContinuousComparisonRun(options({studyOptions: 'fps-all', direction}));
+    const first = direction === 'forward' ? [...FPS_REVIEW_PIPELINES] : [...FPS_REVIEW_PIPELINES].reverse();
+    const protocol = run.export().protocol as Record<string, unknown>;
+    assert.deepEqual(protocol.order, [...first, ...[...first].reverse()]);
+    assert.equal(protocol.studyOptions, 'fps-all');
+    assert.equal(protocol.warmupMs, 5000); assert.equal(protocol.measureMs, 30000);
+    assert.equal(protocol.maxWarmupMs, 15000); assert.equal(protocol.minimumTrackedMaskedWarmupFrames, 3);
+    assert.equal(run.status.windowCount, 12);
+  }
+  assert.equal(CONTINUOUS_STUDIES['fps-all'].defaultVideo, false);
+  assert.equal(CONTINUOUS_STUDIES['fps-all'].approximateMinutes, 7);
+  assert.throws(() => new ContinuousComparisonRun(options({studyOptions: 'fps-all', candidate: 'face-cpu'})), /candidate/);
+});
+
+test('all twelve windows retain full denominators, zero-output time and distinct adjacent V ownership', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'fps-all'}));
+  let sequence = 0; run.begin(0);
+  for (let index = 0; index < 12; index++) {
+    const start = index * 35000, status = run.status;
+    assert.equal(status.windowIndex, index);
+    if (index > 0) {
+      run.switched(status.token - 1, start);
+      assert.equal(run.status.state, 'switching', 'each window requires its own acknowledgement even for adjacent V');
+    }
+    run.switched(status.token, start);
+    run.observe(frame(start + 50, ++sequence, status.pipeline, {hasMask: false}));
+    for (const offset of [100, 200, 300]) run.observe(frame(start + offset, ++sequence, status.pipeline));
+    run.tick(start + 5000); assert.equal(run.status.state, 'measuring');
+    run.observe(frame(start + 5010, ++sequence, status.pipeline, {capturedAtMs: start + 4990}));
+    if (index !== 2) {
+      run.observe(frame(start + 5100, ++sequence, status.pipeline));
+      run.observe(frame(start + 34999, ++sequence, status.pipeline));
+    }
+    run.tick(start + 35000);
+  }
+  const report = run.export();
+  const results = report.windows as (WindowResult & {token: number; pipeline: ContinuousPipeline; round: number})[];
+  assert.equal(report.completed, true); assert.equal(report.endedAtMs, 420000);
+  assert.ok(results.every(value => value.completed && value.validWarmupFrames === 3 && value.summary.durationMs === 30000));
+  assert.deepEqual(results.map(value => value.token), Array.from({length: 12}, (_, index) => index + 1));
+  assert.deepEqual(results.map(value => value.round), [1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2]);
+  assert.equal(results[5]!.pipeline, 'mask-bytes'); assert.equal(results[6]!.pipeline, 'mask-bytes');
+  const stalled = results[2]!;
+  assert.equal(stalled.pipeline, 'render-worker'); assert.equal(stalled.summary.frames, 0);
+  assert.equal(stalled.summary.completedArFps, 0); assert.equal(stalled.summary.completionGapMsIncludingEndpoints!.max, 30000);
+  assert.ok(results.filter((_, index) => index !== 2).every(value => value.summary.frames === 2 && value.summary.completedArFps === 2 / 30));
+  assert.equal(rows(run).filter(value => value.phase === 'measured').length, 22);
+  assert.equal(rows(run).filter(value => value.exclusion === 'captured-before-measurement').length, 12);
+});
 
 test('FPS review uses G/candidate/candidate/G and keeps strict masked warmup and full windows', () => {
   for(const candidate of FPS_REVIEW_CANDIDATES) {

@@ -55,18 +55,29 @@ are not part of these four candidates.
 ## iPhone testing ground
 
 Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review`.
-G is selected first. Choose the test option while the camera is closed. Select
-glasses and hair model, record power state, open the camera and inspect the live
-G/candidate toggle. The page reports the actual selected path or fallback.
+The owner's follow-up puts all experiments in this one preview. G is selected
+first; the Algorithm menu exposes G, CPU face, render worker, VideoFrame copy,
+compositor reuse and V throughout one camera session. Select glasses and hair
+model, record power state, open the camera and switch freely for manual viewing.
+The page reports the actual selected path or fallback.
 
-Use **Measure only** for throughput. Each of four windows requires at least
+Use **Measure only · all six options · ~7 min** for throughput. The automatic run
+tests those six forward and in reverse and saves one ZIP. Each of 12 windows
+requires at least
 5 seconds and three tracked, matching-mask images, then measures 30 seconds.
 Startup/switching and warmup remain separate. The measurement denominator is the
 full window, including stalls, lost tracking and unmasked frames. A timed-out
 warmup produces a partial ZIP; it is not silently shortened or scored as zero FPS.
 Use video on a separate run to review motion; encoding adds load.
 
-Repeat each candidate for Amber/hair-only, Amber/multiclass, Tom Ford/hair-only
+The Preview options menu also retains focused G / option / option / G runs at
+explicit `&candidate=...` URLs. These take about 2.5 minutes and are useful for
+repeating a close result under less thermal drift. Neither scope combines the
+implementations; each window changes only its named option. Scalar hair-request
+retention is bounded at 30,000 for the longer run and 10,000 for focused runs;
+overflow remains explicit. No private pixels or detections enter that ledger.
+
+Repeat the run for Amber/hair-only, Amber/multiclass, Tom Ford/hair-only
 and Tom Ford/multiclass. Follow the repeated front/nose, down, up, left-yaw and
 right-yaw cues. Inspect both side arms, hair transitions, frame stability, nose
 and front protection, immediate toggles and recovery after tracking loss. Save

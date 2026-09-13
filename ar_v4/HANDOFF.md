@@ -2,10 +2,14 @@
 
 The owner requested a ready-to-test, pushed preview based on the attached FPS
 review. New entry: `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review`.
-It selects G first and compares one isolated option using G / option / option / G.
+The owner's follow-up requests all experiments in one preview. This entry now
+selects G first and exposes all six options in one live session. Its automatic
+run tests G, CPU, worker, camera copy, compositor and V, then reverses that order:
+12 unchanged warmup/measurement windows, about seven minutes, one local ZIP.
+Explicit `&candidate=...` links retain the shorter G / option / option / G runs.
 Options: forced CPU face, OffscreenCanvas render worker, exact VideoFrame camera
 copy with explicit fallback, and compositor output reuse/restricted detailed work.
-V remains an optional reference. G remains accepted and U remains rejected for
+V remains a reference experiment. G remains accepted and U remains rejected for
 promotion. Older masks, lower resolution and altered geometry are not introduced.
 
 Continue only in
@@ -15,7 +19,9 @@ See [assessment and test protocol](docs/FPS_REVIEW_2026-09-13.md),
 [mobile guide](experiments/efficiency-lab/MOBILE.md) and current REVIEWS.md findings
 for mechanisms, measured versus hypothetical claims and validation limits.
 
-The FPS-review package fingerprint is
+The all-options package fingerprint is
+`c235caea31a9582cc32e97e200365abade322146ad908f05b3682f6b1c388fe1`.
+The preceding focused FPS-review package fingerprint is
 `71666ebb3f29f36e1031b8a0ee871b374738e0cddfe5492c68e9c05f89cd6f0b`.
 Older fingerprints and phone observations below identify preceding packages.
 
