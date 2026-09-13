@@ -1,6 +1,27 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initialPipeline, PIPELINES, PROFILES, previewSearch, studyPipelines, usesBaseRenderer} from './profiles.ts';
+import {FPS_REVIEW_CANDIDATES, fpsReviewCandidate} from './profiles.ts';
+
+test('FPS review selects one bounded candidate against G without changing baseline admission or resolution', () => {
+  assert.deepEqual(studyPipelines('?study=fps-review'), ['g','face-cpu']);
+  for(const id of FPS_REVIEW_CANDIDATES) {
+    const search='?study=fps-review&candidate='+id;
+    assert.deepEqual(studyPipelines(search), ['g',id]);
+    assert.equal(initialPipeline(search),'g');
+    assert.equal(initialPipeline(search+'&pipeline='+id),id);
+    assert.equal(initialPipeline(search+'&pipeline=hair-release'),'g');
+    assert.equal(previewSearch(search,true),search);
+    for(const key of ['mode','leanInputs','deferPrefetch','captureRateHz','releaseHairWorkerEarly','throttleUi','suppressUnchangedPublication'] as const)
+      assert.equal(PROFILES[id][key],PROFILES.g[key]);
+    if(id!=='mask-bytes')assert.equal(PROFILES[id].hairExtractionMode,'sdk');
+  }
+  for(const value of ['__proto__','g','hair-release','invalid'])assert.equal(fpsReviewCandidate('?candidate='+value),'face-cpu');
+  assert.deepEqual(PROFILES['face-cpu'].options,PROFILES.g.options);
+  assert.deepEqual(PROFILES['frame-copy'].options,PROFILES.g.options);
+  assert.deepEqual(PROFILES['render-worker'].options,PROFILES.g.options);
+  assert.deepEqual(PROFILES['reuse-compose'].options,{...PROFILES.g.options,reviewCompose:true});
+});
 
 test('rate experiments retain original G rendering and input options', () => {
   for (const [id, rate] of [['rate12', 12], ['rate10', 10], ['rate8', 8]] as const) {

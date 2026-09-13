@@ -58,7 +58,7 @@ test('held Q and T reuse the exact G output while R and S render independent can
     copyHeldInput:()=>({source:canvas(),detection:{landmarks:[],matrix:null},pair:{sourceSHA256:'a'.repeat(64)},expectedModel:{id:'hair-only'}}),
     exportDiagnostic:()=>({stats:{hasFace:true}}),captureSnapshot:{pose:1,hairPreview:{variant:'hair',applied:false}}});
   const renderer=new ComparisonRenderer(canvas(),boundary(baseCalls),boundary(candidateCalls));
-  await renderer.setHeld();
+  await renderer.setHeld(['g','publish','region','lens','ui']);
   assert.equal(baseCalls.length,1,'G is rendered once and held-only aliases share its owned output.');
   assert.equal(renderer.outputs.get('publish'),renderer.outputs.get('g'));
   assert.equal(renderer.outputs.get('ui'),renderer.outputs.get('g'));

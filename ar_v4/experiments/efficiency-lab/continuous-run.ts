@@ -1,18 +1,20 @@
 import type {FrameInput} from './frame-profiler.ts';
 import {distribution} from './frame-profiler.ts';
-import {G_COMMIT} from './profiles.ts';
+import {G_COMMIT, FPS_REVIEW_CANDIDATES} from './profiles.ts';
+import type {FpsReviewCandidate} from './profiles.ts';
 
 export const REVIEW_PIPELINES = Object.freeze(['g', 'publish', 'region', 'lens', 'ui'] as const);
 export type ReviewPipeline = typeof REVIEW_PIPELINES[number];
 export const HAIR_DELIVERY_PIPELINES = Object.freeze(['g', 'hair-release'] as const);
 export const PER_IMAGE_PIPELINES = Object.freeze(['g', 'mask-bytes', 'gl-state', 'word-compose'] as const);
 export const MASK_PREVIEW_PIPELINES = Object.freeze(['g', 'mask-bytes'] as const);
-export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number];
+export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number] | FpsReviewCandidate;
 export const CONTINUOUS_STUDIES = Object.freeze({
   review: Object.freeze({pipelines: REVIEW_PIPELINES, defaultVideo: true, approximateMinutes: 6}),
   'hair-delivery': Object.freeze({pipelines: HAIR_DELIVERY_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
   'per-image': Object.freeze({pipelines: PER_IMAGE_PIPELINES, defaultVideo: false, approximateMinutes: 5}),
   'mask-preview': Object.freeze({pipelines: MASK_PREVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
+  'fps-review': Object.freeze({pipelines: Object.freeze(['g', 'face-cpu'] as const), defaultVideo: false, approximateMinutes: 2.5}),
 });
 export type ContinuousStudy = keyof typeof CONTINUOUS_STUDIES;
 type Scalar = number | boolean | string | null;
@@ -23,7 +25,7 @@ export interface ContinuousWorkload {
 export interface ContinuousRunOptions {
   sessionId: string; workload: ContinuousWorkload; metadata?: Record<string, unknown>;
   direction?: 'forward' | 'reverse'; warmupMs?: number; measureMs?: number; maxWarmupMs?: number;
-  rowLimit?: number; id?: string; studyOptions?: ContinuousStudy;
+  rowLimit?: number; id?: string; studyOptions?: ContinuousStudy; candidate?: FpsReviewCandidate;
 }
 export interface ContinuousRunStatus {
   state: 'idle' | 'switching' | 'warmup' | 'measuring' | 'complete' | 'partial'; running: boolean;
@@ -126,7 +128,10 @@ export class ContinuousComparisonRun {
       || !Number.isInteger(options.workload.sourceHeight) || options.workload.sourceHeight < 1) throw new Error('Invalid fixed comparison workload.');
     this.id = options.id ?? crypto.randomUUID(); this.sessionId = options.sessionId;
     this.workload = {...options.workload}; this.metadata = sanitizeRunMetadata(options.metadata);
-    const studyPipelines: readonly ContinuousPipeline[] = CONTINUOUS_STUDIES[this.options.studyOptions].pipelines;
+    if (options.candidate !== undefined && (this.options.studyOptions !== 'fps-review' || !FPS_REVIEW_CANDIDATES.includes(options.candidate)))
+      throw new Error('Unsupported FPS review candidate.');
+    const studyPipelines: readonly ContinuousPipeline[] = this.options.studyOptions === 'fps-review'
+      ? ['g', options.candidate ?? 'face-cpu'] : CONTINUOUS_STUDIES[this.options.studyOptions].pipelines;
     const first = direction === 'forward' ? [...studyPipelines] : [...studyPipelines].reverse();
     this.windows = [...first, ...[...first].reverse()].map((pipeline, index) => ({index, token: index + 1,
       round: index < first.length ? 1 : 2, pipeline, requestedAtMs: null, switchedAtMs: null,

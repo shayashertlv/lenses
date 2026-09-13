@@ -14,6 +14,10 @@ import {copyHairMask, liveNasalRoi} from '../hair-live-preview/ownership.ts';
 import type {LiveVariant, OwnedPixels} from '../hair-live-preview/ownership.ts';
 import {composeHairArmsFast, checkHairProtection, CompositionScratch} from './fast-compose.ts';
 import type {CompositionAllocationStats} from './fast-compose.ts';
+import {composeHairArmsReview, ReviewCompositionScratch, emptyReviewComposeStats} from './review-compose/compose.ts';
+import type {ReviewComposeStats} from './review-compose/compose.ts';
+import {CompositionOutputPool} from './review-compose/output-pool.ts';
+import type {CompositionOutputLease} from './review-compose/output-pool.ts';
 import {loadTempleContinuityModel, projectTempleContinuity, findDetachedTemplePixels, TEMPLE_CONTINUITY_POLICY} from '../hair-live-preview/continuity.ts';
 import type {TempleContinuityModel, ContinuityDiagnostics} from '../hair-live-preview/continuity.ts';
 const CANDIDATE_REVISION = 'Efficiency lab: separate experiments based on owner-selected G Combined';
@@ -46,6 +50,7 @@ export interface LiveHairStats {
     acceptedPixelReadbacksAvoided: number; acceptedPixelBytesBorrowed: number;
     diagnosticWeightBytesAvoided: number;
     wordComparisonRequested: boolean; wordComparisonUsed: boolean; wordComparedPixels: number;
+    reviewCompose: ReviewComposeStats;
     sourceCopyMs: number; hairRequested: boolean; eagerCleanWithoutMask: boolean;
     nativePipeline: TempleStageTimings; cpuReadbackCalls: number; cpuReadbackBytes: number;
     cleanCameraContextsAvoided: number; sourceTextureUploadsAvoided: number;
@@ -76,8 +81,9 @@ const base64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 const ownedImage = (pixels: Uint8ClampedArray, width: number, height: number): ImageData => {
-  // Composition allocates this buffer internally. ImageData can borrow it safely;
-  // exports expose encoded pixels, and no caller receives these mutable bytes.
+  // Ordinary composition owns its allocation; review composition holds an
+  // exclusive output lease for this ImageData's complete lifetime. Exports
+  // synchronously encode pixels and never expose these mutable bytes.
   if (!(pixels.buffer instanceof ArrayBuffer)) throw new Error('Live output requires an owned nonshared pixel buffer.');
   return new ImageData(new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.length), width, height);
 };
@@ -120,6 +126,9 @@ export class LiveHairRenderer {
   private pending = false;
   private preparedAtMs = 0;
   private readonly compositionScratch = new CompositionScratch();
+  private readonly reviewCompositionScratch = new ReviewCompositionScratch();
+  private readonly compositionOutputPool = new CompositionOutputPool();
+  private afterOutputLease: CompositionOutputLease | null = null;
 
   /** A live canvas may be released immediately after finish. Hold/export rebuild
    * this exact source lazily from the transferred independent RGBA snapshot. */
@@ -289,7 +298,8 @@ export class LiveHairRenderer {
         protectedCheck: null, noseCheck: null, outsideEditableCheck: null, backgroundPreservationCheck: null,
         acceptedDiagnostics: null, continuity: null,
         candidatePerformance: {acceptedPixelReadbacksAvoided: 1, acceptedPixelBytesBorrowed: ownedPixels.data.byteLength,
-          diagnosticWeightBytesAvoided: 0, wordComparisonRequested: this.frameOptions.wordCompose, wordComparisonUsed: false, wordComparedPixels: 0,
+          diagnosticWeightBytesAvoided: 0, wordComparisonRequested: this.frameOptions.wordCompose || this.frameOptions.reviewCompose,
+          wordComparisonUsed: false, wordComparedPixels: 0, reviewCompose: emptyReviewComposeStats(this.frameOptions.reviewCompose),
           regionBytesAllocated: 0, coordinateBytesAllocated: 0,
           regionsReused: false, coordinatesReused: false, sourceCopyMs, hairRequested, eagerCleanWithoutMask: false,
           nativePipeline, cpuReadbackCalls: nativePipeline.baselineReadbackCalls + nativePipeline.branchReadbackCalls
@@ -333,6 +343,7 @@ export class LiveHairRenderer {
     const started = performance.now(), hasFace = this.latestStats.hasFace;
     this.latestStats.timings.pendingWaitMs = Math.max(0, started - this.preparedAtMs - this.latestStats.timings.prepareMs);
     const {width, height, data: before} = this.before, ownedPair = this.pair, expectedModel = this.model;
+    let composingLease: CompositionOutputLease | null = null;
     try {
       if (this.liveSourceLease) assertSourceFrameCurrent(this.liveSourceLease, this.liveSourceLease.canvas, ownedPair?.sourceSHA256);
       if (!hasFace || !this.detection?.matrix || !ownedPair || !expectedModel || !mask) {
@@ -353,13 +364,21 @@ export class LiveHairRenderer {
         const input: HairArmInput = {width, height, before, background: clean.pixels, pair: ownedPair,
           geometryPair: {sourceSHA256: ownedPair.sourceSHA256, detectionSHA256: ownedPair.detectionSHA256, eyewearModel: this.eyewear.id},
           mask, expectedModel, protection, noseRoi: this.noseRoi};
-        const composeStarted = performance.now(), result = composeHairArmsFast(input,
+        const composeStarted = performance.now();
+        const reviewResult = this.frameOptions.reviewCompose ? composeHairArmsReview(input,
+          {collectEligibleResidualIndices: !!this.continuityModel, collectWeights: false,
+            scratch: this.reviewCompositionScratch, outputPool: this.compositionOutputPool}) : null;
+        const result = reviewResult ?? composeHairArmsFast(input,
           {collectEligibleResidualIndices: !!this.continuityModel, collectWeights: false, scratch: this.compositionScratch, wordCompose: this.frameOptions.wordCompose});
+        if (reviewResult) {
+          composingLease = reviewResult.outputLease;
+          this.latestStats.candidatePerformance.reviewCompose = reviewResult.reviewCompose;
+        }
         this.latestStats.timings.composeMs = performance.now() - composeStarted;
         Object.assign(this.latestStats.candidatePerformance, {wordComparisonRequested: result.wordComparisonRequested,
           wordComparisonUsed: result.wordComparisonUsed, wordComparedPixels: result.wordComparedPixels});
         Object.assign(this.latestStats.candidatePerformance, {diagnosticWeightBytesAvoided: width * height * 4},
-          result.regions ? this.compositionScratch.lastAllocation : {});
+          result.regions ? (reviewResult ? this.reviewCompositionScratch : this.compositionScratch).lastAllocation : {});
         this.latestStats.backgroundReferenceCheck = result.backgroundReferenceCheck;
         this.latestStats.statistics = result.statistics;
         if (result.fallbackReason) throw new Error(result.fallbackReason);
@@ -391,23 +410,27 @@ export class LiveHairRenderer {
           result.pixels.set(before.subarray(start, end), start);
         }
         const {protectedCheck, noseCheck, outsideEditableCheck, backgroundPreservationCheck} = checkHairProtection(input, result.pixels, result.regions);
+        if (reviewResult) reviewResult.reviewCompose.finalAuditScannedPixels = width * height;
         this.latestStats.timings.finalChecksMs = performance.now() - checksStarted;
         if ([protectedCheck, noseCheck, outsideEditableCheck, backgroundPreservationCheck].some(value => value.changedPixels !== 0)) {
           throw new Error('A final accepted-pixel protection check failed.');
         }
         this.mask = copyHairMask(mask);
         this.after = ownedImage(result.pixels, width, height);
+        this.afterOutputLease = composingLease; composingLease = null;
         Object.assign(this.latestStats, {hasMask: true, maskOutputMode: mask.outputMode ?? 'full', maskStatus: 'ready', fallbackReason: null, changedPixels,
           protectedCheck, noseCheck, outsideEditableCheck, backgroundPreservationCheck});
       } catch (error) {
         this.mask = null;
         this.after = this.before;
         Object.assign(this.latestStats, {hasMask: false, maskStatus: 'rejected', fallbackReason: errorMessage(error), changedPixels: 0});
+        if (this.frameOptions.reviewCompose) this.latestStats.candidatePerformance.reviewCompose.fallbackReason = errorMessage(error);
         // The next pair may retry the auxiliary capture; this pair retains beauty.
       }
       this.pending = false; this.publish(); return hasFace;
     } catch (error) { this.clearOwned(); this.displayContext.clearRect(0, 0, this.display.width, this.display.height); throw error; }
     finally {
+      composingLease?.release();
       this.pending = false;
       if (this.latestStats) {
         this.latestStats.timings.finishMs = performance.now() - started;
@@ -472,6 +495,8 @@ export class LiveHairRenderer {
     this.borrowedSource = this.liveSourceLease = null; this.retainedSourcePixels = null; this.sourceMaterialized = true;
     this.pending = false; this.preparedAtMs = 0;
     this.before = this.after = null; this.background = null; this.latestStats = null; this.snapshot = null;
+    // Drop every retained ImageData before making its output available to reuse.
+    this.afterOutputLease?.release(); this.afterOutputLease = null;
     this.detection = null; this.pair = null; this.mask = null; this.model = null; this.noseRoi = null;
   }
   dispose(): void {
@@ -479,6 +504,7 @@ export class LiveHairRenderer {
     for (const cleanup of this.cleanup) cleanup(); this.cleanup = [];
     this.preparationHairEnabled = null; this.preparationInput = null; this.accepted.dispose(); this.clearOwned();
     this.compositionScratch.clear();
+    this.reviewCompositionScratch.clear(); this.compositionOutputPool.dispose();
     this.continuityModel = null;
     this.sourceHistoryPixels = null;
     this.sourceGenerations.clear();

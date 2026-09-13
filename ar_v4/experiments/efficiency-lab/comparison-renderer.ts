@@ -1,6 +1,7 @@
 import {LiveHairRenderer as BaseRenderer} from '../speed-lab/renderer.ts';
 import {PROFILES as G_PROFILES} from '../speed-lab/profiles.ts';
 import {LiveHairRenderer as CandidateRenderer} from './renderer.ts';
+import {RenderWorkerRenderer} from './render-worker/client.ts';
 import {PIPELINES, PROFILES, usesBaseRenderer, G_COMMIT} from './profiles.ts';
 import type {Pipeline} from './profiles.ts';
 import {createOwnedSourceFrame} from './speed-options.ts';
@@ -28,7 +29,10 @@ export class ComparisonRenderer {
   private outputs = new Map<Pipeline,HeldOutput>();
   private heldInput: HeldHairInput | null = null;
   private cachedDiagnostic: Record<string,unknown> | null = null;
-  private constructor(private display: HTMLCanvasElement, private base: BaseRenderer, private candidate: CandidateRenderer) {}
+  private worker: RenderWorkerRenderer | null = null;
+  private workerStarting: Promise<RenderWorkerRenderer> | null = null;
+  private constructor(private display: HTMLCanvasElement, private base: BaseRenderer, private candidate: CandidateRenderer,
+    private signal: AbortSignal, private eyewearId: EyewearId) {}
   static async create(display: HTMLCanvasElement, signal: AbortSignal, id: EyewearId = DEFAULT_EYEWEAR_ID,
     onStartupStage?: (stage: 'g-renderer' | 'candidate-renderer') => void): Promise<ComparisonRenderer> {
     onStartupStage?.('g-renderer');
@@ -38,10 +42,24 @@ export class ComparisonRenderer {
       onStartupStage?.('candidate-renderer');
       const candidate = await CandidateRenderer.create(display,signal,id);
       if(signal.aborted) {candidate.dispose();throw new DOMException('Startup cancelled.','AbortError');}
-      return new ComparisonRenderer(display,base,candidate);
+      return new ComparisonRenderer(display,base,candidate,signal,id);
     } catch(error) {base.dispose();throw error;}
   }
-  private get renderer() {return usesBaseRenderer(this.active) ? this.base : this.candidate;}
+  private get renderer() {
+    if(this.active==='render-worker') {
+      if(!this.worker)throw new Error('Render worker has not initialized.');
+      return this.worker;
+    }
+    return usesBaseRenderer(this.active) ? this.base : this.candidate;
+  }
+  async initializePipeline(id: Pipeline): Promise<void> {
+    if(this.disposed||this.signal.aborted)throw new DOMException('Renderer closed.','AbortError');
+    if(id!=='render-worker'||this.worker)return;
+    this.workerStarting??=RenderWorkerRenderer.create(this.display,this.signal,this.eyewearId);
+    const worker=await this.workerStarting;
+    if(this.disposed||this.signal.aborted){worker.dispose();throw new DOMException('Renderer closed.','AbortError');}
+    this.worker=worker;
+  }
   get pipeline(): Pipeline {return this.active;}
   get requestedPipeline(): Pipeline {return this.requested;}
   get stats(): LiveHairStats | null {
@@ -67,15 +85,22 @@ export class ComparisonRenderer {
   }
   selectVariant(value: LiveVariant): void {
     this.selectedVariant=value;
-    if(this.held) this.showHeld(); else if(!this.disposed) this.renderer.selectVariant(value);
+    // Worker initialization may still be awaited before its own pending flag
+    // is set. Queue toggles for this owned pair without repainting older pixels.
+    if(this.pending&&this.active==='render-worker')return;
+    if(this.held) this.showHeld(); else if(!this.disposed && (this.active!=='render-worker'||this.worker)) this.renderer.selectVariant(value);
   }
   async prepare(frame: HTMLCanvasElement, detection: Detection, pair: PairIdentity, model: HairModelContract,
     needsHair=this.selectedVariant==='hair', source?: OwnedSourceFrame, onNativeSubmitted?:()=>void): Promise<boolean> {
     if(this.disposed)throw new DOMException('Renderer closed.','AbortError');
     if(this.pending)throw new Error('A comparison pair is already pending.');
     this.active=this.requested;this.pending=true;this.mask=null;this.cachedDiagnostic=null;
-    const target=this.renderer;
     try {
+      if(this.active==='render-worker') {
+        await this.initializePipeline(this.active);
+        return await this.worker!.prepare(frame,detection,pair,model,needsHair,source,this.selectedVariant);
+      }
+      const target=usesBaseRenderer(this.active)?this.base:this.candidate;
       target.setPreparationHairEnabled(needsHair);
       const visible=usesBaseRenderer(this.active) ? await this.base.prepare(frame,detection,pair,model,{options:G_PROFILES.combined.options,source})
         : await this.candidate.prepare(frame,detection,pair,model,{options:PROFILES[this.active].options,source,onNativeSubmitted});
@@ -83,9 +108,18 @@ export class ComparisonRenderer {
       target.selectVariant(this.selectedVariant);return visible;
     } catch(error) {this.pending=false;throw error;}
   }
+  async complete(mask: HairMask | null): Promise<void> {
+    if(this.disposed||!this.pending)throw new Error('No owned comparison pair.');
+    if(this.active==='render-worker')await this.worker!.complete(mask);
+  }
   finish(mask: HairMask | null): boolean {
     if(this.disposed || !this.pending)throw new Error('No owned comparison pair.');
-    try {const visible=this.renderer.finish(mask);this.mask=mask;return visible;}
+    try {
+      // Apply a toggle made during initialization, hair wait or worker completion
+      // while the worker client still owns private preparation, then publish once.
+      if(this.active==='render-worker')this.worker!.selectVariant(this.selectedVariant);
+      const visible=this.renderer.finish(mask);this.mask=mask;return visible;
+    }
     finally {this.pending=false;}
   }
   async present(frame: HTMLCanvasElement, detection: Detection, mask: HairMask|null,pair:PairIdentity,model:HairModelContract):Promise<boolean> {
@@ -94,7 +128,9 @@ export class ComparisonRenderer {
     if(!context)throw new Error('Missing held source context.');
     const source=createOwnedSourceFrame(frame,context.getImageData(0,0,frame.width,frame.height),{
       sourceSHA256:pair.sourceSHA256,generation:++this.heldGeneration,sessionId:'held',isCurrent:()=>!this.disposed});
-    await this.prepare(frame,detection,pair,model,ownedMask!==null || this.selectedVariant==='hair',source);return this.finish(ownedMask);
+    await this.prepare(frame,detection,pair,model,ownedMask!==null || this.selectedVariant==='hair',source);
+    if(this.active==='render-worker')await this.complete(ownedMask);
+    return this.finish(ownedMask);
   }
   copyHeldInput():HeldHairInput|null {return this.disposed || this.pending ? null : this.renderer.copyHeldInput();}
   private pixels():ImageData {
@@ -124,7 +160,7 @@ export class ComparisonRenderer {
         if(profile!=='g' && usesBaseRenderer(profile)) {nextOutputs.set(profile,nextOutputs.get('g')!);continue;}
         this.requested=profile;
         await this.present(input.source,input.detection,mask,input.pair,input.expectedModel);
-        const target=this.renderer, diagnostic=target.exportDiagnostic();
+        const target=this.renderer, diagnostic=await target.exportDiagnostic();
         if(!diagnostic)throw new Error(`Missing held ${profile} diagnostic.`);
         target.selectVariant('accepted');const accepted=this.pixels();
         target.selectVariant('hair');const hair=this.pixels();
@@ -132,7 +168,9 @@ export class ComparisonRenderer {
       }
       this.cachedDiagnostic={schema:'ar-efficiency-comparison-v1',baseCommit:G_COMMIT,
         candidateAccepted:false,comparedPipelines:[...heldPipelines],
-        inputPolicy:heldPipelines.length===2 && heldPipelines.includes('mask-bytes')
+        inputPolicy:heldPipelines.includes('face-cpu')||heldPipelines.includes('frame-copy')
+          ? 'All held outputs share one exact captured source, detection and full SDK mask. CPU face and VideoFrame capture reuse G held renderer pixels. This does not independently test changed CPU landmarks, live capture color conversion or temporal tracking; those require live comparison. Worker and compositor options render independent held outputs.'
+          : heldPipelines.length===2 && heldPipelines.includes('mask-bytes')
           ? 'G and V share the exact held source, detection, pose and SDK full mask. V reuses the owned G held pixels because both use the same renderer. This shared SDK full mask comparison does not independently test V live mask extraction or temporal effects; live extraction requires separate matching-mask evidence.'
           : 'Every output uses the same exact held source, detection and mask. Input-only mode I, rate modes M/N/O, extraction modes P/V, publication mode Q, statistics mode T and scheduling mode U share G held pixels. Renderer candidates including R/S/W/X render their own held outputs. The held diagnostic upgrades to the SDK full mask for all choices; it does not independently test live extraction or temporal effects. P/V extraction is checked separately against the installed SDK on matching masks.',
         ...Object.fromEntries([...nextOutputs].map(([id,value])=>[id,value.diagnostic]))};
@@ -163,6 +201,6 @@ export class ComparisonRenderer {
   dispose():void {
     if(this.disposed)return;this.disposed=true;this.pending=false;this.mask=null;this.outputs.clear();
     if(this.heldInput)this.heldInput.source.width=this.heldInput.source.height=0;
-    this.heldInput=null;this.cachedDiagnostic=null;this.candidate.dispose();this.base.dispose();
+    this.heldInput=null;this.cachedDiagnostic=null;this.worker?.dispose();this.candidate.dispose();this.base.dispose();
   }
 }

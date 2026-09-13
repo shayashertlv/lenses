@@ -1,4 +1,37 @@
-## Current preview: G / V - September 12, 2026
+# FPS review candidates — September 13, 2026
+
+The owner requested a ready-to-test, pushed preview based on the attached FPS
+review. New entry: `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review`.
+It selects G first and compares one isolated option using G / option / option / G.
+Options: forced CPU face, OffscreenCanvas render worker, exact VideoFrame camera
+copy with explicit fallback, and compositor output reuse/restricted detailed work.
+V remains an optional reference. G remains accepted and U remains rejected for
+promotion. Older masks, lower resolution and altered geometry are not introduced.
+
+Continue only in
+`C:/Users/Shay/PycharmProjects/lenses/ar_v4/.recovery/mobile-railway-2026-09-11/checkout/ar_v4`.
+The original checkout and private recordings/recovery archives remain unchanged.
+See [assessment and test protocol](docs/FPS_REVIEW_2026-09-13.md),
+[mobile guide](experiments/efficiency-lab/MOBILE.md) and current REVIEWS.md findings
+for mechanisms, measured versus hypothetical claims and validation limits.
+
+The FPS-review package fingerprint is
+`71666ebb3f29f36e1031b8a0ee871b374738e0cddfe5492c68e9c05f89cd6f0b`.
+Older fingerprints and phone observations below identify preceding packages.
+
+## Latest phone evidence - September 13, 2026
+
+Two video-on, hair-only ZIPs match the current G/V preview. Amber completes:
+G 13.567 versus V 14.100 AR updates/s; matching masks on 64.61% versus 100%
+of tracked frames. Tom Ford is partial: final G warmup publishes 207 tracked
+frames but gets only two matching masks in time, so it cannot provide a balanced
+G/V throughput comparison. All hair requests complete and drain. Both videos
+were sampled; unequal poses and missing selfie-multiclass evidence prevent a
+general quality or tracking conclusion. G remains accepted, V a candidate.
+See the latest docs/REVIEWS.md and original-checkout private evidence under
+`.recovery/mobile-comparison-2026-09-13/`. Reviewing those ZIPs did not change the runtime.
+
+## Preserved G / V preview - September 12, 2026
 
 The owner authorized the focused preview and push after the phone comparison.
 Current entry: `/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.

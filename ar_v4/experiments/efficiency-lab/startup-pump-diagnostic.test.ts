@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {startupPumpDiagnostic, startupPumpLabel} from './startup-pump-diagnostic.ts';
 
+test('startup distinguishes native camera-copy wait without exporting pixels',()=>{
+  const receipt=startupPumpDiagnostic({captured:1,startup:{},capture:{requests:1,copied:0,busy:true,
+    ownedImages:1,maxOwnedImages:1,sourceSHA256:'private',rgba:new Uint8Array(4)}},null,1,false);
+  assert.match(startupPumpLabel(receipt),/Copying the frozen/);
+  assert.equal(receipt.pump?.capture?.requests,1);
+  assert.equal(JSON.stringify(receipt).includes('private'),false);
+  assert.equal(receipt.pump?.capture?.framesClosed,null);
+});
+
 test('startup counters retain capture rejection and portrait video state without images or identity fields', () => {
   const marker = 'private-image-identity';
   const raw = {offered: 800, captured: 0, captureMisses: 800, published: 0, accepting: true, failed: false,

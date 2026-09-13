@@ -7,19 +7,24 @@
       "sha256": "2ea3e263e915a59b2b5819446ee02a8818d4affa9f0ac7c21f0ad2ce08cebc09"
     },
     {
-      "path": "assets/arTesting-DvoaN9sT.js",
-      "size": 148775,
-      "sha256": "ee24b23b6957b825d5ee7d0594e0c14f34032402b6062502f1156cdacc2d4746"
+      "path": "assets/arTesting-DwyIGRb7.js",
+      "size": 165026,
+      "sha256": "f215f47773264c01c90af5f69b6dd03608b6376c69af901c2809ff7d2e62f29a"
     },
     {
-      "path": "assets/comparison-renderer-BaQNYVh9.js",
-      "size": 826531,
-      "sha256": "6b5d6c4689dd14046f63ea5ceeaaef7a588fe671835a5a9c499a36ebda860f39"
+      "path": "assets/comparison-renderer-Bz0Ci4J6.js",
+      "size": 848968,
+      "sha256": "9a87cf6b6385d0328054aedb65a7f95bfc0d9b5441177b8df07042828017e4b3"
     },
     {
       "path": "assets/face-detector.worker-DvXt9Zsn.js",
       "size": 156546,
       "sha256": "19a92da7f87f1f14f7ec11af91597ce291218525d4c92d1754f7bec703e83de3"
+    },
+    {
+      "path": "assets/worker-a_ckuESF.js",
+      "size": 738043,
+      "sha256": "e757a9088c13599960b0dd0d19111c9ceb636d228d4c7c27cb82d3d5420cc1f6"
     },
     {
       "path": "assets/worker-eiqsdvuB.js",
@@ -28,8 +33,8 @@
     },
     {
       "path": "experiments/efficiency-lab/live.html",
-      "size": 14538,
-      "sha256": "26ee416b80e317f97c72f678559d018a14a835bb849c1f0307bd8a86023813c0"
+      "size": 15283,
+      "sha256": "dd86140d70c01fe7e0509f5e46610eaf019300c68292a8196552cfbfa564bc3c"
     },
     {
       "path": "hair-preview-models/hair-only.tflite",
@@ -104,7 +109,7 @@
     {
       "path": "release.json",
       "size": 255,
-      "sha256": "a2ca1aa90b6af86f67c5778c86952442e15679463e69a15013d28a2020628b01"
+      "sha256": "7406ad0bdb1e903615172a6838a57787756ed33a55bb92ed062077fc50775d16"
     }
   ]
 }

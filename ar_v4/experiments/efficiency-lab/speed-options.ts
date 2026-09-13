@@ -9,13 +9,14 @@ export interface NativeSpeedOptions {
   readonly omitBranchLenses: boolean;
   readonly ownedPackState: boolean;
   readonly wordCompose: boolean;
+  readonly reviewCompose: boolean;
 }
 
 export const DEFAULT_SPEED_OPTIONS: Readonly<NativeSpeedOptions> = Object.freeze({
   reuseSourcePixels: false, fewerCopies: false, asyncReadback: false, prewarmTemples: false,
   poolReadbackScratch: false, asyncTemples: false,
   cropBranchReadback: false, omitBranchLenses: false,
-  ownedPackState: false, wordCompose: false,
+  ownedPackState: false, wordCompose: false, reviewCompose: false,
 });
 
 export function normalizeSpeedOptions(value: Partial<NativeSpeedOptions> = {}): Readonly<NativeSpeedOptions> {

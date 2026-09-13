@@ -150,6 +150,12 @@ for phase in report['phases']:
     if report['profileOptions'].get('omitBranchLenses'):
         for eyewear in ['tom-ford-clear', 'amber-horizon']:
             assert any(row['phase'] == phase['id'] and row['eyewearModel'] == eyewear and row.get('rawBranchChangedPixels', 0) > 0 for row in cases)
+    if report['profileOptions'].get('reviewCompose'):
+        for eyewear in ['tom-ford-clear', 'amber-horizon']:
+            for hair_model in ['hair-only', 'selfie-multiclass']:
+                group = [row['mechanism'] for row in phase['cases'] if row['eyewearModel'] == eyewear and row['hairModel'] == hair_model]
+                assert any(row['actualReviewComposeUsed'] and row['actualScanRestrictionUsed'] and row['compositionScannedPixels'] > 0 for row in group)
+                assert any(row['actualOutputReuseUsed'] and row['outputBufferBytesAllocated'] == 0 for row in group)
     assert phase['mechanismSummary'] == summarize_mechanisms(phase_mechanisms)
     mechanisms.extend(phase_mechanisms)
 

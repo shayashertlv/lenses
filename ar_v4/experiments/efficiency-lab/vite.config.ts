@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {defineConfig, mergeConfig} from 'vite';
 import type {Plugin, ViteDevServer, PreviewServer} from 'vite';
 import original from '../speed-lab/vite.config.ts';
+import {acceptedReferencePlugin} from '../hair-live-preview/accepted-reference.ts';
 
 const entry = '/experiments/efficiency-lab/live.html';
 function experimentEntry(): Plugin {
@@ -22,6 +23,7 @@ export default defineConfig(async environment => {
     server: {host: '127.0.0.1', port: 8094, strictPort: true},
     preview: {host: '127.0.0.1', port: 8096, strictPort: true},
     plugins: [experimentEntry()],
+    worker: {format: 'es', plugins: () => [acceptedReferencePlugin()]},
     build: {outDir: 'experiments/efficiency-lab/dist', emptyOutDir: true,
       rollupOptions: {input: {efficiencyLab: fileURLToPath(new URL('./live.html', import.meta.url))}}},
   });

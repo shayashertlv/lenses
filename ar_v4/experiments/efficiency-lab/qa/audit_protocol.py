@@ -119,14 +119,38 @@ def audit_renderer(row, name, candidate_options, byte_count, *, allow_async_fall
         per_image.update(actualOwnedPackStateUsed=beauty['ownedPackStateUsed'],
                          packStateQueriesAvoided=beauty['packStateQueriesAvoided'], stateQueryCalls=beauty['stateQueryCalls'])
     if 'wordCompose' in options:
-        assert perf['wordComparisonRequested'] is options['wordCompose']
-        if options['wordCompose']:
+        requested = options['wordCompose'] or options.get('reviewCompose', False)
+        assert perf['wordComparisonRequested'] is requested
+        if requested:
             assert row[name]['stats']['hasMask'] is True and row[name]['stats']['fallbackReason'] is None
             assert perf['wordComparisonUsed'] is True and type(perf['wordComparedPixels']) is int
             assert perf['wordComparedPixels'] == row['width'] * row['height']
         else:
             assert perf['wordComparisonUsed'] is False and perf['wordComparedPixels'] == 0
         per_image.update(actualWordComparisonUsed=perf['wordComparisonUsed'], wordComparedPixels=perf['wordComparedPixels'])
+    if options.get('reviewCompose'):
+        compose = perf['reviewCompose']
+        count = row['width'] * row['height']
+        rectangles = geometry['protection']['editableRects'] + geometry['protection']['protectedRects'] + [geometry['hairPreview']['noseRoi']]
+        detailed = 0
+        for y in range(row['height']):
+            intervals = [(r['x0'], r['x1']) for r in rectangles if r['y0'] <= y < r['y1']]
+            if intervals:
+                detailed += max(end for _, end in intervals) - min(start for start, _ in intervals)
+        assert compose['requested'] is True and compose['used'] is True
+        assert compose['fallbackReason'] is None and compose['wordFallbackReason'] is None
+        assert compose['residualScannedPixels'] == compose['finalAuditScannedPixels'] == count
+        assert compose['compositionScannedPixels'] == detailed and compose['backgroundScannedPixels'] == count - detailed
+        assert compose['scanRestrictionUsed'] is (detailed < count)
+        assert type(compose['outputBufferReused']) is bool and type(compose['spanStorageReused']) is bool
+        assert compose['outputBufferBytesAllocated'] == (0 if compose['outputBufferReused'] else byte_count)
+        assert compose['outputInitialCopyPixels'] == count and compose['outputPoolFallbackReason'] is None
+        assert compose['outputPooledLeases'] == 1 and compose['outputOwnershipCopyBytes'] == 0
+        assert compose['spanBytesAllocated'] == (0 if compose['spanStorageReused'] else row['height'] * 8)
+        per_image.update(actualReviewComposeUsed=compose['used'], actualScanRestrictionUsed=compose['scanRestrictionUsed'],
+                         actualOutputReuseUsed=compose['outputBufferReused'], compositionScannedPixels=detailed,
+                         backgroundScannedPixels=count - detailed, residualScannedPixels=count, finalAuditScannedPixels=count,
+                         outputBufferBytesAllocated=compose['outputBufferBytesAllocated'])
     review = {}
     if 'cropBranchReadback' in options:
         assert region['requested'] == options['cropBranchReadback']
@@ -194,6 +218,12 @@ def summarize_mechanisms(rows):
     if any('actualWordComparisonUsed' in row['mechanism'] for row in rows):
         per_image.update(actualWordComparisonCases=sum(row['mechanism'].get('actualWordComparisonUsed', False) for row in rows),
                          wordComparedPixels=sum(row['mechanism'].get('wordComparedPixels', 0) for row in rows))
+    if any('actualReviewComposeUsed' in row['mechanism'] for row in rows):
+        per_image.update(actualReviewComposeCases=sum(row['mechanism'].get('actualReviewComposeUsed', False) for row in rows),
+                         actualScanRestrictionCases=sum(row['mechanism'].get('actualScanRestrictionUsed', False) for row in rows),
+                         actualOutputReuseCases=sum(row['mechanism'].get('actualOutputReuseUsed', False) for row in rows))
+        for field in ['compositionScannedPixels', 'backgroundScannedPixels', 'residualScannedPixels', 'finalAuditScannedPixels', 'outputBufferBytesAllocated']:
+            per_image[field] = sum(row['mechanism'].get(field, 0) for row in rows)
     if any('actualRegionUsed' in row['mechanism'] for row in rows):
         review = {'actualRegionCases': sum(row['mechanism'].get('actualRegionUsed', False) for row in rows),
                   'branchRegionBytesSaved': sum(row['mechanism'].get('branchRegionBytesSaved', 0) for row in rows),

@@ -15,7 +15,7 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'QA attaches only to an explic
 const currentModule = option('current', '/experiments/speed-lab/renderer.ts');
 const candidateModule = option('candidate', '/experiments/efficiency-lab/renderer.ts');
 const profile = option('profile', 'scratch');
-assert.ok(['scratch','temples','combined','deferred','region','lens','gl-state','word-compose'].includes(profile), 'Unknown rendering profile.');
+assert.ok(['scratch','temples','combined','deferred','region','lens','gl-state','word-compose','reuse-compose'].includes(profile), 'Unknown rendering profile.');
 const profileOptions = PROFILES[profile].options;
 const allowAsyncFallback = args.includes('--allow-async-fallback');
 assert.ok(!allowAsyncFallback || profileOptions.asyncReadback, '--allow-async-fallback applies only to async or combined profiles.');
@@ -284,6 +284,15 @@ try {
       // actually removed. Retain the raw changed branch as inspectable evidence.
       assert.ok(rows.some(row => row.rawBranch?.compared && row.rawBranch.whole.changedPixels > 0),
         `No changed raw lens branch was exercised for ${eyewear}.`);
+    }
+    if (profileOptions.reviewCompose) for (const eyewear of ['tom-ford-clear', 'amber-horizon']) for (const hairModel of ['hair-only', 'selfie-multiclass']) {
+      const rows = measured.cases.filter(row => row.eyewearModel === eyewear && row.hairModel === hairModel);
+      assert.ok(measured.moduleUrls.some(url => new URL(url).pathname === '/experiments/efficiency-lab/review-compose/compose.ts'));
+      assert.ok(rows.some(row => row.mechanism.actualReviewComposeUsed && row.mechanism.actualScanRestrictionUsed
+        && row.mechanism.compositionScannedPixels > 0 && row.mechanism.compositionScannedPixels < row.width * row.height),
+      `No positive detailed composition scan restriction for ${plan.id}/${eyewear}/${hairModel}.`);
+      assert.ok(rows.some(row => row.mechanism.actualOutputReuseUsed && row.mechanism.outputBufferBytesAllocated === 0),
+        `No actual retained-safe output reuse for ${plan.id}/${eyewear}/${hairModel}.`);
     }
     measured.timingSummary = {};
     for (const eyewear of ['tom-ford-clear', 'amber-horizon']) for (const hairModel of ['hair-only', 'selfie-multiclass']) {

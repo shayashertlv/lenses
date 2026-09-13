@@ -1,3 +1,133 @@
+## FPS review experiments - September 13, 2026
+
+The owner requested implemented tests and a pushed iPhone preview from the attached
+FPS review. New study `?study=fps-review` keeps G selected first and compares one
+option using G / option / option / G: CPU face, worker rendering, VideoFrame
+capture and compositor reuse. Existing V is an optional reference. No new
+candidate is accepted; U remains rejected. Older masks, altered resolution,
+geometry changes and nose/front relaxation are excluded.
+
+The attached laptop aggregate receipts support trying CPU first, but contain zero
+visible hair edits. GPU queue serialization, the claimed exhaustion of exact
+optimizations, the predicted worker FPS and attribution to battery power are not
+proved by those receipts. Existing phone results and full-window denominators
+remain as recorded below. Mechanisms, risks and fair experiments are detailed in
+`docs/FPS_REVIEW_2026-09-13.md`.
+
+All 239 G dependencies remain exact pinned Git blobs. Implementation stays in the
+isolated deployed checkout; 461 source/document/config files in the original dirty
+checkout were hashed and remained unchanged. The attached review was copied to
+ignored `.recovery/fps-review-2026-09-13/`; recordings and prior archives were not
+modified or published.
+
+Compositor evidence: `qa/output/matched-2026-09-13T08-28-18.695Z/` contains a passing
+56-case report (32 generated, 24 recorded), 16 lifecycle control groups and its
+immediately completed independent PNG audit. The audit checks 666 files, all 239
+G dependencies and 302 frozen input files. There are 36 visible hair-edit cases
+and 12 nonzero rear-temple cases. All 56 use the candidate; 52 reuse output memory.
+The detailed loop visits 4,365,600 of 57,057,280 pixels (7.65%); full residual and
+final guard scans each still visit all 57,057,280 pixels. These are work counters,
+not a speedup or peak-memory measurement. All 32 hardware cases use actual native
+PBO downloads; the recorded software phase includes declared bounded fallbacks
+(G 7, candidate 12), which do not count as fast-path evidence. Report SHA-256:
+`d3019b7024fbe588f076c1fcc9f4896fef1d5dcdbe6cafd0f25e00df9a5afe3d`.
+Independent audit SHA-256:
+`7980c57fb353469a592f6fdf070ebe70cb9ddbb9846a433cdfb930996114758e`.
+
+The matrix's recorded runtime boundary predates subsequent wrapper-only worker
+publication/variant and continuous-switch lifecycle corrections. No compositor,
+G algorithm, geometry or guard changed after that audit. Later production browser
+checks validate the final integration; historical receipt hashes are not rewritten.
+
+Integration review found and corrected: deferred VideoFrame leases exceeding the
+two-image bound; selection changing during first detector startup; finalization
+resuming a CPU-labelled pump before its CPU initializer completed; worker re-entry
+publishing an old frame during private preparation; and worker-private publication
+being mislabeled as visible main-canvas publish time. Dedicated regressions cover
+these boundaries. Native capture waits are now explicit in startup diagnostics.
+
+Physical iPhone throughput, sustained heat, camera color conversion and moving
+wearer visual acceptance remain for the owner's new tests. Hold aliases for CPU,
+VideoFrame and V do not independently test their input/inference changes. Both
+frame models, both hair models and all five movement controls remain required.
+
+Final package fingerprint:
+`71666ebb3f29f36e1031b8a0ee871b374738e0cddfe5492c68e9c05f89cd6f0b`
+(244 fingerprinted inputs, 22 public files). Recomputing the source fingerprint
+and checking every packaged file's SHA-256 and size matches this build.
+`npm test` passes 172 unit checks and 21 browser tests; `test:efficiency` passes
+strict TypeScript and 289 focused checks. Three native camera-copy checks and
+one actual CPU-worker check pass. These use synthetic Chromium camera inputs.
+
+Final render-worker native tests pass 6/6 with 20 exact pose/model/hair pairs,
+40 accepted/hair raw pixel comparisons, 20 private-display checks, actual PBO
+readbacks, ownership and four alpha/resize/1280-cap controls. Receipts are under
+`test-results/render-worker-native-2026-09-13T08-48-06.607Z/`. The three production
+startup-switch regressions pass under `test-results/mobile-2026-09-13T08-46-11.233Z/`:
+selection during initialization, stop/restart ownership, and Stop during the first
+continuous CPU initialization with partial ZIP export and correct manual resume.
+These retain real worker initialization and clocks. A corrected test assertion
+uses completed detections instead of transient timing reset by the next request.
+All paths in this section are relative to `experiments/efficiency-lab/` unless
+otherwise identified; private run logs remain in `.recovery/fps-review-2026-09-13/`.
+
+The final production mobile suite passes 11/11 in 8.8 minutes, under
+`test-results/mobile-2026-09-13T08-49-38.514Z/`: all 16 candidate/glasses/hair live,
+held-pixel and restart combinations; full real-clock G/CPU/CPU/G and
+G/worker/worker/G runs with independent ZIP/CRC/raw-window checks; explicit
+capture fallback and unsupported-worker failure; preserved G/V and historical
+entry points; optional partial video; Stop during switching; late-mask drain
+disposition; and local SDK/worker network boundaries. Measurements retain the
+real five-second warmup and 30-second windows. No laptop synthetic rate is
+presented as a physical iPhone speed result.
+
+## Physical G/V video runs - September 13, 2026
+
+The two new owner ZIPs match the published `8acef53052f9...` runtime. Both use
+720x1280, hair-only and video recording. Original ZIPs remain byte-identical;
+CRC, all exported window/stage/native numeric summaries and independent raw
+window counts pass. Scalar publication/request matching passes for every
+in-run row; each archive also retains one excluded pre-run publication without
+a run-ledger request. This is scalar consistency, not an independent pixel/pose
+pairing proof. No runtime, deployment or accepted-baseline change was made.
+
+Amber (`05-23-56.760`) completes G/V/V/G with 60 measured seconds per profile.
+G delivers 814 updates (13.567/s), V 846 (14.100/s), a 3.93% increase. G has
+513 matching masks on 794 tracked frames (64.61%); V has 846/846 (100%).
+Matching-mask update rates are 8.55 versus 14.10/s. Median/p95 frame ages are
+129.44/193.66 ms for G and 130.67/186.28 ms for V. Camera delivery is
+28.60-28.86 FPS. No measured publication or endpoint gap exceeds 200 ms.
+G declines 14.133 to 13.000/s; V declines 14.267 to 13.933/s across passes.
+Twenty G frames lack a face result during a very deep downward pose; a decoded
+video frame at 17.559 s confirms glasses disappear then. Different live poses
+prevent attributing this to V improving the unchanged face detector.
+
+Tom Ford (`05-27-26.671`) is partial: first G 14.633/s, then V 13.800 and
+13.167/s. Final G never starts measurement, so this is not a balanced winner
+comparison and its missing window is not zero FPS. Its 15-second warmup still
+publishes 207 tracked frames, but receives only two matching masks in time.
+All 207 hair requests complete; completion is median 6.70 ms after publication.
+The existing same-image wait and three-mask warmup rules explain the stop;
+neither rule was relaxed. This is late mask delivery, not a frozen camera.
+
+Every V request actually uses RGBA8 (Amber 1,006; Tom 962), with zero fallback.
+All requests drain (1,992 and 1,696). Measured-request category extraction is
+31.21 to 13.60 ms median in Amber, but complete request wall time changes only
+69.68 to 67.64 ms as transport/scheduling residual grows. These overlapping wall
+durations do not isolate GPU execution. Both run startups succeed: first AR at
+3.481/3.913 s and first matching mask at 4.165/4.486 s after opening.
+
+Forty decoded video samples cover both glasses with front, down/up and both
+yaw movements, plus final Tom G warmup. They show differing poses and are not
+matched image/pose/mask tests or owner visual acceptance. Neither archive uses
+selfie-multiclass. Nose/front and hair-continuity non-regression still require
+matched review across both hair models; no promotion follows. V remains the
+strongest candidate from the completed Amber evidence; G stays accepted.
+Private evidence, archive copies and visual samples are in the original checkout's
+`.recovery/mobile-comparison-2026-09-13/`; see `agent-metrics/FINDINGS.md`,
+`independent-audit.json` and `video-review/`. The completed video-on run must not
+be pooled with the preceding measurement-only workload.
+
 ## Focused G/V preview - September 12, 2026
 
 The owner authorized a preview and push after the phone comparison. The current

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {PROFILES} from '../profiles.ts';
-import {checkProtocol,mechanismUse,summarizeMechanisms,PREWARM_REASON,expectedBranchRegion} from './protocol.mjs';
+import {checkProtocol,mechanismUse,summarizeMechanisms,PREWARM_REASON,expectedBranchRegion,expectedCompositionScan} from './protocol.mjs';
 import {BOUNDED_FENCE_REASON} from '../../speed-lab/qa/protocol.mjs';
 function example(options, drop = 0, first = false) {
   const bytes = 16 * 8 * 4, calls = options.reuseSourcePixels ? 1 : 2;
   const warm = Number(options.prewarmTemples && first);
-  const geometry = {rearDrop: {dropM: drop}, hairPreview: {sourceSHA256: 'a'.repeat(64)},
+  const geometry = {rearDrop: {dropM: drop}, hairPreview: {sourceSHA256: 'a'.repeat(64), noseRoi: {x0: 6, y0: 3, x1: 10, y1: 6}},
     protection: {editableRects: [{x0:2,y0:1,x1:14,y1:7}],protectedRects:[{x0:0,y0:1,x1:16,y1:3}]}};
   const pipeline = {baselineReadbackCalls: 0, baselineReadbackBytes: 0,
     branchReadbackCalls: Number(drop !== 0), branchReadbackBytes: Number(drop !== 0) * bytes,
@@ -21,10 +21,19 @@ function example(options, drop = 0, first = false) {
         asyncFallback: null, pbo: options.asyncReadback ? {completed: true, fallbackReason: null,
           queuedCalls: calls, queuedBytes: calls * bytes, retrievedCalls: calls, retrievedBytes: calls * bytes} : null}}};
   const stats = {hasMask: true, fallbackReason: null, candidatePerformance: {nativePipeline: pipeline,
-    wordComparisonRequested: options.wordCompose, wordComparisonUsed: options.wordCompose, wordComparedPixels: options.wordCompose ? 16 * 8 : 0,
+    wordComparisonRequested: options.wordCompose || options.reviewCompose, wordComparisonUsed: options.wordCompose || options.reviewCompose,
+    wordComparedPixels: options.wordCompose || options.reviewCompose ? 16 * 8 : 0,
     cpuReadbackCalls: calls + warm + Number(drop !== 0), cpuReadbackBytes: (calls + warm + Number(drop !== 0)) * bytes,
     speedLab: {options, sourceCanvasBorrowed: options.fewerCopies, sourceCopyBytesAvoided: options.fewerCopies ? bytes : 0,
       sourceIdentity: {sourceSHA256: geometry.hairPreview.sourceSHA256}, sourceFallbackReason: null}}};
+  if (options.reviewCompose) {
+    const detailed = expectedCompositionScan(geometry, 16, 8);
+    stats.candidatePerformance.reviewCompose = {requested: true, used: true, scanRestrictionUsed: detailed < 128,
+      residualScannedPixels: 128, compositionScannedPixels: detailed, backgroundScannedPixels: 128 - detailed,
+      finalAuditScannedPixels: 128, outputInitialCopyPixels: 128, outputBufferBytesAllocated: first ? bytes : 0,
+      outputBufferReused: !first, outputPoolFallbackReason: null, outputPooledLeases: 1, outputOwnershipCopyBytes: 0,
+      spanBytesAllocated: first ? 64 : 0, spanStorageReused: !first, wordFallbackReason: null, fallbackReason: null};
+  }
   const enabled = options.asyncTemples && drop !== 0 && !first;
   const pbo = () => ({completed:true,fallbackReason:null,queuedCalls:1,queuedBytes:bytes,retrievedCalls:1,retrievedBytes:bytes,scratchBytesAllocated:options.poolReadbackScratch?0:bytes,scratchBytesReused:options.poolReadbackScratch?bytes:0,outputBytesAllocated:bytes});
   Object.assign(pipeline.native.speedLab.pbo,pbo());
@@ -43,7 +52,7 @@ function example(options, drop = 0, first = false) {
 }
 const passed = checks => Object.values(checks).every(Boolean);
 test('exact G readbacks and new mechanisms retain all transfers and first-use prewarm costs', () => {
-  for (const name of ['scratch','temples','combined','deferred','region','lens','gl-state','word-compose']) for (const drop of [0,.02]) for (const first of [true,false]) {
+  for (const name of ['scratch','temples','combined','deferred','region','lens','gl-state','word-compose','reuse-compose']) for (const drop of [0,.02]) for (const first of [true,false]) {
     const options=PROFILES[name].options,value=example(options,drop,first);
     assert.equal(passed(checkProtocol('candidate',options,value.stats,value.geometry,16,8)),true,`${name}/${drop}/${first}`);
   }
@@ -91,6 +100,29 @@ test('X requires the full actual word scan of the paired masked image and expose
   const summary = summarizeMechanisms(rows);
   assert.equal(summary.actualOwnedPackStateCases, 1); assert.equal(summary.packStateQueriesAvoided, 4);
   assert.equal(summary.stateQueryCalls, 20); assert.equal(summary.actualWordComparisonCases, 1); assert.equal(summary.wordComparedPixels, 128);
+});
+
+test('Review compositor requires actual full audits, independently derived restricted scans and retained output accounting', () => {
+  const options = PROFILES['reuse-compose'].options;
+  for (const corrupt of [value => {value.used = false;}, value => {value.residualScannedPixels--;},
+    value => {value.finalAuditScannedPixels--;}, value => {value.compositionScannedPixels--;},
+    value => {value.backgroundScannedPixels++;}, value => {value.scanRestrictionUsed = false;},
+    value => {value.outputBufferBytesAllocated = 512;}, value => {value.outputInitialCopyPixels--;},
+    value => {value.outputPooledLeases = 2;}, value => {value.outputOwnershipCopyBytes = 512;},
+    value => {value.spanBytesAllocated = 64;}, value => {value.outputPoolFallbackReason = 'retained';},
+    value => {value.wordFallbackReason = 'unaligned';}, value => {value.fallbackReason = 'mismatched mask';}]) {
+    const value = example(options); corrupt(value.stats.candidatePerformance.reviewCompose);
+    assert.equal(passed(checkProtocol('candidate', options, value.stats, value.geometry, 16, 8)), false);
+  }
+  const rows = [true, false].map(first => {
+    const value = example(options, 0, first);
+    return {mechanism: mechanismUse(options, value.stats, value.geometry, 16, 8)};
+  });
+  const summary = summarizeMechanisms(rows);
+  assert.equal(summary.actualReviewComposeCases, 2); assert.equal(summary.actualScanRestrictionCases, 2);
+  assert.equal(summary.actualOutputReuseCases, 1); assert.equal(summary.residualScannedPixels, 256);
+  assert.equal(summary.finalAuditScannedPixels, 256); assert.equal(summary.outputBufferBytesAllocated, 512);
+  assert.equal(summary.compositionScannedPixels + summary.backgroundScannedPixels, 256);
 });
 
 test('region accounting requires the independent editable-minus-protected row band and actual byte totals', () => {

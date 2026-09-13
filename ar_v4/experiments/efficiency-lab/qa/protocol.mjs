@@ -15,6 +15,19 @@ export function expectedBranchRegion(geometry, width, height) {
   }
   return y0 < y1 ? {x0: 0, y0, x1: width, y1} : null;
 }
+/** Independent pixel membership reconstruction of the conservative row span. */
+export function expectedCompositionScan(geometry, width, height) {
+  const rectangles = [...geometry.protection.editableRects, ...geometry.protection.protectedRects, geometry.hairPreview.noseRoi];
+  let pixels = 0;
+  for (let y = 0; y < height; y++) {
+    let first = width, last = 0;
+    for (let x = 0; x < width; x++) if (rectangles.some(r => x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1)) {
+      first = Math.min(first, x); last = x + 1;
+    }
+    if (last) pixels += last - first;
+  }
+  return pixels;
+}
 const adjusted = stats => {
   const copy = structuredClone(stats), pipeline = copy.candidatePerformance.nativePipeline, pbo = pipeline.efficiencyLab?.branchPbo;
   pipeline.branchReadbackCalls += pbo?.retrievedCalls ?? 0;
@@ -35,7 +48,7 @@ export function checkProtocol(name, options, stats, geometry, width, height, pol
   const pipeline = stats.candidatePerformance.nativePipeline, efficiency = pipeline.efficiencyLab;
   const bytes = width * height * 4, drop = geometry.rearDrop.dropM, branch = efficiency?.branchPbo;
   checks.newOptions = ['poolReadbackScratch','asyncTemples'].every(key => stats.candidatePerformance.speedLab.options[key] === options[key]);
-  for (const key of ['cropBranchReadback', 'omitBranchLenses', 'ownedPackState', 'wordCompose']) if (key in options)
+  for (const key of ['cropBranchReadback', 'omitBranchLenses', 'ownedPackState', 'wordCompose', 'reviewCompose']) if (key in options)
     checks.newOptions &&= stats.candidatePerformance.speedLab.options[key] === options[key];
   checks.templeRequested = efficiency?.asyncTemplesRequested === options.asyncTemples;
   const prewarm = pipeline.speedLab.prewarmAttempted;
@@ -96,11 +109,27 @@ export function checkProtocol(name, options, stats, geometry, width, height, pol
   }
   if ('wordCompose' in options) {
     const perf = stats.candidatePerformance;
-    checks.wordComparisonRequested = perf.wordComparisonRequested === options.wordCompose;
-    checks.wordComparisonUsed = options.wordCompose
+    const requested = options.wordCompose || options.reviewCompose === true;
+    checks.wordComparisonRequested = perf.wordComparisonRequested === requested;
+    checks.wordComparisonUsed = requested
       ? stats.hasMask === true && stats.fallbackReason === null && perf.wordComparisonUsed === true
         && perf.wordComparedPixels === width * height
       : perf.wordComparisonUsed === false && perf.wordComparedPixels === 0;
+  }
+  if (options.reviewCompose) {
+    const review = stats.candidatePerformance.reviewCompose, pixels = width * height;
+    const detailed = expectedCompositionScan(geometry, width, height);
+    checks.reviewCompositionUsed = review?.requested === true && review.used === true
+      && review.fallbackReason === null && review.wordFallbackReason === null;
+    checks.reviewCompositionScan = review?.residualScannedPixels === pixels && review.finalAuditScannedPixels === pixels
+      && review.compositionScannedPixels === detailed && review.backgroundScannedPixels === pixels - detailed
+      && review.scanRestrictionUsed === (detailed < pixels);
+    checks.reviewOutputOwnership = typeof review?.outputBufferReused === 'boolean'
+      && review.outputBufferBytesAllocated === (review.outputBufferReused ? 0 : bytes)
+      && review.outputInitialCopyPixels === pixels && review.outputPoolFallbackReason === null
+      && review.outputPooledLeases === 1 && review.outputOwnershipCopyBytes === 0;
+    checks.reviewSpanAllocation = typeof review?.spanStorageReused === 'boolean'
+      && review.spanBytesAllocated === (review.spanStorageReused ? 0 : height * 8);
   }
   return checks;
 }
@@ -120,6 +149,14 @@ export function mechanismUse(options, stats, geometry, width, height, policy = {
       stateQueryCalls: pipeline.native.speedLab.pbo?.stateQueryCalls ?? 0} : {}),
     ...('wordCompose' in options ? {actualWordComparisonUsed: stats.candidatePerformance.wordComparisonUsed === true,
       wordComparedPixels: stats.candidatePerformance.wordComparedPixels ?? 0} : {}),
+    ...(options.reviewCompose ? {actualReviewComposeUsed: stats.candidatePerformance.reviewCompose.used === true,
+      actualScanRestrictionUsed: stats.candidatePerformance.reviewCompose.scanRestrictionUsed === true,
+      actualOutputReuseUsed: stats.candidatePerformance.reviewCompose.outputBufferReused === true,
+      compositionScannedPixels: stats.candidatePerformance.reviewCompose.compositionScannedPixels,
+      backgroundScannedPixels: stats.candidatePerformance.reviewCompose.backgroundScannedPixels,
+      residualScannedPixels: stats.candidatePerformance.reviewCompose.residualScannedPixels,
+      finalAuditScannedPixels: stats.candidatePerformance.reviewCompose.finalAuditScannedPixels,
+      outputBufferBytesAllocated: stats.candidatePerformance.reviewCompose.outputBufferBytesAllocated} : {}),
     ...('cropBranchReadback' in options ? {actualRegionUsed: efficiency.branchRegion.used,
       branchRegionBytesSaved: efficiency.branchRegion.used ? efficiency.branchRegion.fullBytes - efficiency.branchRegion.readBytes : 0,
       actualBranchLensesOmitted: efficiency.branchLenses.used} : {})};
@@ -136,6 +173,15 @@ export function summarizeMechanisms(rows) {
     ...(rows.some(row => 'actualWordComparisonUsed' in (row.mechanism ?? {})) ? {
       actualWordComparisonCases: rows.filter(row => row.mechanism?.actualWordComparisonUsed).length,
       wordComparedPixels: rows.reduce((total, row) => total + (row.mechanism?.wordComparedPixels ?? 0), 0)} : {}),
+    ...(rows.some(row => 'actualReviewComposeUsed' in (row.mechanism ?? {})) ? {
+      actualReviewComposeCases: rows.filter(row => row.mechanism?.actualReviewComposeUsed).length,
+      actualScanRestrictionCases: rows.filter(row => row.mechanism?.actualScanRestrictionUsed).length,
+      actualOutputReuseCases: rows.filter(row => row.mechanism?.actualOutputReuseUsed).length,
+      compositionScannedPixels: rows.reduce((sum, row) => sum + (row.mechanism?.compositionScannedPixels ?? 0), 0),
+      backgroundScannedPixels: rows.reduce((sum, row) => sum + (row.mechanism?.backgroundScannedPixels ?? 0), 0),
+      residualScannedPixels: rows.reduce((sum, row) => sum + (row.mechanism?.residualScannedPixels ?? 0), 0),
+      finalAuditScannedPixels: rows.reduce((sum, row) => sum + (row.mechanism?.finalAuditScannedPixels ?? 0), 0),
+      outputBufferBytesAllocated: rows.reduce((sum, row) => sum + (row.mechanism?.outputBufferBytesAllocated ?? 0), 0)} : {}),
     ...(rows.some(row => 'actualRegionUsed' in (row.mechanism ?? {})) ? {
       actualRegionCases: rows.filter(row => row.mechanism?.actualRegionUsed).length,
       branchRegionBytesSaved: rows.reduce((total, row) => total + (row.mechanism?.branchRegionBytesSaved ?? 0), 0),

@@ -56,7 +56,7 @@
     "check:efficiency": "tsc --noEmit -p experiments/efficiency-lab/tsconfig.json",
     "build:efficiency": "npm run assets && npm run check:efficiency && vite build --config experiments/efficiency-lab/vite.config.ts",
     "preview:efficiency": "vite preview --config experiments/efficiency-lab/vite.config.ts",
-    "test:efficiency": "npm run check:efficiency && node --test experiments/efficiency-lab/*.test.ts experiments/efficiency-lab/hair-cost/*.test.ts experiments/efficiency-lab/native/*.test.ts experiments/efficiency-lab/temples/*.test.ts experiments/efficiency-lab/qa/*.test.mjs",
+    "test:efficiency": "npm run check:efficiency && node --test experiments/efficiency-lab/*.test.ts experiments/efficiency-lab/hair-cost/*.test.ts experiments/efficiency-lab/native/*.test.ts experiments/efficiency-lab/temples/*.test.ts experiments/efficiency-lab/qa/*.test.mjs experiments/efficiency-lab/review-options/*.test.ts experiments/efficiency-lab/review-compose/*.test.ts experiments/efficiency-lab/review-compose/*.test.mjs experiments/efficiency-lab/render-worker/*.test.ts experiments/efficiency-lab/render-worker/*.test.mjs",
     "test:efficiency:browser": "npm run build:efficiency && playwright test --config experiments/efficiency-lab/playwright.config.ts",
     "build:mobile": "npm run assets && npm run check:efficiency && vite build --config experiments/efficiency-lab/vite.mobile.config.ts"
   },

@@ -13,7 +13,7 @@ export default defineConfig(async (): Promise<UserConfig> => {
     define: {'import.meta.env.VITE_AR_BUILD_ID': JSON.stringify(release.sourceFingerprint),
       'import.meta.env.VITE_AR_BUILD_AT': JSON.stringify(release.createdAt)},
     plugins: [await acceptedReferencePlugin(), hairModelAssetsPlugin(), mobileAddressPlugin(), mobilePackagePlugin(root, release)],
-    worker: {format: 'es', plugins: () => [mobileAddressPlugin()]},
+    worker: {format: 'es', plugins: () => [acceptedReferencePlugin(), mobileAddressPlugin()]},
     build: {outDir: 'mobile-site', emptyOutDir: true, copyPublicDir: false, sourcemap: false,
       rolldownOptions: {
         input: {arTesting: fileURLToPath(new URL('./live.html', import.meta.url))}}},

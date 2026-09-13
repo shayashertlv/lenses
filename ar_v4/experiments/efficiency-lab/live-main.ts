@@ -1,6 +1,6 @@
 import '../../src/style.css';
 import './live.css';
-import {PROFILES, initialPipeline, studyPipelines, previewSearch, CURRENT_BASE_METADATA} from './profiles.ts';
+import {PROFILES, initialPipeline, studyPipelines, previewSearch, CURRENT_BASE_METADATA, FPS_REVIEW_CANDIDATES, fpsReviewCandidate} from './profiles.ts';
 import {UiSummaryCadence} from './ui-cadence.ts';
 import {ContinuousComparisonRun, CONTINUOUS_STUDIES} from './continuous-run.ts';
 import type {ContinuousRunStatus} from './continuous-run.ts';
@@ -15,6 +15,8 @@ import {runExperimentPump} from './live-pump.ts';
 import {openCamera} from '../../references/perfect-temples/src/runtime/camera.ts';
 import type {CameraSession} from '../../references/perfect-temples/src/runtime/camera.ts';
 import {DetectorClient} from '../performance-stage2/face-detector.ts';
+import {ForcedDelegateDetectorClient} from './review-options/face-detector.ts';
+import type {FaceDetector} from './review-options/face-detector.ts';
 import {FrameProfiler, PIPELINES, PIPELINE_LABELS, summarize} from './frame-profiler.ts';
 import type {FrameSample, ProfileSummary} from './frame-profiler.ts';
 import {DEFAULT_EYEWEAR_ID, EYEWEAR, eyewearById} from '../../references/perfect-temples/src/render/eyewear.ts';
@@ -46,14 +48,37 @@ const studySearch = previewSearch(location.search, import.meta.env.BASE_URL === 
 if (studySearch !== location.search) history.replaceState(null, '', location.pathname + studySearch + location.hash);
 let selectedPipeline: Pipeline = initialPipeline(studySearch);
 const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
-for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose'] as const)
+for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const)
   pipelineSelect.add(new Option(PIPELINE_LABELS[id], id));
 const focusedStudy = new URLSearchParams(studySearch).get('study');
-const continuousStudy = focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
+const continuousStudy = focusedStudy === 'fps-review' ? 'fps-review' : focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
 const continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy];
 const visiblePipelines = studyPipelines(studySearch);
 for (const option of [...pipelineSelect.options]) if (!visiblePipelines.includes(option.value as Pipeline)) option.remove();
-if (focusedStudy === 'mask-preview') {
+const reviewCandidate = fpsReviewCandidate(studySearch);
+const reviewCandidateSelect = element<HTMLSelectElement>('review-candidate');
+const powerContext = element<HTMLSelectElement>('power-context');
+for (const id of FPS_REVIEW_CANDIDATES) reviewCandidateSelect.add(new Option(PIPELINE_LABELS[id], id));
+reviewCandidateSelect.value = reviewCandidate;
+reviewCandidateSelect.addEventListener('change', () => {
+  if (current || continuousActive()) {reviewCandidateSelect.value = reviewCandidate; return;}
+  const query = new URLSearchParams(studySearch); query.set('study', 'fps-review');
+  query.set('candidate', reviewCandidateSelect.value); query.delete('pipeline');
+  location.search = query.toString();
+});
+if (focusedStudy === 'fps-review') {
+  document.title = 'Lenses · FPS review tests';
+  element('fps-review-options').hidden = false;
+  element('mask-preview-study').textContent = 'Earlier G / V preview';
+  element('study-heading').textContent = 'Test the next smoother mirror.';
+  element('study-intro').textContent = 'Choose one idea from the FPS review and compare it directly with your accepted G mirror.';
+  element('study-notice').textContent = 'Four new options are separate experiments. G stays selected first. No speed or visual improvement has been assumed.';
+  element('continuous-title').textContent = 'G / selected option · about 2½ minutes';
+  element('continuous-protocol').textContent = 'Automatically run G, selected option, selected option, G. Each window warms for at least 5 seconds and three tracked images with matching hair masks, then measures for 30 seconds. Repeat the movement cues.';
+  element('continuous-video-hint').textContent = 'Use measurements only for speed. Enable video for a separate visual run. Recording adds load. No audio or uploads.';
+  element('continuous-repeat').textContent = 'Save each ZIP before another test. Repeat Amber + hair-only, Amber + multiclass, Tom Ford + hair-only, Tom Ford + multiclass. Follow front/nose, down, up, left and right cues. Check tracking, hair edges and responsiveness, then choose the next option with the camera closed.';
+  element('baseline-detail').textContent = 'G stays accepted. All options keep full resolution, exact image/detection/pose/mask pairing, geometry and nose/front safeguards. CPU landmarks and VideoFrame colors can differ and require live review. Unsupported paths are reported; fallback frames do not prove an optimization worked.';
+} else if (focusedStudy === 'mask-preview') {
   document.title = 'Lenses · G / V preview';
   element('study-heading').textContent = 'Compare G and V.';
   element('study-intro').textContent = 'Switch between your accepted G mirror and V. Check hair edges, tracking and responsiveness while you move.';
@@ -101,7 +126,8 @@ interface Session {
   eyewearId: EyewearId;
   hairId: HairModelId;
   camera?: CameraSession;
-  detector: DetectorClient;
+  detector: FaceDetector;
+  detectors: Map<'g'|'face-cpu', FaceDetector>;
   hair: HairClient;
   backend: HairBackend;
   hairReady: boolean;
@@ -279,6 +305,7 @@ interface ContinuousContext {
   timer: number | null;
   videoCallback: number | null;
   switchToken: number | null;
+  switchTask: Promise<void> | null;
   finalizing: boolean;
   startedAtMs: number;
   wakeLock: WakeLockSentinel | null;
@@ -297,7 +324,7 @@ const continuousStop = element<HTMLButtonElement>('continuous-stop');
 const continuousVideo = element<HTMLInputElement>('continuous-video');
 continuousVideo.checked = continuousStudyOptions.defaultVideo;
 function showContinuousRecordingChoice(): void {
-  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'mask-preview' ? 'G / V' : continuousStudy === 'per-image' ? 'G / V / W / X' : continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
+  continuousStart.textContent = `${continuousVideo.checked ? 'Video + measurements' : 'Measure only'} · ${continuousStudy === 'fps-review' ? 'G / selected option' : continuousStudy === 'mask-preview' ? 'G / V' : continuousStudy === 'per-image' ? 'G / V / W / X' : continuousStudy === 'hair-delivery' ? 'G vs U' : 'all five options'} · ~${continuousStudyOptions.approximateMinutes} min`;
 }
 continuousVideo.addEventListener('change', showContinuousRecordingChoice);
 showContinuousRecordingChoice();
@@ -311,6 +338,7 @@ function deviceMetadata(session: Session): Record<string, unknown> {
   const settings = stream?.getVideoTracks()[0]?.getSettings();
   return {userAgent: navigator.userAgent, platform: navigator.platform, hardwareConcurrency: navigator.hardwareConcurrency ?? null,
     deviceMemoryGiB: extendedNavigator.deviceMemory ?? null, viewport: {width: innerWidth, height: innerHeight, dpr: devicePixelRatio},
+    userReportedPower: focusedStudy === 'fps-review' ? powerContext.value : 'unknown',
     camera: settings ? {width: settings.width ?? null, height: settings.height ?? null, frameRate: settings.frameRate ?? null,
       facingMode: settings.facingMode ?? null, aspectRatio: settings.aspectRatio ?? null} : null,
     crossOriginIsolated, secureContext: isSecureContext,
@@ -363,6 +391,8 @@ async function switchContinuous(context: ContinuousContext, status: ContinuousRu
     }
     selectedPipeline = status.pipeline; pipelineSelect.value = status.pipeline;
     element('experiment-detail').textContent = PROFILES[status.pipeline].detail;
+    await initializePipelineRuntime(session, status.pipeline);
+    if (current !== session || session.phase !== 'live' || continuousRun !== context || context.finalizing) return;
     session.renderer!.selectPipeline(status.pipeline);
     // The old pump is drained before this capture boundary. Even adjacent T
     // windows are distinct windows; no old-pipeline source can enter the next one.
@@ -377,7 +407,10 @@ function driveContinuous(context = continuousRun): void {
   const status = context.controller.tick(performance.now());
   showContinuousStatus(context, status);
   if (!status.running) {void finishContinuous(context); return;}
-  if (status.state === 'switching') void switchContinuous(context, status);
+  if (status.state === 'switching' && !context.switchTask) {
+    const task=switchContinuous(context,status);context.switchTask=task;
+    void task.finally(()=>{if(context.switchTask===task)context.switchTask=null;});
+  }
 }
 async function keepScreenAwake(context: ContinuousContext): Promise<void> {
   if (!('wakeLock' in navigator)) {context.wakeLockReason = 'Screen wake lock is unavailable.'; return;}
@@ -398,11 +431,20 @@ function canShareContinuousFile(): boolean {
   catch {return false;}
 }
 async function drainContinuousHair(context: ContinuousContext): Promise<void> {
-  const session = context.session, pump = session.pump, startedAtMs = performance.now();
+  const session = context.session, startedAtMs = performance.now();
+  let pump:Session['pump'];
   session.switching = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    if (pump) await Promise.race([pump.finishCurrent(), new Promise<never>((_resolve, reject) => {
+    const finishOwnedWork=async():Promise<void>=>{
+      // A stopped run can still be initializing its first CPU or render worker.
+      // Finish that transition before choosing the detector/pump to resume.
+      // The finalizing flag prevents the transition from admitting more frames.
+      await context.switchTask;
+      session.switching=true;pump=session.pump;
+      if(pump)await pump.finishCurrent();
+    };
+    await Promise.race([finishOwnedWork(), new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => reject(new Error('Pending frame work did not finish within 20 seconds.')), 20000);
     })]);
     context.hairDrain = {state: 'drained', startedAtMs, endedAtMs: performance.now(), reason: null};
@@ -499,13 +541,15 @@ function beginContinuous(): void {
   const recorder = new ContinuousCanvasRecorder(session.canvas, continuousVideo.checked,
     {onIssue: reason => cancelContinuous(`Video recording interrupted: ${reason}`)});
   const controller = new ContinuousComparisonRun({sessionId: session.id, studyOptions: continuousStudy,
+    candidate: continuousStudy === 'fps-review' ? reviewCandidate : undefined,
     workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant,
       sourceWidth: sample.sourceWidth, sourceHeight: sample.sourceHeight},
     metadata: {...CURRENT_BASE_METADATA, build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
       device: deviceMetadata(session), recording: recorder.snapshot(), performanceTimeOriginMs: performance.timeOrigin,
+      review: continuousStudy === 'fps-review' ? {candidate: reviewCandidate, inputPolicy: 'Exact current image only; fallback is recorded per frame. No older masks.'} : null,
       sessionStartup: {openedAtMs: session.openedAtMs, firstPublishedAtMs: session.firstPublishedAtMs, firstMaskedAtMs: session.firstMaskedAtMs},
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
-  const context: ContinuousContext = {controller, session, recorder, timer: null, videoCallback: null, switchToken: null,
+  const context: ContinuousContext = {controller, session, recorder, timer: null, videoCallback: null, switchToken: null, switchTask: null,
     finalizing: false, startedAtMs: performance.now(), wakeLock: null, wakeLockAcquired: false, wakeLockReason: null, events: [],
     hairDelivery: continuousStudy !== 'review' ? new HairDeliveryLog(session.id) : null, hairDrain: null};
   continuousRun = context;
@@ -550,6 +594,7 @@ function updateControls(): void {
   const held = current?.phase === 'held';
   const recording = continuousActive();
   writeValue(eyewearSelect,'disabled',current!==null);writeValue(hairSelect,'disabled',current!==null);
+  writeValue(reviewCandidateSelect,'disabled',current!==null||recording);writeValue(powerContext,'disabled',recording);
   writeText('selection-hint',current
     ? 'Close this session to change glasses or hair model.'
     : 'Choose glasses and a hair model before opening the camera.');
@@ -559,7 +604,9 @@ function updateControls(): void {
   writeValue(download,'hidden',!held);
   if (!held) writeValue(download,'disabled',true);
   writeValue(stop,'textContent',held ? 'Close held frame' : 'Close camera');
-  writeText('hold-hint',focusedStudy === 'mask-preview'
+  writeText('hold-hint',focusedStudy === 'fps-review'
+    ? 'Hold tests rendering on one shared image, detection and full mask. CPU landmarks and camera color conversion must be reviewed live; their held images share G. Resume starts a fresh session.'
+    : focusedStudy === 'mask-preview'
     ? held ? 'Camera stopped. G and V share this exact image and diagnostic mask. This does not test V’s live mask extraction. Resume starts a fresh session.'
       : 'Switch G/V while moving to review hair edges and responsiveness. Hold compares one exact image using a shared diagnostic mask.'
     : held ? 'Camera stopped. All versions show this exact held image. Rate options share G’s held output; judge their smoothness live. Resume starts a fresh session.'
@@ -650,6 +697,15 @@ function updateProfileUi(session?: Session, sharedSummary?: ProfileSummary, forc
     +' · Temple region download: '+active(metric('branchRegion.used'))
     +' · Branch lenses omitted: '+active(metric('branchLenses.used'))
     +' · Statistics cadence: '+(metric('ui.throttleSummariesRequested')===true?'500 ms':'every image'));
+  if(focusedStudy==='fps-review') {
+    const id=session.performanceSample.pipeline;
+    const path=id==='face-cpu'?`Face delegate: ${session.performanceSample.faceDelegate ?? 'unavailable'}`
+      :id==='render-worker'?`Render backend: ${metric('renderWorker.backend') ?? 'not observed'}`
+      :id==='frame-copy'?`Camera path: ${native?.['capture.actualPath'] ?? 'not observed'}${native?.['capture.fallbackReason'] ? ' · Fallback: '+native['capture.fallbackReason'] : ''}`
+      :id==='reuse-compose'?`Compositor: ${active(metric('reviewCompose.used'))} · Output reused: ${metric('reviewCompose.outputBufferReused')===true?'yes':'no'}`
+      :id==='mask-bytes'?`Hair download: ${native?.['hairCategory.path'] ?? 'not observed'}`:'Accepted G pipeline';
+    writeText('actual-path',path+'. Completed updates include all transfer and publication costs.');
+  }
   const ms=(value: number | undefined | null): string => value===null || value===undefined ? '—' : `${value.toFixed(1)} ms`;
   writeText('profile-fps',summary.processedFps===null ? 'Starting' : `${summary.processedFps.toFixed(1)} fps`);
   writeText('profile-video-fps',summary.videoDeliveryFps===null ? 'Unavailable' : `${summary.videoDeliveryFps.toFixed(1)} fps`);
@@ -726,7 +782,7 @@ function releaseLive(session: Session): void {
   session.pump?.stop();session.pump=undefined;
   for (const cleanup of session.liveCleanups.splice(0)) cleanup();
   session.camera?.stop();
-  session.detector.close();
+  for(const detector of session.detectors.values())detector.close();
   session.hair.close();
 }
 function closeSession(message = 'Camera closed. Ready whenever you are.', failed = false): void {
@@ -769,11 +825,32 @@ async function restartPump(session: Session):Promise<void> {
   const pump=session.pump;
   try {await pump.finishCurrent();pump.stop();
     if(current!==session||session.phase!=='live'||session.pump!==pump)return;
-    session.pump=undefined;session.processing=false;session.switching=false;
+    session.pump=undefined;session.processing=false;
+    let pipeline:Pipeline;
+    do {pipeline=selectedPipeline;await initializePipelineRuntime(session,pipeline);}
+    while(current===session&&session.phase==='live'&&pipeline!==selectedPipeline);
+    if(current!==session||session.phase!=='live')return;
+    session.switching=false;
     if(session.holdRequested){holdSession(session);return;}
     session.renderer!.selectPipeline(selectedPipeline);runFrames(session);
   } catch(error){if(current===session)closeSession(friendlyError(error),true);}
   finally{session.switching=false;}
+}
+async function initializePipelineRuntime(session:Session,pipeline:Pipeline):Promise<void> {
+  const key=pipeline==='face-cpu'?'face-cpu':'g';
+  let detector=session.detectors.get(key);
+  const started=performance.now();
+  if(!detector) {
+    detector=key==='face-cpu'?new ForcedDelegateDetectorClient('CPU'):new DetectorClient();
+    session.detectors.set(key,detector);
+  }
+  await detector.initialize(session.abort.signal);
+  if(current!==session||session.phase!=='live'||session.abort.signal.aborted){detector.close();throw new DOMException('Session revoked.','AbortError');}
+  await session.renderer!.initializePipeline(pipeline);
+  if(current!==session||session.phase!=='live'||session.abort.signal.aborted)throw new DOMException('Session revoked.','AbortError');
+  session.detector=detector;
+  const readyAt=performance.now();
+  profiler.recordEvent(session.id,'pipeline-ready',readyAt,readyAt-started);
 }
 function runPumpedFrames(session:Session):void {
   const mode=PROFILES[selectedPipeline].mode;
@@ -864,8 +941,9 @@ async function openSession(): Promise<void> {
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement;
   previous.replaceWith(canvas);
   const backend = detectHairBackend();
+  const detector:FaceDetector=selectedPipeline==='face-cpu'?new ForcedDelegateDetectorClient('CPU'):new DetectorClient();
   const session: Session = {id: crypto.randomUUID(), phase: 'live', generation: 1, abort: new AbortController(),
-    eyewearId: selectedEyewear, hairId: selectedHair, detector: new DetectorClient(),
+    eyewearId: selectedEyewear, hairId: selectedHair, detector, detectors:new Map([[selectedPipeline==='face-cpu'?'face-cpu':'g',detector]]),
     hair: new HairClient(selectedHair, {delegate: backend.requested, outputMode: 'category-only'}), backend,
     hairReady: false, hairError: null, canvas, liveCleanups: [], cleanups: [], nextSequence: 0, presented: null, heldAt: null,
     heldBusy: false, processing: false, holdRequested: false, budgetMisses: 0, timing: null, performanceSample:null,
@@ -932,7 +1010,9 @@ async function openSession(): Promise<void> {
     });
     enterStartupStage(session, 'face');
     if (current !== session) return;
-    await session.detector.initialize(session.abort.signal);
+    let startupPipeline:Pipeline;
+    do {startupPipeline=selectedPipeline;await initializePipelineRuntime(session,startupPipeline);}
+    while(current===session&&startupPipeline!==selectedPipeline);
     if (current !== session) return;
     profiler.recordEvent(session.id,'face-ready',performance.now());
     session.startup.milestones.push({name: 'face-ready', atMs: performance.now()});
@@ -1024,13 +1104,15 @@ async function completeHeldHair(session: Session): Promise<void> {
   } finally {
     client.close(); input.source.width = input.source.height = 0;
     if (owns()) {
-      try {await session.renderer!.setHeld(focusedStudy === 'mask-preview' ? visiblePipelines : undefined);}catch(error){if(owns())closeSession(friendlyError(error),true);}
+      try {await session.renderer!.setHeld(focusedStudy === 'mask-preview'||focusedStudy==='fps-review' ? visiblePipelines : undefined);}catch(error){if(owns())closeSession(friendlyError(error),true);}
       if(owns()){
         const result=session.renderer!.exportDiagnostic();
         const base=result?.g as {acceptedPngDataUrl:string;hairPngDataUrl:string}|undefined;
-        const heldPipelines=focusedStudy === 'mask-preview' ? visiblePipelines : PIPELINES;
+        const heldPipelines=focusedStudy === 'mask-preview'||focusedStudy==='fps-review' ? visiblePipelines : PIPELINES;
         const different=base?heldPipelines.filter(id=>{const item=result![id] as typeof base;return item?.acceptedPngDataUrl!==base.acceptedPngDataUrl||item?.hairPngDataUrl!==base.hairPngDataUrl;}):[];
         element('held-result').textContent=base?(different.length?'Held differences found: '+different.map(id=>PIPELINE_LABELS[id]).join(', '):focusedStudy === 'mask-preview'?'G and V match on this shared diagnostic mask. Review live movement separately.':'All held experiment images match G pixel-for-pixel on this image.'):'Held comparison unavailable.';
+        if(base&&focusedStudy==='fps-review'&&(reviewCandidate==='face-cpu'||reviewCandidate==='frame-copy'))
+          element('held-result').textContent='Shared G rendering on this held detection and image. This does not test CPU tracking or camera conversion; review those live.';
         session.heldBusy = false; download.disabled = false; updateControls(); showHairStatus();
       }
     }

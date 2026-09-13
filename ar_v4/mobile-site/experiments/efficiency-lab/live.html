@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101715"><title>Lenses · Efficiency comparison</title>
-  <script type="module" crossorigin src="/ar_testing/assets/arTesting-DvoaN9sT.js"></script>
+  <script type="module" crossorigin src="/ar_testing/assets/arTesting-DwyIGRb7.js"></script>
   <link rel="stylesheet" crossorigin href="/ar_testing/assets/arTesting-DKisj5zb.css">
 </head>
 <body>
@@ -21,6 +21,13 @@
       <div class="stage-bottom"><p id="guidance" role="status" aria-live="polite">Choose your glasses, then open the camera.</p><button id="stop" class="quiet" hidden>Close camera</button></div>
     </section>
     <aside class="sidebar">
+      <section id="fps-review-options" class="pipeline-controls" hidden>
+        <label class="eyebrow" for="review-candidate">TEST OPTION</label><select id="review-candidate"></select>
+        <p class="control-hint">Each option compares with G. Save your ZIP and close the camera before choosing the next test.</p>
+        <label class="control-hint" for="power-context">Power during this run</label>
+        <select id="power-context"><option value="unknown">Not recorded</option><option value="battery">On battery</option><option value="plugged-in">Plugged in</option></select>
+        <p class="control-hint">Keep power and energy-saving settings the same throughout each comparison. Let the device cool between tests.</p>
+      </section>
       <section id="startup-panel" class="startup-panel" hidden aria-labelledby="startup-title">
         <p class="eyebrow" id="startup-title">MIRROR STARTUP</p><p id="startup-status" class="control-hint" role="status"></p>
         <button id="download-startup" class="quiet" disabled>Save startup report</button>

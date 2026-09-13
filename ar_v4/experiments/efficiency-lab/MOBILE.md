@@ -1,3 +1,25 @@
+# FPS review testing ground — September 13, 2026
+
+Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review` for the
+four new options: CPU face tracking, worker rendering, VideoFrame camera copy
+and compositor reuse. G is initially selected; V is available as a fifth
+reference option. Choose one option while the camera is closed, then run
+G / option / option / G. The explicit G/V URL and existing landing remain
+available. No accepted renderer or resolution is replaced.
+
+The page records actual delegates, copy fallbacks, worker transfer/completion
+costs, compositor reuse and user-reported power. A failed worker setup stops
+explicitly; fallback camera frames cannot count as successful RGBA-copy evidence.
+Use measurements only for speed and a separate recorded run for visual review.
+Repeat both glasses × both hair models and every front/down/up/left/right cue.
+Save each ZIP before another test. CPU landmarks and camera conversion require
+live review; their held-render aliases cannot validate those changes.
+
+See [review assessment, mechanisms, risks and protocol](../../docs/FPS_REVIEW_2026-09-13.md)
+and [executed validation](../../docs/REVIEWS.md). Source/build work belongs in the
+isolated checkout named in HANDOFF.md. The original dirty checkout and private
+archives remain excluded from the public package.
+
 # Mobile AR testing
 
 The Lenses landing page links to `/ar_testing/`, a separate static AR preview

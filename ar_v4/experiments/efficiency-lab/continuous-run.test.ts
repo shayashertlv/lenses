@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import {ContinuousComparisonRun, CONTINUOUS_STUDIES, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
 import type {ContinuousRunOptions, ContinuousPipeline, RecordedRunFrame} from './continuous-run.ts';
 import type {FrameInput} from './frame-profiler.ts';
+import {FPS_REVIEW_CANDIDATES} from './profiles.ts';
 
 const options = (extra: Partial<ContinuousRunOptions> = {}): ContinuousRunOptions => ({sessionId: 'session',
   workload: {eyewearId: 'amber-horizon', hairModelId: 'hair-only', variant: 'hair', sourceWidth: 640, sourceHeight: 427}, ...extra});
@@ -37,6 +38,25 @@ interface WindowResult {
 }
 const windows = (run: ContinuousComparisonRun): WindowResult[] => run.export().windows as WindowResult[];
 const rows = (run: ContinuousComparisonRun): RecordedRunFrame[] => run.export().rows as RecordedRunFrame[];
+
+test('FPS review uses G/candidate/candidate/G and keeps strict masked warmup and full windows', () => {
+  for(const candidate of FPS_REVIEW_CANDIDATES) {
+    const run=new ContinuousComparisonRun(options({studyOptions:'fps-review',candidate,
+      metadata:{device:{userReportedPower:'battery'}}}));
+    const protocol=run.export().protocol as Record<string,unknown>;
+    assert.deepEqual(protocol.order,['g',candidate,candidate,'g']);
+    assert.equal(protocol.measureMs,30000);assert.equal(protocol.warmupMs,5000);
+    assert.equal(protocol.minimumTrackedMaskedWarmupFrames,3);
+    assert.equal(run.status.windowCount,4);
+    const reverse=new ContinuousComparisonRun(options({studyOptions:'fps-review',candidate,direction:'reverse'}));
+    assert.deepEqual((reverse.export().protocol as Record<string,unknown>).order,[candidate,'g','g',candidate]);
+  }
+  assert.throws(()=>new ContinuousComparisonRun(options({studyOptions:'fps-review',candidate:'hair-release' as never})),/candidate/);
+  assert.throws(()=>new ContinuousComparisonRun(options({candidate:'face-cpu'})),/candidate/);
+  const run=warmed(new ContinuousComparisonRun(options({studyOptions:'fps-review',candidate:'frame-copy'})));
+  run.observe(frame(5100,5100,'g',{native:{'capture.actualPath':'canvas-video-frame-fallback','capture.fallbackReason':'dimensions-or-transform'}}));
+  assert.equal(rows(run).at(-1)!.native!['capture.actualPath'],'canvas-video-frame-fallback');
+});
 
 test('ten windows reverse the same five choices, retaining separate adjacent middle windows', () => {
   const run = new ContinuousComparisonRun(options());
