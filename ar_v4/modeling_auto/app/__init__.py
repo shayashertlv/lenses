@@ -1,0 +1,1 @@
+"""Standalone Modeling Auto application."""
