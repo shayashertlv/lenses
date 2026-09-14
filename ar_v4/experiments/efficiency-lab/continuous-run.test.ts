@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {ContinuousComparisonRun, CONTINUOUS_STUDIES, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
+import {ContinuousComparisonRun, CONTINUOUS_STUDIES, G_STABILITY_PLANS, REVIEW_PIPELINES, sanitizeRunMetadata} from './continuous-run.ts';
 import type {ContinuousRunOptions, ContinuousPipeline, RecordedRunFrame} from './continuous-run.ts';
 import type {FrameInput} from './frame-profiler.ts';
 import {FPS_REVIEW_CANDIDATES, FPS_REVIEW_PIPELINES} from './profiles.ts';
@@ -519,4 +519,183 @@ test('per-image run retains eight distinct full-duration windows in forward and 
   assert.ok(windows(run).every(value => value.summary.durationMs === 30000 && value.summary.frames === 1));
   const reverse = new ContinuousComparisonRun(options({studyOptions: 'per-image', direction: 'reverse'}));
   assert.deepEqual((reverse.export().protocol as {order: string[]}).order, ['word-compose', 'gl-state', 'mask-bytes', 'g', 'g', 'mask-bytes', 'gl-state', 'word-compose']);
+});
+
+interface AnalysisBin {
+  index: number; windowIndex: number; plannedStartAtMs: number; plannedEndAtMs: number; completed: boolean;
+  summary: WindowResult['summary'] & {excludedFrames: number};
+}
+const analysisBins = (run: ContinuousComparisonRun): AnalysisBin[] => run.export().analysisBins as AnalysisBin[];
+
+test('G stability controls have explicit one/six/one windows and equal planned measurement across documents', () => {
+  for (const direction of ['forward', 'reverse'] as const) {
+    for (const studyOptions of ['g-continuous', 'g-restart', 'g-page'] as const) {
+      const plan = G_STABILITY_PLANS[studyOptions];
+      const run = new ContinuousComparisonRun(options({studyOptions, direction, maxSwitchMs: 90000}));
+      const protocol = run.export().protocol as Record<string, unknown>;
+      assert.equal(run.status.windowCount, plan.windowCount);
+      assert.deepEqual(protocol.order, Array.from({length: plan.windowCount}, () => 'g'));
+      assert.equal(protocol.measureMs, studyOptions === 'g-continuous' ? 180000 : 30000);
+      assert.equal(protocol.warmupMs, 5000); assert.equal(protocol.maxWarmupMs, 15000);
+      assert.equal(protocol.minimumTrackedMaskedWarmupFrames, 3); assert.equal(protocol.maxSwitchMs, 90000);
+      assert.equal(protocol.runtimePolicy, plan.runtimePolicy);
+      const exportedPlan = protocol.stabilityPlan as Record<string, unknown>;
+      assert.equal(exportedPlan.documentCount, studyOptions === 'g-page' ? 6 : 1);
+      assert.equal(exportedPlan.plannedMeasuredMsAcrossDocuments, 180000);
+      assert.equal(exportedPlan.plannedMeasuredMsInDocument, studyOptions === 'g-page' ? 30000 : 180000);
+      assert.equal(CONTINUOUS_STUDIES[studyOptions].defaultVideo, false);
+      assert.deepEqual(CONTINUOUS_STUDIES[studyOptions].pipelines, ['g']);
+      assert.throws(() => new ContinuousComparisonRun(options({studyOptions, candidate: 'face-cpu'})), /candidate/);
+    }
+  }
+});
+
+test('continuous G keeps one uninterrupted 180-second window while export computes six same-source bins', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous'})));
+  let sequence = 1000;
+  for (let index = 0; index < 6; index++) {
+    const start = 5000 + index * 30000;
+    if (index > 0) {
+      run.observe(frame(start, ++sequence, 'g', {capturedAtMs: start - 10}));
+      assert.equal(run.status.token, 1, 'an analysis boundary cannot request a new pump or warmup');
+      assert.equal(run.status.windowIndex, 0); assert.equal(run.status.state, 'measuring');
+    }
+    run.observe(frame(start + 500, ++sequence, 'g', {capturedAtMs: start + 450}));
+    run.observe(frame(start + 1000, ++sequence, 'g', {capturedAtMs: start + 900, hasMask: false}));
+    run.tick(start + 30000);
+  }
+  assert.equal(run.status.state, 'complete'); assert.equal(run.export().endedAtMs, 185000);
+  const window = windows(run)[0]!;
+  assert.equal(window.summary.frames, 17, 'boundary-crossing frames still belong to the full continuous window');
+  assert.equal(window.summary.durationMs, 180000); assert.equal(window.summary.completedArFps, 17 / 180);
+  const bins = analysisBins(run);
+  assert.equal(bins.length, 6);
+  for (const [index, bin] of bins.entries()) {
+    assert.equal(bin.index, index); assert.equal(bin.windowIndex, 0); assert.equal(bin.completed, true);
+    assert.equal(bin.plannedStartAtMs, 5000 + index * 30000); assert.equal(bin.plannedEndAtMs, 35000 + index * 30000);
+    assert.equal(bin.summary.durationMs, 30000); assert.equal(bin.summary.frames, 2);
+    assert.equal(bin.summary.completedArFps, 2 / 30); assert.equal(bin.summary.excludedFrames, index ? 1 : 0);
+    assert.equal(bin.summary.frameAgeMs!.max, 100); assert.equal(bin.summary.coverage.trackedFraction, 1);
+    assert.equal(bin.summary.coverage.maskedTrackedFraction, .5);
+    assert.equal(bin.summary.initialNoCompletionMs, 500); assert.equal(bin.summary.trailingNoCompletionMs, 29000);
+  }
+  const events = run.export().events as {name: string}[];
+  assert.equal(events.filter(event => event.name === 'switch-requested').length, 1);
+  assert.equal(events.filter(event => event.name === 'switch-ready').length, 1);
+  assert.equal(events.filter(event => event.name === 'measurement-started').length, 1);
+  assert.equal(events.filter(event => event.name === 'measurement-ended').length, 1);
+  const snapshot = JSON.stringify(run.export());
+  assert.equal(JSON.stringify(run.export()), snapshot, 'bin export is observational and does not change run state');
+});
+
+test('continuous analysis bins retain full zero-output denominators, camera observations and endpoint stalls', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous'})));
+  run.observeVideo({atMs: 5100, presentedFrames: 10, mediaTime: 5.1});
+  run.observeVideo({atMs: 6100, presentedFrames: 40, mediaTime: 6.1});
+  run.observeVideo({atMs: 35000, presentedFrames: 1000, mediaTime: 35});
+  run.observeVideo({atMs: 36000, presentedFrames: 1030, mediaTime: 36});
+  run.tick(185000);
+  const bins = analysisBins(run);
+  assert.equal(bins.length, 6);
+  assert.ok(bins.every(bin => bin.completed && bin.summary.frames === 0 && bin.summary.completedArFps === 0
+    && bin.summary.durationMs === 30000 && bin.summary.initialNoCompletionMs === 30000
+    && bin.summary.trailingNoCompletionMs === 30000 && bin.summary.completionGapMsIncludingEndpoints!.max === 30000
+    && bin.summary.coverage.status === 'no-frames'));
+  assert.equal(bins[0]!.summary.camera.deliveryFps, 30); assert.equal(bins[1]!.summary.camera.deliveryFps, 30);
+  assert.equal(bins[0]!.summary.camera.observedSpanMs, 1000); assert.equal(bins[1]!.summary.camera.observedSpanMs, 1000);
+  assert.equal(bins[2]!.summary.camera.deliveryFps, null); assert.equal(bins[2]!.summary.frameAgeMs, null);
+  assert.equal(windows(run)[0]!.summary.durationMs, 180000);
+});
+
+test('partial continuous runs export only elapsed bins and preserve an honestly clipped trailing interval', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous'})));
+  run.observe(frame(6000)); run.observe(frame(66000)); run.cancel('document-hidden', 75000);
+  const bins = analysisBins(run);
+  assert.equal(run.status.state, 'partial'); assert.equal(bins.length, 3);
+  assert.deepEqual(bins.map(bin => bin.completed), [true, true, false]);
+  assert.deepEqual(bins.map(bin => bin.summary.durationMs), [30000, 30000, 10000]);
+  assert.equal(bins[2]!.plannedEndAtMs, 95000); assert.equal(bins[2]!.summary.frames, 1);
+  assert.equal(bins[2]!.summary.completedArFps, .1); assert.equal(bins[2]!.summary.trailingNoCompletionMs, 9000);
+  assert.equal(windows(run)[0]!.summary.durationMs, 70000);
+  const beforeMeasurement = new ContinuousComparisonRun(options({studyOptions: 'g-continuous'}));
+  beforeMeasurement.begin(0); beforeMeasurement.cancel('stopped', 1000);
+  assert.deepEqual(analysisBins(beforeMeasurement), []);
+  const exactBoundary = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous'})));
+  exactBoundary.cancel('stopped', 35000);
+  assert.equal(analysisBins(exactBoundary).length, 1); assert.equal(analysisBins(exactBoundary)[0]!.completed, true);
+});
+
+test('continuous bins exclude late captured/publication boundaries without losing retained raw evidence', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous'})));
+  run.observe(frame(5000, 1000, 'g', {capturedAtMs: 4999}));
+  run.observe(frame(35000, 1001, 'g', {capturedAtMs: 34999}));
+  run.observe(frame(35001, 1002, 'g', {capturedAtMs: 35000}));
+  run.observe(frame(184999, 1003, 'g', {capturedAtMs: 184980}));
+  run.observe(frame(185000, 1004, 'g', {capturedAtMs: 184999}), 190000);
+  assert.equal(run.status.state, 'complete'); assert.equal(windows(run)[0]!.timerOvershootMs, 5000);
+  assert.equal(windows(run)[0]!.summary.frames, 3); assert.equal(windows(run)[0]!.summary.durationMs, 180000);
+  const bins = analysisBins(run);
+  assert.deepEqual(bins.map(bin => bin.summary.frames), [0, 1, 0, 0, 0, 1]);
+  assert.equal(bins[0]!.summary.excludedFrames, 1); assert.equal(bins[1]!.summary.excludedFrames, 1);
+  assert.equal(rows(run).find(row => row.fields.sequence === 1000)!.exclusion, 'captured-before-measurement');
+  assert.equal(rows(run).find(row => row.fields.sequence === 1001)!.phase, 'measured');
+  assert.equal(rows(run).find(row => row.fields.sequence === 1004)!.exclusion, 'published-after-window');
+});
+
+test('restarted G requires six separate acknowledgements, masked warmups and complete 30-second measurements', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'g-restart', maxSwitchMs: 90000}));
+  let sequence = 0; run.begin(0);
+  for (let index = 0; index < 6; index++) {
+    const requestedAt = index * 55000, readyAt = requestedAt + 20000, measuredAt = readyAt + 5000;
+    const status = run.status; assert.equal(status.windowIndex, index); assert.equal(status.pipeline, 'g');
+    run.tick(requestedAt + 16000); assert.equal(run.status.state, 'switching');
+    if (index > 0) {
+      run.observe(frame(readyAt - 1, ++sequence));
+      assert.equal(rows(run).at(-1)!.exclusion, 'switch-not-ready');
+      run.switched(status.token - 1, readyAt); assert.equal(run.status.state, 'switching');
+    }
+    run.switched(status.token, readyAt);
+    run.observe(frame(readyAt + 10, ++sequence, 'g', {capturedAtMs: readyAt - 1}));
+    assert.equal(rows(run).at(-1)!.exclusion, 'captured-before-switch');
+    run.observe(frame(readyAt + 50, ++sequence, 'g', {hasMask: false}));
+    for (const offset of [100, 200, 300]) run.observe(frame(readyAt + offset, ++sequence));
+    run.tick(measuredAt); assert.equal(run.status.state, 'measuring');
+    if (index !== 3) run.observe(frame(measuredAt + 1000, ++sequence));
+    run.tick(measuredAt + 30000);
+  }
+  assert.equal(run.status.state, 'complete'); assert.equal(run.export().endedAtMs, 330000);
+  assert.ok(windows(run).every(window => window.completed && window.switchWaitMs === 20000
+    && window.validWarmupFrames === 3 && window.summary.durationMs === 30000));
+  assert.equal(windows(run)[3]!.summary.completedArFps, 0);
+  assert.equal(Object.hasOwn(run.export(), 'analysisBins'), false);
+});
+
+test('one fresh-page G document completes once and retains setup and mask timeout protections', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-page', maxSwitchMs: 90000})));
+  run.tick(35000); assert.equal(run.status.state, 'complete'); assert.equal(run.status.windowCount, 1);
+  assert.equal(windows(run)[0]!.summary.durationMs, 30000);
+  assert.match(String((run.export().protocol as Record<string, unknown>).documentOwnership), /six fresh-document reports/);
+  assert.equal(Object.hasOwn(run.export(), 'analysisBins'), false);
+  for (const studyOptions of ['g-continuous', 'g-restart', 'g-page'] as const) {
+    const setup = new ContinuousComparisonRun(options({studyOptions, maxSwitchMs: 90000}));
+    setup.begin(0); assert.equal(setup.tick(90000).reason, 'switch-timeout');
+    const masks = new ContinuousComparisonRun(options({studyOptions, maxSwitchMs: 90000}));
+    masks.begin(0); masks.switched(1, 20000);
+    masks.observe(frame(20100, 1)); masks.observe(frame(20200, 2));
+    masks.observe(frame(20300, 3, 'g', {hasMask: false}));
+    assert.equal(masks.tick(25000).state, 'warmup'); assert.equal(masks.tick(35000).reason, 'warmup-timeout');
+    assert.equal(windows(masks)[0]!.summary.frames, 0); assert.equal(windows(masks)[0]!.validWarmupFrames, 2);
+  }
+});
+
+test('explicit stability duration overrides are reflected in plan and trailing analysis-bin duration', () => {
+  const run = warmed(new ContinuousComparisonRun(options({studyOptions: 'g-continuous', measureMs: 50000})));
+  run.tick(55000); assert.equal(run.status.state, 'complete');
+  const bins = analysisBins(run);
+  assert.deepEqual(bins.map(bin => bin.summary.durationMs), [30000, 20000]);
+  assert.ok(bins.every(bin => bin.completed));
+  const protocol = run.export().protocol as Record<string, unknown>;
+  const plan = protocol.stabilityPlan as Record<string, unknown>;
+  assert.equal(protocol.measureMs, 50000); assert.equal(plan.measureMs, 50000);
+  assert.equal(plan.plannedMeasuredMsInDocument, 50000); assert.equal(plan.plannedMeasuredMsAcrossDocuments, 50000);
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {blobCRC32, createRunArchive} from './run-export.ts';
+import {blobCRC32, createRunArchive, createFilesArchive} from './run-export.ts';
 
 test('streamed CRC matches an independent standard vector and empty input', async () => {
   assert.equal(await blobCRC32(new Blob(['123456789'])), 0xcbf43926);
@@ -46,4 +46,25 @@ test('telemetry-only ZIP works and recording path injection is rejected', async 
   assert.ok(zip.size > 22);
   await assert.rejects(createRunArchive({}, {blob: new Blob(), filename: '../private.webm'}), /filename/);
   await assert.rejects(createRunArchive(undefined), /serialized/);
+});
+
+
+test('multi-part scalar archive preserves each blob and rejects duplicate or unsafe entry names', async () => {
+  const originals = [{filename: 'telemetry.json', blob: new Blob(['{"parts":2}'])},
+    {filename: 'part-01.json', blob: new Blob(['{"sessionId":"first","rows":[1,2]}'])},
+    {filename: 'part-02.json', blob: new Blob(['{"sessionId":"second","rows":[]}'])}];
+  const archive = new Uint8Array(await (await createFilesArchive(originals)).arrayBuffer());
+  const view = new DataView(archive.buffer), decoder = new TextDecoder(); let offset = 0;
+  for (const original of originals) {
+    assert.equal(view.getUint32(offset, true), 0x04034b50);
+    const size = view.getUint32(offset + 18, true), names = view.getUint16(offset + 26, true);
+    assert.equal(decoder.decode(archive.slice(offset + 30, offset + 30 + names)), original.filename);
+    assert.deepEqual(archive.slice(offset + 30 + names, offset + 30 + names + size), new Uint8Array(await original.blob.arrayBuffer()));
+    assert.equal(view.getUint32(offset + 14, true), await blobCRC32(original.blob));
+    offset += 30 + names + size;
+  }
+  assert.equal(view.getUint32(offset, true), 0x02014b50);
+  await assert.rejects(createFilesArchive([originals[0]!, originals[0]!]), /entries/);
+  await assert.rejects(createFilesArchive([{filename: '../private.json', blob: new Blob()}]), /entries/);
+  await assert.rejects(createFilesArchive([]), /entries/);
 });

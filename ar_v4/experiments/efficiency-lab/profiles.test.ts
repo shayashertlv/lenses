@@ -140,18 +140,32 @@ test('focused preview exposes only G and V while requiring explicit selection of
     assert.equal(initialPipeline('?study=mask-preview&pipeline=' + pipeline), 'g');
 });
 
-test('mobile entry opens all FPS experiments and keeps explicit historical URLs available', () => {
+test('G stability exposes only G regardless of an explicit candidate or pipeline', () => {
+  const search = '?study=g-stability';
+  assert.deepEqual(studyPipelines(search), ['g']); assert.equal(initialPipeline(search), 'g');
+  assert.equal(fpsReviewIsAll(search), false); assert.equal(previewSearch(search, true), search);
+  for (const pipeline of [...PIPELINES, 'invalid', '__proto__'])
+    assert.equal(initialPipeline(search + '&pipeline=' + pipeline), 'g');
+  for (const candidate of FPS_REVIEW_CANDIDATES) {
+    assert.deepEqual(studyPipelines(search + '&candidate=' + candidate), ['g']);
+    assert.equal(initialPipeline(search + '&candidate=' + candidate + '&pipeline=' + candidate), 'g');
+  }
+});
+
+test('mobile entry opens G stability and keeps explicit FPS and historical URLs available', () => {
   for (const search of ['', '?study=review']) {
     const normalized = previewSearch(search, true);
-    assert.equal(new URLSearchParams(normalized).get('study'), 'fps-review');
-    assert.deepEqual(studyPipelines(normalized), FPS_REVIEW_PIPELINES);
+    assert.equal(new URLSearchParams(normalized).get('study'), 'g-stability');
+    assert.deepEqual(studyPipelines(normalized), ['g']);
     assert.equal(initialPipeline(normalized), 'g');
     assert.equal(previewSearch(normalized, true), normalized);
   }
   const selected = new URLSearchParams(previewSearch('?study=review&pipeline=mask-bytes&capture=scalar', true));
-  assert.equal(selected.get('study'), 'fps-review');
+  assert.equal(selected.get('study'), 'g-stability');
   assert.equal(selected.get('pipeline'), 'mask-bytes'); assert.equal(selected.get('capture'), 'scalar');
-  for (const search of ['?study=review&legacy=1', '?study=per-image', '?study=hair-delivery', '?study=mask-preview'])
+  assert.equal(initialPipeline('?' + selected.toString()), 'g', 'obsolete candidate parameters cannot select a candidate in stability');
+  for (const search of ['?study=review&legacy=1', '?study=per-image', '?study=hair-delivery', '?study=mask-preview',
+    '?study=fps-review', '?study=fps-review&candidate=face-cpu&pipeline=face-cpu', '?legacy=1'])
     assert.equal(previewSearch(search, true), search);
   for (const search of ['', '?study=review', '?study=review&pipeline=region'])
     assert.equal(previewSearch(search, false), search);

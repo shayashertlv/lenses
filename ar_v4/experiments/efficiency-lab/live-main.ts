@@ -3,7 +3,9 @@ import './live.css';
 import {PROFILES, initialPipeline, studyPipelines, previewSearch, CURRENT_BASE_METADATA, FPS_REVIEW_CANDIDATES, fpsReviewCandidate, fpsReviewIsAll} from './profiles.ts';
 import {UiSummaryCadence} from './ui-cadence.ts';
 import {ContinuousComparisonRun, CONTINUOUS_STUDIES} from './continuous-run.ts';
-import type {ContinuousRunStatus} from './continuous-run.ts';
+import type {ContinuousRunStatus, ContinuousStudy} from './continuous-run.ts';
+import {GStabilityPreview} from './stability-preview.ts';
+import type {StabilityIdentity, StabilityChunk} from './stability-store.ts';
 import {ContinuousCanvasRecorder} from './continuous-recorder.ts';
 import {createRunArchive} from './run-export.ts';
 import {HairDeliveryLog} from './hair-delivery.ts';
@@ -51,6 +53,9 @@ const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
 for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const)
   pipelineSelect.add(new Option(PIPELINE_LABELS[id], id));
 const focusedStudy = new URLSearchParams(studySearch).get('study');
+const stabilityPage = focusedStudy === 'g-stability';
+let stability: GStabilityPreview | null = null;
+let stabilityMetadata: Record<string, unknown> | null = null;
 const pageOptions=new URLSearchParams(studySearch);
 const pageEyewear=pageOptions.get('eyewear'),pageHair=pageOptions.get('hair-model');
 if(pageEyewear==='amber-horizon'||pageEyewear==='tom-ford-clear')selectedEyewear=pageEyewear;
@@ -59,9 +64,9 @@ if(pageOptions.get('variant')==='accepted')selectedVariant='accepted';
 hairSelect.value=selectedHair;variantSelect.value=selectedVariant;
 const allReviewOptions = fpsReviewIsAll(studySearch);
 // Shared mode is retained only as an explicit diagnostic control for switch history.
-const freshRuntime = focusedStudy === 'fps-review' && new URLSearchParams(studySearch).get('switch') !== 'shared';
-const continuousStudy = allReviewOptions ? 'fps-all' : focusedStudy === 'fps-review' ? 'fps-review' : focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
-const continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy];
+let freshRuntime = focusedStudy === 'fps-review' && new URLSearchParams(studySearch).get('switch') !== 'shared';
+let continuousStudy: ContinuousStudy = stabilityPage ? 'g-continuous' : allReviewOptions ? 'fps-all' : focusedStudy === 'fps-review' ? 'fps-review' : focusedStudy === 'mask-preview' ? 'mask-preview' : focusedStudy === 'per-image' ? 'per-image' : focusedStudy === 'hair-delivery' ? 'hair-delivery' : 'review';
+let continuousStudyOptions: typeof CONTINUOUS_STUDIES[ContinuousStudy] = CONTINUOUS_STUDIES[continuousStudy];
 const visiblePipelines = studyPipelines(studySearch);
 for (const option of [...pipelineSelect.options]) if (!visiblePipelines.includes(option.value as Pipeline)) option.remove();
 if (allReviewOptions) pipelineSelect.replaceChildren(...visiblePipelines.map(id => new Option(PIPELINE_LABELS[id], id)));
@@ -81,7 +86,27 @@ reviewCandidateSelect.addEventListener('change', () => {
   query.delete('pipeline');
   location.search = query.toString();
 });
-if (focusedStudy === 'fps-review') {
+if (stabilityPage) {
+  document.title = 'Lenses · G stability tests';
+  document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=g-stability';
+  element('stability-study').setAttribute('aria-current', 'page');
+  element('stability-panel').hidden = false;
+  element('study-heading').textContent = 'See why G slows down.';
+  element('study-intro').textContent = 'Compare continuous G, worker restarts and fresh pages. The same rendering and three minutes of measurements in each condition.';
+  element('study-notice').textContent = 'G stays unchanged. This test measures stability over time; it introduces no rendering optimization.';
+  element('fps-review-options').hidden = false; reviewCandidateSelect.hidden = true;
+  document.querySelector<HTMLElement>('label[for="review-candidate"]')!.hidden = true;
+  element('review-options-hint').textContent = 'Keep the same power settings, glasses and hair model throughout the suite.';
+  element('continuous-title').closest<HTMLElement>('section')!.hidden = true;
+  pipelineSelect.closest<HTMLElement>('section')!.hidden = true;
+  variantSelect.closest<HTMLElement>('section')!.hidden = true;
+  start.hidden = true; element('stage-toggle-pipeline').hidden = true;
+  welcome.querySelector('h2')!.textContent = 'Your G stability test is ready.';
+  welcome.querySelector('p')!.textContent = 'Choose glasses and a hair model, then start the stability tests below.';
+  for (const id of ['benchmark', 'benchmark-order', 'benchmark-status', 'download-metrics', 'metrics-export']) element(id).hidden = true;
+  document.querySelector<HTMLElement>('label[for="benchmark-order"]')!.hidden = true;
+  element('baseline-detail').textContent = 'Every condition uses accepted G at the same rendering resolution, with exact image/detection/pose/mask ownership and unchanged nose/front safeguards. Compare full-window completed updates, camera delivery, frame age, stalls and matching masks. Page reloads do not prove the phone cooled; repeat the condition order in reverse.';
+} else if (focusedStudy === 'fps-review') {
   document.title = 'Lenses · FPS review tests';
   document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=fps-review';
   element('fps-review-study').setAttribute('aria-current', 'page');
@@ -373,7 +398,7 @@ function deviceMetadata(session: Session): Record<string, unknown> {
   const settings = stream?.getVideoTracks()[0]?.getSettings();
   return {userAgent: navigator.userAgent, platform: navigator.platform, hardwareConcurrency: navigator.hardwareConcurrency ?? null,
     deviceMemoryGiB: extendedNavigator.deviceMemory ?? null, viewport: {width: innerWidth, height: innerHeight, dpr: devicePixelRatio},
-    userReportedPower: focusedStudy === 'fps-review' ? powerContext.value : 'unknown',
+    userReportedPower: focusedStudy === 'fps-review' || stabilityPage ? powerContext.value : 'unknown',
     camera: settings ? {width: settings.width ?? null, height: settings.height ?? null, frameRate: settings.frameRate ?? null,
       facingMode: settings.facingMode ?? null, aspectRatio: settings.aspectRatio ?? null} : null,
     crossOriginIsolated, secureContext: isSecureContext,
@@ -383,6 +408,7 @@ function deviceMetadata(session: Session): Record<string, unknown> {
 function continuousActive(): boolean {return continuousRun !== null;}
 function showContinuousStatus(context: ContinuousContext, status: ContinuousRunStatus): void {
   if (continuousRun !== context || context.finalizing) return;
+  stability?.onProgress(status);
   const seconds = Math.max(0, Math.ceil(status.remainingMs / 1000));
   const phase = status.state === 'switching' ? freshRuntime ? 'Fresh test setup' : 'Switching safely'
     : status.state === 'warmup' ? 'Warming up' : status.state === 'measuring' ? 'Measuring' : status.state;
@@ -390,7 +416,7 @@ function showContinuousStatus(context: ContinuousContext, status: ContinuousRunS
   setContinuousText('continuous-status', `${label}${status.running && status.state !== 'switching' ? ` · ${seconds} s` : ''}. Keep this page visible.`);
   setContinuousText('run-stage-progress', `${label}${status.state === 'measuring' || status.state === 'warmup' ? ` · ${seconds} s` : ''}`);
   const cues = ['Face forward · check nose/front', 'Slowly look down', 'Slowly look up', 'Slowly turn left', 'Slowly turn right'];
-  const cue = status.state === 'measuring' ? cues[Math.min(4, Math.floor(status.phaseElapsedMs / 6000))]! : 'Face forward · get ready';
+  const cue = status.state === 'measuring' ? cues[Math.min(4, Math.floor((stabilityPage ? status.phaseElapsedMs % 30000 : status.phaseElapsedMs) / 6000))]! : 'Face forward · get ready';
   setContinuousText('run-movement', cue);
 }
 function recordVideoDelivery(context: ContinuousContext): void {
@@ -426,7 +452,7 @@ async function switchContinuous(context: ContinuousContext, status: ContinuousRu
     }
     selectedPipeline = status.pipeline; pipelineSelect.value = status.pipeline;
     element('experiment-detail').textContent = PROFILES[status.pipeline].detail;
-    if (freshRuntime) await rebuildRuntime(session, status.pipeline);
+    if (freshRuntime && (!stabilityPage || status.windowIndex > 0)) await rebuildRuntime(session, status.pipeline);
     else await initializePipelineRuntime(session, status.pipeline);
     if (current !== session || session.phase !== 'live' || continuousRun !== context || context.finalizing) return;
     session.renderer!.selectPipeline(status.pipeline);
@@ -516,6 +542,16 @@ async function finishContinuous(context: ContinuousContext): Promise<void> {
     clientEvents: context.events, wakeLock: {requested: true, acquired: context.wakeLockAcquired, reason: context.wakeLockReason},
     ...(context.hairDelivery ? {hairDelivery: context.hairDelivery.export(), hairDeliveryDrain: context.hairDrain} : {})};
   lastContinuousReport = report;
+  if (stabilityPage && stability) {
+    // End all AR work before persistence/ZIP work. The coordinator reloads only
+    // after the raw report and next-page token are committed together.
+    if (continuousRun === context) continuousRun = null;
+    context.session.switching = false;
+    closeSession('This part finished. Saving local results…');
+    await stability.completed(report);
+    continuousStop.disabled = false;
+    return;
+  }
   try {
     const extension = recording.mimeType?.includes('mp4') ? 'mp4' : 'webm';
     const archive = await createRunArchive(report, video ? {blob: video, filename: `ar-mirror.${extension}`} : undefined);
@@ -565,9 +601,9 @@ function cancelContinuous(reason: string): void {
   context.controller.cancel(reason, performance.now());
   void finishContinuous(context);
 }
-function beginContinuous(): void {
+function beginContinuous(stabilityAutomatic = false): void {
   const session = current;
-  if (!session || continuousActive() || continuousStart.disabled || !session.performanceSample) return;
+  if (!session || continuousActive() || (!stabilityAutomatic && continuousStart.disabled) || !session.performanceSample) return;
   // The UI explains that starting another test replaces the result held on the
   // page. Release it before recording so two videos do not compete for memory.
   if (continuousFileUrl) URL.revokeObjectURL(continuousFileUrl);
@@ -577,13 +613,14 @@ function beginContinuous(): void {
   const recorder = new ContinuousCanvasRecorder(session.canvas, continuousVideo.checked,
     {onIssue: reason => cancelContinuous(`Video recording interrupted: ${reason}`)});
   const controller = new ContinuousComparisonRun({sessionId: session.id, studyOptions: continuousStudy,
-    ...(freshRuntime ? {maxSwitchMs: 90000} : {}),
+    ...(freshRuntime || stabilityPage ? {maxSwitchMs: 90000} : {}),
     candidate: continuousStudy === 'fps-review' ? reviewCandidate : undefined,
     workload: {eyewearId: session.eyewearId, hairModelId: session.hairId, variant: selectedVariant,
       sourceWidth: sample.sourceWidth, sourceHeight: sample.sourceHeight},
     metadata: {...CURRENT_BASE_METADATA, build: {id: import.meta.env.VITE_AR_BUILD_ID ?? null, createdAt: import.meta.env.VITE_AR_BUILD_AT ?? null},
       device: deviceMetadata(session), recording: recorder.snapshot(), performanceTimeOriginMs: performance.timeOrigin,
-      runtimeIsolation: freshRuntime ? 'fresh-runtime-every-window' : 'shared-runtime',
+      runtimeIsolation: stabilityPage ? continuousStudy === 'g-restart' ? 'fresh-runtime-after-first-window' : continuousStudy === 'g-page' ? 'fresh-document-every-window' : 'uninterrupted-runtime' : freshRuntime ? 'fresh-runtime-every-window' : 'shared-runtime',
+      stability: stabilityPage ? stabilityMetadata : null,
       review: focusedStudy === 'fps-review' ? {candidate: allReviewOptions ? 'all' : reviewCandidate, inputPolicy: 'Exact current image only; fallback is recorded per frame. No older masks.'} : null,
       sessionStartup: {openedAtMs: session.openedAtMs, firstPublishedAtMs: session.firstPublishedAtMs, firstMaskedAtMs: session.firstMaskedAtMs},
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
@@ -629,11 +666,12 @@ function setState(state: string, label: string, message: string): void {
   if (guidance.textContent !== message) guidance.textContent = message;
 }
 function updateControls(): void {
+  const stabilityLocked = stabilityPage && (stability?.locksSettings() ?? false);
   element<HTMLButtonElement>('refresh-pipeline').disabled=continuousActive()||!!current?.switching;
   const held = current?.phase === 'held';
   const recording = continuousActive();
-  writeValue(eyewearSelect,'disabled',current!==null);writeValue(hairSelect,'disabled',current!==null);
-  writeValue(reviewCandidateSelect,'disabled',current!==null||recording);writeValue(powerContext,'disabled',recording);
+  writeValue(eyewearSelect,'disabled',current!==null||stabilityLocked);writeValue(hairSelect,'disabled',current!==null||stabilityLocked);
+  writeValue(reviewCandidateSelect,'disabled',current!==null||recording);writeValue(powerContext,'disabled',recording||stabilityLocked);
   writeText('selection-hint',current
     ? 'Close this session to change glasses or hair model.'
     : 'Choose glasses and a hair model before opening the camera.');
@@ -642,7 +680,7 @@ function updateControls(): void {
   writeValue(resume,'hidden',!held);
   writeValue(download,'hidden',!held);
   if (!held) writeValue(download,'disabled',true);
-  writeValue(stop,'textContent',held ? 'Close held frame' : 'Close camera');
+  writeValue(stop,'textContent',stabilityPage ? 'Stop test' : held ? 'Close held frame' : 'Close camera');
   writeText('hold-hint',focusedStudy === 'fps-review'
     ? 'Hold tests rendering on one shared image, detection and full mask. CPU landmarks and camera color conversion must be reviewed live; their held images share G. Resume starts a fresh session.'
     : focusedStudy === 'mask-preview'
@@ -971,7 +1009,7 @@ function runPumpedFrames(session:Session):void {
       // Every completion reaches the profiler before any human-facing summary.
       // The counters describe summary admission, not dropped processing frames.
       session.performanceSample=profiler.add({...input,eyewearId:session.eyewearId,hairModelId:session.hairId,native:{...input.native,
-        'runtime.generation':generation,'runtime.isolation':freshRuntime?'fresh-runtime':'shared-runtime',
+        'runtime.generation':generation,'runtime.isolation':stabilityPage?continuousStudy==='g-restart'?'fresh-runtime':continuousStudy==='g-page'?'fresh-page':'continuous-g':freshRuntime?'fresh-runtime':'shared-runtime',
         'ui.throttleSummariesRequested':ui.requested,'ui.summaryIntervalMs':ui.intervalMs,
         'ui.summaryRequests':ui.requests,'ui.summaryRefreshes':ui.refreshes,'ui.summarySkipped':ui.skipped,
         'ui.summaryRefreshThisFrame':ui.refresh}});
@@ -1013,7 +1051,7 @@ function runPumpedFrames(session:Session):void {
         writeText('changed-pixels',String(input.changedPixels));writeText('hair-coverage',summary.hairCoverage===null?'—':Math.round(summary.hairCoverage*100)+'%');
         writeText('stall-latency',summary.processing?Math.round(summary.processing.p95)+' ms':'—');
       }
-      setState(input.hasFace?'tracking':'searching',input.hasFace?'COMPARISON LIVE':'LOOKING FOR YOU',input.hasFace?'Switch experiments while moving. Hold to compare this exact image.':'Bring your face into view.');
+      setState(input.hasFace?'tracking':'searching',input.hasFace?'COMPARISON LIVE':'LOOKING FOR YOU',input.hasFace?(stabilityPage?'Follow the movement cues. The tests run automatically.':'Switch experiments while moving. Hold to compare this exact image.'):'Bring your face into view.');
       updateControls();showHairStatus();
       // Benchmark transitions still happen immediately even on a skipped UI
       // refresh. T shares its one summary between both human readout panels.
@@ -1169,12 +1207,12 @@ element('refresh-pipeline').addEventListener('click',()=>{
   if(target===location.pathname+location.search)location.reload();else location.assign(target);
 });
 start.addEventListener('click', () => { void openSession(); });
-stop.addEventListener('click', () => closeSession());
+stop.addEventListener('click', () => {if(stabilityPage&&stability)void stability.stop();else closeSession();});
 element('download-startup').addEventListener('click', saveStartupReport);
 element('select-startup-json').addEventListener('click', () => {
   const field = element<HTMLTextAreaElement>('startup-json'); field.focus(); field.select();
 });
-continuousStart.addEventListener('click', beginContinuous);
+continuousStart.addEventListener('click', () => beginContinuous());
 continuousStop.addEventListener('click', () => cancelContinuous('Stopped by the user; partial measurements retained.'));
 element('continuous-save').addEventListener('click', saveContinuousFile);
 element('continuous-share').addEventListener('click', () => {
@@ -1356,6 +1394,7 @@ declare global {
   interface Window { hairLivePreview: {diagnostics(): Record<string, unknown>; exportDiagnostic(): Record<string, unknown> | null}; }
   interface Window { arPerformanceProfiler: {snapshot(): Record<string, unknown>; samplesAfter(serial: number): FrameSample[]}; }
   interface Window { arContinuousComparison: {status(): ContinuousRunStatus | null; report(): Record<string, unknown> | null}; }
+  interface Window { arGStability: {status(): Record<string, unknown>; report(): Promise<unknown>}; }
   interface Window { arStartupDiagnostics: {status(): StartupReceipt | null; report(): Record<string, unknown> | null}; }
 }
 // Read-only local inspection for exact-pair QA. It cannot start a camera or modify session state.
@@ -1381,4 +1420,47 @@ window.arStartupDiagnostics = Object.freeze({
     ?? (lastStartupReport?.startup ? structuredClone(lastStartupReport.startup) as StartupReceipt : null),
   report: () => latestStartupReport(),
 });
+async function runStabilityChunk(identity: StabilityIdentity, chunk: StabilityChunk, metadata: Record<string, unknown>): Promise<void> {
+  if (current || continuousRun) throw new Error('An earlier camera session is still active.');
+  if (!['amber-horizon', 'tom-ford-clear'].includes(identity.eyewearId)
+    || !['hair-only', 'selfie-multiclass'].includes(identity.hairModelId)
+    || !['unknown', 'battery', 'plugged-in'].includes(identity.power) || identity.variant !== 'hair')
+    throw new Error('The saved test settings are unsupported. Export them and start a separate test.');
+  selectedEyewear = identity.eyewearId as EyewearId; selectedHair = identity.hairModelId as HairModelId;
+  selectedVariant = 'hair'; selectedPipeline = 'g';
+  eyewearSelect.value = selectedEyewear; hairSelect.value = selectedHair; variantSelect.value = selectedVariant;
+  pipelineSelect.value = 'g'; powerContext.value = identity.power;
+  continuousStudy = chunk.condition === 'continuous' ? 'g-continuous' : chunk.condition === 'restarted' ? 'g-restart' : 'g-page';
+  continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy]; freshRuntime = chunk.condition === 'restarted';
+  continuousVideo.checked = false; stabilityMetadata = metadata; showEyewear();
+  await openSession();
+  // Start the protocol on the first published source, without waiting for an
+  // extra pre-protocol matching mask. The protocol owns its unchanged mask gate.
+  const session = current as Session | null;
+  if (!session) throw new Error('Camera setup could not complete. See the startup report.');
+  const ownsSession = (): boolean => current === session;
+  const deadline = performance.now() + 90000;
+  while (ownsSession() && !session.performanceSample && performance.now() < deadline)
+    await new Promise<void>(resolve => setTimeout(resolve, 50));
+  if (!ownsSession() || !session.performanceSample) throw new Error('The first camera image could not complete.');
+  const sample = session.performanceSample;
+  if (sample.sourceWidth !== identity.sourceWidth || sample.sourceHeight !== identity.sourceHeight)
+    throw new Error('Camera resolution changed between pages. Stop and save this test, then start a separate run.');
+  beginContinuous(true);
+  if (!continuousRun) throw new Error('The measurement could not start.');
+}
+if (stabilityPage) {
+  stability = new GStabilityPreview({buildId: import.meta.env.VITE_AR_BUILD_ID ?? 'local-development',
+    choices: () => ({eyewearId: selectedEyewear, hairModelId: selectedHair, variant: 'hair', power: powerContext.value}),
+    probeCamera: async signal => {
+      const camera = await openCamera(signal);
+      try {if(signal.aborted)throw new DOMException('Camera check cancelled.', 'AbortError');
+        return {width: camera.video.videoWidth, height: camera.video.videoHeight};}
+      finally {camera.stop();}
+    }, runChunk: runStabilityChunk,
+    stopChunk: reason => {if(continuousRun){cancelContinuous(reason);return true;}return false;},
+    closeCamera: () => closeSession('Stability test camera closed.'),
+  });
+  window.arGStability = Object.freeze({status: () => stability!.status(), report: () => stability!.report()});
+}
 showEyewear(); updateControls(); showHairStatus(); updateProfileUi();

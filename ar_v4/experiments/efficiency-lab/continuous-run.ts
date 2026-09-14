@@ -8,6 +8,15 @@ export type ReviewPipeline = typeof REVIEW_PIPELINES[number];
 export const HAIR_DELIVERY_PIPELINES = Object.freeze(['g', 'hair-release'] as const);
 export const PER_IMAGE_PIPELINES = Object.freeze(['g', 'mask-bytes', 'gl-state', 'word-compose'] as const);
 export const MASK_PREVIEW_PIPELINES = Object.freeze(['g', 'mask-bytes'] as const);
+export const G_STABILITY_PLANS = Object.freeze({
+  'g-continuous': Object.freeze({windowCount: 1, documentCount: 1, measureMs: 180000,
+    runtimePolicy: 'uninterrupted-runtime', analysisBinMs: 30000}),
+  'g-restart': Object.freeze({windowCount: 6, documentCount: 1, measureMs: 30000,
+    runtimePolicy: 'fresh-runtime-every-window', analysisBinMs: null}),
+  'g-page': Object.freeze({windowCount: 1, documentCount: 6, measureMs: 30000,
+    runtimePolicy: 'fresh-document-every-window', analysisBinMs: null}),
+});
+export type GStabilityStudy = keyof typeof G_STABILITY_PLANS;
 export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number] | FpsReviewCandidate;
 export const CONTINUOUS_STUDIES = Object.freeze({
   review: Object.freeze({pipelines: REVIEW_PIPELINES, defaultVideo: true, approximateMinutes: 6}),
@@ -16,6 +25,9 @@ export const CONTINUOUS_STUDIES = Object.freeze({
   'mask-preview': Object.freeze({pipelines: MASK_PREVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
   'fps-review': Object.freeze({pipelines: Object.freeze(['g', 'face-cpu'] as const), defaultVideo: false, approximateMinutes: 2.5}),
   'fps-all': Object.freeze({pipelines: FPS_REVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 7}),
+  'g-continuous': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.1}),
+  'g-restart': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.5}),
+  'g-page': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.5}),
 });
 export type ContinuousStudy = keyof typeof CONTINUOUS_STUDIES;
 type Scalar = number | boolean | string | null;
@@ -118,7 +130,9 @@ export class ContinuousComparisonRun {
   private rejectedVideoObservations = 0;
 
   constructor(options: ContinuousRunOptions) {
-    this.options = {warmupMs: options.warmupMs ?? 5000, measureMs: options.measureMs ?? 30000,
+    const stabilityPlan = Object.hasOwn(G_STABILITY_PLANS, options.studyOptions ?? '')
+      ? G_STABILITY_PLANS[options.studyOptions as GStabilityStudy] : null;
+    this.options = {warmupMs: options.warmupMs ?? 5000, measureMs: options.measureMs ?? stabilityPlan?.measureMs ?? 30000,
       maxWarmupMs: options.maxWarmupMs ?? 15000, rowLimit: options.rowLimit ?? 30000,
       direction: options.direction ?? 'forward', studyOptions: options.studyOptions ?? 'review',
       ...(options.maxSwitchMs === undefined ? {} : {maxSwitchMs: options.maxSwitchMs})};
@@ -140,8 +154,10 @@ export class ContinuousComparisonRun {
     const studyPipelines: readonly ContinuousPipeline[] = this.options.studyOptions === 'fps-review'
       ? ['g', options.candidate ?? 'face-cpu'] : CONTINUOUS_STUDIES[this.options.studyOptions].pipelines;
     const first = direction === 'forward' ? [...studyPipelines] : [...studyPipelines].reverse();
-    this.windows = [...first, ...[...first].reverse()].map((pipeline, index) => ({index, token: index + 1,
-      round: index < first.length ? 1 : 2, pipeline, requestedAtMs: null, switchedAtMs: null,
+    const order: ContinuousPipeline[] = stabilityPlan
+      ? Array.from({length: stabilityPlan.windowCount}, () => 'g') : [...first, ...[...first].reverse()];
+    this.windows = order.map((pipeline, index) => ({index, token: index + 1,
+      round: stabilityPlan ? index + 1 : index < first.length ? 1 : 2, pipeline, requestedAtMs: null, switchedAtMs: null,
       firstFrameAtMs: null, measureStartedAtMs: null, plannedEndAtMs: null, endedAtMs: null,
       transitionObservedAtMs: null, validWarmupFrames: 0, thirdWarmupAtMs: null, completed: false}));
   }
@@ -259,6 +275,8 @@ export class ContinuousComparisonRun {
 
   /** Export scans retained rows only on explicit save, never in the hot frame path. */
   export(): Record<string, unknown> {
+    const stabilityPlan = Object.hasOwn(G_STABILITY_PLANS, this.options.studyOptions)
+      ? G_STABILITY_PLANS[this.options.studyOptions as GStabilityStudy] : null;
     const windows = this.windows.map(window => ({...window,
       switchDeadlineAtMs: window.requestedAtMs === null ? null
         : window.requestedAtMs + (this.options.maxSwitchMs ?? this.options.maxWarmupMs),
@@ -273,6 +291,15 @@ export class ContinuousComparisonRun {
       observedAtMs: this.nowMs, completed: this.complete, partial: this.reason !== null, cancelledReason: this.reason,
       status: this.status, workload: {...this.workload}, metadata: structuredClone(this.metadata),
       protocol: {...this.options, minimumTrackedMaskedWarmupFrames: 3, order: this.windows.map(window => window.pipeline),
+        ...(stabilityPlan ? {stabilityPlan: {...stabilityPlan, measureMs: this.options.measureMs,
+          plannedMeasuredMsInDocument: this.windows.length * this.options.measureMs,
+          plannedMeasuredMsAcrossDocuments: this.windows.length * this.options.measureMs * stabilityPlan.documentCount},
+          runtimePolicy: stabilityPlan.runtimePolicy,
+          analysisBins: stabilityPlan.analysisBinMs === null ? 'Each real measurement window is one analysis interval.'
+            : 'Export-only half-open 30-second intervals inside one uninterrupted measurement window. Capture and publication must both be in the same interval. Boundary-crossing frames remain in the full-window summary and raw rows but are excluded from interval summaries. No pump, worker, cache or warmup boundary is created. Only elapsed intervals are exported; an interrupted trailing interval uses its actual elapsed duration and is marked incomplete.',
+          documentOwnership: this.options.studyOptions === 'g-page'
+            ? 'This report owns one 30-second measurement in one document. An external coordinator must collect six fresh-document reports; performance.now clocks from different documents must not be concatenated.'
+            : 'All measurement times in this report belong to one document.'} : {}),
         warmupTimeoutStartsAt: this.options.maxSwitchMs === undefined ? 'switch-requested' : 'switch-ready',
         measurementBoundary: 'Half-open [start,end): capture and publication must both belong to this measurement window; old pump, session and pre-boundary captures are excluded and retained.',
         clock: 'All atMs fields use performance.now on this page. Publication is completed canvas submission, not display scanout.',
@@ -289,7 +316,8 @@ export class ContinuousComparisonRun {
         rejectedRows: this.rejectedRows, rejectedVideoObservations: this.rejectedVideoObservations,
         truncated: false, policy: 'No ring buffer: reaching either limit stops the run as partial and reports the rejected observation.'},
       privacy: 'Scalar timing and workload metadata only. No camera pixels, image hashes, detections, landmarks or masks. An explicitly requested separate video entry may contain the visible camera image.',
-      windows, events: this.events.map(event => ({...event})),
+      windows, ...(this.options.studyOptions === 'g-continuous' ? {analysisBins: this.analysisBins()} : {}),
+      events: this.events.map(event => ({...event})),
       rows: this.rows.map(row => ({...row, fields: {...row.fields}, native: row.native ? {...row.native} : null, invalidFields: [...row.invalidFields]})),
       videoObservations: this.videos.map(observation => ({...observation})),
     };
@@ -339,10 +367,26 @@ export class ContinuousComparisonRun {
     this.events.push({name, atMs, windowIndex, detail, durationMs: null});
   }
 
-  private summarize(window: RunWindow): Record<string, unknown> {
-    const rows = this.rows.filter(row => row.windowIndex === window.index && row.phase === 'measured');
-    const start = window.measureStartedAtMs;
-    const end = window.endedAtMs ?? (start === null ? null : Math.min(this.nowMs, window.plannedEndAtMs!));
+  private analysisBins(): Record<string, unknown>[] {
+    const window = this.windows[0]!;
+    if (window.measureStartedAtMs === null || window.plannedEndAtMs === null) return [];
+    const actualEnd = window.endedAtMs ?? Math.min(this.nowMs, window.plannedEndAtMs);
+    const bins: Record<string, unknown>[] = [];
+    for (let start = window.measureStartedAtMs; start < actualEnd; start += G_STABILITY_PLANS['g-continuous'].analysisBinMs) {
+      const plannedEnd = Math.min(start + G_STABILITY_PLANS['g-continuous'].analysisBinMs, window.plannedEndAtMs);
+      const end = Math.min(actualEnd, plannedEnd);
+      bins.push({index: bins.length, windowIndex: window.index, plannedStartAtMs: start, plannedEndAtMs: plannedEnd,
+        completed: end === plannedEnd, summary: this.summarize(window, {startAtMs: start, endAtMs: end})});
+    }
+    return bins;
+  }
+
+  private summarize(window: RunWindow, interval?: {startAtMs: number; endAtMs: number}): Record<string, unknown> {
+    const rows = this.rows.filter(row => row.windowIndex === window.index && row.phase === 'measured'
+      && (!interval || (number(row, 'capturedAtMs')! >= interval.startAtMs
+        && number(row, 'publishedAtMs')! >= interval.startAtMs && number(row, 'publishedAtMs')! < interval.endAtMs)));
+    const start = interval?.startAtMs ?? window.measureStartedAtMs;
+    const end = interval?.endAtMs ?? window.endedAtMs ?? (start === null ? null : Math.min(this.nowMs, window.plannedEndAtMs!));
     const durationMs = start === null || end === null ? 0 : Math.max(0, end - start);
     const times = rows.map(row => number(row, 'publishedAtMs')!).sort((a, b) => a - b);
     const points = start === null || end === null ? [] : [start, ...times, end];
@@ -377,6 +421,9 @@ export class ContinuousComparisonRun {
         settingFps: distribution(rows.flatMap(row => number(row, 'cameraSettingFps') === null ? [] : [number(row, 'cameraSettingFps')!]))},
       stages: Object.fromEntries(stageKeys.map(key => [key, distribution(rows.flatMap(row => number(row, key) === null ? [] : [number(row, key)!]))])),
       nativeNumericDistributions: Object.fromEntries(nativeKeys.map(key => [key, distribution(rows.flatMap(row => typeof row.native?.[key] === 'number' ? [row.native[key] as number] : []))]).filter(([, value]) => value !== null)),
-      excludedFrames: this.rows.filter(row => row.windowIndex === window.index && row.exclusion !== null).length};
+      excludedFrames: this.rows.filter(row => row.windowIndex === window.index
+        && (interval ? number(row, 'publishedAtMs')! >= interval.startAtMs && number(row, 'publishedAtMs')! < interval.endAtMs
+          && (row.exclusion !== null || number(row, 'capturedAtMs')! < interval.startAtMs)
+          : row.exclusion !== null)).length};
   }
 }

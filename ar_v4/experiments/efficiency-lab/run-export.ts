@@ -25,7 +25,15 @@ export async function createRunArchive(report: unknown, video?: RunVideoFile): P
     || video.filename === 'telemetry.json' || video.filename.includes('..'))) throw new Error('Invalid recording filename.');
   const json = JSON.stringify(report);
   if (json === undefined) throw new Error('The run report cannot be serialized.');
-  const files = [{filename: 'telemetry.json', blob: new Blob([json], {type: 'application/json'})}, ...(video ? [video] : [])];
+  return createFilesArchive([{filename: 'telemetry.json', blob: new Blob([json], {type: 'application/json'})}, ...(video ? [video] : [])]);
+}
+
+/** Keep separate persisted report Blobs separate while packaging. A stability
+ * suite can be much larger than one JSON object, particularly on mobile. */
+export async function createFilesArchive(files: readonly RunVideoFile[]): Promise<Blob> {
+  if (!files.length || files.length > 32 || new Set(files.map(file => file.filename)).size !== files.length
+    || files.some(file => !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}$/.test(file.filename) || file.filename.includes('..')))
+    throw new Error('Invalid archive entries.');
   const encoder = new TextEncoder(), localParts: BlobPart[] = [], centralParts: Uint8Array<ArrayBuffer>[] = [];
   let offset = 0;
   for (const file of files) {

@@ -53,15 +53,33 @@ try {
     assert.equal(await page.locator('#pipeline-select').inputValue(), selected);
     assert.equal(await page.locator('#continuous-video').isChecked(), false);
     assert.equal(await page.locator('.stage').getAttribute('data-state'), 'idle');
-    assert.equal(await page.locator('.study-links a').count(), 2);
+    assert.equal(await page.locator('.study-links a').count(), 3);
+    assert.equal(await page.locator('#stability-study').getAttribute('href'), '?study=g-stability');
     assert.equal(await page.locator('#fps-review-study').getAttribute('href'), '?study=fps-review');
     assert.equal(await page.locator('#mask-preview-study').getAttribute('href'), '?study=mask-preview');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await assertNoCamera();
     const observation = {label, url: page.url(), options, selected, title: await page.title(),
-      measureButton: await page.locator('#continuous-start').textContent(),
+      measureButton: await page.locator(study === 'g-stability' ? '#stability-start' : '#continuous-start').textContent(),
       cameraRequests: 0, workers: 0, noHorizontalOverflow: true};
-    if (study === 'fps-review') {
+    if (study === 'g-stability') {
+      assert.equal(observation.title, 'Lenses · G stability tests');
+      assert.equal(await page.locator('#study-heading').textContent(), 'See why G slows down.');
+      assert.equal(await page.locator('#stability-study').getAttribute('aria-current'), 'page');
+      assert.equal(await page.locator('#stability-panel').isVisible(), true);
+      assert.equal(await page.locator('#stability-start').isVisible(), true);
+      assert.equal(await page.locator('#stability-condition').inputValue(), 'all');
+      assert.deepEqual(await page.locator('#stability-condition option').evaluateAll(options => options.map(option => option.value)),
+        ['all', 'continuous', 'restarted', 'fresh-page']);
+      assert.equal(await page.locator('#stability-order').inputValue(), 'forward');
+      assert.deepEqual(await page.locator('#stability-order option').evaluateAll(options => options.map(option => option.value)),
+        ['forward', 'reverse']);
+      assert.match(await page.locator('#stability-status').textContent(), /\S/);
+      assert.equal(await page.locator('#refresh-pipeline').isVisible(), false);
+      observation.scope = 'G stability';
+      observation.conditions = ['continuous', 'restarted', 'fresh-page'];
+      observation.order = 'forward';
+    } else if (study === 'fps-review') {
       assert.equal(await page.locator('#review-candidate').inputValue(), 'all');
       assert.equal(await page.locator('#fps-review-study').getAttribute('aria-current'), 'page');
       assert.equal(await page.locator('#mask-preview-study').textContent(), 'Earlier G / V preview');
@@ -93,20 +111,33 @@ try {
   assert.equal(await entry.textContent(), 'ar_testing');
   await assertNoCamera();
   await entry.click();
-  await inspect('Website landing → ar_testing', 'fps-review', expectedOptions);
+  await inspect('Website landing → ar_testing', 'g-stability', ['g']);
+  await page.click('#fps-review-study');
+  await inspect('G stability → All FPS experiments', 'fps-review', expectedOptions);
   await page.click('#mask-preview-study');
   await inspect('Explicit G / V navigation', 'mask-preview', ['g', 'mask-bytes']);
-  await page.click('#fps-review-study');
-  await inspect('G / V → All FPS experiments', 'fps-review', expectedOptions);
+  await page.click('#stability-study');
+  await inspect('G / V → G stability', 'g-stability', ['g']);
   await page.goto(base.origin + livePath);
-  await inspect('Query-free AR bookmark', 'fps-review', expectedOptions);
+  await inspect('Query-free AR bookmark', 'g-stability', ['g']);
+  await page.goto(base.origin + livePath + '?study=review');
+  await inspect('Historical production redirect', 'g-stability', ['g']);
+  await page.goto(base.origin + livePath + '?study=review&legacy=1');
+  await page.waitForFunction(() => JSON.stringify(Array.from(document.querySelectorAll('#pipeline-select option'), option => option.value))
+    === JSON.stringify(['g', 'publish', 'region', 'lens', 'ui']), undefined, {timeout: 45_000});
+  assert.equal(page.url(), base.origin + livePath + '?study=review&legacy=1');
+  assert.equal(await page.locator('#pipeline-select').inputValue(), 'g');
+  assert.equal(await page.locator('.stage').getAttribute('data-state'), 'idle');
+  await assertNoCamera();
+  checks.push({label: 'Explicit legacy review remains available', url: page.url(),
+    options: ['g', 'publish', 'region', 'lens', 'ui'], selected: 'g', cameraRequests: 0, workers: 0});
   const receipt = {schema: 'ar-published-entry-verification-v1', verifiedAt: new Date().toISOString(),
     baseUrl: base.origin, release: servedRelease, checks, pageErrors,
     scope: 'Desktop Chromium at a 390px mobile viewport. Website landing, production redirect, client default and navigation only. Camera and workers are blocked; no rendering or iPhone performance claim.'};
   const output = resolve(values.output);
   await mkdir(dirname(output), {recursive: true});
   await writeFile(output, JSON.stringify(receipt, null, 2) + '\n', 'utf8');
-  process.stdout.write('Verified landing → all six FPS experiments and G / V navigation; release '
+  process.stdout.write('Verified landing → G stability, all six FPS experiments and G / V navigation; release '
     + servedRelease.sourceFingerprint.slice(0, 12) + '.\n');
 } finally {
   await browser.close();

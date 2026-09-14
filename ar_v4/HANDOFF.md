@@ -1,3 +1,41 @@
+# G stability preview - September 14, 2026
+
+The owner requested the next test preview after the four phone experiments did
+not establish an FPS winner and G itself declined over time. The mobile default
+is now `?study=g-stability`. It measures only unchanged G: 180 uninterrupted
+seconds, six 30-second windows with runtime rebuilds, and six 30-second windows
+in fresh documents. Each condition starts in a fresh page; the full suite has
+eight measured documents and takes about 11 minutes with video off. Existing
+all-FPS and G/V links remain available. No candidate is promoted.
+
+Completed raw parts and the next handoff commit atomically to local IndexedDB
+before reload. The test locks workload/build/resolution and uses explicit
+session/document ownership. Stop and unexpected refresh retain partial evidence;
+a second tab cannot claim an active suite. Save one multipart ZIP after the run.
+Page clocks remain separate, and continuous 30-second bins are export-only.
+Compare completed AR, camera delivery, age, stalls and matching masks together;
+reversed condition order helps assess drift but does not prove a thermal cause.
+
+Package fingerprint:
+`e753f7b40a198e66d5c8927b0d1fa655ec2b8e202c2851fb40a9d4c984b03ac8`.
+Validation/deployment status is recorded in the newest docs/REVIEWS.md entry.
+Continue only in the isolated deployed checkout specified below. Original
+uncommitted work, private recordings and recovery archives remain preserved.
+
+# Latest camera-copy phone result - September 13, 2026
+
+The 16:19:34.843 ZIP completes the previously missing camera-copy comparison
+on corrected release `3de1525f7c6d`. All 910 measured candidate frames use
+upright canvas fallback: the phone supplies landscape VideoFrame dimensions
+and no orientation metadata. Tracking is 100% on those frames, but the ZIP
+contains no video for independent visual confirmation. Native copying was
+never exercised. Balanced completed AR/s is 15.167 for fallback versus G16.467;
+matching masks are 68.90% versus 55.03%. G first/final still falls 18.133 to
+14.800 AR/s. No speed winner or candidate promotion is established.
+See the newest docs/REVIEWS.md entry and private reproducible audit under
+`.recovery/phone-fps-2026-09-13-161934/`. No runtime or deployment changes were
+made for this review; continue in the isolated deployed checkout below.
+
 # Upright camera-copy correction - September 13, 2026
 
 The owner reports sideways camera/no glasses in the tests that did not work.

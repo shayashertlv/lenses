@@ -1,8 +1,73 @@
-# FPS review testing ground — September 13, 2026
+# G stability testing ground — September 14, 2026
 
 The normal Railway **ar_testing** link (`/ar_testing/`) and query-free mobile
-entry now open this all-options preview. Every study also has an **All FPS
-experiments** navigation link. Reload an already-open page to load a new release.
+entry open **G stability tests**:
+`/ar_testing/experiments/efficiency-lab/live.html?study=g-stability`.
+Every study links to G stability, **All FPS experiments** and the earlier **G/V**
+preview. Reload an already-open page to load a new release.
+
+This test investigates the observed decline in completed G updates over time.
+It introduces no rendering optimization and keeps the accepted G implementation,
+full resolution, exact image/detection/pose/mask pairing and nose/front safeguards.
+
+| Condition | Measured work | What happens between measurements |
+| --- | --- | --- |
+| Continuous G | One uninterrupted 180-second window | No worker, pump, cache or warmup reset at 30-second analysis boundaries |
+| Restarted G | Six 30-second windows | Workers and graphics resources are rebuilt, then the normal warmup runs |
+| Fresh-page G | Six 30-second windows | Each completed part is saved locally, then the whole page reloads |
+
+All three conditions receive 180 seconds of measurement. Each real window
+requires the normal five-second warmup and three tracked images with matching
+hair masks. Setup, warmup, saving, page reloads and user pauses are excluded from
+measured FPS. The full suite takes about 11 minutes, with extra time possible for
+setup or camera permission. It uses eight measured documents: one continuous,
+one containing the six runtime-restart windows, and six fresh-page documents.
+The initial camera-dimension check is a separate unmeasured page.
+
+1. Open the HTTPS preview on the iPhone. Choose glasses, hair model and power
+   setting. Keep lighting, power and energy-saving settings consistent.
+2. Leave **All three** and the forward order selected, then tap **Start G
+   stability tests**. Video is always off for this suite.
+3. Keep the page visible. Follow the repeating front/nose, down, up, left and
+   right movement cues at a similar pace. The continuous condition repeats the
+   cues every 30 seconds without restarting its processing.
+4. Allow automatic reloads. Completed parts remain stored in this browser before
+   navigation. If camera setup needs another gesture, tap **Continue test**.
+5. At completion, tap **Save ZIP** and send the single archive for analysis.
+   Save or Share again if Safari did not download it. Nothing uploads to Railway.
+6. Save the result before explicitly deleting the stored test to start another.
+   Repeat Amber Horizon and Tom Ford Clear, each with hair-only and
+   selfie-multiclass, covering down/up, both yaw directions and nose/front checks.
+   Repeat in reverse condition order to check whether test order affects the
+   result. A single condition can also be selected for a shorter diagnostic.
+
+The suite locks glasses, hair model, hair-on, power and source dimensions. A
+changed resolution or incompatible saved build cannot silently join the same
+comparison. Only one stability page can own a test. Keep using that page through
+the reloads. Stop or a background interruption retains an explicitly partial
+test; save its available parts. An unexpected reload can leave the interrupted
+part without a complete raw report, while previously saved parts remain intact.
+Storage failures keep the unsaved report on the current page with retry/export
+controls; keep that page open until the result is saved. Local browser storage
+does not replace a downloaded archive.
+
+The ZIP contains one suite manifest and separate scalar reports with their own
+document/session identities and clock origins. Continuous G also exports six
+30-second analysis bins. Those bins require capture and publication within the
+same interval; boundary-crossing frames stay in the raw data and full 180-second
+summary but are excluded from bin summaries. A partial trailing bin reports its
+actual elapsed duration. No runtime boundary is introduced to calculate bins.
+
+Compare completed AR updates, camera delivery, capture-to-publication age,
+endpoint stalls, tracking and matching-mask availability together. A higher rate
+with less matching-mask coverage is not an equivalent workload. Page reloads do
+not measure cooling, and reversed order does not eliminate movement, temperature
+or browser differences. These controls can help locate a slowdown; they cannot
+alone establish its thermal cause or a performance improvement. The suite has no
+video, so visual acceptance still needs the owner's live checks or separate
+recorded evidence across both glasses and both hair models.
+
+# FPS review testing ground — preserved preview
 
 Open `/ar_testing/experiments/efficiency-lab/live.html?study=fps-review` for the
 four new options: CPU face tracking, worker rendering, VideoFrame camera copy
@@ -54,7 +119,7 @@ independent experiments. No candidate is promoted by this page.
 
 The preserved focused **G / V** preview is:
 `/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview`.
-Open that explicit URL for G/V; the landing and query-free entry open all FPS options.
+Open that explicit URL for G/V; the landing and query-free entry open G stability.
 V retains the tested full-resolution RGBA8 hair-mask retrieval. G is selected
 initially and remains accepted. Scheduling, resolution, models, geometry, exact
 image/detection/pose/mask pairing and final safeguards are unchanged.
@@ -86,7 +151,8 @@ Obsolete experiment links are removed from the public menu. Historical studies
 remain at explicit URLs for reproducing evidence: `?study=per-image` for G/V/W/X,
 `?study=review&legacy=1` for Q–T, and `?study=hair-delivery` for rejected U.
 The existing Python redirect is unchanged; the AR page canonicalizes its mobile
-default to `fps-review`. Local full-lab and accepted reference entry points stay.
+default to `g-stability`. Explicit `?study=fps-review` still opens all six FPS
+options. Local full-lab and accepted reference entry points stay.
 
 The historical **G vs U · hair processing** URL is
 `/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery`.
@@ -112,7 +178,7 @@ extend measured windows. Successful export resumes the manual mirror. A separate
 `hairDeliveryDrain.incomplete` diagnostic with any unresolved requests. Existing
 15-second hair deadlines are unchanged. Stop/cancel cannot restart a closed camera.
 
-## Save the comparison
+## Save an FPS or G/V comparison
 
 Open the HTTPS site on the phone, select glasses and a hair model, open the camera
 and wait for tracking and hair. Enable video for a separate visual run, then choose
@@ -205,8 +271,8 @@ and private research directories are never copied wholesale. A generated
 `public-manifest.json` records every served file's size/SHA-256; `release.json`
 exposes a source fingerprint and build time also embedded in measurement exports.
 
-Commit the explicit generated `mobile-site` package alongside its reviewed source
-and the Python route. Railway's existing Python deployment serves these files
+Commit the explicit generated `mobile-site` package alongside its reviewed AR
+source. Railway's existing Python route and deployment serve these files
 without adding a Node build or changing the parent app's start command. Deploy
 only from a clean reviewed checkout; never upload the development workspace,
 recordings, recovery archives or unrelated model-studio work.

@@ -17,11 +17,22 @@ its Railway deployment and unrelated model-studio work are separate.
 
 On September 11 the owner explicitly requested a public **ar_testing** option
 on the Lenses landing page. The [mobile comparison](https://web-production-ef3ca.up.railway.app/ar_testing/)
-opens all six current FPS options, with an automatic forward/reverse comparison
-taking about seven minutes plus fresh runtime setup at each switch. G is selected first; measurements are on and video
-is off initially. The run
-saves one local ZIP. Repeat both glasses and both hair models with the movement
-cues. See the [mobile guide](experiments/efficiency-lab/MOBILE.md).
+now opens **G stability tests** (`?study=g-stability`). All three conditions
+measure unchanged G for 180 seconds each: one uninterrupted run, six 30-second
+windows with workers rebuilt between them, and six 30-second windows in fresh
+pages. Allow about 11 minutes plus variable setup. Video is off; completed parts
+are saved locally before automatic page reloads. Save one ZIP at the end.
+The suite uses eight measured documents: one continuous, one restarted and six
+fresh-page documents. Keep glasses, hair model, power and resolution fixed;
+follow front/nose, down, up and both yaw cues. Repeat both glasses and both hair
+models, then reverse condition order to check time drift. Reloading does not
+establish that the phone cooled or identify a thermal cause.
+
+The [all FPS experiments preview](https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=fps-review)
+and [earlier G/V preview](https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview)
+remain available through explicit links and the study navigation.
+See the [mobile guide](experiments/efficiency-lab/MOBILE.md) for saving partial
+results, continuation after reload and the validation protocol.
 This uses an explicit static package inside `ar_v4/` and retains the Python
 deployment entry point. G remains the default; no candidate has been promoted.
 

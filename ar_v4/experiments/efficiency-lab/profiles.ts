@@ -63,6 +63,7 @@ export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id
 /** Focused previews hide unrelated choices without removing them from the lab. */
 export function studyPipelines(search: string): readonly Pipeline[] {
   const study = new URLSearchParams(search).get('study');
+  if (study === 'g-stability') return ['g'];
   if (study === 'fps-review') return fpsReviewIsAll(search) ? FPS_REVIEW_PIPELINES : ['g', fpsReviewCandidate(search)];
   return study === 'mask-preview' ? ['g', 'mask-bytes'] : study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
 }
@@ -73,7 +74,7 @@ export function previewSearch(search: string, mobile: boolean): string {
   const params = new URLSearchParams(search);
   const study = params.get('study');
   if (!mobile || params.get('legacy') === '1' || (study !== null && study !== 'review')) return search;
-  params.set('study', 'fps-review');
+  params.set('study', 'g-stability');
   return '?' + params.toString();
 }
 

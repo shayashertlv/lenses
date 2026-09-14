@@ -1,3 +1,141 @@
+## G stability controls - September 14, 2026
+
+The latest camera-copy phone result still falls back to G's upright canvas path,
+and first/final G declined in all four recent phone comparisons. The owner asked
+for the proposed stability preview. This change adds test orchestration around
+accepted G, without changing G's rendering or scheduling implementation.
+
+The default mobile study is `g-stability`; explicit FPS/GV studies remain.
+Continuous G measures one uninterrupted 180-second window. Restarted G measures
+six 30-second windows in one document, rebuilding workers/graphics resources
+between windows while retaining the camera. Fresh-page G measures six separate
+30-second documents. Each condition begins in a fresh page. All real windows
+retain five seconds of warmup and three tracked images with matching masks;
+startup, warmup, persistence and reloads are excluded from measured throughput.
+The suite plans 540,000 measured milliseconds in eight documents, about 11 minutes
+including setup. Video is off and the selected glasses/hair/power/resolution stay
+fixed. Forward and reverse condition orders are available.
+
+Continuous 30-second bins are calculated only at export; they create no pump,
+worker or cache boundaries. Full-window and bin rates include their complete
+clock durations and endpoint stalls. A bin requires capture and publication
+within that interval; boundary-crossing frames remain in full-window raw data.
+Partial bins use elapsed duration. Camera FPS, completed AR updates, tracking,
+matching-mask availability and source age remain distinct. No automatic winner
+or thermal diagnosis is inferred from reloads or reversed order.
+
+Only scalar reports are persisted. IndexedDB atomically saves each raw report
+and the next document token before navigation. Web Locks and one-use handoffs
+prevent duplicate-tab ownership; interrupted claims become explicitly partial.
+Each handoff replaces the current history URL and uses `location.reload()`;
+it does not accumulate standard-navigation history entries. Current
+[WebKit back/forward-cache code](https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/history/BackForwardCache.cpp)
+excludes reloads while allowing standard navigation, so this better matches the
+owner's refresh control and avoids relying on cleanup alone to retire a cached
+page heap. It does not establish GPU-process memory reclamation or cooling on
+the particular iPhone. Storage failures retain the unsaved report for
+retry/export, and navigation failures expose continuation after a successful save. Stop during pending
+creation cannot later auto-start, hidden documents cannot start camera work, and
+BFCache restoration reloads the document. Completed parts stay available until
+explicit deletion. A ZIP contains `telemetry.json` plus independently owned raw
+part JSON files; page-relative clocks must never be concatenated. Export bundles
+Blob parts without parsing all earlier raw reports during measurement.
+
+Validation on final fingerprint `e753f7b40a19`: strict mobile build and all 323
+efficiency tests pass. All 10 production browser tests pass, including one
+unshortened all-condition run (540,000 measured milliseconds in eight distinct
+documents/sessions/clock origins), all four glasses/hair combinations, runtime
+resource teardown, six lifecycle/storage/duplicate-tab failure cases, actual
+reload navigation and constant history length. The continuous report retains one
+runtime generation and six export-only bins; restarted G has six measured runtime
+generations. The other three model combinations use bounded live checks with
+explicit partial exports. All use static synthetic portrait pixels with real
+workers/GPU and production timing, not a physical iPhone or wearer motion.
+
+The independently audited full ZIP has SHA-256
+`fa6f7b58233e30ef476702fe3ac77b5abdca5cc5fa0073aca150a2f087d0850a`.
+Its raw rows reproduce AR/camera rates, frame ages, endpoint gaps, tracking and
+matching-mask counts. Screenshots show upright output and visible glasses for
+all four combinations. Three additional real-IndexedDB checks cover atomic abort,
+competing claims and reload recovery. Private receipts, ZIPs and independent
+Python audits are under `.recovery/g-stability-2026-09-14/browser-validation/`.
+Required `npm test` passes: 172 unit tests and 21 browser tests, including
+both current G and preserved reference/hair-worker lifecycles. Four additional
+mobile regressions pass for the default entry, retained FPS/GV links, selected
+refresh behavior and cancelled CPU-worker setup. Public verification receipts
+are written to `qa/output/g-stability-published-2026-09-14.json` and
+`qa/output/g-stability-entry-published-2026-09-14.json` by the deployment checks
+(the paths are relative to `experiments/efficiency-lab/` and stay out of Git).
+
+All 239 pinned G files match exact Git blobs at
+`b9142b2a3b957445f378d8012eea7e27ca68fd0b`. The historical original-source manifest
+matches 460 files; its sole later difference is unrelated original Zuri review
+text in `docs/REVIEWS.md`, last written September 13 and left untouched. All four
+recent downloaded phone ZIPs and their private archive copies retain recorded
+hashes. No root Python routes/deployment files or original checkout source were
+edited. The 22-file mobile package has fingerprint
+`e753f7b40a198e66d5c8927b0d1fa655ec2b8e202c2851fb40a9d4c984b03ac8`.
+
+Physical-iPhone performance, camera permission behavior after reload, and visual
+acceptance remain empirical. Evaluation must cover Amber Horizon and Tom Ford
+Clear with both hair-only and selfie-multiclass, front/nose, down/up and both yaw
+directions. Static synthetic browser output does not establish wearer motion or
+phone speed. G remains accepted; no optimization is promoted.
+
+## Camera-copy phone retest - September 13, 2026, 16:19 export
+
+The owner's newly supplied `ar-mobile-comparison-2026-09-13T16-19-34.843Z.zip`
+is the previously missing camera-copy test. It matches corrected release
+`3de1525f7c6d`, completes G / camera copy / camera copy / G with four full
+30-second windows, and uses fresh runtime generations 4/5/6/7. This is
+Amber Horizon, hair-only, hair on, 720x1280, with video disabled.
+
+All 910 measured camera-copy frames report `canvas-video-fallback` and
+`orientation-metadata-unavailable`; none uses native RGBA copying. The phone
+reports an upright 720x1280 video element but 1280x720 VideoFrame coded, visible
+and display dimensions, with absent rotation/flip metadata. The guard therefore
+actually activates on the target phone. Face tracking completes on all 910
+candidate frames. These scalars demonstrate a completed tracked fallback run;
+without video they do not independently establish displayed orientation,
+visible glasses, dynamic visual quality, or nose/front and hair-edge acceptance.
+
+| Measured result | G | Camera copy using fallback |
+| --- | ---: | ---: |
+| Completed AR updates/s, both windows | 16.467 | 15.167 |
+| Tracking coverage | 99.70% (985/988) | 100% (910/910) |
+| Matching masks among tracked frames | 55.03% (542/985) | 68.90% (627/910) |
+| Capture-to-publication age p95 | 155.78 ms | 161.90 ms |
+
+Candidate throughput is 7.89% lower in this run, with higher matching-mask
+availability and different work at publication. G still declines from 18.133 to
+14.800 AR/s (18.38%); the two candidate windows are 15.300 and 15.033. Time/order
+and mask availability prevent assigning that entire difference to capture.
+This is not a direct-copy optimization measurement, and there is no promotion.
+Camera delivery remains 29.05-29.62 FPS. Maximum measured endpoint gap is
+143.98 ms, with none above 200 ms. Frame-age p95 by window is 140.14, 158.36,
+169.02 and 168.36 ms. The three untracked measured frames all occur in first G;
+there is no video to explain their cause. One invalid camera observation during
+the first candidate measurement is explicitly rejected; retained observations
+remain monotonic, and camera delivery is separate from completed AR throughput.
+
+Runtime setup takes 1.85-2.04 seconds, followed by the unchanged five-second
+warmup; its matching-mask counts are 26/25/34/18. Initial page camera-to-first
+publication is 4.42 seconds and to first matching mask 4.84 seconds, outside the
+comparison windows. Scalar session/sequence/hair-publication audits pass for all
+eligible rows; all 2,246 hair requests complete and drain. No rows are truncated.
+The native-frame probe plus canvas fallback reports 7.94 ms median total capture
+cost, but overlapping stages and different mask work forbid summing stage medians
+or treating them as isolated causal costs.
+
+The original ZIP's SHA-256 is
+`2589e4f25f89bb4d707cc9f77658c3c48c0612940d482fe64f7ebd7dcee3cf07`.
+Its byte-identical private copy, source manifest and reproducible independent
+raw audit are under `.recovery/phone-fps-2026-09-13-161934/`. Runtime code and
+deployment are unchanged by this review. The earlier three working FPS options
+plus this fallback test are now reviewed; this file is not a V or all-options
+run. Full phone visual coverage still requires both glasses and both hair models,
+front/nose, down/up and both yaw directions. G remains accepted.
+
 ## Phone orientation failure and completed FPS tests - September 13, 2026
 
 The owner reports that the other tests showed a camera image rotated 90 degrees
