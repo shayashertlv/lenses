@@ -2,7 +2,10 @@ import {test, expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import {readFile, writeFile} from 'node:fs/promises';
 import type {FrameSample} from './frame-profiler.ts';
-import {PIPELINES, PIPELINE_LABELS} from './profiles.ts';
+import {PIPELINES as ALL_PIPELINES, PIPELINE_LABELS} from './profiles.ts';
+
+// The diagnostic is a separate study; the generic preview retains its 22 choices.
+const PIPELINES = ALL_PIPELINES.filter(id => id !== 'g-readback');
 
 const REVIEW = ['g', 'publish', 'region', 'lens', 'ui'] as const;
 type ReviewPipeline = typeof REVIEW[number];

@@ -7,17 +7,17 @@ import {transformWithOxc} from 'vite';
 interface Renderer {dispose(): void;}
 interface Factory {
   create(display: HTMLCanvasElement, signal: AbortSignal, id?: string,
-    onStage?: (stage: string) => void): Promise<Renderer>;
+    onStage?: (stage: string) => void, initialPipeline?: string): Promise<Renderer>;
 }
 /** Exercise the real orchestration with injected renderer factories; native
  * rendering and its WebGL contexts belong to browser verification. */
-async function factory(base: () => Promise<Renderer>, candidate: () => Promise<Renderer>): Promise<Factory> {
+async function factory(base: () => Promise<Renderer>, candidate: () => Promise<Renderer>, diagnostic: () => Promise<Renderer> = base): Promise<Factory> {
   const source = readFileSync(new URL('./comparison-renderer.ts', import.meta.url), 'utf8')
     .replace(/^import .*;\r?$/gm, '').replace(/^export type .*;\r?$/gm, '')
     .replace('export class ComparisonRenderer', 'class ComparisonRenderer');
   const compiled = await transformWithOxc(source, 'comparison-renderer.ts');
   return runInNewContext(`${compiled.code}\nComparisonRenderer;`, {BaseRenderer: {create: base},
-    CandidateRenderer: {create: candidate}, DEFAULT_EYEWEAR_ID: 'amber-horizon', DOMException}) as Factory;
+    CandidateRenderer: {create: candidate}, DiagnosticRenderer: {create: diagnostic}, DEFAULT_EYEWEAR_ID: 'amber-horizon', DOMException}) as Factory;
 }
 
 const display = {} as HTMLCanvasElement;
@@ -55,4 +55,16 @@ test('a failed candidate or progress callback releases the already owned G rende
     if (stage === 'candidate-renderer') throw new Error('Startup owner rejected the milestone.');
   }), /owner rejected/);
   assert.equal(disposed, 2);
+});
+
+test('readback instrumentation replaces the G slot and retains exactly two renderer allocations and cancellation cleanup', async () => {
+  for (const abortAfterDiagnostic of [false, true]) {
+    const events: string[] = [], controller = new AbortController();
+    const comparison = await factory(async () => {throw new Error('Uninstrumented third renderer must never allocate.');},
+      async () => {events.push('candidate'); return {dispose() {events.push('dispose-candidate');}};},
+      async () => {events.push('diagnostic'); if (abortAfterDiagnostic) controller.abort(); return {dispose() {events.push('dispose-diagnostic');}};});
+    const result = comparison.create(display, controller.signal, 'amber-horizon', undefined, 'g-readback');
+    if (abortAfterDiagnostic) {await assert.rejects(result, /cancelled/i); assert.deepEqual(events, ['diagnostic','dispose-diagnostic']);}
+    else {(await result).dispose(); assert.deepEqual(events, ['diagnostic','candidate','dispose-candidate','dispose-diagnostic']);}
+  }
 });

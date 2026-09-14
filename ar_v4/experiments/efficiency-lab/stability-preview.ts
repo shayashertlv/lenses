@@ -1,11 +1,10 @@
 import {openStabilityStore} from './stability-store.ts';
-import type {StabilityStore, StabilityManifest, StabilityIdentity, StabilityChunk, StabilitySelection, StabilityDirection} from './stability-store.ts';
+import type {StabilityStore, StabilityManifest, StabilityIdentity, StabilityChunk, StabilitySelection, StabilityDirection, StabilityMode} from './stability-store.ts';
 import {createFilesArchive} from './run-export.ts';
 import type {ContinuousRunStatus} from './continuous-run.ts';
 
-const HANDOFF = 'ar-g-stability-handoff-v1';
-const LOCK = 'ar-g-stability-page-owner-v1';
-const labels = {continuous: 'Continuous G', restarted: 'Restarted G', 'fresh-page': 'Fresh-page G'};
+const labels = {continuous: 'Continuous G', restarted: 'Restarted G', 'fresh-page': 'Fresh-page G',
+  'readback-control': 'G control', 'readback-diagnostic': 'G readback diagnostic'};
 const el = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
 export interface StabilityPageBridge {
@@ -18,7 +17,7 @@ export interface StabilityPageBridge {
 }
 
 /** Page-level orchestration only. No persistence, ZIP creation or previous-report
- * parsing runs in a measurement frame callback. The rendering pipeline is G. */
+ * parsing runs in a measurement frame callback. Each mode owns independent storage. */
 export class GStabilityPreview {
   readonly documentId = crypto.randomUUID();
   private store: StabilityStore | null = null;
@@ -37,7 +36,11 @@ export class GStabilityPreview {
   private stopped = false;
   private progress: ContinuousRunStatus | null = null;
   private progressKey = '';
-  constructor(private readonly bridge: StabilityPageBridge) {
+  private readonly handoffKey: string;
+  private readonly lockName: string;
+  constructor(private readonly bridge: StabilityPageBridge, private readonly mode: StabilityMode = 'stability') {
+    const prefix = mode === 'readback' ? 'ar-g-readback' : 'ar-g-stability';
+    this.handoffKey = `${prefix}-handoff-v1`; this.lockName = `${prefix}-page-owner-v1`;
     el('stability-start').addEventListener('click', () => {void this.start();});
     el('stability-stop').addEventListener('click', () => {void this.stop();});
     el('stability-resume').addEventListener('click', () => {void this.resume();});
@@ -60,7 +63,7 @@ export class GStabilityPreview {
   }
   status(): Record<string, unknown> {
     const m = this.manifest, chunk = m?.plan[m.nextChunkIndex];
-    return {suiteId: m?.id ?? null, documentId: this.documentId, state: this.phase, savedState: m?.status ?? null,
+    return {mode: this.mode, suiteId: m?.id ?? null, documentId: this.documentId, state: this.phase, savedState: m?.status ?? null,
       condition: chunk?.condition ?? null, chunkIndex: chunk?.index ?? null, completedChunks: m?.results.filter(r => r.completed).length ?? 0,
       planLength: m?.plan.length ?? 0, active: m?.active ? {...m.active} : null,
       pending: this.phase === 'waiting-camera' || this.phase === 'ready' || !!this.pendingReport,
@@ -111,7 +114,7 @@ export class GStabilityPreview {
     if (this.ownsLock) return true;
     if (!navigator.locks) throw new Error('This browser cannot safely coordinate a reload test. Browser Web Locks support is required.');
     return await new Promise<boolean>((resolve, reject) => {
-      void navigator.locks.request(LOCK, {ifAvailable: true}, async lock => {
+      void navigator.locks.request(this.lockName, {ifAvailable: true}, async lock => {
         if (!lock) {resolve(false); return;}
         this.ownsLock = true;
         await new Promise<void>(released => {this.releaseLock = released; resolve(true);});
@@ -121,10 +124,10 @@ export class GStabilityPreview {
   }
   private async initialize(): Promise<void> {
     try {
-      this.store = await openStabilityStore(); this.manifest = await this.store.read();
+      this.store = await openStabilityStore(globalThis.indexedDB, this.mode); this.manifest = await this.store.read();
       if (!this.manifest) {this.phase = 'idle'; this.detail = 'Choose the same glasses and hair model for all tests, then start. Video is off.'; this.render(); return;}
       if (!await this.ownership()) {this.phase = 'blocked'; this.detail = 'Another stability page owns this test. Continue there or close that page before reloading this one.'; this.render(); return;}
-      const handoff = sessionStorage.getItem(HANDOFF); sessionStorage.removeItem(HANDOFF);
+      const handoff = sessionStorage.getItem(this.handoffKey); sessionStorage.removeItem(this.handoffKey);
       const m = this.manifest;
       if (m.status === 'running' && m.active) {
         this.manifest = await this.store.interrupt({suiteId: m.id, ...m.active, reason: 'The previous document ended without saving this part. Completed parts remain available.'});
@@ -146,7 +149,7 @@ export class GStabilityPreview {
     try {
       if (!await this.ownership()) throw new Error('Another stability page is open. Close it before starting here.');
       // Verify that handoff storage is writable before requesting the camera.
-      sessionStorage.setItem(HANDOFF, 'probe'); sessionStorage.removeItem(HANDOFF);
+      sessionStorage.setItem(this.handoffKey, 'probe'); sessionStorage.removeItem(this.handoffKey);
       this.abort = new AbortController(); this.phase = 'preflight'; this.detail = 'Checking camera dimensions, then opening a fresh test page…'; this.render();
       const dimensions = await this.bridge.probeCamera(this.abort.signal);
       if (this.stopped) return;
@@ -162,9 +165,9 @@ export class GStabilityPreview {
   private async navigate(): Promise<void> {
     const m = this.manifest;
     if (!m || m.status !== 'ready' || !m.handoffToken) return;
-    sessionStorage.setItem(HANDOFF, JSON.stringify({suiteId: m.id, token: m.handoffToken}));
+    sessionStorage.setItem(this.handoffKey, JSON.stringify({suiteId: m.id, token: m.handoffToken}));
     // Flush of raw report + next token is awaited by caller before this point.
-    const query = new URLSearchParams({study: 'g-stability', suite: m.id, part: String(m.nextChunkIndex),
+    const query = new URLSearchParams({study: this.mode === 'readback' ? 'readback-diagnostic' : 'g-stability', suite: m.id, part: String(m.nextChunkIndex),
       eyewear: m.identity.eyewearId, 'hair-model': m.identity.hairModelId, variant: m.identity.variant, power: m.identity.power});
     this.phase = 'handoff'; this.detail = 'Part saved. Opening a fresh page for the next test…'; this.render();
     this.navigates = true;
@@ -195,7 +198,7 @@ export class GStabilityPreview {
     if (!m || !claim || claim.documentId !== this.documentId || !chunk || this.busy) return;
     if (document.hidden || this.stopped) {this.phase = 'waiting-camera'; this.detail = 'Bring this page to the foreground, then tap Continue test.'; this.render(); return;}
     this.busy = true; this.stopped = false; this.cameraAttempts++;
-    this.phase = 'opening'; this.detail = `${labels[chunk.condition]} · opening camera and preparing G…`; this.render();
+    this.phase = 'opening'; this.detail = `${labels[chunk.condition]} · opening camera and preparing the selected pipeline…`; this.render();
     try {
       await this.bridge.runChunk(m.identity, chunk, {suiteId: m.id, chunkId: chunk.id, documentId: this.documentId,
         buildId: this.bridge.buildId, timeOrigin: performance.timeOrigin, condition: chunk.condition, chunkIndex: chunk.index,
@@ -262,15 +265,17 @@ export class GStabilityPreview {
     const reports = parts.reports.map((part, index) => ({...part, filename: `part-${String(index + 1).padStart(2, '0')}.json`}));
     if (this.pendingReport) reports.push({chunkId: this.manifest?.active?.chunkId ?? 'unsaved', documentId: this.documentId,
       summary: {persisted: false}, completed: false, blob: new Blob([JSON.stringify(this.pendingReport)], {type: 'application/json'}), filename: 'unsaved-part.json'});
-    const manifest = {schema: 'ar-g-stability-export-v1', suite: parts.manifest,
+    const manifest = {schema: this.mode === 'readback' ? 'ar-g-readback-export-v1' : 'ar-g-stability-export-v1', suite: parts.manifest,
       parts: reports.map(({blob: _blob, ...part}) => part),
       clocks: 'Each part keeps its own performanceTimeOriginMs and session/document ownership. Never concatenate page-relative clocks.',
-      measurement: 'Each condition plans 180 seconds. Continuous G is uninterrupted with six 30-second analysis bins; restarted G rebuilds between six windows; fresh-page G uses six separate documents. Setup, reload, storage and user pauses are not measured FPS.',
-      limitations: 'Fixed order, thermal state and movement can affect rates. Compare within-condition slopes, matching masks, frame age and stalls; repeat with reversed condition order. No candidate promotion or automatic winner.',
+      measurement: this.mode === 'readback'
+        ? 'G control and G readback diagnostic each plan 180 uninterrupted seconds in a fresh document, with six export-only 30-second analysis bins. Setup, reload, storage and user pauses are not measured FPS. The diagnostic adds timer observations around existing operations, not a speed optimization.'
+        : 'Each condition plans 180 seconds. Continuous G is uninterrupted with six 30-second analysis bins; restarted G rebuilds between six windows; fresh-page G uses six separate documents. Setup, reload, storage and user pauses are not measured FPS.',
+      limitations: (this.mode === 'readback' ? 'Timer observations themselves add overhead in the diagnostic; comparison against G is an overhead control, not proof of an FPS improvement. ' : '') + 'Fixed order, thermal state and movement can affect rates. Compare within-condition slopes, matching masks, frame age and stalls; repeat with reversed condition order. No candidate promotion or automatic winner.',
       privacy: 'Scalar measurements only; no video, images, detections or masks. No uploads.'};
     const archive = await createFilesArchive([{filename: 'telemetry.json', blob: new Blob([JSON.stringify(manifest)], {type: 'application/json'})},
       ...reports.map(({filename, blob}) => ({filename, blob}))]);
-    return new File([archive], `ar-g-stability-${new Date().toISOString().replaceAll(':', '-')}.zip`, {type: 'application/zip'});
+    return new File([archive], `${this.mode === 'readback' ? 'ar-g-readback' : 'ar-g-stability'}-${new Date().toISOString().replaceAll(':', '-')}.zip`, {type: 'application/zip'});
   }
   private async download(): Promise<void> {
     if (this.busy || this.isActive() || !this.manifest) return;
@@ -284,7 +289,7 @@ export class GStabilityPreview {
   }
   private async share(): Promise<void> {
     if (!this.file || typeof navigator.share !== 'function') return;
-    try {await navigator.share({files: [this.file], title: 'G stability measurements'});}
+    try {await navigator.share({files: [this.file], title: this.mode === 'readback' ? 'G readback diagnostic measurements' : 'G stability measurements'});}
     catch (error) {if (!(error instanceof DOMException && error.name === 'AbortError')) {this.detail = message(error); this.render();}}
   }
   private async clear(): Promise<void> {
@@ -292,7 +297,7 @@ export class GStabilityPreview {
     this.busy = true;
     try {
       await this.store.delete(this.manifest.id); this.manifest = null; this.pendingReport = null; this.file = null;
-      if (this.fileUrl) URL.revokeObjectURL(this.fileUrl); this.fileUrl = null; sessionStorage.removeItem(HANDOFF);
+      if (this.fileUrl) URL.revokeObjectURL(this.fileUrl); this.fileUrl = null; sessionStorage.removeItem(this.handoffKey);
       this.phase = 'idle'; this.detail = 'Saved stability results deleted from this browser. Choose settings for a new test.';
     } catch (error) {this.detail = message(error);}
     finally {this.busy = false; this.render();}

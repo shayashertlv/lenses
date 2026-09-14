@@ -50,10 +50,11 @@ const studySearch = previewSearch(location.search, import.meta.env.BASE_URL === 
 if (studySearch !== location.search) history.replaceState(null, '', location.pathname + studySearch + location.hash);
 let selectedPipeline: Pipeline = initialPipeline(studySearch);
 const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
-for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const)
+for (const id of ['hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'g-readback'] as const)
   pipelineSelect.add(new Option(PIPELINE_LABELS[id], id));
 const focusedStudy = new URLSearchParams(studySearch).get('study');
-const stabilityPage = focusedStudy === 'g-stability';
+const readbackPage = focusedStudy === 'readback-diagnostic';
+const stabilityPage = focusedStudy === 'g-stability' || readbackPage;
 let stability: GStabilityPreview | null = null;
 let stabilityMetadata: Record<string, unknown> | null = null;
 const pageOptions=new URLSearchParams(studySearch);
@@ -87,9 +88,9 @@ reviewCandidateSelect.addEventListener('change', () => {
   location.search = query.toString();
 });
 if (stabilityPage) {
-  document.title = 'Lenses · G stability tests';
-  document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=g-stability';
-  element('stability-study').setAttribute('aria-current', 'page');
+  document.title = readbackPage ? 'Lenses · G readback diagnostic' : 'Lenses · G stability tests';
+  document.querySelector<HTMLAnchorElement>('.brand')!.href = readbackPage ? '?study=readback-diagnostic' : '?study=g-stability';
+  element(readbackPage ? 'readback-study' : 'stability-study').setAttribute('aria-current', 'page');
   element('stability-panel').hidden = false;
   element('study-heading').textContent = 'See why G slows down.';
   element('study-intro').textContent = 'Compare continuous G, worker restarts and fresh pages. The same rendering and three minutes of measurements in each condition.';
@@ -106,6 +107,22 @@ if (stabilityPage) {
   for (const id of ['benchmark', 'benchmark-order', 'benchmark-status', 'download-metrics', 'metrics-export']) element(id).hidden = true;
   document.querySelector<HTMLElement>('label[for="benchmark-order"]')!.hidden = true;
   element('baseline-detail').textContent = 'Every condition uses accepted G at the same rendering resolution, with exact image/detection/pose/mask ownership and unchanged nose/front safeguards. Compare full-window completed updates, camera delivery, frame age, stalls and matching masks. Page reloads do not prove the phone cooled; repeat the condition order in reverse.';
+  if (readbackPage) {
+    element('study-heading').textContent = 'Find where G spends its time.';
+    element('study-intro').textContent = 'Compare unchanged G with detailed readback timings. Three uninterrupted minutes per option, with a fresh page before each run.';
+    element('study-notice').textContent = 'This is a diagnostic comparison. Additional timers may affect speed; G remains the accepted baseline.';
+    element('stability-panel').querySelector('.eyebrow')!.textContent = 'G READBACK DIAGNOSTIC';
+    element('stability-title').textContent = 'Two runs, one ZIP.';
+    element('stability-protocol').textContent = 'Run G, then G with readback diagnostics. Each run measures for three minutes after the same five-second / three-matching-mask warmup. Setup is separate. The page reloads before each run so switching history cannot favor one option.';
+    element<HTMLSelectElement>('stability-condition').replaceChildren(new Option('Both options · about 7 minutes', 'all'), new Option('G control only · about 3 minutes', 'readback-control'), new Option('G diagnostics only · about 3 minutes', 'readback-diagnostic'));
+    element<HTMLSelectElement>('stability-order').replaceChildren(new Option('G control → G diagnostics', 'forward'), new Option('G diagnostics → G control', 'reverse'));
+    element('stability-start').textContent = 'Start G readback comparison';
+    element('stability-delete').textContent = 'Delete saved diagnostic test';
+    element('stability-movement').textContent = 'Video stays off. Keep lighting, power settings and device position consistent. Follow front/nose, down, up, left and right cues every 30 seconds. Repeat in reverse order after cooling. Use both glasses and both hair models across separate runs.';
+    welcome.querySelector('h2')!.textContent = 'Your G diagnostic test is ready.';
+    welcome.querySelector('p')!.textContent = 'Choose glasses and a hair model, then start the comparison below.';
+    element('baseline-detail').textContent = 'The diagnostic uses G scheduling, full rendering resolution and exact image/detection/pose/mask ownership with unchanged geometry and nose/front safeguards. It times existing readback operations without adding graphics queries or downloads. Elapsed timings include browser and driver delays; they do not isolate GPU execution. Compare completed updates, frame age, stalls and matching masks. Repeat both glasses with both hair models.';
+  }
 } else if (focusedStudy === 'fps-review') {
   document.title = 'Lenses · FPS review tests';
   document.querySelector<HTMLAnchorElement>('.brand')!.href = '?study=fps-review';
@@ -621,6 +638,7 @@ function beginContinuous(stabilityAutomatic = false): void {
       device: deviceMetadata(session), recording: recorder.snapshot(), performanceTimeOriginMs: performance.timeOrigin,
       runtimeIsolation: stabilityPage ? continuousStudy === 'g-restart' ? 'fresh-runtime-after-first-window' : continuousStudy === 'g-page' ? 'fresh-document-every-window' : 'uninterrupted-runtime' : freshRuntime ? 'fresh-runtime-every-window' : 'shared-runtime',
       stability: stabilityPage ? stabilityMetadata : null,
+      readbackDiagnostic: readbackPage ? {version: 1, purpose: 'Locate elapsed readback costs; no speedup claim.', observerControl: 'Unchanged G in a separate fresh document', timingScope: 'CPU elapsed around existing operations, includes browser/driver scheduling; not isolated GPU time', pipeline: selectedPipeline} : null,
       review: focusedStudy === 'fps-review' ? {candidate: allReviewOptions ? 'all' : reviewCandidate, inputPolicy: 'Exact current image only; fallback is recorded per frame. No older masks.'} : null,
       sessionStartup: {openedAtMs: session.openedAtMs, firstPublishedAtMs: session.firstPublishedAtMs, firstMaskedAtMs: session.firstMaskedAtMs},
       movementProtocol: 'Repeat five six-second cues: front/nose, down, up, left, right. Glasses and hair model stay fixed; repeat the test for the other model combinations.'}});
@@ -969,7 +987,7 @@ async function rebuildRuntime(session: Session, pipeline: Pipeline): Promise<voi
   session.hair=new HairClient(session.hairId,{delegate:session.backend.requested,outputMode:'category-only'});
   const {ComparisonRenderer}=await import('./comparison-renderer.ts');
   if(!owns())throw new DOMException('Runtime revoked.','AbortError');
-  const renderer=await ComparisonRenderer.create(session.canvas,runtime.signal,session.eyewearId);
+  const renderer=await ComparisonRenderer.create(session.canvas,runtime.signal,session.eyewearId,undefined,pipeline);
   if(!owns()){renderer.dispose();throw new DOMException('Runtime revoked.','AbortError');}
   session.renderer=renderer;renderer.selectVariant(selectedVariant);renderer.selectPipeline(pipeline);
   // Match page startup: hair setup runs alongside face setup and never changes
@@ -1129,7 +1147,7 @@ async function openSession(): Promise<void> {
       if (current !== session) return;
       if (phase === 'candidate-renderer') session.startup!.milestones.push({name: 'g-renderer-ready', atMs: performance.now()});
       enterStartupStage(session, phase);
-    });
+    }, selectedPipeline);
     if (current !== session) { session.renderer.dispose(); return; }
     session.startup.milestones.push({name: 'candidate-renderer-ready', atMs: performance.now()});
     profiler.recordEvent(session.id,'renderers-ready',performance.now());
@@ -1260,7 +1278,7 @@ async function completeHeldHair(session: Session): Promise<void> {
       if(owns()){
         const result=session.renderer!.exportDiagnostic();
         const base=result?.g as {acceptedPngDataUrl:string;hairPngDataUrl:string}|undefined;
-        const heldPipelines=focusedStudy === 'mask-preview'||focusedStudy==='fps-review' ? visiblePipelines : PIPELINES;
+        const heldPipelines=focusedStudy === 'mask-preview'||focusedStudy==='fps-review' ? visiblePipelines : PIPELINES.filter(id=>id!=='g-readback');
         const different=base?heldPipelines.filter(id=>{const item=result![id] as typeof base;return item?.acceptedPngDataUrl!==base.acceptedPngDataUrl||item?.hairPngDataUrl!==base.hairPngDataUrl;}):[];
         element('held-result').textContent=base?(different.length?'Held differences found: '+different.map(id=>PIPELINE_LABELS[id]).join(', '):focusedStudy === 'mask-preview'?'G and V match on this shared diagnostic mask. Review live movement separately.':'All held experiment images match G pixel-for-pixel on this image.'):'Held comparison unavailable.';
         if(base&&allReviewOptions)
@@ -1427,10 +1445,10 @@ async function runStabilityChunk(identity: StabilityIdentity, chunk: StabilityCh
     || !['unknown', 'battery', 'plugged-in'].includes(identity.power) || identity.variant !== 'hair')
     throw new Error('The saved test settings are unsupported. Export them and start a separate test.');
   selectedEyewear = identity.eyewearId as EyewearId; selectedHair = identity.hairModelId as HairModelId;
-  selectedVariant = 'hair'; selectedPipeline = 'g';
+  selectedVariant = 'hair'; selectedPipeline = chunk.condition === 'readback-diagnostic' ? 'g-readback' : 'g';
   eyewearSelect.value = selectedEyewear; hairSelect.value = selectedHair; variantSelect.value = selectedVariant;
-  pipelineSelect.value = 'g'; powerContext.value = identity.power;
-  continuousStudy = chunk.condition === 'continuous' ? 'g-continuous' : chunk.condition === 'restarted' ? 'g-restart' : 'g-page';
+  pipelineSelect.value = selectedPipeline; powerContext.value = identity.power;
+  continuousStudy = chunk.condition === 'readback-diagnostic' ? 'g-readback-continuous' : chunk.condition === 'readback-control' || chunk.condition === 'continuous' ? 'g-continuous' : chunk.condition === 'restarted' ? 'g-restart' : 'g-page';
   continuousStudyOptions = CONTINUOUS_STUDIES[continuousStudy]; freshRuntime = chunk.condition === 'restarted';
   continuousVideo.checked = false; stabilityMetadata = metadata; showEyewear();
   await openSession();
@@ -1459,8 +1477,8 @@ if (stabilityPage) {
       finally {camera.stop();}
     }, runChunk: runStabilityChunk,
     stopChunk: reason => {if(continuousRun){cancelContinuous(reason);return true;}return false;},
-    closeCamera: () => closeSession('Stability test camera closed.'),
-  });
+    closeCamera: () => closeSession('Measurement camera closed.'),
+  }, readbackPage ? 'readback' : 'stability');
   window.arGStability = Object.freeze({status: () => stability!.status(), report: () => stability!.report()});
 }
 showEyewear(); updateControls(); showHairStatus(); updateProfileUi();

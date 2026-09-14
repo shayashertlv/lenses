@@ -82,7 +82,7 @@ async function open(page: Page, eyewear = 'amber-horizon', hair = 'hair-only'): 
     .toEqual(CHOICES);
   await expect(page.locator('#continuous-video')).not.toBeChecked();
   await expect(page.locator('#continuous-start')).toContainText('Measure only');
-  await expect(page.locator('.study-links a')).toHaveCount(3);
+  await expect(page.locator('.study-links a')).toHaveCount(4);
   await expect(page.locator('#stability-study')).toHaveAttribute('href', '?study=g-stability');
   await expect(page.locator('#mask-preview-study')).toHaveAttribute('href', '?study=mask-preview');
   await expect(page.locator('#mask-preview-study')).toHaveAttribute('aria-current', 'page');
@@ -276,23 +276,23 @@ async function heldAndRestart(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.hairLivePreview.diagnostics().sessionId)).not.toBe(oldSession);
 }
 
-test('mobile entry: default routes expose G stability while all FPS experiments and historical links remain accessible', async ({page}) => {
+test('mobile entry: default routes expose G readback diagnostics while all FPS experiments and historical links remain accessible', async ({page}) => {
   const network = observeNetwork(page); await installCamera(page);
-  const assertStability = async (): Promise<void> => {
-    await expect(page).toHaveURL(/\?study=g-stability$/);
-    await expect(page).toHaveTitle('Lenses · G stability tests');
-    await expect(page.locator('#study-heading')).toHaveText('See why G slows down.');
+  const assertReadback = async (): Promise<void> => {
+    await expect(page).toHaveURL(/\?study=readback-diagnostic$/);
+    await expect(page).toHaveTitle('Lenses · G readback diagnostic');
+    await expect(page.locator('#study-heading')).toHaveText('Find where G spends its time.');
     await expect(page.locator('#pipeline-select')).toHaveValue('g');
     expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
-      .toEqual(['g']);
+      .toEqual(['g', 'g-readback']);
     await expect(page.locator('#continuous-video')).not.toBeChecked();
-    await expect(page.locator('.study-links a')).toHaveCount(3);
+    await expect(page.locator('.study-links a')).toHaveCount(4);
     await expect(page.locator('#stability-study')).toHaveAttribute('href', '?study=g-stability');
-    await expect(page.locator('#stability-study')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#readback-study')).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('#stability-panel')).toBeVisible();
     await expect(page.locator('#stability-condition')).toHaveValue('all');
     expect(await page.locator('#stability-condition option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
-      .toEqual(['all', 'continuous', 'restarted', 'fresh-page']);
+      .toEqual(['all', 'readback-control', 'readback-diagnostic']);
     await expect(page.locator('#stability-order')).toHaveValue('forward');
     await expect(page.locator('#stability-start')).toBeEnabled();
     await expect(page.locator('.stage')).toHaveAttribute('data-state', 'idle');
@@ -309,7 +309,7 @@ test('mobile entry: default routes expose G stability while all FPS experiments 
     await expect(page.locator('#continuous-video')).not.toBeChecked();
     await expect(page.locator('#continuous-start')).toContainText('Measure only · all six options · ~7 min');
     await expect(page.locator('#continuous-title')).toHaveText('All six options · 7 minutes + setup');
-    await expect(page.locator('.study-links a')).toHaveCount(3);
+    await expect(page.locator('.study-links a')).toHaveCount(4);
     await expect(page.locator('#stability-study')).toHaveAttribute('href', '?study=g-stability');
     await expect(page.locator('#fps-review-study')).toHaveAttribute('href', '?study=fps-review');
     await expect(page.locator('#fps-review-study')).toHaveAttribute('aria-current', 'page');
@@ -322,9 +322,9 @@ test('mobile entry: default routes expose G stability while all FPS experiments 
   // The production Python route still redirects through study=review; the AR
   // client must resolve both that entry and query-free direct bookmarks.
   for (const path of ['/ar_testing/', LIVE_PATH, LIVE_PATH + '?study=review']) {
-    await page.goto(path); await assertStability();
+    await page.goto(path); await assertReadback();
   }
-  await page.screenshot({path: test.info().outputPath('default-g-stability.png'), fullPage: true});
+  await page.screenshot({path: test.info().outputPath('default-g-readback.png'), fullPage: true});
   await page.click('#fps-review-study'); await assertAllOptions();
   await page.click('#mask-preview-study');
   await expect(page).toHaveURL(/\?study=mask-preview$/);
@@ -335,7 +335,7 @@ test('mobile entry: default routes expose G stability while all FPS experiments 
   await page.goto(LIVE_PATH + '?study=mask-preview&pipeline=mask-bytes');
   await expect(page.locator('#pipeline-select')).toHaveValue('mask-bytes');
   await expect(page.locator('#continuous-video')).not.toBeChecked();
-  await page.click('.brand'); await assertStability();
+  await page.click('.brand'); await assertReadback();
   await page.goto(LIVE_PATH + '?study=review&legacy=1');
   expect(await page.locator('#pipeline-select option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
     .toEqual(['g', 'publish', 'region', 'lens', 'ui']);

@@ -1,4 +1,5 @@
 import {LiveHairRenderer as BaseRenderer} from '../speed-lab/renderer.ts';
+import {LiveHairRenderer as DiagnosticRenderer} from './g-readback-diagnostic/renderer.ts';
 import {PROFILES as G_PROFILES} from '../speed-lab/profiles.ts';
 import {LiveHairRenderer as CandidateRenderer} from './renderer.ts';
 import {RenderWorkerRenderer} from './render-worker/client.ts';
@@ -31,18 +32,20 @@ export class ComparisonRenderer {
   private cachedDiagnostic: Record<string,unknown> | null = null;
   private worker: RenderWorkerRenderer | null = null;
   private workerStarting: Promise<RenderWorkerRenderer> | null = null;
-  private constructor(private display: HTMLCanvasElement, private base: BaseRenderer, private candidate: CandidateRenderer,
-    private signal: AbortSignal, private eyewearId: EyewearId) {}
+  private constructor(private display: HTMLCanvasElement, private base: BaseRenderer | DiagnosticRenderer, private candidate: CandidateRenderer,
+    private signal: AbortSignal, private eyewearId: EyewearId, private diagnosticMode = false) {}
   static async create(display: HTMLCanvasElement, signal: AbortSignal, id: EyewearId = DEFAULT_EYEWEAR_ID,
-    onStartupStage?: (stage: 'g-renderer' | 'candidate-renderer') => void): Promise<ComparisonRenderer> {
+    onStartupStage?: (stage: 'g-renderer' | 'candidate-renderer') => void, initialPipeline: Pipeline = 'g'): Promise<ComparisonRenderer> {
     onStartupStage?.('g-renderer');
-    const base = await BaseRenderer.create(display,signal,id);
+    // Replace the existing base slot so both conditions allocate the same renderer count.
+    const diagnosticMode = initialPipeline === 'g-readback';
+    const base = await (diagnosticMode ? DiagnosticRenderer : BaseRenderer).create(display,signal,id);
     try {
       if(signal.aborted) throw new DOMException('Startup cancelled.','AbortError');
       onStartupStage?.('candidate-renderer');
       const candidate = await CandidateRenderer.create(display,signal,id);
       if(signal.aborted) {candidate.dispose();throw new DOMException('Startup cancelled.','AbortError');}
-      return new ComparisonRenderer(display,base,candidate,signal,id);
+      return new ComparisonRenderer(display,base,candidate,signal,id,diagnosticMode);
     } catch(error) {base.dispose();throw error;}
   }
   private get renderer() {
@@ -50,7 +53,7 @@ export class ComparisonRenderer {
       if(!this.worker)throw new Error('Render worker has not initialized.');
       return this.worker;
     }
-    return usesBaseRenderer(this.active) ? this.base : this.candidate;
+    return this.active === 'g-readback' || usesBaseRenderer(this.active) ? this.base : this.candidate;
   }
   async initializePipeline(id: Pipeline): Promise<void> {
     if(this.disposed||this.signal.aborted)throw new DOMException('Renderer closed.','AbortError');
@@ -80,6 +83,8 @@ export class ComparisonRenderer {
   get variant(): LiveVariant {return this.selectedVariant;}
   selectPipeline(id: Pipeline): void {
     if(!PIPELINES.includes(id))throw new Error('Unknown experiment.');
+    if((id === 'g-readback') !== this.diagnosticMode)
+      throw new Error('Readback diagnostics require a fresh renderer session.');
     this.requested=id;
     if(this.held && !this.pending) {this.active=id;this.showHeld();}
   }
@@ -100,9 +105,10 @@ export class ComparisonRenderer {
         await this.initializePipeline(this.active);
         return await this.worker!.prepare(frame,detection,pair,model,needsHair,source,this.selectedVariant);
       }
-      const target=usesBaseRenderer(this.active)?this.base:this.candidate;
+      const basePath=this.active==='g-readback'||usesBaseRenderer(this.active);
+      const target=basePath?this.base:this.candidate;
       target.setPreparationHairEnabled(needsHair);
-      const visible=usesBaseRenderer(this.active) ? await this.base.prepare(frame,detection,pair,model,{options:G_PROFILES.combined.options,source})
+      const visible=basePath ? await this.base.prepare(frame,detection,pair,model,{options:G_PROFILES.combined.options,source})
         : await this.candidate.prepare(frame,detection,pair,model,{options:PROFILES[this.active].options,source,onNativeSubmitted});
       if(this.disposed)throw new DOMException('Renderer closed.','AbortError');
       target.selectVariant(this.selectedVariant);return visible;
@@ -138,10 +144,11 @@ export class ComparisonRenderer {
     if(!context)throw new Error('Missing comparison display.');
     return context.getImageData(0,0,this.display.width,this.display.height);
   }
-  async setHeld(pipelines: readonly Pipeline[] = PIPELINES):Promise<void> {
+  async setHeld(pipelines: readonly Pipeline[] = PIPELINES.filter(id=>id!=='g-readback')):Promise<void> {
     if(this.pending || this.disposed)throw new Error('Finish the owned pair before Hold.');
     if(!Array.isArray(pipelines) || pipelines.length===0 || pipelines.length>PIPELINES.length)
       throw new Error('Invalid held comparison choices.');
+    if(this.diagnosticMode || pipelines.includes('g-readback'))throw new Error('Readback diagnostics use separate fresh-page runs.');
     const choices=[...pipelines];
     if(choices.some(id=>!PIPELINES.includes(id)) || new Set(choices).size!==choices.length
       || !choices.includes('g') || !choices.includes(this.active))

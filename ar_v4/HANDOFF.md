@@ -1,3 +1,39 @@
+# Current G readback diagnostic preview - September 14, 2026
+
+The owner authorized creating and pushing the readback diagnostic after the last
+stability ZIP was confirmed as PC evidence. Work remains in the isolated deployed
+checkout below. The mobile default is `?study=readback-diagnostic`; earlier
+preview links remain available.
+
+Choose glasses, hair model and power, then Start G readback comparison. Default:
+unchanged G and instrumented G, 180 seconds each in fresh documents, about seven
+minutes total, one multipart `ar-g-readback-` ZIP. Reverse order and individual
+options are available. Earlier stability results keep their separate database.
+Follow front/nose, down/up and both yaw cues; repeat both glasses × both hair
+models. This observes existing readback steps, adds no optimization and preserves
+accepted G. New physical PC/iPhone results and visual acceptance remain pending.
+
+Package fingerprint: `74555e8b1415ee1909a371b379e9775520da6f73cf3d545c9c4d38d1cb9b1ea3`.
+
+The newest docs/REVIEWS.md entry records validation/deployment; detailed timing
+scope is in `experiments/efficiency-lab/g-readback-diagnostic/TIMINGS.md`.
+The PC findings below describe the preceding deployed build.
+
+# PC G stability findings - September 14, 2026
+
+The 05:34 ZIP is a user-confirmed Windows/Chrome/Intel Arc PC test, not iPhone.
+All eight parts and 540 seconds of measurement pass raw/ownership audits on
+current deployed build `e753f7b40a19`. Average completed AR/s: continuous 13.97,
+restarted 14.58, fresh-page 13.86. Continuous falls 15.57 to 11.37; fresh-page
+falls 15.17 to 11.67 despite reloads. Matching masks cover every tracked update.
+Later worker rebuilds coincide with recovery but add about two seconds between
+publication anchors, so this does not establish a responsive FPS improvement.
+Preparation, native readback and face/hair retrieval grow while final composition
+stays near constant. Next proposed experiment is a separate G diagnostic splitting
+existing PBO extraction/wait phases; no runtime or deployment change was made for
+this review. See newest docs/REVIEWS.md for exact results and private audit paths.
+The existing preview below remains deployed, and G remains accepted.
+
 # G stability preview - September 14, 2026
 
 The owner requested the next test preview after the four phone experiments did

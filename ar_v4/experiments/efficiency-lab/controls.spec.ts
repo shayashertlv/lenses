@@ -2,9 +2,12 @@ import {test, expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import {readFile, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {PIPELINES, PIPELINE_LABELS} from './profiles.ts';
+import {PIPELINES as ALL_PIPELINES, PIPELINE_LABELS} from './profiles.ts';
 import type {Pipeline} from './profiles.ts';
 import type {FrameSample, ProfileSummary, WorkCoverage} from './frame-profiler.ts';
+
+// The diagnostic is a separate study; the generic preview retains its 22 choices.
+const PIPELINES = ALL_PIPELINES.filter(id => id !== 'g-readback');
 
 interface HeldOutput {
   pair: {sourceSHA256: string; detectionSHA256: string; eyewearModel: string};

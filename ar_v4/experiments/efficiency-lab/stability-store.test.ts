@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {claimStabilityManifest, completeStabilityManifest, createStabilityManifest,
   createStabilityPlan, encodeStabilityReport, interruptStabilityManifest, sameStabilityIdentity,
   STABILITY_MAX_REPORT_BYTES, validateStabilityCompletion} from './stability-store.ts';
-import type {StabilityIdentity} from './stability-store.ts';
+import type {StabilityIdentity, StabilityManifest, StabilitySelection} from './stability-store.ts';
 
 const identity: StabilityIdentity = {buildId: 'build-one', eyewearId: 'amber-horizon', hairModelId: 'hair-only',
   variant: 'hair', sourceWidth: 720, sourceHeight: 1280, power: 'unknown'};
@@ -107,4 +107,82 @@ test('report receipt is bound to the actual claimed G page, build, workload and 
   const diagnostic = {...report, rows: [{fields: {sessionId: 'old-session', pipeline: 'g'}, phase: 'excluded', exclusion: 'session-mismatch'}]};
   assert.doesNotThrow(() => validateStabilityCompletion(running, {...options, complete: false, report: diagnostic}));
   assert.throws(() => validateStabilityCompletion(running, {...options, report: diagnostic}), /does not match/);
+});
+
+const makeReadback = (selection: StabilitySelection = 'all', direction: 'forward' | 'reverse' = 'forward') =>
+  createStabilityManifest({identity, selection, direction, mode: 'readback'}, {suiteId: 'suite', token: 'first-token', now: 1000});
+function readbackReport(manifest: StabilityManifest) {
+  const chunk = manifest.plan[manifest.nextChunkIndex]!, active = manifest.active!;
+  const pipeline = chunk.condition === 'readback-diagnostic' ? 'g-readback' : 'g';
+  const start = 5100.125, end = start + 180_000;
+  return {schema: 'ar-continuous-comparison-v1', sessionId: 'session-' + active.documentId, workload: identity,
+    completed: true, partial: false,
+    protocol: {studyOptions: pipeline === 'g' ? 'g-continuous' : 'g-readback-continuous', measureMs: 180_000, order: [pipeline]},
+    metadata: {build: {id: identity.buildId}, performanceTimeOriginMs: 100_000,
+      stability: {suiteId: manifest.id, chunkId: chunk.id, documentId: active.documentId, buildId: identity.buildId,
+        timeOrigin: 100_000, condition: chunk.condition, chunkIndex: chunk.index}},
+    windows: [{index: 0, pipeline, completed: true, measureStartedAtMs: start, plannedEndAtMs: end, endedAtMs: end,
+      summary: {startAtMs: start, endAtMs: end, durationMs: 180_000}}],
+    analysisBins: Array.from({length: 6}, (_, index) => ({index, windowIndex: 0, completed: true,
+      plannedStartAtMs: start + index * 30_000, plannedEndAtMs: start + (index + 1) * 30_000,
+      summary: {startAtMs: start + index * 30_000, endAtMs: start + (index + 1) * 30_000, durationMs: 30_000}})),
+    rows: [{phase: 'measured', fields: {sessionId: 'session-' + active.documentId, pipeline}}],
+    hairDeliveryDrain: {state: 'drained'}};
+}
+test('readback plan has two independent uninterrupted documents, reversible order and isolated selections', () => {
+  const forward = createStabilityPlan('all', 'forward', 'readback'), reverse = createStabilityPlan('all', 'reverse', 'readback');
+  assert.deepEqual(forward.map(chunk => chunk.condition), ['readback-control', 'readback-diagnostic']);
+  assert.deepEqual(reverse.map(chunk => chunk.condition), ['readback-diagnostic', 'readback-control']);
+  assert.equal(forward.reduce((sum, chunk) => sum + chunk.totalMeasureMs, 0), 360_000);
+  for (const chunk of forward) {assert.equal(chunk.windowCount, 1); assert.equal(chunk.measureMs, 180_000);}
+  assert.equal(createStabilityPlan('readback-control', 'reverse', 'readback').length, 1);
+  assert.equal(makeReadback().schema, 'ar-g-readback-suite-v1');
+  assert.equal(make().schema, 'ar-g-stability-suite-v1');
+  assert.throws(() => createStabilityPlan('continuous', 'forward', 'readback'), /Invalid/);
+  assert.throws(() => createStabilityPlan('readback-diagnostic', 'forward'), /Invalid/);
+});
+test('readback receipts require the selected pipeline, condition, document, model and full timing', () => {
+  for (const selection of ['readback-control', 'readback-diagnostic'] as const) {
+    const running = claimStabilityManifest(makeReadback(selection), claim(), 1100), report = readbackReport(running);
+    const options = {...finish(), report};
+    assert.doesNotThrow(() => validateStabilityCompletion(running, options));
+    for (const mismatch of [
+      {...report, protocol: {...report.protocol, order: [selection === 'readback-control' ? 'g-readback' : 'g']}},
+      {...report, protocol: {...report.protocol, studyOptions: 'g-restart'}},
+      {...report, metadata: {...report.metadata, stability: {...report.metadata.stability, condition: 'continuous'}}},
+      {...report, metadata: {...report.metadata, stability: {...report.metadata.stability, chunkIndex: 1}}},
+      {...report, metadata: {...report.metadata, stability: {...report.metadata.stability, documentId: 'foreign'}}},
+      {...report, workload: {...identity, hairModelId: 'selfie-multiclass'}},
+      {...report, rows: [{phase: 'measured', fields: {sessionId: 'foreign', pipeline: report.protocol.order[0]}}]},
+      {...report, windows: [{...report.windows[0]!, endedAtMs: report.windows[0]!.endedAtMs - 1}]},
+      {...report, analysisBins: report.analysisBins.slice(0, 5)},
+      {...report, analysisBins: report.analysisBins.map((bin, index) => index === 2 ? {...bin, summary: {...bin.summary, durationMs: 29_000}} : bin)},
+    ]) assert.throws(() => validateStabilityCompletion(running, {...options, report: mismatch}), /does not match/);
+  }
+});
+test('readback control saves once, stale handoffs fail and second document must claim diagnostic separately', () => {
+  const control = claimStabilityManifest(makeReadback(), claim(), 1100), report = readbackReport(control);
+  validateStabilityCompletion(control, {...finish(), report});
+  const next = completeStabilityManifest(control, finish());
+  assert.equal(next.plan[next.nextChunkIndex]!.condition, 'readback-diagnostic');
+  for (const stale of [claim('page-two'), {...claim(), token: 'second-token'}])
+    assert.throws(() => claimStabilityManifest(next, stale, 2100), /cannot claim/);
+  const diagnostic = claimStabilityManifest(next, {...claim('page-two'), token: 'second-token'}, 2100);
+  assert.throws(() => validateStabilityCompletion(diagnostic, {...finish('page-two'), token: 'second-token', report}), /does not match/);
+  const correct = readbackReport(diagnostic);
+  validateStabilityCompletion(diagnostic, {...finish('page-two'), token: 'second-token', report: correct});
+  const done = completeStabilityManifest(diagnostic, {...finish('page-two'), token: 'second-token'});
+  assert.equal(done.status, 'complete'); assert.equal(done.results.length, 2); assert.equal(done.handoffToken, null);
+});
+test('partial diagnostic preserves earlier G control and cannot be mistaken for a completed measurement', () => {
+  const saved = completeStabilityManifest(claimStabilityManifest(makeReadback(), claim(), 1100), finish());
+  const running = claimStabilityManifest(saved, {...claim('page-two'), token: 'second-token'}, 2100);
+  const report = {...readbackReport(running), completed: false, partial: true, analysisBins: [],
+    windows: [{pipeline: 'g-readback', completed: false, measureStartedAtMs: null, endedAtMs: null}]};
+  assert.doesNotThrow(() => validateStabilityCompletion(running, {...finish('page-two'), token: 'second-token', report, complete: false}));
+  assert.throws(() => validateStabilityCompletion(running, {...finish('page-two'), token: 'second-token', report}), /does not match/);
+  const partial = completeStabilityManifest(running, {...finish('page-two'), token: 'second-token', complete: false, reason: 'hidden'});
+  assert.equal(partial.status, 'partial'); assert.equal(partial.results.length, 2);
+  assert.equal(partial.results[0]!.completed, true); assert.equal(partial.results[1]!.completed, false);
+  assert.equal(partial.handoffToken, null);
 });

@@ -1,3 +1,165 @@
+# G readback diagnostic preview - September 14, 2026
+
+The owner requested this preview after confirming the G stability ZIP was a PC
+test. It is a separate observer comparison, not a speed optimization or a
+replacement for accepted G. The mobile entry is `?study=readback-diagnostic`;
+explicit G stability, all-FPS, G/V and legacy links remain accessible.
+
+Unchanged G and instrumented G each run for one uninterrupted 180-second
+measurement in a fresh document. Six 30-second bins are computed only at export.
+Both use the same five-second / three-matching-mask warmup, video off, fixed
+camera resolution/glasses/hair/power, and two renderer instances. Forward/reverse
+order and individual options are available. A separate database, page lock and
+handoff preserve earlier stability results. Each raw part and its next ownership
+token commit atomically before real reload. One `ar-g-readback-` ZIP retains the
+suite and independent document reports; page clocks are never concatenated.
+
+The isolated `g-readback-diagnostic/` copies G's three-renderer import chain plus
+PBO helper. Renderer copies match after import rebasing. The observer adds scalar
+timers to existing state queries/setup/restoration, read submission, fence/poll
+calls and zero-timeout waits, CPU retrieval, allocation, row flip and ImageData.
+No added GL calls, readbacks, workers, yields, pooling or admission changes.
+Exact image/detection/pose/mask ownership, geometry, resolution and final
+nose/front safeguards stay fixed; normal G still imports accepted sources.
+See [TIMINGS.md](../experiments/efficiency-lab/g-readback-diagnostic/TIMINGS.md)
+for fields, partial results and overlapping timing scopes.
+
+Durations are caller-visible elapsed time, not isolated GPU execution. Compare
+control/observer throughput to assess observer overhead and within-run trends to
+localize drift. Keep camera delivery, completed AR, frame age, internal/endpoint
+stalls, matching-mask availability and startup separate. Do not add medians,
+subtract synthetic timer cost, infer thermal cause or call this a speedup.
+Repeat reversed order after cooling, both glasses × both hair models and
+front/nose, down/up and both yaw cues. New physical PC/iPhone wearer motion and
+mobile performance remain unmeasured until owner testing; fixture parity cannot
+establish visual acceptance. G remains accepted.
+
+Validation: strict efficiency TypeScript and 349 CPU tests passed, including
+19 new copy-parity / differential GL / cancellation / timer tests. Four real
+IndexedDB tests passed. Final release
+`74555e8b1415ee1909a371b379e9775520da6f73cf3d545c9c4d38d1cb9b1ea3`
+contains 251 fingerprinted sources and the 22-file public package. Three final
+production-browser model/stop/refresh checks passed in 1.4 minutes.
+
+The full production-clock run completed both 180-second parts, automatic reload,
+12 analysis bins and durable ZIP export on the same renderer before a label-only
+encoding correction (earlier fingerprint `8c0e107a9bbe`). Raw and saved-resource
+audits passed: 959 G / 1492 diagnostic measured frames, no invalid/rejected or
+truncated frame rows, every measured tracked frame masked, separate owned pages,
+constant history length, and both camera/worker/GL lifecycles fully closed.
+The loaded synthetic desktop camera is not an FPS comparison. Four G and one
+diagnostic fence fallbacks across admitted rows remain in the export. The original
+Playwright job was stopped during excessive per-row assertion tracing after the
+measurement succeeded; it is NOT recorded as a whole-suite pass. That QA overhead
+was removed with synchronous assertions, and the independent ZIP/resource audits
+plus final-build lifecycle runs provide the retained evidence. Private receipts:
+`.recovery/readback-audit-first.json`, `.recovery/readback-resources-first.json`,
+and `test-results/mobile-2026-09-14T05-59-48.091Z` beneath this experiment.
+
+Matched replay passed all 56 cases, all 16 control/lifecycle groups, and exact
+pixels, geometry, pairing, nose/front/background protections. Generated native
+GPU: 32/32 async on each implementation with no fallback. Recorded SwiftShader:
+20 async and four explicitly bounded fence fallbacks on each implementation.
+All 239 accepted G files and 302 frozen private files remain byte-exact. Report:
+`experiments/efficiency-lab/qa/output/readback-matched-2026-09-14T06-14-22.855Z/report.json`.
+The original checkout still matches 460/461 pre-existing snapshot files; its sole
+previously documented docs/REVIEWS.md difference is preserved unchanged.
+
+Required `npm test` passed: 172 unit tests and all 21 production/reference browser
+checks. Four final mobile entry/refresh/runtime regressions passed on release
+`74555e8b1415`, including the default diagnostic entry and retained older links.
+Deployment target is the existing Railway `/ar_testing/` static package; both
+`main` and `codex/ar-mobile-testing` receive this isolated AR commit. The handoff
+requires matching the served fingerprint and all public file hashes, plus a real
+browser visit through the landing link and every retained study. Local ignored
+deployment receipts are `qa/output/readback-published.json` and
+`qa/output/readback-entry-published.json` beneath the efficiency lab.
+
+## PC G stability result - September 14, 2026, 05:34 export
+
+The owner confirmed this was tested on the PC. All eight parts identify Windows
+Chrome 152, Intel Arc 140T/D3D11, Amber Horizon, hair-only, hair on, 1280x720,
+video off and unrecorded power state. This is separate from the four earlier
+720x1280 iPhone/Safari exports. It uses deployed build `e753f7b40a19` and completes
+all 13 real windows: 540,000 measured milliseconds, eight unique documents,
+sessions and clock origins, one continuous generation, six restart generations
+and one generation per fresh page. Suite wall time is 636.049 seconds.
+
+Independent raw audits reproduce all counts, camera rates, age/gap quantiles and
+coverage. Rates below use raw eligible counts divided by each full 180 seconds;
+ages pool eligible frames and camera rates pool only within-window observations.
+
+| Condition | Completed AR/s | Observed camera FPS | Age p95 | Maximum measured gap |
+| --- | ---: | ---: | ---: | ---: |
+| Continuous G | 13.9667 | 20.2836 | 189.94 ms | 147.38 ms |
+| Restarted G | 14.5778 | 19.9368 | 163.86 ms | 157.03 ms |
+| Fresh-page G | 13.8556 | 20.0576 | 182.87 ms | 189.60 ms |
+
+Successive 30-second rates are continuous 15.567 / 15.633 / 15.667 / 14.267 /
+11.000 / 11.367; restarted 11.733 / 15.067 / 14.900 / 15.433 / 15.167 / 15.167;
+fresh pages 15.167 / 15.600 / 15.067 / 14.067 / 11.567 / 11.667. Continuous drops
+26.98% first-to-last; fresh pages drop 23.08% despite reloads. The first restarted
+window also remains slow after its initial reload. Later worker rebuilds coincide
+with recovery to about 15.15 AR/s, but one fixed forward order cannot establish
+causation or a reliable remedy. Its aggregate measured rate is only 4.38% above
+continuous G, before considering reset interruptions. No winner is promoted.
+
+Runtime rebuild publication anchors are 1.850-2.073 seconds apart; internal
+page transitions are 2.527-2.990 seconds apart. These are not display-scanout or
+video-verified blank durations. The larger excluded measurement gaps include
+five seconds of warmup with live output and must not be called freezes. Every
+real window earns exactly 5,000 ms warmup and 65-81 tracked matching-mask frames.
+Each document has one camera attempt; camera request to first publication/mask
+is 2.241-3.551 seconds. The initial 29-56 ms switch acknowledgements omit that
+startup; five actual rebuilds take 1.324-1.469 seconds before warmup.
+
+Matching masks are present on every tracked measured update: 2514/2514 in
+continuous, 2624/2624 restarted and 2493/2493 fresh-page. Fresh-page has one
+additional untracked update. No actual measurement-window gap exceeds 200 ms.
+Nine continuous-bin boundary-crossing frames remain in the 180-second summary
+but are excluded from the six bins; bin endpoint gaps can therefore exceed
+actual full-window gaps. Nine nonmonotonic camera observations are explicitly
+rejected, with no frame rejects/truncation. Camera settings request 30 FPS;
+observed video delivery is about 20 FPS and is distinct from completed AR/s.
+
+All 8,665 hair requests complete, all eight drains finish, and all measured
+publications join the matching generation/sequence ledger with exact capture and
+publication times. Six shutdown/rebuild-boundary completions have no publication
+and are never reused. Maximum owned images remains two, in-flight inference one;
+native asynchronous readback has no fallback. These scalar checks do not prove
+physical resource reclamation or GPU parallel execution.
+
+The strongest timing change is in preparation/readback and face/hair retrieval.
+Continuous bin 3 to bin 5 median milliseconds: preparation 46.66 -> 69.66;
+PBO wait 18.92 -> 33.85; PBO extraction 21.35 -> 33.11; face inference call
+22.76 -> 36.25; hair category retrieval 23.95 -> 36.62; source draw 7.05 -> 14.98.
+Composition only changes 5.46 -> 5.69 and final checks 2.62 -> 2.76. Fresh-page
+windows 3 to 5 show a similar pattern. Stage medians overlap and cannot be added
+or treated as isolated causes. The trace does not identify heat, power policy,
+other GPU work or a driver/browser condition as the cause.
+
+G selects the preserved speed-lab renderer through
+`experiments/efficiency-lab/comparison-renderer.ts`. Its PBO implementation is
+`experiments/speed-lab/native/pbo-readback.ts`: wait includes fence/flush/checks
+and zero-delay timer polling; extraction includes GL state queries, buffer
+retrieval, allocations, error checks, row flipping/ImageData and restoration.
+Hair SDK retrieval can likewise include deferred GPU work and conversion.
+Next focused experiment: a separate G diagnostic candidate timing these existing
+PBO phases and poll scheduling, without extra GL queries/readbacks, changed
+cadence/resolution, older masks or weaker ownership/nose/front checks. Repeat
+sustained early/late intervals and reverse condition order; PC and iPhone remain
+separate populations. This is a diagnostic proposal, not an implemented change.
+Full visual coverage still requires both glasses and both hair models, front/nose,
+down/up and both yaw directions. This ZIP has no video and only one model pair.
+
+Original ZIP and private copy SHA-256:
+`b672e235749eb41abfb9405458fa22269b40c3659124f9b609ff52c7544a52e7`.
+Reproducible raw/rate audits, source manifest and stage intervals are under
+`.recovery/phone-g-stability-2026-09-14-053411/` (the data is the confirmed PC run).
+Only documentation and private analysis artifacts changed for this review;
+runtime, deployment, original checkout, recordings and recovery archives remain
+preserved. G remains accepted.
+
 ## G stability controls - September 14, 2026
 
 The latest camera-copy phone result still falls back to G's upright canvas path,

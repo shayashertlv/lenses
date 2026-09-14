@@ -1,5 +1,8 @@
 import {test, expect} from '@playwright/test';
-import {PIPELINES, PIPELINE_LABELS} from './profiles.ts';
+import {PIPELINES as ALL_PIPELINES, PIPELINE_LABELS} from './profiles.ts';
+
+// The diagnostic is a separate study; the generic preview retains its 22 choices.
+const PIPELINES = ALL_PIPELINES.filter(id => id !== 'g-readback');
 
 test('isolated comparison opens G camera-off and retains accepted entry pages', async ({page, request}) => {
   for (const method of ['GET', 'HEAD']) {

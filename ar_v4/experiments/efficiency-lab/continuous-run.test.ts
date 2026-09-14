@@ -699,3 +699,19 @@ test('explicit stability duration overrides are reflected in plan and trailing a
   assert.equal(protocol.measureMs, 50000); assert.equal(plan.measureMs, 50000);
   assert.equal(plan.plannedMeasuredMsInDocument, 50000); assert.equal(plan.plannedMeasuredMsAcrossDocuments, 50000);
 });
+
+
+test('readback diagnostics measure one uninterrupted180s window with the same warmup and six export-only bins', () => {
+  const run = new ContinuousComparisonRun(options({studyOptions: 'g-readback-continuous', maxSwitchMs: 90000}));
+  run.begin(0); assert.equal(run.status.pipeline, 'g-readback'); run.switched(run.status.token, 1000);
+  for (let i = 1; i <= 3; i++) run.observe(frame(1000 + i * 100, i, 'g-readback'));
+  run.tick(6000); assert.equal(run.status.state, 'measuring');
+  run.observe(frame(6500, 10, 'g-readback', {native: {'pbo.readbackMs': 1.5}}));
+  run.observe(frame(6600, 11, 'g'));
+  assert.equal(rows(run).at(-1)!.exclusion, 'previous-or-unrequested-pipeline');
+  run.tick(36000); assert.equal(run.status.windowIndex, 0); assert.equal(run.status.state, 'measuring');
+  run.tick(186000); assert.equal(run.status.state, 'complete');
+  assert.equal(windows(run).length, 1); assert.equal(windows(run)[0]!.summary.durationMs, 180000);
+  assert.deepEqual(analysisBins(run).map(bin => bin.summary.durationMs), [30000,30000,30000,30000,30000,30000]);
+  assert.equal(rows(run).find(row => row.fields.sequence === 10)!.native!['pbo.readbackMs'], 1.5);
+});

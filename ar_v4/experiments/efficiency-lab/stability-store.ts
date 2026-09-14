@@ -1,5 +1,6 @@
 /** Local scalar receipts across real document reloads. Never used in the frame loop. */
-export type StabilityCondition = 'continuous' | 'restarted' | 'fresh-page';
+export type StabilityMode = 'stability' | 'readback';
+export type StabilityCondition = 'continuous' | 'restarted' | 'fresh-page' | 'readback-control' | 'readback-diagnostic';
 export type StabilitySelection = StabilityCondition | 'all';
 export type StabilityDirection = 'forward' | 'reverse';
 export interface StabilityIdentity {
@@ -18,7 +19,7 @@ export interface StabilityReceipt {
   bytes: number; summary: Record<string, unknown>;
 }
 export interface StabilityManifest {
-  schema: 'ar-g-stability-suite-v1'; id: string; identity: StabilityIdentity;
+  schema: 'ar-g-stability-suite-v1' | 'ar-g-readback-suite-v1'; id: string; identity: StabilityIdentity;
   selection: StabilitySelection; direction: StabilityDirection; plan: StabilityChunk[];
   createdAtMs: number; updatedAtMs: number; status: 'ready' | 'running' | 'complete' | 'partial';
   nextChunkIndex: number; handoffToken: string | null; active: StabilityClaim | null;
@@ -26,6 +27,7 @@ export interface StabilityManifest {
   interrupted: {chunkId: string; documentId: string; reason: string; endedAtMs: number} | null;
 }
 export interface CreateStabilityOptions {
+  mode?: StabilityMode;
   identity: StabilityIdentity; selection: StabilitySelection; direction: StabilityDirection;
 }
 export interface ClaimStabilityOptions {
@@ -49,10 +51,13 @@ export interface StabilityExportParts {
     summary: Record<string, unknown>; completed: boolean}[];
 }
 export const STABILITY_DATABASE = 'ar-g-stability-v1';
+export const READBACK_DATABASE = 'ar-g-readback-v1';
 export const STABILITY_MAX_REPORT_BYTES = 48 * 1024 * 1024;
 export const STABILITY_MAX_SUITE_BYTES = 192 * 1024 * 1024;
 const MAX_SUMMARY_BYTES = 128 * 1024;
 const CONDITIONS: readonly StabilityCondition[] = ['continuous', 'restarted', 'fresh-page'];
+const READBACK_CONDITIONS: readonly StabilityCondition[] = ['readback-control', 'readback-diagnostic'];
+const schemaFor = (mode: StabilityMode): StabilityManifest['schema'] => mode === 'readback' ? 'ar-g-readback-suite-v1' : 'ar-g-stability-suite-v1';
 export class StabilityStoreError extends Error {
   readonly code: 'storage' | 'existing' | 'stale' | 'mismatch' | 'invalid';
   constructor(code: StabilityStoreError['code'], message: string) { super(message); this.name = 'StabilityStoreError'; this.code = code; }
@@ -61,17 +66,18 @@ const fail = (code: StabilityStoreError['code'], message: string): never => {thr
 const nonempty = (value: unknown, max = 512): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
 const copy = <T>(value: T): T => structuredClone(value);
 
-export function createStabilityPlan(selection: StabilitySelection, direction: StabilityDirection): StabilityChunk[] {
-  if (!(selection === 'all' || CONDITIONS.includes(selection)) || !['forward', 'reverse'].includes(direction))
+export function createStabilityPlan(selection: StabilitySelection, direction: StabilityDirection, mode: StabilityMode = 'stability'): StabilityChunk[] {
+  const available = mode === 'readback' ? READBACK_CONDITIONS : CONDITIONS;
+  if (!['stability', 'readback'].includes(mode) || !(selection === 'all' || available.includes(selection)) || !['forward', 'reverse'].includes(direction))
     fail('invalid', 'Invalid stability condition or order.');
-  const conditions = selection === 'all' ? [...CONDITIONS] : [selection];
+  const conditions = selection === 'all' ? [...available] : [selection];
   if (direction === 'reverse') conditions.reverse();
   const plan: StabilityChunk[] = [];
   for (const condition of conditions) {
     const pages = condition === 'fresh-page' ? 6 : 1;
     for (let page = 0; page < pages; page++) {
       const windowCount = condition === 'restarted' ? 6 : 1;
-      const measureMs = condition === 'continuous' ? 180_000 : 30_000;
+      const measureMs = condition === 'continuous' || mode === 'readback' ? 180_000 : 30_000;
       plan.push({id: `${condition}-${page + 1}`, index: plan.length, condition,
         conditionWindow: page, windowCount, measureMs, totalMeasureMs: windowCount * measureMs});
     }
@@ -93,8 +99,8 @@ export function createStabilityManifest(options: CreateStabilityOptions,
   ids: {suiteId: string; token: string; now: number}): StabilityManifest {
   validateIdentity(options.identity);
   if (!nonempty(ids.suiteId) || !nonempty(ids.token) || !Number.isFinite(ids.now)) fail('invalid', 'Invalid suite identity.');
-  return {schema: 'ar-g-stability-suite-v1', id: ids.suiteId, identity: copy(options.identity),
-    selection: options.selection, direction: options.direction, plan: createStabilityPlan(options.selection, options.direction),
+  return {schema: schemaFor(options.mode ?? 'stability'), id: ids.suiteId, identity: copy(options.identity),
+    selection: options.selection, direction: options.direction, plan: createStabilityPlan(options.selection, options.direction, options.mode),
     createdAtMs: ids.now, updatedAtMs: ids.now, status: 'ready', nextChunkIndex: 0, handoffToken: ids.token,
     active: null, results: [], interrupted: null};
 }
@@ -151,13 +157,17 @@ export function interruptStabilityManifest(manifest: StabilityManifest, options:
 
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
-/** Bind every raw report to the claimed G document; scalars from different page clocks remain separate. */
+/** Bind each raw report to its claimed pipeline and document; page clocks remain separate. */
 export function validateStabilityCompletion(manifest: StabilityManifest, options: CompleteStabilityOptions): void {
   const active = requireOwner(manifest, options), report = options.report;
   const chunk = manifest.plan[manifest.nextChunkIndex]!;
   const protocol = record(report.protocol), metadata = record(report.metadata), ownership = record(metadata.stability);
   const workload = record(report.workload), build = record(metadata.build);
-  const study = chunk.condition === 'continuous' ? 'g-continuous' : chunk.condition === 'restarted' ? 'g-restart' : 'g-page';
+  const readback = manifest.schema === 'ar-g-readback-suite-v1';
+  const pipeline = chunk.condition === 'readback-diagnostic' ? 'g-readback' : 'g';
+  const study = chunk.condition === 'readback-diagnostic' ? 'g-readback-continuous'
+    : chunk.condition === 'continuous' || chunk.condition === 'readback-control' ? 'g-continuous'
+      : chunk.condition === 'restarted' ? 'g-restart' : 'g-page';
   const windows = Array.isArray(report.windows) ? report.windows : [];
   const rows = Array.isArray(report.rows) ? report.rows : null;
   const order = Array.isArray(protocol.order) ? protocol.order : [];
@@ -167,8 +177,9 @@ export function validateStabilityCompletion(manifest: StabilityManifest, options
     || typeof ownership.timeOrigin !== 'number' || !Number.isFinite(ownership.timeOrigin) || ownership.timeOrigin <= 0
     || metadata.performanceTimeOriginMs !== ownership.timeOrigin
     || protocol.studyOptions !== study || protocol.measureMs !== chunk.measureMs
-    || windows.length !== chunk.windowCount || order.length !== chunk.windowCount || order.some(value => value !== 'g')
-    || windows.some(value => record(value).pipeline !== 'g')
+    || windows.length !== chunk.windowCount || order.length !== chunk.windowCount || order.some(value => value !== pipeline)
+    || windows.some(value => record(value).pipeline !== pipeline)
+    || (readback && (ownership.condition !== chunk.condition || ownership.chunkIndex !== chunk.index))
     || workload.eyewearId !== manifest.identity.eyewearId || workload.hairModelId !== manifest.identity.hairModelId
     || workload.variant !== manifest.identity.variant || workload.sourceWidth !== manifest.identity.sourceWidth
     || workload.sourceHeight !== manifest.identity.sourceHeight
@@ -176,9 +187,26 @@ export function validateStabilityCompletion(manifest: StabilityManifest, options
       const row = record(value), fields = record(row.fields);
       const diagnosticSession = !options.complete && row.phase === 'excluded' && row.exclusion === 'session-mismatch';
       const diagnosticPipeline = row.phase === 'excluded' && row.exclusion === 'previous-or-unrequested-pipeline';
-      return (fields.sessionId !== report.sessionId && !diagnosticSession) || (fields.pipeline !== 'g' && !diagnosticPipeline);
+      return (fields.sessionId !== report.sessionId && !diagnosticSession) || (fields.pipeline !== pipeline && !diagnosticPipeline);
     }))
     fail('mismatch', 'The report does not match this G test, page clock, build or fixed workload. It has not advanced the saved suite.');
+  // A diagnostic receipt cannot advance from a shorter smoke test or an unrelated
+  // G run. Validate the uninterrupted interval and export-only bins independently.
+  if (readback && options.complete) {
+    const window = record(windows[0]), summary = record(window.summary), bins = Array.isArray(report.analysisBins) ? report.analysisBins : [];
+    const start = window.measureStartedAtMs, end = window.endedAtMs;
+    const sameTime = (a: unknown, b: number): boolean => typeof a === 'number' && Number.isFinite(a) && Math.abs(a - b) < 0.000001;
+    if (typeof start !== 'number' || !Number.isFinite(start) || start < 0 || !sameTime(end, start + chunk.measureMs)
+      || !sameTime(window.plannedEndAtMs, start + chunk.measureMs) || !sameTime(summary.durationMs, chunk.measureMs)
+      || !sameTime(summary.startAtMs, start) || !sameTime(summary.endAtMs, start + chunk.measureMs)
+      || bins.length !== 6 || bins.some((value, index) => {
+        const bin = record(value), binSummary = record(bin.summary), begin = start + index * 30_000;
+        return bin.index !== index || bin.windowIndex !== 0 || bin.completed !== true
+          || !sameTime(bin.plannedStartAtMs, begin) || !sameTime(bin.plannedEndAtMs, begin + 30_000)
+          || !sameTime(binSummary.startAtMs, begin) || !sameTime(binSummary.endAtMs, begin + 30_000)
+          || !sameTime(binSummary.durationMs, 30_000);
+      })) fail('mismatch', 'The completed readback report does not match the uninterrupted 180-second measurement and six analysis bins.');
+  }
   if (options.complete && (report.completed !== true || report.partial !== false
     || windows.some(value => record(value).completed !== true) || record(report.hairDeliveryDrain).state !== 'drained'))
     fail('invalid', 'This test or its pending hair work is incomplete. Save it as a partial report.');
@@ -215,13 +243,15 @@ interface StoredReport {chunkId: string; blob: Blob;}
 
 export class StabilityStore {
   private readonly database: IDBDatabase;
-  constructor(database: IDBDatabase) {this.database = database;}
+  private readonly mode: StabilityMode;
+  constructor(database: IDBDatabase, mode: StabilityMode = 'stability') {this.database = database; this.mode = mode;}
   close(): void {this.database.close();}
   read(): Promise<StabilityManifest | null> {
     return this.manifestTransaction('readonly', manifest => manifest);
   }
   create(options: CreateStabilityOptions): Promise<StabilityManifest> {
-    const manifest = createStabilityManifest(options, {suiteId: crypto.randomUUID(), token: crypto.randomUUID(), now: Date.now()});
+    if (options.mode !== undefined && options.mode !== this.mode) return Promise.reject(new StabilityStoreError('mismatch', 'The selected suite belongs to a different diagnostic store.'));
+    const manifest = createStabilityManifest({...options, mode: this.mode}, {suiteId: crypto.randomUUID(), token: crypto.randomUUID(), now: Date.now()});
     return this.manifestTransaction('readwrite', (existing, tx) => {
       if (existing) fail('existing', 'A saved suite already exists. Export it, then explicitly clear it before starting another.');
       tx.objectStore('manifest').put(manifest, 'current'); return manifest;
@@ -298,17 +328,21 @@ export class StabilityStore {
       transaction.onerror = () => {failure ??= transaction.error;};
       const request = transaction.objectStore('manifest').get('current');
       request.onsuccess = () => {
-        try {result = operation((request.result as StabilityManifest | undefined) ?? null, transaction);}
+        try {
+          const manifest = (request.result as StabilityManifest | undefined) ?? null;
+          if (manifest && manifest.schema !== schemaFor(this.mode)) fail('mismatch', 'The saved test belongs to a different diagnostic store.');
+          result = operation(manifest, transaction);
+        }
         catch (error) {failure = error; transaction.abort();}
       };
     });
   }
 }
-export function openStabilityStore(factory: IDBFactory | undefined = globalThis.indexedDB): Promise<StabilityStore> {
+export function openStabilityStore(factory: IDBFactory | undefined = globalThis.indexedDB, mode: StabilityMode = 'stability'): Promise<StabilityStore> {
   if (!factory) return Promise.reject(new StabilityStoreError('storage', 'This browser cannot save measurements across page reloads.'));
   return new Promise((resolve, reject) => {
     let request: IDBOpenDBRequest, settled = false;
-    try {request = factory.open(STABILITY_DATABASE, 1);} catch (error) {reject(storageError(error)); return;}
+    try {request = factory.open(mode === 'readback' ? READBACK_DATABASE : STABILITY_DATABASE, 1);} catch (error) {reject(storageError(error)); return;}
     request.onupgradeneeded = () => {
       request.result.createObjectStore('manifest'); request.result.createObjectStore('reports');
     };
@@ -317,7 +351,7 @@ export function openStabilityStore(factory: IDBFactory | undefined = globalThis.
     request.onsuccess = () => {
       if (settled) {request.result.close(); return;}
       settled = true; request.result.onversionchange = () => request.result.close();
-      resolve(new StabilityStore(request.result));
+      resolve(new StabilityStore(request.result, mode));
     };
   });
 }

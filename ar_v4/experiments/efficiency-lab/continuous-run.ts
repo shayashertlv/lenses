@@ -9,6 +9,8 @@ export const HAIR_DELIVERY_PIPELINES = Object.freeze(['g', 'hair-release'] as co
 export const PER_IMAGE_PIPELINES = Object.freeze(['g', 'mask-bytes', 'gl-state', 'word-compose'] as const);
 export const MASK_PREVIEW_PIPELINES = Object.freeze(['g', 'mask-bytes'] as const);
 export const G_STABILITY_PLANS = Object.freeze({
+  'g-readback-continuous': Object.freeze({windowCount: 1, documentCount: 1, measureMs: 180000,
+    runtimePolicy: 'uninterrupted-runtime', analysisBinMs: 30000}),
   'g-continuous': Object.freeze({windowCount: 1, documentCount: 1, measureMs: 180000,
     runtimePolicy: 'uninterrupted-runtime', analysisBinMs: 30000}),
   'g-restart': Object.freeze({windowCount: 6, documentCount: 1, measureMs: 30000,
@@ -17,7 +19,7 @@ export const G_STABILITY_PLANS = Object.freeze({
     runtimePolicy: 'fresh-document-every-window', analysisBinMs: null}),
 });
 export type GStabilityStudy = keyof typeof G_STABILITY_PLANS;
-export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number] | FpsReviewCandidate;
+export type ContinuousPipeline = ReviewPipeline | typeof HAIR_DELIVERY_PIPELINES[number] | typeof PER_IMAGE_PIPELINES[number] | FpsReviewCandidate | 'g-readback';
 export const CONTINUOUS_STUDIES = Object.freeze({
   review: Object.freeze({pipelines: REVIEW_PIPELINES, defaultVideo: true, approximateMinutes: 6}),
   'hair-delivery': Object.freeze({pipelines: HAIR_DELIVERY_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
@@ -25,6 +27,7 @@ export const CONTINUOUS_STUDIES = Object.freeze({
   'mask-preview': Object.freeze({pipelines: MASK_PREVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 2.5}),
   'fps-review': Object.freeze({pipelines: Object.freeze(['g', 'face-cpu'] as const), defaultVideo: false, approximateMinutes: 2.5}),
   'fps-all': Object.freeze({pipelines: FPS_REVIEW_PIPELINES, defaultVideo: false, approximateMinutes: 7}),
+  'g-readback-continuous': Object.freeze({pipelines: Object.freeze(['g-readback'] as const), defaultVideo: false, approximateMinutes: 3.1}),
   'g-continuous': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.1}),
   'g-restart': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.5}),
   'g-page': Object.freeze({pipelines: Object.freeze(['g'] as const), defaultVideo: false, approximateMinutes: 3.5}),
@@ -155,7 +158,7 @@ export class ContinuousComparisonRun {
       ? ['g', options.candidate ?? 'face-cpu'] : CONTINUOUS_STUDIES[this.options.studyOptions].pipelines;
     const first = direction === 'forward' ? [...studyPipelines] : [...studyPipelines].reverse();
     const order: ContinuousPipeline[] = stabilityPlan
-      ? Array.from({length: stabilityPlan.windowCount}, () => 'g') : [...first, ...[...first].reverse()];
+      ? Array.from({length: stabilityPlan.windowCount}, () => studyPipelines[0]!) : [...first, ...[...first].reverse()];
     this.windows = order.map((pipeline, index) => ({index, token: index + 1,
       round: stabilityPlan ? index + 1 : index < first.length ? 1 : 2, pipeline, requestedAtMs: null, switchedAtMs: null,
       firstFrameAtMs: null, measureStartedAtMs: null, plannedEndAtMs: null, endedAtMs: null,
@@ -316,7 +319,7 @@ export class ContinuousComparisonRun {
         rejectedRows: this.rejectedRows, rejectedVideoObservations: this.rejectedVideoObservations,
         truncated: false, policy: 'No ring buffer: reaching either limit stops the run as partial and reports the rejected observation.'},
       privacy: 'Scalar timing and workload metadata only. No camera pixels, image hashes, detections, landmarks or masks. An explicitly requested separate video entry may contain the visible camera image.',
-      windows, ...(this.options.studyOptions === 'g-continuous' ? {analysisBins: this.analysisBins()} : {}),
+      windows, ...(stabilityPlan?.analysisBinMs ? {analysisBins: this.analysisBins()} : {}),
       events: this.events.map(event => ({...event})),
       rows: this.rows.map(row => ({...row, fields: {...row.fields}, native: row.native ? {...row.native} : null, invalidFields: [...row.invalidFields]})),
       videoObservations: this.videos.map(observation => ({...observation})),

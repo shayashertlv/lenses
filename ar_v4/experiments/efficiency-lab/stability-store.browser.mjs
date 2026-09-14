@@ -18,13 +18,16 @@ async function fixture(t){
     globalThis.identity={buildId:'build-one',eyewearId:'amber-horizon',hairModelId:'hair-only',variant:'hair',sourceWidth:720,sourceHeight:1280,power:'unknown'};
     globalThis.reportFor=manifest=>{
       const chunk=manifest.plan[manifest.nextChunkIndex],active=manifest.active;
+      const pipeline=chunk.condition==='readback-diagnostic'?'g-readback':'g',readback=manifest.schema==='ar-g-readback-suite-v1';
+      const start=5000,end=start+chunk.measureMs;
       return {schema:'ar-continuous-comparison-v1',sessionId:'session-'+active.documentId,
         workload:manifest.identity,completed:true,partial:false,
         metadata:{build:{id:manifest.identity.buildId},performanceTimeOriginMs:performance.timeOrigin,
-          stability:{suiteId:manifest.id,chunkId:chunk.id,documentId:active.documentId,buildId:manifest.identity.buildId,timeOrigin:performance.timeOrigin}},
-        protocol:{studyOptions:chunk.condition==='continuous'?'g-continuous':chunk.condition==='restarted'?'g-restart':'g-page',measureMs:chunk.measureMs,order:Array(chunk.windowCount).fill('g')},
-        windows:Array.from({length:chunk.windowCount},()=>({pipeline:'g',completed:true})),
-        rows:[{fields:{sessionId:'session-'+active.documentId,pipeline:'g',capturedAtMs:11,publishedAtMs:21},native:{workerMs:5}}],hairDeliveryDrain:{state:'drained'}};
+          stability:{suiteId:manifest.id,chunkId:chunk.id,documentId:active.documentId,buildId:manifest.identity.buildId,timeOrigin:performance.timeOrigin,condition:chunk.condition,chunkIndex:chunk.index}},
+        protocol:{studyOptions:chunk.condition==='readback-diagnostic'?'g-readback-continuous':chunk.condition==='readback-control'||chunk.condition==='continuous'?'g-continuous':chunk.condition==='restarted'?'g-restart':'g-page',measureMs:chunk.measureMs,order:Array(chunk.windowCount).fill(pipeline)},
+        windows:Array.from({length:chunk.windowCount},()=>({pipeline,completed:true,measureStartedAtMs:start,plannedEndAtMs:end,endedAtMs:end,summary:{startAtMs:start,endAtMs:end,durationMs:chunk.measureMs}})),
+        analysisBins:readback?Array.from({length:6},(_,index)=>({index,windowIndex:0,completed:true,plannedStartAtMs:start+index*30000,plannedEndAtMs:start+(index+1)*30000,summary:{startAtMs:start+index*30000,endAtMs:start+(index+1)*30000,durationMs:30000}})):[],
+        rows:[{fields:{sessionId:'session-'+active.documentId,pipeline,capturedAtMs:11,publishedAtMs:21},native:{workerMs:5}}],hairDeliveryDrain:{state:'drained'}};
     };
     globalThis.saveOwned=async(store,manifest,complete=true)=>store.complete({suiteId:manifest.id,token:manifest.active.token,documentId:manifest.active.documentId,
       report:reportFor(manifest),summary:{completedArFps:18,frameAgeMs:{p95:155}},complete});
@@ -89,4 +92,41 @@ test('existing suite and partial raw reports are retained until an explicit matc
   assert.deepEqual(result.errors,['existing','stale','stale']);assert.equal(result.saved.status,'partial');
   assert.equal(result.exported.reports.length,1);assert.equal(result.exported.reports[0].completed,false);
   assert.equal(result.empty,null);assert.equal(result.next.status,'ready');assert.notEqual(result.next.id,result.saved.id);
+});
+
+test('readback IndexedDB stays separate from saved stability data and atomically rejects a foreign-pipeline receipt',{timeout:30_000},async t=>{
+  const {page}=await fixture(t);
+  const result=await page.evaluate(async()=>{
+    const oldStore=await Stability.openStabilityStore(),store=await Stability.openStabilityStore(indexedDB,'readback');
+    const old=await oldStore.create({identity,selection:'continuous',direction:'forward'});
+    const created=await store.create({identity,selection:'all',direction:'reverse'});
+    const active=await store.claim({suiteId:created.id,token:created.handoffToken,identity,documentId:'diagnostic-page'});
+    const foreign=reportFor(active);foreign.rows[0].fields.pipeline='g';
+    let mismatch;
+    try{await store.complete({suiteId:active.id,token:active.active.token,documentId:active.active.documentId,report:foreign,summary:{},complete:true});}
+    catch(error){mismatch=error.code;}
+    const afterFailure=await store.read(),empty=await store.exportParts();
+    const saved=await saveOwned(store,active),oldPreserved=await oldStore.read();
+    store.close();oldStore.close();return{old,created,mismatch,afterFailure,countAfterFailure:empty.reports.length,saved,oldPreserved};
+  });
+  assert.equal(result.created.schema,'ar-g-readback-suite-v1');
+  assert.equal(result.created.plan[0].condition,'readback-diagnostic');
+  assert.equal(result.mismatch,'mismatch');assert.equal(result.afterFailure.status,'running');
+  assert.equal(result.countAfterFailure,0);assert.equal(result.saved.status,'ready');
+  assert.deepEqual(result.oldPreserved,result.old);
+  await page.reload();
+  const reloaded=await page.evaluate(async()=>{
+    const store=await Stability.openStabilityStore(indexedDB,'readback'),manifest=await store.read(),errors=[];
+    for(const claim of [{token:'stale',documentId:'control-page'},{token:manifest.handoffToken,documentId:'diagnostic-page'}]){
+      try{await store.claim({suiteId:manifest.id,identity,...claim});}catch(error){errors.push(error.code);}
+    }
+    const active=await store.claim({suiteId:manifest.id,token:manifest.handoffToken,identity,documentId:'control-page'});
+    const complete=await saveOwned(store,active),raw=await store.exportReports();
+    await store.delete(complete.id);store.close();
+    const oldStore=await Stability.openStabilityStore(),old=await oldStore.read();oldStore.close();
+    return{errors,complete,raw,old};
+  });
+  assert.deepEqual(reloaded.errors,['stale','stale']);assert.equal(reloaded.complete.status,'complete');
+  assert.deepEqual(reloaded.raw.reports.map(part=>part.report.protocol.order),[['g-readback'],['g']]);
+  assert.equal(reloaded.old.id,result.old.id);
 });

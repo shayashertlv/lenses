@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101715"><title>Lenses · Efficiency comparison</title>
-  <script type="module" crossorigin src="/ar_testing/assets/arTesting-BMhGfPYv.js"></script>
+  <script type="module" crossorigin src="/ar_testing/assets/arTesting-Dx2wZ8tC.js"></script>
   <link rel="stylesheet" crossorigin href="/ar_testing/assets/arTesting-DKisj5zb.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
   <header class="topbar"><a class="brand" href="./live.html">lenses<span class="brand-dot">.</span></a><span class="version">AR / V4 <span>EFFICIENCY LAB</span></span></header>
   <section class="intro"><div><p class="eyebrow">THE VIRTUAL MIRROR</p><h1 id="study-heading">Find the next smoother mirror.</h1></div><p class="intro-note" id="study-intro">Compare G with separate efficiency experiments. Judge completed updates, image freshness and the same held image.</p></section>
   <div class="preview-notice"><strong>G remains the current baseline.</strong> <span id="study-notice">Q–T test four new ideas separately. Earlier efficiency and reduced-rate experiments remain available here.</span> <a href="/" target="_blank" rel="noopener">Back to Lenses ↗</a></div>
-  <nav class="study-links" aria-label="Comparison studies"><a id="stability-study" href="?study=g-stability">G stability test</a><a id="fps-review-study" href="?study=fps-review">All FPS experiments</a><a id="mask-preview-study" href="?study=mask-preview">Earlier G / V preview</a></nav>
+  <nav class="study-links" aria-label="Comparison studies"><a id="readback-study" href="?study=readback-diagnostic">G readback diagnostic</a><a id="stability-study" href="?study=g-stability">G stability test</a><a id="fps-review-study" href="?study=fps-review">All FPS experiments</a><a id="mask-preview-study" href="?study=mask-preview">Earlier G / V preview</a></nav>
   <div class="tryon-layout">
     <section class="stage" data-state="idle" aria-label="Live hair occlusion mirror">
       <canvas id="mirror" hidden aria-label="Mirrored camera and glasses"></canvas>
@@ -23,12 +23,12 @@
     <aside class="sidebar">
       <section id="stability-panel" class="continuous-panel" hidden aria-labelledby="stability-title" data-state="loading">
         <p class="eyebrow">G STABILITY TEST</p><h2 id="stability-title">Three controls, one result.</h2>
-        <p class="control-hint">Each condition measures the same G for three minutes. Continuous G runs without interruption. Restarted G rebuilds workers between six 30-second windows. Fresh-page G reloads the whole page between six 30-second windows. Setup and the five-second / three-matching-mask warmup stay separate.</p>
+        <p class="control-hint" id="stability-protocol">Each condition measures the same G for three minutes. Continuous G runs without interruption. Restarted G rebuilds workers between six 30-second windows. Fresh-page G reloads the whole page between six 30-second windows. Setup and the five-second / three-matching-mask warmup stay separate.</p>
         <label class="eyebrow" for="stability-condition">TESTS TO RUN</label>
         <select id="stability-condition"><option value="all">All three · about 11 minutes</option><option value="continuous">Continuous G · about 3 minutes</option><option value="restarted">Restarted G · about 4 minutes</option><option value="fresh-page">Fresh-page G · about 4 minutes</option></select>
         <label class="control-hint" for="stability-order">Condition order</label>
         <select id="stability-order"><option value="forward">Continuous → restarted → fresh page</option><option value="reverse">Fresh page → restarted → continuous</option></select>
-        <p class="control-hint">Video stays off. Keep lighting, power settings and your phone position consistent. Follow front/nose, down, up, left and right cues every 30 seconds. A page reload does not cool the phone; repeat in reverse order after cooling for a stronger comparison.</p>
+        <p class="control-hint" id="stability-movement">Video stays off. Keep lighting, power settings and your phone position consistent. Follow front/nose, down, up, left and right cues every 30 seconds. A page reload does not cool the phone; repeat in reverse order after cooling for a stronger comparison.</p>
         <button id="stability-start" class="primary" disabled>Start G stability tests</button>
         <button id="stability-stop" class="quiet" hidden>Stop and keep partial results</button>
         <button id="stability-resume" class="primary" hidden>Continue test</button>

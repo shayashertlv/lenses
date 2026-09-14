@@ -12,7 +12,7 @@ export function fpsReviewCandidate(search: string): FpsReviewCandidate {
   const candidate = new URLSearchParams(search).get('candidate');
   return FPS_REVIEW_CANDIDATES.includes(candidate as FpsReviewCandidate) ? candidate as FpsReviewCandidate : 'face-cpu';
 }
-export const PIPELINES = ['g', 'scratch', 'lean', 'deferred', 'temples', 'combined', 'rate12', 'rate10', 'rate8', 'mask', 'publish', 'region', 'lens', 'ui', 'hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose'] as const;
+export const PIPELINES = ['g', 'scratch', 'lean', 'deferred', 'temples', 'combined', 'rate12', 'rate10', 'rate8', 'mask', 'publish', 'region', 'lens', 'ui', 'hair-release', 'mask-bytes', 'gl-state', 'word-compose', 'face-cpu', 'render-worker', 'frame-copy', 'reuse-compose', 'g-readback'] as const;
 export type Pipeline = typeof PIPELINES[number];
 export const DEFAULT_PIPELINE: Pipeline = 'g';
 export const CURRENT_BASE_METADATA = Object.freeze({currentBase: 'g', ownerSelectedG: true,
@@ -25,7 +25,7 @@ export const PIPELINE_LABELS: Record<Pipeline, string> = {
   publish: 'Q · Skip repeat image upload', region: 'R · Smaller temple download',
   lens: 'S · Lean temple render', ui: 'T · Lighter statistics', 'hair-release': 'U · Earlier hair processing',
   'mask-bytes': 'V · Byte-format hair download', 'gl-state': 'W · Fewer graphics queries', 'word-compose': 'X · Faster pixel comparisons',
-  'face-cpu': 'CPU face tracking', 'render-worker': 'Worker rendering', 'frame-copy': 'VideoFrame camera copy', 'reuse-compose': 'Compositor reuse',
+  'face-cpu': 'CPU face tracking', 'render-worker': 'Worker rendering', 'frame-copy': 'VideoFrame camera copy', 'reuse-compose': 'Compositor reuse', 'g-readback': 'G · Readback diagnostics',
 };
 const g = {reuseSourcePixels: true, fewerCopies: true, asyncReadback: true, prewarmTemples: true};
 const profile = (extra: {poolReadbackScratch?: boolean; asyncTemples?: boolean; cropBranchReadback?: boolean; omitBranchLenses?: boolean; ownedPackState?: boolean; wordCompose?: boolean; reviewCompose?: boolean}, detail: string,
@@ -35,6 +35,7 @@ const profile = (extra: {poolReadbackScratch?: boolean; asyncTemples?: boolean; 
   mode: 'overlap' as const, leanInputs, deferPrefetch, captureRateHz, hairExtractionMode, suppressUnchangedPublication, throttleUi, releaseHairWorkerEarly, detail});
 export const PROFILES = {
   g: profile({}, 'The unchanged G renderer and its current two-image scheduling. Your reference for every comparison.'),
+  'g-readback': profile({}, 'G with additional readback timers. Same scheduling, pixels and safeguards. Compare with unchanged G to measure diagnostic overhead.'),
   scratch: profile({poolReadbackScratch: true}, 'G with reusable private download memory. Captured and held output images stay independently owned.'),
   lean: profile({}, 'G with fewer camera-input allocations and one less full-image copy before hashing.', true),
   deferred: profile({}, 'Start the next image’s inference after the current main image’s graphics submission. Compare freshness as well as update rate.', false, true),
@@ -63,9 +64,10 @@ export function usesBaseRenderer(id: Pipeline): boolean {return id === 'g' || id
 /** Focused previews hide unrelated choices without removing them from the lab. */
 export function studyPipelines(search: string): readonly Pipeline[] {
   const study = new URLSearchParams(search).get('study');
+  if (study === 'readback-diagnostic') return ['g', 'g-readback'];
   if (study === 'g-stability') return ['g'];
   if (study === 'fps-review') return fpsReviewIsAll(search) ? FPS_REVIEW_PIPELINES : ['g', fpsReviewCandidate(search)];
-  return study === 'mask-preview' ? ['g', 'mask-bytes'] : study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES;
+  return study === 'mask-preview' ? ['g', 'mask-bytes'] : study === 'per-image' ? ['g', 'mask-bytes', 'gl-state', 'word-compose'] : study === 'hair-delivery' ? ['g', 'hair-release'] : study === 'review' ? ['g', 'publish', 'region', 'lens', 'ui'] : study === 'mask' ? ['g', 'mask'] : PIPELINES.filter(id => id !== 'g-readback');
 }
 
 /** The existing Python mount redirects to study=review. Update its destination
@@ -74,7 +76,7 @@ export function previewSearch(search: string, mobile: boolean): string {
   const params = new URLSearchParams(search);
   const study = params.get('study');
   if (!mobile || params.get('legacy') === '1' || (study !== null && study !== 'review')) return search;
-  params.set('study', 'g-stability');
+  params.set('study', 'readback-diagnostic');
   return '?' + params.toString();
 }
 

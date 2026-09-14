@@ -81,7 +81,7 @@ test('review study keeps G as default and accepts only its own explicit candidat
   assert.deepEqual(studyPipelines('?study=mask'), ['g','mask']);
   assert.equal(initialPipeline('?study=mask&pipeline=mask'), 'mask');
   assert.equal(initialPipeline('?study=mask&pipeline=lens'), 'g');
-  assert.deepEqual(studyPipelines(''), PIPELINES);
+  assert.deepEqual(studyPipelines(''), PIPELINES.filter(id => id !== 'g-readback'));
   assert.equal(initialPipeline(''), 'g');
 });
 
@@ -152,16 +152,16 @@ test('G stability exposes only G regardless of an explicit candidate or pipeline
   }
 });
 
-test('mobile entry opens G stability and keeps explicit FPS and historical URLs available', () => {
+test('mobile entry opens G readback diagnostics and keeps explicit FPS and historical URLs available', () => {
   for (const search of ['', '?study=review']) {
     const normalized = previewSearch(search, true);
-    assert.equal(new URLSearchParams(normalized).get('study'), 'g-stability');
-    assert.deepEqual(studyPipelines(normalized), ['g']);
+    assert.equal(new URLSearchParams(normalized).get('study'), 'readback-diagnostic');
+    assert.deepEqual(studyPipelines(normalized), ['g', 'g-readback']);
     assert.equal(initialPipeline(normalized), 'g');
     assert.equal(previewSearch(normalized, true), normalized);
   }
   const selected = new URLSearchParams(previewSearch('?study=review&pipeline=mask-bytes&capture=scalar', true));
-  assert.equal(selected.get('study'), 'g-stability');
+  assert.equal(selected.get('study'), 'readback-diagnostic');
   assert.equal(selected.get('pipeline'), 'mask-bytes'); assert.equal(selected.get('capture'), 'scalar');
   assert.equal(initialPipeline('?' + selected.toString()), 'g', 'obsolete candidate parameters cannot select a candidate in stability');
   for (const search of ['?study=review&legacy=1', '?study=per-image', '?study=hair-delivery', '?study=mask-preview',
@@ -169,4 +169,15 @@ test('mobile entry opens G stability and keeps explicit FPS and historical URLs 
     assert.equal(previewSearch(search, true), search);
   for (const search of ['', '?study=review', '?study=review&pipeline=region'])
     assert.equal(previewSearch(search, false), search);
+});
+
+test('readback diagnostics preserve every G pipeline setting and require a focused preview', () => {
+  const {detail: _a, ...a} = PROFILES.g, {detail: _b, ...b} = PROFILES['g-readback'];
+  assert.deepEqual(a, b);
+  assert.deepEqual(studyPipelines('?study=readback-diagnostic'), ['g', 'g-readback']);
+  assert.equal(initialPipeline('?study=readback-diagnostic'), 'g');
+  assert.equal(initialPipeline('?study=readback-diagnostic&pipeline=g-readback'), 'g-readback');
+  assert.equal(initialPipeline('?pipeline=g-readback'), 'g');
+  assert.equal(studyPipelines('').includes('g-readback'), false);
+  assert.equal(usesBaseRenderer('g-readback'), false, 'Diagnostic renderer requires its separate class, not a G alias.');
 });

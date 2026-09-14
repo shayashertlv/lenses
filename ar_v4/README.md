@@ -17,16 +17,19 @@ its Railway deployment and unrelated model-studio work are separate.
 
 On September 11 the owner explicitly requested a public **ar_testing** option
 on the Lenses landing page. The [mobile comparison](https://web-production-ef3ca.up.railway.app/ar_testing/)
-now opens **G stability tests** (`?study=g-stability`). All three conditions
-measure unchanged G for 180 seconds each: one uninterrupted run, six 30-second
-windows with workers rebuilt between them, and six 30-second windows in fresh
-pages. Allow about 11 minutes plus variable setup. Video is off; completed parts
-are saved locally before automatic page reloads. Save one ZIP at the end.
-The suite uses eight measured documents: one continuous, one restarted and six
-fresh-page documents. Keep glasses, hair model, power and resolution fixed;
-follow front/nose, down, up and both yaw cues. Repeat both glasses and both hair
-models, then reverse condition order to check time drift. Reloading does not
-establish that the phone cooled or identify a thermal cause.
+now opens the **G readback diagnostic** (`?study=readback-diagnostic`). It
+compares unchanged G with the same pipeline plus detailed readback timers.
+Each option gets an uninterrupted 180-second measurement in a fresh document,
+with the same five-second / three-matching-mask warmup. Allow about seven minutes
+plus variable setup. Video is off, results save locally before reload, and one
+ZIP contains both runs. Additional timers can affect performance; this preview
+measures that overhead and does not promote an optimization.
+
+Choose the same glasses, hair model and power setting throughout the suite.
+Follow front/nose, down/up and both yaw cues. Repeat both glasses with both hair
+models, then repeat in reverse order after cooling. The [earlier G stability
+controls](https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=g-stability)
+remain available, and their saved browser results stay in a separate database.
 
 The [all FPS experiments preview](https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=fps-review)
 and [earlier G/V preview](https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=mask-preview)

@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {transformSync} from 'rolldown/utils';
 const wrapper=new URL('../comparison-renderer.ts',import.meta.url);
-const lower=new Set([new URL('../renderer.ts',import.meta.url).href,new URL('../../speed-lab/renderer.ts',import.meta.url).href]);
+const lower=new Set([new URL('../g-readback-diagnostic/renderer.ts',import.meta.url).href,new URL('../renderer.ts',import.meta.url).href,new URL('../../speed-lab/renderer.ts',import.meta.url).href]);
 const hooks=registerHooks({load(url,context,next){
   if(lower.has(url))return {format:'module',shortCircuit:true,source:'export class LiveHairRenderer {}'};
   if(url===wrapper.href)return {format:'module',shortCircuit:true,source:transformSync(fileURLToPath(url),readFileSync(new URL(url),'utf8')).code};

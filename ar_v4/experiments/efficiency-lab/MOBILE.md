@@ -1,10 +1,43 @@
+# G readback diagnostic — current testing ground
+
+The Railway **ar_testing** entry now opens
+`/ar_testing/experiments/efficiency-lab/live.html?study=readback-diagnostic`.
+Refresh an already-open page to load the release. This compares unchanged G with
+G plus timers around existing GPU readback operations. It changes no rendering,
+tracking, scheduling, resolution or nose/front protection. Timers themselves add
+work; this is a diagnostic, not a proposed speedup.
+
+1. Choose glasses, hair model and power. Leave **Both options** and the forward
+   order selected, then tap **Start G readback comparison**.
+2. Keep the page visible for about seven minutes. Each option starts in a fresh
+   document, warms for five seconds and three tracked matching-mask frames, then
+   measures uninterrupted for 180 seconds. Video stays off.
+3. Follow front/nose, down, up, left and right cues every 30 seconds. Allow the
+   automatic reload; tap **Continue test** if camera access needs another gesture.
+4. Tap **Save ZIP** and send the single `ar-g-readback-` archive. It contains both
+   raw reports, separate document clocks and twelve export-only analysis bins.
+5. Save before deleting this browser's test. Repeat both glasses with both hair
+   models, then reversed order after cooling. Individual options are available.
+
+Completed parts commit atomically before reload. Stop, background interruption,
+changed workload/resolution or a failed handoff cannot silently join mismatched
+samples. Partial results and retry/export controls work as described below.
+This preview has separate local storage and page ownership from G stability, so
+previous stability results remain available through its own link. Camera data
+stays local; this timing ZIP contains no images, detections or masks.
+
+Compare completed AR updates, camera delivery, frame age, stalls, startup and
+matching-mask availability separately. Readback durations include driver and
+browser scheduling effects; they are not isolated GPU time. See
+[TIMINGS.md](g-readback-diagnostic/TIMINGS.md) for field meanings and overlap.
+Physical PC/iPhone motion and visual acceptance require the owner's checks.
+
 # G stability testing ground — September 14, 2026
 
-The normal Railway **ar_testing** link (`/ar_testing/`) and query-free mobile
-entry open **G stability tests**:
+The preserved **G stability tests** remain at:
 `/ar_testing/experiments/efficiency-lab/live.html?study=g-stability`.
-Every study links to G stability, **All FPS experiments** and the earlier **G/V**
-preview. Reload an already-open page to load a new release.
+Every study links to G readback diagnostics, G stability, **All FPS experiments**
+and the earlier **G/V** preview. Reload an already-open page to load a new release.
 
 This test investigates the observed decline in completed G updates over time.
 It introduces no rendering optimization and keeps the accepted G implementation,
