@@ -30,9 +30,26 @@ FORBIDDEN_ATTRIBUTES = frozenset({
 })
 FORBIDDEN_NAMES = frozenset({
     "eval", "exec", "compile", "open", "input", "globals", "locals", "vars",
-    "dir", "help", "breakpoint", "memoryview", "object", "type", "super",
+    "dir", "help", "breakpoint", "memoryview", "object", "super",
     "classmethod", "staticmethod", "property", "delattr", "exit", "quit",
 })
+# Exceptions a Blender editing script can legitimately catch. ReferenceError is
+# what Blender raises for a removed datablock; the host's own pixel adapter
+# catches it, so generated code must be able to as well.
+ALLOWED_EXCEPTIONS = (
+    "Exception RuntimeError ValueError TypeError KeyError IndexError AttributeError "
+    "LookupError ArithmeticError OverflowError ZeroDivisionError FloatingPointError "
+    "NameError ReferenceError RecursionError MemoryError UnicodeError "
+    "StopIteration NotImplementedError AssertionError"
+).split()
+
+
+def guarded_type(value, *rest):
+    # type(value) is an ordinary inspection; the three-argument form defines a
+    # class, which the editing contract does not provide.
+    if rest:
+        raise TypeError("type() is available only as type(value); classes cannot be defined")
+    return builtins.type(value)
 
 
 def _attribute_name(name: str) -> None:
@@ -74,17 +91,20 @@ def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
     return builtins.__import__(name, globals, locals, fromlist, level)
 
 
+def builtin_names() -> list[str]:
+    """Every name generated code may use without importing; listed in the prompt."""
+    return sorted(name for name in safe_builtins() if not name.startswith("_"))
+
+
 def safe_builtins(*, attribute_getter=None, attribute_setter=None) -> dict:
     names = (
         "abs all any bool bytearray bytes callable chr complex dict divmod enumerate filter float "
         "format frozenset hash hex int isinstance issubclass iter len list map max min "
-        "next ord pow print range repr reversed round set slice sorted str sum tuple zip "
-        "Exception RuntimeError ValueError TypeError KeyError IndexError AttributeError "
-        "StopIteration ZeroDivisionError NotImplementedError AssertionError"
-    ).split()
+        "next ord pow print range repr reversed round set slice sorted str sum tuple zip"
+    ).split() + ALLOWED_EXCEPTIONS
     result = {name: getattr(builtins, name) for name in names}
     result.update(__import__=guarded_import, getattr=guarded_getattr,
-                  setattr=guarded_setattr, hasattr=guarded_hasattr)
+                  setattr=guarded_setattr, hasattr=guarded_hasattr, type=guarded_type)
     # Host adapters may change how an allowed attribute is accessed, never
     # which names are available to generated code.
     if attribute_getter is not None:
@@ -114,11 +134,13 @@ def validate_script(script: str) -> None:
         raise ValueError("Astra returned an empty Python script")
     if len(script.encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise ValueError("Python script exceeds the 200 KB editing limit")
-    if "```" in script:
-        raise ValueError("Return raw Python in the custom tool, without Markdown fences")
     try:
         tree = ast.parse(script, mode="exec")
     except (SyntaxError, RecursionError) as error:
+        # A script that parses can only carry backticks inside strings or
+        # comments, which is harmless; a fenced script does not parse at all.
+        if "```" in script:
+            raise ValueError("Return raw Python in the custom tool, without Markdown fences") from error
         raise ValueError(f"Invalid Blender Python: {error}") from error
     nodes = list(ast.walk(tree))
     if len(nodes) > 35_000:

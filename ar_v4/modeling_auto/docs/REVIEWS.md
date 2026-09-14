@@ -1,3 +1,97 @@
+# Review pass — runtime v8, 2026-09-14
+
+Implements the review notes recorded after the accepted checkpoint
+`automation_pipeline_first_perfecto`. Runtime is `modeling-auto-20260914-review-v8`.
+The running v7 service on port 8060 was idle and already reports "Restart
+Modeling Auto to load changed files"; it was not restarted by this pass.
+
+## Behaviour changes
+
+- **Pipelines renamed and default swapped.** The six-stage plan is `standard`
+  and the default; the five-stage plan is `legacy`. `test` and `current` remain
+  accepted aliases in creation requests, URLs, saved jobs and saved Astra
+  contexts (`app/workflows.py`). Public JSON always reports the canonical name.
+- **Product notes are never overwritten.** Both plans store an edit's text as
+  `edit_instructions` and send "Original product notes / Specific instructions
+  for this edit". The legacy plan previously replaced the notes with the edit
+  text (asserted as intended in the old `test_controller.py:116`); that test now
+  asserts preservation. Instructions with any non-edit action are rejected.
+- **Sandbox widened and listed.** `type(value)` (one argument only) and the
+  Blender-relevant exceptions (`ReferenceError`, `NameError`, `LookupError`,
+  `ArithmeticError`, `OverflowError`, `RecursionError`, `MemoryError`,
+  `UnicodeError`, `FloatingPointError`) are available. The prompt lists the exact
+  builtin set from `builtin_names()`; a test pins prompt and runtime together.
+- **Tolerant parsing.** A `message` item beside the one custom tool call no
+  longer discards the paid script; any other tool call still does. Backticks
+  matter only when the script does not parse.
+- **Lens surface metrics.** `inspection["lenses"]` carries per-lens dihedral
+  quantiles, crease fraction and per-side ripple p90, sign mix, curvature spread
+  and sphere-fit residual. The seating prompt receives them, the viewer shows the
+  worst ripple and sign mix, and `scripts/lens_surface_report.py` prints them.
+- **Controller structure.** `_execute` is split into `_run_meshy`, `_run_astra`,
+  `_saved_native_result` and `_adopt_revision`; the duplicate result validation
+  is gone; master hashing, input verification and result validation run in a
+  worker thread instead of on the event loop; `Store.artifact` accepts a known
+  checksum. Semicolon-joined statements were split in the controller, server
+  and worker.
+- **Worker.** Finite-coordinate checks use numpy `foreach_get` instead of a
+  Python loop over every vertex. Meshy polling keeps the first, latest pending
+  and terminal receipts per task.
+- **Docs.** `HANDOFF.md` is current state only; the chronological record moved
+  verbatim to `docs/HISTORY.md`. README, AGENTS and CONTRACT updated.
+
+## Not done, on purpose
+
+Memoizing the auth-rejection receipt check was planned and dropped: the test
+`test_corrupt_or_conflicting_receipts_never_enable_auth_retry` corrupts receipt
+files without a version bump and expects the next read to notice, which is a
+tamper-evidence guarantee worth more than the poll cost.
+
+## Verification (zero paid requests)
+
+- Backend: **376 passed** (362 existing + 14 new), `--basetemp=data/rev2`; the
+  validation module re-run with `-W error::SyntaxWarning` passes.
+- Frontend: strict TypeScript/Vite build; **32 browser cases pass** (31 + 1 new
+  for the lens-metrics line), evidence `data/browser/review-20260914/`.
+- Native: `data/e2s-141305/report.json` (standard: 2 fake Meshy + 5 fake Astra
+  including one instructed edit) and `data/e2l-141342/report.json` (legacy)
+  both pass through the real HTTP app, real adapters on intercepted transport
+  and actual Blender, with the new worker.
+- Paid scripts: all 13 retained Astra scripts still pass the widened validator
+  with no name outside the allowlist.
+
+## Lens metric on the three real jobs
+
+`data/selftest/lens-metrics-20260914-141300/report.json`, worst side per lens:
+
+| job | r001 lenses ripple p90 / sign mix | r002 connections ripple p90 / sign mix |
+|---|---|---|
+| Ray-Ban RB4455 | 0.36° / 1% | 0.60° / 5% |
+| Oakley OO9208 | 0.46° / 1% | 1.91° / 9% |
+| Miu Miu 0MU 53 | 0.53° / 2% | 0.86° / 6% |
+
+Two facts the instrument surfaced:
+
+1. **The seating pass makes every lens rougher than the lens-creation pass.**
+   Ripple and sign mix rise in all three jobs; the Oakley seating output is the
+   worst and matches its wavy close-up. Ripple p90 and sign mix discriminate;
+   `curvature_cv` (3–5 everywhere) does not and is kept only as a per-side
+   detail.
+2. **Lens tags do not survive Meshy retexture.** From r003 on, every job is one
+   fused `Mesh_0` (frame + both lenses + UV-seam duplicates) with no
+   `auto_role`, so the metric exists only for r001 and r002. The ripple visible
+   in the accepted renders is the r002 geometry seen through glass materials.
+   Recovering lens identity after retexture (for example by tagging faces that
+   coincide with the previous revision's lens vertices) is the next item; it
+   changes how the returned Meshy asset is handled and needs its own fixture.
+
+By eye the Miu Miu final looked the worst; by the numbers the Oakley seating
+output is. The Miu Miu lens is the only clear, untinted one, so refraction shows
+its geometry more than the Oakley mirror does. The metric measures geometry, not
+appearance, and stays advisory.
+
+---
+
 # Accepted checkpoint — automation_pipeline_first_perfecto, 2026-09-14
 
 The owner tested the full Test pipeline from the beginning, accepted the result,

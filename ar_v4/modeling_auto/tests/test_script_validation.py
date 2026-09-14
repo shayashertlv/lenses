@@ -90,7 +90,51 @@ def test_runtime_builtins_contract():
     validate_script(script)
     exec(compile(script, "<test-edit>", "exec"), context, context)
     assert context["result"] == sum(math.sqrt(v) for v in range(5))
-    assert not {"open", "eval", "exec", "globals", "type", "object"} & safe_builtins().keys()
+    assert not {"open", "eval", "exec", "globals", "object", "id", "memoryview", "super"} & safe_builtins().keys()
+
+
+def test_single_argument_type_and_blender_exceptions_are_available():
+    script = '''
+kinds = [type(v) is int for v in (1, 2.0, "x")]
+caught = []
+try:
+    raise ReferenceError("StructRNA of type Object has been removed")
+except ReferenceError as error:
+    caught.append(str(error))
+try:
+    undefined_helper
+except NameError:
+    caught.append("NameError")
+'''
+    validate_script(script)
+    context = {"__builtins__": safe_builtins()}
+    exec(compile(script, "<blender-exceptions>", "exec"), context, context)
+    assert context["kinds"] == [True, False, False]
+    assert context["caught"] == ["StructRNA of type Object has been removed", "NameError"]
+    with pytest.raises(TypeError, match=r"only as type\(value\)"):
+        exec(compile("Made = type('Made', (), {})", "<class-definition>", "exec"), context, context)
+
+
+def test_prompt_lists_exactly_the_runtime_builtins():
+    from app.prompts import API_GUIDE
+    from app.script_validation import builtin_names
+    listed = API_GUIDE.split("is exactly: ", 1)[1].split(". No other builtin", 1)[0].split(", ")
+    assert listed == builtin_names()
+    assert set(listed) == {name for name in safe_builtins() if not name.startswith("_")}
+    assert "type" in listed and "ReferenceError" in listed and "id" not in listed
+
+
+@pytest.mark.parametrize("script", [
+    "# see ``` fenced example in the docs\nimport bpy\n",
+    "note = 'never wrap output in ```python fences'\n",
+])
+def test_backticks_inside_comments_or_strings_do_not_reject_a_valid_script(script):
+    validate_script(script)
+
+
+def test_fenced_script_is_named_as_the_reason_it_does_not_parse():
+    with pytest.raises(ValueError, match="Markdown fences"):
+        validate_script("```python\nimport bpy\n```\n")
 
 
 def test_readonly_length_query_handles_scalar_and_array_socket_values():

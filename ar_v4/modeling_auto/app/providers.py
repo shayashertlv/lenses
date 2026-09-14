@@ -17,6 +17,7 @@ import httpx
 
 from .prompts import image_labels, stage_context, stage_instructions
 from .script_validation import MAX_SCRIPT_BYTES, validate_script
+from .workflows import canonical_pipeline
 
 MESHY_BASE = "https://api.meshy.ai/openapi/v1"
 OPENAI_RESPONSES = "https://api.openai.com/v1/responses"
@@ -301,6 +302,11 @@ class MeshyClient(_HttpProvider):
         if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", task_id):
             raise ProviderError("Invalid saved Meshy task ID")
         deadline = time.monotonic() + self.poll_timeout
+        # Intermediate polls of a running task carry no diagnostic value beyond
+        # the newest one. Keep the first reply, the latest pending reply and the
+        # terminal reply; drop the pending replies in between.
+        first_receipt = None
+        pending_receipt = None
         while time.monotonic() < deadline:
             _cancel_check(cancel)
             receipt = receipt_dir / ("poll_" + uuid.uuid4().hex + ".json")
@@ -315,6 +321,11 @@ class MeshyClient(_HttpProvider):
                 raise ProviderError(f"Meshy task {status.lower()}; saved task and paid accounting are retained")
             if status not in {"PENDING", "IN_PROGRESS", "QUEUED"}:
                 raise ProviderError("Meshy task returned an unknown status")
+            if first_receipt is None:
+                first_receipt = receipt
+            elif pending_receipt is not None:
+                pending_receipt.unlink(missing_ok=True)
+            pending_receipt = receipt if receipt != first_receipt else None
             try:
                 await asyncio.wait_for(cancel.wait(), timeout=min(self.poll_interval, max(0.001, deadline - time.monotonic())))
             except TimeoutError:
@@ -401,8 +412,11 @@ def _extract_script(response: dict) -> str:
     calls = [item for item in output if isinstance(item, dict) and item.get("type") == "custom_tool_call"]
     if len(calls) != 1 or calls[0].get("name") != "run_blender_python":
         raise ProviderError("Astra must return exactly one run_blender_python custom tool call")
-    if any(not isinstance(item, dict) or item.get("type") not in {"reasoning", "custom_tool_call"} for item in output):
-        raise ProviderError("Astra returned narrative or another tool instead of one concise Python tool response")
+    # A narrative message beside the one tool call is unwanted but harmless; the
+    # paid script is still the tool input. Any other tool use is a different
+    # response than the one requested.
+    if any(not isinstance(item, dict) or item.get("type") not in {"reasoning", "message", "custom_tool_call"} for item in output):
+        raise ProviderError("Astra returned another tool call instead of one Python tool response")
     call = calls[0]
     if call.get("status") not in (None, "completed") or not isinstance(call.get("input"), str):
         raise ProviderError("Astra custom tool was incomplete or has invalid Python input")
@@ -416,7 +430,7 @@ class AstraClient(_HttpProvider):
                    receipt_dir: Path, cancel: asyncio.Event) -> str:
         _cancel_check(cancel)
         self._require_key()
-        pipeline = context.get('pipeline', 'current')
+        pipeline = canonical_pipeline(context.get('pipeline'), default='legacy')
         labels = image_labels(stage, pipeline=pipeline)
         if len(images) != len(labels):
             raise ProviderError(f"Astra {stage} requires exactly {len(labels)} images, received {len(images)}")

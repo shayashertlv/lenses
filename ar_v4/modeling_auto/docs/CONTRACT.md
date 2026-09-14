@@ -18,16 +18,22 @@ result and immutable artifact hashes. A final accept binds an exact .blend hash.
 Review repeat is finish only. The connections image set is five model renders and
 one real lens/frame close-up, confirmed by owner.
 
-Separate user-requested test mode adds finish_refine after finish. Its immutable
-per-job pipeline='test' authorizes generate,lenses,connections,texture,finish,
-finish_refine automatically, then review. Default/legacy pipeline='current'
-retains the original plan. Both test finish stages use original5 + current5 +
-current lens/rim close-up (11 images). finish_refine executes with native stage
-finish and its complete geometry/UV/normal/transform lock. Test review/edit
-requires nonempty notes (at most6000 characters) and repeats finish_refine only;
-preserve original notes, store the latest edit_instructions separately. Download
-and finish accepts the exact packed master before downloading. Each Astra
-operation snapshots context and exact current model/image hashes before dispatch.
+Two immutable per-job plans. pipeline='standard' (the default) authorizes
+generate,lenses,connections,texture,finish,finish_refine automatically, then
+review. pipeline='legacy' retains the original five-call plan; a saved job with
+no pipeline is legacy. The names 'test' and 'current' are accepted aliases for
+standard and legacy everywhere (creation, URLs, saved jobs, saved contexts) and
+normalized by app/workflows.py; public JSON always reports the canonical name.
+Both standard finish stages use original5 + current5 + current lens/rim close-up
+(11 images). finish_refine executes with native stage finish and its complete
+geometry/UV/normal/transform lock. Product notes are never overwritten: an edit
+stores its text as edit_instructions (at most 6000 characters) and every later
+Astra request receives both. Standard review/edit requires nonempty
+instructions and repeats finish_refine only; legacy edit accepts empty
+instructions, which clear earlier ones. Instructions with any other action are
+rejected. Download and finish accepts the exact packed master before
+downloading. Each Astra operation snapshots context and exact current
+model/image hashes before dispatch.
 
 Job public JSON: id,name,version,status,stage,message,error,notes,dimensions,
 references:[{angle,url}],current:null|{id,blend_url,model_url,proofs:[{angle,url}],
@@ -40,8 +46,11 @@ revision; `stage` identifies the active/stopped step. `recovery_kind` is
 `astra_script` when explicit recovery will execute a saved Astra script locally
 and no completed native result is already available; otherwise null. It does not
 authorize an automatic retry or alter the remaining-stage sequence.
-Public pipeline defaults to current for legacy jobs; pipeline_stages lists only
-the selected remote stages, and edit_instructions exposes latest test feedback.
+Public pipeline is standard or legacy; pipeline_stages lists only the selected
+remote stages, and edit_instructions exposes the latest edit's instructions.
+Each revision's inspection carries lenses: {object name: advisory surface
+metrics or null} computed by the worker (dihedral quantiles, crease fraction,
+per-side ripple p90, sign mix, curvature spread, sphere-fit residual, summary).
 
 HTTP: GET /api/health; GET /api/jobs; GET /api/jobs/{id};
 POST /api/jobs multipart name,notes,dimensions(JSON),front/back/left/right/angled;
@@ -77,16 +86,23 @@ MeshyClient(key, client=None):
 AstraClient(key,client=None): async edit(stage, images:list[Path],
  context:dict, receipt_dir:Path, cancel:asyncio.Event)->str script; async close().
  context contains scene inspection, user dimensions/notes and model hash.
- Exactly5 original refs for lenses/finish;6 current views+closeup forconnections.
- Test mode keeps lenses5/connections6; both finish and finish_refine use11 images
- in original-reference then current-render order. Current finish stays5.
- One forced run_blender_python custom tool, no narrative or second tool response.
+ Exactly5 original refs for lenses and legacy finish;6 current views+closeup
+ for connections; standard finish and finish_refine use11 images in
+ original-reference then current-render order. context['pipeline'] may carry an
+ alias name from an older saved operation; normalize it.
+ One forced run_blender_python custom tool. A message item beside it is
+ tolerated (the script is the tool input); a second tool call of any type or a
+ missing/duplicate custom tool call is a ProviderError.
  gpt-6-astra, reasoning high, standalone request, no previous_response_id/history.
  Durable redacted receipts/raw response and script before validation/execution.
  validate_script(script)->None raises ValueError; shared exact allowlist and
  safe_builtins()/guarded_import usable by worker; guard BMP IO/ops filesystem/network,
  private attributes, exec/eval/open and dangerous Blender operations. Support
  bpy,bmesh,math,mathutils and specific bvhtree/kdtree/geometry queries consistently.
+ builtin_names() is the exact builtin set and the prompt lists it verbatim;
+ type(value) is a one-argument guard, and ALLOWED_EXCEPTIONS includes the
+ classes Blender itself raises (ReferenceError, RuntimeError, ...). Backticks
+ only matter when the script does not parse.
  Instructions describe one real editing session; no fabricated hidden context.
  Scope lenses: preserve existing shape, gentle smoothing and curved closed lenses;
  connections: only lens/rim seating corrections; finish: materials only.
@@ -134,10 +150,15 @@ for new API keys (never read model_studio/.env). Root supplies POST /api/setting
 {openai_key?,meshy_key?}; GET health indicates key presence only, never key values.
  Native browser-download link on accepted exact artifact; do not open arbitrarypaths.
  npmcache under data/cache/npm. Native viewer local bundled assets only, no CDN.
- Current/Test navigation selects the creation mode; /?pipeline=test opens test
- creation, while a selected saved job always determines its own mode. Test run
- disclosure is 2 Meshy/4 Astra, with two labeled finish passes. Final test actions
- are Download & finish run or Send another edit with required specific feedback.
+ Standard/Legacy navigation selects the creation mode; the standard plan is the
+ default and /?pipeline=legacy opens legacy creation (the alias names test and
+ current still resolve), while a selected saved job always determines its own
+ mode and the creation form always sends the chosen plan. Standard run
+ disclosure is 2 Meshy/4 Astra, with two labeled finish passes. Final standard
+ actions are Download & finish run or Send another edit with required specific
+ instructions; legacy keeps Accept & download .blend and an optional-text edit.
+ The viewer shows the saved revision's advisory lens metrics (#lens-metrics)
+ when present and hides the line otherwise.
 
 ## Testing
 

@@ -13,21 +13,26 @@ from PIL import Image, ImageOps
 
 from .config import ROOT, VERSION
 from .storage import Store, ServiceLock, atomic_json, digest, now, sha
-from .workflows import (CURRENT_STAGES, native_stage, pipeline_name, pipeline_stages,
+from .workflows import (DEFAULT_PIPELINE, LEGACY_STAGES, native_stage, pipeline_name, pipeline_stages,
                         repeat_stage, run_disclosure, validate_pipeline)
 
 ANGLES = ('front', 'back', 'left', 'right', 'angled')
-STAGES = CURRENT_STAGES
+STAGES = LEGACY_STAGES
 DIMENSIONS = {'frame_width', 'lens_width', 'lens_height', 'bridge_width', 'temple_length'}
+MAX_NOTES = 6000
+
 
 def runtime_manifest():
     return {str(p.relative_to(ROOT)): sha(p) for folder in ('app', 'blender')
             for p in sorted((ROOT / folder).glob('*.py'))}
 
+
 LOADED_RUNTIME = runtime_manifest()
+
 
 class Conflict(ValueError):
     pass
+
 
 class Controller:
     def __init__(self, settings, *, meshy=None, astra=None, blender=None):
@@ -39,7 +44,7 @@ class Controller:
         self.meshy = meshy or MeshyClient(settings.meshy_key)
         self.astra = astra or AstraClient(settings.openai_key)
         self.blender = blender or BlenderRunner(settings.blender_path, timeout=settings.timeout,
-            resolution=settings.resolution, samples=settings.samples)
+                                                resolution=settings.resolution, samples=settings.samples)
         self.mutation = asyncio.Lock()
         self.task = None
         self.active_job_id = None
@@ -110,8 +115,15 @@ class Controller:
         if runtime_manifest() != LOADED_RUNTIME:
             raise Conflict('Application files changed. Restart Modeling Auto; saved results remain available.')
 
+    def _key_hash(self):
+        return hashlib.sha256(self.settings.openai_key.encode()).hexdigest()
+
+    @staticmethod
+    def _find_operation(job, operation_id):
+        return next(o for o in job['operations'] if o['id'] == operation_id)
+
     def _operation(self, job):
-        return next(o for o in job['operations'] if o['id'] == job['active_operation'])
+        return self._find_operation(job, job['active_operation'])
 
     def _recoverable(self, job):
         if not job.get('active_operation'):
@@ -121,7 +133,11 @@ class Controller:
                     or op.get('download') or op.get('native_result'))
 
     def _auth_rejection(self, job):
-        """Recognize a definitive saved rejection without reissuing or rewriting it."""
+        """Recognize a definitive saved rejection without reissuing or rewriting it.
+
+        This reads the receipt files every time on purpose: a tampered or
+        conflicting receipt must stop unlocking the retry immediately.
+        """
         if not job.get('active_operation'):
             return None
         op = self._operation(job)
@@ -292,11 +308,11 @@ class Controller:
         result['run_disclosure'] = run_disclosure(job)
         return result
 
-    async def create(self, name, notes, dimensions, images, *, pipeline='current'):
+    async def create(self, name, notes, dimensions, images, *, pipeline=DEFAULT_PIPELINE):
         pipeline = validate_pipeline(pipeline)
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 160:
             raise ValueError('Enter a product name (1–160 characters).')
-        if not isinstance(notes, str) or len(notes) > 6000:
+        if not isinstance(notes, str) or len(notes) > MAX_NOTES:
             raise ValueError('Notes must be at most 6,000 characters.')
         if not isinstance(dimensions, dict) or not 3 <= len(dimensions) <= len(DIMENSIONS) or not dimensions.keys() <= DIMENSIONS:
             raise ValueError('Supply at least three named dimensions in millimeters.')
@@ -315,12 +331,13 @@ class Controller:
                     source.load()
                     picture = ImageOps.exif_transpose(source).convert('RGB')
                     picture.thumbnail((2048, 2048))
-                    stream = BytesIO(); picture.save(stream, format='JPEG', quality=95)
+                    stream = BytesIO()
+                    picture.save(stream, format='JPEG', quality=95)
                     prepared[angle] = stream.getvalue()
             except (OSError, Image.DecompressionBombError) as error:
                 raise ValueError(f'{angle}: invalid image.') from error
-        job = {'id': str(uuid.uuid4()), 'name': name.strip(), 'notes': notes, 'dimensions': dimensions,
-               'pipeline': pipeline,
+        job = {'id': str(uuid.uuid4()), 'name': name.strip(), 'notes': notes, 'edit_instructions': None,
+               'dimensions': dimensions, 'pipeline': pipeline,
                'version': 1, 'status': 'draft', 'stage': 'generate', 'message': 'Ready to start the complete run.',
                'error': None, 'created_at': now(), 'references': [], 'reference_paths': {}, 'artifacts': {},
                'current': None, 'revisions': [], 'calls': {'astra': 0, 'meshy': 0}, 'operations': [],
@@ -329,7 +346,8 @@ class Controller:
         folder.mkdir(parents=True)
         for angle in ANGLES:
             (folder / (angle + '.original')).write_bytes(images[angle])
-            path = folder / (angle + '.jpg'); path.write_bytes(prepared[angle])
+            path = folder / (angle + '.jpg')
+            path.write_bytes(prepared[angle])
             job['reference_paths'][angle] = str(path)
             job['references'].append({'angle': angle, 'url': self.store.artifact(job, path)})
         self._save(job)
@@ -348,10 +366,28 @@ class Controller:
             for proof in job['current']['proofs']:
                 self.store.verified_artifact(job, proof['url'].rsplit('/', 1)[1])
 
+    def _apply_edit_instructions(self, job, action, notes):
+        """Keep the product notes intact; an edit carries its own instructions.
+
+        The standard pipeline requires them. The legacy pipeline accepts an
+        edit without instructions, which clears any earlier ones.
+        """
+        if notes is not None and action != 'edit':
+            raise ValueError('New instructions are accepted only with another finish edit.')
+        if action != 'edit':
+            return
+        if notes is not None and (not isinstance(notes, str) or len(notes) > MAX_NOTES):
+            raise ValueError('Feedback must be at most 6,000 characters.')
+        instructions = notes.strip() if isinstance(notes, str) else ''
+        if pipeline_name(job) == 'standard' and not instructions:
+            raise ValueError('Write specific instructions for the next finish edit.')
+        job['edit_instructions'] = instructions or None
+
     async def start(self, identifier, version, *, action='start', notes=None):
         async with self.mutation:
             self._runtime_ok()
-            job = self.store.load(identifier); self._version(job, version)
+            job = self.store.load(identifier)
+            self._version(job, version)
             if self.active_job_id is not None or self.closing:
                 raise Conflict('Another run is active or the service is stopping.')
             if action not in self.public(job)['allowed_actions']:
@@ -367,23 +403,19 @@ class Controller:
             elif action == 'recover':
                 rejected_key = (self._operation(job).get('rejected_key_sha256') if job.get('active_operation')
                                 else (job.get('authorization') or {}).get('rejected_key_sha256'))
-            if rejected_key == hashlib.sha256(self.settings.openai_key.encode()).hexdigest():
+            if rejected_key == self._key_hash():
                 raise Conflict('Save a different OpenAI API key in API setup before retrying this Astra stage.')
-            self._verify_inputs(job)
-            is_test = pipeline_name(job) == 'test'
-            if is_test and action == 'edit' and (not isinstance(notes, str) or not notes.strip()):
-                raise ValueError('Write specific instructions for the next finish edit.')
-            if is_test and notes is not None and action != 'edit':
-                raise ValueError('New instructions are accepted only with another finish edit.')
-            if notes is not None:
-                if not isinstance(notes, str) or len(notes) > 6000:
-                    raise ValueError('Feedback must be at most 6,000 characters.')
-                job['edit_instructions' if is_test else 'notes'] = notes.strip() if is_test else notes
+            await asyncio.to_thread(self._verify_inputs, job)
+            self._apply_edit_instructions(job, action, notes)
             resume = action == 'recover'
             if action == 'retry_auth':
                 stage = self._operation(job)['stage']
+            elif resume:
+                stage = self._operation(job)['stage'] if job.get('active_operation') else self._continuation(job)
+            elif action == 'edit':
+                stage = repeat_stage(job)
             else:
-                stage = (self._operation(job)['stage'] if job.get('active_operation') else self._continuation(job)) if resume else (repeat_stage(job) if action == 'edit' else 'generate')
+                stage = 'generate'
             stages = pipeline_stages(job)
             if stage != 'review' and stage not in stages:
                 raise Conflict('The saved stage does not belong to this job pipeline.')
@@ -408,7 +440,8 @@ class Controller:
 
     async def cancel(self, identifier, version):
         async with self.mutation:
-            job = self.store.load(identifier); self._version(job, version)
+            job = self.store.load(identifier)
+            self._version(job, version)
             if self.active_job_id != identifier or job['status'] != 'running':
                 raise Conflict('No active run to cancel.')
             self.cancel_event.set()
@@ -419,10 +452,11 @@ class Controller:
     async def accept(self, identifier, version):
         async with self.mutation:
             self._runtime_ok()
-            job = self.store.load(identifier); self._version(job, version)
+            job = self.store.load(identifier)
+            self._version(job, version)
             if 'accept' not in self.public(job)['allowed_actions'] or self.active_job_id is not None:
                 raise Conflict('Only the final paused preview can be accepted.')
-            self._verify_inputs(job)
+            await asyncio.to_thread(self._verify_inputs, job)
             job.update(status='complete', stage='complete', version=job['version'] + 1,
                 message='Accepted. Download the exact packed Blender master.',
                 accepted={'sha256': job['current']['master_sha256'], 'url': job['current']['blend_url'],
@@ -437,13 +471,16 @@ class Controller:
     async def _update_operation(self, identifier, operation_id, **changes):
         async with self.mutation:
             job = self.store.load(identifier)
-            op = next(o for o in job['operations'] if o['id'] == operation_id)
-            op.update(changes); self._save(job)
+            op = self._find_operation(job, operation_id)
+            op.update(changes)
+            self._save(job)
 
     async def _new_operation(self, identifier, stage):
         async with self.mutation:
-            self._check_cancel(); self._runtime_ok()
-            job = self.store.load(identifier); self._verify_inputs(job)
+            self._check_cancel()
+            self._runtime_ok()
+            job = self.store.load(identifier)
+            await asyncio.to_thread(self._verify_inputs, job)
             if stage not in pipeline_stages(job):
                 raise Conflict('The requested stage does not belong to this job pipeline.')
             provider = 'meshy' if stage in ('generate', 'texture') else 'astra'
@@ -458,7 +495,8 @@ class Controller:
             authorization = job.get('authorization') or {}
             if (authorization.get('stages') or [None])[0] == stage and authorization.get('rejected_key_sha256'):
                 op['rejected_key_sha256'] = authorization['rejected_key_sha256']
-            job['operations'].append(op); job['active_operation'] = op['id']
+            job['operations'].append(op)
+            job['active_operation'] = op['id']
             job['calls'][provider] += 1
             job.update(stage=stage, version=job['version'] + 1, message=f'{stage.title()}: one {provider.title()} request reserved.')
             self._save(job)
@@ -472,12 +510,12 @@ class Controller:
                     + [Path(current['closeup_path'])])
         if stage == 'connections':
             images = rendered
-        elif pipeline_name(job) == 'test' and stage in {'finish', 'finish_refine'}:
+        elif pipeline_name(job) == 'standard' and stage in {'finish', 'finish_refine'}:
             images = references + rendered
         else:
             images = references
         notes = job['notes']
-        if pipeline_name(job) == 'test' and job.get('edit_instructions'):
+        if job.get('edit_instructions'):
             notes = f'Original product notes:\n{notes}\n\nSpecific instructions for this edit:\n{job["edit_instructions"]}'
         context = {'inspection': copy.deepcopy(current['inspection']), 'dimensions': copy.deepcopy(job['dimensions']),
                    'notes': notes, 'name': job['name'], 'model_sha256': current['master_sha256'],
@@ -485,107 +523,141 @@ class Controller:
         return {'context': context, 'context_sha256': digest(context),
                 'images': [{'path': str(p), 'sha256': sha(p)} for p in images]}
 
-    async def _execute(self, identifier, operation_id):
-        from .script_validation import validate_script
-        self._check_cancel(); self._runtime_ok()
-        job = self.store.load(identifier)
-        op = next(o for o in job['operations'] if o['id'] == operation_id)
-        self._verify_inputs(job)
+    def _verify_operation_inputs(self, job, op):
         if op['input_path'] and sha(self.store.path(job, op['input_path'])) != op['input_sha256']:
             raise ValueError('Operation source changed; it cannot be recovered safely.')
         if op['reference_sha256'] != {k: sha(p) for k, p in job['reference_paths'].items()}:
             raise ValueError('Operation references changed.')
         if op.get('context') and digest(op['context']) != op.get('context_sha256'):
             raise ValueError('Saved Astra task context changed.')
+
+    def _saved_native_result(self, job, op):
+        record = op['native_result']
+        path = self.store.path(job, record['path'])
+        if sha(path) != record['sha256']:
+            raise ValueError('Saved native result changed.')
+        result = json.loads(path.read_text(encoding='utf-8'))
+        self._validate_result(job, result, path.parent)
+        return result, path.parent
+
+    async def _run_meshy(self, job, op, folder):
+        identifier, operation_id, stage = job['id'], op['id'], op['stage']
+        provider_dir = folder / 'provider'
+        provider_dir.mkdir()
+        if op.get('download'):
+            record = op['download']
+            source = self.store.path(job, record['path'])
+            if await asyncio.to_thread(sha, source) != record['sha256']:
+                raise ValueError('Saved Meshy download changed; no new download was requested.')
+        else:
+            task_id = op.get('task_id')
+            if not task_id:
+                if op.get('dispatch_started'):
+                    raise Conflict('The previous Meshy submission has an uncertain outcome. A second paid submission is blocked.')
+                await self._update_operation(identifier, operation_id, dispatch_started=True)
+                references = {k: Path(v) for k, v in job['reference_paths'].items()}
+                model = Path(op['model_path']) if op['model_path'] else None
+                task_id = await self.meshy.submit(stage, references, model, provider_dir, self.cancel_event)
+                await self._update_operation(identifier, operation_id, task_id=task_id)
+            self._check_cancel()
+            remote = await self.meshy.poll(stage, task_id, provider_dir, self.cancel_event)
+            self._check_cancel()
+            source = Path(await self.meshy.download(remote, provider_dir, self.cancel_event)).resolve(strict=True)
+            if not source.is_relative_to(provider_dir.resolve()):
+                raise ValueError('Provider download escaped its output folder.')
+            checksum = await asyncio.to_thread(sha, source)
+            await self._update_operation(identifier, operation_id, download={'path': str(source), 'sha256': checksum})
+        self._check_cancel()
+        self._runtime_ok()
+        return await self.blender.run('import', source, folder / 'revision', stage=stage,
+                                      dimensions=job['dimensions'], cancel=self.cancel_event)
+
+    async def _run_astra(self, job, op, folder):
+        from .script_validation import validate_script
+        identifier, operation_id, stage = job['id'], op['id'], op['stage']
+        provider_dir = folder / 'provider'
+        provider_dir.mkdir()
+        if op.get('script'):
+            path = self.store.path(job, op['script']['path'])
+            if sha(path) != op['script']['sha256']:
+                raise ValueError('Saved Astra script changed.')
+            script = path.read_text(encoding='utf-8')
+        else:
+            if op.get('dispatch_started'):
+                raise Conflict('The previous Astra request has an uncertain outcome. A second paid request is blocked.')
+            if op.get('rejected_key_sha256') == self._key_hash():
+                raise Conflict('Save a different OpenAI API key in API setup before retrying this Astra stage.')
+            snapshot = ({key: op[key] for key in ('context', 'context_sha256', 'images')}
+                        if op.get('context') else self._astra_input(job, stage))
+            images = [self.store.path(job, entry['path']) for entry in snapshot['images']]
+            if any(sha(p) != entry['sha256'] for p, entry in zip(images, snapshot['images'])):
+                raise ValueError('Saved Astra task images changed.')
+            await self._update_operation(identifier, operation_id, dispatch_started=True,
+                image_sha256=[sha(p) for p in images], image_count=len(images), **snapshot)
+            script = await self.astra.edit(stage, images, snapshot['context'], provider_dir, self.cancel_event)
+            if not isinstance(script, str):
+                raise ValueError('Astra did not return a Python script.')
+            path = provider_dir / 'response.py'
+            path.write_text(script, encoding='utf-8')
+            await self._update_operation(identifier, operation_id, script={'path': str(path), 'sha256': sha(path)})
+        self._check_cancel()
+        self._runtime_ok()
+        validate_script(script)
+        return await self.blender.run('edit', Path(op['input_path']), folder / 'revision', script=script,
+                                      stage=native_stage(stage), dimensions=job['dimensions'], cancel=self.cancel_event)
+
+    async def _execute(self, identifier, operation_id):
+        self._check_cancel()
+        self._runtime_ok()
+        job = self.store.load(identifier)
+        op = self._find_operation(job, operation_id)
+        await asyncio.to_thread(self._verify_inputs, job)
+        await asyncio.to_thread(self._verify_operation_inputs, job, op)
         folder = self.store.directory(identifier) / 'operations' / operation_id / uuid.uuid4().hex[:12]
         folder.mkdir(parents=True)
         await self._update_operation(identifier, operation_id, status='running', attempts=op['attempts'] + [str(folder)])
         if op.get('native_result'):
-            record = op['native_result']
-            path = self.store.path(job, record['path'])
-            if sha(path) != record['sha256']:
-                raise ValueError('Saved native result changed.')
-            import json
-            result = json.loads(path.read_text(encoding='utf-8'))
-            result_folder = path.parent
+            result, result_folder = await asyncio.to_thread(self._saved_native_result, job, op)
         else:
-            references = {k: Path(v) for k, v in job['reference_paths'].items()}
-            stage = op['stage']
-            provider_dir = folder / 'provider'; provider_dir.mkdir()
             if op['provider'] == 'meshy':
-                if op.get('download'):
-                    record = op['download']; source = self.store.path(job, record['path'])
-                    if sha(source) != record['sha256']:
-                        raise ValueError('Saved Meshy download changed; no new download was requested.')
-                else:
-                    task_id = op.get('task_id')
-                    if not task_id:
-                        if op.get('dispatch_started'):
-                            raise Conflict('The previous Meshy submission has an uncertain outcome. A second paid submission is blocked.')
-                        await self._update_operation(identifier, operation_id, dispatch_started=True)
-                        task_id = await self.meshy.submit(stage, references, Path(op['model_path']) if op['model_path'] else None,
-                            provider_dir, self.cancel_event)
-                        await self._update_operation(identifier, operation_id, task_id=task_id)
-                    self._check_cancel()
-                    remote = await self.meshy.poll(stage, task_id, provider_dir, self.cancel_event)
-                    self._check_cancel()
-                    source = Path(await self.meshy.download(remote, provider_dir, self.cancel_event)).resolve(strict=True)
-                    if not source.is_relative_to(provider_dir.resolve()):
-                        raise ValueError('Provider download escaped its output folder.')
-                    await self._update_operation(identifier, operation_id, download={'path': str(source), 'sha256': sha(source)})
-                self._check_cancel(); self._runtime_ok()
-                result = await self.blender.run('import', source, folder / 'revision', stage=stage,
-                    dimensions=job['dimensions'], cancel=self.cancel_event)
+                result = await self._run_meshy(job, op, folder)
             else:
-                if op.get('script'):
-                    path = self.store.path(job, op['script']['path'])
-                    if sha(path) != op['script']['sha256']:
-                        raise ValueError('Saved Astra script changed.')
-                    script = path.read_text(encoding='utf-8')
-                else:
-                    if op.get('dispatch_started'):
-                        raise Conflict('The previous Astra request has an uncertain outcome. A second paid request is blocked.')
-                    if op.get('rejected_key_sha256') == hashlib.sha256(self.settings.openai_key.encode()).hexdigest():
-                        raise Conflict('Save a different OpenAI API key in API setup before retrying this Astra stage.')
-                    snapshot = ({key: op[key] for key in ('context', 'context_sha256', 'images')}
-                                if op.get('context') else self._astra_input(job, stage))
-                    images = [self.store.path(job, entry['path']) for entry in snapshot['images']]
-                    if any(sha(p) != entry['sha256'] for p, entry in zip(images, snapshot['images'])):
-                        raise ValueError('Saved Astra task images changed.')
-                    context = snapshot['context']
-                    await self._update_operation(identifier, operation_id, dispatch_started=True,
-                        image_sha256=[sha(p) for p in images], image_count=len(images), **snapshot)
-                    script = await self.astra.edit(stage, images, context, provider_dir, self.cancel_event)
-                    if not isinstance(script, str):
-                        raise ValueError('Astra did not return a Python script.')
-                    path = provider_dir / 'response.py'; path.write_text(script, encoding='utf-8')
-                    await self._update_operation(identifier, operation_id, script={'path': str(path), 'sha256': sha(path)})
-                self._check_cancel(); self._runtime_ok(); validate_script(script)
-                result = await self.blender.run('edit', Path(op['input_path']), folder / 'revision',
-                    script=script, stage=native_stage(stage), dimensions=job['dimensions'], cancel=self.cancel_event)
+                result = await self._run_astra(job, op, folder)
             result_folder = folder / 'revision'
-            self._validate_result(job, result, result_folder)
-            record_path = result_folder / 'controller-result.json'; atomic_json(record_path, result)
+            await asyncio.to_thread(self._validate_result, job, result, result_folder)
+            record_path = result_folder / 'controller-result.json'
+            atomic_json(record_path, result)
             await self._update_operation(identifier, operation_id,
                 native_result={'path': str(record_path), 'sha256': sha(record_path)})
-        self._check_cancel(); self._runtime_ok()
-        self._validate_result(job, result, result_folder)
-        if op['input_path'] and sha(Path(op['input_path'])) != op['input_sha256']:
+        self._check_cancel()
+        self._runtime_ok()
+        if op['input_path'] and await asyncio.to_thread(sha, Path(op['input_path'])) != op['input_sha256']:
             raise ValueError('The original Blender source changed during execution.')
+        checksums = await asyncio.to_thread(self._revision_checksums, result)
+        await self._adopt_revision(identifier, operation_id, result, checksums)
+
+    @staticmethod
+    def _revision_checksums(result):
+        paths = [result['blend_path'], result['model_path'], result['closeup_path'], *result['proofs'].values()]
+        return {path: sha(path) for path in paths}
+
+    async def _adopt_revision(self, identifier, operation_id, result, checksums):
         async with self.mutation:
             self._check_cancel()
             job = self.store.load(identifier)
-            op = next(o for o in job['operations'] if o['id'] == operation_id)
+            op = self._find_operation(job, operation_id)
             bundle = copy.deepcopy(result)
             revision_id = f'r{len(job["revisions"]):03d}'
+            def url(path):
+                return self.store.artifact(job, path, checksum=checksums[path])
             revision = {'id': revision_id, 'stage': op['stage'], 'blend_path': bundle['blend_path'],
                 'model_path': bundle['model_path'], 'proof_paths': bundle['proofs'], 'closeup_path': bundle['closeup_path'],
-                'inspection': bundle['inspection'], 'master_sha256': sha(bundle['blend_path']),
-                'blend_url': self.store.artifact(job, bundle['blend_path']),
-                'model_url': self.store.artifact(job, bundle['model_path']),
-                'closeup_url': self.store.artifact(job, bundle['closeup_path']),
-                'proofs': [{'angle': a, 'url': self.store.artifact(job, bundle['proofs'][a])} for a in ANGLES]}
-            job['current'] = revision; job['revisions'].append(revision)
+                'inspection': bundle['inspection'], 'master_sha256': checksums[bundle['blend_path']],
+                'blend_url': url(bundle['blend_path']), 'model_url': url(bundle['model_path']),
+                'closeup_url': url(bundle['closeup_path']),
+                'proofs': [{'angle': a, 'url': url(bundle['proofs'][a])} for a in ANGLES]}
+            job['current'] = revision
+            job['revisions'].append(revision)
             op.update(status='complete', finished_at=now(), revision_id=revision_id)
             job.update(active_operation=None, version=job['version'] + 1,
                        message=f'{op["stage"].title()} saved. Continuing the requested run.')
@@ -611,7 +683,8 @@ class Controller:
         try:
             stages = pipeline_stages(self.store.load(identifier))
             for i, stage in enumerate(stages[stages.index(first):] if first != 'review' else ()):
-                self._check_cancel(); self._runtime_ok()
+                self._check_cancel()
+                self._runtime_ok()
                 saved_op = self.store.load(identifier)['active_operation'] if resume and i == 0 else None
                 op_id = saved_op or await self._new_operation(identifier, stage)
                 await self._execute(identifier, op_id)

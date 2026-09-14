@@ -88,8 +88,9 @@ async def harness(tmp_path, monkeypatch):
     finally: await c.close()
 
 async def draft(c):
+    # The five-call legacy plan; the standard six-call plan is covered separately.
     return await c.create('New isolated fixture', 'Preserve source',
-                          {'frame_width': 140, 'lens_width': 50, 'lens_height': 40}, photos())
+                          {'frame_width': 140, 'lens_width': 50, 'lens_height': 40}, photos(), pipeline='legacy')
 
 async def completed(c, identifier):
     await asyncio.wait_for(c.task, 10)
@@ -113,11 +114,42 @@ async def test_full_automatic_flow_then_only_finish_loop_and_exact_accept(harnes
     final = await completed(c, job['id'])
     assert final['calls'] == {'astra': 4, 'meshy': 2}
     assert c.blender.calls[-1] == 'finish' and len(c.meshy.submits) == 2
-    assert c.astra.calls[-1]['context']['notes'] == 'Less shiny'
+    edited = c.store.load(job['id'])
+    assert edited['notes'] == 'Preserve source' and edited['edit_instructions'] == 'Less shiny'
+    assert c.astra.calls[-1]['context']['notes'] == ('Original product notes:\nPreserve source\n\n'
+                                                     'Specific instructions for this edit:\nLess shiny')
     assert all(sha(r['blend_path']) == original[r['id']] for r in c.store.load(job['id'])['revisions'][:5])
     accepted = await c.accept(job['id'], final['version'])
     assert accepted['status'] == 'complete' and accepted['allowed_actions'] == []
     assert accepted['accepted']['sha256'] == sha(c.store.load(job['id'])['current']['blend_path'])
+
+@pytest.mark.asyncio
+async def test_default_pipeline_is_standard_and_aliases_map_to_canonical_names(harness):
+    c = harness
+    dimensions = {'frame_width': 140, 'lens_width': 50, 'lens_height': 40}
+    created = await c.create('Default plan', '', dimensions, photos())
+    assert created['pipeline'] == 'standard' and created['pipeline_stages'][-1] == 'finish_refine'
+    assert '4 Astra requests' in created['run_disclosure']
+    for alias, canonical in (('test', 'standard'), ('current', 'legacy')):
+        job = await c.create('Alias ' + alias, '', dimensions, photos(), pipeline=alias)
+        assert job['pipeline'] == canonical
+        assert c.store.load(job['id'])['pipeline'] == canonical
+
+@pytest.mark.asyncio
+async def test_legacy_edit_keeps_product_notes_and_blank_feedback_clears_instructions(harness):
+    c = harness; job = await draft(c)
+    with pytest.raises(ValueError, match='only with another'):
+        await c.start(job['id'], job['version'], notes='Not an edit')
+    await c.start(job['id'], job['version']); final = await completed(c, job['id'])
+    await c.start(job['id'], final['version'], action='edit', notes='  Warmer tortoise  ')
+    final = await completed(c, job['id'])
+    assert final['notes'] == 'Preserve source' and final['edit_instructions'] == 'Warmer tortoise'
+    assert c.astra.calls[-1]['context']['notes'].startswith('Original product notes:\nPreserve source')
+    assert c.astra.calls[-1]['context']['notes'].endswith('Specific instructions for this edit:\nWarmer tortoise')
+    await c.start(job['id'], final['version'], action='edit')
+    final = await completed(c, job['id'])
+    assert final['edit_instructions'] is None and final['calls'] == {'astra': 5, 'meshy': 2}
+    assert c.astra.calls[-1]['context']['notes'] == 'Preserve source'
 
 @pytest.mark.asyncio
 async def test_stale_view_and_parallel_start_cannot_duplicate_request(harness):

@@ -14,9 +14,14 @@ import bpy
 import bmesh
 import mathutils
 from mathutils import Vector
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+# Adjacent lens faces meeting at more than this angle belong to the rim band
+# creases, not to an optical surface.
+CREASE_DEGREES = 30.0
 
 
 def digest(path):
@@ -33,6 +38,12 @@ def meshes():
 
 def lens(o):
     return o.get("auto_role") in ("lens_left", "lens_right")
+
+
+def vertex_coordinates(me):
+    values = np.empty(len(me.vertices) * 3, dtype=np.float32)
+    me.vertices.foreach_get("co", values)
+    return values
 
 
 def geometry_record(o):
@@ -54,11 +65,13 @@ def geometry_record(o):
     for layer in me.uv_layers:
         uv = array.array("f", [0]) * (len(layer.data) * 2)
         layer.data.foreach_get("uv", uv)
-        h.update(layer.name.encode()); h.update(uv.tobytes())
+        h.update(layer.name.encode())
+        h.update(uv.tobytes())
     for a in ("sharp_edge", "sharp_face"):
         if a in me.attributes:
             vals = [bool(x.value) for x in me.attributes[a].data]
-            h.update(a.encode()); h.update(bytes(vals))
+            h.update(a.encode())
+            h.update(bytes(vals))
     normal = array.array("f", [0]) * (len(me.corner_normals) * 3)
     me.corner_normals.foreach_get("vector", normal)
     h.update(normal.tobytes())
@@ -69,7 +82,8 @@ def geometry_record(o):
         evaluated.vertices.foreach_get("co", ec)
         ei = array.array("i", [0]) * len(evaluated.loops)
         evaluated.loops.foreach_get("vertex_index", ei)
-        h.update(ec.tobytes()); h.update(ei.tobytes())
+        h.update(ec.tobytes())
+        h.update(ei.tobytes())
     finally:
         o.evaluated_get(deps).to_mesh_clear()
     topo = hashlib.sha256(loops.tobytes() + starts.tobytes() + counts.tobytes()).hexdigest()
@@ -165,14 +179,14 @@ def static_check(require_lenses=False):
         if not o.data.vertices or not o.data.polygons:
             raise ValueError(f"Empty mesh: {o.name}")
         total_vertices += len(o.data.vertices)
-        for v in o.data.vertices:
-            if not all(math.isfinite(x) for x in v.co):
-                raise ValueError(f"Non-finite mesh coordinates: {o.name}")
+        if not np.isfinite(vertex_coordinates(o.data)).all():
+            raise ValueError(f"Non-finite mesh coordinates: {o.name}")
         if lens(o):
             role_counts[o["auto_role"]] += 1
             if require_lenses and (o.hide_render or not o.visible_get()):
                 raise ValueError(f"{o.name} must remain visible")
-            bm = bmesh.new(); bm.from_mesh(o.data)
+            bm = bmesh.new()
+            bm.from_mesh(o.data)
             try:
                 if any(not e.is_manifold for e in bm.edges):
                     raise ValueError(f"{o.name} must be a closed solid lens")
@@ -228,6 +242,153 @@ def enforce_scope(before, stage, extent):
             "max_source_displacement_fraction": 0.003 if stage == "lenses" else 0}
 
 
+def loop_indices(starts, counts):
+    """Loop indices for the selected polygons, in polygon order."""
+    if not len(starts):
+        return np.empty(0, dtype=np.int64)
+    offsets = np.cumsum(counts) - counts
+    total = int(counts.sum())
+    return np.repeat(starts, counts) + (np.arange(total) - np.repeat(offsets, counts))
+
+
+def fit_sphere(points):
+    """Algebraic least-squares sphere through the points: (center, radius) or None."""
+    if len(points) < 12:
+        return None
+    system = np.hstack([2.0 * points, np.ones((len(points), 1))])
+    target = (points ** 2).sum(axis=1)
+    try:
+        solution = np.linalg.lstsq(system, target, rcond=None)[0]
+    except np.linalg.LinAlgError:
+        return None
+    center = solution[:3]
+    radius_squared = solution[3] + (center ** 2).sum()
+    if not math.isfinite(radius_squared) or radius_squared <= 0:
+        return None
+    return center, math.sqrt(radius_squared)
+
+
+def quantiles(values):
+    values = np.abs(np.asarray(values, dtype=np.float64))
+    if not values.size:
+        return None
+    return {"p50": float(np.percentile(values, 50)), "p90": float(np.percentile(values, 90)),
+            "p99": float(np.percentile(values, 99)), "max": float(values.max())}
+
+
+def lens_surface_metrics(o):
+    """Advisory smoothness numbers for one tagged lens. They never gate adoption.
+
+    Each optical side is the set of faces facing along or against the lens's
+    thickness axis. On a smooth side, adjacent faces meet at small, same-signed
+    angles whose size tracks the edge length; ripples show up as large angles,
+    mixed signs and a wide spread of angle-per-length. A sphere fit is reported
+    per side as well; wrap-around shield lenses are legitimately non-spherical.
+    """
+    me = o.data
+    if len(me.vertices) < 12 or not me.polygons:
+        return None
+    world = np.array(o.matrix_world, dtype=np.float64)
+    points = vertex_coordinates(me).astype(np.float64).reshape(-1, 3) @ world[:3, :3].T + world[:3, 3]
+    extent = float(np.ptp(points, axis=0).max())
+    if not math.isfinite(extent) or extent <= 0:
+        return None
+    centered = points - points.mean(axis=0)
+    axis = np.linalg.eigh(centered.T @ centered)[1][:, 0]
+    normals = np.empty(len(me.polygons) * 3, dtype=np.float32)
+    me.polygons.foreach_get("normal", normals)
+    normals = normals.reshape(-1, 3).astype(np.float64) @ np.linalg.inv(world[:3, :3])
+    lengths = np.linalg.norm(normals, axis=1)
+    lengths[lengths == 0] = 1.0
+    facing = (normals / lengths[:, None]) @ axis
+    side_of_face = np.zeros(len(me.polygons), dtype=np.int8)
+    side_of_face[facing > 0.5] = 1
+    side_of_face[facing < -0.5] = -1
+    # foreach_get requires the property's own C type (32-bit ints) for buffers.
+    starts = np.empty(len(me.polygons), dtype=np.int32)
+    counts = np.empty(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("loop_start", starts)
+    me.polygons.foreach_get("loop_total", counts)
+    loops = np.empty(len(me.loops), dtype=np.int32)
+    me.loops.foreach_get("vertex_index", loops)
+    starts, counts, loops = (v.astype(np.int64) for v in (starts, counts, loops))
+    edge_side, angles, lengths_by_edge = [], [], []
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    try:
+        bm.faces.index_update()
+        for edge in bm.edges:
+            faces = edge.link_faces
+            if len(faces) != 2:
+                continue
+            a, b = side_of_face[faces[0].index], side_of_face[faces[1].index]
+            edge_side.append(a if a == b else 0)
+            angles.append(math.degrees(edge.calc_face_angle_signed(0.0)))
+            lengths_by_edge.append(edge.calc_length())
+    finally:
+        bm.free()
+    if not angles:
+        return None
+    edge_side = np.array(edge_side, dtype=np.int8)
+    angles = np.array(angles, dtype=np.float64)
+    edge_lengths = np.array(lengths_by_edge, dtype=np.float64) * float(np.cbrt(abs(np.linalg.det(world[:3, :3])) or 1.0))
+    crease = np.abs(angles) > CREASE_DEGREES
+    sides = {}
+    for name, sign in (("side_a", 1), ("side_b", -1)):
+        faces = side_of_face == sign
+        if not faces.any():
+            sides[name] = None
+            continue
+        vertex_ids = np.unique(loops[loop_indices(starts[faces], counts[faces])])
+        side_points = points[vertex_ids]
+        smooth = (edge_side == sign) & ~crease
+        side_angles = angles[smooth]
+        side_lengths = edge_lengths[smooth]
+        record = {"faces": int(faces.sum()), "vertices": int(len(vertex_ids)),
+                  "smooth_edges": int(smooth.sum()), "surface_ripple_p90_deg": None,
+                  "sign_mix": None, "curvature_cv": None, "sphere_fit": None}
+        if side_angles.size:
+            positive = float((side_angles > 0.5).mean())
+            negative = float((side_angles < -0.5).mean())
+            per_length = np.abs(side_angles) / np.where(side_lengths > 0, side_lengths, np.nan) * extent
+            per_length = per_length[np.isfinite(per_length)]
+            record.update(surface_ripple_p90_deg=float(np.percentile(np.abs(side_angles), 90)),
+                          sign_mix=min(positive, negative),
+                          curvature_cv=(float(per_length.std() / per_length.mean()) if per_length.size and per_length.mean() > 0 else None))
+        fit = fit_sphere(side_points)
+        if fit is not None:
+            center, radius = fit
+            residual = np.abs(np.linalg.norm(side_points - center, axis=1) - radius)
+            record["sphere_fit"] = {"radius_over_extent": float(radius / extent),
+                                    "rms_fraction": float(np.sqrt((residual ** 2).mean()) / extent),
+                                    "p95_fraction": float(np.percentile(residual, 95) / extent),
+                                    "max_fraction": float(residual.max() / extent)}
+        sides[name] = record
+    measured = [s for s in sides.values() if s and s["surface_ripple_p90_deg"] is not None]
+    summary = None
+    if measured:
+        summary = {"worst_ripple_p90_deg": max(s["surface_ripple_p90_deg"] for s in measured),
+                   "worst_sign_mix": max(s["sign_mix"] for s in measured),
+                   "worst_curvature_cv": max((s["curvature_cv"] for s in measured if s["curvature_cv"] is not None), default=None),
+                   "worst_sphere_fit_rms_fraction": max((s["sphere_fit"]["rms_fraction"] for s in measured if s["sphere_fit"]), default=None)}
+    return {"vertices": len(me.vertices), "faces": len(me.polygons), "edges": int(len(angles)),
+            "extent": extent, "dihedral_deg": quantiles(angles),
+            "crease_edge_fraction": float(crease.mean()), "crease_threshold_deg": CREASE_DEGREES,
+            "sides": sides, "summary": summary,
+            "note": "Advisory smoothness numbers; lower ripple, sign mix and curvature spread mean a smoother optical surface. They do not gate adoption."}
+
+
+def lens_metrics():
+    result = {}
+    for o in meshes():
+        if lens(o):
+            try:
+                result[o.name] = lens_surface_metrics(o)
+            except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
+                result[o.name] = {"error": type(error).__name__}
+    return result
+
+
 def inspect(scope=None):
     lo, hi = bounds()
     snapshot = geometry_snapshot()
@@ -249,6 +410,7 @@ def inspect(scope=None):
             "images": images,
             "bounds": {"min": list(lo), "max": list(hi), "extent": list(hi-lo), "units": "meters"},
             "geometry_sha256": scene_digest(snapshot), "scope_check": scope, "warnings": warnings,
+            "lenses": lens_metrics(),
             "coordinate_system": "Blender world coordinates: Z up; front proof camera is on negative Y."}
 
 
@@ -257,7 +419,8 @@ def setup_render(resolution, samples):
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
-    scene.render.resolution_x = resolution; scene.render.resolution_y = resolution
+    scene.render.resolution_x = resolution
+    scene.render.resolution_y = resolution
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.film_transparent = False
@@ -266,16 +429,25 @@ def setup_render(resolution, samples):
     scene.world.node_tree.nodes["Background"].inputs[0].default_value = (0.12, 0.12, 0.12, 1)
     scene.world.node_tree.nodes["Background"].inputs[1].default_value = 0.7
     scene.view_settings.view_transform = "AgX"
-    lo, hi = bounds(); center = (lo + hi) * 0.5; size = max(hi-lo)
+    lo, hi = bounds()
+    center = (lo + hi) * 0.5
+    size = max(hi-lo)
     for name, direction, strength in (("key", (1,-2,2), 12), ("fill",(-2,-1,1),8), ("rim",(0,2,2),14)):
-        light = bpy.data.lights.new("Auto " + name, "AREA"); light.energy = strength * size * size * 25
-        light.shape = "DISK"; light.size = size * 2
-        obj = bpy.data.objects.new(light.name, light); scene.collection.objects.link(obj)
+        light = bpy.data.lights.new("Auto " + name, "AREA")
+        light.energy = strength * size * size * 25
+        light.shape = "DISK"
+        light.size = size * 2
+        obj = bpy.data.objects.new(light.name, light)
+        scene.collection.objects.link(obj)
         obj.location = center + Vector(direction) * size
         obj.rotation_euler = (center-obj.location).to_track_quat("-Z", "Y").to_euler()
     cam_data = bpy.data.cameras.new("Auto preview camera")
-    camera = bpy.data.objects.new(cam_data.name, cam_data); scene.collection.objects.link(camera)
-    scene.camera = camera; cam_data.type = "ORTHO"; cam_data.clip_start = size * .0001; cam_data.clip_end = size * 100
+    camera = bpy.data.objects.new(cam_data.name, cam_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+    cam_data.type = "ORTHO"
+    cam_data.clip_start = size * .0001
+    cam_data.clip_end = size * 100
     return camera, center, size
 
 
@@ -290,11 +462,14 @@ def render_proofs(output, resolution, samples):
         inverse = camera.matrix_world.inverted()
         camera_points = [inverse @ (o.matrix_world @ Vector(c)) for o in meshes() for c in o.bound_box]
         camera.data.ortho_scale = max(abs(p[i]) for p in camera_points for i in (0, 1)) * 2.16
-        path = output / f"{name}.png"; bpy.context.scene.render.filepath = str(path)
-        bpy.ops.render.render(write_still=True); proofs[name] = str(path)
+        path = output / f"{name}.png"
+        bpy.context.scene.render.filepath = str(path)
+        bpy.ops.render.render(write_still=True)
+        proofs[name] = str(path)
     tagged = [o for o in meshes() if lens(o)]
     closeup = {"target": "front central region", "tagged_lens": False}
-    target = center.copy(); scale = size * .45
+    target = center.copy()
+    scale = size * .45
     if tagged:
         obj = sorted(tagged, key=lambda o: o.name)[0]
         pts = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
@@ -308,7 +483,8 @@ def render_proofs(output, resolution, samples):
     camera.location = target + Vector((.7,-1,.4)).normalized() * size * 2
     camera.rotation_euler = (target-camera.location).to_track_quat("-Z","Y").to_euler()
     camera.data.ortho_scale = scale
-    path = output / "lens_connection_closeup.png"; bpy.context.scene.render.filepath = str(path)
+    path = output / "lens_connection_closeup.png"
+    bpy.context.scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
     # Preview rig is not part of the deliverable or geometry edit context.
     for obj in list(bpy.context.scene.objects):
@@ -335,7 +511,8 @@ def main(request):
     if source.suffix.lower() == ".blend":
         bpy.ops.wm.open_mainfile(filepath=str(source))
     elif source.suffix.lower() == ".glb":
-        bpy.ops.object.select_all(action="SELECT"); bpy.ops.object.delete(use_global=False)
+        bpy.ops.object.select_all(action="SELECT")
+        bpy.ops.object.delete(use_global=False)
         bpy.ops.import_scene.gltf(filepath=str(source), import_pack_images=True)
     else:
         raise ValueError("Expected .blend or .glb input")
@@ -346,7 +523,9 @@ def main(request):
         from app.script_validation import validate_script, safe_builtins
         from blender.pixel_access import PixelAccess
         validate_script(request["script"])
-        before = geometry_snapshot(); scene_before = protected_scene_state(); lo, hi = bounds()
+        before = geometry_snapshot()
+        scene_before = protected_scene_state()
+        lo, hi = bounds()
         pixels = PixelAccess(bpy.types.Image)
         namespace = {"__builtins__": safe_builtins(attribute_getter=pixels.get_attribute,
                                                   attribute_setter=pixels.set_attribute),

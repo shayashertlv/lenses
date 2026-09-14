@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { Job } from '../../web/types';
-import { STAGES, TEST_STAGES } from '../../web/types';
+import { LEGACY_STAGES, STANDARD_STAGES } from '../../web/types';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
 const BLEND_BYTES = Buffer.from('BLENDER-SYNTHETIC-EXACT-ACCEPTED-ARTIFACT');
@@ -53,10 +53,10 @@ function lensSeatingJob(status = 'running'): Job {
   }
   return value;
 }
-function makeTestJob(status = 'waiting'): Job {
+function makeStandardJob(status = 'waiting'): Job {
   const value = makeJob(status);
-  value.pipeline = 'test';
-  value.pipeline_stages = TEST_STAGES.filter(stage => stage !== 'review' && stage !== 'complete');
+  value.pipeline = 'standard';
+  value.pipeline_stages = STANDARD_STAGES.filter(stage => stage !== 'review' && stage !== 'complete');
   if (value.current) {
     value.current.stage = 'finish_refine';
     value.revisions[0]!.stage = 'finish_refine';
@@ -97,8 +97,8 @@ async function fixture(page: Page, initial = makeJob()) {
       if (conflict) { conflict = false; await route.fulfill({ status: 409, json: { detail: 'The job changed before this action.' } }); return; }
       if (path === '/api/settings') { configured = true; await route.fulfill({ json: health() }); return; }
       if (path === '/api/jobs') {
-        const selectedPipeline = /name="pipeline"\r?\n\r?\ntest\r?\n/.test(String(body)) ? 'test' : 'current';
-        state = selectedPipeline === 'test' ? makeTestJob('draft') : makeJob('draft');
+        const selectedPipeline = /name="pipeline"\r?\n\r?\nlegacy\r?\n/.test(String(body)) ? 'legacy' : 'standard';
+        state = selectedPipeline === 'standard' ? makeStandardJob('draft') : makeJob('draft');
         await route.fulfill({ json: state }); return;
       }
       state.version += 1;
@@ -106,7 +106,7 @@ async function fixture(page: Page, initial = makeJob()) {
       else if (path.endsWith('/cancel')) { state.status = 'cancelled'; state.allowed_actions = ['recover']; state.message = 'Cancelled with a saved task.'; }
       else if (path.endsWith('/recover')) { state.status = 'running'; state.allowed_actions = ['cancel']; state.error = null; state.recovery_kind = null; state.message = 'Recovering the saved request.'; }
       else if (path.endsWith('/retry_auth')) { state.status = 'running'; state.allowed_actions = ['cancel']; state.auth_failure = false; state.error = null; state.calls.astra += 1; state.message = 'Retrying the rejected Astra request, then continuing the remaining run.'; }
-      else if (path.endsWith('/edit')) { state.status = 'running'; state.stage = state.pipeline === 'test' ? 'finish_refine' : 'finish'; state.allowed_actions = ['cancel']; state.calls.astra += 1; state.message = 'Editing materials from the original five references.'; }
+      else if (path.endsWith('/edit')) { state.status = 'running'; state.stage = state.pipeline === 'standard' ? 'finish_refine' : 'finish'; state.allowed_actions = ['cancel']; state.calls.astra += 1; state.message = 'Editing materials from the original five references.'; }
       else if (path.endsWith('/accept')) { state.status = 'complete'; state.stage = 'complete'; state.allowed_actions = []; state.accepted = { sha256: BLEND_SHA, url: file('accepted-exact-blend') }; state.message = 'Accepted exact saved revision.'; }
       else { await route.fulfill({ status: 404, json: { detail: 'Unknown fixture action' } }); return; }
       await route.fulfill({ json: state }); return;
@@ -138,17 +138,21 @@ test('new run requires five photos and three dimensions, then makes exactly one 
   const multipart = String(mock.mutations[0]!.body);
   for (const angle of angles) expect(multipart).toContain(`name="${angle}"`);
   expect(multipart).toContain('"frame_width":140');
-  expect(multipart).not.toContain('name="pipeline"');
+  expect(multipart).toMatch(/name="pipeline"\r?\n\r?\nstandard\r?\n/);
+  expect(mock.state.pipeline).toBe('standard');
   await page.reload();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toBeVisible();
   expect(mock.mutations).toHaveLength(2);
 });
 
 test('current GLB, exactly five rendered views and close-up, and five original references are shown', async ({ page }) => {
-  const mock = await fixture(page);
+  const initial = makeJob();
+  initial.current!.inspection = { ...initial.current!.inspection, lenses: { LensLeft: { summary: { worst_ripple_p90_deg: 1.234, worst_sign_mix: 0.12 } }, LensRight: { summary: { worst_ripple_p90_deg: 0.5, worst_sign_mix: null } }, Broken: { error: 'ValueError' } } };
+  const mock = await fixture(page, initial);
   await page.goto(`/?job=${fixtureId}`);
   await expect(page.locator('#viewer-status')).toHaveText('');
   await expect(page.locator('.viewer-note').last()).toHaveText('Use the rendered views below to judge Blender materials.');
+  await expect(page.locator('#lens-metrics')).toHaveText('Lens surface (advisory, lower is smoother) · LensLeft: ripple 1.23°, sign mix 12% · LensRight: ripple 0.50°');
   await expect(page.locator('#call-counts')).toHaveText('Reserved: 2 Meshy · 3 Astra');
   await expect(page.getByText('Counts include failed or uncertain requests. Provider invoices determine actual charges.')).toBeVisible();
   await expect(page.locator('#proofs button')).toHaveCount(6);
@@ -189,6 +193,14 @@ test('accept downloads the exact accepted artifact; reload never accepts or down
   await page.reload();
   await expect(page.locator('#accepted-download')).toBeVisible();
   expect(mock.mutations).toHaveLength(1);
+});
+
+test('a revision without lens metrics shows no advisory line', async ({ page }) => {
+  const mock = await fixture(page);
+  await page.goto(`/?job=${fixtureId}`);
+  await expect(page.locator('#revision-label')).toHaveText('Revision r05 · Material & finish completed');
+  await expect(page.locator('#lens-metrics')).toBeHidden();
+  expect(mock.mutations).toEqual([]);
 });
 
 test('cancel preserves saved preview; restart does not resume; explicit recovery is one action', async ({ page }) => {
@@ -275,8 +287,8 @@ test('saved Astra recovery explains the local edit and remaining calls and requi
   expect(mock.mutations).toHaveLength(1);
 });
 
-test('test lens validation failure preserves blank r000 and recovers its saved script only after one explicit action', async ({ page }) => {
-  const failed = makeTestJob('failed');
+test('standard lens validation failure preserves blank r000 and recovers its saved script only after one explicit action', async ({ page }) => {
+  const failed = makeStandardJob('failed');
   failed.stage = 'lenses';
   failed.current = {
     id: 'r000', stage: 'generate', blend_url: file('r000-blend'), model_url: file('r000-glb'),
@@ -311,7 +323,7 @@ test('test lens validation failure preserves blank r000 and recovers its saved s
   expect(mock.mutations).toEqual([{ path: `/api/jobs/${fixtureId}/recover`, body: { version: 7 } }]);
   expect(mock.state.current).toEqual(failed.current);
   expect(mock.state.calls).toEqual({ meshy: 1, astra: 1 });
-  expect(mock.state.pipeline).toBe('test');
+  expect(mock.state.pipeline).toBe('standard');
   expect(mock.state.stage).toBe('lenses');
   await expect(page.locator('#job-error')).toBeHidden();
   await expect(page.locator('#job-message')).toContainText('Step 2 of 6 · Smooth & create lenses is running.');
@@ -508,10 +520,10 @@ test('browser Back restores the selected saved model through GET requests only',
   expect(mock.mutations).toEqual([]);
 });
 
-test('test mode discloses six calls, keeps the same required inputs, and starts only on explicit submit', async ({ page }) => {
+test('standard mode discloses six calls, keeps the same required inputs, and starts only on explicit submit', async ({ page }) => {
   const mock = await fixture(page);
-  await page.goto('/?pipeline=test');
-  await expect(page.getByRole('link', { name: 'Test pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/?pipeline=standard');
+  await expect(page.getByRole('link', { name: 'Standard pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#run-call-summary')).toHaveText('2 Meshy requests + 4 Astra sessions');
   await expect(page.locator('#run-sequence')).toContainText('all six requests with no intermediate approvals');
   await expect(page.locator('#run-sequence')).toContainText('Both finish passes inspect originals, fresh model views and the lens close-up');
@@ -531,18 +543,19 @@ test('test mode discloses six calls, keeps the same required inputs, and starts 
   await page.getByRole('button', { name: 'Start automatic run' }).click();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toBeVisible();
   expect(mock.mutations.map(item => item.path)).toEqual(['/api/jobs', `/api/jobs/${fixtureId}/start`]);
-  expect(String(mock.mutations[0]!.body)).toMatch(/name="pipeline"\r?\n\r?\ntest\r?\n/);
-  expect(mock.state.pipeline).toBe('test');
+  expect(String(mock.mutations[0]!.body)).toMatch(/name="pipeline"\r?\n\r?\nstandard\r?\n/);
+  expect(mock.state.pipeline).toBe('standard');
   await expect(page.locator('#job-message')).toContainText('Step 1 of 6');
   await page.reload();
-  await expect(page.locator('#job-eyebrow')).toContainText('TEST PIPELINE');
+  await expect(page.locator('#job-eyebrow')).toContainText('MODEL');
+  await expect(page.locator('#job-eyebrow')).not.toContainText('LEGACY');
   expect(mock.mutations).toHaveLength(2);
 });
 
-test('test pipeline shows all six automatic stages followed by review with no intermediate decisions', async ({ page }) => {
-  const mock = await fixture(page, makeTestJob());
-  for (const [index, stage] of TEST_STAGES.slice(0, 6).entries()) {
-    const next = makeTestJob('running'); next.stage = stage; next.allowed_actions = ['cancel']; next.version += index;
+test('standard pipeline shows all six automatic stages followed by review with no intermediate decisions', async ({ page }) => {
+  const mock = await fixture(page, makeStandardJob());
+  for (const [index, stage] of STANDARD_STAGES.slice(0, 6).entries()) {
+    const next = makeStandardJob('running'); next.stage = stage; next.allowed_actions = ['cancel']; next.version += index;
     mock.state = next;
     await page.goto(`/?job=${fixtureId}`);
     await expect(page.locator('#job-message')).toContainText(`Step ${index + 1} of 6`);
@@ -553,7 +566,7 @@ test('test pipeline shows all six automatic stages followed by review with no in
     await expect(page.getByRole('button', { name: 'Download & finish run' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Send another edit' })).toHaveCount(0);
   }
-  const reviewed = makeTestJob(); reviewed.version = 20; mock.state = reviewed;
+  const reviewed = makeStandardJob(); reviewed.version = 20; mock.state = reviewed;
   await page.reload();
   await expect(page.locator('#timeline li.done')).toHaveCount(6);
   await expect(page.locator('#timeline li.active')).toHaveText('07Your review');
@@ -565,8 +578,8 @@ test('test pipeline shows all six automatic stages followed by review with no in
   expect(mock.mutations).toEqual([]);
 });
 
-test('test repeat requires specific text and submits one refinement request then returns to review', async ({ page }) => {
-  const initial = makeTestJob(); initial.notes = 'Original owner instructions.';
+test('standard repeat requires specific text and submits one refinement request then returns to review', async ({ page }) => {
+  const initial = makeStandardJob(); initial.notes = 'Original owner instructions.';
   const mock = await fixture(page, initial);
   await page.goto(`/?job=${fixtureId}`);
   const input = page.getByRole('textbox', { name: 'Specific edit instructions' });
@@ -586,7 +599,7 @@ test('test repeat requires specific text and submits one refinement request then
   await page.reload();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toBeVisible();
   expect(mock.mutations).toHaveLength(1);
-  const complete = makeTestJob(); complete.version = 9; complete.calls.astra = 5; mock.state = complete;
+  const complete = makeStandardJob(); complete.version = 9; complete.calls.astra = 5; mock.state = complete;
   await page.reload();
   await expect(page.getByRole('button', { name: 'Download & finish run' })).toBeVisible();
   await expect(input).toHaveValue('');
@@ -594,7 +607,7 @@ test('test repeat requires specific text and submits one refinement request then
 });
 
 test('failed second finish pass identifies the successful first pass without claiming final completion', async ({ page }) => {
-  const failed = makeTestJob('failed');
+  const failed = makeStandardJob('failed');
   failed.stage = 'finish_refine'; failed.current!.stage = 'finish'; failed.revisions[0]!.stage = 'finish';
   failed.allowed_actions = ['recover', 'edit']; failed.recovery_kind = 'astra_script';
   failed.error = 'Synthetic second material pass failed validation; no edit executed.';
@@ -612,8 +625,8 @@ test('failed second finish pass identifies the successful first pass without cla
   expect(mock.mutations).toEqual([]);
 });
 
-test('test final download accepts and downloads the same saved hash exactly once', async ({ page }) => {
-  const mock = await fixture(page, makeTestJob());
+test('standard final download accepts and downloads the same saved hash exactly once', async ({ page }) => {
+  const mock = await fixture(page, makeStandardJob());
   await page.goto(`/?job=${fixtureId}`);
   const downloads: string[] = [];
   page.on('download', download => downloads.push(download.url()));
@@ -625,7 +638,7 @@ test('test final download accepts and downloads the same saved hash exactly once
   await expect(page.locator('.hash')).toContainText(BLEND_SHA);
   expect(mock.mutations).toEqual([{ path: `/api/jobs/${fixtureId}/accept`, body: { version: 7 } }]);
   expect(mock.state.status).toBe('complete');
-  expect(mock.state.pipeline).toBe('test');
+  expect(mock.state.pipeline).toBe('standard');
   await page.reload();
   await expect(page.locator('#accepted-download')).toBeVisible();
   expect(mock.mutations).toHaveLength(1);
@@ -634,48 +647,54 @@ test('test final download accepts and downloads the same saved hash exactly once
 
 test('pipeline switches are local and saved job mode takes precedence over a different URL mode', async ({ page }) => {
   const original = makeJob();
-  original.pipeline_stages = STAGES.filter(stage => stage !== 'review' && stage !== 'complete');
+  original.pipeline_stages = LEGACY_STAGES.filter(stage => stage !== 'review' && stage !== 'complete');
   const mock = await fixture(page, original);
-  await page.goto(`/?pipeline=test&job=${fixtureId}`);
+  await page.goto(`/?pipeline=standard&job=${fixtureId}`);
   await expect(page.getByRole('button', { name: 'Another material edit' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Current pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Legacy pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#job-eyebrow')).toContainText('LEGACY PIPELINE');
   await expect(page.locator('#timeline li')).toHaveCount(6);
   await expect(page.locator('#timeline li[data-stage=finish_refine]')).toHaveCount(0);
-  await page.getByRole('link', { name: 'Test pipeline', exact: true }).click();
-  await expect(page).toHaveURL(/\?pipeline=test$/);
+  await page.getByRole('link', { name: 'Standard pipeline', exact: true }).click();
+  await expect(page).toHaveURL(/\?pipeline=standard$/);
   await expect(page.locator('#run-call-summary')).toHaveText('2 Meshy requests + 4 Astra sessions');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Start with your references.' })).toBeVisible();
   await page.getByRole('button', { name: /Synthetic fixture — no paid calls/ }).click();
   await expect(page.getByRole('button', { name: 'Another material edit' })).toBeVisible();
   expect(mock.state).toEqual(original);
-  await page.getByRole('link', { name: 'Current pipeline', exact: true }).click();
+  await page.getByRole('link', { name: 'Legacy pipeline', exact: true }).click();
+  await expect(page).toHaveURL(/\?pipeline=legacy$/);
   await expect(page.locator('#run-call-summary')).toHaveText('2 Meshy requests + 3 Astra sessions');
+  await expect(page.locator('#new-eyebrow')).toHaveText('NEW MODEL · LEGACY PIPELINE');
   expect(mock.mutations).toEqual([]);
   await fillNew(page);
   await page.getByRole('button', { name: 'Start automatic run' }).click();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toBeVisible();
-  expect(String(mock.mutations[0]!.body)).toMatch(/name="pipeline"\r?\n\r?\ncurrent\r?\n/);
-  expect(mock.state.pipeline ?? 'current').toBe('current');
+  expect(String(mock.mutations[0]!.body)).toMatch(/name="pipeline"\r?\n\r?\nlegacy\r?\n/);
+  expect(mock.state.pipeline).toBeUndefined();
+  await expect(page.locator('#job-eyebrow')).toContainText('LEGACY PIPELINE');
 });
 
-test('test mobile creation and final options fit without horizontal overflow', async ({ page }) => {
-  const mock = await fixture(page, makeTestJob());
+test('standard mobile creation and final options fit without horizontal overflow', async ({ page }) => {
+  const mock = await fixture(page, makeStandardJob());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?pipeline=test');
+  // The name the plan first shipped under still opens the standard creation page.
+  await expect(page.getByRole('link', { name: 'Standard pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#run-call-summary')).toHaveText('2 Meshy requests + 4 Astra sessions');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `${artifactRoot}/test-new-mobile.png`, fullPage: true });
-  await page.goto(`/?pipeline=current&job=${fixtureId}`);
+  await page.goto(`/?pipeline=legacy&job=${fixtureId}`);
   await expect(page.getByRole('button', { name: 'Download & finish run' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Test pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Standard pipeline', exact: true })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `${artifactRoot}/test-review-mobile.png`, fullPage: true });
   expect(mock.mutations).toEqual([]);
 });
 
 test('blank forms need no GPU and a saved-model GPU failure preserves proofs and review actions', async ({ page }) => {
-  const mock = await fixture(page, makeTestJob());
+  const mock = await fixture(page, makeStandardJob());
   await page.addInitScript(() => {
     const original = HTMLCanvasElement.prototype.getContext;
     let attempts = 0;
@@ -685,11 +704,11 @@ test('blank forms need no GPU and a saved-model GPU failure preserves proofs and
       return Reflect.apply(original, this, args);
     } as typeof original;
   });
-  await page.goto('/?pipeline=test');
+  await page.goto('/?pipeline=standard');
   await expect(page.locator('#health')).toHaveText('Local app connected');
   await expect(page.locator('#viewer canvas')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { gpuAttempts: number }).gpuAttempts)).toBe(0);
-  await page.getByRole('link', { name: 'Current pipeline', exact: true }).click();
+  await page.getByRole('link', { name: 'Legacy pipeline', exact: true }).click();
   await expect(page.locator('#run-call-summary')).toHaveText('2 Meshy requests + 3 Astra sessions');
   expect(await page.evaluate(() => (window as unknown as { gpuAttempts: number }).gpuAttempts)).toBe(0);
   await page.getByRole('button', { name: /Synthetic fixture — no paid calls/ }).click();

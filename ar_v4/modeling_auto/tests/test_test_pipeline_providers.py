@@ -30,7 +30,7 @@ async def test_test_pipeline_wire_preserves_scope_and_exact_image_order(stage, c
     def handler(request):
         requests.append(request)
         return httpx.Response(200, json=astra_response())
-    context = {'pipeline': 'test', 'name': 'Synthetic glasses', 'notes': 'Keep green frame',
+    context = {'pipeline': 'standard', 'name': 'Synthetic glasses', 'notes': 'Keep green frame',
                'edit_instructions': 'Make the lenses less reflective', 'model_sha256': 'a' * 64,
                'inspection': {'objects': []}, 'history': 'SECRET_HISTORY', 'api_key': 'SECRET_KEY'}
     receipt = tmp_path / 'receipt'
@@ -50,7 +50,7 @@ async def test_test_pipeline_wire_preserves_scope_and_exact_image_order(stage, c
     content = payload['input'][0]['content']
     assert 'Make the lenses less reflective' in content[0]['text']
     assert 'a' * 64 in content[0]['text']
-    labels = image_labels(stage, pipeline='test')
+    labels = image_labels(stage, pipeline='standard')
     assert [item['text'] for item in content[1::2]] == list(labels)
     wire_images = content[2::2]
     assert len(wire_images) == count
@@ -58,7 +58,7 @@ async def test_test_pipeline_wire_preserves_scope_and_exact_image_order(stage, c
         assert item['detail'] == 'high'
         assert base64.b64decode(item['image_url'].split(',', 1)[1]) == path.read_bytes()
     saved = json.loads((receipt / 'astra_request.json').read_text())
-    assert saved['pipeline'] == 'test' and saved['stage'] == stage
+    assert saved['pipeline'] == 'standard' and saved['stage'] == stage
     assert saved['retry'] is False and saved['standalone'] is True
     assert [entry['sha256'] for entry in saved['images']] == [hashlib.sha256(p.read_bytes()).hexdigest() for p in images[:count]]
     assert 'base64' not in json.dumps(saved) and 'local-fake-key' not in json.dumps(saved)
@@ -80,7 +80,7 @@ async def test_missing_or_extra_post_texture_images_fail_before_dispatch(stage, 
         raise AssertionError('No request is authorized with incomplete imagery')
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(ProviderError, match='exactly 11 images'):
-            await AstraClient('local-fake-key', http).edit(stage, images[:count], {'pipeline': 'test'}, tmp_path / 'receipt', asyncio.Event())
+            await AstraClient('local-fake-key', http).edit(stage, images[:count], {'pipeline': 'standard'}, tmp_path / 'receipt', asyncio.Event())
     assert requests == [] and not (tmp_path / 'receipt').exists()
 
 
@@ -95,3 +95,18 @@ def test_current_finish_keeps_original_contract_and_extra_stage_requires_test_mo
             operation('finish', pipeline='typo')
     with pytest.raises(ValueError, match='Unknown modeling pipeline'):
         stage_context('finish', {'pipeline': 'typo'})
+
+
+@pytest.mark.asyncio
+async def test_saved_context_with_original_plan_name_still_builds_the_standard_request(images, tmp_path):
+    # Operations saved before the rename carry pipeline='test' in their bound context.
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=astra_response())
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await AstraClient('local-fake-key', http).edit('finish_refine', images[:11], {'pipeline': 'test'}, tmp_path / 'receipt', asyncio.Event())
+    assert len(requests) == 1
+    payload = json.loads(requests[0].content)
+    assert len([item for item in payload['input'][0]['content'] if item['type'] == 'input_image']) == 11
+    assert json.loads((tmp_path / 'receipt' / 'astra_request.json').read_text())['pipeline'] == 'standard'

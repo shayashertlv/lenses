@@ -1,6 +1,6 @@
 import './style.css';
 import { ApiError, request, safeArtifactUrl } from './api';
-import { ANGLES, LABELS, STAGES, TEST_STAGES } from './types';
+import { ANGLES, DEFAULT_PIPELINE, LABELS, LEGACY_STAGES, STANDARD_STAGES, parsePipeline } from './types';
 import type { Health, Job, JobListItem, Pipeline, Stage } from './types';
 import { ModelViewer } from './viewer';
 
@@ -21,11 +21,11 @@ app.innerHTML = `
     <aside class="sidebar">
       <div class="sidebar-heading"><span>YOUR MODELS</span><button id="new-job" class="icon-button" aria-label="New model">+</button></div>
       <nav id="job-list" aria-label="Saved models"><p class="muted small">Loading saved models…</p></nav>
-      <div class="sidebar-note"><span class="tiny-label">THE WORKFLOW</span><p id="workflow-copy">Blank shape. Solid lenses.<br>Clean connections. Texture.<br>One finishing session.</p><span class="muted small">You review the final result.</span></div>
+      <div class="sidebar-note"><span class="tiny-label">THE WORKFLOW</span><p id="workflow-copy">Blank shape. Solid lenses.<br>Clean connections. Texture.<br>Two finishing sessions.</p><span class="muted small">You review the final result.</span></div>
     </aside>
     <main>
       <div id="notice" class="notice" role="alert" hidden></div>
-      <nav class="pipeline-picker" aria-label="New run pipeline"><a href="/?pipeline=current" data-pipeline="current">Current pipeline</a><a href="/?pipeline=test" data-pipeline="test">Test pipeline</a><span id="pipeline-caption">Choose the pipeline for a new run.</span></nav>
+      <nav class="pipeline-picker" aria-label="New run pipeline"><a href="/?pipeline=standard" data-pipeline="standard">Standard pipeline</a><a href="/?pipeline=legacy" data-pipeline="legacy">Legacy pipeline</a><span id="pipeline-caption">Choose the pipeline for a new run.</span></nav>
       <section id="new-panel">
         <div class="page-heading"><div><span class="eyebrow" id="new-eyebrow">NEW MODEL</span><h1>Start with your references.</h1><p>Five photos and your measurements. The complete run ends at a model you can inspect.</p></div><span class="count-badge">01 — 05</span></div>
         <form id="create-form">
@@ -40,14 +40,14 @@ app.innerHTML = `
               <label class="field">Notes <span class="optional">optional</span><textarea name="notes" rows="3" maxlength="4000" placeholder="Details to preserve, lens appearance, or material finish…"></textarea></label>
             </section>
           </div>
-          <section class="run-summary"><div><span class="tiny-label">ONE AUTOMATIC RUN</span><h3 id="run-call-summary">2 Meshy requests + 3 Astra sessions</h3><p id="run-sequence">Blank model → smooth & create lenses → fix lens seating → texture → material finish. Start authorizes the whole sequence; it pauses at your final preview.</p><p class="small muted">Meshy: Ultra blank generation, original shape without remeshing; Meshy 7 texturing, 8K PBR. Paid requests use your configured accounts. Calls are never retried automatically.</p></div><button class="button primary large" id="create-submit" type="submit">Start automatic run <span aria-hidden="true">↗</span></button></section>
+          <section class="run-summary"><div><span class="tiny-label">ONE AUTOMATIC RUN</span><h3 id="run-call-summary">2 Meshy requests + 4 Astra sessions</h3><p id="run-sequence">Blank model → smooth & create lenses → inspect new views and lens close-up, then fix lens seating → texture → material finish pass 1 → material finish pass 2. Start authorizes all six requests with no intermediate approvals.</p><p class="small muted">Meshy: Ultra blank generation, original shape without remeshing; Meshy 7 texturing, 8K PBR. Paid requests use your configured accounts. Calls are never retried automatically.</p></div><button class="button primary large" id="create-submit" type="submit">Start automatic run <span aria-hidden="true">↗</span></button></section>
         </form>
       </section>
       <section id="job-panel" hidden>
         <div class="page-heading"><div><span class="eyebrow" id="job-eyebrow">MODEL</span><h1 id="job-name"></h1><p id="job-message" aria-live="polite"></p></div><span id="job-status" class="status-badge"></span></div>
         <ol id="timeline" class="timeline" aria-label="Pipeline stages"></ol>
         <div id="job-error" class="error-panel" role="alert" hidden></div>
-        <section class="viewer-card"><div class="viewer-heading"><div><span class="tiny-label">SAVED MODEL</span><span id="revision-label"></span></div><button id="reset-view" class="button quiet small-button">Reset view</button></div><p id="revision-context" class="viewer-note" hidden></p><div id="viewer"><div id="viewer-status"></div><div class="viewer-hint">DRAG TO ROTATE <span>·</span> SCROLL TO ZOOM</div></div><p class="viewer-note">Use the rendered views below to judge Blender materials.</p></section>
+        <section class="viewer-card"><div class="viewer-heading"><div><span class="tiny-label">SAVED MODEL</span><span id="revision-label"></span></div><button id="reset-view" class="button quiet small-button">Reset view</button></div><p id="revision-context" class="viewer-note" hidden></p><p id="lens-metrics" class="viewer-note" hidden></p><div id="viewer"><div id="viewer-status"></div><div class="viewer-hint">DRAG TO ROTATE <span>·</span> SCROLL TO ZOOM</div></div><p class="viewer-note">Use the rendered views below to judge Blender materials.</p></section>
         <div id="actions" class="actions-card"></div>
         <section id="proof-section" class="card" hidden><div class="section-title"><h2>Rendered inspection</h2><span>Current saved revision</span></div><div id="proofs" class="proof-grid"></div><p class="muted small">Inspect the lens surfaces and the connection to the frame. Software checks do not establish visual quality.</p></section>
         <div class="details-grid"><section class="card"><div class="section-title"><h2>Original references</h2><span>Used again for every finish edit</span></div><div id="references" class="reference-strip"></div><div id="measurements" class="measurement-list"></div></section><section class="card"><div class="section-title"><h2>Run record</h2><span id="call-counts"></span></div><p class="muted small">Counts include failed or uncertain requests. Provider invoices determine actual charges.</p><div id="revision-history"></div><details id="inspection"><summary>Technical inspection</summary><pre id="inspection-data"></pre></details></section></div>
@@ -65,8 +65,8 @@ let health: Health | null = null;
 let job: Job | null = null;
 let jobs: JobListItem[] = [];
 let selectedId: string | null = new URLSearchParams(location.search).get('job');
-let creationPipeline: Pipeline = new URLSearchParams(location.search).get('pipeline') === 'test' ? 'test' : 'current';
-let explicitPipeline = ['current', 'test'].includes(new URLSearchParams(location.search).get('pipeline') ?? '');
+let creationPipeline: Pipeline = parsePipeline(new URLSearchParams(location.search).get('pipeline')) ?? DEFAULT_PIPELINE;
+let explicitPipeline = parsePipeline(new URLSearchParams(location.search).get('pipeline')) !== null;
 let mutation = false;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let closed = false;
@@ -74,12 +74,13 @@ let selectionGeneration = 0;
 let renderedJobKey = '';
 const uploadUrls = new Map<string, string>();
 
-function pipelineOf(value: { pipeline?: Pipeline }): Pipeline { return value.pipeline === 'test' ? 'test' : 'current'; }
+// Jobs saved before the plan choice existed have no pipeline and follow the legacy plan.
+function pipelineOf(value: { pipeline?: Pipeline | string }): Pipeline { return parsePipeline(value.pipeline) ?? 'legacy'; }
 function stageLabel(stage: Stage, pipeline: Pipeline): string {
-  return pipeline === 'test' && stage === 'finish' ? 'Material & finish · pass 1' : LABELS[stage];
+  return pipeline === 'standard' && stage === 'finish' ? 'Material & finish · pass 1' : LABELS[stage];
 }
 function stagesFor(value: Job): readonly Stage[] {
-  const stages = value.pipeline_stages ?? (pipelineOf(value) === 'test' ? TEST_STAGES : STAGES);
+  const stages = value.pipeline_stages ?? (pipelineOf(value) === 'standard' ? STANDARD_STAGES : LEGACY_STAGES);
   return [...stages.filter(stage => stage !== 'review' && stage !== 'complete'), 'review', 'complete'];
 }
 function renderPipeline(): void {
@@ -88,13 +89,13 @@ function renderPipeline(): void {
     if (link.dataset['pipeline'] === pipeline) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
-  element('pipeline-caption').textContent = job && selectedId ? `${pipeline === 'test' ? 'Test' : 'Current'} pipeline saved with this run. Choose a pipeline to start a new model.` : 'Choose the pipeline for a new run.';
-  element('new-eyebrow').textContent = creationPipeline === 'test' ? 'NEW MODEL · TEST PIPELINE' : 'NEW MODEL';
-  element('run-call-summary').textContent = creationPipeline === 'test' ? '2 Meshy requests + 4 Astra sessions' : '2 Meshy requests + 3 Astra sessions';
-  element('run-sequence').textContent = creationPipeline === 'test'
+  element('pipeline-caption').textContent = job && selectedId ? `${pipeline === 'standard' ? 'Standard' : 'Legacy'} pipeline saved with this run. Choose a pipeline to start a new model.` : 'Choose the pipeline for a new run.';
+  element('new-eyebrow').textContent = creationPipeline === 'legacy' ? 'NEW MODEL · LEGACY PIPELINE' : 'NEW MODEL';
+  element('run-call-summary').textContent = creationPipeline === 'standard' ? '2 Meshy requests + 4 Astra sessions' : '2 Meshy requests + 3 Astra sessions';
+  element('run-sequence').textContent = creationPipeline === 'standard'
     ? 'Blank model → smooth & create lenses → inspect new views and lens close-up, then fix lens seating → texture → material finish pass 1 → material finish pass 2. Start authorizes all six requests with no intermediate approvals. Both finish passes inspect originals, fresh model views and the lens close-up. At the final preview, download and finish or request one more material edit.'
     : 'Blank model → smooth & create lenses → fix lens seating → texture → material finish. Start authorizes the whole sequence; it pauses at your final preview.';
-  element('workflow-copy').innerHTML = `Blank shape. Solid lenses.<br>Clean connections. Texture.<br>${pipeline === 'test' ? 'Two finishing sessions.' : 'One finishing session.'}`;
+  element('workflow-copy').innerHTML = `Blank shape. Solid lenses.<br>Clean connections. Texture.<br>${pipeline === 'standard' ? 'Two finishing sessions.' : 'One finishing session.'}`;
 }
 
 function notify(message: string, error = true): void {
@@ -117,7 +118,7 @@ function renderHealth(): void {
   element('settings-state').textContent = `OpenAI: ${openai ? 'key saved' : 'not configured'} · Meshy: ${meshy ? 'key saved' : 'not configured'}`;
 }
 function renderList(): void {
-  element('job-list').innerHTML = jobs.length ? jobs.map(item => `<button class="job-link ${item.id === selectedId ? 'selected' : ''}" data-job="${escape(item.id)}"><span class="job-dot ${escape(item.status)}"></span><span><strong>${escape(item.name)}</strong><small>${item.pipeline === 'test' ? 'Test · ' : ''}${escape(stageLabel(item.stage, pipelineOf(item)) ?? item.stage)} · ${escape(item.status.replaceAll('_', ' '))}</small></span></button>`).join('') : '<p class="muted small">Your saved models will appear here.</p>';
+  element('job-list').innerHTML = jobs.length ? jobs.map(item => `<button class="job-link ${item.id === selectedId ? 'selected' : ''}" data-job="${escape(item.id)}"><span class="job-dot ${escape(item.status)}"></span><span><strong>${escape(item.name)}</strong><small>${pipelineOf(item) === 'legacy' ? 'Legacy · ' : ''}${escape(stageLabel(item.stage, pipelineOf(item)) ?? item.stage)} · ${escape(item.status.replaceAll('_', ' '))}</small></span></button>`).join('') : '<p class="muted small">Your saved models will appear here.</p>';
   element('job-list').querySelectorAll<HTMLButtonElement>('[data-job]').forEach(button => button.addEventListener('click', () => void selectJob(button.dataset['job']!)));
 }
 function imageButton(label: string, url: string, className = ''): string {
@@ -140,19 +141,33 @@ function stagePosition(stage: Stage, value: Job): string {
   const index = stages.indexOf(stage);
   return index >= 0 ? `step ${index + 1} of ${stages.length}` : stageLabel(stage, pipelineOf(value));
 }
+/** The worker's advisory lens-surface numbers, when the saved revision has tagged lenses. */
+function lensSummary(value: Job): string {
+  const lenses = value.current?.inspection?.['lenses'];
+  if (!lenses || typeof lenses !== 'object') return '';
+  const parts: string[] = [];
+  for (const [name, metrics] of Object.entries(lenses as Record<string, unknown>)) {
+    const summary = (metrics as { summary?: Record<string, unknown> } | null)?.summary;
+    const ripple = summary?.['worst_ripple_p90_deg'];
+    const mix = summary?.['worst_sign_mix'];
+    if (typeof ripple !== 'number') continue;
+    parts.push(`${name}: ripple ${ripple.toFixed(2)}°${typeof mix === 'number' ? `, sign mix ${Math.round(mix * 100)}%` : ''}`);
+  }
+  return parts.length ? `Lens surface (advisory, lower is smoother) · ${parts.join(' · ')}` : '';
+}
 function renderJob(): void {
   renderPipeline();
   element('new-panel').hidden = Boolean(selectedId);
   element('job-panel').hidden = !job || !selectedId;
   if (!job || !selectedId) return;
-  const key = `${job.id}:${job.version}:${job.pipeline ?? 'current'}:${job.pipeline_stages?.join(',') ?? ''}:${job.status}:${job.stage}:${job.current?.id ?? ''}:${savedStage(job) ?? ''}:${job.message ?? ''}:${job.error ?? ''}:${job.auth_failure ?? false}:${job.recovery_kind ?? ''}:${job.allowed_actions.join(',')}`;
+  const key = `${job.id}:${job.version}:${job.pipeline ?? ''}:${job.pipeline_stages?.join(',') ?? ''}:${job.status}:${job.stage}:${job.current?.id ?? ''}:${savedStage(job) ?? ''}:${job.message ?? ''}:${job.error ?? ''}:${job.auth_failure ?? false}:${job.recovery_kind ?? ''}:${job.allowed_actions.join(',')}`;
   if (renderedJobKey === key) return;
   renderedJobKey = key;
   element('job-name').textContent = job.name;
   const pipeline = pipelineOf(job);
   const label = (stage: Stage): string => stageLabel(stage, pipeline);
   const stages = stagesFor(job);
-  element('job-eyebrow').textContent = `${pipeline === 'test' ? 'TEST PIPELINE · ' : ''}MODEL ${job.id.slice(0, 8)}`;
+  element('job-eyebrow').textContent = `${pipeline === 'legacy' ? 'LEGACY PIPELINE · ' : ''}MODEL ${job.id.slice(0, 8)}`;
   element('job-message').textContent = job.status === 'running'
     ? `${title(stagePosition(job.stage, job))} · ${label(job.stage)} is running. ${job.message || 'The sequence continues automatically through the final preview.'}`
     : job.error ? `Run stopped at ${stagePosition(job.stage, job)}: ${label(job.stage)}.`
@@ -174,6 +189,9 @@ function renderJob(): void {
     : '';
   element('revision-context').textContent = progressContext;
   element('revision-context').hidden = !progressContext;
+  const lensText = lensSummary(job);
+  element('lens-metrics').textContent = lensText;
+  element('lens-metrics').hidden = !lensText;
   void viewer.load(safeArtifactUrl(job.current?.model_url));
   renderActions();
   const proofs = job.current?.proofs ?? [];
@@ -188,11 +206,11 @@ function renderJob(): void {
 }
 function renderActions(): void {
   if (!job) return;
-  const testPipeline = pipelineOf(job) === 'test';
+  const standardPipeline = pipelineOf(job) === 'standard';
   const label = (stage: Stage): string => stageLabel(stage, pipelineOf(job!));
   const allowed = new Set(job.allowed_actions);
   let content = '';
-  if (allowed.has('start')) content += `<div><h2>Ready for an automatic run</h2><p>Start authorizes 2 Meshy requests and ${testPipeline ? '4' : '3'} Astra sessions, continuing through the final preview. No intermediate approvals.${testPipeline ? ' Two material/finish passes follow texturing; each receives originals, fresh rendered views and the lens close-up.' : ''}</p></div><button class="button primary" data-action="start">Start automatic run</button>`;
+  if (allowed.has('start')) content += `<div><h2>Ready for an automatic run</h2><p>Start authorizes 2 Meshy requests and ${standardPipeline ? '4' : '3'} Astra sessions, continuing through the final preview. No intermediate approvals.${standardPipeline ? ' Two material/finish passes follow texturing; each receives originals, fresh rendered views and the lens close-up.' : ''}</p></div><button class="button primary" data-action="start">Start automatic run</button>`;
   if (allowed.has('cancel')) content += '<div><h2>Run in progress</h2><p>Saved revisions and receipts are retained. Cancel stops local work; a provider may already have charged for a submitted request.</p></div><button class="button danger" data-action="cancel">Cancel run</button>';
   if (job.auth_failure || allowed.has('retry_auth')) {
     content += '<div><h2>Astra authentication needs attention</h2><p>Check or replace the OpenAI API key in API setup. Paste the key itself, without a Bearer prefix or surrounding quotes. Saving keys does not send a provider request or restart this run.</p>';
@@ -206,14 +224,14 @@ function renderActions(): void {
     : '<div><h2>Saved work can be recovered</h2><p>Recovery reuses saved work, then continues the already authorized run. It does not repeat a completed request.</p></div><button class="button primary" data-action="recover">Recover saved work</button>';
   if (allowed.has('edit') || allowed.has('accept')) {
     const atFinalReview = job.status === 'waiting' && job.stage === 'review';
-    const testReview = atFinalReview
+    const standardReview = atFinalReview
       ? 'Both material/finish passes are complete. Download the exact packed Blender model and finish this run, or send specific instructions for one more Astra material/finish edit.'
       : 'The run stopped before the latest material/finish edit completed. Your displayed saved revision remains available. Send specific instructions to request one new Astra material/finish edit.';
-    content += `<div class="review-copy"><span class="tiny-label">${testPipeline && !atFinalReview ? 'CONTINUE FROM SAVED MODEL' : 'YOUR REVIEW'}</span><h2>${testPipeline && !atFinalReview ? 'Choose how to continue.' : 'Is this the result you want?'}</h2><p>${testPipeline ? `${testReview} Each extra edit uses your five original photos, five fresh model views and the lens close-up, then returns here. Geometry remains protected.` : 'Inspect the model and rendered views. Another edit authorizes one Astra material/finish session using your five original photos, then returns here.'}</p>`;
-    if (allowed.has('edit')) content += `<label class="field">${testPipeline ? 'Specific edit instructions' : 'Finish instructions'} <span class="optional">${testPipeline ? 'required for another edit' : 'optional'}</span><textarea id="edit-notes" rows="2" maxlength="4000" ${testPipeline ? 'required' : ''} aria-describedby="edit-error" placeholder="e.g. warmer tortoise color, softer sheen on the frame…"></textarea></label><p id="edit-error" class="error-text small" role="alert" hidden></p>`;
+    content += `<div class="review-copy"><span class="tiny-label">${standardPipeline && !atFinalReview ? 'CONTINUE FROM SAVED MODEL' : 'YOUR REVIEW'}</span><h2>${standardPipeline && !atFinalReview ? 'Choose how to continue.' : 'Is this the result you want?'}</h2><p>${standardPipeline ? `${standardReview} Each extra edit uses your five original photos, five fresh model views and the lens close-up, then returns here. Geometry remains protected.` : 'Inspect the model and rendered views. Another edit authorizes one Astra material/finish session using your five original photos, then returns here. Your product notes stay attached; what you type here is added as this edit’s instructions.'}</p>`;
+    if (allowed.has('edit')) content += `<label class="field">${standardPipeline ? 'Specific edit instructions' : 'Finish instructions'} <span class="optional">${standardPipeline ? 'required for another edit' : 'optional'}</span><textarea id="edit-notes" rows="2" maxlength="4000" ${standardPipeline ? 'required' : ''} aria-describedby="edit-error" placeholder="e.g. warmer tortoise color, softer sheen on the frame…"></textarea></label><p id="edit-error" class="error-text small" role="alert" hidden></p>`;
     content += '</div><div class="review-buttons">';
-    if (allowed.has('accept')) content += `<button class="button primary" data-action="accept">${testPipeline ? 'Download & finish run' : 'Accept & download .blend'} <span aria-hidden="true">↓</span></button>`;
-    if (allowed.has('edit')) content += `<button class="button secondary" data-action="edit">${testPipeline ? 'Send another edit' : 'Another material edit'}</button>`;
+    if (allowed.has('accept')) content += `<button class="button primary" data-action="accept">${standardPipeline ? 'Download & finish run' : 'Accept & download .blend'} <span aria-hidden="true">↓</span></button>`;
+    if (allowed.has('edit')) content += `<button class="button secondary" data-action="edit">${standardPipeline ? 'Send another edit' : 'Another material edit'}</button>`;
     content += '</div>';
   }
   if (job.accepted) {
@@ -268,7 +286,7 @@ async function performAction(action: string): Promise<void> {
   const payload: { version: number; notes?: string } = { version: job.version };
   if (action === 'edit') {
     const notes = element<HTMLTextAreaElement>('edit-notes')?.value.trim();
-    if (pipelineOf(job) === 'test' && !notes) {
+    if (pipelineOf(job) === 'standard' && !notes) {
       element('edit-error').textContent = 'Write specific material or finish instructions before sending another edit.';
       element('edit-error').hidden = false;
       element<HTMLTextAreaElement>('edit-notes').focus();
@@ -305,7 +323,8 @@ createForm.addEventListener('submit', event => {
       if (file.size > 24 * 1024 * 1024) { notify(`The ${angle} photo exceeds 24 MB. Choose a smaller image.`); return; }
     }
     data.set('dimensions', JSON.stringify(dimensions));
-    if (explicitPipeline || creationPipeline === 'test') data.set('pipeline', creationPipeline);
+    // The chosen plan is always sent explicitly; the server never has to guess.
+    data.set('pipeline', creationPipeline);
     setBusy(true);
     notify('');
     let createdId: string | null = null;
@@ -338,13 +357,13 @@ document.querySelectorAll<HTMLAnchorElement>('a[data-pipeline]').forEach(link =>
   if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   if (mutation) return;
-  creationPipeline = link.dataset['pipeline'] === 'test' ? 'test' : 'current';
+  creationPipeline = parsePipeline(link.dataset['pipeline']) ?? DEFAULT_PIPELINE;
   explicitPipeline = true;
   void selectJob(null);
 }));
 element('new-job').addEventListener('click', () => {
   if (mutation) return;
-  if (job) { creationPipeline = pipelineOf(job); explicitPipeline = creationPipeline === 'test'; }
+  if (job) { creationPipeline = pipelineOf(job); explicitPipeline = creationPipeline !== DEFAULT_PIPELINE; }
   void selectJob(null);
 });
 element('reset-view').addEventListener('click', () => viewer.resetView());
@@ -374,8 +393,8 @@ element<HTMLFormElement>('settings-form').addEventListener('submit', event => {
 });
 window.addEventListener('popstate', () => {
   const parameters = new URLSearchParams(location.search);
-  creationPipeline = parameters.get('pipeline') === 'test' ? 'test' : 'current';
-  explicitPipeline = ['current', 'test'].includes(parameters.get('pipeline') ?? '');
+  creationPipeline = parsePipeline(parameters.get('pipeline')) ?? DEFAULT_PIPELINE;
+  explicitPipeline = parsePipeline(parameters.get('pipeline')) !== null;
   void selectJob(parameters.get('job'), false);
 });
 async function poll(): Promise<void> {

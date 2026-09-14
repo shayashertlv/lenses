@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ROOT, Settings
 from .controller import ANGLES, Conflict, Controller
+from .workflows import DEFAULT_PIPELINE, canonical_pipeline
 
 ORIGINS = {f'http://{host}:{port}' for host in ('127.0.0.1', 'localhost') for port in (8060, 8061)}
 HOSTS = {f'{host}:{port}' for host in ('127.0.0.1', 'localhost') for port in (8060, 8061)}
@@ -110,9 +111,10 @@ def create_app(controller=None, settings=None):
             fields = set(form.keys())
             if fields not in (required, required | {'pipeline'}) or len(form.multi_items()) != len(fields):
                 raise ValueError('Supply name, notes, dimensions and exactly five labeled photos.')
-            pipeline = form.get('pipeline', 'current')
-            if not isinstance(pipeline, str) or pipeline not in {'current', 'test'}:
-                raise ValueError('Choose the current or test pipeline.')
+            try:
+                pipeline = canonical_pipeline(form.get('pipeline', DEFAULT_PIPELINE))
+            except ValueError:
+                raise ValueError('Choose the standard or legacy pipeline.') from None
             try:
                 dimensions = json.loads(form['dimensions'])
             except (TypeError, ValueError) as error:
@@ -174,13 +176,17 @@ def create_app(controller=None, settings=None):
             try:
                 with temporary.open('x', encoding='utf-8', newline='\n') as stream:
                     stream.write('OPENAI_API_KEY=' + keys['openai_key'] + '\nMESHY_API_KEY=' + keys['meshy_key'] + '\n')
-                    stream.flush(); os.fsync(stream.fileno())
+                    stream.flush()
+                    os.fsync(stream.fileno())
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
-            await c.meshy.close(); await c.astra.close()
-            c.settings.openai_key = keys['openai_key']; c.settings.meshy_key = keys['meshy_key']
-            c.meshy = MeshyClient(keys['meshy_key']); c.astra = AstraClient(keys['openai_key'])
+            await c.meshy.close()
+            await c.astra.close()
+            c.settings.openai_key = keys['openai_key']
+            c.settings.meshy_key = keys['meshy_key']
+            c.meshy = MeshyClient(keys['meshy_key'])
+            c.astra = AstraClient(keys['openai_key'])
             return c.health()
 
     dist = ROOT / 'dist'

@@ -138,6 +138,24 @@ async def test_meshy_poll_tracks_matching_task_and_no_post(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_meshy_poll_keeps_first_latest_pending_and_terminal_receipts(tmp_path):
+    statuses = iter(["PENDING", "PENDING", "IN_PROGRESS", "IN_PROGRESS", "IN_PROGRESS", "SUCCEEDED"])
+    replies = []
+    def handler(request):
+        reply = {"id": "task_fixture", "status": next(statuses), "progress": len(replies)}
+        replies.append(reply)
+        return httpx.Response(200, json=reply)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = MeshyClient("key", http)
+        client.poll_interval = 0.001
+        result = await client.poll("generate", "task_fixture", tmp_path, asyncio.Event())
+    assert result["status"] == "SUCCEEDED" and len(replies) == 6
+    kept = sorted(json.loads(path.read_text())["progress"] for path in tmp_path.glob("poll_*.json"))
+    assert kept == [0, 4, 5]
+    assert json.loads((tmp_path / "task.json").read_text())["status"] == "SUCCEEDED"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("reply", [{"id": "wrong", "status": "SUCCEEDED"}, {"id": "task", "status": "FAILED"}, {"id": "task", "status": "WHATEVER"}])
 async def test_meshy_poll_failures_are_terminal(reply, tmp_path):
     requests = []
@@ -271,12 +289,22 @@ async def test_wrong_astra_images_fail_before_request(stage, count, refs, tmp_pa
 @pytest.mark.parametrize("output", [[], [{"type": "message", "content": []}],
     [{"type": "custom_tool_call", "name": "wrong", "input": "pass"}],
     [{"type": "function_call", "name": "run_blender_python", "arguments": "pass"}],
-    astra_response()["output"] + [{"type": "message", "content": []}],
+    astra_response()["output"] + [{"type": "function_call", "name": "other", "arguments": "{}"}],
+    astra_response()["output"] + [{"type": "web_search_call", "status": "completed"}],
     astra_response()["output"] + [astra_response()["output"][1]],
 ])
-def test_exactly_one_custom_tool_no_narrative(output):
+def test_exactly_one_custom_tool_and_no_other_tool(output):
     with pytest.raises(ProviderError):
         _extract_script(astra_response(output=output))
+
+
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_narrative_message_beside_the_one_tool_call_keeps_the_paid_script(position):
+    # A stray message item is unwanted, but the paid script is still the tool input.
+    message = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Here is the script."}]}
+    output = astra_response()["output"]
+    output = [message] + output if position == "before" else output + [message]
+    assert _extract_script(astra_response(output=output)) == astra_response()["output"][1]["input"]
 
 
 @pytest.mark.asyncio

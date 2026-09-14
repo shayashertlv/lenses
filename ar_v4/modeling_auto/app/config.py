@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'modeling-auto-20260914-bytearray-v7'
+VERSION = 'modeling-auto-20260914-review-v8'
 
 def local_keys():
     values = {}

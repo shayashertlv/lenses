@@ -7,7 +7,7 @@ import pytest
 
 from app.controller import Conflict, STAGES
 from app.storage import sha
-from app.workflows import TEST_STAGES
+from app.workflows import STANDARD_STAGES
 from test_auth_retry import RejectedAstra
 from test_controller import ANGLES, FakeAstra, FakeBlender, completed, draft, harness, photos
 
@@ -33,7 +33,7 @@ class DistinctBlender(FakeBlender):
 async def test_draft(c):
     return await c.create('Six-call synthetic test', 'Keep original green frame',
                           {'frame_width': 140, 'lens_width': 50, 'lens_height': 40},
-                          photos(), pipeline='test')
+                          photos(), pipeline='standard')
 
 
 # This helper's name describes a product pipeline, not a pytest case.
@@ -53,11 +53,11 @@ async def test_trial_runs_all_six_stages_and_refreshes_each_post_texture_input(h
     final = await review(c)
     saved = c.store.load(final['id'])
     assert (final['status'], final['stage']) == ('waiting', 'review')
-    assert final['pipeline'] == 'test' and final['pipeline_stages'] == list(TEST_STAGES)
+    assert final['pipeline'] == 'standard' and final['pipeline_stages'] == list(STANDARD_STAGES)
     assert '2 Meshy requests and 4 Astra requests' in final['run_disclosure']
     assert final['calls'] == {'meshy': 2, 'astra': 4}
-    assert [o['stage'] for o in saved['operations']] == list(TEST_STAGES)
-    assert [r['stage'] for r in final['revisions']] == list(TEST_STAGES)
+    assert [o['stage'] for o in saved['operations']] == list(STANDARD_STAGES)
+    assert [r['stage'] for r in final['revisions']] == list(STANDARD_STAGES)
     assert c.meshy.submits == ['generate', 'texture']
     assert c.blender.calls == [*STAGES, 'finish']
     assert [x['stage'] for x in c.astra.calls] == ['lenses', 'connections', 'finish', 'finish_refine']
@@ -67,7 +67,7 @@ async def test_trial_runs_all_six_stages_and_refreshes_each_post_texture_input(h
         expected = [sha(previous['proof_paths'][a]) for a in ANGLES] + [sha(previous['closeup_path'])]
         assert call['images'] == originals + expected
         assert call['context']['model_sha256'] == previous['master_sha256']
-        assert call['context']['pipeline'] == 'test'
+        assert call['context']['pipeline'] == 'standard'
     assert c.astra.calls[2]['images'][5:] != c.astra.calls[3]['images'][5:]
     assert c.blender.inputs[4:6] == [r['blend_path'] for r in saved['revisions'][3:5]]
     assert all(sha(r['blend_path']) == r['master_sha256'] for r in saved['revisions'])
@@ -83,7 +83,7 @@ async def test_current_and_legacy_jobs_keep_original_five_call_plan(harness, leg
         saved.pop('pipeline')
         c.store.save(saved)
     public = c.public(c.store.load(job['id']))
-    assert public['pipeline'] == 'current' and public['pipeline_stages'] == list(STAGES)
+    assert public['pipeline'] == 'legacy' and public['pipeline_stages'] == list(STAGES)
     assert '3 Astra requests' in public['run_disclosure']
     await c.start(job['id'], job['version'])
     final = await completed(c, job['id'])
@@ -250,7 +250,7 @@ async def test_saved_extra_astra_script_recovers_with_no_new_provider_request(ha
     saved = c.store.load(stopped['id'])
     op = copy.deepcopy(c._operation(saved))
     assert stopped['status'] == 'cancelled' and stopped['recovery_kind'] == 'astra_script'
-    assert op['context_sha256'] and op['context']['pipeline'] == 'test'
+    assert op['context_sha256'] and op['context']['pipeline'] == 'standard'
     assert len(op['images']) == 11
     await c.start(stopped['id'], stopped['version'], action='recover')
     final = await completed(c, stopped['id'])

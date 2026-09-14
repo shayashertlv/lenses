@@ -1,7 +1,7 @@
 """End-to-end HTTP + real providers on fake transport + real Blender, zero paid calls.
 
-The default checks the retained current workflow; --pipeline test checks the
-separate six-request workflow and its one-request user refinement loop.
+The default checks the standard six-request workflow and its one-request user
+refinement loop; --pipeline legacy checks the retained five-request workflow.
 """
 import argparse
 import asyncio
@@ -43,12 +43,12 @@ async def fixture_native(script, arguments, log_path):
     if process.returncode: raise AssertionError(f'Fixture creation failed: {log_path}')
 
 class OfflineWire:
-    def __init__(self, folder, blank, pipeline='current'):
+    def __init__(self, folder, blank, pipeline='standard'):
         self.folder = folder; self.blank = blank; self.tasks = {}; self.posts = []; self.astra_requests = []
         self.pipeline = pipeline
         self.controller = None
         self.astra_stages = (('lenses', 'connections', 'finish', 'finish_refine', 'finish_refine')
-                             if pipeline == 'test' else ('lenses', 'connections', 'finish', 'finish'))
+                             if pipeline == 'standard' else ('lenses', 'connections', 'finish', 'finish'))
 
     def current_job(self):
         assert self.controller is not None and self.controller.active_job_id
@@ -93,7 +93,7 @@ class OfflineWire:
             originals = [Path(job['reference_paths'][angle]) for angle in ANGLES]
             renders = [Path(current['proof_paths'][angle]) for angle in ANGLES] + [Path(current['closeup_path'])]
             expected_images = (renders if stage == 'connections' else originals + renders
-                if self.pipeline == 'test' and stage in {'finish', 'finish_refine'} else originals)
+                if self.pipeline == 'standard' and stage in {'finish', 'finish_refine'} else originals)
             image_hashes = [hashlib.sha256(base64.b64decode(x['image_url'].split(',', 1)[1])).hexdigest() for x in images]
             assert image_hashes == [sha(path) for path in expected_images], 'Astra received stale or reordered images'
             context = json.loads(payload['input'][0]['content'][0]['text'].split('\n', 1)[1])
@@ -121,9 +121,9 @@ class OfflineWire:
             return httpx.Response(200, content=stream.encode(), headers={'content-type': 'text/event-stream'})
         raise AssertionError(f'Unmocked request blocked: {request.method} {url}')
 
-async def run(pipeline='current'):
+async def run(pipeline='standard'):
     # Short, unique paths keep native Blender below Windows legacy path limits.
-    output = ROOT / 'data' / (('e2t-' if pipeline == 'test' else 'e2e-') + datetime.now().strftime('%H%M%S'))
+    output = ROOT / 'data' / (('e2s-' if pipeline == 'standard' else 'e2l-') + datetime.now().strftime('%H%M%S'))
     output.mkdir(parents=True)
     fixtures = output / 'fixtures'; fixtures.mkdir()
     await fixture_native('synthetic_fixture.py', [fixtures, '--fused'], output / 'blank-fixture.log')
@@ -146,8 +146,7 @@ async def run(pipeline='current'):
                 files[angle] = (angle + '.jpg', stream.getvalue(), 'image/jpeg')
             form = {'name': 'Offline native ' + pipeline + ' pipeline', 'notes': 'Synthetic fixture only',
                 'dimensions': json.dumps({'frame_width': 140, 'lens_width': 50, 'lens_height': 40})}
-            if pipeline == 'test':
-                form['pipeline'] = pipeline
+            form['pipeline'] = pipeline
             response = await api.post('/api/jobs', data=form, files=files)
             assert response.status_code == 200, response.text
             job = response.json(); identifier = job['id']
@@ -158,11 +157,11 @@ async def run(pipeline='current'):
             assert (job['status'], job['stage']) == ('waiting', 'review'), {
                 key: job.get(key) for key in ('id', 'status', 'stage', 'error', 'calls')}
             expected_sequence = ['meshy:generate', 'astra:lenses', 'astra:connections', 'meshy:texture', 'astra:finish']
-            if pipeline == 'test':
+            assert job['pipeline'] == pipeline
+            if pipeline == 'standard':
                 expected_sequence.append('astra:finish_refine')
-                assert job['pipeline'] == 'test'
             assert wire.posts == expected_sequence
-            initial_astra = 4 if pipeline == 'test' else 3
+            initial_astra = 4 if pipeline == 'standard' else 3
             assert job['calls'] == {'meshy': 2, 'astra': initial_astra}
             original = controller.store.load(identifier)
             source_hashes = {artifact['path']: sha(artifact['path']) for artifact in original['artifacts'].values()}
@@ -175,7 +174,7 @@ async def run(pipeline='current'):
             for item in job['current']['proofs'] + [{'url': job['current']['closeup_url']}]:
                 response = await api.get(item['url']); assert response.status_code == 200
                 with Image.open(BytesIO(response.content)) as image: assert min(image.size) == 256
-            if pipeline == 'test':
+            if pipeline == 'standard':
                 for notes in (None, '   '):
                     body = {'version': job['version']}
                     if notes is not None:
@@ -192,17 +191,15 @@ async def run(pipeline='current'):
             job = (await api.get(f'/api/jobs/{identifier}')).json()
             assert job['status'] == 'waiting' and job['calls'] == {'meshy': 2, 'astra': initial_astra + 1}, {
                 key: job.get(key) for key in ('id', 'status', 'stage', 'error', 'calls')}
-            expected_sequence.append('astra:finish_refine' if pipeline == 'test' else 'astra:finish')
+            expected_sequence.append('astra:finish_refine' if pipeline == 'standard' else 'astra:finish')
             assert wire.posts == expected_sequence
-            if pipeline == 'test':
-                assert extra_notes in wire.astra_requests[-1]['notes']
-                assert 'Synthetic fixture only' in wire.astra_requests[-1]['notes']
-            else:
-                assert wire.astra_requests[-1]['notes'] == extra_notes
+            # Both plans keep the product notes and add the edit's own instructions.
+            assert extra_notes in wire.astra_requests[-1]['notes']
+            assert 'Synthetic fixture only' in wire.astra_requests[-1]['notes']
             final = controller.store.load(identifier)
             assert final['current']['inspection']['geometry_sha256'] == textured['geometry_sha256']
             assert final['current']['inspection']['images'] == textured['images']
-            if pipeline == 'test':
+            if pipeline == 'standard':
                 assert [r['input_stage'] for r in wire.astra_requests] == ['generate', 'lenses', 'texture', 'finish', 'finish_refine']
                 assert [r['input_revision'] for r in wire.astra_requests] == ['r000', 'r001', 'r003', 'r004', 'r005']
                 assert len({r['input_sha256'] for r in wire.astra_requests[2:]}) == 3
@@ -231,7 +228,7 @@ async def run(pipeline='current'):
                 'accepted_sha256': sha(saved), 'all_original_revisions_intact': True,
                 'packed_textures_preserved_through_finish': True, 'finish_geometry_locked': True,
                 'each_request_uses_current_model_and_matching_images': True,
-                'empty_additional_notes_rejected': pipeline == 'test',
+                'empty_additional_notes_rejected': pipeline == 'standard',
                 'quality_limit': 'Synthetic software validation; real Astra output and Meshy quality remain unmeasured.'}
     # Reopen exact same store: acceptance and every original revision must persist, no POST.
     controller.lock.close()
@@ -249,5 +246,5 @@ async def run(pipeline='current'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--pipeline', choices=('current', 'test'), default='current')
+    parser.add_argument('--pipeline', choices=('standard', 'legacy'), default='standard')
     asyncio.run(run(parser.parse_args().pipeline))

@@ -63,9 +63,11 @@ class Store:
         atomic_json(self.directory(job['id']) / 'job.json', job)
     def all(self):
         return [json.loads(p.read_text(encoding='utf-8')) for p in sorted(self.jobs.glob('*/job.json'))]
-    def artifact(self, job, path):
+    def artifact(self, job, path, checksum=None):
+        # A caller that already hashed the file passes its checksum; large
+        # packed masters should not be re-read on the event loop.
         path = self.path(job, path)
-        checksum = sha(path)
+        checksum = checksum or sha(path)
         for item in job['artifacts'].values():
             if item['path'] == str(path) and item['sha256'] == checksum:
                 return item['url']
