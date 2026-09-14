@@ -1,4 +1,171 @@
+## perfecto_17fps: CPU face landmarker is the G default — September 14, 2026
+
+Owner-approved after the verification below: `experiments/speed-lab/experiments.ts` defaults
+the face landmarker to the CPU delegate; `?face=gpu` restores the previous order. Nothing
+else in the pipeline changed. Measured on the owner's laptop on mains with the real camera:
+17.9 fps versus 15.5–16.4 fps, p95 age 116–117 versus 128–133 ms, no >100 ms gaps, full
+tracking and masks. Landmarks move at float-noise level; accepted on live use, matched
+frozen-input comparison not rerun, phone unmeasured. Committed and pushed on
+`codex/ar-v4-nose-occlusion` as **perfecto_17fps**; the published Railway site is unaffected
+until rebuilt. See docs/REVIEWS.md.
+
+## `?face=cpu` verified on mains with the real camera — September 14, 2026
+
+Owner-run GPU/CPU/GPU/CPU sessions on the local G page (mains, real 1280x720 camera,
+mixed motion): CPU face delegate 17.94 / 17.86 fps versus GPU 15.49 / 16.41 fps (+12 %
+median), age p95 116–117 versus 128–133 ms, zero >100 ms gaps, 100 % tracked and masked.
+It changes landmarks at float-noise level, so it stays opt-in until the matched
+frozen-input comparison and the owner's held-frame acceptance; see docs/REVIEWS.md.
+
+## Server AR comparison: local G retained — September 14, 2026
+
+The owner asked whether running the whole AR pipeline on a server beats local G. The isolated
+experiment, now retired by the owner and archived intact in the ignored
+`.recovery/server-ar-2026-09-14/` (see its README, DEPLOY, DECISION and RESULTS), runs the
+exact published G control as mode A, the same frozen pipeline inside a headless Chromium worker
+on the server as mode B, and a transport-only control as mode C, with pixel-carried frame
+identity and client-clock frame age. The owner's real-camera run on mains (Arc 140T, mixed
+motion, 4 sessions per mode) measured local G at 15.2 fps median with 143 ms p95 age versus
+server AR at 10.3 fps with 453 ms p95 age even on a GPU server with zero network distance; the
+CPU-only configuration Railway offers gave 0.3–0.6 fps with 3–10 s age. Decision: **local G**;
+no Railway deployment, no GPU host, no further server tests, experiment retired (owner). G,
+accepted checkpoints, parent application, deployment and `package.json` are unchanged.
+Unmeasured: physical iPhone Safari (owner reports about 21 fps average for G on the phone,
+no report file), internet distance, optical latency. Reports in
+`.recovery/server-ar-2026-09-14/output/reports/`. See docs/REVIEWS.md.
+
+## Latest FPS follow-up: Test 4 is flat — September 14, 2026
+
+The new G/Test 4 report observes 12.22/12.20 FPS (−0.21%) despite composition
+median improving 6.735→4.195 ms. G itself speeds up 13.9% during the run.
+G remains accepted; next diagnostic priority is the existing G readback study
+and hair extraction/retrieval timing, not promotion of these CPU changes.
+This follows the desktop context; the new JSON has no device-type field.
+See docs/REVIEWS.md and ignored
+`.recovery/fps-desktop-reports-2026-09-14/test4-analysis.md`. No deployment change.
+
+## Latest FPS evidence is desktop — September 14, 2026
+
+The owner confirmed both submitted FPS reports are desktop, correcting an
+accidental iPhone selection. Test 6 observed +3.72% pooled FPS; Test 3 observed
+-3.62%, with full tracking/masks. G's own 13.5–19.0% between-window changes
+prevent a firm winner. G remains accepted; physical-iPhone evidence is still
+pending. See the latest docs/REVIEWS.md entry and ignored
+`.recovery/fps-desktop-reports-2026-09-14/analysis.md`. No runtime/deployment change.
+
+## Published separate FPS tests — September 14, 2026
+
+The owner-requested iPhone/desktop FPS preview is live:
+https://web-production-ef3ca.up.railway.app/ar_testing/fps/experiments/fps-candidate/live.html?fps=next-combined
+
+Commit `28599efc23b3b81bcac971391168261ea90205a0` is pushed to `main` and
+`codex/fps-railway-tests`; Railway reports success. All 37 served public files
+match their manifest, including the 15 new FPS files; all 22 earlier public
+files/default entry remain unchanged. Public FPS build:
+`bca8a88bea5e0cb0a8279a647918748f3b4896b872cc064e0c91e4fa148f2978`.
+
+Use Test 6, then Compare G / test / test / G. The four fresh documents use
+5-second warmup and 30-second measurement windows. If needed, tap Open camera /
+continue segment after a reload. Save the complete comparison JSON or copy its
+text. Repeat both glasses/hair models and front/nose, down/up and both yaw checks.
+G remains accepted; new physical iPhone performance and visual acceptance are
+still pending. No automatic camera access was used during public verification.
+
+The isolated implementation is in
+`.recovery/fps-railway-2026-09-14/checkout/ar_v4/experiments/fps-public/`.
+Both G/test capture pumps have the same proven iPhone playback-clock correction.
+Strict checks, 92 focused tests and required npm test (172 unit/21 browser) pass.
+Ten portrait lifecycle cases passed, followed by final-build entries, a complete
+real-duration ABBA with permission retry and saved/copied JSON, and a final Test
+6 lifecycle smoke. ABBA testing found and corrected internal navigation being
+mistaken for backgrounding; genuine background cancellation remains. Both
+390px and 1440px live HTTPS entries pass without camera/workers or overflow.
+
+Full reviews are in that release worktree's docs/REVIEWS.md. Private deployment
+receipts: experiments/fps-public/qa/output/published-28599ef.json and
+published-entry-28599ef/report.json there. This original dirty checkout, its
+249 recorded G dependencies, older mobile worktree, recordings and accepted
+checkpoints were preserved. Root Python/deployment files did not change.
+
+## Current owner decision: retain G - September 12, 2026
+
+The owner tried U and reports it is worse than G. U (`hair-release`) is rejected
+for promotion; G remains the accepted baseline. Record this as qualitative
+feedback, with no new G/U telemetry archive or matched motion evidence provided.
+The isolated U implementation remains available for diagnosis. This decision is
+recorded locally; the last published commit remains cf1d96d. See docs/REVIEWS.md.
+
+## Published G/U mobile preview - cf1d96d, September 12, 2026
+
+The owner-authorized focused preview is live at
+https://web-production-ef3ca.up.railway.app/ar_testing/experiments/efficiency-lab/live.html?study=hair-delivery
+Commit `cf1d96da9f67a1ab83f45df8e3daf821aa736bb9` is pushed to `main` and
+`codex/ar-mobile-testing`. Railway succeeded and all 21 public files independently
+match runtime fingerprint `0b4686e03825db646f2f688e9fd3409317c4dc93ce37359315164bab34547bf6`.
+
+U (`hair-release`) starts a next hair request during prior asynchronous hashing,
+retaining original validation and a strict two-image bound through late results.
+It preserves G's replacement of unprocessed pending snapshots. G stays accepted.
+The new page offers G/U/U/G, 5-second/3-masked-frame warmup and 30-second windows;
+measurements-only default, optional video, one local ZIP with all request timing
+and publication dispositions. Successful finalization drains late results; a
+20-second watchdog retains incomplete diagnostics and allows safe camera reopen.
+
+Verification: 215 efficiency checks, required npm test172 unit/21 browser checks,
+four portrait startup cases, seven focused production browser cases, and all239
+pinned G dependencies byte-exact. The synthetic desktop run observed192 actual
+next submissions during prior hashing across593 U requests; it showed no speed
+win (U8.30/8.50 versus G9.37/9.70 updates/s, full masks). This is not phone or motion
+quality evidence. Both glasses/hair held pairs and safeguards pass; new U physical
+phone and matched down/up/yaw recordings remain to be reviewed. No promotion.
+
+Implementation, current reviews and ignored test receipts are inside
+`.recovery/mobile-railway-2026-09-11/checkout/ar_v4/`; public verification receipt is
+`experiments/efficiency-lab/qa/output/published-cf1d96d.json` there. Do not copy this
+original dirty efficiency lab over the isolated deployed sources. This original
+checkout's unrelated work, private recordings and earlier archives stay preserved;
+the parent application and deployment configuration were not changed.
+
+## First physical-phone comparison - September 12, 2026
+
+The fixed public build now completes the owner's physical iPhone run. G/Q/R/S/T
+average 13.87/13.88/13.17/13.32/13.52 AR updates/s, with unequal matching-mask
+availability; no winner or promotion. First priority is measuring complete
+hair-result delivery, including client validation/hash and late results. This
+run covers Amber/hair-only with video encoding. See the latest review and
+`.recovery/mobile-comparison-2026-09-12/analysis.md`. G and deployment unchanged.
+
+
+## Published iPhone capture correction - 08191d3
+
+The real iPhone startup report reached GPU-ready but timed out before first AR publication. The efficiency-lab capture guard incorrectly rejected a snapshot when WebKit live-camera currentTime advanced. The isolated mobile checkout now uses rVFC frame counters and the same owned pixels throughout detection, hair and rendering. Accepted G rendering dependencies remain exact.
+
+Commit 08191d394a764ecb77ff7a9e060f2514c33613f5 is pushed to main and codex/ar-mobile-testing. Railway reports success, and all 21 served files match runtime release 9df9d0b9c9bf. Required npm test passes 172 unit/21 browser checks, efficiency passes 189 checks, and all eight mobile browser regressions pass, including four 720x1280 portrait glasses/hair combinations and the reproduced advancing-clock failure. Physical-phone startup and visual behavior still need the owner retry.
+
+Implementation and full reviews: `.recovery/mobile-railway-2026-09-11/checkout/ar_v4/`. Published receipt: `experiments/efficiency-lab/qa/output/published-08191d3.json` inside that checkout. This original dirty checkout and its efficiency sources remain separate; do not copy them over the deployed correction. Private recordings and recovery material remain excluded.
+
 # Current AR handoff — G Combined
+
+Latest mobile follow-up: main f7fb130 is verified live with startup stage/elapsed
+reporting and **Save startup report**, available even before any AR frame.
+The owner reports iPhone 17 Pro loading >1 minute; collect that phone report to
+identify its actual blocking stage. Timeout/retry tests pass; the phone's root
+cause remains unconfirmed. Continue implementation in the isolated mobile
+worktree below; preserve this original dirty G checkout.
+
+
+## Mobile testing delivery — September 11
+
+The explicitly requested public preview is live at
+https://web-production-ef3ca.up.railway.app/ar_testing/ — main commit 0815de7.
+It starts G and offers Q–T plus a continuous video-and-measurements ZIP run.
+Its clean implementation worktree is `.recovery/mobile-railway-2026-09-11/checkout/`
+on codex/ar-mobile-testing. This original dirty G checkout was preserved; use
+that worktree for mobile changes. Railway's 21 public assets match the tested
+manifest. See the latest docs/REVIEWS.md entry and that worktree's
+ar_v4/experiments/efficiency-lab/MOBILE.md for protocol and verification.
+Physical mobile performance and visual acceptance remain unmeasured.
+
 
 On September 9, 2026 the owner reported that F and G felt far superior to the
 other speed experiments, then explicitly requested implementing G and committing

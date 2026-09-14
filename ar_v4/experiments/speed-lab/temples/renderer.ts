@@ -15,6 +15,7 @@ import {VIRTUAL_CAMERA} from '../../../references/perfect-temples/src/render/pro
 import {NativePixelReader} from '../../performance-stage2/native/native-pixels.ts';
 import {DEFAULT_SPEED_OPTIONS, normalizeSpeedOptions, assertSourceFrameCurrent, sourcePixelsOpaque} from '../speed-options.ts';
 import type {NativeSpeedOptions, OwnedSourceFrame} from '../speed-options.ts';
+import {SPEED_EXPERIMENTS} from '../experiments.ts';
 
 export type {RearDropConfiguration, ProtectionConfiguration} from '../../../references/perfect-temples/experiments/temple-sagittal/contracts.ts';
 export type ComparisonVariant = 'perfecto' | 'candidate';
@@ -116,9 +117,10 @@ export class TryOnRenderer {
     const baselineCanvas = document.createElement('canvas'), branchCanvas = document.createElement('canvas');
     let perfecto: PerfectoRenderer | null = null, branch: BranchRenderer | null = null, instance: TryOnRenderer | null = null;
     try {
-      perfecto = await PerfectoRenderer.create(baselineCanvas, signal, eyewearId);
+      const experiment = {transmissionResolutionScale: SPEED_EXPERIMENTS.transmissionResolutionScale};
+      perfecto = await PerfectoRenderer.create(baselineCanvas, signal, eyewearId, experiment);
       if (signal.aborted) throw abortError();
-      branch = await BranchRenderer.create(branchCanvas, signal, eyewearId);
+      branch = await BranchRenderer.create(branchCanvas, signal, eyewearId, experiment);
       if (signal.aborted) throw abortError();
       instance = new TryOnRenderer(display, baselineCanvas, branchCanvas, perfecto, branch, options);
       const owner = instance;

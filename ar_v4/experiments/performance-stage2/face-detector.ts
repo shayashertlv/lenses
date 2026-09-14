@@ -20,6 +20,8 @@ export interface DetectorOptions {
   sessionNonce?: string;
   initializeTimeoutMs?: number;
   detectTimeoutMs?: number;
+  /** Force one delegate (no GPU-to-CPU retry). Undefined keeps the production GPU-then-CPU order. */
+  delegate?: FaceDelegate;
 }
 
 const INITIALIZE_TIMEOUT_MS = 45_000;
@@ -77,7 +79,8 @@ export class DetectorClient {
     if (this.state !== 'new') throw new Error('The face detector is already starting or closed.');
     this.state = 'initializing';
     try {
-      for (const delegate of ['GPU', 'CPU'] as const) {
+      const delegates: readonly FaceDelegate[] = this.options.delegate ? [this.options.delegate] : ['GPU', 'CPU'];
+      for (const [index, delegate] of delegates.entries()) {
         if (signal.aborted) throw cancelled();
         this.createWorker();
         try {
@@ -88,7 +91,9 @@ export class DetectorClient {
           }, this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS, signal);
         } catch (error) {
           if (signal.aborted) throw cancelled();
-          if (delegate !== 'GPU' || !(error instanceof InitializationReplyError)
+          // Only a GPU initialization reply falls through to the next delegate; a forced
+          // single delegate has no fallback and reports its own failure.
+          if (index === delegates.length - 1 || delegate !== 'GPU' || !(error instanceof InitializationReplyError)
             || this.state !== 'initializing') throw error;
           // A fresh worker also gives the ESM WASM loader a fresh module cache.
           this.releaseWorker();

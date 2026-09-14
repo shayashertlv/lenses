@@ -93,8 +93,14 @@ face/mask coverage. This fixed-order desktop run used different live images;
 Test 3 encountered more expensive rear-drop poses. It does not measure
 motion-to-photon delay or prove visual equivalence.
 
-The reviewed face detector, image/pose pairing, optical front, Raw + Option 17
-nose configuration, rear-temple curve and 15 mm fade are unchanged. A same-frame
+Since **perfecto_17fps** (September 14, 2026) the reviewed face landmarker runs on
+its CPU delegate by default (`?face=gpu` restores the previous GPU-then-CPU order):
+the owner measured 17.9 fps versus 15.5–16.4 fps and 11 % lower p95 frame age on
+mains with the real camera, because the landmarker no longer shares Chrome's single
+GPU-process thread with hair, beauty and readbacks. Landmarks differ from the GPU
+delegate at float-noise level; the owner approved this after live use. Image/pose
+pairing, optical front, Raw + Option 17 nose configuration, rear-temple curve and
+15 mm fade are unchanged. A same-frame
 hair mask can replace eligible visible arm pixels with their original camera
 pixels. The reviewed continuity rule removes rear fragments that hair newly
 detaches from a connected arm. Every existing nose/front/outside-arm protection
@@ -148,3 +154,4 @@ Git-ignored and are not bundled. Optional original studies require those files.
 See [HANDOFF.md](HANDOFF.md), [current review](docs/REVIEWS.md),
 [hair implementation](experiments/hair-live-preview/README.md) and
 [asset attribution](ATTRIBUTION.md).
+

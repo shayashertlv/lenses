@@ -11,6 +11,7 @@ import type {Detection} from '../../references/perfect-temples/src/runtime/detec
 import {hairModelById} from '../hair-live-preview/models.ts';
 import type {HairModelId} from '../hair-live-preview/models.ts';
 import type {EyewearId} from '../../references/perfect-temples/src/render/eyewear.ts';
+import {hairInputBitmap, SPEED_EXPERIMENTS} from './experiments.ts';
 
 interface Packet {
   sequence:number;capturedAtMs:number;canvas:HTMLCanvasElement;rgba:ImageData;disposed:boolean;
@@ -32,6 +33,8 @@ export interface PumpContext {
   onError:(error:unknown)=>void;
   onPublished:(row:FrameInput,identity:{sourceSHA256:string;detectionSHA256:string})=>void;
   backend:()=>{active:string|null;renderer:string|null};
+  /** Opt-in experiment: cap the hair segmenter input edge; null/undefined keeps G's full-size bitmap. */
+  hairMaxEdge?:number|null;
 }
 const hash=async(bytes:Uint8Array|Uint8ClampedArray):Promise<string>=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes).buffer)),v=>v.toString(16).padStart(2,'0')).join('');
 const context=(canvas:HTMLCanvasElement):CanvasRenderingContext2D=>{
@@ -59,7 +62,7 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       c.onBusy();const alive=()=>owns()&&!p.disposed&&!signal.aborted;
       const inferenceStartedAt=performance.now(),hashStart=performance.now();let hashMs=0;
       const sha=hash(p.rgba.data).then(value=>{hashMs=performance.now()-hashStart;return value;});
-      const hairBitmap=c.hairReady()&&p.variant==='hair'?createImageBitmap(p.canvas):Promise.resolve(null);
+      const hairBitmap=c.hairReady()&&p.variant==='hair'?hairInputBitmap(p.canvas,c.hairMaxEdge):Promise.resolve(null);
       let markHairStarted:()=>void=()=>{};
       const hairStarted=new Promise<void>(resolve=>{markHairStarted=resolve;});
       // One serial hair worker; at most the pump's second owned image can wait.
@@ -120,6 +123,9 @@ export function runExperimentPump(c:PumpContext):{stop():void;finishCurrent():Pr
       native['pump.inputWaitMs']=i.inferenceStartedAt-p.capturedAtMs;
       native['pump.hairAdmissionWaitMs']=i.hairAdmissionWaitMs;
       native['pump.mode']=c.mode;
+      native['experiment.hairMaxEdge']=c.hairMaxEdge??0;
+      native['experiment.hairMaskWidth']=r.hair?.width??0;native['experiment.hairMaskHeight']=r.hair?.height??0;
+      native['experiment.transmissionResolutionScale']=SPEED_EXPERIMENTS.transmissionResolutionScale;
       const row:FrameInput={sessionId:c.id,sequence:p.sequence,pipeline:p.pipeline,variant:c.renderer.variant,capturedAtMs:p.capturedAtMs,publishedAtMs,
         videoPresentedFrames:p.videoFrames,videoMediaTime:p.mediaTime,videoPresentationTimeMs:p.presentation,cameraSettingFps:cameraFps,
         sourceWidth:p.canvas.width,sourceHeight:p.canvas.height,sourceDrawMs:p.drawMs,detectorDrawMs:i.detectorDrawMs,sourceReadbackMs:p.readMs,

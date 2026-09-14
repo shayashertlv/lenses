@@ -224,9 +224,12 @@ export class TryOnRenderer {
     };
   }
 
-  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, eyewearId = DEFAULT_EYEWEAR_ID): Promise<TryOnRenderer> {
+  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, eyewearId = DEFAULT_EYEWEAR_ID,
+    options: {transmissionResolutionScale?: number} = {}): Promise<TryOnRenderer> {
     if (signal.aborted) throw abortError();
     const eyewear = eyewearById(eyewearId);
+    const transmissionScale = options.transmissionResolutionScale ?? 1;
+    if (!(Number.isFinite(transmissionScale) && transmissionScale > 0 && transmissionScale <= 1)) throw new Error('The transmission resolution scale is invalid.');
     const loading = new AbortController();
     let instance: TryOnRenderer | null = null;
     let gltf: GLTF | null = null;
@@ -250,6 +253,8 @@ export class TryOnRenderer {
       context = canvas.getContext('webgl2', { alpha: false, antialias: true, powerPreference: 'high-performance' });
       if (!context) throw new Error('WebGL 2 is unavailable on this browser.');
       webgl = new WebGLRenderer({ canvas, context, alpha: false, antialias: true });
+      // Opt-in experiment only; 1 is Three's default and G's accepted lens rendering.
+      webgl.transmissionResolutionScale = transmissionScale;
       instance = new TryOnRenderer(webgl, eyewear);
       instance.removeAbortListener = () => signal.removeEventListener('abort', onAbort);
       instance.assetScenes = gltf.scenes;

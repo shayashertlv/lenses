@@ -18,6 +18,7 @@ import type {HairBackend} from '../hair-live-preview/hair-backend.ts';
 import {hairModelById} from '../hair-live-preview/models.ts';
 import type {HairModelId} from '../hair-live-preview/models.ts';
 import type {HairMask, ComparisonRenderer as LiveHairRenderer, Pipeline} from './comparison-renderer.ts';
+import {applySpeedExperimentParams, describeSpeedExperiments, SPEED_EXPERIMENTS} from './experiments.ts';
 
 function element<T extends HTMLElement>(id: string): T {
   const value = document.getElementById(id);
@@ -39,6 +40,15 @@ let selectedPipeline: Pipeline = DEFAULT_PIPELINE;
 const pipelineSelect = element<HTMLSelectElement>('pipeline-select');
 pipelineSelect.value = selectedPipeline;
 element('experiment-detail').textContent = PROFILES[selectedPipeline].detail;
+// Opt-in URL experiments (?face=cpu, ?hair=640, ?tx=0.5). Absent parameters leave G unchanged.
+applySpeedExperimentParams(window.location.search);
+{
+  const description = describeSpeedExperiments();
+  if (description) {
+    const note = document.createElement('p'); note.className = 'control-hint'; note.id = 'speed-experiments'; note.textContent = description;
+    element('active-pipeline').before(note); stage.dataset.speedExperiments = description;
+  }
+}
 const profiler = new FrameProfiler();
 const benchmark = element<HTMLButtonElement>('benchmark');
 const downloadMetrics = element<HTMLButtonElement>('download-metrics');
@@ -291,6 +301,7 @@ function runPumpedFrames(session:Session):void {
     onBusy:()=>{if(owns())session.processing=true;},
     onHairError:error=>{if(owns()){session.hairError=messageFor(error);session.hairReady=false;session.hair.close();}},
     onError:error=>{if(owns())closeSession(friendlyError(error),true);},backend:()=>session.backend,
+    hairMaxEdge:SPEED_EXPERIMENTS.hairMaxEdge,
     onPublished:(input,identity)=>{
       if(!owns())return;session.performanceSample=profiler.add(input);
       session.presented={sequence:input.sequence,...identity,capturedAtMs:input.capturedAtMs,pipeline:input.pipeline};
@@ -517,7 +528,8 @@ async function openSession(): Promise<void> {
   previous.replaceWith(canvas);
   const backend = detectHairBackend();
   const session: Session = {id: crypto.randomUUID(), phase: 'live', generation: 1, abort: new AbortController(),
-    eyewearId: selectedEyewear, hairId: selectedHair, detector: new DetectorClient(),
+    eyewearId: selectedEyewear, hairId: selectedHair,
+    detector: new DetectorClient(SPEED_EXPERIMENTS.faceDelegate ? {delegate: SPEED_EXPERIMENTS.faceDelegate} : {}),
     hair: new HairClient(selectedHair, {delegate: backend.requested, outputMode: 'category-only'}), backend,
     hairReady: false, hairError: null, canvas, liveCleanups: [], cleanups: [], nextSequence: 0, presented: null, heldAt: null,
     heldBusy: false, processing: false, holdRequested: false, budgetMisses: 0, timing: null, performanceSample:null};
