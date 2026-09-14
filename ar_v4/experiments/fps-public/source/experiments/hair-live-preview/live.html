@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101715"><title>Lenses · Long hair mirror</title>
+</head>
+<body>
+<main class="workspace">
+  <header class="topbar"><a class="brand" href="/">lenses<span class="brand-dot">.</span></a><span class="version">AR / V4 <span>LONG HAIR</span></span></header>
+  <section class="intro"><div><p class="eyebrow">THE VIRTUAL MIRROR</p><h1>See how your glasses meet your hair.</h1></div><p class="intro-note">Turn slowly and explore both frames.</p></section>
+  <div class="preview-notice">Accepted checkpoint: <strong>perfecto long hair but slow</strong>. Hair processing can reduce responsiveness. <a href="/experiments/temple-sagittal/live.html" target="_blank" rel="noopener">Perfect temples without hair ↗</a><a href="/index.html" target="_blank" rel="noopener">Original perfecto ↗</a></div>
+  <div class="tryon-layout">
+    <section class="stage" data-state="idle" aria-label="Live hair occlusion mirror">
+      <canvas id="mirror" hidden aria-label="Mirrored camera and glasses"></canvas>
+      <div class="stage-top"><span class="stage-label"><span id="status-dot"></span><span id="stage-status">CAMERA OFF</span></span><span class="private-label">ON YOUR DEVICE</span></div>
+      <div class="welcome" id="welcome"><div class="frame-symbol" aria-hidden="true"><i></i><b></b><i></i></div><h2>Your mirror, ready when you are.</h2><p>Take off your glasses and find some soft light.<br>Turn slowly to compare the sides.</p><button id="start" class="primary">Open camera <span aria-hidden="true">↗</span></button><p class="privacy">Camera images stay in this browser.</p></div>
+      <div class="stage-bottom"><p id="guidance" role="status" aria-live="polite">Choose your glasses, then open the camera.</p><button id="stop" class="quiet" hidden>Close camera</button></div>
+    </section>
+    <aside class="sidebar">
+      <section class="product"><label class="eyebrow" for="eyewear-select">01 / GLASSES</label><select id="eyewear-select"></select><h2 id="frame-name">Amber Horizon</h2><p class="product-description" id="frame-description"></p></section>
+      <section class="hair-controls"><label class="eyebrow" for="hair-model-select">02 / HAIR DETECTION</label><select id="hair-model-select"><option value="hair-only">Hair-only model</option><option value="selfie-multiclass">Multiclass model</option></select><p class="control-hint" id="selection-hint">Glasses and hair model stay fixed during each session.</p></section>
+      <section class="hair-controls"><label class="eyebrow" for="variant-select">03 / COMPARE</label><select id="variant-select"><option value="hair">Hair preview · on</option><option value="accepted">Accepted · hair preview off</option></select><p id="hair-status" class="control-hint" role="status" aria-live="polite">Hair can cover eligible parts of the side arms. Nose and front protection stays fixed.</p><div class="hair-actions"><button id="toggle-version" class="quiet">Toggle before / after</button><button id="hold-frame" class="quiet" disabled>Hold frame</button><button id="resume-live" class="primary" hidden>Resume live</button></div><p id="hold-hint" class="control-hint">Hold a frame to compare both versions on exactly the same image.</p><button id="download-diagnostic" class="quiet" hidden>Download held comparison</button><p id="download-status" class="control-hint" role="status" aria-live="polite"></p></section>
+      <details class="diagnostics"><summary>Session details</summary><dl><div><dt>Tracking</dt><dd id="tracking">Off</dd></div><div><dt>Display</dt><dd id="fps">—</dd></div><div><dt>Processing</dt><dd id="latency">—</dd></div><div><dt>Camera</dt><dd id="resolution">—</dd></div><div><dt>Hair acceleration</dt><dd id="hair-engine">—</dd></div><div><dt>Hair processing</dt><dd id="hair-latency">—</dd></div><div><dt>Waiting for hair</dt><dd id="hair-wait">—</dd></div><div><dt>Rendering</dt><dd id="render-latency">—</dd></div><div><dt>Changed arm pixels</dt><dd id="changed-pixels">—</dd></div></dl><p>Every applied mask belongs to its exact camera image and face pose. Hair runs alongside glasses rendering, with an 8 ms completion timer after the accepted frame is ready. Browser scheduling can extend that wait; late masks are discarded. Hair preview off skips new hair work. Hold completes the comparison on one stopped image.</p><p id="hair-detail"></p></details>
+      <div class="baseline-note"><span class="pill">Accepted · performance work remains</span><p>Hair can cover the side arms while nose and front protection stays fixed. Smooth mobile performance has not been established.</p></div>
+    </aside>
+  </div>
+  <footer><span>Local processing · No uploads</span><span>Hold and download only when you choose.</span></footer>
+</main>
+<script type="module" src="./live-main.ts"></script>
+</body></html>

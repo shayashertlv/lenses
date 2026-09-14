@@ -1,0 +1,941 @@
+{
+  "schema": "fps-public-build-v1",
+  "fingerprint": "bca8a88bea5e0cb0a8279a647918748f3b4896b872cc064e0c91e4fa148f2978",
+  "createdAt": "2026-09-14T09:35:12.153Z",
+  "entry": "/ar_testing/fps/experiments/fps-candidate/live.html",
+  "comparisonBaseline": "Isolated local G snapshot with the shared iPhone capture correction.",
+  "sharedAssets": [
+    "models/amber-horizon.glb",
+    "models/tom-ford-clear.glb",
+    "models/face_landmarker.task",
+    "models/canonical-face.json",
+    "models/manifest.json",
+    "models/hair/manifest.json",
+    "models/hair/LICENSE-2.0.txt",
+    "models/hair/ATTRIBUTION.md",
+    "licenses/Three-MIT.txt",
+    "licenses/Apache-2.0.txt",
+    "mediapipe/vision_wasm_module_internal.js",
+    "mediapipe/vision_wasm_module_internal.wasm",
+    "hair-preview-models/hair-only.tflite",
+    "hair-preview-models/selfie-multiclass.tflite"
+  ],
+  "files": [
+    {
+      "path": "application/experiments/efficiency-lab/mobile-build.ts",
+      "sha256": "7dc57a7c974fe29509687948a58303ac4a919db91ee7641ae592b53da1634839"
+    },
+    {
+      "path": "application/experiments/efficiency-lab/mobile-network.ts",
+      "sha256": "ce1ef3295d48e3812bfc3f9007eed7fb4af89a7b53cae2795c7f1b25e83c4327"
+    },
+    {
+      "path": "application/package-lock.json",
+      "sha256": "da6da985a8c804244ede9428e0ebc550292bc9f808099268d6c11ec0ec7ada35"
+    },
+    {
+      "path": "application/package.json",
+      "sha256": "6dd27d1fb3161677c3dd6e63ac0ffff5de6f839d9a8a454e2d432789aeefdd46"
+    },
+    {
+      "path": "package.mjs",
+      "sha256": "33d07a28a10217b4a29b0ad5f57202a1354cbae44eeab2a0f4850371ff237759"
+    },
+    {
+      "path": "shared-public/hair-preview-models/hair-only.tflite",
+      "sha256": "2628cf3ce5f695f604cbea2841e00befcaa3624bf80caf3664bef2656d59bf84"
+    },
+    {
+      "path": "shared-public/hair-preview-models/selfie-multiclass.tflite",
+      "sha256": "c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0"
+    },
+    {
+      "path": "shared-public/licenses/Apache-2.0.txt",
+      "sha256": "8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8"
+    },
+    {
+      "path": "shared-public/licenses/Three-MIT.txt",
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+    },
+    {
+      "path": "shared-public/mediapipe/vision_wasm_module_internal.js",
+      "sha256": "da8934057f147b622e82cfb4c0dbd85461c598e268588b5a8ba9ca963a8ff82d"
+    },
+    {
+      "path": "shared-public/mediapipe/vision_wasm_module_internal.wasm",
+      "sha256": "2dabd8e23c60984628beb7bb338764c81a08e6837145273f59578684b5d53c1b"
+    },
+    {
+      "path": "shared-public/models/amber-horizon.glb",
+      "sha256": "78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004"
+    },
+    {
+      "path": "shared-public/models/canonical-face.json",
+      "sha256": "566302c1734dc3b096f7651f46a3a568de4d7a47ba662425b963880f7640cf14"
+    },
+    {
+      "path": "shared-public/models/face_landmarker.task",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "path": "shared-public/models/hair/ATTRIBUTION.md",
+      "sha256": "c31d354a44a36647538d569fabf79dd7375c820a6e9f4db64f7228918ba48f9c"
+    },
+    {
+      "path": "shared-public/models/hair/LICENSE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "shared-public/models/hair/manifest.json",
+      "sha256": "d78bfaf335a8d5e127af3c8ce87f3dff32bbb85fd4ef3a0baf0bb152f287d5e3"
+    },
+    {
+      "path": "shared-public/models/manifest.json",
+      "sha256": "1dc9d9e19d063a03d7fe94323bf256ce0813bf359be14fb31ea8efa3d9131166"
+    },
+    {
+      "path": "shared-public/models/tom-ford-clear.glb",
+      "sha256": "06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f"
+    },
+    {
+      "path": "source/experiments/fps-candidate/entry.ts",
+      "sha256": "d3e64456313be7034eb7c6c70a0acfb280a2e5a0c4a17c09e1225c6b22943f89"
+    },
+    {
+      "path": "source/experiments/fps-candidate/live.html",
+      "sha256": "cff402246a524fed064acab5bf009d8c01cdf97d2ad945428edc34cd5010e01c"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/bookkeeping.ts",
+      "sha256": "77f149ec0809859b3fc05a0a3f0ae2ba9ca60563b8427621dc510f9c0b2103fd"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-arm-preview/compose.ts",
+      "sha256": "817ca04b6e1aef71d2824a7bca20bea7d8ea3c8fb7eb83f3da6d1e7db4b97e84"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/background.ts",
+      "sha256": "2da05fd61bdaca6e0b594682aa5be2d487b74590a927f62650686b9b76aad99d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/continuity.ts",
+      "sha256": "27f129aa14eb647cb5bf38eace8a0441864a162701a1528f07003440572e8b89"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/fast-compose.ts",
+      "sha256": "47bb8744087207e7448ba286b4a8c9515ab34ee15e2582830fd2fda53b62cc81"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/frame-budget.ts",
+      "sha256": "1508c289b7bb922e8ae11aa97eaea5cae5f6802f960257835c76f3f09d7760a7"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/hair-backend.ts",
+      "sha256": "17f7d5c14381b25a752340fbf839ce57ebc29b59569a06b81bf4de15589422be"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/hair-client.ts",
+      "sha256": "d16d8af6ea630fa34ac8f85256fa458ec864f761dabb45bd3e26321cb4c3075d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/hair-protocol.ts",
+      "sha256": "80ea89eac9adb7961ab44f8f2c385b56ba4d520d944ec0d53368db35d0d19bee"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/hair.worker.ts",
+      "sha256": "40543d967d54e023365b08a964da0cf7bdf9faee014cd8d8481d289fca8ec53a"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/live-mask.ts",
+      "sha256": "c555ec767f1cdec917a48a36fd4b7ccbbcf08995c3aad9dcd995c0be1fb084eb"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/live.css",
+      "sha256": "2b6efeaaebe8670aed63c7c005e1dbcbff995fded289bf9efcd4168c838a2e56"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/models.ts",
+      "sha256": "02c32ab954a8af4097c11cfdc8287ec0e4d6d89ac14d4e1c74be65c3eb6154e7"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/ownership.ts",
+      "sha256": "06752d9ed46dc63ca18c9b81196ffbe994188c64987830b03ef96ff25a8ae33d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/renderer.ts",
+      "sha256": "fba5870a2fcfb49fc3fb56690de73aea1fffeac4490c1b687fd39e0ee0f92583"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/hair-live-preview/revision.ts",
+      "sha256": "7c5fc89bb43d12400d4d576fe640b4ba74c3c44fd8978c5bf32a1d9019f0b2c8"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-candidate/fast-compose.ts",
+      "sha256": "445039a4dc2299639c9febde6fafac3cba6763ed9ad4c996086d8d0db810a5cd"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-candidate/native/temple-visibility.ts",
+      "sha256": "e6715dfc90a485a275c93d87fc2d101dec3495fe3b92de89499f5f1ab0fdc818"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-candidate/temples/branch-renderer.ts",
+      "sha256": "093cde2c97e174516e673039eec5eae3c89603d69b8905872d9a795bfa01a36d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-candidate/temples/protection.ts",
+      "sha256": "9e8a97777e2dba4623e2d11d0a02749b7e94481bf4e4460f3ea8a787e6a7d307"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/background.ts",
+      "sha256": "28f1782c72c5dd659b981186d6f2da9bdd6867be658113480ff617bf78aaecbd"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/face-detector.ts",
+      "sha256": "7583349755052a16f17b6789559c36ac58c7e8ac39d7037b404a418b729daabf"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/face-detector.worker.ts",
+      "sha256": "f3839f7d115c24700d72f16e9814f2e8b3f20e67a614901004c3334edb50e5b5"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/face-timing.ts",
+      "sha256": "3f815e878b5b7dac40b8b2d99739acb84ca972c584cda59ed1a59a73660eadba"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/native/native-pixels.ts",
+      "sha256": "45918f3b7b165a7d8a513688da3d54f2035b04375b7c7b465b0888187f024c26"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/native/renderer.ts",
+      "sha256": "c92ca7adbe72d91b8654b96f8695d12dffb7f39fd1c311f310a335f757dd3a8c"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/native/shared-readback.ts",
+      "sha256": "7e791fce62e2d1c0662739d85fc7d5018ae82653eefaecdfa50144d6aa2b1468"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/renderer.ts",
+      "sha256": "9e65e427ae2d756edf8f8ab3cc11f24dd0a9c20bdf00ac1672bc9e88c2b839ad"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/performance-stage2/temples/renderer.ts",
+      "sha256": "fe762262f9bdb7d5d8506b29b3a5c7f0933b1bc5b64c9ae076e2e533207c6ffb"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/comparison-renderer.ts",
+      "sha256": "841b2622ed1f9b2b8914337b166983ef21efe11954c7e0476e28084bd1b2dd0b"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/experiments.ts",
+      "sha256": "d13156d50dca9e324ade3f7177113b20ba1c4b0f4619bbd2ccf8de3ee7498f05"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/frame-profiler.ts",
+      "sha256": "08771786c91649df51ccf6d86ab3ce5f1c8ecc270268b29df20b501d0a7662fe"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/frame-pump.ts",
+      "sha256": "73222887741690460e63a280106955a1b7dd1e8daab1405b80ed6d36fbf853f3"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/live-main.ts",
+      "sha256": "97c0bffca11cc5f726ad2856f172fca967ba609804f2c0caae9d251da9cdba3e"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/live-pump.ts",
+      "sha256": "1b318d1f498d58ca37ccdc544f730221847102011014bc569001629846df426c"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/live.css",
+      "sha256": "7d4aa586582f8bdfad63721ebafeeb170c465461db8f70ebb463e53f080fec54"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/native/pbo-readback.ts",
+      "sha256": "493237bd26d40a8190b33bc3520907d84629a44c2a0d13de3174f291c9fe772b"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/native/renderer.ts",
+      "sha256": "16c9eb071aff3d208f34de64f3cd96c3c18763cf5b34be157855f67371857d4f"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/native/shared-readback.ts",
+      "sha256": "018c3685bb411baac564305df053b0bd5985226d4b466b70737406a4bb1d9a2c"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/native/source-camera.ts",
+      "sha256": "5b02a8c883d720a882c4592b41db63e33c90b54b4bd5577998ec0222bdc90c4d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/profiles.ts",
+      "sha256": "9de73190f2b20bccec84790f4cab354cf1923425426f78b27f1ee480c1abda6b"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/renderer.ts",
+      "sha256": "f9437a86d2d0eb5a41e3fc02cb5a844fa285182c5f6854106ec03971878cfa5e"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/speed-options.ts",
+      "sha256": "6108a235b11bb2ffef767188fbd8f09746c69fd7fcfdf0b34c30805663d25726"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/experiments/speed-lab/temples/renderer.ts",
+      "sha256": "56512eea5cc3ed7587e3783f6f7f8476392d53ce315385a7ceef0a0993f9eb9a"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/frame-identity.ts",
+      "sha256": "b2e68301aa00db84e3c1c1b6b2ba92ea001ccff9a1dd5650b1f7eaa3844447e3"
+    },
+    {
+      "path": "source/experiments/fps-candidate/runtime/options.ts",
+      "sha256": "d859a6c42e978c90f4a2b3254d14922fc48377d90e31c91243935e474437d42b"
+    },
+    {
+      "path": "source/experiments/fps-candidate/study.ts",
+      "sha256": "b77c37cbab0458d2efd7158735a360607b55838140fd2ada1dbb444fcac3655d"
+    },
+    {
+      "path": "source/experiments/fps-candidate/tsconfig.json",
+      "sha256": "9f9b23d3f2b4e595be51ff0ba34f1d30afa15cab3253219cc2831c580256f2e4"
+    },
+    {
+      "path": "source/experiments/fps-candidate/vite.config.ts",
+      "sha256": "aa34f7996c79a1ce80b730c20f88ed9f221bfc0d0a2e0889cbfc5d6c03a7c145"
+    },
+    {
+      "path": "source/experiments/hair-arm-preview/compose.ts",
+      "sha256": "f6cdd7c37d722f165500913eda70ae8e46c1971bd075b9c1eb46a8dba5c3a989"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/accepted-reference.ts",
+      "sha256": "d058ac16e3f1e1b90a3491de4473ac7e8c7043fb2ff61be6465bfd109b7c286b"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/background.ts",
+      "sha256": "8c842258175a7904d59525f4ee541653cfe2e7b87f8e4779e6866e20a5b86409"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/continuity.ts",
+      "sha256": "8a856d335eb9780d1eb38e7a9452b66863280cf044215163bbba4d54b77b5b19"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/fast-compose.ts",
+      "sha256": "088da15720bc1ff15c05088daf35b6a053c6d73b71126e3df0a0e14b4012be57"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/frame-budget.ts",
+      "sha256": "1508c289b7bb922e8ae11aa97eaea5cae5f6802f960257835c76f3f09d7760a7"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/hair-backend.ts",
+      "sha256": "17f7d5c14381b25a752340fbf839ce57ebc29b59569a06b81bf4de15589422be"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/hair-client.ts",
+      "sha256": "ac604d3126a55d34783051c618b2a76c7f732562d9cdd5b1b741c064059fe474"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/hair-protocol.ts",
+      "sha256": "5ed5319fa8641a7444d6741f848a8f38a4493cc3df405e4a9524bd8a191284cb"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/hair.worker.ts",
+      "sha256": "6d2c975443fc4f1d7cabe298f24b8fc74b594572ca635f8256cf5f0a5c9fb392"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/live-main.ts",
+      "sha256": "2b8951fbe127b73e077500dffa144cc6a06c4fc270582463582a334709f37499"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/live-mask.ts",
+      "sha256": "c555ec767f1cdec917a48a36fd4b7ccbbcf08995c3aad9dcd995c0be1fb084eb"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/live.css",
+      "sha256": "2b6efeaaebe8670aed63c7c005e1dbcbff995fded289bf9efcd4168c838a2e56"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/live.html",
+      "sha256": "429a8bcba1db51f69c4d996b2f3655ef43e0c22200caf4161f854f356a25aae1"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/models.ts",
+      "sha256": "02c32ab954a8af4097c11cfdc8287ec0e4d6d89ac14d4e1c74be65c3eb6154e7"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/ownership.ts",
+      "sha256": "ea14045a4877e30c51af90ea61d257e45bdd7b9d68cfa9d5a2bf7f8c287b7c46"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/playwright.integration.config.ts",
+      "sha256": "71eb463f4eb2937b811ab1927d4b083d9f1c62136e231904bf03039bf3340079"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/renderer.ts",
+      "sha256": "5b115e8f1d0d23c7521168f5555e64f1064799567b1eb61737b1dfe2bca5f5e9"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/revision.ts",
+      "sha256": "7c5fc89bb43d12400d4d576fe640b4ba74c3c44fd8978c5bf32a1d9019f0b2c8"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/tsconfig.json",
+      "sha256": "3efc3b812723a41156dfc32f299d6b976bcec978ac5ef2bbe75aac9da5420cc2"
+    },
+    {
+      "path": "source/experiments/hair-live-preview/vite.config.ts",
+      "sha256": "b748c6eb804e0b0605ddaa83539d276f95cca4aaed52a3311990dca8d76ea78f"
+    },
+    {
+      "path": "source/experiments/performance-candidate/background.ts",
+      "sha256": "c9fc711ccd2891b01d791f6ee584801854e84b1eb57370b5e0db9f12118dae0c"
+    },
+    {
+      "path": "source/experiments/performance-candidate/comparison-renderer.ts",
+      "sha256": "ec11f1fa9269d6a3fb00ca2b26f8fbaf268f114072b5d1f1b760403aef75148b"
+    },
+    {
+      "path": "source/experiments/performance-candidate/fast-compose.ts",
+      "sha256": "c4a475052080f28be1dc64a3385a8c1d1d6d2b83b1b019bd6368cc8a90634800"
+    },
+    {
+      "path": "source/experiments/performance-candidate/live-main.ts",
+      "sha256": "bf22e79cc6a3b2a62211dda63b349d464f0ccb9fd4a4600f5dfdb92a0c0380f2"
+    },
+    {
+      "path": "source/experiments/performance-candidate/live.css",
+      "sha256": "7b2bd8aa59bec029f53cb812558509e5ef7cd39b01412d606cbf1f1de59e5f10"
+    },
+    {
+      "path": "source/experiments/performance-candidate/live.html",
+      "sha256": "db01c57c3fffb34aed103f05c48525182a7d2ead8b7b7be8f284ebf4dcacbf1f"
+    },
+    {
+      "path": "source/experiments/performance-candidate/native/native-pixels.ts",
+      "sha256": "b4811b7d7147d7e50f7bc9888081dedce59a2caffab49093f9bd743b98b0a871"
+    },
+    {
+      "path": "source/experiments/performance-candidate/native/renderer.ts",
+      "sha256": "2b0a2c184c0f71302580fe9da9301878e458c18834bf7b4c343cd3692effb680"
+    },
+    {
+      "path": "source/experiments/performance-candidate/native/temple-visibility.ts",
+      "sha256": "e6715dfc90a485a275c93d87fc2d101dec3495fe3b92de89499f5f1ab0fdc818"
+    },
+    {
+      "path": "source/experiments/performance-candidate/playwright.config.ts",
+      "sha256": "5fc27505c9885171ae28deab51648a7824e713d36c716ba8d7cce4f594555cea"
+    },
+    {
+      "path": "source/experiments/performance-candidate/renderer-lifecycle-test.mjs",
+      "sha256": "3b5637595ee5327bb00edc0a138c70e899dd5edcae74a6ae3cf0e3b8e712dd35"
+    },
+    {
+      "path": "source/experiments/performance-candidate/renderer-lifecycle.test-source.ts",
+      "sha256": "385202894c65e7af4a126bb3c814691aa459ca4f0ea0adddc48539807296eeea"
+    },
+    {
+      "path": "source/experiments/performance-candidate/renderer.ts",
+      "sha256": "d350a4403ad9404a384723c7691186628637d8b4a86f672c5b13deaaee95f002"
+    },
+    {
+      "path": "source/experiments/performance-candidate/temples/branch-renderer.ts",
+      "sha256": "61a38ae9c69c0a21b15c1682edafd3ba22eb295395ae1d4b6848ba8e3ac27755"
+    },
+    {
+      "path": "source/experiments/performance-candidate/temples/protection.ts",
+      "sha256": "af5fb65fc81ae62994a67497db5bdb9e087d7f83ef4dcf6d38f14df07a1e963a"
+    },
+    {
+      "path": "source/experiments/performance-candidate/temples/renderer.ts",
+      "sha256": "f099e5275525586d6bdc8b58fdbbfc6998d765e4bf57f04744f3a0f889f291a7"
+    },
+    {
+      "path": "source/experiments/performance-candidate/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75"
+    },
+    {
+      "path": "source/experiments/performance-candidate/vite.config.ts",
+      "sha256": "527fa1f842d9dcea3220f3c0dd59f1fd92a023c453edd5471b953d0eb381b6a0"
+    },
+    {
+      "path": "source/experiments/performance-stage2/background.ts",
+      "sha256": "28f1782c72c5dd659b981186d6f2da9bdd6867be658113480ff617bf78aaecbd"
+    },
+    {
+      "path": "source/experiments/performance-stage2/comparison-renderer.ts",
+      "sha256": "5dd214f130878810f3489eefca23ec5d20ae4f58167dc033035a876180ff5cb7"
+    },
+    {
+      "path": "source/experiments/performance-stage2/face-detector.ts",
+      "sha256": "8b2bacdf1afc30abffc79e0fdc79d3fdaef8d9553b3ec9b9555965232f78444b"
+    },
+    {
+      "path": "source/experiments/performance-stage2/face-detector.worker.ts",
+      "sha256": "3e3dacbd0114f97cdddfe695ca30125c5c03a04771e84720c5a5171b5e281228"
+    },
+    {
+      "path": "source/experiments/performance-stage2/face-timing.ts",
+      "sha256": "03547ee4be96507c69ab0e336bdd243d5621b1c659543c24665236cd795732a6"
+    },
+    {
+      "path": "source/experiments/performance-stage2/frame-profiler.ts",
+      "sha256": "572f413a1ad40c0a8b337b24b96c73cad2015e34b252e8a7295e0f1a46d97e73"
+    },
+    {
+      "path": "source/experiments/performance-stage2/live-main.ts",
+      "sha256": "ca019a3b81413b7e7f2d399f2e061e3fdc71d859d994cc23716fdca2377c6c38"
+    },
+    {
+      "path": "source/experiments/performance-stage2/live.css",
+      "sha256": "66586533bbca7110916c588335f962ae0b35b3d6ac6e0231e1f5ac4fb73d57d6"
+    },
+    {
+      "path": "source/experiments/performance-stage2/live.html",
+      "sha256": "c926a8285ff708c586c900256f30940659c246a42d8abae4b335aacd8df42c26"
+    },
+    {
+      "path": "source/experiments/performance-stage2/native/native-pixels.ts",
+      "sha256": "45918f3b7b165a7d8a513688da3d54f2035b04375b7c7b465b0888187f024c26"
+    },
+    {
+      "path": "source/experiments/performance-stage2/native/renderer.ts",
+      "sha256": "94f7e664a9f88c65744171ba82c4eed4497d693cc5306c3b5e4e53f049fab7d8"
+    },
+    {
+      "path": "source/experiments/performance-stage2/native/shared-readback.ts",
+      "sha256": "7e791fce62e2d1c0662739d85fc7d5018ae82653eefaecdfa50144d6aa2b1468"
+    },
+    {
+      "path": "source/experiments/performance-stage2/playwright.base.config.ts",
+      "sha256": "64ccc2bd416f7d7e1a266a484763db428dd96f13a3dc4759167d37be2cabf6e8"
+    },
+    {
+      "path": "source/experiments/performance-stage2/playwright.config.ts",
+      "sha256": "e2a33418a683cee625fcaf325ede0b515b0612256700fd496a4e40197f5a176e"
+    },
+    {
+      "path": "source/experiments/performance-stage2/renderer.ts",
+      "sha256": "e517a0a9ab37f039888dd52bbd821f8b02e5df0e84ab09189223fba4006268ac"
+    },
+    {
+      "path": "source/experiments/performance-stage2/temples/renderer.ts",
+      "sha256": "761b6316d5b115ab52ec2540eae94acae35260ce6b1081e07808e3bbecb8d00f"
+    },
+    {
+      "path": "source/experiments/performance-stage2/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75"
+    },
+    {
+      "path": "source/experiments/performance-stage2/vite.config.ts",
+      "sha256": "4bf9d16461cba542999b46af71be7f7bb2eb9d05c8e4f54b0bbc8f16388e2b92"
+    },
+    {
+      "path": "source/experiments/performance-stage3/comparison-renderer.ts",
+      "sha256": "f37bfd38a2071308f59dd96820cbb8a2d394e2bfd686d06aebb5ae297f90875d"
+    },
+    {
+      "path": "source/experiments/performance-stage3/frame-profiler.ts",
+      "sha256": "972ffbf5db5bb0ad77551b8d6bb0c32de331b90491df557fb5cbbe423a779174"
+    },
+    {
+      "path": "source/experiments/performance-stage3/gpu-rules.ts",
+      "sha256": "25ca1e129a3140a3880bca17b4eb221e1cbd8fc79a283c35db9b1037aaaccb04"
+    },
+    {
+      "path": "source/experiments/performance-stage3/live-main.ts",
+      "sha256": "398f3d1c65304ad1341de1749cc39236fbbdf42f5b6918b8ee5d0655f00398cd"
+    },
+    {
+      "path": "source/experiments/performance-stage3/live.css",
+      "sha256": "3c27471e788d36d49b0fe6b685e39c9d6ce43c6c47bff517bcbb667493bc67a6"
+    },
+    {
+      "path": "source/experiments/performance-stage3/live.html",
+      "sha256": "650c64fb5789f0bd680210cb9b856c586b735ddb2fd14479f37a750757376688"
+    },
+    {
+      "path": "source/experiments/performance-stage3/native/gpu-frame.ts",
+      "sha256": "0943c027daee3a52424e27c1b6d5f7f3204d17014dfe4a902359b55b9b4750c9"
+    },
+    {
+      "path": "source/experiments/performance-stage3/native/renderer.ts",
+      "sha256": "e4dc77ee8fd4c2be1e5ae9bae0b3036bca5865ba36513340c38123c0469db660"
+    },
+    {
+      "path": "source/experiments/performance-stage3/playwright.config.ts",
+      "sha256": "a6848ba37d870ba292ba9295ef11eb9d0011f3f2455f0f9c1e5a7e178003cc9a"
+    },
+    {
+      "path": "source/experiments/performance-stage3/renderer.ts",
+      "sha256": "002c2812114a609d456a00979712063d369b4982a758ee3bdddcdf44a3065783"
+    },
+    {
+      "path": "source/experiments/performance-stage3/temples/renderer.ts",
+      "sha256": "cd878aa2298821a0d7f5e4c8b0c23bc8d17a8a096fbfcaa7b84126a74dd334bc"
+    },
+    {
+      "path": "source/experiments/performance-stage3/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75"
+    },
+    {
+      "path": "source/experiments/performance-stage3/vite.config.ts",
+      "sha256": "4b013e3c14d476d88c747fa5520d1df2b8d5a14b0dc8b4b9cfefd9247a3b954f"
+    },
+    {
+      "path": "source/experiments/speed-lab/comparison-renderer.ts",
+      "sha256": "4321543c66327951ccc07a16821de288ca9c3ad6fcc85688d91b24872a6c652d"
+    },
+    {
+      "path": "source/experiments/speed-lab/experiments.ts",
+      "sha256": "d13156d50dca9e324ade3f7177113b20ba1c4b0f4619bbd2ccf8de3ee7498f05"
+    },
+    {
+      "path": "source/experiments/speed-lab/frame-profiler.ts",
+      "sha256": "375403b982433b9c9400421dff1f4e76e13b971706d0db09559827c70b061a44"
+    },
+    {
+      "path": "source/experiments/speed-lab/frame-pump.ts",
+      "sha256": "73222887741690460e63a280106955a1b7dd1e8daab1405b80ed6d36fbf853f3"
+    },
+    {
+      "path": "source/experiments/speed-lab/live-main.ts",
+      "sha256": "e2b60d05b8a7f4f522695355c4c7f3ecaf0f7137d56992934490d91aae626e88"
+    },
+    {
+      "path": "source/experiments/speed-lab/live-pump.ts",
+      "sha256": "0633fa790566d3f3771e457e2f2a4c58bf6a31203afbd1dbdfc8beabd046c500"
+    },
+    {
+      "path": "source/experiments/speed-lab/live.css",
+      "sha256": "7d4aa586582f8bdfad63721ebafeeb170c465461db8f70ebb463e53f080fec54"
+    },
+    {
+      "path": "source/experiments/speed-lab/live.html",
+      "sha256": "070b075a6e6919b963c1ad35af55c1f2508ca9d4a1cafd45184bfe02c310caf7"
+    },
+    {
+      "path": "source/experiments/speed-lab/native/pbo-readback.ts",
+      "sha256": "aaad125bb6ffa994cebf3c8ab8256fb39be66d063fafd89cb2fe709a43d94fc1"
+    },
+    {
+      "path": "source/experiments/speed-lab/native/renderer.ts",
+      "sha256": "d94d0239e94f1a5b17f894c3b5d33822ba165c0ce918e01a9db07eab199de16c"
+    },
+    {
+      "path": "source/experiments/speed-lab/native/shared-readback.ts",
+      "sha256": "018c3685bb411baac564305df053b0bd5985226d4b466b70737406a4bb1d9a2c"
+    },
+    {
+      "path": "source/experiments/speed-lab/native/source-camera.ts",
+      "sha256": "5b02a8c883d720a882c4592b41db63e33c90b54b4bd5577998ec0222bdc90c4d"
+    },
+    {
+      "path": "source/experiments/speed-lab/playwright.config.ts",
+      "sha256": "45be06ae85922e3ac71c991673bfe6d5d07d5ddb4b985113bb81bb323832501b"
+    },
+    {
+      "path": "source/experiments/speed-lab/playwright.current.config.ts",
+      "sha256": "4bcd8449b511c1bb65f46f7ee6889f6b900ce1ce30a922ea843d65f64d502cc7"
+    },
+    {
+      "path": "source/experiments/speed-lab/playwright.test2.config.ts",
+      "sha256": "d91dfc2639c431d64fa38b72e85f6e9c59f76e4d1a43a27dd693c8090c1671e9"
+    },
+    {
+      "path": "source/experiments/speed-lab/profiles.ts",
+      "sha256": "9de73190f2b20bccec84790f4cab354cf1923425426f78b27f1ee480c1abda6b"
+    },
+    {
+      "path": "source/experiments/speed-lab/renderer.ts",
+      "sha256": "efde68a4b098b5f8d0864128fd03db039bd55582d0c8fb642c33f9b71cb7cfa5"
+    },
+    {
+      "path": "source/experiments/speed-lab/speed-options.ts",
+      "sha256": "9181f4c47ed6c906254e24e8fd6a4af5794402568d75e46dc1d68adea95ff1a8"
+    },
+    {
+      "path": "source/experiments/speed-lab/temples/renderer.ts",
+      "sha256": "b7e4c8449e608c6c8033295d106415c8027cf83cd8935d5508fc6c5fc257e7b5"
+    },
+    {
+      "path": "source/experiments/speed-lab/tsconfig.json",
+      "sha256": "b834bfcd4337b88e575e6ed80f34febd8a4949237ef89c86ce389312c8be8f75"
+    },
+    {
+      "path": "source/experiments/speed-lab/vite.config.ts",
+      "sha256": "e00279577ecd4dd0067b9c2940d8c96eba9063ecebff1c8975bedfb1c84944b4"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/branch-renderer.ts",
+      "sha256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/contracts.ts",
+      "sha256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/protection.ts",
+      "sha256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/rear-drop.ts",
+      "sha256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/renderer.ts",
+      "sha256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef"
+    },
+    {
+      "path": "source/experiments/temple-sagittal/vite.config.ts",
+      "sha256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/branch-renderer.ts",
+      "sha256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/capture-controller.ts",
+      "sha256": "90ca7d501d399eb60c68aaca9afefc8b7e7599ea40b91f8e59d639808f96954c"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/contracts.ts",
+      "sha256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/final-audit.mjs",
+      "sha256": "c4a9b02c2d36f6ad7218401a6db84fc2b4e09075e94709330e35976d3d61581c"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/geometry-check.mjs",
+      "sha256": "d01fbb665f1677f5a6510205b18467dad872111b487b7077e1b57f407fe4b9a2"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/live-main.ts",
+      "sha256": "74db88de21a8e345fca7f9cc4cf990b967b3d33d9dd32390ace64c93b3eb1407"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/live.html",
+      "sha256": "ad7b838346922098959ebfb926bc45e706b135d6c8390476d972a8e89dded199"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/make-review.mjs",
+      "sha256": "36bbbafbd2b4e1104b66638b78eb880b3474ec318d0aff2a2acf11780274a433"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/playwright.config.ts",
+      "sha256": "0fd863e24aea1749f478996ba3d29a659b94c5fd6fbdf3497817c838b19e0c36"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/preservation-audit.mjs",
+      "sha256": "5ccb12b1a7a1088e7dcf797284f8f5e1568e07c0eaa0171732fa5249aa700d4a"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/protection.ts",
+      "sha256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/qa-gallery.mjs",
+      "sha256": "3397477d9f336940348ae36f40dad2726a1713e3f25b0b927bc4c4263e206d60"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/rear-drop.ts",
+      "sha256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/renderer.ts",
+      "sha256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/replay-browser.mjs",
+      "sha256": "062d853cf4569f57547bab4017b1dccf94bb7c80b92e780985b722878f9e9a0f"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/replay.mjs",
+      "sha256": "9af8f7a351a707aa25d94666a68bad50ba9d196bead7b9624f326a571d7957cf"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/synthetic-pair.mjs",
+      "sha256": "b6e817708f332ac4d70d67ca245470b7d0cc278f2959f0f4eb9371b68bc2436f"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/synthetic-render.mjs",
+      "sha256": "d85a537b64d2695b07e9ef98f5b96213928456248073c1177f42cda1194165af"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/tsconfig.json",
+      "sha256": "1ba8fc37b8042c2a3eb19f0224a77fe77b63d75174aa83b42be8e0a3e2b983c3"
+    },
+    {
+      "path": "source/references/perfect-temples/experiments/temple-sagittal/vite.config.ts",
+      "sha256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906"
+    },
+    {
+      "path": "source/references/perfect-temples/manifest.json",
+      "sha256": "eb34c6073741d8d9b76a37e6946dadebd7cf82ba0c0b2c07d6a2c828c4cb71c2"
+    },
+    {
+      "path": "source/references/perfect-temples/src/capture/controller.ts",
+      "sha256": "c7a1fa6afe76d4b814d7e4c2b7a9bb79c0f4e2747973ac5ad3a005e77341855f"
+    },
+    {
+      "path": "source/references/perfect-temples/src/capture/store.ts",
+      "sha256": "4dc15babccea1eb22b4681b20b77960fdb66e9545ebaf431f99a48e72c07f2de"
+    },
+    {
+      "path": "source/references/perfect-temples/src/main.ts",
+      "sha256": "503b1952f96daa352270d7c0951339f311b6bae8472c36e12d071d85dbd1e580"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/bridge-pose.ts",
+      "sha256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/eyewear.ts",
+      "sha256": "8873d4dfd21c2fece07cf74cfd0068f1d551d87e49578a47deefa6b697ef486a"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/face-surface.ts",
+      "sha256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/nasal-boundary.ts",
+      "sha256": "3ed2e7a593671662b7a208287c853c393fdf9e09011ad7547b111a29355d66c2"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/nasal-shape.ts",
+      "sha256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/projection.ts",
+      "sha256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/renderer.ts",
+      "sha256": "530e8e101af5d9c63ece72d34beb04504b8af803dd017b9a03835f4cf6b7fab3"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/temple-clip.ts",
+      "sha256": "ed572dd9c53f8b9e7ce74c73c59e302f8ca463e8707cae052e169e66fcb4373c"
+    },
+    {
+      "path": "source/references/perfect-temples/src/render/temple-visibility.ts",
+      "sha256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c"
+    },
+    {
+      "path": "source/references/perfect-temples/src/runtime/camera.ts",
+      "sha256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2"
+    },
+    {
+      "path": "source/references/perfect-temples/src/runtime/detector.ts",
+      "sha256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9"
+    },
+    {
+      "path": "source/references/perfect-temples/src/runtime/detector.worker.ts",
+      "sha256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da"
+    },
+    {
+      "path": "source/references/perfect-temples/src/runtime/protocol.ts",
+      "sha256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7"
+    },
+    {
+      "path": "source/references/perfect-temples/src/style.css",
+      "sha256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a"
+    },
+    {
+      "path": "source/references/perfect-temples/tsconfig.json",
+      "sha256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7"
+    },
+    {
+      "path": "source/src/render/bridge-pose.ts",
+      "sha256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c"
+    },
+    {
+      "path": "source/src/render/eyewear-volume.ts",
+      "sha256": "17a8e7069a50ac79972e9c079c95948e9ac489890424e13041fe30216a38c7cf"
+    },
+    {
+      "path": "source/src/render/eyewear.ts",
+      "sha256": "2bd4d80b8c4edafb447710f7435dbf3d40c9e97d6afdfbf3f0729c04c26901b2"
+    },
+    {
+      "path": "source/src/render/face-surface.ts",
+      "sha256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d"
+    },
+    {
+      "path": "source/src/render/nasal-shape.ts",
+      "sha256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e"
+    },
+    {
+      "path": "source/src/render/projection.ts",
+      "sha256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53"
+    },
+    {
+      "path": "source/src/render/renderer.ts",
+      "sha256": "d1db65fc175510966852396b3dfa964d53b6bb62fb76853bec0928645839da4d"
+    },
+    {
+      "path": "source/src/render/temple-clip.ts",
+      "sha256": "4c7b6c6efeae3ee797890e14cc0aef30726cd5bfd551321552826d5907c3a4a3"
+    },
+    {
+      "path": "source/src/render/temple-parts.ts",
+      "sha256": "ea47a56240952d2df349be32cf93318e243f6311298bf90285585b46aa8539b1"
+    },
+    {
+      "path": "source/src/render/temple-visibility.ts",
+      "sha256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c"
+    },
+    {
+      "path": "source/src/render/trial-temple-visibility.ts",
+      "sha256": "921523325965859615c637bbfc1147a8ca411dc28675480850981108766f4470"
+    },
+    {
+      "path": "source/src/runtime/camera.ts",
+      "sha256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2"
+    },
+    {
+      "path": "source/src/runtime/detector.ts",
+      "sha256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9"
+    },
+    {
+      "path": "source/src/runtime/detector.worker.ts",
+      "sha256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da"
+    },
+    {
+      "path": "source/src/runtime/protocol.ts",
+      "sha256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7"
+    },
+    {
+      "path": "source/src/style.css",
+      "sha256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a"
+    },
+    {
+      "path": "source/tsconfig.json",
+      "sha256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7"
+    },
+    {
+      "path": "source/vite.combined.config.ts",
+      "sha256": "546369c92deb2f3137808f13fabf5d8e1815c2ef79088fad0ccb5d15dfa64e3d"
+    },
+    {
+      "path": "source/vite.config.ts",
+      "sha256": "e01630dfee55d872585c9f73255afaebba448fae931d462d16c0a929ddd7460f"
+    },
+    {
+      "path": "source/vite.hair.config.ts",
+      "sha256": "238a3f1eb64c6ecf667e633e5724bfa09817eed7d257d7ada503409d779f48c3"
+    },
+    {
+      "path": "source/vite.speed.config.ts",
+      "sha256": "47cc0a0dae1bda638823ad3f3499eafcd02294ffea31d026819bb0dd1ba50c5f"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "d04a1ce9b027c6b4b96bee86f960f6232768e1285bd2061c79084d32990c451d"
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "4a6b9e7c7f74aaf4dcdb1707690765507258b1c29e8eeec494b1fd5677d16517"
+    }
+  ]
+}

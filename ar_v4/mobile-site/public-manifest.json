@@ -110,6 +110,81 @@
       "path": "release.json",
       "size": 255,
       "sha256": "444b0c073cc74cee5f03b34581c8c58e0f1871bf7f828611fa1bea184d82abe5"
+    },
+    {
+      "path": "fps/assets/face-detector.worker-DvXt9Zsn.js",
+      "size": 156546,
+      "sha256": "19a92da7f87f1f14f7ec11af91597ce291218525d4c92d1754f7bec703e83de3"
+    },
+    {
+      "path": "fps/assets/hair.worker-RGcpMyv2.js",
+      "size": 160142,
+      "sha256": "de8424d96f48f07849a304a80407b689f769fb0220f835a99cf16f67b42d4651"
+    },
+    {
+      "path": "fps/assets/hair.worker-tP4tvAdM.js",
+      "size": 160622,
+      "sha256": "bfcc2883c2733bb20f3fb62bd009c5ca73d042100e1fb1f2f514184a97c985cc"
+    },
+    {
+      "path": "fps/assets/live-main-DPZocIrE.css",
+      "size": 4333,
+      "sha256": "ff4c64169d98f5f663c34624bc8124c96e3afc5387f7cb8bbbee88c7792abfc4"
+    },
+    {
+      "path": "fps/assets/protocol-BeEpJDIa.js",
+      "size": 4015,
+      "sha256": "25c24b2ac305c848ffce542b6bd02a9eab2c9a73fbec7843d0c40bfbf9f32f3e"
+    },
+    {
+      "path": "fps/assets/protocol-DAQX7zQn.css",
+      "size": 7269,
+      "sha256": "38bdb38896f9724ef5ab5c694f744ad3b39ef03329c20ffe7ceca2dd334f75e7"
+    },
+    {
+      "path": "fps/assets/rear-drop-Be7poiZV.js",
+      "size": 626947,
+      "sha256": "70dd406ca4a9e80f26b8fb28b74922a3709196355d3af797e1b2d04bee95bbad"
+    },
+    {
+      "path": "fps/assets/rolldown-runtime-DK3Fl9T5.js",
+      "size": 158,
+      "sha256": "a526d1bb3288ef04d001028843220a24b0867a4edf8c685b69506d6525af36ff"
+    },
+    {
+      "path": "fps/experiments/fps-candidate/live.html",
+      "size": 12421,
+      "sha256": "c699e619a91d7c8c78cb6d84793b2329ca439efddbc95fdd70531206e37d9b5f"
+    },
+    {
+      "path": "fps/fps-build.json",
+      "size": 40124,
+      "sha256": "934846f8007cf005edd82934aa5ae060a8c9579743b86f6f95d0aa3cf9dd4e0a"
+    },
+    {
+      "path": "fps/assets/comparison-renderer-Bqe0Ut0y.js",
+      "size": 154716,
+      "sha256": "4ce76b641a254775035ca3ce1cffdd3e8400026aa40bb2d0977eccaa003cc41f"
+    },
+    {
+      "path": "fps/assets/comparison-renderer-ChBR31Ur.js",
+      "size": 148831,
+      "sha256": "9c07585dafc5d6e6edfa829825897e44a1ff82558a5bc79e1a174c7be2895382"
+    },
+    {
+      "path": "fps/assets/fps-gWfxNk7k.js",
+      "size": 13813,
+      "sha256": "07827cde53a3818be0dd692d512bb98735f3fbce0977dfa35d8abcf98f248fb1"
+    },
+    {
+      "path": "fps/assets/live-main-BNW6c8ny.js",
+      "size": 68843,
+      "sha256": "dfcec7a209ec6276c5b806c13c36e0a8b2f2bbfc1f81af369ff021e1be70d3f2"
+    },
+    {
+      "path": "fps/assets/live-main-Cn-hnSTa.js",
+      "size": 77579,
+      "sha256": "1de6490277bcc21bc643056384fb899573d286f19efda9bf9796dd639cc9abe5"
     }
   ]
 }

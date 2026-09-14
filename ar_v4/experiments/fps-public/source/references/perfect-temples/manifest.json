@@ -1,0 +1,278 @@
+{
+  "schema": "hair-live-accepted-reference-v2",
+  "acceptedCommit": "b26b5584c0dccbc2b30e4f12cdd432f10df577ea",
+  "repositoryPrefix": "ar_v4/",
+  "purpose": "Byte-exact perfect_temples reference source, vendored from the accepted Git commit for offline and shallow-checkout builds.",
+  "files": [
+    {
+      "path": "experiments/temple-sagittal/.gitignore",
+      "relativePath": "experiments/temple-sagittal/.gitignore",
+      "sha256": "92861ee314cc48e3193d04ec44704d474aeab9d15583823e20b168bf7de4291c",
+      "bytes": 94
+    },
+    {
+      "path": "experiments/temple-sagittal/README.md",
+      "relativePath": "experiments/temple-sagittal/README.md",
+      "sha256": "9a9f81c1bf6885009e7c42cb28d45331a200b3fab6b11e08151f37e4582c9d60",
+      "bytes": 4043
+    },
+    {
+      "path": "experiments/temple-sagittal/branch-renderer.ts",
+      "relativePath": "experiments/temple-sagittal/branch-renderer.ts",
+      "sha256": "9740435448aa52d9278161bf35b8a2bf42da23fa5f0304e7db0d152a66c4400e",
+      "bytes": 24780
+    },
+    {
+      "path": "experiments/temple-sagittal/capture-controller.ts",
+      "relativePath": "experiments/temple-sagittal/capture-controller.ts",
+      "sha256": "90ca7d501d399eb60c68aaca9afefc8b7e7599ea40b91f8e59d639808f96954c",
+      "bytes": 14009
+    },
+    {
+      "path": "experiments/temple-sagittal/contracts.ts",
+      "relativePath": "experiments/temple-sagittal/contracts.ts",
+      "sha256": "4c5da52e3358c6e667b20188aae603acae56341308d30dbbe60a8e4c566bcb19",
+      "bytes": 1842
+    },
+    {
+      "path": "experiments/temple-sagittal/final-audit.mjs",
+      "relativePath": "experiments/temple-sagittal/final-audit.mjs",
+      "sha256": "c4a9b02c2d36f6ad7218401a6db84fc2b4e09075e94709330e35976d3d61581c",
+      "bytes": 9236
+    },
+    {
+      "path": "experiments/temple-sagittal/final-pixels.py",
+      "relativePath": "experiments/temple-sagittal/final-pixels.py",
+      "sha256": "d71cec6d632d7b2389bb703ea8c53a6f0f2846505bebfbb2682061a02eefb37a",
+      "bytes": 7424
+    },
+    {
+      "path": "experiments/temple-sagittal/geometry-check.mjs",
+      "relativePath": "experiments/temple-sagittal/geometry-check.mjs",
+      "sha256": "d01fbb665f1677f5a6510205b18467dad872111b487b7077e1b57f407fe4b9a2",
+      "bytes": 13654
+    },
+    {
+      "path": "experiments/temple-sagittal/live-main.ts",
+      "relativePath": "experiments/temple-sagittal/live-main.ts",
+      "sha256": "74db88de21a8e345fca7f9cc4cf990b967b3d33d9dd32390ace64c93b3eb1407",
+      "bytes": 21029
+    },
+    {
+      "path": "experiments/temple-sagittal/live.html",
+      "relativePath": "experiments/temple-sagittal/live.html",
+      "sha256": "ad7b838346922098959ebfb926bc45e706b135d6c8390476d972a8e89dded199",
+      "bytes": 8466
+    },
+    {
+      "path": "experiments/temple-sagittal/make-review.mjs",
+      "relativePath": "experiments/temple-sagittal/make-review.mjs",
+      "sha256": "36bbbafbd2b4e1104b66638b78eb880b3474ec318d0aff2a2acf11780274a433",
+      "bytes": 7603
+    },
+    {
+      "path": "experiments/temple-sagittal/mirror.spec.ts",
+      "relativePath": "experiments/temple-sagittal/mirror.spec.ts",
+      "sha256": "ca792ee6a4d4e568fd6f60a91e3225032d86af760e15a8474ca060c180dc77b5",
+      "bytes": 54317
+    },
+    {
+      "path": "experiments/temple-sagittal/playwright.config.ts",
+      "relativePath": "experiments/temple-sagittal/playwright.config.ts",
+      "sha256": "0fd863e24aea1749f478996ba3d29a659b94c5fd6fbdf3497817c838b19e0c36",
+      "bytes": 836
+    },
+    {
+      "path": "experiments/temple-sagittal/preservation-audit.mjs",
+      "relativePath": "experiments/temple-sagittal/preservation-audit.mjs",
+      "sha256": "5ccb12b1a7a1088e7dcf797284f8f5e1568e07c0eaa0171732fa5249aa700d4a",
+      "bytes": 4409
+    },
+    {
+      "path": "experiments/temple-sagittal/protection.test.ts",
+      "relativePath": "experiments/temple-sagittal/protection.test.ts",
+      "sha256": "aba7bbea68511b3d34328aa6db25302838ed69ebdc4d653a2ee99145e1b17466",
+      "bytes": 5755
+    },
+    {
+      "path": "experiments/temple-sagittal/protection.ts",
+      "relativePath": "experiments/temple-sagittal/protection.ts",
+      "sha256": "856b12a9cca27f29dd7e06dc6c1fdd51c011cadaa37a81f91017f61a1bcf2ae0",
+      "bytes": 6527
+    },
+    {
+      "path": "experiments/temple-sagittal/qa-gallery.mjs",
+      "relativePath": "experiments/temple-sagittal/qa-gallery.mjs",
+      "sha256": "3397477d9f336940348ae36f40dad2726a1713e3f25b0b927bc4c4263e206d60",
+      "bytes": 2353
+    },
+    {
+      "path": "experiments/temple-sagittal/rear-drop.test.ts",
+      "relativePath": "experiments/temple-sagittal/rear-drop.test.ts",
+      "sha256": "decca36a5b4bda98f5f1dcf049b030b96602fb210223c58cf088831c2114bc39",
+      "bytes": 13269
+    },
+    {
+      "path": "experiments/temple-sagittal/rear-drop.ts",
+      "relativePath": "experiments/temple-sagittal/rear-drop.ts",
+      "sha256": "050a568788804601439c321ee32ea42a2daffba58b3f535e5c78dcbc8e795166",
+      "bytes": 13201
+    },
+    {
+      "path": "experiments/temple-sagittal/renderer-ownership.test.ts",
+      "relativePath": "experiments/temple-sagittal/renderer-ownership.test.ts",
+      "sha256": "c191a854adf7ec6a339ac658bb7e6e04aa3e0137fe41616634f262fc23daf952",
+      "bytes": 5066
+    },
+    {
+      "path": "experiments/temple-sagittal/renderer.ts",
+      "relativePath": "experiments/temple-sagittal/renderer.ts",
+      "sha256": "9d4c2c8dc644d92c8efcbd5a184733a839576a4af72e3322136321f110ecfeef",
+      "bytes": 18927
+    },
+    {
+      "path": "experiments/temple-sagittal/replay-browser.mjs",
+      "relativePath": "experiments/temple-sagittal/replay-browser.mjs",
+      "sha256": "062d853cf4569f57547bab4017b1dccf94bb7c80b92e780985b722878f9e9a0f",
+      "bytes": 9679
+    },
+    {
+      "path": "experiments/temple-sagittal/replay.mjs",
+      "relativePath": "experiments/temple-sagittal/replay.mjs",
+      "sha256": "9af8f7a351a707aa25d94666a68bad50ba9d196bead7b9624f326a571d7957cf",
+      "bytes": 5053
+    },
+    {
+      "path": "experiments/temple-sagittal/synthetic-pair.mjs",
+      "relativePath": "experiments/temple-sagittal/synthetic-pair.mjs",
+      "sha256": "b6e817708f332ac4d70d67ca245470b7d0cc278f2959f0f4eb9371b68bc2436f",
+      "bytes": 2951
+    },
+    {
+      "path": "experiments/temple-sagittal/synthetic-render.mjs",
+      "relativePath": "experiments/temple-sagittal/synthetic-render.mjs",
+      "sha256": "d85a537b64d2695b07e9ef98f5b96213928456248073c1177f42cda1194165af",
+      "bytes": 2903
+    },
+    {
+      "path": "experiments/temple-sagittal/tsconfig.json",
+      "relativePath": "experiments/temple-sagittal/tsconfig.json",
+      "sha256": "1ba8fc37b8042c2a3eb19f0224a77fe77b63d75174aa83b42be8e0a3e2b983c3",
+      "bytes": 77
+    },
+    {
+      "path": "experiments/temple-sagittal/vite.config.ts",
+      "relativePath": "experiments/temple-sagittal/vite.config.ts",
+      "sha256": "9528a3c4d527f569a39bb839377da8e9d6e295398051e98c6dff0d02009f5906",
+      "bytes": 202
+    },
+    {
+      "path": "src/capture/controller.ts",
+      "relativePath": "src/capture/controller.ts",
+      "sha256": "c7a1fa6afe76d4b814d7e4c2b7a9bb79c0f4e2747973ac5ad3a005e77341855f",
+      "bytes": 13233
+    },
+    {
+      "path": "src/capture/store.ts",
+      "relativePath": "src/capture/store.ts",
+      "sha256": "4dc15babccea1eb22b4681b20b77960fdb66e9545ebaf431f99a48e72c07f2de",
+      "bytes": 10608
+    },
+    {
+      "path": "src/main.ts",
+      "relativePath": "src/main.ts",
+      "sha256": "503b1952f96daa352270d7c0951339f311b6bae8472c36e12d071d85dbd1e580",
+      "bytes": 14248
+    },
+    {
+      "path": "src/render/bridge-pose.ts",
+      "relativePath": "src/render/bridge-pose.ts",
+      "sha256": "ce8b7dff66784a0ec55edddfbd2b610799a0bb202f6e7055718956f2e6a7106c",
+      "bytes": 5147
+    },
+    {
+      "path": "src/render/eyewear.ts",
+      "relativePath": "src/render/eyewear.ts",
+      "sha256": "8873d4dfd21c2fece07cf74cfd0068f1d551d87e49578a47deefa6b697ef486a",
+      "bytes": 1929
+    },
+    {
+      "path": "src/render/face-surface.ts",
+      "relativePath": "src/render/face-surface.ts",
+      "sha256": "dd93e0930998658b360866cc9577d0c6be2505dfdf84bca7169e6bd58d831d0d",
+      "bytes": 6522
+    },
+    {
+      "path": "src/render/nasal-boundary.ts",
+      "relativePath": "src/render/nasal-boundary.ts",
+      "sha256": "3ed2e7a593671662b7a208287c853c393fdf9e09011ad7547b111a29355d66c2",
+      "bytes": 15806
+    },
+    {
+      "path": "src/render/nasal-shape.ts",
+      "relativePath": "src/render/nasal-shape.ts",
+      "sha256": "c4ef40c1c53fe84a81f6b2981b48cc3bebf14d2fc59724b117ed715a4448889e",
+      "bytes": 9654
+    },
+    {
+      "path": "src/render/projection.ts",
+      "relativePath": "src/render/projection.ts",
+      "sha256": "af97b1a897637e0d8d8fc2059a9e340b5127f3d4c912f5f3e21b7f763f8faf53",
+      "bytes": 179
+    },
+    {
+      "path": "src/render/renderer.ts",
+      "relativePath": "src/render/renderer.ts",
+      "sha256": "530e8e101af5d9c63ece72d34beb04504b8af803dd017b9a03835f4cf6b7fab3",
+      "bytes": 23218
+    },
+    {
+      "path": "src/render/temple-clip.ts",
+      "relativePath": "src/render/temple-clip.ts",
+      "sha256": "ed572dd9c53f8b9e7ce74c73c59e302f8ca463e8707cae052e169e66fcb4373c",
+      "bytes": 12492
+    },
+    {
+      "path": "src/render/temple-visibility.ts",
+      "relativePath": "src/render/temple-visibility.ts",
+      "sha256": "4256514a01b0498fa0ccf5d5f620eb469e06508b58a88e1c9f427a6cc3d1b21c",
+      "bytes": 26848
+    },
+    {
+      "path": "src/runtime/camera.ts",
+      "relativePath": "src/runtime/camera.ts",
+      "sha256": "8b68f9b2baa9e6ba717c5d1fb53d67faff6656342cdcb259b5335ac3a2a907f2",
+      "bytes": 4916
+    },
+    {
+      "path": "src/runtime/detector.ts",
+      "relativePath": "src/runtime/detector.ts",
+      "sha256": "bf18fc20f42a133ccb48684816860eb1538badbdef3b675e94c05b719b06d5a9",
+      "bytes": 6461
+    },
+    {
+      "path": "src/runtime/detector.worker.ts",
+      "relativePath": "src/runtime/detector.worker.ts",
+      "sha256": "ff6695a9cf3bb374278b377e44ea56d12a9698966c10a807f8f093db823de6da",
+      "bytes": 2498
+    },
+    {
+      "path": "src/runtime/protocol.ts",
+      "relativePath": "src/runtime/protocol.ts",
+      "sha256": "677bc49b1c351f15009147cee89a645b5722f5558ca28cd1f81b8527a42252a7",
+      "bytes": 2415
+    },
+    {
+      "path": "src/style.css",
+      "relativePath": "src/style.css",
+      "sha256": "a4e75d0f345fc27bac8e2c5962891520022e2a1ab4f7cb8673fd8fb39d5e462a",
+      "bytes": 9195
+    },
+    {
+      "path": "tsconfig.json",
+      "relativePath": "tsconfig.json",
+      "sha256": "30177d45eab23793a2fac15a1bb2a240e92a8a0988f703c7c1499075b65f54e7",
+      "bytes": 532
+    }
+  ]
+}

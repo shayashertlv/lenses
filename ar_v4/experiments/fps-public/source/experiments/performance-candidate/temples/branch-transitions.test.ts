@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {Matrix4} from 'three';
+import {TryOnRenderer} from './branch-renderer.ts';
+import type {Detection} from '../../../references/perfect-temples/src/runtime/detector.ts';
+import {REAR_DROP_METHOD} from '../../../references/perfect-temples/experiments/temple-sagittal/contracts.ts';
+
+/** Exercises the actual presentation lifecycle with GPU calls replaced; no visual claim. */
+test('valid branch pairs transition directly between drops and clear shape/snapshot on no-face, failure and explicit zero skip', () => {
+  let renders = 0;
+  const backend = {capabilities: {samples: 4}, setSize: () => {}, render: () => {renders++;}};
+  const renderer = Reflect.construct(TryOnRenderer, [backend]) as TryOnRenderer;
+  const surface = new Float32Array(468 * 3);
+  for (let i = 2; i < surface.length; i += 3) surface[i] = -60;
+  Reflect.set(renderer, 'canonicalPositions', Array(468 * 3).fill(0));
+  Reflect.set(renderer, 'faceSurface', {positions: surface, reconstruct: () => true});
+  const drops: number[] = [];
+  Reflect.set(renderer, 'rearDrop', {setDrop: (value: number) => {drops.push(value);}});
+  const matrix = new Matrix4().makeTranslation(0, 0, -60).toArray();
+  const detection: Detection = {landmarks: Array.from({length: 478}, () => ({x: .5, y: .5, z: 0})), matrix, inferenceMs: 0};
+  const frame = {width: 40, height: 30} as HTMLCanvasElement;
+  const present = (dropM: number) => renderer.present(frame, detection, Array.from(surface), null, null, {method: REAR_DROP_METHOD, dropM});
+  assert.equal(present(.01), true); assert.equal(present(.02), true);
+  assert.deepEqual(drops, [.01, .02], 'consecutive shaped frames never restore zero between valid pairs');
+  assert.equal(renderer.captureSnapshot?.rearDrop?.dropM, .02);
+  const rendersBeforeClear = renders;
+  renderer.clearOwnedFrame();
+  assert.equal(renders, rendersBeforeClear, 'zero-drop wrapper clearing performs no GPU work');
+  assert.equal(renderer.captureSnapshot, null); assert.equal(drops.at(-1), 0);
+  assert.equal(present(.03), true);
+  assert.equal(renderer.present(frame, {landmarks: [], matrix: null, inferenceMs: 0}), false);
+  assert.equal(renderer.captureSnapshot, null); assert.equal(drops.at(-1), 0);
+  assert.equal(present(.02), true);
+  assert.throws(() => present(.1), /rear-drop configuration/);
+  assert.equal(renderer.captureSnapshot, null); assert.equal(drops.at(-1), 0);
+  assert.equal(present(.01), true, 'a failure does not prevent a later valid pair');
+  assert.throws(() => renderer.present({width: 0, height: 0} as HTMLCanvasElement, detection), /frame is empty/);
+  assert.equal(renderer.captureSnapshot, null); assert.equal(drops.at(-1), 0, 'pre-render failures also restore geometry');
+  Reflect.set(renderer, 'disposed', true);
+  const count = drops.length; renderer.clearOwnedFrame();
+  assert.equal(renderer.present(frame, detection), false); assert.equal(drops.length, count);
+});

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101715"><title>Lenses · Speed testing</title>
+</head>
+<body>
+<main class="workspace">
+  <header class="topbar"><a class="brand" href="./live.html">lenses<span class="brand-dot">.</span></a><span class="version">AR / V4 <span>TEST 2</span></span></header>
+  <section class="intro"><div><p class="eyebrow">THE VIRTUAL MIRROR</p><h1>Compare the feel. Keep the look.</h1></div><p class="intro-note">Switch algorithms live, then hold one image to inspect the details.</p></section>
+  <div class="preview-notice"><strong>Current base · Test 2.</strong> Compare with the long-hair checkpoint and Test 1. <a href="/experiments/performance-candidate/live.html" target="_blank" rel="noopener">Previous comparison ↗</a><a href="/experiments/performance-stage3/live.html" target="_blank" rel="noopener">Test 3 comparison ↗</a><a href="/experiments/hair-live-preview/live.html" target="_blank" rel="noopener">Accepted mirror ↗</a></div>
+  <div class="tryon-layout">
+    <section class="stage" data-state="idle" aria-label="Live hair occlusion mirror">
+      <canvas id="mirror" hidden aria-label="Mirrored camera and glasses"></canvas>
+      <div class="stage-top"><span class="stage-label"><span id="status-dot"></span><span id="stage-status">CAMERA OFF</span></span><button id="stage-toggle-pipeline" class="quiet stage-switch">Current · Test 2 · switch</button></div>
+      <div class="welcome" id="welcome"><div class="frame-symbol" aria-hidden="true"><i></i><b></b><i></i></div><h2>Your mirror, ready when you are.</h2><p>Take off your glasses and find some soft light.<br>Turn slowly to compare the sides.</p><button id="start" class="primary">Open camera <span aria-hidden="true">↗</span></button><p class="privacy">Camera images stay in this browser.</p></div>
+      <div class="stage-bottom"><p id="guidance" role="status" aria-live="polite">Choose your glasses, then open the camera.</p><button id="stop" class="quiet" hidden>Close camera</button></div>
+    </section>
+    <aside class="sidebar">
+      <section class="pipeline-controls"><label class="eyebrow" for="pipeline-select">ALGORITHM</label><select id="pipeline-select"><option value="current">Long-hair checkpoint</option><option value="test">Test 1 · fewer redundant operations</option><option value="test2" selected>Current · Test 2</option></select><button id="toggle-pipeline" class="primary">Switch algorithm</button><p class="control-hint">Only the selected algorithm processes live frames. Hold one image to compare all three.</p><div class="active-pipeline" id="active-pipeline" role="status">Current · Test 2</div></section>
+      <section class="profile-panel">
+        <p class="eyebrow">LIVE PERFORMANCE</p>
+        <div class="profile-headline"><strong id="profile-fps">—</strong><span>AR updates · target 30 fps</span></div>
+        <dl class="profile-metrics"><div><dt>Video delivery</dt><dd id="profile-video-fps">—</dd></div><div><dt>Processing p95</dt><dd id="profile-p95">—</dd></div><div><dt>Frame interval p95</dt><dd id="profile-interval-p95">—</dd></div><div><dt>Hair available</dt><dd id="profile-coverage">—</dd></div></dl>
+        <p class="control-hint" id="profile-count">Completed AR frames, measured separately from video delivery.</p>
+        <button id="benchmark" class="primary" disabled>Measure all three · ~2 min</button>
+        <p class="control-hint" id="benchmark-status" role="status">Each algorithm receives a warmup and 30 seconds of measurement. Keep your face visible and repeat the same slow movements.</p>
+        <div id="benchmark-comparison" class="benchmark-comparison" hidden>
+          <p class="eyebrow">COMPLETED SEGMENTS</p>
+          <div class="benchmark-table-scroll"><table aria-label="Completed benchmark segments">
+            <thead><tr><th scope="col">Algorithm</th><th scope="col">FPS</th><th scope="col">Interval p95</th><th scope="col">Tracked</th><th scope="col">Masked / tracked</th></tr></thead>
+            <tbody id="benchmark-results"></tbody>
+          </table></div>
+          <p id="benchmark-coverage-policy" class="control-hint">Full coverage: 100% of measured frames tracked and, with hair on, 100% of tracked frames masked. Missing frames remain in timing results. Coverage is not visual acceptance.</p>
+        </div>
+        <button id="download-metrics" class="quiet" disabled>Download timings only</button>
+        <details id="metrics-export" class="metrics-export"><summary>Copy timing JSON</summary>
+          <p id="metrics-export-status" class="control-hint" role="status">Choose Download timings only to prepare a copy here. It contains no images, face detections, or masks.</p>
+          <label class="eyebrow" for="metrics-json">TIMING REPORT</label>
+          <textarea id="metrics-json" readonly spellcheck="false" aria-describedby="metrics-export-status" placeholder="Your timing report will appear here."></textarea>
+          <button id="select-metrics-json" class="quiet" disabled>Select JSON to copy</button>
+        </details>
+        <details class="profile-stages"><summary>Where the time goes</summary><dl class="profile-metrics"><div><dt>Face inference</dt><dd id="profile-face">—</dd></div><div><dt>Face request total</dt><dd id="profile-face-roundtrip">—</dd></div><div><dt>Camera pixel read</dt><dd id="profile-copy">—</dd></div><div><dt>Render preparation</dt><dd id="profile-prepare">—</dd></div><div><dt>Hair and final checks</dt><dd id="profile-finish">—</dd></div><div><dt>Next-frame wait</dt><dd id="profile-scheduler">—</dd></div></dl><p class="control-hint">Medians from the latest ten seconds. Some stages overlap. Publication measures canvas submission; camera buffering and display scanout are not included. The timing download contains no images, face detections, or hair masks.</p></details>
+      </section>
+      <section class="product"><label class="eyebrow" for="eyewear-select">01 / GLASSES</label><select id="eyewear-select"></select><h2 id="frame-name">Amber Horizon</h2><p class="product-description" id="frame-description"></p></section>
+      <section class="hair-controls"><label class="eyebrow" for="hair-model-select">02 / HAIR DETECTION</label><select id="hair-model-select"><option value="hair-only">Hair-only model</option><option value="selfie-multiclass">Multiclass model</option></select><p class="control-hint" id="selection-hint">Glasses and hair model stay fixed during each session.</p></section>
+      <section class="hair-controls"><label class="eyebrow" for="variant-select">03 / HAIR OCCLUSION</label><select id="variant-select"><option value="hair">Hair preview · on</option><option value="accepted">Hair preview · off</option></select><p id="hair-status" class="control-hint" role="status" aria-live="polite">Hair can cover eligible parts of the side arms. Nose and front protection stays fixed.</p><div class="hair-actions"><button id="toggle-version" class="quiet">Toggle hair on / off</button><button id="hold-frame" class="quiet" disabled>Hold frame</button><button id="resume-live" class="primary" hidden>Resume live</button></div><p id="hold-hint" class="control-hint">Hold a frame to compare all three on exactly the same image.</p><button id="download-diagnostic" class="quiet" hidden>Download held comparison</button><p id="download-status" class="control-hint" role="status" aria-live="polite"></p></section>
+      <details class="diagnostics" open><summary>Session details</summary><dl><div><dt>Tracking</dt><dd id="tracking">Off</dd></div><div><dt>Display</dt><dd id="fps">—</dd></div><div><dt>Frame processing</dt><dd id="latency">—</dd></div><div><dt>Camera</dt><dd id="resolution">—</dd></div><div><dt>Hair acceleration</dt><dd id="hair-engine">—</dd></div><div><dt>Hair processing</dt><dd id="hair-latency">—</dd></div><div><dt>Waiting for hair</dt><dd id="hair-wait">—</dd></div><div><dt>Render work</dt><dd id="render-latency">—</dd></div><div><dt>Changed arm pixels</dt><dd id="changed-pixels">—</dd></div><div><dt>Hair available</dt><dd id="hair-coverage">—</dd></div><div><dt>Processing p95</dt><dd id="stall-latency">—</dd></div></dl><p>Update rate and hair coverage reset after an algorithm switch. Processing excludes camera buffering and final display delay. Every applied mask belongs to its exact camera image and face pose. Hair runs alongside glasses rendering, with an 8 ms completion timer after the accepted frame is ready. Browser scheduling can extend that wait; late masks are discarded. Hair preview off skips new hair work. Hold completes the comparison on one stopped image.</p><p id="hair-detail"></p></details>
+      <div class="baseline-note"><span class="pill">Speed testing · Test 2 base</span><p>All three retain nose and front protection. Compare down, up, and both turns with both frames. Test 2 is the selected base. Further changes still need matched visual review.</p></div>
+    </aside>
+  </div>
+  <footer><span>Local processing · No uploads</span><span>Hold and download only when you choose.</span></footer>
+</main>
+<script type="module" src="./live-main.ts"></script>
+</body></html>

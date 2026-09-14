@@ -1,3 +1,23 @@
+# Separate FPS tests for iPhone and desktop — September 14, 2026
+
+The owner requested a separate Railway delivery of Tests 4–6. Open
+https://web-production-ef3ca.up.railway.app/ar_testing/fps/experiments/fps-candidate/live.html?fps=next-combined
+and compare G / Test 6 / Test 6 / G. Repeat front/nose, down/up and both yaw
+checks, both glasses and both hair models. Download the complete comparison
+JSON; iPhone also has a persistent save link and copyable text. G stays accepted.
+
+Implementation: `experiments/fps-public/`, with a frozen isolated source graph
+and the shared proven iPhone capture correction in both comparison paths.
+Package fingerprint `bca8a88bea5e0cb0a8279a647918748f3b4896b872cc064e0c91e4fa148f2978`.
+The existing default readback diagnostic and all 22 previous public files remain
+unchanged. See the latest `docs/REVIEWS.md` entry for final validation/delivery.
+
+The release worktree is `.recovery/fps-railway-2026-09-14/checkout/` relative to
+the original AR checkout, branch `codex/fps-railway-tests`. The old mobile
+worktree and original dirty checkout remain preserved. No private recordings
+or recovery content belongs in the public package. Physical iPhone speed and
+new wearer-motion visual acceptance remain pending.
+
 # Current G readback diagnostic preview - September 14, 2026
 
 The owner authorized creating and pushing the readback diagnostic after the last

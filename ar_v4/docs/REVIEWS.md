@@ -1,3 +1,61 @@
+# Separate FPS candidates for Railway — September 14, 2026
+
+The owner requested publishing the completed local FPS tests for iPhone and
+desktop review. The additional entry is
+`/ar_testing/fps/experiments/fps-candidate/live.html?fps=next-combined`.
+Test 4 reduces CPU composition work; Test 5 reduces repeated statistics work;
+Test 6 combines them. G remains accepted and the existing readback-diagnostic
+entry is unchanged. Source and package instructions are in
+`experiments/fps-public/README.md`.
+
+The isolated source snapshot preserves 248 of the 249 recorded G dependencies
+exactly. Its only baseline change is the same proven iPhone capture correction
+also applied to the candidate: admit by rVFC frame counter, retain zero/nullable
+timestamps, sample RAF playback time once, and keep synchronous owned pixels.
+The original checkout's 249 dependencies are unchanged. The pinned 45-file
+perfect-temples reference still verifies. No render/pose tuning was added for
+publication; full frame audits, final nose/front/background safeguards, exact
+image/detection/pose/mask pairing and the two-image bound remain active.
+
+Full ABBA JSON has a persistent save link and selectable text, build identity,
+partial results and rejection of mixed-build resumes. Fresh-page camera setup
+can be resumed with a visible button. Waiting for permission does not count as
+warmup or measurement. Session storage retains this comparison in its tab;
+it is not a backup for reports after the tab is closed.
+
+Build `bca8a88bea5e0cb0a8279a647918748f3b4896b872cc064e0c91e4fa148f2978`
+adds 15 generated public files and preserves all 22 existing public files and
+manifest entries exactly. Both main and worker SDK bundles retain same-origin
+fetch protection. No root Python, deployment configuration or shared model
+assets changed; no private recordings, QA files or source maps are published.
+
+Validation: strict public/candidate TypeScript and 92 focused checks pass.
+Required `npm test` passes 172 unit and 21 browser checks. Python route tests
+pass 15/15 on a second invocation; the first invocation had one transient
+existing manifest-mtime test failure on Windows, with no Python edits.
+Production checks pass both 390px/1440px entries and all ten portrait lifecycle
+configurations (G and Test 6 both glasses/hair models, Test 4/5 singles). Full
+ABBA exposed and corrected a navigation visibility event cancelling its own
+handoff; genuine backgrounding still stops and preserves partial data. Final
+full-duration ABBA, both entry sizes and a final Test 6 lifecycle smoke pass on
+`bca8a88bea5e`. ABBA retained four fresh documents/sessions, recovered a denied
+automatic camera start, completed the real 5/30-second windows and saved/copied
+the identical complete JSON. The persistent save link stayed usable after
+download was prevented. No browser errors or unscoped requests occurred.
+Receipts: `mobile-2026-09-14T09-35-35.950Z`,
+`mobile-2026-09-14T09-35-43.989Z` and `mobile-2026-09-14T09-38-43.537Z` under
+the ignored output directory. The first ten-case receipt retains the separately
+fixed navigation failure; it is not described as a whole-run pass.
+
+Prior balanced desktop still inference observed Test 6 at 10.20 versus G at
+9.28 completed AR images/s, with full tracking/mask coverage. That preliminary
+run used a different fingerprint and is not physical-phone or wearer-motion
+evidence. Existing exact matched checks covered both glasses/hair models,
+down/up, both yaw directions and nose/front protections. The new public build
+still requires physical iPhone/desktop motion testing and owner visual review;
+no candidate is promoted. Private verification receipts remain in ignored
+`experiments/fps-public/qa/output/`.
+
 # G readback diagnostic preview - September 14, 2026
 
 The owner requested this preview after confirming the G stability ZIP was a PC
