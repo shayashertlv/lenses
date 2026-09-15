@@ -11,7 +11,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from UI.ar_testing import AR_TESTING_SITE
+from UI.ar_site import AR_SITE
 from UI.config import sessions
 from UI.config import CATALOG_IMAGES_DIR
 from UI.pipelines import (
@@ -39,14 +39,14 @@ _STATIC_MIME = {
 class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
-        if AR_TESTING_SITE.serve(self, self.path, head=True):
+        if AR_SITE.serve(self, self.path, head=True):
             return
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
 
     def do_GET(self):
-        if AR_TESTING_SITE.serve(self, self.path):
+        if AR_SITE.serve(self, self.path):
             return
         path = urllib.parse.urlparse(self.path).path
 

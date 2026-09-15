@@ -23,6 +23,24 @@ npm run measure -- --base=http://127.0.0.1:8241 --sessions=1 --warm=10 --measure
 
 Opening the page starts nothing. Choose the glasses and the hair model, then Open camera.
 
+## Published site
+
+The Lenses web app (`UI/`, the Python server on Railway) lists **AR** first on its landing page and serves this
+pipeline at `/ar/` from `ar/site/`, the committed output of:
+
+```bash
+npm run publish    # assets + check + vite build --base=/ar/ into site/, then site/public-manifest.json
+```
+
+`UI/ar_site.py` serves only the manifest's files, verifies each file's SHA-256 before serving it, streams models in
+bounded chunks and sets the isolation and Content Security Policy headers (`connect-src 'self' blob:`: nothing leaves
+the origin, MediaPipe's telemetry included). Every asset address in the bundle carries Vite's base (`src/assets.ts`), so
+the same source serves at the root locally and under `/ar/` on the site. After Railway publishes a commit:
+
+```bash
+python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app --output qa/output/published-receipt.json
+```
+
 ## The pipeline, per frame
 
 1. **Capture** (`src/pipeline/pipeline.ts`): on `requestVideoFrameCallback` the camera frame is drawn into a canvas of at

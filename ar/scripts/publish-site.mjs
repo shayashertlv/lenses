@@ -30,5 +30,7 @@ await walk(site);
 if (!files.some(file => file.path === 'index.html')) throw new Error('The build produced no index.html.');
 const manifest = {schemaVersion: 1, base, builtAt: new Date().toISOString(), files};
 await writeFile(path.join(site, 'public-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+// The published bytes are verified by SHA-256 on every request: git must never convert their line endings.
+await writeFile(path.join(site, '.gitattributes'), '# Published bytes are verified by SHA-256; never convert line endings.\n* -text\n');
 const total = files.reduce((sum, file) => sum + file.size, 0);
 console.log(`site: ${files.length} files, ${(total / 1024 / 1024).toFixed(1)} MB, base ${base}, manifest written.`);
