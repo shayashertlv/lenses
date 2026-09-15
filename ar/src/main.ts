@@ -52,6 +52,7 @@ const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__
   cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
   events: [] as {t: number; event: string; detail?: string}[]};
 function report(event: string, detail?: string): void {
+  if (!config.diagnostics) return;
   diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 600)} : {})});
   if (diagnostic.events.length > 40) diagnostic.events.splice(0, diagnostic.events.length - 40);
   try {

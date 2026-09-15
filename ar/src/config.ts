@@ -27,11 +27,14 @@ export interface Config {
   eyewear: string | null;
   hairModel: string | null;
   hair: boolean | null;
+  /** `?diag=0` sends no startup or live diagnostics to the site (an A/B lever for the phone: the beacon is one small
+   *  post every 10 s, of a summary the panel computes anyway). */
+  diagnostics: boolean;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
-  guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null,
+  guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: true,
 });
 
 /** iPhone and iPad report themselves in the user agent; iPadOS Safari may claim to be a Mac with touch points. */
@@ -65,6 +68,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     eyewear: params.get('eyewear'),
     hairModel: params.get('hairModel'),
     hair: params.has('hair') ? flag('hair', true) : null,
+    diagnostics: flag('diag', true),
   };
 }
 
@@ -78,5 +82,6 @@ export function describeConfig(config: Config): string {
     `camera exposure ${config.exposure === null ? 'auto (?exposure=312 locks 1/32 s)' : `locked at ${config.exposure} × 100 µs`}`,
     `guard ${config.guard ? 'on' : 'OFF (?guard=0)'}`,
     `continuity cut ${config.continuity ? `on (hair run ≥ ${config.continuityRunPx} px, ?hairrun=)` : 'OFF (?continuity=0)'}`,
+    ...(config.diagnostics ? [] : ['diagnostics OFF (?diag=0)']),
   ].join(' · ') + '.';
 }
