@@ -18,7 +18,7 @@ _ENTRY = "index.html"
 # a session starts; the last reports are readable as JSON so a stall on a device can be read without the device.
 _DIAGNOSTIC_PATH = _PREFIX + "/diagnostic"
 _DIAGNOSTICS_PATH = _PREFIX + "/diagnostics.json"
-_MAX_DIAGNOSTIC_BYTES = 16 * 1024
+_MAX_DIAGNOSTIC_BYTES = 64 * 1024
 _DIAGNOSTIC_KEEP = 40
 _CHUNK_BYTES = 128 * 1024
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024

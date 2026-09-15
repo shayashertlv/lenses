@@ -290,7 +290,7 @@ class TestStartupDiagnostics(unittest.TestCase):
         self.assertEqual(head.wfile.getvalue(), b"")
 
     def test_oversized_invalid_and_foreign_posts_are_refused(self):
-        self.assertEqual(self.post(b"x" * (16 * 1024 + 1)).status, 413)
+        self.assertEqual(self.post(b"x" * (64 * 1024 + 1)).status, 413)
         self.assertEqual(self.post(b"", length=0).status, 413)
         self.assertEqual(self.post(b"not json").status, 400)
         self.assertEqual(self.post(b"[1, 2]").status, 400)

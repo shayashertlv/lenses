@@ -52,8 +52,8 @@ const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__
   cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
   events: [] as {t: number; event: string; detail?: string}[]};
 function report(event: string, detail?: string): void {
-  diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 400)} : {})});
-  if (diagnostic.events.length > 60) diagnostic.events.splice(0, diagnostic.events.length - 60);
+  diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 600)} : {})});
+  if (diagnostic.events.length > 40) diagnostic.events.splice(0, diagnostic.events.length - 40);
   try {
     const body = JSON.stringify({...diagnostic, at: new Date().toISOString(), state: stage.dataset.state ?? null, status: element('stage-status').textContent,
       guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0,
@@ -92,7 +92,7 @@ function updateControls(): void {
   start.hidden = live; stop.hidden = !live; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
 }
-let uiTimer: ReturnType<typeof setInterval> | null = null;
+let uiTimer: ReturnType<typeof setInterval> | null = null, lastLiveReportAt = 0;
 function updateUi(): void {
   const session = current; if (!session) return;
   const recent = profiler.recent(session.id).filter(row => performance.now() - row.publishedAtMs <= 10_000);
@@ -107,6 +107,17 @@ function updateUi(): void {
   const continuity = session.renderer?.continuityUnavailable ? ` · continuity cut unavailable: ${session.renderer.continuityUnavailable}` : '';
   const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
+  // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
+  // its change over a session can be read stage by stage without the device.
+  if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
+    lastLiveReportAt = performance.now();
+    const st = (key: string): string => ms(summary.stages[key]?.median);
+    report('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
+      + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
+      + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
+      + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
+      + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`);
+  }
 }
 
 async function openSession(): Promise<void> {
@@ -172,7 +183,7 @@ async function openSession(): Promise<void> {
       backend: () => ({active: session.hairBackend.active, renderer: session.hairBackend.renderer}),
       onPublished: row => {
         if (!owns()) return;
-        profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
+        profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; lastLiveReportAt = performance.now() - 5000; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
         canvas.hidden = false; element('welcome').hidden = true;
         stage.dataset.frames = String(row.sequence);
         setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace ? 'Turn slowly and compare the feel.' : 'Bring your face into view.');

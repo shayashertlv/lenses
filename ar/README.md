@@ -25,6 +25,11 @@ Opening the page starts nothing. Choose the glasses and the hair model, then Ope
 
 ## Published site
 
+Startup diagnostics (temporary): while a session runs, the page posts its step log and, every 10 s, the last 10 s
+of stage medians (numbers only; never an image, detection, mask or hash) to `POST /ar/diagnostic`; the last forty
+reports are readable at `GET /ar/diagnostics.json`, so a stall or a rate on a device can be read without the device.
+The page footer says so.
+
 The Lenses web app (`UI/`, the Python server on Railway) lists **AR** first on its landing page and serves this
 pipeline at `/ar/` from `ar/site/`, the committed output of:
 
