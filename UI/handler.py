@@ -78,6 +78,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if AR_SITE.serve_post(self, self.path):
+            return
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/upload":
             self._handle_upload()

@@ -3,7 +3,9 @@
 import hashlib
 import io
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -70,7 +72,12 @@ class TestPublicARSite(unittest.TestCase):
         self.temp.cleanup()
 
     def write_manifest(self):
-        (self.root / "public-manifest.json").write_text(json.dumps(self.manifest), encoding="utf-8")
+        path = self.root / "public-manifest.json"
+        path.write_text(json.dumps(self.manifest), encoding="utf-8")
+        # Successive rewrites inside one filesystem timestamp tick must still look changed to the stamp cache.
+        self._manifest_writes = getattr(self, "_manifest_writes", 0) + 1
+        stamp = time.time_ns() + self._manifest_writes * 10_000_000
+        os.utime(path, ns=(stamp, stamp))
 
     def request(self, path, *, head=False, headers=None):
         request = _Request(headers)
@@ -83,7 +90,7 @@ class TestPublicARSite(unittest.TestCase):
                 request = self.request("/ar/", head=head)
                 self.assertEqual(request.status, 200)
                 self.assertEqual(request.response_headers["Content-Type"], "text/html; charset=utf-8")
-                self.assertEqual(request.response_headers["Cache-Control"], "no-cache")
+                self.assertEqual(request.response_headers["Cache-Control"], "no-store")
                 self.assertEqual(request.wfile.getvalue(), b"" if head else self.contents["index.html"])
                 query = self.request("/ar/?exposure=312", head=head)
                 self.assertEqual(query.status, 200)
@@ -169,7 +176,7 @@ class TestPublicARSite(unittest.TestCase):
         for path in ("index.html", "models/manifest.json", "models/face_landmarker.task"):
             with self.subTest(path=path):
                 request = self.request("/ar/" + path)
-                self.assertEqual(request.response_headers["Cache-Control"], "no-cache")
+                self.assertEqual(request.response_headers["Cache-Control"], "no-store" if path == "index.html" else "no-cache")
                 for tag in (request.response_headers["ETag"], "W/" + request.response_headers["ETag"], "*"):
                     cached = self.request("/ar/" + path, headers={"If-None-Match": tag})
                     self.assertEqual(cached.status, 304)
@@ -249,6 +256,59 @@ class TestPublicARSite(unittest.TestCase):
             self.assertFalse(self.site.serve(request, path))
             self.assertIsNone(request.status)
             self.assertEqual(request.response_headers, {})
+
+
+class TestStartupDiagnostics(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="lenses-ar-route-")
+        self.site = PublicARSite(Path(self.temp.name))
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def post(self, body, length=None):
+        request = _Request({"Content-Length": str(len(body) if length is None else length)})
+        request.rfile = io.BytesIO(body)
+        self.assertTrue(self.site.serve_post(request, "/ar/diagnostic"))
+        return request
+
+    def test_reports_are_kept_in_order_and_readable_without_a_bundle(self):
+        for index in range(3):
+            request = self.post(json.dumps({"page": "abcd", "events": [{"t": index, "event": "step"}]}).encode())
+            self.assertEqual(request.status, 204)
+            self.assertEqual(request.response_headers["Cache-Control"], "no-store")
+            self.assertEqual(request.response_headers["Cross-Origin-Embedder-Policy"], "require-corp")
+        listing = _Request()
+        self.assertTrue(self.site.serve(listing, "/ar/diagnostics.json"))
+        self.assertEqual(listing.status, 200)
+        self.assertEqual(listing.response_headers["Content-Type"], "application/json; charset=utf-8")
+        reports = json.loads(listing.wfile.getvalue())["reports"]
+        self.assertEqual([r["report"]["events"][0]["t"] for r in reports], [0, 1, 2])
+        self.assertTrue(all("receivedAt" in r for r in reports))
+        head = _Request()
+        self.assertTrue(self.site.serve(head, "/ar/diagnostics.json", head=True))
+        self.assertEqual(head.wfile.getvalue(), b"")
+
+    def test_oversized_invalid_and_foreign_posts_are_refused(self):
+        self.assertEqual(self.post(b"x" * (16 * 1024 + 1)).status, 413)
+        self.assertEqual(self.post(b"", length=0).status, 413)
+        self.assertEqual(self.post(b"not json").status, 400)
+        self.assertEqual(self.post(b"[1, 2]").status, 400)
+        other = _Request({"Content-Length": "2"})
+        self.assertFalse(self.site.serve_post(other, "/api/upload"))
+        self.assertFalse(self.site.serve_post(other, "/ar/diagnostics.json"))
+        listing = _Request()
+        self.site.serve(listing, "/ar/diagnostics.json")
+        self.assertEqual(json.loads(listing.wfile.getvalue()), {"reports": []})
+
+    def test_only_the_last_forty_reports_are_kept(self):
+        for index in range(45):
+            self.post(json.dumps({"n": index}).encode())
+        listing = _Request()
+        self.site.serve(listing, "/ar/diagnostics.json")
+        reports = json.loads(listing.wfile.getvalue())["reports"]
+        self.assertEqual(len(reports), 40)
+        self.assertEqual(reports[0]["report"]["n"], 5)
 
 
 class TestParentARIntegration(unittest.TestCase):

@@ -1,10 +1,12 @@
 """Serve the published AR try-on (the `ar/` pipeline's built site); never expose a development tree."""
 
+import collections
 import hashlib
 import json
 import os
 import re
 import threading
+import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +14,12 @@ from pathlib import Path
 
 _PREFIX = "/ar"
 _ENTRY = "index.html"
+# Startup diagnostics: the page posts its step log (names, timings, error text, device strings; never an image) while
+# a session starts; the last reports are readable as JSON so a stall on a device can be read without the device.
+_DIAGNOSTIC_PATH = _PREFIX + "/diagnostic"
+_DIAGNOSTICS_PATH = _PREFIX + "/diagnostics.json"
+_MAX_DIAGNOSTIC_BYTES = 16 * 1024
+_DIAGNOSTIC_KEEP = 40
 _CHUNK_BYTES = 128 * 1024
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 # Enforce on worker responses as well as the document: module workers have their
@@ -100,6 +108,50 @@ class PublicARSite:
         self._manifest_stamp = None
         self._files = {}
         self._verified = {}
+        self._diagnostics = collections.deque(maxlen=_DIAGNOSTIC_KEEP)
+
+    def serve_post(self, handler, request_target):
+        """Accept one startup diagnostic report; return False for every other POST."""
+        try:
+            path = urllib.parse.urlsplit(request_target).path
+        except ValueError:
+            return False
+        if path != _DIAGNOSTIC_PATH:
+            return False
+        try:
+            length = int(handler.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            length = -1
+        if length <= 0 or length > _MAX_DIAGNOSTIC_BYTES:
+            self._message(handler, 413, "Diagnostic report too large.\n", False)
+            return True
+        try:
+            report = json.loads(handler.rfile.read(length))
+            if not isinstance(report, dict):
+                raise ValueError("not an object")
+        except (ValueError, UnicodeDecodeError):
+            self._message(handler, 400, "Invalid diagnostic report.\n", False)
+            return True
+        with self._lock:
+            self._diagnostics.append({"receivedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "report": report})
+        handler.send_response(204)
+        self._headers(handler)
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return True
+
+    def _serve_diagnostics(self, handler, head):
+        with self._lock:
+            data = json.dumps({"reports": list(self._diagnostics)}, indent=2).encode("utf-8")
+        handler.send_response(200)
+        self._headers(handler)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Content-Length", str(len(data)))
+        handler.end_headers()
+        if not head:
+            handler.wfile.write(data)
 
     def _manifest(self):
         manifest_path = self.directory / "public-manifest.json"
@@ -186,6 +238,9 @@ class PublicARSite:
             handler.send_header("Content-Length", "0")
             handler.end_headers()
             return True
+        if path == _DIAGNOSTICS_PATH:
+            self._serve_diagnostics(handler, head)
+            return True
         if path == _PREFIX + "/":
             relative = _ENTRY
         else:
@@ -230,8 +285,10 @@ class PublicARSite:
             self._headers(handler)
             handler.send_header("Content-Type", _MIME[target.suffix.lower()])
             handler.send_header("ETag", etag)
-            handler.send_header("Cache-Control", "public, max-age=31536000, immutable"
-                                if _HASHED_ASSET.fullmatch(relative) else "no-cache")
+            # Hashed assets are immutable; models revalidate; the document itself is never served from a cache, so a
+            # phone that reopens the page always runs the deployed build.
+            handler.send_header("Cache-Control", "public, max-age=31536000, immutable" if _HASHED_ASSET.fullmatch(relative)
+                                else "no-store" if target.suffix.lower() == ".html" else "no-cache")
             if not unchanged:
                 handler.send_header("Content-Length", str(entry.size))
             handler.end_headers()

@@ -15,6 +15,7 @@ import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
+import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
 import {cameraDeliveryFps, FrameProfiler, summarize} from './pipeline/profiler.ts';
@@ -43,6 +44,24 @@ interface Session {
 }
 let current: Session | null = null;
 let hairEnabled = config.hair ?? true;
+
+/** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
+ *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
+ *  or changes the mirror. */
+const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, userAgent: navigator.userAgent,
+  cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
+  events: [] as {t: number; event: string; detail?: string}[]};
+function report(event: string, detail?: string): void {
+  diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 400)} : {})});
+  if (diagnostic.events.length > 60) diagnostic.events.splice(0, diagnostic.events.length - 60);
+  try {
+    const body = JSON.stringify({...diagnostic, at: new Date().toISOString(), state: stage.dataset.state ?? null, status: element('stage-status').textContent,
+      guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0});
+    void fetch(assetPath('diagnostic'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: true}).catch(() => undefined);
+  } catch {/* diagnostics never block the mirror */}
+}
+window.addEventListener('error', event => report('window.error', `${event.message} @ ${event.filename?.split('/').at(-1) ?? ''}:${event.lineno}`));
+window.addEventListener('unhandledrejection', event => report('unhandledrejection', String((event as PromiseRejectionEvent).reason)));
 
 // Opt-in handover from Modeling Auto (?model=&name=&clip=&width=&sha256=): the prepared asset becomes this page's
 // Modeling Auto frame and is selected. Absent, nothing changes; an unusable address leaves the shipped frames in place.
@@ -96,9 +115,11 @@ async function openSession(): Promise<void> {
   current = session; stage.dataset.sessionId = session.id; updateControls();
   const signal = session.abort.signal, owns = (): boolean => current === session;
   setState('starting', 'STARTING CAMERA', 'Allow camera access when your browser asks.');
+  report('open', `${session.hairBackend.renderer ?? 'no WebGL2 renderer string'} · hair ${session.hairBackend.requested}`);
   try {
     session.camera = await openCamera(signal);
     if (!owns()) {session.camera.stop(); return;}
+    report('camera', `${session.camera.video.videoWidth}x${session.camera.video.videoHeight} rVFC ${typeof session.camera.video.requestVideoFrameCallback}`);
     if (config.exposure !== null) {
       const lock = await lockCameraExposure(session.camera.video, config.exposure);
       if (!owns()) {session.camera.stop(); return;}
@@ -110,8 +131,9 @@ async function openSession(): Promise<void> {
     canvas.addEventListener('webglcontextlost', lost);
     // Each startup step is named on the stage with its elapsed time, so a stall on a device can be read off a screenshot.
     const step = (text: string): void => setState('starting', 'PREPARING MIRROR', `${text} (${((performance.now() - session.startedAtMs) / 1000).toFixed(0)} s)`);
-    let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '';
-    const beginStep = (text: string): void => {stepText = text; step(text); if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') step(stepText); else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
+    let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '', ticks = 0;
+    const beginStep = (text: string): void => {stepText = text; step(text); report('step', text);
+      if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') {step(stepText); if (++ticks % 10 === 0) report('still', stepText);} else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
@@ -133,10 +155,11 @@ async function openSession(): Promise<void> {
         hair = new HairClient(hairModel.id, {delegate: 'CPU'}); session.hair = hair;
         try {await hair.initialize(signal);} catch (retry) {session.hairError = messageFor(retry); return;}
       }
-      if (owns()) {session.hairReady = true; session.hairBackend.active = hair.delegate; element('hair-engine').textContent = `hair ${hair.delegate}`;}
+      if (owns()) {session.hairReady = true; session.hairBackend.active = hair.delegate; element('hair-engine').textContent = `hair ${hair.delegate}`; report('hair-ready', hair.delegate);}
     })();
     await detector.initialize(signal);
     if (!owns()) return;
+    report('face-ready', detector.delegate ?? '');
     beginStep('Waiting for the first camera frame');
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
@@ -147,7 +170,8 @@ async function openSession(): Promise<void> {
       backend: () => ({active: session.hairBackend.active, renderer: session.hairBackend.renderer}),
       onPublished: row => {
         if (!owns()) return;
-        profiler.add(row); session.rows++; session.firstAtMs ??= row.publishedAtMs; canvas.hidden = false; element('welcome').hidden = true;
+        profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
+        canvas.hidden = false; element('welcome').hidden = true;
         stage.dataset.frames = String(row.sequence);
         setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace ? 'Turn slowly and compare the feel.' : 'Bring your face into view.');
       },
@@ -158,6 +182,7 @@ async function openSession(): Promise<void> {
 }
 function closeSession(message = 'Camera closed.', failed = false): void {
   const session = current; current = null;
+  if (session) report(failed ? 'failed' : 'closed', message);
   if (session) {
     session.abort.abort();
     session.pipeline?.stop(); session.detector?.close(); session.hair?.close(); session.renderer?.dispose(); session.camera?.stop();
