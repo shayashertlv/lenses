@@ -67,7 +67,8 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
 ## The pipeline, per frame
 
 1. **Capture** (`src/pipeline/pipeline.ts`): on `requestVideoFrameCallback` the camera frame is drawn into a canvas of at
-   most 1280 px and its pixels are read once for the SHA-256 that ties the hair mask to its own image. Every row carries
+   most 1280 px and its pixels are read once for the SHA-256 that ties the hair mask to its own image (`?source=videoframe`
+   takes the frame as a VideoFrame instead, hashes its own bytes and never reads a canvas back; `capture.ts`). Every row carries
    the camera's presented-frame counter, so the camera's delivered rate is always known. That counter is also what
    identifies a frame (`frame-identity.ts`); `currentTime` is never compared across a draw, because WebKit reports a
    running clock for a camera stream and such a comparison discarded every frame on iPhone.
@@ -115,6 +116,7 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?sync=0` | on | do not gate frames on the previous frame's GPU completion (measurement only) |
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
+| `?source=videoframe` | canvas | take the frame as a VideoFrame and hash its own bytes, no canvas readback (lever; measure on a real webcam with Download timings) |
 | `?hairinput=` | frame, phones 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere (256..1280) |
 | `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback and leaves the GPU to the face landmarker (29 fps for 40 s, 2-3 fps ahead at 30-60 s) |
 | `?hairwait=` | 8, phones 60 | ms a frame waits for its own hair mask before it is drawn without it (0..200); on phones the hair worker needs 43-65 ms and at 8 ms no mask was ever drawn |

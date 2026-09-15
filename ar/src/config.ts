@@ -2,6 +2,7 @@
  *  diagnostic lever and is listed on the page when it deviates. */
 import {DEFAULT_CAPTURE_MAX_EDGE, DEFAULT_HAIR_INPUT_MAX_EDGE, HAIR_WAIT_MS} from './pipeline/pipeline.ts';
 import type {HairDelegate} from './hair/protocol.ts';
+import type {CaptureSource} from './pipeline/capture.ts';
 import {DEFAULT_CONTINUITY_RUN_PX, DEFAULT_HAIR_START_Z_M} from './render/renderer.ts';
 import type {FaceDelegate} from './face/detector.ts';
 
@@ -12,6 +13,9 @@ export interface Config {
   faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
+  /** `?source=videoframe` takes the frame as a VideoFrame and hashes its own bytes, with no canvas readback (lever,
+   *  see pipeline/capture.ts); default the accepted canvas capture. */
+  captureSource: CaptureSource;
   /** `?hairwait=` ms (0..200): how long a frame waits for its own hair mask before it is drawn without it. Default 8 ms
    *  (laptop, measured: masks on 97-100 % of frames); on phones PHONE_HAIR_WAIT_MS, because the phone's hair worker
    *  needs 43-65 ms per frame and at 8 ms not one mask in two minutes was drawn (iPhone 17 Pro, 2026-09-15), while at 60 ms
@@ -48,7 +52,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
-  faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
+  faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'canvas', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
 });
 
@@ -86,6 +90,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
   return {
     faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
+    captureSource: params.get('source')?.toLowerCase() === 'videoframe' ? 'videoframe' : 'canvas',
     hairWaitMs: number('hairwait', isPhoneOrTablet(userAgent, maxTouchPoints) ? PHONE_HAIR_WAIT_MS : HAIR_WAIT_MS, 0, 200),
     hairInputMaxEdge: Math.round(number('hairinput', isPhoneOrTablet(userAgent, maxTouchPoints) ? PHONE_HAIR_INPUT_MAX_EDGE : DEFAULT_HAIR_INPUT_MAX_EDGE, 256, 1280)),
     hairDelegate: hairDelegate === 'CPU' || hairDelegate === 'GPU' ? hairDelegate : isApplePhoneOrTablet(userAgent, maxTouchPoints) ? APPLE_PHONE_HAIR_DELEGATE : 'auto',
@@ -108,6 +113,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
   return [
     `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate, then GPU (?face=)' : 'GPU delegate, then CPU (?face=)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
+    ...(config.captureSource === 'canvas' ? [] : ['capture source VideoFrame (?source=videoframe)']),
     ...(config.hairWaitMs === HAIR_WAIT_MS ? [] : [`hair wait ${config.hairWaitMs} ms${config.hairWaitMs === PHONE_HAIR_WAIT_MS ? ' (phone default)' : ''} (?hairwait=)`]),
     ...(config.hairInputMaxEdge === DEFAULT_HAIR_INPUT_MAX_EDGE ? [] : [`hair input ${config.hairInputMaxEdge} px max edge${config.hairInputMaxEdge === PHONE_HAIR_INPUT_MAX_EDGE ? ' (phone default)' : ''} (?hairinput=)`]),
     ...(config.hairDelegate === 'auto' ? [] : [`hair delegate ${config.hairDelegate}${config.hairDelegate === APPLE_PHONE_HAIR_DELEGATE && isApplePhoneOrTablet(userAgent, maxTouchPoints) ? ' (Apple phone default)' : ''} (?hairdelegate=)`]),

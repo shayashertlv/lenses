@@ -6,6 +6,8 @@
  *  frame. */
 import {FramePump} from './frame-pump.ts';
 import {markFrame} from './frame-identity.ts';
+import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, OwnedVideoFrame, sha256Hex} from './capture.ts';
+import type {CaptureSource, FrameBytes} from './capture.ts';
 import type {FrameMark} from './frame-identity.ts';
 import type {FramePumpStats} from './frame-pump.ts';
 import type {FrameInput} from './profiler.ts';
@@ -33,8 +35,8 @@ export const HAIR_WAIT_MS = 8;
 export interface HairWorkerStats {results: number; missed: number; lastInferenceMs: number | null; lastExtractionMs: number | null; lastRoundTripMs: number | null;}
 
 interface Packet {
-  sequence: number; capturedAtMs: number; canvas: HTMLCanvasElement; rgba: ImageData; disposed: boolean;
-  drawMs: number; readMs: number; videoFrames: number | null; mediaTime: number; presentation: number | null; hair: boolean;
+  sequence: number; capturedAtMs: number; canvas: HTMLCanvasElement; bytes: FrameBytes; frame: OwnedVideoFrame | null; disposed: boolean;
+  drawMs: number; videoFrames: number | null; mediaTime: number; presentation: number | null; hair: boolean;
 }
 interface Inferred {
   detection: Detection; sourceSHA256: string; detectionSHA256: string; face: FaceStageTiming | null;
@@ -53,6 +55,10 @@ export interface PipelineContext {
   hairWaitMs?: number;
   /** Hair input max edge in px; default the frame itself (DEFAULT_HAIR_INPUT_MAX_EDGE). */
   hairInputMaxEdge?: number;
+  /** How the frame's pixels are taken (see capture.ts); default 'canvas'. */
+  captureSource?: CaptureSource;
+  /** Told once which capture source runs, with the fallback reason if any. */
+  onCaptureSource?: (source: CaptureSource, reason: string | null) => void;
   owns: () => boolean; nextSequence: () => number;
   onHairError: (error: unknown) => void; onError: (error: unknown) => void;
   onPublished: (row: FrameInput, identity: {sourceSHA256: string; detectionSHA256: string}) => void;
@@ -60,16 +66,17 @@ export interface PipelineContext {
 }
 export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
-const hash = async (bytes: Uint8Array | Uint8ClampedArray): Promise<string> => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), v => v.toString(16).padStart(2, '0')).join('');
-/** A scaled copy of the captured frame for a worker; the copy is a pure function of the frame, whose hash stays the identity. */
-const scaledCopy = (source: HTMLCanvasElement, maxEdge: number): {canvas: HTMLCanvasElement; drawMs: number} => {
+const hash = sha256Hex;
+/** A scaled copy of the captured frame for a worker; the copy is a pure function of the frame, whose hash stays the identity.
+ *  CPU-backed on the canvas path (as accepted); GPU-backed on the VideoFrame path, where nothing is ever read back. */
+const scaledCopy = (source: HTMLCanvasElement, maxEdge: number, cpu: boolean): {canvas: HTMLCanvasElement; drawMs: number} => {
   const canvas = document.createElement('canvas'), scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
   canvas.width = Math.max(1, Math.round(source.width * scale)); canvas.height = Math.max(1, Math.round(source.height * scale));
-  const started = performance.now(); context(canvas).drawImage(source, 0, 0, canvas.width, canvas.height);
+  const started = performance.now(); context(canvas, cpu).drawImage(source, 0, 0, canvas.width, canvas.height);
   return {canvas, drawMs: performance.now() - started};
 };
-const context = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
-  const c = canvas.getContext('2d', {alpha: false, willReadFrequently: true, colorSpace: 'srgb'}); if (!c) throw new Error('Camera canvas unavailable.'); return c;
+const context = (canvas: HTMLCanvasElement, cpu = true): CanvasRenderingContext2D => {
+  const c = canvas.getContext('2d', cpu ? {alpha: false, willReadFrequently: true, colorSpace: 'srgb'} : {alpha: false, colorSpace: 'srgb'}); if (!c) throw new Error('Camera canvas unavailable.'); return c;
 };
 function flatten(value: unknown, prefix: string, out: NonNullable<FrameInput['native']>): void {
   const visit = (item: unknown, name: string, depth: number): void => {
@@ -92,16 +99,22 @@ export function runPipeline(c: PipelineContext): Pipeline {
   const stream = c.video.srcObject;
   const cameraFps = stream instanceof MediaStream ? stream.getVideoTracks()[0]?.getSettings().frameRate ?? null : null;
   const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs = c.hairWaitMs ?? HAIR_WAIT_MS, hairInputMaxEdge = c.hairInputMaxEdge ?? DEFAULT_HAIR_INPUT_MAX_EDGE;
+  const capture = chooseCaptureSource(c.captureSource ?? 'canvas', typeof VideoFrame === 'function');
+  c.onCaptureSource?.(capture.source, capture.reason);
+  const cpuCanvases = capture.source === 'canvas';
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
       const alive = () => owns() && !p.disposed && !signal.aborted;
       at('hashing the frame and preparing the face input');
       const inferenceStartedAt = performance.now(), hashStart = performance.now(); let hashMs = 0;
-      const sha = hash(p.rgba.data).then(value => {hashMs = performance.now() - hashStart; return value;});
+      const sha = p.bytes.bytes.then(hash).then(value => {hashMs = performance.now() - hashStart; return value;});
       // The face landmarker's copy is drawn first; when the hair edge agrees with it, the same copy serves both workers.
-      const input = scaledCopy(p.canvas, FACE_INPUT_MAX_EDGE), detectorDrawMs = input.drawMs;
-      const hairSource = hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE ? input : scaledCopy(p.canvas, hairInputMaxEdge);
+      // On the VideoFrame path each worker's copy matches its delegate: a CPU worker reading a GPU-backed bitmap would
+      // pay the readback itself, inside its inference (synthetic run 2026-09-15: face 17 → 31 ms).
+      const faceCpu = cpuCanvases || c.detector.delegate === 'CPU', hairCpu = cpuCanvases || c.backend().active === 'CPU';
+      const input = scaledCopy(p.canvas, FACE_INPUT_MAX_EDGE, faceCpu), detectorDrawMs = input.drawMs;
+      const hairSource = hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE && faceCpu === hairCpu ? input : scaledCopy(p.canvas, hairInputMaxEdge, hairCpu);
       const hairBitmap = c.hairReady() && p.hair ? createImageBitmap(hairSource ? hairSource.canvas : p.canvas) : Promise.resolve(null);
       let markHairStarted: () => void = () => {};
       const hairStarted = new Promise<void>(resolve => {markHairStarted = resolve;});
@@ -166,9 +179,10 @@ export function runPipeline(c: PipelineContext): Pipeline {
       native['render.audit'] = stats.audit.ran; native['render.auditMs'] = stats.audit.ms; native['render.gpuWaitPolls'] = stats.gpuWaitPolls; native['render.gpuWaitTimedOut'] = stats.gpuWaitTimedOut;
       for (const [key, value] of Object.entries(pump.stats)) if (typeof value === 'number' || typeof value === 'boolean') native['pump.' + key] = value;
       native['pump.inputWaitMs'] = i.inferenceStartedAt - p.capturedAtMs;
+      native['capture.source'] = capture.source; native['capture.format'] = p.bytes.format;
       const row: FrameInput = {sessionId: c.id, sequence: p.sequence, hair: p.hair, capturedAtMs: p.capturedAtMs, publishedAtMs,
         videoPresentedFrames: p.videoFrames, videoMediaTime: p.mediaTime, videoPresentationTimeMs: p.presentation, cameraSettingFps: cameraFps,
-        sourceWidth: p.canvas.width, sourceHeight: p.canvas.height, sourceDrawMs: p.drawMs, detectorDrawMs: i.detectorDrawMs, sourceReadbackMs: p.readMs,
+        sourceWidth: p.canvas.width, sourceHeight: p.canvas.height, sourceDrawMs: p.drawMs, detectorDrawMs: i.detectorDrawMs, sourceReadbackMs: p.bytes.readMs(),
         sourceHashMs: i.hashMs, faceBitmapMs: i.faceBitmapMs, faceRequestWallMs: i.faceWallMs, faceInferenceMs: i.face?.inferenceMs ?? null,
         faceWorkerMs: i.face?.workerElapsedMs ?? null, faceExtractionMs: i.face?.workerExtractionMs ?? null, faceWorkerValidationMs: i.face?.workerValidationMs ?? null,
         faceClientValidationMs: i.face?.clientValidationMs ?? null, faceTransportSchedulingMs: i.face?.transportAndSchedulingMs ?? null,
@@ -181,7 +195,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
         faceDelegate: c.detector.delegate, hairDelegate: backend.active, gpuRenderer: backend.renderer, native};
       c.onPublished(row, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256}); at('published; waiting for the next camera frame');
     },
-    disposeFrame: p => {p.disposed = true; p.canvas.width = p.canvas.height = 0;},
+    disposeFrame: p => {p.disposed = true; p.canvas.width = p.canvas.height = 0; p.frame?.close();},
     onError: error => {if (owns()) c.onError(error);},
   });
   function schedule(): void {
@@ -197,11 +211,22 @@ export function runPipeline(c: PipelineContext): Pipeline {
         const capturedAtMs = performance.now(), canvas = document.createElement('canvas');
         const scale = Math.min(1, captureMaxEdge / Math.max(c.video.videoWidth, c.video.videoHeight));
         canvas.width = Math.max(1, Math.round(c.video.videoWidth * scale)); canvas.height = Math.max(1, Math.round(c.video.videoHeight * scale));
-        const ctx = context(canvas), drawStart = performance.now(); ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height); const drawMs = performance.now() - drawStart;
-        const readStart = performance.now(), rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        // The drawn pixels are the frame (their SHA-256 pairs the hair mask with them); the counter and media time are
+        let bytes: FrameBytes, frame: OwnedVideoFrame | null = null, drawMs: number;
+        if (capture.source === 'videoframe') {
+          // The frame's own bytes are its identity; the canvas is GPU-backed and is never read back.
+          const videoFrame = new VideoFrame(c.video); frame = new OwnedVideoFrame(videoFrame);
+          try {
+            bytes = bytesOfVideoFrame(videoFrame);
+            const drawStart = performance.now(); context(canvas, false).drawImage(videoFrame, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
+          } catch (error) {frame.close(); canvas.width = canvas.height = 0; throw error;}
+        } else {
+          const ctx = context(canvas), drawStart = performance.now(); ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
+          const readStart = performance.now(), rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          bytes = bytesOfImageData(rgba, performance.now() - readStart);
+        }
+        // The captured pixels are the frame (their SHA-256 pairs the hair mask with them); the counter and media time are
         // the callback's labels, at most one frame behind an image that arrived during the draw.
-        return {sequence: c.nextSequence(), capturedAtMs, canvas, rgba, disposed: false, drawMs, readMs: performance.now() - readStart,
+        return {sequence: c.nextSequence(), capturedAtMs, canvas, bytes, frame, disposed: false, drawMs,
           videoFrames: mark.presented, mediaTime: mark.mediaTime, presentation: metadata?.presentationTime ?? null, hair: c.hairEnabled()};
       }); schedule();
     };

@@ -120,7 +120,8 @@ function updateUi(): void {
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
       + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
       + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`
-      + hairWorkerLine(session.pipeline?.hair()) + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`);
+      + hairWorkerLine(session.pipeline?.hair()) + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`
+      + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`);
   }
 }
 
@@ -181,7 +182,8 @@ async function openSession(): Promise<void> {
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
       hair: () => session.hair!, hairModel, eyewearId, hairReady: () => session.hairReady && !session.hairError,
-      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, owns, nextSequence: () => ++session.sequence,
+      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, captureSource: config.captureSource,
+      onCaptureSource: (source, reason) => report('capture-source', `${source}${reason ? ' · ' + reason : ''}`), owns, nextSequence: () => ++session.sequence,
       onHairError: error => {if (owns()) {session.hairError = messageFor(error); session.hairReady = false; session.hair?.close(); element('hair-engine').textContent = `hair error: ${session.hairError}`;}},
       onError: error => {if (owns()) closeSession(messageFor(error), true);},
       backend: () => ({active: session.hairBackend.active, renderer: session.hairBackend.renderer}),
