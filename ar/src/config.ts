@@ -5,8 +5,9 @@ import {DEFAULT_CONTINUITY_RUN_PX, DEFAULT_HAIR_START_Z_M} from './render/render
 import type {FaceDelegate} from './face/detector.ts';
 
 export interface Config {
-  /** Face landmarker delegates in the order to try: the CPU first by default (perfecto_17fps), the GPU if the CPU
-   *  fails to initialize; `?face=gpu` is the pre-2026-09-14 order, GPU then CPU. */
+  /** Face landmarker delegates in the order to try; the next one is tried when one fails or times out at startup.
+   *  Default: CPU first (perfecto_17fps, measured on the laptop), except on iPhone and iPad where the GPU comes first
+   *  (the order the earlier phone tests ran). `?face=gpu` / `?face=cpu` set the order explicitly. */
   faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
@@ -33,8 +34,16 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null,
 });
 
-export function parseConfig(search: string): Config {
+/** iPhone and iPad report themselves in the user agent; iPadOS Safari may claim to be a Mac with touch points. */
+export function isApplePhoneOrTablet(userAgent: string, maxTouchPoints = 0): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+}
+
+export function parseConfig(search: string, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0): Config {
   const params = new URLSearchParams(search);
+  const face = params.get('face')?.toLowerCase();
+  const gpuFirst = face === 'gpu' || (face !== 'cpu' && isApplePhoneOrTablet(userAgent, maxTouchPoints));
   const number = (name: string, fallback: number, min: number, max: number): number => {
     const value = Number(params.get(name));
     return params.has(name) && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
@@ -45,7 +54,7 @@ export function parseConfig(search: string): Config {
   };
   const exposure = params.get('exposure');
   return {
-    faceDelegates: params.get('face')?.toLowerCase() === 'gpu' ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
+    faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
     hairStartZ: number('hairz', DEFAULT_HAIR_START_Z_M, -0.2, 0),
     sync: flag('sync', true),
@@ -62,7 +71,7 @@ export function parseConfig(search: string): Config {
 /** One line for the page: the levers and whether each is at its default. */
 export function describeConfig(config: Config): string {
   return [
-    `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate (GPU if it fails)' : 'GPU-then-CPU (?face=gpu)'}`,
+    `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate, then GPU (?face=)' : 'GPU delegate, then CPU (?face=)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
     `hair start z ${config.hairStartZ} m${config.hairStartZ === DEFAULT_HAIR_START_Z_M ? '' : ' (?hairz=)'}`,
     `GPU completion gate ${config.sync ? 'on' : 'OFF (?sync=0)'}`,

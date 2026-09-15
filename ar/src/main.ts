@@ -60,7 +60,7 @@ for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, mode
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
-element('config-note').textContent = describeConfig(config);
+element('config-note').textContent = `${describeConfig(config)} Build ${__BUILD_TIME__}.`;
 
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}

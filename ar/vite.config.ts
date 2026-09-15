@@ -3,6 +3,7 @@ import {defineConfig} from 'vite';
 /** Dev server on 8240, frozen preview (after `npm run build`) on 8241. Use the frozen build for any timed session: a
  *  dev-server hot reload in the middle of a measurement kills it. */
 export default defineConfig({
+  define: {__BUILD_TIME__: JSON.stringify(new Date().toISOString())},
   base: '/',
   publicDir: 'public',
   worker: {format: 'es'},

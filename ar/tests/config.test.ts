@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CONFIG, describeConfig, parseConfig} from '../src/config.ts';
+import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, parseConfig} from '../src/config.ts';
 
 test('an empty search yields the accepted defaults', () => {
   assert.deepEqual(parseConfig(''), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
@@ -12,9 +12,21 @@ test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
     continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false});
-  assert.match(describeConfig(config), /GPU-then-CPU \(\?face=gpu\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
+  assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
   const out = parseConfig('?capture=100&hairz=5&exposure=auto&hairrun=0&face=cpu&hair=1');
   assert.deepEqual(out, {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU'], hair: true});
   assert.equal(parseConfig('?exposure=0').exposure, null);
   assert.equal(parseConfig('?capture=1000.4').captureMaxEdge, 1000);
+});
+
+test('iPhone and iPad default to the GPU delegate first, the order the phone tests ran; ?face= overrides it', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const ipadAsMac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+  const laptop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Safari/537.36';
+  assert.ok(isApplePhoneOrTablet(iphone) && isApplePhoneOrTablet(ipadAsMac, 5) && !isApplePhoneOrTablet(ipadAsMac, 0) && !isApplePhoneOrTablet(laptop, 10));
+  assert.deepEqual(parseConfig('', iphone).faceDelegates, ['GPU', 'CPU']);
+  assert.deepEqual(parseConfig('?face=cpu', iphone).faceDelegates, ['CPU', 'GPU']);
+  assert.deepEqual(parseConfig('', laptop).faceDelegates, ['CPU', 'GPU']);
+  assert.deepEqual(parseConfig('?face=gpu', laptop).faceDelegates, ['GPU', 'CPU']);
+  assert.match(describeConfig(parseConfig('', iphone)), /GPU delegate, then CPU/);
 });

@@ -41,7 +41,7 @@ function workerTiming(worker: WorkerStub, overrides: Partial<WorkerFaceTiming> =
     delegate: 'GPU', width: 640, height: 427, requestChecksMs: 2, inferenceMs: 5,
     extractionMs: 4, validationMs: 9, elapsedMs: 20, ...overrides};
 }
-function fixture(t: {after(fn: () => void): void}, detectTimeoutMs = 15_000, extra: {delegates?: readonly ('GPU' | 'CPU')[]} = {}) {
+function fixture(t: {after(fn: () => void): void}, detectTimeoutMs = 15_000, extra: {delegates?: readonly ('GPU' | 'CPU')[]; initializeTimeoutMs?: number} = {}) {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {location: {href: 'http://127.0.0.1:8069/'}}});
   const workers: WorkerStub[] = [], clock = {value: 0, reads: [] as number[]};
@@ -176,4 +176,19 @@ test('a CPU-first order retries the GPU only on an explicit CPU initialization e
   only.emit({type: 'error', id: only.latest.id, sessionNonce: only.latest.sessionNonce, message: 'no fallback'});
   await assert.rejects(starting, /no fallback/); assert.equal(single.workers.length, 1);
   for (const delegates of [[], ['NPU'], ['CPU', 'CPU']]) assert.throws(() => new DetectorClient({delegates: delegates as ('GPU' | 'CPU')[]}), /delegate order/);
+});
+
+test('a startup deadline on one delegate moves to the next in a fresh worker; the last deadline reports itself', async t => {
+  const f = fixture(t, 15_000, {delegates: ['CPU', 'GPU'], initializeTimeoutMs: 30});
+  const initializing = f.client.initialize(new AbortController().signal), cpu = f.workers[0]!;
+  // The CPU worker never replies; its deadline starts the GPU worker, which is answered as soon as it appears.
+  for (let waited = 0; f.workers.length < 2 && waited < 2000; waited += 5) await new Promise(resolve => setTimeout(resolve, 5));
+  const gpu = f.workers[1]!;
+  assert.ok(gpu, 'a second worker was started after the CPU deadline'); assert.equal(cpu.terminated, true);
+  if (gpu.latest.type === 'initialize') assert.equal(gpu.latest.delegate, 'GPU');
+  gpu.ready(); await initializing; assert.equal(f.client.delegate, 'GPU');
+  const stalled = fixture(t, 15_000, {delegates: ['GPU', 'CPU'], initializeTimeoutMs: 30});
+  await assert.rejects(stalled.client.initialize(new AbortController().signal), /startup timed out/);
+  assert.equal(stalled.workers.length, 2); assert.ok(stalled.workers.every(worker => worker.terminated));
+  assert.equal(stalled.client.delegate, null);
 });

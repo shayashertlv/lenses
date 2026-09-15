@@ -51,8 +51,9 @@ function cancelled(): DOMException {
   return new DOMException('Face detector startup was cancelled.', 'AbortError');
 }
 
-/** Only a task's explicit initialization reply permits the CPU retry. */
+/** A task's explicit initialization failure, or its startup deadline, moves on to the next delegate. */
 class InitializationReplyError extends Error {}
+class InitializationTimeoutError extends Error {}
 
 export class DetectorClient {
   private worker: FaceWorkerPort | null = null;
@@ -101,9 +102,9 @@ export class DetectorClient {
           }, this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS, signal);
         } catch (error) {
           if (signal.aborted) throw cancelled();
-          // Only an explicit initialization reply falls through to the next delegate; a hang, a worker crash or the
-          // last delegate reports its own failure.
-          if (index === delegates.length - 1 || !(error instanceof InitializationReplyError)
+          // An explicit initialization reply or the startup deadline falls through to the next delegate in a fresh
+          // worker; a worker crash, a cancellation or the last delegate reports its own failure.
+          if (index === delegates.length - 1 || !(error instanceof InitializationReplyError || error instanceof InitializationTimeoutError)
             || this.state !== 'initializing') throw error;
           // A fresh worker also gives the ESM WASM loader a fresh module cache.
           this.releaseWorker();
@@ -167,9 +168,13 @@ export class DetectorClient {
   private request(message: DetectorRequest, timeoutMs: number, signal?: AbortSignal): Promise<Detection | undefined> {
     return new Promise((resolve, reject) => {
       const onAbort = () => this.fail(cancelled());
-      const timer = setTimeout(() => this.fail(new Error(
-        message.type === 'initialize' ? 'Face detector startup timed out.' : 'Face detection timed out.',
-      )), timeoutMs);
+      const timer = setTimeout(() => {
+        // A startup deadline releases this worker and lets initialize() try the next delegate; a detection deadline
+        // closes the client.
+        if (message.type === 'initialize' && this.state === 'initializing') {
+          this.settle(new InitializationTimeoutError('Face detector startup timed out.')); this.releaseWorker();
+        } else this.fail(new Error('Face detection timed out.'));
+      }, timeoutMs);
       this.pending = {
         id: message.id, kind: message.type, resolve, reject, timer,
         removeAbortListener: () => signal?.removeEventListener('abort', onAbort),
