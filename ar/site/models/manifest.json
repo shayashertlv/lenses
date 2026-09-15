@@ -1,0 +1,34 @@
+{
+  "public/models/amber-horizon.glb": {
+    "bytes": 3670784,
+    "sha256": "78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004"
+  },
+  "public/models/tom-ford-clear.glb": {
+    "bytes": 2900984,
+    "sha256": "06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f"
+  },
+  "public/models/face_landmarker.task": {
+    "bytes": 3758596,
+    "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+  },
+  "public/models/canonical-face.json": {
+    "bytes": 22937,
+    "sha256": "566302c1734dc3b096f7651f46a3a568de4d7a47ba662425b963880f7640cf14"
+  },
+  "public/models/hair/hair-only.tflite": {
+    "bytes": 781618,
+    "sha256": "2628cf3ce5f695f604cbea2841e00befcaa3624bf80caf3664bef2656d59bf84"
+  },
+  "public/models/hair/selfie-multiclass.tflite": {
+    "bytes": 16371837,
+    "sha256": "c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0"
+  },
+  "public/models/hair/LICENSE-2.0.txt": {
+    "bytes": 11358,
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "qa/fixtures/face-a.jpg": {
+    "bytes": 552034,
+    "sha256": "b6491464eb87c023a8e07e2004cb4d30e2a57025857a0de43810d0191dd7208e"
+  }
+}
