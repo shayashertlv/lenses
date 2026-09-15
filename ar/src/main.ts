@@ -82,6 +82,7 @@ eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) &
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
 element('config-note').textContent = `${describeConfig(config)} Build ${__BUILD_TIME__}.`;
+element('diag-note').hidden = !config.diagnostics;
 
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}

@@ -41,14 +41,15 @@ export interface Config {
   eyewear: string | null;
   hairModel: string | null;
   hair: boolean | null;
-  /** `?diag=0` sends no startup or live diagnostics to the site (an A/B lever for the phone: the beacon is one small
-   *  post every 10 s, of a summary the panel computes anyway). */
+  /** `?diag=1` sends the startup step log and, every 10 s, the last 10 s of stage medians (numbers only; never an image,
+   *  detection, mask or hash) to this site, readable at /ar/diagnostics.json. Off by default since the phone work of
+   *  2026-09-15 closed; the page says so in its footer when on. */
   diagnostics: boolean;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
-  guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: true,
+  guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
 });
 
 /** The phone default for the hair wait (see Config.hairWaitMs). */
@@ -97,7 +98,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     eyewear: params.get('eyewear'),
     hairModel: params.get('hairModel'),
     hair: params.has('hair') ? flag('hair', true) : null,
-    diagnostics: flag('diag', true),
+    diagnostics: flag('diag', false),
   };
 }
 
@@ -115,6 +116,6 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
     `camera exposure ${config.exposure === null ? 'auto (?exposure=312 locks 1/32 s)' : `locked at ${config.exposure} × 100 µs`}`,
     `guard ${config.guard ? 'on' : 'OFF (?guard=0)'}`,
     `continuity cut ${config.continuity ? `on (hair run ≥ ${config.continuityRunPx} px, ?hairrun=)` : 'OFF (?continuity=0)'}`,
-    ...(config.diagnostics ? [] : ['diagnostics OFF (?diag=0)']),
+    ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';
 }

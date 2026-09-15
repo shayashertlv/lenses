@@ -25,10 +25,28 @@ Opening the page starts nothing. Choose the glasses and the hair model, then Ope
 
 ## Published site
 
-Startup diagnostics (temporary): while a session runs, the page posts its step log and, every 10 s, the last 10 s
-of stage medians (numbers only; never an image, detection, mask or hash) to `POST /ar/diagnostic`; the last forty
+Diagnostics, opt-in with `?diag=1`: while a session runs, the page posts its step log and, every 10 s, the last 10 s
+of stage medians (numbers only; never an image, detection, mask or hash) to `POST /ar/diagnostic`; the last 150
 reports are readable at `GET /ar/diagnostics.json`, so a stall or a rate on a device can be read without the device.
-The page footer says so.
+The page footer says so while it is on. This is how the phone defaults below were measured.
+
+## Phones (measured 2026-09-15, iPhone 17 Pro, Safari, 720x1280)
+
+Phone defaults differ from the laptop's in three places, each measured on the device through the diagnostics: frames
+wait 60 ms for their own hair mask (at 8 ms not one mask in two minutes was drawn while every frame still paid for the
+worker), the hair segmenter sees a 640 px copy (mask readback 20-25 ms → 8-10 ms), and on Apple phones it runs on the
+CPU (no readback at all; the GPU, left to the face landmarker, throttles less). Result: 29 fps for the first 40 s, then
+21-24 fps with hair on every frame; the phone throttles after 20-40 s of load whichever processor carries the hair, so
+the sustained rate is a thermal budget. Hair off runs at the camera's 30 fps. The 256 px hair model changed nothing.
+Face on the CPU did not help. The audit on the phone passes all four protection checks; the GPU output differs from the
+CPU reference by 22 pixels along a hair edge at the cut boundary (max delta 42), where the laptop shows zero; a
+precision difference of the Apple GPU at the z ramp, inside the editable region. `?capture=960` or `640` would cut
+render work further at the cost of a softer mirror; untested, a visual decision.
+
+The laptop (Intel Arc 140T, real webcam, 1280x720) shows the same shape: 28-29 fps for 40 s, then 22, with the camera
+steady at 29.6 fps. What grows there is the video-to-canvas draw (10 → 21 ms) and the other CPU-bound stages, while
+GPU stages stay flat and the GPU wait drops to zero: the CPU clocks down after its turbo window. The draw is the
+largest main-thread item per frame; a capture path without the 2D canvas (VideoFrame copy) is the next lever to measure.
 
 The Lenses web app (`UI/`, the Python server on Railway) lists **AR** first on its landing page and serves this
 pipeline at `/ar/` from `ar/site/`, the committed output of:
@@ -100,7 +118,7 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?hairinput=` | frame, phones 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere (256..1280) |
 | `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback and leaves the GPU to the face landmarker (29 fps for 40 s, 2-3 fps ahead at 30-60 s) |
 | `?hairwait=` | 8, phones 60 | ms a frame waits for its own hair mask before it is drawn without it (0..200); on phones the hair worker needs 43-65 ms and at 8 ms no mask was ever drawn |
-| `?diag=0` | on | send no startup or live diagnostics to the site (A/B lever while the beacon exists) |
+| `?diag=1` | off | send the startup step log and live stage medians (numbers only) to this site, readable at `/ar/diagnostics.json` |
 | `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
 
 ## Read the camera before judging any fps figure
