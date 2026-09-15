@@ -1,0 +1,2 @@
+# Preserve hash-verified weights and the license text across Windows checkouts.
+* -text

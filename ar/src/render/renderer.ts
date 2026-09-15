@@ -1,0 +1,488 @@
+/** The try-on renderer: bridge pose, nasal shape, face and head occluders, temple clip and blend, side-depth
+ *  visibility, pose-driven rear drop, and hair occlusion applied inside the eyewear fragment shaders, drawn straight
+ *  into the visible canvas. No pixel leaves the GPU on a live frame.
+ *
+ *  Guard (default on): the protection geometry (the optical and nasal rectangles and the arm corridors) is computed
+ *  per frame; the stencil buffer marks the editable region (arm corridors minus protected rectangles), and the frame
+ *  is drawn in two stencil-limited passes: everything outside the editable region from the unblended render, the
+ *  editable region with the rear drop and the hair blend. No shader can write a hair-blended fragment into a
+ *  protected pixel. When the protection cannot be established the frame is drawn without drop or hair.
+ *
+ *  Continuity cut (default on): the pinned arm centrelines are projected per pose and walked over the hair mask; from
+ *  an arm's first consistent hair run the arm is removed to its tip.
+ *
+ *  `readback()` exists for the audit only. */
+import {
+  ACESFilmicToneMapping, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
+  DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh,
+  MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
+  SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector3, WebGLRenderer,
+} from 'three';
+import type {WebGLRenderTarget} from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import type {Detection} from '../face/protocol.ts';
+import type {CategoryMask} from '../hair/protocol.ts';
+import {FaceSurface} from './face-surface.ts';
+import {correctedBridgePose} from './bridge-pose.ts';
+import {createNasalShape} from './nasal-shape.ts';
+import {VIRTUAL_CAMERA} from './projection.ts';
+import {DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS} from '../eyewear/catalog.ts';
+import type {EyewearDefinition} from '../eyewear/catalog.ts';
+import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
+import type {TempleClipConfiguration} from './temple-clip.ts';
+import {createTempleVisibility, createTempleVisibilityConfiguration} from './temple-visibility.ts';
+import {createRearDrop, rearDropForPose, REAR_DROP_METHOD, validateRearDrop} from './rear-drop.ts';
+import type {RearDropConfiguration} from './rear-drop.ts';
+import {createProtection, nasalRoi} from './protection.ts';
+import type {PixelRect, ProtectionConfiguration} from './protection.ts';
+import {continuityCut, DEFAULT_CONTINUITY_RUN_PX, loadTempleContinuityModel, projectTempleContinuity} from './continuity.ts';
+import type {ContinuityCut, ProjectedTemplePath, TempleContinuityModel} from './continuity.ts';
+import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
+import {PixelReader} from './pixel-reader.ts';
+import {assetPath} from '../assets.ts';
+
+export const GUARD_METHOD = 'gpu-stencil-protection-v1';
+export {HAIR_OCCLUSION_METHOD, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
+export {DEFAULT_CONTINUITY_RUN_PX} from './continuity.ts';
+/** The render never exceeds this width; the camera frame's aspect is kept. */
+export const MAX_RENDER_WIDTH = 1280;
+const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
+
+export interface RendererOptions {
+  /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
+  hairStartZ?: number;
+  /** Gate each frame on the previous frame's GPU completion (fence), so submission cannot run ahead of the GPU (default on). */
+  sync?: boolean;
+  /** Stencil protection of the optical/nasal rectangles (default on). */
+  guard?: boolean;
+  /** Continuity cut from an arm's first consistent hair run to its tip (default on). */
+  continuity?: boolean;
+  /** Minimum hair run along the arm, in source pixels, that counts as a patch (default 10). */
+  continuityRunPx?: number;
+}
+export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
+export interface FrameTimings {
+  maskUploadMs: number; continuityMs: number; submitMs: number;
+  dropM: number; hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
+  guarded: boolean; passes: number; protectedRects: number; editableRects: number; safeFallback: boolean;
+  continuity: boolean; cutNegativeZ: number | null; cutPositiveZ: number | null;
+}
+interface CanonicalFace {positions: number[]; indices: number[];}
+export interface CaptureGeometry {
+  eyewearModelId: string; rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number;
+  rearDrop: RearDropConfiguration | null; templeClip: TempleClipConfiguration | null; hairStartZ: number;
+  protection: ProtectionConfiguration | null; noseRoi: PixelRect | null;
+}
+
+function abortError(): DOMException {return new DOMException('Renderer startup was cancelled.', 'AbortError');}
+function validateFace(value: unknown): CanonicalFace {
+  if (typeof value !== 'object' || value === null) throw new Error('The canonical face is missing.');
+  const face = value as Partial<CanonicalFace>;
+  if (!Array.isArray(face.positions) || face.positions.length !== 468 * 3 || !face.positions.every(Number.isFinite)
+      || !Array.isArray(face.indices) || face.indices.length === 0 || face.indices.length % 3 !== 0
+      || !face.indices.every(index => Number.isInteger(index) && index >= 0 && index < 468)) throw new Error('The canonical face contains invalid mesh data.');
+  return face as CanonicalFace;
+}
+async function fetchAsset(url: string, signal: AbortSignal): Promise<Response> {
+  const response = await fetch(url, {signal});
+  if (!response.ok) throw new Error(`Could not load ${url} (${response.status}).`);
+  return response;
+}
+function disposeObjects(roots: Object3D[]): void {
+  const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(), textures = new Set<Texture>(), bitmaps = new Set<ImageBitmap>();
+  for (const root of roots) root.traverse(object => {
+    if (!(object instanceof Mesh)) return;
+    geometries.add(object.geometry);
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      materials.add(material);
+      for (const value of Object.values(material)) if (value instanceof Texture) textures.add(value);
+    }
+  });
+  for (const texture of textures) {const image = texture.image; if (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) bitmaps.add(image); texture.dispose();}
+  for (const bitmap of bitmaps) bitmap.close();
+  for (const material of materials) material.dispose();
+  for (const geometry of geometries) geometry.dispose();
+}
+
+export class TryOnRenderer {
+  readonly eyewear: EyewearDefinition;
+  private readonly renderer: WebGLRenderer;
+  private readonly gl: WebGL2RenderingContext;
+  private readonly scene = new Scene();
+  private readonly camera = new PerspectiveCamera(VIRTUAL_CAMERA.verticalFovDegrees, 1, VIRTUAL_CAMERA.nearCm, VIRTUAL_CAMERA.farCm);
+  private readonly facePose = new Group();
+  private readonly eyewearPose = new Group();
+  private readonly projected = new Vector3();
+  private readonly hairStartZ: number;
+  private readonly sync: boolean;
+  private readonly guard: boolean;
+  private readonly continuity: boolean;
+  private readonly continuityRunPx: number;
+  private continuityModel: TempleContinuityModel | null = null;
+  private continuityFailure: string | null = null;
+  private templePaths: ProjectedTemplePath[] | null = null;
+  private readonly reader = new PixelReader();
+  private backgroundTexture: CanvasTexture | null = null;
+  private environmentTarget: WebGLRenderTarget | null = null;
+  private canonicalPositions: number[] = [];
+  private nasalShape: ReturnType<typeof createNasalShape> | null = null;
+  private templeClip: ReturnType<typeof createTempleClip> | null = null;
+  private templeVisibility: ReturnType<typeof createTempleVisibility> | null = null;
+  private rearDrop: ReturnType<typeof createRearDrop> | null = null;
+  private hairOcclusion: ReturnType<typeof createHairOcclusion> | null = null;
+  private lensMeshes: Mesh[] = [];
+  private currentRearDrop: RearDropConfiguration | null = null;
+  private protectionConfiguration: ProtectionConfiguration | null = null;
+  private nasalRect: PixelRect | null = null;
+  private faceSurface: FaceSurface | null = null;
+  private surfaceMesh: Mesh | null = null;
+  private headProxy: Mesh | null = null;
+  private surfaceAttribute: BufferAttribute | null = null;
+  private assetScenes: Object3D[] = [];
+  private removeAbortListener: (() => void) | null = null;
+  private maskTexture: DataTexture | null = null;
+  private maskBytes: Uint8Array | null = null;
+  private fence: WebGLSync | null = null;
+  private posedMatrix: number[] | null = null;
+  private frameWidth = 0;
+  private frameHeight = 0;
+  private disposed = false;
+  private residual: number | null = null;
+  private yaw: number | null = null;
+  private lastPose: {rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number} | null = null;
+
+  private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
+    this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
+    this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
+    this.continuity = options.continuity ?? true;
+    this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
+    this.scene.background = new Color(0x080b10);
+    this.facePose.name = 'Tracked canonical face (centimeters)'; this.facePose.matrixAutoUpdate = false; this.facePose.visible = false; this.scene.add(this.facePose);
+    this.eyewearPose.name = 'Eyewear bridge pose (centimeters)'; this.eyewearPose.matrixAutoUpdate = false; this.eyewearPose.visible = false; this.scene.add(this.eyewearPose);
+  }
+  get projectionResidualPx(): number | null {return this.residual;}
+  get yawDegrees(): number | null {return this.yaw;}
+  get guardEnabled(): boolean {return this.guard;}
+  get nativeSamples(): number {const samples: unknown = this.gl.getParameter(this.gl.SAMPLES); return typeof samples === 'number' ? samples : 0;}
+  get gpuRenderer(): string | null {
+    const debug = this.gl.getExtension('WEBGL_debug_renderer_info');
+    const value: unknown = this.gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : this.gl.RENDERER);
+    return typeof value === 'string' ? value : null;
+  }
+  get templeClipConfiguration(): TempleClipConfiguration {return createTempleBlendConfiguration(this.eyewear.templeClipLocalZM);}
+  /** The protection for the posed frame (render pixels), or null when it could not be established. */
+  get protection(): ProtectionConfiguration | null {return this.protectionConfiguration ? structuredClone(this.protectionConfiguration) : null;}
+  get noseRoi(): PixelRect | null {return this.nasalRect ? {...this.nasalRect} : null;}
+  /** The projected arm centrelines for the posed frame (null without the pinned continuity geometry). */
+  get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
+  get continuityUnavailable(): string | null {return this.continuityFailure;}
+  get renderSize(): {width: number; height: number} {
+    const width = Math.min(this.frameWidth, MAX_RENDER_WIDTH);
+    return {width, height: Math.max(1, Math.round(width * this.frameHeight / Math.max(1, this.frameWidth)))};
+  }
+  get captureSnapshot(): CaptureGeometry | null {
+    const pose = this.lastPose; if (!pose || this.disposed) return null;
+    return {eyewearModelId: this.eyewear.id, rawMatrix: pose.rawMatrix.slice(), eyewearMatrix: pose.eyewearMatrix.slice(), yawDegrees: pose.yawDegrees,
+      rearDrop: this.currentRearDrop ? {...this.currentRearDrop} : null, templeClip: this.templeClip?.configuration ?? null, hairStartZ: this.hairStartZ,
+      protection: this.protection, noseRoi: this.noseRoi};
+  }
+
+  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, eyewearId: string = DEFAULT_EYEWEAR_ID, options: RendererOptions = {}): Promise<TryOnRenderer> {
+    if (signal.aborted) throw abortError();
+    const eyewear = eyewearById(eyewearId);
+    const loading = new AbortController();
+    let instance: TryOnRenderer | null = null, gltf: GLTF | null = null, webgl: WebGLRenderer | null = null, context: WebGL2RenderingContext | null = null;
+    const onAbort = () => {loading.abort(); instance?.dispose();};
+    signal.addEventListener('abort', onAbort, {once: true});
+    try {
+      const [glasses, face] = await Promise.all([
+        fetchAsset(eyewear.assetUrl, loading.signal).then(response => response.arrayBuffer()),
+        fetchAsset(assetPath('models/canonical-face.json'), loading.signal).then(response => response.json()).then(validateFace),
+      ]);
+      if (signal.aborted) throw abortError();
+      gltf = await new GLTFLoader().parseAsync(glasses, assetPath('models/'));
+      if (signal.aborted) throw abortError();
+      // The guard needs a stencil buffer on the default framebuffer. The WebGLRenderer itself is created without one:
+      // with `stencil: true` Three also gives its lens-transmission render target a stencil buffer (cleared to 0), and
+      // the opaque scene then fails the EQUAL-1 test inside that target during the protected pass.
+      context = canvas.getContext('webgl2', {alpha: false, antialias: true, stencil: true, powerPreference: 'high-performance'});
+      if (!context) throw new Error('WebGL 2 is unavailable on this browser.');
+      webgl = new WebGLRenderer({canvas, context, alpha: false, antialias: true, stencil: false});
+      instance = new TryOnRenderer(webgl, context, eyewear, options);
+      instance.removeAbortListener = () => signal.removeEventListener('abort', onAbort);
+      instance.assetScenes = gltf.scenes;
+      const eyewearScene = gltf.scene; gltf = null;
+      instance.configure(face, eyewearScene);
+      if (signal.aborted) throw abortError();
+      // The pinned arm centrelines for the continuity cut; unavailable means no cut.
+      try {instance.continuityModel = await loadTempleContinuityModel(eyewear.assetUrl, eyewear.templeClipLocalZM, loading.signal);}
+      catch (error) {if (signal.aborted) throw abortError(); instance.continuityFailure = error instanceof Error ? error.message : String(error);}
+      if (signal.aborted) throw abortError();
+      return instance;
+    } catch (error) {
+      loading.abort(); signal.removeEventListener('abort', onAbort);
+      if (instance) instance.dispose(); else {webgl?.dispose(); context?.getExtension('WEBGL_lose_context')?.loseContext();}
+      if (gltf) disposeObjects(gltf.scenes);
+      throw signal.aborted ? abortError() : error;
+    }
+  }
+
+  private configure(face: CanonicalFace, eyewearScene: Group): void {
+    this.renderer.setPixelRatio(1); this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.toneMapping = ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
+    this.canonicalPositions = face.positions; this.nasalShape = createNasalShape(face.positions, face.indices);
+    const asset = new Group(); asset.name = `${this.eyewear.name} bridge attachment`;
+    asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.eyewear.offsetCm);
+    eyewearScene.traverse(object => {
+      if (!(object instanceof Mesh)) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        if (material instanceof MeshPhysicalMaterial && material.transmission > 0) material.toneMapped = false;
+      }
+    });
+    asset.add(eyewearScene); this.eyewearPose.add(asset);
+    eyewearScene.traverse(object => {
+      if (object instanceof Mesh && (Array.isArray(object.material) ? object.material : [object.material]).some(material => material instanceof MeshPhysicalMaterial && material.transmission > 0)) this.lensMeshes.push(object);
+    });
+    this.templeClip = createTempleClip(eyewearScene);
+    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM);
+    const occlusionMaterial = new MeshBasicMaterial({colorWrite: false, depthWrite: true, depthTest: true, side: DoubleSide});
+    this.faceSurface = new FaceSurface(face.positions);
+    const geometry = new BufferGeometry();
+    this.surfaceAttribute = new BufferAttribute(this.faceSurface.positions, 3).setUsage(DynamicDrawUsage);
+    geometry.setAttribute('position', this.surfaceAttribute); geometry.setIndex(face.indices);
+    const surface = new Mesh(geometry, occlusionMaterial); surface.name = 'Observed face depth in camera space';
+    surface.renderOrder = -2; surface.frustumCulled = false; surface.visible = false; this.surfaceMesh = surface; this.scene.add(surface);
+    const head = new Mesh(new SphereGeometry(1, 24, 16), occlusionMaterial); head.name = 'Conservative rear head depth only';
+    head.scale.set(6.3, 8, 5); head.position.set(0, 0, -2.5); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
+    this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera, eyewearPose: this.eyewearPose});
+    // Installed last so it wraps the clip and visibility hooks; its blend commutes with the clip's terminal blend.
+    this.hairOcclusion = createHairOcclusion(eyewearScene);
+    const key = new DirectionalLight(0xffffff, 2); key.position.set(-10, 15, 20); this.scene.add(key);
+    const environment = new RoomEnvironment(); let generator: PMREMGenerator | null = null;
+    try {generator = new PMREMGenerator(this.renderer); this.environmentTarget = generator.fromScene(environment, 0.04); this.scene.environment = this.environmentTarget.texture; this.scene.environmentIntensity = 0.8;}
+    finally {generator?.dispose(); environment.dispose();}
+  }
+
+  /** Waits (yielding) until the previous frame's GPU work completed, so submission cannot run ahead of completion. */
+  async waitForPreviousFrame(): Promise<{gpuWaitMs: number; polls: number}> {
+    const fence = this.fence; this.fence = null;
+    if (!fence || this.disposed) return {gpuWaitMs: 0, polls: 0};
+    const started = performance.now(); let polls = 0;
+    try {
+      for (;;) {
+        const status = this.gl.clientWaitSync(fence, 0, 0); polls++;
+        if (status === this.gl.ALREADY_SIGNALED || status === this.gl.CONDITION_SATISFIED || status === this.gl.WAIT_FAILED || this.disposed) break;
+        await new Promise(resolve => setTimeout(resolve, 1));
+      }
+    } finally {if (!this.disposed) this.gl.deleteSync(fence);}
+    return {gpuWaitMs: performance.now() - started, polls};
+  }
+
+  /** Pose this detection over the frame (no drawing) and establish the protection for it. Returns whether a face is tracked. */
+  pose(frame: HTMLCanvasElement, detection: Detection): boolean {
+    if (this.disposed) return false;
+    this.clearPresentation(false);
+    try {
+      if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
+      if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
+        this.frameWidth = frame.width; this.frameHeight = frame.height;
+        const {width, height} = this.renderSize;
+        this.renderer.setSize(width, height, false);
+        this.camera.aspect = frame.width / frame.height; this.camera.updateProjectionMatrix();
+        this.backgroundTexture?.dispose(); this.backgroundTexture = null;
+      }
+      if (!this.backgroundTexture) {
+        this.backgroundTexture = new CanvasTexture(frame); this.backgroundTexture.colorSpace = SRGBColorSpace;
+        this.backgroundTexture.generateMipmaps = false; this.backgroundTexture.minFilter = LinearFilter; this.backgroundTexture.magFilter = LinearFilter;
+        this.scene.background = this.backgroundTexture;
+      }
+      this.backgroundTexture.image = frame; this.backgroundTexture.needsUpdate = true;
+      const matrix = detection.matrix;
+      this.facePose.visible = matrix !== null && matrix.length === 16 && matrix.every(Number.isFinite) && detection.landmarks.length >= 468;
+      if (this.facePose.visible && matrix) {
+        const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
+        this.facePose.visible = surfaceValid;
+        if (surfaceValid) {
+          if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
+          const shaped = this.nasalShape.apply({surfacePositions: this.faceSurface!.positions, rawMatrix: matrix});
+          this.faceSurface!.positions.set(shaped.surfacePositions);
+          const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
+          this.facePose.matrix.fromArray(attachment.matrix); this.facePose.matrixWorldNeedsUpdate = true;
+          this.eyewearPose.matrix.fromArray(attachment.matrix); this.eyewearPose.matrixWorldNeedsUpdate = true;
+          const drop: RearDropConfiguration = {method: REAR_DROP_METHOD, dropM: rearDropForPose(matrix)};
+          validateRearDrop(drop); this.rearDrop?.setDrop(drop.dropM); this.currentRearDrop = {...drop};
+          this.templeClip?.set(this.templeClipConfiguration);
+          this.templeVisibility?.set(createTempleVisibilityConfiguration(matrix, this.renderer.capabilities?.samples ?? 0));
+          this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
+          this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
+          if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
+          if (this.surfaceMesh) this.surfaceMesh.visible = true;
+          if (this.headProxy) this.headProxy.visible = true;
+          this.lastPose = {rawMatrix: matrix.slice(), eyewearMatrix: attachment.matrix.slice(), yawDegrees: attachment.yawDegrees};
+          this.posedMatrix = matrix;
+          // The protection geometry for this exact pose, drop and frame size (candidate arm bounds follow the drop).
+          const {width, height} = this.renderSize, dropShape = this.rearDrop;
+          this.protectionConfiguration = dropShape ? createProtection({optical: dropShape.opticalBounds, originalArms: dropShape.originalArmBounds, candidateArms: dropShape.candidateArmBounds},
+            attachment.matrix, this.eyewear.offsetCm, detection.landmarks, width, height, frame.width / frame.height) : null;
+          this.nasalRect = nasalRoi(detection, width, height);
+          this.templePaths = this.continuityModel ? projectTempleContinuity(this.continuityModel, {eyewearMatrix: attachment.matrix, offsetCm: this.eyewear.offsetCm,
+            sourceAspect: frame.width / frame.height, width, height, dropM: drop.dropM}) : null;
+        }
+      }
+      if (!this.facePose.visible) this.rearDrop?.setDrop(0);
+      return this.facePose.visible;
+    } catch (error) {this.clearPresentation(); throw error;}
+  }
+
+  /** Upload a category mask as a 0/255 red texture (hair = 255). Returns the upload time in ms. */
+  private uploadMask(mask: CategoryMask): number {
+    const started = performance.now();
+    const {width, height} = mask, count = width * height;
+    if (mask.category.length !== count) throw new Error('The hair mask size does not match its category data.');
+    if (!this.maskTexture || !this.maskBytes || this.maskTexture.image.width !== width || this.maskTexture.image.height !== height) {
+      this.maskTexture?.dispose();
+      this.maskBytes = new Uint8Array(count);
+      this.maskTexture = new DataTexture(this.maskBytes, width, height, RedFormat, UnsignedByteType);
+      this.maskTexture.colorSpace = NoColorSpace; this.maskTexture.flipY = false; this.maskTexture.unpackAlignment = 1;
+      this.maskTexture.generateMipmaps = false; this.maskTexture.minFilter = LinearFilter; this.maskTexture.magFilter = LinearFilter;
+    }
+    const bytes = this.maskBytes, category = mask.category, hair = mask.hairIndex;
+    for (let index = 0; index < count; index++) bytes[index] = category[index] === hair ? 255 : 0;
+    this.maskTexture.needsUpdate = true;
+    return performance.now() - started;
+  }
+
+  private setStencil(enabled: boolean, ref: number): void {
+    this.scene.traverse(object => {
+      if (!(object instanceof Mesh)) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        material.stencilWrite = enabled; material.stencilFunc = EqualStencilFunc; material.stencilRef = ref; material.stencilFuncMask = 0xff;
+        material.stencilFail = KeepStencilOp; material.stencilZFail = KeepStencilOp; material.stencilZPass = KeepStencilOp;
+      }
+    });
+  }
+  /** Marks the stencil: 1 everywhere, 0 inside the arm corridors, 1 again inside the protected rectangles (protection
+   *  wins). Three applies its own scissor state only at render time, so the rectangle clears use the GL scissor
+   *  directly and restore it afterwards; the clear values go through Three's state cache. */
+  private markGuard(protection: ProtectionConfiguration, nose: PixelRect | null, width: number, height: number): void {
+    const gl = this.gl, renderer = this.renderer, stencil = renderer.state.buffers.stencil;
+    renderer.setScissorTest(false); stencil.setMask(0xffffffff); stencil.setClear(1);
+    gl.disable(gl.SCISSOR_TEST); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST);
+    const fill = (rects: readonly PixelRect[], value: number): void => {
+      stencil.setClear(value);
+      for (const rect of rects) {gl.scissor(rect.x0, height - rect.y1, rect.x1 - rect.x0, rect.y1 - rect.y0); gl.clear(gl.STENCIL_BUFFER_BIT);}
+    };
+    fill(protection.editableRects, 0);
+    fill(nose ? [...protection.protectedRects, nose] : protection.protectedRects, 1);
+    gl.scissor(0, 0, width, height); gl.disable(gl.SCISSOR_TEST); stencil.setClear(0);
+  }
+
+  /** Draw the posed frame into the canvas. Live frames use `{hair, drop: true, eyewear: true, guard}`; the audit draws
+   *  other variants of the same posed frame and reads them back. */
+  render(mask: CategoryMask | null, variant: Partial<RenderVariant> = {}): FrameTimings {
+    if (this.disposed) throw new Error('The renderer is disposed.');
+    if (!this.backgroundTexture) throw new Error('Nothing is posed.');
+    const v: RenderVariant = {hair: true, drop: true, eyewear: true, guard: this.guard, ...variant};
+    const tracked = this.facePose.visible;
+    const wantsHair = v.hair && mask !== null && tracked;
+    const maskUploadMs = wantsHair ? this.uploadMask(mask) : 0;
+    const continuityStart = performance.now();
+    const cut: ContinuityCut = wantsHair && this.continuity && this.continuityModel && this.templePaths
+      ? continuityCut(this.continuityModel, this.templePaths, mask, this.renderSize, this.continuityRunPx) : {negative: null, positive: null};
+    this.hairOcclusion?.setCut(cut.negative, cut.positive);
+    const continuityMs = performance.now() - continuityStart;
+    const {width, height} = this.renderSize;
+    const submitStart = performance.now();
+    const protection = this.protectionConfiguration, nose = this.nasalRect;
+    const guarded = v.guard && tracked && protection !== null, safeFallback = v.guard && tracked && protection === null;
+    const dropM = this.currentRearDrop?.dropM ?? 0;
+    this.eyewearPose.visible = v.eyewear && tracked;
+    this.templeClip?.prepareRender(this.backgroundTexture, width, height);
+    if (tracked && this.posedMatrix && this.templeVisibility?.configuration) this.templeVisibility.prepare(this.posedMatrix, this.backgroundTexture);
+    this.hairOcclusion?.prepareRender(wantsHair ? this.maskTexture : null, width, height, this.backgroundTexture);
+    this.renderer.setRenderTarget(null);
+    let passes = 1;
+    // The drop stays as posed in both guarded passes: the editable rectangles are built from the dropped arm bounds, so
+    // a dropped fragment cannot land outside them; the audit measures any drop intrusion into protected pixels.
+    const applyDrop = v.drop && tracked && !safeFallback;
+    if (!applyDrop) this.rearDrop?.setDrop(0);
+    try {
+      if (guarded) {
+        this.renderer.autoClear = false;
+        try {
+          this.markGuard(protection, nose, width, height);
+          // Pass A: protected and non-editable pixels come from the unblended render, background included.
+          this.setStencil(true, 1); this.hairOcclusion?.set(false, this.hairStartZ);
+          this.renderer.render(this.scene, this.camera);
+          // Pass B: the editable region gets the hair blend. No background redraw, and the lenses (always inside the
+          // protected optical rectangle) are skipped so no second transmission pre-pass runs.
+          this.setStencil(true, 0); this.hairOcclusion?.set(wantsHair, this.hairStartZ);
+          this.scene.background = null; for (const lens of this.lensMeshes) lens.visible = false;
+          try {this.renderer.render(this.scene, this.camera);}
+          finally {this.scene.background = this.backgroundTexture; for (const lens of this.lensMeshes) lens.visible = true;}
+          passes = 2;
+        } finally {this.renderer.autoClear = true; this.setStencil(false, 0);}
+      } else {
+        this.setStencil(false, 0);
+        this.hairOcclusion?.set(wantsHair && !safeFallback, this.hairStartZ);
+        this.renderer.render(this.scene, this.camera);
+      }
+    } finally {if (!applyDrop && tracked) this.rearDrop?.setDrop(dropM);}
+    if (this.sync) {
+      if (this.fence) this.gl.deleteSync(this.fence);
+      this.fence = this.gl.fenceSync(this.gl.SYNC_GPU_COMMANDS_COMPLETE, 0); this.gl.flush();
+    }
+    const submitMs = performance.now() - submitStart;
+    const hairApplied = wantsHair && !safeFallback;
+    return {maskUploadMs, continuityMs, submitMs, dropM: applyDrop ? dropM : 0, hairApplied,
+      maskWidth: hairApplied ? mask!.width : 0, maskHeight: hairApplied ? mask!.height : 0, sync: this.sync,
+      guarded, passes, protectedRects: protection?.protectedRects.length ?? 0, editableRects: protection?.editableRects.length ?? 0, safeFallback,
+      continuity: this.continuity && this.continuityModel !== null, cutNegativeZ: cut.negative, cutPositiveZ: cut.positive};
+  }
+
+  /** Audit only: the current canvas pixels, top-down. Live frames never call this. */
+  readback(): ImageData {return this.reader.read(this.renderer.domElement);}
+
+  private clearPresentation(resetGeometry = true): void {
+    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null;
+    this.facePose.visible = this.eyewearPose.visible = false;
+    if (this.surfaceMesh) this.surfaceMesh.visible = false;
+    if (this.headProxy) this.headProxy.visible = false;
+    this.templeVisibility?.set(null); this.templeClip?.set(null); this.hairOcclusion?.set(false, this.hairStartZ);
+    if (resetGeometry) this.rearDrop?.setDrop(0);
+    this.currentRearDrop = null; this.protectionConfiguration = null; this.nasalRect = null; this.templePaths = null;
+    this.hairOcclusion?.setCut(null, null);
+  }
+  private measureProjectionResidual(detection: Detection): number | null {
+    let sum = 0;
+    for (const index of RESIDUAL_LANDMARKS) {
+      const landmark = detection.landmarks[index]; if (!landmark) return null;
+      this.projected.fromArray(this.canonicalPositions, index * 3).applyMatrix4(this.facePose.matrix).project(this.camera);
+      const x = (this.projected.x + 1) * this.frameWidth / 2, y = (1 - this.projected.y) * this.frameHeight / 2;
+      sum += (x - landmark.x * this.frameWidth) ** 2 + (y - landmark.y * this.frameHeight) ** 2;
+    }
+    const residual = Math.sqrt(sum / RESIDUAL_LANDMARKS.length);
+    return Number.isFinite(residual) ? residual : null;
+  }
+  dispose(): void {
+    if (this.disposed) return; this.disposed = true;
+    this.removeAbortListener?.(); this.removeAbortListener = null;
+    if (this.fence) {try {this.gl.deleteSync(this.fence);} catch {/* context may be lost */} this.fence = null;}
+    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null;
+    this.protectionConfiguration = null; this.nasalRect = null; this.reader.dispose();
+    this.scene.background = null; this.scene.environment = null;
+    this.backgroundTexture?.dispose(); this.backgroundTexture = null;
+    this.maskTexture?.dispose(); this.maskTexture = null; this.maskBytes = null;
+    this.environmentTarget?.dispose(); this.environmentTarget = null;
+    this.hairOcclusion?.dispose(); this.hairOcclusion = null;
+    this.templeVisibility?.dispose(); this.templeVisibility = null;
+    this.rearDrop?.dispose(); this.rearDrop = null; this.currentRearDrop = null;
+    this.templeClip?.dispose(); this.templeClip = null;
+    disposeObjects([this.scene, ...this.assetScenes]); this.assetScenes = [];
+    this.canonicalPositions = []; this.nasalShape = null; this.faceSurface = null; this.surfaceMesh = null; this.headProxy = null; this.surfaceAttribute = null;
+    this.scene.clear(); this.renderer.dispose(); this.renderer.forceContextLoss();
+  }
+}

@@ -6,12 +6,12 @@ serves the Lenses tools and the owner-authorized AR testing page below.
 [ar_v4/](ar_v4/README.md) contains the separate AR development app; run its commands
 inside that directory and keep its package manifests and assets there.
 
-The owner-authorized **ar_testing** landing-page option now opens a separate
-[mobile AR comparison](https://web-production-ef3ca.up.railway.app/ar_testing/).
-It serves the explicit `ar_v4/mobile-site/` package through the existing Python
-app and saves continuous comparison video/measurements locally. Other Lenses
-tools and the Railway start command remain unchanged. See the
-[mobile build and recording guide](ar_v4/experiments/efficiency-lab/MOBILE.md).
+The landing page's first option, **AR**, opens the live try-on at
+[/ar/](https://web-production-ef3ca.up.railway.app/ar/): the `ar/` pipeline's published
+site (`cd ar && npm run publish` writes `ar/site/` and its manifest), served by the
+existing Python app with the same allowlist, integrity and isolation headers the
+earlier ar_testing route had. Everything runs in the browser; nothing is uploaded.
+See [ar/README.md](ar/README.md).
 
 AI-powered glasses tools powered by Google Gemini — three CLI pipelines plus a web UI for glasses recommendation, virtual try-on, and lens recoloring.
 

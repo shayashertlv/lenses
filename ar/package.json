@@ -1,0 +1,31 @@
+{
+  "name": "ar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "description": "Lenses AR try-on: face landmarker and hair segmenter in workers, eyewear rendered on the GPU with hair occlusion, stencil-guarded optics and the temple continuity cut inside the shaders.",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 8240 --strictPort",
+    "check": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "assets": "node scripts/prepare-assets.mjs",
+    "build": "npm run assets && npm run check && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 8241 --strictPort",
+    "measure": "node qa/measure.mjs",
+    "publish": "npm run assets && npm run check && node scripts/publish-site.mjs --base=/ar/"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.0.1",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.4.1",
+    "@types/three": "0.185.4",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}

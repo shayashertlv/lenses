@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101715"><title>Lenses · AR</title>
+  <script type="module" crossorigin src="/ar/assets/index-BmUVW8Fo.js"></script>
+  <link rel="stylesheet" crossorigin href="/ar/assets/index-DgVMt-Ce.css">
+</head>
+<body>
+<main class="workspace">
+  <header class="topbar"><a class="brand" href="./">lenses<span class="brand-dot">.</span></a><span class="version">AR <span>TRY-ON</span></span></header>
+  <section class="intro"><div><p class="eyebrow">THE VIRTUAL MIRROR</p><h1>Try the frames on, live.</h1></div><p class="intro-note">Everything runs in this browser: face tracking, hair detection and the render. Nothing is uploaded.</p></section>
+  <div class="tryon-layout">
+    <section class="stage" data-state="idle" aria-label="Live mirror">
+      <canvas id="mirror" hidden aria-label="Mirrored camera and glasses"></canvas>
+      <div class="stage-top"><span class="stage-label"><span id="status-dot"></span><span id="stage-status">CAMERA OFF</span></span></div>
+      <div class="welcome" id="welcome"><div class="frame-symbol" aria-hidden="true"><i></i><b></b><i></i></div><h2>Your mirror, ready when you are.</h2><p>Take off your glasses and find some soft light.<br>Turn slowly to compare the feel.</p><button id="start" class="primary">Open camera <span aria-hidden="true">↗</span></button><p class="privacy">Camera images stay in this browser.</p></div>
+      <div class="stage-bottom"><p id="guidance" role="status" aria-live="polite">Choose your glasses, then open the camera.</p><button id="stop" class="quiet" hidden>Close camera</button></div>
+    </section>
+    <aside class="sidebar">
+      <section class="product"><label class="eyebrow" for="eyewear-select">01 / GLASSES</label><select id="eyewear-select"></select><h2 id="frame-name">Amber Horizon</h2><p class="product-description" id="frame-description"></p></section>
+      <section class="hair-controls"><label class="eyebrow" for="hair-model-select">02 / HAIR DETECTION</label><select id="hair-model-select"></select></section>
+      <section class="hair-controls"><label class="eyebrow" for="hair-toggle">03 / HAIR OCCLUSION</label><select id="hair-toggle"><option value="on">On · temples hide behind hair</option><option value="off">Off · temples drawn in full</option></select></section>
+      <section class="profile-panel"><p class="eyebrow">LIVE PERFORMANCE</p>
+        <div class="profile-headline"><strong id="fps">—</strong><span>AR updates · last 10 s</span></div>
+        <dl class="profile-metrics"><div><dt>Frame age median / p95</dt><dd id="age">—</dd></div><div><dt>Coverage</dt><dd id="coverage">—</dd></div><div><dt>Graphics · face</dt><dd id="gpu">—</dd></div><div><dt>Hair</dt><dd id="hair-engine">—</dd></div></dl>
+        <p class="control-hint" id="stages">—</p><p class="control-hint" id="frames">—</p>
+        <div class="hair-actions"><button id="download-metrics" class="quiet" disabled>Download timings</button><button id="audit" class="quiet" disabled>Hold &amp; audit</button><button id="audit-download" class="quiet" hidden>Download audit</button></div>
+        <p class="control-hint" id="audit-result">Hold &amp; audit draws the next frame with and without hair and without glasses, reads it back once, and runs the CPU reference compose and the four protection checks on the GPU output.</p></section>
+      <section class="pipeline-controls"><p class="eyebrow">MEASURE</p>
+        <div class="inline-fields"><label class="control-hint" for="measure-sessions">Sessions</label><input id="measure-sessions" type="number" min="1" max="20" value="1">
+          <label class="control-hint" for="measure-warmup">Warmup s</label><input id="measure-warmup" type="number" min="1" max="120" value="15">
+          <label class="control-hint" for="measure-seconds">Measure s</label><input id="measure-seconds" type="number" min="5" max="600" value="60"></div>
+        <button id="measure-start" class="primary">Run measurement</button><button id="measure-cancel" class="quiet" hidden>Stop measurement</button>
+        <p id="measure-status" class="control-hint" role="status" aria-live="polite">Each session is a fresh camera session: warmup, then measurement. Repeat the same movements in every session.</p>
+        <div class="benchmark-table-scroll"><table id="measure-results" hidden><thead><tr><th>#</th><th>Status</th><th>Startup</th><th>fps</th><th>Camera fps</th><th>Age med / p95</th><th>Tracked</th><th>Masked</th><th>Interval p95</th></tr></thead><tbody id="measure-rows"></tbody></table></div>
+        <div id="measure-pooled" class="control-hint"></div>
+        <button id="report-download" class="quiet" hidden>Download report</button></section>
+      <p class="control-hint" id="config-note"></p>
+    </aside>
+  </div>
+  <footer><span>Local processing · No uploads</span><span>Timing downloads contain no images.</span></footer>
+</main>
+</body></html>
