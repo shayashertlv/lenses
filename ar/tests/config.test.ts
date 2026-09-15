@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, PHONE_HAIR_INPUT_MAX_EDGE, PHONE_HAIR_WAIT_MS} from '../src/config.ts';
+import {APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, PHONE_HAIR_INPUT_MAX_EDGE, PHONE_HAIR_WAIT_MS} from '../src/config.ts';
 
 test('an empty search yields the accepted defaults', () => {
   assert.deepEqual(parseConfig(''), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
@@ -44,6 +44,8 @@ test('phones wait longer for their own hair mask; laptops keep 8 ms; ?hairwait= 
   assert.equal(parseConfig('', iphone).hairInputMaxEdge, PHONE_HAIR_INPUT_MAX_EDGE); assert.equal(parseConfig('', laptop).hairInputMaxEdge, 1280);
   assert.equal(parseConfig('?hairinput=640', laptop).hairInputMaxEdge, 640); assert.equal(parseConfig('?hairinput=100', laptop).hairInputMaxEdge, 1280); assert.equal(parseConfig('?hairinput=1280', iphone).hairInputMaxEdge, 1280);
   assert.equal(parseConfig('?hairdelegate=cpu').hairDelegate, 'CPU'); assert.equal(parseConfig('?hairdelegate=GPU').hairDelegate, 'GPU'); assert.equal(parseConfig('?hairdelegate=npu').hairDelegate, 'auto');
+  assert.equal(parseConfig('', iphone).hairDelegate, APPLE_PHONE_HAIR_DELEGATE); assert.equal(parseConfig('', android).hairDelegate, 'auto'); assert.equal(parseConfig('?hairdelegate=gpu', iphone).hairDelegate, 'GPU');
+  assert.match(describeConfig(parseConfig('', iphone), iphone), /hair delegate CPU \(Apple phone default\) \(\?hairdelegate=\)/);
   assert.match(describeConfig(parseConfig('', iphone)), /hair input 640 px max edge \(phone default\) \(\?hairinput=\)/); assert.match(describeConfig(parseConfig('?hairdelegate=cpu')), /hair delegate CPU \(\?hairdelegate=\)/);
   assert.match(describeConfig(parseConfig('', iphone)), /hair wait 60 ms \(phone default\) \(\?hairwait=\)/);
 });

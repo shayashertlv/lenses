@@ -20,7 +20,10 @@ export interface Config {
   /** `?hairinput=` px (256..1280): the hair segmenter sees a copy of at most this edge (default the frame; phones
    *  PHONE_HAIR_INPUT_MAX_EDGE, where the mask readback is a quarter of the hair worker's time). */
   hairInputMaxEdge: number;
-  /** `?hairdelegate=cpu|gpu` forces the hair segmenter's delegate; default: the graphics probe chooses. */
+  /** `?hairdelegate=cpu|gpu` forces the hair segmenter's delegate; default: the graphics probe chooses, except on Apple
+   *  phones and tablets, which default to the CPU (iPhone 17 Pro, 2026-09-15: no mask readback at all, the GPU left to
+   *  the face landmarker throttles less; 29 fps for 40 s instead of 20 s and 2-3 fps more at 30-60 s, level by 70 s;
+   *  other phones are unmeasured and keep the probe). */
   hairDelegate: HairDelegate | 'auto';
   /** `?hairz=` mesh-local metres behind which temple fragments may blend toward the camera under hair. */
   hairStartZ: number;
@@ -52,6 +55,8 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
 export const PHONE_HAIR_WAIT_MS = 60;
 /** The phone default for the hair input edge (see Config.hairInputMaxEdge). */
 export const PHONE_HAIR_INPUT_MAX_EDGE = 640;
+/** The Apple phone default for the hair delegate (see Config.hairDelegate). */
+export const APPLE_PHONE_HAIR_DELEGATE: HairDelegate = 'CPU';
 
 /** iPhone and iPad report themselves in the user agent; iPadOS Safari may claim to be a Mac with touch points. */
 export function isApplePhoneOrTablet(userAgent: string, maxTouchPoints = 0): boolean {
@@ -82,7 +87,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
     hairWaitMs: number('hairwait', isPhoneOrTablet(userAgent, maxTouchPoints) ? PHONE_HAIR_WAIT_MS : HAIR_WAIT_MS, 0, 200),
     hairInputMaxEdge: Math.round(number('hairinput', isPhoneOrTablet(userAgent, maxTouchPoints) ? PHONE_HAIR_INPUT_MAX_EDGE : DEFAULT_HAIR_INPUT_MAX_EDGE, 256, 1280)),
-    hairDelegate: hairDelegate === 'CPU' || hairDelegate === 'GPU' ? hairDelegate : 'auto',
+    hairDelegate: hairDelegate === 'CPU' || hairDelegate === 'GPU' ? hairDelegate : isApplePhoneOrTablet(userAgent, maxTouchPoints) ? APPLE_PHONE_HAIR_DELEGATE : 'auto',
     hairStartZ: number('hairz', DEFAULT_HAIR_START_Z_M, -0.2, 0),
     sync: flag('sync', true),
     exposure: exposure === null || exposure.toLowerCase() === 'auto' ? null : number('exposure', 0, 1, 10000) || null,
@@ -97,13 +102,14 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
 }
 
 /** One line for the page: the levers and whether each is at its default. */
-export function describeConfig(config: Config): string {
+export function describeConfig(config: Config, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0): string {
   return [
     `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate, then GPU (?face=)' : 'GPU delegate, then CPU (?face=)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
     ...(config.hairWaitMs === HAIR_WAIT_MS ? [] : [`hair wait ${config.hairWaitMs} ms${config.hairWaitMs === PHONE_HAIR_WAIT_MS ? ' (phone default)' : ''} (?hairwait=)`]),
     ...(config.hairInputMaxEdge === DEFAULT_HAIR_INPUT_MAX_EDGE ? [] : [`hair input ${config.hairInputMaxEdge} px max edge${config.hairInputMaxEdge === PHONE_HAIR_INPUT_MAX_EDGE ? ' (phone default)' : ''} (?hairinput=)`]),
-    ...(config.hairDelegate === 'auto' ? [] : [`hair delegate ${config.hairDelegate} (?hairdelegate=)`]),
+    ...(config.hairDelegate === 'auto' ? [] : [`hair delegate ${config.hairDelegate}${config.hairDelegate === APPLE_PHONE_HAIR_DELEGATE && isApplePhoneOrTablet(userAgent, maxTouchPoints) ? ' (Apple phone default)' : ''} (?hairdelegate=)`]),
     `hair start z ${config.hairStartZ} m${config.hairStartZ === DEFAULT_HAIR_START_Z_M ? '' : ' (?hairz=)'}`,
     `GPU completion gate ${config.sync ? 'on' : 'OFF (?sync=0)'}`,
     `camera exposure ${config.exposure === null ? 'auto (?exposure=312 locks 1/32 s)' : `locked at ${config.exposure} × 100 µs`}`,
