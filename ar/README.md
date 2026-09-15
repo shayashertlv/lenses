@@ -96,7 +96,7 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?sync=0` | on | do not gate frames on the previous frame's GPU completion (measurement only) |
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
-| `?hairwait=` | 8 | ms a frame waits for its own hair mask before it is drawn without it (0..200) |
+| `?hairwait=` | 8, phones 60 | ms a frame waits for its own hair mask before it is drawn without it (0..200); on phones the hair worker needs 43-65 ms and at 8 ms no mask was ever drawn |
 | `?diag=0` | on | send no startup or live diagnostics to the site (A/B lever while the beacon exists) |
 | `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
 

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, parseConfig} from '../src/config.ts';
+import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, PHONE_HAIR_WAIT_MS} from '../src/config.ts';
 
 test('an empty search yields the accepted defaults', () => {
   assert.deepEqual(parseConfig(''), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
@@ -32,4 +32,14 @@ test('iPhone and iPad default to the GPU delegate first, the order the phone tes
   assert.deepEqual(parseConfig('', laptop).faceDelegates, ['CPU', 'GPU']);
   assert.deepEqual(parseConfig('?face=gpu', laptop).faceDelegates, ['GPU', 'CPU']);
   assert.match(describeConfig(parseConfig('', iphone)), /GPU delegate, then CPU/);
+});
+
+test('phones wait longer for their own hair mask; laptops keep 8 ms; ?hairwait= overrides both', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
+  const android = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Mobile Safari/537.36';
+  const laptop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Safari/537.36';
+  assert.ok(isPhoneOrTablet(iphone) && isPhoneOrTablet(android) && !isPhoneOrTablet(laptop, 10));
+  assert.equal(parseConfig('', iphone).hairWaitMs, PHONE_HAIR_WAIT_MS); assert.equal(parseConfig('', android).hairWaitMs, PHONE_HAIR_WAIT_MS); assert.equal(parseConfig('', laptop).hairWaitMs, 8);
+  assert.equal(parseConfig('?hairwait=8', iphone).hairWaitMs, 8); assert.equal(parseConfig('?hairwait=60', laptop).hairWaitMs, 60);
+  assert.match(describeConfig(parseConfig('', iphone)), /hair wait 60 ms \(phone default\) \(\?hairwait=\)/);
 });

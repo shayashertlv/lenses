@@ -301,13 +301,13 @@ class TestStartupDiagnostics(unittest.TestCase):
         self.site.serve(listing, "/ar/diagnostics.json")
         self.assertEqual(json.loads(listing.wfile.getvalue()), {"reports": []})
 
-    def test_only_the_last_forty_reports_are_kept(self):
-        for index in range(45):
+    def test_only_the_last_hundred_and_fifty_reports_are_kept(self):
+        for index in range(155):
             self.post(json.dumps({"n": index}).encode())
         listing = _Request()
         self.site.serve(listing, "/ar/diagnostics.json")
         reports = json.loads(listing.wfile.getvalue())["reports"]
-        self.assertEqual(len(reports), 40)
+        self.assertEqual(len(reports), 150)
         self.assertEqual(reports[0]["report"]["n"], 5)
 
 
