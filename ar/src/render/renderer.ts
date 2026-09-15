@@ -14,7 +14,7 @@
  *  `readback()` exists for the audit only. */
 import {
   ACESFilmicToneMapping, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
-  DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh,
+  DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh, NearestFilter,
   MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
   SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector3, WebGLRenderer,
 } from 'three';
@@ -360,7 +360,9 @@ export class TryOnRenderer {
       this.maskBytes = new Uint8Array(count);
       this.maskTexture = new DataTexture(this.maskBytes, width, height, RedFormat, UnsignedByteType);
       this.maskTexture.colorSpace = NoColorSpace; this.maskTexture.flipY = false; this.maskTexture.unpackAlignment = 1;
-      this.maskTexture.generateMipmaps = false; this.maskTexture.minFilter = LinearFilter; this.maskTexture.magFilter = LinearFilter;
+      // Nearest: a mask smaller than the frame is read the way the continuity cut and the CPU reference read it, by the
+      // texel under the pixel centre; at the frame's own size this is the texel itself, as before.
+      this.maskTexture.generateMipmaps = false; this.maskTexture.minFilter = NearestFilter; this.maskTexture.magFilter = NearestFilter;
     }
     const bytes = this.maskBytes, category = mask.category, hair = mask.hairIndex;
     for (let index = 0; index < count; index++) bytes[index] = category[index] === hair ? 255 : 0;

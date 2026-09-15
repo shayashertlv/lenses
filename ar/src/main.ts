@@ -119,7 +119,7 @@ function updateUi(): void {
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
       + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
       + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`
-      + hairWorkerLine(session.pipeline?.hair()));
+      + hairWorkerLine(session.pipeline?.hair()) + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`);
   }
 }
 
@@ -127,7 +127,7 @@ async function openSession(): Promise<void> {
   if (current) return;
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement; previous.replaceWith(canvas);
   const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, renderer: null, detector: null, hair: null,
-    hairBackend: detectHairBackend(), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null};
+    hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null};
   current = session; stage.dataset.sessionId = session.id; updateControls();
   const signal = session.abort.signal, owns = (): boolean => current === session;
   setState('starting', 'STARTING CAMERA', 'Allow camera access when your browser asks.');
@@ -180,7 +180,7 @@ async function openSession(): Promise<void> {
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
       hair: () => session.hair!, hairModel, eyewearId, hairReady: () => session.hairReady && !session.hairError,
-      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, owns, nextSequence: () => ++session.sequence,
+      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, owns, nextSequence: () => ++session.sequence,
       onHairError: error => {if (owns()) {session.hairError = messageFor(error); session.hairReady = false; session.hair?.close(); element('hair-engine').textContent = `hair error: ${session.hairError}`;}},
       onError: error => {if (owns()) closeSession(messageFor(error), true);},
       backend: () => ({active: session.hairBackend.active, renderer: session.hairBackend.renderer}),

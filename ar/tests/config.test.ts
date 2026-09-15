@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, PHONE_HAIR_WAIT_MS} from '../src/config.ts';
+import {DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, PHONE_HAIR_INPUT_MAX_EDGE, PHONE_HAIR_WAIT_MS} from '../src/config.ts';
 
 test('an empty search yields the accepted defaults', () => {
   assert.deepEqual(parseConfig(''), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
@@ -10,7 +10,7 @@ test('an empty search yields the accepted defaults', () => {
 
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
-  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, hairWaitMs: 8, hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
+  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, hairWaitMs: 8, hairInputMaxEdge: 1280, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
     continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: true});
   assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=off').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=0')), /diagnostics OFF \(\?diag=0\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
@@ -41,5 +41,9 @@ test('phones wait longer for their own hair mask; laptops keep 8 ms; ?hairwait= 
   assert.ok(isPhoneOrTablet(iphone) && isPhoneOrTablet(android) && !isPhoneOrTablet(laptop, 10));
   assert.equal(parseConfig('', iphone).hairWaitMs, PHONE_HAIR_WAIT_MS); assert.equal(parseConfig('', android).hairWaitMs, PHONE_HAIR_WAIT_MS); assert.equal(parseConfig('', laptop).hairWaitMs, 8);
   assert.equal(parseConfig('?hairwait=8', iphone).hairWaitMs, 8); assert.equal(parseConfig('?hairwait=60', laptop).hairWaitMs, 60);
+  assert.equal(parseConfig('', iphone).hairInputMaxEdge, PHONE_HAIR_INPUT_MAX_EDGE); assert.equal(parseConfig('', laptop).hairInputMaxEdge, 1280);
+  assert.equal(parseConfig('?hairinput=640', laptop).hairInputMaxEdge, 640); assert.equal(parseConfig('?hairinput=100', laptop).hairInputMaxEdge, 1280); assert.equal(parseConfig('?hairinput=1280', iphone).hairInputMaxEdge, 1280);
+  assert.equal(parseConfig('?hairdelegate=cpu').hairDelegate, 'CPU'); assert.equal(parseConfig('?hairdelegate=GPU').hairDelegate, 'GPU'); assert.equal(parseConfig('?hairdelegate=npu').hairDelegate, 'auto');
+  assert.match(describeConfig(parseConfig('', iphone)), /hair input 640 px max edge \(phone default\) \(\?hairinput=\)/); assert.match(describeConfig(parseConfig('?hairdelegate=cpu')), /hair delegate CPU \(\?hairdelegate=\)/);
   assert.match(describeConfig(parseConfig('', iphone)), /hair wait 60 ms \(phone default\) \(\?hairwait=\)/);
 });

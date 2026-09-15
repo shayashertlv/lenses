@@ -20,6 +20,11 @@ import type {HairModel} from '../hair/models.ts';
 export const DEFAULT_CAPTURE_MAX_EDGE = 1280;
 /** The face landmarker sees a copy of at most this edge. */
 export const FACE_INPUT_MAX_EDGE = 640;
+/** The hair segmenter sees the frame itself unless `hairInputMaxEdge` is smaller than the frame's edge; then a copy of at
+ *  most that edge, whose mask is that size (the render, the continuity cut and the CPU reference map frame pixels to
+ *  mask pixels by nearest lookup). Phones default to 640: the mask readback, a quarter of the hair worker's time
+ *  there, shrinks four times. */
+export const DEFAULT_HAIR_INPUT_MAX_EDGE = DEFAULT_CAPTURE_MAX_EDGE;
 /** How long preparation waits for the frame's own hair mask before the frame is drawn without it (default; `?hairwait=`). */
 export const HAIR_WAIT_MS = 8;
 /** The hair worker as seen by the pipeline: results that arrived, frames drawn without their mask because it was late, and
@@ -46,6 +51,8 @@ export interface PipelineContext {
   captureMaxEdge?: number;
   /** How long a frame waits for its own hair mask before it is drawn without it; default HAIR_WAIT_MS. */
   hairWaitMs?: number;
+  /** Hair input max edge in px; default the frame itself (DEFAULT_HAIR_INPUT_MAX_EDGE). */
+  hairInputMaxEdge?: number;
   owns: () => boolean; nextSequence: () => number;
   onHairError: (error: unknown) => void; onError: (error: unknown) => void;
   onPublished: (row: FrameInput, identity: {sourceSHA256: string; detectionSHA256: string}) => void;
@@ -54,6 +61,13 @@ export interface PipelineContext {
 export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
 const hash = async (bytes: Uint8Array | Uint8ClampedArray): Promise<string> => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), v => v.toString(16).padStart(2, '0')).join('');
+/** A scaled copy of the captured frame for a worker; the copy is a pure function of the frame, whose hash stays the identity. */
+const scaledCopy = (source: HTMLCanvasElement, maxEdge: number): {canvas: HTMLCanvasElement; drawMs: number} => {
+  const canvas = document.createElement('canvas'), scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
+  canvas.width = Math.max(1, Math.round(source.width * scale)); canvas.height = Math.max(1, Math.round(source.height * scale));
+  const started = performance.now(); context(canvas).drawImage(source, 0, 0, canvas.width, canvas.height);
+  return {canvas, drawMs: performance.now() - started};
+};
 const context = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
   const c = canvas.getContext('2d', {alpha: false, willReadFrequently: true, colorSpace: 'srgb'}); if (!c) throw new Error('Camera canvas unavailable.'); return c;
 };
@@ -77,7 +91,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
   const owns = () => !stopped && c.owns();
   const stream = c.video.srcObject;
   const cameraFps = stream instanceof MediaStream ? stream.getVideoTracks()[0]?.getSettings().frameRate ?? null : null;
-  const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs = c.hairWaitMs ?? HAIR_WAIT_MS;
+  const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs = c.hairWaitMs ?? HAIR_WAIT_MS, hairInputMaxEdge = c.hairInputMaxEdge ?? DEFAULT_HAIR_INPUT_MAX_EDGE;
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
@@ -85,7 +99,10 @@ export function runPipeline(c: PipelineContext): Pipeline {
       at('hashing the frame and preparing the face input');
       const inferenceStartedAt = performance.now(), hashStart = performance.now(); let hashMs = 0;
       const sha = hash(p.rgba.data).then(value => {hashMs = performance.now() - hashStart; return value;});
-      const hairBitmap = c.hairReady() && p.hair ? createImageBitmap(p.canvas) : Promise.resolve(null);
+      // The face landmarker's copy is drawn first; when the hair edge agrees with it, the same copy serves both workers.
+      const input = scaledCopy(p.canvas, FACE_INPUT_MAX_EDGE), detectorDrawMs = input.drawMs;
+      const hairSource = hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE ? input : scaledCopy(p.canvas, hairInputMaxEdge);
+      const hairBitmap = c.hairReady() && p.hair ? createImageBitmap(hairSource ? hairSource.canvas : p.canvas) : Promise.resolve(null);
       let markHairStarted: () => void = () => {};
       const hairStarted = new Promise<void>(resolve => {markHairStarted = resolve;});
       // One serial hair worker; at most the pump's second owned image can wait.
@@ -101,11 +118,9 @@ export function runPipeline(c: PipelineContext): Pipeline {
         finally {markHairStarted();}
       }).catch(async (error) => {const bitmap = await hairBitmap.catch(() => null); bitmap?.close(); markHairStarted(); if (alive()) c.onHairError(error); return null;});
       hairTail = hair.then(() => undefined);
-      const input = document.createElement('canvas'), scale = Math.min(1, FACE_INPUT_MAX_EDGE / Math.max(p.canvas.width, p.canvas.height));
-      input.width = Math.max(1, Math.round(p.canvas.width * scale)); input.height = Math.max(1, Math.round(p.canvas.height * scale));
-      const drawStart = performance.now(); context(input).drawImage(p.canvas, 0, 0, input.width, input.height); const detectorDrawMs = performance.now() - drawStart;
-      const bitmapStart = performance.now(); const bitmap = await createImageBitmap(input); const faceBitmapMs = performance.now() - bitmapStart;
-      input.width = input.height = 0;
+      const bitmapStart = performance.now(), faceBitmap = createImageBitmap(input.canvas); const bitmap = await faceBitmap; const faceBitmapMs = performance.now() - bitmapStart;
+      // The copies are released once both bitmaps own their pixels.
+      void Promise.allSettled([hairBitmap, faceBitmap]).then(() => {input.canvas.width = input.canvas.height = 0; if (hairSource && hairSource !== input) hairSource.canvas.width = hairSource.canvas.height = 0;});
       if (!alive()) {bitmap.close(); throw new DOMException('Frame revoked.', 'AbortError');}
       at('face landmarker'); const faceStart = performance.now(); const detection = await c.detector.detect(bitmap, p.capturedAtMs);
       const faceWallMs = performance.now() - faceStart, face = c.detector.lastTiming;

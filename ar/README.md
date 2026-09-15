@@ -55,7 +55,8 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
    running clock for a camera stream and such a comparison discarded every frame on iPhone.
 2. **Inference**: the face landmarker (`src/face/`, MediaPipe FaceLandmarker in a worker, CPU delegate by default) sees a
    640 px copy; the hair segmenter (`src/hair/`, MediaPipe ImageSegmenter in a worker, category mask only) sees the full
-   frame. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
+   frame on the laptop and a 640 px copy on phones (`?hairinput=`), where the mask readback was a quarter of the hair
+   worker's time; a mask smaller than the frame is read by nearest lookup in the shader, the cut and the CPU reference. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
    preparation, with at most two owned frames and one serial hair worker.
 3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence (at most 1 s; three unanswered
    fences in a row switch the gate off for the session and the live panel says so), then bridge pose
@@ -96,6 +97,8 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?sync=0` | on | do not gate frames on the previous frame's GPU completion (measurement only) |
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
+| `?hairinput=` | frame, phones 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere (256..1280) |
+| `?hairdelegate=` | probe | `cpu` or `gpu` forces the hair segmenter's delegate |
 | `?hairwait=` | 8, phones 60 | ms a frame waits for its own hair mask before it is drawn without it (0..200); on phones the hair worker needs 43-65 ms and at 8 ms no mask was ever drawn |
 | `?diag=0` | on | send no startup or live diagnostics to the site (A/B lever while the beacon exists) |
 | `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
