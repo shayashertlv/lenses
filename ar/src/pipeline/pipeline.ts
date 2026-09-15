@@ -22,13 +22,17 @@ import type {HairModel} from '../hair/models.ts';
 export const DEFAULT_CAPTURE_MAX_EDGE = 1280;
 /** The face landmarker sees a copy of at most this edge. */
 export const FACE_INPUT_MAX_EDGE = 640;
-/** The hair segmenter sees the frame itself unless `hairInputMaxEdge` is smaller than the frame's edge; then a copy of at
- *  most that edge, whose mask is that size (the render, the continuity cut and the CPU reference map frame pixels to
- *  mask pixels by nearest lookup). Phones default to 640: the mask readback, a quarter of the hair worker's time
- *  there, shrinks four times. */
-export const DEFAULT_HAIR_INPUT_MAX_EDGE = DEFAULT_CAPTURE_MAX_EDGE;
-/** How long preparation waits for the frame's own hair mask before the frame is drawn without it (default; `?hairwait=`). */
-export const HAIR_WAIT_MS = 8;
+/** The hair segmenter sees a copy of at most this edge; the mask is that size and the render, the continuity cut and the
+ *  CPU reference map frame pixels to mask pixels by nearest lookup (GPU output equal to the reference at both sizes on
+ *  the laptop harness). At 640 the mask readback, the hair worker's largest cost after inference, is a quarter of the
+ *  frame-size one (phone 20-25 → 8-10 ms); the owner accepted the 2:1 mask on the phone. `?hairinput=1280` restores the
+ *  frame-size mask. */
+export const DEFAULT_HAIR_INPUT_MAX_EDGE = 640;
+/** Every frame carries its own hair mask: preparation waits for it. This deadline is only a guard against a stalled
+ *  worker, after which the frame is drawn without hair rather than never. It is not a tuning: at 8 ms the laptop's fast
+ *  capture drew one frame in four without its mask (arms blinking over hair) and the phone drew none with one
+ *  (2026-09-15). The added age is the hair worker's own latency, which the hair input size below keeps small. */
+export const HAIR_WAIT_MS = 120;
 /** The hair worker as seen by the pipeline: results that arrived, frames drawn without their mask because it was late, and
  *  the last result's own timings. Rows record hair timings only for masks that were used, so a worker too slow for the frame
  *  is invisible there. */

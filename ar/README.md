@@ -32,10 +32,11 @@ The page footer says so while it is on. This is how the phone defaults below wer
 
 ## Phones (measured 2026-09-15, iPhone 17 Pro, Safari, 720x1280)
 
-Phone defaults differ from the laptop's in three places, each measured on the device through the diagnostics: frames
-wait 60 ms for their own hair mask (at 8 ms not one mask in two minutes was drawn while every frame still paid for the
-worker), the hair segmenter sees a 640 px copy (mask readback 20-25 ms → 8-10 ms), and on Apple phones it runs on the
-CPU (no readback at all; the GPU, left to the face landmarker, throttles less). Result: 29 fps for the first 40 s, then
+Three things were measured on the device through the diagnostics: a frame must wait for its own hair mask (at an 8 ms
+cap not one mask in two minutes was drawn while every frame still paid for the worker; the laptop's fast capture later
+showed the same failure at one frame in four), the hair segmenter sees a 640 px copy (mask readback 20-25 ms → 8-10 ms),
+and on Apple phones it runs on the CPU (no readback at all; the GPU, left to the face landmarker, throttles less). The
+first two are now the rule on every device; the third is the Apple phone default. Result: 29 fps for the first 40 s, then
 21-24 fps with hair on every frame; the phone throttles after 20-40 s of load whichever processor carries the hair, so
 the sustained rate is a thermal budget. Hair off runs at the camera's 30 fps. The 256 px hair model changed nothing.
 Face on the CPU did not help. The audit on the phone passes all four protection checks; the GPU output differs from the
@@ -73,9 +74,10 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
    identifies a frame (`frame-identity.ts`); `currentTime` is never compared across a draw, because WebKit reports a
    running clock for a camera stream and such a comparison discarded every frame on iPhone.
 2. **Inference**: the face landmarker (`src/face/`, MediaPipe FaceLandmarker in a worker, CPU delegate by default) sees a
-   640 px copy; the hair segmenter (`src/hair/`, MediaPipe ImageSegmenter in a worker, category mask only) sees the full
-   frame on the laptop and a 640 px copy on phones (`?hairinput=`), where the mask readback was a quarter of the hair
-   worker's time; a mask smaller than the frame is read by nearest lookup in the shader, the cut and the CPU reference. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
+   640 px copy; the hair segmenter (`src/hair/`, MediaPipe ImageSegmenter in a worker, category mask only) sees a 640 px
+   copy too (`?hairinput=`; the mask readback was a quarter of the hair worker's time at frame size); the mask is read by
+   nearest lookup in the shader, the cut and the CPU reference. Every frame waits for its own mask (`HAIR_WAIT_MS` is only
+   a guard against a stalled worker): a frame is never drawn without hair while its mask is on its way. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
    preparation, with at most two owned frames and one serial hair worker.
 3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence (at most 1 s; three unanswered
    fences in a row switch the gate off for the session and the live panel says so), then bridge pose
@@ -117,9 +119,9 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
 | `?source=videoframe` | canvas | take the frame as a VideoFrame and hash its own bytes, no canvas readback (lever; measure on a real webcam with Download timings) |
-| `?hairinput=` | frame, phones 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere (256..1280) |
+| `?hairinput=` | 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere; 1280 restores the frame-size mask |
 | `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback and leaves the GPU to the face landmarker (29 fps for 40 s, 2-3 fps ahead at 30-60 s) |
-| `?hairwait=` | 8, phones 60 | ms a frame waits for its own hair mask before it is drawn without it (0..200); on phones the hair worker needs 43-65 ms and at 8 ms no mask was ever drawn |
+| `?hairwait=` | 120 | guard in ms after which a frame is drawn without its hair mask; every frame waits for its own mask by default (measurement lever) |
 | `?diag=1` | off | send the startup step log and live stage medians (numbers only) to this site, readable at `/ar/diagnostics.json` |
 | `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
 
