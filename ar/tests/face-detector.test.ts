@@ -41,11 +41,11 @@ function workerTiming(worker: WorkerStub, overrides: Partial<WorkerFaceTiming> =
     delegate: 'GPU', width: 640, height: 427, requestChecksMs: 2, inferenceMs: 5,
     extractionMs: 4, validationMs: 9, elapsedMs: 20, ...overrides};
 }
-function fixture(t: {after(fn: () => void): void}, detectTimeoutMs = 15_000) {
+function fixture(t: {after(fn: () => void): void}, detectTimeoutMs = 15_000, extra: {delegates?: readonly ('GPU' | 'CPU')[]} = {}) {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {location: {href: 'http://127.0.0.1:8069/'}}});
   const workers: WorkerStub[] = [], clock = {value: 0, reads: [] as number[]};
-  const client = new DetectorClient({sessionNonce: 'face-session-tests', detectTimeoutMs,
+  const client = new DetectorClient({sessionNonce: 'face-session-tests', detectTimeoutMs, ...extra,
     now: () => clock.reads.shift() ?? clock.value,
     createWorker: () => {const worker = new WorkerStub(); worker.postHook = () => {clock.value += 2;}; workers.push(worker); return worker;}});
   t.after(() => {client.close(); if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow); else Reflect.deleteProperty(globalThis, 'window');});
@@ -56,7 +56,7 @@ async function initialize(f: ReturnType<typeof fixture>): Promise<WorkerStub> {
   assert.equal(worker.latest.type, 'initialize');
   if (worker.latest.type === 'initialize') {
     assert.equal(worker.latest.delegate, 'GPU'); assert.equal(worker.latest.modelUrl, 'http://127.0.0.1:8069/models/face_landmarker.task');
-    assert.equal(worker.latest.wasmRoot, 'http://127.0.0.1:8069/mediapipe/');
+    assert.equal(worker.latest.wasmRoot, 'http://127.0.0.1:8069/mediapipe');
   }
   worker.ready(); await initialized; return worker;
 }
@@ -160,4 +160,20 @@ test('failed image transfer closes the image and worker without exposing timing'
   transferWorker.postHook = () => {throw new Error('injected transfer failure');};
   await assert.rejects(transferred.client.detect(image as unknown as ImageBitmap, 1), /transfer failure/);
   assert.equal(image.closes, 1); assert.equal(transferWorker.terminated, true); assert.equal(transferred.client.lastTiming, null);
+});
+
+test('a CPU-first order retries the GPU only on an explicit CPU initialization error; a single delegate reports its own', async t => {
+  const f = fixture(t, 15_000, {delegates: ['CPU', 'GPU']});
+  const initializing = f.client.initialize(new AbortController().signal), cpu = f.workers[0]!;
+  assert.equal(cpu.latest.type, 'initialize'); if (cpu.latest.type === 'initialize') assert.equal(cpu.latest.delegate, 'CPU');
+  cpu.emit({type: 'error', id: cpu.latest.id, sessionNonce: cpu.latest.sessionNonce, message: 'XNNPACK unavailable'});
+  await Promise.resolve(); const gpu = f.workers[1]!;
+  assert.ok(gpu); assert.equal(cpu.terminated, true);
+  if (gpu.latest.type === 'initialize') assert.equal(gpu.latest.delegate, 'GPU');
+  gpu.ready(); await initializing; assert.equal(f.client.delegate, 'GPU');
+  const single = fixture(t, 15_000, {delegates: ['CPU']});
+  const starting = single.client.initialize(new AbortController().signal), only = single.workers[0]!;
+  only.emit({type: 'error', id: only.latest.id, sessionNonce: only.latest.sessionNonce, message: 'no fallback'});
+  await assert.rejects(starting, /no fallback/); assert.equal(single.workers.length, 1);
+  for (const delegates of [[], ['NPU'], ['CPU', 'CPU']]) assert.throws(() => new DetectorClient({delegates: delegates as ('GPU' | 'CPU')[]}), /delegate order/);
 });

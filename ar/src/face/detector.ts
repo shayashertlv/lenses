@@ -26,8 +26,9 @@ export interface DetectorOptions {
   sessionNonce?: string;
   initializeTimeoutMs?: number;
   detectTimeoutMs?: number;
-  /** Force one delegate (no GPU-to-CPU retry). Undefined tries the GPU first, then the CPU. */
-  delegate?: FaceDelegate;
+  /** Delegates to try in order: an explicit initialization failure of one moves to the next in a fresh worker; the
+   *  last one reports its own failure. Default GPU, then CPU. */
+  delegates?: readonly FaceDelegate[];
 }
 
 const INITIALIZE_TIMEOUT_MS = 45_000;
@@ -72,6 +73,8 @@ export class DetectorClient {
     if (!/^[A-Za-z0-9_-]{8,128}$/.test(this.sessionNonce)) throw new Error('Invalid face detector session nonce.');
     if (![options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS, options.detectTimeoutMs ?? DETECT_TIMEOUT_MS]
       .every(value => Number.isFinite(value) && value > 0)) throw new Error('Face detector deadlines must be positive and finite.');
+    if (options.delegates && (!options.delegates.length || options.delegates.some(value => value !== 'GPU' && value !== 'CPU')
+      || new Set(options.delegates).size !== options.delegates.length)) throw new Error('The face delegate order is invalid.');
   }
 
   get delegate(): FaceDelegate | null { return this.activeDelegate; }
@@ -85,7 +88,7 @@ export class DetectorClient {
     if (this.state !== 'new') throw new Error('The face detector is already starting or closed.');
     this.state = 'initializing';
     try {
-      const delegates: readonly FaceDelegate[] = this.options.delegate ? [this.options.delegate] : ['GPU', 'CPU'];
+      const delegates: readonly FaceDelegate[] = this.options.delegates ?? ['GPU', 'CPU'];
       for (const [index, delegate] of delegates.entries()) {
         if (signal.aborted) throw cancelled();
         this.createWorker();
@@ -98,9 +101,9 @@ export class DetectorClient {
           }, this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS, signal);
         } catch (error) {
           if (signal.aborted) throw cancelled();
-          // Only a GPU initialization reply falls through to the next delegate; a forced
-          // single delegate has no fallback and reports its own failure.
-          if (index === delegates.length - 1 || delegate !== 'GPU' || !(error instanceof InitializationReplyError)
+          // Only an explicit initialization reply falls through to the next delegate; a hang, a worker crash or the
+          // last delegate reports its own failure.
+          if (index === delegates.length - 1 || !(error instanceof InitializationReplyError)
             || this.state !== 'initializing') throw error;
           // A fresh worker also gives the ESM WASM loader a fresh module cache.
           this.releaseWorker();

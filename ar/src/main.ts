@@ -29,6 +29,10 @@ const hairToggle = element<HTMLSelectElement>('hair-toggle');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
 const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const withDeadline = <T,>(promise: Promise<T>, ms: number, what: string): Promise<T> => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`${what} did not finish within ${Math.round(ms / 1000)} s. Check the connection and try again.`)), ms);
+  promise.then(value => {clearTimeout(timer); resolve(value);}, error => {clearTimeout(timer); reject(error);});
+});
 
 interface Session {
   id: string; abort: AbortController; camera: CameraSession | null; canvas: HTMLCanvasElement;
@@ -104,12 +108,20 @@ async function openSession(): Promise<void> {
     for (const track of (session.camera.video.srcObject as MediaStream).getTracks()) track.addEventListener('ended', ended);
     const lost = (event: Event) => {event.preventDefault(); if (owns()) closeSession('The graphics connection was interrupted. Open the camera again to restart.', true);};
     canvas.addEventListener('webglcontextlost', lost);
-    setState('starting', 'PREPARING MIRROR', 'Loading the glasses and the local face tracker…');
+    // Each startup step is named on the stage with its elapsed time, so a stall on a device can be read off a screenshot.
+    const step = (text: string): void => setState('starting', 'PREPARING MIRROR', `${text} (${((performance.now() - session.startedAtMs) / 1000).toFixed(0)} s)`);
+    let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '';
+    const beginStep = (text: string): void => {stepText = text; step(text); if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') step(stepText); else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
+    beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
-    const renderer = await LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx});
+    // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx}),
+      90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer;
-    const detector = new DetectorClient(config.faceDelegate ? {delegate: config.faceDelegate} : {}); session.detector = detector;
+    element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
+    beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
+    const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
     session.hair = new HairClient(hairModel.id, {delegate: session.hairBackend.requested});
     // Hair startup never blocks a usable mirror; a GPU failure is retried once on the CPU.
     void (async () => {
@@ -125,6 +137,7 @@ async function openSession(): Promise<void> {
     })();
     await detector.initialize(signal);
     if (!owns()) return;
+    beginStep('Waiting for the first camera frame');
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
       hair: () => session.hair!, hairModel, eyewearId, hairReady: () => session.hairReady && !session.hairError,

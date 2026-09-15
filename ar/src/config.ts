@@ -5,8 +5,9 @@ import {DEFAULT_CONTINUITY_RUN_PX, DEFAULT_HAIR_START_Z_M} from './render/render
 import type {FaceDelegate} from './face/detector.ts';
 
 export interface Config {
-  /** `?face=gpu` tries the GPU landmarker first (the pre-2026-09-14 order); the default is the CPU delegate. */
-  faceDelegate: FaceDelegate | null;
+  /** Face landmarker delegates in the order to try: the CPU first by default (perfecto_17fps), the GPU if the CPU
+   *  fails to initialize; `?face=gpu` is the pre-2026-09-14 order, GPU then CPU. */
+  faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
   /** `?hairz=` mesh-local metres behind which temple fragments may blend toward the camera under hair. */
@@ -28,7 +29,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
-  faceDelegate: 'CPU', captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
+  faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null,
 });
 
@@ -44,7 +45,7 @@ export function parseConfig(search: string): Config {
   };
   const exposure = params.get('exposure');
   return {
-    faceDelegate: params.get('face')?.toLowerCase() === 'gpu' ? null : 'CPU',
+    faceDelegates: params.get('face')?.toLowerCase() === 'gpu' ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
     hairStartZ: number('hairz', DEFAULT_HAIR_START_Z_M, -0.2, 0),
     sync: flag('sync', true),
@@ -61,7 +62,7 @@ export function parseConfig(search: string): Config {
 /** One line for the page: the levers and whether each is at its default. */
 export function describeConfig(config: Config): string {
   return [
-    `face landmarker ${config.faceDelegate === 'CPU' ? 'CPU delegate' : 'GPU-then-CPU (?face=gpu)'}`,
+    `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate (GPU if it fails)' : 'GPU-then-CPU (?face=gpu)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
     `hair start z ${config.hairStartZ} m${config.hairStartZ === DEFAULT_HAIR_START_Z_M ? '' : ' (?hairz=)'}`,
     `GPU completion gate ${config.sync ? 'on' : 'OFF (?sync=0)'}`,
