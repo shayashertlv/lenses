@@ -14,7 +14,7 @@ export type {PairIdentity, HairModelContract};
 export interface LiveStats {
   sequence: number; hasFace: boolean; hasMask: boolean; hairEnabled: boolean;
   maskStatus: 'ready' | 'missing' | 'withheld' | 'no-face'; fallbackReason: string | null;
-  prepareMs: number; poseMs: number; gpuWaitMs: number; gpuWaitPolls: number; finishMs: number; pendingWaitMs: number; totalMs: number;
+  prepareMs: number; poseMs: number; gpuWaitMs: number; gpuWaitPolls: number; gpuWaitTimedOut: boolean; finishMs: number; pendingWaitMs: number; totalMs: number;
   render: FrameTimings; audit: {ran: boolean; ms: number};
 }
 
@@ -29,7 +29,7 @@ export class LiveRenderer {
   private preparedAt = 0;
   private prepareMs = 0;
   private poseMs = 0;
-  private wait = {gpuWaitMs: 0, polls: 0};
+  private wait = {gpuWaitMs: 0, polls: 0, timedOut: false};
   private frame: HTMLCanvasElement | null = null;
   private detection: Detection | null = null;
   private pair: PairIdentity | null = null;
@@ -46,6 +46,7 @@ export class LiveRenderer {
   get gpuRenderer(): string | null {return this.renderer.gpuRenderer;}
   get guardEnabled(): boolean {return this.renderer.guardEnabled;}
   get continuityUnavailable(): string | null {return this.renderer.continuityUnavailable;}
+  get syncUnavailable(): string | null {return this.renderer.syncUnavailable;}
   get captureSnapshot() {return this.renderer.captureSnapshot;}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
   /** The next finished frame is audited; the result is available through takeAudit(). */
@@ -88,7 +89,7 @@ export class LiveRenderer {
         maskStatus: !this.visible ? 'no-face' : timings.hairApplied ? 'ready' : timings.safeFallback ? 'withheld' : 'missing',
         fallbackReason: this.visible && wantsHair && !timings.hairApplied
           ? timings.safeFallback ? 'The optical/nasal protection could not be established; drop and hair withheld.' : 'No paired hair mask is available; showing the frame without hair occlusion.' : null,
-        prepareMs: this.prepareMs, poseMs: this.poseMs, gpuWaitMs: this.wait.gpuWaitMs, gpuWaitPolls: this.wait.polls, finishMs,
+        prepareMs: this.prepareMs, poseMs: this.poseMs, gpuWaitMs: this.wait.gpuWaitMs, gpuWaitPolls: this.wait.polls, gpuWaitTimedOut: this.wait.timedOut, finishMs,
         pendingWaitMs: Math.max(0, started - this.preparedAt - this.prepareMs), totalMs: performance.now() - this.preparedAt,
         render: timings, audit: {ran: audited, ms: auditMs},
       };

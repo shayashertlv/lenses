@@ -56,7 +56,8 @@ function report(event: string, detail?: string): void {
   if (diagnostic.events.length > 60) diagnostic.events.splice(0, diagnostic.events.length - 60);
   try {
     const body = JSON.stringify({...diagnostic, at: new Date().toISOString(), state: stage.dataset.state ?? null, status: element('stage-status').textContent,
-      guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0});
+      guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0,
+      pipeline: current?.pipeline?.describe() ?? null});
     void fetch(assetPath('diagnostic'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: true}).catch(() => undefined);
   } catch {/* diagnostics never block the mirror */}
 }
@@ -104,7 +105,8 @@ function updateUi(): void {
   element('stages').textContent = `face ${ms(summary.stages.faceRequestWallMs?.median)} · prepare ${ms(summary.stages.prepareMs?.median)} (gpu wait ${ms(summary.stages.gpuWaitMs?.median)}, pose ${ms(summary.stages.poseMs?.median)}) · finish ${ms(summary.stages.finishMs?.median)} (submit ${ms(summary.stages.submitMs?.median)}) · hair wait ${ms(summary.stages.hairWaitMs?.median)}`;
   const exposure = session.exposure ? session.exposure.error ? ` · exposure lock failed: ${session.exposure.error}` : ` · exposure ${session.exposure.applied} × 100 µs (${session.exposure.mode})` : '';
   const continuity = session.renderer?.continuityUnavailable ? ` · continuity cut unavailable: ${session.renderer.continuityUnavailable}` : '';
-  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}`;
+  const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
+  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
 }
 
 async function openSession(): Promise<void> {
@@ -133,7 +135,7 @@ async function openSession(): Promise<void> {
     const step = (text: string): void => setState('starting', 'PREPARING MIRROR', `${text} (${((performance.now() - session.startedAtMs) / 1000).toFixed(0)} s)`);
     let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '', ticks = 0;
     const beginStep = (text: string): void => {stepText = text; step(text); report('step', text);
-      if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') {step(stepText); if (++ticks % 10 === 0) report('still', stepText);} else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
+      if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') {step(stepText); if (++ticks % 10 === 0) report('still', `${stepText} · ${session.pipeline?.describe() ?? 'pipeline not started'}`);} else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.

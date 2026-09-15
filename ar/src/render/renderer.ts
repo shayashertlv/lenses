@@ -106,6 +106,8 @@ function disposeObjects(roots: Object3D[]): void {
   for (const geometry of geometries) geometry.dispose();
 }
 
+const GPU_WAIT_LIMIT_MS = 1000, GPU_WAIT_TIMEOUTS_LIMIT = 3;
+
 export class TryOnRenderer {
   readonly eyewear: EyewearDefinition;
   private readonly renderer: WebGLRenderer;
@@ -116,7 +118,9 @@ export class TryOnRenderer {
   private readonly eyewearPose = new Group();
   private readonly projected = new Vector3();
   private readonly hairStartZ: number;
-  private readonly sync: boolean;
+  private sync: boolean;
+  private fenceTimeouts = 0;
+  private syncFailure: string | null = null;
   private readonly guard: boolean;
   private readonly continuity: boolean;
   private readonly continuityRunPx: number;
@@ -178,6 +182,8 @@ export class TryOnRenderer {
   /** The projected arm centrelines for the posed frame (null without the pinned continuity geometry). */
   get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
   get continuityUnavailable(): string | null {return this.continuityFailure;}
+  /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
+  get syncUnavailable(): string | null {return this.syncFailure;}
   get renderSize(): {width: number; height: number} {
     const width = Math.min(this.frameWidth, MAX_RENDER_WIDTH);
     return {width, height: Math.max(1, Math.round(width * this.frameHeight / Math.max(1, this.frameWidth)))};
@@ -265,19 +271,27 @@ export class TryOnRenderer {
     finally {generator?.dispose(); environment.dispose();}
   }
 
-  /** Waits (yielding) until the previous frame's GPU work completed, so submission cannot run ahead of completion. */
-  async waitForPreviousFrame(): Promise<{gpuWaitMs: number; polls: number}> {
+  /** Waits (yielding) until the previous frame's GPU work completed, so submission cannot run ahead of completion. A
+   *  fence that has not signalled after GPU_WAIT_LIMIT_MS ends the wait (the frame is late, not lost); after
+   *  GPU_WAIT_TIMEOUTS_LIMIT such waits in a row the gate is switched off for the session, since a driver whose polled
+   *  fences never resolve would otherwise stall every frame. */
+  async waitForPreviousFrame(): Promise<{gpuWaitMs: number; polls: number; timedOut: boolean}> {
     const fence = this.fence; this.fence = null;
-    if (!fence || this.disposed) return {gpuWaitMs: 0, polls: 0};
-    const started = performance.now(); let polls = 0;
+    if (!fence || this.disposed) return {gpuWaitMs: 0, polls: 0, timedOut: false};
+    const started = performance.now(); let polls = 0, timedOut = false;
     try {
       for (;;) {
         const status = this.gl.clientWaitSync(fence, 0, 0); polls++;
         if (status === this.gl.ALREADY_SIGNALED || status === this.gl.CONDITION_SATISFIED || status === this.gl.WAIT_FAILED || this.disposed) break;
+        if (performance.now() - started > GPU_WAIT_LIMIT_MS) {timedOut = true; break;}
         await new Promise(resolve => setTimeout(resolve, 1));
       }
     } finally {if (!this.disposed) this.gl.deleteSync(fence);}
-    return {gpuWaitMs: performance.now() - started, polls};
+    if (!timedOut) this.fenceTimeouts = 0;
+    else if (++this.fenceTimeouts >= GPU_WAIT_TIMEOUTS_LIMIT && this.sync) {
+      this.sync = false; this.syncFailure = `the previous frame's GPU fence did not signal within ${GPU_WAIT_LIMIT_MS} ms ${this.fenceTimeouts} times in a row`;
+    }
+    return {gpuWaitMs: performance.now() - started, polls, timedOut};
   }
 
   /** Pose this detection over the frame (no drawing) and establish the protection for it. Returns whether a face is tracked. */

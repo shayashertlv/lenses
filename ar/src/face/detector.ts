@@ -51,9 +51,12 @@ function cancelled(): DOMException {
   return new DOMException('Face detector startup was cancelled.', 'AbortError');
 }
 
-/** A task's explicit initialization failure, or its startup deadline, moves on to the next delegate. */
+/** A task's explicit initialization failure, its startup deadline, or a crash of the worker while it starts (a script
+ *  error before or during initialization) moves on to the next delegate. */
 class InitializationReplyError extends Error {}
 class InitializationTimeoutError extends Error {}
+class InitializationWorkerError extends Error {}
+const startupFailure = (error: unknown): boolean => error instanceof InitializationReplyError || error instanceof InitializationTimeoutError || error instanceof InitializationWorkerError;
 
 export class DetectorClient {
   private worker: FaceWorkerPort | null = null;
@@ -102,10 +105,12 @@ export class DetectorClient {
           }, this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS, signal);
         } catch (error) {
           if (signal.aborted) throw cancelled();
-          // An explicit initialization reply or the startup deadline falls through to the next delegate in a fresh
-          // worker; a worker crash, a cancellation or the last delegate reports its own failure.
-          if (index === delegates.length - 1 || !(error instanceof InitializationReplyError || error instanceof InitializationTimeoutError)
-            || this.state !== 'initializing') throw error;
+          // An explicit initialization reply, the startup deadline or a worker crash falls through to the next
+          // delegate in a fresh worker; a cancellation or the last delegate reports its own failure.
+          if (!startupFailure(error) || this.state !== 'initializing') throw error;
+          if (index === delegates.length - 1) {
+            throw new Error(`The face tracker could not start (${delegates.join(', then ')}): ${error instanceof Error ? error.message : String(error)}`);
+          }
           // A fresh worker also gives the ESM WASM loader a fresh module cache.
           this.releaseWorker();
           continue;
@@ -158,7 +163,11 @@ export class DetectorClient {
     };
     worker.onerror = (event: ErrorEvent) => {
       event.preventDefault();
-      if (this.worker === worker) this.fail(new Error(event.message || 'The face tracking worker failed.'));
+      if (this.worker !== worker) return;
+      const message = event.message || 'The face tracking worker failed.';
+      if (this.state === 'initializing' && this.pending?.kind === 'initialize') {
+        this.settle(new InitializationWorkerError(message)); this.releaseWorker();
+      } else this.fail(new Error(message));
     };
     worker.onmessageerror = () => {
       if (this.worker === worker) this.fail(new Error('The face tracking worker sent an unreadable message.'));

@@ -45,12 +45,15 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
 
 1. **Capture** (`src/pipeline/pipeline.ts`): on `requestVideoFrameCallback` the camera frame is drawn into a canvas of at
    most 1280 px and its pixels are read once for the SHA-256 that ties the hair mask to its own image. Every row carries
-   the camera's presented-frame counter, so the camera's delivered rate is always known.
+   the camera's presented-frame counter, so the camera's delivered rate is always known. That counter is also what
+   identifies a frame (`frame-identity.ts`); `currentTime` is never compared across a draw, because WebKit reports a
+   running clock for a camera stream and such a comparison discarded every frame on iPhone.
 2. **Inference**: the face landmarker (`src/face/`, MediaPipe FaceLandmarker in a worker, CPU delegate by default) sees a
    640 px copy; the hair segmenter (`src/hair/`, MediaPipe ImageSegmenter in a worker, category mask only) sees the full
    frame. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
    preparation, with at most two owned frames and one serial hair worker.
-3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence, then bridge pose
+3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence (at most 1 s; three unanswered
+   fences in a row switch the gate off for the session and the live panel says so), then bridge pose
    (`bridge-pose.ts`), observed face surface (`face-surface.ts`) shaped by the nasal shape (`nasal-shape.ts`), the
    pose-driven rear drop (`rear-drop.ts`), the temple clip/blend and side-depth visibility configurations
    (`temple-clip.ts`, `temple-visibility.ts`), the protection geometry (`protection.ts`: optical and nasal rectangles,

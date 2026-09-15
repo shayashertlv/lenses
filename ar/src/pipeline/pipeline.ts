@@ -5,6 +5,8 @@
  *  for the previous frame's GPU completion and poses the frame; publication draws it. One timing row per published
  *  frame. */
 import {FramePump} from './frame-pump.ts';
+import {markFrame} from './frame-identity.ts';
+import type {FrameMark} from './frame-identity.ts';
 import type {FramePumpStats} from './frame-pump.ts';
 import type {FrameInput} from './profiler.ts';
 import type {LiveRenderer} from '../render/live-renderer.ts';
@@ -43,7 +45,7 @@ export interface PipelineContext {
   onPublished: (row: FrameInput, identity: {sourceSHA256: string; detectionSHA256: string}) => void;
   backend: () => {active: string | null; renderer: string | null};
 }
-export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats;}
+export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
 const hash = async (bytes: Uint8Array | Uint8ClampedArray): Promise<string> => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), v => v.toString(16).padStart(2, '0')).join('');
 const context = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
@@ -62,7 +64,10 @@ function flatten(value: unknown, prefix: string, out: NonNullable<FrameInput['na
 }
 
 export function runPipeline(c: PipelineContext): Pipeline {
-  let stopped = false, draining = false, cancel: () => void = () => {}, lastMedia = -1, lastVideoTime = -1, lastVideoAt = performance.now(), hairTail: Promise<unknown> = Promise.resolve();
+  let stopped = false, draining = false, cancel: () => void = () => {}, lastMark: FrameMark | null = null, lastVideoAt = performance.now(), hairTail: Promise<unknown> = Promise.resolve();
+  // Where the active frame is, for the startup diagnostics: a stall names its stage instead of waiting silently.
+  const trace = {stage: 'waiting for the first camera frame', since: performance.now()};
+  const at = (stage: string): void => {trace.stage = stage; trace.since = performance.now();};
   const owns = () => !stopped && c.owns();
   const stream = c.video.srcObject;
   const cameraFps = stream instanceof MediaStream ? stream.getVideoTracks()[0]?.getSettings().frameRate ?? null : null;
@@ -70,6 +75,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
       const alive = () => owns() && !p.disposed && !signal.aborted;
+      at('hashing the frame and preparing the face input');
       const inferenceStartedAt = performance.now(), hashStart = performance.now(); let hashMs = 0;
       const sha = hash(p.rgba.data).then(value => {hashMs = performance.now() - hashStart; return value;});
       const hairBitmap = c.hairReady() && p.hair ? createImageBitmap(p.canvas) : Promise.resolve(null);
@@ -90,14 +96,14 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const bitmapStart = performance.now(); const bitmap = await createImageBitmap(input); const faceBitmapMs = performance.now() - bitmapStart;
       input.width = input.height = 0;
       if (!alive()) {bitmap.close(); throw new DOMException('Frame revoked.', 'AbortError');}
-      const faceStart = performance.now(); const detection = await c.detector.detect(bitmap, p.capturedAtMs);
+      at('face landmarker'); const faceStart = performance.now(); const detection = await c.detector.detect(bitmap, p.capturedAtMs);
       const faceWallMs = performance.now() - faceStart, face = c.detector.lastTiming;
       const sourceSHA256 = await sha; const detectionHashStart = performance.now();
       const detectionSHA256 = await hash(new TextEncoder().encode(JSON.stringify(detection)));
       const detectionHashMs = performance.now() - detectionHashStart, hairAdmissionStart = performance.now();
       // Detached hair promises must not become a hidden queue: inference releases its slot only once this image owns
       // the hair worker (or is skipped).
-      await hairStarted;
+      at('waiting for the hair worker to take the frame'); await hairStarted;
       const hairAdmissionWaitMs = performance.now() - hairAdmissionStart;
       if (!alive()) throw new DOMException('Frame revoked.', 'AbortError');
       const result: Inferred = {detection, sourceSHA256, detectionSHA256, face, hashMs, detectorDrawMs, faceBitmapMs, faceWallMs,
@@ -108,13 +114,13 @@ export function runPipeline(c: PipelineContext): Pipeline {
       if (!owns() || signal.aborted) throw new DOMException('Frame revoked.', 'AbortError');
       const hairEnabled = c.hairEnabled();
       c.renderer.setHairEnabled(hairEnabled);
-      const started = performance.now();
+      at("waiting for the previous frame's GPU work, then posing"); const started = performance.now();
       const visible = await c.renderer.prepare(p.canvas, i.detection, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256, eyewearModel: c.eyewearId},
         c.hairModel, hairEnabled);
       const prepareMs = performance.now() - started, waitStart = performance.now();
       let hair = i.hairResult;
       if (!hair && hairEnabled && visible) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        at('waiting for the hair mask'); let timer: ReturnType<typeof setTimeout> | undefined;
         try {hair = await Promise.race([i.hair, new Promise<null>(resolve => {timer = setTimeout(() => resolve(null), HAIR_WAIT_MS);})]);}
         finally {if (timer !== undefined) clearTimeout(timer);}
       }
@@ -125,12 +131,12 @@ export function runPipeline(c: PipelineContext): Pipeline {
     },
     publish: (p, i, r) => {
       if (!owns()) throw new DOMException('Frame revoked.', 'AbortError');
-      const finishStart = performance.now(); c.renderer.finish(r.mask); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
+      at('drawing'); const finishStart = performance.now(); c.renderer.finish(r.mask); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
       const stats = c.renderer.stats; if (!stats) throw new Error('The renderer published no statistics.');
       const backend = c.backend();
       const native: NonNullable<FrameInput['native']> = {};
       flatten(stats.render, 'render', native);
-      native['render.audit'] = stats.audit.ran; native['render.auditMs'] = stats.audit.ms; native['render.gpuWaitPolls'] = stats.gpuWaitPolls;
+      native['render.audit'] = stats.audit.ran; native['render.auditMs'] = stats.audit.ms; native['render.gpuWaitPolls'] = stats.gpuWaitPolls; native['render.gpuWaitTimedOut'] = stats.gpuWaitTimedOut;
       for (const [key, value] of Object.entries(pump.stats)) if (typeof value === 'number' || typeof value === 'boolean') native['pump.' + key] = value;
       native['pump.inputWaitMs'] = i.inferenceStartedAt - p.capturedAtMs;
       const row: FrameInput = {sessionId: c.id, sequence: p.sequence, hair: p.hair, capturedAtMs: p.capturedAtMs, publishedAtMs,
@@ -146,7 +152,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
         continuityMs: stats.render.continuityMs, submitMs: stats.render.submitMs, renderMs: r.prepareMs + finishMs, totalMs: publishedAtMs - p.capturedAtMs,
         hasFace: r.visible, hasMask: stats.hasMask, fallback: stats.fallbackReason,
         faceDelegate: c.detector.delegate, hairDelegate: backend.active, gpuRenderer: backend.renderer, native};
-      c.onPublished(row, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256});
+      c.onPublished(row, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256}); at('published; waiting for the next camera frame');
     },
     disposeFrame: p => {p.disposed = true; p.canvas.width = p.canvas.height = 0;},
     onError: error => {if (owns()) c.onError(error);},
@@ -155,18 +161,21 @@ export function runPipeline(c: PipelineContext): Pipeline {
     if (!owns() || draining) return;
     const callback = (_now: number, metadata?: VideoFrameCallbackMetadata): void => {
       if (!owns() || draining) return;
-      if (c.video.readyState >= 2 && c.video.currentTime !== lastVideoTime) {lastVideoTime = c.video.currentTime; lastVideoAt = performance.now();}
+      // A presented frame is identified by the callback's counter (see frame-identity.ts), never by currentTime.
+      const ready = c.video.readyState >= 2, {fresh, mark} = markFrame(metadata, c.video.currentTime, lastMark);
+      if (ready && fresh) {lastMark = mark; lastVideoAt = performance.now();}
       pump.offer(() => {
-        const mediaTime = c.video.currentTime; if (c.video.readyState < 2 || mediaTime === lastMedia) return null;
+        if (!ready || !fresh) return null;
+        at('capturing');
         const capturedAtMs = performance.now(), canvas = document.createElement('canvas');
         const scale = Math.min(1, captureMaxEdge / Math.max(c.video.videoWidth, c.video.videoHeight));
         canvas.width = Math.max(1, Math.round(c.video.videoWidth * scale)); canvas.height = Math.max(1, Math.round(c.video.videoHeight * scale));
         const ctx = context(canvas), drawStart = performance.now(); ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height); const drawMs = performance.now() - drawStart;
-        if (c.video.currentTime !== mediaTime) {canvas.width = canvas.height = 0; return null;}
-        lastMedia = mediaTime; const readStart = performance.now(), rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const pairedMetadata = metadata && Math.abs(metadata.mediaTime - mediaTime) < .001 ? metadata : null;
+        const readStart = performance.now(), rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // The drawn pixels are the frame (their SHA-256 pairs the hair mask with them); the counter and media time are
+        // the callback's labels, at most one frame behind an image that arrived during the draw.
         return {sequence: c.nextSequence(), capturedAtMs, canvas, rgba, disposed: false, drawMs, readMs: performance.now() - readStart,
-          videoFrames: pairedMetadata?.presentedFrames ?? null, mediaTime, presentation: pairedMetadata?.presentationTime ?? null, hair: c.hairEnabled()};
+          videoFrames: mark.presented, mediaTime: mark.mediaTime, presentation: metadata?.presentationTime ?? null, hair: c.hairEnabled()};
       }); schedule();
     };
     if (typeof c.video.requestVideoFrameCallback === 'function') {const id = c.video.requestVideoFrameCallback(callback); cancel = () => c.video.cancelVideoFrameCallback(id);}
@@ -178,5 +187,10 @@ export function runPipeline(c: PipelineContext): Pipeline {
   }, 1000);
   schedule();
   return {stop() {stopped = true; cancel(); clearInterval(watchdog); pump.stop();},
-    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail;}, stats: () => pump.stats};
+    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail;}, stats: () => pump.stats,
+    describe() {
+      const s = pump.stats;
+      return `${trace.stage} for ${Math.round(performance.now() - trace.since)} ms · offered ${s.offered}, captured ${s.captured}, published ${s.published}, dropped ${s.dropped} (locked ${s.lockedDrops}, misses ${s.captureMisses})`
+        + ` · inference ${s.inferenceCalls} calls${s.lastInferenceMs === null ? '' : `, last ${Math.round(s.lastInferenceMs)} ms`}${s.failed ? ' · pump failed' : ''}`;
+    }};
 }

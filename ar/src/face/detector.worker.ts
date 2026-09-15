@@ -7,6 +7,11 @@ import type {DetectorResponse} from './protocol.ts';
 import type {TimedDetectorRequest, TimedDetectorResponse, WorkerFaceTiming, FaceDelegate} from './timing.ts';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
+
+/** MediaPipe decides from the user-agent string whether a worker may use OffscreenCanvas (Safari needs a
+ *  "Version/17+" token); WebKit in-app browsers omit that token, and MediaPipe then reaches for `document`, which
+ *  a worker does not have ("Can't find variable: document", 2026-09-15). The canvas is handed over instead. */
+const workerCanvas = (): OffscreenCanvas | undefined => typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(1, 1) : undefined;
 let detector: FaceLandmarker | null = null;
 let busy = false;
 let lastTimestampMs = -Infinity;
@@ -37,6 +42,7 @@ scope.onmessage = async (event: MessageEvent<TimedDetectorRequest>) => {
       // The second parameter selects the ESM loader required by module workers.
       const fileset = await FilesetResolver.forVisionTasks(message.wasmRoot, true);
       detector = await FaceLandmarker.createFromOptions(fileset, {
+        canvas: workerCanvas(),
         baseOptions: {modelAssetPath: message.modelUrl, delegate: message.delegate},
         runningMode: 'VIDEO',
         numFaces: 1,

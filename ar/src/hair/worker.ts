@@ -9,6 +9,11 @@ import type {HairDelegate, HairOutput, HairWorkerRequest, HairWorkerResponse} fr
 import {assetPath} from '../assets.ts';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
+
+/** MediaPipe decides from the user-agent string whether a worker may use OffscreenCanvas (Safari needs a
+ *  "Version/17+" token); WebKit in-app browsers omit that token, and MediaPipe then reaches for `document`, which
+ *  a worker does not have ("Can't find variable: document", 2026-09-15). The canvas is handed over instead. */
+const workerCanvas = (): OffscreenCanvas | undefined => typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(1, 1) : undefined;
 let segmenter: ImageSegmenter | null = null, model: HairModel | null = null;
 let busy = false, sessionNonce: string | null = null, lastRequestId = 0, lastSequence = -1;
 let delegate: HairDelegate = 'CPU';
@@ -45,6 +50,7 @@ scope.onmessage = async (event: MessageEvent<unknown>) => {
       // MediaPipe appends "/<module>.js" to the root itself; a trailing slash would double it.
       const files = await FilesetResolver.forVisionTasks(new URL(assetPath('mediapipe'), scope.location.href).href, true);
       segmenter = await ImageSegmenter.createFromOptions(files, {
+        canvas: workerCanvas(),
         baseOptions: {modelAssetBuffer: bytes, delegate}, runningMode: 'IMAGE',
         outputCategoryMask: true, outputConfidenceMasks: false, displayNamesLocale: 'en',
       });

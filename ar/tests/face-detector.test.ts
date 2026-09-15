@@ -192,3 +192,23 @@ test('a startup deadline on one delegate moves to the next in a fresh worker; th
   assert.equal(stalled.workers.length, 2); assert.ok(stalled.workers.every(worker => worker.terminated));
   assert.equal(stalled.client.delegate, null);
 });
+
+test('a worker crash while a delegate starts moves to the next delegate; a crash once ready closes the client', async t => {
+  const f = fixture(t, 15_000, {delegates: ['GPU', 'CPU']});
+  const initializing = f.client.initialize(new AbortController().signal), gpu = f.workers[0]!;
+  assert.equal(gpu.latest.type, 'initialize');
+  // WebKit in-app browsers: MediaPipe reaches for `document` inside the worker and the worker's global error fires.
+  gpu.onerror?.(new ErrorEvent('error', {message: "Can't find variable: document"}));
+  await Promise.resolve(); const cpu = f.workers[1]!;
+  assert.ok(cpu, 'a CPU worker was started after the GPU worker crashed'); assert.equal(gpu.terminated, true);
+  if (cpu.latest.type === 'initialize') assert.equal(cpu.latest.delegate, 'CPU');
+  cpu.ready(); await initializing; assert.equal(f.client.delegate, 'CPU');
+  const last = fixture(t, 15_000, {delegates: ['GPU']});
+  const starting = last.client.initialize(new AbortController().signal);
+  last.workers[0]!.onerror?.(new ErrorEvent('error', {message: "Can't find variable: document"}));
+  await assert.rejects(starting, /could not start \(GPU\): Can't find variable: document/);
+  const ready = fixture(t), worker = await initialize(ready), image = new Bitmap();
+  const pending = ready.client.detect(image as unknown as ImageBitmap, 1);
+  worker.onerror?.(new ErrorEvent('error', {message: 'worker died'}));
+  await assert.rejects(pending, /worker died/); assert.equal(ready.client.delegate, null); assert.equal(ready.workers.length, 1);
+});
