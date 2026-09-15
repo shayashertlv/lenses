@@ -109,7 +109,8 @@ function updateUi(): void {
   const exposure = session.exposure ? session.exposure.error ? ` · exposure lock failed: ${session.exposure.error}` : ` · exposure ${session.exposure.applied} × 100 µs (${session.exposure.mode})` : '';
   const continuity = session.renderer?.continuityUnavailable ? ` · continuity cut unavailable: ${session.renderer.continuityUnavailable}` : '';
   const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
-  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
+  const capture = recent.at(-1)?.native?.['capture.source'];
+  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
   if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
