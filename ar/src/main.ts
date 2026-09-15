@@ -48,7 +48,7 @@ let hairEnabled = config.hair ?? true;
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
  *  or changes the mirror. */
-const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, userAgent: navigator.userAgent,
+const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), userAgent: navigator.userAgent,
   cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
   events: [] as {t: number; event: string; detail?: string}[]};
 function report(event: string, detail?: string): void {
