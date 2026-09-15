@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "base": "/ar/",
-  "builtAt": "2026-09-15T12:10:23.434Z",
+  "builtAt": "2026-09-15T12:25:44.694Z",
   "files": [
     {
       "path": "assets/detector.worker-DujPhTDm.js",
@@ -9,14 +9,14 @@
       "sha256": "3218bae06a52782f8318c4ef158cf819dcd31bf891006e61f9a58e8c0ecee234"
     },
     {
+      "path": "assets/index-DCDYD23_.js",
+      "size": 739333,
+      "sha256": "d5dbb01e417eb2e87e6619d252312ca7c3eb3b32f997210f8b0c6104a5e1c860"
+    },
+    {
       "path": "assets/index-DgVMt-Ce.css",
       "size": 12032,
       "sha256": "332d566a7611bcc2e2679bf5717579cbb2f74e2e740a580d9165330d6fdf300e"
-    },
-    {
-      "path": "assets/index-DJ47F6Uz.js",
-      "size": 738668,
-      "sha256": "9f354a43591e2fe7ba4cf071d6abd88abcf604dcf6afffad86a413c83ca15969"
     },
     {
       "path": "assets/worker-BGmj3lfi.js",
@@ -26,7 +26,7 @@
     {
       "path": "index.html",
       "size": 5173,
-      "sha256": "8f1dd1910cfdd8436e99f14fc9869437b007c42014d7ef95f8177ebaf083a4c0"
+      "sha256": "4a3e2815d7eb733d2fb194556c6fad36b3faf4ef93b0eaa2a560b8a5e3567f33"
     },
     {
       "path": "licenses/Apache-2.0.txt",

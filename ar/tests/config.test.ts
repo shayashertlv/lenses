@@ -10,7 +10,7 @@ test('an empty search yields the accepted defaults', () => {
 
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
-  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
+  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, hairWaitMs: 8, hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
     continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: true});
   assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=off').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=0')), /diagnostics OFF \(\?diag=0\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
@@ -19,6 +19,7 @@ test('every lever parses with its bounds and its off spelling', () => {
   assert.deepEqual(out, {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU'], hair: true});
   assert.equal(parseConfig('?exposure=0').exposure, null);
   assert.equal(parseConfig('?capture=1000.4').captureMaxEdge, 1000);
+  assert.equal(parseConfig('?hairwait=48').hairWaitMs, 48); assert.equal(parseConfig('?hairwait=500').hairWaitMs, 8); assert.match(describeConfig(parseConfig('?hairwait=48')), /hair wait 48 ms \(\?hairwait=\)/);
 });
 
 test('iPhone and iPad default to the GPU delegate first, the order the phone tests ran; ?face= overrides it', () => {

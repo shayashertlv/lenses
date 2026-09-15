@@ -20,8 +20,12 @@ import type {HairModel} from '../hair/models.ts';
 export const DEFAULT_CAPTURE_MAX_EDGE = 1280;
 /** The face landmarker sees a copy of at most this edge. */
 export const FACE_INPUT_MAX_EDGE = 640;
-/** How long preparation waits for the frame's own hair mask before the frame is drawn without it. */
+/** How long preparation waits for the frame's own hair mask before the frame is drawn without it (default; `?hairwait=`). */
 export const HAIR_WAIT_MS = 8;
+/** The hair worker as seen by the pipeline: results that arrived, frames drawn without their mask because it was late, and
+ *  the last result's own timings. Rows record hair timings only for masks that were used, so a worker too slow for the frame
+ *  is invisible there. */
+export interface HairWorkerStats {results: number; missed: number; lastInferenceMs: number | null; lastExtractionMs: number | null; lastRoundTripMs: number | null;}
 
 interface Packet {
   sequence: number; capturedAtMs: number; canvas: HTMLCanvasElement; rgba: ImageData; disposed: boolean;
@@ -40,12 +44,14 @@ export interface PipelineContext {
   eyewearId: string;
   /** Capture max edge in px; default 1280. */
   captureMaxEdge?: number;
+  /** How long a frame waits for its own hair mask before it is drawn without it; default HAIR_WAIT_MS. */
+  hairWaitMs?: number;
   owns: () => boolean; nextSequence: () => number;
   onHairError: (error: unknown) => void; onError: (error: unknown) => void;
   onPublished: (row: FrameInput, identity: {sourceSHA256: string; detectionSHA256: string}) => void;
   backend: () => {active: string | null; renderer: string | null};
 }
-export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
+export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
 const hash = async (bytes: Uint8Array | Uint8ClampedArray): Promise<string> => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), v => v.toString(16).padStart(2, '0')).join('');
 const context = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
@@ -71,7 +77,8 @@ export function runPipeline(c: PipelineContext): Pipeline {
   const owns = () => !stopped && c.owns();
   const stream = c.video.srcObject;
   const cameraFps = stream instanceof MediaStream ? stream.getVideoTracks()[0]?.getSettings().frameRate ?? null : null;
-  const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE;
+  const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs = c.hairWaitMs ?? HAIR_WAIT_MS;
+  const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
       const alive = () => owns() && !p.disposed && !signal.aborted;
@@ -85,7 +92,11 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const previousHair = hairTail;
       const hair = Promise.all([sha, hairBitmap, previousHair]).then(async ([sourceSHA256, bitmap]) => {
         if (!bitmap) {markHairStarted(); return null;} if (!alive()) {bitmap.close(); markHairStarted(); return null;}
-        try {const result = c.hair().segment(bitmap, sourceSHA256, p.sequence); markHairStarted(); return await result;}
+        try {
+          const started = performance.now(), result = c.hair().segment(bitmap, sourceSHA256, p.sequence); markHairStarted(); const value = await result;
+          hairStats.results++; hairStats.lastInferenceMs = value.inferenceMs; hairStats.lastExtractionMs = value.extractionMs; hairStats.lastRoundTripMs = performance.now() - started;
+          return value;
+        }
         catch (error) {if (alive()) c.onHairError(error); return null;}
         finally {markHairStarted();}
       }).catch(async (error) => {const bitmap = await hairBitmap.catch(() => null); bitmap?.close(); markHairStarted(); if (alive()) c.onHairError(error); return null;});
@@ -121,8 +132,9 @@ export function runPipeline(c: PipelineContext): Pipeline {
       let hair = i.hairResult;
       if (!hair && hairEnabled && visible) {
         at('waiting for the hair mask'); let timer: ReturnType<typeof setTimeout> | undefined;
-        try {hair = await Promise.race([i.hair, new Promise<null>(resolve => {timer = setTimeout(() => resolve(null), HAIR_WAIT_MS);})]);}
+        try {hair = await Promise.race([i.hair, new Promise<null>(resolve => {timer = setTimeout(() => resolve(null), hairWaitMs);})]);}
         finally {if (timer !== undefined) clearTimeout(timer);}
+        if (!hair) hairStats.missed++;
       }
       if (!owns() || signal.aborted) throw new DOMException('Frame revoked.', 'AbortError');
       if (hair && (hair.sequence !== p.sequence || hair.sourceSHA256 !== i.sourceSHA256)) throw new Error('Hair result belongs to another image.');
@@ -187,7 +199,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
   }, 1000);
   schedule();
   return {stop() {stopped = true; cancel(); clearInterval(watchdog); pump.stop();},
-    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail;}, stats: () => pump.stats,
+    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail;}, stats: () => pump.stats, hair: () => ({...hairStats}),
     describe() {
       const s = pump.stats;
       return `${trace.stage} for ${Math.round(performance.now() - trace.since)} ms · offered ${s.offered}, captured ${s.captured}, published ${s.published}, dropped ${s.dropped} (locked ${s.lockedDrops}, misses ${s.captureMisses})`
