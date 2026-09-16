@@ -36,7 +36,6 @@ export const SHIPPED_EYEWEAR = Object.freeze({
 } satisfies Record<string, EyewearDefinition>);
 
 export const MODELING_AUTO_EYEWEAR_ID = 'modeling-auto';
-export type ModelingAutoEyewearId = typeof MODELING_AUTO_EYEWEAR_ID;
 const UNREGISTERED: EyewearDefinition = Object.freeze({
   id: MODELING_AUTO_EYEWEAR_ID, name: 'Modeling Auto model', optionLabel: 'Modeling Auto model',
   description: 'No Modeling Auto model was handed over on this page.', finish: 'Modeling Auto',

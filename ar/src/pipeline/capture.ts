@@ -84,9 +84,11 @@ export const ORIENTATION_PROBE_EDGE = 32;
 export const ORIENTATION_MATCH_LIMIT = 40;
 /** How far the best rotation must beat the next one; below this the picture is too uniform to tell them apart. */
 export const ORIENTATION_SEPARATION = 6;
+/** How many frames the capture may spend establishing the orientation before it falls back to the canvas. */
+export const ORIENTATION_PROBE_ATTEMPTS = 30;
 
 export type Rotation = 0 | 90 | 180 | 270;
-export const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
+const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
 
 /** Rotate a square RGBA image clockwise. */
 export function rotateSquare(pixels: Uint8ClampedArray, edge: number, degrees: Rotation): Uint8ClampedArray {

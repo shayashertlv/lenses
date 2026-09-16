@@ -6,7 +6,7 @@
  *  frame. */
 import {FramePump} from './frame-pump.ts';
 import {markFrame} from './frame-identity.ts';
-import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, matchOrientation, ORIENTATION_PROBE_EDGE, OwnedVideoFrame, sha256Hex} from './capture.ts';
+import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, matchOrientation, ORIENTATION_PROBE_ATTEMPTS, ORIENTATION_PROBE_EDGE, OwnedVideoFrame, sha256Hex} from './capture.ts';
 import type {CaptureSource, FrameBytes, Rotation} from './capture.ts';
 import type {FrameMark} from './frame-identity.ts';
 import type {FramePumpStats} from './frame-pump.ts';
@@ -28,8 +28,6 @@ export const FACE_INPUT_MAX_EDGE = 640;
  *  frame-size one (phone 20-25 → 8-10 ms); the owner accepted the 2:1 mask on the phone. `?hairinput=1280` restores the
  *  frame-size mask. */
 export const DEFAULT_HAIR_INPUT_MAX_EDGE = 640;
-/** How many frames the capture may spend establishing the camera frame's orientation before it falls back. */
-export const ORIENTATION_PROBE_ATTEMPTS = 30;
 /** Every frame carries its own hair mask: preparation waits for it. This deadline is only a guard against a stalled
  *  worker, after which the frame is drawn without hair rather than never. It is not a tuning: at 8 ms the laptop's fast
  *  capture drew one frame in four without its mask (arms blinking over hair) and the phone drew none with one

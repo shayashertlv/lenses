@@ -35,7 +35,6 @@ export function validateProtection(value: ProtectionConfiguration, width: number
   }
 }
 
-export const containsPixel = (rect: PixelRect, x: number, y: number): boolean => x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1;
 
 const NASAL_AND_EYE_LANDMARKS = [1, 2, 4, 6, 33, 98, 133, 168, 197, 263, 327, 362] as const;
 export interface RearBounds { optical: Box3; originalArms: Box3[]; candidateArms: Box3[]; }
