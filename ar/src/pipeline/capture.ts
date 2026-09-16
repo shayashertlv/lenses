@@ -4,10 +4,12 @@
  *  is the frame's identity. On the laptop's real webcam the draw alone is 10 ms cold and doubles when the CPU clocks down
  *  (2026-09-15), the largest main-thread item per frame.
  *
- *  `videoframe` (lever, `?source=videoframe`): the frame is taken as a WebCodecs VideoFrame; its own bytes, copied out
- *  once in their native format, are hashed for the identity, and the canvas the render and the workers read is GPU-backed
- *  and never read back. The synthetic camera cannot measure the difference (its frames are already RGBA canvases); a real
- *  webcam run with Download timings can. */
+ *  `videoframe` (laptop default since 2026-09-16, `?source=`): the frame is taken as a WebCodecs VideoFrame; its own
+ *  bytes, copied out once in their native format, are hashed for the identity, and the canvas the render and the workers
+ *  read is GPU-backed and never read back. Owner's webcam at 30 fps, 80 s runs: capture 15 → 6.7 ms per frame, age 52 →
+ *  41 ms, and no clock-down decay (29.4 fps throughout against the canvas path's 26.5 after 50 s), masks on every frame
+ *  after warm-up. The synthetic camera measures the opposite (its frames are GPU-resident, so the path lands on Chrome's
+ *  GPU-process thread: 24.6 vs 29.6 fps); judge this path on a real camera only. Phones keep the canvas until measured. */
 export type CaptureSource = 'canvas' | 'videoframe';
 export interface CaptureChoice {source: CaptureSource; reason: string | null;}
 

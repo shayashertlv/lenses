@@ -105,7 +105,12 @@ export function runPipeline(c: PipelineContext): Pipeline {
   const captureMaxEdge = c.captureMaxEdge ?? DEFAULT_CAPTURE_MAX_EDGE, hairWaitMs = c.hairWaitMs ?? HAIR_WAIT_MS, hairInputMaxEdge = c.hairInputMaxEdge ?? DEFAULT_HAIR_INPUT_MAX_EDGE;
   const capture = chooseCaptureSource(c.captureSource ?? 'canvas', typeof VideoFrame === 'function');
   c.onCaptureSource?.(capture.source, capture.reason);
-  const cpuCanvases = capture.source === 'canvas';
+  let cpuCanvases = capture.source === 'canvas';
+  // A browser that refuses to construct a VideoFrame from the camera video falls back to the canvas for the session.
+  const fallBackToCanvas = (error: unknown): void => {
+    capture.source = 'canvas'; cpuCanvases = true;
+    c.onCaptureSource?.('canvas', `VideoFrame capture failed: ${error instanceof Error ? error.message : String(error)}; the canvas capture is used.`);
+  };
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
@@ -215,15 +220,18 @@ export function runPipeline(c: PipelineContext): Pipeline {
         const capturedAtMs = performance.now(), canvas = document.createElement('canvas');
         const scale = Math.min(1, captureMaxEdge / Math.max(c.video.videoWidth, c.video.videoHeight));
         canvas.width = Math.max(1, Math.round(c.video.videoWidth * scale)); canvas.height = Math.max(1, Math.round(c.video.videoHeight * scale));
-        let bytes: FrameBytes, frame: OwnedVideoFrame | null = null, drawMs: number;
+        let bytes: FrameBytes | null = null, frame: OwnedVideoFrame | null = null, drawMs = 0;
         if (capture.source === 'videoframe') {
           // The frame's own bytes are its identity; the canvas is GPU-backed and is never read back.
-          const videoFrame = new VideoFrame(c.video); frame = new OwnedVideoFrame(videoFrame);
           try {
-            bytes = bytesOfVideoFrame(videoFrame);
-            const drawStart = performance.now(); context(canvas, false).drawImage(videoFrame, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
-          } catch (error) {frame.close(); canvas.width = canvas.height = 0; throw error;}
-        } else {
+            const videoFrame = new VideoFrame(c.video); frame = new OwnedVideoFrame(videoFrame);
+            try {
+              bytes = bytesOfVideoFrame(videoFrame);
+              const drawStart = performance.now(); context(canvas, false).drawImage(videoFrame, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
+            } catch (error) {frame.close(); frame = null; throw error;}
+          } catch (error) {fallBackToCanvas(error); canvas.width = canvas.height = 0; return null;}
+        }
+        if (!bytes) {
           const ctx = context(canvas), drawStart = performance.now(); ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
           const readStart = performance.now(), rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
           bytes = bytesOfImageData(rgba, performance.now() - readStart);

@@ -13,8 +13,8 @@ export interface Config {
   faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
-  /** `?source=videoframe` takes the frame as a VideoFrame and hashes its own bytes, with no canvas readback (lever,
-   *  see pipeline/capture.ts); default the accepted canvas capture. */
+  /** `?source=videoframe|canvas`: how the frame's pixels are taken (see pipeline/capture.ts). Default VideoFrame, the
+   *  measured winner on the laptop's webcam (2026-09-16); phones and tablets keep the canvas until one is measured. */
   captureSource: CaptureSource;
   /** `?hairwait=` ms (0..400): the guard after which a frame is drawn without its hair mask (see HAIR_WAIT_MS); every
    *  frame waits for its own mask by default. A measurement lever only. */
@@ -50,12 +50,17 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
-  faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'canvas', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
+  faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
 });
 
 /** The Apple phone default for the hair delegate (see Config.hairDelegate). */
 export const APPLE_PHONE_HAIR_DELEGATE: HairDelegate = 'CPU';
+
+/** Phones and tablets: Apple's, or any user agent that says Android or Mobile. */
+function isPhoneOrTablet(userAgent: string, maxTouchPoints: number): boolean {
+  return isApplePhoneOrTablet(userAgent, maxTouchPoints) || /Android|Mobile/.test(userAgent);
+}
 
 /** iPhone and iPad report themselves in the user agent; iPadOS Safari may claim to be a Mac with touch points. */
 export function isApplePhoneOrTablet(userAgent: string, maxTouchPoints = 0): boolean {
@@ -75,11 +80,11 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     const value = params.get(name)?.toLowerCase();
     return value === undefined || value === null ? fallback : !['0', 'off', 'false', 'no'].includes(value);
   };
-  const exposure = params.get('exposure'), hairDelegate = params.get('hairdelegate')?.toUpperCase();
+  const exposure = params.get('exposure'), hairDelegate = params.get('hairdelegate')?.toUpperCase(), source = params.get('source')?.toLowerCase();
   return {
     faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
-    captureSource: params.get('source')?.toLowerCase() === 'videoframe' ? 'videoframe' : 'canvas',
+    captureSource: source === 'videoframe' || source === 'canvas' ? source : isPhoneOrTablet(userAgent, maxTouchPoints) ? 'canvas' : 'videoframe',
     hairWaitMs: number('hairwait', HAIR_WAIT_MS, 0, 400),
     hairInputMaxEdge: Math.round(number('hairinput', DEFAULT_HAIR_INPUT_MAX_EDGE, 256, 1280)),
     hairDelegate: hairDelegate === 'CPU' || hairDelegate === 'GPU' ? hairDelegate : isApplePhoneOrTablet(userAgent, maxTouchPoints) ? APPLE_PHONE_HAIR_DELEGATE : 'auto',
@@ -102,7 +107,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
   return [
     `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate, then GPU (?face=)' : 'GPU delegate, then CPU (?face=)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
-    ...(config.captureSource === 'canvas' ? [] : ['capture source VideoFrame (?source=videoframe)']),
+    `capture source ${config.captureSource === 'videoframe' ? 'VideoFrame' : 'canvas'} (?source=)`,
     ...(config.hairWaitMs === HAIR_WAIT_MS ? [] : [`hair mask guard ${config.hairWaitMs} ms (?hairwait=)`]),
     ...(config.hairInputMaxEdge === DEFAULT_HAIR_INPUT_MAX_EDGE ? [] : [`hair input ${config.hairInputMaxEdge} px max edge (?hairinput=)`]),
     ...(config.hairDelegate === 'auto' ? [] : [`hair delegate ${config.hairDelegate}${config.hairDelegate === APPLE_PHONE_HAIR_DELEGATE && isApplePhoneOrTablet(userAgent, maxTouchPoints) ? ' (Apple phone default)' : ''} (?hairdelegate=)`]),

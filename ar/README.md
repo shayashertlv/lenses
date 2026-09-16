@@ -68,8 +68,9 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
 ## The pipeline, per frame
 
 1. **Capture** (`src/pipeline/pipeline.ts`): on `requestVideoFrameCallback` the camera frame is drawn into a canvas of at
-   most 1280 px and its pixels are read once for the SHA-256 that ties the hair mask to its own image (`?source=videoframe`
-   takes the frame as a VideoFrame instead, hashes its own bytes and never reads a canvas back; `capture.ts`). Every row carries
+   most 1280 px. By default the frame is taken as a WebCodecs VideoFrame whose own bytes are hashed for the SHA-256 that
+   ties the hair mask to its image, and the canvas is never read back (`capture.ts`); `?source=canvas` is the former
+   capture, still the default on phones until one is measured. Every row carries
    the camera's presented-frame counter, so the camera's delivered rate is always known. That counter is also what
    identifies a frame (`frame-identity.ts`); `currentTime` is never compared across a draw, because WebKit reports a
    running clock for a camera stream and such a comparison discarded every frame on iPhone.
@@ -118,7 +119,7 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?sync=0` | on | do not gate frames on the previous frame's GPU completion (measurement only) |
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
-| `?source=videoframe` | canvas | take the frame as a VideoFrame and hash its own bytes, no canvas readback (lever; measure on a real webcam with Download timings) |
+| `?source=` | VideoFrame; phones canvas | `videoframe` takes the frame as a VideoFrame and hashes its own bytes, no canvas readback; `canvas` is the former capture. Laptop webcam at 30 fps: VideoFrame 29.4 fps flat over 80 s, age 41 ms, against the canvas path's 26.5 fps after the CPU clocks down at 50 s, age 52-66 ms. The synthetic harness shows the reverse (GPU-resident frames), so judge on a real camera only |
 | `?hairinput=` | 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere; 1280 restores the frame-size mask |
 | `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback and leaves the GPU to the face landmarker (29 fps for 40 s, 2-3 fps ahead at 30-60 s) |
 | `?hairwait=` | 120 | guard in ms after which a frame is drawn without its hair mask; every frame waits for its own mask by default (measurement lever) |
