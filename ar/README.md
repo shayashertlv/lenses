@@ -32,7 +32,8 @@ The page footer says so while it is on. This is how the phone defaults below wer
 
 ## Phones (measured 2026-09-15, iPhone 17 Pro, Safari, 720x1280)
 
-Three things were measured on the device through the diagnostics: a frame must wait for its own hair mask (at an 8 ms
+The phone keeps the canvas capture; the laptop takes the frame as a VideoFrame. Three further things were measured on
+the device through the diagnostics: a frame must wait for its own hair mask (at an 8 ms
 cap not one mask in two minutes was drawn while every frame still paid for the worker; the laptop's fast capture later
 showed the same failure at one frame in four), the hair segmenter sees a 640 px copy (mask readback 20-25 ms → 8-10 ms),
 and on Apple phones it runs on the CPU (no readback at all; the GPU, left to the face landmarker, throttles less). The
@@ -121,7 +122,7 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?sync=0` | on | do not gate frames on the previous frame's GPU completion (measurement only) |
 | `?hairz=` | −0.02 | mesh-local metres behind which temple fragments may blend under hair |
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
-| `?source=` | VideoFrame; phones canvas | `videoframe` takes the frame as a VideoFrame and hashes its own bytes, no canvas readback; `canvas` is the former capture. Laptop webcam at 30 fps: VideoFrame 29.4 fps flat over 80 s, age 41 ms, against the canvas path's 26.5 fps after the CPU clocks down at 50 s, age 52-66 ms. The synthetic harness shows the reverse (GPU-resident frames), so judge on a real camera only |
+| `?source=` | VideoFrame; phones canvas | `videoframe` takes the frame as a VideoFrame and hashes its own bytes, no canvas readback; `canvas` is the former capture. Laptop webcam at 30 fps: VideoFrame 29.4 fps flat over 80 s, age 41 ms, against the canvas path's 26.5 fps after the CPU clocks down at 50 s, age 52-66 ms. On the iPhone the canvas wins instead (28-29 fps where VideoFrame had fallen to 25-27; see `capture.ts`). The synthetic harness shows the reverse of the webcam (GPU-resident frames), so judge on a real camera only |
 | `?hairinput=` | 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere; 1280 restores the frame-size mask |
 | `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback and leaves the GPU to the face landmarker (29 fps for 40 s, 2-3 fps ahead at 30-60 s) |
 | `?hairwait=` | 120 | guard in ms after which a frame is drawn without its hair mask; every frame waits for its own mask by default (measurement lever) |

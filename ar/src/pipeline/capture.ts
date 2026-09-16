@@ -9,7 +9,12 @@
  *  read is GPU-backed and never read back. Owner's webcam at 30 fps, 80 s runs: capture 15 → 6.7 ms per frame, age 52 →
  *  41 ms, and no clock-down decay (29.4 fps throughout against the canvas path's 26.5 after 50 s), masks on every frame
  *  after warm-up. The synthetic camera measures the opposite (its frames are GPU-resident, so the path lands on Chrome's
- *  GPU-process thread: 24.6 vs 29.6 fps); judge this path on a real camera only. Phones keep the canvas until measured. */
+ *  GPU-process thread: 24.6 vs 29.6 fps); judge this path on a real camera only.
+ *
+ *  Phones keep the canvas, measured the same way and back to back on the iPhone 17 Pro (2026-09-16): the main thread is
+ *  indeed freer (0.5-2.4 ms waiting to start a frame against 5.8-8.2), but drawing the turned frame costs the GPU more
+ *  (finish 12-17 ms against 10-13) on a device whose GPU is already the limit, and the canvas held 28-29 fps through the
+ *  window where the VideoFrame path had fallen to 25-27. The two meet at about 24 fps once the phone throttles. */
 export type CaptureSource = 'canvas' | 'videoframe';
 export interface CaptureChoice {source: CaptureSource; reason: string | null;}
 

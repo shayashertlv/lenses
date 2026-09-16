@@ -13,8 +13,8 @@ export interface Config {
   faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
-  /** `?source=videoframe|canvas`: how the frame's pixels are taken (see pipeline/capture.ts). Default VideoFrame, the
-   *  measured winner on the laptop's webcam (2026-09-16); phones and tablets keep the canvas until one is measured. */
+  /** `?source=videoframe|canvas`: how the frame's pixels are taken (see pipeline/capture.ts). Both were measured on
+   *  2026-09-16: VideoFrame won on the laptop's webcam, the canvas won on the phone, and each is that device's default. */
   captureSource: CaptureSource;
   /** `?hairwait=` ms (0..400): the guard after which a frame is drawn without its hair mask (see HAIR_WAIT_MS); every
    *  frame waits for its own mask by default. A measurement lever only. */
