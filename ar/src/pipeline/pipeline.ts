@@ -6,8 +6,8 @@
  *  frame. */
 import {FramePump} from './frame-pump.ts';
 import {markFrame} from './frame-identity.ts';
-import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, OwnedVideoFrame, sha256Hex} from './capture.ts';
-import type {CaptureSource, FrameBytes} from './capture.ts';
+import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, matchOrientation, ORIENTATION_PROBE_EDGE, OwnedVideoFrame, sha256Hex} from './capture.ts';
+import type {CaptureSource, FrameBytes, Rotation} from './capture.ts';
 import type {FrameMark} from './frame-identity.ts';
 import type {FramePumpStats} from './frame-pump.ts';
 import type {FrameInput} from './profiler.ts';
@@ -28,6 +28,8 @@ export const FACE_INPUT_MAX_EDGE = 640;
  *  frame-size one (phone 20-25 → 8-10 ms); the owner accepted the 2:1 mask on the phone. `?hairinput=1280` restores the
  *  frame-size mask. */
 export const DEFAULT_HAIR_INPUT_MAX_EDGE = 640;
+/** How many frames the capture may spend establishing the camera frame's orientation before it falls back. */
+export const ORIENTATION_PROBE_ATTEMPTS = 30;
 /** Every frame carries its own hair mask: preparation waits for it. This deadline is only a guard against a stalled
  *  worker, after which the frame is drawn without hair rather than never. It is not a tuning: at 8 ms the laptop's fast
  *  capture drew one frame in four without its mask (arms blinking over hair) and the phone drew none with one
@@ -71,6 +73,21 @@ export interface PipelineContext {
 export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
 const hash = sha256Hex;
+/** Draw a source into the whole of a canvas, turned clockwise by `degrees` first. Returns the time it took. */
+const drawTurned = (target: HTMLCanvasElement, source: CanvasImageSource, degrees: Rotation, cpu: boolean): number => {
+  const ctx = context(target, cpu), started = performance.now();
+  if (degrees === 0) ctx.drawImage(source, 0, 0, target.width, target.height);
+  else {
+    // A quarter turn swaps the box the source is drawn into; the turn puts it back over the whole canvas.
+    const quarter = degrees % 180 !== 0, width = quarter ? target.height : target.width, height = quarter ? target.width : target.height;
+    ctx.save();
+    ctx.translate(target.width / 2, target.height / 2);
+    ctx.rotate(degrees * Math.PI / 180);
+    ctx.drawImage(source, -width / 2, -height / 2, width, height);
+    ctx.restore();
+  }
+  return performance.now() - started;
+};
 /** A scaled copy of the captured frame for a worker; the copy is a pure function of the frame, whose hash stays the identity.
  *  CPU-backed on the canvas path (as accepted); GPU-backed on the VideoFrame path, where nothing is ever read back. */
 const scaledCopy = (source: HTMLCanvasElement, maxEdge: number, cpu: boolean): {canvas: HTMLCanvasElement; drawMs: number} => {
@@ -107,9 +124,33 @@ export function runPipeline(c: PipelineContext): Pipeline {
   c.onCaptureSource?.(capture.source, capture.reason);
   let cpuCanvases = capture.source === 'canvas';
   // A browser that refuses to construct a VideoFrame from the camera video falls back to the canvas for the session.
-  const fallBackToCanvas = (error: unknown): void => {
+  const fallBackToCanvas = (reason: string): void => {
     capture.source = 'canvas'; cpuCanvases = true;
-    c.onCaptureSource?.('canvas', `VideoFrame capture failed: ${error instanceof Error ? error.message : String(error)}; the canvas capture is used.`);
+    c.onCaptureSource?.('canvas', `${reason}; the canvas capture is used.`);
+  };
+  // A VideoFrame may hold the camera sensor's own pixels while the video element shows them turned upright (see
+  // capture.ts). The turn is measured against the browser's displayed image on the first frames of the session and
+  // then undone; frames are not published until it is known, and a picture too uniform to tell falls back.
+  const probe = document.createElement('canvas'); probe.width = probe.height = ORIENTATION_PROBE_EDGE;
+  let frameTurn: Rotation | null = capture.source === 'videoframe' ? null : 0, probeAttempts = 0;
+  const probePixels = (source: CanvasImageSource): Uint8ClampedArray => {
+    const ctx = context(probe, true); ctx.drawImage(source, 0, 0, probe.width, probe.height);
+    return ctx.getImageData(0, 0, probe.width, probe.height).data;
+  };
+  const establishTurn = (videoFrame: CanvasImageSource): boolean => {
+    const match = matchOrientation(probePixels(videoFrame), probePixels(c.video), ORIENTATION_PROBE_EDGE);
+    if (match.conclusive) {
+      frameTurn = match.degrees;
+      c.onCaptureSource?.('videoframe', match.degrees === 0 ? 'the camera frame arrives upright'
+        : `the camera frame arrives turned ${match.degrees}°; the capture turns it back`);
+      return true;
+    }
+    if (++probeAttempts >= ORIENTATION_PROBE_ATTEMPTS) {
+      fallBackToCanvas(`the camera frame's orientation could not be established in ${probeAttempts} frames`
+        + ` (closest ${match.degrees}° at ${match.difference.toFixed(1)}, next ${match.runnerUp.toFixed(1)})`);
+      frameTurn = 0;
+    }
+    return false;
   };
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
@@ -226,10 +267,14 @@ export function runPipeline(c: PipelineContext): Pipeline {
           try {
             const videoFrame = new VideoFrame(c.video); frame = new OwnedVideoFrame(videoFrame);
             try {
-              bytes = bytesOfVideoFrame(videoFrame);
-              const drawStart = performance.now(); context(canvas, false).drawImage(videoFrame, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
-            } catch (error) {frame.close(); frame = null; throw error;}
-          } catch (error) {fallBackToCanvas(error); canvas.width = canvas.height = 0; return null;}
+              if (frameTurn === null && !establishTurn(videoFrame)) {frame.close(); frame = null; canvas.width = canvas.height = 0; return null;}
+              if (capture.source !== 'videoframe') {frame.close(); frame = null;}
+              else {
+                bytes = bytesOfVideoFrame(videoFrame);
+                drawMs = drawTurned(canvas, videoFrame, ((360 - (frameTurn ?? 0)) % 360) as Rotation, false);
+              }
+            } catch (error) {frame?.close(); frame = null; throw error;}
+          } catch (error) {fallBackToCanvas(`VideoFrame capture failed: ${error instanceof Error ? error.message : String(error)}`); canvas.width = canvas.height = 0; return null;}
         }
         if (!bytes) {
           const ctx = context(canvas), drawStart = performance.now(); ctx.drawImage(c.video, 0, 0, canvas.width, canvas.height); drawMs = performance.now() - drawStart;
@@ -250,8 +295,8 @@ export function runPipeline(c: PipelineContext): Pipeline {
       c.onError(new Error('The camera stopped sending images. Open it again to restart.'));
   }, 1000);
   schedule();
-  return {stop() {stopped = true; cancel(); clearInterval(watchdog); pump.stop();},
-    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail;}, stats: () => pump.stats, hair: () => ({...hairStats}),
+  return {stop() {stopped = true; cancel(); clearInterval(watchdog); pump.stop(); probe.width = probe.height = 0;},
+    async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail; probe.width = probe.height = 0;}, stats: () => pump.stats, hair: () => ({...hairStats}),
     describe() {
       const s = pump.stats;
       return `${trace.stage} for ${Math.round(performance.now() - trace.since)} ms · offered ${s.offered}, captured ${s.captured}, published ${s.published}, dropped ${s.dropped} (locked ${s.lockedDrops}, misses ${s.captureMisses})`

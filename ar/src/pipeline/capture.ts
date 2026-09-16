@@ -62,3 +62,66 @@ export async function sha256Hex(bytes: Uint8Array | Uint8ClampedArray): Promise<
   const copy = new Uint8Array(bytes);
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', copy.buffer)), v => v.toString(16).padStart(2, '0')).join('');
 }
+
+/** The camera frame's orientation relative to the `<video>` element's own image.
+ *
+ *  A phone camera's sensor is landscape: the track carries a rotation that the browser applies when it displays the
+ *  `<video>`, and `video.videoWidth/videoHeight` are those displayed dimensions. A VideoFrame taken from that video
+ *  can still hold the sensor's own pixels, so drawing it into a canvas sized from the video turns the picture on its
+ *  side and the face tracker sees nobody (iPhone 17 Pro, 2026-09-16: 30 fps, 0 of 160 frames tracked).
+ *
+ *  The relationship is measured rather than guessed, and measured against the browser's own displayed image: both are
+ *  drawn into the same small square, and the rotation of the video's square that matches the frame's square is the
+ *  rotation the capture then undoes. A square is used so all four rotations are comparable pixel for pixel. */
+export const ORIENTATION_PROBE_EDGE = 32;
+/** How close the best rotation must be to count as the same image (mean channel difference, 0..255): the two images
+ *  pass through different colour conversions, so they are never identical. */
+export const ORIENTATION_MATCH_LIMIT = 40;
+/** How far the best rotation must beat the next one; below this the picture is too uniform to tell them apart. */
+export const ORIENTATION_SEPARATION = 6;
+
+export type Rotation = 0 | 90 | 180 | 270;
+export const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
+
+/** Rotate a square RGBA image clockwise. */
+export function rotateSquare(pixels: Uint8ClampedArray, edge: number, degrees: Rotation): Uint8ClampedArray {
+  if (pixels.length !== edge * edge * 4) throw new Error('The orientation probe is not a square RGBA image.');
+  if (degrees === 0) return pixels;
+  const out = new Uint8ClampedArray(pixels.length);
+  for (let y = 0; y < edge; y++) {
+    for (let x = 0; x < edge; x++) {
+      const sx = degrees === 90 ? y : degrees === 180 ? edge - 1 - x : edge - 1 - y;
+      const sy = degrees === 90 ? edge - 1 - x : degrees === 180 ? edge - 1 - y : x;
+      const to = (y * edge + x) * 4, from = (sy * edge + sx) * 4;
+      out[to] = pixels[from]!; out[to + 1] = pixels[from + 1]!; out[to + 2] = pixels[from + 2]!; out[to + 3] = pixels[from + 3]!;
+    }
+  }
+  return out;
+}
+
+/** Mean absolute difference per colour channel (alpha ignored). */
+export function meanChannelDifference(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
+  if (a.length !== b.length || a.length % 4 !== 0) throw new Error('The orientation probes differ in size.');
+  let total = 0;
+  for (let index = 0; index < a.length; index += 4) {
+    total += Math.abs(a[index]! - b[index]!) + Math.abs(a[index + 1]! - b[index + 1]!) + Math.abs(a[index + 2]! - b[index + 2]!);
+  }
+  return total / (a.length / 4 * 3);
+}
+
+export interface OrientationMatch {
+  /** Clockwise rotation R with frame ≈ rotate(video, R); the capture draws the frame rotated by −R. */
+  degrees: Rotation;
+  difference: number;
+  runnerUp: number;
+  /** Whether one rotation is close enough, and far enough ahead of the next, to act on. */
+  conclusive: boolean;
+}
+
+export function matchOrientation(frame: Uint8ClampedArray, video: Uint8ClampedArray, edge: number): OrientationMatch {
+  const scored = ROTATIONS.map(degrees => ({degrees, difference: meanChannelDifference(frame, rotateSquare(video, edge, degrees))}))
+    .sort((a, b) => a.difference - b.difference);
+  const best = scored[0]!, next = scored[1]!;
+  return {degrees: best.degrees, difference: best.difference, runnerUp: next.difference,
+    conclusive: best.difference <= ORIENTATION_MATCH_LIMIT && next.difference - best.difference >= ORIENTATION_SEPARATION};
+}

@@ -70,7 +70,9 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
 1. **Capture** (`src/pipeline/pipeline.ts`): on `requestVideoFrameCallback` the camera frame is drawn into a canvas of at
    most 1280 px. By default the frame is taken as a WebCodecs VideoFrame whose own bytes are hashed for the SHA-256 that
    ties the hair mask to its image, and the canvas is never read back (`capture.ts`); `?source=canvas` is the former
-   capture, still the default on phones until one is measured. Every row carries
+   capture, still the default on phones until one is measured. A VideoFrame can hold the camera sensor's own pixels
+   while the video element shows them turned upright, so the first frames of a session measure the turn against the
+   browser's displayed image and the capture undoes it; a picture too uniform to measure falls back to the canvas. Every row carries
    the camera's presented-frame counter, so the camera's delivered rate is always known. That counter is also what
    identifies a frame (`frame-identity.ts`); `currentTime` is never compared across a draw, because WebKit reports a
    running clock for a camera stream and such a comparison discarded every frame on iPhone.

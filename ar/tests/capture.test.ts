@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, OwnedVideoFrame, sha256Hex} from '../src/pipeline/capture.ts';
+import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, matchOrientation, meanChannelDifference, ORIENTATION_MATCH_LIMIT, OwnedVideoFrame, rotateSquare, sha256Hex} from '../src/pipeline/capture.ts';
 import type {VideoFrameLike} from '../src/pipeline/capture.ts';
 
 class FrameStub implements VideoFrameLike {
@@ -58,4 +58,50 @@ test('the identity hash of the bytes is the SHA-256 of exactly those bytes, for 
   // A view into a larger buffer hashes only its own bytes.
   const backing = new Uint8Array(12); backing.set(payload, 4);
   assert.equal(await sha256Hex(backing.subarray(4, 9)), createHash('sha256').update(payload).digest('hex'));
+});
+
+const square = (edge: number, pixel: (x: number, y: number) => [number, number, number]): Uint8ClampedArray => {
+  const out = new Uint8ClampedArray(edge * edge * 4);
+  for (let y = 0; y < edge; y++) for (let x = 0; x < edge; x++) {
+    const [r, g, b] = pixel(x, y), at = (y * edge + x) * 4;
+    out[at] = r; out[at + 1] = g; out[at + 2] = b; out[at + 3] = 255;
+  }
+  return out;
+};
+
+test('a square image rotates clockwise through the four quarter turns and back to itself', () => {
+  const edge = 4;
+  // A corner marker so every quarter turn is distinguishable.
+  const image = square(edge, (x, y) => [x === 0 && y === 0 ? 255 : 0, x * 20, y * 20]);
+  const at = (pixels: Uint8ClampedArray, x: number, y: number): number => pixels[(y * edge + x) * 4]!;
+  assert.equal(at(image, 0, 0), 255);
+  assert.equal(at(rotateSquare(image, edge, 90), edge - 1, 0), 255, 'the top-left corner moves to the top-right');
+  assert.equal(at(rotateSquare(image, edge, 180), edge - 1, edge - 1), 255);
+  assert.equal(at(rotateSquare(image, edge, 270), 0, edge - 1), 255);
+  assert.deepEqual(rotateSquare(image, edge, 0), image);
+  assert.deepEqual(rotateSquare(rotateSquare(image, edge, 90), edge, 270), image, 'a quarter turn each way is the identity');
+  assert.deepEqual(rotateSquare(rotateSquare(image, edge, 180), edge, 180), image);
+  assert.throws(() => rotateSquare(image, edge + 1, 90), /square RGBA/);
+});
+
+test('the orientation of the camera frame is measured against the video image, and stays silent when it cannot be told', () => {
+  const edge = 8;
+  const scene = square(edge, (x, y) => [x * 30, y * 30, (x + y) * 15]);
+  // The colour conversions differ slightly; the match must survive that.
+  const converted = square(edge, (x, y) => [x * 30 + 5, y * 30 - 4, (x + y) * 15 + 3]);
+  const upright = matchOrientation(converted, scene, edge);
+  assert.equal(upright.degrees, 0); assert.ok(upright.conclusive); assert.ok(upright.difference < ORIENTATION_MATCH_LIMIT);
+  for (const degrees of [90, 180, 270] as const) {
+    const rotated = matchOrientation(rotateSquare(converted, edge, degrees), scene, edge);
+    assert.equal(rotated.degrees, degrees, `a frame rotated ${degrees}° is recognised`);
+    assert.ok(rotated.conclusive);
+  }
+  // A uniform picture matches every rotation equally: nothing may be concluded from it.
+  const flat = square(edge, () => [90, 90, 90]);
+  const ambiguous = matchOrientation(flat, flat, edge);
+  assert.equal(ambiguous.conclusive, false); assert.equal(ambiguous.difference, 0); assert.equal(ambiguous.runnerUp, 0);
+  // Two unrelated pictures are never a match at any rotation.
+  const other = square(edge, (x, y) => [255 - x * 30, 255 - y * 30, 128]);
+  assert.equal(matchOrientation(other, scene, edge).conclusive, false);
+  assert.throws(() => meanChannelDifference(scene, new Uint8ClampedArray(4)), /differ in size/);
 });
