@@ -50,7 +50,10 @@ let hairEnabled = config.hair ?? true;
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
  *  or changes the mirror. */
-const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), userAgent: navigator.userAgent,
+// The options exactly as this page received them: a lever that is missing from the settings line was either absent from
+// the address or misspelled, and only the raw text tells which.
+const receivedOptions = location.search.length > 240 ? `${location.search.slice(0, 240)}…` : location.search;
+const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), options: receivedOptions, userAgent: navigator.userAgent,
   cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
   events: [] as {t: number; event: string; detail?: string}[]};
 function report(event: string, detail?: string): void {
@@ -83,7 +86,7 @@ for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, mode
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
-element('config-note').textContent = `${describeConfig(config)} Build ${__BUILD_TIME__}.`;
+element('config-note').textContent = `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
 
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
