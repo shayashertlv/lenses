@@ -28,7 +28,16 @@ Opening the page starts nothing. Choose the glasses and the hair model, then Ope
 Diagnostics, opt-in with `?diag=1`: while a session runs, the page posts its step log and, every 10 s, the last 10 s
 of stage medians (numbers only; never an image, detection, mask or hash) to `POST /ar/diagnostic`; the last 150
 reports are readable at `GET /ar/diagnostics.json`, so a stall or a rate on a device can be read without the device.
-The page footer says so while it is on. This is how the phone defaults below were measured.
+The page footer says so while it is on. This is how the phone defaults below were measured. Each 10 s window posts two
+events: `live` (stage medians) and `hair` (every completed hair job's inference and round trip, median / p95; what was
+in flight when a frame's draw started; how far each face request was posted from the draw starts around it, and the
+face inference time of requests with a draw starting within 10 ms after the post against the rest, a split fixed
+before the request runs; the "Hair masks" line). Each report carries the options the page received (`options`) and the ones it ignored
+(`ignoredOptions`); `pipeline` counts captures replaced before inference. The server keeps reports in memory only:
+every deploy empties `/ar/diagnostics.json`, so save it before pushing.
+
+The settings line starts with "IGNORED, not a known option: …" when the address holds a key the page does not read
+(`ADDRESS_OPTIONS` in `src/config.ts`), so a misspelled lever such as `?hairframe=2` cannot silently run the default.
 
 ## Phones (measured 2026-09-15, iPhone 17 Pro, Safari, 720x1280)
 

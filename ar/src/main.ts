@@ -3,7 +3,7 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
-import {describeConfig, parseConfig} from './config.ts';
+import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
 import {lockCameraExposure} from './camera/exposure.ts';
@@ -22,7 +22,7 @@ import {cameraDeliveryFps, FrameProfiler, summarize} from './pipeline/profiler.t
 import type {FrameSample, ProfileSummary} from './pipeline/profiler.ts';
 import type {Audit} from './audit/audit.ts';
 import {describePoseShake, poseShake} from './pipeline/steadiness.ts';
-import {describeHairReport, hairReport} from './pipeline/hair-report.ts';
+import {describeHairReport, describeOverlapReport, hairReport, overlapReport} from './pipeline/hair-report.ts';
 
 export const config = parseConfig(location.search);
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const value = document.getElementById(id); if (!value) throw new Error(`Missing control: ${id}`); return value as T;};
@@ -53,13 +53,19 @@ let hairEnabled = config.hair ?? true;
 // The options exactly as this page received them: a lever that is missing from the settings line was either absent from
 // the address or misspelled, and only the raw text tells which.
 const receivedOptions = location.search.length > 240 ? `${location.search.slice(0, 240)}…` : location.search;
-const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), options: receivedOptions, userAgent: navigator.userAgent,
+const ignoredOptions = unrecognizedOptions(location.search);
+const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), options: receivedOptions, ignoredOptions, userAgent: navigator.userAgent,
   cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
   events: [] as {t: number; event: string; detail?: string}[]};
-function report(event: string, detail?: string): void {
+/** Adds an event to the step log without sending it; the next report() carries it. */
+function note(event: string, detail?: string): void {
   if (!config.diagnostics) return;
   diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 600)} : {})});
   if (diagnostic.events.length > 40) diagnostic.events.splice(0, diagnostic.events.length - 40);
+}
+function report(event: string, detail?: string): void {
+  if (!config.diagnostics) return;
+  note(event, detail);
   try {
     const body = JSON.stringify({...diagnostic, at: new Date().toISOString(), state: stage.dataset.state ?? null, status: element('stage-status').textContent,
       guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0,
@@ -86,7 +92,8 @@ for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, mode
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
-element('config-note').textContent = `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
+element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
+  + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
 
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
@@ -100,7 +107,12 @@ function updateControls(): void {
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
 }
 let uiTimer: ReturnType<typeof setInterval> | null = null, lastLiveReportAt = 0;
-const hairWorkerLine = (h: ReturnType<Pipeline['hair']> | undefined): string => h ? ` · hair worker results ${h.results} missed ${h.missed} last inference ${h.lastInferenceMs?.toFixed(1) ?? '—'} extract ${h.lastExtractionMs?.toFixed(1) ?? '—'} round trip ${h.lastRoundTripMs?.toFixed(1) ?? '—'} ms` : '';
+const hairWorkerLine = (pipeline: Pipeline | null | undefined): string => {
+  if (!pipeline) return 'hair worker —';
+  const h = pipeline.hair(), jobs = pipeline.hairJobs(10_000);
+  const d = (value: {median: number; p95: number} | null): string => value ? `${value.median.toFixed(1)} / p95 ${value.p95.toFixed(1)} ms` : '—';
+  return `hair worker ${h.results} results, ${h.missed} missed · 10 s: ${jobs.jobs} jobs, inference ${d(jobs.inferenceMs)}, round trip ${d(jobs.roundTripMs)}`;
+};
 function updateUi(): void {
   const session = current; if (!session) return;
   const recent = profiler.recent(session.id).filter(row => performance.now() - row.publishedAtMs <= 10_000);
@@ -122,17 +134,19 @@ function updateUi(): void {
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
+  // Two events per report, each under the 600-character cap: the stage medians, then the hair worker, the overlap at
+  // the render submit and the hair masks.
   if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
     lastLiveReportAt = performance.now();
     const st = (key: string): string => ms(summary.stages[key]?.median);
-    report('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
+    note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
       + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
       + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`
-      + hairWorkerLine(session.pipeline?.hair()) + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`
       + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`
-      + ` · ${element('hair-masks').textContent ?? ''}`);
+      + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`);
+    report('hair', `${hairWorkerLine(session.pipeline)} · ${describeOverlapReport(overlapReport(recent))} · ${element('hair-masks').textContent ?? ''}`);
   }
 }
 

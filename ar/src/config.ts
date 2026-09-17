@@ -69,6 +69,18 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE,
 });
 
+/** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
+ *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
+export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
+  'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256']);
+
+/** The address keys this page does not read, once each, in address order (names are case-sensitive). */
+export function unrecognizedOptions(search: string): string[] {
+  const known = new Set(ADDRESS_OPTIONS);
+  return [...new Set(new URLSearchParams(search).keys())].filter(key => key !== '' && !known.has(key));
+}
+
 /** The Apple phone default for the hair delegate (see Config.hairDelegate). */
 export const APPLE_PHONE_HAIR_DELEGATE: HairDelegate = 'CPU';
 

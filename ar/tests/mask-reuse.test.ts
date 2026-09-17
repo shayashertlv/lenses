@@ -5,7 +5,7 @@ import type {Affine, HairSchedule} from '../src/hair/mask-reuse.ts';
 import {continuityCut} from '../src/render/continuity.ts';
 import type {ProjectedTemplePath, TempleContinuityModel} from '../src/render/continuity.ts';
 import {describeConfig, parseConfig} from '../src/config.ts';
-import {describeHairReport, hairReport} from '../src/pipeline/hair-report.ts';
+import {describeHairReport, describeOverlapReport, hairReport, overlapReport} from '../src/pipeline/hair-report.ts';
 import type {FrameSample} from '../src/pipeline/profiler.ts';
 import type {Landmark} from '../src/face/protocol.ts';
 
@@ -159,4 +159,28 @@ test('the live hair line counts own, reused and missing masks from the rows', ()
   assert.equal(report.reuseAgeMs?.median, 40);
   assert.match(describeHairReport(report, '?hairframes=2'), /5 tracked frames · own 40% · reused 40% · none 20% · 2 hair jobs · reused masks moved with the head, age median 40 \/ p95 40 ms, head motion median 2.0/);
   assert.match(describeHairReport(hairReport([]), 'x'), /no tracked frames/);
+});
+
+test('the overlap line: in flight at draw start, the draw starts around each face post, and face time near a draw against apart', () => {
+  const row = (face: boolean | undefined, hair: boolean, before: number | null, after: number | null, inference: number | null): FrameSample => ({hasFace: true, hair: true,
+    hasMask: true, faceInferenceMs: inference,
+    native: face === undefined ? {} : {'overlap.faceAtSubmit': face, 'overlap.hairAtSubmit': hair, 'overlap.faceBeforeDrawMs': before, 'overlap.faceAfterDrawMs': after}}) as unknown as FrameSample;
+  const report = overlapReport([row(true, true, 2, null, 30), row(true, false, 10, 31, 34), row(false, false, 25, 8, 12), row(true, true, 10.5, 20, null),
+    row(undefined, true, 1, 1, 99), row(false, false, null, 33, 11)]);
+  assert.deepEqual({frames: report.frames, face: report.faceAtDrawStart, hair: report.hairAtDrawStart}, {frames: 5, face: 3, hair: 2});
+  assert.deepEqual(report.beforeDrawMs, {median: 10.25, p95: 25, max: 25}); assert.deepEqual(report.afterDrawMs, {median: 25.5, p95: 33, max: 33});
+  assert.deepEqual(report.nearDraw, {requests: 2, inferenceMs: {median: 32, p95: 34, max: 34}}); assert.deepEqual(report.apart, {requests: 2, inferenceMs: {median: 12, p95: 12, max: 12}});
+  assert.equal(describeOverlapReport(report), 'draw start: face in flight 60%, hair 40% · face post→next draw 10.3 ms, previous draw→post 25.5 ms · face inference 32.0 ms (n 2) with a draw ≤10 ms after post, else 12.0 ms (n 2)');
+  assert.equal(describeOverlapReport(overlapReport([])), 'overlap: no frames');
+});
+
+test('the diagnostics hair event stays under the 600-character event cap in its longest realistic form', () => {
+  const d = {median: 1234.5, p95: 1234.5, max: 1234.5};
+  const overlap = describeOverlapReport({frames: 300, faceAtDrawStart: 300, hairAtDrawStart: 300, beforeDrawMs: d, afterDrawMs: d,
+    nearDraw: {requests: 300, inferenceMs: d}, apart: {requests: 300, inferenceMs: d}});
+  const masks = describeHairReport({frames: 300, own: 300, reused: 300, none: 300, jobs: 300, reuseAgeMs: {median: 1000, p95: 1000, max: 1000}, reuseMotionPx: {median: 123.4, p95: 1234.5, max: 1234.5}},
+    'every frame waits for its own mask');
+  const worker = 'hair worker 123456 results, 123456 missed · 10 s: 1024 jobs, inference 1234.5 / p95 1234.5 ms, round trip 1234.5 / p95 1234.5 ms';
+  const event = `${worker} · ${overlap} · ${masks}`;
+  assert.ok(event.length < 600, `${event.length} characters: ${event}`);
 });

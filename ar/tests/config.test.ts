@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, parseConfig} from '../src/config.ts';
+import {readFileSync} from 'node:fs';
+import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
+import {parseExternalModel} from '../src/eyewear/external.ts';
 import {DEFAULT_HAIR_INPUT_MAX_EDGE, HAIR_WAIT_MS} from '../src/pipeline/pipeline.ts';
 import {DEFAULT_STEADY} from '../src/render/pose-stabilizer.ts';
 import {DEFAULT_HAIR_SCHEDULE} from '../src/hair/mask-reuse.ts';
@@ -54,4 +56,26 @@ test('every device waits for its own hair mask behind one guard and feeds the ha
   assert.equal(parseConfig('', iphone).hairDelegate, APPLE_PHONE_HAIR_DELEGATE); assert.equal(parseConfig('', android).hairDelegate, 'auto'); assert.equal(parseConfig('?hairdelegate=gpu', iphone).hairDelegate, 'GPU');
   assert.match(describeConfig(parseConfig('', iphone), iphone), /hair delegate CPU \(Apple phone default\) \(\?hairdelegate=\)/);
   assert.match(describeConfig(parseConfig('?hairdelegate=cpu')), /hair delegate CPU \(\?hairdelegate=\)/);
+});
+
+test('the address options list is exactly what the page reads, and any other key is named as ignored', () => {
+  const read = new Set<string>(), get = URLSearchParams.prototype.get, has = URLSearchParams.prototype.has;
+  URLSearchParams.prototype.get = function (this: URLSearchParams, name: string) {read.add(name); return get.call(this, name);};
+  URLSearchParams.prototype.has = function (this: URLSearchParams, ...args: [string, string?]) {read.add(args[0]); return has.apply(this, args);};
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
+  try {
+    for (const agent of ['', iphone]) {parseConfig('', agent); parseConfig('?hairframes=2&exposure=312&hair=1', agent);}
+    parseExternalModel('?model=/m.glb', 'https://example.test');
+  } finally {URLSearchParams.prototype.get = get; URLSearchParams.prototype.has = has;}
+  assert.deepEqual([...read].sort(), [...ADDRESS_OPTIONS].sort());
+  // The iPhone B run that ran A: one letter short.
+  assert.deepEqual(unrecognizedOptions('?hairframe=2&diag=1'), ['hairframe']);
+  assert.deepEqual(unrecognizedOptions('?hairframes=2&diag=1'), []);
+  assert.deepEqual(unrecognizedOptions(''), []); assert.deepEqual(unrecognizedOptions('?&&=1'), []);
+  assert.deepEqual(unrecognizedOptions('?HairFrames=2&x=1&x=2&hairModel=selfie-multiclass&model=/m.glb'), ['HairFrames', 'x']);
+  // The measurement harness forwards only options the page reads.
+  const forwarded = readFileSync(new URL('../qa/measure.mjs', import.meta.url), 'utf8').match(/for \(const name of \[([^\]]+)\]\)/)?.[1];
+  assert.ok(forwarded, 'qa/measure.mjs forwards a list of options');
+  const names = [...forwarded.matchAll(/'([^']+)'/g)].map(match => match[1]!);
+  assert.ok(names.length > 10 && names.every(name => ADDRESS_OPTIONS.includes(name)), names.filter(name => !ADDRESS_OPTIONS.includes(name)).join(', '));
 });

@@ -10,7 +10,8 @@ import {bytesOfImageData, bytesOfVideoFrame, chooseCaptureSource, matchOrientati
 import type {CaptureSource, FrameBytes, Rotation} from './capture.ts';
 import type {FrameMark} from './frame-identity.ts';
 import type {FramePumpStats} from './frame-pump.ts';
-import type {FrameInput} from './profiler.ts';
+import {distribution} from './profiler.ts';
+import type {Distribution, FrameInput} from './profiler.ts';
 import type {LiveRenderer} from '../render/live-renderer.ts';
 import type {DetectorClient, FaceStageTiming} from '../face/detector.ts';
 import type {Detection} from '../face/protocol.ts';
@@ -40,6 +41,10 @@ export const HAIR_WAIT_MS = 120;
  *  the last result's own timings. Rows record hair timings only for masks that were used, so a worker too slow for the frame
  *  is invisible there. */
 export interface HairWorkerStats {results: number; missed: number; lastInferenceMs: number | null; lastExtractionMs: number | null; lastRoundTripMs: number | null;}
+/** Every hair job completed in a recent window: the worker's own inference time and the round trip from the request. */
+export interface HairJobsSummary {jobs: number; inferenceMs: Distribution | null; roundTripMs: Distribution | null;}
+/** A face request's post time and the draw starts around it (null until known). */
+interface FaceRequestTiming {post: number; previousDraw: number | null; nextDraw: number | null;}
 
 interface Packet {
   sequence: number; capturedAtMs: number; canvas: HTMLCanvasElement; bytes: FrameBytes; frame: OwnedVideoFrame | null; disposed: boolean;
@@ -52,9 +57,12 @@ interface Inferred {
   inferenceStartedAt: number; hairAdmissionWaitMs: number;
   /** Whether this frame started a hair job. */
   hairRequested: boolean;
+  /** This frame's face request and the draws around it. */
+  faceRequest: FaceRequestTiming;
 }
 interface Prepared {
   visible: boolean; mask: HairMask | null; hair: HairSegmentationResult | null; prepareMs: number; hairWaitMs: number;
+
   /** With a hair schedule: which mask the frame drew (its own or a reused one) and how it was placed. */
   reuse: MaskChoice<HairSegmentationResult> | null;
 }
@@ -79,7 +87,9 @@ export interface PipelineContext {
   onPublished: (row: FrameInput, identity: {sourceSHA256: string; detectionSHA256: string}) => void;
   backend: () => {active: string | null; renderer: string | null};
 }
-export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats; /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
+export interface Pipeline {stop(): void; finishCurrent(): Promise<void>; stats: () => FramePumpStats; hair: () => HairWorkerStats;
+  /** The hair jobs completed in the last `windowMs`. */ hairJobs(windowMs: number): HairJobsSummary;
+  /** Stage of the active frame and the pump counts, for diagnostics. */ describe(): string;}
 
 const hash = sha256Hex;
 /** Draw a source into the whole of a canvas, turned clockwise by `degrees` first. Returns the time it took. */
@@ -162,6 +172,12 @@ export function runPipeline(c: PipelineContext): Pipeline {
     return false;
   };
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
+  const hairJobLog: {atMs: number; inferenceMs: number; roundTripMs: number}[] = [];
+  // Overlap instruments. Each face request (the landmarker's GPU delegate) records how long after the previous draw
+  // started it was posted and how long before the next draw started; a draw that starts just after the post shares
+  // the GPU with it. The in-flight counts are what was outstanding at the instant a frame's finish() began.
+  let faceInFlight = 0, hairInFlight = 0, lastDrawStart: number | null = null;
+  const awaitingDraw: FaceRequestTiming[] = [];
   // Hair schedule (?hairframes=). 'every' is the accepted pipeline: each frame waits for its own mask. Otherwise frames
   // never wait for hair: a job starts only when the scheduler says so and the worker is idle, and a frame whose own mask
   // is not ready draws the newest mask of another frame, moved by the head's motion (hair/mask-reuse.ts).
@@ -198,13 +214,16 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const previousHair = decoupled ? Promise.resolve() : hairTail;
       let hair = Promise.all([sha, hairBitmap, previousHair]).then(async ([sourceSHA256, bitmap]) => {
         if (!bitmap) {markHairStarted(); return null;} if (!hairAlive()) {bitmap.close(); markHairStarted(); return null;}
+        hairInFlight++;
         try {
           const started = performance.now(), result = c.hair().segment(bitmap, sourceSHA256, p.sequence); markHairStarted(); const value = await result;
           hairStats.results++; hairStats.lastInferenceMs = value.inferenceMs; hairStats.lastExtractionMs = value.extractionMs; hairStats.lastRoundTripMs = performance.now() - started;
+          hairJobLog.push({atMs: performance.now(), inferenceMs: value.inferenceMs, roundTripMs: hairStats.lastRoundTripMs});
+          if (hairJobLog.length > 1024) hairJobLog.splice(0, hairJobLog.length - 1024);
           return value;
         }
         catch (error) {if (hairAlive()) c.onHairError(error); return null;}
-        finally {markHairStarted();}
+        finally {hairInFlight--; markHairStarted();}
       }).catch(async (error) => {const bitmap = await hairBitmap.catch(() => null); bitmap?.close(); markHairStarted(); if (hairAlive()) c.onHairError(error); return null;});
       let resolveLandmarks: (value: readonly Landmark[] | null) => void = () => {};
       if (decoupled) {
@@ -217,13 +236,15 @@ export function runPipeline(c: PipelineContext): Pipeline {
           if (value && landmarks && owns()) masks.offer({mask: value, landmarks, sequence: p.sequence, capturedAtMs: p.capturedAtMs, width, height});
         });
       } else hairTail = hair.then(() => undefined);
-      let detection: Detection, faceBitmapMs: number, faceWallMs: number;
+      let detection: Detection, faceBitmapMs: number, faceWallMs: number, faceRequest: FaceRequestTiming | null = null;
       try {
         const bitmapStart = performance.now(), faceBitmap = createImageBitmap(input.canvas); const bitmap = await faceBitmap; faceBitmapMs = performance.now() - bitmapStart;
         // The copies are released once both bitmaps own their pixels.
         void Promise.allSettled([hairBitmap, faceBitmap]).then(() => {input.canvas.width = input.canvas.height = 0; if (hairSource && hairSource !== input) hairSource.canvas.width = hairSource.canvas.height = 0;});
         if (!alive()) {bitmap.close(); throw new DOMException('Frame revoked.', 'AbortError');}
-        at('face landmarker'); const faceStart = performance.now(); detection = await c.detector.detect(bitmap, p.capturedAtMs);
+        at('face landmarker'); const faceStart = performance.now();
+        faceRequest = {post: faceStart, previousDraw: lastDrawStart, nextDraw: null}; awaitingDraw.push(faceRequest); faceInFlight++;
+        try {detection = await c.detector.detect(bitmap, p.capturedAtMs);} finally {faceInFlight--;}
         faceWallMs = performance.now() - faceStart;
         if (decoupled) {const landmarks = detection.landmarks.length ? detection.landmarks : null; lastLandmarks = landmarks; resolveLandmarks(landmarks);}
       } finally {resolveLandmarks(null);}
@@ -237,7 +258,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const hairAdmissionWaitMs = performance.now() - hairAdmissionStart;
       if (!alive()) throw new DOMException('Frame revoked.', 'AbortError');
       const result: Inferred = {detection, sourceSHA256, detectionSHA256, face, hashMs, detectorDrawMs, faceBitmapMs, faceWallMs,
-        detectionHashMs, hair, hairResult: null, inferenceStartedAt, hairAdmissionWaitMs, hairRequested};
+        detectionHashMs, hair, hairResult: null, inferenceStartedAt, hairAdmissionWaitMs, hairRequested, faceRequest: faceRequest!};
       void hair.then(value => {if (alive()) result.hairResult = value;}); return result;
     },
     prepare: async (p, i, signal) => {
@@ -275,7 +296,10 @@ export function runPipeline(c: PipelineContext): Pipeline {
     },
     publish: (p, i, r) => {
       if (!owns()) throw new DOMException('Frame revoked.', 'AbortError');
-      at('drawing'); const finishStart = performance.now(); c.renderer.finish(r.mask, r.reuse?.warp ?? null, r.reuse?.carried ?? false); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
+      at('drawing'); const faceAtSubmit = faceInFlight > 0, hairAtSubmit = hairInFlight > 0;
+      const finishStart = performance.now();
+      for (const request of awaitingDraw) request.nextDraw = finishStart;
+      awaitingDraw.length = 0; lastDrawStart = finishStart; c.renderer.finish(r.mask, r.reuse?.warp ?? null, r.reuse?.carried ?? false); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
       const stats = c.renderer.stats; if (!stats) throw new Error('The renderer published no statistics.');
       const backend = c.backend();
       const native: NonNullable<FrameInput['native']> = {};
@@ -287,6 +311,10 @@ export function runPipeline(c: PipelineContext): Pipeline {
       // Orientation and depth, raw and steadied, as numbers: the live panel reads the pose jitter from these.
       const pose = c.renderer.poseSample; if (pose) for (const [key, value] of Object.entries(pose)) native['pose.' + key] = value;
       // Which mask the frame drew: the live panel reads the share of reused masks, their age and the head motion from these.
+      native['overlap.faceAtSubmit'] = faceAtSubmit; native['overlap.hairAtSubmit'] = hairAtSubmit;
+      const request = i.faceRequest;
+      native['overlap.faceAfterDrawMs'] = request.previousDraw === null ? null : request.post - request.previousDraw;
+      native['overlap.faceBeforeDrawMs'] = request.nextDraw === null ? null : request.nextDraw - request.post;
       native['hair.schedule'] = hairSchedule.mode === 'interval' ? `every ${hairSchedule.frames}` : hairSchedule.mode;
       native['hair.requested'] = i.hairRequested;
       native['hair.carried'] = r.mask ? r.reuse?.carried ?? false : null;
@@ -360,9 +388,13 @@ export function runPipeline(c: PipelineContext): Pipeline {
   schedule();
   return {stop() {stopped = true; cancel(); clearInterval(watchdog); pump.stop(); probe.width = probe.height = 0;},
     async finishCurrent() {draining = true; cancel(); clearInterval(watchdog); await pump.finishCurrent(); await hairTail; probe.width = probe.height = 0;}, stats: () => pump.stats, hair: () => ({...hairStats}),
+    hairJobs(windowMs) {
+      const since = performance.now() - windowMs, recent = hairJobLog.filter(job => job.atMs >= since);
+      return {jobs: recent.length, inferenceMs: distribution(recent.map(job => job.inferenceMs)), roundTripMs: distribution(recent.map(job => job.roundTripMs))};
+    },
     describe() {
       const s = pump.stats;
-      return `${trace.stage} for ${Math.round(performance.now() - trace.since)} ms · offered ${s.offered}, captured ${s.captured}, published ${s.published}, dropped ${s.dropped} (locked ${s.lockedDrops}, misses ${s.captureMisses})`
+      return `${trace.stage} for ${Math.round(performance.now() - trace.since)} ms · offered ${s.offered}, captured ${s.captured}, published ${s.published}, dropped ${s.dropped} (replaced after capture ${s.replaced}, locked ${s.lockedDrops}, misses ${s.captureMisses})`
         + ` · inference ${s.inferenceCalls} calls${s.lastInferenceMs === null ? '' : `, last ${Math.round(s.lastInferenceMs)} ms`}${s.failed ? ' · pump failed' : ''}`;
     }};
 }

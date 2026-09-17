@@ -6,7 +6,7 @@ import {runPipeline} from '../src/pipeline/pipeline.ts';
 import {DEFAULT_HAIR_SCHEDULE} from '../src/hair/mask-reuse.ts';
 import type {HairSchedule, MaskWarp} from '../src/hair/mask-reuse.ts';
 import type {FrameInput} from '../src/pipeline/profiler.ts';
-import type {PipelineContext} from '../src/pipeline/pipeline.ts';
+import type {HairJobsSummary, PipelineContext} from '../src/pipeline/pipeline.ts';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const g = globalThis as Record<string, unknown>;
@@ -24,8 +24,9 @@ g.createImageBitmap = async (source: {width: number; height: number}) => ({width
 const landmarksAt = (timeMs: number, pxPerMs: number) => Array.from({length: 478}, (_, i) => ({
   x: 0.3 + 0.4 * ((i * 37) % 100) / 100 + timeMs * pxPerMs / 320, y: 0.2 + 0.6 * ((i * 53) % 100) / 100, z: 0}));
 
-interface Finish {mask: boolean; warp: MaskWarp | null; carried: boolean; waitMs: number;}
-interface Run {rows: FrameInput[]; finishes: Finish[]; hairCalls: number; errors: string[]; hairErrors: string[]; facelessAt: Set<number>;}
+interface Finish {mask: boolean; warp: MaskWarp | null; carried: boolean; waitMs: number; at: number;}
+interface Run {rows: FrameInput[]; finishes: Finish[]; hairCalls: number; errors: string[]; hairErrors: string[]; facelessAt: Set<number>;
+  jobs: HairJobsSummary | null; recentJobs: HairJobsSummary | null; describe: string;}
 interface Options {schedule?: HairSchedule; hairMs: number; faceMs?: number; hangFromCall?: number; rejectCall?: number; durationMs: number; pxPerMs?: number; faceless?: (timeMs: number) => boolean;}
 
 async function run(options: Options): Promise<Run> {
@@ -33,11 +34,12 @@ async function run(options: Options): Promise<Run> {
   const video = {srcObject: null, readyState: 4, videoWidth: 320, videoHeight: 180, currentTime: 0,
     requestVideoFrameCallback(cb: typeof callback) {callback = cb; return 1;}, cancelVideoFrameCallback() {callback = null;}};
   const camera = setInterval(() => {presented++; fill = presented & 255; const cb = callback; callback = null; cb?.(performance.now(), {presentedFrames: presented, mediaTime: presented / 30});}, 33);
-  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set()};
+  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set(), jobs: null, recentJobs: null, describe: ''};
   let lastMask = false, preparedAt = 0;
   const renderer = {setHairEnabled() {}, async prepare() {await sleep(2); preparedAt = performance.now(); return true;},
     // The time from the renderer's pose to the draw: the pipeline's own wait for a mask, if any, sits in between.
-    finish(mask: unknown, warp: MaskWarp | null = null, carried = false) {lastMask = mask !== null; result.finishes.push({mask: lastMask, warp, carried, waitMs: performance.now() - preparedAt});},
+    finish(mask: unknown, warp: MaskWarp | null = null, carried = false) {lastMask = mask !== null;
+      result.finishes.push({mask: lastMask, warp, carried, waitMs: performance.now() - preparedAt, at: performance.now()});},
     get stats() {return {render: {maskUploadMs: 0, continuityMs: 0, submitMs: 0}, audit: {ran: false, ms: 0}, gpuWaitPolls: 0, gpuWaitTimedOut: false, gpuWaitMs: 0, poseMs: 0, hasMask: lastMask, fallbackReason: null};},
     get poseSample() {return null;}};
   const detector = {delegate: 'CPU', lastTiming: null, async detect(bitmap: {close(): void}, timestampMs: number) {
@@ -58,7 +60,7 @@ async function run(options: Options): Promise<Run> {
     eyewearId: 'amber-horizon', owns: () => true, nextSequence: () => ++sequence, hairSchedule: options.schedule,
     onHairError: (error: unknown) => result.hairErrors.push(String(error)), onError: (error: unknown) => result.errors.push(String(error)),
     onPublished: (row: FrameInput) => result.rows.push(row), backend: () => ({active: 'CPU', renderer: null})} as unknown as PipelineContext);
-  await sleep(options.durationMs); pipeline.stop(); clearInterval(camera); await sleep(40);
+  await sleep(options.durationMs); result.jobs = pipeline.hairJobs(60_000); result.recentJobs = pipeline.hairJobs(150); result.describe = pipeline.describe(); pipeline.stop(); clearInterval(camera); await sleep(40);
   return result;
 }
 const interval = (frames: number, extra: Partial<HairSchedule> = {}): HairSchedule => ({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames, ...extra});
@@ -72,6 +74,10 @@ test('default: every frame waits for and draws its own mask', async () => {
   assert.deepEqual(r.errors, []); assert.ok(r.rows.length > 5, `${r.rows.length} frames`);
   assert.ok(r.rows.every(row => row.native?.['hair.schedule'] === 'every' && row.native?.['hair.requested'] === true));
   assert.ok(r.rows.slice(1).every(row => row.hasMask && row.hairInferenceMs !== null && row.native?.['hair.carried'] === false), 'every frame draws its own mask');
+  assert.ok(r.jobs && r.jobs.jobs >= r.rows.length - 1 && r.jobs.inferenceMs?.median === 40, `${r.jobs?.jobs} logged jobs for ${r.rows.length} frames`);
+  // Serial 40 ms jobs: at most 4 complete in the last 150 ms.
+  assert.ok(r.recentJobs && r.recentJobs.jobs >= 1 && r.recentJobs.jobs < r.jobs.jobs && r.recentJobs.jobs <= Math.ceil(150 / 40) + 1, `${r.recentJobs?.jobs} jobs in the last 150 ms of ${r.jobs.jobs}`);
+  assert.ok(r.rows.every(row => typeof row.native?.['overlap.hairAtSubmit'] === 'boolean'));
   assert.ok(r.finishes.slice(1).every(finish => finish.mask && finish.warp === null && !finish.carried));
   assert.ok(percentile(r.finishes.slice(1).map(f => f.waitMs), 0.5) > 10, `median wait ${percentile(r.finishes.map(f => f.waitMs), 0.5)} ms: frames wait for their masks`);
 });
@@ -86,6 +92,55 @@ test('every 2nd frame: frames never wait, half the jobs, the rest draw a reused 
   assert.ok(reused >= r.rows.length / 3, `${reused} of ${r.rows.length} frames reused a mask`);
   assert.ok(r.rows.slice(3).every(row => row.hasMask), 'after the first mask every frame has one');
   assert.ok(r.rows.every(row => row.native?.['hair.carried'] !== true || (row.native?.['hair.ageMs'] as number) <= DEFAULT_HAIR_SCHEDULE.maxAgeMs));
+  // Instruments: every row says what was in flight at its submit; the job log holds each completed job's own timing.
+  assert.ok(r.rows.every(row => typeof row.native?.['overlap.faceAtSubmit'] === 'boolean' && typeof row.native?.['overlap.hairAtSubmit'] === 'boolean'));
+  checkDrawGaps(r);
+  const hairAtSubmit = r.rows.filter(row => row.native?.['overlap.hairAtSubmit'] === true).length;
+  assert.ok(hairAtSubmit >= r.rows.length / 3 && hairAtSubmit < r.rows.length, `a 45 ms hair job every ~66 ms was in flight at ${hairAtSubmit} of ${r.rows.length} submits`);
+  assert.ok(r.rows.some(row => row.native?.['overlap.faceAtSubmit'] === false), 'an 8 ms face request is not always in flight');
+  assert.ok(r.jobs && r.jobs.jobs >= jobs - 2 && r.jobs.jobs <= r.hairCalls, `${r.jobs?.jobs} logged jobs, ${jobs} requested, ${r.hairCalls} calls`);
+  assert.equal(r.jobs.inferenceMs?.median, 45); assert.ok(r.jobs.roundTripMs!.median >= 45);
+  assert.match(r.describe, /dropped \d+ \(replaced after capture \d+, locked \d+, misses \d+\)/);
+});
+
+/** Each row's face post sits between two draw starts: the previous draw → post and post → next draw add up to one gap
+ *  between consecutive draws, which the fake renderer saw as consecutive finish() calls. */
+function checkDrawGaps(r: Run): void {
+  const draws = r.finishes.map(finish => finish.at), gaps = draws.slice(1).map((at, k) => at - draws[k]!);
+  const rows = r.rows.slice(1).filter(row => row.native?.['overlap.faceAfterDrawMs'] !== null);
+  assert.ok(rows.length >= r.rows.length / 2, `${rows.length} rows with both gaps of ${r.rows.length}`);
+  for (const row of rows) {
+    const before = row.native?.['overlap.faceBeforeDrawMs'] as number, after = row.native?.['overlap.faceAfterDrawMs'] as number;
+    assert.ok(before >= 0 && after >= 0, `gaps ${after} / ${before}`);
+    assert.ok(gaps.some(gap => Math.abs(gap - (before + after)) < 1.5), `${after.toFixed(2)} + ${before.toFixed(2)} ms is no gap between consecutive draws`);
+  }
+  assert.equal(r.rows[0]!.native?.['overlap.faceAfterDrawMs'], null);
+  assert.ok(r.rows.every(row => typeof row.native?.['overlap.faceBeforeDrawMs'] === 'number'));
+}
+
+test('a face request prefetched while the previous frame is posed is posted just before that frame\'s draw', async () => {
+  // 40 ms face requests at a 33 ms camera: the next request starts when this frame enters prepare, a few ms before its draw.
+  const r = await run({schedule: interval(2), hairMs: 20, faceMs: 40, durationMs: 1500});
+  assert.deepEqual(r.errors, []); assert.ok(r.rows.length > 10, `${r.rows.length} frames`);
+  checkDrawGaps(r);
+  const faceAtSubmit = r.rows.filter(row => row.native?.['overlap.faceAtSubmit'] === true).length;
+  assert.ok(faceAtSubmit >= r.rows.length / 2, `face request in flight at ${faceAtSubmit} of ${r.rows.length} draw starts`);
+  const before = r.rows.map(row => row.native?.['overlap.faceBeforeDrawMs'] as number), after = r.rows.slice(1).map(row => row.native?.['overlap.faceAfterDrawMs'] as number);
+  assert.ok(percentile(before, 0.5) < percentile(after, 0.5), `post→next draw median ${percentile(before, 0.5)} vs previous draw→post ${percentile(after, 0.5)}`);
+});
+
+test('the default schedule: the draw gaps around each face post are consistent too', async () => {
+  const r = await run({hairMs: 40, faceMs: 5, durationMs: 1500});
+  assert.deepEqual(r.errors, []); assert.ok(r.rows.length > 10, `${r.rows.length} frames`);
+  checkDrawGaps(r);
+});
+
+test('a failed hair job leaves no hair job counted in flight', async () => {
+  const r = await run({schedule: interval(2), hairMs: 5, rejectCall: 2, durationMs: 1200});
+  assert.deepEqual(r.errors, []); assert.equal(r.hairErrors.length, 1); assert.ok(r.hairCalls > 4, `${r.hairCalls} hair calls`);
+  const late = r.rows.slice(-10);
+  assert.ok(late.length === 10 && late.some(row => row.native?.['overlap.hairAtSubmit'] === false),
+    `hairAtSubmit after the failure: ${late.map(row => row.native?.['overlap.hairAtSubmit']).join(',')}`);
 });
 
 test('every 2nd frame with fast hair: a frame that started a job draws its own mask when it is ready in time', async () => {
