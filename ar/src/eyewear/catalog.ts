@@ -74,6 +74,9 @@ export interface ModelingAutoHandover {
 }
 
 const finite = (value: number, low: number, high: number): boolean => Number.isFinite(value) && value >= low && value <= high;
+/** The nearest temple clip depth the renderer can draw: the v3 end blend fades over 15 mm and must end behind -0.03 m
+ *  (render/temple-clip.ts). A handed-over depth between this and -0.03 m is drawn from here rather than refused per frame. */
+export const TEMPLE_CLIP_NEAREST_LOCAL_Z_M = -0.045;
 
 /** Register the handed-over model as this page's Modeling Auto frame and return its definition. */
 export function registerModelingAutoEyewear(model: ModelingAutoHandover): EyewearDefinition {
@@ -85,7 +88,7 @@ export function registerModelingAutoEyewear(model: ModelingAutoHandover): Eyewea
     id: MODELING_AUTO_EYEWEAR_ID, name, optionLabel: `${name} · Modeling Auto`,
     description: model.description ?? `Prepared by Modeling Auto at ${model.widthMm} mm across the front. Preview placement is not measured wearer fit.`,
     finish: 'Modeling Auto · Prepared model', assetUrl: model.assetUrl, offsetCm: GLASSES_OFFSET_CM,
-    assumedWidthMm: model.widthMm, templeClipLocalZM: model.templeClipLocalZM,
+    assumedWidthMm: model.widthMm, templeClipLocalZM: Math.min(model.templeClipLocalZM, TEMPLE_CLIP_NEAREST_LOCAL_Z_M),
   });
   Object.defineProperty(EYEWEAR, MODELING_AUTO_EYEWEAR_ID, {value: definition, enumerable: true, configurable: true, writable: false});
   return definition;

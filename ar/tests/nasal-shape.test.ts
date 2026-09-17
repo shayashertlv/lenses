@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Euler, Matrix4, Vector3 } from 'three';
-import { createNasalShape, NASAL_SHAPE_ID, NASAL_SHAPE_VERSION } from '../src/render/nasal-shape.ts';
+import { createNasalShape } from '../src/render/nasal-shape.ts';
 
 const canonical = JSON.parse(readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {
   positions: number[]; indices: number[];
@@ -18,8 +18,6 @@ function coordinates(yaw = 0, pitch = 0, roll = 0) {
 }
 
 test('raw nasal shape preserves frozen Option17 Float32 outputs at known frontal and both-turn poses', () => {
-  assert.equal(NASAL_SHAPE_ID, 'central-wp020-dp015');
-  assert.equal(NASAL_SHAPE_VERSION, 'raw-nasal-shape-v1');
   // Synthetic canonical-coordinate goldens from the frozen central-wp020-dp015
   // generator SHA256 03a4250c89ccbc753893fe87247aa6c38d6cced4a44c9f65b8350d73c6d64832.
   // Tests have no dependency on private recordings or ignored experimental code.

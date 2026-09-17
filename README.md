@@ -2,8 +2,8 @@
 
 The repository root is the live Lenses application on Railway, started by
 `Procfile` with `python -m UI.app`. The [live demo](https://web-production-ef3ca.up.railway.app)
-serves the Lenses tools and the owner-authorized AR testing page below.
-[ar_v4/](ar_v4/README.md) contains the separate AR development app; run its commands
+serves the Lenses tools and the owner-authorized AR try-on below.
+[ar/](ar/README.md) contains the AR try-on pipeline; run its commands
 inside that directory and keep its package manifests and assets there.
 
 The landing page's first option, **AR**, opens the live try-on at
@@ -49,8 +49,11 @@ lenses/
 ├── README.md                 # This file
 ├── Procfile                  # Deployment entry point (web: python -m UI.app)
 │
-├── catalog_manager.py        # Build/validate/list catalog descriptions (build-time, gitignored)
-├── tag_schema.py             # Product tag vocabulary + description generator (build-time, gitignored)
+├── catalog_manager.py        # Build/validate/list catalog descriptions (build-time)
+├── tag_schema.py             # Product tag vocabulary + description generator (build-time)
+├── tag_matcher.py            # Tag-overlap matching engine used by the web app
+│
+├── ar/                       # AR try-on pipeline (see ar/README.md); ar/site is the build served at /ar/
 │
 ├── lenses/                   # Shared Catalog
 │   └── catalog/              #   Product database (shared by all features)
@@ -62,7 +65,13 @@ lenses/
 │   ├── config.py             #   Paths, session store, constants
 │   ├── handler.py            #   HTTP request routing + multipart parsing
 │   ├── pipelines.py          #   Async pipeline execution (background threads)
-│   └── templates.py          #   HTML + JavaScript frontend
+│   ├── ar_site.py            #   Serves the AR build ar/site at /ar/ and its diagnostics
+│   ├── templates.py          #   Template loader and cache
+│   ├── templates/            #   Page HTML
+│   ├── static/               #   CSS, JavaScript and fonts
+│   └── tests/                #   Web app tests
+│
+├── tests/                    # Matching engine and model-rule tests
 │
 ├── lens_recolor/             # Feature 1: Lens Color Swap
 │   ├── main.py               #   CLI entry point
@@ -71,7 +80,7 @@ lenses/
 │   ├── prompt_engine.py      #   Prompt builder for lens recoloring
 │   ├── utils.py              #   Image loading/saving/validation
 │   └── tests/
-│       └── test_recolor.py   #   19 tests
+│       └── test_recolor.py   #   23 tests
 │
 ├── optimal_configuration/    # Feature 2: Optimal Configuration
 │   ├── main.py               #   CLI entry point
@@ -152,7 +161,7 @@ Any natural language works — the model interprets it:
 
 ```bash
 cd lens_recolor
-python -m unittest tests.test_recolor -v   # 19 tests
+python -m unittest tests.test_recolor -v   # 23 tests
 ```
 
 ---
@@ -168,7 +177,7 @@ python -m unittest tests.test_recolor -v   # 19 tests
 The catalog ships ready to use (`lenses/catalog/catalog.json` + `images/`). `catalog_manager.py` is an optional build-time helper:
 
 ```bash
-# Run from project root (catalog_manager.py is a build-time tool, gitignored)
+# Run from project root (catalog_manager.py is a build-time tool)
 python catalog_manager.py build      # Regenerate product descriptions from tags (offline, no API)
 python catalog_manager.py validate   # Verify images exist and tags are valid
 python catalog_manager.py list       # List all products
@@ -231,7 +240,7 @@ python main.py -p selfie.jpg -q "round gold frames" --auto -m nano-banana-pro
 
 ```bash
 cd optimal_configuration
-python -m unittest tests.test_search -v   # 24 tests
+python -m unittest tests.test_search -v   # 23 tests
 ```
 
 ---
@@ -314,7 +323,7 @@ The face analysis outputs `recommended_tags` using the **exact same tag vocabula
 
 ```bash
 cd face_analysis
-python -m unittest tests.test_pipeline -v   # 41 tests
+python -m unittest tests.test_pipeline -v   # 40 tests
 ```
 
 ---
@@ -348,6 +357,9 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 | `GET` | `/free-search` | Free Search page |
 | `GET` | `/lens-recolor` | Lens Recolor page |
 | `GET` | `/storefront` | Storefront catalog page |
+| `GET` | `/ar/` | AR try-on: the published `ar/site/` build (`/ar` redirects here) |
+| `GET` | `/ar/<file>` | AR build file listed in `ar/site/public-manifest.json`, SHA-256 verified before serving |
+| `GET` | `/ar/diagnostics.json` | Last 150 AR diagnostic reports (kept in memory, so every restart or deploy empties it) |
 | `GET` | `/api/catalog` | JSON list of all products |
 | `GET` | `/api/catalog-image/<filename>` | Serve a product image |
 | `GET` | `/api/status/<id>` | Poll Smart Fit / Free Search result |
@@ -358,6 +370,9 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 | `POST` | `/api/lens-recolor` | Start Lens Recolor pipeline |
 | `POST` | `/api/storefront-tryon` | Start Storefront try-on |
 | `POST` | `/api/storefront-recolor` | Start Storefront single-color recolor |
+| `POST` | `/api/storefront-smartfit` | Start Storefront Smart Fit (single best match, one try-on) |
+| `POST` | `/api/storefront-freesearch` | Start Storefront Free Search (single best match, one try-on) |
+| `POST` | `/ar/diagnostic` | Accept one AR diagnostic report (the page sends them with `?diag=1`) |
 
 ---
 
@@ -384,8 +399,16 @@ Results stream in progressively via polling (`/api/status/<id>`, `/api/recolor-s
 
 ## Running All Tests
 
+The green suites cover the web app and the matching engine. They need pytest, which `requirements.txt` does not
+install. Run them from the repository root:
+
 ```bash
-cd lens_recolor && python -m unittest tests.test_recolor -v && cd ../optimal_configuration && python -m unittest tests.test_search -v && cd ../face_analysis && python -m unittest tests.test_pipeline -v
+pip install pytest
+python -m pytest UI/tests tests
 ```
 
-All 82 tests should pass (19 + 23 + 40).
+The AR pipeline's tests run inside `ar/` (`cd ar && npm test`).
+
+The CLI packages keep their own unittest suites (see each feature's Tests section). They are not part of the green suites:
+`lens_recolor` passes 23 of 23, `optimal_configuration` 21 of 23 and `face_analysis` 32 of 40; the failures assert
+older prompt text, a float similarity threshold and a 0-1 match score.

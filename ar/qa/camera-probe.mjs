@@ -1,6 +1,7 @@
 /** What does the real camera deliver right now? Opens the default camera in a Chromium page with several constraint
  *  sets and counts requestVideoFrameCallback frames for a few seconds each. No image is drawn, stored or uploaded.
- *    node qa/camera-probe.mjs [--seconds=6] [--headed]
+ *    node qa/camera-probe.mjs [--seconds=6] [--headed] [--sweep] [--base=http://127.0.0.1:8241]
+ *  `--sweep` adds a manual-exposure sweep; the page at `--base` (the frozen preview) only provides a secure context.
  *  Auto-grants the permission prompt (--use-fake-ui-for-media-stream); the device itself is the real one. */
 import {chromium} from '@playwright/test';
 const args = process.argv.slice(2);

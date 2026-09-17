@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "base": "/ar/",
-  "builtAt": "2026-09-17T13:07:18.279Z",
+  "builtAt": "2026-09-17T17:21:54.941Z",
   "files": [
     {
       "path": "assets/detector.worker-DujPhTDm.js",
@@ -9,14 +9,14 @@
       "sha256": "3218bae06a52782f8318c4ef158cf819dcd31bf891006e61f9a58e8c0ecee234"
     },
     {
-      "path": "assets/index-BQuNPKOy.js",
-      "size": 761351,
-      "sha256": "bb1e0454829b0626c7eceac837a7835f2ae06bccb7d12b9b90b9718aa6dbf0fc"
-    },
-    {
       "path": "assets/index-DgVMt-Ce.css",
       "size": 12032,
       "sha256": "332d566a7611bcc2e2679bf5717579cbb2f74e2e740a580d9165330d6fdf300e"
+    },
+    {
+      "path": "assets/index-P4-d7AFr.js",
+      "size": 759404,
+      "sha256": "169c74cb76df387c05b75af8aa1b57bc392c52300290cbeb731ba8a64e3b6cd5"
     },
     {
       "path": "assets/worker-BGmj3lfi.js",
@@ -26,7 +26,7 @@
     {
       "path": "index.html",
       "size": 5410,
-      "sha256": "d95b2d1c7e1e26b7ab8bfc10ad9d1baff04c97259e74943fc4b633dbfcfb5997"
+      "sha256": "f607104808cf34da8713c9d2dbc96913a1453ee2cc1dd117412692752249ecd8"
     },
     {
       "path": "licenses/Apache-2.0.txt",
@@ -80,8 +80,8 @@
     },
     {
       "path": "models/hair/manifest.json",
-      "size": 1878,
-      "sha256": "d78bfaf335a8d5e127af3c8ce87f3dff32bbb85fd4ef3a0baf0bb152f287d5e3"
+      "size": 1857,
+      "sha256": "f407cb4b1032aa0cb3b7249bf424be9871ce7d000a4dc8bf74b817580b84080d"
     },
     {
       "path": "models/hair/selfie-multiclass.tflite",

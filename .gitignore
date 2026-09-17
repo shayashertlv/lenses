@@ -26,10 +26,6 @@ downloaded_images/
 # Windows shortcuts
 *.lnk
 
-# Build-time tools (local only)
-/catalog_manager.py
-/tag_schema.py
-
 # Analysis cache (Smart Fit consistency)
 face_analysis/.analysis_cache/
 
@@ -60,6 +56,11 @@ node_modules/
 
 # Commercial proposal (local only, never commit)
 lenses_erroca_proposal.*
+
+# Local-only AR material (never commit; kept on the owner's machine):
+# the retired ar_v4 generation and the ar/modeling pipeline
+/ar_v4/
+/ar/modeling/
 
 # Private verified backups and local verification receipts.
 .recovery/

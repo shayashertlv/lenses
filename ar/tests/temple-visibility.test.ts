@@ -9,11 +9,11 @@ import {
 import type {ShaderMaterial, WebGLRenderer} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {EYEWEAR} from '../src/eyewear/catalog.ts';
-import {createTempleBlendConfiguration, createTempleClip, createTempleFadeConfiguration} from '../src/render/temple-clip.ts';
+import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
 import {
   createTempleVisibility, createTempleVisibilityConfiguration, createLegacyTempleVisibilityConfiguration,
   createViewTempleVisibilityConfiguration, VIEW_TEMPLE_VISIBILITY_METHOD,
-  templeLiftedDepth, templeFrontalProbeUV, LEGACY_TEMPLE_VISIBILITY_METHOD,
+  templeLiftedDepth, LEGACY_TEMPLE_VISIBILITY_METHOD,
   TEMPLE_VISIBILITY_METHOD, TEMPLE_VISIBILITY_PARAMETERS, validateTempleVisibility,
 } from '../src/render/temple-visibility.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
@@ -182,47 +182,7 @@ test('frontal v3 activation requires pitch and a lack of agreed lateral permissi
   assert.ok(Math.abs(createTempleVisibilityConfiguration(middle, 0).frontalOcclusionWeight - .5) < 1e-14);
 });
 
-test('four full-span probes project homogeneous coordinates without extending beyond the optical rear', () => {
-  const camera = new PerspectiveCamera(90, 1, 1, 1000), frontZM = -.014;
-  const modelView = new Matrix4().makeScale(100, 100, 100).setPosition(0, 0, -50);
-  const beforeModel = modelView.elements.slice(), beforeProjection = camera.projectionMatrix.elements.slice();
-  assert.equal(TEMPLE_VISIBILITY_PARAMETERS.frontalContinuationSteps, 4);
-  for (const side of [-1, 1]) for (const sourceZ of [-.02, -.08, -.11]) {
-    const position = [side * .06, .002, sourceZ] as const, copy = [...position];
-    for (const fraction of [0, .25, .5, .75, 1]) {
-      const result = templeFrontalProbeUV(position, modelView, camera.projectionMatrix, frontZM, fraction)!;
-      // Independent original-coordinate interpolation followed by centimeter projection.
-      const probeZM = sourceZ + (frontZM - sourceZ) * fraction;
-      const distanceCm = 50 - 100 * probeZM;
-      assert.ok(probeZM <= frontZM + 1e-15 && probeZM >= sourceZ - 1e-15);
-      assert.ok(Math.abs(result.x - (.5 + side * 6 / (2 * distanceCm))) < 1e-14);
-      assert.ok(Math.abs(result.y - (.5 + .2 / (2 * distanceCm))) < 1e-14);
-    }
-    assert.deepEqual(position, copy);
-  }
-  const theta = Math.PI / 4;
-  const tilted = new Matrix4().makeRotationX(theta).multiply(new Matrix4().makeScale(100, 100, 100)).setPosition(0, 0, -50);
-  for (const fraction of [.25, .5, .75, 1]) {
-    const result = templeFrontalProbeUV([.06, .002, -.11], tilted, camera.projectionMatrix, frontZM, fraction)!;
-    const probeZCm = 100 * (-.11 + (frontZM + .11) * fraction);
-    const y = Math.cos(theta) * .2 - Math.sin(theta) * probeZCm;
-    const z = Math.sin(theta) * .2 + Math.cos(theta) * probeZCm - 50;
-    assert.ok(Math.abs(result.x - (.5 + 6 / (-2 * z))) < 1e-14);
-    assert.ok(Math.abs(result.y - (.5 + y / (-2 * z))) < 1e-14);
-  }
-  const start = templeFrontalProbeUV([.06, .002, -.11], tilted, camera.projectionMatrix, frontZM, 0)!;
-  const end = templeFrontalProbeUV([.06, .002, -.11], tilted, camera.projectionMatrix, frontZM, 1)!;
-  const midpoint = templeFrontalProbeUV([.06, .002, -.11], tilted, camera.projectionMatrix, frontZM, .5)!;
-  assert.ok(midpoint.distanceTo(start.clone().lerp(end, .5)) > 1e-4,
-    'mixing after the perspective divide is not a valid substitute for the homogeneous probe');
-  assert.equal(templeFrontalProbeUV([20, 0, -.08], modelView, camera.projectionMatrix, frontZM, .5), null, 'off-frame probes cannot clamp to the silhouette edge');
-  assert.equal(templeFrontalProbeUV([0, 0, -.08], new Matrix4().makeTranslation(0, 0, 50), camera.projectionMatrix, frontZM, .5), null, 'a probe behind the camera is ignored');
-  assert.throws(() => templeFrontalProbeUV([NaN, 0, -.08], modelView, camera.projectionMatrix, frontZM, .5), /probe is invalid/);
-  for (const invalid of [-.001, 1.001, NaN]) assert.throws(() => templeFrontalProbeUV([.06, 0, -.08], modelView, camera.projectionMatrix, frontZM, invalid), /probe is invalid/);
-  assert.deepEqual(modelView.elements, beforeModel); assert.deepEqual(camera.projectionMatrix.elements, beforeProjection);
-});
-
-test('frontal v3 borrows the current camera independently of clipping and clears it across replay/reset/dispose', t => {
+test('frontal v3 borrows the current camera independently of clipping and clears it on zero weight, reset and dispose', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
   source.colorSpace = SRGBColorSpace; source.offset.set(.08, .12); source.repeat.set(.75, .8); source.rotation = .1;
@@ -250,13 +210,10 @@ test('frontal v3 borrows the current camera independently of clipping and clears
     assert.deepEqual(f.controller.configuration, current);
     assert.equal(original.uniforms.templeFrontalCameraSource!.value, source, 'invalid metadata is atomic');
   }
-  for (const legacy of [createLegacyTempleVisibilityConfiguration(pose(.2), 4), createViewTempleVisibilityConfiguration(pose(.2), 4),
-    {...current, frontalOcclusionWeight: 0}]) {
-    f.controller.set(legacy);
-    assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
-    assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
-    assert.doesNotThrow(() => f.controller.prepare(pose(.2)));
-  }
+  f.controller.set({...current, frontalOcclusionWeight: 0});
+  assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
+  assert.doesNotThrow(() => f.controller.prepare(pose(.2)));
   f.controller.set(current); f.controller.prepare(pose(.2), source); f.controller.set(null);
   assert.equal(original.uniforms.templeFrontalCameraSource!.value, null); assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
   f.controller.set(current); f.controller.prepare(pose(.2), source); f.controller.dispose();
@@ -314,7 +271,7 @@ test('original hooks and dynamic keys are restored, with overlay coverage before
   assert.equal(compile(f.frame).uniforms.templeFrontalWeight, undefined);
 });
 
-test('overlays share immutable geometry, own only cloned materials and compose final coverage after fade', t => {
+test('overlays share immutable geometry, own only cloned materials and write final coverage behind the clip discard', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   assert.equal(f.overlays.length, 2);
   assert.equal(f.overlays[0]!.material, f.overlays[1]!.material, 'shared frame material is cloned only once');
@@ -325,20 +282,22 @@ test('overlays share immutable geometry, own only cloned materials and compose f
   assert.equal(overlay.renderOrder, 1); assert.equal(overlay.visible, false);
   const originalHook = f.frame.onBeforeCompile, sourceVersion = f.frame.version;
   const positions = f.geometry.getAttribute('position').array.slice(), normals = f.geometry.getAttribute('normal').array.slice();
-  f.clip.set(createTempleFadeConfiguration(-.11, 4)); f.clip.prepareRender();
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); source.colorSpace = SRGBColorSpace;
+  t.after(() => source.dispose());
+  f.clip.set(createTempleBlendConfiguration(-.11)); f.clip.prepareRender(source, 640, 360);
   const clipPolicy = f.clip.configuration;
   f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4)); f.controller.prepare(pose(.2));
   const shader = compile(material), frameShader = compile(f.frame);
   assert.equal(shader.uniforms.templeClipEnabled, frameShader.uniforms.templeClipEnabled, 'overlay follows the exact clip uniform owner');
   assert.equal(shader.uniforms.templeVisibilityFront!.value, Math.fround(-.014));
   assert.equal(shader.uniforms.templeVisibilityHeadDepth!.value.isDepthTexture, true);
-  const fadeOverride = shader.fragmentShader.indexOf('gl_FragColor.a = templeEndpointCoverage');
+  const clipDiscard = shader.fragmentShader.indexOf('templeClipPositiveXCutoffZ)) discard');
   const finalCoverage = shader.fragmentShader.indexOf('gl_FragColor.a = templeOverlayCoverage');
-  assert.ok(finalCoverage > fadeOverride && finalCoverage > shader.fragmentShader.indexOf('#include <dithering_fragment>'),
-    'the combined overlay coverage cannot be overwritten by the earlier fade alpha');
-  assert.ok(shader.fragmentShader.includes('templeEndpointCoverage * templeSideMask * templeSideWeight * templeRootWeight'));
+  assert.ok(clipDiscard >= 0 && finalCoverage > clipDiscard && finalCoverage > shader.fragmentShader.indexOf('#include <dithering_fragment>'),
+    'the overlay inherits the clip discard and writes its combined coverage after shading');
+  assert.ok(shader.fragmentShader.includes('templeOverlayCoverage = templeSideMask * templeSideWeight * templeRootWeight;'));
   assert.equal(f.frame.onBeforeCompile, originalHook);
-  assert.equal(f.frame.version, sourceVersion + 1, 'only the independently requested clip prepare modified the source mode');
+  assert.equal(f.frame.version, sourceVersion, 'selecting the clip and visibility settings does not recompile the source material');
   assert.deepEqual(f.clip.configuration, clipPolicy);
   assert.deepEqual(f.geometry.getAttribute('position').array, positions);
   assert.deepEqual(f.geometry.getAttribute('normal').array, normals);
@@ -370,7 +329,9 @@ test('metadata validation is atomic; disabled and unsupported modes cannot run o
   const output = f.controller.configuration!; Reflect.set(output, 'positiveXWeight', .9);
   assert.deepEqual(f.controller.configuration, expected);
   for (const invalid of [{...expected, negativeXWeight: -.001}, {...expected, positiveXWeight: 1.001},
-    {...expected, negativeXWeight: NaN}, {...expected, coverage: 'automatic'}, {...expected, method: 'other'}]) {
+    {...expected, negativeXWeight: NaN}, {...expected, coverage: 'automatic'}, {...expected, method: 'other'},
+    {...expected, method: VIEW_TEMPLE_VISIBILITY_METHOD}, {...expected, method: LEGACY_TEMPLE_VISIBILITY_METHOD},
+    createViewTempleVisibilityConfiguration(pose(.1), 0), createLegacyTempleVisibilityConfiguration(pose(.1), 0)]) {
     assert.throws(() => f.controller.set(invalid as TempleVisibilityConfiguration), /configuration is invalid/);
     assert.deepEqual(f.controller.configuration, expected);
   }
@@ -382,10 +343,10 @@ test('metadata validation is atomic; disabled and unsupported modes cannot run o
   assert.equal(f.clip.configuration, null);
 });
 
-test('v1 and v2 share the same mask shader and replay captured weights without recomputation', t => {
+test('settings from different poses share one mask shader and prepare keeps the set weights without recomputation', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const material = f.overlays[0]!.material as Material;
-  const current = createViewTempleVisibilityConfiguration(pose(.5), 4);
+  const current = createTempleVisibilityConfiguration(pose(.5), 4);
   f.controller.set(current);
   const copy = f.controller.configuration!; Reflect.set(copy, 'negativeXWeight', .3);
   assert.deepEqual(f.controller.configuration, current);
@@ -394,16 +355,17 @@ test('v1 and v2 share the same mask shader and replay captured weights without r
   f.fake.state.onRender = scene => { depthFragments.push((scene.overrideMaterial as ShaderMaterial).fragmentShader); };
   f.controller.prepare(pose(.5));
   const currentShader = compile(material), version = material.version;
-  const legacy = createLegacyTempleVisibilityConfiguration(pose(.1), 4);
-  f.controller.set(legacy); f.controller.prepare(pose(.5));
-  assert.equal(material.version, version, 'a metadata version change does not alter the coverage program');
-  const legacyShader = compile(material);
-  assert.equal(legacyShader.fragmentShader, currentShader.fragmentShader);
-  assert.equal(legacyShader.vertexShader, currentShader.vertexShader);
+  const other = createTempleVisibilityConfiguration(pose(-.3), 4);
+  assert.notDeepEqual([other.negativeXWeight, other.positiveXWeight], [current.negativeXWeight, current.positiveXWeight]);
+  f.controller.set(other); f.controller.prepare(pose(.5));
+  assert.equal(material.version, version, 'a new setting does not alter the coverage program');
+  const otherShader = compile(material);
+  assert.equal(otherShader.fragmentShader, currentShader.fragmentShader);
+  assert.equal(otherShader.vertexShader, currentShader.vertexShader);
   assert.equal(depthFragments.length, 2); assert.equal(depthFragments[0], depthFragments[1]);
-  assert.deepEqual(legacyShader.uniforms.templeVisibilityWeights!.value.toArray(), [legacy.negativeXWeight, legacy.positiveXWeight],
-    'prepare does not recompute captured weights from a different raw pose');
-  assert.deepEqual(f.controller.configuration, legacy);
+  assert.deepEqual(otherShader.uniforms.templeVisibilityWeights!.value.toArray(), [other.negativeXWeight, other.positiveXWeight],
+    'prepare does not recompute the set weights from a different raw pose');
+  assert.deepEqual(f.controller.configuration, other);
   assert.deepEqual(f.geometry.getAttribute('position').array, originalPositions);
   f.controller.set(current); f.controller.set(null);
   assert.deepEqual(currentShader.uniforms.templeVisibilityWeights!.value.toArray(), [0, 0]);

@@ -9,14 +9,13 @@ import {
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {EYEWEAR} from '../src/eyewear/catalog.ts';
 import {
-  createTempleBlendConfiguration, createTempleClip, createTempleFadeConfiguration, TEMPLE_CLIP_METHOD,
-  TEMPLE_FADE_METHOD, TEMPLE_FADE_LENGTH_LOCAL_M, TEMPLE_BLEND_METHOD, TEMPLE_BLEND_LENGTH_LOCAL_M, validateTempleClip,
+  createTempleBlendConfiguration, createTempleClip, TEMPLE_BLEND_METHOD, TEMPLE_BLEND_LENGTH_LOCAL_M, validateTempleClip,
 } from '../src/render/temple-clip.ts';
-import type {TempleBlendConfiguration, TempleClipConfiguration, TempleFadeConfiguration} from '../src/render/temple-clip.ts';
+import type {TempleBlendConfiguration, TempleClipConfiguration} from '../src/render/temple-clip.ts';
 
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
 const clipping = (negativeXCutoffLocalZM: number, positiveXCutoffLocalZM = negativeXCutoffLocalZM): TempleClipConfiguration =>
-  ({method: TEMPLE_CLIP_METHOD, negativeXCutoffLocalZM, positiveXCutoffLocalZM});
+  ({method: TEMPLE_BLEND_METHOD, negativeXCutoffLocalZM, positiveXCutoffLocalZM, fadeLengthLocalM: TEMPLE_BLEND_LENGTH_LOCAL_M});
 // Exercise material callbacks and live uniform ownership with Three's real
 // shader source/uniforms. Full GPU compilation/pixels belong to browser tests.
 function compile(material: Material, backend: object = {}) {
@@ -115,34 +114,6 @@ for (const definition of Object.values(EYEWEAR)) {
     }
     assert.ok(removedFrameVertices > 1000 && retainedFrontVertices > 1000 && lensVertices > 1000);
     assert.deepEqual(crossingSides, new Set([-1, 1]), 'both original stems cross the endpoint plane');
-    const fade = createTempleFadeConfiguration(definition.templeClipLocalZM, 4);
-    clip.set(fade); clip.prepareRender();
-    const fadeSides = new Set<number>();
-    for (const [meshIndex, mesh] of meshes.entries()) {
-      const saved = before[meshIndex]!, p = mesh.geometry.getAttribute('position');
-      assert.deepEqual(p.array, saved.positions);
-      assert.deepEqual(mesh.geometry.getAttribute('normal').array, saved.normals);
-      const lens = mesh.material instanceof MeshPhysicalMaterial && mesh.material.transmission > 0;
-      for (let i = 0; i < p.count; i++) {
-        if (lens) assert.ok(p.getZ(i) > fade.negativeXCutoffLocalZM + fade.fadeLengthLocalM);
-        else if (p.getZ(i) >= fade.negativeXCutoffLocalZM && p.getZ(i) < fade.negativeXCutoffLocalZM + fade.fadeLengthLocalM) {
-          assert.ok(p.getZ(i) < -.03 && Math.abs(p.getX(i)) > .045,
-            'every actual vertex within the fade is on a rear lateral shaft');
-          fadeSides.add(Math.sign(p.getX(i)));
-        }
-      }
-      for (const prior of saved.materials) {
-        assert.equal(prior.material.transparent, prior.transparent);
-        assert.equal(prior.material.depthTest, prior.depthTest);
-        assert.equal(prior.material.depthWrite, prior.depthWrite);
-        assert.equal(prior.material.side, prior.side);
-        if (lens) {
-          assert.equal(prior.material.version, prior.version);
-          assert.equal(prior.material.onBeforeCompile, prior.hook);
-        } else assert.equal(prior.material.alphaToCoverage, true);
-      }
-    }
-    assert.deepEqual(fadeSides, new Set([-1, 1]), 'the fixed fade band exists on both real shafts');
     const blend = createTempleBlendConfiguration(definition.templeClipLocalZM), camera = pairedCamera();
     t.after(() => camera.dispose());
     clip.set(blend); clip.prepareRender(camera, 960, 720);
@@ -233,128 +204,36 @@ test('one shared material wrapper preserves prior hooks, dynamic cache keys and 
   assert.equal(frame.map, texture); assert.equal(root.children[0]!.type, 'Mesh');
 });
 
-test('fade mode synchronization avoids per-frame recompilation and restores exact legacy material flags', t => {
+test('selection and reset never recompile or change material coverage, blending and depth flags', t => {
   const frame = new MeshStandardMaterial(), priorA2C = new MeshStandardMaterial({alphaToCoverage: true});
-  const lens = new MeshPhysicalMaterial({transmission: 1}), geometry = new BufferGeometry();
+  const lens = new MeshPhysicalMaterial({transmission: 1}), geometry = new BufferGeometry(), camera = pairedCamera();
   const root = new Group().add(new Mesh(geometry, [frame, lens]), new Mesh(geometry, frame), new Mesh(geometry, priorA2C));
   const clip = createTempleClip(root);
-  t.after(() => { clip.dispose(); frame.dispose(); priorA2C.dispose(); lens.dispose(); geometry.dispose(); });
+  t.after(() => { clip.dispose(); frame.dispose(); priorA2C.dispose(); lens.dispose(); geometry.dispose(); camera.dispose(); });
   const shader = compile(frame), saved = {
     blending: frame.blending, transparent: frame.transparent, depthTest: frame.depthTest, depthWrite: frame.depthWrite,
-    opacity: frame.opacity, alphaTest: frame.alphaTest, alphaHash: frame.alphaHash, side: frame.side,
+    opacity: frame.opacity, alphaTest: frame.alphaTest, alphaHash: frame.alphaHash, side: frame.side, alphaToCoverage: frame.alphaToCoverage,
   };
   const installedVersion = frame.version, priorA2CVersion = priorA2C.version, lensVersion = lens.version;
-  const fade = createTempleFadeConfiguration(-.11, 4);
-  clip.set(fade);
-  assert.equal(frame.alphaToCoverage, false, 'set updates policy/uniforms, not the compiled mode');
-  assert.equal(frame.version, installedVersion);
-  assert.equal(shader.uniforms.templeFadeMode!.value, 1);
-  clip.prepareRender();
-  assert.equal(frame.alphaToCoverage, true);
-  assert.equal(frame.version, installedVersion + 1);
-  assert.equal(priorA2C.version, priorA2CVersion, 'already enabled prior A2C needs no mode update');
   for (let frameIndex = 0; frameIndex < 5; frameIndex++) {
     clip.set(null);
     assert.equal(shader.uniforms.templeClipEnabled!.value, 0);
     assert.equal(shader.uniforms.templeFadeMode!.value, 0, 'early reset immediately clears compiled uniforms');
-    clip.set(fade); clip.prepareRender();
+    clip.set(createTempleBlendConfiguration(-.11)); clip.prepareRender(camera, 960, 720);
+    assert.equal(shader.uniforms.templeFadeMode!.value, 3);
   }
-  assert.equal(frame.version, installedVersion + 1, 'early null then final live state does not recompile every frame');
-  clip.set(clipping(-.08, -.07)); clip.prepareRender();
-  assert.equal(frame.alphaToCoverage, false);
-  assert.equal(priorA2C.alphaToCoverage, true);
-  assert.equal(frame.version, installedVersion + 2);
-  assert.equal(shader.uniforms.templeFadeMode!.value, 0);
-  assert.equal(shader.uniforms.templeFadeLength!.value, 0);
-  assert.equal(shader.uniforms.templeClipNegativeXCutoffZ!.value, -.08);
-  assert.equal(shader.uniforms.templeClipPositiveXCutoffZ!.value, -.07);
-  clip.set(createTempleFadeConfiguration(-.105, 0)); clip.prepareRender();
-  assert.equal(shader.uniforms.templeFadeMode!.value, 2);
-  assert.equal(frame.alphaToCoverage, false);
-  assert.equal(frame.version, installedVersion + 2, 'dither retains the legacy opaque shader flags');
   clip.set(null); clip.prepareRender();
-  assert.equal(clip.configuration, null);
-  assert.equal(shader.uniforms.templeFadeMode!.value, 0);
-  assert.equal(lens.version, lensVersion);
+  assert.equal(frame.version, installedVersion, 'early null then final live state never recompiles');
+  assert.equal(priorA2C.version, priorA2CVersion); assert.equal(lens.version, lensVersion);
+  assert.equal(priorA2C.alphaToCoverage, true, 'a material that already uses A2C keeps it');
   for (const [key, value] of Object.entries(saved)) assert.equal(Reflect.get(frame, key), value);
-  clip.set(fade); clip.prepareRender();
+  clip.set(createTempleBlendConfiguration(-.11)); clip.prepareRender(camera, 960, 720);
   clip.dispose();
   assert.equal(frame.alphaToCoverage, false);
   assert.equal(priorA2C.alphaToCoverage, true);
   assert.equal(shader.uniforms.templeFadeMode!.value, 0);
   assert.equal(shader.uniforms.templeClipEnabled!.value, 0);
   assert.throws(() => clip.prepareRender(), /disposed/);
-});
-
-test('fade metadata is owned, explicit about coverage, atomic on failure and cannot reach the protected front', t => {
-  const material = new MeshStandardMaterial(), geometry = new BufferGeometry();
-  const clip = createTempleClip(new Group().add(new Mesh(geometry, material)));
-  t.after(() => { clip.dispose(); material.dispose(); geometry.dispose(); });
-  const shader = compile(material);
-  assert.deepEqual(createTempleFadeConfiguration(-.105, 0), {
-    method: TEMPLE_FADE_METHOD, negativeXCutoffLocalZM: -.105, positiveXCutoffLocalZM: -.105,
-    fadeLengthLocalM: .004, coverage: 'ordered-dither',
-  });
-  for (const samples of [1, 2, 4, 8]) assert.equal(createTempleFadeConfiguration(-.11, samples).coverage, 'alpha-to-coverage');
-  for (const samples of [-1, .5, NaN, Infinity]) assert.throws(() => createTempleFadeConfiguration(-.11, samples), /sample count/);
-  const valid = {...createTempleFadeConfiguration(-.11, 4), positiveXCutoffLocalZM: -.105};
-  const input = {...valid};
-  clip.set(input); clip.prepareRender();
-  input.fadeLengthLocalM = .02; input.coverage = 'ordered-dither';
-  assert.deepEqual(clip.configuration, valid);
-  const output = clip.configuration as TempleFadeConfiguration;
-  Reflect.set(output, 'fadeLengthLocalM', .01);
-  assert.deepEqual(clip.configuration, valid);
-  assert.equal(shader.uniforms.templeFadeLength!.value, TEMPLE_FADE_LENGTH_LOCAL_M);
-  const invalid = [
-    {...valid, fadeLengthLocalM: -.001}, {...valid, fadeLengthLocalM: .020001},
-    {...valid, fadeLengthLocalM: NaN}, {...valid, fadeLengthLocalM: Infinity},
-    {...valid, coverage: 'unrecorded-auto'}, {...valid, coverage: undefined},
-    {...valid, fadeLengthLocalM: undefined}, {...valid, negativeXCutoffLocalZM: -.031},
-    {...valid, positiveXCutoffLocalZM: -.031}, {...valid, method: 'unknown-fade'},
-    undefined, {method: TEMPLE_FADE_METHOD},
-  ];
-  const version = material.version;
-  for (const value of invalid) {
-    assert.throws(() => clip.set(value as TempleClipConfiguration), /configuration is invalid/);
-    assert.deepEqual(clip.configuration, valid);
-    assert.equal(shader.uniforms.templeFadeMode!.value, 1);
-    assert.equal(shader.uniforms.templeFadeLength!.value, .004);
-    assert.equal(material.version, version);
-  }
-  assert.doesNotThrow(() => validateTempleClip({...valid, fadeLengthLocalM: .02}));
-  clip.set({...valid, fadeLengthLocalM: 0}); clip.prepareRender();
-  assert.equal(shader.uniforms.templeFadeMode!.value, 0, 'zero width is an explicit hard endpoint, avoiding undefined smoothstep');
-  assert.equal(material.alphaToCoverage, false);
-  clip.set(null); clip.prepareRender();
-  assert.equal(shader.uniforms.templeClipEnabled!.value, 0);
-  assert.equal(shader.uniforms.templeFadeLength!.value, 0);
-});
-
-test('ordered fallback supplies reproducible balanced coverage without opaque/depth flag changes', t => {
-  const material = new MeshStandardMaterial(), geometry = new BufferGeometry();
-  const clip = createTempleClip(new Group().add(new Mesh(geometry, material)));
-  t.after(() => { clip.dispose(); material.dispose(); geometry.dispose(); });
-  const a = compile(material), b = compile(material);
-  assert.equal(a.uniforms.templeFadeDitherThresholds, b.uniforms.templeFadeDitherThresholds);
-  const thresholds = a.uniforms.templeFadeDitherThresholds!.value as Float32Array;
-  assert.equal(thresholds.length, 16);
-  assert.equal(new Set(thresholds).size, 16);
-  const retained = (coverage: number) => [...thresholds].filter(threshold => coverage >= threshold).length;
-  for (let count = 0; count <= 16; count++) assert.equal(retained(count / 16), count);
-  assert.ok([...thresholds].every(value => value > 0 && value < 1), 'zero coverage discards all, full coverage discards none');
-  const original = thresholds.slice(), version = material.version;
-  for (const samples of [0, 4, 0]) {
-    clip.set(createTempleFadeConfiguration(-.11, samples)); clip.prepareRender();
-    assert.deepEqual(thresholds, original, 'mode/reentry never reseeds the spatial pattern');
-  }
-  assert.equal(material.version, version + 2);
-  assert.equal(material.alphaToCoverage, false);
-  assert.equal(material.transparent, false);
-  assert.equal(material.depthTest, true);
-  assert.equal(material.depthWrite, true);
-  assert.equal(material.alphaHash, false);
-  assert.equal(material.alphaTest, 0);
 });
 
 test('different original hooks remain distinct under the default Three cache key', t => {
@@ -391,7 +270,8 @@ test('recorded clipping metadata is copied, validated atomically, disabled and r
   }
   const unknownVersion = {...clipping(-.09), method: 'unrecognized-v2'} as unknown as TempleClipConfiguration;
   assert.throws(() => clip.set(unknownVersion), /configuration is invalid/);
-  for (const cutoff of [-.2, -.03]) assert.doesNotThrow(() => validateTempleClip(clipping(cutoff)));
+  // The 15 mm band must end behind the protected front (-.03), so -.045 is the last valid cutoff.
+  for (const cutoff of [-.2, -.045]) assert.doesNotThrow(() => validateTempleClip(clipping(cutoff)));
   clip.set(null); assert.equal(shader.uniforms.templeClipEnabled!.value, 0); assert.equal(clip.configuration, null);
   clip.set(clipping(-.08, -.065));
   assert.equal(shader.uniforms.templeClipEnabled!.value, 1);
@@ -441,8 +321,8 @@ test('camera dissolve borrows the paired sRGB source, composes after visibility,
     'camera RGB gets the actual output encoding without the synthetic-light tone mapper');
   assert.match(footer, /gl_FragColor\.rgb = mix\(templeCameraRGB, gl_FragColor\.rgb, templeBlendWeight\)/);
   assert.doesNotMatch(footer, /gl_FragColor\.a\s*=/, 'v3 preserves the overlay coverage alpha');
-  assert.match(composed, /templeFadeMode > 0\.5 && templeFadeMode < 2\.5/,
-    'v3 leaves endpoint coverage at one, independently of visibility A2C/dither');
+  assert.deepEqual(composed.match(/gl_FragColor\.a\s*=[^;]*;/g), ['gl_FragColor.a = 0.37;'],
+    'the clip writes no alpha, so coverage stays with visibility A2C/dither');
   assert.match(footer, /templeOriginalXZ\.y < templeBlendEndpointZ \+ templeFadeLength/,
     'fragments before the terminal band retain their exact lit RGB');
   clip.set(blend);
@@ -459,7 +339,7 @@ test('camera dissolve borrows the paired sRGB source, composes after visibility,
   assert.equal(shader.uniforms.templeCameraSource!.value, null);
 });
 
-test('dissolve metadata and source validation are bounded and legacy v1/v2 remain independent of camera borrowing', t => {
+test('dissolve metadata and source validation are bounded', t => {
   const frame = new MeshStandardMaterial(), geometry = new BufferGeometry(), camera = pairedCamera();
   const clip = createTempleClip(new Group().add(new Mesh(geometry, frame)));
   t.after(() => { clip.dispose(); frame.dispose(); geometry.dispose(); camera.dispose(); });
@@ -491,18 +371,4 @@ test('dissolve metadata and source validation are bounded and legacy v1/v2 remai
     assert.equal(shader.uniforms.templeCameraSource!.value, camera, 'failed preparation cannot replace the validated source');
     assert.deepEqual(shader.uniforms.templeCameraViewport!.value.toArray(), [960, 720]);
   }
-  for (const samples of [4, 0]) {
-    const historical = {...createTempleFadeConfiguration(-.09, samples), fadeLengthLocalM: .006};
-    clip.set(historical); clip.prepareRender();
-    assert.deepEqual(clip.configuration, historical);
-    assert.equal(shader.uniforms.templeFadeMode!.value, samples > 0 ? 1 : 2);
-    assert.equal(shader.uniforms.templeFadeLength!.value, .006);
-    assert.equal(shader.uniforms.templeCameraSource!.value, null);
-    assert.equal(frame.alphaToCoverage, samples > 0);
-  }
-  clip.set(clipping(-.07, -.08)); clip.prepareRender();
-  assert.deepEqual(clip.configuration, clipping(-.07, -.08));
-  assert.equal(shader.uniforms.templeFadeMode!.value, 0);
-  assert.equal(shader.uniforms.templeCameraSource!.value, null);
-  assert.equal(frame.alphaToCoverage, false);
 });

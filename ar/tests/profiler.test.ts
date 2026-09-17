@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {cameraDeliveryFps, distribution, FrameProfiler, summarize, workCoverage} from '../src/pipeline/profiler.ts';
+import {cameraDeliveryFps, distribution, FrameProfiler, summarize} from '../src/pipeline/profiler.ts';
 import type {FrameInput} from '../src/pipeline/profiler.ts';
 
 function frame(at: number, sequence = 1, sessionId = 'session'): FrameInput {
@@ -46,12 +46,12 @@ test('image ownership identifiers never enter timing storage or exports', () => 
 
 test('coverage uses all measured frames for tracking and only tracked hair frames for mask coverage', () => {
   const rows = [frame(100), {...frame(200), hasFace: false, hasMask: false}, {...frame(300), hasMask: false}];
-  const coverage = workCoverage(summarize(rows.map((row, index) => ({...row, serial: index + 1}))), true);
-  assert.equal(coverage.status, 'partial'); assert.equal(coverage.trackedFraction, 2 / 3);
-  assert.equal(coverage.maskedTrackedFraction, .5); assert.equal(coverage.untrackedFrames, 1); assert.equal(coverage.trackedFramesWithoutMask, 1);
-  assert.equal(workCoverage(summarize([]), true).status, 'no-frames');
-  const off = workCoverage(summarize(rows.map((row, index) => ({...row, serial: index + 1, hair: false, hasMask: false, hasFace: true}))), false);
-  assert.equal(off.status, 'full'); assert.equal(off.maskedTrackedFraction, null);
+  const summary = summarize(rows.map((row, index) => ({...row, serial: index + 1})));
+  assert.equal(summary.frames, 3); assert.equal(summary.trackedFrames, 2); assert.equal(summary.maskedFrames, 1);
+  assert.equal(summary.trackedHairFrames, 2); assert.equal(summary.hairCoverage, .5);
+  assert.equal(summarize([]).frames, 0); assert.equal(summarize([]).hairCoverage, null);
+  const off = summarize(rows.map((row, index) => ({...row, serial: index + 1, hair: false, hasMask: false, hasFace: true})));
+  assert.equal(off.trackedFrames, 3); assert.equal(off.hairCoverage, null);
 });
 
 test('rows with a publication before their capture are refused', () => {

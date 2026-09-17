@@ -24,22 +24,6 @@ export interface ProfileSummary {
   stages: Record<string, Distribution | null>; source: {width: number; height: number} | null;
 }
 export const COVERAGE_POLICY = 'Full coverage requires tracking on 100% of measured frames and, with hair enabled, a mask on 100% of tracked frames. This describes workload coverage, not visual acceptance. All measured frames remain in timing summaries.';
-export interface WorkCoverage {
-  status: 'full' | 'partial' | 'no-tracking' | 'no-frames';
-  trackedFraction: number | null;
-  maskedTrackedFraction: number | null;
-  untrackedFrames: number;
-  trackedFramesWithoutMask: number | null;
-}
-export function workCoverage(summary: ProfileSummary, hair: boolean): WorkCoverage {
-  const trackedFraction = summary.frames ? summary.trackedFrames / summary.frames : null;
-  const maskedTrackedFraction = hair ? summary.hairCoverage : null;
-  const full = trackedFraction === 1 && (!hair || maskedTrackedFraction === 1);
-  return {status: !summary.frames ? 'no-frames' : !summary.trackedFrames ? 'no-tracking' : full ? 'full' : 'partial',
-    trackedFraction, maskedTrackedFraction, untrackedFrames: summary.frames - summary.trackedFrames,
-    trackedFramesWithoutMask: hair
-      ? summary.trackedHairFrames - Math.round((summary.hairCoverage ?? 0) * summary.trackedHairFrames) : null};
-}
 export const distribution = (values: readonly number[]): Distribution | null => {
   const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
   if (!sorted.length) return null;

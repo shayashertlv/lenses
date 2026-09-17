@@ -30,24 +30,21 @@ export interface ViewTempleVisibilityConfiguration extends TempleVisibilityWeigh
   readonly method: typeof VIEW_TEMPLE_VISIBILITY_METHOD;
 }
 
-export interface CurrentTempleVisibilityConfiguration extends TempleVisibilityWeights {
+/** The only setting the controller accepts; v1 and v2 are the steps it is built from. */
+export interface TempleVisibilityConfiguration extends TempleVisibilityWeights {
   readonly method: typeof TEMPLE_VISIBILITY_METHOD;
   readonly frontalOcclusionWeight: number;
 }
 
-export type TempleVisibilityConfiguration = LegacyTempleVisibilityConfiguration | ViewTempleVisibilityConfiguration | CurrentTempleVisibilityConfiguration;
-
 /** Only exact zeros remove work; small nonzero visibility retains the full pass. */
 export function hasTempleVisibilityEffect(value: TempleVisibilityConfiguration): boolean {
-  return value.negativeXWeight !== 0 || value.positiveXWeight !== 0
-    || value.method === TEMPLE_VISIBILITY_METHOD && value.frontalOcclusionWeight !== 0;
+  return value.negativeXWeight !== 0 || value.positiveXWeight !== 0 || value.frontalOcclusionWeight !== 0;
 }
 
 export function validateTempleVisibility(value: TempleVisibilityConfiguration): void {
-  if (!value || value.method !== TEMPLE_VISIBILITY_METHOD && value.method !== VIEW_TEMPLE_VISIBILITY_METHOD && value.method !== LEGACY_TEMPLE_VISIBILITY_METHOD
+  if (!value || value.method !== TEMPLE_VISIBILITY_METHOD
       || [value.negativeXWeight, value.positiveXWeight].some(weight => !Number.isFinite(weight) || weight < 0 || weight > 1)
-      || value.method === TEMPLE_VISIBILITY_METHOD && (!Number.isFinite(value.frontalOcclusionWeight)
-        || value.frontalOcclusionWeight < 0 || value.frontalOcclusionWeight > 1)
+      || !Number.isFinite(value.frontalOcclusionWeight) || value.frontalOcclusionWeight < 0 || value.frontalOcclusionWeight > 1
       || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither') {
     throw new Error('The recorded temple visibility configuration is invalid.');
   }
@@ -93,8 +90,8 @@ export function createViewTempleVisibilityConfiguration(rawMatrix: readonly numb
   };
 }
 
-/** Keep the actual stored permissions explicit; replay never re-estimates them. */
-export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number): CurrentTempleVisibilityConfiguration {
+/** The v2 side weights plus the frontal weight, fixed for the pose they were made from; prepare never re-estimates them. */
+export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number): TempleVisibilityConfiguration {
   const view = createViewTempleVisibilityConfiguration(rawMatrix, nativeSamples);
   const pitch = Math.abs(rawMatrix[9]!) / Math.hypot(rawMatrix[8]!, rawMatrix[9]!, rawMatrix[10]!);
   const frontalOcclusionWeight = (1 - lateralConfidence(rawMatrix)) * MathUtils.smoothstep(pitch,
@@ -112,18 +109,6 @@ export function templeLiftedDepth(surfaceDepth: number, near: number, far: numbe
   const viewZ = near * far / ((far - near) * surfaceDepth - far);
   const aheadZ = Math.min(-near, viewZ + TEMPLE_VISIBILITY_PARAMETERS.placementCm);
   return ((near + aheadZ) * far) / ((far - near) * aheadZ);
-}
-
-/** Diagnostic of the shader's bounded original-asset probe, in native UV space. */
-export function templeFrontalProbeUV(position: readonly [number, number, number], modelView: Matrix4, projection: Matrix4, frontZM: number, fraction: number): Vector2 | null {
-  if (![...position, ...modelView.elements, ...projection.elements, frontZM, fraction].every(Number.isFinite)
-      || fraction < 0 || fraction > 1) throw new Error('The frontal temple probe is invalid.');
-  const projected = new Vector4(...position, 1).applyMatrix4(modelView).applyMatrix4(projection);
-  const front = new Vector4(position[0], position[1], frontZM, 1).applyMatrix4(modelView).applyMatrix4(projection);
-  projected.lerp(front, fraction);
-  if (projected.w <= 0) return null;
-  const uv = new Vector2(projected.x / projected.w * .5 + .5, projected.y / projected.w * .5 + .5);
-  return uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1 ? null : uv;
 }
 
 interface VisibilityContext {
@@ -282,7 +267,6 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     material.depthWrite = false; material.depthTest = true; material.transparent = false; material.alphaToCoverage = false;
     material.onBeforeCompile = function(shader, backend) {
       hook.call(this, shader, backend);
-      const endpointCoverage = shader.uniforms.templeClipEnabled ? 'templeEndpointCoverage' : '1.0';
       Object.assign(shader.uniforms, uniforms);
       shader.vertexShader = 'varying vec3 templeVisibilityPosition;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>', '#include <begin_vertex>\ntempleVisibilityPosition = position;');
@@ -291,7 +275,6 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         uniform vec2 templeVisibilitySize, templeVisibilityNearFar, templeVisibilityWeights;
         uniform float templeVisibilityFront, templeVisibilityDitherThresholds[16];
         ` + shader.fragmentShader;
-      // This must run after the clip wrapper's opaque_fragment alpha override.
       // It changes only an overlay fragment's tested depth, never depth-buffer contents.
       shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
         if (abs(templeVisibilityPosition.x) <= ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
@@ -300,7 +283,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         float templeSideMask = texture2D(templeVisibilityHeadMask, templeVisibilityUV).r;
         float templeSideWeight = templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y;
         float templeRootWeight = smoothstep(0.0, ${TEMPLE_VISIBILITY_PARAMETERS.rootBlendM}, templeVisibilityFront - templeVisibilityPosition.z);
-        float templeOverlayCoverage = ${endpointCoverage} * templeSideMask * templeSideWeight * templeRootWeight;
+        float templeOverlayCoverage = templeSideMask * templeSideWeight * templeRootWeight;
         if (templeOverlayCoverage <= 0.0) discard;
         ${material.alphaToCoverage ? 'gl_FragColor.a = templeOverlayCoverage;' : `
           int templeVisibilityDitherIndex = int(mod(floor(gl_FragCoord.x), 4.0) + 4.0 * mod(floor(gl_FragCoord.y), 4.0));
@@ -367,7 +350,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       restoreColorWrites();
       configuration = value ? {...value} : null;
       frontalUniforms.templeFrontalCameraSource.value = null;
-      frontalUniforms.templeFrontalWeight.value = value?.method === TEMPLE_VISIBILITY_METHOD ? value.frontalOcclusionWeight : 0;
+      frontalUniforms.templeFrontalWeight.value = value?.frontalOcclusionWeight ?? 0;
       uniforms.templeVisibilityWeights.value.set(value?.negativeXWeight ?? 0, value?.positiveXWeight ?? 0);
       for (const overlay of overlays) overlay.visible = value !== null
         && (value.negativeXWeight !== 0 || value.positiveXWeight !== 0);

@@ -2,11 +2,12 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {describeExternalModel, installExternalModel, parseExternalModel} from '../src/eyewear/external.ts';
 import {DEFAULT_EYEWEAR_ID, EYEWEAR, eyewearById, GLASSES_OFFSET_CM, isEyewearId, MODELING_AUTO_EYEWEAR_ID, modelingAutoEyewear,
-  registerModelingAutoEyewear, SHIPPED_EYEWEAR, unregisterModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+  registerModelingAutoEyewear, SHIPPED_EYEWEAR, TEMPLE_CLIP_NEAREST_LOCAL_Z_M, unregisterModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+import {createTempleBlendConfiguration, TEMPLE_BLEND_LENGTH_LOCAL_M} from '../src/render/temple-clip.ts';
 import {registerPinnedGeometry} from '../src/render/continuity.ts';
 
-const PAGE = 'http://127.0.0.1:8064';
-const ASSET = 'http://127.0.0.1:8064/api/jobs/6eda65cd-d4d2-4e65-9452-7ac734b1807a/files/9f0c2a1b7e8d4f5a';
+const PAGE = 'http://127.0.0.1:8250';
+const ASSET = 'http://127.0.0.1:8250/api/jobs/6eda65cd-d4d2-4e65-9452-7ac734b1807a/files/9f0c2a1b7e8d4f5a';
 const DIGEST = 'c'.repeat(64);
 
 test('a page without a model parameter carries no handover', () => {
@@ -52,6 +53,14 @@ test('the catalog lists the shipped frames only until a Modeling Auto model is r
     description: 'Prepared by Modeling Auto at 138 mm across the front. Preview placement is not measured wearer fit.',
     finish: 'Modeling Auto · Prepared model', assetUrl: ASSET, offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 138, templeClipLocalZM: -0.11});
   assert.ok(Object.isFrozen(registered));
+  // A depth the handover accepts but the temple blend cannot draw is drawn from the nearest drawable depth.
+  for (const clip of [-0.03, -0.04, TEMPLE_CLIP_NEAREST_LOCAL_Z_M]) {
+    const near = registerModelingAutoEyewear({name: 'x', assetUrl: ASSET, widthMm: 145, templeClipLocalZM: clip});
+    assert.equal(near.templeClipLocalZM, TEMPLE_CLIP_NEAREST_LOCAL_Z_M);
+    assert.doesNotThrow(() => createTempleBlendConfiguration(near.templeClipLocalZM));
+  }
+  assert.equal(TEMPLE_CLIP_NEAREST_LOCAL_Z_M, -0.03 - TEMPLE_BLEND_LENGTH_LOCAL_M);
+  assert.throws(() => createTempleBlendConfiguration(TEMPLE_CLIP_NEAREST_LOCAL_Z_M + 0.001), /invalid/, 'the limit is the blend itself');
   for (const bad of [{assetUrl: ''}, {widthMm: 20}, {templeClipLocalZM: 0}, {templeClipLocalZM: -0.5}])
     assert.throws(() => registerModelingAutoEyewear({name: 'x', assetUrl: ASSET, widthMm: 145, templeClipLocalZM: -0.11, ...bad}));
   unregisterModelingAutoEyewear();
