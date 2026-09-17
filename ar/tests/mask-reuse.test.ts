@@ -138,7 +138,25 @@ test('the continuity cut reads a moved mask where the arm was in the mask\'s own
   assert.notDeepEqual(continuityCut(model, paths, shifted, render, 10), still, 'unmoved, it does not');
 });
 
-test('?hairframes=2, ?hairmove= and ?hairmaxage= parse; the default is every frame; the rejected variants are gone', () => {
+test('phones and tablets default to hair on every second frame, laptops to every frame; ?hairframes=1|2 choose anywhere', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
+  const android = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Mobile Safari/537.36';
+  const ipadAsMac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+  const laptop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Safari/537.36';
+  const every2 = {...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2};
+  for (const [agent, touch] of [[iphone, 5], [android, 5], [ipadAsMac, 5]] as const) {
+    assert.deepEqual(parseConfig('', agent, touch).hairSchedule, every2, agent);
+    assert.deepEqual(parseConfig('?hairframes=1', agent, touch).hairSchedule, DEFAULT_HAIR_SCHEDULE, agent);
+    assert.deepEqual(parseConfig('?hairmove=0&hairmaxage=120', agent, touch).hairSchedule, {mode: 'interval', frames: 2, movePx: 0, maxAgeMs: 120}, agent);
+    for (const other of ['3', 'auto', '', 'x']) assert.deepEqual(parseConfig(`?hairframes=${other}`, agent, touch).hairSchedule, every2, `${agent} ?hairframes=${other}`);
+    assert.match(describeConfig(parseConfig('', agent, touch), agent, touch), /hair every 2 frames \(phone and tablet default; \?hairframes=1 for every frame\), sooner when the head moves > 8 px/);
+    assert.match(describeConfig(parseConfig('?hairframes=1', agent, touch), agent, touch), /hair on every frame, each waits for its own mask \(\?hairframes=1\)/);
+  }
+  assert.deepEqual(parseConfig('', ipadAsMac, 0).hairSchedule, DEFAULT_HAIR_SCHEDULE, 'a Mac without touch is a laptop');
+  assert.deepEqual(parseConfig('', laptop, 10).hairSchedule, DEFAULT_HAIR_SCHEDULE); assert.deepEqual(parseConfig('?hairframes=1', laptop).hairSchedule, DEFAULT_HAIR_SCHEDULE);
+  assert.deepEqual(parseConfig('?hairframes=2', laptop).hairSchedule, every2);
+  assert.doesNotMatch(describeConfig(parseConfig('', laptop), laptop), /hair every|hair on every frame/);
+  assert.match(describeConfig(parseConfig('?hairframes=2', laptop), laptop), /hair every 2 frames \(\?hairframes=2\)/);
   assert.deepEqual(parseConfig('').hairSchedule, DEFAULT_HAIR_SCHEDULE); assert.equal(DEFAULT_HAIR_SCHEDULE.mode, 'every');
   assert.deepEqual(parseConfig('?hairframes=2').hairSchedule, {...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2});
   assert.deepEqual(parseConfig('?hairframes=2&hairmove=0&hairmaxage=120').hairSchedule, {mode: 'interval', frames: 2, movePx: 0, maxAgeMs: 120});

@@ -201,7 +201,8 @@ export function runPipeline(c: PipelineContext): Pipeline {
         // not known yet): a fast head starts a fresh mask early.
         const newest = masks.newest;
         const motion = newest && lastLandmarks ? headMotionPx(newest.landmarks, lastLandmarks, p.canvas.width, p.canvas.height) : null;
-        hairRequested = scheduler.shouldRequest(p.sequence, !hairBusy, newest !== null, motion);
+        // A pending audit compares only a frame's own mask: the first frame that finds the worker idle takes one.
+        hairRequested = scheduler.shouldRequest(p.sequence, !hairBusy, newest !== null, motion) || (!hairBusy && c.renderer.auditRequestPending === true);
         if (hairRequested) {hairBusy = true; scheduler.noteRequested(p.sequence);}
       }
       const hairSource = !hairRequested || hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE && faceCpu === hairCpu ? input : scaledCopy(p.canvas, hairInputMaxEdge, hairCpu);
@@ -271,16 +272,23 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const prepareMs = performance.now() - started, waitStart = performance.now();
       if (decoupled) {
         // Never wait: this frame's own mask if it is already here, else the newest mask moved to this frame, else none.
-        let reuse: MaskChoice<HairSegmentationResult> | null = null;
+        let reuse: MaskChoice<HairSegmentationResult> | null = null, waited = false;
         if (hairEnabled && visible) {
-          const own = i.hairResult && i.hairResult.sequence === p.sequence && i.hairResult.sourceSHA256 === i.sourceSHA256 ? i.hairResult : null;
+          const mine = (value: HairSegmentationResult | null) => value && value.sequence === p.sequence && value.sourceSHA256 === i.sourceSHA256 ? value : null;
+          let own = mine(i.hairResult);
+          if (!own && i.hairRequested && c.renderer.auditRequestPending === true) {
+            // The frame an audit will hold started its own mask: it waits for it, as every frame does without a schedule.
+            at('waiting for the hair mask of the audited frame'); let timer: ReturnType<typeof setTimeout> | undefined; waited = true;
+            try {own = mine(await Promise.race([i.hair, new Promise<null>(resolve => {timer = setTimeout(() => resolve(null), hairWaitMs);})]));}
+            finally {if (timer !== undefined) clearTimeout(timer);}
+          }
           reuse = chooseMask(own, {sequence: p.sequence, capturedAtMs: p.capturedAtMs, width: p.canvas.width, height: p.canvas.height, landmarks: i.detection.landmarks},
             masks.newest, hairSchedule);
           if (!reuse) hairStats.missed++;
         }
         if (!owns() || signal.aborted) throw new DOMException('Frame revoked.', 'AbortError');
         return {visible, mask: reuse ? {...reuse.mask, detectionSHA256: i.detectionSHA256} : null, hair: reuse && !reuse.carried ? reuse.mask : null,
-          prepareMs, hairWaitMs: 0, reuse};
+          prepareMs, hairWaitMs: waited ? performance.now() - waitStart : 0, reuse};
       }
       let hair = i.hairResult;
       if (!hair && hairEnabled && visible) {

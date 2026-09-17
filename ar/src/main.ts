@@ -130,7 +130,7 @@ function updateUi(): void {
   element('pose-shake').textContent = describePoseShake(poseShake(recent), config.steady !== null);
   const schedule = config.hairSchedule;
   element('hair-masks').textContent = describeHairReport(hairReport(recent), schedule.mode === 'every' ? 'every frame waits for its own mask'
-    : `?hairframes=${schedule.frames}`);
+    : `hair every ${schedule.frames} frames`);
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.

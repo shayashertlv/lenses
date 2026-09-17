@@ -26,20 +26,24 @@ const landmarksAt = (timeMs: number, pxPerMs: number) => Array.from({length: 478
 
 interface Finish {mask: boolean; warp: MaskWarp | null; carried: boolean; waitMs: number; at: number;}
 interface Run {rows: FrameInput[]; finishes: Finish[]; hairCalls: number; errors: string[]; hairErrors: string[]; facelessAt: Set<number>;
-  jobs: HairJobsSummary | null; recentJobs: HairJobsSummary | null; describe: string;}
-interface Options {schedule?: HairSchedule; hairMs: number; faceMs?: number; hangFromCall?: number; rejectCall?: number; durationMs: number; pxPerMs?: number; faceless?: (timeMs: number) => boolean;}
+  jobs: HairJobsSummary | null; recentJobs: HairJobsSummary | null; describe: string; auditRequestedAt: number | null; auditedFinish: number | null;}
+interface Options {schedule?: HairSchedule; hairMs: number; faceMs?: number; auditAtMs?: number; hangFromCall?: number; rejectCall?: number; durationMs: number; pxPerMs?: number; faceless?: (timeMs: number) => boolean;}
 
 async function run(options: Options): Promise<Run> {
   let callback: ((now: number, metadata: {presentedFrames: number; mediaTime: number}) => void) | null = null, presented = 0;
   const video = {srcObject: null, readyState: 4, videoWidth: 320, videoHeight: 180, currentTime: 0,
     requestVideoFrameCallback(cb: typeof callback) {callback = cb; return 1;}, cancelVideoFrameCallback() {callback = null;}};
   const camera = setInterval(() => {presented++; fill = presented & 255; const cb = callback; callback = null; cb?.(performance.now(), {presentedFrames: presented, mediaTime: presented / 30});}, 33);
-  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set(), jobs: null, recentJobs: null, describe: ''};
-  let lastMask = false, preparedAt = 0;
+  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set(), jobs: null, recentJobs: null, describe: '', auditRequestedAt: null, auditedFinish: null};
+  let lastMask = false, preparedAt = 0, auditPending = false;
+  // Like LiveRenderer: a pending audit is taken by the first frame that draws its own mask.
+  const auditTimer = options.auditAtMs === undefined ? null : setTimeout(() => {auditPending = true; result.auditRequestedAt = result.finishes.length;}, options.auditAtMs);
   const renderer = {setHairEnabled() {}, async prepare() {await sleep(2); preparedAt = performance.now(); return true;},
+    get auditRequestPending() {return auditPending;},
     // The time from the renderer's pose to the draw: the pipeline's own wait for a mask, if any, sits in between.
     finish(mask: unknown, warp: MaskWarp | null = null, carried = false) {lastMask = mask !== null;
-      result.finishes.push({mask: lastMask, warp, carried, waitMs: performance.now() - preparedAt, at: performance.now()});},
+      result.finishes.push({mask: lastMask, warp, carried, waitMs: performance.now() - preparedAt, at: performance.now()});
+      if (auditPending && lastMask && !carried) {auditPending = false; result.auditedFinish = result.finishes.length - 1;}},
     get stats() {return {render: {maskUploadMs: 0, continuityMs: 0, submitMs: 0}, audit: {ran: false, ms: 0}, gpuWaitPolls: 0, gpuWaitTimedOut: false, gpuWaitMs: 0, poseMs: 0, hasMask: lastMask, fallbackReason: null};},
     get poseSample() {return null;}};
   const detector = {delegate: 'CPU', lastTiming: null, async detect(bitmap: {close(): void}, timestampMs: number) {
@@ -60,7 +64,7 @@ async function run(options: Options): Promise<Run> {
     eyewearId: 'amber-horizon', owns: () => true, nextSequence: () => ++sequence, hairSchedule: options.schedule,
     onHairError: (error: unknown) => result.hairErrors.push(String(error)), onError: (error: unknown) => result.errors.push(String(error)),
     onPublished: (row: FrameInput) => result.rows.push(row), backend: () => ({active: 'CPU', renderer: null})} as unknown as PipelineContext);
-  await sleep(options.durationMs); result.jobs = pipeline.hairJobs(60_000); result.recentJobs = pipeline.hairJobs(150); result.describe = pipeline.describe(); pipeline.stop(); clearInterval(camera); await sleep(40);
+  await sleep(options.durationMs); result.jobs = pipeline.hairJobs(60_000); result.recentJobs = pipeline.hairJobs(150); result.describe = pipeline.describe(); pipeline.stop(); clearInterval(camera); if (auditTimer) clearTimeout(auditTimer); await sleep(40);
   return result;
 }
 const interval = (frames: number, extra: Partial<HairSchedule> = {}): HairSchedule => ({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames, ...extra});
@@ -133,6 +137,23 @@ test('the default schedule: the draw gaps around each face post are consistent t
   const r = await run({hairMs: 40, faceMs: 5, durationMs: 1500});
   assert.deepEqual(r.errors, []); assert.ok(r.rows.length > 10, `${r.rows.length} frames`);
   checkDrawGaps(r);
+});
+
+test('with a schedule an audit gets a frame that waited for its own mask, the first frame that finds the worker idle', async () => {
+  // 45 ms hair against 8 ms face: without the audit path no frame would draw its own mask. A schedule that asks for
+  // no mask after the first (a still head), so only the audit itself can start the job it needs.
+  const r = await run({schedule: interval(100_000), hairMs: 45, durationMs: 1800, auditAtMs: 700});
+  assert.deepEqual(r.errors, []); assert.ok(r.auditRequestedAt !== null, 'the audit was requested');
+  const before = r.finishes.slice(0, r.auditRequestedAt!);
+  const own = (finish: Finish) => finish.mask && !finish.carried;
+  assert.ok(before.length > 5 && !before.some(own), 'before the audit no frame draws its own mask');
+  assert.ok(r.auditedFinish !== null && r.auditedFinish - r.auditRequestedAt! <= 4, `audited at frame ${r.auditedFinish}, requested at ${r.auditRequestedAt}`);
+  const audited = r.rows[r.auditedFinish!]!;
+  assert.ok(audited.hasMask && audited.native?.['hair.carried'] === false && audited.native?.['hair.requested'] === true && audited.hairWaitMs > 5,
+    `the audited frame waited ${audited.hairWaitMs} ms for its own mask`);
+  const after = r.finishes.slice(r.auditedFinish! + 1);
+  assert.ok(after.length > 5 && !after.some(own), 'after the audit no frame waits for or draws its own mask again');
+  assert.ok(r.rows.filter((_row, k) => k !== r.auditedFinish).every(row => row.hairWaitMs === 0), 'no other frame waits');
 });
 
 test('a failed hair job leaves no hair job counted in flight', async () => {

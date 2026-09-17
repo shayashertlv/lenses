@@ -1,5 +1,7 @@
-/** Hair on every second frame (`?hairframes=2`), a test lever. By default every frame waits for its own hair mask. With
- *  the schedule, frames never wait: a hair job starts on every second frame (sooner when the head moves), and a frame
+/** Hair on every second frame: the default on phones and tablets since 2026-09-17 (owner decision after the iPhone runs:
+ *  with the CPU face landmarker it held the camera's 30 fps for three minutes, where hair on every frame fell to 23-24),
+ *  and `?hairframes=2` anywhere. Laptops keep every frame waiting for its own hair mask. With the schedule, frames never
+ *  wait: a hair job starts on every second frame (sooner when the head moves), and a frame
  *  whose own mask is not ready is drawn with the newest mask of another frame, moved to this frame by the head's motion
  *  between the two frames. (Owner review 2026-09-17: a held, unmoved mask, hair whenever the worker is free, and every
  *  3rd/4th frame were visually unacceptable and were removed.)

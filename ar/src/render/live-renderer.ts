@@ -11,6 +11,10 @@ import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
 import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
 
+/** Finished frames an audit passes over while they draw a mask reused from another frame, waiting for one that draws
+ *  its own (the CPU reference composes only a frame's own mask); after that many it audits a reused one and says so. */
+export const AUDIT_OWN_MASK_FRAMES = 90;
+
 export type {PairIdentity, HairModelContract};
 export interface LiveStats {
   sequence: number; hasFace: boolean; hasMask: boolean; hairEnabled: boolean;
@@ -36,8 +40,10 @@ export class LiveRenderer {
   private pair: PairIdentity | null = null;
   private model: HairModelContract | null = null;
   private auditRequested = false;
+  private auditPassedOver = 0;
   private audit: Audit | null = null;
-  private constructor(private readonly renderer: TryOnRenderer) {}
+  private readonly renderer: TryOnRenderer;
+  private constructor(renderer: TryOnRenderer) {this.renderer = renderer;}
   static async create(display: HTMLCanvasElement, signal: AbortSignal, eyewearId: string = DEFAULT_EYEWEAR_ID, options: RendererOptions = {}): Promise<LiveRenderer> {
     return new LiveRenderer(await TryOnRenderer.create(display, signal, eyewearId, options));
   }
@@ -51,7 +57,9 @@ export class LiveRenderer {
   get captureSnapshot() {return this.renderer.captureSnapshot;}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
   /** The next finished frame is audited; the result is available through takeAudit(). */
-  requestAudit(): void {if (!this.disposed) this.auditRequested = true;}
+  requestAudit(): void {if (!this.disposed) {this.auditRequested = true; this.auditPassedOver = 0;}}
+  /** An audit is waiting for a frame: with a hair schedule the pipeline then gives the next frame its own mask. */
+  get auditRequestPending(): boolean {return this.auditRequested && !this.disposed;}
   takeAudit(): Audit | null {const value = this.audit; this.audit = null; return value;}
   /** The posed frame's raw and steadied orientation (numbers only); null while a frame is pending or without a face. */
   get poseSample() {return this.pending || this.disposed ? null : this.renderer.poseSample;}
@@ -83,7 +91,9 @@ export class LiveRenderer {
       this.renderer.setMaskWarp(gpuMask ? warp : null);
       const timings = this.renderer.render(gpuMask);
       let auditMs = 0, audited = false;
-      if (this.auditRequested && this.visible && this.frame && this.detection && this.pair && this.model) {
+      const passOver = gpuMask !== null && carried && this.auditPassedOver < AUDIT_OWN_MASK_FRAMES;
+      if (this.auditRequested && this.visible && passOver) this.auditPassedOver++;
+      else if (this.auditRequested && this.visible && this.frame && this.detection && this.pair && this.model) {
         this.auditRequested = false; audited = true;
         const auditStart = performance.now();
         try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model, mask, gpuMask, maskCarried: gpuMask !== null && carried, maskWarped: gpuMask !== null && warp !== null}, timings, this.sequence);}

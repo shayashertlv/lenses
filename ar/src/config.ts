@@ -12,24 +12,28 @@ import type {HairSchedule} from './hair/mask-reuse.ts';
 
 export interface Config {
   /** Face landmarker delegates in the order to try; the next one is tried when one fails or times out at startup.
-   *  Default: CPU first (perfecto_17fps, measured on the laptop), except on iPhone and iPad where the GPU comes first
-   *  (the order the earlier phone tests ran). `?face=gpu` / `?face=cpu` set the order explicitly. */
+   *  Default: CPU first on every device (laptop: perfecto_17fps; Android always was; iPhone and iPad since the iPhone
+   *  runs of 2026-09-17, where a GPU face request posted just before a frame's draw took about twice as long and held
+   *  hair on every second frame at 24-28 fps, while with the CPU landmarker it kept the camera's 30 fps to 168 s).
+   *  `?face=gpu` / `?face=cpu` set the order. */
   faceDelegates: readonly FaceDelegate[];
   /** `?capture=` px (320..1280): the camera frame is drawn into a canvas of at most this edge before anything runs. */
   captureMaxEdge: number;
   /** `?source=videoframe|canvas`: how the frame's pixels are taken (see pipeline/capture.ts). Both were measured on
    *  2026-09-16: VideoFrame won on the laptop's webcam, the canvas won on the phone, and each is that device's default. */
   captureSource: CaptureSource;
-  /** `?hairwait=` ms (0..400): the guard after which a frame is drawn without its hair mask (see HAIR_WAIT_MS); every
-   *  frame waits for its own mask by default. A measurement lever only. */
+  /** `?hairwait=` ms (0..400): the guard after which a frame is drawn without its hair mask (see HAIR_WAIT_MS). Read
+   *  only where frames wait for their own mask: hair on every frame (laptop default, `?hairframes=1`), and with hair on
+   *  every second frame only the frame an audit holds. A measurement lever only. */
   hairWaitMs: number;
   /** `?hairinput=` px (256..1280): the hair segmenter sees a copy of at most this edge (default 640, see
    *  DEFAULT_HAIR_INPUT_MAX_EDGE; 1280 restores the frame-size mask). */
   hairInputMaxEdge: number;
   /** `?hairdelegate=cpu|gpu` forces the hair segmenter's delegate; default: the graphics probe chooses, except on Apple
-   *  phones and tablets, which default to the CPU (iPhone 17 Pro, 2026-09-15: no mask readback at all, the GPU left to
-   *  the face landmarker throttles less; 29 fps for 40 s instead of 20 s and 2-3 fps more at 30-60 s, level by 70 s;
-   *  other phones are unmeasured and keep the probe). */
+   *  phones and tablets, which default to the CPU (iPhone 17 Pro, 2026-09-15, with the face landmarker then on the GPU:
+   *  no mask readback at all, and the GPU throttled less; 29 fps for 40 s instead of 20 s and 2-3 fps more at 30-60 s,
+   *  level by 70 s. Kept for the defaults of 2026-09-17, which measured it with the CPU face landmarker; GPU hair with
+   *  the CPU face landmarker is unmeasured; other phones are unmeasured and keep the probe). */
   hairDelegate: HairDelegate | 'auto';
   /** `?hairz=` mesh-local metres behind which temple fragments may blend toward the camera under hair. */
   hairStartZ: number;
@@ -56,10 +60,11 @@ export interface Config {
    *  cutoff at rest (0.05..20 Hz), `?steadybeta=` added Hz per °/s (0..5), `?steadydepthhz=` (0.05..20 Hz) and
    *  `?steadydepthbeta=` added Hz per cm/s (0..5). */
   steady: SteadyOptions | null;
-  /** Which frames run the hair segmenter (hair/mask-reuse.ts), a test lever. Default: every frame waits for its own mask.
-   *  `?hairframes=2` runs hair on every second frame (sooner when the head moves more than `?hairmove=` px, default 8,
-   *  0 = never sooner); frames never wait, and a frame without its own mask draws the newest mask of another frame moved
-   *  with the head, if it is at most `?hairmaxage=` ms old (default 200). */
+  /** Which frames run the hair segmenter (hair/mask-reuse.ts). Laptop default: every frame waits for its own mask.
+   *  Phone and tablet default (owner decision 2026-09-17, after the iPhone runs), or `?hairframes=2` anywhere: hair on
+   *  every second frame (sooner when the head moves more than `?hairmove=` px, default 8, 0 = never sooner); frames
+   *  never wait, and a frame without its own mask draws the newest mask of another frame moved with the head, if it is
+   *  at most `?hairmaxage=` ms old (default 200). `?hairframes=1` makes every frame wait for its own mask anywhere. */
   hairSchedule: HairSchedule;
 }
 
@@ -84,9 +89,17 @@ export function unrecognizedOptions(search: string): string[] {
 /** The Apple phone default for the hair delegate (see Config.hairDelegate). */
 export const APPLE_PHONE_HAIR_DELEGATE: HairDelegate = 'CPU';
 
-/** Phones and tablets: Apple's, or any user agent that says Android or Mobile. */
-function isPhoneOrTablet(userAgent: string, maxTouchPoints: number): boolean {
-  return isApplePhoneOrTablet(userAgent, maxTouchPoints) || /Android|Mobile/.test(userAgent);
+/** True when the browser reports no fine pointer at all (no mouse or touchpad): a touch-only device. */
+function noFinePointer(): boolean {
+  return typeof matchMedia === 'function' && !matchMedia('(any-pointer: fine)').matches;
+}
+
+/** Phones and tablets: Apple's (an iPad asking for the desktop site says Macintosh with touch points), any user agent
+ *  that says Android or Mobile, and a Linux desktop user agent with touch and no fine pointer: Chrome asks for the
+ *  desktop site by default on large Android tablets. A touch laptop keeps its touchpad's fine pointer. */
+export function isPhoneOrTablet(userAgent: string, maxTouchPoints: number, touchOnly: boolean = noFinePointer()): boolean {
+  return isApplePhoneOrTablet(userAgent, maxTouchPoints) || /Android|Mobile/.test(userAgent)
+    || (/X11; Linux/.test(userAgent) && maxTouchPoints > 1 && touchOnly);
 }
 
 /** iPhone and iPad report themselves in the user agent; iPadOS Safari may claim to be a Mac with touch points. */
@@ -95,10 +108,10 @@ export function isApplePhoneOrTablet(userAgent: string, maxTouchPoints = 0): boo
 }
 
 export function parseConfig(search: string, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
-  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0): Config {
+  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0, touchOnly = noFinePointer()): Config {
   const params = new URLSearchParams(search);
   const face = params.get('face')?.toLowerCase();
-  const gpuFirst = face === 'gpu' || (face !== 'cpu' && isApplePhoneOrTablet(userAgent, maxTouchPoints));
+  const gpuFirst = face === 'gpu', mobile = isPhoneOrTablet(userAgent, maxTouchPoints, touchOnly), hairFrames = params.get('hairframes');
   const number = (name: string, fallback: number, min: number, max: number): number => {
     const value = Number(params.get(name));
     return params.has(name) && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
@@ -111,7 +124,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
   return {
     faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
-    captureSource: source === 'videoframe' || source === 'canvas' ? source : isPhoneOrTablet(userAgent, maxTouchPoints) ? 'canvas' : 'videoframe',
+    captureSource: source === 'videoframe' || source === 'canvas' ? source : mobile ? 'canvas' : 'videoframe',
     hairWaitMs: number('hairwait', HAIR_WAIT_MS, 0, 400),
     hairInputMaxEdge: Math.round(number('hairinput', DEFAULT_HAIR_INPUT_MAX_EDGE, 256, 1280)),
     hairDelegate: hairDelegate === 'CPU' || hairDelegate === 'GPU' ? hairDelegate : isApplePhoneOrTablet(userAgent, maxTouchPoints) ? APPLE_PHONE_HAIR_DELEGATE : 'auto',
@@ -128,7 +141,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     steady: flag('steady', true) ? Object.freeze({...DEFAULT_STEADY,
       rotationMinCutoffHz: number('steadyhz', DEFAULT_STEADY.rotationMinCutoffHz, 0.05, 20), rotationBeta: number('steadybeta', DEFAULT_STEADY.rotationBeta, 0, 5),
       depthMinCutoffHz: number('steadydepthhz', DEFAULT_STEADY.depthMinCutoffHz, 0.05, 20), depthBeta: number('steadydepthbeta', DEFAULT_STEADY.depthBeta, 0, 5)}) : null,
-    hairSchedule: params.get('hairframes') === '2' ? Object.freeze({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2,
+    hairSchedule: hairFrames === '2' || (mobile && hairFrames !== '1') ? Object.freeze({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2,
       movePx: Math.round(number('hairmove', DEFAULT_HAIR_SCHEDULE.movePx, 0, 200)), maxAgeMs: Math.round(number('hairmaxage', DEFAULT_HAIR_SCHEDULE.maxAgeMs, 30, 1000))}) : DEFAULT_HAIR_SCHEDULE,
   };
 }
@@ -136,12 +149,14 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
 
 /** One line for the page: the levers and whether each is at its default. */
 export function describeConfig(config: Config, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
-  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0): string {
+  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints ?? 0, touchOnly = noFinePointer()): string {
+  const mobile = isPhoneOrTablet(userAgent, maxTouchPoints, touchOnly), everyFrame = config.hairSchedule.mode === 'every';
   return [
     `face landmarker ${config.faceDelegates[0] === 'CPU' ? 'CPU delegate, then GPU (?face=)' : 'GPU delegate, then CPU (?face=)'}`,
     `capture ${config.captureMaxEdge} px max edge${config.captureMaxEdge === DEFAULT_CAPTURE_MAX_EDGE ? '' : ' (?capture=)'}`,
     `capture source ${config.captureSource === 'videoframe' ? 'VideoFrame' : 'canvas'} (?source=)`,
-    ...(config.hairWaitMs === HAIR_WAIT_MS ? [] : [`hair mask guard ${config.hairWaitMs} ms (?hairwait=)`]),
+    ...(config.hairWaitMs === HAIR_WAIT_MS ? [] : [everyFrame ? `hair mask guard ${config.hairWaitMs} ms (?hairwait=)`
+      : `hair mask guard ${config.hairWaitMs} ms (?hairwait=) applies only to an audited frame: with hair every ${config.hairSchedule.frames} frames no other frame waits (?hairframes=1)`]),
     ...(config.hairInputMaxEdge === DEFAULT_HAIR_INPUT_MAX_EDGE ? [] : [`hair input ${config.hairInputMaxEdge} px max edge (?hairinput=)`]),
     ...(config.hairDelegate === 'auto' ? [] : [`hair delegate ${config.hairDelegate}${config.hairDelegate === APPLE_PHONE_HAIR_DELEGATE && isApplePhoneOrTablet(userAgent, maxTouchPoints) ? ' (Apple phone default)' : ''} (?hairdelegate=)`]),
     `hair start z ${config.hairStartZ} m${config.hairStartZ === DEFAULT_HAIR_START_Z_M ? '' : ' (?hairz=)'}`,
@@ -149,7 +164,8 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
     `camera exposure ${config.exposure === null ? 'auto (?exposure=312 locks 1/32 s)' : `locked at ${config.exposure} × 100 µs`}`,
     `guard ${config.guard ? 'on' : 'OFF (?guard=0)'}`,
     `continuity cut ${config.continuity ? `on (hair run ≥ ${config.continuityRunPx} px, ?hairrun=)` : 'OFF (?continuity=0)'}`,
-    ...(config.hairSchedule.mode === 'every' ? [] : [`hair every ${config.hairSchedule.frames} frames (?hairframes=2)${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
+    ...(everyFrame ? mobile ? ['hair on every frame, each waits for its own mask (?hairframes=1)'] : []
+      : [`hair every ${config.hairSchedule.frames} frames (${mobile ? 'phone and tablet default; ?hairframes=1 for every frame' : '?hairframes=2'})${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
     config.steady ? `pose steadiness on: rotation ${config.steady.rotationMinCutoffHz} Hz + ${config.steady.rotationBeta} Hz per °/s (?steadyhz=, ?steadybeta=), depth ${config.steady.depthMinCutoffHz} Hz + ${config.steady.depthBeta} Hz per cm/s (?steadydepthhz=, ?steadydepthbeta=)` : 'pose steadiness OFF (?steady=0)',
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';

@@ -24,7 +24,7 @@
         <dl class="profile-metrics"><div><dt>Frame age median / p95</dt><dd id="age">—</dd></div><div><dt>Coverage</dt><dd id="coverage">—</dd></div><div><dt>Graphics · face</dt><dd id="gpu">—</dd></div><div><dt>Hair</dt><dd id="hair-engine">—</dd></div></dl>
         <p class="control-hint" id="stages">—</p><p class="control-hint" id="pose-shake">—</p><p class="control-hint" id="hair-masks">—</p><p class="control-hint" id="frames">—</p>
         <div class="hair-actions"><button id="download-metrics" class="quiet" disabled>Download timings</button><button id="audit" class="quiet" disabled>Hold &amp; audit</button><button id="audit-download" class="quiet" hidden>Download audit</button></div>
-        <p class="control-hint" id="audit-result">Hold &amp; audit draws the next frame with and without hair and without glasses, reads it back once, and runs the CPU reference compose and the four protection checks on the GPU output.</p></section>
+        <p class="control-hint" id="audit-result">Hold &amp; audit draws the next frame with and without hair and without glasses, reads it back once, and runs the CPU reference compose and the four protection checks on the GPU output. With hair on every second frame (the phone and tablet default) the audited frame waits for its own hair mask, since the reference composes only a frame's own mask.</p></section>
       <section class="pipeline-controls"><p class="eyebrow">MEASURE</p>
         <div class="inline-fields"><label class="control-hint" for="measure-sessions">Sessions</label><input id="measure-sessions" type="number" min="1" max="20" value="1">
           <label class="control-hint" for="measure-warmup">Warmup s</label><input id="measure-warmup" type="number" min="1" max="120" value="15">
