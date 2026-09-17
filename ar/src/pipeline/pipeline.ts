@@ -1,6 +1,6 @@
 /** The frame pipeline. On each camera frame (requestVideoFrameCallback) the frame is drawn into a canvas of at most
  *  `captureMaxEdge` px and its pixels are read once, for the SHA-256 that ties the hair mask to its own image. The
- *  frame pump then runs inference (face landmarker on a 640 px copy; hair segmenter on the full frame) and lets the
+ *  frame pump then runs inference (face landmarker and hair segmenter on 640 px copies) and lets the
  *  next frame's inference overlap the current frame's preparation, with at most two owned frames. Preparation waits
  *  for the previous frame's GPU completion and poses the frame; publication draws it. One timing row per published
  *  frame. */
@@ -17,6 +17,9 @@ import type {Detection} from '../face/protocol.ts';
 import type {HairClient} from '../hair/client.ts';
 import type {HairMask, HairSegmentationResult} from '../hair/protocol.ts';
 import type {HairModel} from '../hair/models.ts';
+import {chooseMask, DEFAULT_HAIR_SCHEDULE, HairScheduler, headMotionPx, MaskStore} from '../hair/mask-reuse.ts';
+import type {HairSchedule, MaskChoice} from '../hair/mask-reuse.ts';
+import type {Landmark} from '../face/protocol.ts';
 
 /** The camera frame is captured at no more than this edge; the render keeps the capture size (up to 1280 wide). */
 export const DEFAULT_CAPTURE_MAX_EDGE = 1280;
@@ -47,8 +50,14 @@ interface Inferred {
   hashMs: number; detectorDrawMs: number; faceBitmapMs: number; faceWallMs: number; detectionHashMs: number;
   hair: Promise<HairSegmentationResult | null>; hairResult: HairSegmentationResult | null;
   inferenceStartedAt: number; hairAdmissionWaitMs: number;
+  /** Whether this frame started a hair job. */
+  hairRequested: boolean;
 }
-interface Prepared {visible: boolean; mask: HairMask | null; hair: HairSegmentationResult | null; prepareMs: number; hairWaitMs: number;}
+interface Prepared {
+  visible: boolean; mask: HairMask | null; hair: HairSegmentationResult | null; prepareMs: number; hairWaitMs: number;
+  /** With a hair schedule: which mask the frame drew (its own or a reused one) and how it was placed. */
+  reuse: MaskChoice<HairSegmentationResult> | null;
+}
 export interface PipelineContext {
   id: string; video: HTMLVideoElement; renderer: LiveRenderer; detector: DetectorClient;
   hair: () => HairClient; hairModel: HairModel; hairReady: () => boolean; hairEnabled: () => boolean;
@@ -57,10 +66,12 @@ export interface PipelineContext {
   captureMaxEdge?: number;
   /** How long a frame waits for its own hair mask before it is drawn without it; default HAIR_WAIT_MS. */
   hairWaitMs?: number;
-  /** Hair input max edge in px; default the frame itself (DEFAULT_HAIR_INPUT_MAX_EDGE). */
+  /** Hair input max edge in px; default DEFAULT_HAIR_INPUT_MAX_EDGE (640). */
   hairInputMaxEdge?: number;
   /** How the frame's pixels are taken (see capture.ts); default 'canvas'. */
   captureSource?: CaptureSource;
+  /** Which frames run the hair segmenter; default every frame, each waiting for its own mask (see hair/mask-reuse.ts). */
+  hairSchedule?: HairSchedule;
   /** Told once which capture source runs, with the fallback reason if any. */
   onCaptureSource?: (source: CaptureSource, reason: string | null) => void;
   owns: () => boolean; nextSequence: () => number;
@@ -151,6 +162,12 @@ export function runPipeline(c: PipelineContext): Pipeline {
     return false;
   };
   const hairStats: HairWorkerStats = {results: 0, missed: 0, lastInferenceMs: null, lastExtractionMs: null, lastRoundTripMs: null};
+  // Hair schedule (?hairframes=). 'every' is the accepted pipeline: each frame waits for its own mask. Otherwise frames
+  // never wait for hair: a job starts only when the scheduler says so and the worker is idle, and a frame whose own mask
+  // is not ready draws the newest mask of another frame, moved by the head's motion (hair/mask-reuse.ts).
+  const hairSchedule = c.hairSchedule ?? DEFAULT_HAIR_SCHEDULE, decoupled = hairSchedule.mode !== 'every';
+  const scheduler = new HairScheduler(hairSchedule), masks = new MaskStore<HairSegmentationResult>();
+  let hairBusy = false, lastLandmarks: readonly Landmark[] | null = null;
   const pump = new FramePump<Packet, Inferred, Prepared>({mode: 'overlap', identity: p => p,
     infer: async (p, signal) => {
       const alive = () => owns() && !p.disposed && !signal.aborted;
@@ -162,29 +179,55 @@ export function runPipeline(c: PipelineContext): Pipeline {
       // pay the readback itself, inside its inference (synthetic run 2026-09-15: face 17 → 31 ms).
       const faceCpu = cpuCanvases || c.detector.delegate === 'CPU', hairCpu = cpuCanvases || c.backend().active === 'CPU';
       const input = scaledCopy(p.canvas, FACE_INPUT_MAX_EDGE, faceCpu), detectorDrawMs = input.drawMs;
-      const hairSource = hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE && faceCpu === hairCpu ? input : scaledCopy(p.canvas, hairInputMaxEdge, hairCpu);
-      const hairBitmap = c.hairReady() && p.hair ? createImageBitmap(hairSource ? hairSource.canvas : p.canvas) : Promise.resolve(null);
+      let hairRequested = c.hairReady() && p.hair;
+      if (decoupled && hairRequested) {
+        // The head motion since the newest mask's frame, measured on the previous frame's landmarks (this frame's are
+        // not known yet): a fast head starts a fresh mask early.
+        const newest = masks.newest;
+        const motion = newest && lastLandmarks ? headMotionPx(newest.landmarks, lastLandmarks, p.canvas.width, p.canvas.height) : null;
+        hairRequested = scheduler.shouldRequest(p.sequence, !hairBusy, newest !== null, motion);
+        if (hairRequested) {hairBusy = true; scheduler.noteRequested(p.sequence);}
+      }
+      const hairSource = !hairRequested || hairInputMaxEdge >= Math.max(p.canvas.width, p.canvas.height) ? null : hairInputMaxEdge === FACE_INPUT_MAX_EDGE && faceCpu === hairCpu ? input : scaledCopy(p.canvas, hairInputMaxEdge, hairCpu);
+      const hairBitmap = hairRequested ? createImageBitmap(hairSource ? hairSource.canvas : p.canvas) : Promise.resolve(null);
       let markHairStarted: () => void = () => {};
-      const hairStarted = new Promise<void>(resolve => {markHairStarted = resolve;});
-      // One serial hair worker; at most the pump's second owned image can wait.
-      const previousHair = hairTail;
-      const hair = Promise.all([sha, hairBitmap, previousHair]).then(async ([sourceSHA256, bitmap]) => {
-        if (!bitmap) {markHairStarted(); return null;} if (!alive()) {bitmap.close(); markHairStarted(); return null;}
+      const hairStarted = decoupled ? Promise.resolve() : new Promise<void>(resolve => {markHairStarted = resolve;});
+      // Scheduled hair outlives its frame (its mask serves later frames), so it is bound to the session, not the frame.
+      const hairAlive = decoupled ? owns : alive;
+      // One serial hair worker; at most the pump's second owned image can wait. A schedule never queues (see above).
+      const previousHair = decoupled ? Promise.resolve() : hairTail;
+      let hair = Promise.all([sha, hairBitmap, previousHair]).then(async ([sourceSHA256, bitmap]) => {
+        if (!bitmap) {markHairStarted(); return null;} if (!hairAlive()) {bitmap.close(); markHairStarted(); return null;}
         try {
           const started = performance.now(), result = c.hair().segment(bitmap, sourceSHA256, p.sequence); markHairStarted(); const value = await result;
           hairStats.results++; hairStats.lastInferenceMs = value.inferenceMs; hairStats.lastExtractionMs = value.extractionMs; hairStats.lastRoundTripMs = performance.now() - started;
           return value;
         }
-        catch (error) {if (alive()) c.onHairError(error); return null;}
+        catch (error) {if (hairAlive()) c.onHairError(error); return null;}
         finally {markHairStarted();}
-      }).catch(async (error) => {const bitmap = await hairBitmap.catch(() => null); bitmap?.close(); markHairStarted(); if (alive()) c.onHairError(error); return null;});
-      hairTail = hair.then(() => undefined);
-      const bitmapStart = performance.now(), faceBitmap = createImageBitmap(input.canvas); const bitmap = await faceBitmap; const faceBitmapMs = performance.now() - bitmapStart;
-      // The copies are released once both bitmaps own their pixels.
-      void Promise.allSettled([hairBitmap, faceBitmap]).then(() => {input.canvas.width = input.canvas.height = 0; if (hairSource && hairSource !== input) hairSource.canvas.width = hairSource.canvas.height = 0;});
-      if (!alive()) {bitmap.close(); throw new DOMException('Frame revoked.', 'AbortError');}
-      at('face landmarker'); const faceStart = performance.now(); const detection = await c.detector.detect(bitmap, p.capturedAtMs);
-      const faceWallMs = performance.now() - faceStart, face = c.detector.lastTiming;
+      }).catch(async (error) => {const bitmap = await hairBitmap.catch(() => null); bitmap?.close(); markHairStarted(); if (hairAlive()) c.onHairError(error); return null;});
+      let resolveLandmarks: (value: readonly Landmark[] | null) => void = () => {};
+      if (decoupled) {
+        if (hairRequested) {hair = hair.finally(() => {hairBusy = false;}); hairTail = hair.then(() => undefined, () => undefined);}
+        // The mask joins the store once both it and its frame's landmarks are known.
+        // The frame's size is read now: a published frame's canvas is emptied before a slow mask arrives.
+        const landmarksKnown = new Promise<readonly Landmark[] | null>(resolve => {resolveLandmarks = resolve;});
+        const width = p.canvas.width, height = p.canvas.height;
+        if (hairRequested) void Promise.all([hair, landmarksKnown]).then(([value, landmarks]) => {
+          if (value && landmarks && owns()) masks.offer({mask: value, landmarks, sequence: p.sequence, capturedAtMs: p.capturedAtMs, width, height});
+        });
+      } else hairTail = hair.then(() => undefined);
+      let detection: Detection, faceBitmapMs: number, faceWallMs: number;
+      try {
+        const bitmapStart = performance.now(), faceBitmap = createImageBitmap(input.canvas); const bitmap = await faceBitmap; faceBitmapMs = performance.now() - bitmapStart;
+        // The copies are released once both bitmaps own their pixels.
+        void Promise.allSettled([hairBitmap, faceBitmap]).then(() => {input.canvas.width = input.canvas.height = 0; if (hairSource && hairSource !== input) hairSource.canvas.width = hairSource.canvas.height = 0;});
+        if (!alive()) {bitmap.close(); throw new DOMException('Frame revoked.', 'AbortError');}
+        at('face landmarker'); const faceStart = performance.now(); detection = await c.detector.detect(bitmap, p.capturedAtMs);
+        faceWallMs = performance.now() - faceStart;
+        if (decoupled) {const landmarks = detection.landmarks.length ? detection.landmarks : null; lastLandmarks = landmarks; resolveLandmarks(landmarks);}
+      } finally {resolveLandmarks(null);}
+      const face = c.detector.lastTiming;
       const sourceSHA256 = await sha; const detectionHashStart = performance.now();
       const detectionSHA256 = await hash(new TextEncoder().encode(JSON.stringify(detection)));
       const detectionHashMs = performance.now() - detectionHashStart, hairAdmissionStart = performance.now();
@@ -194,7 +237,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const hairAdmissionWaitMs = performance.now() - hairAdmissionStart;
       if (!alive()) throw new DOMException('Frame revoked.', 'AbortError');
       const result: Inferred = {detection, sourceSHA256, detectionSHA256, face, hashMs, detectorDrawMs, faceBitmapMs, faceWallMs,
-        detectionHashMs, hair, hairResult: null, inferenceStartedAt, hairAdmissionWaitMs};
+        detectionHashMs, hair, hairResult: null, inferenceStartedAt, hairAdmissionWaitMs, hairRequested};
       void hair.then(value => {if (alive()) result.hairResult = value;}); return result;
     },
     prepare: async (p, i, signal) => {
@@ -205,6 +248,19 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const visible = await c.renderer.prepare(p.canvas, i.detection, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256, eyewearModel: c.eyewearId},
         c.hairModel, hairEnabled, p.capturedAtMs);
       const prepareMs = performance.now() - started, waitStart = performance.now();
+      if (decoupled) {
+        // Never wait: this frame's own mask if it is already here, else the newest mask moved to this frame, else none.
+        let reuse: MaskChoice<HairSegmentationResult> | null = null;
+        if (hairEnabled && visible) {
+          const own = i.hairResult && i.hairResult.sequence === p.sequence && i.hairResult.sourceSHA256 === i.sourceSHA256 ? i.hairResult : null;
+          reuse = chooseMask(own, {sequence: p.sequence, capturedAtMs: p.capturedAtMs, width: p.canvas.width, height: p.canvas.height, landmarks: i.detection.landmarks},
+            masks.newest, hairSchedule);
+          if (!reuse) hairStats.missed++;
+        }
+        if (!owns() || signal.aborted) throw new DOMException('Frame revoked.', 'AbortError');
+        return {visible, mask: reuse ? {...reuse.mask, detectionSHA256: i.detectionSHA256} : null, hair: reuse && !reuse.carried ? reuse.mask : null,
+          prepareMs, hairWaitMs: 0, reuse};
+      }
       let hair = i.hairResult;
       if (!hair && hairEnabled && visible) {
         at('waiting for the hair mask'); let timer: ReturnType<typeof setTimeout> | undefined;
@@ -215,11 +271,11 @@ export function runPipeline(c: PipelineContext): Pipeline {
       if (!owns() || signal.aborted) throw new DOMException('Frame revoked.', 'AbortError');
       if (hair && (hair.sequence !== p.sequence || hair.sourceSHA256 !== i.sourceSHA256)) throw new Error('Hair result belongs to another image.');
       const mask = hair && hairEnabled ? {...hair, detectionSHA256: i.detectionSHA256} : null;
-      return {visible, mask, hair, prepareMs, hairWaitMs: performance.now() - waitStart};
+      return {visible, mask, hair, prepareMs, hairWaitMs: performance.now() - waitStart, reuse: null};
     },
     publish: (p, i, r) => {
       if (!owns()) throw new DOMException('Frame revoked.', 'AbortError');
-      at('drawing'); const finishStart = performance.now(); c.renderer.finish(r.mask); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
+      at('drawing'); const finishStart = performance.now(); c.renderer.finish(r.mask, r.reuse?.warp ?? null, r.reuse?.carried ?? false); const publishedAtMs = performance.now(), finishMs = publishedAtMs - finishStart;
       const stats = c.renderer.stats; if (!stats) throw new Error('The renderer published no statistics.');
       const backend = c.backend();
       const native: NonNullable<FrameInput['native']> = {};
@@ -230,6 +286,13 @@ export function runPipeline(c: PipelineContext): Pipeline {
       native['capture.source'] = capture.source; native['capture.format'] = p.bytes.format;
       // Orientation and depth, raw and steadied, as numbers: the live panel reads the pose jitter from these.
       const pose = c.renderer.poseSample; if (pose) for (const [key, value] of Object.entries(pose)) native['pose.' + key] = value;
+      // Which mask the frame drew: the live panel reads the share of reused masks, their age and the head motion from these.
+      native['hair.schedule'] = hairSchedule.mode === 'interval' ? `every ${hairSchedule.frames}` : hairSchedule.mode;
+      native['hair.requested'] = i.hairRequested;
+      native['hair.carried'] = r.mask ? r.reuse?.carried ?? false : null;
+      native['hair.ageMs'] = r.reuse ? r.reuse.ageMs : null;
+      native['hair.ageFrames'] = r.reuse ? r.reuse.ageFrames : null;
+      native['hair.motionPx'] = r.reuse ? r.reuse.motionPx : null;
       const row: FrameInput = {sessionId: c.id, sequence: p.sequence, hair: p.hair, capturedAtMs: p.capturedAtMs, publishedAtMs,
         videoPresentedFrames: p.videoFrames, videoMediaTime: p.mediaTime, videoPresentationTimeMs: p.presentation, cameraSettingFps: cameraFps,
         sourceWidth: p.canvas.width, sourceHeight: p.canvas.height, sourceDrawMs: p.drawMs, detectorDrawMs: i.detectorDrawMs, sourceReadbackMs: p.bytes.readMs(),

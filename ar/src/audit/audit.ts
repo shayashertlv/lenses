@@ -16,6 +16,8 @@ export interface Audit {
   schema: 'ar-audit-v1'; createdAt: string; sequence: number; width: number; height: number;
   guard: {method: string; guarded: boolean; safeFallback: boolean; protectedRects: PixelRect[]; editableRects: PixelRect[]; noseRoi: PixelRect | null};
   hairApplied: boolean;
+  /** Whether the held frame drew a mask reused from an earlier frame, and whether it was moved with the head. */
+  maskReuse: {carried: boolean; warped: boolean};
   checks: HairProtectionChecks | null; checkError: string | null;
   reference: {method: string; fallbackReason: string | null; changedPixels: number | null; continuityRemovedPixels: number | null; error: string | null};
   /** The continuity cut on the held frame: mesh-local z per arm from which the arm was removed, or null. */
@@ -35,6 +37,10 @@ export interface HeldFrame {
   mask: HairMask | null;
   /** The mask as the live render used it (null when hair was not drawn). */
   gpuMask: CategoryMask | null;
+  /** The mask was computed on another frame (`?hairframes=`); the CPU reference compose is then skipped. */
+  maskCarried?: boolean;
+  /** The carried mask was moved to this frame by the head's motion. */
+  maskWarped?: boolean;
 }
 
 const png = (image: ImageData): string => {
@@ -95,7 +101,10 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
     const input: HairArmInput = {width, height, before: before.data, background: background.data, pair, mask, expectedModel: model, protection, noseRoi,
       geometryPair: {sourceSHA256: pair.sourceSHA256, detectionSHA256: pair.detectionSHA256, eyewearModel: renderer.eyewear.id}};
     const t0 = performance.now();
-    try {
+    // The CPU reference composes a frame's own mask only; a reused one is skipped explicitly (its identity alone would not
+    // refuse it when two consecutive frames are byte-identical). The four protection checks still run.
+    if (held.maskCarried) reference = {...reference, fallbackReason: 'The mask was reused from an earlier frame; the CPU reference composes only a frame\'s own mask.'};
+    else try {
       const result = composeHairArms(input, {collectWeights: false, collectEligibleResidualIndices: true});
       referencePixels = result.pixels; regions = result.regions;
       reference = {...reference, fallbackReason: result.fallbackReason, changedPixels: result.statistics.changedPixels};
@@ -126,7 +135,7 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
   return {
     schema: 'ar-audit-v1', createdAt: new Date().toISOString(), sequence, width, height,
     guard: {method: GUARD_METHOD, guarded: live.guarded, safeFallback: live.safeFallback, protectedRects: protection ? [...protection.protectedRects] : [], editableRects: protection ? [...protection.editableRects] : [], noseRoi},
-    hairApplied: live.hairApplied, checks, checkError, reference,
+    hairApplied: live.hairApplied, maskReuse: {carried: held.maskCarried === true, warped: held.maskWarped === true}, checks, checkError, reference,
     cut: {negative: live.cutNegativeZ, positive: live.cutPositiveZ, continuity: live.continuity},
     afterVsBefore: difference(after.data, before.data), afterVsReference: referencePixels ? difference(after.data, referencePixels) : null, dropInsideProtected,
     pair: {...pair}, detection: structuredClone(detection),

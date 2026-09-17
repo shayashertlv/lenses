@@ -7,6 +7,8 @@ import {DEFAULT_CONTINUITY_RUN_PX, DEFAULT_HAIR_START_Z_M} from './render/render
 import type {FaceDelegate} from './face/detector.ts';
 import {DEFAULT_STEADY} from './render/pose-stabilizer.ts';
 import type {SteadyOptions} from './render/pose-stabilizer.ts';
+import {DEFAULT_HAIR_SCHEDULE} from './hair/mask-reuse.ts';
+import type {HairSchedule} from './hair/mask-reuse.ts';
 
 export interface Config {
   /** Face landmarker delegates in the order to try; the next one is tried when one fails or times out at startup.
@@ -54,12 +56,17 @@ export interface Config {
    *  cutoff at rest (0.05..20 Hz), `?steadybeta=` added Hz per °/s (0..5), `?steadydepthhz=` (0.05..20 Hz) and
    *  `?steadydepthbeta=` added Hz per cm/s (0..5). */
   steady: SteadyOptions | null;
+  /** Which frames run the hair segmenter (hair/mask-reuse.ts), a test lever. Default: every frame waits for its own mask.
+   *  `?hairframes=2` runs hair on every second frame (sooner when the head moves more than `?hairmove=` px, default 8,
+   *  0 = never sooner); frames never wait, and a frame without its own mask draws the newest mask of another frame moved
+   *  with the head, if it is at most `?hairmaxage=` ms old (default 200). */
+  hairSchedule: HairSchedule;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
-  steady: DEFAULT_STEADY,
+  steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE,
 });
 
 /** The Apple phone default for the hair delegate (see Config.hairDelegate). */
@@ -109,8 +116,11 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     steady: flag('steady', true) ? Object.freeze({...DEFAULT_STEADY,
       rotationMinCutoffHz: number('steadyhz', DEFAULT_STEADY.rotationMinCutoffHz, 0.05, 20), rotationBeta: number('steadybeta', DEFAULT_STEADY.rotationBeta, 0, 5),
       depthMinCutoffHz: number('steadydepthhz', DEFAULT_STEADY.depthMinCutoffHz, 0.05, 20), depthBeta: number('steadydepthbeta', DEFAULT_STEADY.depthBeta, 0, 5)}) : null,
+    hairSchedule: params.get('hairframes') === '2' ? Object.freeze({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2,
+      movePx: Math.round(number('hairmove', DEFAULT_HAIR_SCHEDULE.movePx, 0, 200)), maxAgeMs: Math.round(number('hairmaxage', DEFAULT_HAIR_SCHEDULE.maxAgeMs, 30, 1000))}) : DEFAULT_HAIR_SCHEDULE,
   };
 }
+
 
 /** One line for the page: the levers and whether each is at its default. */
 export function describeConfig(config: Config, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
@@ -127,6 +137,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
     `camera exposure ${config.exposure === null ? 'auto (?exposure=312 locks 1/32 s)' : `locked at ${config.exposure} × 100 µs`}`,
     `guard ${config.guard ? 'on' : 'OFF (?guard=0)'}`,
     `continuity cut ${config.continuity ? `on (hair run ≥ ${config.continuityRunPx} px, ?hairrun=)` : 'OFF (?continuity=0)'}`,
+    ...(config.hairSchedule.mode === 'every' ? [] : [`hair every ${config.hairSchedule.frames} frames (?hairframes=2)${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
     config.steady ? `pose steadiness on: rotation ${config.steady.rotationMinCutoffHz} Hz + ${config.steady.rotationBeta} Hz per °/s (?steadyhz=, ?steadybeta=), depth ${config.steady.depthMinCutoffHz} Hz + ${config.steady.depthBeta} Hz per cm/s (?steadydepthhz=, ?steadydepthbeta=)` : 'pose steadiness OFF (?steady=0)',
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';

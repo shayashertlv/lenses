@@ -22,6 +22,7 @@ import {cameraDeliveryFps, FrameProfiler, summarize} from './pipeline/profiler.t
 import type {FrameSample, ProfileSummary} from './pipeline/profiler.ts';
 import type {Audit} from './audit/audit.ts';
 import {describePoseShake, poseShake} from './pipeline/steadiness.ts';
+import {describeHairReport, hairReport} from './pipeline/hair-report.ts';
 
 export const config = parseConfig(location.search);
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const value = document.getElementById(id); if (!value) throw new Error(`Missing control: ${id}`); return value as T;};
@@ -112,6 +113,9 @@ function updateUi(): void {
   const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
   const capture = recent.at(-1)?.native?.['capture.source'];
   element('pose-shake').textContent = describePoseShake(poseShake(recent), config.steady !== null);
+  const schedule = config.hairSchedule;
+  element('hair-masks').textContent = describeHairReport(hairReport(recent), schedule.mode === 'every' ? 'every frame waits for its own mask'
+    : `?hairframes=${schedule.frames}`);
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
@@ -124,7 +128,8 @@ function updateUi(): void {
       + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
       + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`
       + hairWorkerLine(session.pipeline?.hair()) + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`
-      + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`);
+      + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`
+      + ` · ${element('hair-masks').textContent ?? ''}`);
   }
 }
 
@@ -185,7 +190,7 @@ async function openSession(): Promise<void> {
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
       hair: () => session.hair!, hairModel, eyewearId, hairReady: () => session.hairReady && !session.hairError,
-      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, captureSource: config.captureSource,
+      hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, captureSource: config.captureSource, hairSchedule: config.hairSchedule,
       onCaptureSource: (source, reason) => report('capture-source', `${source}${reason ? ' · ' + reason : ''}`), owns, nextSequence: () => ++session.sequence,
       onHairError: error => {if (owns()) {session.hairError = messageFor(error); session.hairReady = false; session.hair?.close(); element('hair-engine').textContent = `hair error: ${session.hairError}`;}},
       onError: error => {if (owns()) closeSession(messageFor(error), true);},
@@ -241,7 +246,7 @@ async function runAudit(): Promise<Audit | null> {
     const c = audit.checks, r = audit.reference;
     const check = (name: string, value: {changedPixels: number} | undefined): string => `${name} ${value ? value.changedPixels === 0 ? 'pass' : `${value.changedPixels} px changed` : '—'}`;
     const mm = (value: number | null): string => value === null ? 'none' : `${(value * 1000).toFixed(0)} mm`;
-    element('audit-result').textContent = `Frame ${audit.sequence} ${audit.width}×${audit.height} · guard ${audit.guard.guarded ? `on (${audit.guard.protectedRects.length} protected, ${audit.guard.editableRects.length} editable rects)` : audit.guard.safeFallback ? 'safe fallback' : 'off'} · hair ${audit.hairApplied ? 'applied' : 'not applied'} · `
+    element('audit-result').textContent = `Frame ${audit.sequence} ${audit.width}×${audit.height} · guard ${audit.guard.guarded ? `on (${audit.guard.protectedRects.length} protected, ${audit.guard.editableRects.length} editable rects)` : audit.guard.safeFallback ? 'safe fallback' : 'off'} · hair ${audit.hairApplied ? `applied${audit.maskReuse.carried ? ` (mask reused from another frame, moved with the head; the CPU reference comparison is skipped for reused masks)` : ''}` : 'not applied'} · `
       + (c ? `${check('protected', c.protectedCheck)} · ${check('nose', c.noseCheck)} · ${check('outside editable', c.outsideEditableCheck)} · ${check('background', c.backgroundPreservationCheck)}` : `checks unavailable: ${audit.checkError}`)
       + ` · GPU edit vs no-hair render ${audit.afterVsBefore.differentPixels} px (max Δ ${audit.afterVsBefore.maxDelta})`
       + ` · drop inside protected ${audit.dropInsideProtected ? `${audit.dropInsideProtected.differentPixels} px (${audit.dropInsideProtected.differentPixelsOver8} over 8)` : '—'}`

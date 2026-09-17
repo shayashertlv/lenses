@@ -9,6 +9,7 @@ import {runAudit} from '../audit/audit.ts';
 import type {Audit} from '../audit/audit.ts';
 import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
 import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
+import type {MaskWarp} from '../hair/mask-reuse.ts';
 
 export type {PairIdentity, HairModelContract};
 export interface LiveStats {
@@ -71,18 +72,21 @@ export class LiveRenderer {
       return this.visible;
     } catch (error) {this.pending = false; throw error;}
   }
-  finish(mask: HairMask | null): boolean {
+  /** `warp` places a mask reused from an earlier frame (null: the frame's own mask, or a reused mask held in place);
+   *  `carried` says the mask came from another frame, so the audit can say so. */
+  finish(mask: HairMask | null, warp: MaskWarp | null = null, carried = false): boolean {
     if (this.disposed || !this.pending) throw new Error('No pending frame.');
     const started = performance.now();
     try {
       const wantsHair = this.needsHair && this.hairEnabled;
       const gpuMask: CategoryMask | null = mask !== null && wantsHair && this.visible ? mask : null;
+      this.renderer.setMaskWarp(gpuMask ? warp : null);
       const timings = this.renderer.render(gpuMask);
       let auditMs = 0, audited = false;
       if (this.auditRequested && this.visible && this.frame && this.detection && this.pair && this.model) {
         this.auditRequested = false; audited = true;
         const auditStart = performance.now();
-        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model, mask, gpuMask}, timings, this.sequence);}
+        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model, mask, gpuMask, maskCarried: gpuMask !== null && carried, maskWarped: gpuMask !== null && warp !== null}, timings, this.sequence);}
         catch (error) {this.audit = null; console.warn('Audit failed', error);}
         auditMs = performance.now() - auditStart;
       }

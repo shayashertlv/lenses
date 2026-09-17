@@ -43,6 +43,8 @@ import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
 import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
 import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
+import {maskUvMatrix} from '../hair/mask-reuse.ts';
+import type {MaskWarp} from '../hair/mask-reuse.ts';
 import {assetPath} from '../assets.ts';
 
 export const GUARD_METHOD = 'gpu-stencil-protection-v1';
@@ -163,6 +165,9 @@ export class TryOnRenderer {
   private lastPose: {rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number} | null = null;
   private readonly stabilizer: PoseStabilizer | null;
   private latestPose: PoseSample | null = null;
+  private maskWarp: MaskWarp | null = null;
+  private uploadedCategory: Uint8Array | null = null;
+  private uploadedHairIndex = -1;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
@@ -190,6 +195,10 @@ export class TryOnRenderer {
   /** The projected arm centrelines for the posed frame (null without the pinned continuity geometry). */
   get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
   get continuityUnavailable(): string | null {return this.continuityFailure;}
+  /** How the next `render` reads its mask: null for the frame's own mask, or a mask reused from an earlier frame placed
+   *  by the head's motion (hair/mask-reuse.ts). It applies to the shader lookup and the continuity cut alike, and stays
+   *  until changed, so an audit's variants of the held frame read the mask the way the live frame did. */
+  setMaskWarp(warp: MaskWarp | null): void {this.maskWarp = warp;}
   /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
   get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
@@ -375,6 +384,9 @@ export class TryOnRenderer {
     const started = performance.now();
     const {width, height} = mask, count = width * height;
     if (mask.category.length !== count) throw new Error('The hair mask size does not match its category data.');
+    // A mask reused from an earlier frame is already on the GPU: its category buffer is the same object.
+    if (this.maskTexture && this.uploadedCategory === mask.category && this.uploadedHairIndex === mask.hairIndex
+      && this.maskTexture.image.width === width && this.maskTexture.image.height === height) return performance.now() - started;
     if (!this.maskTexture || !this.maskBytes || this.maskTexture.image.width !== width || this.maskTexture.image.height !== height) {
       this.maskTexture?.dispose();
       this.maskBytes = new Uint8Array(count);
@@ -386,7 +398,7 @@ export class TryOnRenderer {
     }
     const bytes = this.maskBytes, category = mask.category, hair = mask.hairIndex;
     for (let index = 0; index < count; index++) bytes[index] = category[index] === hair ? 255 : 0;
-    this.maskTexture.needsUpdate = true;
+    this.maskTexture.needsUpdate = true; this.uploadedCategory = category; this.uploadedHairIndex = hair;
     return performance.now() - started;
   }
 
@@ -427,8 +439,9 @@ export class TryOnRenderer {
     const maskUploadMs = wantsHair ? this.uploadMask(mask) : 0;
     const continuityStart = performance.now();
     const cut: ContinuityCut = wantsHair && this.continuity && this.continuityModel && this.templePaths
-      ? continuityCut(this.continuityModel, this.templePaths, mask, this.renderSize, this.continuityRunPx) : {negative: null, positive: null};
+      ? continuityCut(this.continuityModel, this.templePaths, mask, this.renderSize, this.continuityRunPx, this.maskWarp) : {negative: null, positive: null};
     this.hairOcclusion?.setCut(cut.negative, cut.positive);
+    this.hairOcclusion?.setMaskUv(wantsHair && this.maskWarp ? maskUvMatrix(this.maskWarp) : null);
     const continuityMs = performance.now() - continuityStart;
     const {width, height} = this.renderSize;
     const submitStart = performance.now();

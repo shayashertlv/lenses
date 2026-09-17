@@ -8,6 +8,8 @@ import {protectionProjection} from './protection.ts';
 import {rearDropCurve} from './rear-drop.ts';
 import type {CategoryMask} from '../hair/protocol.ts';
 import {assetPath} from '../assets.ts';
+import {applyAffine} from '../hair/mask-reuse.ts';
+import type {MaskWarp} from '../hair/mask-reuse.ts';
 
 export const CONTINUITY_GEOMETRY = Object.freeze({stations: 33, lateralMinM: .045, proximalGuardM: .015});
 /** Minimum length of hair along an arm's centreline, in source pixels, that counts as a patch rather than strands. */
@@ -164,9 +166,14 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
  *  `runPx` long along the arm (sampled in a small window around the centreline, more than half hair) gives that arm's
  *  cut depth: everything behind it is removed to the tip. The mask may be a different size from the render. */
 export function continuityCut(model: TempleContinuityModel, paths: readonly ProjectedTemplePath[], mask: CategoryMask,
-  render: {width: number; height: number}, runPx: number): ContinuityCut {
+  render: {width: number; height: number}, runPx: number, warp: MaskWarp | null = null): ContinuityCut {
   const result: ContinuityCut = {negative: null, positive: null};
   const scaleX = mask.width / render.width, scaleY = mask.height / render.height;
+  // A mask reused from an earlier frame: each station is looked up where it sits in that frame (see hair/mask-reuse.ts).
+  const toMask = warp ? (x: number, y: number): [number, number] => {
+    const [fx, fy] = applyAffine(warp.toMask, x * warp.width / render.width, y * warp.height / render.height);
+    return [fx * mask.width / warp.width, fy * mask.height / warp.height];
+  } : null;
   for (const path of paths) {
     const stations = model.sides[path.side];
     if (!stations || stations.length !== path.points.length || stations.length < 2) continue;
@@ -175,7 +182,8 @@ export function continuityCut(model: TempleContinuityModel, paths: readonly Proj
     let runStart: number | null = null, runStartProgress = 0;
     for (const index of order) {
       const point = path.points[index]!, radius = Math.max(1, Math.min(3, Math.round(point.radiusPx)));
-      const cx = Math.round(point.x * scaleX), cy = Math.round(point.y * scaleY);
+      const mapped = toMask ? toMask(point.x, point.y) : null;
+      const cx = Math.round(mapped ? mapped[0] : point.x * scaleX), cy = Math.round(mapped ? mapped[1] : point.y * scaleY);
       let hair = 0, total = 0;
       for (let dy = -radius; dy <= radius; dy++) {
         const y = cy + dy; if (y < 0 || y >= mask.height) continue;
