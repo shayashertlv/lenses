@@ -84,7 +84,8 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
    a guard against a stalled worker): a frame is never drawn without hair while its mask is on its way. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
    preparation, with at most two owned frames and one serial hair worker.
 3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence (at most 1 s; three unanswered
-   fences in a row switch the gate off for the session and the live panel says so), then bridge pose
+   fences in a row switch the gate off for the session and the live panel says so), then pose steadiness
+   (`pose-stabilizer.ts`: One Euro smoothing of the detector's orientation and depth), bridge pose
    (`bridge-pose.ts`), observed face surface (`face-surface.ts`) shaped by the nasal shape (`nasal-shape.ts`), the
    pose-driven rear drop (`rear-drop.ts`), the temple clip/blend and side-depth visibility configurations
    (`temple-clip.ts`, `temple-visibility.ts`), the protection geometry (`protection.ts`: optical and nasal rectangles,
@@ -128,6 +129,9 @@ continuity cut replaces G's after-the-fact removal of detached remnants; lens tr
 | `?hairwait=` | 120 | guard in ms after which a frame is drawn without its hair mask; every frame waits for its own mask by default (measurement lever) |
 | `?diag=1` | off | send the startup step log and live stage medians (numbers only) to this site, readable at `/ar/diagnostics.json` |
 | `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
+| `?steady=0` | on | turns off pose steadiness: the glasses' orientation and depth are smoothed over time before the bridge pin (`src/render/pose-stabilizer.ts`), so the image-plane position still follows each frame's nose landmarks. The live panel's "Pose shake" line reads raw vs steadied shake and the trailing angle from the timing rows. Synthetic: shake to 0.15× at rest, 2.3° trailing on a ±20° 0.5 Hz turn. Accepted by the owner live on the laptop, 2026-09-17; phones not yet judged |
+| `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
+| `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
 
 ## Read the camera before judging any fps figure
 

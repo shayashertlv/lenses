@@ -203,7 +203,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
       c.renderer.setHairEnabled(hairEnabled);
       at("waiting for the previous frame's GPU work, then posing"); const started = performance.now();
       const visible = await c.renderer.prepare(p.canvas, i.detection, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256, eyewearModel: c.eyewearId},
-        c.hairModel, hairEnabled);
+        c.hairModel, hairEnabled, p.capturedAtMs);
       const prepareMs = performance.now() - started, waitStart = performance.now();
       let hair = i.hairResult;
       if (!hair && hairEnabled && visible) {
@@ -228,6 +228,8 @@ export function runPipeline(c: PipelineContext): Pipeline {
       for (const [key, value] of Object.entries(pump.stats)) if (typeof value === 'number' || typeof value === 'boolean') native['pump.' + key] = value;
       native['pump.inputWaitMs'] = i.inferenceStartedAt - p.capturedAtMs;
       native['capture.source'] = capture.source; native['capture.format'] = p.bytes.format;
+      // Orientation and depth, raw and steadied, as numbers: the live panel reads the pose jitter from these.
+      const pose = c.renderer.poseSample; if (pose) for (const [key, value] of Object.entries(pose)) native['pose.' + key] = value;
       const row: FrameInput = {sessionId: c.id, sequence: p.sequence, hair: p.hair, capturedAtMs: p.capturedAtMs, publishedAtMs,
         videoPresentedFrames: p.videoFrames, videoMediaTime: p.mediaTime, videoPresentationTimeMs: p.presentation, cameraSettingFps: cameraFps,
         sourceWidth: p.canvas.width, sourceHeight: p.canvas.height, sourceDrawMs: p.drawMs, detectorDrawMs: i.detectorDrawMs, sourceReadbackMs: p.bytes.readMs(),

@@ -21,6 +21,7 @@ import type {Pipeline} from './pipeline/pipeline.ts';
 import {cameraDeliveryFps, FrameProfiler, summarize} from './pipeline/profiler.ts';
 import type {FrameSample, ProfileSummary} from './pipeline/profiler.ts';
 import type {Audit} from './audit/audit.ts';
+import {describePoseShake, poseShake} from './pipeline/steadiness.ts';
 
 export const config = parseConfig(location.search);
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const value = document.getElementById(id); if (!value) throw new Error(`Missing control: ${id}`); return value as T;};
@@ -110,6 +111,7 @@ function updateUi(): void {
   const continuity = session.renderer?.continuityUnavailable ? ` · continuity cut unavailable: ${session.renderer.continuityUnavailable}` : '';
   const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
   const capture = recent.at(-1)?.native?.['capture.source'];
+  element('pose-shake').textContent = describePoseShake(poseShake(recent), config.steady !== null);
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
@@ -156,7 +158,7 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer;

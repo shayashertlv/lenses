@@ -41,6 +41,8 @@ import {continuityCut, DEFAULT_CONTINUITY_RUN_PX, loadTempleContinuityModel, pro
 import type {ContinuityCut, ProjectedTemplePath, TempleContinuityModel} from './continuity.ts';
 import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
+import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
+import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
 import {assetPath} from '../assets.ts';
 
 export const GUARD_METHOD = 'gpu-stencil-protection-v1';
@@ -61,6 +63,9 @@ export interface RendererOptions {
   continuity?: boolean;
   /** Minimum hair run along the arm, in source pixels, that counts as a patch (default 10). */
   continuityRunPx?: number;
+  /** Smooth the eyewear orientation and depth over time before the bridge pin (null or absent: off; the page passes the
+   *  default settings unless `?steady=0`; see pose-stabilizer.ts). */
+  steady?: SteadyOptions | null;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -156,9 +161,12 @@ export class TryOnRenderer {
   private residual: number | null = null;
   private yaw: number | null = null;
   private lastPose: {rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number} | null = null;
+  private readonly stabilizer: PoseStabilizer | null;
+  private latestPose: PoseSample | null = null;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
+    this.stabilizer = options.steady ? new PoseStabilizer(options.steady) : null;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -182,6 +190,8 @@ export class TryOnRenderer {
   /** The projected arm centrelines for the posed frame (null without the pinned continuity geometry). */
   get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
   get continuityUnavailable(): string | null {return this.continuityFailure;}
+  /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
+  get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
   get syncUnavailable(): string | null {return this.syncFailure;}
   get renderSize(): {width: number; height: number} {
@@ -294,8 +304,9 @@ export class TryOnRenderer {
     return {gpuWaitMs: performance.now() - started, polls, timedOut};
   }
 
-  /** Pose this detection over the frame (no drawing) and establish the protection for it. Returns whether a face is tracked. */
-  pose(frame: HTMLCanvasElement, detection: Detection): boolean {
+  /** Pose this detection over the frame (no drawing) and establish the protection for it. Returns whether a face is tracked.
+   *  `timestampMs` is the frame's capture time; only the optional pose steadiness reads it. */
+  pose(frame: HTMLCanvasElement, detection: Detection, timestampMs: number = performance.now()): boolean {
     if (this.disposed) return false;
     this.clearPresentation(false);
     try {
@@ -322,20 +333,29 @@ export class TryOnRenderer {
           if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
           const shaped = this.nasalShape.apply({surfacePositions: this.faceSurface!.positions, rawMatrix: matrix});
           this.faceSurface!.positions.set(shaped.surfacePositions);
-          const attachment = correctedBridgePose(matrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
+          // The face surface and the nasal shape above stay on the raw detector pose: they are this frame's face. With
+          // steadiness on, everything the glasses hang from uses the steadied pose, and the bridge pin then re-anchors
+          // its image-plane position to this frame's nose landmarks.
+          const steady = this.stabilizer ? this.stabilizer.apply(matrix, timestampMs) : null;
+          const poseMatrix = steady ? steady.matrix : matrix;
+          const raw = poseAngles(matrix), steadied = steady ? poseAngles(poseMatrix) : null;
+          this.latestPose = {...raw, steadyYawDeg: steadied?.yawDeg ?? null, steadyPitchDeg: steadied?.pitchDeg ?? null, steadyRollDeg: steadied?.rollDeg ?? null,
+            steadyDepthCm: steadied?.depthCm ?? null, steadyLagDeg: steady?.lagDeg ?? null, steadyRotationCutoffHz: steady?.rotationCutoffHz ?? null,
+            steadyDepthCutoffHz: steady?.depthCutoffHz ?? null, steadyReset: steady?.reset ?? null};
+          const attachment = correctedBridgePose(poseMatrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
           this.facePose.matrix.fromArray(attachment.matrix); this.facePose.matrixWorldNeedsUpdate = true;
           this.eyewearPose.matrix.fromArray(attachment.matrix); this.eyewearPose.matrixWorldNeedsUpdate = true;
-          const drop: RearDropConfiguration = {method: REAR_DROP_METHOD, dropM: rearDropForPose(matrix)};
+          const drop: RearDropConfiguration = {method: REAR_DROP_METHOD, dropM: rearDropForPose(poseMatrix)};
           validateRearDrop(drop); this.rearDrop?.setDrop(drop.dropM); this.currentRearDrop = {...drop};
           this.templeClip?.set(this.templeClipConfiguration);
-          this.templeVisibility?.set(createTempleVisibilityConfiguration(matrix, this.renderer.capabilities?.samples ?? 0));
+          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0));
           this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
           this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
           if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
           if (this.surfaceMesh) this.surfaceMesh.visible = true;
           if (this.headProxy) this.headProxy.visible = true;
           this.lastPose = {rawMatrix: matrix.slice(), eyewearMatrix: attachment.matrix.slice(), yawDegrees: attachment.yawDegrees};
-          this.posedMatrix = matrix;
+          this.posedMatrix = poseMatrix;
           // The protection geometry for this exact pose, drop and frame size (candidate arm bounds follow the drop).
           const {width, height} = this.renderSize, dropShape = this.rearDrop;
           this.protectionConfiguration = dropShape ? createProtection({optical: dropShape.opticalBounds, originalArms: dropShape.originalArmBounds, candidateArms: dropShape.candidateArmBounds},
@@ -345,7 +365,7 @@ export class TryOnRenderer {
             sourceAspect: frame.width / frame.height, width, height, dropM: drop.dropM}) : null;
         }
       }
-      if (!this.facePose.visible) this.rearDrop?.setDrop(0);
+      if (!this.facePose.visible) {this.rearDrop?.setDrop(0); this.stabilizer?.reset();}
       return this.facePose.visible;
     } catch (error) {this.clearPresentation(); throw error;}
   }
@@ -463,7 +483,7 @@ export class TryOnRenderer {
   readback(): ImageData {return this.reader.read(this.renderer.domElement);}
 
   private clearPresentation(resetGeometry = true): void {
-    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null;
+    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null; this.latestPose = null;
     this.facePose.visible = this.eyewearPose.visible = false;
     if (this.surfaceMesh) this.surfaceMesh.visible = false;
     if (this.headProxy) this.headProxy.visible = false;

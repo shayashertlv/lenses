@@ -52,7 +52,10 @@ export class LiveRenderer {
   /** The next finished frame is audited; the result is available through takeAudit(). */
   requestAudit(): void {if (!this.disposed) this.auditRequested = true;}
   takeAudit(): Audit | null {const value = this.audit; this.audit = null; return value;}
-  async prepare(frame: HTMLCanvasElement, detection: Detection, pair: PairIdentity, model: HairModelContract, needsHair: boolean = this.hairEnabled): Promise<boolean> {
+  /** The posed frame's raw and steadied orientation (numbers only); null while a frame is pending or without a face. */
+  get poseSample() {return this.pending || this.disposed ? null : this.renderer.poseSample;}
+  async prepare(frame: HTMLCanvasElement, detection: Detection, pair: PairIdentity, model: HairModelContract, needsHair: boolean = this.hairEnabled,
+    timestampMs: number = performance.now()): Promise<boolean> {
     if (this.disposed) throw new DOMException('Renderer closed.', 'AbortError');
     if (this.pending) throw new Error('A frame is already pending.');
     this.pending = true; this.sequence++;
@@ -61,7 +64,7 @@ export class LiveRenderer {
       this.wait = await this.renderer.waitForPreviousFrame();
       if (this.disposed) throw new DOMException('Renderer closed.', 'AbortError');
       const poseStart = performance.now();
-      this.visible = this.renderer.pose(frame, detection);
+      this.visible = this.renderer.pose(frame, detection, timestampMs);
       this.poseMs = performance.now() - poseStart;
       this.frame = frame; this.detection = detection; this.pair = pair; this.model = model;
       this.needsHair = needsHair; this.preparedAt = started; this.prepareMs = performance.now() - started;

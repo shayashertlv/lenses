@@ -4,7 +4,7 @@
  *  controlled-input evidence, not a real camera, wearer motion, phone or thermal evidence.
  *    node qa/measure.mjs --base=http://127.0.0.1:8241 --sessions=1 --warm=10 --measure=30
  *      [--capture=960] [--hairz=-0.02] [--sync=0] [--face=gpu] [--guard=0] [--continuity=0] [--hairrun=10]
- *      [--eyewear=amber-horizon] [--hairModel=hair-only] [--hair=0] [--out=dir] [--no-shot] [--no-audit] [--headed] */
+ *      [--eyewear=amber-horizon] [--hairModel=hair-only] [--hair=0] [--steady=1] [--steadyhz=1] [--steadybeta=0.1] [--out=dir] [--no-shot] [--no-audit] [--headed] */
 import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +24,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const out = path.resolve(option('out', path.join(here, 'output', `measure-${new Date().toISOString().replaceAll(':', '-')}`)));
 await fs.mkdir(out, {recursive: true});
 const query = new URLSearchParams();
-for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag']) if (option(name, '')) query.set(name, option(name, ''));
+for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta', 'steadydepthhz', 'steadydepthbeta']) if (option(name, '')) query.set(name, option(name, ''));
 const browser = await chromium.launch({headless: !flag('headed'), channel: 'chromium', args: ['--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required']});
 const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
 const consoleLines = [];
