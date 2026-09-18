@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 import {
   BufferAttribute, BufferGeometry, CanvasTexture, Color, Group, Material, Matrix4, Mesh, MeshPhysicalMaterial,
-  MeshStandardMaterial, PerspectiveCamera, Scene, ShaderLib, Texture, UniformsUtils,
+  Euler, MeshStandardMaterial, PerspectiveCamera, Quaternion, Scene, ShaderLib, Texture, UniformsUtils,
   SRGBColorSpace, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
 import type {ShaderMaterial, WebGLRenderer} from 'three';
@@ -12,7 +12,7 @@ import {EYEWEAR} from '../src/eyewear/catalog.ts';
 import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
 import {
   createTempleVisibility, createTempleVisibilityConfiguration, createLegacyTempleVisibilityConfiguration,
-  createViewTempleVisibilityConfiguration, VIEW_TEMPLE_VISIBILITY_METHOD,
+  createViewTempleVisibilityConfiguration, VIEW_TEMPLE_VISIBILITY_METHOD, depthRelief, hasTempleVisibilityEffect,
   templeLiftedDepth, LEGACY_TEMPLE_VISIBILITY_METHOD,
   TEMPLE_VISIBILITY_METHOD, TEMPLE_VISIBILITY_PARAMETERS, validateTempleVisibility,
 } from '../src/render/temple-visibility.ts';
@@ -86,6 +86,82 @@ function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender']) {
   return {geometry, lensGeometry, frame, lens, texture, root, scene, eyewearPose, camera, fake, clip, controller, overlays,
     dispose: () => { controller.dispose(); clip.dispose(); geometry.dispose(); lensGeometry.dispose(); frame.dispose(); lens.dispose(); texture.dispose(); }};
 }
+
+/** The head at `yaw`, tilted sideways by `roll` (lying down), 50 cm away. */
+const tilted = (yaw: number, roll: number, pitch = 0) => new Matrix4().compose(new Vector3(0, 0, -50),
+  new Quaternion().setFromEuler(new Euler(pitch, yaw, roll, 'YXZ')), new Vector3(1, 1, 1)).toArray();
+
+test('v4 gives up an arm by how far behind the head it is, not by the head angles', () => {
+  // The relief curve itself: in front of the head, or barely behind it, the arm is kept whole; well behind it, given up.
+  assert.equal(depthRelief(-5), 1); assert.equal(depthRelief(0), 1);
+  assert.equal(depthRelief(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm), 1);
+  assert.equal(depthRelief(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm), 0);
+  assert.equal(depthRelief(12), 0); assert.equal(depthRelief(Number.NaN), 0);
+  let previous = 1;
+  for (let behind = -1; behind <= 4; behind += 0.1) {
+    const value = depthRelief(behind);
+    assert.ok(value <= previous + 1e-12, `the relief never rises with depth (${behind})`);
+    assert.ok(value >= 0 && value <= 1); previous = value;
+  }
+  // The shipped arms run 6 to 12 mm inside the canonical head's own silhouette, so the band must keep a whole
+  // centimetre of burial; otherwise a plain depth test would be enough and the arm would vanish at the temple.
+  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm >= 0.5);
+  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm > TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm);
+});
+
+test('v4 does not go blind when the head is tilted, where the v3 percentages collapse', () => {
+  // The wearer photographed this lying down. The v3 confidence reads the camera's bearing in HEAD coordinates, which
+  // shrinks with cos(roll), so tilting the head takes away relief that an upright head at the same turn would get.
+  const upright = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, 0), 4, 'angles');
+  assert.ok(upright.negativeXWeight > 0.99, `an upright head at 25 deg gets full relief (${upright.negativeXWeight})`);
+  for (const rollDeg of [45, 55, 70]) {
+    const lying = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, rollDeg * Math.PI / 180), 4, 'angles');
+    assert.ok(lying.negativeXWeight < upright.negativeXWeight * 0.9,
+      `v3 gives up more of the arm at roll ${rollDeg} (${lying.negativeXWeight.toFixed(3)}) than upright`);
+    // v4 carries the same record but the rule it runs reads the head's depth, which a tilt does not change.
+    const depth = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, rollDeg * Math.PI / 180), 4, 'depth');
+    assert.equal(depth.mode, 'depth');
+    assert.equal(depth.negativeXWeight, lying.negativeXWeight, 'the angle weights stay in the record for comparison');
+    assert.equal(hasTempleVisibilityEffect(depth), true, 'and there is no pose at which v4 skips its own pass');
+  }
+  // v3 has poses where it does nothing at all; v4 has none.
+  const frontal = createTempleVisibilityConfiguration(pose(0), 4, 'angles');
+  assert.equal(frontal.negativeXWeight, 0); assert.equal(frontal.positiveXWeight, 0);
+  assert.equal(hasTempleVisibilityEffect(frontal), false, 'v3 switches itself off below about 9 degrees of turn');
+  assert.equal(hasTempleVisibilityEffect(createTempleVisibilityConfiguration(pose(0), 4, 'depth')), true);
+});
+
+test('the mode reaches the overlay and the dissolve, and switching it recompiles nothing', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); source.colorSpace = SRGBColorSpace;
+  t.after(() => source.dispose());
+  const material = f.overlays[0]!.material as Material;
+  // v3 at a frontal pose: both percentages are zero, so the overlay is not even drawn.
+  f.controller.set(createTempleVisibilityConfiguration(pose(0), 4, 'angles'));
+  assert.equal(f.overlays.every(overlay => overlay.visible), false);
+  assert.equal(compile(material).uniforms.templeVisibilityDepthMode!.value, 0);
+  const version = material.version;
+  // v4 at the same pose: drawn, deciding per pixel, and with the pitch dissolve switched off entirely.
+  f.controller.set({...createTempleVisibilityConfiguration(pose(0), 4, 'depth'), frontalOcclusionWeight: 0.8});
+  assert.equal(f.overlays.every(overlay => overlay.visible), true);
+  const shader = compile(material);
+  assert.equal(shader.uniforms.templeVisibilityDepthMode!.value, 1);
+  assert.equal(shader.uniforms.templeFrontalWeight!.value, 0, 'a fragment behind the head is already culled by its depth');
+  assert.deepEqual([shader.uniforms.templeVisibilityRelief!.value.x, shader.uniforms.templeVisibilityRelief!.value.y],
+    [TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm]);
+  assert.equal(material.version, version, 'the mode is a uniform, not a define: switching it cannot stall on a recompile');
+  // v4 never skips the head pass, so the depth it reads is this frame's.
+  f.controller.prepare(pose(0), source);
+  assert.ok(f.fake.state.renderCount > 0, 'the head depth pass ran at a pose where v3 would have returned early');
+  // And back: the v3 rule returns intact, again without a recompile (prepare's own coverage switch is separate).
+  const settled = material.version;
+  f.controller.set(createTempleVisibilityConfiguration(pose(.5), 4, 'angles'));
+  assert.equal(compile(material).uniforms.templeVisibilityDepthMode!.value, 0);
+  assert.equal(material.version, settled);
+  // An unknown mode is refused rather than guessed.
+  assert.throws(() => f.controller.set({...createTempleVisibilityConfiguration(pose(.5), 4), mode: 'sideways'} as unknown as TempleVisibilityConfiguration),
+    /configuration is invalid/);
+});
 
 test('camera-relative side weights are continuous, mirrored and independent of caller storage', () => {
   const matrix = pose(0), copy = matrix.slice();
@@ -188,7 +264,7 @@ test('frontal v3 borrows the current camera independently of clipping and clears
   source.colorSpace = SRGBColorSpace; source.offset.set(.08, .12); source.repeat.set(.75, .8); source.rotation = .1;
   let cameraDisposals = 0; source.addEventListener('dispose', () => cameraDisposals++);
   t.after(() => source.dispose());
-  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4), frontalOcclusionWeight: .67};
+  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .67};
   const current = {...selected};
   f.controller.set(selected); selected.frontalOcclusionWeight = .1;
   assert.deepEqual(f.controller.configuration, current);
@@ -225,7 +301,7 @@ test('frontal camera validation rejects stale or invalid bindings before drawing
   const f = syntheticFixture(); t.after(f.dispose);
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
   t.after(() => source.dispose());
-  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4), frontalOcclusionWeight: .5};
+  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .5};
   f.controller.set(selected);
   assert.throws(() => f.controller.prepare(pose(.5), source), /paired sRGB/);
   source.colorSpace = SRGBColorSpace;
@@ -250,7 +326,7 @@ test('original hooks and dynamic keys are restored, with overlay coverage before
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); source.colorSpace = SRGBColorSpace;
   t.after(() => source.dispose());
   f.clip.set(createTempleBlendConfiguration(-.11)); f.clip.prepareRender(source, 640, 360);
-  controller.set({...createTempleVisibilityConfiguration(pose(.5), 4), frontalOcclusionWeight: .5}); controller.prepare(pose(.5), source);
+  controller.set({...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .5}); controller.prepare(pose(.5), source);
   const shader = compile(overlays[0]!.material as Material), original = compile(f.frame);
   const finalDepth = shader.fragmentShader.indexOf('gl_FragDepth = min(');
   const frontalRGB = shader.fragmentShader.indexOf('gl_FragColor.rgb = mix(gl_FragColor.rgb, templeFrontalCameraRGB');
@@ -286,7 +362,7 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   t.after(() => source.dispose());
   f.clip.set(createTempleBlendConfiguration(-.11)); f.clip.prepareRender(source, 640, 360);
   const clipPolicy = f.clip.configuration;
-  f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4)); f.controller.prepare(pose(.2));
+  f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4, 'angles')); f.controller.prepare(pose(.2));
   const shader = compile(material), frameShader = compile(f.frame);
   assert.equal(shader.uniforms.templeClipEnabled, frameShader.uniforms.templeClipEnabled, 'overlay follows the exact clip uniform owner');
   assert.equal(shader.uniforms.templeVisibilityFront!.value, Math.fround(-.014));
@@ -295,7 +371,14 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   const finalCoverage = shader.fragmentShader.indexOf('gl_FragColor.a = templeOverlayCoverage');
   assert.ok(clipDiscard >= 0 && finalCoverage > clipDiscard && finalCoverage > shader.fragmentShader.indexOf('#include <dithering_fragment>'),
     'the overlay inherits the clip discard and writes its combined coverage after shading');
-  assert.ok(shader.fragmentShader.includes('templeOverlayCoverage = templeSideMask * templeSideWeight * templeRootWeight;'));
+  // One program carries both rules; the mode uniform picks between them, so switching cannot recompile mid-session.
+  assert.ok(shader.fragmentShader.includes('templeOverlayCoverage = templeOverlayGate * templeRelief * templeRootWeight;'));
+  assert.ok(shader.fragmentShader.includes('templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y'),
+    'the v3 per-side percentages are still the rule under ?temples=angles');
+  assert.ok(shader.fragmentShader.includes('1.0 - smoothstep(templeVisibilityRelief.x, templeVisibilityRelief.y, templeBehindCm)'),
+    'and v4 reads how far behind the head surface the fragment is');
+  assert.ok(shader.fragmentShader.indexOf('float templeBehindCm') < shader.fragmentShader.indexOf('float templeRelief'),
+    'the depth difference is computed before anything is given up');
   assert.equal(f.frame.onBeforeCompile, originalHook);
   assert.equal(f.frame.version, sourceVersion, 'selecting the clip and visibility settings does not recompile the source material');
   assert.deepEqual(f.clip.configuration, clipPolicy);
@@ -303,7 +386,7 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   assert.deepEqual(f.geometry.getAttribute('normal').array, normals);
   const versions = material.version;
   for (let i = 0; i < 4; i++) {
-    f.controller.set(null); f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4)); f.controller.prepare(pose(.2));
+    f.controller.set(null); f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4, 'angles')); f.controller.prepare(pose(.2));
   }
   assert.equal(material.version, versions, 'early reset/live state does not churn coverage programs');
   const resources = [f.geometry, f.lensGeometry, f.frame, f.lens, f.texture], counts = new Map<object, number>();

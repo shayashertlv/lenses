@@ -17,6 +17,7 @@ import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
 import type {WidthFitReport} from './render/renderer.ts';
+import type {TempleVisibilityMode} from './render/temple-visibility.ts';
 import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
@@ -32,6 +33,7 @@ const stage = document.querySelector<HTMLElement>('.stage') as HTMLElement;
 const eyewearSelect = element<HTMLSelectElement>('eyewear-select'), hairSelect = element<HTMLSelectElement>('hair-model-select');
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
 const fitSelect = element<HTMLSelectElement>('fit-mode');
+const templeSelect = element<HTMLSelectElement>('temple-mode');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
 const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -52,6 +54,8 @@ let hairEnabled = config.hair ?? true;
 // Which temple-fit pipeline runs. Changing it switches the live renderer between frames inside the same camera
 // session; Original is the shipped geometry and the default.
 let fitMode: FitMode = config.fit;
+// Which rule gives up part of a temple arm to the head. Switchable live, like the fit above.
+let templeMode: TempleVisibilityMode = config.temples;
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
@@ -99,6 +103,7 @@ eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) &
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
 fitSelect.value = fitMode;
+templeSelect.value = templeMode;
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
@@ -108,6 +113,11 @@ function setState(state: string, label: string, message: string): void {stage.da
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}
 eyewearSelect.addEventListener('change', showEyewear); showEyewear();
 hairToggle.addEventListener('change', () => {hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
+templeSelect.addEventListener('change', () => {
+  templeMode = templeSelect.value === 'angles' ? 'angles' : 'depth';
+  current?.renderer?.setTempleMode(templeMode);
+  note('temple-mode', templeMode); updateWidthFitLine();
+});
 fitSelect.addEventListener('change', () => {
   fitMode = fitSelect.value === 'width' ? 'width' : 'original';
   current?.renderer?.setWidthFit(fitMode === 'width');
@@ -115,13 +125,15 @@ fitSelect.addEventListener('change', () => {
 });
 /** The experiment's debug line: the selected mode, the estimated width ratio and collecting / stable / fallback. */
 function updateWidthFitLine(): void {
-  const fit = current?.renderer?.widthFit;
-  if (!fit) {element('width-fit').textContent = `Temple fit: ${fitMode === 'width' ? 'width fit' : 'original'} · no session`; return;}
-  element('width-fit').textContent = fit.mode === 'original'
-    ? 'Temple fit: original · shipped geometry'
-    : `Temple fit: width fit · ratio ${fit.ratio.toFixed(3)}${fit.observedRatio === null ? '' : ` (observed ${fit.observedRatio.toFixed(3)})`}`
+  const renderer = current?.renderer, fit = renderer?.widthFit, temple = renderer?.templeVisibility;
+  const occlusion = `Temple occlusion: ${templeMode === 'depth' ? 'per pixel' : 'by head angle'}`
+    + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
+  if (!fit) {element('width-fit').textContent = `${occlusion} · fit ${fitMode === 'width' ? 'width' : 'original'} · no session`; return;}
+  element('width-fit').textContent = `${occlusion} · ` + (fit.mode === 'original'
+    ? 'fit original · shipped geometry'
+    : `fit width · ratio ${fit.ratio.toFixed(3)}${fit.observedRatio === null ? '' : ` (observed ${fit.observedRatio.toFixed(3)})`}`
       + ` · ${fit.state} · arm spread ${(fit.armSpreadM * 1000).toFixed(1)} mm · ${fit.samples} observations`
-      + `${fit.state === 'stable' || !fit.lastRejection ? '' : ` · last frame not collected: ${fit.lastRejection}`}`;
+      + `${fit.state === 'stable' || !fit.lastRejection ? '' : ` · last frame not collected: ${fit.lastRejection}`}`);
 }
 function updateControls(): void {
   const live = !!current;
@@ -164,7 +176,7 @@ function updateUi(): void {
     lastLiveReportAt = performance.now();
     const st = (key: string): string => ms(summary.stages[key]?.median);
     // Only the experiment adds an event: with Original selected the diagnostics of a window are exactly as before.
-    if (fitMode === 'width') note('fit', `${element('width-fit').textContent ?? ''}`);
+    if (fitMode === 'width' || templeMode !== 'depth') note('fit', `${element('width-fit').textContent ?? ''}`);
     note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
@@ -206,7 +218,7 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width'}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();
@@ -386,9 +398,14 @@ declare global {interface Window {__ar: {
   /** The live comparison: read or switch the temple-fit pipeline without touching the camera session. */
   fit(): {mode: FitMode; report: WidthFitReport | null};
   setFit(mode: FitMode): void;
+  /** The temple-occlusion rule: read it, or switch it without touching the camera session. */
+  temples(): {mode: TempleVisibilityMode; state: ReturnType<LiveRenderer['templeVisibility']['valueOf']> | null};
+  setTemples(mode: TempleVisibilityMode): void;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
   lastReport: () => lastReport, audit: runAudit, config: () => config,
   fit: () => ({mode: fitMode, report: current?.renderer?.widthFit ?? null}),
-  setFit: mode => {fitSelect.value = mode === 'width' ? 'width' : 'original'; fitSelect.dispatchEvent(new Event('change'));}};
+  setFit: mode => {fitSelect.value = mode === 'width' ? 'width' : 'original'; fitSelect.dispatchEvent(new Event('change'));},
+  temples: () => ({mode: templeMode, state: current?.renderer?.templeVisibility ?? null}),
+  setTemples: mode => {templeSelect.value = mode === 'angles' ? 'angles' : 'depth'; templeSelect.dispatchEvent(new Event('change'));}};
 updateControls();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101715"><title>Lenses · AR</title>
-  <script type="module" crossorigin src="/ar/assets/index-DXMgdE4b.js"></script>
+  <script type="module" crossorigin src="/ar/assets/index-BGFbn1Xp.js"></script>
   <link rel="stylesheet" crossorigin href="/ar/assets/index-DgVMt-Ce.css">
 </head>
 <body>
@@ -21,7 +21,9 @@
       <section class="product"><label class="eyebrow" for="eyewear-select">01 / GLASSES</label><select id="eyewear-select"></select><h2 id="frame-name">Amber Horizon</h2><p class="product-description" id="frame-description"></p></section>
       <section class="hair-controls"><label class="eyebrow" for="hair-model-select">02 / HAIR DETECTION</label><select id="hair-model-select"></select></section>
       <section class="hair-controls"><label class="eyebrow" for="hair-toggle">03 / HAIR OCCLUSION</label><select id="hair-toggle"><option value="on">On · temples hide behind hair</option><option value="off">Off · temples drawn in full</option></select></section>
-      <section class="hair-controls"><label class="eyebrow" for="fit-mode">04 / TEMPLE FIT · EXPERIMENT</label><select id="fit-mode"><option value="original">Original · shipped geometry</option><option value="width">Width fit · head occluder and arm spread follow the face width</option></select>
+      <section class="hair-controls"><label class="eyebrow" for="temple-mode">04 / TEMPLE OCCLUSION</label><select id="temple-mode"><option value="depth">Per pixel · how far behind the head that part of the arm is</option><option value="angles">By head angle · the previous rule</option></select>
+        <p class="control-hint">Which part of an arm is given up to the head. Switchable while the camera runs.</p></section>
+      <section class="hair-controls"><label class="eyebrow" for="fit-mode">05 / TEMPLE FIT · EXPERIMENT</label><select id="fit-mode"><option value="original">Original · shipped geometry</option><option value="width">Width fit · head occluder and arm spread follow the face width</option></select>
         <p class="control-hint">Switchable while the camera runs; one pipeline at a time. Original is the default and is unchanged.</p></section>
       <section class="profile-panel"><p class="eyebrow">LIVE PERFORMANCE</p>
         <div class="profile-headline"><strong id="fps">—</strong><span>AR updates · last 10 s</span></div>

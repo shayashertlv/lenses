@@ -8,13 +8,34 @@ import type {BufferGeometry, Object3D, PerspectiveCamera, Scene, WebGLRenderer} 
 export const LEGACY_TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v1';
 export const VIEW_TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v2';
 export const TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v3';
+/** v4, the default since 2026-09-18: how much of an arm is given up is decided per pixel from how far behind the head
+ *  surface that pixel's arm fragment actually is, not from the head's angles. See `depthRelief` below. */
+export const DEPTH_TEMPLE_VISIBILITY_METHOD = 'temple-behind-head-v4';
 export const TEMPLE_VISIBILITY_PARAMETERS = Object.freeze({
   lateralStartCm: 3.5, lateralEndCm: 4.5, lateralArmMinM: 0.045,
   rootBlendM: 0.003, placementCm: 0.05, farSideViewRamp: 0.35,
   viewConfidenceStart: 0.15, viewConfidenceFull: 0.35,
   frontalMaskRadiusPx: 1, frontalContinuationSteps: 4,
   frontalPitchStartDegrees: 8, frontalPitchFullDegrees: 18,
+  /** v4. An arm fragment this many centimetres behind the head surface is still drawn in full: the shipped arms run
+   *  6 to 12 mm inside the canonical head's own silhouette (they are narrower than the head they are worn on), so a
+   *  plain depth test would bury an arm that a wearer expects to see. Beyond `reliefBehindFullCm` the fragment is
+   *  genuinely round the back of the head and is given up. Both are visual choices, not measured anatomy. */
+  reliefBehindStartCm: 0.6, reliefBehindFullCm: 2.6,
 });
+
+/** Which rule decides how much of an arm is given up.
+ *  `angles` is v3: two per-side percentages computed from the head's yaw, pitch and the camera bearing, applied to the
+ *  whole arm at once. `depth` is v4: a per-pixel comparison against the head's own depth. */
+export type TempleVisibilityMode = 'angles' | 'depth';
+export const DEFAULT_TEMPLE_VISIBILITY_MODE: TempleVisibilityMode = 'depth';
+
+/** The share of an arm fragment that survives, given how far behind the head surface it is (centimetres, positive
+ *  behind). The shader computes exactly this; it is exported so a test can pin the two against each other. */
+export function depthRelief(behindCm: number): number {
+  if (!Number.isFinite(behindCm)) return 0;
+  return 1 - MathUtils.smoothstep(behindCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm);
+}
 
 interface TempleVisibilityWeights {
   readonly negativeXWeight: number;
@@ -34,18 +55,23 @@ export interface ViewTempleVisibilityConfiguration extends TempleVisibilityWeigh
 export interface TempleVisibilityConfiguration extends TempleVisibilityWeights {
   readonly method: typeof TEMPLE_VISIBILITY_METHOD;
   readonly frontalOcclusionWeight: number;
+  /** v4 decides per pixel and ignores the three weights above, which stay in the record for comparison. */
+  readonly mode: TempleVisibilityMode;
 }
 
-/** Only exact zeros remove work; small nonzero visibility retains the full pass. */
+/** Only exact zeros remove work; small nonzero visibility retains the full pass. In `depth` mode the pass always runs:
+ *  the head's own depth is what the rule reads, so there is no pose at which it can be skipped. */
 export function hasTempleVisibilityEffect(value: TempleVisibilityConfiguration): boolean {
-  return value.negativeXWeight !== 0 || value.positiveXWeight !== 0 || value.frontalOcclusionWeight !== 0;
+  return value.mode === 'depth'
+    || value.negativeXWeight !== 0 || value.positiveXWeight !== 0 || value.frontalOcclusionWeight !== 0;
 }
 
 export function validateTempleVisibility(value: TempleVisibilityConfiguration): void {
   if (!value || value.method !== TEMPLE_VISIBILITY_METHOD
       || [value.negativeXWeight, value.positiveXWeight].some(weight => !Number.isFinite(weight) || weight < 0 || weight > 1)
       || !Number.isFinite(value.frontalOcclusionWeight) || value.frontalOcclusionWeight < 0 || value.frontalOcclusionWeight > 1
-      || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither') {
+      || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither'
+      || value.mode !== 'angles' && value.mode !== 'depth') {
     throw new Error('The recorded temple visibility configuration is invalid.');
   }
 }
@@ -90,14 +116,17 @@ export function createViewTempleVisibilityConfiguration(rawMatrix: readonly numb
   };
 }
 
-/** The v2 side weights plus the frontal weight, fixed for the pose they were made from; prepare never re-estimates them. */
-export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number): TempleVisibilityConfiguration {
+/** The v2 side weights plus the frontal weight, fixed for the pose they were made from; prepare never re-estimates them.
+ *  In `depth` mode (the default) the shader ignores all three and decides per pixel; they are still computed, so an
+ *  audit of either mode records what the angle rule would have said. */
+export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number,
+  mode: TempleVisibilityMode = DEFAULT_TEMPLE_VISIBILITY_MODE): TempleVisibilityConfiguration {
   const view = createViewTempleVisibilityConfiguration(rawMatrix, nativeSamples);
   const pitch = Math.abs(rawMatrix[9]!) / Math.hypot(rawMatrix[8]!, rawMatrix[9]!, rawMatrix[10]!);
   const frontalOcclusionWeight = (1 - lateralConfidence(rawMatrix)) * MathUtils.smoothstep(pitch,
     Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchStartDegrees)),
     Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchFullDegrees)));
-  return {...view, method: TEMPLE_VISIBILITY_METHOD, frontalOcclusionWeight};
+  return {...view, method: TEMPLE_VISIBILITY_METHOD, frontalOcclusionWeight, mode};
 }
 
 /** Matches Three's ordinary perspective depth convention; used in diagnostics. */
@@ -167,6 +196,9 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     templeVisibilityHeadDepth: {value: target.depthTexture}, templeVisibilityHeadMask: {value: target.texture},
     templeVisibilitySize: {value: new Vector2(1, 1)}, templeVisibilityNearFar: {value: new Vector2(camera.near, camera.far)},
     templeVisibilityWeights: {value: new Vector2()}, templeVisibilityFront: {value: frontZM},
+    // v4: 1 = decide per pixel from the head's depth, 0 = the v3 per-side percentages.
+    templeVisibilityDepthMode: {value: DEFAULT_TEMPLE_VISIBILITY_MODE === 'depth' ? 1 : 0},
+    templeVisibilityRelief: {value: new Vector2(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm)},
     templeVisibilityDitherThresholds: {value: new Float32Array([
       0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
     ].map(rank => (rank + 0.5) / 16))},
@@ -272,7 +304,8 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         '#include <begin_vertex>', '#include <begin_vertex>\ntempleVisibilityPosition = position;');
       shader.fragmentShader = `varying vec3 templeVisibilityPosition;
         uniform sampler2D templeVisibilityHeadDepth, templeVisibilityHeadMask;
-        uniform vec2 templeVisibilitySize, templeVisibilityNearFar, templeVisibilityWeights;
+        uniform vec2 templeVisibilitySize, templeVisibilityNearFar, templeVisibilityWeights, templeVisibilityRelief;
+        uniform float templeVisibilityDepthMode;
         uniform float templeVisibilityFront, templeVisibilityDitherThresholds[16];
         ` + shader.fragmentShader;
       // It changes only an overlay fragment's tested depth, never depth-buffer contents.
@@ -281,23 +314,36 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
             || templeVisibilityPosition.z >= templeVisibilityFront) discard;
         vec2 templeVisibilityUV = gl_FragCoord.xy / templeVisibilitySize;
         float templeSideMask = texture2D(templeVisibilityHeadMask, templeVisibilityUV).r;
-        float templeSideWeight = templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y;
         float templeRootWeight = smoothstep(0.0, ${TEMPLE_VISIBILITY_PARAMETERS.rootBlendM}, templeVisibilityFront - templeVisibilityPosition.z);
-        float templeOverlayCoverage = templeSideMask * templeSideWeight * templeRootWeight;
+        // The head's own depth under this pixel, and this arm fragment's. Both in view centimetres, negative away from
+        // the camera, so their difference is how far behind the head surface this fragment sits.
+        float templeSurfaceDepth = texture2D(templeVisibilityHeadDepth, templeVisibilityUV).r;
+        float templeNear = templeVisibilityNearFar.x, templeFar = templeVisibilityNearFar.y;
+        float templeViewZ = templeNear * templeFar / ((templeFar - templeNear) * templeSurfaceDepth - templeFar);
+        float templeArmViewZ = templeNear * templeFar / ((templeFar - templeNear) * gl_FragCoord.z - templeFar);
+        float templeBehindCm = templeViewZ - templeArmViewZ;
+        // v4: a fragment just behind the head is kept (the shipped arms run inside the head's own silhouette); one that
+        // is well behind it is round the back and is given up. v3: the per-side percentage of the whole arm.
+        float templeRelief = templeVisibilityDepthMode > 0.5
+          ? 1.0 - smoothstep(templeVisibilityRelief.x, templeVisibilityRelief.y, templeBehindCm)
+          : (templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y);
+        // v3 draws the overlay only over the head's lateral band; v4 needs no such band, because the depth comparison
+        // above already distinguishes an arm tucked behind the temple from one round the back of the head. It only has
+        // to know that there IS head under this pixel: over the background the ordinary draw already shows the arm.
+        float templeHeadPresent = step(templeSurfaceDepth, 0.9999);
+        float templeOverlayGate = templeVisibilityDepthMode > 0.5 ? templeHeadPresent : templeSideMask;
+        float templeOverlayCoverage = templeOverlayGate * templeRelief * templeRootWeight;
         if (templeOverlayCoverage <= 0.0) discard;
         ${material.alphaToCoverage ? 'gl_FragColor.a = templeOverlayCoverage;' : `
           int templeVisibilityDitherIndex = int(mod(floor(gl_FragCoord.x), 4.0) + 4.0 * mod(floor(gl_FragCoord.y), 4.0));
           if (templeOverlayCoverage < templeVisibilityDitherThresholds[templeVisibilityDitherIndex]) discard;
           gl_FragColor.a = 1.0;`}
-        float templeSurfaceDepth = texture2D(templeVisibilityHeadDepth, templeVisibilityUV).r;
-        float templeNear = templeVisibilityNearFar.x, templeFar = templeVisibilityNearFar.y;
-        float templeViewZ = templeNear * templeFar / ((templeFar - templeNear) * templeSurfaceDepth - templeFar);
         float templeAheadZ = min(-templeNear, templeViewZ + ${TEMPLE_VISIBILITY_PARAMETERS.placementCm});
         float templeLifted = ((templeNear + templeAheadZ) * templeFar) / ((templeFar - templeNear) * templeAheadZ);
         gl_FragDepth = min(gl_FragCoord.z, templeLifted);`);
     };
     material.customProgramCacheKey = () => `${key === Material.prototype.customProgramCacheKey
-      ? hook.toString() : key.call(original)}|${TEMPLE_VISIBILITY_METHOD}|${material.alphaToCoverage ? 'a2c' : 'dither'}`;
+      ? hook.toString() : key.call(original)}|${TEMPLE_VISIBILITY_METHOD}|${DEPTH_TEMPLE_VISIBILITY_METHOD}|${material.alphaToCoverage ? 'a2c' : 'dither'}`;
     materials.set(original, material);
     return material;
   };
@@ -349,11 +395,16 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       }
       restoreColorWrites();
       configuration = value ? {...value} : null;
+      const depthMode = value?.mode === 'depth';
       frontalUniforms.templeFrontalCameraSource.value = null;
-      frontalUniforms.templeFrontalWeight.value = value?.frontalOcclusionWeight ?? 0;
+      // v4 needs no frontal dissolve: a fragment behind the head is already culled by the head's own depth, and the
+      // overlay is what puts back the part that is only just behind it.
+      frontalUniforms.templeFrontalWeight.value = depthMode ? 0 : value?.frontalOcclusionWeight ?? 0;
       uniforms.templeVisibilityWeights.value.set(value?.negativeXWeight ?? 0, value?.positiveXWeight ?? 0);
+      uniforms.templeVisibilityDepthMode.value = depthMode ? 1 : 0;
+      // In v4 there is no pose at which the overlay is switched off: the per-pixel rule is the whole decision.
       for (const overlay of overlays) overlay.visible = value !== null
-        && (value.negativeXWeight !== 0 || value.positiveXWeight !== 0);
+        && (depthMode || value.negativeXWeight !== 0 || value.positiveXWeight !== 0);
     },
     prepare(rawMatrix: readonly number[], cameraTexture?: CanvasTexture): void {
       if (disposed) throw new Error('Temple visibility is disposed.');

@@ -32,7 +32,8 @@ import {DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS} from '..
 import type {EyewearDefinition} from '../eyewear/catalog.ts';
 import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
-import {createTempleVisibility, createTempleVisibilityConfiguration} from './temple-visibility.ts';
+import {createTempleVisibility, createTempleVisibilityConfiguration, DEFAULT_TEMPLE_VISIBILITY_MODE} from './temple-visibility.ts';
+import type {TempleVisibilityMode} from './temple-visibility.ts';
 import {createRearDrop, rearDropForPose, REAR_DROP_METHOD, validateRearDrop} from './rear-drop.ts';
 import type {RearDropConfiguration} from './rear-drop.ts';
 import {createProtection, nasalRoi} from './protection.ts';
@@ -76,6 +77,9 @@ export interface RendererOptions {
   /** Experimental relative face-width fit (`?fit=width`, default off): personalizes the head occluder's width and the
    *  posterior arm spread from a stable width ratio. Switchable during a session (see `setWidthFit`). */
   widthFit?: boolean;
+  /** Which rule gives up part of an arm to the head (`?temples=`): `depth` (v4, the default) decides per pixel from the
+   *  head's own depth; `angles` is the former v3 rule, two per-side percentages computed from the head's angles. */
+  temples?: TempleVisibilityMode;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -86,6 +90,8 @@ export interface FrameTimings {
   /** The experimental width fit on this frame: the selected mode, its state, the applied ratio (exactly 1 when nothing
    *  is applied) and the lateral spread of one arm in metres. */
   widthFit: boolean; widthFitState: WidthFitState; widthRatio: number; armSpreadM: number;
+  /** Which temple-visibility rule drew this frame, and what the angle rule would have given up on each side. */
+  templeMode: TempleVisibilityMode; templeNegativeXWeight: number; templePositiveXWeight: number; templeFrontalWeight: number;
 }
 /** What the page's debug line and the audit record about the width fit. */
 export interface WidthFitReport {
@@ -195,11 +201,13 @@ export class TryOnRenderer {
   private widthFitEnabled: boolean;
   private widthRatio = 1;
   private armSpread = 0;
+  private templeMode: TempleVisibilityMode;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
     this.stabilizer = options.steady ? new PoseStabilizer(options.steady) : null;
     this.widthFitEnabled = options.widthFit === true;
+    this.templeMode = options.temples ?? DEFAULT_TEMPLE_VISIBILITY_MODE;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -239,6 +247,14 @@ export class TryOnRenderer {
       lastRejection: this.widthFitEnabled ? this.faceWidth?.lastRejection ?? null : null,
       regionRatios: this.widthFitEnabled ? this.faceWidth?.lastRegionRatios ?? null : null};
   }
+  /** Which temple-visibility rule is running, and the angle rule's weights for the posed frame (numbers only). */
+  get templeVisibilityState(): {mode: TempleVisibilityMode; negativeXWeight: number; positiveXWeight: number; frontalWeight: number} {
+    const c = this.templeVisibility?.configuration ?? null;
+    return {mode: this.templeMode, negativeXWeight: c?.negativeXWeight ?? 0, positiveXWeight: c?.positiveXWeight ?? 0,
+      frontalWeight: c?.frontalOcclusionWeight ?? 0};
+  }
+  /** Switch the temple-visibility rule inside a live session; it takes effect on the next posed frame. */
+  setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.templeMode = mode;}
   /** Switch the width fit within a live session. Only one of the two runs at a time: turning it off restores the
    *  original geometry immediately and drops every collected observation, so nothing of the fit is left behind. */
   setWidthFit(enabled: boolean): void {
@@ -427,7 +443,7 @@ export class TryOnRenderer {
           // One pass over the cloned arm buffers for both deformations, so neither overwrites the other.
           validateRearDrop(drop); this.rearDrop?.setShape(drop.dropM, this.armSpread); this.currentRearDrop = {...drop};
           this.templeClip?.set(this.templeClipConfiguration);
-          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0));
+          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0, this.templeMode));
           this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
           this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
           if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
@@ -568,7 +584,9 @@ export class TryOnRenderer {
       continuity: this.continuity && this.continuityModel !== null, cutNegativeZ: cut.negative, cutPositiveZ: cut.positive,
       // The width fit as the geometry of this draw has it, so a timing row says which pipeline produced the frame.
       widthFit: this.widthFitEnabled, widthFitState: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
-      widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0};
+      widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0,
+      templeMode: this.templeMode, templeNegativeXWeight: this.templeVisibilityState.negativeXWeight,
+      templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */

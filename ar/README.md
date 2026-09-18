@@ -168,6 +168,51 @@ What is not byte-exact G: the hair edge is a hard step at the mask's nearest tex
 feather; the continuity cut replaces G's after-the-fact removal of detached remnants; lens transmission sees the dropped
 temples.
 
+## How much of a temple arm is given up to the head (`?temples=`)
+
+An arm of the shipped frames runs 6 to 12 mm *inside* the canonical head's own silhouette — the assets are narrower
+than the head they are worn on — so a plain depth test buries an arm that a wearer expects to see. Something has to
+decide how much of each arm to give back. Until 2026-09-18 that decision was made from the head's angles, per side,
+for the whole arm at once; it is now made per pixel from the head's own depth. `?temples=angles` restores the former
+rule and the page's "04 / TEMPLE OCCLUSION" selector switches between them inside a live camera session.
+
+**v4, `depth`, the default.** The head-depth pass the module already renders is read twice per arm fragment: the head's
+depth under that pixel and the fragment's own. Their difference is how far behind the head surface that piece of arm
+sits. A fragment less than 0.6 cm behind is drawn in full; one more than 2.6 cm behind is given up; between them it
+fades. Nothing about the head's yaw, pitch, roll or the camera's bearing enters the decision, so it follows head
+movement continuously, by construction. The pitch-driven dissolve of v3 is switched off in this mode: a fragment that
+is genuinely behind the head is already culled by the head's own depth, and the overlay is what puts back the part that
+is only just behind it. The 0.6 and 2.6 cm are visual choices, not measured anatomy.
+
+**v3, `angles`, what it replaced.** Two per-side percentages, `1 - smoothstep(viewX, 0, 0.35)`, multiplied by a
+confidence `smoothstep(min(camera bearing, head heading), 0.15, 0.35)`, plus a separate dissolve
+`(1 - confidence) x smoothstep(pitch, sin 8°, sin 18°)` that mixes the arm into the camera image. Computed from the
+shipped module over a head at 45 cm, the near arm's share of relief is **exactly 0 below 8.6° of yaw**, ramps to 1 over
+the next 12° (0.1 of the arm per degree), and is then flat. The two mechanisms are not independent: `wrapFrontal` is
+applied to the original materials *before* the overlay clones are made, so the dissolve erases the overlay's own pixels
+too. Their product — what a wearer actually sees over the side of the head — reads:
+
+| | yaw 0° | 10° | 15° | 20° | 25° |
+|---|---|---|---|---|---|
+| pitch 0°, upright | 0.00 | 0.04 | 0.57 | 1.00 | 1.00 |
+| pitch 20°, chin up | 0.00 | 0.00 | 0.20 | 0.89 | 1.00 |
+| roll 45°, lying down | 0.00 | 0.00 | 0.07 | 0.44 | 0.84 |
+| roll 45° and pitch 15° | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| roll 70° | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+Roll is the sharpest of these and it is not an edge case: the camera's bearing is taken in head coordinates, where it
+scales with cos(roll), so lying down with a phone overhead takes away relief that an upright head at the same turn
+gets in full. On a real camera at 50 cm, yaw −11°, pitch +13° — an ordinary selfie pose — the rule keeps 2–4 % of each
+arm and dissolves 46 % of what is left.
+
+**What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
+to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
+and lenses, and the two rules render within 84 pixels of each other. The case the wearer reported (an arm ending in
+mid-air at a near profile, lying down) cannot be reproduced from a still photograph, because rolling the drawn image
+changes roll but not yaw. v4 is argued from the numbers above and from the geometry; it is the wearer's A/B that
+decides it. Under the synthetic harness the guarded render, the four protection checks, the GPU-against-CPU-reference
+comparison and the continuity cut are unchanged in either mode.
+
 ## Temple fit: an experiment beside the pipeline (`?fit=width`)
 
 Off by default. The pipeline above is `?fit=original` and is unchanged; the selector "04 / TEMPLE FIT" on the page
@@ -250,6 +295,7 @@ any face; the synthetic checks below are regression evidence only.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
+| `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |
 
 ## Read the camera before judging any fps figure
@@ -295,7 +341,9 @@ time, longest run 199 s, camera 29-30 fps throughout, 720x1280, one wearer, one 
 Chrome, real webcam) on 2026-09-15/16, whose runs are not in this repository. Judged by eye by the owner: the hair edge
 and the pose steadiness on both devices.
 
-Not measured at all: the width-fit experiment on any wearer (`?fit=width`, 2026-09-18) — it has unit tests, one
+Not measured at all: whether the per-pixel temple occlusion (`?temples=depth`, the default since 2026-09-18) looks
+better than the angle rule it replaced on any wearer — see that section; the width-fit experiment on any wearer
+(`?fit=width`, 2026-09-18) — it has unit tests, one
 end-to-end browser check on a synthetic square fixture, and no visual judgement by anyone;
 Android phones and tablets (they take the phone defaults untested), any browser other than Safari
 on the phone and Chrome on the laptop, a second iPhone, a second wearer, a second lighting condition (including the

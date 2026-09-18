@@ -16,7 +16,7 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original'});
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth'});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
@@ -46,6 +46,23 @@ test('the temple fit is a two-value selector, original by default, and the setti
   assert.match(describeConfig(parseConfig('')), /temple fit original \(\?fit=width for the experiment\)/);
   assert.match(describeConfig(parseConfig('?fit=width')), /temple fit WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio \(\?fit=original restores the shipped geometry\)/);
   assert.deepEqual(unrecognizedOptions('?fit=width'), []); assert.deepEqual(unrecognizedOptions('?fits=width'), ['fits']);
+});
+
+test('the temple-occlusion rule is a two-value selector, per pixel by default, and the settings line names it', () => {
+  assert.equal(parseConfig('').temples, 'depth');
+  assert.equal(parseConfig('?temples=angles').temples, 'angles'); assert.equal(parseConfig('?temples=ANGLES').temples, 'angles');
+  assert.equal(parseConfig('?temples=depth').temples, 'depth');
+  assert.equal(parseConfig('?temples=1').temples, 'depth'); assert.equal(parseConfig('?temples=').temples, 'depth');
+  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4 \(\?temples=angles restores/);
+  assert.match(describeConfig(parseConfig('?temples=angles')), /temple occlusion PER-SIDE PERCENTAGES from the head angles, the former v3 \(\?temples=depth\)/);
+  assert.deepEqual(unrecognizedOptions('?temples=angles'), []); assert.deepEqual(unrecognizedOptions('?temple=angles'), ['temple']);
+  // The rule must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
+  for (const agent of ['', iphone]) {
+    const {temples, ...rest} = parseConfig('?temples=angles', agent, 5);
+    const {temples: fallback, ...plain} = parseConfig('', agent, 5);
+    assert.equal(temples, 'angles'); assert.equal(fallback, 'depth'); assert.deepEqual(rest, plain);
+  }
 });
 
 test('every device defaults to the CPU face landmarker first (iPhone and iPad since 2026-09-17); ?face=gpu puts the GPU first', () => {

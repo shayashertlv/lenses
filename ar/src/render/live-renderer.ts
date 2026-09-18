@@ -10,6 +10,7 @@ import type {Audit} from '../audit/audit.ts';
 import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
 import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
+import type {TempleVisibilityMode} from './temple-visibility.ts';
 
 /** Finished frames an audit passes over while they draw a mask reused from another frame, waiting for one that draws
  *  its own (the CPU reference composes only a frame's own mask); after that many it audits a reused one and says so. */
@@ -58,6 +59,9 @@ export class LiveRenderer {
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
   /** Switch the experimental width fit inside the running session; the change lands between frames, on the next pose. */
   setWidthFit(enabled: boolean): void {if (!this.disposed) this.renderer.setWidthFit(enabled);}
+  /** Switch the temple-visibility rule inside the running session. */
+  setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.renderer.setTempleMode(mode);}
+  get templeVisibility() {return this.renderer.templeVisibilityState;}
   /** The width fit's mode, state and applied ratio, for the page's debug line. */
   get widthFit() {return this.renderer.widthFit;}
   /** The next finished frame is audited; the result is available through takeAudit(). */
