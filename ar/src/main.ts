@@ -4,6 +4,7 @@
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
 import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
+import type {FitMode} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
 import {lockCameraExposure} from './camera/exposure.ts';
@@ -15,6 +16,7 @@ import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
+import type {WidthFitReport} from './render/renderer.ts';
 import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
@@ -29,6 +31,7 @@ const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const v
 const stage = document.querySelector<HTMLElement>('.stage') as HTMLElement;
 const eyewearSelect = element<HTMLSelectElement>('eyewear-select'), hairSelect = element<HTMLSelectElement>('hair-model-select');
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
+const fitSelect = element<HTMLSelectElement>('fit-mode');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
 const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -46,6 +49,9 @@ interface Session {
 }
 let current: Session | null = null;
 let hairEnabled = config.hair ?? true;
+// Which temple-fit pipeline runs. Changing it switches the live renderer between frames inside the same camera
+// session; Original is the shipped geometry and the default.
+let fitMode: FitMode = config.fit;
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
@@ -92,6 +98,7 @@ for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, mode
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
+fitSelect.value = fitMode;
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
@@ -100,6 +107,21 @@ function setState(state: string, label: string, message: string): void {stage.da
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}
 eyewearSelect.addEventListener('change', showEyewear); showEyewear();
 hairToggle.addEventListener('change', () => {hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
+fitSelect.addEventListener('change', () => {
+  fitMode = fitSelect.value === 'width' ? 'width' : 'original';
+  current?.renderer?.setWidthFit(fitMode === 'width');
+  note('fit-mode', fitMode); updateWidthFitLine();
+});
+/** The experiment's debug line: the selected mode, the estimated width ratio and collecting / stable / fallback. */
+function updateWidthFitLine(): void {
+  const fit = current?.renderer?.widthFit;
+  if (!fit) {element('width-fit').textContent = `Temple fit: ${fitMode === 'width' ? 'width fit' : 'original'} · no session`; return;}
+  element('width-fit').textContent = fit.mode === 'original'
+    ? 'Temple fit: original · shipped geometry'
+    : `Temple fit: width fit · ratio ${fit.ratio.toFixed(3)}${fit.observedRatio === null ? '' : ` (observed ${fit.observedRatio.toFixed(3)})`}`
+      + ` · ${fit.state} · arm spread ${(fit.armSpreadM * 1000).toFixed(1)} mm · ${fit.samples} observations`
+      + `${fit.state === 'stable' || !fit.lastRejection ? '' : ` · last frame not collected: ${fit.lastRejection}`}`;
+}
 function updateControls(): void {
   const live = !!current;
   eyewearSelect.disabled = hairSelect.disabled = live;
@@ -131,6 +153,7 @@ function updateUi(): void {
   const schedule = config.hairSchedule;
   element('hair-masks').textContent = describeHairReport(hairReport(recent), schedule.mode === 'every' ? 'every frame waits for its own mask'
     : `hair every ${schedule.frames} frames`);
+  updateWidthFitLine();
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
@@ -139,6 +162,8 @@ function updateUi(): void {
   if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
     lastLiveReportAt = performance.now();
     const st = (key: string): string => ms(summary.stages[key]?.median);
+    // Only the experiment adds an event: with Original selected the diagnostics of a window are exactly as before.
+    if (fitMode === 'width') note('fit', `${element('width-fit').textContent ?? ''}`);
     note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
@@ -180,10 +205,10 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width'}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
-    renderer.setHairEnabled(hairEnabled); session.renderer = renderer;
+    renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -357,7 +382,12 @@ declare global {interface Window {__ar: {
   measure(sessions: number, warmupMs: number, measurementMs: number): Promise<{sessions: MeasuredSession[]; status: string}>;
   samplesAfter(serial: number): FrameSample[]; lastReport(): Record<string, unknown> | null; audit(): Promise<Audit | null>;
   config(): typeof config;
+  /** The live comparison: read or switch the temple-fit pipeline without touching the camera session. */
+  fit(): {mode: FitMode; report: WidthFitReport | null};
+  setFit(mode: FitMode): void;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
-  lastReport: () => lastReport, audit: runAudit, config: () => config};
+  lastReport: () => lastReport, audit: runAudit, config: () => config,
+  fit: () => ({mode: fitMode, report: current?.renderer?.widthFit ?? null}),
+  setFit: mode => {fitSelect.value = mode === 'width' ? 'width' : 'original'; fitSelect.dispatchEvent(new Event('change'));}};
 updateControls();

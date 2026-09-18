@@ -6,6 +6,7 @@ import type {BufferGeometry, Material, Object3D} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {protectionProjection} from './protection.ts';
 import {rearDropCurve} from './rear-drop.ts';
+import {spreadArmX} from './face-width.ts';
 import type {CategoryMask} from '../hair/protocol.ts';
 import {assetPath} from '../assets.ts';
 import {applyAffine} from '../hair/mask-reuse.ts';
@@ -31,7 +32,10 @@ export interface TempleContinuityModel {startZM: number; cutoffZM: number; sides
 export interface ProjectedTemplePoint {x: number; y: number; radiusPx: number; progressPx: number;}
 export interface ProjectedTemplePath {side: 0 | 1; points: readonly ProjectedTemplePoint[]; lengthPx: number;}
 export interface ContinuityProjection {eyewearMatrix: readonly number[]; offsetCm: readonly [number, number, number];
-  sourceAspect: number; width: number; height: number; dropM: number;}
+  sourceAspect: number; width: number; height: number; dropM: number;
+  /** The width fit's lateral arm spread in the drawn geometry (metres per arm, face-width.ts); 0 without the fit. The
+   *  centrelines must be moved by exactly the same function as the arm vertices, or the cut would walk beside the arm. */
+  spreadM?: number;}
 /** Mesh-local z (metres) per arm from which the arm is removed to its tip, or null when no consistent hair run was found. */
 export interface ContinuityCut {negative: number | null; positive: number | null;}
 const check = (value: unknown, message: string): void => {if (!value) throw new Error(message);};
@@ -141,9 +145,11 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
       && input.width > 0 && input.height > 0 && Number.isFinite(input.sourceAspect) && input.sourceAspect > 0,
     'The continuity projection is invalid.');
     const projection = protectionProjection(input.eyewearMatrix, input.offsetCm, input.sourceAspect);
+    const spreadM = input.spreadM ?? 0;
     const project = (x: number, y: number, z: number): Vector3 => {
       const lowering = rearDropCurve(z, model.startZM, model.cutoffZM, input.dropM).loweringM;
-      const clip = new Vector4(x, y - lowering, z, 1).applyMatrix4(projection);
+      const spread = spreadArmX(x, z, model.startZM, model.cutoffZM, spreadM);
+      const clip = new Vector4(spread, y - lowering, z, 1).applyMatrix4(projection);
       check(clip.toArray().every(Number.isFinite) && clip.w > 1 && clip.z >= -clip.w, 'The continuity arm crosses the near plane.');
       return new Vector3((clip.x / clip.w + 1) * input.width / 2, (1 - clip.y / clip.w) * input.height / 2, 0);
     };

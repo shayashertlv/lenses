@@ -16,7 +16,7 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original'});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
@@ -27,6 +27,25 @@ test('every lever parses with its bounds and its off spelling', () => {
   assert.equal(parseConfig('?source=videoframe').captureSource, 'videoframe'); assert.equal(parseConfig('?source=canvas').captureSource, 'canvas'); assert.equal(parseConfig('?source=gpu').captureSource, 'videoframe');
   assert.match(describeConfig(parseConfig('?source=canvas')), /capture source canvas \(\?source=\)/); assert.match(describeConfig(DEFAULT_CONFIG), /capture source VideoFrame \(\?source=\)/);
   assert.equal(parseConfig('?hairwait=48').hairWaitMs, 48); assert.equal(parseConfig('?hairwait=500').hairWaitMs, HAIR_WAIT_MS); assert.match(describeConfig(parseConfig('?hairwait=48')), /hair mask guard 48 ms \(\?hairwait=\)/);
+});
+
+test('the temple fit is a two-value selector, original by default, and the settings line names the running one', () => {
+  // The live comparison: exactly two modes, and anything else is the shipped geometry rather than a guess.
+  assert.equal(parseConfig('').fit, 'original');
+  assert.equal(parseConfig('?fit=width').fit, 'width'); assert.equal(parseConfig('?fit=WIDTH').fit, 'width');
+  assert.equal(parseConfig('?fit=original').fit, 'original'); assert.equal(parseConfig('?fit=1').fit, 'original');
+  assert.equal(parseConfig('?fit=').fit, 'original'); assert.equal(parseConfig('?fit=wide').fit, 'original');
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
+  for (const agent of ['', iphone]) assert.equal(parseConfig('', agent, 5).fit, 'original', 'no device opts in to the experiment');
+  // The experiment must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.
+  for (const agent of ['', iphone]) {
+    const {fit, ...rest} = parseConfig('?fit=width', agent, 5);
+    const {fit: plainFit, ...plain} = parseConfig('', agent, 5);
+    assert.equal(fit, 'width'); assert.equal(plainFit, 'original'); assert.deepEqual(rest, plain);
+  }
+  assert.match(describeConfig(parseConfig('')), /temple fit original \(\?fit=width for the experiment\)/);
+  assert.match(describeConfig(parseConfig('?fit=width')), /temple fit WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio \(\?fit=original restores the shipped geometry\)/);
+  assert.deepEqual(unrecognizedOptions('?fit=width'), []); assert.deepEqual(unrecognizedOptions('?fits=width'), ['fits']);
 });
 
 test('every device defaults to the CPU face landmarker first (iPhone and iPad since 2026-09-17); ?face=gpu puts the GPU first', () => {

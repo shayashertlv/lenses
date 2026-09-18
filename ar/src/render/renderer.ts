@@ -43,6 +43,8 @@ import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
 import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
 import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
+import {armSpreadM, FaceWidthEstimator, WIDTH_FIT_METHOD} from './face-width.ts';
+import type {WidthFitState} from './face-width.ts';
 import {maskUvMatrix} from '../hair/mask-reuse.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
 import {assetPath} from '../assets.ts';
@@ -53,6 +55,9 @@ export {DEFAULT_CONTINUITY_RUN_PX} from './continuity.ts';
 /** The render never exceeds this width; the camera frame's aspect is kept. */
 export const MAX_RENDER_WIDTH = 1280;
 const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
+/** The conservative rear head occluder, in centimetres of the tracked face pose. Its half-width is the one the
+ *  experimental width fit personalizes; its height, depth and placement are untouched. */
+const HEAD_PROXY_SCALE_CM = Object.freeze([6.3, 8, 5] as const);
 
 export interface RendererOptions {
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
@@ -68,6 +73,9 @@ export interface RendererOptions {
   /** Smooth the eyewear orientation and depth over time before the bridge pin (null or absent: off; the page passes the
    *  default settings unless `?steady=0`; see pose-stabilizer.ts). */
   steady?: SteadyOptions | null;
+  /** Experimental relative face-width fit (`?fit=width`, default off): personalizes the head occluder's width and the
+   *  posterior arm spread from a stable width ratio. Switchable during a session (see `setWidthFit`). */
+  widthFit?: boolean;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -75,6 +83,21 @@ export interface FrameTimings {
   dropM: number; hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
   guarded: boolean; passes: number; protectedRects: number; editableRects: number; safeFallback: boolean;
   continuity: boolean; cutNegativeZ: number | null; cutPositiveZ: number | null;
+  /** The experimental width fit on this frame: the selected mode, its state, the applied ratio (exactly 1 when nothing
+   *  is applied) and the lateral spread of one arm in metres. */
+  widthFit: boolean; widthFitState: WidthFitState; widthRatio: number; armSpreadM: number;
+}
+/** What the page's debug line and the audit record about the width fit. */
+export interface WidthFitReport {
+  method: typeof WIDTH_FIT_METHOD; mode: 'original' | 'width'; state: WidthFitState;
+  /** The ratio in the geometry now; exactly 1 while collecting, after a fallback and in Original. */
+  ratio: number;
+  /** The median of the collected observations, which may differ from the applied ratio while it eases. */
+  observedRatio: number | null;
+  armSpreadM: number; samples: number; accepted: number; lastRejection: string | null;
+  /** The last accepted observation's per-region ratios, in WIDTH_REGIONS order: the face's own lateral profile, which
+   *  the single ratio only summarizes. Numbers only. */
+  regionRatios: readonly number[] | null;
 }
 interface CanonicalFace {positions: number[]; indices: number[];}
 export interface CaptureGeometry {
@@ -168,10 +191,15 @@ export class TryOnRenderer {
   private maskWarp: MaskWarp | null = null;
   private uploadedCategory: Uint8Array | null = null;
   private uploadedHairIndex = -1;
+  private faceWidth: FaceWidthEstimator | null = null;
+  private widthFitEnabled: boolean;
+  private widthRatio = 1;
+  private armSpread = 0;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
     this.stabilizer = options.steady ? new PoseStabilizer(options.steady) : null;
+    this.widthFitEnabled = options.widthFit === true;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -201,6 +229,38 @@ export class TryOnRenderer {
   setMaskWarp(warp: MaskWarp | null): void {this.maskWarp = warp;}
   /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
   get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
+  /** The experimental width fit as it stands now (numbers and states only). */
+  get widthFit(): WidthFitReport {
+    return {method: WIDTH_FIT_METHOD, mode: this.widthFitEnabled ? 'width' : 'original',
+      state: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
+      ratio: this.widthRatio, observedRatio: this.widthFitEnabled ? this.faceWidth?.observedRatio ?? null : null,
+      armSpreadM: this.armSpread, samples: this.widthFitEnabled ? this.faceWidth?.sampleCount ?? 0 : 0,
+      accepted: this.widthFitEnabled ? this.faceWidth?.accepted ?? 0 : 0,
+      lastRejection: this.widthFitEnabled ? this.faceWidth?.lastRejection ?? null : null,
+      regionRatios: this.widthFitEnabled ? this.faceWidth?.lastRegionRatios ?? null : null};
+  }
+  /** Switch the width fit within a live session. Only one of the two runs at a time: turning it off restores the
+   *  original geometry immediately and drops every collected observation, so nothing of the fit is left behind. */
+  setWidthFit(enabled: boolean): void {
+    if (this.disposed || enabled === this.widthFitEnabled) return;
+    this.widthFitEnabled = enabled;
+    this.faceWidth?.reset();
+    this.setWidthRatio(1);
+    this.rearDrop?.setSpread(0);
+    if (this.templePaths && this.lastPose && this.continuityModel) this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
+  }
+  /** The fitted ratio in the geometry: the head occluder's half-width and the arm spread the next shape change writes. */
+  private setWidthRatio(ratio: number): void {
+    this.widthRatio = ratio; this.armSpread = armSpreadM(ratio);
+    if (this.headProxy) this.headProxy.scale.x = HEAD_PROXY_SCALE_CM[0] * ratio;
+  }
+  /** The arm centrelines for a pose, moved by the same drop and the same lateral spread as the drawn arms. */
+  private projectPaths(eyewearMatrix: readonly number[], dropM: number): ProjectedTemplePath[] | null {
+    if (!this.continuityModel) return null;
+    const {width, height} = this.renderSize;
+    return projectTempleContinuity(this.continuityModel, {eyewearMatrix, offsetCm: this.eyewear.offsetCm,
+      sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM, spreadM: this.armSpread});
+  }
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
   get syncUnavailable(): string | null {return this.syncFailure;}
   get renderSize(): {width: number; height: number} {
@@ -258,6 +318,8 @@ export class TryOnRenderer {
     this.renderer.setPixelRatio(1); this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.canonicalPositions = face.positions; this.nasalShape = createNasalShape(face.positions, face.indices);
+    // The width fit compares the observed face with this same canonical mesh; an unusable one leaves the fit off.
+    try {this.faceWidth = new FaceWidthEstimator(face.positions);} catch {this.faceWidth = null;}
     const asset = new Group(); asset.name = `${this.eyewear.name} bridge attachment`;
     asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.eyewear.offsetCm);
     eyewearScene.traverse(object => {
@@ -280,7 +342,8 @@ export class TryOnRenderer {
     const surface = new Mesh(geometry, occlusionMaterial); surface.name = 'Observed face depth in camera space';
     surface.renderOrder = -2; surface.frustumCulled = false; surface.visible = false; this.surfaceMesh = surface; this.scene.add(surface);
     const head = new Mesh(new SphereGeometry(1, 24, 16), occlusionMaterial); head.name = 'Conservative rear head depth only';
-    head.scale.set(6.3, 8, 5); head.position.set(0, 0, -2.5); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
+    head.scale.set(...HEAD_PROXY_SCALE_CM); head.position.set(0, 0, -2.5); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
+    this.setWidthRatio(this.widthRatio);
     this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera, eyewearPose: this.eyewearPose});
     // Installed last so it wraps the clip and visibility hooks; its blend commutes with the clip's terminal blend.
     this.hairOcclusion = createHairOcclusion(eyewearScene);
@@ -340,6 +403,12 @@ export class TryOnRenderer {
         this.facePose.visible = surfaceValid;
         if (surfaceValid) {
           if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
+          // The width fit observes the reconstructed surface on this frame's raw detector pose, before the nasal shape
+          // changes it, and only near-frontal observations are collected (face-width.ts).
+          if (this.widthFitEnabled && this.faceWidth) {
+            this.faceWidth.observe(this.faceSurface!.positions, matrix, timestampMs);
+            this.setWidthRatio(this.faceWidth.ratio);
+          }
           const shaped = this.nasalShape.apply({surfacePositions: this.faceSurface!.positions, rawMatrix: matrix});
           this.faceSurface!.positions.set(shaped.surfacePositions);
           // The face surface and the nasal shape above stay on the raw detector pose: they are this frame's face. With
@@ -355,7 +424,8 @@ export class TryOnRenderer {
           this.facePose.matrix.fromArray(attachment.matrix); this.facePose.matrixWorldNeedsUpdate = true;
           this.eyewearPose.matrix.fromArray(attachment.matrix); this.eyewearPose.matrixWorldNeedsUpdate = true;
           const drop: RearDropConfiguration = {method: REAR_DROP_METHOD, dropM: rearDropForPose(poseMatrix)};
-          validateRearDrop(drop); this.rearDrop?.setDrop(drop.dropM); this.currentRearDrop = {...drop};
+          // One pass over the cloned arm buffers for both deformations, so neither overwrites the other.
+          validateRearDrop(drop); this.rearDrop?.setShape(drop.dropM, this.armSpread); this.currentRearDrop = {...drop};
           this.templeClip?.set(this.templeClipConfiguration);
           this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0));
           this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
@@ -370,11 +440,17 @@ export class TryOnRenderer {
           this.protectionConfiguration = dropShape ? createProtection({optical: dropShape.opticalBounds, originalArms: dropShape.originalArmBounds, candidateArms: dropShape.candidateArmBounds},
             attachment.matrix, this.eyewear.offsetCm, detection.landmarks, width, height, frame.width / frame.height) : null;
           this.nasalRect = nasalRoi(detection, width, height);
-          this.templePaths = this.continuityModel ? projectTempleContinuity(this.continuityModel, {eyewearMatrix: attachment.matrix, offsetCm: this.eyewear.offsetCm,
-            sourceAspect: frame.width / frame.height, width, height, dropM: drop.dropM}) : null;
+          this.templePaths = this.projectPaths(attachment.matrix, drop.dropM);
         }
       }
-      if (!this.facePose.visible) {this.rearDrop?.setDrop(0); this.stabilizer?.reset();}
+      if (!this.facePose.visible) {
+        this.rearDrop?.setDrop(0); this.stabilizer?.reset();
+        // A brief tracking failure holds the estimate; a sustained one drops it back to the original geometry.
+        if (this.widthFitEnabled && this.faceWidth) {
+          this.faceWidth.miss(timestampMs);
+          if (this.faceWidth.ratio !== this.widthRatio) {this.setWidthRatio(this.faceWidth.ratio); this.rearDrop?.setSpread(this.armSpread);}
+        }
+      }
       return this.facePose.visible;
     } catch (error) {this.clearPresentation(); throw error;}
   }
@@ -489,7 +565,10 @@ export class TryOnRenderer {
     return {maskUploadMs, continuityMs, submitMs, dropM: applyDrop ? dropM : 0, hairApplied,
       maskWidth: hairApplied ? mask!.width : 0, maskHeight: hairApplied ? mask!.height : 0, sync: this.sync,
       guarded, passes, protectedRects: protection?.protectedRects.length ?? 0, editableRects: protection?.editableRects.length ?? 0, safeFallback,
-      continuity: this.continuity && this.continuityModel !== null, cutNegativeZ: cut.negative, cutPositiveZ: cut.positive};
+      continuity: this.continuity && this.continuityModel !== null, cutNegativeZ: cut.negative, cutPositiveZ: cut.positive,
+      // The width fit as the geometry of this draw has it, so a timing row says which pipeline produced the frame.
+      widthFit: this.widthFitEnabled, widthFitState: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
+      widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */
@@ -532,6 +611,7 @@ export class TryOnRenderer {
     this.templeClip?.dispose(); this.templeClip = null;
     disposeObjects([this.scene, ...this.assetScenes]); this.assetScenes = [];
     this.canonicalPositions = []; this.nasalShape = null; this.faceSurface = null; this.surfaceMesh = null; this.headProxy = null; this.surfaceAttribute = null;
+    this.faceWidth = null; this.widthRatio = 1; this.armSpread = 0;
     this.scene.clear(); this.renderer.dispose(); this.renderer.forceContextLoss();
   }
 }

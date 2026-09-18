@@ -1,12 +1,17 @@
 /** Pose-driven rear drop: an authored preview shear that lowers the posterior opaque arm shafts when the head pitches
  *  down and faces the camera. Not a mechanical hinge or a measured wearer fit. Owns cloned geometry only; original
- *  buffers and material hooks stay untouched. */
+ *  buffers and material hooks stay untouched.
+ *
+ *  It also owns the experimental width fit's lateral arm spread (face-width.ts), because both deformations write the
+ *  same cloned buffers: every change restores the original storage first, so they are applied together in one pass and
+ *  neither can overwrite the other. Spread 0 leaves the drop exactly as it was before the fit existed. */
 import {
   Box3, BufferAttribute, InterleavedBufferAttribute, MathUtils, Matrix4, Mesh,
   MeshPhysicalMaterial, Vector3,
 } from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
+import {armSpreadSlope, spreadArmX, WIDTH_FIT, WIDTH_FIT_METHOD} from './face-width.ts';
 
 export const REAR_DROP_METHOD = 'temple-rear-drop-v1';
 export interface RearDropConfiguration {
@@ -40,6 +45,12 @@ interface MeshRecord {mesh: Mesh; geometry: GeometryRecord; toRoot: Matrix4}
 function validateDrop(dropM: number): void {
   if (!Number.isFinite(dropM) || dropM < 0 || dropM > REAR_DROP_PARAMETERS.maximumDropM) {
     throw new Error('Rear drop must be finite and between 0 and 0.03 meters.');
+  }
+}
+/** The width fit's lateral arm spread, in metres per arm; 0 is the original geometry. */
+function validateSpread(spreadM: number): void {
+  if (!Number.isFinite(spreadM) || Math.abs(spreadM) > WIDTH_FIT.maxArmSpreadM) {
+    throw new Error(`The arm spread must be finite and within ±${WIDTH_FIT.maxArmSpreadM} meters.`);
   }
 }
 
@@ -102,7 +113,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number) {
   if (!Number.isFinite(cutoffZM) || cutoffZM < -.2 || cutoffZM > -.03) throw new Error('The rear-drop endpoint is invalid.');
   const records = new Map<BufferGeometry, GeometryRecord>();
   const meshes: MeshRecord[] = [];
-  let lensRearZM = Infinity, dropM = 0, disposed = false;
+  let lensRearZM = Infinity, dropM = 0, spreadM = 0, disposed = false;
   root.updateWorldMatrix(true, true);
   if (Math.abs(root.matrixWorld.determinant()) < 1e-12) throw new Error('The rear-drop root transform is singular.');
   const rootInverse = root.matrixWorld.clone().invert();
@@ -176,51 +187,67 @@ export function createRearDrop(root: Object3D, cutoffZM: number) {
     };
     for (const {mesh, geometry} of meshes) mesh.geometry = geometry.clone;
     updateCandidateBounds();
+    /** Both deformations in one pass over the restored original storage: the lateral spread of the width fit and the
+     *  pose-driven drop. They are shears along the same axis (both a function of z), so their tangent maps add and the
+     *  normal correction is the sum of the two terms. */
+    const applyShape = (drop: number, spread: number): void => {
+      if (disposed) throw new Error('Rear drop is disposed.');
+      validateDrop(drop); validateSpread(spread);
+      if (drop === dropM && spread === spreadM) return;
+      for (const record of records.values()) {
+        // Restore raw storage first: interleaved attributes may share one buffer.
+        for (const name of ['position', 'normal', 'tangent']) {
+          const source = record.original.getAttribute(name), destination = record.clone.getAttribute(name);
+          if (source && destination) restoreAttribute(destination, source);
+        }
+        if (drop > 0 || spread !== 0) {
+          const originalPosition = record.original.getAttribute('position'), position = record.clone.getAttribute('position');
+          const originalNormal = record.original.getAttribute('normal'), normal = record.clone.getAttribute('normal');
+          const originalTangent = record.original.getAttribute('tangent'), tangent = record.clone.getAttribute('tangent');
+          for (let i = 0; i < position.count; i++) {
+            if (!eligible(record, i)) continue;
+            const x = originalPosition.getX(i), z = originalPosition.getZ(i);
+            const curve = rearDropCurve(z, startZM, cutoffZM, drop);
+            const dxDz = spread === 0 ? 0 : Math.sign(x) * armSpreadSlope(z, startZM, cutoffZM, spread);
+            if (spread !== 0) position.setX(i, spreadArmX(x, z, startZM, cutoffZM, spread));
+            if (drop > 0) position.setY(i, originalPosition.getY(i) - curve.loweringM);
+            if ((curve.dyDz !== 0 || dxDz !== 0) && normal && originalNormal) {
+              point.set(originalNormal.getX(i), originalNormal.getY(i),
+                originalNormal.getZ(i) - curve.dyDz * originalNormal.getY(i) - dxDz * originalNormal.getX(i)).normalize();
+              normal.setXYZ(i, point.x, point.y, point.z);
+            }
+            if ((curve.dyDz !== 0 || dxDz !== 0) && tangent && originalTangent) {
+              point.set(originalTangent.getX(i) + dxDz * originalTangent.getZ(i),
+                originalTangent.getY(i) + curve.dyDz * originalTangent.getZ(i), originalTangent.getZ(i)).normalize();
+              tangent.setXYZ(i, point.x, point.y, point.z);
+            }
+          }
+        }
+        record.clone.computeBoundingBox();
+        record.clone.computeBoundingSphere();
+      }
+      dropM = drop; spreadM = spread;
+      updateCandidateBounds();
+    };
     return {
       get opticalBounds(): Box3 {return opticalBounds.clone();},
       get originalArmBounds(): Box3[] {return originalArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get candidateArmBounds(): Box3[] {return candidateArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get diagnostics() {
-        return {method: 'posterior-y-preview-curve-v1', dropM, startZM, cutoffZM, lensRearZM,
+        return {method: 'posterior-y-preview-curve-v1', dropM, spreadM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
           fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, sourceGeometryCount: records.size,
-          originalXAndZPreserved: true, opticalFrontPreserved: true,
+          originalZPreserved: true, originalXPreservedWithoutWidthFit: spreadM === 0, opticalFrontPreserved: true,
           meshTransformIdentityChecked: true, protectionIncludesAllUndeformedReferencedVertices: true,
-          interpretation: 'Authored posterior Y curve; not a true hinge or measured wearer fit.'};
+          interpretation: 'Authored posterior Y curve, composed with the width fit\'s lateral arm spread; neither is a true hinge or a measured wearer fit.'};
       },
-      setDrop(value: number): void {
-        if (disposed) throw new Error('Rear drop is disposed.');
-        validateDrop(value);
-        if (value === dropM) return;
-        for (const record of records.values()) {
-          // Restore raw storage first: interleaved attributes may share one buffer.
-          for (const name of ['position', 'normal', 'tangent']) {
-            const source = record.original.getAttribute(name), destination = record.clone.getAttribute(name);
-            if (source && destination) restoreAttribute(destination, source);
-          }
-          if (value > 0) {
-            const originalPosition = record.original.getAttribute('position'), position = record.clone.getAttribute('position');
-            const originalNormal = record.original.getAttribute('normal'), normal = record.clone.getAttribute('normal');
-            const originalTangent = record.original.getAttribute('tangent'), tangent = record.clone.getAttribute('tangent');
-            for (let i = 0; i < position.count; i++) {
-              if (!eligible(record, i)) continue;
-              const curve = rearDropCurve(originalPosition.getZ(i), startZM, cutoffZM, value);
-              position.setY(i, originalPosition.getY(i) - curve.loweringM);
-              if (curve.dyDz !== 0 && normal && originalNormal) {
-                point.set(originalNormal.getX(i), originalNormal.getY(i), originalNormal.getZ(i) - curve.dyDz * originalNormal.getY(i)).normalize();
-                normal.setXYZ(i, point.x, point.y, point.z);
-              }
-              if (curve.dyDz !== 0 && tangent && originalTangent) {
-                point.set(originalTangent.getX(i), originalTangent.getY(i) + curve.dyDz * originalTangent.getZ(i), originalTangent.getZ(i)).normalize();
-                tangent.setXYZ(i, point.x, point.y, point.z);
-              }
-            }
-          }
-          record.clone.computeBoundingBox();
-          record.clone.computeBoundingSphere();
-        }
-        dropM = value;
-        updateCandidateBounds();
-      },
+      /** The arm spread of the width fit now in the geometry (metres per arm; 0 is the original geometry). */
+      get spreadM(): number {return spreadM;},
+      get dropM(): number {return dropM;},
+      setDrop(value: number): void {applyShape(value, spreadM);},
+      /** The width fit's lateral arm spread; keeps the posed drop. */
+      setSpread(value: number): void {applyShape(dropM, value);},
+      /** Both at once, so a frame that changes both rebuilds the cloned buffers once. */
+      setShape(drop: number, spread: number): void {applyShape(drop, spread);},
       dispose(): void {
         if (disposed) return;
         disposed = true;

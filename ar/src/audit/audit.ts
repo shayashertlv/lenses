@@ -6,7 +6,7 @@ import type {Detection} from '../face/protocol.ts';
 import type {CategoryMask, HairMask} from '../hair/protocol.ts';
 import type {PixelRect} from '../render/protection.ts';
 import {GUARD_METHOD} from '../render/renderer.ts';
-import type {FrameTimings, TryOnRenderer} from '../render/renderer.ts';
+import type {FrameTimings, TryOnRenderer, WidthFitReport} from '../render/renderer.ts';
 import {checkHairProtection, composeHairArms, findDetachedTemplePixels} from './reference.ts';
 import type {HairArmInput, HairModelContract, HairProtectionChecks, PairIdentity} from './reference.ts';
 
@@ -22,6 +22,9 @@ export interface Audit {
   reference: {method: string; fallbackReason: string | null; changedPixels: number | null; continuityRemovedPixels: number | null; error: string | null};
   /** The continuity cut on the held frame: mesh-local z per arm from which the arm was removed, or null. */
   cut: {negative: number | null; positive: number | null; continuity: boolean};
+  /** Which pipeline drew the held frame: the width fit's mode, state and applied ratio (`original` and ratio 1 are the
+   *  shipped geometry), so two audits stay comparable. */
+  widthFit: WidthFitReport;
   afterVsBefore: PixelDifference; afterVsReference: PixelDifference | null;
   /** Pixels inside the protected rectangles and the nasal ROI that differ between the posed-drop and the undropped render. */
   dropInsideProtected: PixelDifference | null;
@@ -137,6 +140,7 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
     guard: {method: GUARD_METHOD, guarded: live.guarded, safeFallback: live.safeFallback, protectedRects: protection ? [...protection.protectedRects] : [], editableRects: protection ? [...protection.editableRects] : [], noseRoi},
     hairApplied: live.hairApplied, maskReuse: {carried: held.maskCarried === true, warped: held.maskWarped === true}, checks, checkError, reference,
     cut: {negative: live.cutNegativeZ, positive: live.cutPositiveZ, continuity: live.continuity},
+    widthFit: renderer.widthFit,
     afterVsBefore: difference(after.data, before.data), afterVsReference: referencePixels ? difference(after.data, referencePixels) : null, dropInsideProtected,
     pair: {...pair}, detection: structuredClone(detection),
     mask: mask ? {model: mask.model, modelSHA256: mask.modelSHA256, categorySHA256: mask.categorySHA256, width: mask.width, height: mask.height, hairIndex: mask.hairIndex} : null,

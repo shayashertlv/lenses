@@ -10,6 +10,11 @@ import type {SteadyOptions} from './render/pose-stabilizer.ts';
 import {DEFAULT_HAIR_SCHEDULE} from './hair/mask-reuse.ts';
 import type {HairSchedule} from './hair/mask-reuse.ts';
 
+/** Which temple-fit pipeline draws the frame. `original` is the shipped geometry; `width` adds the experimental
+ *  relative face-width fit (`src/render/face-width.ts`). One of the two runs at a time, and the page's selector
+ *  switches between them inside a live session. */
+export type FitMode = 'original' | 'width';
+
 export interface Config {
   /** Face landmarker delegates in the order to try; the next one is tried when one fails or times out at startup.
    *  Default: CPU first on every device (laptop: perfecto_17fps; Android always was; iPhone and iPad since the iPhone
@@ -66,19 +71,22 @@ export interface Config {
    *  never wait, and a frame without its own mask draws the newest mask of another frame moved with the head, if it is
    *  at most `?hairmaxage=` ms old (default 200). `?hairframes=1` makes every frame wait for its own mask anywhere. */
   hairSchedule: HairSchedule;
+  /** `?fit=width` selects the experimental face-width fit; `?fit=original` (the default) is the shipped geometry. The
+   *  selector on the page changes it live, so this is only the mode a session starts in. */
+  fit: FitMode;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
-  steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE,
+  steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original',
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
   'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256']);
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'model', 'name', 'clip', 'width', 'sha256']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {
@@ -121,6 +129,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     return value === undefined || value === null ? fallback : !['0', 'off', 'false', 'no'].includes(value);
   };
   const exposure = params.get('exposure'), hairDelegate = params.get('hairdelegate')?.toUpperCase(), source = params.get('source')?.toLowerCase();
+  const fit = params.get('fit')?.toLowerCase();
   return {
     faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
@@ -143,6 +152,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
       depthMinCutoffHz: number('steadydepthhz', DEFAULT_STEADY.depthMinCutoffHz, 0.05, 20), depthBeta: number('steadydepthbeta', DEFAULT_STEADY.depthBeta, 0, 5)}) : null,
     hairSchedule: hairFrames === '2' || (mobile && hairFrames !== '1') ? Object.freeze({...DEFAULT_HAIR_SCHEDULE, mode: 'interval', frames: 2,
       movePx: Math.round(number('hairmove', DEFAULT_HAIR_SCHEDULE.movePx, 0, 200)), maxAgeMs: Math.round(number('hairmaxage', DEFAULT_HAIR_SCHEDULE.maxAgeMs, 30, 1000))}) : DEFAULT_HAIR_SCHEDULE,
+    fit: fit === 'width' ? 'width' : 'original',
   };
 }
 
@@ -167,6 +177,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
     ...(everyFrame ? mobile ? ['hair on every frame, each waits for its own mask (?hairframes=1)'] : []
       : [`hair every ${config.hairSchedule.frames} frames (${mobile ? 'phone and tablet default; ?hairframes=1 for every frame' : '?hairframes=2'})${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
     config.steady ? `pose steadiness on: rotation ${config.steady.rotationMinCutoffHz} Hz + ${config.steady.rotationBeta} Hz per °/s (?steadyhz=, ?steadybeta=), depth ${config.steady.depthMinCutoffHz} Hz + ${config.steady.depthBeta} Hz per cm/s (?steadydepthhz=, ?steadydepthbeta=)` : 'pose steadiness OFF (?steady=0)',
+    `temple fit ${config.fit === 'width' ? 'WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio (?fit=original restores the shipped geometry)' : 'original (?fit=width for the experiment)'}`,
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';
 }

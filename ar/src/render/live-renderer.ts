@@ -56,6 +56,10 @@ export class LiveRenderer {
   get syncUnavailable(): string | null {return this.renderer.syncUnavailable;}
   get captureSnapshot() {return this.renderer.captureSnapshot;}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
+  /** Switch the experimental width fit inside the running session; the change lands between frames, on the next pose. */
+  setWidthFit(enabled: boolean): void {if (!this.disposed) this.renderer.setWidthFit(enabled);}
+  /** The width fit's mode, state and applied ratio, for the page's debug line. */
+  get widthFit() {return this.renderer.widthFit;}
   /** The next finished frame is audited; the result is available through takeAudit(). */
   requestAudit(): void {if (!this.disposed) {this.auditRequested = true; this.auditPassedOver = 0;}}
   /** An audit is waiting for a frame: with a hair schedule the pipeline then gives the next frame its own mask. */

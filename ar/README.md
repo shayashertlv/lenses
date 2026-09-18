@@ -168,6 +168,63 @@ What is not byte-exact G: the hair edge is a hard step at the mask's nearest tex
 feather; the continuity cut replaces G's after-the-fact removal of detached remnants; lens transmission sees the dropped
 temples.
 
+## Temple fit: an experiment beside the pipeline (`?fit=width`)
+
+Off by default. The pipeline above is `?fit=original` and is unchanged; the selector "04 / TEMPLE FIT" on the page
+switches between the two inside a live camera session, and only one of them runs at a time. The question it asks is
+visual: do the arms sit better alongside a face, and disappear behind it better, when the head occluder and the
+posterior arm spread follow how wide this wearer's face is?
+
+**The estimate** (`src/render/face-width.ts`). Per tracked frame, the reconstructed camera-space surface
+(`face-surface.ts`, before the nasal shape) is carried back through the frame's raw detector pose. That pose is a
+similarity transform whose rotation, translation and fitted scale are exactly the head rotation and the camera
+distance, so what is left is the face in the canonical frame, where a lateral span can be compared with the canonical
+face's own span. It is not a screen-space width and not a division by cos(yaw). Five left/right region pairs are read,
+each the average of two or three neighbouring landmarks, so no single "temple" landmark decides anything:
+temple-upper (21,162), temple-side (127,234), temple-front (227,137), eye-outer (33,130,226) and eye-lateral (143,156),
+with their mirrors. Each pair gives its own ratio and the median of the five is the observation.
+
+An observation is refused, not repaired, when the head is turned more than 12°, pitched more than 15° or rolled more
+than 12°; when a landmark it needs is missing or non-finite; when a pair's centre sits more than 12 % of its own span
+off the head's midline (a turned or partly occluded face rather than a wider one); when the five regions spread more
+than 0.20 apart; or when the median is outside 0.80–1.20. MediaPipe publishes no per-landmark confidence and none is
+invented here.
+
+The five regions do not agree, and that is the face rather than the frame: on the checked-in fixture face, read
+through the shipped modules undistorted, they are 0.976 / 1.060 / 1.047 / 0.945 / 0.965 — a spread of 0.115. The same
+face stretched 1.78x (see Harness) spreads 0.296, which no similarity pose can absorb, and is refused. That is where
+the 0.20 bound comes from: two observations, and it is a sanity bound, not a quality test. The single ratio is only a
+summary of that profile; the profile itself is recorded per audit (`widthFit.regionRatios`).
+
+**Holding it steady.** Accepted observations go into a 120-sample window; nothing is applied until 30 of them exist, so
+a session starts on the original geometry. The applied ratio then leaves 1 slowly (5 % of the distance to the window's
+median per accepted observation) and is clamped to 0.92–1.08. Because only near-frontal observations are accepted, a
+turn holds the estimate rather than moving it, as does a brief tracking failure; three continuous seconds without a
+tracked face drop it back to the original geometry, and it collects again (the state then reads `fallback`). A new
+camera session starts from nothing. There is no scan and no user step.
+
+**What it changes.** Two things, both bounded and reversible. The invisible rear head occluder's half-width is scaled
+by the ratio (6.3 cm at ratio 1; its height, depth and placement are untouched). And the posterior opaque arm shafts
+are spread laterally by `(ratio − 1) × 0.07 m` per arm, capped at ±6 mm, which the ratio bound holds to ±5.6 mm, along
+the same smoothstep ramp the rear drop uses: zero at the arm's start plane, so the bridge, rims, lenses and the hinge
+attachment do not move, and full at the clip cap. Nothing else about the model is scaled. **0.07 m is half the
+canonical face width and the ramp is the drop's: both are visual choices, not measured anatomy.**
+
+The spread is written by the same pass that writes the rear drop (`rear-drop.ts` owns the cloned buffers and restores
+the original storage before every change), so the two compose instead of overwriting each other, and spread 0 restores
+the shipped geometry exactly. The same lateral function moves the projected arm centrelines, so the continuity cut
+still walks along the arm and the hair cut follows the fitted arms (`continuity.ts`); the protection corridor is built
+from the fitted arm bounds, so the stencil's editable region grows with them while the optical rectangle does not move.
+A fitted point never crosses the 0.045 m lateral plane that the fixed temple rules test, so temple visibility,
+the continuity stations and the rear drop's own eligibility classify it exactly as before.
+
+Every timing row carries `render.widthFit`, `render.widthFitState`, `render.widthRatio` and `render.armSpreadM`, and
+every audit carries the same under `widthFit`, so two comparisons stay interpretable. The page's own line reads
+"Temple fit: … · ratio … · collecting | stable | fallback".
+
+**What this is not.** No wearer has judged it yet. There is no evidence that it looks better than `?fit=original` on
+any face; the synthetic checks below are regression evidence only.
+
 ## Page options (URL)
 
 | Parameter | Default | Meaning |
@@ -193,6 +250,7 @@ temples.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
+| `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |
 
 ## Read the camera before judging any fps figure
 
@@ -214,6 +272,17 @@ became defaults, so rerun `npm run measure` for current figures): 22.2 fps again
 finish 7 ms (submit 5.8); audit: guard on (2 protected / 2 editable rectangles), all four checks pass, GPU output
 identical to the CPU reference compose plus continuity, drop intrusion 0 px over Δ8 (max 4), cut −26 mm on both arms.
 
+`npm run measure -- --fit=width` runs the width-fit experiment. The estimate does not engage under this harness: the
+fixture is a 1024x1024 image drawn into a 1280x720 camera, which stretches the face 1.78x, and the width fit refuses
+every such observation as inconsistent (0.296 region spread, against 0.20). What the harness does cover in that mode is
+the rest of the path — the audit's four protection checks, the GPU output against the CPU reference and the continuity
+cut all run with the fit selected. Two sessions each on this laptop, 2026-09-18, 8 s warmup + 20 s: `original` 24.58 and
+24.70 fps, `width` 25.56 and 27.02 fps (an earlier pair read 27.28 and 25.34 the other way round), so at 1280x720 the
+observation costs nothing this harness can resolve — and it measures the observation only, never the applied geometry.
+Driving the estimate needs an undistorted camera; that was checked once outside the repository with a square 720x720
+draw of the same fixture (state `stable`, ratio 0.974, arm spread −1.8 mm, 357 accepted observations, all four checks
+passing in both modes, and the live switch back to Original restoring ratio 1 and spread 0 exactly).
+
 There is one fixture (`qa/fixtures/face-a.jpg`), and its hair never covers the arms: the audit runs with hair applied and
 still reports zero differing pixels before against after the blend, so the harness exercises the blend without testing
 it; only a real face does that. `npm run measure -- --hairframes=2` drives the phone and tablet default, but no such run
@@ -226,7 +295,9 @@ time, longest run 199 s, camera 29-30 fps throughout, 720x1280, one wearer, one 
 Chrome, real webcam) on 2026-09-15/16, whose runs are not in this repository. Judged by eye by the owner: the hair edge
 and the pose steadiness on both devices.
 
-Not measured at all: Android phones and tablets (they take the phone defaults untested), any browser other than Safari
+Not measured at all: the width-fit experiment on any wearer (`?fit=width`, 2026-09-18) — it has unit tests, one
+end-to-end browser check on a synthetic square fixture, and no visual judgement by anyone;
+Android phones and tablets (they take the phone defaults untested), any browser other than Safari
 on the phone and Chrome on the laptop, a second iPhone, a second wearer, a second lighting condition (including the
 dim-light regime where the camera itself drops), any session beyond 199 s, device temperature or battery state
 (throttling is inferred from the fps and age curves alone), the `?hairframes=2` path under the synthetic harness, and
@@ -244,7 +315,8 @@ src/hair/        pinned models, protocol (category-only), client, worker, backen
 src/eyewear/     the frame catalog with the Modeling Auto slot, the URL handover
 src/pipeline/    capture (VideoFrame or canvas), frame identity, frame pump, the pipeline, the profiler, and the pose-shake
                  (steadiness.ts) and hair-schedule / face-draw-overlap (hair-report.ts) readings of the timing rows
-src/render/      the renderer and its geometry and shader modules, pose steadiness (pose-stabilizer.ts)
+src/render/      the renderer and its geometry and shader modules, pose steadiness (pose-stabilizer.ts), the
+                 experimental face-width fit (face-width.ts, `?fit=width`)
 src/audit/       the CPU reference compose, checks and continuity pass; the Hold audit
 public/          pinned assets (GLBs, face landmarker task, hair weights with their manifest and attribution, MediaPipe
                  runtime, canonical face, licenses)
