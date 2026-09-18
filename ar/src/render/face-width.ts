@@ -29,6 +29,18 @@ export const WIDTH_FIT_METHOD = 'face-width-fit-v1';
  *  contradict the fitted geometry. */
 export const ARM_LATERAL_MIN_M = 0.045;
 
+/** The hard cap on how far one arm may be splayed outward at its tip, from every source together: the automatic width
+ *  fit (capped far lower, see WIDTH_FIT.maxArmSpreadM) plus the manual bend (`?templebend=`). 12 mm at the tip is about
+ *  6 degrees of splay on a 11 cm arm — enough to carry an arm clear of a head, far short of a deformed frame. */
+export const MAX_ARM_SPREAD_M = 0.012;
+
+/** Both sources together, bounded and rounded to the same 0.1 mm step the fit uses. */
+export function totalArmSpreadM(fitSpreadM: number, bendM: number): number {
+  const sum = (Number.isFinite(fitSpreadM) ? fitSpreadM : 0) + (Number.isFinite(bendM) ? bendM : 0);
+  const capped = Math.min(MAX_ARM_SPREAD_M, Math.max(-MAX_ARM_SPREAD_M, sum));
+  return Math.round(capped / WIDTH_FIT.spreadQuantumM) * WIDTH_FIT.spreadQuantumM;
+}
+
 export const WIDTH_FIT = Object.freeze({
   /** Gates on the raw pose: only near-frontal observations are collected. */
   maxYawDeg: 12, maxPitchDeg: 15, maxRollDeg: 12,
@@ -51,7 +63,8 @@ export const WIDTH_FIT = Object.freeze({
   lostResetMs: 3000,
   /** Lateral spread per unit of ratio (half the canonical face width): a 5 % wider face spreads each arm 3.5 mm. */
   armSpreadPerRatioM: 0.07,
-  /** Hard cap on the spread of one arm, and the step it is rounded to. */
+  /** Cap on what the automatic fit alone may spread one arm by, and the step every spread is rounded to. The manual
+   *  bend adds to this and the pair is bounded by MAX_ARM_SPREAD_M. */
   maxArmSpreadM: 0.006, spreadQuantumM: 0.0001,
   /** Kept clear of ARM_LATERAL_MIN_M when a point would otherwise be pulled across it. */
   lateralGuardM: 0.0005,
@@ -224,10 +237,13 @@ export function armSpreadM(ratio: number): number {
 
 /** The lateral ramp shared by the arm geometry and the projected arm centrelines: 0 at the arm's start plane, where the
  *  hinge, rims, bridge and lenses are, and the full spread at the clip cap. The same shape as the rear drop's curve, so
- *  both deformations meet the untouched front of the frame with a zero slope. */
+ *  both deformations meet the untouched front of the frame with a zero slope.
+ *
+ *  This is what "bend the temples outward at the hinge" means here: the front of the frame does not move at all and the
+ *  arm swings out behind it, exactly as a real temple splays from its hinge. */
 export function armSpreadCurve(z: number, startZM: number, cutoffZM: number, spreadM: number): number {
   if (![z, startZM, cutoffZM, spreadM].every(Number.isFinite) || startZM <= cutoffZM) throw new Error('The arm-spread span is invalid.');
-  if (Math.abs(spreadM) > WIDTH_FIT.maxArmSpreadM + 1e-9) throw new Error('The arm spread is out of range.');
+  if (Math.abs(spreadM) > MAX_ARM_SPREAD_M + 1e-9) throw new Error('The arm spread is out of range.');
   if (spreadM === 0) return 0;
   const u = clamp((startZM - z) / (startZM - cutoffZM), 0, 1);
   return spreadM * u * u * (3 - 2 * u);

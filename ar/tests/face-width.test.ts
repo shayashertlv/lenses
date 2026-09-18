@@ -7,7 +7,7 @@ import {readFileSync} from 'node:fs';
 import {BoxGeometry, BufferGeometry, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Quaternion, Vector3, Vector4} from 'three';
 import {
   ARM_LATERAL_MIN_M, armSpreadCurve, armSpreadM, armSpreadSlope, canonicalRegionSpans, FaceWidthEstimator,
-  observeFaceWidth, spreadArmX, WIDTH_FIT, WIDTH_REGIONS,
+  MAX_ARM_SPREAD_M, observeFaceWidth, spreadArmX, totalArmSpreadM, WIDTH_FIT, WIDTH_REGIONS,
 } from '../src/render/face-width.ts';
 import {createRearDrop, rearDropCurve, REAR_DROP_PARAMETERS} from '../src/render/rear-drop.ts';
 import {buildTempleContinuityModel, CONTINUITY_GEOMETRY, projectTempleContinuity} from '../src/render/continuity.ts';
@@ -226,6 +226,105 @@ test('the page switches the live renderer between the two pipelines and never ru
   assert.deepEqual(calls, [true, false]);
   live.dispose(); live.setWidthFit(true);
   assert.deepEqual(calls, [true, false], 'a closed session does not reach the renderer');
+});
+
+test('the manual bend splays each arm outward from its hinge, and the front of the frame never moves', () => {
+  const startZM = -0.026, cutoffZM = -0.140, bend = 0.008;
+  // The hinge end and everything in front of it are untouched: this is a bend, not a wider frame.
+  for (const z of [0, -0.005, -0.02, startZM]) {
+    assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, bend), 0.065, `nothing moves at z ${z}`);
+    assert.equal(spreadArmX(0.02, z, startZM, cutoffZM, bend), 0.02, 'and the bridge and rims are never lateral enough to move');
+  }
+  // Behind the hinge it opens out, monotonically, reaching the full bend at the arm's end.
+  let previous = 0.065;
+  for (let z = startZM; z >= cutoffZM; z -= 0.005) {
+    const moved = spreadArmX(0.065, z, startZM, cutoffZM, bend);
+    assert.ok(moved >= previous - 1e-12, `the arm only opens outward going back (z ${z})`);
+    previous = moved;
+  }
+  assert.ok(Math.abs(spreadArmX(0.065, cutoffZM, startZM, cutoffZM, bend) - (0.065 + bend)) < 1e-12,
+    'the full bend lands at the tip');
+  // Both arms move by the same amount, in opposite directions: the frame stays symmetric.
+  for (const z of [-0.05, -0.09, cutoffZM]) {
+    assert.ok(Math.abs(spreadArmX(0.065, z, startZM, cutoffZM, bend) + spreadArmX(-0.065, z, startZM, cutoffZM, bend)) < 1e-12, `symmetric at z ${z}`);
+  }
+  // A negative bend pulls the arms in by the same curve, and 0 is exactly the authored geometry.
+  for (let z = startZM; z >= cutoffZM; z -= 0.01) {
+    const out = spreadArmX(0.065, z, startZM, cutoffZM, bend) - 0.065;
+    const inward = spreadArmX(0.065, z, startZM, cutoffZM, -bend) - 0.065;
+    assert.ok(Math.abs(out + inward) < 1e-12, `mirrored at z ${z}`);
+    assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, 0), 0.065);
+  }
+  // A bend at the cap is still bounded and still cannot cross the lateral plane the fixed temple rules test.
+  for (const magnitude of [0.0451, 0.05, 0.065]) for (const side of [-1, 1]) for (let z = startZM; z >= cutoffZM; z -= 0.01) {
+    const moved = spreadArmX(side * magnitude, z, startZM, cutoffZM, -MAX_ARM_SPREAD_M);
+    assert.ok(Math.abs(moved) > ARM_LATERAL_MIN_M && Math.sign(moved) === side);
+  }
+  assert.throws(() => armSpreadCurve(-0.05, startZM, cutoffZM, MAX_ARM_SPREAD_M * 2), /out of range/);
+});
+
+test('the bend and the automatic width fit add up, bounded, and either one alone still works', () => {
+  // The fit's own cap is far below the shared one, so a bend can always be added on top of a settled fit.
+  assert.ok(WIDTH_FIT.maxArmSpreadM < MAX_ARM_SPREAD_M);
+  assert.equal(totalArmSpreadM(0, 0), 0);
+  assert.ok(Math.abs(totalArmSpreadM(0.003, 0.005) - 0.008) < 1e-9, 'they add');
+  assert.ok(Math.abs(totalArmSpreadM(-0.003, 0.005) - 0.002) < 1e-9, 'including against each other');
+  assert.equal(totalArmSpreadM(0.006, 0.010), MAX_ARM_SPREAD_M, 'and the pair is capped');
+  assert.equal(totalArmSpreadM(-0.006, -0.010), -MAX_ARM_SPREAD_M);
+  assert.equal(totalArmSpreadM(Number.NaN, 0.004), 0.004, 'a missing contribution is not a missing bend');
+  assert.equal(totalArmSpreadM(0.004, Number.NaN), 0.004);
+  // Rounded to the same 0.1 mm step as the fit, so a still head does not rebuild the arm buffers every frame.
+  for (const pair of [[0.00123, 0.00047], [-0.0009, 0.0034]] as const) {
+    assert.equal(Math.abs(Math.round(totalArmSpreadM(pair[0], pair[1]) * 1e7) % 1000), 0);
+  }
+  // The total is always a spread the geometry will accept.
+  for (const fit of [-0.006, 0, 0.006]) for (const bend of [-0.012, -0.004, 0, 0.004, 0.012]) {
+    const total = totalArmSpreadM(fit, bend);
+    assert.ok(Math.abs(total) <= MAX_ARM_SPREAD_M + 1e-12);
+    assert.doesNotThrow(() => armSpreadCurve(-0.05, -0.026, -0.14, total));
+  }
+});
+
+test('a bent arm is bent everywhere the pipeline reads it: geometry, centrelines and the protection corridor', () => {
+  // The synthetic arms end at z -0.12, so the cap sits inside them as the shipped ones do inside theirs.
+  const bend = 0.008, cap = -.11;
+  const {root, dispose} = asset(64);
+  const model = buildTempleContinuityModel(root, cap);
+  const drop = createRearDrop(root, cap);
+  const originals = armPositions(root).map(array => array.slice());
+  try {
+    drop.setSpread(bend);
+    // The drawn arms: the hinge end is untouched and the tips have opened out by the full bend.
+    for (const [mesh, positions] of armPositions(root).entries()) for (let i = 0; i < positions.length; i += 3) {
+      const [x0, z0] = [originals[mesh]![i]!, originals[mesh]![i + 2]!];
+      if (Math.abs(x0) <= ARM_LATERAL_MIN_M || z0 >= model.startZM) assert.equal(positions[i], x0);
+      else assert.ok(Math.abs(positions[i]!) > Math.abs(x0));
+    }
+    const pose = new Matrix4().makeRotationY(18 * Math.PI / 180).setPosition(0, 0, -40).toArray();
+    const input = {eyewearMatrix: pose, offsetCm: GLASSES_OFFSET_CM, sourceAspect: 1.5, width: 1200, height: 800, dropM: .012};
+    const bent = projectTempleContinuity(model, {...input, spreadM: bend})!;
+    const plain = projectTempleContinuity(model, input)!;
+    for (const side of [0, 1]) {
+      // The cut walks the bent arm, not where the arm used to be: the hinge station is unmoved, the tip is not.
+      assert.ok(Math.abs(bent[side]!.points[0]!.x - plain[side]!.points[0]!.x) < 1e-9);
+      assert.ok(Math.abs(bent[side]!.points.at(-1)!.x - plain[side]!.points.at(-1)!.x) > 1);
+    }
+    // The stencil's editable corridor is built from the bent arm bounds, so every bent centreline point is inside it.
+    const landmarks = Array.from({length: 478}, () => ({x: .5, y: .45, z: 0}));
+    landmarks[33] = {x: .42, y: .43, z: 0}; landmarks[263] = {x: .58, y: .43, z: 0}; landmarks[2] = {x: .5, y: .52, z: 0};
+    drop.setShape(input.dropM, bend);
+    const protection = createProtection({optical: drop.opticalBounds, originalArms: drop.originalArmBounds, candidateArms: drop.candidateArmBounds},
+      pose, GLASSES_OFFSET_CM, landmarks, input.width, input.height, input.sourceAspect)!;
+    assert.ok(protection);
+    for (const path of bent) for (const point of path.points) {
+      assert.ok(protection.editableRects.some(rect => point.x >= rect.x0 - 1 && point.x <= rect.x1 + 1 && point.y >= rect.y0 - 1 && point.y <= rect.y1 + 1),
+        `a bent centreline point (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) fell outside the editable corridor`);
+    }
+    // And bend 0 is the authored frame again, exactly.
+    drop.setShape(0, 0);
+    assert.deepEqual(armPositions(root), originals);
+    assert.deepEqual(projectTempleContinuity(model, {...input, spreadM: 0}), plain);
+  } finally {drop.dispose(); dispose();}
 });
 
 /** Two box arms and a lens triangle: the same shape the continuity tests use, so the rear drop and the continuity

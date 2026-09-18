@@ -16,7 +16,7 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6});
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6, templeBendMm: 0});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
@@ -62,6 +62,16 @@ test('the temple-occlusion rule is a two-value selector, per pixel by default, a
     assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.6, 2.6], bad);
   assert.match(describeConfig(parseConfig('?templekeep=1.2&templedrop=4')), /kept to 1.2 cm behind it, gone by 4 cm/);
   assert.deepEqual(unrecognizedOptions('?templekeep=1&templedrop=3'), []);
+  // The manual outward bend at the tips, in millimetres, hinged at the front of the frame.
+  assert.equal(parseConfig('').templeBendMm, 0);
+  assert.equal(parseConfig('?templebend=6').templeBendMm, 6);
+  assert.equal(parseConfig('?templebend=-4').templeBendMm, -4);
+  assert.equal(parseConfig('?templebend=12').templeBendMm, 12);
+  for (const bad of ['?templebend=13', '?templebend=-13', '?templebend=x', '?templebend='])
+    assert.equal(parseConfig(bad).templeBendMm, 0, bad);
+  assert.match(describeConfig(parseConfig('')), /temple bend none, the arms as authored \(\?templebend=\)/);
+  assert.match(describeConfig(parseConfig('?templebend=6')), /temple bend 6 mm outward at the tip, hinged at the front/);
+  assert.deepEqual(unrecognizedOptions('?templebend=6'), []); assert.deepEqual(unrecognizedOptions('?templebends=6'), ['templebends']);
   assert.match(describeConfig(parseConfig('?temples=angles')), /temple occlusion PER-SIDE PERCENTAGES from the head angles, the former v3 \(\?temples=depth\)/);
   assert.deepEqual(unrecognizedOptions('?temples=angles'), []); assert.deepEqual(unrecognizedOptions('?temple=angles'), ['temple']);
   // The rule must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.

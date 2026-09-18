@@ -228,6 +228,17 @@ was an arm ending in mid-air short of the ear, on both sides, at a place that mo
 arm alongside the head, lower them to tuck it away sooner; a pair that is not a band falls back to both defaults. Both
 ends are in every timing row and every audit, so a judgement can be tied to the numbers that produced it.
 
+**Bending the arms outward at the hinge (`?templebend=`, mm).** A temple that sits too close to the head is given up by
+any occlusion rule, because it really is behind the head. The lever that changes that is the frame, not the rule:
+`?templebend=6` splays each arm outward by 6 mm **at its tip**, along the same smoothstep ramp the rear drop uses, so
+the ramp is exactly 0 at the arm's start plane — the bridge, rims, lenses and the hinge attachment do not move at all,
+and the arm swings out behind them as a real temple splays from its hinge. Negative pulls the arms in. It is written by
+the same single pass over the cloned arm buffers as the rear drop and the width fit, so all three compose and 0 restores
+the authored frame exactly; the projected arm centrelines and the stencil's editable corridor follow it, so the hair cut
+still walks the bent arm. Range ±12 mm; the automatic width fit adds to it and the pair is capped there (12 mm at the
+tip is about 6° of splay on an 11 cm arm). Both the bend and the resulting total spread are in every timing row
+(`render.templeBendM`, `render.armSpreadTotalM`) and every audit.
+
 **What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
 to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
 and lenses, and the two rules render within 84 pixels of each other. The case the wearer reported (an arm ending in
@@ -318,6 +329,7 @@ any face; the synthetic checks below are regression evidence only.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
+| `?templebend=` | 0 | millimetres to splay each temple arm outward at its tip, hinged at the front of the frame (above). ±12 mm; negative pulls them in. Adds to the width fit's own spread, and the pair is capped at 12 mm |
 | `?templekeep=`, `?templedrop=` | 0.6, 2.6 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
 | `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |

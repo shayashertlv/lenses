@@ -45,7 +45,7 @@ import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
 import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
 import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
-import {armSpreadM, FaceWidthEstimator, WIDTH_FIT_METHOD} from './face-width.ts';
+import {armSpreadM, FaceWidthEstimator, MAX_ARM_SPREAD_M, totalArmSpreadM, WIDTH_FIT_METHOD} from './face-width.ts';
 import type {WidthFitState} from './face-width.ts';
 import {maskUvMatrix} from '../hair/mask-reuse.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
@@ -93,6 +93,9 @@ export interface RendererOptions {
   /** v4's band in centimetres behind the head surface (`?templekeep=`, `?templedrop=`). */
   templeKeepCm?: number;
   templeDropCm?: number;
+  /** `?templebend=` in METRES: splay each arm outward from its hinge by this much at the tip. Adds to whatever the
+   *  width fit applies; the pair is capped at MAX_ARM_SPREAD_M. */
+  templeBendM?: number;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -106,6 +109,8 @@ export interface FrameTimings {
   /** Which temple-visibility rule drew this frame, and what the angle rule would have given up on each side. */
   templeMode: TempleVisibilityMode; templeNegativeXWeight: number; templePositiveXWeight: number; templeFrontalWeight: number;
   templeKeepCm: number; templeDropCm: number;
+  /** The manual outward bend at the arm tips, and the total lateral spread the drawn arms carry (bend plus fit). */
+  templeBendM: number; armSpreadTotalM: number;
 }
 /** What the page's debug line and the audit record about the width fit. */
 export interface WidthFitReport {
@@ -218,6 +223,7 @@ export class TryOnRenderer {
   private templeMode: TempleVisibilityMode;
   private readonly templeKeepCm: number;
   private readonly templeDropCm: number;
+  private readonly templeBendM: number;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
@@ -227,6 +233,9 @@ export class TryOnRenderer {
     this.templeKeepCm = options.templeKeepCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
     this.templeDropCm = options.templeDropCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
     validateReliefBand(this.templeKeepCm, this.templeDropCm);
+    const bend = options.templeBendM ?? 0;
+    if (!Number.isFinite(bend) || Math.abs(bend) > MAX_ARM_SPREAD_M) throw new Error('The temple bend is out of range.');
+    this.templeBendM = bend;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -281,12 +290,13 @@ export class TryOnRenderer {
     this.widthFitEnabled = enabled;
     this.faceWidth?.reset();
     this.setWidthRatio(1);
-    this.rearDrop?.setSpread(0);
+    this.rearDrop?.setSpread(this.armSpread);
     if (this.templePaths && this.lastPose && this.continuityModel) this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
   }
-  /** The fitted ratio in the geometry: the head occluder's half-width and the arm spread the next shape change writes. */
+  /** The fitted ratio in the geometry: the head occluder's half-width, and the lateral spread the next shape change
+   *  writes — the fit's contribution and the manual bend together, so turning the fit off leaves the bend standing. */
   private setWidthRatio(ratio: number): void {
-    this.widthRatio = ratio; this.armSpread = armSpreadM(ratio);
+    this.widthRatio = ratio; this.armSpread = totalArmSpreadM(armSpreadM(ratio), this.templeBendM);
     if (this.headProxy) this.headProxy.scale.x = HEAD_PROXY_SCALE_CM[0] * ratio;
   }
   /** The arm centrelines for a pose, moved by the same drop and the same lateral spread as the drawn arms. */
@@ -606,7 +616,8 @@ export class TryOnRenderer {
       widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0,
       templeMode: this.templeMode, templeNegativeXWeight: this.templeVisibilityState.negativeXWeight,
       templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight,
-      templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm};
+      templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm,
+      templeBendM: this.templeBendM, armSpreadTotalM: this.rearDrop?.spreadM ?? 0};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */

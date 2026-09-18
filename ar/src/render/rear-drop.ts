@@ -11,7 +11,7 @@ import {
 } from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
-import {armSpreadSlope, spreadArmX, WIDTH_FIT, WIDTH_FIT_METHOD} from './face-width.ts';
+import {armSpreadSlope, MAX_ARM_SPREAD_M, spreadArmX, WIDTH_FIT_METHOD} from './face-width.ts';
 
 export const REAR_DROP_METHOD = 'temple-rear-drop-v1';
 export interface RearDropConfiguration {
@@ -47,10 +47,11 @@ function validateDrop(dropM: number): void {
     throw new Error('Rear drop must be finite and between 0 and 0.03 meters.');
   }
 }
-/** The width fit's lateral arm spread, in metres per arm; 0 is the original geometry. */
+/** The lateral arm spread in metres per arm — the width fit's and the manual bend's together; 0 is the original
+ *  geometry. */
 function validateSpread(spreadM: number): void {
-  if (!Number.isFinite(spreadM) || Math.abs(spreadM) > WIDTH_FIT.maxArmSpreadM) {
-    throw new Error(`The arm spread must be finite and within ±${WIDTH_FIT.maxArmSpreadM} meters.`);
+  if (!Number.isFinite(spreadM) || Math.abs(spreadM) > MAX_ARM_SPREAD_M) {
+    throw new Error(`The arm spread must be finite and within ±${MAX_ARM_SPREAD_M} meters.`);
   }
 }
 

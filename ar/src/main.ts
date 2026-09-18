@@ -127,6 +127,7 @@ fitSelect.addEventListener('change', () => {
 function updateWidthFitLine(): void {
   const renderer = current?.renderer, fit = renderer?.widthFit, temple = renderer?.templeVisibility;
   const occlusion = `Temple occlusion: ${templeMode === 'depth' ? `per pixel, kept to ${config.templeKeepCm} cm behind the head, gone by ${config.templeDropCm} cm` : 'by head angle'}`
+    + (config.templeBendMm === 0 ? '' : ` · bend ${config.templeBendMm} mm outward at the tips`)
     + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
   if (!fit) {element('width-fit').textContent = `${occlusion} · fit ${fitMode === 'width' ? 'width' : 'original'} · no session`; return;}
   element('width-fit').textContent = `${occlusion} · ` + (fit.mode === 'original'
@@ -219,7 +220,7 @@ async function openSession(): Promise<void> {
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
     const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
-      templeKeepCm: config.templeKeepCm, templeDropCm: config.templeDropCm}),
+      templeKeepCm: config.templeKeepCm, templeDropCm: config.templeDropCm, templeBendM: config.templeBendMm / 1000}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();

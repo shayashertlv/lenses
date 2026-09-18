@@ -8,6 +8,7 @@ import type {FaceDelegate} from './face/detector.ts';
 import {DEFAULT_STEADY} from './render/pose-stabilizer.ts';
 import type {SteadyOptions} from './render/pose-stabilizer.ts';
 import {DEFAULT_TEMPLE_VISIBILITY_MODE, TEMPLE_VISIBILITY_PARAMETERS} from './render/temple-visibility.ts';
+import {MAX_ARM_SPREAD_M} from './render/face-width.ts';
 import type {TempleVisibilityMode} from './render/temple-visibility.ts';
 import {DEFAULT_HAIR_SCHEDULE} from './hair/mask-reuse.ts';
 import type {HairSchedule} from './hair/mask-reuse.ts';
@@ -85,6 +86,10 @@ export interface Config {
    *  alongside the head, lower them to tuck it away sooner. Visual choices, exposed so they can be judged live. */
   templeKeepCm: number;
   templeDropCm: number;
+  /** `?templebend=` mm: splay each temple arm outward from its hinge by this much at the tip. The front of the frame
+   *  does not move. Negative pulls the arms in. It adds to whatever the width fit is applying, and the pair is capped
+   *  at 12 mm per arm. A visual choice, exposed so it can be judged live. */
+  templeBendMm: number;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
@@ -92,13 +97,14 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: DEFAULT_TEMPLE_VISIBILITY_MODE,
   templeKeepCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, templeDropCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm,
+  templeBendMm: 0,
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
   'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'model', 'name', 'clip', 'width', 'sha256']);
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'model', 'name', 'clip', 'width', 'sha256']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {
@@ -174,6 +180,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     temples: temples === 'angles' ? 'angles' : temples === 'depth' ? 'depth' : DEFAULT_TEMPLE_VISIBILITY_MODE,
     ...reliefBand(number('templekeep', TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, 0, 6),
       number('templedrop', TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm, 0.1, 12)),
+    templeBendMm: number('templebend', 0, -MAX_ARM_SPREAD_M * 1000, MAX_ARM_SPREAD_M * 1000),
   };
 }
 
@@ -201,6 +208,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
     `temple occlusion ${config.temples === 'depth'
       ? `per pixel from the head's own depth, v4: kept to ${config.templeKeepCm} cm behind it, gone by ${config.templeDropCm} cm (?templekeep=, ?templedrop=, ?temples=angles for the former per-side percentages)`
       : 'PER-SIDE PERCENTAGES from the head angles, the former v3 (?temples=depth)'}`,
+    `temple bend ${config.templeBendMm === 0 ? 'none, the arms as authored (?templebend=)' : `${config.templeBendMm} mm outward at the tip, hinged at the front (?templebend=)`}`,
     `temple fit ${config.fit === 'width' ? 'WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio (?fit=original restores the shipped geometry)' : 'original (?fit=width for the experiment)'}`,
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';
