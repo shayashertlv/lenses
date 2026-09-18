@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
+import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, DEFAULT_TEMPLE_BEND_MM, DEFAULT_TEMPLE_REACH_PERCENT, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
 import {parseExternalModel} from '../src/eyewear/external.ts';
 import {DEFAULT_HAIR_INPUT_MAX_EDGE, HAIR_WAIT_MS} from '../src/pipeline/pipeline.ts';
 import {DEFAULT_STEADY} from '../src/render/pose-stabilizer.ts';
@@ -16,7 +16,8 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6, templeBendMm: 0});
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6,
+    templeBendMm: DEFAULT_TEMPLE_BEND_MM, templeReachPercent: DEFAULT_TEMPLE_REACH_PERCENT});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
@@ -62,16 +63,29 @@ test('the temple-occlusion rule is a two-value selector, per pixel by default, a
     assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.6, 2.6], bad);
   assert.match(describeConfig(parseConfig('?templekeep=1.2&templedrop=4')), /kept to 1.2 cm behind it, gone by 4 cm/);
   assert.deepEqual(unrecognizedOptions('?templekeep=1&templedrop=3'), []);
-  // The manual outward bend at the tips, in millimetres, hinged at the front of the frame.
-  assert.equal(parseConfig('').templeBendMm, 0);
+  // The manual outward bend at the tips, in millimetres, hinged at the front of the frame. It ships on, at the value
+  // the owner judged best live, so a page with no address at all already carries it.
+  assert.equal(DEFAULT_TEMPLE_BEND_MM, 10);
+  assert.equal(parseConfig('').templeBendMm, DEFAULT_TEMPLE_BEND_MM);
   assert.equal(parseConfig('?templebend=6').templeBendMm, 6);
   assert.equal(parseConfig('?templebend=-4').templeBendMm, -4);
-  assert.equal(parseConfig('?templebend=12').templeBendMm, 12);
-  for (const bad of ['?templebend=13', '?templebend=-13', '?templebend=x', '?templebend='])
-    assert.equal(parseConfig(bad).templeBendMm, 0, bad);
-  assert.match(describeConfig(parseConfig('')), /temple bend none, the arms as authored \(\?templebend=\)/);
-  assert.match(describeConfig(parseConfig('?templebend=6')), /temple bend 6 mm outward at the tip, hinged at the front/);
+  assert.equal(parseConfig('?templebend=24').templeBendMm, 24);
+  assert.equal(parseConfig('?templebend=0').templeBendMm, 0, 'and it can be turned off for the arms as authored');
+  for (const bad of ['?templebend=25', '?templebend=-25', '?templebend=x'])
+    assert.equal(parseConfig(bad).templeBendMm, DEFAULT_TEMPLE_BEND_MM, bad);
+  assert.equal(parseConfig('?templebend=').templeBendMm, 0, 'an empty value is a number here, as it is for every numeric lever');
+  assert.match(describeConfig(parseConfig('?templebend=0')), /temple bend none, the arms as authored \(\?templebend=\)/);
+  assert.match(describeConfig(parseConfig('?templebend=6')), /temple bend 6 mm outward at the tip, hinged at the front, full 65% of the way back/);
   assert.deepEqual(unrecognizedOptions('?templebend=6'), []); assert.deepEqual(unrecognizedOptions('?templebends=6'), ['templebends']);
+  // How far back along the arm that bend reaches its full value, as a percentage of the hinge-to-cap span.
+  assert.equal(DEFAULT_TEMPLE_REACH_PERCENT, 65);
+  assert.equal(parseConfig('').templeReachPercent, DEFAULT_TEMPLE_REACH_PERCENT);
+  assert.equal(parseConfig('?templereach=100').templeReachPercent, 100, 'and the ramp that shipped first is still one option');
+  assert.equal(parseConfig('?templereach=35').templeReachPercent, 35);
+  for (const bad of ['?templereach=34', '?templereach=101', '?templereach=0', '?templereach=x', '?templereach='])
+    assert.equal(parseConfig(bad).templeReachPercent, DEFAULT_TEMPLE_REACH_PERCENT, bad);
+  assert.match(describeConfig(parseConfig('?templebend=10&templereach=100')), /10 mm outward at the tip, hinged at the front, full 100% of the way back \(\?templebend=, \?templereach=\)/);
+  assert.deepEqual(unrecognizedOptions('?templereach=65'), []); assert.deepEqual(unrecognizedOptions('?templereaches=65'), ['templereaches']);
   assert.match(describeConfig(parseConfig('?temples=angles')), /temple occlusion PER-SIDE PERCENTAGES from the head angles, the former v3 \(\?temples=depth\)/);
   assert.deepEqual(unrecognizedOptions('?temples=angles'), []); assert.deepEqual(unrecognizedOptions('?temple=angles'), ['temple']);
   // The rule must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.

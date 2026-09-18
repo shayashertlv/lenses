@@ -30,9 +30,30 @@ export const WIDTH_FIT_METHOD = 'face-width-fit-v1';
 export const ARM_LATERAL_MIN_M = 0.045;
 
 /** The hard cap on how far one arm may be splayed outward at its tip, from every source together: the automatic width
- *  fit (capped far lower, see WIDTH_FIT.maxArmSpreadM) plus the manual bend (`?templebend=`). 12 mm at the tip is about
- *  6 degrees of splay on a 11 cm arm — enough to carry an arm clear of a head, far short of a deformed frame. */
-export const MAX_ARM_SPREAD_M = 0.012;
+ *  fit (capped far lower, see WIDTH_FIT.maxArmSpreadM) plus the manual bend (`?templebend=`).
+ *
+ *  The number is the arms' own inward curl. Read straight out of the shipped GLBs (2026-09-18): each arm's outer
+ *  surface runs from |x| 7.2 cm along the hinge shaft to 5.1 cm at the ear hook on Amber Horizon, and 7.25 to 5.3 cm on
+ *  Tom Ford — about 21 mm and 19 mm of inward taper. At the cap the bend has straightened that curl and the arm runs
+ *  back parallel to the frame front; there is no reading of "outward" beyond it that is still a pair of glasses. */
+export const MAX_ARM_SPREAD_M = 0.024;
+
+/** How far back along the arm the bend reaches its full value, as a share of the hinge-to-cap span, and the range the
+ *  address option accepts. 1 spreads the ramp over the whole arm; a smaller share lands the full offset earlier — at
+ *  the ear, say — and the rest of the arm runs back parallel to it.
+ *
+ *  Why the share exists. Measured (2026-09-18) against the occluder this page actually draws — the canonical face mesh
+ *  in front and the ellipsoid head proxy behind it, whichever is wider at that depth — the authored arm runs inside the
+ *  head over its whole rear half, and the deepest point is not the tip: it is z -0.084 m, where the face mesh reaches
+ *  its own widest (7.74 cm half-width) and the arm has already tapered to 6.9 cm. A ramp spread over the whole arm has
+ *  delivered only about half its offset by then, so a 10 mm bend leaves that station 3.3 mm inside the head while the
+ *  tip stands 0.1 mm proud of it — buried where it matters, showing where it does not. The same 10 mm at a 0.65 reach
+ *  has fully arrived by that station: 0.7 mm inside at the worst point, with the tip exactly where it was. That is the
+ *  whole lever — where the bend is spent, not how much of it there is.
+ *
+ *  These are visual choices measured against a proxy head, not a wearer's anatomy. */
+export const DEFAULT_SPREAD_REACH = 1;
+export const SPREAD_REACH_RANGE = Object.freeze({min: 0.35, max: 1});
 
 /** Both sources together, bounded and rounded to the same 0.1 mm step the fit uses. */
 export function totalArmSpreadM(fitSpreadM: number, bendM: number): number {
@@ -235,36 +256,48 @@ export function armSpreadM(ratio: number): number {
   return Math.round(capped / WIDTH_FIT.spreadQuantumM) * WIDTH_FIT.spreadQuantumM;
 }
 
+/** The z span the ramp rises over, from the arm's start plane. Throws on a span, a spread or a reach it cannot draw. */
+function spreadRampSpan(startZM: number, cutoffZM: number, spreadM: number, reach: number): number {
+  if (![startZM, cutoffZM, spreadM, reach].every(Number.isFinite) || startZM <= cutoffZM) throw new Error('The arm-spread span is invalid.');
+  if (Math.abs(spreadM) > MAX_ARM_SPREAD_M + 1e-9) throw new Error('The arm spread is out of range.');
+  if (reach < SPREAD_REACH_RANGE.min - 1e-9 || reach > SPREAD_REACH_RANGE.max + 1e-9) throw new Error('The arm-spread reach is out of range.');
+  return (startZM - cutoffZM) * reach;
+}
+
 /** The lateral ramp shared by the arm geometry and the projected arm centrelines: 0 at the arm's start plane, where the
- *  hinge, rims, bridge and lenses are, and the full spread at the clip cap. The same shape as the rear drop's curve, so
- *  both deformations meet the untouched front of the frame with a zero slope.
+ *  hinge, rims, bridge and lenses are, and the full spread `reach` of the way back to the clip cap — at the cap itself
+ *  by default. The same shape as the rear drop's curve, so both deformations meet the untouched front of the frame with
+ *  a zero slope, and the ramp meets the flat run behind it with a zero slope too: a shorter reach bends the arm
+ *  earlier, it does not put a corner in it.
  *
  *  This is what "bend the temples outward at the hinge" means here: the front of the frame does not move at all and the
  *  arm swings out behind it, exactly as a real temple splays from its hinge. */
-export function armSpreadCurve(z: number, startZM: number, cutoffZM: number, spreadM: number): number {
-  if (![z, startZM, cutoffZM, spreadM].every(Number.isFinite) || startZM <= cutoffZM) throw new Error('The arm-spread span is invalid.');
-  if (Math.abs(spreadM) > MAX_ARM_SPREAD_M + 1e-9) throw new Error('The arm spread is out of range.');
+export function armSpreadCurve(z: number, startZM: number, cutoffZM: number, spreadM: number, reach: number = DEFAULT_SPREAD_REACH): number {
+  const span = spreadRampSpan(startZM, cutoffZM, spreadM, reach);
+  if (!Number.isFinite(z)) throw new Error('The arm-spread span is invalid.');
   if (spreadM === 0) return 0;
-  const u = clamp((startZM - z) / (startZM - cutoffZM), 0, 1);
+  const u = clamp((startZM - z) / span, 0, 1);
   return spreadM * u * u * (3 - 2 * u);
 }
 
 /** d(offset)/dz of `armSpreadCurve`, so the arm's normals and tangents can follow the shear as they follow the drop's. */
-export function armSpreadSlope(z: number, startZM: number, cutoffZM: number, spreadM: number): number {
-  if (![z, startZM, cutoffZM, spreadM].every(Number.isFinite) || startZM <= cutoffZM) throw new Error('The arm-spread span is invalid.');
+export function armSpreadSlope(z: number, startZM: number, cutoffZM: number, spreadM: number, reach: number = DEFAULT_SPREAD_REACH): number {
+  const span = spreadRampSpan(startZM, cutoffZM, spreadM, reach);
+  if (!Number.isFinite(z)) throw new Error('The arm-spread span is invalid.');
   if (spreadM === 0) return 0;
-  const u = clamp((startZM - z) / (startZM - cutoffZM), 0, 1);
-  return -spreadM * 6 * u * (1 - u) / (startZM - cutoffZM);
+  const u = clamp((startZM - z) / span, 0, 1);
+  return -spreadM * 6 * u * (1 - u) / span;
 }
 
 /** The fitted lateral position of an arm point: identity at spread 0, and never moved across ARM_LATERAL_MIN_M, so the
  *  fixed temple rules (the visibility discard, the continuity stations, the rear-drop eligibility) classify it exactly
  *  as they did before the fit. */
-export function spreadArmX(x: number, z: number, startZM: number, cutoffZM: number, spreadM: number): number {
+export function spreadArmX(x: number, z: number, startZM: number, cutoffZM: number, spreadM: number,
+  reach: number = DEFAULT_SPREAD_REACH): number {
   if (!Number.isFinite(x)) throw new Error('The arm-spread position is invalid.');
   if (spreadM === 0) return x;
   const magnitude = Math.abs(x);
   if (magnitude <= ARM_LATERAL_MIN_M) return x;
   const floor = Math.min(magnitude, ARM_LATERAL_MIN_M + WIDTH_FIT.lateralGuardM);
-  return Math.sign(x) * Math.max(magnitude + armSpreadCurve(z, startZM, cutoffZM, spreadM), floor);
+  return Math.sign(x) * Math.max(magnitude + armSpreadCurve(z, startZM, cutoffZM, spreadM, reach), floor);
 }

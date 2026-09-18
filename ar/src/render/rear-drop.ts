@@ -11,7 +11,9 @@ import {
 } from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
-import {armSpreadSlope, MAX_ARM_SPREAD_M, spreadArmX, WIDTH_FIT_METHOD} from './face-width.ts';
+import {
+  armSpreadSlope, DEFAULT_SPREAD_REACH, MAX_ARM_SPREAD_M, spreadArmX, SPREAD_REACH_RANGE, WIDTH_FIT_METHOD,
+} from './face-width.ts';
 
 export const REAR_DROP_METHOD = 'temple-rear-drop-v1';
 export interface RearDropConfiguration {
@@ -110,8 +112,11 @@ const isLens = (material: Material): boolean => material instanceof MeshPhysical
  * Owns cloned geometry only. Original buffers and material hooks remain untouched.
  * Bounds are root-local; the caller applies its asset/pose projection externally.
  */
-export function createRearDrop(root: Object3D, cutoffZM: number) {
+export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: number = DEFAULT_SPREAD_REACH) {
   if (!Number.isFinite(cutoffZM) || cutoffZM < -.2 || cutoffZM > -.03) throw new Error('The rear-drop endpoint is invalid.');
+  if (!Number.isFinite(spreadReach) || spreadReach < SPREAD_REACH_RANGE.min || spreadReach > SPREAD_REACH_RANGE.max) {
+    throw new Error('The arm-spread reach is out of range.');
+  }
   const records = new Map<BufferGeometry, GeometryRecord>();
   const meshes: MeshRecord[] = [];
   let lensRearZM = Infinity, dropM = 0, spreadM = 0, disposed = false;
@@ -209,8 +214,8 @@ export function createRearDrop(root: Object3D, cutoffZM: number) {
             if (!eligible(record, i)) continue;
             const x = originalPosition.getX(i), z = originalPosition.getZ(i);
             const curve = rearDropCurve(z, startZM, cutoffZM, drop);
-            const dxDz = spread === 0 ? 0 : Math.sign(x) * armSpreadSlope(z, startZM, cutoffZM, spread);
-            if (spread !== 0) position.setX(i, spreadArmX(x, z, startZM, cutoffZM, spread));
+            const dxDz = spread === 0 ? 0 : Math.sign(x) * armSpreadSlope(z, startZM, cutoffZM, spread, spreadReach);
+            if (spread !== 0) position.setX(i, spreadArmX(x, z, startZM, cutoffZM, spread, spreadReach));
             if (drop > 0) position.setY(i, originalPosition.getY(i) - curve.loweringM);
             if ((curve.dyDz !== 0 || dxDz !== 0) && normal && originalNormal) {
               point.set(originalNormal.getX(i), originalNormal.getY(i),
@@ -235,7 +240,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number) {
       get originalArmBounds(): Box3[] {return originalArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get candidateArmBounds(): Box3[] {return candidateArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get diagnostics() {
-        return {method: 'posterior-y-preview-curve-v1', dropM, spreadM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
+        return {method: 'posterior-y-preview-curve-v1', dropM, spreadM, spreadReach, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
           fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, sourceGeometryCount: records.size,
           originalZPreserved: true, originalXPreservedWithoutWidthFit: spreadM === 0, opticalFrontPreserved: true,
           meshTransformIdentityChecked: true, protectionIncludesAllUndeformedReferencedVertices: true,
@@ -243,6 +248,8 @@ export function createRearDrop(root: Object3D, cutoffZM: number) {
       },
       /** The arm spread of the width fit now in the geometry (metres per arm; 0 is the original geometry). */
       get spreadM(): number {return spreadM;},
+      /** How far back along the arm that spread reaches its full value, as a share of the hinge-to-cap span. */
+      get spreadReach(): number {return spreadReach;},
       get dropM(): number {return dropM;},
       setDrop(value: number): void {applyShape(value, spreadM);},
       /** The width fit's lateral arm spread; keeps the posed drop. */

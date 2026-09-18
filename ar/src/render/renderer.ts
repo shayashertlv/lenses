@@ -45,7 +45,9 @@ import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
 import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
 import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
-import {armSpreadM, FaceWidthEstimator, MAX_ARM_SPREAD_M, totalArmSpreadM, WIDTH_FIT_METHOD} from './face-width.ts';
+import {
+  armSpreadM, DEFAULT_SPREAD_REACH, FaceWidthEstimator, MAX_ARM_SPREAD_M, SPREAD_REACH_RANGE, totalArmSpreadM, WIDTH_FIT_METHOD,
+} from './face-width.ts';
 import type {WidthFitState} from './face-width.ts';
 import {maskUvMatrix} from '../hair/mask-reuse.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
@@ -96,6 +98,9 @@ export interface RendererOptions {
   /** `?templebend=` in METRES: splay each arm outward from its hinge by this much at the tip. Adds to whatever the
    *  width fit applies; the pair is capped at MAX_ARM_SPREAD_M. */
   templeBendM?: number;
+  /** `?templereach=` as a share of the hinge-to-cap span: how far back the bend reaches its full value. 1 spreads it
+   *  over the whole arm; less lands it earlier, at the ear, and the rest of the arm runs back parallel. */
+  templeReach?: number;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -109,8 +114,9 @@ export interface FrameTimings {
   /** Which temple-visibility rule drew this frame, and what the angle rule would have given up on each side. */
   templeMode: TempleVisibilityMode; templeNegativeXWeight: number; templePositiveXWeight: number; templeFrontalWeight: number;
   templeKeepCm: number; templeDropCm: number;
-  /** The manual outward bend at the arm tips, and the total lateral spread the drawn arms carry (bend plus fit). */
-  templeBendM: number; armSpreadTotalM: number;
+  /** The manual outward bend at the arm tips, how far back it reaches its full value, and the total lateral spread the
+   *  drawn arms carry (bend plus fit). */
+  templeBendM: number; templeReach: number; armSpreadTotalM: number;
 }
 /** What the page's debug line and the audit record about the width fit. */
 export interface WidthFitReport {
@@ -224,6 +230,7 @@ export class TryOnRenderer {
   private readonly templeKeepCm: number;
   private readonly templeDropCm: number;
   private readonly templeBendM: number;
+  private readonly templeReach: number;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
@@ -236,6 +243,11 @@ export class TryOnRenderer {
     const bend = options.templeBendM ?? 0;
     if (!Number.isFinite(bend) || Math.abs(bend) > MAX_ARM_SPREAD_M) throw new Error('The temple bend is out of range.');
     this.templeBendM = bend;
+    const reach = options.templeReach ?? DEFAULT_SPREAD_REACH;
+    if (!Number.isFinite(reach) || reach < SPREAD_REACH_RANGE.min || reach > SPREAD_REACH_RANGE.max) {
+      throw new Error('The temple bend reach is out of range.');
+    }
+    this.templeReach = reach;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -304,7 +316,10 @@ export class TryOnRenderer {
     if (!this.continuityModel) return null;
     const {width, height} = this.renderSize;
     return projectTempleContinuity(this.continuityModel, {eyewearMatrix, offsetCm: this.eyewear.offsetCm,
-      sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM, spreadM: this.armSpread});
+      sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM,
+      // Read back off the geometry rather than from the option, so the centrelines cannot be projected along a
+      // differently bent arm than the one that was drawn.
+      spreadM: this.armSpread, spreadReach: this.rearDrop?.spreadReach ?? DEFAULT_SPREAD_REACH});
   }
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
   get syncUnavailable(): string | null {return this.syncFailure;}
@@ -378,7 +393,7 @@ export class TryOnRenderer {
       if (object instanceof Mesh && (Array.isArray(object.material) ? object.material : [object.material]).some(material => material instanceof MeshPhysicalMaterial && material.transmission > 0)) this.lensMeshes.push(object);
     });
     this.templeClip = createTempleClip(eyewearScene);
-    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM);
+    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM, this.templeReach);
     const occlusionMaterial = new MeshBasicMaterial({colorWrite: false, depthWrite: true, depthTest: true, side: DoubleSide});
     this.faceSurface = new FaceSurface(face.positions);
     const geometry = new BufferGeometry();
@@ -617,7 +632,7 @@ export class TryOnRenderer {
       templeMode: this.templeMode, templeNegativeXWeight: this.templeVisibilityState.negativeXWeight,
       templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight,
       templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm,
-      templeBendM: this.templeBendM, armSpreadTotalM: this.rearDrop?.spreadM ?? 0};
+      templeBendM: this.templeBendM, templeReach: this.templeReach, armSpreadTotalM: this.rearDrop?.spreadM ?? 0};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */
