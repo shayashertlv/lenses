@@ -4,7 +4,8 @@ The eyewear try-on pipeline, extracted on September 15, 2026 as the main pipelin
 (ar_v4, since archived outside this repository). It is the guarded GPU compose measured there as mode X: the same
 capture, face landmarker, hair segmenter and frame scheduling as that generation's accepted G Combined pipeline, with
 the hair occlusion, the optical/nasal protection and the temple continuity cut done inside the eyewear shaders instead
-of a CPU compose after a readback. No pixel leaves the GPU on a live frame. Everything runs in the browser; nothing is
+of a CPU compose after a readback. No rendered pixel is read back on a live frame (only Hold & audit reads the canvas);
+the capture still copies each frame's bytes out once for its SHA-256. Everything runs in the browser; nothing is
 uploaded.
 
 Owner-measured in that generation's lab under a 29.6 fps camera (phone flashlight, Chrome 152, 2026-09-15): G 15.79 fps
@@ -50,11 +51,18 @@ events: `live` (stage medians) and `hair` (every completed hair job's inference 
 in flight when a frame's draw started; how far each face request was posted from the draw starts around it, and the
 face inference time of requests with a draw starting within 10 ms after the post against the rest, a split fixed
 before the request runs; the "Hair masks" line). Each report carries the options the page received (`options`) and the ones it ignored
-(`ignoredOptions`); `pipeline` counts captures replaced before inference. The server keeps reports in memory only:
-every deploy empties `/ar/diagnostics.json`, so save it before pushing.
+(`ignoredOptions`); `pipeline` is the pump's own line: the stage the active frame is in and how long it has been there,
+then offered / captured / published / dropped (replaced after capture, locked, misses) and the inference count. A report
+carries at most the last 40 events (`src/main.ts`), so a session longer than about 150 s must be reassembled by unioning
+successive reports; the newest report alone drops the earliest windows and the startup log. The server keeps reports in
+memory only: every deploy empties `/ar/diagnostics.json`, so save it before pushing (the saved runs behind the figures
+below are not in this repository (`qa/output/` is ignored); the 2026-09-17 phone snapshots are kept with the archive outside it.
 
-The settings line starts with "IGNORED, not a known option: …" when the address holds a key the page does not read
-(`ADDRESS_OPTIONS` in `src/config.ts`), so a misspelled lever such as `?hairframe=2` cannot silently run the default.
+The settings line under the mirror starts with "IGNORED, not a known option: …" when the address holds a key the page
+does not read (`ADDRESS_OPTIONS` in `src/config.ts`), so a misspelled lever such as `?hairframe=2` cannot silently run
+the default, and ends with "Address options: …" (the raw query, truncated at 240 characters) and the build stamp, so a
+screenshot shows exactly what the device was asked to run. Only unknown keys are named: a known key whose value is out
+of range falls back to its default silently, so read the settings line for the value that actually ran.
 
 ## Phones (iPhone 17 Pro, Safari, 720x1280)
 
@@ -82,12 +90,16 @@ of a softer mirror; untested, a visual decision.
 second frame with reused masks moved by the head (`src/hair/mask-reuse.ts`) and the CPU face landmarker first.
 With the GPU landmarker, once the pipeline fell behind the camera the next frame's face request was posted about 1 ms
 before the current frame's draw and took about twice as long (30-35 ms against 14-15 ms), which held hair on every
-second frame at 24-28 fps; on the CPU that penalty was gone (3-16 %). Measured after 45 s: every second frame with the
-CPU face landmarker held 29.9-30.2 fps to 168 s and 28.5 at 199 s (frame age 30-66 ms); every frame with the CPU face
-landmarker 26.3-27.7 fps at 45-96 s and 23.0-24.4 at 107-168 s; every second frame with the GPU face landmarker
-24.3-28.2; every frame with the GPU face landmarker 21.1-24.9. Late in a three-minute run the hair jobs slow
-(round trip 32 -> 78 ms) and the drawn masks age to about 100 ms (p95 143 ms); the owner judged the hair edge on the
-phone perfect. Runs: 2 + 1 + 3 + 6, rests not matched; Android and Android tablets take the same defaults unmeasured
+second frame at 24-28 fps; on the CPU that penalty was gone (3-16 %). Every 10 s window from 45 s on, across every run
+of each configuration: every second frame with the CPU face landmarker 28.5-30.1 fps (2 runs, 199 s and 97 s; the longer
+one held 29.9-30.2 to 169 s, the shorter read 29.5 at 89 s and 28.7 at 99 s; frame age median/p95 30/43 ms rising to
+66/75 ms); every frame with the CPU face landmarker 23.0-27.7 (1 run, 168 s); every second frame with the GPU face
+landmarker 21.8-28.2 (4 runs); every frame with the GPU face landmarker 21.1-26.7 (7 runs). Late in the 199 s run the
+hair jobs slow (round trip 32 -> 78 ms) and the drawn masks age from 61 to 102 ms (p95 143 ms); the owner judged the
+hair edge on the phone perfect. 14 runs that morning, 21 minutes of camera time, across three builds: rests not matched,
+and the GPU-face runs span all three builds while the CPU-face runs are on the last one. Every run was in light that held
+the camera at 29-30 fps, so the dim-light regime below, where the camera itself drops, is unmeasured on the phone.
+Android and Android tablets take the same defaults unmeasured
 (their hair delegate stays the probe; a large Android tablet asking for the desktop site is recognised by touch
 without a fine pointer). `?hairframes=1` restores the earlier behaviour on every phone and tablet; on iPhone and iPad
 also add `?face=gpu` (Android already ran the CPU face landmarker first). Hold & audit on a phone or tablet holds a frame
@@ -107,8 +119,9 @@ next and has been the laptop default since 2026-09-16: 29.4 fps flat over 80 s (
    former capture, the default on phones and tablets, where it measured faster (2026-09-16). A VideoFrame can hold the
    camera sensor's own pixels while the video element shows them turned upright, so the first frames of a session
    measure the turn against the browser's displayed image and the capture undoes it; a picture too uniform to measure
-   falls back to the canvas. Every row carries the camera's presented-frame counter, so the camera's delivered rate is
-   always known. That counter is also what identifies a frame (`frame-identity.ts`); `currentTime` is never compared
+   falls back to the canvas. Where the browser provides `requestVideoFrameCallback`, every row carries the camera's
+   presented-frame counter, so the delivered rate is known; without it the pipeline falls back to
+   `requestAnimationFrame` and a changed `currentTime`, and no camera rate is available (that fallback is unmeasured). That counter is also what identifies a frame (`frame-identity.ts`); `currentTime` is never compared
    across a draw, because WebKit reports a running clock for a camera stream and such a comparison discarded every frame
    on iPhone.
 2. **Inference**: the face landmarker (`src/face/`, MediaPipe FaceLandmarker in a worker, CPU delegate by default) sees a
@@ -118,12 +131,15 @@ next and has been the laptop default since 2026-09-16: 29.4 fps flat over 80 s (
    its own mask (`HAIR_WAIT_MS` is only a guard against a stalled worker): a frame is never drawn without hair while its
    mask is on its way. On phones and tablets (and with `?hairframes=2`) the hair segmenter runs on every second frame and
    no frame waits: a frame without its own mask draws the newest mask moved with the head, if it is at most
-   `?hairmaxage=` ms old, and is otherwise drawn without hair. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
+   `?hairmaxage=` ms old, and is otherwise drawn without hair. The SHA-256 ties a mask to the image it was computed
+   from, so a reused mask carries that earlier frame's hash: the pairing identifies the mask's own image, not the drawn
+   one, which is why the audit's CPU reference composes only a frame's own mask. The frame pump (`src/pipeline/frame-pump.ts`) overlaps the next frame's inference with the current frame's
    preparation, with at most two owned frames and one serial hair worker.
 3. **Pose** (`src/render/renderer.ts`, `pose`): waits for the previous frame's GPU fence (at most 1 s; three unanswered
-   fences in a row switch the gate off for the session and the live panel says so), then pose steadiness
-   (`pose-stabilizer.ts`: One Euro smoothing of the detector's orientation and depth), bridge pose
-   (`bridge-pose.ts`), observed face surface (`face-surface.ts`) shaped by the nasal shape (`nasal-shape.ts`), the
+   fences in a row switch the gate off for the session and the live panel says so), then the observed face surface
+   (`face-surface.ts`) shaped by the nasal shape (`nasal-shape.ts`), both on this frame's raw detector pose; then pose
+   steadiness (`pose-stabilizer.ts`: One Euro smoothing of the detector's orientation and depth), whose steadied pose
+   drives the bridge pose (`bridge-pose.ts`), the
    pose-driven rear drop (`rear-drop.ts`), the temple clip/blend and side-depth visibility configurations
    (`temple-clip.ts`, `temple-visibility.ts`), the protection geometry (`protection.ts`: optical and nasal rectangles,
    arm corridors) and the projected arm centrelines (`continuity.ts`).
@@ -142,7 +158,11 @@ next and has been the laptop default since 2026-09-16: 29.4 fps flat over 80 s (
 - The continuity cut uses the same hash-pinned original arm geometry as G's continuity pass.
 - **Hold & audit** (`src/audit/`): the next frame is also drawn without hair, without eyewear and undropped, each read
   back once; G's CPU compose and continuity pass run on the same inputs and G's four protection checks are applied to
-  the GPU output. Lossless images and difference maps are included; "Download audit" saves it.
+  the GPU output. Lossless images and difference maps are included; "Download audit" saves it. With hair on every second
+  frame the audit starts a hair job on the first frame that finds the worker idle and that frame waits for its own mask
+  (at most `?hairwait=` ms), passing over up to 90 frames that draw a reused mask; after that it audits a reused-mask
+  frame, where the four protection checks still run but the CPU reference compose and the comparison against it are
+  skipped, and the audit line says so.
 
 What is not byte-exact G: the hair edge is a hard step at the mask's nearest texel rather than the two-pixel CPU
 feather; the continuity cut replaces G's after-the-fact removal of detached remnants; lens transmission sees the dropped
@@ -163,10 +183,10 @@ temples.
 | `?eyewear=`, `?hairModel=`, `?hair=0` | | initial control values |
 | `?source=` | VideoFrame; phones canvas | `videoframe` takes the frame as a VideoFrame and hashes its own bytes, no canvas readback; `canvas` is the former capture. Laptop webcam at 30 fps: VideoFrame 29.4 fps flat over 80 s, age 41 ms, against the canvas path's 26.5 fps after the CPU clocks down at 50 s, age 52-66 ms. On the iPhone the canvas wins instead (28-29 fps where VideoFrame had fallen to 25-27; see `capture.ts`). The synthetic harness shows the reverse of the webcam (GPU-resident frames), so judge on a real camera only |
 | `?hairinput=` | 640 | px max edge of the copy the hair segmenter sees; the mask is that size and is read by nearest lookup everywhere; 1280 restores the frame-size mask |
-| `?hairdelegate=` | probe, Apple phones `cpu` | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback (2026-09-15, face landmarker then on the GPU: 29 fps for 40 s, 2-3 fps ahead at 30-60 s; kept with the CPU face landmarker of 2026-09-17, GPU hair with it unmeasured) |
+| `?hairdelegate=` | probe; Apple phones and tablets `cpu` (an iPad asking for the desktop site is still recognised) | `cpu` or `gpu` forces the hair segmenter's delegate; on the iPhone the CPU has no mask readback (2026-09-15, face landmarker then on the GPU: 29 fps for 40 s, 2-3 fps ahead at 30-60 s; kept with the CPU face landmarker of 2026-09-17, GPU hair with it unmeasured) |
 | `?hairwait=` | 120 | guard in ms after which a frame is drawn without its hair mask; read where frames wait for their own mask (hair on every frame, and the audited frame with hair on every second frame; measurement lever) |
 | `?diag=1` | off | send the startup step log and live stage medians (numbers only) to this site, readable at `/ar/diagnostics.json` |
-| `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`) |
+| `?model=&name=&clip=&width=&sha256=` | | a Modeling Auto handover (`src/eyewear/external.ts`); `clip` is the temple clip depth in the asset's local metres, accepted from -0.2 to -0.03 m and then drawn no nearer than -0.045 m (`TEMPLE_CLIP_NEAREST_LOCAL_Z_M` in `src/eyewear/catalog.ts`), the length the v3 end blend itself needs |
 | `?steady=0` | on | turns off pose steadiness: the glasses' orientation and depth are smoothed over time before the bridge pin (`src/render/pose-stabilizer.ts`), so the image-plane position still follows each frame's nose landmarks. The live panel's "Pose shake" line reads raw vs steadied shake and the trailing angle from the timing rows. Synthetic: shake to 0.15× at rest, 2.3° trailing on a ±20° 0.5 Hz turn. Accepted by the owner live on the laptop, 2026-09-17; phones not yet judged |
 | `?hairframes=` | laptops `1`; phones and tablets `2` | `1`: every frame waits for its own hair mask. `2`: runs the hair segmenter on every second frame (`src/hair/mask-reuse.ts`); no frame waits for hair, and a frame whose own mask is not ready draws the newest mask of another frame moved by the head's motion (a 2D shift/turn/scale fitted to 24 skull landmarks, applied as one 3×3 matrix on the mask lookup and to the continuity cut). The live panel's "Hair masks" line (also in the `?diag=1` hair reports) counts own / reused / missing masks, reuse age and head motion. Owner's laptop look 2026-09-17: acceptable. Other schedules looked at the same day (a held unmoved mask, hair whenever the worker is free, every 3rd/4th frame) were not, and are not in the code: `1` and `2` are the only values. Phone default since 2026-09-17 (see Phones) |
 | `?hairmove=` | 8 | with hair on every second frame (phone and tablet default, `?hairframes=2`): start a mask early when the head moved more than this many px since the newest mask's frame; `0` never early |
@@ -187,12 +207,31 @@ several constraint sets (`--sweep` for manual exposures).
 with slow drift), saves a screenshot of the stage and audits one frame, writing everything under `qa/output/`.
 Controlled-input evidence only: not a real camera, wearer motion, phone or thermal evidence.
 
-First run on the frozen build, 2026-09-15 (this laptop, 8 s warmup + 20 s; before the VideoFrame capture and pose
-steadiness became defaults, so rerun `npm run measure` for current figures): 22.2 fps against a synthetic camera that
-delivered 27.3 fps in that run, age median/p95 71/99 ms, 446/446 tracked, 443 masked; prepare 10 ms (GPU wait 1.1, pose
-5.4), finish 7 ms (submit 5.8); audit: guard on (2 protected / 2 editable rectangles), all four checks pass, GPU output
+Historic baseline, superseded by later defaults; no current synthetic baseline is recorded. First run on the frozen
+build, 2026-09-15 (this laptop, 8 s warmup + 20 s; before the VideoFrame capture, pose steadiness and the phone schedule
+became defaults, so rerun `npm run measure` for current figures): 22.2 fps against a synthetic camera that delivered
+27.3 fps in that run, age median/p95 71/99 ms, 446/446 tracked, 443 masked; prepare 10 ms (GPU wait 1.1, pose 5.4),
+finish 7 ms (submit 5.8); audit: guard on (2 protected / 2 editable rectangles), all four checks pass, GPU output
 identical to the CPU reference compose plus continuity, drop intrusion 0 px over Δ8 (max 4), cut −26 mm on both arms.
-The fixture's hair never covers the arms, so the blend itself is only validated on a real face.
+
+There is one fixture (`qa/fixtures/face-a.jpg`), and its hair never covers the arms: the audit runs with hair applied and
+still reports zero differing pixels before against after the blend, so the harness exercises the blend without testing
+it; only a real face does that. `npm run measure -- --hairframes=2` drives the phone and tablet default, but no such run
+has been recorded: the reuse-and-warp path is covered by unit tests and by the owner's phone sessions only.
+
+## What is measured, and what is not
+
+Measured on a real camera: one iPhone 17 Pro (iOS 18.7, Safari 26.6.1), 14 runs on 2026-09-17, 21 minutes of camera
+time, longest run 199 s, camera 29-30 fps throughout, 720x1280, one wearer, one room; and this laptop (Intel Arc 140T,
+Chrome, real webcam) on 2026-09-15/16, whose runs are not in this repository. Judged by eye by the owner: the hair edge
+and the pose steadiness on both devices.
+
+Not measured at all: Android phones and tablets (they take the phone defaults untested), any browser other than Safari
+on the phone and Chrome on the laptop, a second iPhone, a second wearer, a second lighting condition (including the
+dim-light regime where the camera itself drops), any session beyond 199 s, device temperature or battery state
+(throttling is inferred from the fps and age curves alone), the `?hairframes=2` path under the synthetic harness, and
+any automated visual regression. The synthetic harness is controlled input only: one fixture, no wearer motion, no
+thermal behaviour.
 
 ## Layout
 
@@ -204,7 +243,7 @@ src/face/        landmarker protocol, timing sidechannel, client, worker
 src/hair/        pinned models, protocol (category-only), client, worker, backend probe, mask reuse (every 2nd frame)
 src/eyewear/     the frame catalog with the Modeling Auto slot, the URL handover
 src/pipeline/    capture (VideoFrame or canvas), frame identity, frame pump, the pipeline, the profiler, and the pose-shake
-                 (steadiness.ts) and hair-schedule (hair-report.ts) readings of the timing rows
+                 (steadiness.ts) and hair-schedule / face-draw-overlap (hair-report.ts) readings of the timing rows
 src/render/      the renderer and its geometry and shader modules, pose steadiness (pose-stabilizer.ts)
 src/audit/       the CPU reference compose, checks and continuity pass; the Hold audit
 public/          pinned assets (GLBs, face landmarker task, hair weights with their manifest and attribution, MediaPipe
