@@ -4,13 +4,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {BoxGeometry, BufferGeometry, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Quaternion, Vector3, Vector4} from 'three';
+import {readFile} from 'node:fs/promises';
+import {BoxGeometry, BufferGeometry, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Quaternion, Texture, Vector3, Vector4} from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {
-  ARM_LATERAL_MIN_M, armSpreadCurve, armSpreadM, armSpreadSlope, canonicalRegionSpans, DEFAULT_SPREAD_REACH,
-  FaceWidthEstimator, MAX_ARM_SPREAD_M, observeFaceWidth, spreadArmX, SPREAD_REACH_RANGE, totalArmSpreadM,
+  ARM_LATERAL_MIN_M, armSpreadCurve, armSpreadM, armSpreadSlope, canonicalRegionSpans,
+  FaceWidthEstimator, MAX_ARM_SPREAD_M, observeFaceWidth, spreadArmX, SPREAD_HINGE_ROUND_M, totalArmSpreadM,
   WIDTH_FIT, WIDTH_REGIONS,
 } from '../src/render/face-width.ts';
-import {createRearDrop, rearDropCurve, REAR_DROP_PARAMETERS} from '../src/render/rear-drop.ts';
+import {armShaftStartZM, createRearDrop, rearDropCurve, REAR_DROP_PARAMETERS} from '../src/render/rear-drop.ts';
 import {buildTempleContinuityModel, CONTINUITY_GEOMETRY, projectTempleContinuity} from '../src/render/continuity.ts';
 import {createProtection, protectionProjection, projectBounds} from '../src/render/protection.ts';
 import {TEMPLE_VISIBILITY_PARAMETERS} from '../src/render/temple-visibility.ts';
@@ -282,59 +284,107 @@ test('the bend and the automatic width fit add up, bounded, and either one alone
   for (const fit of [-0.006, 0, 0.006]) for (const bend of [-MAX_ARM_SPREAD_M, -0.004, 0, 0.004, MAX_ARM_SPREAD_M]) {
     const total = totalArmSpreadM(fit, bend);
     assert.ok(Math.abs(total) <= MAX_ARM_SPREAD_M + 1e-12);
-    for (const reach of [SPREAD_REACH_RANGE.min, 0.7, SPREAD_REACH_RANGE.max]) {
-      assert.doesNotThrow(() => armSpreadCurve(-0.05, -0.026, -0.14, total, reach));
-    }
+    assert.doesNotThrow(() => armSpreadCurve(-0.05, -0.026, -0.14, total));
   }
   // The cap is the arms' own inward curl, so a full bend straightens an arm and never turns it outward past its hinge.
   // Amber Horizon runs from |x| 7.24 cm at the hinge shaft to 5.08 cm at the hook, Tom Ford from 7.25 to 5.31 cm.
   for (const taper of [0.0724 - 0.0508, 0.0725 - 0.0531]) assert.ok(Math.abs(MAX_ARM_SPREAD_M - taper) <= 0.005, `${taper}`);
 });
 
-test('the bend reach lands the full bend earlier along the arm, and the arm runs back parallel from there', () => {
-  const startZM = -0.026, cutoffZM = -0.140, bend = 0.010;
-  const fullZ = (reach: number): number => startZM + (cutoffZM - startZM) * reach;
-  assert.equal(DEFAULT_SPREAD_REACH, SPREAD_REACH_RANGE.max, 'the shipped ramp spans the whole arm');
-  for (const reach of [SPREAD_REACH_RANGE.min, 0.5, 0.65, 0.8, 1]) {
-    // The front of the frame still does not move, whatever the reach: this stays a bend at the hinge.
-    for (const z of [0, -0.01, startZM]) assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, bend, reach), 0.065, `reach ${reach}, z ${z}`);
-    assert.ok(Math.abs(armSpreadCurve(fullZ(reach), startZM, cutoffZM, bend, reach) - bend) < 1e-12, `the full bend by the reach plane (${reach})`);
-    // Behind the reach plane the offset is constant and flat, so the arm runs parallel and the ramp leaves no corner.
-    for (let z = fullZ(reach); z >= cutoffZM; z -= 0.002) {
-      assert.ok(Math.abs(armSpreadCurve(z, startZM, cutoffZM, bend, reach) - bend) < 1e-12, `parallel (reach ${reach}, z ${z})`);
-      assert.equal(Math.abs(armSpreadSlope(z, startZM, cutoffZM, bend, reach)), 0, `flat (reach ${reach}, z ${z})`);
-    }
-    // Monotone, bounded by the bend, symmetric between the two arms, and 0 is still the identity.
-    let previous = 0;
-    for (let z = startZM; z >= cutoffZM; z -= 0.002) {
-      const offset = armSpreadCurve(z, startZM, cutoffZM, bend, reach);
-      assert.ok(offset >= previous - 1e-12 && offset <= bend + 1e-12, `bounded and monotone (reach ${reach}, z ${z})`);
-      assert.ok(Math.abs(spreadArmX(0.065, z, startZM, cutoffZM, bend, reach) + spreadArmX(-0.065, z, startZM, cutoffZM, bend, reach)) < 1e-12);
-      assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, 0, reach), 0.065);
-      previous = offset;
-    }
+test('the bend is a hinge: rounded over the pivot, then a straight shaft at a constant angle', () => {
+  // Amber Horizon's own numbers: the hinge the detector finds, its clip cap and the shipped default bend.
+  const startZM = -0.015, cutoffZM = -0.140, bend = 0.014;
+  const span = startZM - cutoffZM, slope = bend / (span - SPREAD_HINGE_ROUND_M / 2);
+  // Nothing in front of the pivot moves, and the ramp leaves it with a zero slope: a hinge radius, not a corner.
+  for (const z of [0, -0.005, -0.010, startZM]) {
+    assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, bend), 0.065, `nothing moves at z ${z}`);
+    assert.equal(armSpreadCurve(z, startZM, cutoffZM, bend), 0, `no offset at z ${z}`);
   }
-  // What the lever is for: the same bend, more of it at every station in between, and exactly the same at both ends.
+  assert.equal(Math.abs(armSpreadSlope(startZM, startZM, cutoffZM, bend)), 0);
+  // Behind the hinge radius the shaft is STRAIGHT: equal increments per millimetre, all the way to the cap.
+  const step = (z: number): number => armSpreadCurve(z - 0.001, startZM, cutoffZM, bend) - armSpreadCurve(z, startZM, cutoffZM, bend);
+  for (let z = startZM - SPREAD_HINGE_ROUND_M; z > cutoffZM + 0.001; z -= 0.001) {
+    assert.ok(Math.abs(step(z) - slope * 0.001) < 1e-12, `constant angle at z ${z}: ${step(z)}`);
+    assert.ok(Math.abs(armSpreadSlope(z, startZM, cutoffZM, bend) + slope) < 1e-12, `and the slope says so at z ${z}`);
+  }
+  // Inside the hinge radius the angle opens up linearly from nothing to that same constant.
+  for (let run = 0; run <= SPREAD_HINGE_ROUND_M; run += SPREAD_HINGE_ROUND_M / 6) {
+    assert.ok(Math.abs(armSpreadSlope(startZM - run, startZM, cutoffZM, bend) + slope * run / SPREAD_HINGE_ROUND_M) < 1e-12, `run ${run}`);
+  }
+  // The full bend lands at the cap and stays there: the clipped stub behind it is not splayed further.
+  assert.ok(Math.abs(armSpreadCurve(cutoffZM, startZM, cutoffZM, bend) - bend) < 1e-12, 'the full bend at the cap');
+  for (const z of [cutoffZM - 0.001, cutoffZM - 0.01]) assert.ok(Math.abs(armSpreadCurve(z, startZM, cutoffZM, bend) - bend) < 1e-12);
+  // Monotone, symmetric, mirrored under a negative bend, and 0 is exactly the authored geometry.
+  let previous = 0;
   for (let z = startZM; z >= cutoffZM; z -= 0.002) {
-    assert.ok(armSpreadCurve(z, startZM, cutoffZM, bend, 0.65) >= armSpreadCurve(z, startZM, cutoffZM, bend, 1) - 1e-12, `z ${z}`);
+    const offset = armSpreadCurve(z, startZM, cutoffZM, bend);
+    assert.ok(offset >= previous - 1e-12 && offset <= bend + 1e-12, `bounded and monotone at z ${z}`);
+    assert.ok(Math.abs(spreadArmX(0.065, z, startZM, cutoffZM, bend) + spreadArmX(-0.065, z, startZM, cutoffZM, bend)) < 1e-12, `symmetric at z ${z}`);
+    assert.ok(Math.abs(offset + armSpreadCurve(z, startZM, cutoffZM, -bend)) < 1e-12, `mirrored at z ${z}`);
+    assert.equal(spreadArmX(0.065, z, startZM, cutoffZM, 0), 0.065);
+    previous = offset;
   }
-  assert.equal(armSpreadCurve(startZM, startZM, cutoffZM, bend, 0.65), armSpreadCurve(startZM, startZM, cutoffZM, bend, 1));
-  assert.equal(armSpreadCurve(cutoffZM, startZM, cutoffZM, bend, 0.65), armSpreadCurve(cutoffZM, startZM, cutoffZM, bend, 1));
-  // At the ear — about 7.4 cm behind the hinge on the shipped frames — a 65 % reach is worth more than 2 mm of bend.
-  assert.ok(armSpreadCurve(-0.100, startZM, cutoffZM, bend, 0.65) - armSpreadCurve(-0.100, startZM, cutoffZM, bend, 1) > 0.002);
-  // The slope stays the curve's own derivative, so normals and tangents follow the shape the arm is drawn with.
-  for (const reach of [0.4, 0.7, 1]) for (let z = startZM - 0.002; z > cutoffZM; z -= 0.003) {
-    const h = 1e-6;
-    const numeric = (armSpreadCurve(z + h, startZM, cutoffZM, bend, reach) - armSpreadCurve(z - h, startZM, cutoffZM, bend, reach)) / (2 * h);
-    assert.ok(Math.abs(numeric - armSpreadSlope(z, startZM, cutoffZM, bend, reach)) < 1e-5, `slope at reach ${reach}, z ${z}`);
+  // The slope is the curve's own derivative everywhere, so normals and tangents follow the shape the arm is drawn with.
+  for (let z = startZM - 0.0005; z > cutoffZM; z -= 0.0017) {
+    const h = 1e-7;
+    const numeric = (armSpreadCurve(z + h, startZM, cutoffZM, bend) - armSpreadCurve(z - h, startZM, cutoffZM, bend)) / (2 * h);
+    assert.ok(Math.abs(numeric - armSpreadSlope(z, startZM, cutoffZM, bend)) < 1e-5, `slope at z ${z}`);
   }
-  // A reach outside the range is refused rather than clamped: too short a ramp is a kink, not a bend.
-  for (const bad of [0, 0.2, SPREAD_REACH_RANGE.min - 0.01, 1.002, Number.NaN, Infinity]) {
-    assert.throws(() => armSpreadCurve(-0.05, startZM, cutoffZM, bend, bad), /reach is out of range|span is invalid/, `curve ${bad}`);
-    assert.throws(() => armSpreadSlope(-0.05, startZM, cutoffZM, bend, bad), /reach is out of range|span is invalid/, `slope ${bad}`);
-    assert.throws(() => spreadArmX(0.065, -0.05, startZM, cutoffZM, bend, bad), /reach is out of range|span is invalid/, `x ${bad}`);
-  }
+  // A span too short to hold the hinge radius is refused rather than creased.
+  assert.throws(() => armSpreadCurve(-0.02, startZM, startZM - SPREAD_HINGE_ROUND_M / 2, bend), /span is invalid/);
+  assert.throws(() => armSpreadSlope(-0.02, startZM, startZM - SPREAD_HINGE_ROUND_M / 2, bend), /span is invalid/);
+  // Where the bend is spent, measured: the station the arm is most deeply buried at is local z -0.086, about 7 cm
+  // behind the hinge, where it is 8.6 mm inside the head. A straight shaft has delivered 56% of the tip's offset by
+  // then, so the shipped 14 mm leaves 0.8 mm of it; the smoothstep ramp it replaced delivered 46% from 1 cm further
+  // back, and needed the tip to stand proud of the head to make that up.
+  const atBuriedStation = armSpreadCurve(-0.086, startZM, cutoffZM, bend) / bend;
+  assert.ok(Math.abs(atBuriedStation - 0.557) < 0.01, `${atBuriedStation}`);
+  assert.ok(bend * atBuriedStation > 0.0077, 'the default bend gets within a millimetre of the head there');
 });
+
+test('the pivot is the asset\'s own hinge: where the frame front ends and the shaft begins', () => {
+  const slices = (entries: readonly (readonly [number, number])[]): Map<number, {low: number; high: number}> =>
+    new Map(entries.map(([slice, height]) => [slice, {low: -height / 2, high: height / 2}]));
+  // A frame: a sliver of rim grazes the lateral band at the very front, the rim and endpiece are tall behind it, and
+  // the shaft runs thin from there back. The sliver must not be mistaken for the shaft.
+  const frame: [number, number][] = [];
+  for (let slice = 0; slice >= -4; slice--) frame.push([slice, 0.001 + 0.002 * -slice]);
+  for (let slice = -5; slice >= -13; slice--) frame.push([slice, 0.044]);
+  for (let slice = -14; slice >= -130; slice--) frame.push([slice, 0.007]);
+  assert.equal(armShaftStartZM(slices(frame)), -0.014);
+  // A coarsely tessellated shaft has gaps; an empty slice is no evidence, a tall one ends the run.
+  assert.equal(armShaftStartZM(slices(frame.filter(([slice]) => slice > -14 || slice % 2 === 0))), -0.014);
+  // Nothing thin enough for long enough: the caller keeps the rear drop's own start plane.
+  assert.equal(armShaftStartZM(slices(frame.filter(([slice]) => slice > -14))), null);
+  // A thin patch a few slices long is not a shaft either: the run has to hold for 20 mm.
+  assert.equal(armShaftStartZM(slices([...frame.filter(([slice]) => slice > -14), [-14, 0.007], [-15, 0.007], [-16, 0.007], [-17, 0.044], [-18, 0.044]])), null);
+  assert.equal(armShaftStartZM(new Map()), null);
+});
+
+for (const [id, cap, hinge, lensRear] of [['amber-horizon', -.140, -0.015, -0.0107], ['tom-ford-clear', -.148, -0.014, -0.0144]] as const) {
+  test(`${id}: the hinge is found behind the endpiece, and the bend pivots there instead of 1 cm further back`, async () => {
+    const bytes = await readFile(new URL(`../public/models/${id}.glb`, import.meta.url));
+    const gltf = await new GLTFLoader().register(() => ({name: 'GeometryOnlyTestTextures', loadTexture: async () => new Texture()}))
+      .parseAsync(new Uint8Array(bytes).buffer, '/models/');
+    const drop = createRearDrop(gltf.scene, cap);
+    try {
+      assert.equal(drop.hingeZM, hinge, 'the measured hinge plane of this asset');
+      assert.equal(drop.spreadStartZM, hinge, 'and the bend pivots there by default');
+      // 4.3 mm behind the lens rear on one frame, 0.4 mm in front of it on the other: the hinge is a property of the
+      // frame front, not of the lens, which is why it is measured rather than offset from the lens.
+      assert.ok(Math.abs(hinge - lensRear) < 0.005);
+      // Well forward of the rear drop's own start, which keeps its guard because it shears the whole arm.
+      assert.ok(drop.spreadStartZM - (lensRear - REAR_DROP_PARAMETERS.proximalGuardM) > 0.01);
+      // And `?templepivot=` moves it back along the shaft, never forward into the rim.
+      for (const pivot of [0.004, 0.012, 0.030]) {
+        const moved = createRearDrop(gltf.scene, cap, pivot);
+        try {assert.ok(Math.abs(moved.spreadStartZM - (hinge - pivot)) < 1e-12, `${pivot}`);} finally {moved.dispose();}
+      }
+      assert.throws(() => createRearDrop(gltf.scene, cap, -0.001), /pivot is out of range/);
+      assert.throws(() => createRearDrop(gltf.scene, cap, 0.031), /pivot is out of range/);
+    } finally {drop.dispose();}
+  });
+}
 
 test('a bent arm is bent everywhere the pipeline reads it: geometry, centrelines and the protection corridor', () => {
   // The synthetic arms end at z -0.12, so the cap sits inside them as the shipped ones do inside theirs.
@@ -343,22 +393,25 @@ test('a bent arm is bent everywhere the pipeline reads it: geometry, centrelines
   const model = buildTempleContinuityModel(root, cap);
   const drop = createRearDrop(root, cap);
   const originals = armPositions(root).map(array => array.slice());
+  const pivotZM = drop.spreadStartZM;
   try {
     drop.setSpread(bend);
-    // The drawn arms: the hinge end is untouched and the tips have opened out by the full bend.
+    // The drawn arms: everything at or in front of the pivot is untouched, the tips have opened out by the full bend.
     for (const [mesh, positions] of armPositions(root).entries()) for (let i = 0; i < positions.length; i += 3) {
       const [x0, z0] = [originals[mesh]![i]!, originals[mesh]![i + 2]!];
-      if (Math.abs(x0) <= ARM_LATERAL_MIN_M || z0 >= model.startZM) assert.equal(positions[i], x0);
+      if (Math.abs(x0) <= ARM_LATERAL_MIN_M || z0 >= pivotZM) assert.equal(positions[i], x0);
       else assert.ok(Math.abs(positions[i]!) > Math.abs(x0));
     }
     const pose = new Matrix4().makeRotationY(18 * Math.PI / 180).setPosition(0, 0, -40).toArray();
     const input = {eyewearMatrix: pose, offsetCm: GLASSES_OFFSET_CM, sourceAspect: 1.5, width: 1200, height: 800, dropM: .012};
-    const bent = projectTempleContinuity(model, {...input, spreadM: bend})!;
+    const bent = projectTempleContinuity(model, {...input, spreadM: bend, spreadStartZM: pivotZM})!;
     const plain = projectTempleContinuity(model, input)!;
     for (const side of [0, 1]) {
-      // The cut walks the bent arm, not where the arm used to be: the hinge station is unmoved, the tip is not.
-      assert.ok(Math.abs(bent[side]!.points[0]!.x - plain[side]!.points[0]!.x) < 1e-9);
-      assert.ok(Math.abs(bent[side]!.points.at(-1)!.x - plain[side]!.points.at(-1)!.x) > 1);
+      // The cut walks the bent arm, not where the arm used to be. The first station sits just behind the pivot, inside
+      // the hinge radius, so it carries a fraction of what the tip carries.
+      const front = Math.abs(bent[side]!.points[0]!.x - plain[side]!.points[0]!.x);
+      const tip = Math.abs(bent[side]!.points.at(-1)!.x - plain[side]!.points.at(-1)!.x);
+      assert.ok(tip > 1 && front < tip / 20, `${side}: front ${front}, tip ${tip}`);
     }
     // The stencil's editable corridor is built from the bent arm bounds, so every bent centreline point is inside it.
     const landmarks = Array.from({length: 478}, () => ({x: .5, y: .45, z: 0}));
@@ -374,64 +427,8 @@ test('a bent arm is bent everywhere the pipeline reads it: geometry, centrelines
     // And bend 0 is the authored frame again, exactly.
     drop.setShape(0, 0);
     assert.deepEqual(armPositions(root), originals);
-    assert.deepEqual(projectTempleContinuity(model, {...input, spreadM: 0}), plain);
+    assert.deepEqual(projectTempleContinuity(model, {...input, spreadM: 0, spreadStartZM: pivotZM}), plain);
   } finally {drop.dispose(); dispose();}
-});
-
-test('the reach moves the bend along the arm in the geometry, the centrelines and the corridor together', () => {
-  const bend = 0.008, cap = -.11, reach = 0.5;
-  const {root, dispose} = asset(64);
-  const model = buildTempleContinuityModel(root, cap);
-  const fullZ = model.startZM + (cap - model.startZM) * reach;
-  const drop = createRearDrop(root, cap, reach);
-  const originals = armPositions(root).map(array => array.slice());
-  try {
-    assert.equal(drop.spreadReach, reach);
-    drop.setSpread(bend);
-    // The drawn arms: untouched in front of the hinge plane, the full bend from the reach plane back, rising between.
-    let parallel = 0, rising = 0;
-    for (const [mesh, positions] of armPositions(root).entries()) for (let i = 0; i < positions.length; i += 3) {
-      const [x0, z0] = [originals[mesh]![i]!, originals[mesh]![i + 2]!];
-      if (Math.abs(x0) <= ARM_LATERAL_MIN_M || z0 >= model.startZM) {assert.equal(positions[i], x0); continue;}
-      // Positions are float32, so the tolerances are a few ulps at 7 cm, and the band around the reach plane itself is
-      // left to the two bounds above rather than classified.
-      const offset = Math.abs(positions[i]!) - Math.abs(x0);
-      assert.ok(offset > -1e-7 && offset < bend + 1e-7, `bounded by the bend (z ${z0})`);
-      if (z0 <= fullZ) {assert.ok(Math.abs(offset - bend) < 1e-7, `the full bend by the reach plane (z ${z0})`); parallel++;}
-      else if (z0 > fullZ + 0.005) {assert.ok(offset > 0 && offset < bend - 1e-4, `still rising ahead of it (z ${z0})`); rising++;}
-    }
-    assert.ok(parallel > 0 && rising > 0, 'the fixture has arm vertices on both sides of the reach plane');
-    const pose = new Matrix4().makeRotationY(18 * Math.PI / 180).setPosition(0, 0, -40).toArray();
-    const input = {eyewearMatrix: pose, offsetCm: GLASSES_OFFSET_CM, sourceAspect: 1.5, width: 1200, height: 800, dropM: .012, spreadM: bend};
-    const early = projectTempleContinuity(model, {...input, spreadReach: reach})!;
-    const full = projectTempleContinuity(model, input)!;
-    for (const side of [0, 1]) {
-      // Same bend, same two ends, a different arm in between: this is the whole point of the lever.
-      assert.ok(Math.abs(early[side]!.points[0]!.x - full[side]!.points[0]!.x) < 1e-9, 'the hinge station is where it was');
-      assert.ok(Math.abs(early[side]!.points.at(-1)!.x - full[side]!.points.at(-1)!.x) < 1e-9, 'and so is the tip');
-      const middle = Math.round((early[side]!.points.length - 1) / 2);
-      assert.ok(Math.abs(early[side]!.points[middle]!.x - full[side]!.points[middle]!.x) > 1,
-        'but the cut walks a differently bent arm in between, so a projection that ignored the reach would be caught here');
-    }
-    // The corridor is built from the same geometry, so every centreline point of the bent arm is inside it.
-    const landmarks = Array.from({length: 478}, () => ({x: .5, y: .45, z: 0}));
-    landmarks[33] = {x: .42, y: .43, z: 0}; landmarks[263] = {x: .58, y: .43, z: 0}; landmarks[2] = {x: .5, y: .52, z: 0};
-    drop.setShape(input.dropM, bend);
-    const protection = createProtection({optical: drop.opticalBounds, originalArms: drop.originalArmBounds, candidateArms: drop.candidateArmBounds},
-      pose, GLASSES_OFFSET_CM, landmarks, input.width, input.height, input.sourceAspect)!;
-    for (const path of early) for (const point of path.points) {
-      assert.ok(protection.editableRects.some(rect => point.x >= rect.x0 - 1 && point.x <= rect.x1 + 1 && point.y >= rect.y0 - 1 && point.y <= rect.y1 + 1),
-        `an early-bend centreline point (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) fell outside the editable corridor`);
-    }
-    // And bend 0 is the authored frame again, whatever the reach was.
-    drop.setShape(0, 0);
-    assert.deepEqual(armPositions(root), originals);
-  } finally {drop.dispose(); dispose();}
-  // A reach the ramp cannot draw is refused where the geometry is built, not silently clamped at the first frame.
-  const second = asset(4);
-  try {
-    for (const bad of [0, 0.2, 1.5, Number.NaN]) assert.throws(() => createRearDrop(second.root, cap, bad), /reach is out of range/, `${bad}`);
-  } finally {second.dispose();}
 });
 
 /** Two box arms and a lens triangle: the same shape the continuity tests use, so the rear drop and the continuity
@@ -496,17 +493,20 @@ test('the fitted arms, the continuity centrelines and the protection corridor al
   const {root, dispose} = asset(64);
   const model = buildTempleContinuityModel(root, cap);
   const drop = createRearDrop(root, cap);
+  // The pivot the drawn arms were actually bent about — not the model's own start plane, which is further back.
+  const pivotZM = drop.spreadStartZM;
+  assert.ok(pivotZM > model.startZM);
   // The same asset with the fit already baked into its vertices: its own centrelines are the reference.
   const baked = asset(64);
   for (const mesh of baked.root.children) {
     const positions = (mesh as Mesh).geometry.getAttribute('position');
-    for (let i = 0; i < positions.count; i++) positions.setX(i, spreadArmX(positions.getX(i), positions.getZ(i), model.startZM, cap, spread));
+    for (let i = 0; i < positions.count; i++) positions.setX(i, spreadArmX(positions.getX(i), positions.getZ(i), pivotZM, cap, spread));
   }
   const bakedModel = buildTempleContinuityModel(baked.root, cap);
   try {
     const pose = new Matrix4().makeRotationY(18 * Math.PI / 180).setPosition(0, 0, -40).toArray();
     const input = {eyewearMatrix: pose, offsetCm: GLASSES_OFFSET_CM, sourceAspect: 1.5, width: 1200, height: 800, dropM: .015};
-    const fitted = projectTempleContinuity(model, {...input, spreadM: spread})!;
+    const fitted = projectTempleContinuity(model, {...input, spreadM: spread, spreadStartZM: pivotZM})!;
     const reference = projectTempleContinuity(bakedModel, {...input, spreadM: 0})!;
     const plain = projectTempleContinuity(model, input)!;
     assert.equal(fitted.length, 2);
@@ -519,13 +519,13 @@ test('the fitted arms, the continuity centrelines and the protection corridor al
       // And exactly: a station is projected from the lateral position spreadArmX gives the arm vertices there.
       const projection = protectionProjection(pose, GLASSES_OFFSET_CM, input.sourceAspect);
       for (const [index, station] of model.sides[side]!.entries()) {
-        const moved = spreadArmX(station.centerXM, station.zM, model.startZM, cap, spread);
+        const moved = spreadArmX(station.centerXM, station.zM, pivotZM, cap, spread);
         const clip = new Vector4(moved, station.centerYM - rearDropCurve(station.zM, model.startZM, cap, input.dropM).loweringM, station.zM, 1).applyMatrix4(projection);
         assert.ok(Math.abs((clip.x / clip.w + 1) * input.width / 2 - fitted[side]!.points[index]!.x) < 1e-9);
       }
-      // The hinge end is where it always was; the tip has moved.
-      assert.ok(Math.abs(fitted[side]!.points[0]!.x - plain[side]!.points[0]!.x) < 1e-9);
-      assert.ok(Math.abs(fitted[side]!.points.at(-1)!.x - plain[side]!.points.at(-1)!.x) > 1);
+      // The first station sits inside the hinge radius behind the pivot, so it barely moves; the tip carries it all.
+      const front = Math.abs(fitted[side]!.points[0]!.x - plain[side]!.points[0]!.x);
+      assert.ok(front > 0 && front < Math.abs(fitted[side]!.points.at(-1)!.x - plain[side]!.points.at(-1)!.x) / 20);
     }
     // Without the fit, nothing changed at all: the default pipeline is byte-identical.
     assert.deepEqual(projectTempleContinuity(model, {...input, spreadM: 0}), plain);

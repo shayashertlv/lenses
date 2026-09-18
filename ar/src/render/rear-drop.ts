@@ -12,7 +12,7 @@ import {
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
 import {
-  armSpreadSlope, DEFAULT_SPREAD_REACH, MAX_ARM_SPREAD_M, spreadArmX, SPREAD_REACH_RANGE, WIDTH_FIT_METHOD,
+  armSpreadSlope, MAX_ARM_SPREAD_M, spreadArmX, SPREAD_HINGE_ROUND_M, SPREAD_PIVOT_RANGE_M, WIDTH_FIT_METHOD,
 } from './face-width.ts';
 
 export const REAR_DROP_METHOD = 'temple-rear-drop-v1';
@@ -55,6 +55,34 @@ function validateSpread(spreadM: number): void {
   if (!Number.isFinite(spreadM) || Math.abs(spreadM) > MAX_ARM_SPREAD_M) {
     throw new Error(`The arm spread must be finite and within ±${MAX_ARM_SPREAD_M} meters.`);
   }
+}
+
+/** Where the frame front ends and the temple shaft begins, in root-local metres. Walking back from the front, the
+ *  first 1 mm slice of the band the spread may move (|x| > lateralMinM) whose vertical extent has collapsed to a bar —
+ *  rims and endpieces are tall there, a shaft is not — and which stays collapsed for the next 20 mm, so the sliver of
+ *  rim that grazes the band at the very front cannot be mistaken for a shaft. Measured on the shipped assets it lands
+ *  at z -0.014 (Amber Horizon, lens rear -0.0107) and -0.013 (Tom Ford, lens rear -0.0144): a millimetre or two behind
+ *  the endpiece, which is where a hinge is. Null when the asset has no such boundary; the caller then keeps the rear
+ *  drop's own start plane and the bend pivots there, as it did before 2026-09-18. */
+export const HINGE_SLICE_M = 0.001, HINGE_SHAFT_MAX_HEIGHT_M = 0.015;
+export const HINGE_SHAFT_RUN_SLICES = 20, HINGE_SHAFT_RUN_MIN_SLICES = 5, HINGE_MIN_SPAN_M = 0.05;
+export function armShaftStartZM(extents: ReadonlyMap<number, {readonly low: number; readonly high: number}>): number | null {
+  const height = (slice: number): number | null => {
+    const extent = extents.get(slice);
+    return extent ? extent.high - extent.low : null;
+  };
+  for (const slice of [...extents.keys()].sort((a, b) => b - a)) {
+    if ((height(slice) ?? Infinity) > HINGE_SHAFT_MAX_HEIGHT_M) continue;
+    // An empty slice is no evidence either way — a coarsely tessellated shaft has gaps — but a tall one ends the run.
+    let populated = 1, tall = false;
+    for (let i = 1; i <= HINGE_SHAFT_RUN_SLICES && !tall; i++) {
+      const next = height(slice - i);
+      if (next === null) continue;
+      if (next > HINGE_SHAFT_MAX_HEIGHT_M) tall = true; else populated++;
+    }
+    if (!tall && populated >= HINGE_SHAFT_RUN_MIN_SLICES) return slice * HINGE_SLICE_M;
+  }
+  return null;
 }
 
 /** Authored preview shear, not a mechanical hinge or measured wearer fit. */
@@ -112,10 +140,10 @@ const isLens = (material: Material): boolean => material instanceof MeshPhysical
  * Owns cloned geometry only. Original buffers and material hooks remain untouched.
  * Bounds are root-local; the caller applies its asset/pose projection externally.
  */
-export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: number = DEFAULT_SPREAD_REACH) {
+export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 0) {
   if (!Number.isFinite(cutoffZM) || cutoffZM < -.2 || cutoffZM > -.03) throw new Error('The rear-drop endpoint is invalid.');
-  if (!Number.isFinite(spreadReach) || spreadReach < SPREAD_REACH_RANGE.min || spreadReach > SPREAD_REACH_RANGE.max) {
-    throw new Error('The arm-spread reach is out of range.');
+  if (!Number.isFinite(spreadPivotM) || spreadPivotM < SPREAD_PIVOT_RANGE_M.min || spreadPivotM > SPREAD_PIVOT_RANGE_M.max) {
+    throw new Error('The arm-spread pivot is out of range.');
   }
   const records = new Map<BufferGeometry, GeometryRecord>();
   const meshes: MeshRecord[] = [];
@@ -161,12 +189,32 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: nu
     if (!Number.isFinite(lensRearZM)) throw new Error('Rear drop requires physical lens geometry to protect the optical front.');
     const startZM = lensRearZM - REAR_DROP_PARAMETERS.proximalGuardM;
     if (startZM <= cutoffZM) throw new Error('The rear-drop start must be forward of the accepted cap.');
+    // The bend pivots at the hinge, which is further forward than the drop's start: the drop is a shear of the whole
+    // arm and keeps its guard, the bend is a hinge and belongs where the frame front ends.
+    const extents = new Map<number, {low: number; high: number}>();
+    for (const record of records.values()) {
+      const p = record.original.getAttribute('position');
+      for (let i = 0; i < p.count; i++) {
+        if (record.opaque[i] !== 1 || record.fixed[i] === 1 || Math.abs(p.getX(i)) <= REAR_DROP_PARAMETERS.lateralMinM) continue;
+        const y = p.getY(i), slice = Math.floor(p.getZ(i) / HINGE_SLICE_M);
+        const extent = extents.get(slice);
+        if (extent) {extent.low = Math.min(extent.low, y); extent.high = Math.max(extent.high, y);}
+        else extents.set(slice, {low: y, high: y});
+      }
+    }
+    const hingeZM = armShaftStartZM(extents);
+    const requested = (hingeZM ?? startZM) - spreadPivotM;
+    const spreadStartZM = requested > cutoffZM + HINGE_MIN_SPAN_M ? requested : startZM;
+    if (spreadStartZM <= cutoffZM + SPREAD_HINGE_ROUND_M) throw new Error('The arm-spread pivot must be forward of the accepted cap.');
+    // Everything behind the frontmost of the two planes may be deformed; the drop's own curve is flat in front of its
+    // start, so the shaft between the hinge and that start carries the bend alone.
+    const deformableStartZM = Math.max(startZM, spreadStartZM);
     const opticalBounds = new Box3(), originalArmBounds = [new Box3(), new Box3()];
     let candidateArmBounds = [new Box3(), new Box3()];
     const eligible = (record: GeometryRecord, vertex: number): boolean => {
       const p = record.original.getAttribute('position');
       return record.opaque[vertex] === 1 && record.fixed[vertex] === 0
-        && Math.abs(p.getX(vertex)) > REAR_DROP_PARAMETERS.lateralMinM && p.getZ(vertex) < startZM;
+        && Math.abs(p.getX(vertex)) > REAR_DROP_PARAMETERS.lateralMinM && p.getZ(vertex) < deformableStartZM;
     };
     let affectedVertexCount = 0;
     for (const record of records.values()) for (let i = 0; i < record.opaque.length; i++) affectedVertexCount += Number(eligible(record, i));
@@ -214,8 +262,8 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: nu
             if (!eligible(record, i)) continue;
             const x = originalPosition.getX(i), z = originalPosition.getZ(i);
             const curve = rearDropCurve(z, startZM, cutoffZM, drop);
-            const dxDz = spread === 0 ? 0 : Math.sign(x) * armSpreadSlope(z, startZM, cutoffZM, spread, spreadReach);
-            if (spread !== 0) position.setX(i, spreadArmX(x, z, startZM, cutoffZM, spread, spreadReach));
+            const dxDz = spread === 0 ? 0 : Math.sign(x) * armSpreadSlope(z, spreadStartZM, cutoffZM, spread);
+            if (spread !== 0) position.setX(i, spreadArmX(x, z, spreadStartZM, cutoffZM, spread));
             if (drop > 0) position.setY(i, originalPosition.getY(i) - curve.loweringM);
             if ((curve.dyDz !== 0 || dxDz !== 0) && normal && originalNormal) {
               point.set(originalNormal.getX(i), originalNormal.getY(i),
@@ -240,7 +288,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: nu
       get originalArmBounds(): Box3[] {return originalArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get candidateArmBounds(): Box3[] {return candidateArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get diagnostics() {
-        return {method: 'posterior-y-preview-curve-v1', dropM, spreadM, spreadReach, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
+        return {method: 'posterior-y-preview-curve-v1', dropM, spreadM, spreadStartZM, hingeZM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
           fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, sourceGeometryCount: records.size,
           originalZPreserved: true, originalXPreservedWithoutWidthFit: spreadM === 0, opticalFrontPreserved: true,
           meshTransformIdentityChecked: true, protectionIncludesAllUndeformedReferencedVertices: true,
@@ -248,8 +296,10 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadReach: nu
       },
       /** The arm spread of the width fit now in the geometry (metres per arm; 0 is the original geometry). */
       get spreadM(): number {return spreadM;},
-      /** How far back along the arm that spread reaches its full value, as a share of the hinge-to-cap span. */
-      get spreadReach(): number {return spreadReach;},
+      /** The plane the spread pivots about: the asset's own hinge, moved back by `?templepivot=`. */
+      get spreadStartZM(): number {return spreadStartZM;},
+      /** Where this asset's frame front ends, or null when its cross-section has no such boundary. */
+      get hingeZM(): number | null {return hingeZM;},
       get dropM(): number {return dropM;},
       setDrop(value: number): void {applyShape(value, spreadM);},
       /** The width fit's lateral arm spread; keeps the posed drop. */

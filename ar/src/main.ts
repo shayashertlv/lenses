@@ -3,7 +3,7 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
-import {DEFAULT_TEMPLE_BEND_MM, DEFAULT_TEMPLE_REACH_PERCENT, describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
+import {DEFAULT_TEMPLE_BEND_MM, describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import type {FitMode} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
@@ -128,7 +128,7 @@ function updateWidthFitLine(): void {
   const renderer = current?.renderer, fit = renderer?.widthFit, temple = renderer?.templeVisibility;
   const occlusion = `Temple occlusion: ${templeMode === 'depth' ? `per pixel, kept to ${config.templeKeepCm} cm behind the head, gone by ${config.templeDropCm} cm` : 'by head angle'}`
     + (config.templeBendMm === 0 ? ' · no bend'
-      : ` · bend ${config.templeBendMm} mm outward at the tips, full ${config.templeReachPercent}% of the way back`)
+      : ` · bend ${config.templeBendMm} mm outward at the tips, straight from ${config.templePivotMm === 0 ? 'the hinge' : `${config.templePivotMm} mm behind it`}`)
     + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
   if (!fit) {element('width-fit').textContent = `${occlusion} · fit ${fitMode === 'width' ? 'width' : 'original'} · no session`; return;}
   element('width-fit').textContent = `${occlusion} · ` + (fit.mode === 'original'
@@ -179,7 +179,7 @@ function updateUi(): void {
     const st = (key: string): string => ms(summary.stages[key]?.median);
     // Only the experiment adds an event: with Original selected the diagnostics of a window are exactly as before.
     if (fitMode === 'width' || templeMode !== 'depth' || config.templeBendMm !== DEFAULT_TEMPLE_BEND_MM
-      || config.templeReachPercent !== DEFAULT_TEMPLE_REACH_PERCENT) note('fit', `${element('width-fit').textContent ?? ''}`);
+      || config.templePivotMm !== 0) note('fit', `${element('width-fit').textContent ?? ''}`);
     note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
@@ -223,7 +223,7 @@ async function openSession(): Promise<void> {
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
     const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
       templeKeepCm: config.templeKeepCm, templeDropCm: config.templeDropCm, templeBendM: config.templeBendMm / 1000,
-      templeReach: config.templeReachPercent / 100}),
+      templePivotM: config.templePivotMm / 1000}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();

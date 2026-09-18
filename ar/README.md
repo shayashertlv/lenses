@@ -230,20 +230,30 @@ ends are in every timing row and every audit, so a judgement can be tied to the 
 
 **Bending the arms outward at the hinge (`?templebend=`, mm; on by default).** A temple that sits too close to the head
 is given up by any occlusion rule, because it really is behind the head. The lever that changes that is the frame, not
-the rule: `?templebend=10` — the default since 2026-09-18 — splays each arm outward by 10 mm **at its tip**, along the
-same smoothstep ramp the rear drop uses, so the ramp is exactly 0 at the arm's start plane: the bridge, rims, lenses and
-the hinge attachment do not move at all, and the arm swings out behind them as a real temple splays from its hinge.
-Negative pulls the arms in, and `?templebend=0` is the frame as authored. It is written by the same single pass over the
-cloned arm buffers as the rear drop and the width fit, so all three compose; the projected arm centrelines and the
-stencil's editable corridor follow it, so the hair cut still walks the bent arm. Range ±24 mm, which is the arms' own
-inward curl — at the cap the bend has straightened the arm and it runs back parallel to the frame front. The automatic
-width fit adds to the bend and the pair is capped there.
+the rule: `?templebend=14` — the default — splays each arm outward by 14 mm **at its tip**. The bridge, rims, lenses and
+endpieces do not move at all; the arm pivots at the hinge and runs **straight** back from there, at a constant angle,
+exactly as an optician's temple adjustment does. Negative pulls the arms in, and `?templebend=0` is the frame as
+authored. It is written by the same single pass over the cloned arm buffers as the rear drop and the width fit, so all
+three compose; the projected arm centrelines and the stencil's editable corridor follow it, so the hair cut still walks
+the bent arm. Range ±24 mm, which is the arms' own inward curl — at the cap the bend has straightened the arm and it
+runs back parallel to the frame front. The automatic width fit adds to the bend and the pair is capped there.
 
-**How far back the bend reaches (`?templereach=`, %).** The millimetres are not the interesting number; where they are
-spent is. Measured against the occluder this page draws — the canonical face mesh in front, the ellipsoid head proxy
-behind, whichever is wider at that depth — the authored arm runs *inside* the head over its whole rear half, and the
-deepest point is not the tip. It is 8.4 cm behind the hinge, where the face mesh reaches its own widest (7.74 cm
-half-width) and the arm has already tapered to 6.9 cm:
+**Where the bend pivots (`?templepivot=`, mm).** The pivot is not a constant: it is read out of each asset's own
+cross-section, by walking back from the front and taking the first millimetre of the lateral band the bend may move
+(|x| > 4.5 cm) whose vertical extent has collapsed to a bar and stays collapsed for 20 mm — rims and endpieces are tall
+there, a shaft is not. That lands at z −0.015 on Amber Horizon (4.3 mm behind its lens rear) and −0.014 on Tom Ford
+(0.4 mm *in front of* its lens rear, which is why the plane is measured rather than offset from the lens). Until
+2026-09-18 the bend pivoted at the rear drop's own start plane, a centimetre further back, along a smoothstep spread
+over the whole arm — which put the arm's widest bulge about 5 cm behind the lens, nowhere near a hinge, and read as a
+warped frame rather than an adjusted one. `?templepivot=` moves the pivot back along the shaft (0–30 mm); it cannot move
+forward, because in front of the hinge the same lateral band is the rim. The first 6 mm of the ramp is rounded, so the
+pivot is a hinge radius in the mesh and not a crease, and the rear drop keeps its own start plane, because it shears the
+whole arm rather than bending it.
+
+**Why 14 mm.** Measured against the occluder this page draws — the canonical face mesh in front, the ellipsoid head
+proxy behind, whichever is wider at that depth — the authored arm runs *inside* the head over its whole rear half, and
+the deepest point is not the tip. It is 8.6 cm behind the frame front, where the face mesh reaches its own widest
+(7.74 cm half-width) and the arm has already tapered to 6.9 cm:
 
 | arm station (local z, m) | −0.046 | −0.056 | −0.066 | −0.076 | **−0.086** | −0.106 | −0.126 | −0.136 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -251,18 +261,16 @@ half-width) and the arm has already tapered to 6.9 cm:
 | occluder there (cm) | 6.41 | 6.85 | 7.21 | 7.56 | **7.74** | 7.38 | 6.96 | 6.52 |
 | arm is inside the head by (mm) | — | — | 1.5 | 5.6 | **8.6** | 7.8 | 10.4 | 10.3 |
 
-A ramp spread over the whole arm has delivered only about half its offset by that station, so a 10 mm bend leaves it
-3.3 mm inside the head while the tip stands 0.1 mm proud: buried where it matters, showing where it does not. The same
-10 mm at `?templereach=65` has fully arrived there — 0.7 mm inside at the worst station, with **both ends of the arm
-exactly where they were**, because every reach carries the same offset at the hinge (zero) and at the tip (all of it).
-65 % is the default; `?templereach=100` is the full-span ramp that shipped first. The range is 35–100 %, and the ramp
-leaves the flat run behind it with a zero slope, so a shorter reach bends the arm earlier — it does not put a corner in
-it. Both numbers are in every timing row (`render.templeBendM`, `render.templeReach`, `render.armSpreadTotalM`) and
-every audit.
+A straight shaft from the hinge has delivered 56 % of the tip's offset by that station, so 14 mm leaves it 0.8 mm
+inside the head and puts the tip 3.7 mm proud of the proxy — which has no ear on it, and the tip is the ear hook. 10 mm
+leaves the tip flush and that station 3.0 mm buried; 16 mm clears the whole arm. The bend, the pivot option and the
+plane the bend actually pivots about are in every timing row (`render.templeBendM`, `render.templePivotM`,
+`render.armSpreadStartZM`, `render.armSpreadTotalM`) and every audit.
 
 Those depths are measured against a proxy head, not against a wearer. What they explain is why the millimetres were a
-knife edge on a live session: 8 mm read as too little, 12 mm as slightly worse than 10 (it puts the tip 2.1 mm proud of
-the head), and 10 mm left the one station that decides still 3.3 mm buried.
+knife edge on a live session while the ramp was a smoothstep over the whole arm: 8 mm read as too little, 12 mm as
+slightly worse than 10 (it puts the tip 2.1 mm proud of the head), and 10 mm left the one station that decides still
+3.3 mm buried. The shape was the variable, not the millimetres.
 
 **What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
 to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
@@ -354,8 +362,8 @@ any face; the synthetic checks below are regression evidence only.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
-| `?templebend=` | 10 | millimetres to splay each temple arm outward at its tip, hinged at the front of the frame (above). ±24 mm, the arms' own inward curl; negative pulls them in, `0` is the frame as authored. Adds to the width fit's own spread, and the pair is capped at 24 mm |
-| `?templereach=` | 65 | how far back along the arm that bend reaches its full value, as a percentage of the hinge-to-cap span (above). 35..100; both ends of the arm carry the same offset at every reach, only the middle moves. `100` is the full-span ramp that shipped first |
+| `?templebend=` | 14 | millimetres to splay each temple arm outward at its tip, pivoting at the hinge and straight from there (above). ±24 mm, the arms' own inward curl; negative pulls them in, `0` is the frame as authored. Adds to the width fit's own spread, and the pair is capped at 24 mm |
+| `?templepivot=` | 0 | millimetres to move the bend's pivot back from the asset's own hinge (above). 0..30; it cannot move forward, because in front of the hinge the same lateral band is the rim |
 | `?templekeep=`, `?templedrop=` | 0.6, 2.6 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
 | `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |
