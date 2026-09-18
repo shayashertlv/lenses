@@ -16,7 +16,10 @@ export interface EyewearDefinition {
   readonly assetUrl: string;
   readonly offsetCm: readonly [number, number, number];
   readonly assumedWidthMm: number;
-  /** Fixed preview endpoint before the rear hook, in original GLB local meters. */
+  /** Where the drawn arm ends, in the original GLB's local metres. Until 2026-09-18 this stopped in front of the ear
+   *  hook (-0.105 and -0.110), which left the arm as a straight shaft ending in mid-air about 4 cm short of the ear and
+   *  2.5 cm above it: the shipped assets carry the hook, which curves down to y 0.4 cm and inward to |x| 4.9 cm. It now
+   *  runs to just inside each asset's own arm end, and the head occluder is what takes the hook away. */
   readonly templeClipLocalZM: number;
 }
 
@@ -25,13 +28,13 @@ export const SHIPPED_EYEWEAR = Object.freeze({
     id: 'amber-horizon', name: 'Amber Horizon', optionLabel: 'Amber Horizon · Tinted lenses',
     description: 'A rectangular tortoiseshell frame with warm brown gradient lenses.',
     finish: 'Amber tortoiseshell', assetUrl: assetPath('models/amber-horizon.glb'),
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.105,
+    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.140,
   }),
   'tom-ford-clear': Object.freeze({
     id: 'tom-ford-clear', name: 'Tom Ford', optionLabel: 'Tom Ford · Clear lenses',
     description: 'A rounded tortoiseshell frame with clear lenses for a closer look at the eyes and temples.',
     finish: 'Tortoiseshell · Clear lenses', assetUrl: assetPath('models/tom-ford-clear.glb'),
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.110,
+    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.148,
   }),
 } satisfies Record<string, EyewearDefinition>);
 

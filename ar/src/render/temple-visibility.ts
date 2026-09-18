@@ -32,9 +32,18 @@ export const DEFAULT_TEMPLE_VISIBILITY_MODE: TempleVisibilityMode = 'depth';
 
 /** The share of an arm fragment that survives, given how far behind the head surface it is (centimetres, positive
  *  behind). The shader computes exactly this; it is exported so a test can pin the two against each other. */
-export function depthRelief(behindCm: number): number {
+export function depthRelief(behindCm: number, keepCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm,
+  dropCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm): number {
   if (!Number.isFinite(behindCm)) return 0;
-  return 1 - MathUtils.smoothstep(behindCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm);
+  return 1 - MathUtils.smoothstep(behindCm, keepCm, dropCm);
+}
+
+/** The band is a visual choice and the only number that decides how much of an arm survives, so the page can move it
+ *  (`?templekeep=`, `?templedrop=`, centimetres) without a rebuild. */
+export function validateReliefBand(keepCm: number, dropCm: number): void {
+  if (!Number.isFinite(keepCm) || !Number.isFinite(dropCm) || keepCm < 0 || keepCm > 6 || dropCm <= keepCm || dropCm > 12) {
+    throw new Error('The temple relief band is invalid.');
+  }
 }
 
 interface TempleVisibilityWeights {
@@ -57,6 +66,9 @@ export interface TempleVisibilityConfiguration extends TempleVisibilityWeights {
   readonly frontalOcclusionWeight: number;
   /** v4 decides per pixel and ignores the three weights above, which stay in the record for comparison. */
   readonly mode: TempleVisibilityMode;
+  /** v4's band, in centimetres behind the head surface: kept in full up to `reliefKeepCm`, gone beyond `reliefDropCm`. */
+  readonly reliefKeepCm: number;
+  readonly reliefDropCm: number;
 }
 
 /** Only exact zeros remove work; small nonzero visibility retains the full pass. In `depth` mode the pass always runs:
@@ -73,6 +85,9 @@ export function validateTempleVisibility(value: TempleVisibilityConfiguration): 
       || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither'
       || value.mode !== 'angles' && value.mode !== 'depth') {
     throw new Error('The recorded temple visibility configuration is invalid.');
+  }
+  try {validateReliefBand(value.reliefKeepCm, value.reliefDropCm);}
+  catch {throw new Error('The recorded temple visibility configuration is invalid.');
   }
 }
 
@@ -120,13 +135,15 @@ export function createViewTempleVisibilityConfiguration(rawMatrix: readonly numb
  *  In `depth` mode (the default) the shader ignores all three and decides per pixel; they are still computed, so an
  *  audit of either mode records what the angle rule would have said. */
 export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number,
-  mode: TempleVisibilityMode = DEFAULT_TEMPLE_VISIBILITY_MODE): TempleVisibilityConfiguration {
+  mode: TempleVisibilityMode = DEFAULT_TEMPLE_VISIBILITY_MODE,
+  reliefKeepCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm,
+  reliefDropCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm): TempleVisibilityConfiguration {
   const view = createViewTempleVisibilityConfiguration(rawMatrix, nativeSamples);
   const pitch = Math.abs(rawMatrix[9]!) / Math.hypot(rawMatrix[8]!, rawMatrix[9]!, rawMatrix[10]!);
   const frontalOcclusionWeight = (1 - lateralConfidence(rawMatrix)) * MathUtils.smoothstep(pitch,
     Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchStartDegrees)),
     Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchFullDegrees)));
-  return {...view, method: TEMPLE_VISIBILITY_METHOD, frontalOcclusionWeight, mode};
+  return {...view, method: TEMPLE_VISIBILITY_METHOD, frontalOcclusionWeight, mode, reliefKeepCm, reliefDropCm};
 }
 
 /** Matches Three's ordinary perspective depth convention; used in diagnostics. */
@@ -402,6 +419,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       frontalUniforms.templeFrontalWeight.value = depthMode ? 0 : value?.frontalOcclusionWeight ?? 0;
       uniforms.templeVisibilityWeights.value.set(value?.negativeXWeight ?? 0, value?.positiveXWeight ?? 0);
       uniforms.templeVisibilityDepthMode.value = depthMode ? 1 : 0;
+      if (value) uniforms.templeVisibilityRelief.value.set(value.reliefKeepCm, value.reliefDropCm);
       // In v4 there is no pose at which the overlay is switched off: the per-pixel rule is the whole decision.
       for (const overlay of overlays) overlay.visible = value !== null
         && (depthMode || value.negativeXWeight !== 0 || value.positiveXWeight !== 0);

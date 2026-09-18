@@ -73,7 +73,8 @@ for (const definition of Object.values(EYEWEAR)) {
     const configuration = clipping(definition.templeClipLocalZM);
     clip.set(configuration);
     assert.ok(configuration.negativeXCutoffLocalZM <= -.03, 'the entire optical-front region stays ahead of the cutoff');
-    let removedFrameVertices = 0, retainedFrontVertices = 0, lensVertices = 0;
+    let removedFrameVertices = 0, retainedFrontVertices = 0, lensVertices = 0, armVertices = 0, drawnArmVertices = 0, armRearZ = 0;
+    let armLowestY = 0, drawnLowestY = 0;
     const crossingSides = new Set<number>();
     for (const [meshIndex, mesh] of meshes.entries()) {
       const saved = before[meshIndex]!, p = mesh.geometry.getAttribute('position'), ix = mesh.geometry.getIndex()!;
@@ -92,7 +93,11 @@ for (const definition of Object.values(EYEWEAR)) {
           removedFrameVertices++;
           assert.ok(Math.abs(p.getX(i)) > .045, 'discarded source vertices belong to lateral stems, not the bridge/front');
         } else if (p.getZ(i) >= -.03) retainedFrontVertices++;
-        if (!lens && p.getZ(i) < -.12) assert.ok(p.getZ(i) < configuration.negativeXCutoffLocalZM, 'the original downward rear hook is removed');
+        // The arm now runs through its ear hook (2026-09-18): what is cut is only the last few millimetres of the
+        // asset's own tip, and the head occluder is what takes the hook away rather than a cut in mesh space.
+        if (!lens && Math.abs(p.getX(i)) > .045) {armVertices++; armRearZ = Math.min(armRearZ, p.getZ(i));
+          armLowestY = Math.min(armLowestY, p.getY(i));
+          if (p.getZ(i) >= configuration.negativeXCutoffLocalZM) {drawnArmVertices++; drawnLowestY = Math.min(drawnLowestY, p.getY(i));}}
       }
       if (!lens) for (let i = 0; i < ix.count; i += 3) {
         const ids = [ix.getX(i), ix.getX(i + 1), ix.getX(i + 2)];
@@ -112,7 +117,19 @@ for (const definition of Object.values(EYEWEAR)) {
         }
       }
     }
-    assert.ok(removedFrameVertices > 1000 && retainedFrontVertices > 1000 && lensVertices > 1000);
+    assert.ok(removedFrameVertices > 100 && retainedFrontVertices > 1000 && lensVertices > 1000);
+    // The drawn arm reaches its own ear hook: nearly all of the asset's lateral stem survives the cut, and what is
+    // left over is only the last few millimetres, where the end blend has geometry to dissolve into.
+    assert.ok(armVertices > 1000 && drawnArmVertices / armVertices > 0.93,
+      `almost the whole lateral stem is drawn (${drawnArmVertices}/${armVertices} arm vertices)`);
+    // The hook is what makes the arm reach the ear: the drawn arm must curve down as far as the asset's own does.
+    assert.ok(armLowestY < -.015, 'the asset carries a downward ear hook');
+    assert.ok(drawnLowestY - armLowestY < .002,
+      `and the drawn arm follows it down (drawn to ${drawnLowestY.toFixed(4)}, asset reaches ${armLowestY.toFixed(4)})`);
+    assert.ok(configuration.negativeXCutoffLocalZM > armRearZ,
+      "the cut stays inside the asset's own arm, so the terminal band is real geometry");
+    assert.ok(configuration.negativeXCutoffLocalZM - armRearZ < 0.01,
+      `and within a centimetre of its end (cut ${configuration.negativeXCutoffLocalZM}, arm ends ${armRearZ.toFixed(4)})`);
     assert.deepEqual(crossingSides, new Set([-1, 1]), 'both original stems cross the endpoint plane');
     const blend = createTempleBlendConfiguration(definition.templeClipLocalZM), camera = pairedCamera();
     t.after(() => camera.dispose());

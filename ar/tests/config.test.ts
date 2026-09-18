@@ -16,7 +16,7 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth'});
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
@@ -53,7 +53,15 @@ test('the temple-occlusion rule is a two-value selector, per pixel by default, a
   assert.equal(parseConfig('?temples=angles').temples, 'angles'); assert.equal(parseConfig('?temples=ANGLES').temples, 'angles');
   assert.equal(parseConfig('?temples=depth').temples, 'depth');
   assert.equal(parseConfig('?temples=1').temples, 'depth'); assert.equal(parseConfig('?temples=').temples, 'depth');
-  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4 \(\?temples=angles restores/);
+  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4: kept to 0.6 cm behind it, gone by 2.6 cm/);
+  // The band is the only number deciding how much arm survives, so it is judgeable live.
+  assert.deepEqual([parseConfig('?templekeep=1.2&templedrop=4').templeKeepCm, parseConfig('?templekeep=1.2&templedrop=4').templeDropCm], [1.2, 4]);
+  assert.deepEqual([parseConfig('?templekeep=0').templeKeepCm, parseConfig('?templekeep=0').templeDropCm], [0, 2.6]);
+  // A pair that is not a band, or either end out of range, falls back to both defaults rather than half of each.
+  for (const bad of ['?templekeep=3&templedrop=2', '?templedrop=0.2', '?templekeep=9', '?templedrop=99', '?templekeep=x&templedrop=y'])
+    assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.6, 2.6], bad);
+  assert.match(describeConfig(parseConfig('?templekeep=1.2&templedrop=4')), /kept to 1.2 cm behind it, gone by 4 cm/);
+  assert.deepEqual(unrecognizedOptions('?templekeep=1&templedrop=3'), []);
   assert.match(describeConfig(parseConfig('?temples=angles')), /temple occlusion PER-SIDE PERCENTAGES from the head angles, the former v3 \(\?temples=depth\)/);
   assert.deepEqual(unrecognizedOptions('?temples=angles'), []); assert.deepEqual(unrecognizedOptions('?temple=angles'), ['temple']);
   // The rule must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.

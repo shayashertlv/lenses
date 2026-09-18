@@ -7,7 +7,7 @@ import {DEFAULT_CONTINUITY_RUN_PX, DEFAULT_HAIR_START_Z_M} from './render/render
 import type {FaceDelegate} from './face/detector.ts';
 import {DEFAULT_STEADY} from './render/pose-stabilizer.ts';
 import type {SteadyOptions} from './render/pose-stabilizer.ts';
-import {DEFAULT_TEMPLE_VISIBILITY_MODE} from './render/temple-visibility.ts';
+import {DEFAULT_TEMPLE_VISIBILITY_MODE, TEMPLE_VISIBILITY_PARAMETERS} from './render/temple-visibility.ts';
 import type {TempleVisibilityMode} from './render/temple-visibility.ts';
 import {DEFAULT_HAIR_SCHEDULE} from './hair/mask-reuse.ts';
 import type {HairSchedule} from './hair/mask-reuse.ts';
@@ -80,24 +80,36 @@ export interface Config {
    *  pixel from the head's own depth; `angles` restores the former v3 rule, two per-side percentages computed from the
    *  head's yaw, pitch and camera bearing. The selector on the page changes it live. */
   temples: TempleVisibilityMode;
+  /** `?templekeep=` / `?templedrop=` cm: with `?temples=depth`, an arm fragment up to `templeKeepCm` behind the head
+   *  surface is drawn whole and one beyond `templeDropCm` is given up, fading between. Raise them to see more arm
+   *  alongside the head, lower them to tuck it away sooner. Visual choices, exposed so they can be judged live. */
+  templeKeepCm: number;
+  templeDropCm: number;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: DEFAULT_TEMPLE_VISIBILITY_MODE,
+  templeKeepCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, templeDropCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm,
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
   'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'model', 'name', 'clip', 'width', 'sha256']);
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'model', 'name', 'clip', 'width', 'sha256']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {
   const known = new Set(ADDRESS_OPTIONS);
   return [...new Set(new URLSearchParams(search).keys())].filter(key => key !== '' && !known.has(key));
+}
+
+/** Both ends of v4's relief band, or the defaults when the pair does not make a band. */
+function reliefBand(keepCm: number, dropCm: number): {templeKeepCm: number; templeDropCm: number} {
+  return dropCm > keepCm ? {templeKeepCm: keepCm, templeDropCm: dropCm}
+    : {templeKeepCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, templeDropCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm};
 }
 
 /** The Apple phone default for the hair delegate (see Config.hairDelegate). */
@@ -160,6 +172,8 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
       movePx: Math.round(number('hairmove', DEFAULT_HAIR_SCHEDULE.movePx, 0, 200)), maxAgeMs: Math.round(number('hairmaxage', DEFAULT_HAIR_SCHEDULE.maxAgeMs, 30, 1000))}) : DEFAULT_HAIR_SCHEDULE,
     fit: fit === 'width' ? 'width' : 'original',
     temples: temples === 'angles' ? 'angles' : temples === 'depth' ? 'depth' : DEFAULT_TEMPLE_VISIBILITY_MODE,
+    ...reliefBand(number('templekeep', TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, 0, 6),
+      number('templedrop', TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm, 0.1, 12)),
   };
 }
 
@@ -185,7 +199,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
       : [`hair every ${config.hairSchedule.frames} frames (${mobile ? 'phone and tablet default; ?hairframes=1 for every frame' : '?hairframes=2'})${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
     config.steady ? `pose steadiness on: rotation ${config.steady.rotationMinCutoffHz} Hz + ${config.steady.rotationBeta} Hz per °/s (?steadyhz=, ?steadybeta=), depth ${config.steady.depthMinCutoffHz} Hz + ${config.steady.depthBeta} Hz per cm/s (?steadydepthhz=, ?steadydepthbeta=)` : 'pose steadiness OFF (?steady=0)',
     `temple occlusion ${config.temples === 'depth'
-      ? 'per pixel from the head\'s own depth, v4 (?temples=angles restores the former per-side percentages)'
+      ? `per pixel from the head's own depth, v4: kept to ${config.templeKeepCm} cm behind it, gone by ${config.templeDropCm} cm (?templekeep=, ?templedrop=, ?temples=angles for the former per-side percentages)`
       : 'PER-SIDE PERCENTAGES from the head angles, the former v3 (?temples=depth)'}`,
     `temple fit ${config.fit === 'width' ? 'WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio (?fit=original restores the shipped geometry)' : 'original (?fit=width for the experiment)'}`,
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),

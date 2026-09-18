@@ -32,7 +32,8 @@ import {DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS} from '..
 import type {EyewearDefinition} from '../eyewear/catalog.ts';
 import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
-import {createTempleVisibility, createTempleVisibilityConfiguration, DEFAULT_TEMPLE_VISIBILITY_MODE} from './temple-visibility.ts';
+import {createTempleVisibility, createTempleVisibilityConfiguration, DEFAULT_TEMPLE_VISIBILITY_MODE,
+  TEMPLE_VISIBILITY_PARAMETERS, validateReliefBand} from './temple-visibility.ts';
 import type {TempleVisibilityMode} from './temple-visibility.ts';
 import {createRearDrop, rearDropForPose, REAR_DROP_METHOD, validateRearDrop} from './rear-drop.ts';
 import type {RearDropConfiguration} from './rear-drop.ts';
@@ -56,9 +57,18 @@ export {DEFAULT_CONTINUITY_RUN_PX} from './continuity.ts';
 /** The render never exceeds this width; the camera frame's aspect is kept. */
 export const MAX_RENDER_WIDTH = 1280;
 const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
-/** The conservative rear head occluder, in centimetres of the tracked face pose. Its half-width is the one the
- *  experimental width fit personalizes; its height, depth and placement are untouched. */
-const HEAD_PROXY_SCALE_CM = Object.freeze([6.3, 8, 5] as const);
+/** The rear head occluder, in centimetres of the tracked face pose (the same frame as the canonical face mesh). Its
+ *  half-width is the one the experimental width fit personalizes.
+ *
+ *  It was (6.3, 8, 5) at z -2.5 until 2026-09-18 — 1.4 cm NARROWER than the canonical face mesh's own silhouette
+ *  (|x| 7.74 cm at the temple) and ending 5 cm short of a skull. The face mesh itself stops at z -2.44, so behind that
+ *  the head's flanks and the whole ear had no occluder at all, and an arm there could only end by being cut in mesh
+ *  space. This ellipsoid is a head: it holds the canonical temple (f 1.22) and tragus (f 1.20) outside itself, so it
+ *  never reaches past the real silhouette, keeps the straight temple shaft outside it as far back as the ear, and
+ *  contains the ear hook (f 0.69-0.81). Its front face sits at z +3.99, well behind the frame at +6.53. A visual
+ *  choice fitted to the canonical mesh, not a measured skull. */
+const HEAD_PROXY_SCALE_CM = Object.freeze([7.4, 9.5, 7.5] as const);
+const HEAD_PROXY_CENTER_CM = Object.freeze([0, -0.5, -3.5] as const);
 
 export interface RendererOptions {
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
@@ -80,6 +90,9 @@ export interface RendererOptions {
   /** Which rule gives up part of an arm to the head (`?temples=`): `depth` (v4, the default) decides per pixel from the
    *  head's own depth; `angles` is the former v3 rule, two per-side percentages computed from the head's angles. */
   temples?: TempleVisibilityMode;
+  /** v4's band in centimetres behind the head surface (`?templekeep=`, `?templedrop=`). */
+  templeKeepCm?: number;
+  templeDropCm?: number;
 }
 export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
@@ -92,6 +105,7 @@ export interface FrameTimings {
   widthFit: boolean; widthFitState: WidthFitState; widthRatio: number; armSpreadM: number;
   /** Which temple-visibility rule drew this frame, and what the angle rule would have given up on each side. */
   templeMode: TempleVisibilityMode; templeNegativeXWeight: number; templePositiveXWeight: number; templeFrontalWeight: number;
+  templeKeepCm: number; templeDropCm: number;
 }
 /** What the page's debug line and the audit record about the width fit. */
 export interface WidthFitReport {
@@ -202,12 +216,17 @@ export class TryOnRenderer {
   private widthRatio = 1;
   private armSpread = 0;
   private templeMode: TempleVisibilityMode;
+  private readonly templeKeepCm: number;
+  private readonly templeDropCm: number;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
     this.stabilizer = options.steady ? new PoseStabilizer(options.steady) : null;
     this.widthFitEnabled = options.widthFit === true;
     this.templeMode = options.temples ?? DEFAULT_TEMPLE_VISIBILITY_MODE;
+    this.templeKeepCm = options.templeKeepCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
+    this.templeDropCm = options.templeDropCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
+    validateReliefBand(this.templeKeepCm, this.templeDropCm);
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
     this.continuity = options.continuity ?? true;
     this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
@@ -248,10 +267,10 @@ export class TryOnRenderer {
       regionRatios: this.widthFitEnabled ? this.faceWidth?.lastRegionRatios ?? null : null};
   }
   /** Which temple-visibility rule is running, and the angle rule's weights for the posed frame (numbers only). */
-  get templeVisibilityState(): {mode: TempleVisibilityMode; negativeXWeight: number; positiveXWeight: number; frontalWeight: number} {
+  get templeVisibilityState(): {mode: TempleVisibilityMode; negativeXWeight: number; positiveXWeight: number; frontalWeight: number; keepCm: number; dropCm: number} {
     const c = this.templeVisibility?.configuration ?? null;
     return {mode: this.templeMode, negativeXWeight: c?.negativeXWeight ?? 0, positiveXWeight: c?.positiveXWeight ?? 0,
-      frontalWeight: c?.frontalOcclusionWeight ?? 0};
+      frontalWeight: c?.frontalOcclusionWeight ?? 0, keepCm: this.templeKeepCm, dropCm: this.templeDropCm};
   }
   /** Switch the temple-visibility rule inside a live session; it takes effect on the next posed frame. */
   setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.templeMode = mode;}
@@ -358,7 +377,7 @@ export class TryOnRenderer {
     const surface = new Mesh(geometry, occlusionMaterial); surface.name = 'Observed face depth in camera space';
     surface.renderOrder = -2; surface.frustumCulled = false; surface.visible = false; this.surfaceMesh = surface; this.scene.add(surface);
     const head = new Mesh(new SphereGeometry(1, 24, 16), occlusionMaterial); head.name = 'Conservative rear head depth only';
-    head.scale.set(...HEAD_PROXY_SCALE_CM); head.position.set(0, 0, -2.5); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
+    head.scale.set(...HEAD_PROXY_SCALE_CM); head.position.set(...HEAD_PROXY_CENTER_CM); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
     this.setWidthRatio(this.widthRatio);
     this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera, eyewearPose: this.eyewearPose});
     // Installed last so it wraps the clip and visibility hooks; its blend commutes with the clip's terminal blend.
@@ -443,7 +462,7 @@ export class TryOnRenderer {
           // One pass over the cloned arm buffers for both deformations, so neither overwrites the other.
           validateRearDrop(drop); this.rearDrop?.setShape(drop.dropM, this.armSpread); this.currentRearDrop = {...drop};
           this.templeClip?.set(this.templeClipConfiguration);
-          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0, this.templeMode));
+          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0, this.templeMode, this.templeKeepCm, this.templeDropCm));
           this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
           this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
           if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
@@ -586,7 +605,8 @@ export class TryOnRenderer {
       widthFit: this.widthFitEnabled, widthFitState: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
       widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0,
       templeMode: this.templeMode, templeNegativeXWeight: this.templeVisibilityState.negativeXWeight,
-      templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight};
+      templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight,
+      templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */

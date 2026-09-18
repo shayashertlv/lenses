@@ -203,7 +203,30 @@ too. Their product — what a wearer actually sees over the side of the head —
 Roll is the sharpest of these and it is not an edge case: the camera's bearing is taken in head coordinates, where it
 scales with cos(roll), so lying down with a phone overhead takes away relief that an upright head at the same turn
 gets in full. On a real camera at 50 cm, yaw −11°, pitch +13° — an ordinary selfie pose — the rule keeps 2–4 % of each
-arm and dissolves 46 % of what is left.
+arm and dissolves 46 % of what is left. The geometry errors above are independent of the rule and applied to both.
+
+**Two geometry errors found underneath it (2026-09-18, second pass).** Once v4 stopped erasing the arms, what was left
+was an arm ending in mid-air short of the ear, on both sides, at a place that moved with the pose:
+
+- **The arm was cut where its ear hook begins.** Both shipped assets carry the hook: on Amber Horizon the stem runs to
+  local z −0.1464 and from −0.105 back it curves down to y 0.4 cm and inward to |x| 4.9 cm. The clip endpoint was
+  −0.105, so what was drawn was the straight shaft alone, ending about 4 cm short of the ear and 2.5 cm above it, with
+  the terminal 1.5 cm dissolved into the camera. The endpoints are now −0.140 and −0.148, just inside each asset's own
+  arm end, so the hook is drawn and the head is what takes it away.
+- **The head occluder was smaller than the head.** It was an ellipsoid of half (6.3, 8, 5) cm at z −2.5 — 1.4 cm
+  *narrower than the canonical face mesh's own silhouette* (|x| 7.74 cm at the temple) and ending 5 cm short of a
+  skull. The face mesh itself stops at z −2.44, so behind that the head's flanks and the whole ear had no occluder at
+  all: nothing could hide an arm there, and its ending could only come from a cut in mesh space, which lands at a
+  different screen place on each side as the head moves. It is now half (7.4, 9.5, 7.5) at z −3.5, fitted to the
+  canonical mesh: it holds that mesh's own temple (f 1.22) and tragus (f 1.20) outside itself so it never reaches past
+  the real silhouette, keeps the straight shaft outside it as far back as the ear, contains the ear hook (f 0.69–0.81),
+  and its front face at z +3.99 stays well behind the frame at +6.53. A visual choice fitted to the canonical mesh,
+  not a measured skull.
+
+**The band is a lever, not a constant.** How much arm survives is decided by one pair of numbers and nothing else:
+`?templekeep=` (0.6 cm, drawn whole up to here) and `?templedrop=` (2.6 cm, gone beyond here). Raise them to see more
+arm alongside the head, lower them to tuck it away sooner; a pair that is not a band falls back to both defaults. Both
+ends are in every timing row and every audit, so a judgement can be tied to the numbers that produced it.
 
 **What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
 to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
@@ -295,6 +318,7 @@ any face; the synthetic checks below are regression evidence only.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
+| `?templekeep=`, `?templedrop=` | 0.6, 2.6 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
 | `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |
 

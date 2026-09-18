@@ -25,7 +25,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const out = path.resolve(option('out', path.join(here, 'output', `measure-${new Date().toISOString().replaceAll(':', '-')}`)));
 await fs.mkdir(out, {recursive: true});
 const query = new URLSearchParams();
-for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta', 'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples']) if (option(name, '')) query.set(name, option(name, ''));
+for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta', 'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop']) if (option(name, '')) query.set(name, option(name, ''));
 const browser = await chromium.launch({headless: !flag('headed'), channel: 'chromium', args: ['--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required']});
 const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
 const consoleLines = [];
