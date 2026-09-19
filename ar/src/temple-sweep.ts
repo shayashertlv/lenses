@@ -8,30 +8,27 @@
  *  Nothing here touches anything but the temple arms. The bridge, rims, lenses and endpieces are identical in every
  *  entry; the hair cut and the hair occlusion below act only on the arms.
  *
- *  ROUND THREE (2026-09-19), ids Q..Z. Rounds one (A..I) and two (J..P) are retired; what they settled is not
- *  offered again:
- *  - Bends below 12 mm are out. Nothing under 12 scored better than "pretty good", and the measurement says why: at
- *    bend 10 thirty-one of the arm's sixty-three stations are still INSIDE the head occluder, at 12 mm nine are, and
- *    at 16 mm none are. "The temples enter the face" is the arm being drawn where it is inside the head.
- *  - Wide relief bands are out. 1.5–6 cm and 3–9 cm read "not good" at every bend tried.
- *  - Moving the bend's pivot back from the hinge is out. Four groups agreed: it is worse, at every bend and band.
- *  - Pulling the arms inward is out, and so is the former angle rule.
- *  - The band and the bend are NOT independent: a narrow band deletes whatever is behind the head surface, so while
- *    part of the arm is still buried (bend <= 10) tightening the band destroys it, and once nothing is buried
- *    (bend >= 12) tightening it only removes the arm where it genuinely is behind the head.
- *  - **Round two's verdict: 18 mm looks the best**, judged against 12..24 mm at the 0.3–1.2 cm band. That pair is
- *    now what ships, and round three is built around it.
+ *  ROUND FOUR (2026-09-19), ids U..Z. Earlier rounds are retired; what they settled is not offered again:
+ *  - Bends below 12 mm, bands wider than 0.6-2.6 cm AS A SETTING, pivot offsets, inward bends and the angle rule were
+ *    all ruled out by round one. Round two picked the bend: **18 mm**, at the 0.3-1.2 cm band, and that pair ships.
+ *  - Round three answered the question that mattered most, with three entries:
+ *      * the hair cut as shipped read "great";
+ *      * REMOVING the cut was WORSE — so the cut earns its keep and must be stabilised, not deleted;
+ *      * and with NO HAIR OVER THE ARMS AT ALL the ends still popped.
+ *    That last one is decisive: the popping is not the hair mask and not the cut. Whatever moves the end of the arm
+ *    is still moving it when hair plays no part.
  *
- *  So round three asks the three questions that are left, all of them AT 18 mm:
- *  - Is 18 a peak or a plateau? The bend ladder walks 15..21 mm in single millimetres.
- *  - Which band, now that the bend has been chosen? Round two walked the band at 14, 16 and 20 mm but never at 18.
- *  - What does the hair cut do to the ends? That is the one complaint every good configuration has carried: the ends
- *    of the arms appear and disappear. The cut fires when it finds a run of hair at least `runPx` pixels long along
- *    the arm's centreline, and on the checked-in fixture that decision is a cliff: at 10 px it removes the last
- *    6.5 cm of arm, at 14 px it removes nothing, with no hysteresis and no temporal filter, so a mask boundary that
- *    moves four pixels flips the whole end of the temple. S1 (no cut at all) is the decisive entry, and S6 (no hair
- *    over the arms at all) is the backstop: if the ends still misbehave there, it is not hair.
- *  - And whether the band and the cut interact, which decides whether they can be chosen separately.
+ *  So round four is a diagnostic. It strips one decision at a time until the popping stops, and it re-opens the one
+ *  axis nobody has separated: the relief band's ONSET and its GRADIENT. Every band offered so far moved both ends
+ *  together, which confounds them. The band turns a depth into a coverage, so its gradient is a gain on depth noise:
+ *  the shipped 0.3-1.2 cm band is 9 mm wide, which is 2.2x steeper than the 0.6-2.6 cm band it replaced, so a couple
+ *  of millimetres of jitter in the head's own reconstructed depth swings the end of the arm through a large part of
+ *  its coverage range. A band that starts just as early but finishes far later keeps what the wearer liked (the arm
+ *  tucks away promptly) while cutting that gain several-fold — and no round has tried one.
+ *
+ *  The W group is the backstop ladder. W3 opens the band so wide that nothing is taken from the arm at all and turns
+ *  hair off with it: if the ends still pop THERE, nothing that decides visibility is responsible, and the cause is in
+ *  the geometry or the anti-aliasing of a thin arm rather than in any occlusion rule.
  *
  *  The values are visual choices. The measurements behind them are against a proxy head, not a wearer's anatomy. */
 import {DEFAULT_TEMPLE_VISIBILITY_MODE} from './render/temple-visibility.ts';
@@ -72,10 +69,9 @@ const BAND = Object.freeze({
   standard: Object.freeze([0.6, 2.6] as const),
   loose: Object.freeze([1.5, 6] as const),
 });
-const band = (pair: readonly [number, number]): string => `band ${pair[0]}–${pair[1]} cm`;
 
-/** The bend round three is built around: the wearer's own pick from round two. Every group that is not asking about
- *  the bend itself sits here, so the band and the hair cut are judged at the bend that ships. */
+/** The bend every judged entry sits at: the wearer's own pick, now the shipped default. Round four is not asking
+ *  about the bend at all — it is asking what makes the END of the arm pop. */
 const AROUND_MM = 18;
 
 interface Entry {
@@ -105,41 +101,32 @@ const markRepeats = (tests: TempleTest[]): readonly TempleTest[] => {
 
 /** Every configuration, in the order the sweep steps through them. */
 export const TEMPLE_SWEEP: readonly TempleTest[] = markRepeats([
-  // Q: is 18 mm a peak or a plateau? Single millimetres either side of the wearer's pick, at the band it ships with.
-  ...build('Q', 'How far the arms bend out, around 18 mm', [15, 16, 17, 18, 19, 20, 21]
-    .map(bendMm => ({bendMm, band: BAND.tight, label: `bend ${bendMm} mm · ${band(BAND.tight)}`}))),
+  // U: the band's GRADIENT, with its onset pinned where the wearer liked it. Same moment the arm starts being given
+  // up, progressively gentler slope — which is progressively less gain on the head depth's own jitter.
+  ...build('U', 'How steeply an arm is given up, onset fixed', [1.2, 2, 3, 4.5, 6]
+    .map(dropCm => ({band: [0.3, dropCm] as const, label: `band 0.3–${dropCm} cm${dropCm === 1.2 ? ' (as shipped)' : ''}`}))),
 
-  // R: the band at 18 mm, which no round has walked. Narrow bands only — the wide ones are settled.
-  ...build('R', 'How soon an arm is given up, at 18 mm', [BAND.sealed, BAND.narrow, BAND.tight, BAND.middling, BAND.standard]
-    .map(pair => ({band: pair, label: `bend 18 mm · ${band(pair)}`}))),
+  // V: the ONSET, with the gradient pinned gentle. Says whether "tucks away early" can be kept once the slope is not
+  // doing the damage.
+  // Written out rather than computed, so the labels and the addresses carry round decimals.
+  ...build('V', 'How soon an arm starts being given up, gradient fixed',
+    ([[0, 2.7], [0.3, 3], [0.6, 3.3], [1.2, 3.9]] as const)
+      .map(pair => ({band: pair, label: `band ${pair[0]}–${pair[1]} cm`}))),
 
-  // S: the hair cut, which decides where an arm ENDS — the one complaint every good configuration has carried.
-  // S1 is decisive (no cut at all); S6 is the backstop (no hair over the arms at all).
-  ...build('S', 'What the hair cut does to the ends, at 18 mm', [
-    {cut: false, label: 'no hair cut at all — the ends cannot flicker'},
-    {runPx: 4, label: 'hair cut, cuts eagerly (4 px of hair)'},
-    {runPx: DEFAULT_CONTINUITY_RUN_PX, label: `hair cut as shipped (${DEFAULT_CONTINUITY_RUN_PX} px of hair)`},
-    {runPx: 16, label: 'hair cut, cuts reluctantly (16 px of hair)'},
-    {runPx: 30, label: 'hair cut, almost never cuts (30 px of hair)'},
-    {hair: false, label: 'no hair over the arms at all — the backstop'},
-  ].map(entry => ({...entry, band: BAND.tight}))),
-
-  // T: the band and the cut together. If the best band is the same with the cut out of the way as with it in, the two
-  // can be chosen separately; if it is not, they cannot, and the cut has to be settled first.
-  ...build('T', 'The band and the cut together, at 18 mm', [
-    {band: BAND.sealed, cut: false, label: `${band(BAND.sealed)} · no hair cut`},
-    {band: BAND.tight, cut: false, label: `${band(BAND.tight)} · no hair cut`},
-    {band: BAND.standard, cut: false, label: `${band(BAND.standard)} · no hair cut`},
-    {band: BAND.sealed, runPx: 30, label: `${band(BAND.sealed)} · hair cut almost never`},
-    {band: BAND.standard, runPx: 30, label: `${band(BAND.standard)} · hair cut almost never`},
+  // W: strip one decision at a time. W3 is the backstop — nothing removes any part of the arm.
+  ...build('W', 'What is left when each decision is removed', [
+    {label: 'everything as shipped — the baseline to pop against'},
+    {hair: false, label: 'no hair over the arms — only the depth rule decides'},
+    {hair: false, band: [6, 12] as const, label: 'nothing removes the arm at all — no hair, band wide open'},
+    {mode: 'angles' as const, label: 'the former angle rule instead of the per-pixel depth rule'},
   ]),
 
-  // Z: two configurations earlier rounds called "not good", and the one that shipped until today. Judge the two bad
-  // ones first and last: a session that rates them well is a session whose ratings are drifting.
+  // Z: two configurations earlier rounds called "not good", and the one that shipped before the bend was chosen.
+  // Judge the bad ones first and last: a session that rates them well is a session whose ratings are drifting.
   ...build('Z', 'Controls and the previous default', [
     {bendMm: 0, band: BAND.standard, label: 'no bend at all (round one: "not good")'},
-    {bendMm: 14, band: BAND.loose, label: 'bend 14 mm · band 1.5–6 cm (round one: "not good")'},
-    {bendMm: 14, band: BAND.standard, label: 'bend 14 mm · band 0.6–2.6 cm — what shipped until today'},
+    {bendMm: 14, band: BAND.loose, label: `bend 14 mm · band ${BAND.loose[0]}–${BAND.loose[1]} cm (round one: "not good")`},
+    {bendMm: 14, band: BAND.standard, label: `bend 14 mm · band ${BAND.standard[0]}–${BAND.standard[1]} cm — what shipped before 18 mm was chosen`},
   ]),
 ]);
 
