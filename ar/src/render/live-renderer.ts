@@ -64,6 +64,7 @@ export class LiveRenderer {
   setTempleShape(shape: {bendM: number; pivotM: number; keepCm: number; dropCm: number}): void {
     if (!this.disposed) this.renderer.setTempleShape(shape);
   }
+  setTempleCut(enabled: boolean, runPx: number): void {if (!this.disposed) this.renderer.setTempleCut(enabled, runPx);}
   get templeVisibility() {return this.renderer.templeVisibilityState;}
   /** The width fit's mode, state and applied ratio, for the page's debug line. */
   get widthFit() {return this.renderer.widthFit;}

@@ -103,9 +103,10 @@ export interface Config {
   /** `?templepivot=` mm: how far behind the asset's own hinge the bend pivots. 0 bends at the hinge, where the frame
    *  front ends and the temple shaft begins; larger values move the bending point back along the shaft. */
   templePivotMm: number;
-  /** `?templetest=` the id of an entry in the temple sweep (temple-sweep.ts), or null. An entry sets all four temple
-   *  levers at once and overrides them individually, so a verdict can name an id rather than four numbers. The page's
-   *  sweep selector steps through the same list inside a live session. */
+  /** `?templetest=` the id of an entry in the temple sweep (temple-sweep.ts), or null. An entry sets every temple
+   *  lever at once — the bend, its pivot, the relief band, the rule, the hair cut and hair occlusion — and overrides
+   *  each of them individually, so a verdict can name an id rather than six numbers. The page's sweep selector steps
+   *  through the same list inside a live session. */
   templeTest: string | null;
 }
 
@@ -205,7 +206,8 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
   // sweep is ignored, exactly like any other unusable value, and the settings line names it as unrecognized.
   const test = templeTestById(params.get('templetest'));
   return test ? {...config, temples: test.mode, templeKeepCm: test.keepCm, templeDropCm: test.dropCm,
-    templeBendMm: test.bendMm, templePivotMm: test.pivotMm, templeTest: test.id} : config;
+    templeBendMm: test.bendMm, templePivotMm: test.pivotMm, templeTest: test.id,
+    continuity: test.cut, continuityRunPx: test.runPx, hair: test.hair} : config;
 }
 
 

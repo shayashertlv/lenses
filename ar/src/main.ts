@@ -62,13 +62,15 @@ let templeMode: TempleVisibilityMode = config.temples;
 // The temple configuration the mirror is drawing now: the address's own values, or a sweep entry chosen on the page.
 // Held here rather than read off `config`, because the sweep changes it inside a live session.
 let sweep: TempleTest | null = templeTestById(config.templeTest);
-let templeLevers = {bendMm: config.templeBendMm, pivotMm: config.templePivotMm, keepCm: config.templeKeepCm, dropCm: config.templeDropCm};
+let templeLevers = {bendMm: config.templeBendMm, pivotMm: config.templePivotMm, keepCm: config.templeKeepCm,
+  dropCm: config.templeDropCm, cut: config.continuity, runPx: config.continuityRunPx, hair: config.hair ?? true};
 // What "off" means: the address read WITHOUT its sweep id, so turning the sweep off restores the four levers the
 // address itself asked for rather than the entry it started on.
 const addressTemple = (() => {
   const search = new URLSearchParams(location.search); search.delete('templetest');
   const plain = parseConfig(`?${search}`);
-  return {bendMm: plain.templeBendMm, pivotMm: plain.templePivotMm, keepCm: plain.templeKeepCm, dropCm: plain.templeDropCm, mode: plain.temples};
+  return {bendMm: plain.templeBendMm, pivotMm: plain.templePivotMm, keepCm: plain.templeKeepCm, dropCm: plain.templeDropCm,
+    mode: plain.temples, cut: plain.continuity, runPx: plain.continuityRunPx, hair: plain.hair ?? true};
 })();
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
@@ -143,12 +145,16 @@ templeSelect.addEventListener('change', () => {
 function applyTempleSweep(next: TempleTest | null, source: string): void {
   sweep = next;
   const wanted = next ?? addressTemple;
-  templeLevers = {bendMm: wanted.bendMm, pivotMm: wanted.pivotMm, keepCm: wanted.keepCm, dropCm: wanted.dropCm};
+  templeLevers = {bendMm: wanted.bendMm, pivotMm: wanted.pivotMm, keepCm: wanted.keepCm, dropCm: wanted.dropCm,
+    cut: wanted.cut, runPx: wanted.runPx, hair: wanted.hair};
   templeMode = wanted.mode; templeSelect.value = templeMode;
   sweepSelect.value = next?.id ?? '';
+  hairEnabled = templeLevers.hair; hairToggle.value = hairEnabled ? 'on' : 'off';
   current?.renderer?.setTempleShape({bendM: templeLevers.bendMm / 1000, pivotM: templeLevers.pivotMm / 1000,
     keepCm: templeLevers.keepCm, dropCm: templeLevers.dropCm});
   current?.renderer?.setTempleMode(templeMode);
+  current?.renderer?.setTempleCut(templeLevers.cut, templeLevers.runPx);
+  current?.renderer?.setHairEnabled(hairEnabled);
   note('temple-sweep', `${source} ${next ? describeTempleTest(next) : 'off, back to the address options'}`);
   updateWidthFitLine();
 }
@@ -177,6 +183,7 @@ function updateWidthFitLine(): void {
     + (templeLevers.bendMm === 0 ? ' · no bend'
       : ` · bend ${templeLevers.bendMm} mm at the tips, straight from ${templeLevers.pivotMm === 0 ? 'the hinge' : `${templeLevers.pivotMm} mm behind it`}`)
     + ` · ${templeMode === 'depth' ? `kept to ${templeLevers.keepCm} cm behind the head, gone by ${templeLevers.dropCm} cm` : 'given up by head angle'}`
+    + ` · ${!templeLevers.hair ? 'NO HAIR over the arms' : templeLevers.cut ? `hair cut at ${templeLevers.runPx} px of hair` : 'NO HAIR CUT'}`
     + `${sweep?.sameAs ? ` · same as ${sweep.sameAs}` : ''}`
     + `${sweep && sweep.mode !== templeMode ? ' · RULE CHANGED BY HAND' : ''}`
     + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
@@ -271,9 +278,9 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
       templeKeepCm: templeLevers.keepCm, templeDropCm: templeLevers.dropCm, templeBendM: templeLevers.bendMm / 1000,
-      templePivotM: templeLevers.pivotMm / 1000}),
+      templePivotM: templeLevers.pivotMm / 1000, continuity: templeLevers.cut, continuityRunPx: templeLevers.runPx}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();

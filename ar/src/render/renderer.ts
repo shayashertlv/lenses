@@ -107,7 +107,7 @@ export interface FrameTimings {
   maskUploadMs: number; continuityMs: number; submitMs: number;
   dropM: number; hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
   guarded: boolean; passes: number; protectedRects: number; editableRects: number; safeFallback: boolean;
-  continuity: boolean; cutNegativeZ: number | null; cutPositiveZ: number | null;
+  continuity: boolean; continuityRunPx: number; cutNegativeZ: number | null; cutPositiveZ: number | null;
   /** The experimental width fit on this frame: the selected mode, its state, the applied ratio (exactly 1 when nothing
    *  is applied) and the lateral spread of one arm in metres. */
   widthFit: boolean; widthFitState: WidthFitState; widthRatio: number; armSpreadM: number;
@@ -183,8 +183,10 @@ export class TryOnRenderer {
   private fenceTimeouts = 0;
   private syncFailure: string | null = null;
   private readonly guard: boolean;
-  private readonly continuity: boolean;
-  private readonly continuityRunPx: number;
+  // Switchable inside a live session by the page's temple sweep (see setTempleCut): the cut decides where an arm
+  // ends when it passes behind hair, which is a temple question, so the sweep judges it with the rest.
+  private continuity: boolean;
+  private continuityRunPx: number;
   private continuityModel: TempleContinuityModel | null = null;
   private continuityFailure: string | null = null;
   private templePaths: ProjectedTemplePath[] | null = null;
@@ -316,6 +318,13 @@ export class TryOnRenderer {
     if (this.templePaths && this.lastPose && this.continuityModel) {
       this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
     }
+  }
+  /** Switch the hair continuity cut inside a live session: whether it runs, and the run of hair in pixels it needs
+   *  before it takes the end off an arm. Only the arms are affected; the cut reads nothing else. */
+  setTempleCut(enabled: boolean, runPx: number): void {
+    if (this.disposed) return;
+    if (!Number.isFinite(runPx) || runPx < 1 || runPx > 200) throw new Error('The hair cut run is out of range.');
+    this.continuity = enabled; this.continuityRunPx = Math.max(1, Math.round(runPx));
   }
   /** The temple configuration now in the geometry (metres and centimetres), for the page's debug line. */
   get templeShape(): {bendM: number; pivotM: number; keepCm: number; dropCm: number} {
@@ -651,7 +660,8 @@ export class TryOnRenderer {
     return {maskUploadMs, continuityMs, submitMs, dropM: applyDrop ? dropM : 0, hairApplied,
       maskWidth: hairApplied ? mask!.width : 0, maskHeight: hairApplied ? mask!.height : 0, sync: this.sync,
       guarded, passes, protectedRects: protection?.protectedRects.length ?? 0, editableRects: protection?.editableRects.length ?? 0, safeFallback,
-      continuity: this.continuity && this.continuityModel !== null, cutNegativeZ: cut.negative, cutPositiveZ: cut.positive,
+      continuity: this.continuity && this.continuityModel !== null, continuityRunPx: this.continuityRunPx,
+      cutNegativeZ: cut.negative, cutPositiveZ: cut.positive,
       // The width fit as the geometry of this draw has it, so a timing row says which pipeline produced the frame.
       widthFit: this.widthFitEnabled, widthFitState: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
       widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0,
