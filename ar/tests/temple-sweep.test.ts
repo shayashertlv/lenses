@@ -28,8 +28,8 @@ function asset(depthSegments = 16) {
 const armPositions = (root: Group): Float32Array[] =>
   root.children.map(child => Float32Array.from(((child as Mesh).geometry.getAttribute('position').array as Float32Array)));
 
-test('the sweep is a usable experiment, and offers nothing round one already ruled out', () => {
-  assert.ok(TEMPLE_SWEEP.length >= 25, `a sweep worth stepping through (${TEMPLE_SWEEP.length})`);
+test('the sweep is a usable experiment, and offers nothing the earlier rounds ruled out', () => {
+  assert.ok(TEMPLE_SWEEP.length >= 20, `a sweep worth stepping through (${TEMPLE_SWEEP.length})`);
   const ids = TEMPLE_SWEEP.map(entry => entry.id);
   assert.equal(new Set(ids).size, ids.length, 'ids are distinct, so a verdict names exactly one configuration');
   for (const entry of TEMPLE_SWEEP) {
@@ -54,30 +54,44 @@ test('the sweep is a usable experiment, and offers nothing round one already rul
     assert.deepEqual(group.tests.map(entry => entry.id), group.tests.map((_, index) => `${[...letters][0]}${index + 1}`));
   }
 
-  // What round one settled is not offered again. The controls are the only entries allowed to break these, and they
-  // are there precisely so a session that rates them well can be recognised as unreliable.
+  // What the earlier rounds settled is not offered again. The controls are the only entries allowed to break these,
+  // and they are there precisely so a session that rates them well can be recognised as unreliable.
   const controls = TEMPLE_SWEEP.filter(entry => entry.group.startsWith('Controls'));
-  assert.equal(controls.length, 2, 'two controls');
+  assert.ok(controls.length >= 2, 'at least two controls');
   const judged = TEMPLE_SWEEP.filter(entry => !controls.includes(entry));
   for (const entry of judged) {
-    assert.ok(entry.bendMm >= 12, `${entry.id}: bends under 12 mm leave part of the arm inside the head`);
+    // Round three is built around the wearer's pick, so every judged entry sits within a few millimetres of it.
+    assert.ok(Math.abs(entry.bendMm - SHIPPED_TEMPLE_TEST.bendMm) <= 3,
+      `${entry.id}: round three asks only about bends near ${SHIPPED_TEMPLE_TEST.bendMm} mm`);
     assert.ok(entry.dropCm <= 2.6 && entry.keepCm <= 0.6, `${entry.id}: bands wider than 0.6–2.6 cm read "not good" at every bend`);
     assert.equal(entry.pivotMm, 0, `${entry.id}: moving the pivot back was worse in four separate groups`);
     assert.equal(entry.mode, 'depth', `${entry.id}: the angle rule lost`);
     assert.ok(entry.bendMm > 0, `${entry.id}: arms pulled inward were worse`);
   }
   assert.ok(controls.some(entry => entry.bendMm === 0), 'one control has no bend at all');
-  assert.ok(controls.some(entry => entry.dropCm > 2.6), 'one control has a band round one called not good');
+  assert.ok(controls.some(entry => entry.dropCm > 2.6), 'one control has a band an earlier round called not good');
 
-  // Each axis round two DOES ask about is actually swept.
+  // Each axis round three DOES ask about is actually swept, all of them at the shipped bend.
   assert.ok(new Set(judged.map(entry => entry.bendMm)).size >= 5, 'several bends');
+  assert.ok(judged.filter(entry => entry.bendMm === SHIPPED_TEMPLE_TEST.bendMm).length >= 12,
+    'and most of the sweep sits at the shipped bend, where the open questions are');
   assert.ok(new Set(judged.map(entry => `${entry.keepCm}/${entry.dropCm}`)).size >= 4, 'several bands');
   assert.ok(new Set(judged.filter(entry => entry.cut && entry.hair).map(entry => entry.runPx)).size >= 4, 'several hair-cut thresholds');
-  assert.ok(judged.some(entry => !entry.cut), 'and the cut can be turned off — the decisive one');
-  assert.ok(judged.some(entry => !entry.hair), 'and hair can be taken off the arms entirely, as a control');
-  // The cut is asked about at more than one bend, because a bigger bend hands more of the arm to it.
-  assert.ok(new Set(judged.filter(entry => !entry.cut).map(entry => entry.bendMm)).size >= 2, 'the cut is judged at two bends');
+  // The group that ASKS about the cut must carry both ends of it itself, not lean on another group for them.
+  const cutGroup = groups.find(group => group.group.startsWith('What the hair cut does'))!;
+  assert.ok(cutGroup.tests.some(entry => !entry.cut), 'the cut group can turn the cut off — the decisive entry');
+  assert.ok(cutGroup.tests.some(entry => !entry.hair), 'and can take hair off the arms — the backstop');
+  assert.ok(new Set(cutGroup.tests.filter(entry => entry.cut && entry.hair).map(entry => entry.runPx)).size >= 4,
+    'and walks several thresholds between them');
+  // The band and the cut are crossed, which is what says whether they can be chosen separately.
+  const crossed = judged.filter(entry => !entry.cut || entry.runPx !== 10);
+  assert.ok(new Set(crossed.map(entry => `${entry.keepCm}/${entry.dropCm}`)).size >= 3,
+    'the cut is judged against more than one band');
 
+  // The bend ladder brackets the shipped bend on both sides, so a peak can be told from a plateau edge.
+  const ladder = groups.find(group => group.group.startsWith('How far'))!.tests.map(entry => entry.bendMm);
+  assert.ok(Math.min(...ladder) < SHIPPED_TEMPLE_TEST.bendMm && Math.max(...ladder) > SHIPPED_TEMPLE_TEST.bendMm);
+  assert.ok(ladder.includes(SHIPPED_TEMPLE_TEST.bendMm), 'and it contains the shipped bend itself');
   // The band ladders are ladders: each walks its band from narrow to wide at one fixed bend.
   for (const group of groups.filter(group => group.group.startsWith('How soon'))) {
     assert.equal(new Set(group.tests.map(entry => entry.bendMm)).size, 1, `${group.group}: one bend`);
@@ -99,6 +113,11 @@ test('the sweep is a usable experiment, and offers nothing round one already rul
     [entry.bendMm, entry.pivotMm, entry.keepCm, entry.dropCm, entry.mode, entry.cut, entry.runPx, entry.hair].join('|');
   const shipped = TEMPLE_SWEEP.filter(entry => signature(entry) === signature(SHIPPED_TEMPLE_TEST));
   assert.ok(shipped.length >= 1 && shipped[0]!.sameAs === null, 'the shipped configuration is in the sweep');
+  // And "shipped" is not a claim the sweep makes about itself: it is what a page with no address options runs.
+  const running = parseConfig('');
+  assert.deepEqual(signature({bendMm: running.templeBendMm, pivotMm: running.templePivotMm, keepCm: running.templeKeepCm,
+    dropCm: running.templeDropCm, mode: running.temples, cut: running.continuity, runPx: running.continuityRunPx,
+    hair: running.hair ?? true}), signature(SHIPPED_TEMPLE_TEST));
   // The ladders share rungs on purpose. Every repeat names the entry it repeats, and really is identical to it.
   const first = new Map<string, string>();
   for (const entry of TEMPLE_SWEEP) {
@@ -109,7 +128,7 @@ test('the sweep is a usable experiment, and offers nothing round one already rul
   }
   assert.ok(first.size >= 20, `${first.size} distinct configurations, not counting the shared rungs`);
   // The line a screenshot is read by names the id, the bend, the band and what the hair cut is doing.
-  assert.match(describeTempleTest(TEMPLE_SWEEP[0]!), /^\[J1\] bend 12 mm · band [\d.]+–[\d.]+ cm · hair cut at \d+ px$/);
+  assert.match(describeTempleTest(TEMPLE_SWEEP[0]!), /^\[Q1\] bend 15 mm · band [\d.]+–[\d.]+ cm · hair cut at \d+ px$/);
   assert.match(describeTempleTest(TEMPLE_SWEEP.find(entry => !entry.cut)!), /· no hair cut$/);
   assert.match(describeTempleTest(TEMPLE_SWEEP.find(entry => !entry.hair)!), /· no hair on the arms$/);
 });
@@ -139,14 +158,14 @@ test('?templetest= starts on one entry and sets every temple lever, overriding t
   // Ids are matched without case or surrounding space; anything that is not an id leaves the other options alone.
   assert.equal(parseConfig(`?templetest=${first.id.toLowerCase()}`).templeTest, first.id);
   assert.equal(templeTestById(` ${first.id.toLowerCase()} `)?.id, first.id);
-  for (const bad of ['?templetest=', '?templetest=ZZ9', '?templetest=1', '?templetest=A1', '?templetest=J99']) {
+  for (const bad of ['?templetest=', '?templetest=ZZ9', '?templetest=1', '?templetest=A1', '?templetest=J4', '?templetest=Q99']) {
     const config = parseConfig(`${bad}&templebend=13&hairrun=7`);
     assert.equal(config.templeTest, null, bad);
     assert.equal(config.templeBendMm, 13, bad); assert.equal(config.continuityRunPx, 7, bad);
   }
   assert.equal(templeTestById(null), null); assert.equal(templeTestById(undefined), null);
   assert.deepEqual(unrecognizedOptions(`?templetest=${first.id}`), []);
-  assert.deepEqual(unrecognizedOptions('?templetests=J1'), ['templetests']);
+  assert.deepEqual(unrecognizedOptions('?templetests=Q1'), ['templetests']);
 });
 
 test('moving the pivot inside a session lands on exactly the geometry a cold start would have produced', () => {

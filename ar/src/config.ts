@@ -13,12 +13,14 @@ import {templeTestById} from './temple-sweep.ts';
 
 /** The bend the page starts with, in millimetres of outward splay at the arm's tip.
  *
- *  The arm runs inside the head occluder over its whole rear half — up to 8.6 mm inside the canonical face mesh where
- *  that mesh is widest, about 7 cm behind the hinge. With the bend pivoting at the hinge and the shaft straight after
- *  it, that station carries 56 % of the tip's offset, so 14 mm leaves it 0.8 mm inside the head and puts the tip 3.7 mm
- *  proud of the proxy — which has no ear on it, and the tip is the ear hook. 10 mm leaves the tip flush and that
- *  station 3.0 mm buried; 16 mm clears the whole arm. A visual choice measured against a proxy head. */
-export const DEFAULT_TEMPLE_BEND_MM = 14;
+ *  18 mm is the wearer's own verdict, from round two of the live sweep (2026-09-19), judged against a bend ladder from
+ *  12 to 24 mm at the 0.3–1.2 cm band — which is why that band ships with it. The measurement agrees on the direction
+ *  if not on a precise value: the authored arm runs inside the head occluder over its whole rear half, up to 8.6 mm
+ *  inside the canonical face mesh where that mesh is widest, and the straight shaft carries 56 % of the tip's offset
+ *  to that station, so 12 mm is the least that clears the head at all and everything above it clears with margin.
+ *  Round one had already ruled out everything below 12 mm: "the temples enter the face" is the arm being drawn where
+ *  it is inside the head. A visual choice, confirmed by eye and bounded by a proxy-head measurement. */
+export const DEFAULT_TEMPLE_BEND_MM = 18;
 import type {TempleVisibilityMode} from './render/temple-visibility.ts';
 import {DEFAULT_HAIR_SCHEDULE} from './hair/mask-reuse.ts';
 import type {HairSchedule} from './hair/mask-reuse.ts';

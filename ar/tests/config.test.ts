@@ -16,7 +16,7 @@ test('an empty search yields the accepted defaults', () => {
 test('every lever parses with its bounds and its off spelling', () => {
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.6, templeDropCm: 2.6,
+    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.3, templeDropCm: 1.2,
     templeBendMm: DEFAULT_TEMPLE_BEND_MM, templePivotMm: 0, templeTest: null});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
@@ -54,18 +54,20 @@ test('the temple-occlusion rule is a two-value selector, per pixel by default, a
   assert.equal(parseConfig('?temples=angles').temples, 'angles'); assert.equal(parseConfig('?temples=ANGLES').temples, 'angles');
   assert.equal(parseConfig('?temples=depth').temples, 'depth');
   assert.equal(parseConfig('?temples=1').temples, 'depth'); assert.equal(parseConfig('?temples=').temples, 'depth');
-  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4: kept to 0.6 cm behind it, gone by 2.6 cm/);
+  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4: kept to 0.3 cm behind it, gone by 1.2 cm/);
   // The band is the only number deciding how much arm survives, so it is judgeable live.
   assert.deepEqual([parseConfig('?templekeep=1.2&templedrop=4').templeKeepCm, parseConfig('?templekeep=1.2&templedrop=4').templeDropCm], [1.2, 4]);
-  assert.deepEqual([parseConfig('?templekeep=0').templeKeepCm, parseConfig('?templekeep=0').templeDropCm], [0, 2.6]);
+  assert.deepEqual([parseConfig('?templekeep=0').templeKeepCm, parseConfig('?templekeep=0').templeDropCm], [0, 1.2]);
   // A pair that is not a band, or either end out of range, falls back to both defaults rather than half of each.
   for (const bad of ['?templekeep=3&templedrop=2', '?templedrop=0.2', '?templekeep=9', '?templedrop=99', '?templekeep=x&templedrop=y'])
-    assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.6, 2.6], bad);
+    assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.3, 1.2], bad);
   assert.match(describeConfig(parseConfig('?templekeep=1.2&templedrop=4')), /kept to 1.2 cm behind it, gone by 4 cm/);
   assert.deepEqual(unrecognizedOptions('?templekeep=1&templedrop=3'), []);
   // The manual outward bend at the tips, in millimetres, hinged at the front of the frame. It ships on, at the value
   // the owner judged best live, so a page with no address at all already carries it.
-  assert.equal(DEFAULT_TEMPLE_BEND_MM, 14);
+  // The wearer's own verdict from round two of the live sweep, judged at the band that ships with it.
+  assert.equal(DEFAULT_TEMPLE_BEND_MM, 18);
+  assert.deepEqual([parseConfig('').templeKeepCm, parseConfig('').templeDropCm], [0.3, 1.2]);
   assert.equal(parseConfig('').templeBendMm, DEFAULT_TEMPLE_BEND_MM);
   assert.equal(parseConfig('?templebend=6').templeBendMm, 6);
   assert.equal(parseConfig('?templebend=-4').templeBendMm, -4);

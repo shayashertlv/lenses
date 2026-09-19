@@ -90,7 +90,7 @@ test('pose steadiness is on by default with its levers; ?steady=0 turns it off',
   assert.equal(parseConfig('?steady=0&steadyhz=0.5').steady, null, 'a lever does not turn a disabled filter back on');
   assert.match(describeConfig(parseConfig('')), /pose steadiness on: rotation 1 Hz \+ 0.1 Hz per °\/s/);
   assert.match(describeConfig(parseConfig('?steady=0')), /pose steadiness OFF \(\?steady=0\)/);
-  assert.match(describeConfig(parseConfig('?steady=0&diag=1')), /pose steadiness OFF \(\?steady=0\) · temple occlusion per pixel[^·]+· temple bend 14 mm outward at the tip, straight from the hinge[^·]+· temple fit original \(\?fit=width for the experiment\) · diagnostics ON \(\?diag=1\)\.$/);
+  assert.match(describeConfig(parseConfig('?steady=0&diag=1')), /pose steadiness OFF \(\?steady=0\) · temple occlusion per pixel[^·]+· temple bend 18 mm outward at the tip, straight from the hinge[^·]+· temple fit original \(\?fit=width for the experiment\) · diagnostics ON \(\?diag=1\)\.$/);
 });
 
 test('the live pose-shake line measures second differences and skips a restart', () => {

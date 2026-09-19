@@ -298,18 +298,33 @@ live by the wearer:
 - Five entries were blind repeats. One came back word for word and two came back one grade better, so **the ranking is
   good to about one grade and no finer**; four configurations tied at the top.
 
-**Round two, ids J–Z,** drops all of that and adds the axis the first round exposed: the hair cut, which decides where
-an arm ends and which carried the one complaint every good configuration shared — the ends appear and disappear. The
-cut fires when it finds a run of hair at least `?hairrun=` pixels long along the arm's centreline, and on the
-checked-in fixture that decision is a cliff: at 10 px it removes the last 6.5 cm of arm, at 14 px it removes nothing,
-with no hysteresis and no temporal filter. A mask boundary that moves four pixels flips the whole end of the temple.
-The cut groups ask the wearer to confirm that on a real head; the entry with no cut at all is the decisive one. Two
-controls that round one called "not good" sit at the end, to be judged first and last: a session that rates them well
-is a session whose ratings are drifting.
+**Round two, ids J–P,** dropped all of that, walked the bend from 12 to 24 mm at the 0.3–1.2 cm band, and added the
+axis round one exposed: the hair cut, which decides where an arm *ends* and which carried the one complaint every good
+configuration shared — the ends appear and disappear. **Its verdict: 18 mm looks the best.** That bend and that band
+are what the page now ships.
 
-`?templetest=J3` starts a cold page on one entry and overrides every individual lever; switching mid-session lands on
+**Round three, ids Q–Z,** is built around it, and asks the three questions that are left, all at 18 mm:
+- **Is 18 a peak or a plateau?** The bend ladder walks 15–21 mm in single millimetres, bracketing the pick on both
+  sides so one can be told from the other.
+- **Which band?** Rounds one and two walked the band at 14, 16 and 20 mm but never at 18.
+- **What does the hair cut do to the ends?** The cut fires when it finds a run of hair at least `?hairrun=` pixels long
+  along the arm's centreline, and on the checked-in fixture that decision is a cliff: at 10 px it removes the last
+  6.1 cm of arm, at 30 px it removes nothing, with no hysteresis and no temporal filter. A mask boundary that moves a
+  few pixels flips the whole end of the temple. The entry with **no cut at all** is the decisive one, and the entry
+  with **no hair over the arms at all** is the backstop: if the ends still misbehave there, it is not hair.
+- And whether the band and the cut interact, which decides whether they can be chosen separately.
+
+Two controls that earlier rounds called "not good" sit at the end with the previous default, to be judged first and
+last: a session that rates them well is a session whose ratings are drifting.
+
+`?templetest=Q4` starts a cold page on one entry and overrides every individual lever; switching mid-session lands on
 exactly the geometry a cold start with the same values would have produced, which is a test on the arm buffers rather
 than a claim.
+
+One thing the fixture says about round three in advance: at 18 mm **the band barely moves the drawn frame** on a
+near-frontal pose at 51 cm — 14 to 38 pixels, inside the session's own noise — because no part of the arm is inside the
+head for the band to act on. On a turned head, where the arm is seen against the head, it is not small. That is what
+the R group is for, and it is why the sweep reports the numbers rather than asserting them.
 
 **What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
 to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
@@ -401,10 +416,10 @@ any face; the synthetic checks below are regression evidence only.
 | `?hairmaxage=` | 200 | with hair on every second frame (phone and tablet default, `?hairframes=2`): never draw a mask whose frame was captured more than this many ms from the drawn frame (30..1000) |
 | `?steadyhz=`, `?steadybeta=` | 1, 0.1 | rotation cutoff at rest (Hz, 0.05..20) and added Hz per °/s of head rotation (0..5); lower `steadyhz` is steadier, higher `steadybeta` follows turns more closely |
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
-| `?templebend=` | 14 | millimetres to splay each temple arm outward at its tip, pivoting at the hinge and straight from there (above). ±24 mm, the arms' own inward curl; negative pulls them in, `0` is the frame as authored. Adds to the width fit's own spread, and the pair is capped at 24 mm |
+| `?templebend=` | 18 | millimetres to splay each temple arm outward at its tip, pivoting at the hinge and straight from there (above). The default is the wearer's own verdict from round two of the live sweep. ±24 mm, the arms' own inward curl; negative pulls them in, `0` is the frame as authored. Adds to the width fit's own spread, and the pair is capped at 24 mm |
 | `?templepivot=` | 0 | millimetres to move the bend's pivot back from the asset's own hinge (above). 0..30; it cannot move forward, because in front of the hinge the same lateral band is the rim |
-| `?templetest=` | — | the id of a temple sweep entry (`J1`..`Z2`, above), which sets every temple lever at once — bend, pivot, band, rule, hair cut, hair occlusion — and overrides them individually. The page's sweep selector steps through the same list inside a live session; an id that is not in the sweep is ignored, so round one's `A1`..`I6` now read as unset |
-| `?templekeep=`, `?templedrop=` | 0.6, 2.6 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
+| `?templetest=` | — | the id of a temple sweep entry (`Q1`..`Z3`, above), which sets every temple lever at once — bend, pivot, band, rule, hair cut, hair occlusion — and overrides them individually. The page's sweep selector steps through the same list inside a live session; an id that is not in the sweep is ignored, so the earlier rounds' `A1`..`P3` now read as unset |
+| `?templekeep=`, `?templedrop=` | 0.3, 1.2 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
 | `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |
 

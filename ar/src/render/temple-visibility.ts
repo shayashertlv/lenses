@@ -17,11 +17,16 @@ export const TEMPLE_VISIBILITY_PARAMETERS = Object.freeze({
   viewConfidenceStart: 0.15, viewConfidenceFull: 0.35,
   frontalMaskRadiusPx: 1, frontalContinuationSteps: 4,
   frontalPitchStartDegrees: 8, frontalPitchFullDegrees: 18,
-  /** v4. An arm fragment this many centimetres behind the head surface is still drawn in full: the shipped arms run
-   *  6 to 12 mm inside the canonical head's own silhouette (they are narrower than the head they are worn on), so a
-   *  plain depth test would bury an arm that a wearer expects to see. Beyond `reliefBehindFullCm` the fragment is
-   *  genuinely round the back of the head and is given up. Both are visual choices, not measured anatomy. */
-  reliefBehindStartCm: 0.6, reliefBehindFullCm: 2.6,
+  /** v4. An arm fragment this many centimetres behind the head surface is still drawn in full; beyond
+   *  `reliefBehindFullCm` it is round the back of the head and is given up.
+   *
+   *  The band was 0.6 / 2.6 cm while the arms were authored as they came: they ran 6 to 12 mm inside the canonical
+   *  head's own silhouette, so the band had to forgive a centimetre of burial or a plain depth test would have buried
+   *  the temple. The shipped bend (`?templebend=`, 18 mm) now carries the arm clear of the head at every station, so
+   *  the band's only job is to tuck the arm away where it really is behind the head, and it can be narrow. Round one
+   *  of the live sweep found this directly: a narrow band read "not good" while part of the arm was still buried and
+   *  "near perfect" once it was not. Both are visual choices, not measured anatomy. */
+  reliefBehindStartCm: 0.3, reliefBehindFullCm: 1.2,
 });
 
 /** Which rule decides how much of an arm is given up.

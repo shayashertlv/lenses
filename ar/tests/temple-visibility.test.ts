@@ -103,10 +103,15 @@ test('v4 gives up an arm by how far behind the head it is, not by the head angle
     assert.ok(value <= previous + 1e-12, `the relief never rises with depth (${behind})`);
     assert.ok(value >= 0 && value <= 1); previous = value;
   }
-  // The shipped arms run 6 to 12 mm inside the canonical head's own silhouette, so the band must keep a whole
-  // centimetre of burial; otherwise a plain depth test would be enough and the arm would vanish at the temple.
-  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm >= 0.5);
-  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm > TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm);
+  // While the arms were authored as they came they ran 6 to 12 mm inside the canonical head's own silhouette, and the
+  // band had to forgive a centimetre of burial or a plain depth test would have buried the temple. The shipped bend
+  // carries the arm clear of the head at every station, so the band's only job now is to tuck it away where it really
+  // is behind the head: it starts within a few millimetres and is finished well before the arm is round the back.
+  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm >= 0
+    && TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm <= 0.6);
+  assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm > TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm
+    && TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm <= 2.6);
+  assert.equal(depthRelief(2), 0, 'an arm 2 cm behind the head is round the back of it and is given up');
 });
 
 test('v4 does not go blind when the head is tilted, where the v3 percentages collapse', () => {
