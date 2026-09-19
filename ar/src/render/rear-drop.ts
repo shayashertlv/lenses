@@ -203,12 +203,24 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       }
     }
     const hingeZM = armShaftStartZM(extents);
-    const requested = (hingeZM ?? startZM) - spreadPivotM;
-    const spreadStartZM = requested > cutoffZM + HINGE_MIN_SPAN_M ? requested : startZM;
-    if (spreadStartZM <= cutoffZM + SPREAD_HINGE_ROUND_M) throw new Error('The arm-spread pivot must be forward of the accepted cap.');
+    const hingeStartZM = hingeZM ?? startZM;
+    /** The plane a pivot puts the bend on, refusing one the ramp could not draw. */
+    const pivotPlane = (pivot: number): number => {
+      if (!Number.isFinite(pivot) || pivot < SPREAD_PIVOT_RANGE_M.min || pivot > SPREAD_PIVOT_RANGE_M.max) {
+        throw new Error('The arm-spread pivot is out of range.');
+      }
+      const plane = hingeStartZM - pivot;
+      if (plane <= cutoffZM + Math.max(HINGE_MIN_SPAN_M, SPREAD_HINGE_ROUND_M)) {
+        throw new Error('The arm-spread pivot must be forward of the accepted cap.');
+      }
+      return plane;
+    };
+    let spreadStartZM = pivotPlane(spreadPivotM);
     // Everything behind the frontmost of the two planes may be deformed; the drop's own curve is flat in front of its
-    // start, so the shaft between the hinge and that start carries the bend alone.
-    const deformableStartZM = Math.max(startZM, spreadStartZM);
+    // start, so the shaft between the hinge and that start carries the bend alone. The set is fixed at the HINGE, not
+    // at the current pivot, because the pivot may move back within a live session (the page's temple sweep) and a
+    // pivot further back simply leaves the vertices in front of it at the offset zero the ramp already gives them.
+    const deformableStartZM = Math.max(startZM, hingeStartZM);
     const opticalBounds = new Box3(), originalArmBounds = [new Box3(), new Box3()];
     let candidateArmBounds = [new Box3(), new Box3()];
     const eligible = (record: GeometryRecord, vertex: number): boolean => {
@@ -244,10 +256,10 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
     /** Both deformations in one pass over the restored original storage: the lateral spread of the width fit and the
      *  pose-driven drop. They are shears along the same axis (both a function of z), so their tangent maps add and the
      *  normal correction is the sum of the two terms. */
-    const applyShape = (drop: number, spread: number): void => {
+    const applyShape = (drop: number, spread: number, force = false): void => {
       if (disposed) throw new Error('Rear drop is disposed.');
       validateDrop(drop); validateSpread(spread);
-      if (drop === dropM && spread === spreadM) return;
+      if (!force && drop === dropM && spread === spreadM) return;
       for (const record of records.values()) {
         // Restore raw storage first: interleaved attributes may share one buffer.
         for (const name of ['position', 'normal', 'tangent']) {
@@ -298,6 +310,13 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       get spreadM(): number {return spreadM;},
       /** The plane the spread pivots about: the asset's own hinge, moved back by `?templepivot=`. */
       get spreadStartZM(): number {return spreadStartZM;},
+      /** Move the pivot back from the asset's hinge inside a live session. A refused value changes nothing. */
+      setSpreadPivot(value: number): void {
+        const plane = pivotPlane(value);
+        if (plane === spreadStartZM) return;
+        spreadStartZM = plane;
+        applyShape(dropM, spreadM, true);
+      },
       /** Where this asset's frame front ends, or null when its cross-section has no such boundary. */
       get hingeZM(): number | null {return hingeZM;},
       get dropM(): number {return dropM;},

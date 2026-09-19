@@ -4,6 +4,8 @@
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
 import {DEFAULT_TEMPLE_BEND_MM, describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
+import {describeTempleTest, templeSweepGroups, templeTestById, TEMPLE_SWEEP} from './temple-sweep.ts';
+import type {TempleTest} from './temple-sweep.ts';
 import type {FitMode} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
@@ -34,6 +36,7 @@ const eyewearSelect = element<HTMLSelectElement>('eyewear-select'), hairSelect =
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
 const fitSelect = element<HTMLSelectElement>('fit-mode');
 const templeSelect = element<HTMLSelectElement>('temple-mode');
+const sweepSelect = element<HTMLSelectElement>('temple-test');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
 const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -56,6 +59,17 @@ let hairEnabled = config.hair ?? true;
 let fitMode: FitMode = config.fit;
 // Which rule gives up part of a temple arm to the head. Switchable live, like the fit above.
 let templeMode: TempleVisibilityMode = config.temples;
+// The temple configuration the mirror is drawing now: the address's own values, or a sweep entry chosen on the page.
+// Held here rather than read off `config`, because the sweep changes it inside a live session.
+let sweep: TempleTest | null = templeTestById(config.templeTest);
+let templeLevers = {bendMm: config.templeBendMm, pivotMm: config.templePivotMm, keepCm: config.templeKeepCm, dropCm: config.templeDropCm};
+// What "off" means: the address read WITHOUT its sweep id, so turning the sweep off restores the four levers the
+// address itself asked for rather than the entry it started on.
+const addressTemple = (() => {
+  const search = new URLSearchParams(location.search); search.delete('templetest');
+  const plain = parseConfig(`?${search}`);
+  return {bendMm: plain.templeBendMm, pivotMm: plain.templePivotMm, keepCm: plain.templeKeepCm, dropCm: plain.templeDropCm, mode: plain.temples};
+})();
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
@@ -104,6 +118,13 @@ hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_
 hairToggle.value = hairEnabled ? 'on' : 'off';
 fitSelect.value = fitMode;
 templeSelect.value = templeMode;
+sweepSelect.add(new Option('Off · the address options', ''));
+for (const {group, tests} of templeSweepGroups()) {
+  const optgroup = document.createElement('optgroup'); optgroup.label = group;
+  for (const test of tests) optgroup.append(new Option(`${test.id} · ${test.label}${test.sameAs ? ` (same as ${test.sameAs})` : ''}`, test.id));
+  sweepSelect.append(optgroup);
+}
+sweepSelect.value = sweep?.id ?? '';
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
@@ -118,6 +139,32 @@ templeSelect.addEventListener('change', () => {
   current?.renderer?.setTempleMode(templeMode);
   note('temple-mode', templeMode); updateWidthFitLine();
 });
+/** Run one sweep entry, or the address's own temple options when there is none. Only the arms move. */
+function applyTempleSweep(next: TempleTest | null, source: string): void {
+  sweep = next;
+  const wanted = next ?? addressTemple;
+  templeLevers = {bendMm: wanted.bendMm, pivotMm: wanted.pivotMm, keepCm: wanted.keepCm, dropCm: wanted.dropCm};
+  templeMode = wanted.mode; templeSelect.value = templeMode;
+  sweepSelect.value = next?.id ?? '';
+  current?.renderer?.setTempleShape({bendM: templeLevers.bendMm / 1000, pivotM: templeLevers.pivotMm / 1000,
+    keepCm: templeLevers.keepCm, dropCm: templeLevers.dropCm});
+  current?.renderer?.setTempleMode(templeMode);
+  note('temple-sweep', `${source} ${next ? describeTempleTest(next) : 'off, back to the address options'}`);
+  updateWidthFitLine();
+}
+sweepSelect.addEventListener('change', () => applyTempleSweep(templeTestById(sweepSelect.value), 'selected'));
+// Stepping with the arrow keys is the point of the sweep: one camera session, one pose, one configuration at a time.
+window.addEventListener('keydown', (event: KeyboardEvent) => {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  const target = event.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+  const index = sweep ? TEMPLE_SWEEP.findIndex(test => test.id === sweep?.id) : -1;
+  const next = event.key === 'ArrowRight'
+    ? TEMPLE_SWEEP[(index + 1) % TEMPLE_SWEEP.length]
+    : TEMPLE_SWEEP[(index <= 0 ? TEMPLE_SWEEP.length : index) - 1];
+  event.preventDefault();
+  applyTempleSweep(next ?? null, 'stepped');
+});
 fitSelect.addEventListener('change', () => {
   fitMode = fitSelect.value === 'width' ? 'width' : 'original';
   current?.renderer?.setWidthFit(fitMode === 'width');
@@ -126,9 +173,12 @@ fitSelect.addEventListener('change', () => {
 /** The experiment's debug line: the selected mode, the estimated width ratio and collecting / stable / fallback. */
 function updateWidthFitLine(): void {
   const renderer = current?.renderer, fit = renderer?.widthFit, temple = renderer?.templeVisibility;
-  const occlusion = `Temple occlusion: ${templeMode === 'depth' ? `per pixel, kept to ${config.templeKeepCm} cm behind the head, gone by ${config.templeDropCm} cm` : 'by head angle'}`
-    + (config.templeBendMm === 0 ? ' · no bend'
-      : ` · bend ${config.templeBendMm} mm outward at the tips, straight from ${config.templePivotMm === 0 ? 'the hinge' : `${config.templePivotMm} mm behind it`}`)
+  const occlusion = `${sweep ? `${describeTempleTest(sweep)} — ${sweep.group}` : 'Temple, address options'}`
+    + (templeLevers.bendMm === 0 ? ' · no bend'
+      : ` · bend ${templeLevers.bendMm} mm at the tips, straight from ${templeLevers.pivotMm === 0 ? 'the hinge' : `${templeLevers.pivotMm} mm behind it`}`)
+    + ` · ${templeMode === 'depth' ? `kept to ${templeLevers.keepCm} cm behind the head, gone by ${templeLevers.dropCm} cm` : 'given up by head angle'}`
+    + `${sweep?.sameAs ? ` · same as ${sweep.sameAs}` : ''}`
+    + `${sweep && sweep.mode !== templeMode ? ' · RULE CHANGED BY HAND' : ''}`
     + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
   if (!fit) {element('width-fit').textContent = `${occlusion} · fit ${fitMode === 'width' ? 'width' : 'original'} · no session`; return;}
   element('width-fit').textContent = `${occlusion} · ` + (fit.mode === 'original'
@@ -178,8 +228,8 @@ function updateUi(): void {
     lastLiveReportAt = performance.now();
     const st = (key: string): string => ms(summary.stages[key]?.median);
     // Only the experiment adds an event: with Original selected the diagnostics of a window are exactly as before.
-    if (fitMode === 'width' || templeMode !== 'depth' || config.templeBendMm !== DEFAULT_TEMPLE_BEND_MM
-      || config.templePivotMm !== 0) note('fit', `${element('width-fit').textContent ?? ''}`);
+    if (fitMode === 'width' || templeMode !== 'depth' || sweep !== null
+      || templeLevers.bendMm !== DEFAULT_TEMPLE_BEND_MM || templeLevers.pivotMm !== 0) note('fit', `${element('width-fit').textContent ?? ''}`);
     note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
@@ -222,8 +272,8 @@ async function openSession(): Promise<void> {
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
     const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, continuity: config.continuity, continuityRunPx: config.continuityRunPx, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
-      templeKeepCm: config.templeKeepCm, templeDropCm: config.templeDropCm, templeBendM: config.templeBendMm / 1000,
-      templePivotM: config.templePivotMm / 1000}),
+      templeKeepCm: templeLevers.keepCm, templeDropCm: templeLevers.dropCm, templeBendM: templeLevers.bendMm / 1000,
+      templePivotM: templeLevers.pivotMm / 1000}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();

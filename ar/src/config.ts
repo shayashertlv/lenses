@@ -9,6 +9,7 @@ import {DEFAULT_STEADY} from './render/pose-stabilizer.ts';
 import type {SteadyOptions} from './render/pose-stabilizer.ts';
 import {DEFAULT_TEMPLE_VISIBILITY_MODE, TEMPLE_VISIBILITY_PARAMETERS} from './render/temple-visibility.ts';
 import {MAX_ARM_SPREAD_M, SPREAD_PIVOT_RANGE_M} from './render/face-width.ts';
+import {templeTestById} from './temple-sweep.ts';
 
 /** The bend the page starts with, in millimetres of outward splay at the arm's tip.
  *
@@ -102,6 +103,10 @@ export interface Config {
   /** `?templepivot=` mm: how far behind the asset's own hinge the bend pivots. 0 bends at the hinge, where the frame
    *  front ends and the temple shaft begins; larger values move the bending point back along the shaft. */
   templePivotMm: number;
+  /** `?templetest=` the id of an entry in the temple sweep (temple-sweep.ts), or null. An entry sets all four temple
+   *  levers at once and overrides them individually, so a verdict can name an id rather than four numbers. The page's
+   *  sweep selector steps through the same list inside a live session. */
+  templeTest: string | null;
 }
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
@@ -109,14 +114,14 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   guard: true, continuity: true, continuityRunPx: DEFAULT_CONTINUITY_RUN_PX, eyewear: null, hairModel: null, hair: null, diagnostics: false,
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: DEFAULT_TEMPLE_VISIBILITY_MODE,
   templeKeepCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, templeDropCm: TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm,
-  templeBendMm: DEFAULT_TEMPLE_BEND_MM, templePivotMm: 0,
+  templeBendMm: DEFAULT_TEMPLE_BEND_MM, templePivotMm: 0, templeTest: null,
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
   'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'templepivot', 'model', 'name', 'clip', 'width', 'sha256']);
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'templepivot', 'templetest', 'model', 'name', 'clip', 'width', 'sha256']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {
@@ -166,7 +171,7 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
   };
   const exposure = params.get('exposure'), hairDelegate = params.get('hairdelegate')?.toUpperCase(), source = params.get('source')?.toLowerCase();
   const fit = params.get('fit')?.toLowerCase(), temples = params.get('temples')?.toLowerCase();
-  return {
+  const config: Config = {
     faceDelegates: gpuFirst ? ['GPU', 'CPU'] : ['CPU', 'GPU'],
     captureMaxEdge: Math.round(number('capture', DEFAULT_CAPTURE_MAX_EDGE, 320, 1280)),
     captureSource: source === 'videoframe' || source === 'canvas' ? source : mobile ? 'canvas' : 'videoframe',
@@ -194,7 +199,13 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
       number('templedrop', TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm, 0.1, 12)),
     templeBendMm: number('templebend', DEFAULT_TEMPLE_BEND_MM, -MAX_ARM_SPREAD_M * 1000, MAX_ARM_SPREAD_M * 1000),
     templePivotMm: number('templepivot', 0, SPREAD_PIVOT_RANGE_M.min * 1000, SPREAD_PIVOT_RANGE_M.max * 1000),
+    templeTest: null,
   };
+  // A sweep entry sets all four temple levers at once, so it wins over the individual ones; an id that is not in the
+  // sweep is ignored, exactly like any other unusable value, and the settings line names it as unrecognized.
+  const test = templeTestById(params.get('templetest'));
+  return test ? {...config, temples: test.mode, templeKeepCm: test.keepCm, templeDropCm: test.dropCm,
+    templeBendMm: test.bendMm, templePivotMm: test.pivotMm, templeTest: test.id} : config;
 }
 
 
@@ -223,6 +234,7 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
       : 'PER-SIDE PERCENTAGES from the head angles, the former v3 (?temples=depth)'}`,
     `temple bend ${config.templeBendMm === 0 ? 'none, the arms as authored (?templebend=)'
       : `${config.templeBendMm} mm outward at the tip, straight from ${config.templePivotMm === 0 ? 'the hinge' : `${config.templePivotMm} mm behind the hinge`} (?templebend=, ?templepivot=)`}`,
+    ...(config.templeTest ? [`temple sweep ${config.templeTest}, which set the four temple levers above (?templetest=)`] : []),
     `temple fit ${config.fit === 'width' ? 'WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio (?fit=original restores the shipped geometry)' : 'original (?fit=width for the experiment)'}`,
     ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';

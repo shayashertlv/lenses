@@ -272,6 +272,21 @@ knife edge on a live session while the ramp was a smoothstep over the whole arm:
 slightly worse than 10 (it puts the tip 2.1 mm proud of the head), and 10 mm left the one station that decides still
 3.3 mm buried. The shape was the variable, not the millimetres.
 
+**The temple sweep (`?templetest=`, and the sweep selector on the page).** Four temple levers that interact cannot be
+judged one address at a time: each address is a new camera session, and the light, the pose and the distance all move
+between sessions, which is exactly what a visual comparison cannot survive. So `src/temple-sweep.ts` holds the fifty
+configurations worth judging — a bend ladder from 0 to 24 mm, the pivot walked at two bends, the band from "given up
+the moment it is behind the head" to "almost never", the two crossed, arms pulled inward, the former angle rule, and
+the combinations the measurements above like — and the page's sweep selector steps through them **inside one session**.
+The arrow keys `←` and `→` step; the running entry's id and its four values are in the debug line, so a screenshot
+names itself and a verdict can name an id rather than four numbers.
+
+Every entry changes the temple arms and nothing else. The bridge, rims, lenses and endpieces are identical in all
+fifty. Each ladder carries the reference rung, so five entries repeat an earlier one exactly; the selector says which
+(`same as A5`) rather than pretending they are different. `?templetest=A8` starts a cold page on one entry and
+overrides the individual levers; switching a configuration mid-session lands on exactly the geometry a cold start with
+the same values would have produced, which is a test on the arm buffers rather than a claim.
+
 **What is not established.** That v4 looks better. The checked-in fixture's head is never turned far enough for an arm
 to be in front of the head — at every pose that can be synthesised from it the arms are hidden by the frame's own rims
 and lenses, and the two rules render within 84 pixels of each other. The case the wearer reported (an arm ending in
@@ -364,6 +379,7 @@ any face; the synthetic checks below are regression evidence only.
 | `?steadydepthhz=`, `?steadydepthbeta=` | 1, 0.2 | the same for depth (Hz, and Hz per cm/s) |
 | `?templebend=` | 14 | millimetres to splay each temple arm outward at its tip, pivoting at the hinge and straight from there (above). ±24 mm, the arms' own inward curl; negative pulls them in, `0` is the frame as authored. Adds to the width fit's own spread, and the pair is capped at 24 mm |
 | `?templepivot=` | 0 | millimetres to move the bend's pivot back from the asset's own hinge (above). 0..30; it cannot move forward, because in front of the hinge the same lateral band is the rim |
+| `?templetest=` | — | the id of a temple sweep entry (`A1`..`I6`, above), which sets all four temple levers at once and overrides them individually. The page's sweep selector steps through the same list inside a live session; an id that is not in the sweep is ignored |
 | `?templekeep=`, `?templedrop=` | 0.6, 2.6 | with `?temples=depth`, the band in centimetres behind the head surface: an arm fragment up to `templekeep` behind it is drawn whole, one beyond `templedrop` is given up, fading between. The only numbers that decide how much of an arm survives. A pair that is not a band (or either end out of range) falls back to both defaults |
 | `?temples=` | `depth` | which rule gives up part of a temple arm to the head (above). `depth` decides per pixel from the head's own depth; `angles` restores the per-side percentages computed from the head's yaw, pitch and the camera bearing. Any other value is `depth`. The page's selector switches modes inside a live session |
 | `?fit=` | `original` | `width` runs the experimental face-width fit (above) instead: the head occluder's width and the posterior arm spread follow a stable width ratio. Any other value is `original`. The page's selector switches modes inside a live session, so this only chooses the mode a session starts in |

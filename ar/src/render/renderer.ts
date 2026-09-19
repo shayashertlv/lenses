@@ -227,10 +227,11 @@ export class TryOnRenderer {
   private widthRatio = 1;
   private armSpread = 0;
   private templeMode: TempleVisibilityMode;
-  private readonly templeKeepCm: number;
-  private readonly templeDropCm: number;
-  private readonly templeBendM: number;
-  private readonly templePivotM: number;
+  // The temple configuration: switchable inside a live session by the page's temple sweep (see setTempleShape).
+  private templeKeepCm: number;
+  private templeDropCm: number;
+  private templeBendM: number;
+  private templePivotM: number;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
@@ -295,6 +296,31 @@ export class TryOnRenderer {
   }
   /** Switch the temple-visibility rule inside a live session; it takes effect on the next posed frame. */
   setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.templeMode = mode;}
+  /** Apply a whole temple configuration inside a live session: how far the arms bend out, where that bend pivots, and
+   *  the band that decides how much of an arm is given up to the head. The set is validated before anything is
+   *  mutated, so a refused value leaves the running configuration exactly as it was, and the arm geometry, the
+   *  projected centrelines and the protection corridor all move together as they do on a cold start. */
+  setTempleShape(shape: {bendM: number; pivotM: number; keepCm: number; dropCm: number}): void {
+    if (this.disposed) return;
+    const {bendM, pivotM, keepCm, dropCm} = shape;
+    if (!Number.isFinite(bendM) || Math.abs(bendM) > MAX_ARM_SPREAD_M) throw new Error('The temple bend is out of range.');
+    if (!Number.isFinite(pivotM) || pivotM < SPREAD_PIVOT_RANGE_M.min || pivotM > SPREAD_PIVOT_RANGE_M.max) {
+      throw new Error('The temple bend pivot is out of range.');
+    }
+    validateReliefBand(keepCm, dropCm);
+    this.templeKeepCm = keepCm; this.templeDropCm = dropCm;
+    if (pivotM !== this.templePivotM) {this.templePivotM = pivotM; this.rearDrop?.setSpreadPivot(pivotM);}
+    if (bendM !== this.templeBendM) {
+      this.templeBendM = bendM; this.setWidthRatio(this.widthRatio); this.rearDrop?.setSpread(this.armSpread);
+    }
+    if (this.templePaths && this.lastPose && this.continuityModel) {
+      this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
+    }
+  }
+  /** The temple configuration now in the geometry (metres and centimetres), for the page's debug line. */
+  get templeShape(): {bendM: number; pivotM: number; keepCm: number; dropCm: number} {
+    return {bendM: this.templeBendM, pivotM: this.templePivotM, keepCm: this.templeKeepCm, dropCm: this.templeDropCm};
+  }
   /** Switch the width fit within a live session. Only one of the two runs at a time: turning it off restores the
    *  original geometry immediately and drops every collected observation, so nothing of the fit is left behind. */
   setWidthFit(enabled: boolean): void {
