@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 import {
-  BufferAttribute, BufferGeometry, CanvasTexture, Color, Group, Material, Matrix4, Mesh, MeshPhysicalMaterial,
+  BufferAttribute, BufferGeometry, CanvasTexture, Color, DoubleSide, Group, Material, Matrix4, Mesh, MeshBasicMaterial, MeshPhysicalMaterial,
   Euler, MeshStandardMaterial, PerspectiveCamera, Quaternion, Scene, ShaderLib, Texture, UniformsUtils,
   SRGBColorSpace, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
@@ -10,10 +10,9 @@ import type {ShaderMaterial, WebGLRenderer} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {EYEWEAR} from '../src/eyewear/catalog.ts';
 import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
+import {createRearDrop} from '../src/render/rear-drop.ts';
 import {
-  createTempleVisibility, createTempleVisibilityConfiguration, createLegacyTempleVisibilityConfiguration,
-  createViewTempleVisibilityConfiguration, VIEW_TEMPLE_VISIBILITY_METHOD, depthRelief, hasTempleVisibilityEffect,
-  templeLiftedDepth, LEGACY_TEMPLE_VISIBILITY_METHOD,
+  createTempleVisibility, createTempleVisibilityConfiguration, depthRelief, templeLiftedDepth,
   TEMPLE_VISIBILITY_METHOD, TEMPLE_VISIBILITY_PARAMETERS, validateTempleVisibility,
 } from '../src/render/temple-visibility.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
@@ -78,20 +77,258 @@ function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender']) {
   frame.map = texture;
   const root = new Group().add(new Mesh(geometry, frame), new Mesh(geometry, frame), new Mesh(lensGeometry, lens));
   const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
+  const observedFaceSurface = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -10, -10, -50, 10, -10, -50, 0, 10, -50,
+  ]), 3));
   scene.add(eyewearPose); scene.background = new Color(0xabcdef);
   if (beforeRender) scene.onBeforeRender = beforeRender;
   const fake = fakeBackend(samples), clip = createTempleClip(root);
-  const controller = createTempleVisibility(root, {renderer: fake.renderer, scene, camera, eyewearPose});
+  const controller = createTempleVisibility(root, {renderer: fake.renderer, scene, camera, eyewearPose, observedFaceSurface});
   const overlays = root.children.filter((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true);
-  return {geometry, lensGeometry, frame, lens, texture, root, scene, eyewearPose, camera, fake, clip, controller, overlays,
-    dispose: () => { controller.dispose(); clip.dispose(); geometry.dispose(); lensGeometry.dispose(); frame.dispose(); lens.dispose(); texture.dispose(); }};
+  return {geometry, lensGeometry, observedFaceSurface, frame, lens, texture, root, scene, eyewearPose, camera, fake, clip, controller, overlays,
+    dispose: () => { controller.dispose(); clip.dispose(); geometry.dispose(); lensGeometry.dispose(); observedFaceSurface.dispose(); frame.dispose(); lens.dispose(); texture.dispose(); }};
 }
 
 /** The head at `yaw`, tilted sideways by `roll` (lying down), 50 cm away. */
 const tilted = (yaw: number, roll: number, pitch = 0) => new Matrix4().compose(new Vector3(0, 0, -50),
   new Quaternion().setFromEuler(new Euler(pitch, yaw, roll, 'YXZ')), new Vector3(1, 1, 1)).toArray();
 
-test('v4 gives up an arm by how far behind the head it is, not by the head angles', () => {
+function cheekContact() {
+  return {polygon: [{x: .2, y: .3}, {x: .8, y: .3}, {x: .75, y: .8}, {x: .25, y: .8}]};
+}
+
+test('observed cheek contact shares current-frame inputs across native shafts and overlays without enabling global hiding', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const first = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  const second = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  first.colorSpace = second.colorSpace = SRGBColorSpace;
+  second.offset.set(.1, .2); second.repeat.set(.8, .7);
+  t.after(() => {first.dispose(); second.dispose();});
+  const positions = Array.from(f.geometry.getAttribute('position').array);
+  const selected: TempleVisibilityConfiguration = {...createTempleVisibilityConfiguration(4),
+    cheekContact: cheekContact(), cheekTransitionPx: 2, excludeArmsFromLensInput: true,
+    terminalReturn: {startZM: -.070, endZM: -.075}};
+  f.controller.set(selected);
+  const original = compile(f.frame), overlay = compile(f.overlays[0]!.material as Material);
+  assert.equal(original.uniforms.templeFrontalWeight, undefined);
+  for (const name of ['templeCheekCount', 'templeCheekPolygon', 'templeCheekDepth', 'templeCheekMask', 'templeCheekNearFar',
+    'templeCheekTransitionPx', 'templeFrontalCameraSource'])
+    assert.equal(original.uniforms[name], overlay.uniforms[name], name + ' has one owner for originals and overlays');
+  assert.equal(original.uniforms.templeCheekCount!.value, 4);
+  assert.equal(original.uniforms.templeCheekTransitionPx!.value, 2);
+  assert.equal(original.uniforms.templeCheekPolygon!.value.length, 64);
+  assert.deepEqual(original.uniforms.templeCheekPolygon!.value.slice(0, 4).map((p: Vector2) => p.toArray()),
+    selected.cheekContact!.polygon.map(p => [p.x, p.y]));
+  assert.equal(original.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  assert.equal(overlay.uniforms.templeVisibilityDepthMode, undefined);
+  assert.deepEqual(overlay.uniforms.templeVisibilityTerminal!.value.toArray(), [-.070, -.075]);
+  assert.equal(f.frame.depthWrite, true); assert.equal(f.frame.depthTest, true);
+  assert.equal((f.overlays[0]!.material as Material).depthWrite, false);
+  assert.equal(compile(f.lens).uniforms.templeCheekCount, undefined, 'physical lenses are not wrapped by cheek masking');
+  assert.throws(() => f.controller.prepare(pose(0)), /paired sRGB camera/);
+  assert.equal(f.fake.state.renderCount, 0);
+  f.controller.prepare(pose(0), first);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, first);
+  f.controller.prepare(pose(0), second);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, second, 'the next draw uses its own camera frame');
+  assert.deepEqual(original.uniforms.templeFrontalUvTransform!.value.elements, second.matrix.elements);
+  assert.deepEqual(Array.from(f.geometry.getAttribute('position').array), positions);
+  assert.equal(f.clip.configuration, null, 'contact does not replace the independent endpoint policy');
+  f.controller.set({...selected, cheekContact: null});
+  assert.equal(original.uniforms.templeCheekCount!.value, 0);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
+  assert.equal(original.uniforms.templeFrontalWeight, undefined);
+  assert.doesNotThrow(() => f.controller.prepare(pose(0)));
+  assert.equal(original.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  f.controller.set(selected); f.controller.prepare(pose(0), first); f.controller.set(null);
+  assert.equal(original.uniforms.templeCheekCount!.value, 0);
+  assert.equal(original.uniforms.templeCheekTransitionPx!.value, 0);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
+  f.controller.set(selected); f.controller.prepare(pose(0), first); f.controller.dispose();
+  assert.equal(original.uniforms.templeCheekCount!.value, 0);
+  assert.equal(original.uniforms.templeCheekTransitionPx!.value, 0);
+  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
+});
+
+test('cheek transition bounds validate atomically and an omitted setting clears the previous radius', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  source.colorSpace = SRGBColorSpace; t.after(() => source.dispose());
+  const baseline: TempleVisibilityConfiguration = {...createTempleVisibilityConfiguration(4),
+    cheekContact: cheekContact(), excludeArmsFromLensInput: true};
+  const selected = {...baseline, cheekTransitionPx: 2};
+  f.controller.set(selected); f.controller.prepare(pose(0), source);
+  const shader = compile(f.frame), overlay = compile(f.overlays[0]!.material as Material);
+  const version = f.frame.version;
+  assert.equal(shader.uniforms.templeCheekTransitionPx, overlay.uniforms.templeCheekTransitionPx);
+  for (const cheekTransitionPx of [-.001, 3.001, NaN, Infinity, -Infinity]) {
+    assert.throws(() => f.controller.set({...selected, cheekTransitionPx}), /cheek transition is invalid/);
+    assert.deepEqual(f.controller.configuration, selected);
+    assert.equal(shader.uniforms.templeCheekTransitionPx!.value, 2);
+    assert.equal(shader.uniforms.templeCheekCount!.value, 4);
+    assert.equal(shader.uniforms.templeFrontalCameraSource!.value, source, 'invalid input cannot unbind this frame');
+    assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  }
+  for (const cheekTransitionPx of [0, .25, 3]) {
+    f.controller.set({...baseline, cheekTransitionPx});
+    assert.equal(shader.uniforms.templeCheekTransitionPx!.value, cheekTransitionPx);
+    assert.equal(overlay.uniforms.templeCheekTransitionPx!.value, cheekTransitionPx);
+  }
+  f.controller.set(baseline);
+  assert.equal(shader.uniforms.templeCheekTransitionPx!.value, 0, 'an omitted field restores the pre-feather policy');
+  assert.equal(shader.uniforms.templeCheekCount!.value, 4, 'resetting the radius does not remove real face contact');
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  assert.equal(compile(f.lens).uniforms.templeCheekTransitionPx, undefined);
+  assert.equal(f.frame.version, version, 'radius changes do not recompile the material');
+});
+
+test('cheek transition remains inward-only and preserves the physical onset with bounded depth softening', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  f.controller.set({...createTempleVisibilityConfiguration(4),
+    cheekContact: cheekContact(), cheekTransitionPx: 2});
+  for (const material of [f.frame, f.overlays[0]!.material as Material]) {
+    const shader = compile(material).fragmentShader;
+    assert.match(shader, /return inside \? smoothstep\(0\.0, max\(1\.25, templeCheekTransitionPx\), sqrt\(distanceSquared\)\) : 0\.0;/,
+      'the polygon transition cannot spread onto an exposed shaft outside the observed face');
+    const defaultBand = /float cheekBandCm = ([\d.]+);/.exec(shader);
+    assert.ok(defaultBand); assert.ok(Math.abs(Number(defaultBand[1]) - .2) < 1e-12, 'zero radius retains the original 1–3 mm depth transition');
+    assert.match(shader, /if \(templeCheekTransitionPx > 0\.0\) cheekBandCm = clamp\(\s*fwidth\(cheekBehindCm\) \* templeCheekTransitionPx, cheekBandCm, 0\.5\);/,
+      'nonzero radius can broaden the transition but its width is capped at 5 mm');
+    assert.match(shader, /smoothstep\(\s*0\.1, 0\.1 \+ cheekBandCm, cheekBehindCm\)/,
+      'the onset stays 1 mm behind observed skin, with full suppression no later than 6 mm');
+    assert.match(shader, /cheekBehindCm = cheekFaceZ - cheekArmZ;/);
+    assert.match(shader, /templeFrontalOriginalPosition\.z < templeCheekFront\) \{/,
+      'the optical-front guard applies before any softened coverage');
+    const inputStart = shader.indexOf('if (templeExcludeArmsFromLensInput'), inputEnd = shader.indexOf('discard;', inputStart);
+    assert.ok(inputStart >= 0 && inputEnd > inputStart);
+    assert.doesNotMatch(shader.slice(inputStart, inputEnd),
+      /templeCheekTransitionPx/, 'the cheek radius does not alter the physical lens-input exclusion');
+  }
+});
+
+test('observed cheek configuration owns its polygon and validates replacements atomically', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const contact = cheekContact();
+  const selected: TempleVisibilityConfiguration = {...createTempleVisibilityConfiguration(4), cheekContact: contact};
+  const expected = structuredClone(selected);
+  f.controller.set(selected);
+  const shader = compile(f.frame);
+  contact.polygon[0]!.x = .99;
+  assert.deepEqual(f.controller.configuration, expected, 'input polygon metadata is copied');
+  const returned = f.controller.configuration!;
+  (returned.cheekContact!.polygon[0] as {x: number}).x = -.5;
+  assert.deepEqual(f.controller.configuration, expected, 'the getter also returns independent polygon points');
+  assert.equal(shader.uniforms.templeCheekPolygon!.value[0].x, .2);
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  source.colorSpace = SRGBColorSpace; t.after(() => source.dispose());
+  f.controller.prepare(pose(0), source);
+  const invalid = [
+    {...cheekContact(), polygon: [{x: .2, y: .2}, {x: .8, y: .8}]},
+    {...cheekContact(), polygon: Array.from({length: 65}, () => ({x: .4, y: .4}))},
+    {...cheekContact(), polygon: [{x: NaN, y: .3}, {x: .8, y: .3}, {x: .5, y: .8}]},
+    {...cheekContact(), polygon: [{x: .2, y: Infinity}, {x: .8, y: .3}, {x: .5, y: .8}]},
+  ];
+  for (const cheekContact of invalid) {
+    assert.throws(() => f.controller.set({...expected, cheekContact}), /observed cheek contact is invalid/);
+    assert.deepEqual(f.controller.configuration, expected);
+    assert.equal(shader.uniforms.templeCheekCount!.value, 4);
+    assert.equal(shader.uniforms.templeFrontalCameraSource!.value, source, 'rejected metadata cannot unbind the paired frame');
+  }
+  const triangle = {polygon: [{x: .1, y: .2}, {x: .9, y: .2}, {x: .5, y: .9}]};
+  f.controller.set({...expected, cheekContact: triangle});
+  assert.equal(shader.uniforms.templeCheekCount!.value, 3, 'shorter outlines do not retain old active vertices');
+  assert.deepEqual(shader.uniforms.templeCheekPolygon!.value.slice(0, 3).map((p: Vector2) => p.toArray()), triangle.polygon.map(p => [p.x, p.y]));
+  assert.equal(shader.uniforms.templeFrontalCameraSource!.value, null, 'a changed contact must prepare its paired camera again');
+});
+
+test('clearing cheek contact removes its paired pass while preserving current head depth', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  source.colorSpace = SRGBColorSpace; t.after(() => source.dispose());
+  const configuration: TempleVisibilityConfiguration = {...createTempleVisibilityConfiguration(4),
+    cheekContact: cheekContact(), excludeArmsFromLensInput: true};
+  f.controller.set(configuration);
+  assert.throws(() => f.controller.prepare(pose(0)), /paired sRGB camera/);
+  f.controller.prepare(pose(0), source);
+  const shader = compile(f.frame);
+  assert.equal(f.fake.state.renderCount, 2, 'current head and observed face each render once');
+  assert.equal(shader.uniforms.templeFrontalCameraSource!.value, source);
+  assert.equal(shader.uniforms.templeCheekCount!.value, 4);
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  f.controller.set({...configuration, cheekContact: null});
+  f.controller.prepare(pose(0));
+  assert.equal(f.fake.state.renderCount, 3, 'head depth is still current without observed cheek eligibility');
+  assert.equal(shader.uniforms.templeFrontalCameraSource!.value, null);
+  assert.equal(shader.uniforms.templeCheekCount!.value, 0);
+});
+
+test('cheek depth renders only the current observed face and restores state if that pass fails', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
+  source.colorSpace = SRGBColorSpace; t.after(() => source.dispose());
+  f.controller.set({...createTempleVisibilityConfiguration(4), cheekContact: cheekContact()});
+  const shader = compile(f.frame);
+  let headTarget: WebGLRenderTarget | null = null, observedTarget: WebGLRenderTarget | null = null;
+  let observedMaterial: MeshBasicMaterial | null = null, observedPasses = 0;
+  let expectedZ = -50, failObserved = false;
+  f.fake.state.onRender = (scene, camera) => {
+    assert.equal(camera, f.camera);
+    if (scene === f.scene) {headTarget = f.fake.state.target; return;}
+    observedPasses++; observedTarget = f.fake.state.target;
+    assert.notEqual(observedTarget, headTarget, 'observed face depth cannot be polluted by canonical shell depth');
+    assert.equal(scene.children.length, 1, 'neither eyewear nor canonical head geometry enters this pass');
+    const mesh = scene.children[0] as Mesh;
+    assert.equal(mesh.geometry, f.observedFaceSurface);
+    assert.equal(mesh.geometry.getAttribute('position').getZ(0), expectedZ, 'the pass reads this frame\'s updated buffer');
+    assert.equal(mesh.frustumCulled, false);
+    assert.ok(mesh.matrix.equals(new Matrix4()), 'observed positions are already in camera space');
+    assert.ok(mesh.material instanceof MeshBasicMaterial);
+    observedMaterial = mesh.material;
+    assert.equal(observedMaterial.side, DoubleSide);
+    assert.equal(observedMaterial.depthTest, true); assert.equal(observedMaterial.depthWrite, true);
+    assert.equal(observedMaterial.color.getHex(), 0xffffff);
+    assert.equal(scene.background, null); assert.equal(scene.overrideMaterial, null);
+    assert.equal(shader.uniforms.templeCheekDepth!.value, observedTarget!.depthTexture);
+    assert.equal(shader.uniforms.templeCheekMask!.value, observedTarget!.texture);
+    assert.equal(observedTarget!.width, 640); assert.equal(observedTarget!.height, 360);
+    if (failObserved) throw new Error('observed depth failure');
+  };
+  f.controller.prepare(pose(0), source);
+  assert.equal(observedPasses, 1); assert.equal(f.fake.state.clearCount, 2);
+  expectedZ = -48; f.observedFaceSurface.getAttribute('position').setZ(0, expectedZ);
+  f.camera.near = .5; f.camera.far = 500; f.camera.updateProjectionMatrix();
+  f.controller.prepare(pose(.2), source);
+  assert.equal(observedPasses, 2);
+  assert.deepEqual(shader.uniforms.templeCheekNearFar!.value.toArray(), [.5, 500]);
+  const targetBefore = new WebGLRenderTarget(8, 8); t.after(() => targetBefore.dispose());
+  f.fake.state.target = targetBefore; failObserved = true;
+  const viewport = f.fake.state.viewport.clone(), scissor = f.fake.state.scissor.clone(), background = f.scene.background;
+  assert.throws(() => f.controller.prepare(pose(0), source), /observed depth failure/);
+  assert.equal(f.fake.state.target, targetBefore); assert.equal(f.scene.background, background);
+  assert.equal(f.eyewearPose.visible, true); assert.equal(f.fake.backend.autoClear, true);
+  assert.deepEqual(f.fake.state.viewport, viewport); assert.deepEqual(f.fake.state.scissor, scissor);
+  let targetDisposals = 0, materialDisposals = 0, surfaceDisposals = 0;
+  (observedTarget as unknown as WebGLRenderTarget).addEventListener('dispose', () => targetDisposals++);
+  (observedMaterial as unknown as Material).addEventListener('dispose', () => materialDisposals++);
+  f.observedFaceSurface.addEventListener('dispose', () => surfaceDisposals++);
+  f.controller.dispose(); f.controller.dispose();
+  assert.equal(targetDisposals, 1); assert.equal(materialDisposals, 1);
+  assert.equal(surfaceDisposals, 0, 'the caller owns the live observed geometry');
+});
+
+test('contact cannot activate without an observed face depth source', t => {
+  const f = syntheticFixture(); t.after(f.dispose); f.controller.dispose();
+  const controller = createTempleVisibility(f.root, {renderer: f.fake.renderer, scene: f.scene,
+    camera: f.camera, eyewearPose: f.eyewearPose});
+  t.after(() => controller.dispose());
+  const baseline = createTempleVisibilityConfiguration(4);
+  controller.set(baseline);
+  assert.throws(() => controller.set({...baseline, cheekContact: cheekContact()}), /current face surface/);
+  assert.deepEqual(controller.configuration, baseline);
+  assert.equal(compile(f.frame).uniforms.templeCheekCount!.value, 0);
+});
+
+test('depth relief is bounded and decreases with distance behind the head surface', () => {
   // The relief curve itself: in front of the head, or barely behind it, the arm is kept whole; well behind it, given up.
   assert.equal(depthRelief(-5), 1); assert.equal(depthRelief(0), 1);
   assert.equal(depthRelief(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm), 1);
@@ -103,130 +340,12 @@ test('v4 gives up an arm by how far behind the head it is, not by the head angle
     assert.ok(value <= previous + 1e-12, `the relief never rises with depth (${behind})`);
     assert.ok(value >= 0 && value <= 1); previous = value;
   }
-  // While the arms were authored as they came they ran 6 to 12 mm inside the canonical head's own silhouette, and the
-  // band had to forgive a centimetre of burial or a plain depth test would have buried the temple. The shipped bend
-  // carries the arm clear of the head at every station, so the band's only job now is to tuck it away where it really
-  // is behind the head: it starts within a few millimetres and is finished well before the arm is round the back.
+  // Shallow proxy intersections retain the arm; the band ends before a deeply buried arm can reappear.
   assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm >= 0
     && TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm <= 0.6);
   assert.ok(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm > TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm
     && TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm <= 2.6);
   assert.equal(depthRelief(2), 0, 'an arm 2 cm behind the head is round the back of it and is given up');
-});
-
-test('v4 does not go blind when the head is tilted, where the v3 percentages collapse', () => {
-  // The wearer photographed this lying down. The v3 confidence reads the camera's bearing in HEAD coordinates, which
-  // shrinks with cos(roll), so tilting the head takes away relief that an upright head at the same turn would get.
-  const upright = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, 0), 4, 'angles');
-  assert.ok(upright.negativeXWeight > 0.99, `an upright head at 25 deg gets full relief (${upright.negativeXWeight})`);
-  for (const rollDeg of [45, 55, 70]) {
-    const lying = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, rollDeg * Math.PI / 180), 4, 'angles');
-    assert.ok(lying.negativeXWeight < upright.negativeXWeight * 0.9,
-      `v3 gives up more of the arm at roll ${rollDeg} (${lying.negativeXWeight.toFixed(3)}) than upright`);
-    // v4 carries the same record but the rule it runs reads the head's depth, which a tilt does not change.
-    const depth = createTempleVisibilityConfiguration(tilted(25 * Math.PI / 180, rollDeg * Math.PI / 180), 4, 'depth');
-    assert.equal(depth.mode, 'depth');
-    assert.equal(depth.negativeXWeight, lying.negativeXWeight, 'the angle weights stay in the record for comparison');
-    assert.equal(hasTempleVisibilityEffect(depth), true, 'and there is no pose at which v4 skips its own pass');
-  }
-  // v3 has poses where it does nothing at all; v4 has none.
-  const frontal = createTempleVisibilityConfiguration(pose(0), 4, 'angles');
-  assert.equal(frontal.negativeXWeight, 0); assert.equal(frontal.positiveXWeight, 0);
-  assert.equal(hasTempleVisibilityEffect(frontal), false, 'v3 switches itself off below about 9 degrees of turn');
-  assert.equal(hasTempleVisibilityEffect(createTempleVisibilityConfiguration(pose(0), 4, 'depth')), true);
-});
-
-test('the mode reaches the overlay and the dissolve, and switching it recompiles nothing', t => {
-  const f = syntheticFixture(); t.after(f.dispose);
-  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); source.colorSpace = SRGBColorSpace;
-  t.after(() => source.dispose());
-  const material = f.overlays[0]!.material as Material;
-  // v3 at a frontal pose: both percentages are zero, so the overlay is not even drawn.
-  f.controller.set(createTempleVisibilityConfiguration(pose(0), 4, 'angles'));
-  assert.equal(f.overlays.every(overlay => overlay.visible), false);
-  assert.equal(compile(material).uniforms.templeVisibilityDepthMode!.value, 0);
-  const version = material.version;
-  // v4 at the same pose: drawn, deciding per pixel, and with the pitch dissolve switched off entirely.
-  f.controller.set({...createTempleVisibilityConfiguration(pose(0), 4, 'depth'), frontalOcclusionWeight: 0.8});
-  assert.equal(f.overlays.every(overlay => overlay.visible), true);
-  const shader = compile(material);
-  assert.equal(shader.uniforms.templeVisibilityDepthMode!.value, 1);
-  assert.equal(shader.uniforms.templeFrontalWeight!.value, 0, 'a fragment behind the head is already culled by its depth');
-  assert.deepEqual([shader.uniforms.templeVisibilityRelief!.value.x, shader.uniforms.templeVisibilityRelief!.value.y],
-    [TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm]);
-  assert.equal(material.version, version, 'the mode is a uniform, not a define: switching it cannot stall on a recompile');
-  // v4 never skips the head pass, so the depth it reads is this frame's.
-  f.controller.prepare(pose(0), source);
-  assert.ok(f.fake.state.renderCount > 0, 'the head depth pass ran at a pose where v3 would have returned early');
-  // And back: the v3 rule returns intact, again without a recompile (prepare's own coverage switch is separate).
-  const settled = material.version;
-  f.controller.set(createTempleVisibilityConfiguration(pose(.5), 4, 'angles'));
-  assert.equal(compile(material).uniforms.templeVisibilityDepthMode!.value, 0);
-  assert.equal(material.version, settled);
-  // An unknown mode is refused rather than guessed.
-  assert.throws(() => f.controller.set({...createTempleVisibilityConfiguration(pose(.5), 4), mode: 'sideways'} as unknown as TempleVisibilityConfiguration),
-    /configuration is invalid/);
-});
-
-test('camera-relative side weights are continuous, mirrored and independent of caller storage', () => {
-  const matrix = pose(0), copy = matrix.slice();
-  assert.deepEqual(createLegacyTempleVisibilityConfiguration(matrix, 4), {
-    method: LEGACY_TEMPLE_VISIBILITY_METHOD, negativeXWeight: 1, positiveXWeight: 1, coverage: 'alpha-to-coverage',
-  });
-  assert.deepEqual(matrix, copy);
-  for (const angle of [.1, Math.asin(.175), .5, 1]) {
-    const a = createLegacyTempleVisibilityConfiguration(pose(angle), 4), b = createLegacyTempleVisibilityConfiguration(pose(-angle), 4);
-    assert.equal(a.negativeXWeight, b.positiveXWeight);
-    assert.equal(a.positiveXWeight, b.negativeXWeight);
-    assert.equal(a.negativeXWeight, 1);
-    assert.ok(a.positiveXWeight >= 0 && a.positiveXWeight <= 1);
-  }
-  assert.ok(Math.abs(createLegacyTempleVisibilityConfiguration(pose(Math.asin(.175)), 4).positiveXWeight - .5) < 1e-14);
-  assert.equal(createLegacyTempleVisibilityConfiguration(pose(Math.asin(.35)), 0).positiveXWeight, 0);
-  assert.equal(createTempleVisibilityConfiguration(pose(0), 0).coverage, 'ordered-dither');
-  assert.throws(() => createTempleVisibilityConfiguration(new Array(16).fill(0), 4), /singular/);
-  assert.throws(() => createTempleVisibilityConfiguration(new Matrix4().toArray(), 4), /viewing direction/);
-  assert.throws(() => createTempleVisibilityConfiguration([NaN], 4), /pose is invalid/);
-  assert.throws(() => createTempleVisibilityConfiguration(pose(0), -1), /sample count/);
-  assert.equal(Object.isFrozen(TEMPLE_VISIBILITY_PARAMETERS), true);
-});
-
-test('v2 viewing confidence suppresses centered frontal pitch and preserves unambiguous side views', () => {
-  for (const pitch of [-60, -45, 0, 45, 60]) {
-    const matrix = new Matrix4().makeRotationX(pitch * Math.PI / 180).setPosition(0, 0, -40).toArray();
-    const legacy = createLegacyTempleVisibilityConfiguration(matrix, 4), gated = createTempleVisibilityConfiguration(matrix, 4);
-    assert.equal(legacy.negativeXWeight, 1); assert.equal(legacy.positiveXWeight, 1);
-    assert.equal(gated.negativeXWeight, 0); assert.equal(gated.positiveXWeight, 0);
-    assert.equal(gated.method, TEMPLE_VISIBILITY_METHOD);
-  }
-  for (const direction of [-1, 1]) {
-    for (const fraction of [.15, .25, .35, .7]) {
-      const matrix = pose(direction * Math.asin(fraction));
-      const legacy = createLegacyTempleVisibilityConfiguration(matrix, 4), gated = createTempleVisibilityConfiguration(matrix, 4);
-      const confidence = fraction === .15 ? 0 : fraction === .25 ? .5 : 1;
-      assert.ok(Math.abs(gated.negativeXWeight - legacy.negativeXWeight * confidence) < 1e-14);
-      assert.ok(Math.abs(gated.positiveXWeight - legacy.positiveXWeight * confidence) < 1e-14);
-    }
-  }
-  // Translation alone cannot grant relief to a frontal or pure-pitch head,
-  // even when its camera bearing would otherwise count as lateral.
-  for (const pitch of [-60, -45, 0, 45, 60]) {
-    for (const x of [-20, 20]) {
-      const offset = new Matrix4().makeRotationX(pitch * Math.PI / 180).setPosition(x, 0, -40).toArray();
-      const legacy = createLegacyTempleVisibilityConfiguration(offset, 4);
-      const gated = createTempleVisibilityConfiguration(offset, 4);
-      assert.ok(Math.max(legacy.negativeXWeight, legacy.positiveXWeight) === 1);
-      assert.equal(gated.negativeXWeight, 0); assert.equal(gated.positiveXWeight, 0);
-    }
-  }
-  // Conversely, orientation alone is insufficient when the camera is directly
-  // along canonical +Z: both independent indications must support relief.
-  const turned = new Matrix4().makeRotationY(Math.PI / 4);
-  const translation = new Vector3(0, 0, -40).applyMatrix4(turned);
-  turned.setPosition(translation);
-  assert.ok(Math.abs(turned.elements[8]!) > .35);
-  const oppositeDisagreement = createTempleVisibilityConfiguration(turned.toArray(), 4);
-  assert.ok(oppositeDisagreement.negativeXWeight < 1e-25 && oppositeDisagreement.positiveXWeight < 1e-25);
 });
 
 test('perspective depth placement agrees with independent Three camera projection in centimeters', () => {
@@ -242,71 +361,11 @@ test('perspective depth placement agrees with independent Three camera projectio
   assert.throws(() => templeLiftedDepth(1.1, 1, 100), /perspective depth/);
 });
 
-test('frontal v3 activation requires pitch and a lack of agreed lateral permission', () => {
-  for (const x of [-20, 0, 20]) for (const direction of [-1, 1]) {
-    for (const [pitch, expected] of [[0, 0], [8, 0], [18, 1], [60, 1]] as const) {
-      const matrix = new Matrix4().makeRotationX(direction * pitch * Math.PI / 180).setPosition(x, 0, -50).toArray();
-      const current = createTempleVisibilityConfiguration(matrix, 4);
-      assert.ok(Math.abs(current.frontalOcclusionWeight - expected) < 1e-14);
-      assert.equal(current.negativeXWeight, 0); assert.equal(current.positiveXWeight, 0);
-      assert.equal(createViewTempleVisibilityConfiguration(matrix, 4).method, VIEW_TEMPLE_VISIBILITY_METHOD);
-    }
-  }
-  for (const side of [-1, 1]) for (const pitch of [-.6, .6]) {
-    const matrix = new Matrix4().makeRotationY(side * 1.0).multiply(new Matrix4().makeRotationX(pitch)).setPosition(0, 0, -50).toArray();
-    const current = createTempleVisibilityConfiguration(matrix, 4), view = createViewTempleVisibilityConfiguration(matrix, 4);
-    assert.equal(current.frontalOcclusionWeight, 0, 'unambiguous oblique views retain exact zero frontal effect even with pitch');
-    assert.equal(current.negativeXWeight, view.negativeXWeight); assert.equal(current.positiveXWeight, view.positiveXWeight);
-  }
-  const middlePitch = Math.asin((Math.sin(8 * Math.PI / 180) + Math.sin(18 * Math.PI / 180)) / 2);
-  const middle = new Matrix4().makeRotationX(middlePitch).setPosition(0, 0, -50).toArray();
-  assert.ok(Math.abs(createTempleVisibilityConfiguration(middle, 0).frontalOcclusionWeight - .5) < 1e-14);
-});
-
-test('frontal v3 borrows the current camera independently of clipping and clears it on zero weight, reset and dispose', t => {
-  const f = syntheticFixture(); t.after(f.dispose);
-  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
-  source.colorSpace = SRGBColorSpace; source.offset.set(.08, .12); source.repeat.set(.75, .8); source.rotation = .1;
-  let cameraDisposals = 0; source.addEventListener('dispose', () => cameraDisposals++);
-  t.after(() => source.dispose());
-  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .67};
-  const current = {...selected};
-  f.controller.set(selected); selected.frontalOcclusionWeight = .1;
-  assert.deepEqual(f.controller.configuration, current);
-  assert.equal(f.clip.configuration, null, 'new frontal policy does not require a new clip tuple');
-  const original = compile(f.frame), overlay = compile(f.overlays[0]!.material as Material);
-  assert.equal(original.uniforms.templeFrontalCameraSource, overlay.uniforms.templeFrontalCameraSource);
-  assert.equal(original.uniforms.templeFrontalWeight!.value, .67);
-  assert.throws(() => f.controller.prepare(pose(0)), /paired sRGB camera/);
-  assert.equal(f.fake.state.renderCount, 0);
-  f.controller.prepare(pose(0), source);
-  assert.equal(original.uniforms.templeFrontalCameraSource!.value, source);
-  assert.deepEqual(original.uniforms.templeFrontalViewport!.value.toArray(), [640, 360]);
-  assert.deepEqual(original.uniforms.templeFrontalUvTransform!.value.elements, source.matrix.elements);
-  assert.notEqual(original.uniforms.templeFrontalUvTransform!.value, source.matrix, 'UV snapshot has separate ownership');
-  assert.equal(original.uniforms.templeFrontalHeadMask!.value, overlay.uniforms.templeVisibilityHeadMask!.value, 'frontal occlusion samples the exact current paired head target');
-  assert.equal(original.uniforms.templeFrontalWeight!.value, .67, 'prepare retains captured weight even on a different raw pose');
-  for (const invalid of [-.1, 1.1, NaN, Infinity, undefined]) {
-    assert.throws(() => f.controller.set({...current, frontalOcclusionWeight: invalid} as TempleVisibilityConfiguration), /configuration is invalid/);
-    assert.deepEqual(f.controller.configuration, current);
-    assert.equal(original.uniforms.templeFrontalCameraSource!.value, source, 'invalid metadata is atomic');
-  }
-  f.controller.set({...current, frontalOcclusionWeight: 0});
-  assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
-  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null);
-  assert.doesNotThrow(() => f.controller.prepare(pose(.2)));
-  f.controller.set(current); f.controller.prepare(pose(.2), source); f.controller.set(null);
-  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null); assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
-  f.controller.set(current); f.controller.prepare(pose(.2), source); f.controller.dispose();
-  assert.equal(original.uniforms.templeFrontalCameraSource!.value, null); assert.equal(original.uniforms.templeFrontalWeight!.value, 0);
-  assert.equal(cameraDisposals, 0, 'the current camera belongs to the renderer');
-});
-
-test('frontal camera validation rejects stale or invalid bindings before drawing', t => {
+test('observed cheek camera validation rejects stale or invalid bindings before drawing', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
   t.after(() => source.dispose());
-  const selected = {...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .5};
+  const selected = {...createTempleVisibilityConfiguration(4), cheekContact: cheekContact()};
   f.controller.set(selected);
   assert.throws(() => f.controller.prepare(pose(.5), source), /paired sRGB/);
   source.colorSpace = SRGBColorSpace;
@@ -318,29 +377,29 @@ test('frontal camera validation rejects stale or invalid bindings before drawing
   assert.equal(compile(f.frame).uniforms.templeFrontalCameraSource!.value, null);
 });
 
-test('original hooks and dynamic keys are restored, with overlay coverage before frontal and endpoint RGB', t => {
+test('original hooks and dynamic keys are restored, with overlay coverage before cheek and endpoint RGB', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   f.controller.dispose();
   const clipHook = f.frame.onBeforeCompile;
   let upstreamKey = 'first';
   const key = () => upstreamKey;
   f.frame.customProgramCacheKey = key;
-  const controller = createTempleVisibility(f.root, {renderer: f.fake.renderer, scene: f.scene, camera: f.camera, eyewearPose: f.eyewearPose});
+  const controller = createTempleVisibility(f.root, {renderer: f.fake.renderer, scene: f.scene, camera: f.camera, eyewearPose: f.eyewearPose, observedFaceSurface: f.observedFaceSurface});
   t.after(() => controller.dispose());
   const overlays = f.root.children.filter((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true);
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); source.colorSpace = SRGBColorSpace;
   t.after(() => source.dispose());
   f.clip.set(createTempleBlendConfiguration(-.11)); f.clip.prepareRender(source, 640, 360);
-  controller.set({...createTempleVisibilityConfiguration(pose(.5), 4, 'angles'), frontalOcclusionWeight: .5}); controller.prepare(pose(.5), source);
+  controller.set({...createTempleVisibilityConfiguration(4), cheekContact: cheekContact()}); controller.prepare(pose(.5), source);
   const shader = compile(overlays[0]!.material as Material), original = compile(f.frame);
   const finalDepth = shader.fragmentShader.indexOf('gl_FragDepth = min(');
-  const frontalRGB = shader.fragmentShader.indexOf('gl_FragColor.rgb = mix(gl_FragColor.rgb, templeFrontalCameraRGB');
+  const frontalRGB = shader.fragmentShader.indexOf('gl_FragColor.rgb = mix(gl_FragColor.rgb, cheekCameraRGB');
   const endpointRGB = shader.fragmentShader.indexOf('gl_FragColor.rgb = mix(templeCameraRGB');
   assert.ok(finalDepth >= 0 && frontalRGB > finalDepth && endpointRGB > frontalRGB);
   const frontalToneGuard = shader.fragmentShader.lastIndexOf('#ifdef TONE_MAPPING', frontalRGB);
   const frontalToneEnd = shader.fragmentShader.indexOf('#endif', frontalRGB);
   assert.ok(frontalToneGuard > finalDepth && frontalToneEnd > frontalRGB && endpointRGB > frontalToneEnd,
-    'only new frontal RGB is excluded from Three\'s NoToneMapping transmission program; the legacy endpoint path remains outside');
+    'cheek RGB is excluded from Three\'s NoToneMapping transmission program; the endpoint path remains outside');
   assert.ok(!original.fragmentShader.includes('gl_FragDepth'), 'ordinary original depth remains unchanged');
   assert.equal(f.frame.depthWrite, true); assert.equal(f.frame.depthTest, true); assert.equal(f.frame.transparent, false);
   assert.equal(f.lens.onBeforeCompile, Material.prototype.onBeforeCompile, 'physical lens hooks remain untouched');
@@ -367,7 +426,7 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   t.after(() => source.dispose());
   f.clip.set(createTempleBlendConfiguration(-.11)); f.clip.prepareRender(source, 640, 360);
   const clipPolicy = f.clip.configuration;
-  f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4, 'angles')); f.controller.prepare(pose(.2));
+  f.controller.set(createTempleVisibilityConfiguration(4)); f.controller.prepare(pose(.2));
   const shader = compile(material), frameShader = compile(f.frame);
   assert.equal(shader.uniforms.templeClipEnabled, frameShader.uniforms.templeClipEnabled, 'overlay follows the exact clip uniform owner');
   assert.equal(shader.uniforms.templeVisibilityFront!.value, Math.fround(-.014));
@@ -376,12 +435,9 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   const finalCoverage = shader.fragmentShader.indexOf('gl_FragColor.a = templeOverlayCoverage');
   assert.ok(clipDiscard >= 0 && finalCoverage > clipDiscard && finalCoverage > shader.fragmentShader.indexOf('#include <dithering_fragment>'),
     'the overlay inherits the clip discard and writes its combined coverage after shading');
-  // One program carries both rules; the mode uniform picks between them, so switching cannot recompile mid-session.
-  assert.ok(shader.fragmentShader.includes('templeOverlayCoverage = templeOverlayGate * templeRelief * templeRootWeight;'));
-  assert.ok(shader.fragmentShader.includes('templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y'),
-    'the v3 per-side percentages are still the rule under ?temples=angles');
+  assert.ok(shader.fragmentShader.includes('templeOverlayCoverage = templeHeadPresent * templeRelief * templeRootWeight;'));
   assert.ok(shader.fragmentShader.includes('1.0 - smoothstep(templeVisibilityRelief.x, templeVisibilityRelief.y, templeBehindCm)'),
-    'and v4 reads how far behind the head surface the fragment is');
+    'relief reads how far behind the head surface the fragment is');
   assert.ok(shader.fragmentShader.indexOf('float templeBehindCm') < shader.fragmentShader.indexOf('float templeRelief'),
     'the depth difference is computed before anything is given up');
   assert.equal(f.frame.onBeforeCompile, originalHook);
@@ -391,7 +447,7 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   assert.deepEqual(f.geometry.getAttribute('normal').array, normals);
   const versions = material.version;
   for (let i = 0; i < 4; i++) {
-    f.controller.set(null); f.controller.set(createTempleVisibilityConfiguration(pose(.2), 4, 'angles')); f.controller.prepare(pose(.2));
+    f.controller.set(null); f.controller.set(createTempleVisibilityConfiguration(4)); f.controller.prepare(pose(.2));
   }
   assert.equal(material.version, versions, 'early reset/live state does not churn coverage programs');
   const resources = [f.geometry, f.lensGeometry, f.frame, f.lens, f.texture], counts = new Map<object, number>();
@@ -409,56 +465,68 @@ test('overlays share immutable geometry, own only cloned materials and write fin
   assert.throws(() => f.controller.prepare(pose(0)), /disposed/);
 });
 
-test('metadata validation is atomic; disabled and unsupported modes cannot run or alter clipping', t => {
+test('metadata validation is atomic; disabled or unsupported coverage cannot run or alter clipping', t => {
   const f = syntheticFixture(0); t.after(f.dispose);
-  const input = {...createTempleVisibilityConfiguration(pose(.1), 0)};
-  f.controller.set(input); const expected = {...input}; input.negativeXWeight = .1;
+  const input = {...createTempleVisibilityConfiguration(0)};
+  f.controller.set(input); const expected = {...input}; input.reliefKeepCm = .1;
   assert.deepEqual(f.controller.configuration, expected);
-  const output = f.controller.configuration!; Reflect.set(output, 'positiveXWeight', .9);
+  const output = f.controller.configuration!; Reflect.set(output, 'reliefDropCm', .9);
   assert.deepEqual(f.controller.configuration, expected);
-  for (const invalid of [{...expected, negativeXWeight: -.001}, {...expected, positiveXWeight: 1.001},
-    {...expected, negativeXWeight: NaN}, {...expected, coverage: 'automatic'}, {...expected, method: 'other'},
-    {...expected, method: VIEW_TEMPLE_VISIBILITY_METHOD}, {...expected, method: LEGACY_TEMPLE_VISIBILITY_METHOD},
-    createViewTempleVisibilityConfiguration(pose(.1), 0), createLegacyTempleVisibilityConfiguration(pose(.1), 0)]) {
+  for (const invalid of [{...expected, reliefKeepCm: -.001}, {...expected, reliefDropCm: 13},
+    {...expected, reliefKeepCm: NaN}, {...expected, reliefDropCm: expected.reliefKeepCm},
+    {...expected, coverage: 'automatic'}, {...expected, method: 'other'},
+    ...['temple-side-depth-v1', 'temple-side-depth-v2', 'temple-side-depth-v3'].map(method => ({...expected, method}))]) {
     assert.throws(() => f.controller.set(invalid as TempleVisibilityConfiguration), /configuration is invalid/);
     assert.deepEqual(f.controller.configuration, expected);
   }
   assert.throws(() => f.controller.set({...expected, coverage: 'alpha-to-coverage'}), /requires multisampling/);
   assert.deepEqual(f.controller.configuration, expected);
-  assert.doesNotThrow(() => validateTempleVisibility({...expected, negativeXWeight: 0, positiveXWeight: 1}));
+  assert.doesNotThrow(() => validateTempleVisibility(expected));
   f.controller.set(null); f.controller.prepare([]);
   assert.equal(f.fake.state.renderCount, 0); assert.ok(f.overlays.every(overlay => !overlay.visible));
   assert.equal(f.clip.configuration, null);
 });
 
-test('settings from different poses share one mask shader and prepare keeps the set weights without recomputation', t => {
+test('every pose refreshes depth with one program and preserves the recorded relief band', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const material = f.overlays[0]!.material as Material;
-  const current = createTempleVisibilityConfiguration(pose(.5), 4);
+  const current = createTempleVisibilityConfiguration(4);
+  assert.equal(current.method, TEMPLE_VISIBILITY_METHOD);
+  assert.equal(TEMPLE_VISIBILITY_METHOD, 'temple-behind-head-v4');
+  assert.deepEqual(Object.keys(current).sort(), ['coverage', 'method', 'reliefDropCm', 'reliefKeepCm']);
   f.controller.set(current);
-  const copy = f.controller.configuration!; Reflect.set(copy, 'negativeXWeight', .3);
-  assert.deepEqual(f.controller.configuration, current);
   const originalPositions = f.geometry.getAttribute('position').array.slice();
   const depthFragments: string[] = [];
-  f.fake.state.onRender = scene => { depthFragments.push((scene.overrideMaterial as ShaderMaterial).fragmentShader); };
-  f.controller.prepare(pose(.5));
+  f.fake.state.onRender = scene => {depthFragments.push((scene.overrideMaterial as ShaderMaterial).fragmentShader);};
+  f.controller.prepare(pose(0));
   const currentShader = compile(material), version = material.version;
-  const other = createTempleVisibilityConfiguration(pose(-.3), 4);
-  assert.notDeepEqual([other.negativeXWeight, other.positiveXWeight], [current.negativeXWeight, current.positiveXWeight]);
-  f.controller.set(other); f.controller.prepare(pose(.5));
-  assert.equal(material.version, version, 'a new setting does not alter the coverage program');
+  const other = createTempleVisibilityConfiguration(4, .4, 1.4);
+  f.controller.set(other);
+  const poses = [pose(0), pose(.5), pose(-.5), tilted(.5, 1.2, .6), tilted(-.5, -1.2, -.6)];
+  for (const matrix of poses) {
+    const original = matrix.slice(), count = f.fake.state.renderCount;
+    f.controller.prepare(matrix);
+    assert.equal(f.fake.state.renderCount, count + 1);
+    assert.ok(f.overlays.every(overlay => overlay.visible));
+    assert.deepEqual(matrix, original, 'pose storage remains owned by the caller');
+    assert.deepEqual(f.controller.configuration, other);
+    assert.deepEqual(currentShader.uniforms.templeVisibilityRelief!.value.toArray(), [.4, 1.4]);
+  }
+  assert.equal(material.version, version, 'pose and relief changes do not recompile coverage');
   const otherShader = compile(material);
   assert.equal(otherShader.fragmentShader, currentShader.fragmentShader);
   assert.equal(otherShader.vertexShader, currentShader.vertexShader);
-  assert.equal(depthFragments.length, 2); assert.equal(depthFragments[0], depthFragments[1]);
-  assert.deepEqual(otherShader.uniforms.templeVisibilityWeights!.value.toArray(), [other.negativeXWeight, other.positiveXWeight],
-    'prepare does not recompute the set weights from a different raw pose');
-  assert.deepEqual(f.controller.configuration, other);
+  assert.equal(new Set(depthFragments).size, 1);
   assert.deepEqual(f.geometry.getAttribute('position').array, originalPositions);
-  f.controller.set(current); f.controller.set(null);
-  assert.deepEqual(currentShader.uniforms.templeVisibilityWeights!.value.toArray(), [0, 0]);
-  f.controller.set(current); f.controller.dispose();
-  assert.deepEqual(currentShader.uniforms.templeVisibilityWeights!.value.toArray(), [0, 0]);
+  assert.doesNotMatch(currentShader.fragmentShader, /templeVisibilityWeights|templeVisibilityDepthMode|templeFrontalWeight|templeFrontalMask/);
+  assert.throws(() => f.controller.prepare(new Array(16).fill(0)), /singular/);
+  assert.throws(() => f.controller.prepare([NaN]), /pose is invalid/);
+  assert.equal(createTempleVisibilityConfiguration(0).coverage, 'ordered-dither');
+  for (const samples of [-1, 1.5, NaN, Infinity]) assert.throws(() => createTempleVisibilityConfiguration(samples), /sample count/);
+  assert.throws(() => createTempleVisibilityConfiguration(4, 1, .5), /relief band/);
+  assert.equal(Object.isFrozen(TEMPLE_VISIBILITY_PARAMETERS), true);
+  f.controller.set(null);
+  assert.ok(f.overlays.every(overlay => !overlay.visible));
 });
 
 test('internal transmission is excluded while native and explicit role targets keep overlay color', t => {
@@ -493,6 +561,61 @@ test('internal transmission is excluded while native and explicit role targets k
   assert.equal(f.frame.colorWrite, true);
 });
 
+test('lens input exclusion follows scene entry targets and never suppresses an explicit output target', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
+  const shader = compile(f.frame), version = f.frame.version;
+  const configuration = {...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true};
+  f.controller.set(configuration);
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+  assert.equal(compile(f.lens).uniforms.templeExcludeArmsFromLensInput, undefined, 'physical lens materials stay untouched');
+  const output = new WebGLRenderTarget(8, 8), transmission = new WebGLRenderTarget(8, 8);
+  t.after(() => { output.dispose(); transmission.dispose(); });
+  const draw = (camera = f.camera, backend = f.fake.renderer) => Reflect.apply(original.onBeforeRender, original,
+    [backend, f.scene, camera, original.geometry, f.frame, null]);
+  for (const entry of [null, output]) {
+    f.fake.state.target = entry;
+    Reflect.apply(f.scene.onBeforeRender, f.scene, [f.fake.renderer, f.scene, f.camera, entry]);
+    draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 0, 'both native and explicit outputs retain arms');
+    f.fake.state.target = transmission; draw();
+    assert.equal(shader.uniforms.templeInternalLensInput!.value, 1, 'only an internal target switch selects the exclusion');
+    draw(new PerspectiveCamera());
+    assert.equal(shader.uniforms.templeInternalLensInput!.value, 0, 'an unregistered camera cannot inherit prior target state');
+    draw(f.camera, fakeBackend().renderer);
+    assert.equal(shader.uniforms.templeInternalLensInput!.value, 0, 'another renderer cannot inherit this renderer’s target state');
+    f.fake.state.target = entry; draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
+  }
+  f.controller.set({...configuration, excludeArmsFromLensInput: false});
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 0);
+  f.controller.set(configuration); f.controller.set(null);
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 0);
+  assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
+  assert.equal(f.frame.version, version, 'lens exclusion changes update uniforms without recompiling material programs');
+  assert.throws(() => f.controller.set({...configuration, excludeArmsFromLensInput: 1} as unknown as TempleVisibilityConfiguration),
+    /lens input arm exclusion is invalid/);
+});
+
+test('lens input exclusion preserves existing original mesh callbacks and restores them on disposal', t => {
+  const f = syntheticFixture(); t.after(f.dispose); f.controller.dispose();
+  const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
+  let calls = 0;
+  const before: Mesh['onBeforeRender'] = function(this: Mesh) { assert.equal(this, original); calls++; };
+  original.onBeforeRender = before;
+  const materialHook = f.frame.onBeforeCompile, materialKey = f.frame.customProgramCacheKey, sceneHook = f.scene.onBeforeRender;
+  const controller = createTempleVisibility(f.root, {renderer: f.fake.renderer, scene: f.scene, camera: f.camera, eyewearPose: f.eyewearPose, observedFaceSurface: f.observedFaceSurface});
+  t.after(() => controller.dispose());
+  const shader = compile(f.frame);
+  controller.set({...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true});
+  Reflect.apply(original.onBeforeRender, original, [f.fake.renderer, f.scene, f.camera, original.geometry, f.frame, null]);
+  assert.equal(calls, 1);
+  controller.dispose(); controller.dispose();
+  assert.equal(original.onBeforeRender, before);
+  assert.equal(f.frame.onBeforeCompile, materialHook); assert.equal(f.frame.customProgramCacheKey, materialKey);
+  assert.equal(f.scene.onBeforeRender, sceneHook);
+  assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 0);
+  assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
+});
+
 test('head pass clears its mask and restores all renderer/scene state even when rendering throws', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const previousTarget = new WebGLRenderTarget(4, 4); t.after(() => previousTarget.dispose());
@@ -512,12 +635,13 @@ test('head pass clears its mask and restores all renderer/scene state even when 
     assert.equal(state.scissorTest, false); assert.deepEqual(state.viewport.toArray(), [0, 0, 640, 360]);
     target = state.target; depth = scene.overrideMaterial as ShaderMaterial;
     assert.equal(target!.width, 640); assert.equal(target!.height, 360);
-    const inverse = depth.uniforms.headInverse!.value as Matrix4;
-    assert.ok(new Matrix4().multiplyMatrices(inverse, new Matrix4().fromArray(pose(.3))).elements
-      .every((value, index) => Math.abs(value - (index % 5 === 0 ? 1 : 0)) < 1e-12));
+    assert.equal(depth.depthTest, true); assert.equal(depth.depthWrite, true); assert.equal(depth.side, DoubleSide);
+    assert.match(depth.vertexShader, /vec4 world = modelMatrix \* vec4\(position, 1\.0\)/);
+    assert.match(depth.vertexShader, /gl_Position = projectionMatrix \* viewMatrix \* world/);
+    assert.doesNotMatch(depth.fragmentShader, /discard|gl_FragDepth/);
     throw new Error('simulated depth-pass failure');
   };
-  f.controller.set(createTempleVisibilityConfiguration(pose(.3), 4));
+  f.controller.set(createTempleVisibilityConfiguration(4));
   assert.throws(() => f.controller.prepare(pose(.3)), /simulated depth-pass failure/);
   assert.equal(f.eyewearPose.visible, true); assert.equal(f.scene.background, saved.background);
   assert.equal(f.scene.overrideMaterial, previousOverride);
@@ -530,7 +654,7 @@ test('head pass clears its mask and restores all renderer/scene state even when 
   (depth as unknown as ShaderMaterial).addEventListener('dispose', () => depthDisposals++);
   state.onRender = () => {};
   f.controller.set(null); f.controller.prepare(pose(.3)); assert.equal(state.renderCount, 1);
-  f.controller.set(createTempleVisibilityConfiguration(pose(-.3), 4)); f.controller.prepare(pose(-.3));
+  f.controller.set(createTempleVisibilityConfiguration(4)); f.controller.prepare(pose(-.3));
   assert.equal(state.renderCount, 2);
   f.controller.dispose(); f.controller.dispose();
   assert.equal(targetDisposals, 1); assert.equal(depthDisposals, 1);
@@ -557,10 +681,13 @@ test('partial construction failure removes new overlays and disposes only cloned
   assert.equal(cloneDisposals, 1); assert.equal(sourceDisposals, 0);
 });
 
-for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: overlays retain actual buffers and exclude physical lens materials`, async t => {
+for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: observed cheek masking protects the rim without changing buffers or lens exclusion`, async t => {
   const bytes = await readFile(new URL('../public' + definition.assetUrl, import.meta.url));
   const gltf = await new GLTFLoader().register(() => ({name: 'NodeVisibilityImages', loadTexture: async () => new Texture()}))
     .parseAsync(new Uint8Array(bytes).buffer, '/models/');
+  const frontMeasurement = createRearDrop(gltf.scene, definition.templeClipLocalZM);
+  const opticalBounds = frontMeasurement.opticalBounds;
+  frontMeasurement.dispose();
   const originals: Mesh[] = [], resources = new Set<BufferGeometry | Material | Texture>();
   gltf.scene.traverse(object => {
     if (!(object instanceof Mesh)) return;
@@ -574,11 +701,15 @@ for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: overl
     positions: mesh.geometry.getAttribute('position').array.slice(), normals: mesh.geometry.getAttribute('normal').array.slice(),
     index: mesh.geometry.getIndex()!.array.slice()}));
   const fake = fakeBackend(), scene = new Scene(), eyewearPose = new Group().add(gltf.scene), camera = new PerspectiveCamera(60, 1, 1, 1000);
+  const observedFaceSurface = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -10, -10, -50, 10, -10, -50, 0, 10, -50,
+  ]), 3));
+  resources.add(observedFaceSurface);
   scene.add(eyewearPose);
   const clip = createTempleClip(gltf.scene);
-  const controller = createTempleVisibility(gltf.scene, {renderer: fake.renderer, scene, camera, eyewearPose});
+  const controller = createTempleVisibility(gltf.scene, {renderer: fake.renderer, scene, camera, eyewearPose, observedFaceSurface});
   t.after(() => { controller.dispose(); clip.dispose(); for (const resource of resources) resource.dispose(); });
-  controller.set(createTempleVisibilityConfiguration(pose(.5), 4)); controller.prepare(pose(.5));
+  controller.set(createTempleVisibilityConfiguration(4)); controller.prepare(pose(.5));
   const overlays: Mesh[] = [];
   gltf.scene.traverse(object => { if (object instanceof Mesh && object.userData.templeVisibilityOverlay === true) overlays.push(object); });
   assert.ok(overlays.length > 0);
@@ -590,10 +721,97 @@ for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: overl
     const lens = value.material instanceof MeshPhysicalMaterial && value.material.transmission > 0;
     assert.equal(overlays.some(overlay => overlay.geometry === value.geometry), !lens);
   }
-  for (const overlay of overlays) {
-    const shader = compile(overlay.material as Material);
-    const physicalRear = Math.min(...originals.filter(mesh => mesh.material instanceof MeshPhysicalMaterial && mesh.material.transmission > 0)
-      .flatMap(mesh => Array.from({length: mesh.geometry.getAttribute('position').count}, (_, i) => mesh.geometry.getAttribute('position').getZ(i))));
-    assert.equal(shader.uniforms.templeVisibilityFront!.value, physicalRear);
+  const lensMeshes = originals.filter(mesh => mesh.material instanceof MeshPhysicalMaterial && mesh.material.transmission > 0);
+  const physicalRear = Math.min(...lensMeshes.flatMap(mesh => Array.from({length: mesh.geometry.getAttribute('position').count},
+    (_, i) => mesh.geometry.getAttribute('position').getZ(i))));
+  const opaqueMeshes = originals.filter(mesh => !lensMeshes.includes(mesh));
+  const guardRear = physicalRear - .005;
+  assert.equal(TEMPLE_VISIBILITY_PARAMETERS.cheekFrontGuardM, .005);
+  assert.ok(guardRear < opticalBounds.min.z, 'the complete protected optical front, including opaque rims and hinge, lies ahead of concealment');
+  const protectedBandCounts = [0, 0], posteriorShaftCounts = [0, 0];
+  for (const mesh of opaqueMeshes) {
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i), z = position.getZ(i); if (Math.abs(x) <= .045) continue;
+      const side = x < 0 ? 0 : 1;
+      if (z < physicalRear && z >= guardRear) protectedBandCounts[side]!++;
+      if (z < guardRear) posteriorShaftCounts[side]!++;
+    }
+  }
+  assert.ok(protectedBandCounts.every(count => count > 0), 'both physical sides contain opaque front geometry behind the lens plane that needs the guard');
+  assert.ok(posteriorShaftCounts.every(count => count > 0), 'the guard still leaves posterior shaft geometry eligible for hiding');
+  controller.set({...createTempleVisibilityConfiguration(4),
+    cheekContact: cheekContact(), cheekTransitionPx: 2, excludeArmsFromLensInput: true});
+  const shaders = [...opaqueMeshes, ...overlays].map(mesh => compile(mesh.material as Material));
+  for (const shader of shaders) {
+    assert.equal(shader.uniforms.templeFrontalFront!.value, physicalRear, 'transmission uses the exact physical lens rear');
+    assert.equal(shader.uniforms.templeCheekFront!.value, guardRear, 'only cheek RGB concealment starts 5 mm farther back');
+    assert.equal(shader.uniforms.templeCheekCount!.value, 4);
+    assert.equal(shader.uniforms.templeCheekTransitionPx!.value, 2);
+    assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
+    assert.equal(shader.uniforms.templeFrontalWeight, undefined);
+    assert.match(shader.fragmentShader, /templeFrontalOriginalPosition\.z < templeCheekFront\) \{/);
+    assert.match(shader.fragmentShader, /templeCheekFront - templeFrontalOriginalPosition\.z/);
+    assert.match(shader.fragmentShader, /cheekCoverage = templeCheekCoverage\(vec2\(gl_FragCoord\.x, templeFrontalViewport\.y - gl_FragCoord\.y\)\)/,
+      'local coverage samples the exact fragment in source-aligned top-left coordinates');
+    const source = shader.fragmentShader;
+    const mainStart = source.indexOf('void main() {');
+    const depthStart = source.indexOf('if (templeCheekCount >= 3) {', mainStart);
+    const depthEnd = source.indexOf('#endif', depthStart);
+    assert.ok(mainStart >= 0 && depthStart > mainStart && depthEnd > depthStart);
+    const contactDepth = source.slice(depthStart, depthEnd);
+    assert.match(contactDepth, /texture2D\(templeCheekDepth, cheekDepthUV\)/);
+    assert.match(contactDepth, /cheekArmZ[^;]*gl_FragCoord\.z/,
+      'compare original raster depth before the overlay can change tested gl_FragDepth');
+    assert.match(contactDepth, /cheekFaceZ - cheekArmZ/,
+      'face coverage can hide only a fragment behind observed skin');
+    const derivative = source.indexOf('fwidth(cheekBehindCm)', depthStart);
+    assert.ok(derivative > depthStart && derivative < depthEnd);
+    assert.doesNotMatch(source.slice(mainStart, derivative), /templeFrontalOriginalPosition|templeVisibilityPosition|discard|gl_FragDepth/,
+      'native-depth derivatives run in uniform control flow before local eligibility or any discard');
+    for (const marker of ['#include <clipping_planes_fragment>', 'templeClipPositiveXCutoffZ)) discard']) {
+      const index = source.indexOf(marker, mainStart);
+      assert.ok(index > derivative, `native-depth derivatives precede ${marker}`);
+    }
+    if (shader.uniforms.templeVisibilityHeadDepth) {
+      for (const marker of ['templeVisibilityPosition.z >= templeVisibilityFront) discard;',
+        'if (templeOverlayCoverage <= 0.0) discard;']) {
+        const index = source.indexOf(marker, mainStart);
+        assert.ok(index > derivative, `overlay derivatives precede ${marker}`);
+      }
+    }
+    for (const match of source.slice(mainStart).matchAll(/discard;/g))
+      assert.ok(mainStart + match.index > derivative, 'every emitted discard follows the derivative, including dither when selected');
+    const contactStart = source.indexOf('if (templeCheekCount >= 3 &&', depthEnd);
+    const contactEnd = source.indexOf('#endif', contactStart);
+    assert.ok(contactStart > depthEnd && contactEnd > contactStart);
+    const contactCoverage = source.slice(contactStart, contactEnd);
+    assert.match(contactCoverage, /texture2D\(templeCheekMask, cheekDepthUV\)\.a \* smoothstep/,
+      'a cleared depth pixel without observed face coverage cannot mask a shaft');
+    assert.match(contactCoverage, /smoothstep\(\s*0\.1, 0\.1 \+ cheekBandCm, cheekBehindCm\)/,
+      'moving the derivative does not move the physical 1 mm onset');
+    assert.doesNotMatch(contactCoverage, /fwidth\(/, 'no derivative remains in the varying eligibility branch');
+    assert.doesNotMatch(contactDepth + contactCoverage, /templeCheekTail|gl_FragDepth/,
+      'there is no added tail cutoff or lifted-depth comparison');
+    const inputStart = shader.fragmentShader.indexOf('if (templeExcludeArmsFromLensInput');
+    const inputEnd = shader.fragmentShader.indexOf('discard;', inputStart);
+    const inputExclusion = shader.fragmentShader.slice(inputStart, inputEnd);
+    assert.ok(inputStart >= 0 && inputEnd > inputStart);
+    assert.match(inputExclusion, /templeFrontalOriginalPosition\.z < templeFrontalFront/);
+    assert.doesNotMatch(inputExclusion, /templeCheekFront|templeCheekDepth|templeCheekTransitionPx/,
+      'observed face depth, its rim guard and its soft transition cannot reopen arms inside lens transmission');
+  }
+  for (const overlay of overlays) assert.equal(compile(overlay.material as Material).uniforms.templeVisibilityFront!.value, physicalRear);
+  for (const mesh of lensMeshes) {
+    const lensShader = compile(mesh.material as Material);
+    assert.equal(lensShader.uniforms.templeCheekFront, undefined);
+    assert.equal(lensShader.uniforms.templeCheekTransitionPx, undefined);
+  }
+  controller.set(createTempleVisibilityConfiguration(4));
+  for (const shader of shaders) {
+    assert.equal(shader.uniforms.templeCheekCount!.value, 0, 'clearing contact does not retain its old polygon');
+    assert.equal(shader.uniforms.templeCheekTransitionPx!.value, 0);
+    assert.equal(shader.uniforms.templeFrontalFront!.value, physicalRear);
+    assert.equal(shader.uniforms.templeFrontalWeight, undefined);
   }
 });

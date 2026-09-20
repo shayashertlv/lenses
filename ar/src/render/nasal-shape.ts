@@ -1,6 +1,6 @@
 import { Matrix4, Vector3 } from 'three';
 
-/** Fixed preview assumptions, not measured nose dimensions or a personal fit. */
+/** Fixed rendering assumptions, not measured nose dimensions or a personal fit. */
 const WIDTH_GAIN = .2;
 const FORWARD_DEPTH_CM = .15;
 const MIDLINE_IDS = [168, 6, 197, 195, 5, 4, 1, 19, 94, 2] as const;

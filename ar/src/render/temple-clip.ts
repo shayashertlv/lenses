@@ -14,6 +14,9 @@ interface TempleEndpoints {
 export interface TempleBlendConfiguration extends TempleEndpoints {
   readonly method: typeof TEMPLE_BLEND_METHOD;
   readonly fadeLengthLocalM: number;
+  /** A narrow hair crossing can hide a shorter fade on one arm without changing the other. */
+  readonly negativeXFadeLengthLocalM?: number;
+  readonly positiveXFadeLengthLocalM?: number;
 }
 
 export type TempleClipConfiguration = TempleBlendConfiguration;
@@ -23,8 +26,10 @@ export function validateTempleClip(value: TempleClipConfiguration): void {
       || [value.negativeXCutoffLocalZM, value.positiveXCutoffLocalZM].some(cutoff =>
         !Number.isFinite(cutoff) || cutoff < -0.2 || cutoff > -0.03)
       || !Number.isFinite(value.fadeLengthLocalM) || value.fadeLengthLocalM <= 0 || value.fadeLengthLocalM > 0.02
-      || [value.negativeXCutoffLocalZM, value.positiveXCutoffLocalZM].some(cutoff =>
-        cutoff + value.fadeLengthLocalM > -0.03)) {
+      || [value.negativeXFadeLengthLocalM, value.positiveXFadeLengthLocalM].some(fade => fade !== undefined
+        && (!Number.isFinite(fade) || fade <= 0 || fade > .02))
+      || value.negativeXCutoffLocalZM + (value.negativeXFadeLengthLocalM ?? value.fadeLengthLocalM) > -.03
+      || value.positiveXCutoffLocalZM + (value.positiveXFadeLengthLocalM ?? value.fadeLengthLocalM) > -.03) {
     throw new Error('The recorded temple clipping configuration is invalid.');
   }
 }
@@ -44,6 +49,7 @@ export function createTempleClip(root: Object3D) {
   const negativeCutoff = {value: -0.09};
   const positiveCutoff = {value: -0.09};
   const fadeLength = {value: 0};
+  const sideFadeLengths = {value: new Vector2()};
   // 0 off, 3 the v3 blend. Mode 3 changes terminal RGB only; overlay eligibility keeps its own alpha.
   const fadeMode = {value: 0};
   const cameraSource = {value: null as CanvasTexture | null};
@@ -66,6 +72,7 @@ export function createTempleClip(root: Object3D) {
         shader.uniforms.templeClipNegativeXCutoffZ = negativeCutoff;
         shader.uniforms.templeClipPositiveXCutoffZ = positiveCutoff;
         shader.uniforms.templeFadeLength = fadeLength;
+        shader.uniforms.templeSideFadeLengths = sideFadeLengths;
         shader.uniforms.templeFadeMode = fadeMode;
         shader.uniforms.templeCameraSource = cameraSource;
         shader.uniforms.templeCameraViewport = cameraViewport;
@@ -75,6 +82,7 @@ export function createTempleClip(root: Object3D) {
         shader.fragmentShader = 'varying vec2 templeOriginalXZ;\nuniform float templeClipEnabled;\n'
           + 'uniform float templeClipNegativeXCutoffZ;\nuniform float templeClipPositiveXCutoffZ;\n'
           + 'uniform float templeFadeLength;\nuniform float templeFadeMode;\n'
+          + 'uniform vec2 templeSideFadeLengths;\n'
           + 'uniform sampler2D templeCameraSource;\nuniform vec2 templeCameraViewport;\n'
           + 'uniform mat3 templeCameraUvTransform;\n' + shader.fragmentShader.replace(
             '#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n'
@@ -85,8 +93,10 @@ export function createTempleClip(root: Object3D) {
             // before this footer. Preserve their coverage alpha and tested depth.
             + 'if (templeClipEnabled > 0.5 && templeFadeMode > 2.5) {\n'
             + '  float templeBlendEndpointZ = templeOriginalXZ.x < 0.0 ? templeClipNegativeXCutoffZ : templeClipPositiveXCutoffZ;\n'
-            + '  if (templeOriginalXZ.y < templeBlendEndpointZ + templeFadeLength) {\n'
-            + '    float templeBlendWeight = smoothstep(templeBlendEndpointZ, templeBlendEndpointZ + templeFadeLength, templeOriginalXZ.y);\n'
+            + '  float templeSideFade = templeOriginalXZ.x < 0.0 ? templeSideFadeLengths.x : templeSideFadeLengths.y;\n'
+            + '  float templeBlendFadeLength = templeSideFade > 0.0 ? templeSideFade : templeFadeLength;\n'
+            + '  if (templeOriginalXZ.y < templeBlendEndpointZ + templeBlendFadeLength) {\n'
+            + '    float templeBlendWeight = smoothstep(templeBlendEndpointZ, templeBlendEndpointZ + templeBlendFadeLength, templeOriginalXZ.y);\n'
             + '    vec2 templeCameraUV = (templeCameraUvTransform * vec3(gl_FragCoord.xy / templeCameraViewport, 1.0)).xy;\n'
             // CanvasTexture sRGB samples are decoded by the GPU. Match the
             // current output encoding without tone-mapping camera pixels.
@@ -98,7 +108,7 @@ export function createTempleClip(root: Object3D) {
       // Three's default key reads the hook itself; a caller's custom key may
       // depend on changing material state and must continue to be evaluated.
       material.customProgramCacheKey = () => `${key === Material.prototype.customProgramCacheKey
-        ? hook.toString() : key.call(material)}|${TEMPLE_BLEND_METHOD}`;
+        ? hook.toString() : key.call(material)}|${TEMPLE_BLEND_METHOD}|side-fade-v1`;
       material.needsUpdate = true;
     }
   });
@@ -110,6 +120,7 @@ export function createTempleClip(root: Object3D) {
       configuration = value === null ? null : {...value};
       enabled.value = value === null ? 0 : 1;
       fadeLength.value = value === null ? 0 : value.fadeLengthLocalM;
+      sideFadeLengths.value.set(value?.negativeXFadeLengthLocalM ?? 0, value?.positiveXFadeLengthLocalM ?? 0);
       fadeMode.value = value === null ? 0 : 3;
       cameraSource.value = null;
       if (value !== null) {
@@ -141,6 +152,7 @@ export function createTempleClip(root: Object3D) {
       configuration = null;
       enabled.value = 0;
       fadeLength.value = 0;
+      sideFadeLengths.value.set(0, 0);
       fadeMode.value = 0;
       cameraSource.value = null;
       for (const [material, previous] of owned) {

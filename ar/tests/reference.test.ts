@@ -39,7 +39,7 @@ function inwardWeights(category: Uint8Array, maskWidth: number, maskHeight: numb
   }
   return weights;
 }
-type Oracle = Omit<HairArmResult, 'regions' | 'eligibleResidualIndices'>;
+type Oracle = Omit<HairArmResult, 'regions'>;
 function oracle(input: HairArmInput): Oracle {
   const {width, height, before, background} = input;
   const result: Oracle = {pixels: before.slice(), weights: new Float32Array(width * height), fallbackReason: null,
@@ -129,7 +129,7 @@ function fixture(seed: number, width = 23, height = 17): HairArmInput {
 
 function equalOracle(input: HairArmInput): void {
   const savedBefore = input.before.slice(), savedMask = input.mask.category.slice();
-  const expected = oracle(input), {regions, eligibleResidualIndices, ...fast} = composeHairArms(input, {collectEligibleResidualIndices: true});
+  const expected = oracle(input), {regions, ...fast} = composeHairArms(input);
   assert.deepEqual(fast.pixels, expected.pixels); assert.deepEqual(fast.weights, expected.weights);
   assert.equal(fast.fallbackReason === null, expected.fallbackReason === null);
   assert.deepEqual(fast.backgroundReferenceCheck, expected.backgroundReferenceCheck);
@@ -137,14 +137,6 @@ function equalOracle(input: HairArmInput): void {
   assert.notEqual(fast.pixels, input.before);
   assert.deepEqual(input.before, savedBefore); assert.deepEqual(input.mask.category, savedMask);
   if (!fast.fallbackReason) {
-    assert.equal(eligibleResidualIndices!.length, fast.statistics.eligibleResidualPixels);
-    assert.equal(new Set(eligibleResidualIndices).size, eligibleResidualIndices!.length);
-    for (const index of eligibleResidualIndices!) {
-      const x = index % input.width, y = Math.floor(index / input.width), offset = index * 4;
-      assert.ok(!inside(input.noseRoi, x, y) && !input.protection.protectedRects.some(rect => inside(rect, x, y))
-        && input.protection.editableRects.some(rect => inside(rect, x, y)));
-      assert.ok([0, 1, 2, 3].some(channel => input.before[offset + channel] !== input.background[offset + channel]));
-    }
     const actual = checkHairProtection(input, fast.pixels, regions);
     const checks = {
       protectedCheck: comparePixels(input.before, fast.pixels, input.width, input.height, (x, y) => input.protection.protectedRects.some(rect => inside(rect, x, y))),
@@ -204,8 +196,8 @@ test('the audit detects an actual later guard violation instead of assuming zero
 test('omitting the diagnostic weights preserves every final pixel, statistic and guard result', () => {
   for (let seed = 1; seed <= 48; seed++) {
     const input = fixture(seed);
-    const {weights: _weights, ...reference} = composeHairArms(input, {collectEligibleResidualIndices: true});
-    const {weights, ...live} = composeHairArms(input, {collectEligibleResidualIndices: true, collectWeights: false});
+    const {weights: _weights, ...reference} = composeHairArms(input);
+    const {weights, ...live} = composeHairArms(input, {collectWeights: false});
     assert.equal(weights.byteLength, 0);
     assert.deepEqual(live, reference);
     assert.deepEqual(checkHairProtection(input, live.pixels, live.regions), checkHairProtection(input, reference.pixels, reference.regions));

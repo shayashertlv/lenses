@@ -9,26 +9,22 @@
   <header class="topbar"><a class="brand" href="./">lenses<span class="brand-dot">.</span></a><span class="version">AR <span>TRY-ON</span></span></header>
   <section class="intro"><div><p class="eyebrow">THE VIRTUAL MIRROR</p><h1>Try the frames on, live.</h1></div><p class="intro-note">Everything runs in this browser: face tracking, hair detection and the render. Nothing is uploaded.</p></section>
   <div class="tryon-layout">
+    <div class="mirror-column">
     <section class="stage" data-state="idle" aria-label="Live mirror">
       <canvas id="mirror" hidden aria-label="Mirrored camera and glasses"></canvas>
       <div class="stage-top"><span class="stage-label"><span id="status-dot"></span><span id="stage-status">CAMERA OFF</span></span></div>
-      <div class="welcome" id="welcome"><div class="frame-symbol" aria-hidden="true"><i></i><b></b><i></i></div><h2>Your mirror, ready when you are.</h2><p>Take off your glasses and find some soft light.<br>Turn slowly to compare the feel.</p><button id="start" class="primary">Open camera <span aria-hidden="true">↗</span></button><p class="privacy">Camera images stay in this browser.</p></div>
+      <div class="welcome" id="welcome"><div class="frame-symbol" aria-hidden="true"><i></i><b></b><i></i></div><h2>Your mirror, ready when you are.</h2><p id="welcome-description">Take off your glasses and find some soft light.<br>Look straight ahead for a few seconds to settle the fit.</p><button id="start" class="primary">Open camera <span aria-hidden="true">↗</span></button><p class="privacy">Camera images stay in this browser.</p></div>
       <div class="stage-bottom"><p id="guidance" role="status" aria-live="polite">Choose your glasses, then open the camera.</p><button id="stop" class="quiet" hidden>Close camera</button></div>
     </section>
+    </div>
     <aside class="sidebar">
       <section class="product"><label class="eyebrow" for="eyewear-select">01 / GLASSES</label><select id="eyewear-select"></select><h2 id="frame-name">Amber Horizon</h2><p class="product-description" id="frame-description"></p></section>
       <section class="hair-controls"><label class="eyebrow" for="hair-model-select">02 / HAIR DETECTION</label><select id="hair-model-select"></select></section>
-      <section class="hair-controls"><label class="eyebrow" for="hair-toggle">03 / HAIR OCCLUSION</label><select id="hair-toggle"><option value="on">On · temples hide behind hair</option><option value="off">Off · temples drawn in full</option></select></section>
-      <section class="hair-controls"><label class="eyebrow" for="temple-mode">04 / TEMPLE OCCLUSION</label><select id="temple-mode"><option value="depth">Per pixel · how far behind the head that part of the arm is</option><option value="angles">By head angle · the previous rule</option></select>
-        <p class="control-hint">Which part of an arm is given up to the head. Switchable while the camera runs.</p></section>
-      <section class="hair-controls"><label class="eyebrow" for="temple-test">05 / TEMPLE SWEEP</label><select id="temple-test"></select>
-        <p class="control-hint">Steps through the temple configurations worth judging, inside one camera session — the arms only, nothing else changes. Arrow keys &#8592; and &#8594; step through the list; the id of the running one is in the line below, so a screenshot names itself.</p></section>
-      <section class="hair-controls"><label class="eyebrow" for="fit-mode">06 / TEMPLE FIT · EXPERIMENT</label><select id="fit-mode"><option value="original">Original · shipped geometry</option><option value="width">Width fit · head occluder and arm spread follow the face width</option></select>
-        <p class="control-hint">Switchable while the camera runs; one pipeline at a time. Original is the default and is unchanged.</p></section>
+      <section class="hair-controls"><label class="eyebrow" for="hair-toggle">03 / HAIR OCCLUSION</label><select id="hair-toggle"><option value="on">On · temples hide behind hair</option><option value="off">Off · ignore hair</option></select></section>
       <section class="profile-panel"><p class="eyebrow">LIVE PERFORMANCE</p>
         <div class="profile-headline"><strong id="fps">—</strong><span>AR updates · last 10 s</span></div>
         <dl class="profile-metrics"><div><dt>Frame age median / p95</dt><dd id="age">—</dd></div><div><dt>Coverage</dt><dd id="coverage">—</dd></div><div><dt>Graphics · face</dt><dd id="gpu">—</dd></div><div><dt>Hair</dt><dd id="hair-engine">—</dd></div></dl>
-        <p class="control-hint" id="stages">—</p><p class="control-hint" id="pose-shake">—</p><p class="control-hint" id="hair-masks">—</p><p class="control-hint" id="width-fit">—</p><p class="control-hint" id="frames">—</p>
+        <p class="control-hint" id="stages">—</p><p class="control-hint" id="pose-shake">—</p><p class="control-hint" id="hair-masks">—</p><p class="control-hint" id="frames">—</p>
         <div class="hair-actions"><button id="download-metrics" class="quiet" disabled>Download timings</button><button id="audit" class="quiet" disabled>Hold &amp; audit</button><button id="audit-download" class="quiet" hidden>Download audit</button></div>
         <p class="control-hint" id="audit-result">Hold &amp; audit draws the next frame with and without hair and without glasses, reads it back once, and runs the CPU reference compose and the four protection checks on the GPU output. With hair on every second frame (the phone and tablet default) the audited frame waits for its own hair mask, since the reference composes only a frame's own mask.</p></section>
       <section class="pipeline-controls"><p class="eyebrow">MEASURE</p>

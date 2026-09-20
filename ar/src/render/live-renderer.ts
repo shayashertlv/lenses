@@ -10,7 +10,6 @@ import type {Audit} from '../audit/audit.ts';
 import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
 import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
-import type {TempleVisibilityMode} from './temple-visibility.ts';
 
 /** Finished frames an audit passes over while they draw a mask reused from another frame, waiting for one that draws
  *  its own (the CPU reference composes only a frame's own mask); after that many it audits a reused one and says so. */
@@ -53,21 +52,10 @@ export class LiveRenderer {
   get nativeSamples(): number {return this.renderer.nativeSamples;}
   get gpuRenderer(): string | null {return this.renderer.gpuRenderer;}
   get guardEnabled(): boolean {return this.renderer.guardEnabled;}
-  get continuityUnavailable(): string | null {return this.renderer.continuityUnavailable;}
+  get endpointUnavailable(): string | null {return this.renderer.endpointUnavailable;}
   get syncUnavailable(): string | null {return this.renderer.syncUnavailable;}
   get captureSnapshot() {return this.renderer.captureSnapshot;}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
-  /** Switch the experimental width fit inside the running session; the change lands between frames, on the next pose. */
-  setWidthFit(enabled: boolean): void {if (!this.disposed) this.renderer.setWidthFit(enabled);}
-  /** Switch the temple-visibility rule inside the running session. */
-  setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.renderer.setTempleMode(mode);}
-  setTempleShape(shape: {bendM: number; pivotM: number; keepCm: number; dropCm: number}): void {
-    if (!this.disposed) this.renderer.setTempleShape(shape);
-  }
-  setTempleCut(enabled: boolean, runPx: number): void {if (!this.disposed) this.renderer.setTempleCut(enabled, runPx);}
-  get templeVisibility() {return this.renderer.templeVisibilityState;}
-  /** The width fit's mode, state and applied ratio, for the page's debug line. */
-  get widthFit() {return this.renderer.widthFit;}
   /** The next finished frame is audited; the result is available through takeAudit(). */
   requestAudit(): void {if (!this.disposed) {this.auditRequested = true; this.auditPassedOver = 0;}}
   /** An audit is waiting for a frame: with a hair schedule the pipeline then gives the next frame its own mask. */
@@ -108,7 +96,8 @@ export class LiveRenderer {
       else if (this.auditRequested && this.visible && this.frame && this.detection && this.pair && this.model) {
         this.auditRequested = false; audited = true;
         const auditStart = performance.now();
-        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model, mask, gpuMask, maskCarried: gpuMask !== null && carried, maskWarped: gpuMask !== null && warp !== null}, timings, this.sequence);}
+        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model,
+          mask, gpuMask, maskCarried: gpuMask !== null && carried, maskWarped: gpuMask !== null && warp !== null}, timings, this.sequence);}
         catch (error) {this.audit = null; console.warn('Audit failed', error);}
         auditMs = performance.now() - auditStart;
       }
@@ -117,7 +106,7 @@ export class LiveRenderer {
         sequence: this.sequence, hasFace: this.visible, hasMask: timings.hairApplied, hairEnabled: wantsHair,
         maskStatus: !this.visible ? 'no-face' : timings.hairApplied ? 'ready' : timings.safeFallback ? 'withheld' : 'missing',
         fallbackReason: this.visible && wantsHair && !timings.hairApplied
-          ? timings.safeFallback ? 'The optical/nasal protection could not be established; drop and hair withheld.' : 'No paired hair mask is available; showing the frame without hair occlusion.' : null,
+          ? timings.safeFallback ? 'The optical/nasal protection could not be established; hair withheld.' : 'No paired hair mask is available; showing the frame without hair occlusion.' : null,
         prepareMs: this.prepareMs, poseMs: this.poseMs, gpuWaitMs: this.wait.gpuWaitMs, gpuWaitPolls: this.wait.polls, gpuWaitTimedOut: this.wait.timedOut, finishMs,
         pendingWaitMs: Math.max(0, started - this.preparedAt - this.prepareMs), totalMs: performance.now() - this.preparedAt,
         render: timings, audit: {ran: audited, ms: auditMs},

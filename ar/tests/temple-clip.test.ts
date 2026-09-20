@@ -340,7 +340,7 @@ test('camera dissolve borrows the paired sRGB source, composes after visibility,
   assert.doesNotMatch(footer, /gl_FragColor\.a\s*=/, 'v3 preserves the overlay coverage alpha');
   assert.deepEqual(composed.match(/gl_FragColor\.a\s*=[^;]*;/g), ['gl_FragColor.a = 0.37;'],
     'the clip writes no alpha, so coverage stays with visibility A2C/dither');
-  assert.match(footer, /templeOriginalXZ\.y < templeBlendEndpointZ \+ templeFadeLength/,
+  assert.match(footer, /templeOriginalXZ\.y < templeBlendEndpointZ \+ templeBlendFadeLength/,
     'fragments before the terminal band retain their exact lit RGB');
   clip.set(blend);
   assert.equal(shader.uniforms.templeCameraSource!.value, null, 'each new policy selection clears the previous paired source');
@@ -388,4 +388,34 @@ test('dissolve metadata and source validation are bounded', t => {
     assert.equal(shader.uniforms.templeCameraSource!.value, camera, 'failed preparation cannot replace the validated source');
     assert.deepEqual(shader.uniforms.templeCameraViewport!.value.toArray(), [960, 720]);
   }
+});
+
+test('each hair crossing owns its fade, including inherited overlays and legacy resets', t => {
+  const material = new MeshStandardMaterial(), geometry = new BufferGeometry();
+  const clip = createTempleClip(new Group().add(new Mesh(geometry, material)));
+  const overlay = material.clone(); overlay.onBeforeCompile = material.onBeforeCompile;
+  t.after(() => {clip.dispose(); material.dispose(); overlay.dispose(); geometry.dispose();});
+  const shader = compile(material), inherited = compile(overlay);
+  const policy = {...clipping(-.036, -.08), fadeLengthLocalM: .005,
+    negativeXFadeLengthLocalM: .001, positiveXFadeLengthLocalM: .003};
+  clip.set(policy);
+  assert.deepEqual(shader.uniforms.templeSideFadeLengths!.value.toArray(), [.001, .003]);
+  assert.equal(shader.uniforms.templeSideFadeLengths, inherited.uniforms.templeSideFadeLengths,
+    'visibility overlays share live per-side fades rather than copying one arm to the other');
+  for (const field of ['negativeXFadeLengthLocalM', 'positiveXFadeLengthLocalM'] as const) {
+    for (const value of [0, -.001, NaN, Infinity, .020001]) {
+      assert.throws(() => clip.set({...policy, [field]: value}), /configuration is invalid/);
+      assert.deepEqual(clip.configuration, policy);
+      assert.deepEqual(inherited.uniforms.templeSideFadeLengths!.value.toArray(), [.001, .003]);
+    }
+  }
+  assert.throws(() => clip.set({...policy, negativeXFadeLengthLocalM: .007}), /configuration is invalid/,
+    'a long side fade cannot cross the optical front even if the common fade fits');
+  assert.doesNotThrow(() => clip.set({...policy, fadeLengthLocalM: .015}),
+    'explicit short side fades determine the actual protected extent');
+  clip.set(clipping(-.09));
+  assert.deepEqual(inherited.uniforms.templeSideFadeLengths!.value.toArray(), [0, 0],
+    'an older recorded policy restores the common fade');
+  clip.set(policy); clip.set(null);
+  assert.deepEqual(shader.uniforms.templeSideFadeLengths!.value.toArray(), [0, 0]);
 });

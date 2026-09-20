@@ -44,7 +44,7 @@ async function run(options: Options): Promise<Run> {
     finish(mask: unknown, warp: MaskWarp | null = null, carried = false) {lastMask = mask !== null;
       result.finishes.push({mask: lastMask, warp, carried, waitMs: performance.now() - preparedAt, at: performance.now()});
       if (auditPending && lastMask && !carried) {auditPending = false; result.auditedFinish = result.finishes.length - 1;}},
-    get stats() {return {render: {maskUploadMs: 0, continuityMs: 0, submitMs: 0}, audit: {ran: false, ms: 0}, gpuWaitPolls: 0, gpuWaitTimedOut: false, gpuWaitMs: 0, poseMs: 0, hasMask: lastMask, fallbackReason: null};},
+    get stats() {return {render: {maskUploadMs: 0, endpointMs: 0, submitMs: 0}, audit: {ran: false, ms: 0}, gpuWaitPolls: 0, gpuWaitTimedOut: false, gpuWaitMs: 0, poseMs: 0, hasMask: lastMask, fallbackReason: null};},
     get poseSample() {return null;}};
   const detector = {delegate: 'CPU', lastTiming: null, async detect(bitmap: {close(): void}, timestampMs: number) {
     await sleep(options.faceMs ?? 8); bitmap.close();

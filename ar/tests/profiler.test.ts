@@ -10,7 +10,7 @@ function frame(at: number, sequence = 1, sessionId = 'session'): FrameInput {
     faceBitmapMs: 1, faceRequestWallMs: 8, faceInferenceMs: 6, faceWorkerMs: 7, faceExtractionMs: .5,
     faceWorkerValidationMs: .5, faceClientValidationMs: .1, faceTransportSchedulingMs: 1, prerequisitesWaitMs: 8,
     detectionHashMs: 1, schedulerWaitMs: 10, hairAdmissionWaitMs: 0, hairWaitMs: 0, hairInferenceMs: 9, hairExtractionMs: 1,
-    prepareMs: 5, gpuWaitMs: 1, poseMs: 2, finishMs: 3, maskUploadMs: .5, continuityMs: .2, submitMs: 2, renderMs: 8, totalMs: 20,
+    prepareMs: 5, gpuWaitMs: 1, poseMs: 2, finishMs: 3, maskUploadMs: .5, endpointMs: .2, submitMs: 2, renderMs: 8, totalMs: 20,
     hasFace: true, hasMask: true, fallback: null, faceDelegate: 'CPU', hairDelegate: 'GPU', gpuRenderer: 'test',
     native: {'render.passes': 2}};
 }

@@ -1,101 +1,60 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, DEFAULT_TEMPLE_BEND_MM, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
+import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
 import {parseExternalModel} from '../src/eyewear/external.ts';
 import {DEFAULT_HAIR_INPUT_MAX_EDGE, HAIR_WAIT_MS} from '../src/pipeline/pipeline.ts';
 import {DEFAULT_STEADY} from '../src/render/pose-stabilizer.ts';
 import {DEFAULT_HAIR_SCHEDULE} from '../src/hair/mask-reuse.ts';
 
-test('an empty search yields the accepted defaults', () => {
+test('an empty search yields the accepted pipeline defaults', () => {
   assert.deepEqual(parseConfig(''), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
   assert.deepEqual(parseConfig('?unknown=1'), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU']});
-  assert.match(describeConfig(DEFAULT_CONFIG), /CPU delegate.*capture 1280 px max edge · capture source VideoFrame \(\?source=\) · hair start z -0.02 m · GPU completion gate on · camera exposure auto.*guard on · continuity cut on \(hair run ≥ 10 px/);
+  assert.match(describeConfig(DEFAULT_CONFIG), /CPU delegate.*capture 1280 px max edge · capture source VideoFrame \(\?source=\) · hair start z -0.02 m · GPU completion gate on · camera exposure auto.*guard on/);
+  assert.match(describeConfig(DEFAULT_CONFIG), /fixed temples with hair-covered endings/);
 });
 
-test('every lever parses with its bounds and its off spelling', () => {
-  const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&continuity=off&hairrun=16&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
-  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120, hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false, continuity: false,
-    continuityRunPx: 16, eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE, fit: 'original', temples: 'depth', templeKeepCm: 0.3, templeDropCm: 1.2,
-    templeBendMm: DEFAULT_TEMPLE_BEND_MM, templePivotMm: 0, templeTest: null});
-  assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false); assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
-  assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/); assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
-  assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF.*continuity cut OFF/);
-  const out = parseConfig('?capture=100&hairz=5&exposure=auto&hairrun=0&face=cpu&hair=1');
-  assert.deepEqual(out, {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU'], hair: true});
+test('ordinary camera, hair, and diagnostic controls retain their bounds and off spelling', () => {
+  const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
+  assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120,
+    hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false,
+    eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
+  assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false);
+  assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
+  assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/);
+  assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
+  assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF/);
+  assert.deepEqual(parseConfig('?capture=100&hairz=5&exposure=auto&face=cpu&hair=1'), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU'], hair: true});
   assert.equal(parseConfig('?exposure=0').exposure, null);
   assert.equal(parseConfig('?capture=1000.4').captureMaxEdge, 1000);
-  assert.equal(parseConfig('?source=videoframe').captureSource, 'videoframe'); assert.equal(parseConfig('?source=canvas').captureSource, 'canvas'); assert.equal(parseConfig('?source=gpu').captureSource, 'videoframe');
-  assert.match(describeConfig(parseConfig('?source=canvas')), /capture source canvas \(\?source=\)/); assert.match(describeConfig(DEFAULT_CONFIG), /capture source VideoFrame \(\?source=\)/);
-  assert.equal(parseConfig('?hairwait=48').hairWaitMs, 48); assert.equal(parseConfig('?hairwait=500').hairWaitMs, HAIR_WAIT_MS); assert.match(describeConfig(parseConfig('?hairwait=48')), /hair mask guard 48 ms \(\?hairwait=\)/);
+  assert.equal(parseConfig('?source=videoframe').captureSource, 'videoframe');
+  assert.equal(parseConfig('?source=canvas').captureSource, 'canvas');
+  assert.equal(parseConfig('?source=gpu').captureSource, 'videoframe');
+  assert.match(describeConfig(parseConfig('?source=canvas')), /capture source canvas \(\?source=\)/);
+  assert.equal(parseConfig('?hairwait=48').hairWaitMs, 48); assert.equal(parseConfig('?hairwait=500').hairWaitMs, HAIR_WAIT_MS);
+  assert.match(describeConfig(parseConfig('?hairwait=48')), /hair mask guard 48 ms \(\?hairwait=\)/);
 });
 
-test('the temple fit is a two-value selector, original by default, and the settings line names the running one', () => {
-  // The live comparison: exactly two modes, and anything else is the shipped geometry rather than a guess.
-  assert.equal(parseConfig('').fit, 'original');
-  assert.equal(parseConfig('?fit=width').fit, 'width'); assert.equal(parseConfig('?fit=WIDTH').fit, 'width');
-  assert.equal(parseConfig('?fit=original').fit, 'original'); assert.equal(parseConfig('?fit=1').fit, 'original');
-  assert.equal(parseConfig('?fit=').fit, 'original'); assert.equal(parseConfig('?fit=wide').fit, 'original');
-  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
-  for (const agent of ['', iphone]) assert.equal(parseConfig('', agent, 5).fit, 'original', 'no device opts in to the experiment');
-  // The experiment must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.
-  for (const agent of ['', iphone]) {
-    const {fit, ...rest} = parseConfig('?fit=width', agent, 5);
-    const {fit: plainFit, ...plain} = parseConfig('', agent, 5);
-    assert.equal(fit, 'width'); assert.equal(plainFit, 'original'); assert.deepEqual(rest, plain);
+test('retired temple experiments cannot reactivate a different pipeline through an old address', () => {
+  const retired = ['templepreview', 'templetest', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'templepivot', 'continuity', 'hairrun'];
+  const ordinary = '?capture=960&source=canvas&face=gpu&hairModel=selfie-multiclass&hairdelegate=cpu&hairframes=2&hair=0&eyewear=tom-ford-clear';
+  for (const mode of ['current', 'fixed', 'geometry', 'capped', 'stable']) {
+    const old = `${ordinary}&templepreview=${mode}&templetest=Z2&fit=width&temples=angles&templekeep=3&templedrop=6&templebend=0&templepivot=8&continuity=0&hairrun=40`;
+    assert.deepEqual(parseConfig(old), parseConfig(ordinary), 'old comparison URLs cannot override the accepted renderer or ordinary hair choice');
+    assert.deepEqual(unrecognizedOptions(old), retired);
   }
-  assert.match(describeConfig(parseConfig('')), /temple fit original \(\?fit=width for the experiment\)/);
-  assert.match(describeConfig(parseConfig('?fit=width')), /temple fit WIDTH FIT, experimental: the head occluder and the posterior arm spread follow a stable face-width ratio \(\?fit=original restores the shipped geometry\)/);
-  assert.deepEqual(unrecognizedOptions('?fit=width'), []); assert.deepEqual(unrecognizedOptions('?fits=width'), ['fits']);
+  const description = describeConfig(DEFAULT_CONFIG);
+  assert.doesNotMatch(description, /preview|experiment|sweep|revision|\?temple|\?fit=|\?continuity=|\?hairrun=/i);
 });
 
-test('the temple-occlusion rule is a two-value selector, per pixel by default, and the settings line names it', () => {
-  assert.equal(parseConfig('').temples, 'depth');
-  assert.equal(parseConfig('?temples=angles').temples, 'angles'); assert.equal(parseConfig('?temples=ANGLES').temples, 'angles');
-  assert.equal(parseConfig('?temples=depth').temples, 'depth');
-  assert.equal(parseConfig('?temples=1').temples, 'depth'); assert.equal(parseConfig('?temples=').temples, 'depth');
-  assert.match(describeConfig(parseConfig('')), /temple occlusion per pixel from the head's own depth, v4: kept to 0.3 cm behind it, gone by 1.2 cm/);
-  // The band is the only number deciding how much arm survives, so it is judgeable live.
-  assert.deepEqual([parseConfig('?templekeep=1.2&templedrop=4').templeKeepCm, parseConfig('?templekeep=1.2&templedrop=4').templeDropCm], [1.2, 4]);
-  assert.deepEqual([parseConfig('?templekeep=0').templeKeepCm, parseConfig('?templekeep=0').templeDropCm], [0, 1.2]);
-  // A pair that is not a band, or either end out of range, falls back to both defaults rather than half of each.
-  for (const bad of ['?templekeep=3&templedrop=2', '?templedrop=0.2', '?templekeep=9', '?templedrop=99', '?templekeep=x&templedrop=y'])
-    assert.deepEqual([parseConfig(bad).templeKeepCm, parseConfig(bad).templeDropCm], [0.3, 1.2], bad);
-  assert.match(describeConfig(parseConfig('?templekeep=1.2&templedrop=4')), /kept to 1.2 cm behind it, gone by 4 cm/);
-  assert.deepEqual(unrecognizedOptions('?templekeep=1&templedrop=3'), []);
-  // The manual outward bend at the tips, in millimetres, hinged at the front of the frame. It ships on, at the value
-  // the owner judged best live, so a page with no address at all already carries it.
-  // The wearer's own verdict from round two of the live sweep, judged at the band that ships with it.
-  assert.equal(DEFAULT_TEMPLE_BEND_MM, 18);
-  assert.deepEqual([parseConfig('').templeKeepCm, parseConfig('').templeDropCm], [0.3, 1.2]);
-  assert.equal(parseConfig('').templeBendMm, DEFAULT_TEMPLE_BEND_MM);
-  assert.equal(parseConfig('?templebend=6').templeBendMm, 6);
-  assert.equal(parseConfig('?templebend=-4').templeBendMm, -4);
-  assert.equal(parseConfig('?templebend=24').templeBendMm, 24);
-  assert.equal(parseConfig('?templebend=0').templeBendMm, 0, 'and it can be turned off for the arms as authored');
-  for (const bad of ['?templebend=25', '?templebend=-25', '?templebend=x'])
-    assert.equal(parseConfig(bad).templeBendMm, DEFAULT_TEMPLE_BEND_MM, bad);
-  assert.equal(parseConfig('?templebend=').templeBendMm, 0, 'an empty value is a number here, as it is for every numeric lever');
-  assert.match(describeConfig(parseConfig('?templebend=0')), /temple bend none, the arms as authored \(\?templebend=\)/);
-  assert.match(describeConfig(parseConfig('?templebend=6')), /temple bend 6 mm outward at the tip, straight from the hinge/);
-  assert.deepEqual(unrecognizedOptions('?templebend=6'), []); assert.deepEqual(unrecognizedOptions('?templebends=6'), ['templebends']);
-  // How far behind the asset's own hinge the bend pivots, in millimetres. 0 is the hinge itself.
-  assert.equal(parseConfig('').templePivotMm, 0);
-  assert.equal(parseConfig('?templepivot=8').templePivotMm, 8);
-  assert.equal(parseConfig('?templepivot=30').templePivotMm, 30);
-  for (const bad of ['?templepivot=31', '?templepivot=-1', '?templepivot=x'])
-    assert.equal(parseConfig(bad).templePivotMm, 0, bad);
-  assert.match(describeConfig(parseConfig('?templebend=10&templepivot=8')), /10 mm outward at the tip, straight from 8 mm behind the hinge \(\?templebend=, \?templepivot=\)/);
-  assert.deepEqual(unrecognizedOptions('?templepivot=8'), []); assert.deepEqual(unrecognizedOptions('?templereach=65'), ['templereach']);
-  assert.match(describeConfig(parseConfig('?temples=angles')), /temple occlusion PER-SIDE PERCENTAGES from the head angles, the former v3 \(\?temples=depth\)/);
-  assert.deepEqual(unrecognizedOptions('?temples=angles'), []); assert.deepEqual(unrecognizedOptions('?temple=angles'), ['temple']);
-  // The rule must not disturb the measured capture, delegate, hair schedule and pose defaults of either device.
-  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1';
-  for (const agent of ['', iphone]) {
-    const {temples, ...rest} = parseConfig('?temples=angles', agent, 5);
-    const {temples: fallback, ...plain} = parseConfig('', agent, 5);
-    assert.equal(temples, 'angles'); assert.equal(fallback, 'depth'); assert.deepEqual(rest, plain);
-  }
+test('responsive movement is the ordinary default while explicit steadiness controls remain available', () => {
+  assert.deepEqual(DEFAULT_STEADY, {rotationMinCutoffHz: 1, rotationBeta: .3, depthMinCutoffHz: 1, depthBeta: .8,
+    derivativeCutoffHz: 3, resetGapMs: 500});
+  assert.deepEqual(parseConfig('').steady, DEFAULT_STEADY);
+  assert.equal(parseConfig('?steady=0').steady, null);
+  assert.deepEqual(parseConfig('?steadyhz=2&steadybeta=.4&steadydepthhz=3&steadydepthbeta=.9').steady,
+    {...DEFAULT_STEADY, rotationMinCutoffHz: 2, rotationBeta: .4, depthMinCutoffHz: 3, depthBeta: .9});
+  assert.deepEqual(parseConfig('?steadybeta=-1&steadydepthbeta=9').steady, DEFAULT_STEADY);
 });
 
 test('every device defaults to the CPU face landmarker first (iPhone and iPad since 2026-09-17); ?face=gpu puts the GPU first', () => {

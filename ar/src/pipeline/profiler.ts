@@ -9,7 +9,7 @@ export interface FrameSample {
   faceWorkerValidationMs: number | null; faceClientValidationMs: number | null; faceTransportSchedulingMs: number | null;
   detectionHashMs: number; schedulerWaitMs: number; prerequisitesWaitMs: number; hairAdmissionWaitMs: number;
   hairWaitMs: number; hairInferenceMs: number | null; hairExtractionMs: number | null;
-  prepareMs: number; gpuWaitMs: number; poseMs: number; finishMs: number; maskUploadMs: number; continuityMs: number;
+  prepareMs: number; gpuWaitMs: number; poseMs: number; finishMs: number; maskUploadMs: number; endpointMs: number;
   submitMs: number; renderMs: number; totalMs: number;
   hasFace: boolean; hasMask: boolean; fallback: string | null;
   faceDelegate: string | null; hairDelegate: string | null; gpuRenderer: string | null;
@@ -35,7 +35,7 @@ export const STAGES = ['sourceDrawMs', 'detectorDrawMs', 'sourceReadbackMs', 'so
   'faceInferenceMs', 'faceWorkerMs', 'faceExtractionMs', 'faceWorkerValidationMs', 'faceClientValidationMs',
   'faceTransportSchedulingMs', 'prerequisitesWaitMs', 'detectionHashMs', 'schedulerWaitMs', 'hairAdmissionWaitMs',
   'hairWaitMs', 'hairInferenceMs', 'hairExtractionMs', 'prepareMs', 'gpuWaitMs', 'poseMs', 'finishMs', 'maskUploadMs',
-  'continuityMs', 'submitMs', 'renderMs'] as const;
+  'endpointMs', 'submitMs', 'renderMs'] as const;
 
 /** Parallel durations overlap; do not add the source hash, the face request and the hair inference to derive total time. */
 export function summarize(samples: readonly FrameSample[]): ProfileSummary {

@@ -26,9 +26,9 @@ import type {Landmark} from '../face/protocol.ts';
 export const DEFAULT_CAPTURE_MAX_EDGE = 1280;
 /** The face landmarker sees a copy of at most this edge. */
 export const FACE_INPUT_MAX_EDGE = 640;
-/** The hair segmenter sees a copy of at most this edge; the mask is that size and the render, the continuity cut and the
- *  CPU reference map frame pixels to mask pixels by nearest lookup (GPU output equal to the reference at both sizes on
- *  the laptop harness). At 640 the mask readback, the hair worker's largest cost after inference, is a quarter of the
+/** The hair segmenter sees a copy of at most this edge. The endpoint tracker and CPU reference read binary categories;
+ *  the render uses the same nearest category texture with a small screen-space feather. At 640 the mask readback,
+ *  the hair worker's largest cost after inference, is a quarter of the
  *  frame-size one (phone 20-25 → 8-10 ms); the owner accepted the 2:1 mask on the phone. `?hairinput=1280` restores the
  *  frame-size mask. */
 export const DEFAULT_HAIR_INPUT_MAX_EDGE = 640;
@@ -339,7 +339,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
         prerequisitesWaitMs: finishStart - r.prepareMs - r.hairWaitMs - i.inferenceStartedAt, hairAdmissionWaitMs: i.hairAdmissionWaitMs,
         hairWaitMs: r.hairWaitMs, hairInferenceMs: r.hair?.inferenceMs ?? null, hairExtractionMs: r.hair?.extractionMs ?? null,
         prepareMs: r.prepareMs, gpuWaitMs: stats.gpuWaitMs, poseMs: stats.poseMs, finishMs, maskUploadMs: stats.render.maskUploadMs,
-        continuityMs: stats.render.continuityMs, submitMs: stats.render.submitMs, renderMs: r.prepareMs + finishMs, totalMs: publishedAtMs - p.capturedAtMs,
+        endpointMs: stats.render.endpointMs, submitMs: stats.render.submitMs, renderMs: r.prepareMs + finishMs, totalMs: publishedAtMs - p.capturedAtMs,
         hasFace: r.visible, hasMask: stats.hasMask, fallback: stats.fallbackReason,
         faceDelegate: c.detector.delegate, hairDelegate: backend.active, gpuRenderer: backend.renderer, native};
       c.onPublished(row, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256}); at('published; waiting for the next camera frame');

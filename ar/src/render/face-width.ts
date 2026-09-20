@@ -1,4 +1,6 @@
-/** Experimental relative face width (`?fit=width`), off by default.
+/** Relative face-width observations for bounded anterior-head calibration, plus static arm-spread geometry.
+ *  TempleHeadFit uses the observations to fit the occluder. Production eyewear keeps a fixed 18 mm spread;
+ *  these observations never resize or bend it.
  *
  *  What it estimates: how wide this wearer's face is *in proportion*, compared with the canonical face the eyewear
  *  geometry is authored against. It is not anatomy, not an ear position and not a measurement in millimetres; the only
@@ -24,13 +26,11 @@ import {poseAngles} from './pose-stabilizer.ts';
 
 export const WIDTH_FIT_METHOD = 'face-width-fit-v1';
 
-/** The lateral plane the fixed temple rules test: the rear drop's eligibility, the continuity stations and the temple
- *  visibility overlay all use 0.045 m. A fitted arm point must stay on the same side of it, or those fixed rules would
- *  contradict the fitted geometry. */
+/** The lateral plane shared by arm-deformation eligibility, endpoint stations and visibility. A moved arm point
+ *  stays on its original side so the geometry and fragment rules classify the same shaft. */
 export const ARM_LATERAL_MIN_M = 0.045;
 
-/** The hard cap on how far one arm may be splayed outward at its tip, from every source together: the automatic width
- *  fit (capped far lower, see WIDTH_FIT.maxArmSpreadM) plus the manual bend (`?templebend=`).
+/** The geometry helper's hard cap on outward splay per arm. Production uses a fixed 18 mm within this bound.
  *
  *  The number is the arms' own inward curl. Read straight out of the shipped GLBs (2026-09-18): each arm's outer
  *  surface runs from |x| 7.2 cm along the hinge shaft to 5.1 cm at the ear hook on Amber Horizon, and 7.25 to 5.3 cm on
@@ -47,14 +47,14 @@ export const MAX_ARM_SPREAD_M = 0.024;
  *  rounded over its first SPREAD_HINGE_ROUND_M so the pivot is a hinge radius in the mesh and not a crease.
  *
  *  The pivot is the plane where the frame front ends and the temple shaft begins, which rear-drop.ts reads out of the
- *  asset's own cross-section. `?templepivot=` moves it backwards from there; it cannot move forwards, because in front
- *  of the hinge the same lateral band is the rim and the endpiece, and bending those would tear the frame front.
+ *  asset's own cross-section. Geometry callers may move it backwards; production keeps the asset hinge. It cannot
+ *  move forwards because the same lateral band then contains the rim and endpiece, which must stay fixed.
  *
  *  These are visual choices measured against a proxy head, not a wearer's anatomy. */
 export const SPREAD_HINGE_ROUND_M = 0.006;
 export const SPREAD_PIVOT_RANGE_M = Object.freeze({min: 0, max: 0.030});
 
-/** Both sources together, bounded and rounded to the same 0.1 mm step the fit uses. */
+/** Combine geometry spread contributions within the same bound and 0.1 mm quantum. Production uses a fixed sum. */
 export function totalArmSpreadM(fitSpreadM: number, bendM: number): number {
   const sum = (Number.isFinite(fitSpreadM) ? fitSpreadM : 0) + (Number.isFinite(bendM) ? bendM : 0);
   const capped = Math.min(MAX_ARM_SPREAD_M, Math.max(-MAX_ARM_SPREAD_M, sum));
@@ -81,10 +81,9 @@ export const WIDTH_FIT = Object.freeze({
   ease: 0.05,
   /** Continuous milliseconds without a tracked face after which the estimate is dropped. */
   lostResetMs: 3000,
-  /** Lateral spread per unit of ratio (half the canonical face width): a 5 % wider face spreads each arm 3.5 mm. */
+  /** Optional ratio-to-spread geometry conversion; it is not applied to production eyewear. */
   armSpreadPerRatioM: 0.07,
-  /** Cap on what the automatic fit alone may spread one arm by, and the step every spread is rounded to. The manual
-   *  bend adds to this and the pair is bounded by MAX_ARM_SPREAD_M. */
+  /** Bound and quantization for the optional ratio-to-spread helper. Head-occluder calibration uses the ratio itself. */
   maxArmSpreadM: 0.006, spreadQuantumM: 0.0001,
   /** Kept clear of ARM_LATERAL_MIN_M when a point would otherwise be pulled across it. */
   lateralGuardM: 0.0005,
@@ -247,7 +246,7 @@ export class FaceWidthEstimator {
   }
 }
 
-/** The lateral spread of one arm for a width ratio: bounded, rounded, and exactly 0 at ratio 1. A visual choice. */
+/** Optional width-ratio conversion: bounded, rounded, and zero at ratio 1. Production eyewear does not call it. */
 export function armSpreadM(ratio: number): number {
   if (!Number.isFinite(ratio)) return 0;
   const raw = (clamp(ratio, WIDTH_FIT.appliedMinRatio, WIDTH_FIT.appliedMaxRatio) - 1) * WIDTH_FIT.armSpreadPerRatioM;
@@ -280,7 +279,7 @@ export function armSpreadCurve(z: number, startZM: number, cutoffZM: number, spr
   return run < SPREAD_HINGE_ROUND_M ? slope * run * run / (2 * SPREAD_HINGE_ROUND_M) : slope * (run - SPREAD_HINGE_ROUND_M / 2);
 }
 
-/** d(offset)/dz of `armSpreadCurve`, so the arm's normals and tangents can follow the shear as they follow the drop's. */
+/** d(offset)/dz of `armSpreadCurve`, used to keep deformed normals and tangents consistent with the shaft. */
 export function armSpreadSlope(z: number, startZM: number, cutoffZM: number, spreadM: number): number {
   const span = spreadRampSpan(startZM, cutoffZM, spreadM);
   if (!Number.isFinite(z)) throw new Error('The arm-spread span is invalid.');
@@ -291,9 +290,8 @@ export function armSpreadSlope(z: number, startZM: number, cutoffZM: number, spr
   return -(run < SPREAD_HINGE_ROUND_M ? slope * run / SPREAD_HINGE_ROUND_M : slope);
 }
 
-/** The fitted lateral position of an arm point: identity at spread 0, and never moved across ARM_LATERAL_MIN_M, so the
- *  fixed temple rules (the visibility discard, the continuity stations, the rear-drop eligibility) classify it exactly
- *  as they did before the fit. */
+/** Lateral position after spread: identity at zero and never crossing ARM_LATERAL_MIN_M, so visibility,
+ *  endpoint stations and deformation eligibility continue to classify the same shaft. */
 export function spreadArmX(x: number, z: number, startZM: number, cutoffZM: number, spreadM: number): number {
   if (!Number.isFinite(x)) throw new Error('The arm-spread position is invalid.');
   if (spreadM === 0) return x;

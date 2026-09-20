@@ -1,6 +1,5 @@
-/** The experimental face-width fit (`?fit=width`): the estimate itself (stability across distance and rotation, what it
- *  refuses, what a session reset does) and the geometry it drives (exact restoration of the original arms, and the same
- *  deformation in the drawn arms, the continuity centrelines and the protection corridor). */
+/** Head-width estimation and fixed arm geometry: stability across distance and rotation, bounded fitting,
+ *  exact restoration, and agreement between drawn arms and the protection corridor. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -17,7 +16,6 @@ import {buildTempleContinuityModel, CONTINUITY_GEOMETRY, projectTempleContinuity
 import {createProtection, protectionProjection, projectBounds} from '../src/render/protection.ts';
 import {TEMPLE_VISIBILITY_PARAMETERS} from '../src/render/temple-visibility.ts';
 import {GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
-import {LiveRenderer} from '../src/render/live-renderer.ts';
 
 const canonical: number[] = (JSON.parse(readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]}).positions;
 const SPANS = canonicalRegionSpans(canonical);
@@ -217,18 +215,6 @@ test('the lateral rule the fixed temple code tests is one number, and a fitted p
   assert.throws(() => armSpreadCurve(-0.05, -0.1, -0.025, 0.004), /span is invalid/);
   assert.throws(() => armSpreadCurve(-0.05, startZM, cutoffZM, 0.05), /out of range/);
   assert.throws(() => spreadArmX(Number.NaN, -0.05, startZM, cutoffZM, 0.004), /position is invalid/);
-});
-
-test('the page switches the live renderer between the two pipelines and never runs both', () => {
-  // The selector reaches the renderer through the live wrapper, which forwards nothing once the session is closed.
-  const calls: boolean[] = [];
-  const inner = {setWidthFit: (value: boolean) => {calls.push(value);}, widthFit: {mode: 'original', state: 'off', ratio: 1}, dispose() {}};
-  const live = new (LiveRenderer as unknown as new (renderer: unknown) => LiveRenderer)(inner);
-  assert.equal(live.widthFit.mode, 'original');
-  live.setWidthFit(true); live.setWidthFit(false);
-  assert.deepEqual(calls, [true, false]);
-  live.dispose(); live.setWidthFit(true);
-  assert.deepEqual(calls, [true, false], 'a closed session does not reach the renderer');
 });
 
 test('the manual bend splays each arm outward from its hinge, and the front of the frame never moves', () => {

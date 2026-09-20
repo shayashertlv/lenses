@@ -3,10 +3,7 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
-import {DEFAULT_TEMPLE_BEND_MM, describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
-import {describeTempleTest, templeSweepGroups, templeTestById, TEMPLE_SWEEP} from './temple-sweep.ts';
-import type {TempleTest} from './temple-sweep.ts';
-import type {FitMode} from './config.ts';
+import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
 import {lockCameraExposure} from './camera/exposure.ts';
@@ -18,8 +15,6 @@ import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
-import type {WidthFitReport} from './render/renderer.ts';
-import type {TempleVisibilityMode} from './render/temple-visibility.ts';
 import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
@@ -34,9 +29,6 @@ const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const v
 const stage = document.querySelector<HTMLElement>('.stage') as HTMLElement;
 const eyewearSelect = element<HTMLSelectElement>('eyewear-select'), hairSelect = element<HTMLSelectElement>('hair-model-select');
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
-const fitSelect = element<HTMLSelectElement>('fit-mode');
-const templeSelect = element<HTMLSelectElement>('temple-mode');
-const sweepSelect = element<HTMLSelectElement>('temple-test');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
 const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -54,24 +46,6 @@ interface Session {
 }
 let current: Session | null = null;
 let hairEnabled = config.hair ?? true;
-// Which temple-fit pipeline runs. Changing it switches the live renderer between frames inside the same camera
-// session; Original is the shipped geometry and the default.
-let fitMode: FitMode = config.fit;
-// Which rule gives up part of a temple arm to the head. Switchable live, like the fit above.
-let templeMode: TempleVisibilityMode = config.temples;
-// The temple configuration the mirror is drawing now: the address's own values, or a sweep entry chosen on the page.
-// Held here rather than read off `config`, because the sweep changes it inside a live session.
-let sweep: TempleTest | null = templeTestById(config.templeTest);
-let templeLevers = {bendMm: config.templeBendMm, pivotMm: config.templePivotMm, keepCm: config.templeKeepCm,
-  dropCm: config.templeDropCm, cut: config.continuity, runPx: config.continuityRunPx, hair: config.hair ?? true};
-// What "off" means: the address read WITHOUT its sweep id, so turning the sweep off restores the four levers the
-// address itself asked for rather than the entry it started on.
-const addressTemple = (() => {
-  const search = new URLSearchParams(location.search); search.delete('templetest');
-  const plain = parseConfig(`?${search}`);
-  return {bendMm: plain.templeBendMm, pivotMm: plain.templePivotMm, keepCm: plain.templeKeepCm, dropCm: plain.templeDropCm,
-    mode: plain.temples, cut: plain.continuity, runPx: plain.continuityRunPx, hair: plain.hair ?? true};
-})();
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
@@ -118,85 +92,16 @@ for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, mode
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
-fitSelect.value = fitMode;
-templeSelect.value = templeMode;
-sweepSelect.add(new Option('Off · the address options', ''));
-for (const {group, tests} of templeSweepGroups()) {
-  const optgroup = document.createElement('optgroup'); optgroup.label = group;
-  for (const test of tests) optgroup.append(new Option(`${test.id} · ${test.label}${test.sameAs ? ` (same as ${test.sameAs})` : ''}`, test.id));
-  sweepSelect.append(optgroup);
-}
-sweepSelect.value = sweep?.id ?? '';
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
-updateWidthFitLine();
-
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}
 eyewearSelect.addEventListener('change', showEyewear); showEyewear();
-hairToggle.addEventListener('change', () => {hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
-templeSelect.addEventListener('change', () => {
-  templeMode = templeSelect.value === 'angles' ? 'angles' : 'depth';
-  current?.renderer?.setTempleMode(templeMode);
-  note('temple-mode', templeMode); updateWidthFitLine();
-});
-/** Run one sweep entry, or the address's own temple options when there is none. Only the arms move. */
-function applyTempleSweep(next: TempleTest | null, source: string): void {
-  sweep = next;
-  const wanted = next ?? addressTemple;
-  templeLevers = {bendMm: wanted.bendMm, pivotMm: wanted.pivotMm, keepCm: wanted.keepCm, dropCm: wanted.dropCm,
-    cut: wanted.cut, runPx: wanted.runPx, hair: wanted.hair};
-  templeMode = wanted.mode; templeSelect.value = templeMode;
-  sweepSelect.value = next?.id ?? '';
-  hairEnabled = templeLevers.hair; hairToggle.value = hairEnabled ? 'on' : 'off';
-  current?.renderer?.setTempleShape({bendM: templeLevers.bendMm / 1000, pivotM: templeLevers.pivotMm / 1000,
-    keepCm: templeLevers.keepCm, dropCm: templeLevers.dropCm});
-  current?.renderer?.setTempleMode(templeMode);
-  current?.renderer?.setTempleCut(templeLevers.cut, templeLevers.runPx);
-  current?.renderer?.setHairEnabled(hairEnabled);
-  note('temple-sweep', `${source} ${next ? describeTempleTest(next) : 'off, back to the address options'}`);
-  updateWidthFitLine();
-}
-sweepSelect.addEventListener('change', () => applyTempleSweep(templeTestById(sweepSelect.value), 'selected'));
-// Stepping with the arrow keys is the point of the sweep: one camera session, one pose, one configuration at a time.
-window.addEventListener('keydown', (event: KeyboardEvent) => {
-  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-  const target = event.target as HTMLElement | null;
-  if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.isContentEditable)) return;
-  const index = sweep ? TEMPLE_SWEEP.findIndex(test => test.id === sweep?.id) : -1;
-  const next = event.key === 'ArrowRight'
-    ? TEMPLE_SWEEP[(index + 1) % TEMPLE_SWEEP.length]
-    : TEMPLE_SWEEP[(index <= 0 ? TEMPLE_SWEEP.length : index) - 1];
-  event.preventDefault();
-  applyTempleSweep(next ?? null, 'stepped');
-});
-fitSelect.addEventListener('change', () => {
-  fitMode = fitSelect.value === 'width' ? 'width' : 'original';
-  current?.renderer?.setWidthFit(fitMode === 'width');
-  note('fit-mode', fitMode); updateWidthFitLine();
-});
-/** The experiment's debug line: the selected mode, the estimated width ratio and collecting / stable / fallback. */
-function updateWidthFitLine(): void {
-  const renderer = current?.renderer, fit = renderer?.widthFit, temple = renderer?.templeVisibility;
-  const occlusion = `${sweep ? `${describeTempleTest(sweep)} — ${sweep.group}` : 'Temple, address options'}`
-    + (templeLevers.bendMm === 0 ? ' · no bend'
-      : ` · bend ${templeLevers.bendMm} mm at the tips, straight from ${templeLevers.pivotMm === 0 ? 'the hinge' : `${templeLevers.pivotMm} mm behind it`}`)
-    + ` · ${templeMode === 'depth' ? `kept to ${templeLevers.keepCm} cm behind the head, gone by ${templeLevers.dropCm} cm` : 'given up by head angle'}`
-    + ` · ${!templeLevers.hair ? 'NO HAIR over the arms' : templeLevers.cut ? `hair cut at ${templeLevers.runPx} px of hair` : 'NO HAIR CUT'}`
-    + `${sweep?.sameAs ? ` · same as ${sweep.sameAs}` : ''}`
-    + `${sweep && sweep.mode !== templeMode ? ' · RULE CHANGED BY HAND' : ''}`
-    + (temple && templeMode === 'angles' ? ` · this pose gives up ${(100 - temple.negativeXWeight * 100).toFixed(0)}% / ${(100 - temple.positiveXWeight * 100).toFixed(0)}% of the two arms, dissolve ${(temple.frontalWeight * 100).toFixed(0)}%` : '');
-  if (!fit) {element('width-fit').textContent = `${occlusion} · fit ${fitMode === 'width' ? 'width' : 'original'} · no session`; return;}
-  element('width-fit').textContent = `${occlusion} · ` + (fit.mode === 'original'
-    ? 'fit original · shipped geometry'
-    : `fit width · ratio ${fit.ratio.toFixed(3)}${fit.observedRatio === null ? '' : ` (observed ${fit.observedRatio.toFixed(3)})`}`
-      + ` · ${fit.state} · arm spread ${(fit.armSpreadM * 1000).toFixed(1)} mm · ${fit.samples} observations`
-      + `${fit.state === 'stable' || !fit.lastRejection ? '' : ` · last frame not collected: ${fit.lastRejection}`}`);
-}
+hairToggle.addEventListener('change', () => { hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
 function updateControls(): void {
   const live = !!current;
-  eyewearSelect.disabled = hairSelect.disabled = live;
+  eyewearSelect.disabled = live; hairSelect.disabled = live;
   start.hidden = live; stop.hidden = !live; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
 }
@@ -218,15 +123,14 @@ function updateUi(): void {
   const ms = (value: number | undefined): string => value === undefined ? '—' : `${value.toFixed(1)} ms`;
   element('stages').textContent = `face ${ms(summary.stages.faceRequestWallMs?.median)} · prepare ${ms(summary.stages.prepareMs?.median)} (gpu wait ${ms(summary.stages.gpuWaitMs?.median)}, pose ${ms(summary.stages.poseMs?.median)}) · finish ${ms(summary.stages.finishMs?.median)} (submit ${ms(summary.stages.submitMs?.median)}) · hair wait ${ms(summary.stages.hairWaitMs?.median)}`;
   const exposure = session.exposure ? session.exposure.error ? ` · exposure lock failed: ${session.exposure.error}` : ` · exposure ${session.exposure.applied} × 100 µs (${session.exposure.mode})` : '';
-  const continuity = session.renderer?.continuityUnavailable ? ` · continuity cut unavailable: ${session.renderer.continuityUnavailable}` : '';
+  const endpoint = session.renderer?.endpointUnavailable ? ` · temple endpoint unavailable: ${session.renderer.endpointUnavailable}` : '';
   const sync = session.renderer?.syncUnavailable ? ` · GPU completion gate off: ${session.renderer.syncUnavailable}` : '';
   const capture = recent.at(-1)?.native?.['capture.source'];
   element('pose-shake').textContent = describePoseShake(poseShake(recent), config.steady !== null);
   const schedule = config.hairSchedule;
   element('hair-masks').textContent = describeHairReport(hairReport(recent), schedule.mode === 'every' ? 'every frame waits for its own mask'
     : `hair every ${schedule.frames} frames`);
-  updateWidthFitLine();
-  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${continuity}${sync}`;
+  element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${endpoint}${sync}`;
   // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
   // its change over a session can be read stage by stage without the device.
   // Two events per report, each under the 600-character cap: the stage medians, then the hair worker, the overlap at
@@ -234,14 +138,11 @@ function updateUi(): void {
   if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
     lastLiveReportAt = performance.now();
     const st = (key: string): string => ms(summary.stages[key]?.median);
-    // Only the experiment adds an event: with Original selected the diagnostics of a window are exactly as before.
-    if (fitMode === 'width' || templeMode !== 'depth' || sweep !== null
-      || templeLevers.bendMm !== DEFAULT_TEMPLE_BEND_MM || templeLevers.pivotMm !== 0) note('fit', `${element('width-fit').textContent ?? ''}`);
     note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
       + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
       + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
       + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
-      + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, continuity ${st('continuityMs')})`
+      + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, endpoint ${st('endpointMs')})`
       + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`
       + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`);
     report('hair', `${hairWorkerLine(session.pipeline)} · ${describeOverlapReport(overlapReport(recent))} · ${element('hair-masks').textContent ?? ''}`);
@@ -278,12 +179,10 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, widthFit: fitMode === 'width', temples: templeMode,
-      templeKeepCm: templeLevers.keepCm, templeDropCm: templeLevers.dropCm, templeBendM: templeLevers.bendMm / 1000,
-      templePivotM: templeLevers.pivotMm / 1000, continuity: templeLevers.cut, continuityRunPx: templeLevers.runPx}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
-    renderer.setHairEnabled(hairEnabled); session.renderer = renderer; updateWidthFitLine();
+    renderer.setHairEnabled(hairEnabled); session.renderer = renderer;
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -317,7 +216,7 @@ async function openSession(): Promise<void> {
         profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; lastLiveReportAt = performance.now() - 5000; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
         canvas.hidden = false; element('welcome').hidden = true;
         stage.dataset.frames = String(row.sequence);
-        setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace ? 'Turn slowly and compare the feel.' : 'Bring your face into view.');
+        setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace ? 'Turn your head to see the fit from different angles.' : 'Bring your face into view.');
       },
     });
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face ${detector.delegate ?? '—'}`;
@@ -366,8 +265,7 @@ async function runAudit(): Promise<Audit | null> {
     element('audit-result').textContent = `Frame ${audit.sequence} ${audit.width}×${audit.height} · guard ${audit.guard.guarded ? `on (${audit.guard.protectedRects.length} protected, ${audit.guard.editableRects.length} editable rects)` : audit.guard.safeFallback ? 'safe fallback' : 'off'} · hair ${audit.hairApplied ? `applied${audit.maskReuse.carried ? ` (mask reused from another frame, moved with the head; the CPU reference comparison is skipped for reused masks)` : ''}` : 'not applied'} · `
       + (c ? `${check('protected', c.protectedCheck)} · ${check('nose', c.noseCheck)} · ${check('outside editable', c.outsideEditableCheck)} · ${check('background', c.backgroundPreservationCheck)}` : `checks unavailable: ${audit.checkError}`)
       + ` · GPU edit vs no-hair render ${audit.afterVsBefore.differentPixels} px (max Δ ${audit.afterVsBefore.maxDelta})`
-      + ` · drop inside protected ${audit.dropInsideProtected ? `${audit.dropInsideProtected.differentPixels} px (${audit.dropInsideProtected.differentPixelsOver8} over 8)` : '—'}`
-      + ` · continuity cut ${audit.cut.continuity ? `left arm ${mm(audit.cut.negative)}, right arm ${mm(audit.cut.positive)}` : 'off'}${r.continuityRemovedPixels !== null ? `; the reference continuity would remove ${r.continuityRemovedPixels} px` : ''}`
+      + ` · temple endpoints ${mm(audit.templeEndpoint.negativeZM)} / ${mm(audit.templeEndpoint.positiveZM)} (${audit.templeEndpoint.state})`
       + (audit.afterVsReference ? ` · vs the CPU reference of the same inputs ${audit.afterVsReference.differentPixels} px differ (max Δ ${audit.afterVsReference.maxDelta}); the reference changes ${r.changedPixels} px${r.fallbackReason ? `, reference fallback: ${r.fallbackReason}` : ''}` : r.error ? ` · reference error: ${r.error}` : '')
       + ` · ${Math.round(audit.timings.totalMs)} ms (renders ${Math.round(audit.timings.rendersMs)}, readback ${Math.round(audit.timings.readbackMs)}, compose ${Math.round(audit.timings.composeMs)}, checks ${Math.round(audit.timings.checksMs)}).`;
     return audit;
@@ -457,17 +355,7 @@ declare global {interface Window {__ar: {
   measure(sessions: number, warmupMs: number, measurementMs: number): Promise<{sessions: MeasuredSession[]; status: string}>;
   samplesAfter(serial: number): FrameSample[]; lastReport(): Record<string, unknown> | null; audit(): Promise<Audit | null>;
   config(): typeof config;
-  /** The live comparison: read or switch the temple-fit pipeline without touching the camera session. */
-  fit(): {mode: FitMode; report: WidthFitReport | null};
-  setFit(mode: FitMode): void;
-  /** The temple-occlusion rule: read it, or switch it without touching the camera session. */
-  temples(): {mode: TempleVisibilityMode; state: ReturnType<LiveRenderer['templeVisibility']['valueOf']> | null};
-  setTemples(mode: TempleVisibilityMode): void;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
-  lastReport: () => lastReport, audit: runAudit, config: () => config,
-  fit: () => ({mode: fitMode, report: current?.renderer?.widthFit ?? null}),
-  setFit: mode => {fitSelect.value = mode === 'width' ? 'width' : 'original'; fitSelect.dispatchEvent(new Event('change'));},
-  temples: () => ({mode: templeMode, state: current?.renderer?.templeVisibility ?? null}),
-  setTemples: mode => {templeSelect.value = mode === 'angles' ? 'angles' : 'depth'; templeSelect.dispatchEvent(new Event('change'));}};
+  lastReport: () => lastReport, audit: runAudit, config: () => config};
 updateControls();

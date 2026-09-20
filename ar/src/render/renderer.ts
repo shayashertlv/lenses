@@ -1,22 +1,22 @@
-/** The try-on renderer: bridge pose, nasal shape, face and head occluders, temple clip and blend, side-depth
- *  visibility, pose-driven rear drop, and hair occlusion applied inside the eyewear fragment shaders, drawn straight
+/** The try-on renderer: bridge pose, nasal shape, face and head occluders, fixed temple endings, side-depth
+ *  visibility and hair occlusion applied inside the eyewear fragment shaders, drawn straight
  *  into the visible canvas. No pixel leaves the GPU on a live frame.
  *
  *  Guard (default on): the protection geometry (the optical and nasal rectangles and the arm corridors) is computed
  *  per frame; the stencil buffer marks the editable region (arm corridors minus protected rectangles), and the frame
  *  is drawn in two stencil-limited passes: everything outside the editable region from the unblended render, the
- *  editable region with the rear drop and the hair blend. No shader can write a hair-blended fragment into a
- *  protected pixel. When the protection cannot be established the frame is drawn without drop or hair.
+ *  editable region with the hair blend. No shader can write a hair-blended fragment into a
+ *  protected pixel. When the protection cannot be established the frame is drawn without hair.
  *
- *  Continuity cut (default on): the pinned arm centrelines are projected per pose and walked over the hair mask; from
- *  an arm's first consistent hair run the arm is removed to its tip.
+ *  The pinned arm centrelines are projected per pose. The first resolved hair crossing hides the
+ *  downstream shaft; the fixed terminal return remains buried when no usable mask is available.
  *
  *  `readback()` exists for the audit only. */
 import {
   ACESFilmicToneMapping, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
   DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh, NearestFilter,
   MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
-  SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector3, WebGLRenderer,
+  SRGBColorSpace, Texture, UnsignedByteType, Vector3, WebGLRenderer,
 } from 'three';
 import type {WebGLRenderTarget} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -25,6 +25,15 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import type {Detection} from '../face/protocol.ts';
 import type {CategoryMask} from '../hair/protocol.ts';
 import {FaceSurface} from './face-surface.ts';
+import {TempleSurface} from './temple-surface.ts';
+import {TempleCheekContactEstimator} from './temple-cheek-contact.ts';
+import {TempleContactDepth} from './temple-contact-depth.ts';
+import {createTempleTerminalFit, templeTerminalRelief} from './temple-terminal-fit.ts';
+import type {TempleTerminalFit} from './temple-terminal-fit.ts';
+import {createTempleHeadShell, createTempleHeadShellFit} from './temple-head-shell.ts';
+import {TempleHeadFit} from './temple-head-fit.ts';
+import {TempleEndpointTracker} from './temple-endpoint.ts';
+import type {TempleEndpointReport} from './temple-endpoint.ts';
 import {correctedBridgePose} from './bridge-pose.ts';
 import {createNasalShape} from './nasal-shape.ts';
 import {VIRTUAL_CAMERA} from './projection.ts';
@@ -32,45 +41,28 @@ import {DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS} from '..
 import type {EyewearDefinition} from '../eyewear/catalog.ts';
 import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
-import {createTempleVisibility, createTempleVisibilityConfiguration, DEFAULT_TEMPLE_VISIBILITY_MODE,
-  TEMPLE_VISIBILITY_PARAMETERS, validateReliefBand} from './temple-visibility.ts';
-import type {TempleVisibilityMode} from './temple-visibility.ts';
-import {createRearDrop, rearDropForPose, REAR_DROP_METHOD, validateRearDrop} from './rear-drop.ts';
-import type {RearDropConfiguration} from './rear-drop.ts';
+import {createTempleVisibility, createTempleVisibilityConfiguration,
+  TEMPLE_VISIBILITY_PARAMETERS} from './temple-visibility.ts';
+import {createRearDrop} from './rear-drop.ts';
 import {createProtection, nasalRoi} from './protection.ts';
 import type {PixelRect, ProtectionConfiguration} from './protection.ts';
-import {continuityCut, DEFAULT_CONTINUITY_RUN_PX, loadTempleContinuityModel, projectTempleContinuity} from './continuity.ts';
-import type {ContinuityCut, ProjectedTemplePath, TempleContinuityModel} from './continuity.ts';
+import {loadTempleContinuityModel, projectTempleContinuity} from './continuity.ts';
+import type {ProjectedTemplePath, TempleContinuityModel} from './continuity.ts';
 import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
-import {PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
+import {DEFAULT_STEADY, PoseStabilizer, poseAngles} from './pose-stabilizer.ts';
 import type {PoseSample, SteadyOptions} from './pose-stabilizer.ts';
-import {
-  armSpreadM, FaceWidthEstimator, MAX_ARM_SPREAD_M, SPREAD_PIVOT_RANGE_M, totalArmSpreadM, WIDTH_FIT_METHOD,
-} from './face-width.ts';
-import type {WidthFitState} from './face-width.ts';
 import {maskUvMatrix} from '../hair/mask-reuse.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
 import {assetPath} from '../assets.ts';
 
 export const GUARD_METHOD = 'gpu-stencil-protection-v1';
 export {HAIR_OCCLUSION_METHOD, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
-export {DEFAULT_CONTINUITY_RUN_PX} from './continuity.ts';
 /** The render never exceeds this width; the camera frame's aspect is kept. */
 export const MAX_RENDER_WIDTH = 1280;
 const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
-/** The rear head occluder, in centimetres of the tracked face pose (the same frame as the canonical face mesh). Its
- *  half-width is the one the experimental width fit personalizes.
- *
- *  It was (6.3, 8, 5) at z -2.5 until 2026-09-18 — 1.4 cm NARROWER than the canonical face mesh's own silhouette
- *  (|x| 7.74 cm at the temple) and ending 5 cm short of a skull. The face mesh itself stops at z -2.44, so behind that
- *  the head's flanks and the whole ear had no occluder at all, and an arm there could only end by being cut in mesh
- *  space. This ellipsoid is a head: it holds the canonical temple (f 1.22) and tragus (f 1.20) outside itself, so it
- *  never reaches past the real silhouette, keeps the straight temple shaft outside it as far back as the ear, and
- *  contains the ear hook (f 0.69-0.81). Its front face sits at z +3.99, well behind the frame at +6.53. A visual
- *  choice fitted to the canonical mesh, not a measured skull. */
-const HEAD_PROXY_SCALE_CM = Object.freeze([7.4, 9.5, 7.5] as const);
-const HEAD_PROXY_CENTER_CM = Object.freeze([0, -0.5, -3.5] as const);
+/** Authored fixed shape, not measured ear positions. The final band remains inside the head volume. */
+const HIDDEN_TAIL_M = .025, END_FADE_M = .005, ARM_SPREAD_M = .018;
 
 export interface RendererOptions {
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
@@ -79,61 +71,24 @@ export interface RendererOptions {
   sync?: boolean;
   /** Stencil protection of the optical/nasal rectangles (default on). */
   guard?: boolean;
-  /** Continuity cut from an arm's first consistent hair run to its tip (default on). */
-  continuity?: boolean;
-  /** Minimum hair run along the arm, in source pixels, that counts as a patch (default 10). */
-  continuityRunPx?: number;
-  /** Smooth the eyewear orientation and depth over time before the bridge pin (null or absent: off; the page passes the
-   *  default settings unless `?steady=0`; see pose-stabilizer.ts). */
+  /** Responsive orientation/depth smoothing before the bridge pin; defaults to DEFAULT_STEADY, null disables it. */
   steady?: SteadyOptions | null;
-  /** Experimental relative face-width fit (`?fit=width`, default off): personalizes the head occluder's width and the
-   *  posterior arm spread from a stable width ratio. Switchable during a session (see `setWidthFit`). */
-  widthFit?: boolean;
-  /** Which rule gives up part of an arm to the head (`?temples=`): `depth` (v4, the default) decides per pixel from the
-   *  head's own depth; `angles` is the former v3 rule, two per-side percentages computed from the head's angles. */
-  temples?: TempleVisibilityMode;
-  /** v4's band in centimetres behind the head surface (`?templekeep=`, `?templedrop=`). */
-  templeKeepCm?: number;
-  templeDropCm?: number;
-  /** `?templebend=` in METRES: splay each arm outward from its hinge by this much at the tip. Adds to whatever the
-   *  width fit applies; the pair is capped at MAX_ARM_SPREAD_M. */
-  templeBendM?: number;
-  /** `?templepivot=` in METRES: how far behind the asset's own hinge the bend pivots. 0 pivots at the hinge, where
-   *  the frame front ends; larger values move the bending point back along the shaft. */
-  templePivotM?: number;
 }
-export interface RenderVariant {hair: boolean; drop: boolean; eyewear: boolean; guard: boolean;}
+export interface RenderVariant {hair: boolean; eyewear: boolean; guard: boolean;}
 export interface FrameTimings {
-  maskUploadMs: number; continuityMs: number; submitMs: number;
-  dropM: number; hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
+  templeEndMaximumZM: number | null; templeEndNegativeZM: number | null; templeEndPositiveZM: number | null; templeEndState: string;
+  maskUploadMs: number; endpointMs: number; submitMs: number;
+  hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
   guarded: boolean; passes: number; protectedRects: number; editableRects: number; safeFallback: boolean;
-  continuity: boolean; continuityRunPx: number; cutNegativeZ: number | null; cutPositiveZ: number | null;
-  /** The experimental width fit on this frame: the selected mode, its state, the applied ratio (exactly 1 when nothing
-   *  is applied) and the lateral spread of one arm in metres. */
-  widthFit: boolean; widthFitState: WidthFitState; widthRatio: number; armSpreadM: number;
-  /** Which temple-visibility rule drew this frame, and what the angle rule would have given up on each side. */
-  templeMode: TempleVisibilityMode; templeNegativeXWeight: number; templePositiveXWeight: number; templeFrontalWeight: number;
   templeKeepCm: number; templeDropCm: number;
-  /** The manual outward bend at the arm tips, how far behind the hinge it pivots, the plane it actually pivots about,
-   *  and the total lateral spread the drawn arms carry (bend plus fit). */
-  templeBendM: number; templePivotM: number; armSpreadStartZM: number | null; armSpreadTotalM: number;
-}
-/** What the page's debug line and the audit record about the width fit. */
-export interface WidthFitReport {
-  method: typeof WIDTH_FIT_METHOD; mode: 'original' | 'width'; state: WidthFitState;
-  /** The ratio in the geometry now; exactly 1 while collecting, after a fallback and in Original. */
-  ratio: number;
-  /** The median of the collected observations, which may differ from the applied ratio while it eases. */
-  observedRatio: number | null;
-  armSpreadM: number; samples: number; accepted: number; lastRejection: string | null;
-  /** The last accepted observation's per-region ratios, in WIDTH_REGIONS order: the face's own lateral profile, which
-   *  the single ratio only summarizes. Numbers only. */
-  regionRatios: readonly number[] | null;
+  armSpreadM: number; armSpreadStartZM: number | null;
 }
 interface CanonicalFace {positions: number[]; indices: number[];}
 export interface CaptureGeometry {
+  templeTerminalFit?: TempleTerminalFit | null;
+  templeHeadFit?: TempleHeadFit['report'] | null;
   eyewearModelId: string; rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number;
-  rearDrop: RearDropConfiguration | null; templeClip: TempleClipConfiguration | null; hairStartZ: number;
+  templeClip: TempleClipConfiguration | null; hairStartZ: number;
   protection: ProtectionConfiguration | null; noseRoi: PixelRect | null;
 }
 
@@ -183,13 +138,20 @@ export class TryOnRenderer {
   private fenceTimeouts = 0;
   private syncFailure: string | null = null;
   private readonly guard: boolean;
-  // Switchable inside a live session by the page's temple sweep (see setTempleCut): the cut decides where an arm
-  // ends when it passes behind hair, which is a temple question, so the sweep judges it with the rest.
-  private continuity: boolean;
-  private continuityRunPx: number;
   private continuityModel: TempleContinuityModel | null = null;
   private continuityFailure: string | null = null;
   private templePaths: ProjectedTemplePath[] | null = null;
+  private templeEndpointTracker: TempleEndpointTracker | null = null;
+  private templeTerminalFit: TempleTerminalFit | null = null;
+  private templeEndpointReport: TempleEndpointReport | null = null;
+  private templeEndpointPending = false;
+  private lastTrackedTimestampMs = -Infinity;
+  private poseTimestampMs = 0;
+  private templeSurface: TempleSurface | null = null;
+  private cheekContact: TempleCheekContactEstimator | null = null;
+  private readonly contactDepth = new TempleContactDepth();
+  private observedCheekGeometry: BufferGeometry | null = null;
+  private observedCheekAttribute: BufferAttribute | null = null;
   private readonly reader = new PixelReader();
   private backgroundTexture: CanvasTexture | null = null;
   private environmentTarget: WebGLRenderTarget | null = null;
@@ -200,12 +162,13 @@ export class TryOnRenderer {
   private rearDrop: ReturnType<typeof createRearDrop> | null = null;
   private hairOcclusion: ReturnType<typeof createHairOcclusion> | null = null;
   private lensMeshes: Mesh[] = [];
-  private currentRearDrop: RearDropConfiguration | null = null;
   private protectionConfiguration: ProtectionConfiguration | null = null;
   private nasalRect: PixelRect | null = null;
   private faceSurface: FaceSurface | null = null;
   private surfaceMesh: Mesh | null = null;
-  private headProxy: Mesh | null = null;
+  private templeHeadShell: Mesh | null = null;
+  private templeHeadFit: TempleHeadFit | null = null;
+  private templeHeadShellFit: ReturnType<typeof createTempleHeadShellFit> | null = null;
   private surfaceAttribute: BufferAttribute | null = null;
   private assetScenes: Object3D[] = [];
   private removeAbortListener: (() => void) | null = null;
@@ -224,36 +187,14 @@ export class TryOnRenderer {
   private maskWarp: MaskWarp | null = null;
   private uploadedCategory: Uint8Array | null = null;
   private uploadedHairIndex = -1;
-  private faceWidth: FaceWidthEstimator | null = null;
-  private widthFitEnabled: boolean;
-  private widthRatio = 1;
-  private armSpread = 0;
-  private templeMode: TempleVisibilityMode;
-  // The temple configuration: switchable inside a live session by the page's temple sweep (see setTempleShape).
-  private templeKeepCm: number;
-  private templeDropCm: number;
-  private templeBendM: number;
-  private templePivotM: number;
+  private readonly templeKeepCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
+  private readonly templeDropCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
     this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
-    this.stabilizer = options.steady ? new PoseStabilizer(options.steady) : null;
-    this.widthFitEnabled = options.widthFit === true;
-    this.templeMode = options.temples ?? DEFAULT_TEMPLE_VISIBILITY_MODE;
-    this.templeKeepCm = options.templeKeepCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
-    this.templeDropCm = options.templeDropCm ?? TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
-    validateReliefBand(this.templeKeepCm, this.templeDropCm);
-    const bend = options.templeBendM ?? 0;
-    if (!Number.isFinite(bend) || Math.abs(bend) > MAX_ARM_SPREAD_M) throw new Error('The temple bend is out of range.');
-    this.templeBendM = bend;
-    const pivot = options.templePivotM ?? 0;
-    if (!Number.isFinite(pivot) || pivot < SPREAD_PIVOT_RANGE_M.min || pivot > SPREAD_PIVOT_RANGE_M.max) {
-      throw new Error('The temple bend pivot is out of range.');
-    }
-    this.templePivotM = pivot;
+    const steady = options.steady === undefined ? DEFAULT_STEADY : options.steady;
+    this.stabilizer = steady ? new PoseStabilizer(steady) : null;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
-    this.continuity = options.continuity ?? true;
-    this.continuityRunPx = Math.max(1, options.continuityRunPx ?? DEFAULT_CONTINUITY_RUN_PX);
     this.scene.background = new Color(0x080b10);
     this.facePose.name = 'Tracked canonical face (centimeters)'; this.facePose.matrixAutoUpdate = false; this.facePose.visible = false; this.scene.add(this.facePose);
     this.eyewearPose.name = 'Eyewear bridge pose (centimeters)'; this.eyewearPose.matrixAutoUpdate = false; this.eyewearPose.visible = false; this.scene.add(this.eyewearPose);
@@ -271,90 +212,36 @@ export class TryOnRenderer {
   /** The protection for the posed frame (render pixels), or null when it could not be established. */
   get protection(): ProtectionConfiguration | null {return this.protectionConfiguration ? structuredClone(this.protectionConfiguration) : null;}
   get noseRoi(): PixelRect | null {return this.nasalRect ? {...this.nasalRect} : null;}
-  /** The projected arm centrelines for the posed frame (null without the pinned continuity geometry). */
+  /** The projected arm centrelines for the posed frame (null without pinned geometry). */
   get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
-  get continuityUnavailable(): string | null {return this.continuityFailure;}
+  get endpointUnavailable(): string | null {return this.continuityFailure;}
   /** How the next `render` reads its mask: null for the frame's own mask, or a mask reused from an earlier frame placed
-   *  by the head's motion (hair/mask-reuse.ts). It applies to the shader lookup and the continuity cut alike, and stays
+   *  by the head's motion (hair/mask-reuse.ts). It applies to shader lookups and hair endpoints alike, and stays
    *  until changed, so an audit's variants of the held frame read the mask the way the live frame did. */
   setMaskWarp(warp: MaskWarp | null): void {this.maskWarp = warp;}
   /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
   get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
-  /** The experimental width fit as it stands now (numbers and states only). */
-  get widthFit(): WidthFitReport {
-    return {method: WIDTH_FIT_METHOD, mode: this.widthFitEnabled ? 'width' : 'original',
-      state: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
-      ratio: this.widthRatio, observedRatio: this.widthFitEnabled ? this.faceWidth?.observedRatio ?? null : null,
-      armSpreadM: this.armSpread, samples: this.widthFitEnabled ? this.faceWidth?.sampleCount ?? 0 : 0,
-      accepted: this.widthFitEnabled ? this.faceWidth?.accepted ?? 0 : 0,
-      lastRejection: this.widthFitEnabled ? this.faceWidth?.lastRejection ?? null : null,
-      regionRatios: this.widthFitEnabled ? this.faceWidth?.lastRegionRatios ?? null : null};
+  private get templeEndMaximumZM(): number {
+    const original = this.eyewear.templeClipLocalZM;
+    // An already-short external frame must never grow a tail, or place its endpoint ahead of its usable shaft.
+    return Math.max(original, Math.min(-.055, original + HIDDEN_TAIL_M, (this.continuityModel?.startZM ?? Infinity) - .008));
   }
-  /** Which temple-visibility rule is running, and the angle rule's weights for the posed frame (numbers only). */
-  get templeVisibilityState(): {mode: TempleVisibilityMode; negativeXWeight: number; positiveXWeight: number; frontalWeight: number; keepCm: number; dropCm: number} {
-    const c = this.templeVisibility?.configuration ?? null;
-    return {mode: this.templeMode, negativeXWeight: c?.negativeXWeight ?? 0, positiveXWeight: c?.positiveXWeight ?? 0,
-      frontalWeight: c?.frontalOcclusionWeight ?? 0, keepCm: this.templeKeepCm, dropCm: this.templeDropCm};
+  private applyTempleEndpoint(): void {
+    const maximum = this.templeEndMaximumZM, report = this.templeEndpointReport;
+    this.templeClip?.set({...this.templeClipConfiguration, fadeLengthLocalM: END_FADE_M,
+      negativeXCutoffLocalZM: Math.max(maximum, report?.negativeZM ?? maximum),
+      positiveXCutoffLocalZM: Math.max(maximum, report?.positiveZM ?? maximum),
+      negativeXFadeLengthLocalM: report?.negativeFadeM ?? END_FADE_M,
+      positiveXFadeLengthLocalM: report?.positiveFadeM ?? END_FADE_M});
   }
-  /** Switch the temple-visibility rule inside a live session; it takes effect on the next posed frame. */
-  setTempleMode(mode: TempleVisibilityMode): void {if (!this.disposed) this.templeMode = mode;}
-  /** Apply a whole temple configuration inside a live session: how far the arms bend out, where that bend pivots, and
-   *  the band that decides how much of an arm is given up to the head. The set is validated before anything is
-   *  mutated, so a refused value leaves the running configuration exactly as it was, and the arm geometry, the
-   *  projected centrelines and the protection corridor all move together as they do on a cold start. */
-  setTempleShape(shape: {bendM: number; pivotM: number; keepCm: number; dropCm: number}): void {
-    if (this.disposed) return;
-    const {bendM, pivotM, keepCm, dropCm} = shape;
-    if (!Number.isFinite(bendM) || Math.abs(bendM) > MAX_ARM_SPREAD_M) throw new Error('The temple bend is out of range.');
-    if (!Number.isFinite(pivotM) || pivotM < SPREAD_PIVOT_RANGE_M.min || pivotM > SPREAD_PIVOT_RANGE_M.max) {
-      throw new Error('The temple bend pivot is out of range.');
-    }
-    validateReliefBand(keepCm, dropCm);
-    this.templeKeepCm = keepCm; this.templeDropCm = dropCm;
-    if (pivotM !== this.templePivotM) {this.templePivotM = pivotM; this.rearDrop?.setSpreadPivot(pivotM);}
-    if (bendM !== this.templeBendM) {
-      this.templeBendM = bendM; this.setWidthRatio(this.widthRatio); this.rearDrop?.setSpread(this.armSpread);
-    }
-    if (this.templePaths && this.lastPose && this.continuityModel) {
-      this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
-    }
-  }
-  /** Switch the hair continuity cut inside a live session: whether it runs, and the run of hair in pixels it needs
-   *  before it takes the end off an arm. Only the arms are affected; the cut reads nothing else. */
-  setTempleCut(enabled: boolean, runPx: number): void {
-    if (this.disposed) return;
-    if (!Number.isFinite(runPx) || runPx < 1 || runPx > 200) throw new Error('The hair cut run is out of range.');
-    this.continuity = enabled; this.continuityRunPx = Math.max(1, Math.round(runPx));
-  }
-  /** The temple configuration now in the geometry (metres and centimetres), for the page's debug line. */
-  get templeShape(): {bendM: number; pivotM: number; keepCm: number; dropCm: number} {
-    return {bendM: this.templeBendM, pivotM: this.templePivotM, keepCm: this.templeKeepCm, dropCm: this.templeDropCm};
-  }
-  /** Switch the width fit within a live session. Only one of the two runs at a time: turning it off restores the
-   *  original geometry immediately and drops every collected observation, so nothing of the fit is left behind. */
-  setWidthFit(enabled: boolean): void {
-    if (this.disposed || enabled === this.widthFitEnabled) return;
-    this.widthFitEnabled = enabled;
-    this.faceWidth?.reset();
-    this.setWidthRatio(1);
-    this.rearDrop?.setSpread(this.armSpread);
-    if (this.templePaths && this.lastPose && this.continuityModel) this.templePaths = this.projectPaths(this.lastPose.eyewearMatrix, this.currentRearDrop?.dropM ?? 0);
-  }
-  /** The fitted ratio in the geometry: the head occluder's half-width, and the lateral spread the next shape change
-   *  writes — the fit's contribution and the manual bend together, so turning the fit off leaves the bend standing. */
-  private setWidthRatio(ratio: number): void {
-    this.widthRatio = ratio; this.armSpread = totalArmSpreadM(armSpreadM(ratio), this.templeBendM);
-    if (this.headProxy) this.headProxy.scale.x = HEAD_PROXY_SCALE_CM[0] * ratio;
-  }
-  /** The arm centrelines for a pose, moved by the same drop and the same lateral spread as the drawn arms. */
-  private projectPaths(eyewearMatrix: readonly number[], dropM: number): ProjectedTemplePath[] | null {
+  /** The arm centrelines use the same fixed spread and terminal return as the drawn geometry. */
+  private projectPaths(eyewearMatrix: readonly number[]): ProjectedTemplePath[] | null {
     if (!this.continuityModel) return null;
     const {width, height} = this.renderSize;
     return projectTempleContinuity(this.continuityModel, {eyewearMatrix, offsetCm: this.eyewear.offsetCm,
-      sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM,
-      // Read back off the geometry rather than from the option, so the centrelines cannot be projected along a
-      // differently bent arm than the one that was drawn.
-      spreadM: this.armSpread, spreadStartZM: this.rearDrop?.spreadStartZM});
+      sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM: 0,
+      // The endpoint probe and the drawn vertices share the fixed spread and the asset's actual hinge plane.
+      spreadM: ARM_SPREAD_M, spreadStartZM: this.rearDrop?.spreadStartZM, terminalFit: this.templeTerminalFit});
   }
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
   get syncUnavailable(): string | null {return this.syncFailure;}
@@ -365,7 +252,9 @@ export class TryOnRenderer {
   get captureSnapshot(): CaptureGeometry | null {
     const pose = this.lastPose; if (!pose || this.disposed) return null;
     return {eyewearModelId: this.eyewear.id, rawMatrix: pose.rawMatrix.slice(), eyewearMatrix: pose.eyewearMatrix.slice(), yawDegrees: pose.yawDegrees,
-      rearDrop: this.currentRearDrop ? {...this.currentRearDrop} : null, templeClip: this.templeClip?.configuration ?? null, hairStartZ: this.hairStartZ,
+      templeTerminalFit: this.templeTerminalFit ? {...this.templeTerminalFit} : null,
+      templeHeadFit: this.templeHeadFit?.report ?? null,
+      templeClip: this.templeClip?.configuration ?? null, hairStartZ: this.hairStartZ,
       protection: this.protection, noseRoi: this.noseRoi};
   }
 
@@ -396,7 +285,7 @@ export class TryOnRenderer {
       const eyewearScene = gltf.scene; gltf = null;
       instance.configure(face, eyewearScene);
       if (signal.aborted) throw abortError();
-      // The pinned arm centrelines for the continuity cut; unavailable means no cut.
+      // The pinned arm centrelines support hair endpoints; failure retains the fixed buried cap.
       try {instance.continuityModel = await loadTempleContinuityModel(eyewear.assetUrl, eyewear.templeClipLocalZM, loading.signal);}
       catch (error) {if (signal.aborted) throw abortError(); instance.continuityFailure = error instanceof Error ? error.message : String(error);}
       if (signal.aborted) throw abortError();
@@ -413,8 +302,7 @@ export class TryOnRenderer {
     this.renderer.setPixelRatio(1); this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.canonicalPositions = face.positions; this.nasalShape = createNasalShape(face.positions, face.indices);
-    // The width fit compares the observed face with this same canonical mesh; an unusable one leaves the fit off.
-    try {this.faceWidth = new FaceWidthEstimator(face.positions);} catch {this.faceWidth = null;}
+    try {this.templeHeadFit = new TempleHeadFit(face.positions);} catch {this.templeHeadFit = null;}
     const asset = new Group(); asset.name = `${this.eyewear.name} bridge attachment`;
     asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.eyewear.offsetCm);
     eyewearScene.traverse(object => {
@@ -428,7 +316,15 @@ export class TryOnRenderer {
       if (object instanceof Mesh && (Array.isArray(object.material) ? object.material : [object.material]).some(material => material instanceof MeshPhysicalMaterial && material.transmission > 0)) this.lensMeshes.push(object);
     });
     this.templeClip = createTempleClip(eyewearScene);
-    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM, this.templePivotM);
+    this.cheekContact = new TempleCheekContactEstimator(face.positions, face.indices);
+    this.observedCheekGeometry = new BufferGeometry();
+    this.observedCheekAttribute = new BufferAttribute(new Float32Array(face.positions.length), 3).setUsage(DynamicDrawUsage);
+    this.observedCheekGeometry.setAttribute('position', this.observedCheekAttribute);
+    this.observedCheekGeometry.setIndex(face.indices);
+    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM, 0);
+    this.templeTerminalFit = createTempleTerminalFit(eyewearScene, {offsetCm: this.eyewear.offsetCm,
+      spreadM: ARM_SPREAD_M, spreadStartZM: this.rearDrop.spreadStartZM,
+      modelCutoffZM: this.eyewear.templeClipLocalZM, maximumZM: this.templeEndMaximumZM});
     const occlusionMaterial = new MeshBasicMaterial({colorWrite: false, depthWrite: true, depthTest: true, side: DoubleSide});
     this.faceSurface = new FaceSurface(face.positions);
     const geometry = new BufferGeometry();
@@ -436,10 +332,14 @@ export class TryOnRenderer {
     geometry.setAttribute('position', this.surfaceAttribute); geometry.setIndex(face.indices);
     const surface = new Mesh(geometry, occlusionMaterial); surface.name = 'Observed face depth in camera space';
     surface.renderOrder = -2; surface.frustumCulled = false; surface.visible = false; this.surfaceMesh = surface; this.scene.add(surface);
-    const head = new Mesh(new SphereGeometry(1, 24, 16), occlusionMaterial); head.name = 'Conservative rear head depth only';
-    head.scale.set(...HEAD_PROXY_SCALE_CM); head.position.set(...HEAD_PROXY_CENTER_CM); head.renderOrder = -2; this.headProxy = head; this.facePose.add(head);
-    this.setWidthRatio(this.widthRatio);
-    this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera, eyewearPose: this.eyewearPose});
+    // The observed face is an open surface. Join its canonical outer rim to the rear volume so
+    // a temple cannot disappear into the face and emerge through a seam before reaching the skull.
+    const shell = new Mesh(createTempleHeadShell(face.positions, face.indices), occlusionMaterial);
+    shell.name = 'Connected posterior head depth for fixed temples'; shell.renderOrder = -2;
+    shell.visible = false; this.templeHeadShell = shell; this.facePose.add(shell);
+    this.templeHeadShellFit = createTempleHeadShellFit(shell.geometry);
+    this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera,
+      eyewearPose: this.eyewearPose, observedFaceSurface: this.observedCheekGeometry});
     // Installed last so it wraps the clip and visibility hooks; its blend commutes with the clip's terminal blend.
     this.hairOcclusion = createHairOcclusion(eyewearScene);
     const key = new DirectionalLight(0xffffff, 2); key.position.set(-10, 15, 20); this.scene.add(key);
@@ -472,9 +372,10 @@ export class TryOnRenderer {
   }
 
   /** Pose this detection over the frame (no drawing) and establish the protection for it. Returns whether a face is tracked.
-   *  `timestampMs` is the frame's capture time; only the optional pose steadiness reads it. */
+   *  `timestampMs` is the frame's capture time, shared by pose and contact-depth filters. */
   pose(frame: HTMLCanvasElement, detection: Detection, timestampMs: number = performance.now()): boolean {
     if (this.disposed) return false;
+    this.poseTimestampMs = timestampMs; this.templeEndpointPending = false;
     this.clearPresentation(false);
     try {
       if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
@@ -497,13 +398,18 @@ export class TryOnRenderer {
         const surfaceValid = this.faceSurface?.reconstruct(detection.landmarks, matrix, this.camera.aspect) ?? false;
         this.facePose.visible = surfaceValid;
         if (surfaceValid) {
-          if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
-          // The width fit observes the reconstructed surface on this frame's raw detector pose, before the nasal shape
-          // changes it, and only near-frontal observations are collected (face-width.ts).
-          if (this.widthFitEnabled && this.faceWidth) {
-            this.faceWidth.observe(this.faceSurface!.positions, matrix, timestampMs);
-            this.setWidthRatio(this.faceWidth.ratio);
+          let cheekDepthValid = true;
+          // Preserve this frame's actual observed shape BEFORE nasal/lateral proxy fitting.
+          // It is a separate cheek-depth input; the accepted stable main occluder is unchanged.
+          if (this.observedCheekAttribute) {
+            const observed = this.observedCheekAttribute.array as Float32Array;
+            cheekDepthValid = this.contactDepth.apply(this.faceSurface!.positions, matrix, timestampMs, observed);
+            this.observedCheekAttribute.needsUpdate = true;
           }
+          if (!this.nasalShape) throw new Error('The nasal shape is not initialized.');
+          // Only the anterior occluder is calibrated; the eyewear and buried rear volume stay fixed.
+          this.templeHeadFit?.observe(this.faceSurface!.positions, matrix, timestampMs);
+          this.templeHeadShellFit?.set(this.templeHeadFit?.ratio ?? 1);
           const shaped = this.nasalShape.apply({surfacePositions: this.faceSurface!.positions, rawMatrix: matrix});
           this.faceSurface!.positions.set(shaped.surfacePositions);
           // The face surface and the nasal shape above stay on the raw detector pose: they are this frame's face. With
@@ -516,35 +422,47 @@ export class TryOnRenderer {
             steadyDepthCm: steadied?.depthCm ?? null, steadyLagDeg: steady?.lagDeg ?? null, steadyRotationCutoffHz: steady?.rotationCutoffHz ?? null,
             steadyDepthCutoffHz: steady?.depthCutoffHz ?? null, steadyReset: steady?.reset ?? null};
           const attachment = correctedBridgePose(poseMatrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
+          this.templeSurface ??= new TempleSurface(this.canonicalPositions);
+          this.templeSurface.apply(this.faceSurface!.positions, attachment.matrix, this.templeHeadFit?.ratio ?? 1);
           this.facePose.matrix.fromArray(attachment.matrix); this.facePose.matrixWorldNeedsUpdate = true;
           this.eyewearPose.matrix.fromArray(attachment.matrix); this.eyewearPose.matrixWorldNeedsUpdate = true;
-          const drop: RearDropConfiguration = {method: REAR_DROP_METHOD, dropM: rearDropForPose(poseMatrix)};
-          // One pass over the cloned arm buffers for both deformations, so neither overwrites the other.
-          validateRearDrop(drop); this.rearDrop?.setShape(drop.dropM, this.armSpread); this.currentRearDrop = {...drop};
-          this.templeClip?.set(this.templeClipConfiguration);
-          this.templeVisibility?.set(createTempleVisibilityConfiguration(poseMatrix, this.renderer.capabilities?.samples ?? 0, this.templeMode, this.templeKeepCm, this.templeDropCm));
+          this.rearDrop?.setTerminalFit(this.templeTerminalFit);
+          this.rearDrop?.setShape(0, ARM_SPREAD_M);
+          this.applyTempleEndpoint();
+          const cheekContact = cheekDepthValid
+            ? this.cheekContact?.evaluate(detection.landmarks) ?? null : null;
+          this.templeVisibility?.set(
+            {...createTempleVisibilityConfiguration(this.renderer.capabilities?.samples ?? 0, this.templeKeepCm, this.templeDropCm),
+              excludeArmsFromLensInput: true,
+              cheekContact,
+              cheekTransitionPx: 2,
+              terminalReturn: this.templeTerminalFit ? templeTerminalRelief(this.templeTerminalFit) : null});
           this.eyewearPose.visible = true; this.camera.updateMatrixWorld();
           this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
           if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
           if (this.surfaceMesh) this.surfaceMesh.visible = true;
-          if (this.headProxy) this.headProxy.visible = true;
+          if (this.templeHeadShell) this.templeHeadShell.visible = true;
           this.lastPose = {rawMatrix: matrix.slice(), eyewearMatrix: attachment.matrix.slice(), yawDegrees: attachment.yawDegrees};
           this.posedMatrix = poseMatrix;
-          // The protection geometry for this exact pose, drop and frame size (candidate arm bounds follow the drop).
-          const {width, height} = this.renderSize, dropShape = this.rearDrop;
-          this.protectionConfiguration = dropShape ? createProtection({optical: dropShape.opticalBounds, originalArms: dropShape.originalArmBounds, candidateArms: dropShape.candidateArmBounds},
+          // The protection geometry for this exact pose, fixed shape and frame size.
+          const {width, height} = this.renderSize, shape = this.rearDrop;
+          this.protectionConfiguration = shape ? createProtection({optical: shape.opticalBounds, originalArms: shape.originalArmBounds, candidateArms: shape.candidateArmBounds},
             attachment.matrix, this.eyewear.offsetCm, detection.landmarks, width, height, frame.width / frame.height) : null;
           this.nasalRect = nasalRoi(detection, width, height);
-          this.templePaths = this.projectPaths(attachment.matrix, drop.dropM);
+          this.templePaths = this.projectPaths(attachment.matrix);
+          this.templeEndpointPending = true;
+          this.lastTrackedTimestampMs = timestampMs;
         }
       }
       if (!this.facePose.visible) {
-        this.rearDrop?.setDrop(0); this.stabilizer?.reset();
-        // A brief tracking failure holds the estimate; a sustained one drops it back to the original geometry.
-        if (this.widthFitEnabled && this.faceWidth) {
-          this.faceWidth.miss(timestampMs);
-          if (this.faceWidth.ratio !== this.widthRatio) {this.setWidthRatio(this.faceWidth.ratio); this.rearDrop?.setSpread(this.armSpread);}
+        this.templeHeadFit?.miss(timestampMs);
+        // A dropped face frame must not grow a hidden tail on reacquisition. A genuinely new session/face
+        // after sustained loss starts clean; nothing is drawn while tracking is absent.
+        if (timestampMs - this.lastTrackedTimestampMs > 1000) {
+          this.templeEndpointTracker?.reset(); this.templeEndpointReport = null;
         }
+        this.contactDepth.reset();
+        this.stabilizer?.reset();
       }
       return this.facePose.visible;
     } catch (error) {this.clearPresentation(); throw error;}
@@ -563,7 +481,7 @@ export class TryOnRenderer {
       this.maskBytes = new Uint8Array(count);
       this.maskTexture = new DataTexture(this.maskBytes, width, height, RedFormat, UnsignedByteType);
       this.maskTexture.colorSpace = NoColorSpace; this.maskTexture.flipY = false; this.maskTexture.unpackAlignment = 1;
-      // Nearest: a mask smaller than the frame is read the way the continuity cut and the CPU reference read it, by the
+      // Nearest: a mask smaller than the frame is read the way the endpoint tracker and CPU reference read it, by the
       // texel under the pixel centre; at the frame's own size this is the texel itself, as before.
       this.maskTexture.generateMipmaps = false; this.maskTexture.minFilter = NearestFilter; this.maskTexture.magFilter = NearestFilter;
     }
@@ -599,91 +517,94 @@ export class TryOnRenderer {
     gl.scissor(0, 0, width, height); gl.disable(gl.SCISSOR_TEST); stencil.setClear(0);
   }
 
-  /** Draw the posed frame into the canvas. Live frames use `{hair, drop: true, eyewear: true, guard}`; the audit draws
+  /** Draw the posed frame into the canvas. Live frames use `{hair, eyewear: true, guard}`; the audit draws
    *  other variants of the same posed frame and reads them back. */
   render(mask: CategoryMask | null, variant: Partial<RenderVariant> = {}): FrameTimings {
     if (this.disposed) throw new Error('The renderer is disposed.');
     if (!this.backgroundTexture) throw new Error('Nothing is posed.');
-    const v: RenderVariant = {hair: true, drop: true, eyewear: true, guard: this.guard, ...variant};
+    const v: RenderVariant = {hair: true, eyewear: true, guard: this.guard, ...variant};
     const tracked = this.facePose.visible;
     const wantsHair = v.hair && mask !== null && tracked;
+    const endpointStart = performance.now();
+    // Update once per posed frame. Audit variants reuse the exact same endpoint, even when their hair flag differs.
+    if (this.templeEndpointPending && tracked) {
+      if (this.continuityModel && this.latestPose) {
+        this.templeEndpointTracker ??= new TempleEndpointTracker(this.continuityModel, this.templeEndMaximumZM);
+        this.templeEndpointReport = this.templeEndpointTracker.update({paths: this.templePaths, mask: wantsHair ? mask : null,
+          render: this.renderSize, warp: this.maskWarp, timestampMs: this.poseTimestampMs,
+          yawDegrees: this.latestPose.steadyYawDeg ?? this.latestPose.yawDeg,
+          pitchDegrees: this.latestPose.steadyPitchDeg ?? this.latestPose.pitchDeg, evidenceId: mask?.category});
+      } else this.templeEndpointReport = null;
+      this.applyTempleEndpoint(); this.templeEndpointPending = false;
+    }
+    const endpointMs = performance.now() - endpointStart;
     const maskUploadMs = wantsHair ? this.uploadMask(mask) : 0;
-    const continuityStart = performance.now();
-    const cut: ContinuityCut = wantsHair && this.continuity && this.continuityModel && this.templePaths
-      ? continuityCut(this.continuityModel, this.templePaths, mask, this.renderSize, this.continuityRunPx, this.maskWarp) : {negative: null, positive: null};
-    this.hairOcclusion?.setCut(cut.negative, cut.positive);
     this.hairOcclusion?.setMaskUv(wantsHair && this.maskWarp ? maskUvMatrix(this.maskWarp) : null);
-    const continuityMs = performance.now() - continuityStart;
     const {width, height} = this.renderSize;
     const submitStart = performance.now();
     const protection = this.protectionConfiguration, nose = this.nasalRect;
     const guarded = v.guard && tracked && protection !== null, safeFallback = v.guard && tracked && protection === null;
-    const dropM = this.currentRearDrop?.dropM ?? 0;
     this.eyewearPose.visible = v.eyewear && tracked;
     this.templeClip?.prepareRender(this.backgroundTexture, width, height);
     if (tracked && this.posedMatrix && this.templeVisibility?.configuration) this.templeVisibility.prepare(this.posedMatrix, this.backgroundTexture);
-    this.hairOcclusion?.prepareRender(wantsHair ? this.maskTexture : null, width, height, this.backgroundTexture);
+    this.hairOcclusion?.prepareRender(wantsHair ? this.maskTexture : null, width, height, this.backgroundTexture, 2);
     this.renderer.setRenderTarget(null);
     let passes = 1;
-    // The drop stays as posed in both guarded passes: the editable rectangles are built from the dropped arm bounds, so
-    // a dropped fragment cannot land outside them; the audit measures any drop intrusion into protected pixels.
-    const applyDrop = v.drop && tracked && !safeFallback;
-    if (!applyDrop) this.rearDrop?.setDrop(0);
-    try {
-      if (guarded) {
-        this.renderer.autoClear = false;
-        try {
-          this.markGuard(protection, nose, width, height);
-          // Pass A: protected and non-editable pixels come from the unblended render, background included.
-          this.setStencil(true, 1); this.hairOcclusion?.set(false, this.hairStartZ);
-          this.renderer.render(this.scene, this.camera);
-          // Pass B: the editable region gets the hair blend. No background redraw, and the lenses (always inside the
-          // protected optical rectangle) are skipped so no second transmission pre-pass runs.
-          this.setStencil(true, 0); this.hairOcclusion?.set(wantsHair, this.hairStartZ);
-          this.scene.background = null; for (const lens of this.lensMeshes) lens.visible = false;
-          try {this.renderer.render(this.scene, this.camera);}
-          finally {this.scene.background = this.backgroundTexture; for (const lens of this.lensMeshes) lens.visible = true;}
-          passes = 2;
-        } finally {this.renderer.autoClear = true; this.setStencil(false, 0);}
-      } else {
-        this.setStencil(false, 0);
-        this.hairOcclusion?.set(wantsHair && !safeFallback, this.hairStartZ);
+    if (guarded) {
+      this.renderer.autoClear = false;
+      try {
+        this.markGuard(protection, nose, width, height);
+        // Pass A: protected and non-editable pixels come from the unblended render, background included.
+        this.setStencil(true, 1); this.hairOcclusion?.set(false, this.hairStartZ);
         this.renderer.render(this.scene, this.camera);
-      }
-    } finally {if (!applyDrop && tracked) this.rearDrop?.setDrop(dropM);}
+        // Pass B: the editable region gets the hair blend. No background redraw, and the lenses (always inside the
+        // protected optical rectangle) are skipped so no second transmission pre-pass runs.
+        this.setStencil(true, 0); this.hairOcclusion?.set(wantsHair, this.hairStartZ);
+        this.scene.background = null; for (const lens of this.lensMeshes) lens.visible = false;
+        try {this.renderer.render(this.scene, this.camera);}
+        finally {this.scene.background = this.backgroundTexture; for (const lens of this.lensMeshes) lens.visible = true;}
+        passes = 2;
+      } finally {this.renderer.autoClear = true; this.setStencil(false, 0);}
+    } else {
+      this.setStencil(false, 0);
+      this.hairOcclusion?.set(wantsHair && !safeFallback, this.hairStartZ);
+      this.renderer.render(this.scene, this.camera);
+    }
     if (this.sync) {
       if (this.fence) this.gl.deleteSync(this.fence);
       this.fence = this.gl.fenceSync(this.gl.SYNC_GPU_COMMANDS_COMPLETE, 0); this.gl.flush();
     }
     const submitMs = performance.now() - submitStart;
     const hairApplied = wantsHair && !safeFallback;
-    return {maskUploadMs, continuityMs, submitMs, dropM: applyDrop ? dropM : 0, hairApplied,
+    return {
+      templeEndMaximumZM: this.templeEndMaximumZM,
+      templeEndNegativeZM: this.templeEndpointReport?.negativeZM ?? this.templeEndMaximumZM,
+      templeEndPositiveZM: this.templeEndpointReport?.positiveZM ?? this.templeEndMaximumZM,
+      templeEndState: this.templeEndpointReport
+        ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap',
+      maskUploadMs, endpointMs, submitMs, hairApplied,
       maskWidth: hairApplied ? mask!.width : 0, maskHeight: hairApplied ? mask!.height : 0, sync: this.sync,
       guarded, passes, protectedRects: protection?.protectedRects.length ?? 0, editableRects: protection?.editableRects.length ?? 0, safeFallback,
-      continuity: this.continuity && this.continuityModel !== null, continuityRunPx: this.continuityRunPx,
-      cutNegativeZ: cut.negative, cutPositiveZ: cut.positive,
-      // The width fit as the geometry of this draw has it, so a timing row says which pipeline produced the frame.
-      widthFit: this.widthFitEnabled, widthFitState: this.widthFitEnabled && this.faceWidth ? this.faceWidth.state : 'off',
-      widthRatio: this.widthRatio, armSpreadM: this.rearDrop?.spreadM ?? 0,
-      templeMode: this.templeMode, templeNegativeXWeight: this.templeVisibilityState.negativeXWeight,
-      templePositiveXWeight: this.templeVisibilityState.positiveXWeight, templeFrontalWeight: this.templeVisibilityState.frontalWeight,
+      armSpreadM: this.rearDrop?.spreadM ?? 0,
       templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm,
-      templeBendM: this.templeBendM, templePivotM: this.templePivotM,
-      armSpreadStartZM: this.rearDrop?.spreadStartZM ?? null, armSpreadTotalM: this.rearDrop?.spreadM ?? 0};
+      armSpreadStartZM: this.rearDrop?.spreadStartZM ?? null};
   }
 
   /** Audit only: the current canvas pixels, top-down. Live frames never call this. */
   readback(): ImageData {return this.reader.read(this.renderer.domElement);}
 
   private clearPresentation(resetGeometry = true): void {
+    if (resetGeometry) {
+      this.contactDepth.reset();
+      this.templeEndpointTracker?.reset(); this.templeEndpointReport = null; this.templeEndpointPending = false;
+      this.templeHeadFit?.reset(); this.templeHeadShellFit?.reset();
+    }
     this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null; this.latestPose = null;
     this.facePose.visible = this.eyewearPose.visible = false;
     if (this.surfaceMesh) this.surfaceMesh.visible = false;
-    if (this.headProxy) this.headProxy.visible = false;
+    if (this.templeHeadShell) this.templeHeadShell.visible = false;
     this.templeVisibility?.set(null); this.templeClip?.set(null); this.hairOcclusion?.set(false, this.hairStartZ);
-    if (resetGeometry) this.rearDrop?.setDrop(0);
-    this.currentRearDrop = null; this.protectionConfiguration = null; this.nasalRect = null; this.templePaths = null;
-    this.hairOcclusion?.setCut(null, null);
+    this.protectionConfiguration = null; this.nasalRect = null; this.templePaths = null;
   }
   private measureProjectionResidual(detection: Detection): number | null {
     let sum = 0;
@@ -698,6 +619,7 @@ export class TryOnRenderer {
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true;
+    this.contactDepth.reset();
     this.removeAbortListener?.(); this.removeAbortListener = null;
     if (this.fence) {try {this.gl.deleteSync(this.fence);} catch {/* context may be lost */} this.fence = null;}
     this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null;
@@ -708,11 +630,13 @@ export class TryOnRenderer {
     this.environmentTarget?.dispose(); this.environmentTarget = null;
     this.hairOcclusion?.dispose(); this.hairOcclusion = null;
     this.templeVisibility?.dispose(); this.templeVisibility = null;
-    this.rearDrop?.dispose(); this.rearDrop = null; this.currentRearDrop = null;
+    this.observedCheekGeometry?.dispose(); this.observedCheekGeometry = null; this.observedCheekAttribute = null; this.cheekContact = null;
+    this.rearDrop?.dispose(); this.rearDrop = null;
     this.templeClip?.dispose(); this.templeClip = null;
+    this.templeEndpointTracker = null; this.templeEndpointReport = null; this.templeSurface = null; this.templeTerminalFit = null;
+    this.templeHeadFit = null; this.templeHeadShellFit = null;
     disposeObjects([this.scene, ...this.assetScenes]); this.assetScenes = [];
-    this.canonicalPositions = []; this.nasalShape = null; this.faceSurface = null; this.surfaceMesh = null; this.headProxy = null; this.surfaceAttribute = null;
-    this.faceWidth = null; this.widthRatio = 1; this.armSpread = 0;
+    this.canonicalPositions = []; this.nasalShape = null; this.faceSurface = null; this.surfaceMesh = null; this.templeHeadShell = null; this.surfaceAttribute = null;
     this.scene.clear(); this.renderer.dispose(); this.renderer.forceContextLoss();
   }
 }

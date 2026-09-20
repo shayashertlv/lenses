@@ -6,7 +6,7 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "description": "Lenses AR try-on: face landmarker and hair segmenter in workers, eyewear rendered on the GPU with hair occlusion, stencil-guarded optics and the temple continuity cut inside the shaders.",
+  "description": "Lenses AR try-on: worker-based face tracking and hair segmentation, fixed temples ending at the first hair crossing, soft occlusion and stencil-guarded optics.",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 8240 --strictPort",
     "check": "tsc --noEmit",

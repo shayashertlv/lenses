@@ -27,17 +27,18 @@ test('the first pose, and the first pose after a gap, pass through unchanged', (
   assert.equal(filter.apply(first, 5000).reset, true, 'a repeated or earlier timestamp restarts rather than dividing by zero');
 });
 
-test('a still head: orientation and depth shake drop below a third, without pulling the pose off the truth', () => {
+test('a still head: default orientation and depth filters more than halve shake without pulling the pose off the truth', () => {
   const next = random(7), filter = new PoseStabilizer(), raw: number[][] = [], steady: number[][] = [];
   for (let i = 0; i < 300; i++) {
     const matrix = pose(5 + 0.4 * gauss(next), -8 + 0.4 * gauss(next), 2 + 0.4 * gauss(next), -45 + 0.3 * gauss(next));
     const a = poseAngles(matrix), s = poseAngles(filter.apply(matrix, i * FRAME_MS).matrix);
     raw.push([a.yawDeg, a.pitchDeg, a.rollDeg, a.depthCm]); steady.push([s.yawDeg, s.pitchDeg, s.rollDeg, s.depthCm]);
   }
-  // Measured 0.15 for both with the defaults; a filter whose cutoff read the noise as motion would not get below ~0.5.
+  // Accepted movement responsiveness admits more resting noise than the old slower filter;
+  // both channels must still remove more than half the raw second-difference shake.
   const angleRatio = rms(secondDifferences(steady, 0, 3, 32)) / rms(secondDifferences(raw, 0, 3, 32));
   const depthRatio = rms(secondDifferences(steady, 3, 4, 32)) / rms(secondDifferences(raw, 3, 4, 32));
-  assert.ok(angleRatio < 0.33, `angle shake ratio ${angleRatio}`); assert.ok(depthRatio < 0.33, `depth shake ratio ${depthRatio}`);
+  assert.ok(angleRatio < 0.5, `angle shake ratio ${angleRatio}`); assert.ok(depthRatio < 0.5, `depth shake ratio ${depthRatio}`);
   const yawError = steady.slice(30).reduce((sum, row) => sum + Math.abs(row[0]! - 5), 0) / 270;
   assert.ok(yawError < 0.4, `mean yaw error ${yawError} must stay below the 0.4° noise`);
 });
@@ -88,9 +89,9 @@ test('pose steadiness is on by default with its levers; ?steady=0 turns it off',
     {...DEFAULT_STEADY, rotationMinCutoffHz: 0.5, rotationBeta: 0.3, depthMinCutoffHz: 2, depthBeta: 0});
   assert.deepEqual(parseConfig('?steadyhz=0&steadybeta=9').steady, DEFAULT_STEADY, 'out-of-range levers keep the defaults');
   assert.equal(parseConfig('?steady=0&steadyhz=0.5').steady, null, 'a lever does not turn a disabled filter back on');
-  assert.match(describeConfig(parseConfig('')), /pose steadiness on: rotation 1 Hz \+ 0.1 Hz per °\/s/);
+  assert.match(describeConfig(parseConfig('')), /pose steadiness on: rotation 1 Hz \+ 0.3 Hz per °\/s/);
   assert.match(describeConfig(parseConfig('?steady=0')), /pose steadiness OFF \(\?steady=0\)/);
-  assert.match(describeConfig(parseConfig('?steady=0&diag=1')), /pose steadiness OFF \(\?steady=0\) · temple occlusion per pixel[^·]+· temple bend 18 mm outward at the tip, straight from the hinge[^·]+· temple fit original \(\?fit=width for the experiment\) · diagnostics ON \(\?diag=1\)\.$/);
+  assert.match(describeConfig(parseConfig('?steady=0&diag=1')), /pose steadiness OFF \(\?steady=0\) · fixed temples with hair-covered endings · diagnostics ON \(\?diag=1\)\.$/);
 });
 
 test('the live pose-shake line measures second differences and skips a restart', () => {

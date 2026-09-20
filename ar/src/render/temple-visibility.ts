@@ -1,39 +1,23 @@
 import {
   CanvasTexture, Color, DepthTexture, DoubleSide, Material, MathUtils, Matrix3, Matrix4, Mesh, MeshBasicMaterial,
-  MeshPhysicalMaterial, NearestFilter, ShaderMaterial, SRGBColorSpace, UnsignedIntType, Vector2, Vector3,
+  MeshPhysicalMaterial, NearestFilter, Scene, ShaderMaterial, SRGBColorSpace, UnsignedIntType, Vector2,
   Vector4, WebGLRenderTarget,
 } from 'three';
-import type {BufferGeometry, Object3D, PerspectiveCamera, Scene, WebGLRenderer} from 'three';
+import type {BufferGeometry, Object3D, PerspectiveCamera, WebGLRenderer} from 'three';
+import type {TempleCheekContact} from './temple-cheek-contact.ts';
 
-export const LEGACY_TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v1';
-export const VIEW_TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v2';
-export const TEMPLE_VISIBILITY_METHOD = 'temple-side-depth-v3';
-/** v4, the default since 2026-09-18: how much of an arm is given up is decided per pixel from how far behind the head
- *  surface that pixel's arm fragment actually is, not from the head's angles. See `depthRelief` below. */
-export const DEPTH_TEMPLE_VISIBILITY_METHOD = 'temple-behind-head-v4';
+/** Per-pixel relief from the arm fragment's distance behind the head surface. */
+export const TEMPLE_VISIBILITY_METHOD = 'temple-behind-head-v4';
 export const TEMPLE_VISIBILITY_PARAMETERS = Object.freeze({
-  lateralStartCm: 3.5, lateralEndCm: 4.5, lateralArmMinM: 0.045,
-  rootBlendM: 0.003, placementCm: 0.05, farSideViewRamp: 0.35,
-  viewConfidenceStart: 0.15, viewConfidenceFull: 0.35,
-  frontalMaskRadiusPx: 1, frontalContinuationSteps: 4,
-  frontalPitchStartDegrees: 8, frontalPitchFullDegrees: 18,
-  /** v4. An arm fragment this many centimetres behind the head surface is still drawn in full; beyond
-   *  `reliefBehindFullCm` it is round the back of the head and is given up.
-   *
-   *  The band was 0.6 / 2.6 cm while the arms were authored as they came: they ran 6 to 12 mm inside the canonical
-   *  head's own silhouette, so the band had to forgive a centimetre of burial or a plain depth test would have buried
-   *  the temple. The shipped bend (`?templebend=`, 18 mm) now carries the arm clear of the head at every station, so
-   *  the band's only job is to tuck the arm away where it really is behind the head, and it can be narrow. Round one
-   *  of the live sweep found this directly: a narrow band read "not good" while part of the arm was still buried and
-   *  "near perfect" once it was not. Both are visual choices, not measured anatomy. */
+  lateralArmMinM: 0.045,
+  rootBlendM: 0.003, placementCm: 0.05,
+  // The opaque rim can extend behind the physical lens. Reserve this extra depth
+  // for the front/endpiece before observed-cheek contact can hide the shaft.
+  cheekFrontGuardM: 0.005,
+  cheekBehindStartCm: 0.1, cheekBehindFullCm: 0.3,
+  /** Preserve shallow intersections with the fitted proxy; return deeper fragments to ordinary head depth. */
   reliefBehindStartCm: 0.3, reliefBehindFullCm: 1.2,
 });
-
-/** Which rule decides how much of an arm is given up.
- *  `angles` is v3: two per-side percentages computed from the head's yaw, pitch and the camera bearing, applied to the
- *  whole arm at once. `depth` is v4: a per-pixel comparison against the head's own depth. */
-export type TempleVisibilityMode = 'angles' | 'depth';
-export const DEFAULT_TEMPLE_VISIBILITY_MODE: TempleVisibilityMode = 'depth';
 
 /** The share of an arm fragment that survives, given how far behind the head surface it is (centimetres, positive
  *  behind). The shader computes exactly this; it is exported so a test can pin the two against each other. */
@@ -43,112 +27,65 @@ export function depthRelief(behindCm: number, keepCm: number = TEMPLE_VISIBILITY
   return 1 - MathUtils.smoothstep(behindCm, keepCm, dropCm);
 }
 
-/** The band is a visual choice and the only number that decides how much of an arm survives, so the page can move it
- *  (`?templekeep=`, `?templedrop=`, centimetres) without a rebuild. */
+/** Validate the recorded relief band in centimetres. */
 export function validateReliefBand(keepCm: number, dropCm: number): void {
   if (!Number.isFinite(keepCm) || !Number.isFinite(dropCm) || keepCm < 0 || keepCm > 6 || dropCm <= keepCm || dropCm > 12) {
     throw new Error('The temple relief band is invalid.');
   }
 }
 
-interface TempleVisibilityWeights {
-  readonly negativeXWeight: number;
-  readonly positiveXWeight: number;
-  readonly coverage: 'alpha-to-coverage' | 'ordered-dither';
-}
-
-export interface LegacyTempleVisibilityConfiguration extends TempleVisibilityWeights {
-  readonly method: typeof LEGACY_TEMPLE_VISIBILITY_METHOD;
-}
-
-export interface ViewTempleVisibilityConfiguration extends TempleVisibilityWeights {
-  readonly method: typeof VIEW_TEMPLE_VISIBILITY_METHOD;
-}
-
-/** The only setting the controller accepts; v1 and v2 are the steps it is built from. */
-export interface TempleVisibilityConfiguration extends TempleVisibilityWeights {
+export interface TempleVisibilityConfiguration {
   readonly method: typeof TEMPLE_VISIBILITY_METHOD;
-  readonly frontalOcclusionWeight: number;
-  /** v4 decides per pixel and ignores the three weights above, which stay in the record for comparison. */
-  readonly mode: TempleVisibilityMode;
-  /** v4's band, in centimetres behind the head surface: kept in full up to `reliefKeepCm`, gone beyond `reliefDropCm`. */
+  readonly coverage: 'alpha-to-coverage' | 'ordered-dither';
+  /** In centimetres behind the head surface: kept in full up to `reliefKeepCm`, gone beyond `reliefDropCm`. */
   readonly reliefKeepCm: number;
   readonly reliefDropCm: number;
-}
-
-/** Only exact zeros remove work; small nonzero visibility retains the full pass. In `depth` mode the pass always runs:
- *  the head's own depth is what the rule reads, so there is no pose at which it can be skipped. */
-export function hasTempleVisibilityEffect(value: TempleVisibilityConfiguration): boolean {
-  return value.mode === 'depth'
-    || value.negativeXWeight !== 0 || value.positiveXWeight !== 0 || value.frontalOcclusionWeight !== 0;
+  /** Relinquish the fixed returned rear shaft to ordinary head depth. */
+  readonly terminalReturn?: {readonly startZM: number; readonly endZM: number} | null;
+  /** Keep posterior opaque arms out of the camera image sampled by physical lenses. Ordinary shaft drawing is
+   * unaffected; this applies only while Three renders its internal transmission input. */
+  readonly excludeArmsFromLensInput?: boolean;
+  /** Current observed cheek eligibility. A separate observed depth pass decides actual occlusion. */
+  readonly cheekContact?: TempleCheekContact | null;
+  /** Minimum projected contact transition, in render pixels; zero preserves the original 1–3mm ramp. */
+  readonly cheekTransitionPx?: number;
 }
 
 export function validateTempleVisibility(value: TempleVisibilityConfiguration): void {
   if (!value || value.method !== TEMPLE_VISIBILITY_METHOD
-      || [value.negativeXWeight, value.positiveXWeight].some(weight => !Number.isFinite(weight) || weight < 0 || weight > 1)
-      || !Number.isFinite(value.frontalOcclusionWeight) || value.frontalOcclusionWeight < 0 || value.frontalOcclusionWeight > 1
-      || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither'
-      || value.mode !== 'angles' && value.mode !== 'depth') {
+      || value.coverage !== 'alpha-to-coverage' && value.coverage !== 'ordered-dither') {
     throw new Error('The recorded temple visibility configuration is invalid.');
   }
   try {validateReliefBand(value.reliefKeepCm, value.reliefDropCm);}
   catch {throw new Error('The recorded temple visibility configuration is invalid.');
   }
+  if (value.terminalReturn && (!Number.isFinite(value.terminalReturn.startZM) || !Number.isFinite(value.terminalReturn.endZM)
+    || value.terminalReturn.startZM <= value.terminalReturn.endZM || value.terminalReturn.startZM > -.03
+    || value.terminalReturn.endZM < -.2)) throw new Error('The terminal relief exclusion is invalid.');
+  if (value.excludeArmsFromLensInput !== undefined && typeof value.excludeArmsFromLensInput !== 'boolean') {
+    throw new Error('The lens input arm exclusion is invalid.');
+  }
+  if (value.cheekContact && (value.cheekContact.polygon.length < 3 || value.cheekContact.polygon.length > 64
+    || value.cheekContact.polygon.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)))) {
+    throw new Error('The observed cheek contact is invalid.');
+  }
+  if (value.cheekTransitionPx !== undefined && (!Number.isFinite(value.cheekTransitionPx)
+    || value.cheekTransitionPx < 0 || value.cheekTransitionPx > 3)) throw new Error('The cheek transition is invalid.');
 }
 
-function inversePose(rawMatrix: readonly number[]): Matrix4 {
+function validatePose(rawMatrix: readonly number[]): void {
   if (rawMatrix.length !== 16 || !rawMatrix.every(Number.isFinite)) throw new Error('The temple visibility pose is invalid.');
   const matrix = new Matrix4().fromArray(rawMatrix);
   if (Math.abs(matrix.determinant()) < 1e-12) throw new Error('The temple visibility pose is singular.');
-  return matrix.invert();
 }
-
-export function createLegacyTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number): LegacyTempleVisibilityConfiguration {
-  if (!Number.isInteger(nativeSamples) || nativeSamples < 0) throw new Error('The native sample count is invalid.');
-  const cameraLocal = new Vector3().applyMatrix4(inversePose(rawMatrix));
-  const distance = Math.hypot(cameraLocal.x, cameraLocal.z);
-  if (!(distance > 1e-12)) throw new Error('The temple visibility viewing direction is invalid.');
-  const viewX = cameraLocal.x / distance;
-  return {
-    method: LEGACY_TEMPLE_VISIBILITY_METHOD,
-    negativeXWeight: 1 - MathUtils.smoothstep(viewX, 0, TEMPLE_VISIBILITY_PARAMETERS.farSideViewRamp),
-    positiveXWeight: 1 - MathUtils.smoothstep(-viewX, 0, TEMPLE_VISIBILITY_PARAMETERS.farSideViewRamp),
-    coverage: nativeSamples > 0 ? 'alpha-to-coverage' : 'ordered-dither',
-  };
-}
-
-function lateralConfidence(rawMatrix: readonly number[]): number {
-  const cameraLocal = new Vector3().applyMatrix4(inversePose(rawMatrix));
-  const cameraBearing = Math.abs(cameraLocal.x) / cameraLocal.length();
-  const headOrientation = Math.abs(rawMatrix[8]!) / Math.hypot(rawMatrix[8]!, rawMatrix[9]!, rawMatrix[10]!);
-  // Relief is conservative when translation and head heading disagree.
-  // Ordinary head depth handles a frontal head seen away from image center.
-  return MathUtils.smoothstep(Math.min(cameraBearing, headOrientation),
-    TEMPLE_VISIBILITY_PARAMETERS.viewConfidenceStart, TEMPLE_VISIBILITY_PARAMETERS.viewConfidenceFull);
-}
-
-export function createViewTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number): ViewTempleVisibilityConfiguration {
-  const legacy = createLegacyTempleVisibilityConfiguration(rawMatrix, nativeSamples);
-  const confidence = lateralConfidence(rawMatrix);
-  return {
-    method: VIEW_TEMPLE_VISIBILITY_METHOD, coverage: legacy.coverage,
-    negativeXWeight: legacy.negativeXWeight * confidence, positiveXWeight: legacy.positiveXWeight * confidence,
-  };
-}
-
-/** The v2 side weights plus the frontal weight, fixed for the pose they were made from; prepare never re-estimates them.
- *  In `depth` mode (the default) the shader ignores all three and decides per pixel; they are still computed, so an
- *  audit of either mode records what the angle rule would have said. */
-export function createTempleVisibilityConfiguration(rawMatrix: readonly number[], nativeSamples: number,
-  mode: TempleVisibilityMode = DEFAULT_TEMPLE_VISIBILITY_MODE,
+/** Capture the backend's coverage rule and the depth relief band. */
+export function createTempleVisibilityConfiguration(nativeSamples: number,
   reliefKeepCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm,
   reliefDropCm: number = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm): TempleVisibilityConfiguration {
-  const view = createViewTempleVisibilityConfiguration(rawMatrix, nativeSamples);
-  const pitch = Math.abs(rawMatrix[9]!) / Math.hypot(rawMatrix[8]!, rawMatrix[9]!, rawMatrix[10]!);
-  const frontalOcclusionWeight = (1 - lateralConfidence(rawMatrix)) * MathUtils.smoothstep(pitch,
-    Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchStartDegrees)),
-    Math.sin(MathUtils.degToRad(TEMPLE_VISIBILITY_PARAMETERS.frontalPitchFullDegrees)));
-  return {...view, method: TEMPLE_VISIBILITY_METHOD, frontalOcclusionWeight, mode, reliefKeepCm, reliefDropCm};
+  if (!Number.isInteger(nativeSamples) || nativeSamples < 0) throw new Error('The native sample count is invalid.');
+  validateReliefBand(reliefKeepCm, reliefDropCm);
+  return {method: TEMPLE_VISIBILITY_METHOD, coverage: nativeSamples > 0 ? 'alpha-to-coverage' : 'ordered-dither',
+    reliefKeepCm, reliefDropCm};
 }
 
 /** Matches Three's ordinary perspective depth convention; used in diagnostics. */
@@ -167,9 +104,13 @@ interface VisibilityContext {
   scene: Scene;
   camera: PerspectiveCamera;
   eyewearPose: Object3D;
+  /** Camera-space centimetres, kept current before fitting the main face proxy. Caller owns geometry. */
+  observedFaceSurface?: BufferGeometry;
 }
 
 const isLens = (material: Material): boolean => material instanceof MeshPhysicalMaterial && material.transmission > 0;
+const copyConfiguration = (value: TempleVisibilityConfiguration): TempleVisibilityConfiguration => ({...value,
+  ...(value.cheekContact ? {cheekContact: {...value.cheekContact, polygon: value.cheekContact.polygon.map(p => ({...p}))}} : {})});
 
 /**
  * Adds a color-only near-arm overlay. The scene outside eyewearPose supplies
@@ -202,33 +143,42 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: true,
     depthTexture: new DepthTexture(1, 1, UnsignedIntType),
   });
-  const headInverse = {value: new Matrix4()};
+  const cheekTarget = new WebGLRenderTarget(1, 1, {
+    minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: true,
+    depthTexture: new DepthTexture(1, 1, UnsignedIntType),
+  });
+  const cheekMaterial = new MeshBasicMaterial({color: 0xffffff, toneMapped: false, side: DoubleSide, depthTest: true, depthWrite: true});
+  const cheekScene = new Scene();
+  if (context.observedFaceSurface) {
+    const mesh = new Mesh(context.observedFaceSurface, cheekMaterial);
+    mesh.frustumCulled = false; cheekScene.add(mesh);
+  }
   const depthMaterial = new ShaderMaterial({
     side: DoubleSide, depthWrite: true, depthTest: true,
-    uniforms: {headInverse},
-    vertexShader: `uniform mat4 headInverse; varying float lateralX;
-      void main() { vec4 world = modelMatrix * vec4(position, 1.0);
-        lateralX = (headInverse * world).x;
-        gl_Position = projectionMatrix * viewMatrix * world; }`,
-    fragmentShader: `varying float lateralX;
-      void main() { gl_FragColor = vec4(smoothstep(${TEMPLE_VISIBILITY_PARAMETERS.lateralStartCm.toFixed(1)},
-        ${TEMPLE_VISIBILITY_PARAMETERS.lateralEndCm.toFixed(1)}, abs(lateralX)), 0.0, 0.0, 1.0); }`,
+    vertexShader: `void main() { vec4 world = modelMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * viewMatrix * world; }`,
+    fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
   });
   const uniforms = {
-    templeVisibilityHeadDepth: {value: target.depthTexture}, templeVisibilityHeadMask: {value: target.texture},
+    templeVisibilityHeadDepth: {value: target.depthTexture},
     templeVisibilitySize: {value: new Vector2(1, 1)}, templeVisibilityNearFar: {value: new Vector2(camera.near, camera.far)},
-    templeVisibilityWeights: {value: new Vector2()}, templeVisibilityFront: {value: frontZM},
-    // v4: 1 = decide per pixel from the head's depth, 0 = the v3 per-side percentages.
-    templeVisibilityDepthMode: {value: DEFAULT_TEMPLE_VISIBILITY_MODE === 'depth' ? 1 : 0},
+    templeVisibilityFront: {value: frontZM},
     templeVisibilityRelief: {value: new Vector2(TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm, TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm)},
+    templeVisibilityTerminal: {value: new Vector2()},
+    templeVisibilityTerminalEnabled: {value: 0},
     templeVisibilityDitherThresholds: {value: new Float32Array([
       0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
     ].map(rank => (rank + 0.5) / 16))},
   };
   const frontalUniforms = {
-    templeFrontalWeight: {value: 0}, templeFrontalHeadMask: {value: target.texture},
     templeFrontalFront: {value: frontZM}, templeFrontalCameraSource: {value: null as CanvasTexture | null},
+    templeCheekFront: {value: frontZM - TEMPLE_VISIBILITY_PARAMETERS.cheekFrontGuardM},
+    templeCheekCount: {value: 0}, templeCheekPolygon: {value: Array.from({length: 64}, () => new Vector2())},
+    templeCheekDepth: {value: cheekTarget.depthTexture}, templeCheekMask: {value: cheekTarget.texture},
+    templeCheekNearFar: uniforms.templeVisibilityNearFar,
+    templeCheekTransitionPx: {value: 0},
     templeFrontalViewport: {value: new Vector2(1, 1)}, templeFrontalUvTransform: {value: new Matrix3()},
+    templeExcludeArmsFromLensInput: {value: 0}, templeInternalLensInput: {value: 0},
   };
   const originalHooks = new Map<Material, {
     hook: Material['onBeforeCompile']; key: Material['customProgramCacheKey'];
@@ -248,30 +198,62 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     const wrapper: Material['onBeforeCompile'] = function(this: Material, shader, backend) {
       hook.call(this, shader, backend);
       Object.assign(shader.uniforms, frontalUniforms);
-      shader.vertexShader = `varying vec3 templeFrontalOriginalPosition;
-        uniform float templeFrontalFront;
-        varying vec4 templeFrontalOriginalProjection, templeFrontalFrontProjection;\n` + shader.vertexShader.replace(
+      shader.vertexShader = 'varying vec3 templeFrontalOriginalPosition;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>', `#include <begin_vertex>
-          templeFrontalOriginalPosition = position;
-          templeFrontalOriginalProjection = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          templeFrontalFrontProjection = projectionMatrix * modelViewMatrix * vec4(position.xy, templeFrontalFront, 1.0);`);
+          templeFrontalOriginalPosition = position;`);
       shader.fragmentShader = `varying vec3 templeFrontalOriginalPosition;
-        varying vec4 templeFrontalOriginalProjection, templeFrontalFrontProjection;
-        uniform float templeFrontalWeight, templeFrontalFront;
-        uniform sampler2D templeFrontalCameraSource, templeFrontalHeadMask;
+        uniform float templeFrontalFront, templeCheekFront, templeCheekTransitionPx;
+        uniform int templeCheekCount;
+        uniform vec2 templeCheekPolygon[64], templeCheekNearFar;
+        uniform sampler2D templeCheekDepth, templeCheekMask;
+        uniform float templeExcludeArmsFromLensInput, templeInternalLensInput;
+        uniform sampler2D templeFrontalCameraSource;
         uniform vec2 templeFrontalViewport;
         uniform mat3 templeFrontalUvTransform;
-        float templeFrontalMask(vec2 uv) {
-          float coverage = 0.0;
-          for (int y = -1; y <= 1; y++) {
-            for (int x = -1; x <= 1; x++) {
-              float weight = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0);
-              vec2 offset = vec2(float(x), float(y)) * ${TEMPLE_VISIBILITY_PARAMETERS.frontalMaskRadiusPx.toFixed(1)} / templeFrontalViewport;
-              coverage += weight * texture2D(templeFrontalHeadMask, uv + offset).a / 16.0;
+        float templeCheekCoverage(vec2 pixel) {
+          // Current observed lower-face contour, in source-aligned top-left pixels.
+          // Only blend INWARD from its edge: an exposed shaft pixel stays exact.
+          bool inside = false;
+          float distanceSquared = 1.0e12;
+          vec2 a = templeCheekPolygon[templeCheekCount - 1] * templeFrontalViewport;
+          for (int i = 0; i < 64; i++) {
+            if (i >= templeCheekCount) break;
+            vec2 b = templeCheekPolygon[i] * templeFrontalViewport;
+            vec2 edge = b - a;
+            float t = clamp(dot(pixel - a, edge) / max(dot(edge, edge), 1.0e-8), 0.0, 1.0);
+            vec2 delta = pixel - (a + t * edge);
+            distanceSquared = min(distanceSquared, dot(delta, delta));
+            if ((a.y > pixel.y) != (b.y > pixel.y)) {
+              if (pixel.x < a.x + (pixel.y - a.y) * (b.x - a.x) / (b.y - a.y)) inside = !inside;
             }
+            a = b;
           }
-          return coverage;
+          return inside ? smoothstep(0.0, max(1.25, templeCheekTransitionPx), sqrt(distanceSquared)) : 0.0;
         }\n` + shader.fragmentShader;
+      // Derivatives require intact fragment quads. Evaluate before every optical/clip/overlay
+      // discard and before the varying local-X/Z eligibility branch below.
+      shader.fragmentShader = shader.fragmentShader.replace('void main() {', `void main() {
+        float cheekBehindCm = 0.0;
+        float cheekBandCm = ${(TEMPLE_VISIBILITY_PARAMETERS.cheekBehindFullCm - TEMPLE_VISIBILITY_PARAMETERS.cheekBehindStartCm).toFixed(3)};
+        #ifdef TONE_MAPPING
+        if (templeCheekCount >= 3) {
+          vec2 cheekDepthUV = gl_FragCoord.xy / templeFrontalViewport;
+          float cheekObservedDepth = texture2D(templeCheekDepth, cheekDepthUV).x;
+          float cheekNear = templeCheekNearFar.x, cheekFar = templeCheekNearFar.y;
+          float cheekFaceZ = cheekNear * cheekFar / ((cheekFar - cheekNear) * cheekObservedDepth - cheekFar);
+          float cheekArmZ = cheekNear * cheekFar / ((cheekFar - cheekNear) * gl_FragCoord.z - cheekFar);
+          cheekBehindCm = cheekFaceZ - cheekArmZ;
+          if (templeCheekTransitionPx > 0.0) cheekBandCm = clamp(
+            fwidth(cheekBehindCm) * templeCheekTransitionPx, cheekBandCm, 0.5);
+        }
+        #endif`);
+      // The real camera image is already the surface behind each lens. A proximal far arm may sit in front of
+      // the approximate face depth and otherwise contaminate that image with a dark bar across an eye. Exclude
+      // only shaft fragments in the internal lens input; retain front/rims and their normal scene rendering.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        if (templeExcludeArmsFromLensInput > 0.5 && templeInternalLensInput > 0.5
+            && abs(templeFrontalOriginalPosition.x) > ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
+            && templeFrontalOriginalPosition.z < templeFrontalFront) discard;`);
       // Color only: preserve opaque depth/coverage and exclude the optical front.
       // Later overlay wrapping runs its coverage/depth block before this footer;
       // the earlier clip wrapper's endpoint RGB footer runs afterwards.
@@ -279,32 +261,37 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       // internal transmission pass has no TONE_MAPPING; keep its lens input exact.
       shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
         #ifdef TONE_MAPPING
-        if (templeFrontalWeight > 0.0 && abs(templeFrontalOriginalPosition.x) > ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
-            && templeFrontalOriginalPosition.z < templeFrontalFront) {
-          float templeFrontalRoot = smoothstep(0.0, ${TEMPLE_VISIBILITY_PARAMETERS.rootBlendM}, templeFrontalFront - templeFrontalOriginalPosition.z);
-          vec2 templeFrontalMaskUV = gl_FragCoord.xy / templeFrontalViewport;
-          float templeFrontalInside = templeFrontalMask(templeFrontalMaskUV);
-          for (int templeStep = 1; templeStep <= ${TEMPLE_VISIBILITY_PARAMETERS.frontalContinuationSteps}; templeStep++) {
-            vec4 templeProbeProjection = mix(templeFrontalOriginalProjection, templeFrontalFrontProjection,
-              float(templeStep) / ${TEMPLE_VISIBILITY_PARAMETERS.frontalContinuationSteps.toFixed(1)});
-            if (templeProbeProjection.w > 0.0) {
-              vec2 templeProbeUV = templeProbeProjection.xy / templeProbeProjection.w * 0.5 + 0.5;
-              if (all(greaterThanEqual(templeProbeUV, vec2(0.0))) && all(lessThanEqual(templeProbeUV, vec2(1.0))))
-                templeFrontalInside = max(templeFrontalInside, templeFrontalMask(templeProbeUV));
-            }
-          }
-          vec2 templeFrontalUV = (templeFrontalUvTransform * vec3(gl_FragCoord.xy / templeFrontalViewport, 1.0)).xy;
-          vec3 templeFrontalCameraRGB = linearToOutputTexel(texture2D(templeFrontalCameraSource, templeFrontalUV)).rgb;
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, templeFrontalCameraRGB, templeFrontalWeight * templeFrontalRoot * templeFrontalInside);
+        if (templeCheekCount >= 3 && abs(templeFrontalOriginalPosition.x) > ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
+            && templeFrontalOriginalPosition.z < templeCheekFront) {
+          float cheekCoverage = templeCheekCoverage(vec2(gl_FragCoord.x, templeFrontalViewport.y - gl_FragCoord.y));
+          vec2 cheekDepthUV = gl_FragCoord.xy / templeFrontalViewport;
+          // Retain a shaft IN FRONT of observed skin, even when its image lies inside the face.
+          // Keep the 1mm onset. Broaden compressed transitions to about two render pixels,
+          // bounded to 6mm behind skin so a steep angle cannot dissolve a whole shaft.
+          cheekCoverage *= texture2D(templeCheekMask, cheekDepthUV).a * smoothstep(
+            ${TEMPLE_VISIBILITY_PARAMETERS.cheekBehindStartCm}, ${TEMPLE_VISIBILITY_PARAMETERS.cheekBehindStartCm} + cheekBandCm, cheekBehindCm);
+          float cheekRoot = smoothstep(0.0, ${TEMPLE_VISIBILITY_PARAMETERS.rootBlendM}, templeCheekFront - templeFrontalOriginalPosition.z);
+          vec2 cheekUV = (templeFrontalUvTransform * vec3(gl_FragCoord.xy / templeFrontalViewport, 1.0)).xy;
+          vec3 cheekCameraRGB = linearToOutputTexel(texture2D(templeFrontalCameraSource, cheekUV)).rgb;
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, cheekCameraRGB, cheekCoverage * cheekRoot);
         }
         #endif`);
     };
-    const wrapperKey = () => `${key === Material.prototype.customProgramCacheKey ? hook.toString() : key.call(material)}|temple-frontal-rgb-v3`;
+    const wrapperKey = () => `${key === Material.prototype.customProgramCacheKey ? hook.toString() : key.call(material)}|temple-lens-input-v1|observed-cheek-v2`;
     originalHooks.set(material, {hook, key, wrapper, wrapperKey});
     material.onBeforeCompile = wrapper; material.customProgramCacheKey = wrapperKey; material.needsUpdate = true;
   };
   const overlays: Mesh[] = [], materials = new Map<Material, Material>();
   const entryTargets = new WeakMap<Object3D, WebGLRenderTarget | null>();
+  const originalRenderHooks = new Map<Mesh, {before: Mesh['onBeforeRender']; wrapper: Mesh['onBeforeRender']}>();
+  const markLensInput = (backend: WebGLRenderer, renderCamera: Object3D): void => {
+    frontalUniforms.templeInternalLensInput.value = Number(backend === renderer && entryTargets.has(renderCamera)
+      && backend.getRenderTarget() !== entryTargets.get(renderCamera));
+  };
+  const restoreRenderHooks = (): void => {
+    for (const [mesh, saved] of originalRenderHooks) if (mesh.onBeforeRender === saved.wrapper) mesh.onBeforeRender = saved.before;
+    originalRenderHooks.clear();
+  };
   const pendingColorWrites = new Map<Material, boolean>();
   const restoreColorWrites = () => {
     for (const [material, previous] of pendingColorWrites) material.colorWrite = previous;
@@ -325,9 +312,10 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       shader.vertexShader = 'varying vec3 templeVisibilityPosition;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>', '#include <begin_vertex>\ntempleVisibilityPosition = position;');
       shader.fragmentShader = `varying vec3 templeVisibilityPosition;
-        uniform sampler2D templeVisibilityHeadDepth, templeVisibilityHeadMask;
-        uniform vec2 templeVisibilitySize, templeVisibilityNearFar, templeVisibilityWeights, templeVisibilityRelief;
-        uniform float templeVisibilityDepthMode;
+        uniform sampler2D templeVisibilityHeadDepth;
+        uniform vec2 templeVisibilitySize, templeVisibilityNearFar, templeVisibilityRelief;
+        uniform float templeVisibilityTerminalEnabled;
+        uniform vec2 templeVisibilityTerminal;
         uniform float templeVisibilityFront, templeVisibilityDitherThresholds[16];
         ` + shader.fragmentShader;
       // It changes only an overlay fragment's tested depth, never depth-buffer contents.
@@ -335,7 +323,6 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         if (abs(templeVisibilityPosition.x) <= ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
             || templeVisibilityPosition.z >= templeVisibilityFront) discard;
         vec2 templeVisibilityUV = gl_FragCoord.xy / templeVisibilitySize;
-        float templeSideMask = texture2D(templeVisibilityHeadMask, templeVisibilityUV).r;
         float templeRootWeight = smoothstep(0.0, ${TEMPLE_VISIBILITY_PARAMETERS.rootBlendM}, templeVisibilityFront - templeVisibilityPosition.z);
         // The head's own depth under this pixel, and this arm fragment's. Both in view centimetres, negative away from
         // the camera, so their difference is how far behind the head surface this fragment sits.
@@ -344,17 +331,14 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         float templeViewZ = templeNear * templeFar / ((templeFar - templeNear) * templeSurfaceDepth - templeFar);
         float templeArmViewZ = templeNear * templeFar / ((templeFar - templeNear) * gl_FragCoord.z - templeFar);
         float templeBehindCm = templeViewZ - templeArmViewZ;
-        // v4: a fragment just behind the head is kept (the shipped arms run inside the head's own silhouette); one that
-        // is well behind it is round the back and is given up. v3: the per-side percentage of the whole arm.
-        float templeRelief = templeVisibilityDepthMode > 0.5
-          ? 1.0 - smoothstep(templeVisibilityRelief.x, templeVisibilityRelief.y, templeBehindCm)
-          : (templeVisibilityPosition.x < 0.0 ? templeVisibilityWeights.x : templeVisibilityWeights.y);
-        // v3 draws the overlay only over the head's lateral band; v4 needs no such band, because the depth comparison
-        // above already distinguishes an arm tucked behind the temple from one round the back of the head. It only has
-        // to know that there IS head under this pixel: over the background the ordinary draw already shows the arm.
+        float templeRelief = 1.0 - smoothstep(templeVisibilityRelief.x, templeVisibilityRelief.y, templeBehindCm);
+        // Over the background the ordinary draw already shows the arm.
         float templeHeadPresent = step(templeSurfaceDepth, 0.9999);
-        float templeOverlayGate = templeVisibilityDepthMode > 0.5 ? templeHeadPresent : templeSideMask;
-        float templeOverlayCoverage = templeOverlayGate * templeRelief * templeRootWeight;
+        float templeOverlayCoverage = templeHeadPresent * templeRelief * templeRootWeight;
+        if (templeVisibilityTerminalEnabled > 0.5) {
+          // A deliberately buried fixed ending must not be lifted back in front of the skin.
+          templeOverlayCoverage *= smoothstep(templeVisibilityTerminal.y, templeVisibilityTerminal.x, templeVisibilityPosition.z);
+        }
         if (templeOverlayCoverage <= 0.0) discard;
         ${material.alphaToCoverage ? 'gl_FragColor.a = templeOverlayCoverage;' : `
           int templeVisibilityDitherIndex = int(mod(floor(gl_FragCoord.x), 4.0) + 4.0 * mod(floor(gl_FragCoord.y), 4.0));
@@ -365,7 +349,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         gl_FragDepth = min(gl_FragCoord.z, templeLifted);`);
     };
     material.customProgramCacheKey = () => `${key === Material.prototype.customProgramCacheKey
-      ? hook.toString() : key.call(original)}|${TEMPLE_VISIBILITY_METHOD}|${DEPTH_TEMPLE_VISIBILITY_METHOD}|${material.alphaToCoverage ? 'a2c' : 'dither'}`;
+      ? hook.toString() : key.call(original)}|${TEMPLE_VISIBILITY_METHOD}|terminal-return-v1|${material.alphaToCoverage ? 'a2c' : 'dither'}`;
     materials.set(original, material);
     return material;
   };
@@ -373,6 +357,11 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     // Wrap each original once, before clones inherit its live uniform owner.
     for (const original of originals) {
       for (const material of Array.isArray(original.material) ? original.material : [original.material]) wrapFrontal(material);
+      const before = original.onBeforeRender;
+      const wrapper: Mesh['onBeforeRender'] = function(this: Mesh, ...args) {
+        before.apply(this, args); markLensInput(args[0], args[2]);
+      };
+      originalRenderHooks.set(original, {before, wrapper}); original.onBeforeRender = wrapper;
     }
     for (const original of originals) {
       const overlay = original.clone(false);
@@ -382,6 +371,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       overlay.userData = {...original.userData, templeVisibilityOverlay: true};
       overlay.onBeforeRender = (backend, _scene, renderCamera, _geometry, material) => {
         restoreColorWrites();
+        markLensInput(backend, renderCamera);
         pendingColorWrites.set(material, material.colorWrite);
         // Scene.onBeforeRender identifies the caller's actual output target.
         // Three's internal transmission target is entered without that callback.
@@ -395,8 +385,9 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   } catch (error) {
     for (const overlay of overlays) overlay.removeFromParent();
     for (const material of materials.values()) material.dispose();
+    restoreRenderHooks();
     restoreOriginalHooks();
-    hiddenMaterial.dispose(); target.dispose(); depthMaterial.dispose();
+    hiddenMaterial.dispose(); target.dispose(); depthMaterial.dispose(); cheekTarget.dispose(); cheekMaterial.dispose();
     throw error;
   }
   const previousSceneBeforeRender = scene.onBeforeRender;
@@ -406,62 +397,61 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   };
   scene.onBeforeRender = sceneBeforeRender;
   return {
-    get configuration(): TempleVisibilityConfiguration | null { return configuration ? {...configuration} : null; },
+    get configuration(): TempleVisibilityConfiguration | null { return configuration ? copyConfiguration(configuration) : null; },
     set(value: TempleVisibilityConfiguration | null): void {
       if (disposed) throw new Error('Temple visibility is disposed.');
       if (value !== null) {
         validateTempleVisibility(value);
+        if (value.cheekContact && !context.observedFaceSurface) throw new Error('Observed cheek contact requires a current face surface.');
         if (value.coverage === 'alpha-to-coverage' && renderer.capabilities.samples === 0) {
           throw new Error('The recorded temple visibility requires multisampling.');
         }
       }
       restoreColorWrites();
-      configuration = value ? {...value} : null;
-      const depthMode = value?.mode === 'depth';
+      configuration = value ? copyConfiguration(value) : null;
       frontalUniforms.templeFrontalCameraSource.value = null;
-      // v4 needs no frontal dissolve: a fragment behind the head is already culled by the head's own depth, and the
-      // overlay is what puts back the part that is only just behind it.
-      frontalUniforms.templeFrontalWeight.value = depthMode ? 0 : value?.frontalOcclusionWeight ?? 0;
-      uniforms.templeVisibilityWeights.value.set(value?.negativeXWeight ?? 0, value?.positiveXWeight ?? 0);
-      uniforms.templeVisibilityDepthMode.value = depthMode ? 1 : 0;
+      frontalUniforms.templeExcludeArmsFromLensInput.value = value?.excludeArmsFromLensInput ? 1 : 0;
+      frontalUniforms.templeInternalLensInput.value = 0;
+      const contact = value?.cheekContact;
+      frontalUniforms.templeCheekCount.value = contact?.polygon.length ?? 0;
+      frontalUniforms.templeCheekTransitionPx.value = value?.cheekTransitionPx ?? 0;
+      contact?.polygon.forEach((p, i) => frontalUniforms.templeCheekPolygon.value[i]!.set(p.x, p.y));
       if (value) uniforms.templeVisibilityRelief.value.set(value.reliefKeepCm, value.reliefDropCm);
-      // In v4 there is no pose at which the overlay is switched off: the per-pixel rule is the whole decision.
-      for (const overlay of overlays) overlay.visible = value !== null
-        && (depthMode || value.negativeXWeight !== 0 || value.positiveXWeight !== 0);
+      uniforms.templeVisibilityTerminalEnabled.value = value?.terminalReturn ? 1 : 0;
+      uniforms.templeVisibilityTerminal.value.set(value?.terminalReturn?.startZM ?? 0, value?.terminalReturn?.endZM ?? 0);
+      // The per-pixel rule applies at every pose.
+      for (const overlay of overlays) overlay.visible = value !== null;
     },
     prepare(rawMatrix: readonly number[], cameraTexture?: CanvasTexture): void {
       if (disposed) throw new Error('Temple visibility is disposed.');
       restoreColorWrites();
       if (configuration === null) return;
-      const inverse = inversePose(rawMatrix);
+      validatePose(rawMatrix);
       const size = renderer.getDrawingBufferSize(new Vector2());
       frontalUniforms.templeFrontalCameraSource.value = null;
-      // No shader samples this target at exact zero weights. Validation and
-      // state clearing above still run, so a prior mask cannot affect this pair.
-      if (!hasTempleVisibilityEffect(configuration)) return;
-      if (frontalUniforms.templeFrontalWeight.value > 0) {
+      if (frontalUniforms.templeCheekCount.value >= 3) {
         const image = cameraTexture?.image as {width?: number; height?: number} | undefined;
         if (!(cameraTexture instanceof CanvasTexture) || cameraTexture.colorSpace !== SRGBColorSpace
             || !Number.isFinite(image?.width) || !Number.isFinite(image?.height)
             || !(image!.width! > 0 && image!.height! > 0)
             || !Number.isInteger(size.x) || !Number.isInteger(size.y) || size.x <= 0 || size.y <= 0) {
-          throw new Error('Frontal temple occlusion requires the current paired sRGB camera texture and viewport.');
+          throw new Error('Observed cheek occlusion requires the current paired sRGB camera texture and viewport.');
         }
         if (cameraTexture.matrixAutoUpdate) cameraTexture.updateMatrix();
-        if (!cameraTexture.matrix.elements.every(Number.isFinite)) throw new Error('The frontal temple camera UV transform is invalid.');
+        if (!cameraTexture.matrix.elements.every(Number.isFinite)) throw new Error('The observed cheek camera UV transform is invalid.');
         frontalUniforms.templeFrontalCameraSource.value = cameraTexture;
         frontalUniforms.templeFrontalViewport.value.copy(size);
         frontalUniforms.templeFrontalUvTransform.value.copy(cameraTexture.matrix);
       }
       // Validate the camera convention before mutating render state.
       templeLiftedDepth(0.5, camera.near, camera.far);
-      headInverse.value.copy(inverse);
       const nextA2C = configuration.coverage === 'alpha-to-coverage';
       if (nextA2C !== alphaToCoverage) {
         alphaToCoverage = nextA2C;
         for (const material of materials.values()) { material.alphaToCoverage = nextA2C; material.needsUpdate = true; }
       }
       target.setSize(size.x, size.y); uniforms.templeVisibilitySize.value.copy(size);
+      if (frontalUniforms.templeCheekCount.value >= 3) cheekTarget.setSize(size.x, size.y);
       uniforms.templeVisibilityNearFar.value.set(camera.near, camera.far);
       const saved = {
         visible: eyewearPose.visible, background: scene.background, override: scene.overrideMaterial,
@@ -476,6 +466,10 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         renderer.setRenderTarget(target); renderer.setViewport(0, 0, size.x, size.y); renderer.setScissorTest(false);
         renderer.setClearColor(0, 0); renderer.clear(true, true, true);
         renderer.render(scene, camera);
+        if (frontalUniforms.templeCheekCount.value >= 3) {
+          renderer.setRenderTarget(cheekTarget); renderer.setViewport(0, 0, size.x, size.y);
+          renderer.clear(true, true, true); renderer.render(cheekScene, camera);
+        }
       } finally {
         eyewearPose.visible = saved.visible; scene.background = saved.background; scene.overrideMaterial = saved.override;
         renderer.autoClear = saved.autoClear;
@@ -486,14 +480,18 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     },
     dispose(): void {
       if (disposed) return;
-      disposed = true; configuration = null; uniforms.templeVisibilityWeights.value.set(0, 0);
-      frontalUniforms.templeFrontalWeight.value = 0; frontalUniforms.templeFrontalCameraSource.value = null;
+      disposed = true; configuration = null;
+      frontalUniforms.templeFrontalCameraSource.value = null;
+      frontalUniforms.templeCheekCount.value = 0;
+      frontalUniforms.templeCheekTransitionPx.value = 0;
+      frontalUniforms.templeExcludeArmsFromLensInput.value = frontalUniforms.templeInternalLensInput.value = 0;
       restoreColorWrites();
       if (scene.onBeforeRender === sceneBeforeRender) scene.onBeforeRender = previousSceneBeforeRender;
       for (const overlay of overlays) overlay.removeFromParent();
       for (const material of materials.values()) material.dispose();
+      restoreRenderHooks();
       restoreOriginalHooks();
-      hiddenMaterial.dispose(); target.dispose(); depthMaterial.dispose();
+      hiddenMaterial.dispose(); target.dispose(); depthMaterial.dispose(); cheekTarget.dispose(); cheekMaterial.dispose(); cheekScene.clear();
     },
   };
 }

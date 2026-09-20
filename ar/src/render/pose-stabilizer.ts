@@ -27,7 +27,7 @@ export interface SteadyOptions {
 }
 
 export const DEFAULT_STEADY: Readonly<SteadyOptions> = Object.freeze({
-  rotationMinCutoffHz: 1, rotationBeta: 0.1, depthMinCutoffHz: 1, depthBeta: 0.2, derivativeCutoffHz: 1, resetGapMs: 500,
+  rotationMinCutoffHz: 1, rotationBeta: .3, depthMinCutoffHz: 1, depthBeta: .8, derivativeCutoffHz: 3, resetGapMs: 500,
 });
 
 /** Numbers only, for the timing row: the raw pose, the steadied pose and what the filter did. */

@@ -2,8 +2,6 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAffine, chooseMask, DEFAULT_HAIR_SCHEDULE, estimateSimilarity, HairScheduler, headMotionPx, invertAffine, maskUvMatrix, MaskStore, STABLE_LANDMARKS} from '../src/hair/mask-reuse.ts';
 import type {Affine, HairSchedule} from '../src/hair/mask-reuse.ts';
-import {continuityCut} from '../src/render/continuity.ts';
-import type {ProjectedTemplePath, TempleContinuityModel} from '../src/render/continuity.ts';
 import {describeConfig, parseConfig} from '../src/config.ts';
 import {describeHairReport, describeOverlapReport, hairReport, overlapReport} from '../src/pipeline/hair-report.ts';
 import type {FrameSample} from '../src/pipeline/profiler.ts';
@@ -116,26 +114,6 @@ test('a frame draws its own mask when ready, else the newest earlier mask moved 
   assert.equal(chooseMask(null, frame(12, now, {width: 720}), stored, interval(2)), null, 'a mask of another frame size');
   assert.equal(chooseMask(null, frame(12, []), stored, interval(2)), null, 'no face in the drawn frame');
   assert.equal(chooseMask(null, frame(12), null, interval(2)), null);
-});
-
-test('the continuity cut reads a moved mask where the arm was in the mask\'s own frame', () => {
-  const stations = Array.from({length: 33}, (_, i) => ({zM: -0.03 - i * 0.0025, centerXM: -0.07, centerYM: 0, minXM: -0.071, maxXM: -0.069, minYM: -0.001, maxYM: 0.001}));
-  const model: TempleContinuityModel = {startZM: -0.03, cutoffZM: -0.11, sides: [stations, stations.map(s => ({...s, centerXM: 0.07}))]};
-  const render = {width: 1280, height: 720};
-  const points = stations.map((_, i) => ({x: 300 + i * 8, y: 400, radiusPx: 3, progressPx: i * 8}));
-  const paths: ProjectedTemplePath[] = [{side: 0, points, lengthPx: 256}, {side: 1, points: points.map(p => ({...p, y: 100})), lengthPx: 256}];
-  const paint = (dx: number, dy: number) => {
-    const mask = {width: 640, height: 360, hairIndex: 1, category: new Uint8Array(640 * 360)};
-    for (let y = 190 + dy; y <= 210 + dy; y++) for (let x = 250 + dx; x <= 300 + dx; x++) mask.category[y * 640 + x] = 1;
-    return mask;
-  };
-  const still = continuityCut(model, paths, paint(0, 0), render, 10);
-  assert.ok(still.negative !== null && still.positive === null, 'hair over the arm cuts it');
-  assert.deepEqual(continuityCut(model, paths, paint(0, 0), render, 10, null), still, 'no warp is the frame\'s own mask');
-  // The head (and its hair) moved 40 px right and 16 px down since the mask was made: in mask pixels 20 and 8.
-  const shifted = paint(-20, -8), warp = {toMask: {a: 1, b: 0, c: 0, d: 1, tx: -40, ty: -16}, width: 1280, height: 720};
-  assert.deepEqual(continuityCut(model, paths, shifted, render, 10, warp), still, 'moved back, the old mask cuts the same station');
-  assert.notDeepEqual(continuityCut(model, paths, shifted, render, 10), still, 'unmoved, it does not');
 });
 
 test('phones and tablets default to hair on every second frame, laptops to every frame; ?hairframes=1|2 choose anywhere', () => {

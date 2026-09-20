@@ -3,9 +3,9 @@
  *  output; images saved next to the report). Loopback, one machine, the checked-in face-a fixture with slow drift:
  *  controlled-input evidence, not a real camera, wearer motion, phone or thermal evidence.
  *    node qa/measure.mjs --base=http://127.0.0.1:8241 --sessions=1 --warm=10 --measure=30
- *      [--capture=960] [--hairz=-0.02] [--sync=0] [--face=gpu] [--guard=0] [--continuity=0] [--hairrun=10]
+ *      [--capture=960] [--hairz=-0.02] [--sync=0] [--face=gpu] [--guard=0]
  *      [--eyewear=amber-horizon] [--hairModel=hair-only] [--hair=0] [--steady=1] [--steadyhz=1] [--steadybeta=0.1]
- *      [--fit=width] [--out=dir] [--no-shot] [--no-audit] [--headed] */
+ *      [--out=dir] [--no-shot] [--no-audit] [--headed] */
 import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -25,7 +25,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const out = path.resolve(option('out', path.join(here, 'output', `measure-${new Date().toISOString().replaceAll(':', '-')}`)));
 await fs.mkdir(out, {recursive: true});
 const query = new URLSearchParams();
-for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'continuity', 'hairrun', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta', 'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'templepivot']) if (option(name, '')) query.set(name, option(name, ''));
+for (const name of ['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz', 'sync', 'exposure', 'guard', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta', 'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage']) if (option(name, '')) query.set(name, option(name, ''));
 const browser = await chromium.launch({headless: !flag('headed'), channel: 'chromium', args: ['--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required']});
 const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
 const consoleLines = [];
@@ -55,7 +55,7 @@ const cameraFps = rows => {const counted = rows.filter(r => Number.isFinite(r.vi
   return first && last && last !== first && last.capturedAtMs > first.capturedAtMs ? ((last.videoPresentedFrames - first.videoPresentedFrames) * 1000 / (last.capturedAtMs - first.capturedAtMs)).toFixed(1) : '—';};
 for (const s of result.sessions) {
   const m = s.summary;
-  console.log(`#${s.index + 1} ${s.status}${s.error ? ' · ' + s.error : ''} · startup ${ms(s.startupMs)} ms · ${m?.processedFps?.toFixed(2) ?? '—'} fps (camera ${cameraFps(s.rows)}) · age med/p95 ${ms(m?.processing?.median)}/${ms(m?.processing?.p95)} ms · interval p95 ${ms(m?.frameInterval?.p95)} · tracked ${m?.trackedFrames ?? 0}/${m?.frames ?? 0} masked ${m?.maskedFrames ?? 0} · size ${s.rows[0]?.sourceWidth ?? '?'}x${s.rows[0]?.sourceHeight ?? '?'} · face ${ms(m?.stages?.faceRequestWallMs?.median)} prepare ${ms(m?.stages?.prepareMs?.median)} (gpu wait ${m?.stages?.gpuWaitMs?.median?.toFixed(1) ?? '—'}, pose ${m?.stages?.poseMs?.median?.toFixed(1) ?? '—'}) finish ${ms(m?.stages?.finishMs?.median)} (submit ${m?.stages?.submitMs?.median?.toFixed(1) ?? '—'}, mask upload ${m?.stages?.maskUploadMs?.median?.toFixed(1) ?? '—'}, continuity ${m?.stages?.continuityMs?.median?.toFixed(1) ?? '—'}) hairWait ${ms(m?.stages?.hairWaitMs?.median)}`);
+  console.log(`#${s.index + 1} ${s.status}${s.error ? ' · ' + s.error : ''} · startup ${ms(s.startupMs)} ms · ${m?.processedFps?.toFixed(2) ?? '—'} fps (camera ${cameraFps(s.rows)}) · age med/p95 ${ms(m?.processing?.median)}/${ms(m?.processing?.p95)} ms · interval p95 ${ms(m?.frameInterval?.p95)} · tracked ${m?.trackedFrames ?? 0}/${m?.frames ?? 0} masked ${m?.maskedFrames ?? 0} · size ${s.rows[0]?.sourceWidth ?? '?'}x${s.rows[0]?.sourceHeight ?? '?'} · face ${ms(m?.stages?.faceRequestWallMs?.median)} prepare ${ms(m?.stages?.prepareMs?.median)} (gpu wait ${m?.stages?.gpuWaitMs?.median?.toFixed(1) ?? '—'}, pose ${m?.stages?.poseMs?.median?.toFixed(1) ?? '—'}) finish ${ms(m?.stages?.finishMs?.median)} (submit ${m?.stages?.submitMs?.median?.toFixed(1) ?? '—'}, mask upload ${m?.stages?.maskUploadMs?.median?.toFixed(1) ?? '—'}, endpoint ${m?.stages?.endpointMs?.median?.toFixed(1) ?? '—'}) hairWait ${ms(m?.stages?.hairWaitMs?.median)}`);
 }
 const med = v => v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null;
 const done = result.sessions.filter(s => s.summary?.processedFps);
@@ -90,7 +90,7 @@ if (!flag('no-audit')) {
     }
     audit = {...result, images: files};
     const c = result.checks, ck = (n, v) => `${n} ${v ? v.changedPixels === 0 ? 'pass' : v.changedPixels + ' px' : '—'}`;
-    console.log(`audit frame ${result.sequence} ${result.width}x${result.height} · guard ${result.guard.guarded} (${result.guard.protectedRects.length} protected / ${result.guard.editableRects.length} editable rects) · hair ${result.hairApplied} · ${c ? [ck('protected', c.protectedCheck), ck('nose', c.noseCheck), ck('outsideEditable', c.outsideEditableCheck), ck('background', c.backgroundPreservationCheck)].join(' · ') : 'checks unavailable: ' + result.checkError} · GPU edit ${result.afterVsBefore.differentPixels} px (maxΔ ${result.afterVsBefore.maxDelta}) · drop inside protected ${result.dropInsideProtected ? `${result.dropInsideProtected.differentPixels} px (${result.dropInsideProtected.differentPixelsOver8} over 8, maxΔ ${result.dropInsideProtected.maxDelta})` : '—'}${result.afterVsReference ? ` · vs reference compose+continuity ${result.afterVsReference.differentPixels} px differ (maxΔ ${result.afterVsReference.maxDelta}), reference changes ${result.reference.changedPixels} px, reference continuity removes ${result.reference.continuityRemovedPixels ?? '—'} px${result.reference.fallbackReason ? ', reference fallback: ' + result.reference.fallbackReason : ''}` : result.reference.error ? ' · reference error: ' + result.reference.error : ''} · cut ${result.cut.continuity ? `L ${result.cut.negative === null ? 'none' : (result.cut.negative * 1000).toFixed(0) + ' mm'} / R ${result.cut.positive === null ? 'none' : (result.cut.positive * 1000).toFixed(0) + ' mm'}` : 'off'} · temple fit ${result.widthFit ? `${result.widthFit.mode} (${result.widthFit.state}, ratio ${result.widthFit.ratio.toFixed(3)}, arm spread ${(result.widthFit.armSpreadM * 1000).toFixed(1)} mm, ${result.widthFit.samples} observations)` : '—'} · ${Math.round(result.timings.totalMs)} ms`);
+    console.log(`audit frame ${result.sequence} ${result.width}x${result.height} · guard ${result.guard.guarded} · hair ${result.hairApplied} · ${c ? [ck('protected', c.protectedCheck), ck('nose', c.noseCheck), ck('outsideEditable', c.outsideEditableCheck), ck('background', c.backgroundPreservationCheck)].join(' · ') : 'checks unavailable: ' + result.checkError} · GPU edit ${result.afterVsBefore.differentPixels} px (maxΔ ${result.afterVsBefore.maxDelta}) · endpoint ${result.templeEndpoint.state} · ${Math.round(result.timings.totalMs)} ms`);
   } else console.log('audit: unavailable');
 }
 const report = {schema: 'ar-measure-v1', createdAt: new Date().toISOString(), base, sessions, warmMs, measureMs, query: Object.fromEntries(query), fixtureSHA256: sha(fixture), summary, shot, audit, consoleLines,

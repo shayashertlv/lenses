@@ -71,7 +71,7 @@ export interface ModelingAutoHandover {
   /** Same-origin or loopback address of the prepared GLB: real-size meters, bridge underside at the origin, front toward +Z. */
   readonly assetUrl: string;
   readonly widthMm: number;
-  /** Fixed preview endpoint before the rear hook, in the asset's local meters. */
+  /** Fixed endpoint before the rear hook, in the asset's local meters. */
   readonly templeClipLocalZM: number;
   readonly description?: string;
 }

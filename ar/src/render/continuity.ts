@@ -1,20 +1,16 @@
-/** Temple continuity: the original arm centrelines of the pinned frame geometry (33 stations per arm, read from a
- *  hash-verified copy of the GLB), projected per pose with the rear drop applied, and the cut that removes an arm from
- *  its first consistent run of hair to its tip. Strands shorter than the run are ignored. */
+/** Original temple cross-sections from hash-verified frame geometry (33 stations per arm), projected to
+ *  match the drawn shaft geometry. These paths supply the first-hair endpoint tracker. */
 import {Matrix4, Mesh, MeshPhysicalMaterial, Texture, Vector3, Vector4} from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {protectionProjection} from './protection.ts';
 import {rearDropCurve} from './rear-drop.ts';
 import {spreadArmX} from './face-width.ts';
-import type {CategoryMask} from '../hair/protocol.ts';
+import {terminalFitX} from './temple-terminal-fit.ts';
+import type {TempleTerminalFit} from './temple-terminal-fit.ts';
 import {assetPath} from '../assets.ts';
-import {applyAffine} from '../hair/mask-reuse.ts';
-import type {MaskWarp} from '../hair/mask-reuse.ts';
 
 export const CONTINUITY_GEOMETRY = Object.freeze({stations: 33, lateralMinM: .045, proximalGuardM: .015});
-/** Minimum length of hair along an arm's centreline, in source pixels, that counts as a patch rather than strands. */
-export const DEFAULT_CONTINUITY_RUN_PX = 10;
 const GEOMETRY_HASHES: Readonly<Record<string, string>> = Object.freeze({
   'tom-ford-clear.glb': '06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f',
   'amber-horizon.glb': '78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004',
@@ -33,15 +29,11 @@ export interface ProjectedTemplePoint {x: number; y: number; radiusPx: number; p
 export interface ProjectedTemplePath {side: 0 | 1; points: readonly ProjectedTemplePoint[]; lengthPx: number;}
 export interface ContinuityProjection {eyewearMatrix: readonly number[]; offsetCm: readonly [number, number, number];
   sourceAspect: number; width: number; height: number; dropM: number;
-  /** The width fit's lateral arm spread in the drawn geometry (metres per arm, face-width.ts); 0 without the fit. The
-   *  centrelines must be moved by exactly the same function as the arm vertices, or the cut would walk beside the arm. */
+  /** Lateral spread in the drawn geometry (metres per arm, face-width.ts). The centrelines must follow the same
+   *  function as the arm vertices so hair evidence stays on the drawn shaft. */
   spreadM?: number;
-  /** The plane that spread pivots about (rear-drop.ts's `spreadStartZM`: the asset's hinge, moved back by
-   *  `?templepivot=`). Must be the plane the drawn arms carry, or the cut would walk a differently bent arm.
-   *  Defaults to the model's own start plane, which is where the bend pivoted before 2026-09-18. */
-  spreadStartZM?: number;}
-/** Mesh-local z (metres) per arm from which the arm is removed to its tip, or null when no consistent hair run was found. */
-export interface ContinuityCut {negative: number | null; positive: number | null;}
+  /** The same spread pivot plane as the drawn geometry; defaults to the model's start plane. */
+  spreadStartZM?: number; terminalFit?: TempleTerminalFit | null;}
 const check = (value: unknown, message: string): void => {if (!value) throw new Error(message);};
 
 /** Read original root-local triangle sections; geometry/material buffers are never changed. */
@@ -153,7 +145,7 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
     const project = (x: number, y: number, z: number): Vector3 => {
       const lowering = rearDropCurve(z, model.startZM, model.cutoffZM, input.dropM).loweringM;
       const spread = spreadArmX(x, z, input.spreadStartZM ?? model.startZM, model.cutoffZM, spreadM);
-      const clip = new Vector4(spread, y - lowering, z, 1).applyMatrix4(projection);
+      const clip = new Vector4(terminalFitX(spread, z, input.terminalFit ?? null), y - lowering, z, 1).applyMatrix4(projection);
       check(clip.toArray().every(Number.isFinite) && clip.w > 1 && clip.z >= -clip.w, 'The continuity arm crosses the near plane.');
       return new Vector3((clip.x / clip.w + 1) * input.width / 2, (1 - clip.y / clip.w) * input.height / 2, 0);
     };
@@ -170,40 +162,4 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
       return {side: side as 0 | 1, points, lengthPx};
     });
   } catch { return null; }
-}
-
-/** Walk each arm's projected centreline from the hinge to the tip over the mask; the first run of hair at least
- *  `runPx` long along the arm (sampled in a small window around the centreline, more than half hair) gives that arm's
- *  cut depth: everything behind it is removed to the tip. The mask may be a different size from the render. */
-export function continuityCut(model: TempleContinuityModel, paths: readonly ProjectedTemplePath[], mask: CategoryMask,
-  render: {width: number; height: number}, runPx: number, warp: MaskWarp | null = null): ContinuityCut {
-  const result: ContinuityCut = {negative: null, positive: null};
-  const scaleX = mask.width / render.width, scaleY = mask.height / render.height;
-  // A mask reused from an earlier frame: each station is looked up where it sits in that frame (see hair/mask-reuse.ts).
-  const toMask = warp ? (x: number, y: number): [number, number] => {
-    const [fx, fy] = applyAffine(warp.toMask, x * warp.width / render.width, y * warp.height / render.height);
-    return [fx * mask.width / warp.width, fy * mask.height / warp.height];
-  } : null;
-  for (const path of paths) {
-    const stations = model.sides[path.side];
-    if (!stations || stations.length !== path.points.length || stations.length < 2) continue;
-    const side: keyof ContinuityCut = (stations[0]?.centerXM ?? 0) < 0 ? 'negative' : 'positive';
-    const order = [...stations.keys()].sort((a, b) => stations[b]!.zM - stations[a]!.zM); // hinge (largest z) first
-    let runStart: number | null = null, runStartProgress = 0;
-    for (const index of order) {
-      const point = path.points[index]!, radius = Math.max(1, Math.min(3, Math.round(point.radiusPx)));
-      const mapped = toMask ? toMask(point.x, point.y) : null;
-      const cx = Math.round(mapped ? mapped[0] : point.x * scaleX), cy = Math.round(mapped ? mapped[1] : point.y * scaleY);
-      let hair = 0, total = 0;
-      for (let dy = -radius; dy <= radius; dy++) {
-        const y = cy + dy; if (y < 0 || y >= mask.height) continue;
-        for (let dx = -radius; dx <= radius; dx++) {const x = cx + dx; if (x < 0 || x >= mask.width) continue; total++; if (mask.category[y * mask.width + x] === mask.hairIndex) hair++;}
-      }
-      const inHair = total > 0 && hair * 2 >= total;
-      if (!inHair) {runStart = null; continue;}
-      if (runStart === null) {runStart = index; runStartProgress = point.progressPx;}
-      if (Math.abs(point.progressPx - runStartProgress) >= runPx) {result[side] = stations[runStart]!.zM; break;}
-    }
-  }
-  return result;
 }
