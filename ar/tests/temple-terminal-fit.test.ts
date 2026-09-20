@@ -8,7 +8,7 @@ import {SHIPPED_EYEWEAR, GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render/continuity.ts';
 import {protectionProjection} from '../src/render/protection.ts';
-import {createTempleTerminalFit, TEMPLE_HEAD_VOLUME, terminalFitSlope, terminalFitX, terminalReturn} from '../src/render/temple-terminal-fit.ts';
+import {createTempleTerminalFit, createTempleTerminalFitEvaluator, TEMPLE_HEAD_VOLUME, terminalFitSlope, terminalFitX, terminalReturn} from '../src/render/temple-terminal-fit.ts';
 
 type Point = readonly [number, number, number];
 
@@ -31,15 +31,15 @@ function clipAtZ(polygon: readonly Point[], plane: number, keepAbove: boolean): 
 
 /** Moving each tested point 3 mm outward must still leave it inside the depth proxy. This expresses the
  * safety margin as a geometric containment property, independent of the fitter's boundary calculation. */
-function clearanceValue(point: Point): number {
+function clearanceValue(point: Point, fitScale = 1): number {
   const [rx, ry, rz] = TEMPLE_HEAD_VOLUME.scaleCm, [cx, cy, cz] = TEMPLE_HEAD_VOLUME.centerCm;
-  const x = point[0] * 100 + GLASSES_OFFSET_CM[0] - cx;
-  const y = point[1] * 100 + GLASSES_OFFSET_CM[1] - cy;
-  const z = point[2] * 100 + GLASSES_OFFSET_CM[2] - cz;
+  const x = point[0] * 100 * fitScale + GLASSES_OFFSET_CM[0] - cx;
+  const y = point[1] * 100 * fitScale + GLASSES_OFFSET_CM[1] - cy;
+  const z = point[2] * 100 * fitScale + GLASSES_OFFSET_CM[2] - cz;
   return ((Math.abs(x) + .3) / rx) ** 2 + (y / ry) ** 2 + (z / rz) ** 2;
 }
 
-for (const definition of Object.values(SHIPPED_EYEWEAR)) test(`${definition.name}: the drawn terminal band is contained, with the optical front and fixed baseline preserved`, async t => {
+for (const definition of Object.values(SHIPPED_EYEWEAR)) for (const fitScale of [.782, .8, 1, 1.242]) test(`${definition.name} at ${fitScale} fit: the drawn terminal band is contained, with the optical front and fixed baseline preserved`, async t => {
   const bytes = await readFile(new URL('../public' + definition.assetUrl, import.meta.url));
   const gltf = await new GLTFLoader().register(() => ({name: 'TerminalFitGeometryOnly', loadTexture: async () => new Texture()}))
     .parseAsync(new Uint8Array(bytes).buffer, '/models/');
@@ -58,14 +58,20 @@ for (const definition of Object.values(SHIPPED_EYEWEAR)) test(`${definition.name
   const continuity = buildTempleContinuityModel(gltf.scene, definition.templeClipLocalZM);
   assert.ok(rear.hingeZM !== null, 'the actual asset supplies its own hinge');
   const maximumZM = definition.templeClipLocalZM + .025;
-  const fit = createTempleTerminalFit(gltf.scene, {offsetCm: definition.offsetCm, spreadM: .018,
-    spreadStartZM: rear.spreadStartZM, modelCutoffZM: definition.templeClipLocalZM, maximumZM});
+  const input = {offsetCm: definition.offsetCm, spreadM: .018,
+    spreadStartZM: rear.spreadStartZM, modelCutoffZM: definition.templeClipLocalZM, maximumZM};
+  const evaluate = createTempleTerminalFitEvaluator(gltf.scene, input), fit = evaluate(fitScale), unitFit = evaluate(1);
+  assert.deepEqual(fit, createTempleTerminalFit(gltf.scene, {...input, fitScale}), 'the one-off API and cached original geometry agree');
   assert.ok(fit, 'both shipped frames support the fixed posterior return');
   assert.ok(fit.negativeInsetM > 0 && fit.positiveInsetM > 0);
   rear.setShape(0, .018);
   const baseline = meshes.map(mesh => ({positions: mesh.geometry.getAttribute('position').array.slice(),
     normals: mesh.geometry.getAttribute('normal')?.array.slice()}));
   rear.setTerminalFit(fit);
+  assert.deepEqual(evaluate(fitScale), fit); assert.deepEqual(evaluate(1), unitFit,
+    'the evaluator must not rescan or accumulate the already-deformed live geometry');
+  for (const badScale of [0, -1, NaN, Infinity]) assert.equal(evaluate(badScale), null);
+  if (definition.id === 'tom-ford-clear') assert.equal(evaluate(1.3), null, 'unsupported external/manual scale cannot exceed the safe inset bound');
 
   const counts = [0, 0], capIntersections = [0, 0], drawnTriangles: Point[][] = [];
   let changedPosterior = 0, testedFront = 0, worstClearance = 0;
@@ -83,6 +89,9 @@ for (const definition of Object.values(SHIPPED_EYEWEAR)) test(`${definition.name
           if (normals && saved.normals) assert.equal(normals.getComponent(vertex, axis), saved.normals[offset + axis]);
         }
       } else if (positions.getX(vertex) !== saved.positions[offset]) changedPosterior++;
+      if (z >= maximumZM && Math.abs(saved.positions[offset]!) > .045) {
+        assert.equal(Math.sign(positions.getX(vertex)), Math.sign(saved.positions[offset]!), 'the visible shaft cannot cross the head midline');
+      }
     }
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const [materialIndex, material] of materials.entries()) {
@@ -104,7 +113,7 @@ for (const definition of Object.values(SHIPPED_EYEWEAR)) test(`${definition.name
         for (const point of [...clipped, centroid]) {
           counts[side]!++;
           if (Math.abs(point[2] - maximumZM) < 1e-10) capIntersections[side]!++;
-          worstClearance = Math.max(worstClearance, clearanceValue(point));
+          worstClearance = Math.max(worstClearance, clearanceValue(point, fitScale));
         }
       }
     }
@@ -140,9 +149,9 @@ for (const definition of Object.values(SHIPPED_EYEWEAR)) test(`${definition.name
       .setPosition(0, 0, -depth).toArray();
     const paths = projectTempleContinuity(continuity, {eyewearMatrix: pose, offsetCm: definition.offsetCm,
       width: 1280, height: 720, sourceAspect: 1280 / 720, dropM: 0, spreadM: .018,
-      spreadStartZM: rear.spreadStartZM, terminalFit: fit});
+      spreadStartZM: rear.spreadStartZM, terminalFit: fit, fitScale});
     assert.ok(paths, 'the camera pose projects both temple paths');
-    const projection = protectionProjection(pose, definition.offsetCm, 1280 / 720);
+    const projection = protectionProjection(pose, definition.offsetCm, 1280 / 720, fitScale);
     for (const path of paths) for (const [index, section] of sections[path.side]!.entries()) {
       if (!section) continue;
       const p = new Vector4(...section, 1).applyMatrix4(projection);

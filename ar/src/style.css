@@ -519,6 +519,30 @@ footer {
 
 /* Page controls and diagnostics. */
 
+.shadow-controls,
+.fit-controls {
+  min-width: 0;
+  grid-column: 1/-1;
+  padding: 18px;
+  border: 1px solid #496057;
+  border-radius: 12px;
+  background: #14231d;
+}
+.shadow-controls .eyebrow, .fit-controls .eyebrow { margin-bottom: 10px; }
+.shadow-toggle { display: flex; align-items: center; gap: 9px; min-height: 30px; font-size: 13px; cursor: pointer; }
+.shadow-toggle input { width: 17px; height: 17px; margin: 0; accent-color: #c8e4ad; }
+.shadow-controls .control-hint { margin: 6px 0 14px; font-size: 11px; }
+.shadow-slider-caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.shadow-slider-caption output { color: #c8e4ad; font-variant-numeric: tabular-nums; }
+.shadow-controls input[type="range"], .fit-controls input[type="range"] { display: block; width: 100%; min-height: 26px; margin: 3px 0 8px; accent-color: #c8e4ad; cursor: pointer; }
+.shadow-controls input[type="range"]:last-child { margin-bottom: 0; }
+.shadow-controls input:disabled, .fit-controls input:disabled, .fit-controls button:disabled { opacity: .45; cursor: default; }
+.fit-controls .control-hint { margin: 6px 0 10px; font-size: 11px; }
+#fit-progress { display: block; width: 100%; height: 5px; margin: 12px 0 18px; accent-color: #c8e4ad; }
+.fit-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.fit-actions .control-hint { margin: 0; }
+.fit-actions button { padding: 8px 12px; }
+
 .hair-controls{padding:22px 0;border-bottom:1px solid #ffffff16}.hair-controls .eyebrow{display:block;margin-bottom:12px}.hair-controls select{width:100%;padding:12px;border:1px solid #708874;border-radius:7px;background:#1b2b20;color:inherit;font:inherit;font-size:13px}.control-hint{color:#a9baad;font-size:12px;line-height:1.6;margin:12px 0}.hair-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.hair-actions button,#download-diagnostic{font-size:12px;padding:10px 12px}.hair-actions .primary{width:auto}.stage[data-state="held"] #status-dot{background:#efd68c}.stage{min-height:520px}.hair-controls select:disabled{opacity:.6}#hair-detail{overflow-wrap:anywhere}.sidebar .diagnostics{margin-top:20px}
 @media(max-width:680px){.stage{min-height:410px}}
 
@@ -528,6 +552,8 @@ footer {
 .pipeline-controls{grid-column:1/-1}
 .profile-panel{grid-column:1/-1;padding:20px;border:1px solid #496057;border-radius:12px;margin-bottom:18px;background:#14231d}.profile-headline{display:flex;flex-direction:column;gap:5px;margin:14px 0 20px}.profile-headline strong{font-size:30px;font-weight:500;color:#d5f2bb;font-variant-numeric:tabular-nums}.profile-headline span{font-size:12px;color:#a9baad}.profile-metrics{margin:16px 0}.profile-metrics div{display:flex;justify-content:space-between;gap:12px;margin:10px 0;font-size:12px}.profile-metrics dt{color:#a9baad}.profile-metrics dd{margin:0;font-variant-numeric:tabular-nums;white-space:nowrap}.profile-panel button{width:100%;min-width:0;padding:12px;font-size:12px}.profile-stages{margin-top:18px;font-size:12px}.profile-stages summary{cursor:pointer;color:#d5f2bb}
 .benchmark-table-scroll{overflow-x:auto}.metrics-export{margin-top:16px;font-size:12px}.metrics-export summary{cursor:pointer;color:#d5f2bb}.metrics-export label{display:block;margin:12px 0 8px}.metrics-export textarea{box-sizing:border-box;display:block;width:100%;min-height:180px;max-height:450px;resize:vertical;background:#0e1813;color:#d9e4db;border:1px solid #496057;border-radius:7px;padding:10px;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre;overflow:auto}.metrics-export button{margin-top:10px}
+.profile-metrics dt { flex: 0 0 38%; }
+.profile-metrics dd { min-width: 0; flex: 1; white-space: normal; overflow-wrap: anywhere; text-align: right; }
 #measure-results{width:100%;font-size:11px;border-collapse:collapse}#measure-results th,#measure-results td{padding:4px 6px;border-bottom:1px solid #d1ead41f;text-align:left;white-space:nowrap}#measure-pooled{white-space:pre-line;line-height:1.6}.inline-fields{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center}.inline-fields input,.inline-fields select{width:100%;box-sizing:border-box}
 
 .mirror-column { min-width: 0; }

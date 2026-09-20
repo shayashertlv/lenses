@@ -39,9 +39,11 @@ export function validateProtection(value: ProtectionConfiguration, width: number
 const NASAL_AND_EYE_LANDMARKS = [1, 2, 4, 6, 33, 98, 133, 168, 197, 263, 327, 362] as const;
 export interface RearBounds { optical: Box3; originalArms: Box3[]; candidateArms: Box3[]; }
 
-export function protectionProjection(eyewearMatrix: readonly number[], offsetCm: readonly [number, number, number], aspect: number): Matrix4 {
+export function protectionProjection(eyewearMatrix: readonly number[], offsetCm: readonly [number, number, number], aspect: number,
+  fitScale = 1): Matrix4 {
+  if (!Number.isFinite(fitScale) || fitScale <= 0) throw new Error('The eyewear fit scale is invalid.');
   const camera = new PerspectiveCamera(VIRTUAL_CAMERA.verticalFovDegrees, aspect, VIRTUAL_CAMERA.nearCm, VIRTUAL_CAMERA.farCm);
-  const asset = new Matrix4().makeTranslation(...offsetCm).scale(new Vector3().setScalar(GLASSES_METERS_TO_CENTIMETERS));
+  const asset = new Matrix4().makeTranslation(...offsetCm).scale(new Vector3().setScalar(GLASSES_METERS_TO_CENTIMETERS * fitScale));
   return camera.projectionMatrix.clone().multiply(new Matrix4().fromArray(eyewearMatrix)).multiply(asset);
 }
 
@@ -69,12 +71,12 @@ function clippedRect(x0: number, y0: number, x1: number, y1: number, width: numb
 }
 
 export function createProtection(bounds: RearBounds, eyewearMatrix: readonly number[], offsetCm: readonly [number, number, number],
-  landmarks: Detection['landmarks'], width: number, height: number, sourceAspect = width / height): ProtectionConfiguration | null {
+  landmarks: Detection['landmarks'], width: number, height: number, sourceAspect = width / height, fitScale = 1): ProtectionConfiguration | null {
   try {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0
       || eyewearMatrix.length !== 16 || !eyewearMatrix.every(Number.isFinite)
       || !offsetCm.every(Number.isFinite) || landmarks.length < 468 || !Number.isFinite(sourceAspect) || sourceAspect <= 0) return null;
-    const projection = protectionProjection(eyewearMatrix, offsetCm, sourceAspect);
+    const projection = protectionProjection(eyewearMatrix, offsetCm, sourceAspect, fitScale);
     const optical = projectBounds(bounds.optical, projection, width, height, 4);
     if (!optical) return null;
     const points = NASAL_AND_EYE_LANDMARKS.map(index => landmarks[index]!);

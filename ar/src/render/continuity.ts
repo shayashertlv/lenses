@@ -29,6 +29,8 @@ export interface ProjectedTemplePoint {x: number; y: number; radiusPx: number; p
 export interface ProjectedTemplePath {side: 0 | 1; points: readonly ProjectedTemplePoint[]; lengthPx: number;}
 export interface ContinuityProjection {eyewearMatrix: readonly number[]; offsetCm: readonly [number, number, number];
   sourceAspect: number; width: number; height: number; dropM: number;
+  /** Uniform visual fit around the model's bridge origin, shared by the rendered asset and protection. */
+  fitScale?: number;
   /** Lateral spread in the drawn geometry (metres per arm, face-width.ts). The centrelines must follow the same
    *  function as the arm vertices so hair evidence stays on the drawn shaft. */
   spreadM?: number;
@@ -140,7 +142,7 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
       && Math.abs(new Matrix4().fromArray(input.eyewearMatrix).determinant()) > 1e-12
       && input.width > 0 && input.height > 0 && Number.isFinite(input.sourceAspect) && input.sourceAspect > 0,
     'The continuity projection is invalid.');
-    const projection = protectionProjection(input.eyewearMatrix, input.offsetCm, input.sourceAspect);
+    const projection = protectionProjection(input.eyewearMatrix, input.offsetCm, input.sourceAspect, input.fitScale ?? 1);
     const spreadM = input.spreadM ?? 0;
     const project = (x: number, y: number, z: number): Vector3 => {
       const lowering = rearDropCurve(z, model.startZM, model.cutoffZM, input.dropM).loweringM;

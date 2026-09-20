@@ -15,6 +15,9 @@ import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
+import {EyewearFitSession} from './render/eyewear-fit.ts';
+import {DEFAULT_SHADOW_SETTINGS} from './render/eyewear-shadow.ts';
+import type {ShadowSettings} from './render/eyewear-shadow.ts';
 import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
@@ -39,13 +42,79 @@ const withDeadline = <T,>(promise: Promise<T>, ms: number, what: string): Promis
 
 interface Session {
   id: string; abort: AbortController; camera: CameraSession | null; canvas: HTMLCanvasElement;
+  fitSession: EyewearFitSession;
   renderer: LiveRenderer | null; detector: DetectorClient | null; hair: HairClient | null; hairBackend: HairBackend;
   hairReady: boolean; hairError: string | null; pipeline: Pipeline | null; sequence: number;
   startedAtMs: number; firstAtMs: number | null; rows: number;
   exposure: {applied: number | null; mode: string | null; error: string | null} | null;
 }
 let current: Session | null = null;
+let changingEyewear = false;
 let hairEnabled = config.hair ?? true;
+const fitAdjustment = element<HTMLInputElement>('fit-adjustment');
+function fitting(): LiveRenderer['fitting'] | null {
+  const value = current?.renderer?.fitting;
+  return value ? {...value} : null;
+}
+function updateFitControls(): void {
+  const fit = fitting(), adjustment = fit?.adjustment ?? 0;
+  const percentage = Math.round(adjustment * 1000) / 10;
+  fitAdjustment.disabled = !fit;
+  fitAdjustment.value = String(percentage);
+  const label = `${percentage > 0 ? '+' : ''}${percentage}%`;
+  fitAdjustment.setAttribute('aria-valuetext', fit?.limited
+    ? `${label} requested; limited by the frame's supported size` : `${label} from automatic size`);
+  element<HTMLOutputElement>('fit-adjustment-value').value = label;
+  element<HTMLButtonElement>('fit-refit').disabled = !fit;
+  element<HTMLProgressElement>('fit-progress').value = Math.max(0, Math.min(1, fit?.progress ?? 0));
+  element('fit-status').textContent = fit?.limited ? 'Size limit reached. The requested adjustment is capped.'
+    : fit?.state === 'fitted' ? 'Fit ready. You can turn your head.'
+    : fit?.state === 'settling' ? 'Hold still while the size settles…' : fit?.rejection || 'Look straight ahead to fit your glasses.';
+}
+function refit(): void {current?.renderer?.refit(); updateFitControls();}
+function setFitAdjustment(value: number): void {
+  if (!Number.isFinite(value)) return;
+  current?.renderer?.setFitAdjustment(Math.max(-.08, Math.min(.08, value)));
+  updateFitControls();
+}
+fitAdjustment.addEventListener('input', () => setFitAdjustment(fitAdjustment.valueAsNumber / 100));
+element('fit-refit').addEventListener('click', refit);
+let shadowSettings: ShadowSettings = {...DEFAULT_SHADOW_SETTINGS};
+const shadowToggle = element<HTMLInputElement>('shadow-toggle');
+const shadowFrame = element<HTMLInputElement>('shadow-frame'), shadowLens = element<HTMLInputElement>('shadow-lens');
+const shadowSoftness = element<HTMLInputElement>('shadow-softness');
+
+function updateShadowControls(): void {
+  shadowToggle.checked = shadowSettings.enabled;
+  for (const [control, value, output] of [
+    [shadowFrame, shadowSettings.frameStrength * 100, `${Math.round(shadowSettings.frameStrength * 100)}%`],
+    [shadowLens, shadowSettings.lensStrength * 100, `${Math.round(shadowSettings.lensStrength * 100)}%`],
+    [shadowSoftness, shadowSettings.softness, `${shadowSettings.softness.toFixed(1)}×`],
+  ] as const) {
+    control.value = String(value); control.disabled = !shadowSettings.enabled;
+    control.setAttribute('aria-valuetext', output);
+    element<HTMLOutputElement>(`${control.id}-value`).value = output;
+  }
+}
+
+function setShadows(settings: Partial<ShadowSettings>): ShadowSettings {
+  const bounded = (value: number | undefined, fallback: number, low: number, high: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback;
+  shadowSettings = {
+    enabled: typeof settings.enabled === 'boolean' ? settings.enabled : shadowSettings.enabled,
+    frameStrength: bounded(settings.frameStrength, shadowSettings.frameStrength, 0, .6),
+    lensStrength: bounded(settings.lensStrength, shadowSettings.lensStrength, 0, .6),
+    softness: bounded(settings.softness, shadowSettings.softness, .3, 2),
+  };
+  current?.renderer?.setShadows(shadowSettings);
+  updateShadowControls();
+  return {...shadowSettings};
+}
+shadowToggle.addEventListener('change', () => setShadows({enabled: shadowToggle.checked}));
+shadowFrame.addEventListener('input', () => setShadows({frameStrength: shadowFrame.valueAsNumber / 100}));
+shadowLens.addEventListener('input', () => setShadows({lensStrength: shadowLens.valueAsNumber / 100}));
+shadowSoftness.addEventListener('input', () => setShadows({softness: shadowSoftness.valueAsNumber}));
+updateShadowControls();
 
 /** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
  *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
@@ -97,13 +166,24 @@ element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a 
 element('diag-note').hidden = !config.diagnostics;
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
 function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}
-eyewearSelect.addEventListener('change', showEyewear); showEyewear();
+eyewearSelect.addEventListener('change', () => {
+  showEyewear();
+  if (!current?.pipeline || changingEyewear) return;
+  const fitSession = current.fitSession;
+  changingEyewear = true;
+  // Stop the old stream synchronously before opening its replacement. Only an explicit glasses change
+  // shares this wearer's calibration; ordinary Close/Open and measurement sessions start fresh.
+  closeSession('Changing glasses…');
+  void openSession(fitSession).finally(() => {changingEyewear = false; updateControls();});
+}); showEyewear();
 hairToggle.addEventListener('change', () => { hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
 function updateControls(): void {
   const live = !!current;
-  eyewearSelect.disabled = live; hairSelect.disabled = live;
+  eyewearSelect.disabled = changingEyewear || (live && !current?.pipeline) || cancelMeasure !== null;
+  hairSelect.disabled = live;
   start.hidden = live; stop.hidden = !live; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
+  updateFitControls();
 }
 let uiTimer: ReturnType<typeof setInterval> | null = null, lastLiveReportAt = 0;
 const hairWorkerLine = (pipeline: Pipeline | null | undefined): string => {
@@ -114,6 +194,7 @@ const hairWorkerLine = (pipeline: Pipeline | null | undefined): string => {
 };
 function updateUi(): void {
   const session = current; if (!session) return;
+  updateFitControls();
   const recent = profiler.recent(session.id).filter(row => performance.now() - row.publishedAtMs <= 10_000);
   const summary = summarize(recent);
   element('fps').textContent = summary.processedFps === null ? 'Starting' : `${summary.processedFps.toFixed(1)} fps`;
@@ -149,10 +230,10 @@ function updateUi(): void {
   }
 }
 
-async function openSession(): Promise<void> {
+async function openSession(fitSession = new EyewearFitSession()): Promise<void> {
   if (current) return;
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement; previous.replaceWith(canvas);
-  const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, renderer: null, detector: null, hair: null,
+  const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, fitSession, renderer: null, detector: null, hair: null,
     hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null};
   current = session; stage.dataset.sessionId = session.id; updateControls();
   const signal = session.abort.signal, owns = (): boolean => current === session;
@@ -179,10 +260,10 @@ async function openSession(): Promise<void> {
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, fitSession}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
-    renderer.setHairEnabled(hairEnabled); session.renderer = renderer;
+    renderer.setHairEnabled(hairEnabled); renderer.setShadows(shadowSettings); session.renderer = renderer;
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -216,7 +297,9 @@ async function openSession(): Promise<void> {
         profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; lastLiveReportAt = performance.now() - 5000; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
         canvas.hidden = false; element('welcome').hidden = true;
         stage.dataset.frames = String(row.sequence);
-        setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace ? 'Turn your head to see the fit from different angles.' : 'Bring your face into view.');
+        setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace
+          ? renderer.fitting.state === 'fitted' ? 'Turn your head to see the fit from different angles.' : 'Look straight ahead for a moment to fit the glasses.'
+          : 'Bring your face into view.');
       },
     });
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face ${detector.delegate ?? '—'}`;
@@ -316,7 +399,7 @@ async function measure(sessions: number, warmupMs: number, measurementMs: number
       measured.push(entry); renderMeasured(measured);
       if (index + 1 < sessions) await new Promise(resolve => setTimeout(resolve, 1500));
     }
-  } finally {cancelMeasure = null; element('measure-cancel').hidden = true; element<HTMLButtonElement>('measure-start').disabled = false;}
+  } finally {cancelMeasure = null; element('measure-cancel').hidden = true; element<HTMLButtonElement>('measure-start').disabled = false; updateControls();}
   const status = cancelled ? 'stopped' : 'complete';
   element('measure-status').textContent = status === 'complete' ? 'Measurement complete. Download the report; sessions are the unit of comparison.' : 'Measurement stopped.';
   lastReport = {schema: 'ar-sessions-v1', createdAt: new Date().toISOString(), status, sessions: sessions, warmupMs, measurementMs, config,
@@ -355,7 +438,10 @@ declare global {interface Window {__ar: {
   measure(sessions: number, warmupMs: number, measurementMs: number): Promise<{sessions: MeasuredSession[]; status: string}>;
   samplesAfter(serial: number): FrameSample[]; lastReport(): Record<string, unknown> | null; audit(): Promise<Audit | null>;
   config(): typeof config;
+  setShadows(settings: Partial<ShadowSettings>): ShadowSettings; shadowSettings(): ShadowSettings;
+  fitting(): LiveRenderer['fitting'] | null; refit(): void; setFitAdjustment(value: number): void;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
-  lastReport: () => lastReport, audit: runAudit, config: () => config};
+  lastReport: () => lastReport, audit: runAudit, config: () => config, setShadows, shadowSettings: () => ({...shadowSettings}),
+  fitting, refit, setFitAdjustment};
 updateControls();

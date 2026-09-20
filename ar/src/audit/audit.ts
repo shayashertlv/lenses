@@ -9,6 +9,7 @@ import {GUARD_METHOD} from '../render/renderer.ts';
 import type {FrameTimings, TryOnRenderer} from '../render/renderer.ts';
 import type {TempleTerminalFit} from '../render/temple-terminal-fit.ts';
 import type {TempleHeadFit} from '../render/temple-head-fit.ts';
+import type {ShadowSettings} from '../render/eyewear-shadow.ts';
 import {checkHairProtection, composeHairArms} from './reference.ts';
 import type {HairArmInput, HairModelContract, HairProtectionChecks, PairIdentity} from './reference.ts';
 
@@ -27,10 +28,12 @@ export interface Audit {
     headFit: TempleHeadFit['report'] | null;
     fixedReturn: TempleTerminalFit | null};
   afterVsBefore: PixelDifference; afterVsReference: PixelDifference | null;
+  shadows: {applied: boolean; settings: ShadowSettings; onVsOff: PixelDifference};
+  fitting: TryOnRenderer['fitting'];
   pair: PairIdentity; detection: Detection;
   mask: {model: string; modelSHA256: string; categorySHA256: string; width: number; height: number; hairIndex: number} | null;
   images: {sourcePngDataUrl: string; beforePngDataUrl: string; afterPngDataUrl: string; backgroundPngDataUrl: string; referencePngDataUrl: string | null; maskPngDataUrl: string | null;
-    hairDiffPngDataUrl: string};
+    hairDiffPngDataUrl: string; noShadowPngDataUrl: string; shadowDiffPngDataUrl: string};
   timings: {rendersMs: number; readbackMs: number; composeMs: number; checksMs: number; encodeMs: number; totalMs: number};
 }
 export interface HeldFrame {
@@ -81,6 +84,7 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
     const t1 = performance.now(); const image = renderer.readback(); readbackMs += performance.now() - t1; return image;
   };
   const before = draw({hair: false}), background = draw({eyewear: false}), after = draw({hair: true});
+  const noShadow = draw({hair: true, shadows: false});
   renderer.render(gpuMask);
   let reference: Audit['reference'] = {method: 'CPU binary-mask baseline on the held GPU geometry; excludes GPU edge feathering', fallbackReason: null, changedPixels: null, error: null};
   let referencePixels: Uint8ClampedArray | null = null, regions: Uint8Array | null = null, checks: HairProtectionChecks | null = null, checkError: string | null = null;
@@ -111,7 +115,8 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
   }
   const images: Audit['images'] = {sourcePngDataUrl: frame.toDataURL('image/png'), beforePngDataUrl: png(before), afterPngDataUrl: png(after), backgroundPngDataUrl: png(background),
     referencePngDataUrl: referencePixels ? png(new ImageData(new Uint8ClampedArray(referencePixels), width, height)) : null, maskPngDataUrl: maskPng,
-    hairDiffPngDataUrl: png(differenceMap(after.data, before.data, width, height))};
+    hairDiffPngDataUrl: png(differenceMap(after.data, before.data, width, height)), noShadowPngDataUrl: png(noShadow),
+    shadowDiffPngDataUrl: png(differenceMap(after.data, noShadow.data, width, height))};
   const encodeMs = performance.now() - encodeStart;
   return {
     schema: 'ar-audit-v1', createdAt: new Date().toISOString(), sequence, width, height,
@@ -123,6 +128,8 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
       positiveFadeM: renderer.captureSnapshot?.templeClip?.positiveXFadeLengthLocalM ?? renderer.captureSnapshot?.templeClip?.fadeLengthLocalM ?? null,
       positiveZM: live.templeEndPositiveZM, state: live.templeEndState, fixedReturn: renderer.captureSnapshot?.templeTerminalFit ?? null},
     afterVsBefore: difference(after.data, before.data), afterVsReference: referencePixels ? difference(after.data, referencePixels) : null,
+    shadows: {applied: live.shadowsApplied ?? false, settings: renderer.shadowsSettings, onVsOff: difference(after.data, noShadow.data)},
+    fitting: renderer.fitting,
     pair: {...pair}, detection: structuredClone(detection),
     mask: mask ? {model: mask.model, modelSHA256: mask.modelSHA256, categorySHA256: mask.categorySHA256, width: mask.width, height: mask.height, hairIndex: mask.hairIndex} : null,
     images, timings: {rendersMs, readbackMs, composeMs, checksMs, encodeMs, totalMs: performance.now() - started},

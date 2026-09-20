@@ -3,7 +3,7 @@ import {
   MeshPhysicalMaterial, NearestFilter, Scene, ShaderMaterial, SRGBColorSpace, UnsignedIntType, Vector2,
   Vector4, WebGLRenderTarget,
 } from 'three';
-import type {BufferGeometry, Object3D, PerspectiveCamera, WebGLRenderer} from 'three';
+import type {BufferGeometry, Object3D, PerspectiveCamera, Texture, WebGLRenderer} from 'three';
 import type {TempleCheekContact} from './temple-cheek-contact.ts';
 
 /** Per-pixel relief from the arm fragment's distance behind the head surface. */
@@ -171,7 +171,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     ].map(rank => (rank + 0.5) / 16))},
   };
   const frontalUniforms = {
-    templeFrontalFront: {value: frontZM}, templeFrontalCameraSource: {value: null as CanvasTexture | null},
+    templeFrontalFront: {value: frontZM}, templeFrontalCameraSource: {value: null as Texture | null},
     templeCheekFront: {value: frontZM - TEMPLE_VISIBILITY_PARAMETERS.cheekFrontGuardM},
     templeCheekCount: {value: 0}, templeCheekPolygon: {value: Array.from({length: 64}, () => new Vector2())},
     templeCheekDepth: {value: cheekTarget.depthTexture}, templeCheekMask: {value: cheekTarget.texture},
@@ -422,7 +422,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       // The per-pixel rule applies at every pose.
       for (const overlay of overlays) overlay.visible = value !== null;
     },
-    prepare(rawMatrix: readonly number[], cameraTexture?: CanvasTexture): void {
+    prepare(rawMatrix: readonly number[], cameraTexture?: Texture): void {
       if (disposed) throw new Error('Temple visibility is disposed.');
       restoreColorWrites();
       if (configuration === null) return;
@@ -431,7 +431,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       frontalUniforms.templeFrontalCameraSource.value = null;
       if (frontalUniforms.templeCheekCount.value >= 3) {
         const image = cameraTexture?.image as {width?: number; height?: number} | undefined;
-        if (!(cameraTexture instanceof CanvasTexture) || cameraTexture.colorSpace !== SRGBColorSpace
+        if (!(cameraTexture instanceof CanvasTexture || cameraTexture?.isRenderTargetTexture === true) || cameraTexture.colorSpace !== SRGBColorSpace
             || !Number.isFinite(image?.width) || !Number.isFinite(image?.height)
             || !(image!.width! > 0 && image!.height! > 0)
             || !Number.isInteger(size.x) || !Number.isInteger(size.y) || size.x <= 0 || size.y <= 0) {

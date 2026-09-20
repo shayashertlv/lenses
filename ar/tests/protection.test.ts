@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Box3, Matrix4, Vector3} from 'three';
+import {Box3, Group, Matrix4, PerspectiveCamera, Vector3} from 'three';
 import {createProtection, nasalRoi, projectBounds, protectionProjection, validateProtection} from '../src/render/protection.ts';
 import type {Detection} from '../src/face/protocol.ts';
 import {GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
@@ -36,4 +36,36 @@ test('the protection projects the optical box and the dropped arm corridors, and
   assert.equal(createProtection({optical, originalArms: arms, candidateArms: dropped}, new Matrix4().setPosition(0, 0, 5).toArray(), GLASSES_OFFSET_CM, landmarks, 1280, 720), null);
   assert.equal(createProtection({optical, originalArms: arms, candidateArms: dropped}, pose, GLASSES_OFFSET_CM, landmarks.slice(0, 10), 1280, 720), null);
   assert.equal(createProtection({optical: new Box3(), originalArms: arms, candidateArms: dropped}, pose, GLASSES_OFFSET_CM, landmarks, 1280, 720), null);
+});
+
+test('fitted protection matches a rendered asset transform without scaling the bridge translation', () => {
+  const pose = new Matrix4().makeRotationY(.35).setPosition(1, -2, -42), aspect = 16 / 9;
+  const camera = new PerspectiveCamera(63, aspect, 1, 10_000); camera.updateMatrixWorld();
+  const attachment = new Group(); attachment.matrixAutoUpdate = false; attachment.matrix.copy(pose);
+  const asset = new Group(); asset.position.set(...GLASSES_OFFSET_CM); attachment.add(asset);
+  const landmarks = Array.from({length: 478}, () => ({x: .5, y: .45, z: 0}));
+  const optical = new Box3(new Vector3(-.07, -.02, -.01), new Vector3(.07, .02, .01));
+  const bounds = {optical, originalArms: [], candidateArms: []};
+  let bridge: Vector3 | null = null;
+  for (const fitScale of [.8, 1, 1.25]) {
+    asset.scale.setScalar(100 * fitScale); attachment.updateMatrixWorld(true);
+    const projection = protectionProjection(pose.toArray(), GLASSES_OFFSET_CM, aspect, fitScale);
+    const origin = new Vector3().applyMatrix4(projection);
+    bridge ??= origin.clone(); assert.ok(origin.distanceTo(bridge) < 1e-12, 'fitting must keep the same bridge origin');
+    const protection = createProtection(bounds, pose.toArray(), GLASSES_OFFSET_CM, landmarks, 1280, 720, aspect, fitScale);
+    assert.ok(protection);
+    const rect = protection.protectedRects[0]!;
+    for (const x of [optical.min.x, optical.max.x]) for (const y of [optical.min.y, optical.max.y]) for (const z of [optical.min.z, optical.max.z]) {
+      const drawn = new Vector3(x, y, z).applyMatrix4(asset.matrixWorld).project(camera);
+      const guarded = new Vector3(x, y, z).applyMatrix4(projection);
+      assert.ok(drawn.distanceTo(guarded) < 1e-12, 'the guard uses the actual scaled scene transform');
+      const px = (drawn.x + 1) * 640, py = (1 - drawn.y) * 360;
+      assert.ok(px >= rect.x0 + 3 && px <= rect.x1 - 3 && py >= rect.y0 + 3 && py <= rect.y1 - 3,
+        'every fitted optical corner remains inside the protected margin');
+    }
+  }
+  for (const fitScale of [0, -1, NaN, Infinity]) {
+    assert.throws(() => protectionProjection(pose.toArray(), GLASSES_OFFSET_CM, aspect, fitScale), /fit scale/);
+    assert.equal(createProtection(bounds, pose.toArray(), GLASSES_OFFSET_CM, landmarks, 1280, 720, aspect, fitScale), null);
+  }
 });

@@ -8,6 +8,8 @@ export const TEMPLE_HEAD_VOLUME = Object.freeze({
   scaleCm: Object.freeze([7.4, 9.5, 7.5] as const),
   centerCm: Object.freeze([0, -.5, -3.5] as const),
 });
+/** Model-local inset guard, shared by containment and the geometry deformation controller. */
+export const MAX_TERMINAL_INSET_M = .05;
 export interface TempleTerminalFit {
   startZM: number; endZM: number; maximumZM: number;
   negativeInsetM: number; positiveInsetM: number;
@@ -21,7 +23,7 @@ export function templeTerminalRelief(fit: TempleTerminalFit): {startZM: number; 
 }
 interface FitInput {
   offsetCm: readonly [number, number, number]; spreadM: number; spreadStartZM: number;
-  modelCutoffZM: number; maximumZM: number;
+  modelCutoffZM: number; maximumZM: number; fitScale?: number;
 }
 /** The return is C1 continuous and changes neither local Y nor Z. It never depends on pose or distance. */
 export function terminalReturn(zM: number, fit: TempleTerminalFit | null): {weight: number; slope: number} {
@@ -38,29 +40,26 @@ export function terminalFitSlope(xM: number, zM: number, fit: TempleTerminalFit 
   return fit ? -Math.sign(xM) * (xM < 0 ? fit.negativeInsetM : fit.positiveInsetM) * terminalReturn(zM, fit).slope : 0;
 }
 
-/** Fit every triangle corner and plane intersection in the complete final 5 mm. In that band the
- * return is a constant translation; the ellipsoid is convex, so contained clipped-triangle vertices
- * also contain their interiors. Leave 3 mm lateral clearance for the tessellated depth proxy.
- * Unsupported external geometry simply retains its existing shortened cap. */
-export function createTempleTerminalFit(root: Object3D, input: FitInput): TempleTerminalFit | null {
-  const {maximumZM, spreadM, spreadStartZM, modelCutoffZM, offsetCm} = input;
+/** Capture original terminal-band geometry once, before applying spread/return deformations. The resulting
+ * evaluator retains only numeric samples, so visual fitting can update containment without reading the GLB again
+ * or accidentally fitting a previously deformed shaft. In the terminal band the return is a translation; the
+ * ellipsoid is convex, so containing clipped-triangle corners also contains their interiors. */
+export function createTempleTerminalFitEvaluator(root: Object3D, input: FitInput): (fitScale: number) => TempleTerminalFit | null {
+  const {maximumZM, spreadM, spreadStartZM, modelCutoffZM} = input, offsetCm = [...input.offsetCm];
   // Preserve more of the visible shaft before burying the tip. Moving the cap alone cannot
   // lengthen a shaft that has already entered the depth proxy. The terminal band stays fixed.
   const endZM = maximumZM + .005, startZM = Math.min(-.075, endZM + .065);
   if (![maximumZM, spreadM, spreadStartZM, modelCutoffZM, ...offsetCm].every(Number.isFinite)
-    || endZM - maximumZM < .004 || startZM - endZM < .025 || spreadStartZM <= startZM) return null;
-  const insets = [0, 0], counts = [0, 0];
-  let valid = true;
+    || endZM - maximumZM < .004 || startZM - endZM < .025 || spreadStartZM <= startZM) return () => null;
+  const samples: {side: 0 | 1; spreadX: number; y: number; z: number}[] = [], seen = new Set<string>();
+  const counts = [0, 0];
   const inspect = (x: number, y: number, z: number): void => {
     if (Math.abs(x) <= .045 || z < maximumZM - 1e-9 || z > endZM + 1e-9) return;
-    const side = x < 0 ? 0 : 1, sign = Math.sign(x);
-    const [rx, ry, rz] = TEMPLE_HEAD_VOLUME.scaleCm, [cx, cy, cz] = TEMPLE_HEAD_VOLUME.centerCm;
-    const headY = (y * 100 + offsetCm[1] - cy) / ry, headZ = (z * 100 + offsetCm[2] - cz) / rz;
-    const inside = 1 - headY * headY - headZ * headZ;
-    if (inside <= 0) {valid = false; return;}
-    const boundaryX = cx + sign * (rx * Math.sqrt(inside) - .3);
-    const spreadX = spreadArmX(x, z, spreadStartZM, modelCutoffZM, spreadM);
-    insets[side] = Math.max(insets[side]!, sign * (spreadX - (boundaryX - offsetCm[0]) / 100));
+    const key = `${x},${y},${z}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const side = x < 0 ? 0 : 1;
+    samples.push({side, spreadX: spreadArmX(x, z, spreadStartZM, modelCutoffZM, spreadM), y, z});
     counts[side]!++;
   };
   root.traverse(object => {
@@ -87,9 +86,28 @@ export function createTempleTerminalFit(root: Object3D, input: FitInput): Temple
       }
     }
   });
-  // Keep the containment margin after float32 storage and interpolation across a triangle that
-  // straddles the end of the return. A one-micrometre inset absorbs their rounding at the boundary.
-  for (let side = 0; side < 2; side++) insets[side]! += .000001;
-  if (!valid || counts.some(count => count === 0) || insets.some(inset => inset > .035)) return null;
-  return {startZM, endZM, maximumZM, negativeInsetM: insets[0]!, positiveInsetM: insets[1]!};
+  if (counts.some(count => count === 0)) return () => null;
+  return (fitScale: number): TempleTerminalFit | null => {
+    if (!Number.isFinite(fitScale) || fitScale <= 0) return null;
+    const modelToCm = 100 * fitScale, insets = [0, 0];
+    const [rx, ry, rz] = TEMPLE_HEAD_VOLUME.scaleCm, [cx, cy, cz] = TEMPLE_HEAD_VOLUME.centerCm;
+    for (const {side, spreadX, y, z} of samples) {
+      const sign = side === 0 ? -1 : 1;
+      const headY = (y * modelToCm + offsetCm[1]! - cy) / ry, headZ = (z * modelToCm + offsetCm[2]! - cz) / rz;
+      const inside = 1 - headY * headY - headZ * headZ;
+      if (!(inside > 0)) return null;
+      const boundaryX = cx + sign * (rx * Math.sqrt(inside) - .3);
+      insets[side] = Math.max(insets[side]!, sign * (spreadX - (boundaryX - offsetCm[0]!) / modelToCm));
+    }
+    // Keep the clearance after float32 storage and interpolation at a terminal-band boundary.
+    for (let side = 0; side < 2; side++) insets[side]! += .000001;
+    if (insets.some(inset => !Number.isFinite(inset) || inset > MAX_TERMINAL_INSET_M)) return null;
+    if (samples.some(({side, spreadX}) => (side === 0 ? -spreadX : spreadX) - insets[side]! <= 0)) return null;
+    return {startZM, endZM, maximumZM, negativeInsetM: insets[0]!, positiveInsetM: insets[1]!};
+  };
+}
+
+/** One-off compatibility entry point. Production visual fitting should retain the evaluator instead. */
+export function createTempleTerminalFit(root: Object3D, input: FitInput): TempleTerminalFit | null {
+  return createTempleTerminalFitEvaluator(root, input)(input.fitScale ?? 1);
 }

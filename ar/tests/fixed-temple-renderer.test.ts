@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {BoxGeometry, BufferAttribute, Euler, Group, Matrix4, Mesh, MeshBasicMaterial, MeshPhysicalMaterial,
-  MeshStandardMaterial, PerspectiveCamera, Quaternion, Vector3} from 'three';
+  MeshStandardMaterial, PerspectiveCamera, Quaternion, SRGBColorSpace, Vector3, WebGLRenderTarget} from 'three';
 import {TryOnRenderer} from '../src/render/renderer.ts';
 import type {RendererOptions} from '../src/render/renderer.ts';
 import {LiveRenderer} from '../src/render/live-renderer.ts';
@@ -11,7 +11,8 @@ import {FaceSurface} from '../src/render/face-surface.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {createTempleClip} from '../src/render/temple-clip.ts';
 import {createHairOcclusion} from '../src/render/hair-occlusion.ts';
-import {createTempleTerminalFit} from '../src/render/temple-terminal-fit.ts';
+import {createTempleTerminalFit, createTempleTerminalFitEvaluator} from '../src/render/temple-terminal-fit.ts';
+import {EyewearFitSession} from '../src/render/eyewear-fit.ts';
 import {TempleCheekContactEstimator} from '../src/render/temple-cheek-contact.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
 import {eyewearById, DEFAULT_EYEWEAR_ID} from '../src/eyewear/catalog.ts';
@@ -41,6 +42,8 @@ function harness(options: RendererOptions = {}) {
   const renderer = new (TryOnRenderer as unknown as new (backend: unknown, gl: unknown, eyewear: unknown, options: RendererOptions) => TryOnRenderer)(
     backend, {}, eyewearById(DEFAULT_EYEWEAR_ID), {sync: false, guard: false, ...options});
   const internal = renderer as unknown as {facePose: Group; eyewearPose: Group};
+  // Occlusion-only fixtures start after presentation; fitting fixtures explicitly supply a fresh session.
+  if (!options.fitSession) Object.assign(renderer, {fitRevealed: true});
   const root = new Group(), material = new MeshStandardMaterial();
   for (const sign of [-1, 1]) {
     const arm = new BoxGeometry(.004, .004, .17, 1, 1, 16); arm.translate(sign * .065, 0, -.1);
@@ -104,6 +107,30 @@ test('tracking loss clears every presented occlusion layer and reacquisition res
   assert.deepEqual(positions(), fixed);
 });
 
+test('face shadows share one GPU underlay across hair audits and bypass clean-camera/no-face variants', () => {
+  const {renderer, positions} = harness();
+  const target = new WebGLRenderTarget(640, 480); target.texture.colorSpace = SRGBColorSpace;
+  let shadowDraws = 0;
+  Object.assign(renderer, {shadows: {setTempleClip() {}, render() {shadowDraws++; return target.texture;}}});
+  renderer.pose(frame, detection(), 100);
+  const fixed = positions();
+  assert.equal(renderer.render(mask).shadowsApplied, true);
+  assert.equal(renderer.render(mask, {hair: false}).shadowsApplied, true);
+  assert.equal(renderer.render(mask, {eyewear: false}).shadowsApplied, false);
+  assert.equal(renderer.render(mask, {shadows: false}).shadowsApplied, false);
+  assert.equal(renderer.render(mask).shadowsApplied, true);
+  assert.equal(shadowDraws, 1, 'variants reuse the held face and identical mask instead of advancing a second effect');
+  renderer.setShadows({frameStrength: .4}); renderer.render(mask);
+  assert.equal(shadowDraws, 2, 'controls invalidate the underlay without changing pose or geometry');
+  renderer.setShadows({enabled: false});
+  assert.equal(renderer.render(mask).shadowsApplied, false); assert.equal(shadowDraws, 2);
+  renderer.setShadows({enabled: true}); renderer.pose(frame, missing, 133);
+  assert.equal(renderer.render(mask).shadowsApplied, false); assert.equal(shadowDraws, 2);
+  renderer.pose(frame, detection(), 166); renderer.render(mask);
+  assert.equal(shadowDraws, 3); assert.deepEqual(positions(), fixed);
+  target.dispose();
+});
+
 test('observed cheek changes visibility without reshaping the frame or changing its hair endpoint', () => {
   const {renderer, positions, visibility, clip} = harness();
   const input = detection(-40);
@@ -163,6 +190,49 @@ test('cheek smoothing preserves current rays and attachment, and does not advanc
   assert.deepEqual(observed.array, current, 'reacquisition seeds only the current face');
   current[2] = NaN; renderer.pose(frame, detection(-21), 316);
   assert.equal(visibility.configuration?.cheekContact, null, 'bad input cannot present a stale depth target');
+});
+
+test('consecutive renderer poses retain shadow-shape smoothing, audits hold it, and tracking loss resets it', () => {
+  const {renderer, observed} = harness(), input = detection(0), rawPose = new Matrix4().fromArray(input.matrix!),
+    rawInverse = rawPose.clone().invert(), current = new Float32Array(canonical.positions.length),
+    shadow = new BufferAttribute(new Float32Array(canonical.positions.length), 3), point = new Vector3();
+  Object.assign(renderer, {shadowReceiverAttribute: shadow, faceSurface: {positions: new Float32Array(current.length),
+    reconstruct() {this.positions.set(current); return true;}}});
+  const updateObserved = (localDepthChangeCm: number): void => {
+    for (let i = 0; i < current.length; i += 3) {
+      point.fromArray(canonical.positions, i); point.z += localDepthChangeCm;
+      point.applyMatrix4(rawPose).toArray(current, i);
+    }
+  };
+  updateObserved(0); assert.equal(renderer.pose(frame, input, 100), true);
+  let observedEnergy = 0, shadowEnergy = 0;
+  for (let step = 1; step <= 80; step++) {
+    updateObserved(step % 2 ? .15 : -.15);
+    assert.equal(renderer.pose(frame, input, 100 + step * 33), true);
+    const attachedInverse = new Matrix4().fromArray(renderer.captureSnapshot!.eyewearMatrix).invert();
+    if (step > 20) {
+      const observedError = point.fromBufferAttribute(observed, 0).applyMatrix4(rawInverse).z - canonical.positions[2]!;
+      const shadowError = point.fromBufferAttribute(shadow, 0).applyMatrix4(attachedInverse).z - canonical.positions[2]!;
+      observedEnergy += observedError ** 2; shadowEnergy += shadowError ** 2;
+    }
+    const held = (shadow.array as Float32Array).slice(), version = shadow.version, currentObserved = observed.array.slice();
+    for (const variant of [{}, {hair: false}, {eyewear: false}, {shadows: false}]) renderer.render(null, variant);
+    assert.deepEqual(shadow.array, held); assert.equal(shadow.version, version, 'audit draws cannot advance the receiver filter');
+    assert.deepEqual(observed.array, currentObserved, 'shadow stabilization cannot reshape the observed cheek');
+  }
+  assert.ok(observedEnergy > .01, 'the production cheek pass still contains meaningful local noise');
+  assert.ok(Math.sqrt(shadowEnergy / observedEnergy) < .2,
+    'normal pose preparation must retain enough receiver history to remove at least 80% of resting shape noise');
+  const held = (shadow.array as Float32Array).slice();
+  assert.equal(renderer.pose(frame, missing, 2800), false);
+  updateObserved(.4); assert.equal(renderer.pose(frame, input, 2833), true);
+  assert.notDeepEqual(shadow.array, held);
+  const attached = new Matrix4().fromArray(renderer.captureSnapshot!.eyewearMatrix);
+  for (let i = 0; i < shadow.count; i++) {
+    point.fromBufferAttribute(observed, i).applyMatrix4(rawInverse).applyMatrix4(attached);
+    assert.ok(point.distanceTo(new Vector3().fromBufferAttribute(shadow, i)) < 1e-5,
+      'reacquisition seeds only the current local face, with no pre-loss shadow history');
+  }
 });
 
 test('each camera pose advances the hair endpoint once, while audit variants preserve the exact ending', () => {
@@ -241,4 +311,157 @@ test('LiveRenderer retains ordinary hair toggling without a comparison mode or a
   assert.equal(live.stats?.hairEnabled, false); assert.equal(live.stats?.hasMask, false);
   assert.equal(live.stats?.fallbackReason, null); assert.deepEqual(positions(), fixed);
   assert.equal('templePreview' in live, false);
+});
+
+function fittingHarness(fitSession = new EyewearFitSession()) {
+  const fixture = harness({fitSession, steady: null});
+  const {renderer, root, rearDrop} = fixture;
+  const pose = (renderer as unknown as {eyewearPose: Group}).eyewearPose;
+  const asset = new Group(); asset.position.set(...renderer.eyewear.offsetCm); asset.scale.setScalar(100);
+  asset.add(root); pose.add(asset);
+  const front = rearDrop.opticalBounds;
+  Object.assign(renderer, {eyewearAsset: asset, fitFrontBounds: front, fitFrontWidthCm: (front.max.x - front.min.x) * 100,
+    terminalFitAtScale: createTempleTerminalFitEvaluator(root, {offsetCm: renderer.eyewear.offsetCm, spreadM: .018,
+      spreadStartZM: rearDrop.spreadStartZM, modelCutoffZM: -.14, maximumZM: -.115})});
+  return {...fixture, asset, fitSession};
+}
+
+test('glasses, colored shadows and hair composition wait for calibration and scale settling together', () => {
+  const {renderer, draws} = fittingHarness(), input = detection(0);
+  const target = new WebGLRenderTarget(640, 480); target.texture.colorSpace = SRGBColorSpace;
+  let shadowDraws = 0, endpointUpdates = 0, endpointMask: unknown = null;
+  const report = {negativeZM: -.08, positiveZM: -.09, negativeFadeM: .002, positiveFadeM: .002,
+    negativeState: 'tracking', positiveState: 'tracking', maximumZM: -.115, zoneStartZM: -.035,
+    negativeCandidateZM: -.08, positiveCandidateZM: -.09};
+  Object.assign(renderer, {shadows: {setTempleClip() {}, render() {shadowDraws++; return target.texture;}},
+    continuityModel: {sides: [], startZM: -.03, cutoffZM: -.14}, projectPaths: () => null,
+    templeEndpointTracker: {update({mask: currentMask}: {mask: unknown}) {
+      endpointUpdates++; endpointMask = currentMask; return report;
+    }, reset() {}}});
+  let sawCollecting = false, sawSettling = false;
+  for (let i = 0; i < 90; i++) {
+    assert.equal(renderer.pose(frame, input, 100 + i * 75), true, 'face tracking stays active during fitting');
+    const fit = renderer.fitting;
+    if (fit.state === 'fitted') break;
+    sawCollecting ||= fit.state === 'collecting'; sawSettling ||= fit.state === 'settling';
+    assert.equal(fit.ready, false);
+    const held = {...fit};
+    const timing = renderer.render(mask, {guard: true});
+    assert.equal(timing.shadowsApplied, false); assert.equal(timing.hairApplied, false);
+    assert.equal(timing.guarded, false); assert.equal(timing.safeFallback, false); assert.equal(timing.passes, 1);
+    assert.equal(draws.at(-1)?.eyewear, false); assert.equal(shadowDraws, 0);
+    const internals = renderer as unknown as {scene: {background: unknown}; backgroundTexture: unknown};
+    assert.equal(internals.scene.background, internals.backgroundTexture, 'hidden fitting uses the clean camera underlay');
+    assert.equal(endpointMask, mask, 'hair evidence prepares the first visible temple ending');
+    assert.equal(endpointUpdates, i + 1);
+    for (const variant of [{}, {hair: false}, {eyewear: false}, {shadows: false}]) renderer.render(mask, variant);
+    assert.deepEqual(renderer.fitting, held, 'audit variants cannot finish calibration or reveal the glasses');
+    assert.equal(endpointUpdates, i + 1, 'held variants cannot advance the hidden endpoint twice');
+  }
+  assert.ok(sawCollecting && sawSettling, 'both hidden phases were exercised');
+  assert.equal(renderer.fitting.state, 'fitted'); assert.equal(renderer.fitting.ready, true);
+  const visible = renderer.render(mask);
+  assert.equal(draws.at(-1)?.eyewear, true); assert.equal(visible.shadowsApplied, true); assert.equal(visible.hairApplied, true);
+  assert.equal(shadowDraws, 1);
+  renderer.refit();
+  assert.equal(renderer.fitting.ready, false);
+  const hiddenAgain = renderer.render(mask);
+  assert.equal(draws.at(-1)?.eyewear, false); assert.equal(hiddenAgain.shadowsApplied, false); assert.equal(hiddenAgain.hairApplied, false);
+  assert.equal(shadowDraws, 1, 'Refit also hides a rerender of the previous pose');
+  renderer.pose(frame, input, 8000); renderer.render(mask);
+  assert.equal(renderer.fitting.state, 'collecting'); assert.equal(draws.at(-1)?.eyewear, false);
+  for (let i = 1; i < 90; i++) renderer.pose(frame, input, 8000 + i * 75);
+  renderer.render(mask);
+  assert.equal(renderer.fitting.ready, true); assert.equal(draws.at(-1)?.eyewear, true);
+  target.dispose();
+});
+
+test('a new frame reuses the fitted profile but waits for its own size to settle before appearing', () => {
+  const first = fittingHarness(), input = detection(0);
+  for (let i = 0; i < 90; i++) first.renderer.pose(frame, input, 100 + i * 75);
+  const previous = first.renderer.fitting;
+  assert.equal(previous.ready, true);
+  const next = fittingHarness(first.fitSession);
+  Object.assign(next.renderer, {eyewear: {...next.renderer.eyewear,
+    preferredFrontRatio: next.renderer.eyewear.preferredFrontRatio! * .94}});
+  assert.equal(next.renderer.fitting.state, 'fitted', 'the shared profile still describes the previous frame before posing');
+  assert.equal(next.renderer.fitting.ready, false, 'readiness belongs to each frame renderer');
+  next.renderer.pose(frame, input, 7000); next.renderer.render(mask);
+  assert.equal(next.renderer.fitting.faceWidthCm, previous.faceWidthCm);
+  assert.equal(next.renderer.fitting.state, 'settling'); assert.equal(next.renderer.fitting.ready, false);
+  assert.equal(next.draws.at(-1)?.eyewear, false, 'a previously fitted session cannot flash the new frame at its initial size');
+  for (let i = 1; i < 70; i++) next.renderer.pose(frame, input, 7000 + i * 75);
+  next.renderer.render(mask);
+  assert.equal(next.renderer.fitting.state, 'fitted'); assert.equal(next.renderer.fitting.ready, true);
+  assert.equal(next.draws.at(-1)?.eyewear, true);
+  assert.ok(next.renderer.fitting.scale < previous.scale);
+});
+
+test('automatic frame fitting locks one size through distance, nods, audits and tracking loss', () => {
+  const {renderer, asset, positions, draws} = fittingHarness();
+  const baseline = detection(0);
+  const input = {...baseline, landmarks: baseline.landmarks.map(point => ({...point, x: .5 + (point.x - .5) * .9}))};
+  for (let i = 0; i < 90; i++) renderer.pose(frame, input, 100 + i * 75);
+  assert.equal(renderer.fitting.state, 'fitted');
+  assert.equal(renderer.fitting.ready, true);
+  const fitted = renderer.fitting, local = positions(), bridge = asset.position.clone();
+  assert.ok(fitted.faceWidthCm !== null);
+  assert.ok(Math.abs(fitted.scale - 1) > .005, 'this fixture exercises a real size correction');
+  assert.equal(asset.scale.x, 100 * fitted.scale);
+  assert.equal(asset.scale.x, asset.scale.y); assert.equal(asset.scale.y, asset.scale.z);
+  for (const [i, [pitch, depth]] of [[35, 30], [-35, 80], [0, 45]].entries()) {
+    renderer.pose(frame, detection(pitch, depth), 7000 + i * 100);
+    assert.equal(renderer.fitting.scale, fitted.scale);
+    assert.equal(renderer.fitting.faceWidthCm, fitted.faceWidthCm);
+    assert.deepEqual(positions(), local, 'locked size keeps all local frame geometry fixed');
+    for (const variant of [{}, {hair: false}, {eyewear: false}, {shadows: false}]) renderer.render(null, variant);
+    assert.deepEqual(renderer.fitting, fitted, 'held-frame variants cannot advance calibration or scale');
+  }
+  renderer.pose(frame, missing, 7500); renderer.pose(frame, missing, 16000);
+  renderer.render(mask); assert.equal(draws.at(-1)?.eyewear, false);
+  assert.equal(renderer.fitting.ready, true, 'tracking loss preserves the completed fit');
+  renderer.pose(frame, detection(0), 16100);
+  renderer.render(mask); assert.equal(draws.at(-1)?.eyewear, true);
+  assert.deepEqual(renderer.fitting, fitted);
+  assert.deepEqual(asset.position, bridge, 'uniform sizing leaves the bridge anchor unchanged');
+});
+
+test('manual size follows the fitted asset and guard while refit starts fresh without a size snap', () => {
+  const {renderer, asset, draws} = fittingHarness(), input = detection(0);
+  for (let i = 0; i < 90; i++) renderer.pose(frame, input, 100 + i * 75);
+  const fitted = renderer.fitting, originalGuard = renderer.protection!.protectedRects[0]!;
+  renderer.setFitAdjustment(.08);
+  assert.equal(renderer.fitting.state, 'settling'); assert.equal(renderer.fitting.ready, true);
+  renderer.render(mask); assert.equal(draws.at(-1)?.eyewear, true, 'manual changes do not blink out a completed fit');
+  for (let i = 0; i < 70; i++) renderer.pose(frame, input, 7000 + i * 75);
+  assert.equal(renderer.fitting.faceWidthCm, fitted.faceWidthCm);
+  assert.equal(renderer.fitting.adjustment, .08);
+  assert.ok(renderer.fitting.scale > fitted.scale * 1.075);
+  const resizedGuard = renderer.protection!.protectedRects[0]!;
+  assert.ok(resizedGuard.x1 - resizedGuard.x0 > originalGuard.x1 - originalGuard.x0);
+  assert.equal(asset.scale.x, 100 * renderer.fitting.scale);
+  const beforeReset = renderer.fitting.scale;
+  renderer.refit();
+  assert.equal(renderer.fitting.state, 'collecting'); assert.equal(renderer.fitting.faceWidthCm, null);
+  assert.equal(renderer.fitting.adjustment, 0); assert.equal(renderer.fitting.scale, beforeReset);
+  const narrow = {...input, landmarks: input.landmarks.map(point => ({...point, x: .5 + (point.x - .5) * .9}))};
+  for (let i = 0; i < 90; i++) renderer.pose(frame, narrow, 13000 + i * 75);
+  assert.equal(renderer.fitting.state, 'fitted');
+  assert.ok(renderer.fitting.faceWidthCm! < fitted.faceWidthCm! * .95);
+  assert.ok(renderer.fitting.scale < fitted.scale);
+});
+
+test('unsupported terminal enlargement reports the actual size limit instead of silently claiming the requested fit', () => {
+  const {renderer} = fittingHarness(), input = detection(0);
+  for (let i = 0; i < 90; i++) renderer.pose(frame, input, 100 + i * 75);
+  const internals = renderer as unknown as {terminalFitAtScale: (scale: number) => ReturnType<typeof createTempleTerminalFit>};
+  const evaluate = internals.terminalFitAtScale, limit = renderer.fitting.scale * 1.02;
+  internals.terminalFitAtScale = scale => scale > limit ? null : evaluate(scale);
+  renderer.setFitAdjustment(.08);
+  for (let i = 0; i < 70; i++) renderer.pose(frame, input, 7000 + i * 75);
+  assert.equal(renderer.fitting.limited, true);
+  assert.ok(renderer.fitting.scale <= limit);
+  renderer.setFitAdjustment(0);
+  for (let i = 0; i < 70; i++) renderer.pose(frame, input, 13000 + i * 75);
+  assert.equal(renderer.fitting.limited, false);
 });

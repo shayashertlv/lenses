@@ -3,7 +3,7 @@
  *  stays nearest (renderer.ts). An optional small tent filter softens only the rendered edge, leaving category
  *  evidence for the endpoint tracker unchanged. */
 import {Material, Matrix3, Mesh, MeshPhysicalMaterial, Vector2} from 'three';
-import type {CanvasTexture, DataTexture, Object3D} from 'three';
+import type {Texture, DataTexture, Object3D} from 'three';
 
 export const HAIR_OCCLUSION_METHOD = 'hair-gpu-occlusion-v1';
 /** Mesh-local metres (+Z forward): fragments behind this plane count as temple arm and may blend toward the camera. */
@@ -17,7 +17,7 @@ export function createHairOcclusion(root: Object3D) {
   // A mask reused from an earlier frame is looked up through this matrix (see hair/mask-reuse.ts); off, the lookup is
   // exactly the frame's own mask as before.
   const maskWarp = {value: 0}, maskUv = {value: new Matrix3()};
-  const cameraSource = {value: null as CanvasTexture | null}, cameraUv = {value: new Matrix3()};
+  const cameraSource = {value: null as Texture | null}, cameraUv = {value: new Matrix3()};
   const owned = new Map<Material, {hook: Material['onBeforeCompile']; key: Material['customProgramCacheKey']}>();
   root.traverse(object => {
     if (!(object instanceof Mesh)) return;
@@ -88,7 +88,7 @@ export function createHairOcclusion(root: Object3D) {
       } else {maskUv.value.identity(); maskWarp.value = 0;}
     },
     /** Optional presentation-only radius in render pixels; zero preserves the original category lookup. */
-    prepareRender(texture: DataTexture | null, width: number, height: number, camera: CanvasTexture | null, featherPx = 0): void {
+    prepareRender(texture: DataTexture | null, width: number, height: number, camera: Texture | null, featherPx = 0): void {
       if (!Number.isFinite(featherPx) || featherPx < 0 || featherPx > 3) throw new Error('The hair feather must be between 0 and 3 render pixels.');
       mask.value = texture; viewport.value.set(width, height); cameraSource.value = camera; feather.value = featherPx;
       if (camera) {if (camera.matrixAutoUpdate) camera.updateMatrix(); cameraUv.value.copy(camera.matrix);}

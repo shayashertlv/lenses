@@ -8,7 +8,7 @@ import {
 } from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
-import {terminalFitX, terminalFitSlope} from './temple-terminal-fit.ts';
+import {MAX_TERMINAL_INSET_M, terminalFitX, terminalFitSlope} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
 import {
   armSpreadSlope, MAX_ARM_SPREAD_M, spreadArmX, SPREAD_HINGE_ROUND_M, SPREAD_PIVOT_RANGE_M, WIDTH_FIT_METHOD,
@@ -284,7 +284,8 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
         if (JSON.stringify(value) === JSON.stringify(terminalFit)) return;
         if (value && (![value.startZM, value.endZM, value.maximumZM, value.negativeInsetM, value.positiveInsetM].every(Number.isFinite)
           || value.startZM <= value.endZM || value.endZM < value.maximumZM
-          || value.negativeInsetM < 0 || value.positiveInsetM < 0 || value.negativeInsetM > .035 || value.positiveInsetM > .035))
+          || value.negativeInsetM < 0 || value.positiveInsetM < 0
+          || value.negativeInsetM > MAX_TERMINAL_INSET_M || value.positiveInsetM > MAX_TERMINAL_INSET_M))
           throw new Error('The fixed temple return is invalid.');
         terminalFit = value ? {...value} : null;
         applyShape(dropM, spreadM, true);

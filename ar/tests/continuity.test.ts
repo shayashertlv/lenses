@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Texture} from 'three';
+import {BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, PerspectiveCamera, Texture, Vector3} from 'three';
 import type {Material} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render/continuity.ts';
@@ -26,6 +26,20 @@ test('real triangle cross-sections preserve buffers and project the downward Y c
       assert.equal(down[side]!.points[0]!.y, originalPaths[side]!.points[0]!.y);
       assert.ok(down[side]!.points.at(-1)!.y > originalPaths[side]!.points.at(-1)!.y);
     }
+    const attachment = new Group(); attachment.matrixAutoUpdate = false; attachment.matrix.fromArray(pose);
+    const asset = new Group(); asset.position.set(...input.offsetCm); attachment.add(asset);
+    const camera = new PerspectiveCamera(63, input.sourceAspect, 1, 10_000); camera.updateMatrixWorld();
+    for (const fitScale of [.8, 1, 1.25]) {
+      asset.scale.setScalar(100 * fitScale); attachment.updateMatrixWorld(true);
+      const paths = projectTempleContinuity(model, {...input, fitScale}); assert.ok(paths);
+      for (const path of paths) for (const [index, station] of model.sides[path.side]!.entries()) {
+        const projected = new Vector3(station.centerXM, station.centerYM, station.zM).applyMatrix4(asset.matrixWorld).project(camera);
+        const x = (projected.x + 1) * input.width / 2, y = (1 - projected.y) * input.height / 2;
+        assert.ok(Math.hypot(x - path.points[index]!.x, y - path.points[index]!.y) < 1e-8,
+          'hair evidence follows the rendered station after uniform visual fitting');
+      }
+    }
+    for (const fitScale of [0, -1, NaN, Infinity]) assert.equal(projectTempleContinuity(model, {...input, fitScale}), null);
   }
   for (const resource of [left, right, lens, frame, lensMaterial]) resource.dispose();
 });

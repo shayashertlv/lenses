@@ -1,5 +1,5 @@
 import {CanvasTexture, Material, Matrix3, Mesh, MeshPhysicalMaterial, SRGBColorSpace, Vector2} from 'three';
-import type {Object3D} from 'three';
+import type {Object3D, Texture} from 'three';
 
 export const TEMPLE_BLEND_METHOD = 'temple-end-blend-v3';
 export const TEMPLE_BLEND_LENGTH_LOCAL_M = 0.015;
@@ -52,7 +52,7 @@ export function createTempleClip(root: Object3D) {
   const sideFadeLengths = {value: new Vector2()};
   // 0 off, 3 the v3 blend. Mode 3 changes terminal RGB only; overlay eligibility keeps its own alpha.
   const fadeMode = {value: 0};
-  const cameraSource = {value: null as CanvasTexture | null};
+  const cameraSource = {value: null as Texture | null};
   const cameraViewport = {value: new Vector2(1, 1)};
   const cameraUvTransform = {value: new Matrix3()};
   let configuration: TempleClipConfiguration | null = null;
@@ -129,11 +129,11 @@ export function createTempleClip(root: Object3D) {
       }
     },
     /** V3 borrows the exact background texture and full render viewport for this frame. */
-    prepareRender(cameraTexture?: CanvasTexture, width?: number, height?: number): void {
+    prepareRender(cameraTexture?: Texture, width?: number, height?: number): void {
       if (disposed) throw new Error('Temple clipping is disposed.');
       if (fadeMode.value === 3) {
         const image = cameraTexture?.image as {width?: number; height?: number} | undefined;
-        if (!(cameraTexture instanceof CanvasTexture) || cameraTexture.colorSpace !== SRGBColorSpace
+        if (!(cameraTexture instanceof CanvasTexture || cameraTexture?.isRenderTargetTexture === true) || cameraTexture.colorSpace !== SRGBColorSpace
             || !image || !Number.isFinite(image.width) || !Number.isFinite(image.height)
             || !(image.width! > 0) || !(image.height! > 0)
             || !Number.isInteger(width) || !Number.isInteger(height) || !(width! > 0) || !(height! > 0)) {
