@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "base": "/ar/",
-  "builtAt": "2026-09-20T16:16:53.539Z",
+  "builtAt": "2026-09-22T09:22:52.160Z",
   "files": [
     {
       "path": "assets/detector.worker-DujPhTDm.js",
@@ -9,9 +9,9 @@
       "sha256": "3218bae06a52782f8318c4ef158cf819dcd31bf891006e61f9a58e8c0ecee234"
     },
     {
-      "path": "assets/index-CWHURGN6.js",
-      "size": 828387,
-      "sha256": "2b5cd53834fd5470543e237cc1841bc259582f2cb2f909b7939631c3fc75dd6d"
+      "path": "assets/index-C2FOaBJe.js",
+      "size": 828418,
+      "sha256": "9dd14ad34ddf7b7b6d0a9a645bc11748c21bdb8d368b1d4434a9cf14f6444acb"
     },
     {
       "path": "assets/index-DR4DZudX.css",
@@ -25,8 +25,8 @@
     },
     {
       "path": "index.html",
-      "size": 7657,
-      "sha256": "0a974eb5d900939ff6c1312ecd81824ffec333a17f42d9934270bb2b82b4d3af"
+      "size": 7678,
+      "sha256": "a0a1aa80c96b7cb9307e283daa2c06697ef8ee49661e940c277d47de305fbf4d"
     },
     {
       "path": "licenses/Apache-2.0.txt",

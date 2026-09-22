@@ -87,6 +87,9 @@ crossing hides the shaft, every section behind it remains hidden, including gaps
 The fade fits inside the supported hair interval. A newly earlier crossing hides the rear immediately;
 lengthening requires distinct fresh clear observations and proceeds at a bounded rate. Warped reuse can
 hide more but cannot accumulate release confidence. Missing or uncertain masks hold the previous endpoint.
+Brief fringe changes in a reused mask preserve recent fresh clearance evidence without extending the arm;
+missing, invalid or expired evidence restarts the dwell. Light edge contacts with a clear shaft centre do not
+pin an old cutoff, even when no later hair patch is detected. Centre or thick obstructions still block release.
 A small two-pixel tent filter softens the rendered hair edge without changing category evidence.
 
 Shadows use the separately observed face, before nasal/head-occluder reshaping. They disappear with tracking

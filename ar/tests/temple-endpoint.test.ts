@@ -213,14 +213,64 @@ test('a light non-centre fringe cannot permanently pin only one side before a su
   }
 });
 
-test('an edge contact cannot authorize release without a supported rear destination', () => {
-  const tracker = new TempleEndpointTracker(model, maximumZM), early = fixture(); early.paint(0, -.055, -.075);
-  const initial = tracker.update(early.input), clear = fixture();
-  clear.input.mask!.category[19 * clear.input.mask!.width + 64] = 1;
-  for (let timestampMs = 50; timestampMs <= 5000; timestampMs += 50) {
-    const report = tracker.update({...clear.input, timestampMs, evidenceId: timestampMs});
-    assert.equal(report.negativeCandidateZM, null); assert.equal(report.negativeZM, initial.negativeZM);
+test('fresh clear-centre evidence recovers past light edge contact without a rear patch, but centre and thick contacts still hold', () => {
+  for (const kind of ['edge', 'centre', 'thick'] as const) {
+    const tracker = new TempleEndpointTracker(model, maximumZM), early = fixture(); early.paint(0, -.055, -.075);
+    const initial = tracker.update(early.input), clear = fixture();
+    for (const row of kind === 'edge' ? [19] : kind === 'centre' ? [20] : [19, 21])
+      clear.input.mask!.category[row * clear.input.mask!.width + 64] = 1;
+    let report = initial;
+    for (let timestampMs = 50; timestampMs <= 5000; timestampMs += 50) {
+      const previousZM = report.negativeZM;
+      report = tracker.update({...clear.input, timestampMs, evidenceId: timestampMs});
+      assert.equal(report.negativeCandidateZM, null);
+      assert.ok(previousZM - report.negativeZM <= TEMPLE_ENDPOINT.lengthenMPerSecond * .05 + 1e-10);
+      if (kind !== 'edge' || timestampMs <= 100) assert.equal(report.negativeZM, initial.negativeZM);
+    }
+    assert.equal(report.negativeZM, kind === 'edge' ? maximumZM : initial.negativeZM,
+      'a peripheral one-texel contact cannot permanently retain an unrelated old cut');
   }
+});
+
+test('every-second-frame fresh evidence releases a held cut despite subpixel uncertainty in the intervening reused mask', () => {
+  // The second configuration has a half-resolution mobile mask: the same physical footprint and
+  // 0.1-mask-texel warp are observed at a doubled display resolution.
+  for (const [scale, maskScale] of [[1, 1], [2, .5]] as const) {
+    const tracker = new TempleEndpointTracker(model, maximumZM), early = fixture(scale, maskScale);
+    early.paint(0, -.055, -.075);
+    const initial = tracker.update(early.input), rear = fixture(scale, maskScale);
+    rear.paint(0, -.085, -.115);
+    rear.input.mask!.category[19 * rear.input.mask!.width + 64] = 1;
+    let report = initial;
+    for (let frame = 1; frame <= 90; frame++) {
+      const reused = frame % 2 === 0, previousZM = report.negativeZM;
+      report = tracker.update({...rear.input, timestampMs: frame * 33, evidenceId: Math.floor((frame - 1) / 2),
+        warp: reused ? {width: rear.input.render.width, height: rear.input.render.height,
+          toMask: {a: 1, b: 0, c: 0, d: 1, tx: 0, ty: -.1 / maskScale}} : null});
+      if (reused) assert.equal(report.negativeZM, previousZM, 'reused evidence never lengthens the shaft');
+      else assert.ok(previousZM - report.negativeZM <= TEMPLE_ENDPOINT.lengthenMPerSecond * .066 + 1e-10,
+        'fresh-only recovery retains the bounded lengthening speed');
+      if (frame < 5) assert.equal(report.negativeZM, initial.negativeZM, 'three distinct fresh observations are still required');
+    }
+    near(report.negativeZM, -.09);
+    assert.equal(report.negativeState, 'tracking', 'the held endpoint reaches the supported rear band within three seconds');
+  }
+});
+
+test('a resolved earlier crossing in reused evidence still hides immediately and restarts fresh release dwell', () => {
+  const tracker = new TempleEndpointTracker(model, maximumZM), hair = fixture(); hair.paint(0, -.09, -.114);
+  const initial = tracker.update({...hair.input, evidenceId: 'original-hair'}), clear = fixture();
+  for (const timestampMs of [50, 100])
+    assert.equal(tracker.update({...clear.input, timestampMs, evidenceId: timestampMs}).negativeZM, initial.negativeZM);
+  const cut = tracker.update({...hair.input, timestampMs: 125, evidenceId: 'original-hair',
+    warp: {width: 160, height: 80, toMask: {a: 1, b: 0, c: 0, d: 1, tx: 30, ty: 0}}});
+  assert.ok(cut.negativeZM > initial.negativeZM + .025, 'a resolved crossing overrides the old endpoint on this reused draw');
+  assert.equal(cut.negativeState, 'tracking');
+  for (const timestampMs of [150, 200])
+    assert.equal(tracker.update({...clear.input, timestampMs, evidenceId: timestampMs}).negativeZM, cut.negativeZM,
+      'clear observations before the intervening barrier cannot contribute to release');
+  const released = tracker.update({...clear.input, timestampMs: 250, evidenceId: 250});
+  near(cut.negativeZM - released.negativeZM, TEMPLE_ENDPOINT.lengthenMPerSecond * .05);
 });
 
 test('release speed integrates fresh supported time independently of drawn-frame mask reuse', () => {

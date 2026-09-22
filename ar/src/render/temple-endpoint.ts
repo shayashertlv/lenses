@@ -118,10 +118,9 @@ export class TempleEndpointTracker {
       }
       const target = interval ? interval.coveredFrontZM - Math.min(memory.fadeM, interval.fadeM) : this.maximumZM;
       // Release requires an observed, clear corridor up to the destination patch. Its contiguous
-      // partial-coverage edge belongs to that patch, not to a separate obstruction. With a resolved
-      // destination, light contacts at the shaft's outer edges may stay locally occluded without
-      // severing its clear centre. Centre/thick crossings and invalid samples still block release;
-      // without a supported destination every corridor sample must remain completely clear.
+      // partial-coverage edge belongs to that patch, not to a separate obstruction. Light contacts
+      // at the shaft's outer edges stay locally occluded without severing its clear centre, including
+      // when there is no later hair patch. Centre/thick crossings and invalid samples still block release.
       const clearUntil = interval?.hairFrontZM ?? this.maximumZM;
       const clearSamples = observation.samples.filter(sample => sample.zM <= memory.zM + memory.fadeM
         && sample.zM > clearUntil + 1e-10);
@@ -134,18 +133,22 @@ export class TempleEndpointTracker {
       const reachesSupportedInterval = interval !== null && (fadeFrontZM <= clearUntil + 1e-10
         || (before >= 0 && after === before + 1 && observation.samples[before]!.valid
           && observation.samples[before]!.hair === 0 && observation.samples[after]!.valid));
-      const clear = observation.resolved && (clearSamples.length > 0 || reachesSupportedInterval)
-        && clearSamples.every(sample => sample.valid && (sample.hair === 0
-          || (interval !== null && !sample.centerHair && sample.hair <= TEMPLE_ENDPOINT.edgeCoverage)))
+      const corridorObserved = observation.resolved && (clearSamples.length > 0 || reachesSupportedInterval)
+        && clearSamples.every(sample => sample.valid)
         && observation.samples.some(sample => sample.valid && sample.zM <= clearUntil + 1e-10);
-      if (target >= memory.zM || !clear) {this.hold(memory); continue;}
+      if (target >= memory.zM) {this.hold(memory); continue;}
       if (!fresh) {
-        // Reuse can preserve already clear evidence, never advance it. An uncertain carried mask
-        // was rejected above, so its gap cannot later be credited as fresh clear time.
-        if (now - memory.lastClearMs > TEMPLE_ENDPOINT.holdMs) this.hold(memory);
+        // Reprojecting one mask can shift a fringe texel onto the shaft centre between fresh masks.
+        // It cannot advance release, but must not erase recent fresh evidence on every other mobile
+        // frame either. Resolved earlier crossings still shorten immediately above; lost geometry
+        // or expired evidence still restarts the dwell. A new mask must confirm clearance to move.
+        if (!corridorObserved || now - memory.lastClearMs > TEMPLE_ENDPOINT.holdMs) this.hold(memory);
         else memory.state = memory.zM === this.maximumZM ? 'fallback' : 'held';
         continue;
       }
+      const clear = corridorObserved && clearSamples.every(sample => sample.hair === 0
+        || (!sample.centerHair && sample.hair <= TEMPLE_ENDPOINT.edgeCoverage));
+      if (!clear) {this.hold(memory); continue;}
       const clearGapMs = now - memory.lastClearMs;
       const continuesClear = memory.clearCount > 0 && clearGapMs >= 0 && clearGapMs <= TEMPLE_ENDPOINT.holdMs;
       if (!continuesClear) {
