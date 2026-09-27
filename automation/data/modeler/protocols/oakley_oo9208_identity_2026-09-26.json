@@ -1,0 +1,18 @@
+{
+  "product_id": "oakley_oo9208",
+  "frozen_at": "2026-09-26",
+  "written_by": "development agent from the five catalog photos, before the first measured run; evaluator-only input (the author receives the request notes only)",
+  "identity_features": [
+    "Single wrap-around shield lens spanning the whole front, with a shallow notch at the centre bottom for the nose; the lens is tall in the middle and tapers toward the temples",
+    "Brow bar only: a black frame along the top edge of the lens, no lower rim; the lens is exposed below and at the outer edges",
+    "Strongly wrapped front: in the side and angled views the lens curves well back toward the temples, following the face",
+    "Lens finish: mirrored Prizm coating with a colour shift from pink/magenta to green/teal depending on the angle; the lens looks reflective, not transparent, in the front photo; a small Oakley 'O' icon and 'PRIZM' lettering near the outer edge",
+    "Thin black temples, straight, with a white Oakley 'O' logo near the hinge and rubbery grey-black ear socks at the ends",
+    "Black nose pads on a small bridge piece under the brow bar centre; the bridge does not cross above the lens",
+    "Colour: black, matte to satin finish on the brow and temples"
+  ],
+  "conditions": {
+    "photos": "front, back, left, right and one three-quarter angled view (held out from the author)",
+    "scale": "nominal; no physical dimension supplied"
+  }
+}

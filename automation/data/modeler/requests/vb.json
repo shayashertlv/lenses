@@ -1,0 +1,15 @@
+{
+  "product_id": "vb",
+  "photos": [
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/segmented-pipeline-v1/jobs/vb/inputs/front.jpg", "view": "front"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/segmented-pipeline-v1/jobs/vb/inputs/back.jpg", "view": "back"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/segmented-pipeline-v1/jobs/vb/inputs/left.jpg", "view": "left"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/segmented-pipeline-v1/jobs/vb/inputs/right.jpg", "view": "right"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/segmented-pipeline-v1/jobs/vb/inputs/angled.jpg", "view": "angled", "held_out": true}
+  ],
+  "dimensions": {},
+  "notes": "Victoria Beckham oversized acetate sunglasses (catalog listing): navy acetate frame, brown gradient lenses, gold metal accents on the temples. No physical dimensions supplied.",
+  "limits": {"max_turns": 14, "blender_time_limit_s": 300, "wall_time_limit_min": 240, "stagnation_turns": 3},
+  "author": {"driver": "package"},
+  "held_out_views": ["angled"]
+}

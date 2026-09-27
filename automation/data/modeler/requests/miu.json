@@ -1,0 +1,15 @@
+{
+  "product_id": "miu",
+  "photos": [
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/provider-comparison-v1/inputs/miu/front.jpg", "view": "front"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/provider-comparison-v1/inputs/miu/back.jpg", "view": "back"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/provider-comparison-v1/inputs/miu/left.jpg", "view": "left"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/provider-comparison-v1/inputs/miu/right.jpg", "view": "right"},
+    {"path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/provider-comparison-v1/inputs/miu/angled.jpg", "view": "angled", "held_out": true}
+  ],
+  "dimensions": {},
+  "notes": "Miu Miu rimless optical glasses (catalog listing): gold-tone thin metal bridge and temples, clear lenses, tortoise acetate temple tips. No physical dimensions supplied.",
+  "limits": {"max_turns": 14, "blender_time_limit_s": 300, "wall_time_limit_min": 240, "stagnation_turns": 3},
+  "author": {"driver": "package"},
+  "held_out_views": ["angled"]
+}

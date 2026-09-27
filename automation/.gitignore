@@ -1,0 +1,11 @@
+# Local evidence generated from private modeling jobs stays out of Git (jobs, renders, provider caches, ledgers).
+/plan/baseline-inventory.json
+/data/*
+!/data/modeler/
+/data/modeler/*
+# Small pipeline state that is part of the modeler: calibration set, requests, evaluator protocols, scripted fixtures, results.
+!/data/modeler/calibration/
+!/data/modeler/requests/
+!/data/modeler/protocols/
+!/data/modeler/scripts/
+!/data/modeler/RESULTS_2026-09-26.md

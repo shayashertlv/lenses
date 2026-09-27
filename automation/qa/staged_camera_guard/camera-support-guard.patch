@@ -1,0 +1,243 @@
+*** Begin Patch
+*** Add File: reconstruction/camera_pose_selection.py
++"""Preserve established arm support when a camera update adds little evidence."""
++from dataclasses import asdict,dataclass
++
++import numpy as np
++from scipy import ndimage
++
++
++@dataclass(frozen=True)
++class CameraSupportPolicy:
++    minimum_front_train_points: int = 12
++    minimum_front_holdout_points: int = 4
++    sampling_floor_px: float = .5
++    sampling_width_fraction: float = .005
++
++
++def front_camera_split(targets_xy, *, policy=CameraSupportPolicy()):
++    """One frozen image-grid split, reused for every camera hypothesis."""
++    xy=np.asarray(targets_xy,float)
++    if xy.ndim!=2 or xy.shape[1]!=2 or not np.isfinite(xy).all():
++        raise ValueError('Camera witnesses require finite image coordinates')
++    holdout=((xy[:,0].astype(int)//5)+(xy[:,1].astype(int)//5))%3==0
++    supported=(np.count_nonzero(~holdout)>=policy.minimum_front_train_points and
++               np.count_nonzero(holdout)>=policy.minimum_front_holdout_points)
++    return {'train':~holdout,'holdout':holdout,'supported':bool(supported),
++            'report':{'method':'fixed_image_grid_spatial_split_v1','cell_pixels':5,
++                      'train_points':int((~holdout).sum()),'holdout_points':int(holdout.sum()),
++                      'supported':bool(supported)}}
++
++
++def measure_front_camera_witness(front_mask,targets_xy,holdout):
++    mask=np.asarray(front_mask,bool);targets=np.asarray(targets_xy,float);holdout=np.asarray(holdout,bool)
++    if targets.shape!=(len(holdout),2) or mask.ndim!=2 or not np.isfinite(targets).all():
++        raise ValueError('Invalid frozen front witness arrays')
++    boundary=mask&~ndimage.binary_erosion(mask)
++    if not boundary.any() or not holdout.any():
++        return {'measured':False,'points':int(holdout.sum()),'mean_px':None,'p95_px':None}
++    distance=ndimage.distance_transform_edt(~boundary)
++    values=ndimage.map_coordinates(distance,targets[holdout].T[::-1],order=1,mode='constant',cval=float(max(mask.shape)))
++    return {'measured':True,'points':len(values),'mean_px':float(values.mean()),
++            'p95_px':float(np.quantile(values,.95))}
++
++
++def _supported_arms(pose_report):
++    sides=[]
++    for side,row in pose_report.items():
++        quality=row.get('absolute_correspondence_quality' if row.get('retained') else 'baseline_correspondence_quality',{})
++        if row.get('status')!='unobserved' and quality.get('supported') is True:
++            sides.append(side)
++    return sorted(sides)
++
++
++def choose_camera_with_pose_support(coarse_front,refined_front,coarse_arms,refined_arms,
++                                    reference_width_px,*,policy=CameraSupportPolicy()):
++    """Camera estimation stays front-only; this is a photographic veto afterward.
++
++    Count supported arms rather than enforcing per-side visibility: a modest
++    camera change can legitimately hide one arm and reveal the other.
++    """
++    if not np.isfinite(reference_width_px) or reference_width_px<=0:
++        raise ValueError('Camera support needs a positive projected object width')
++    before,after=_supported_arms(coarse_arms),_supported_arms(refined_arms)
++    tolerance=max(policy.sampling_floor_px,reference_width_px*policy.sampling_width_fraction)
++    available=all(row.get('measured') is True and row.get('points',0)>=policy.minimum_front_holdout_points
++                  and all(isinstance(row.get(k),(int,float,np.number)) and np.isfinite(row[k]) for k in ('mean_px','p95_px'))
++                  for row in (coarse_front,refined_front))
++    mean_gain=coarse_front['mean_px']-refined_front['mean_px'] if available else None
++    p95_gain=coarse_front['p95_px']-refined_front['p95_px'] if available else None
++    lost=len(after)<len(before)
++    little_gain=available and mean_gain<=tolerance and p95_gain<=tolerance
++    front_regressed=available and (mean_gain < -tolerance or p95_gain < -tolerance)
++    keep_coarse=not available or front_regressed or (lost and little_gain)
++    return {'method':'front_camera_arm_support_nonregression_v1','policy':asdict(policy),
++        'selected':'whole_scene' if keep_coarse else 'front_refined',
++        'reason':'insufficient_front_witnesses' if not available else
++                 'front_witness_regressed_beyond_sampling_uncertainty' if front_regressed else
++                 'front_gain_below_sampling_uncertainty_and_absolute_arm_support_lost' if keep_coarse else
++                 'front_camera_update_retained',
++        'coarse_front_witness':coarse_front,'refined_front_witness':refined_front,
++        'coarse_supported_arms':before,'refined_supported_arms':after,
++        'supported_arm_count_decreased':lost,'front_witness_regressed':bool(front_regressed),
++        'front_mean_gain_px':mean_gain,'front_p95_gain_px':p95_gain,
++        'sampling_tolerance_px':tolerance,'reference_projected_width_px':float(reference_width_px),
++        'independent_validation':False,
++        'scope':'Internal frozen spatial witnesses; whole-scene initialization already used the photograph. No ground-truth camera or product acceptance.'}
+*** Update File: reconstruction/refine_photos.py
+@@
+ from __future__ import annotations
+ 
+ import argparse
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ import hashlib
+ import importlib.metadata
+ import json
+@@
+ from PIL import Image, ImageDraw
+ from scipy import ndimage
+ 
+-from .camera import Camera, fit_camera
++from .camera import Camera, fit_camera, project, render_mask
+ from .deformation import CageField, NormalizedField, ReprojectionConstraint, assess_proposal, fit_cage
+ from .deform_glb import deform_glb
+ from .edge_correspondence import match_contour_edges
+@@
+     from .structured_refinement import SurfaceObservation, fit_front_cameras, fit_shared_geometry, StructuredPolicy
+     from .view_scene import (Hinge, PartBinding, ViewState, mesh_geometry_sha256,
+                              make_view_scene_contract, pose_scene)
++    from .camera_pose_selection import (front_camera_split, measure_front_camera_witness,
++                                         choose_camera_with_pose_support)
+     inferred = infer_automatic_part_bindings(world_mesh)
+     if not inferred['bindings']:
+         return None, inferred['report']
+@@
+             continue
+         mask = np.asarray(Image.fromarray(observation.mask).resize(size, Image.Resampling.NEAREST), bool)
+         coarse = fit_camera(mesh, mask, view=photo.view, max_evaluations=camera_evaluations)
+-        camera = Camera(**coarse['camera'])
++        camera = coarse_camera = Camera(**coarse['camera'])
+         front_raster = rasterize(front_mesh, camera, rgb.shape[:2])
+         sampled = contour_samples(front_mesh, front_raster)
+         matches = match_contour_edges(rgb, sampled['xy'], sampled['normals'],
+             source_sha256=photo_hashes[photo.id], model_sha256=model_hash)
+         selected = matches.selected_mask
+         fitted = None
++        split = None
+         if selected.sum() >= 12:
+             xy = sampled['xy'][selected].astype(int)
+             faces = front_ids[sampled['faces'][selected]]
+@@
+                 matches.matched_xy[selected], np.repeat(matches.sigma_px[selected, None], 2, axis=1),
+                 'Candidate-guided front-only contour image edges; arm observations excluded from camera loss',
+                 normal_xy=sampled['normals'][selected])
+-            fitted = fit_front_cameras(mesh, normalized_binding, [evidence], {photo.id: camera},
+-                policy=StructuredPolicy(maximum_camera_evaluations=min(camera_evaluations, 100)))
+-            camera = fitted['cameras'].get(photo.id, camera)
++            split = front_camera_split(evidence.targets_xy)
++            if split['supported']:
++                train = split['train']
++                camera_evidence = replace(evidence, face_ids=evidence.face_ids[train],
++                    barycentric=evidence.barycentric[train], targets_xy=evidence.targets_xy[train],
++                    sigma_xy=evidence.sigma_xy[train], normal_xy=evidence.normal_xy[train])
++                fitted = fit_front_cameras(mesh, normalized_binding, [camera_evidence], {photo.id: camera},
++                    policy=StructuredPolicy(maximum_camera_evaluations=min(camera_evaluations, 100)))
++                camera = fitted['cameras'].get(photo.id, camera)
+             front_evidence.append(evidence)
+-        fit = {**coarse, 'camera': camera.to_dict(), 'front_only_refinement': fitted['report'] if fitted else None}
+-        pose = fit_photo_arm_states(mesh, normalized_binding, rgb, camera, photo.id)
++        front_candidate = camera
++        coarse_pose = fit_photo_arm_states(mesh, normalized_binding, rgb, coarse_camera, photo.id)
++        pose = (fit_photo_arm_states(mesh, normalized_binding, rgb, front_candidate, photo.id)
++                if front_candidate != coarse_camera else coarse_pose)
++        if split is not None and split['supported']:
++            target = evidence.targets_xy
++            before_witness = measure_front_camera_witness(render_mask(front_mesh, coarse_camera, rgb.shape[:2]),
++                                                          target, split['holdout'])
++            after_witness = measure_front_camera_witness(render_mask(front_mesh, front_candidate, rgb.shape[:2]),
++                                                         target, split['holdout'])
++            reference_width = max(1., min(float(rgb.shape[1]), float(np.ptp(project(mesh.vertices, coarse_camera)[:, 0]))))
++            camera_selection = choose_camera_with_pose_support(before_witness, after_witness,
++                coarse_pose['report'], pose['report'], reference_width)
++            camera_selection['front_split'] = split['report']
++            if camera_selection['selected'] == 'whole_scene':
++                camera, pose = coarse_camera, coarse_pose
++        else:
++            camera, pose = coarse_camera, coarse_pose
++            camera_selection = {'selected': 'whole_scene', 'reason': 'insufficient_front_train_holdout_support',
++                                'front_split': split['report'] if split is not None else None,
++                                'independent_validation': False}
++        fit = {**coarse, 'camera': camera.to_dict(), 'whole_scene_camera': coarse_camera.to_dict(),
++               'front_only_candidate_camera': front_candidate.to_dict(),
++               'front_only_refinement': fitted['report'] if fitted else None,
++               'camera_support_selection': camera_selection}
++        write_json(folder / 'camera-support-selection.json', {'source_sha256': photo_hashes[photo.id],
++            'model_sha256': model_hash, **camera_selection})
+         fitted_cameras[photo.id] = camera
+         states[photo.id] = pose['state']; pose_reports[photo.id] = pose['report']
+         before = rasterize(mesh, camera, rgb.shape[:2])
+@@
+         write_json(folder / 'arm-pose-fit.json', pose['report'])
+         write_json(folder / 'front-edge-hypotheses.json', matches.to_report())
+         summary.update(status='automatic_articulated_camera', camera_fit=fit,
+-            camera_hypothesis='front_only_edges_after_whole_scene_seed',
++            camera_hypothesis=('whole_scene_camera_retained_by_support_guard' if camera_selection['selected'] == 'whole_scene'
++                               else 'front_only_edges_after_whole_scene_seed'),
+             selected_front_edge_count=int(selected.sum()), view_state=pose['state'].to_dict(),
+             articulation_evidence=pose['report'])
+     if len(states) < 2:
+*** Add File: tests/test_camera_pose_selection.py
++import unittest
++import numpy as np
++from reconstruction.camera_pose_selection import (choose_camera_with_pose_support,
++    front_camera_split,measure_front_camera_witness)
++
++
++def arms(left,right):
++    return {side:{'status':'rest_retained' if supported else 'camera_or_arm_ambiguous','retained':False,
++                  'baseline_correspondence_quality':{'supported':supported}}
++            for side,supported in [('left',left),('right',right)]}
++
++
++def front(mean,p95,count=20):return {'measured':True,'mean_px':mean,'p95_px':p95,'points':count}
++
++
++class CameraSupportTests(unittest.TestCase):
++    def test_real_miu_back_support_loss_rejects_weak_front_only_gain(self):
++        result=choose_camera_with_pose_support(front(1.040860630861392,1.8516011973499855,4),
++            front(.8134758885187499,1.9454191768161484,4),arms(True,True),arms(False,False),111.)
++        self.assertEqual(result['selected'],'whole_scene')
++    def test_real_oakley_side_visibility_swap_preserves_front_camera(self):
++        result=choose_camera_with_pose_support(front(.7635144918840123,1.7400013978763582,25),
++            front(.6676052568326786,1.481270423945194,25),arms(False,True),arms(True,False),154.)
++        self.assertEqual(result['selected'],'front_refined')
++    def test_significant_front_evidence_is_reported_without_forcing_old_camera(self):
++        result=choose_camera_with_pose_support(front(4.,6.),front(.2,.6),arms(True,True),arms(True,False),100.)
++        self.assertEqual(result['selected'],'front_refined');self.assertTrue(result['supported_arm_count_decreased'])
++    def test_width_scaling_keeps_the_same_choice(self):
++        for scale in (1.,2.,4.):
++            result=choose_camera_with_pose_support(front(1.*scale,2.*scale),front(.7*scale,1.8*scale),
++                arms(True,True),arms(False,False),100.*scale)
++            self.assertEqual(result['selected'],'whole_scene')
++    def test_front_regression_is_vetoed_even_when_more_arms_match(self):
++        result=choose_camera_with_pose_support(front(.2,.6),front(2.,4.),arms(False,False),arms(True,True),100.)
++        self.assertEqual(result['selected'],'whole_scene');self.assertTrue(result['front_witness_regressed'])
++    def test_tail_regression_is_vetoed_despite_improved_mean(self):
++        result=choose_camera_with_pose_support(front(2.,3.),front(.1,4.),arms(True,True),arms(True,True),100.)
++        self.assertEqual(result['selected'],'whole_scene');self.assertTrue(result['front_witness_regressed'])
++    def test_insufficient_witnesses_cannot_move_camera(self):
++        result=choose_camera_with_pose_support(front(2.,4.,3),front(0.,0.,3),arms(False,False),arms(True,True),100.)
++        self.assertEqual(result['selected'],'whole_scene')
++    def test_frozen_photo_split_is_reused_and_actual_boundary_is_scored(self):
++        xy=np.array([[x,20.] for x in range(5,86,5)])
++        split=front_camera_split(xy)
++        self.assertTrue(np.array_equal(split['train'],~split['holdout']))
++        mask=np.zeros((50,100),bool);mask[20:30,5:86]=True
++        original=measure_front_camera_witness(mask,xy,split['holdout'])
++        changed=measure_front_camera_witness(np.roll(mask,4,axis=0),xy,split['holdout'])
++        self.assertEqual(original['mean_px'],0.);self.assertGreater(changed['mean_px'],3.)
++
++
++if __name__=='__main__':unittest.main()
+*** End Patch

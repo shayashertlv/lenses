@@ -1,0 +1,8 @@
+[
+  {"discrepancies": [{"part": "overall", "view": "overall", "description": "dry run: scripted evaluator, no judgement made", "severity": "major"}],
+   "identity_checklist": [],
+   "resemblance_0_10": {"front": 0, "side": 0, "angled_held_out": 0, "materials_and_lenses": 0, "mirror_overall": 0},
+   "runtime_notes": "dry run",
+   "overall": "reject",
+   "summary": "Scripted dry-run evaluation: exercises the evaluator package path only; not a judgement."}
+]

@@ -1,0 +1,15 @@
+{
+  "product_id": "invu_ia22403b",
+  "photos": [
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Invu INVU S IA22403B 99M/images.jpg", "view": "front"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Invu INVU S IA22403B 99M/4d8560a3-a924-4b29-9a52-faf5fdafceb5.jpg", "view": "back"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Invu INVU S IA22403B 99M/7630775788211-S.jpg.webp", "view": "left"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Invu INVU S IA22403B 99M/f551751aaf6014ca5a4fb50e0985b586f9d126824ea4eadf873dafb765d0fad4.webp", "view": "right"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Invu INVU S IA22403B 99M/7630775788211.jpg.webp", "view": "angled", "held_out": true}
+  ],
+  "dimensions": {},
+  "notes": "INVU IA22403B (colour 99M, catalog listing): sports sunglasses with a single wrap-around shield lens under a half-rim brow (no lower rim), matte dark navy frame, blue mirror polarized lens, small 'invu' lettering on the lens and temples, temples with a blue accent panel. The only front photo supplied is very small (194 px wide); the other photos are the appearance reference. No physical dimensions supplied.",
+  "limits": {"max_turns": 10, "blender_time_limit_s": 300, "wall_time_limit_min": 180, "stagnation_turns": 3},
+  "author": {"driver": "astra"},
+  "held_out_views": ["angled"]
+}

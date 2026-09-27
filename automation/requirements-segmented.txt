@@ -1,0 +1,8 @@
+# Segmented route additions, exercised on Windows with Python 3.12.10.
+# Install from automation/; the legacy Blender editor has its own .venv.
+-r requirements.txt
+requests==2.32.5
+python-dotenv==1.1.1
+open3d==0.19.0
+torch==2.7.1
+torchvision==0.22.1

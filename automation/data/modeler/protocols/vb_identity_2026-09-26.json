@@ -1,0 +1,24 @@
+{
+  "product_id": "vb",
+  "frozen_at": "2026-09-26",
+  "written_by": "development agent from the five catalog photos, before the first measured run; evaluator-only input (the author receives the request notes only)",
+  "identity_features": [
+    "Oversized flat-top squared front: a straight, thick brow bar spanning the full width, squared upper lens corners, lower lens corners rounded, the lower rim curving inward toward the bridge",
+    "Thick acetate rims with a rounded, bevelled outer profile (not a flat extruded plate): the front face is convex/eased toward the edges and the frame reads as a chunky slab in the side view",
+    "Straight bridge flush with the brow bar, a keyhole-free bridge whose underside is an arch between the lenses",
+    "Wide endpieces continuing the brow line; the temples attach at the very top-outer corner, roughly as tall as the front at the hinge",
+    "Very deep temples (about 25-30 mm tall at the hinge) that taper along their length and bend down behind the ear; seen from the side the temple is a broad slab with a straight upper edge",
+    "Gold metal accent on each temple: a thin slanted gold bar/plate near the hinge on the outer face, plus small 'VICTORIA BECKHAM' lettering along the temple; a small 'VB' monogram mark printed on the lens",
+    "Material: dark navy acetate, polished (glossy highlights), with a translucent lighter-blue laminated inner side visible on the temple interior in the angled photo",
+    "Lenses: brown gradient, dark at the top fading to light amber at the bottom, mounted nearly flush in a rim groove; low base curve",
+    "Back view: the same navy acetate inside, visible gold hinge barrels at the inner endpiece corners",
+    "Proportions: total width about 2.2-2.3 times the front height; each lens about as tall as it is wide; a narrow bridge (about 14-15 mm at the nominal 140 mm width)"
+  ],
+  "conditions_for_success": [
+    "front silhouette and lens outlines match the front photo within the provisional thresholds of the job protocol",
+    "the rim reads as a bevelled acetate profile in the clay three-quarter render and in the AR angled view, not as a flat plate",
+    "temples have the deep tapering slab profile and the downward bend seen in the side photos, and are continuous back to the clip depth",
+    "gold accent present on the temples; lenses brown gradient with correct orientation (dark top)",
+    "the exported asset loads in the AR renderer with two optical meshes and no rejection"
+  ]
+}

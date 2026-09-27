@@ -1,0 +1,15 @@
+{
+  "product_id": "oakley_oo9208",
+  "photos": [
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Oakley OO9208 38 920844/0888392220899-F.webp", "view": "front"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Oakley OO9208 38 920844/0888392220899-BK.webp", "view": "back"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Oakley OO9208 38 920844/0888392220899-S.webp", "view": "left"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Oakley OO9208 38 920844/af80811222d724c51ddf0176606021afe6e7c1edf74ca334747f755e6ad836fc.webp", "view": "right"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Oakley OO9208 38 920844/0888392220899.webp", "view": "angled", "held_out": true}
+  ],
+  "dimensions": {},
+  "notes": "Oakley OO9208 (Radar EV Path style, colour code 920844, catalog listing): sports sunglasses with a single wrap-around shield lens held by a top brow bar only (no lower rim), black frame, mirrored Prizm lens with a pink-to-green colour shift, white Oakley 'O' logo on the temples, thin temples with rubber ear socks, adjustable nose pads. No physical dimensions supplied.",
+  "limits": {"max_turns": 10, "blender_time_limit_s": 300, "wall_time_limit_min": 180, "stagnation_turns": 3},
+  "author": {"driver": "astra"},
+  "held_out_views": ["angled"]
+}

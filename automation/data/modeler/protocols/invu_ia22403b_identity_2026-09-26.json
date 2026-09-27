@@ -1,0 +1,18 @@
+{
+  "product_id": "invu_ia22403b",
+  "frozen_at": "2026-09-26",
+  "written_by": "development agent from the five catalog photos, before the first measured run; evaluator-only input (the author receives the request notes only); the front photo is very small (194 px wide)",
+  "identity_features": [
+    "Single wrap-around shield lens with a tall, straight-topped profile, spanning the whole front, with an angled cut at the centre bottom for the nose and a slight upward kick at the outer lower corners",
+    "Half-rim brow: a flat, matte dark navy bar along the top edge of the lens, no lower rim; the brow is thicker at the temples and thin over the centre",
+    "Lens finish: blue mirror coating, reflective sky-blue to violet, with a small 'invu' wordmark printed near the upper outer corner",
+    "Straight, flat temples, matte dark navy, with a lighter blue accent panel on the outer face along the middle of the temple",
+    "A small nose piece under the brow centre with dark pads; the brow does not descend around the lens",
+    "Wrapped front: in the side views the lens curves back toward the temples",
+    "Colour: matte dark navy (near-black with a blue cast) frame; no gloss"
+  ],
+  "conditions": {
+    "photos": "front (194 px, low resolution), back, left, right and one three-quarter angled view (held out from the author)",
+    "scale": "nominal; no physical dimension supplied"
+  }
+}

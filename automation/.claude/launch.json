@@ -1,0 +1,46 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Show server",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "data/show/serve.py",
+        "8790"
+      ],
+      "port": 8790
+    },
+    {
+      "name": "AR app (dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "../ar",
+        "run",
+        "dev"
+      ],
+      "port": 8240
+    },
+    {
+      "name": "BSA try-on models",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "bsa.tryon",
+        "m3",
+        "8792"
+      ],
+      "port": 8792
+    },
+    {
+      "name": "Modeler try-on models",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "modeler.tryon",
+        "8793"
+      ],
+      "port": 8793
+    }
+  ]
+}

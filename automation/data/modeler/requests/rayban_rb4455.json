@@ -1,0 +1,15 @@
+{
+  "product_id": "rayban_rb4455",
+  "photos": [
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Ray_Ban_RB4455_Zuri/8056262454022-F.webp", "view": "front"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Ray_Ban_RB4455_Zuri/0bd056243b8cf3eb4765f3f03014f2e3761b62c345c10bdbb1265a9d4dcfc965.webp", "view": "back"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Ray_Ban_RB4455_Zuri/8056262454022-S.webp", "view": "left"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Ray_Ban_RB4455_Zuri/c6dad9e6ab9068b053e316da288d1695ba68c400d5ed528cf4fb433b74e77e29.webp", "view": "right"},
+    {"path": "C:/Users/Shay/OneDrive/Desktop/erroca/images/Ray_Ban_RB4455_Zuri/8056262454022.webp", "view": "angled", "held_out": true}
+  ],
+  "dimensions": {},
+  "notes": "Ray-Ban RB4455 Zuri (catalog listing): rectangular acetate sunglasses in tortoise (havana) acetate, dark grey solid lenses, Ray-Ban logo on the left lens and on the temples, small metal rivets at the hinges. No physical dimensions supplied.",
+  "limits": {"max_turns": 10, "blender_time_limit_s": 300, "wall_time_limit_min": 180, "stagnation_turns": 3},
+  "author": {"driver": "astra"},
+  "held_out_views": ["angled"]
+}

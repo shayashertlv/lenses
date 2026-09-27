@@ -1,0 +1,20 @@
+[
+  {
+    "job": "miumiu-fresh-v1",
+    "status": "verified",
+    "reason": null,
+    "inputs": 5,
+    "submitted": 4,
+    "pins": 108,
+    "seconds": 0.21899999998277053
+  },
+  {
+    "job": "oakley-fresh-v1",
+    "status": "verified",
+    "reason": null,
+    "inputs": 5,
+    "submitted": 4,
+    "pins": 96,
+    "seconds": 0.10899999999674037
+  }
+]

@@ -1,0 +1,16 @@
+[
+ {
+  "decision": "submit_program",
+  "modules": {
+   "frame": "\n# generic test frame (mm). Front plate with two lens holes, bevelled; lenses; straight temples.\nW, Hh = 140.0, 50.0\nouter = gl.rounded_rect(W, Hh, 10.0, n=160)\nlensR = gl.rounded_rect(52.0, 38.0, 9.0, n=96, center=(32.0, -2.0))\nlensL = gl.rounded_rect(52.0, 38.0, 9.0, n=96, center=(-32.0, -2.0))\nfront = gl.plate_with_holes(outer, [lensR, lensL], z_front=0.0, thickness=6.0, name=\"front_plate\", part=\"frame\", component=\"front\")\ngl.bevel(front, 1.5, segments=3)\nacetate = gl.material_acetate(\"acetate_navy\", (28, 40, 70))\ngl.assign(front, acetate)\ngold = gl.material_metal(\"gold\", (212, 175, 90))\nplate = gl.box((60.0, -5.0, -3.0), (10.0, 2.0, 8.0), \"logo_R\", \"frame\", \"logo_R\")\ngl.assign(plate, gold)\ngl.mirror_x(plate, \"logo_L\", \"frame\", \"logo_L\")\noptics = gl.lens_optics(transmission_top_rgb=(0.25, 0.20, 0.14), transmission_bottom_rgb=(0.75, 0.70, 0.62))\nlens_mat = gl.material_lens(\"lens\", optics)\nfor side, outline in ((\"R\", lensR), (\"L\", lensL)):\n    lens = gl.lens_solid(gl.offset_closed(outline, 0.8), z_front=-1.5, name=f\"lens_{side}\", part=f\"lens_{side}\", base_curve=4.0, thickness=2.0)\n    gl.assign(lens, lens_mat)\nfor side, sx in ((\"R\", 1.0), (\"L\", -1.0)):\n    secs = []\n    for k, z in enumerate(np.linspace(-3.0, -140.0, 12)):\n        w = 6.0 if k < 8 else 6.0 - (k - 8) * 0.8\n        h = 8.0 if k < 6 else 8.0 - (k - 6) * 0.6\n        y = 0.0 if k < 8 else -(k - 8) * 3.0\n        secs.append(gl.section_rect((sx * (W / 2 - 3.0), y, z), w, h, (1, 0, 0), (0, 1, 0), radius=1.5, n=24))\n    t = gl.loft(secs, f\"temple_{side}\", f\"temple_{side}\", \"arm\")\n    gl.assign(t, acetate)\ngl.set_bridge_underside((0.0, -7.0, -3.0))\ngl.note(\"generic fixture built\")\n"
+  },
+  "base": null,
+  "rationale": "dry run: the generic test fixture frame from tests/test_modeler_worker.py; not a product candidate"
+ },
+ {
+  "decision": "finish",
+  "deliver": "incumbent",
+  "status_claim": "best_effort",
+  "note": "dry run finished"
+ }
+]

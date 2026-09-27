@@ -1,0 +1,168 @@
+{
+  "method": "exact_saved_witness_redecision_after_additional_regression_guard",
+  "guard_sha256": "1047f119f0bede68a6241d9f64fd11e6d766b313f0b667c82251148e07e4f05f",
+  "rows": [
+    {
+      "source_report": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\automatic-articulation\\miu-camera-guard-staged-v1\\back\\camera-support-selection.json",
+      "source_sha256": "694dbf7d6eabe03da74e4e96a9b67a835dd19b53ae43494ffa1e4ee306876f16",
+      "unchanged_choice": true,
+      "decision": {
+        "method": "front_camera_arm_support_nonregression_v1",
+        "policy": {
+          "minimum_front_train_points": 12,
+          "minimum_front_holdout_points": 4,
+          "sampling_floor_px": 0.5,
+          "sampling_width_fraction": 0.005
+        },
+        "selected": "whole_scene",
+        "reason": "front_gain_below_sampling_uncertainty_and_absolute_arm_support_lost",
+        "coarse_front_witness": {
+          "measured": true,
+          "points": 4,
+          "mean_px": 1.040860630861392,
+          "p95_px": 1.8516011973499855
+        },
+        "refined_front_witness": {
+          "measured": true,
+          "points": 4,
+          "mean_px": 0.9231990093723237,
+          "p95_px": 2.2998817196784316
+        },
+        "coarse_supported_arms": [
+          "left",
+          "right"
+        ],
+        "refined_supported_arms": [],
+        "supported_arm_count_decreased": true,
+        "front_witness_regressed": false,
+        "front_mean_gain_px": 0.11766162148906822,
+        "front_p95_gain_px": -0.44828052232844606,
+        "sampling_tolerance_px": 0.5433899024119683,
+        "reference_projected_width_px": 108.67798048239365,
+        "independent_validation": false,
+        "scope": "Internal frozen spatial witnesses; whole-scene initialization already used the photograph. No ground-truth camera or product acceptance."
+      }
+    },
+    {
+      "source_report": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\automatic-articulation\\miu-camera-guard-staged-v1\\front\\camera-support-selection.json",
+      "source_sha256": "42be17a7eb1bd3e27d7d230f03bfbf109f53c62dffa7e6be13edc9bd8e024c0a",
+      "unchanged_choice": true,
+      "decision": {
+        "method": "front_camera_arm_support_nonregression_v1",
+        "policy": {
+          "minimum_front_train_points": 12,
+          "minimum_front_holdout_points": 4,
+          "sampling_floor_px": 0.5,
+          "sampling_width_fraction": 0.005
+        },
+        "selected": "whole_scene",
+        "reason": "front_gain_below_sampling_uncertainty_and_absolute_arm_support_lost",
+        "coarse_front_witness": {
+          "measured": true,
+          "points": 5,
+          "mean_px": 0.6806398767021954,
+          "p95_px": 1.1979565121453284
+        },
+        "refined_front_witness": {
+          "measured": true,
+          "points": 5,
+          "mean_px": 0.8362412253489279,
+          "p95_px": 1.5174959581044336
+        },
+        "coarse_supported_arms": [
+          "left",
+          "right"
+        ],
+        "refined_supported_arms": [],
+        "supported_arm_count_decreased": true,
+        "front_witness_regressed": false,
+        "front_mean_gain_px": -0.15560134864673247,
+        "front_p95_gain_px": -0.3195394459591052,
+        "sampling_tolerance_px": 0.5484989981783176,
+        "reference_projected_width_px": 109.69979963566352,
+        "independent_validation": false,
+        "scope": "Internal frozen spatial witnesses; whole-scene initialization already used the photograph. No ground-truth camera or product acceptance."
+      }
+    },
+    {
+      "source_report": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\automatic-articulation\\oakley-camera-guard-staged-v1\\back\\camera-support-selection.json",
+      "source_sha256": "f2c07af828eb2a204a81a49f4c344a0d886b3b597ae2bb7a642b648de2f4c323",
+      "unchanged_choice": true,
+      "decision": {
+        "method": "front_camera_arm_support_nonregression_v1",
+        "policy": {
+          "minimum_front_train_points": 12,
+          "minimum_front_holdout_points": 4,
+          "sampling_floor_px": 0.5,
+          "sampling_width_fraction": 0.005
+        },
+        "selected": "front_refined",
+        "reason": "front_camera_update_retained",
+        "coarse_front_witness": {
+          "measured": true,
+          "points": 25,
+          "mean_px": 0.7635144918840123,
+          "p95_px": 1.7400013978763582
+        },
+        "refined_front_witness": {
+          "measured": true,
+          "points": 25,
+          "mean_px": 0.7137950775392012,
+          "p95_px": 1.3874563597852931
+        },
+        "coarse_supported_arms": [
+          "right"
+        ],
+        "refined_supported_arms": [
+          "right"
+        ],
+        "supported_arm_count_decreased": false,
+        "front_witness_regressed": false,
+        "front_mean_gain_px": 0.049719414344811086,
+        "front_p95_gain_px": 0.3525450380910651,
+        "sampling_tolerance_px": 0.7036475391745214,
+        "reference_projected_width_px": 140.72950783490427,
+        "independent_validation": false,
+        "scope": "Internal frozen spatial witnesses; whole-scene initialization already used the photograph. No ground-truth camera or product acceptance."
+      }
+    },
+    {
+      "source_report": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\automatic-articulation\\oakley-camera-guard-staged-v1\\front\\camera-support-selection.json",
+      "source_sha256": "3dca994e110519c1f78870e87e0c8c27d2219f91182dc2ac09feac14c528ac8a",
+      "unchanged_choice": true,
+      "decision": {
+        "method": "front_camera_arm_support_nonregression_v1",
+        "policy": {
+          "minimum_front_train_points": 12,
+          "minimum_front_holdout_points": 4,
+          "sampling_floor_px": 0.5,
+          "sampling_width_fraction": 0.005
+        },
+        "selected": "front_refined",
+        "reason": "front_camera_update_retained",
+        "coarse_front_witness": {
+          "measured": true,
+          "points": 38,
+          "mean_px": 0.8903227183853926,
+          "p95_px": 1.9180016395652786
+        },
+        "refined_front_witness": {
+          "measured": true,
+          "points": 38,
+          "mean_px": 0.9475263647457383,
+          "p95_px": 2.0925090130062163
+        },
+        "coarse_supported_arms": [],
+        "refined_supported_arms": [],
+        "supported_arm_count_decreased": false,
+        "front_witness_regressed": false,
+        "front_mean_gain_px": -0.057203646360345695,
+        "front_p95_gain_px": -0.1745073734409377,
+        "sampling_tolerance_px": 0.6851510402004365,
+        "reference_projected_width_px": 137.0302080400873,
+        "independent_validation": false,
+        "scope": "Internal frozen spatial witnesses; whole-scene initialization already used the photograph. No ground-truth camera or product acceptance."
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "product_id": "miu",
+  "frozen_at": "2026-09-26",
+  "written_by": "development agent from the five catalog photos, before any miu run; evaluator-only input",
+  "identity_features": [
+    "Rimless: two oval clear lenses with no rim at all; the lens edge is a bare polished edge",
+    "Thin gold metal bridge: a slim rounded bar between the lenses, slightly arched, mounted to each lens by a small gold block",
+    "Ornate 'miu miu' lettering blocks: at each lens mount (bridge side and temple side) and at the temple hinge, a small gold openwork block shaped like the letters miu miu, with visible screw heads",
+    "Nose pads: clear/pale pads on short gold pad arms attached at the bridge mounts",
+    "Temples: thin round gold wire rods running straight back from the hinge block, ending in tortoise (amber/brown mottled) acetate tips that bend down",
+    "Hinge region: the temple starts with a flat gold plate/lettering block at the lens mount, then the round wire",
+    "Materials: polished gold-tone metal (mirror-like, warm yellow), clear lenses (slight edge reflections), translucent tortoise acetate tips",
+    "Proportions: total width about 3.7 times the lens height; oval lenses wider than tall (roughly 50 x 34 at the nominal 140 mm width); a wide bridge gap (about 22 mm)"
+  ],
+  "conditions_for_success": [
+    "no rim geometry: lenses are free-standing with mounts only at the bridge and temple sides",
+    "gold hardware present at both mounts and hinges with a recognisable openwork silhouette; nose pads on arms",
+    "wire temples with tortoise tips and downward bend, continuous to the clip depth",
+    "clear lens optics (high transmission) in the AR renderer; two optical meshes detected",
+    "front silhouette (hardware + lenses) within the provisional thresholds"
+  ]
+}
