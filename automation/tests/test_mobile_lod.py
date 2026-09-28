@@ -7,6 +7,7 @@ import unittest
 
 import numpy as np
 from PIL import Image
+import pytest
 
 from reconstruction.mobile_lod import run_mobile_lod, compare_lod_cards
 from reconstruction.compact_glb import run_compact_asset
@@ -20,6 +21,7 @@ class MobileLODTests(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);self.root=Path(temp.name)
 
+    @pytest.mark.slow   # ~34 s
     def test_real_simplification_preserves_optics_and_every_authored_frame_attribute(self):
         n=20
         vertices=[[x/n,y/n,0.] for y in range(n+1) for x in range(n+1)]

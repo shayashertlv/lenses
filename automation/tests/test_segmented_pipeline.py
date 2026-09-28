@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from PIL import Image
 import requests

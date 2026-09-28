@@ -1,0 +1,134 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Semantic material cards</title>
+<style>body{font:14px system-ui;margin:24px;background:#edf0f3;color:#1b2430}h1{font-size:23px}.cases{display:grid;grid-template-columns:repeat(3,320px);gap:12px}.case{background:white;padding:10px;border:1px solid #ccd4de}.case img{width:300px}.status{white-space:pre-wrap;background:white;padding:12px}canvas{display:none}</style>
+<h1>Effective optical group candidates</h1>
+<p>Actual AR loading, surface validation, fitting and rendering. Diagnostic materials and synthetic pose; product appearance remains unverified.</p>
+<div id="status" class="status">Ready</div><div id="cases" class="cases"></div>
+<script type="module">
+import * as THREE from 'three';
+import {TryOnRenderer} from '../src/render/renderer.ts';
+import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+import {registerPinnedGeometry} from '../src/render/continuity.ts';
+import {readMaterialLensAppearance} from '../src/eyewear/lens-appearance.ts';
+
+const width=720,height=480;
+const sha=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+const bytesOf=array=>new Uint8Array(array.buffer,array.byteOffset,array.byteLength);
+const source=document.createElement('canvas');source.width=width;source.height=height;
+source.getContext('2d').fillStyle='rgb(176,132,100)';source.getContext('2d').fillRect(0,0,width,height);
+function detection(canonical,yaw=0,roll=0){
+ const matrix=new THREE.Matrix4().compose(new THREE.Vector3(0,0,-23),new THREE.Quaternion().setFromEuler(new THREE.Euler(0,yaw*Math.PI/180,roll*Math.PI/180,'YXZ')),new THREE.Vector3(1,1,1));
+ const positions=[],point=new THREE.Vector3();let mean=0;
+ for(let i=0;i<468;i++){point.fromArray(canonical.positions,i*3).applyMatrix4(matrix);positions.push(point.clone());mean-=point.z/468;}
+ const vertical=2*Math.tan(63*Math.PI/360),horizontal=vertical*width/height;
+ const landmarks=positions.map(p=>({x:.5+p.x/(-p.z*horizontal),y:.5-p.y/(-p.z*vertical),z:(-p.z/mean-1)/horizontal}));
+ for(const [a,b]of[[33,133],[362,263]])for(let i=0;i<5;i++)landmarks.push({x:(landmarks[a].x+landmarks[b].x)/2,y:(landmarks[a].y+landmarks[b].y)/2,z:(landmarks[a].z+landmarks[b].z)/2});
+ return {matrix:matrix.toArray(),landmarks,inferenceMs:0};
+}
+function preview(pixels,label){
+ const canvas=document.createElement('canvas');canvas.width=pixels.width;canvas.height=pixels.height;canvas.getContext('2d').putImageData(pixels,0,0);
+ const tile=document.createElement('div');tile.className='case';const heading=document.createElement('p');heading.textContent=label;
+ const image=document.createElement('img');image.src=canvas.toDataURL('image/png');tile.append(heading,image);document.getElementById('cases').append(tile);
+}
+function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
+async function run(){
+ const manifest=await fetch('/__prepared/manifest.json').then(r=>r.json()),canonical=await fetch('/models/canonical-face.json').then(r=>r.json());
+ const report={schema_version:1,status:'running',quality_verdict:'unmeasured',accepted:false,cases:[],synthetic_pose_translation:[0,0,-23],scope:'Actual effective-group GLB loading, unchanged attributes and AR camera/shadow compatibility. Neutral control materials; semantic identity and product appearance remain unverified.'};
+ window.preparedReport=report; window.materialCards=[];
+ for(const entry of manifest.cases){
+  document.getElementById('status').textContent=`Loading ${entry.id}`;
+  const row={id:entry.id,model_sha256:entry.model_sha256,status:'running',surfaces:[],renders:[]};report.cases.push(row);
+  let instance;
+  try{
+   const url=`/__prepared/${entry.id}.glb`;
+   registerPinnedGeometry(url,entry.model_sha256);
+   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:-.14});
+   const started=performance.now();
+   instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{sync:false,steady:null});
+   row.load_milliseconds=performance.now()-started;
+   const gl=instance.renderer.getContext(),debug=gl.getExtension('WEBGL_debug_renderer_info');
+   row.device={browser:navigator.userAgent,renderer:gl.getParameter(gl.RENDERER),version:gl.getParameter(gl.VERSION),
+    unmasked_renderer:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null};
+   if(instance.renderedAssetIntegrity?.sha256!==entry.model_sha256||!instance.renderedAssetIntegrity.pinned)throw Error('Rendered asset bytes differ from manifest');
+   const lenses=instance.lensMeshes.filter(mesh=>mesh.userData.lensSurfaceProfile==='effective_optical_group_v1_experiment');
+   const members=entry.groups.flatMap(group=>group.members.map(member=>({...member,group_id:group.group_id,appearance:group.appearance})));
+   const materialsByGroup=new Map();
+   if(lenses.length!==members.length)throw Error('Prepared optical mesh count changed');
+   for(const expected of members){
+    const matching=lenses.filter(mesh=>mesh.userData.opticalGroupMemberId===expected.id&&mesh.userData.opticalGroupId===expected.group_id);
+    if(matching.length!==1)throw Error('Optical surface identity missing or duplicated');
+    const mesh=matching[0],actual={};
+    for(const [key,value]of Object.entries(expected.node_metadata))if(mesh.userData[key]!==value)throw Error(`Group metadata changed: ${key}`);
+    if(mesh.material.userData.canonicalOpticalGroupId!==expected.group_id)throw Error('Installed material group identity changed');
+    if(materialsByGroup.has(expected.group_id)&&materialsByGroup.get(expected.group_id)!==mesh.material)throw Error('Group members have different mutable materials');
+    materialsByGroup.set(expected.group_id,mesh.material);
+    for(const [key,name]of[['positions','position'],['normals','normal'],['uv','uv']])actual[key]=await sha(bytesOf(mesh.geometry.getAttribute(name).array));
+    // The export receipt hashes canonical uint32 indices. Compact glTF may
+    // store the same values as uint16; compare decoded indices, as Python does.
+    actual.indices=await sha(bytesOf(Uint32Array.from(mesh.geometry.getIndex().array)));
+    for(const key of Object.keys(actual))if(actual[key]!==expected.attribute_sha256[key])throw Error(`Optical ${key} changed during actual AR preparation`);
+    const descriptor=readMaterialLensAppearance(mesh.material);
+    if(JSON.stringify(stable(descriptor))!==JSON.stringify(stable(expected.appearance)))throw Error('Canonical material descriptor changed during load');
+    row.surfaces.push({id:expected.id,group_id:expected.group_id,attribute_sha256:actual,descriptor_preserved:true,vertices:mesh.geometry.getAttribute('position').count});
+   }
+   if(new Set(materialsByGroup.values()).size!==entry.groups.length)throw Error('Distinct optical groups share mutable materials');
+   row.group_count=materialsByGroup.size;
+   for(let timestamp=0;timestamp<=5000;timestamp+=100)if(!instance.pose(source,detection(canonical),timestamp))throw Error('Synthetic fitting pose rejected');
+   if(!instance.fitting.ready)throw Error('Synthetic fit did not settle');
+   let timestamp=6000;
+   const card=document.createElement('canvas');card.width=width*4;card.height=height*3;
+   const cardContext=card.getContext('2d');
+   const backgrounds=[['white','#eeeeee'],['light-face','#cfaa8c'],['dark-face','#624335']];
+   const poses=[[0,0,false],[40,0,false],[25,25,false],[0,0,true]];
+   for(let bi=0;bi<backgrounds.length;bi++)for(let pi=0;pi<poses.length;pi++){
+    const [background,color]=backgrounds[bi], [yaw,roll,rearInspection]=poses[pi];
+    const d=detection(canonical,yaw,roll),ctx=source.getContext('2d');
+    ctx.fillStyle=color;ctx.fillRect(0,0,width,height);
+    if(bi&&!rearInspection){
+     for(const indices of [[33,133],[362,263]]){
+      const points=indices.map(i=>d.landmarks[i]);
+      const cx=(points[0].x+points[1].x)*width/2,cy=(points[0].y+points[1].y)*height/2;
+      const rw=Math.max(5,Math.hypot((points[0].x-points[1].x)*width,(points[0].y-points[1].y)*height)*.42);
+      ctx.save();ctx.translate(cx,cy);ctx.rotate(-roll*Math.PI/180);
+      ctx.fillStyle='#ded9ce';ctx.beginPath();ctx.ellipse(0,0,rw,rw*.34,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#4c3b2a';ctx.beginPath();ctx.arc(0,0,rw*.32,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#151313';ctx.beginPath();ctx.arc(0,0,rw*.15,0,Math.PI*2);ctx.fill();ctx.restore();
+     }
+    }
+    instance.pose(source,d,timestamp+=100);
+    const inspectionHidden=[];
+    if(rearInspection){
+     // Inspection pose only: rotate the settled asset about its bridge while
+     // keeping the AR camera/optical renderer. A fabricated 180-degree face
+     // detection would exercise tracking rejection instead of the rear asset.
+     instance.eyewearPose.matrix.multiply(new THREE.Matrix4().makeRotationY(Math.PI));
+     instance.eyewearPose.updateMatrixWorld(true);
+     // The synthetic face would otherwise depth-occlude the rotated lens.
+     // Keep tracking state while hiding only the inspection's face surfaces.
+     for(const object of [...instance.facePose.children,instance.surfaceMesh,instance.templeHeadShell])if(object){
+      inspectionHidden.push([object,object.visible]);object.visible=false;
+     }
+    }
+    const timing=instance.render(null,{hair:false,shadows:!rearInspection,guard:!rearInspection}),pixels=instance.readback();
+    for(const [object,visible]of inspectionHidden)object.visible=visible;
+    cardContext.putImageData(pixels,pi*width,bi*height);
+    row.renders.push({background,yaw,roll,view:rearInspection?'rear_asset_inspection':'front_ar_pose',
+     asset_rotation_y_degrees:rearInspection?180:0,synthetic_face_occluders_hidden:rearInspection,
+     sha256:await sha(bytesOf(pixels.data)),timing});
+   }
+   const image=document.createElement('img');image.src=card.toDataURL('image/png');image.style.width='900px';
+   const tile=document.createElement('div');tile.append(image);document.getElementById('cases').append(tile);
+   window.materialCards.push({id:entry.id,data:image.src});
+   row.status='runtime_compatible';row.rendered_asset_integrity=instance.renderedAssetIntegrity;
+  }catch(error){row.status='rejected_or_failed';row.error=String(error.stack??error);}
+  finally{instance?.dispose();}
+ }
+ report.status=report.cases.length&&report.cases.every(row=>row.status==='runtime_compatible')?'passed':'failed';
+ document.getElementById('status').textContent=JSON.stringify({status:report.status,cases:report.cases.map(row=>({id:row.id,status:row.status,error:row.error})),quality_verdict:'unmeasured'},null,2);
+ return report;
+}
+window.preparedOptics={run};
+window.renderMaterialCards=run;
+</script>

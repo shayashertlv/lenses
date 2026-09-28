@@ -5,6 +5,7 @@ The repository root is the live Lenses application on Railway, started by
 serves the Lenses tools and the owner-authorized AR try-on below.
 [ar/](ar/README.md) contains the AR try-on pipeline; run its commands
 inside that directory and keep its package manifests and assets there.
+[automation/](automation/README.md) holds the offline eyewear-modeling routes (not part of the deployed app); its README lists them.
 
 The landing page's first option, **AR**, opens the live try-on at
 [/ar/](https://web-production-ef3ca.up.railway.app/ar/): the `ar/` pipeline's published

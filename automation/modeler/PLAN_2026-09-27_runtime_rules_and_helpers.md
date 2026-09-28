@@ -5,7 +5,12 @@ asset, inherited through the export contract, and (2) the constructions the Blen
 This plan is grounded in a line-level reading of `ar/src`, `bsa/export.py`, `bsa/contract.py` and
 `modeler/blender/glasses_lib.py` (three read-only investigations, 2026-09-27; line numbers cite the working tree,
 which carries uncommitted edits in continuity.ts, catalog.ts, external.ts, rear-drop.ts and temple-clip.ts).
-Nothing below is implemented yet. Every runtime item is proposed as a change to `ar/src` in the working tree
+Status 2026-09-29: 1A steps 1-6 are implemented in the working tree (`classifyAssetMaterials` in
+`ar/src/eyewear/optical-material.ts`, the renderer's translucent twin and look-through, the shadow and
+temple-overlay handling, and the producer side in `bsa/contract.py`, `bsa/export.py` and
+`glasses_lib.material_translucent`); the ar/src change is unpublished. Step 2 kept the "mixed canonical and legacy"
+throw (lens-material.ts:229), and step 7's QA page (`ar/qa/translucent-frame.html`) does not exist. 1B, 1C and 2
+remain proposals. As written on 2026-09-27: every runtime item is proposed as a change to `ar/src` in the working tree
 with tests and a QA page; publishing to the live `/ar/` route stays a separate owner decision.
 
 ## 0. Facts that change the plan

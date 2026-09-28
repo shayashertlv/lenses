@@ -1,6 +1,6 @@
 /** Original temple cross-sections from hash-verified frame geometry (33 stations per arm), projected to
  *  match the drawn shaft geometry. These paths supply the first-hair endpoint tracker. */
-import {Matrix4, Mesh, MeshPhysicalMaterial, Texture, Vector3, Vector4} from 'three';
+import {Matrix4, Mesh, Texture, Vector3, Vector4} from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {protectionProjection} from './protection.ts';
@@ -9,6 +9,7 @@ import {spreadArmX} from './face-width.ts';
 import {terminalFitX} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
 import {assetPath} from '../assets.ts';
+import {classifyAssetMaterials, isOpticalMaterial} from '../eyewear/optical-material.ts';
 
 export const CONTINUITY_GEOMETRY = Object.freeze({stations: 33, lateralMinM: .045, proximalGuardM: .015});
 const GEOMETRY_HASHES: Readonly<Record<string, string>> = Object.freeze({
@@ -16,11 +17,34 @@ const GEOMETRY_HASHES: Readonly<Record<string, string>> = Object.freeze({
   'amber-horizon.glb': '78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004',
 });
 const REGISTERED_GEOMETRY_HASHES = new Map<string, string>();
+/** The last path segment of an asset address without its query: the key the geometry pins are stored under. */
+const assetFilename = (assetUrl: string): string | undefined => assetUrl.split('/').at(-1)?.split('?')[0];
+/** The pinned SHA-256 for an asset address: the shipped filename registry first, then handed-over registrations. */
+function pinnedHashFor(assetUrl: string): string | undefined {
+  const filename = assetFilename(assetUrl);
+  return filename ? GEOMETRY_HASHES[filename] ?? REGISTERED_GEOMETRY_HASHES.get(filename) : undefined;
+}
 /** Pin a handed-over asset's geometry by the last segment of its address, as the shipped frames are pinned by filename. */
 export function registerPinnedGeometry(assetUrl: string, sha256: string): void {
-  const filename = assetUrl.split('/').at(-1)?.split('?')[0];
+  const filename = assetFilename(assetUrl);
   if (!filename || !/^[0-9a-f]{64}$/.test(sha256)) throw new Error('The pinned geometry registration is invalid.');
   REGISTERED_GEOMETRY_HASHES.set(filename, sha256);
+}
+
+/** Hash the actual bytes before parsing, including when no pin was supplied.
+ * A missing optional pin is explicitly unverified; a present pin never falls
+ * back after a mismatch. The existing filename registry remains authoritative.
+ */
+export async function verifyPinnedGeometryBytes(assetUrl: string, bytes: ArrayBuffer, requirePin = false): Promise<{sha256: string; pinned: boolean}> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const sha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+  const expected = pinnedHashFor(assetUrl);
+  if (expected === undefined) {
+    if (requirePin) throw new Error('No pinned original geometry is available for this frame model.');
+    return {sha256, pinned: false};
+  }
+  if (sha256 !== expected) throw new Error('The continuity model differs from the pinned original GLB.');
+  return {sha256, pinned: true};
 }
 export interface TempleStation {zM: number; centerXM: number; centerYM: number; minXM: number; maxXM: number; minYM: number; maxYM: number;}
 export interface TempleContinuityModel {startZM: number; cutoffZM: number; sides: readonly (readonly TempleStation[])[];
@@ -56,7 +80,7 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): Te
     check(position && position.itemSize === 3, 'Continuity requires original XYZ vertex positions.');
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const [materialIndex, material] of materials.entries()) {
-      const lens = material instanceof MeshPhysicalMaterial && material.transmission > 0;
+      const lens = isOpticalMaterial(material);
       const groups = Array.isArray(object.material) ? geometry.groups.filter(group => group.materialIndex === materialIndex)
         : [{start: 0, count: index?.count ?? position.count}];
       for (const group of groups) {
@@ -107,21 +131,26 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): Te
   return {startZM, cutoffZM, sides};
 }
 
-/** One geometry-only load of the pinned GLB. Texture pixels are never decoded or sent to the GPU. */
-export async function loadTempleContinuityModel(assetUrl: string, cutoffZM: number, signal: AbortSignal): Promise<TempleContinuityModel> {
-  const filename = assetUrl.split('/').at(-1)?.split('?')[0];
-  const expected = filename ? GEOMETRY_HASHES[filename] ?? REGISTERED_GEOMETRY_HASHES.get(filename) : undefined;
-  check(expected, 'No pinned original geometry is available for this frame model.');
+/** One geometry-only parse of the pinned GLB. A caller may share its already
+ * loaded bytes so displayed geometry and continuity cannot come from two fetches.
+ * Texture pixels are never decoded or sent to the GPU.
+ */
+export async function loadTempleContinuityModel(assetUrl: string, cutoffZM: number, signal: AbortSignal, loadedBytes?: ArrayBuffer): Promise<TempleContinuityModel> {
+  check(pinnedHashFor(assetUrl), 'No pinned original geometry is available for this frame model.');
   if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
-  const response = await fetch(assetUrl, {signal}); check(response.ok, 'The original continuity geometry could not load.');
-  const bytes = await response.arrayBuffer();
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const assetSHA256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
-  check(assetSHA256 === expected, 'The continuity model differs from the pinned original GLB.');
+  let bytes = loadedBytes;
+  if (bytes === undefined) {
+    const response = await fetch(assetUrl, {signal}); check(response.ok, 'The original continuity geometry could not load.');
+    bytes = await response.arrayBuffer();
+  }
+  const {sha256: assetSHA256} = await verifyPinnedGeometryBytes(assetUrl, bytes, true);
   if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
   const gltf = await new GLTFLoader().register(() => ({name: 'ContinuityGeometryOnlyTextures', loadTexture: async () => new Texture()})).parseAsync(bytes, assetPath('models/'));
   try {
     if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
+    // This parse has its own material objects: classify them by their authored roles exactly as the displayed
+    // asset is classified, so a translucent frame counts as opaque arm/front geometry here too.
+    classifyAssetMaterials(gltf.scene);
     return {...buildTempleContinuityModel(gltf.scene, cutoffZM), assetSHA256, assetUrl};
   } finally {
     const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(), textures = new Set<Texture>();

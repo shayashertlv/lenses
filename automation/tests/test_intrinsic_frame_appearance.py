@@ -1,5 +1,4 @@
 """Moving illumination is separable only with shared surface support."""
-from copy import deepcopy
 import hashlib
 import io
 import json
@@ -16,7 +15,7 @@ from reconstruction.raster import rasterize
 from reconstruction.observations import observe_image
 from reconstruction.region_proposals import _region_result
 from reconstruction.intrinsic_frame_appearance import (FrameAppearancePolicy, separate_frame_tracks,
-    run_intrinsic_frame_stage, _linear, _image, _material_tracks)
+    run_intrinsic_frame_stage, _image, _material_tracks)
 from reconstruction.surface_transfer import _chunks, _pack
 from reconstruction.optical_group_asset import write_optical_group_candidate, read_optical_group_candidate
 from reconstruction.view_scene import (Hinge, PartBinding, ViewState, mesh_geometry_sha256,

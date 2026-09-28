@@ -3,7 +3,8 @@
 ``check(path) -> dict`` parses the GLB (no three.js) and verifies:
 units (front width 0.10-0.20 m), +Z front (lens centroid ahead of the temple mass), bridge-underside
 origin, identity node transforms, node naming, the runtime lens-detection rule (lens materials
-have transmission > 0 or a canonical lens descriptor; frame/temples opaque), triangles <= 100k,
+have transmission > 0 or a canonical lens descriptor; frame/temples opaque, or translucent only when
+single-sided, descriptors are present and the mesh carries its own role), triangles <= 100k,
 bytes <= 8 MB, textures <= 2048 px, finite attributes and unit normals, per-part watertightness
 (frame and temples closed 2-manifolds; a lens is either a closed solid or a +Z front sheet - the
 export rule of ``bsa.export``).
@@ -92,7 +93,8 @@ def read_glb(path_or_bytes) -> dict:
                               "COLOR": accessor(at["COLOR_0"]).astype(np.float64) if "COLOR_0" in at else None,
                               "material_index": mi, "material": doc.get("materials", [])[mi] if mi is not None else {}})
         nodes.append({"name": node.get("name", f"node_{ni}"), "index": ni, "transform_identity": bool(identity),
-                      "children": node.get("children", []), "extras": node.get("extras", {}), "primitives": prims})
+                      "children": node.get("children", []), "extras": node.get("extras", {}) or {},
+                      "mesh_extras": (doc["meshes"][node["mesh"]].get("extras", {}) or {}) if "mesh" in node else {}, "primitives": prims})
     images = []
     for im in doc.get("images", []):
         if "bufferView" in im:
@@ -193,7 +195,7 @@ def check(path: str | Path, *, width_range_m=WIDTH_RANGE_M) -> dict:
             if p["N"] is not None and len(p["N"]) and np.abs(np.linalg.norm(p["N"], axis=1) - 1).max() > 1e-3:
                 normals_ok = False
         mats = [p["material"] for p in n["primitives"]]
-        parts[n["name"]] = {"P": P, "F": F, "mats": mats, "prims": n["primitives"]}
+        parts[n["name"]] = {"P": P, "F": F, "mats": mats, "prims": n["primitives"], "extras": n["extras"], "mesh_extras": n["mesh_extras"]}
     put("finite", finite_ok)
     put("unit_normals", normals_ok)
     put("triangles", tri <= MAX_TRIANGLES, tri, MAX_TRIANGLES)
@@ -208,16 +210,60 @@ def check(path: str | Path, *, width_range_m=WIDTH_RANGE_M) -> dict:
         if name in PART_ROLE:
             return PART_ROLE[name]
         return "lens" if any(is_lens_material(m) for m in info["mats"]) else "other"
+    has_descriptors = any(CANONICAL_LENS_EXTENSION in m.get("extensions", {}) for v in parts.values() for m in v["mats"])
+
+    def runtime_role(info):
+        """The role the runtime reads (ar/src/eyewear/optical-material.ts partRoleOf): the node's partRole extra, else the
+        mesh's; None when absent or unknown (then a transmissive material stays optical there)."""
+        r = (info.get("extras") or {}).get("partRole") or (info.get("mesh_extras") or {}).get("partRole")
+        return r if r in ("frame", "temple", "lens") else None
+
+    def runtime_lens(m, rr):
+        """The runtime rule with authored roles: a descriptor is optical; transmission > 0 is optical unless the asset
+        carries descriptors and the mesh's authored role is frame/temple (then the material is frame)."""
+        if CANONICAL_LENS_EXTENSION in m.get("extensions", {}):
+            return True
+        return transmission_of(m) > 0 and not (has_descriptors and rr in ("frame", "temple"))
     lens_parts = {k: v for k, v in parts.items() if role(k, v) == "lens"}
     temple_parts = {k: v for k, v in parts.items() if role(k, v) == "temple"}
     front_parts = {k: v for k, v in parts.items() if role(k, v) in ("frame", "lens")}
-    detect = {k: all(is_lens_material(m) for m in v["mats"]) for k, v in lens_parts.items()}
-    opaque = {k: all(not is_lens_material(m) and m.get("alphaMode", "OPAQUE") == "OPAQUE" for m in v["mats"])
-              for k, v in parts.items() if role(k, v) != "lens"}
-    runtime_lens_meshes = sum(any(is_lens_material(m) for m in v["mats"]) for v in parts.values())
+    detect = {k: all(runtime_lens(m, runtime_role(v)) for m in v["mats"]) for k, v in lens_parts.items()}
+    materials_ok = {}
+    for k, v in parts.items():
+        r = role(k, v)
+        if r == "lens":
+            continue
+        ok = all(m.get("alphaMode", "OPAQUE") == "OPAQUE" and CANONICAL_LENS_EXTENSION not in m.get("extensions", {}) for m in v["mats"])
+        # one rule for the frame and the temples: a translucent part is allowed when the runtime will classify it by its
+        # own role (descriptors present, the mesh carries the role its name promises) and it is single-sided
+        ok &= all(transmission_of(m) <= 0 or (has_descriptors and runtime_role(v) == r and not m.get("doubleSided", False))
+                  for m in v["mats"])
+        materials_ok[k] = bool(ok)
+    runtime_lens_meshes = sum(any(runtime_lens(m, runtime_role(v)) for m in v["mats"]) for k, v in parts.items())
     put("lens_detection", bool(lens_parts) and all(detect.values()), {"lens_parts": detect, "runtime_lens_meshes": runtime_lens_meshes},
         "every lens material transmission > 0 (or canonical descriptor)")
-    put("opaque_frame_temples", all(opaque.values()), opaque)
+    put("frame_temple_materials", all(materials_ok.values()), materials_ok,
+        "frame and temples opaque or translucent (transmission, single-sided, descriptors present, the part's own role); no lens descriptor off the lenses")
+    # the roles the runtime reads must be the roles the names promise (the exporter writes both); a canonical lens mesh
+    # also carries the mesh extras the canonical adapter validates (lens-material.ts validateCanonicalLensSurface)
+    roles_report = {}
+    for k, v in parts.items():
+        if k not in PART_ROLE:
+            continue
+        expected = PART_ROLE[k]
+        got = runtime_role(v)
+        entry = {"expected": expected, "runtime_role": got, "pass": got == expected}
+        if expected == "lens" and any(CANONICAL_LENS_EXTENSION in m.get("extensions", {}) for m in v["mats"]):
+            me = v.get("mesh_extras") or {}
+            entry["mesh_extras_pass"] = me.get("partRole") == "lens" and me.get("lensSurfaceProfile") == "front_sheet_v1"
+            entry["pass"] = entry["pass"] and entry["mesh_extras_pass"]
+        roles_report[k] = entry
+    put("part_roles", all(e["pass"] for e in roles_report.values()) if naming_ok else True,
+        roles_report if naming_ok else "n/a (foreign naming)", "node extras partRole == the named role; canonical lens meshes carry partRole/lensSurfaceProfile")
+    # a material index used by a lens node and a non-lens node would keep the frame part optical in the runtime
+    lens_mi = {p["material_index"] for v in lens_parts.values() for p in v["prims"] if p["material_index"] is not None}
+    other_mi = {p["material_index"] for k, v in parts.items() if k not in lens_parts for p in v["prims"] if p["material_index"] is not None}
+    put("lens_materials_private", not (lens_mi & other_mi), sorted(lens_mi & other_mi), "no material shared between lens and non-lens nodes")
     # units / orientation
     allP = np.vstack([v["P"] for v in parts.values()]) if parts else np.zeros((0, 3))
     fP = np.vstack([v["P"] for v in front_parts.values()]) if front_parts else allP

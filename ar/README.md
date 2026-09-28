@@ -53,8 +53,9 @@ The normal page includes fitting, shadows and occlusion; no preview URL or compa
    The Shadows controls change frame strength, lens tint and softness without restarting the camera.
    Defaults are 16% frame strength, 18% lens tint and 1.9× softness.
 6. **GPU composition**: render directly to the visible canvas, with stencil protection for the optical and
-   nasal regions. Hair blending stays inside the editable arm corridors. No rendered frame is read back
-   during live use; only an explicit audit reads the render.
+   nasal regions. Hair blending stays inside the editable arm corridors. Camera image pixels stay on the GPU
+   during live use. Canonical optics read one generated capacity flag per camera/light layer pass; an explicit
+   audit can separately read the rendered image.
 7. **Profiling**: collect numeric timings and frame age. Images, detections, masks and hashes are excluded
    from timing reports.
 
@@ -104,6 +105,49 @@ lens model. Clear lenses cast a much weaker neutral shadow than tinted lenses.
 The model dimensions and learned face depth are rendering estimates, not anatomical measurements.
 Regression tests protect these rules; live appearance still depends on tracking and segmentation quality.
 
+## Canonical lens response
+
+Assets carrying `LENSES_lens_appearance` opt into a validated optical descriptor. The authored front-sheet adapter requires
+separate, static, single-material `front_sheet_v1` meshes with `partRole: lens`, baked coordinates, intrinsic
+bottom-to-top UVs and authored +Z-facing normals/triangles. Camera and light passes retain up to four optical
+layers per pixel, ordered by depth, and stop at opaque geometry. The camera combines `R * environment + T * behind`
+in linear RGB; the opaque input preserves the frame's native display response and leaves camera colors unchanged.
+A separate PMREM environment avoids forced mirror preblur. Shadows accumulate the same transmission at the light
+angle, using only layers before the receiving surface. A total mirror remains a lens in geometry, fitting,
+visibility and hair consumers. Untagged assets retain their existing material path.
+
+Each mesh must be a single-valued front sheet in authored XY coordinates. Triangle checks reject self-overlap
+and coincident interfaces while allowing separate layers, holes and supported curved sheets. A fifth layer
+causes an explicit capacity error. This path requires float color targets and adds synchronous capacity checks;
+mobile memory/performance is not established. Closed volumes, back coatings, refraction, internal reflections,
+alpha-blended frames, translucent temples and mixed legacy/canonical optics remain unsupported. These are
+rendering-profile checks, not general product-model acceptance or proof of accurate photo reconstruction.
+
+Authored part roles (`partRole` node extras `frame` / `temple` / `lens`, written by the automation exporter) classify
+materials once per loaded asset (`src/eyewear/optical-material.ts`): in an asset that carries a canonical descriptor, a
+material used only by frame or temple parts is never optical whatever its transmission, so a crystal or translucent
+acetate front (physical transmission with `KHR_materials_volume`, single-sided) renders through Three's transmission
+against the camera and is treated as frame by hair occlusion, arm clipping, continuity, rear drop and the shadow
+(material-coloured caster, clipped with the arms). In the stencil-limited hair pass, which redraws no background, such
+a material falls back to its opaque response; visibility overlays skip it. The producer contract keeps temples opaque.
+Assets without a descriptor (the shipped catalog) keep the transmission rule unchanged. Volume absorption distances
+(`KHR_materials_volume`, metres in the file) are converted once to the scene's centimetres (`src/render/eyewear-volume.ts`),
+since Three scales the thickness through the model matrix but reads the distance in world units; the shadow keeps the
+authored ratio. No shipped asset carries a volume extension.
+
+The local harness `node qa/canonical-lens-runtime.mjs` exercises the actual renderer with controlled fixtures,
+synthetic poses, gradients, mirrors, opaque content, light-angle transmission and structured environments.
+See [fixture generation, commands, evidence and limitations](../automation/plan/LENS_RUNTIME.md).
+This integration is source-only until an explicit publish operation.
+
+The separate `effective_optical_group_v1_experiment` profile preserves explicitly grouped closed/multipart
+geometry. A strict importer checks group bindings, shared intrinsic height, nonvanishing interpolated normals
+and exact coplanar agreement. Camera and light passes first retain one nearest event per group, then compose
+distinct groups. Equal descriptors never merge distinct groups. Eight groups and four interactions per ray
+are the explicit bounds. This is a symmetric effective response, not volume refraction or separate back coatings.
+All five saved candidate GLBs load through this local path, but its strict GPU depth qualification remains
+incomplete and photographic materials remain unmeasured. See [the experimental runtime evidence and limits](../automation/plan/EFFECTIVE_GROUP_RUNTIME.md).
+
 ## Audit and diagnostics
 
 **Hold & audit** keeps one frame, renders it with/without hair and without eyewear, and checks that hair edits
@@ -133,7 +177,7 @@ Useful diagnostic options are defined in `src/config.ts`:
 | `steady`, `steadyhz`, `steadybeta`, `steadydepthhz`, `steadydepthbeta` | Pose filter diagnostics |
 | `guard`, `sync`, `hairz`, `exposure` | Render/camera diagnostics; normal defaults retain protection and GPU pacing |
 | `diag` | Same-origin numeric telemetry, off by default |
-| `model`, `name`, `clip`, `width`, `sha256` | Validated external-model handover through `src/eyewear/external.ts` |
+| `model`, `name`, `clip`, `width`, `sha256`, `lensenv` | Validated external-model handover through `src/eyewear/external.ts`; `lensenv` (0.3-4) scales the lens environment reflection |
 
 `node qa/measure.mjs --sessions=1 --warm=10 --measure=30` runs a synthetic-camera measurement using the checked-in
 fixture. It verifies lifecycle and rendering under controlled input; it does not measure real wearer motion,
@@ -170,4 +214,5 @@ python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app 
 Keep package manifests, assets and regression tests within `ar/`. The pinned models and MediaPipe runtime are
 prepared by `scripts/prepare-assets.mjs`. Keep private recordings, local modeling work, `.env` files and experiment
 archives outside Git. `node_modules/`, `dist/` and `qa/output/` are ignored. Temporary comparison pages and session
-experiments are not part of the production pipeline.
+experiments are not part of the production pipeline. [qa/README.md](qa/README.md) indexes the QA tools: page gates,
+harnesses used by automation, and optical-group evidence reproducers.

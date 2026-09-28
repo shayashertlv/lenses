@@ -16,14 +16,14 @@ import sys
 import time
 import traceback
 
-import numpy as np
-
 from . import author as mauthor
 from . import evaluate as mevaluate
+from .calibration import evaluation_dir_for
 from .candidates import Candidate, CandidateStore, build_candidate, export_candidate
 from .intake import run_intake
 from .observe import observe_candidate
-from .paths import JOBS, blender_executable
+from .owner_verdict import apply_to_manifest
+from .paths import blender_executable
 from .request import Request
 from .worker import run_harness
 
@@ -32,6 +32,45 @@ PROTOCOL_VERSION = "modeler_protocol_v1"
 
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def intake_stage_finished(evidence: dict | None) -> bool:
+    """A stage record is finished when its reading ended (complete or failed) and its review ended (complete, failed
+    or skipped); no record, or a record cut short, is an interrupted stage."""
+    st = (evidence or {}).get("intake_stage") or {}
+    reading = (st.get("reading") or {}).get("status")
+    review = (st.get("review") or {}).get("status")
+    return reading in ("complete", "failed") and review in ("complete", "failed", "skipped")
+
+
+def lens_env_recommendation(summary: dict | None) -> float | None:
+    """The lens environment intensity the manifest hands the mirror (``lensenv``): only from a lens colour measured over
+    the photo's own backdrop (modeler.lens_colour.BASIS), which recommends one for a near-opaque mirror alone. An
+    observation from the checker-fixture metric carries a value biased by the checker (test-pilot-002 r0006: 1.09 for a
+    lens whose true mismatch was its transmission): None."""
+    from .lens_colour import BASIS
+    s = summary or {}
+    if ((s.get("lens_colour") or {}).get("basis")) != BASIS:
+        return None
+    return s.get("lens_env_intensity_recommended")
+
+
+def evaluation_binding_problem(rec: dict, current_sha: str | None) -> str | None:
+    """Why a stored evaluation record is not bound to the asset as it is now (None when it is): no asset_sha256
+    (legacy, unverified), other bytes, or another evaluator protocol. A record is never upgraded."""
+    if not isinstance(rec, dict) or not rec.get("evaluation"):
+        return "no_evaluation"
+    recorded = rec.get("asset_sha256")
+    if not recorded:
+        return "legacy_unbound: the record carries no asset_sha256"
+    if current_sha is None:
+        return "asset_missing: the delivered candidate has no model.glb to rehash"
+    if str(recorded).lower() != current_sha:
+        return f"asset_changed: recorded {str(recorded)[:12]}…, current bytes {current_sha[:12]}…"
+    protocol = (rec.get("meta") or {}).get("protocol")
+    if protocol != mevaluate.PROTOCOL:
+        return f"protocol_mismatch: recorded {protocol!r}, current {mevaluate.PROTOCOL!r}"
+    return None
 
 
 class Journal:
@@ -46,13 +85,14 @@ class Journal:
 
 class Job:
     def __init__(self, job_dir: Path, request: Request, *, driver, ar: bool = True, log=print, evaluator_driver=None,
-                 identity_checklist: list[str] | None = None, seed_program: Path | None = None):
+                 identity_checklist: list[str] | None = None, seed_program: Path | None = None, intake_drivers=None):
         self.dir = Path(job_dir)
         self.seed_program = Path(seed_program) if seed_program else None
         self.seed_record = None
         self.request = request
         self.driver = driver
         self.evaluator_driver = evaluator_driver
+        self.intake_drivers = intake_drivers          # (reading, review) drivers of the Astra intake stage, or None
         self.ar = ar
         self.log = log
         self.journal = Journal(self.dir / "journal.jsonl")
@@ -170,13 +210,49 @@ class Job:
         return json.loads((self.evidence_dir / "evidence.json").read_text(encoding="utf-8"))
 
     def ensure_evidence(self) -> dict:
+        """The intake evidence: measured once, and the Astra intake stage (when configured) run once to a FINISHED
+        record. A job re-run into its folder after an interrupted stage finds evidence.json without a finished stage
+        record and runs the stage on that evidence (until 2026-09-27 any evidence.json passed as a completed intake).
+        Without intake drivers an existing evidence.json is returned as it is."""
         if (self.evidence_dir / "evidence.json").exists():
-            return self.evidence()
+            ev = self.evidence()
+            if self.intake_drivers and not intake_stage_finished(ev):
+                self.log("[intake] evidence found without a finished astra stage record; running the stage")
+                self.journal.write("intake_stage_resumed", record=(ev.get("intake_stage") or {}).get("started"))
+                ev = self._run_intake_stage(ev)
+            return ev
         width, prov = self.request.front_width_mm()
         self.log(f"[intake] {len(self.request.photos)} photos, front width {width} mm ({prov['source']})")
         ev = run_intake(self.request, self.dir, front_width_mm=width, width_provenance=prov)
         self.journal.write("intake_done", seconds=ev["seconds"], views=list(ev["views"]), held_out=list(ev["held_out"]),
                            flags={k: v["flags"] for k, v in ev["views"].items()})
+        if self.intake_drivers:
+            ev = self._run_intake_stage(ev)
+        return ev
+
+    def _run_intake_stage(self, ev: dict) -> dict:
+        """The vision reading and the measurement review: classes, scale, reliability; ANY failure leaves the code
+        evidence in place (the stage improves the evidence, it never blocks a job)."""
+        from .intake_astra import run_intake_stage
+        reading_driver, review_driver = self.intake_drivers
+        try:
+            ev, record = run_intake_stage(self.request, self.dir, ev, reading_driver, review_driver, log=self.log)
+        except Exception as e:  # noqa: BLE001
+            record = {"stage": "intake_astra", "reading": {"status": "failed", "error": f"stage: {type(e).__name__}: {e}"},
+                      "review": {"status": "skipped", "error": "stage raised before the review"},
+                      "errors": [f"stage: {type(e).__name__}: {e}"], "actions": [], "finished": True}
+            self.log(f"[intake] astra stage failed: {e}; code-only evidence")
+            ev = self.evidence() if (self.evidence_dir / "evidence.json").exists() else ev
+            # persisted as a finished (failed) stage: a resume must not repeat the paid calls for it
+            ev["intake_stage"] = record
+            from .intake_astra import _write_evidence
+            _write_evidence(self.dir, ev)
+        self.journal.write("intake_astra", reading=(record.get("reading") or {}).get("status"), review=(record.get("review") or {}).get("status"),
+                           actions=record.get("actions"), errors=record.get("errors"), remeasured=record.get("remeasured"),
+                           cost_usd=sum(float(((record.get(k) or {}).get("meta") or {}).get("cost_usd") or 0.0) for k in ("reading", "review")),
+                           scale=ev.get("scale"), rim_class=(ev.get("front") or {}).get("rim_class"))
+        self.log(f"[intake] astra stage: reading {(record.get('reading') or {}).get('status')}, review {(record.get('review') or {}).get('status')}; "
+                 f"{len(record.get('actions') or [])} actions, {len(ev.get('provenance') or [])} replaced values")
         return ev
 
     def write_protocol(self, evidence: dict) -> dict:
@@ -200,17 +276,28 @@ class Job:
                         "front view: rendered lens parts vs measured lens outlines, contour mean/p95 mm",
                         "held-out view: the same, reported only in the evaluation"],
             "incumbent_rule": {"valid": "contract ok AND AR runtime_compatible AND >= 1 optical mesh",
-                               "score": "weighted mean of contour_mean_mm over fit views + lens outline mm; lower is better", "weights": SCORE_WEIGHTS},
+                               "score": "weighted mean of contour_mean_mm over fit views + lens outline mm; lower is better",
+                               # a report-only lens gate (the intake review distrusts the measured outline) also takes the lens
+                               # outline out of the incumbent score, so a correct lens cannot lose to one fitting a clipped reference
+                               "weights": {**SCORE_WEIGHTS, "lens_outline": 0.0} if ((evidence.get("gate_overrides") or {}).get("lens_outline_mean_mm") or {}).get("mode") == "report_only" else SCORE_WEIGHTS},
             "canonical_views": [v["id"] for v in CANONICAL_VIEWS], "ar_views": list(AR_VIEWS),
-            "identity_checklist": self.identity_checklist,
+            # the evaluator's checklist: an owner file wins, else the intake reading's identity features (vision), else none
+            "identity_checklist": self.identity_checklist or list(evidence.get("identity_features_vision") or []),
+            "checklist_source": "owner_file" if self.identity_checklist else ("intake_reading" if evidence.get("identity_features_vision") else "none"),
+            # per-job gate modes and downgraded input flags decided by the intake review (frozen here, read at finalize)
+            "gate_overrides": evidence.get("gate_overrides") or {},
+            "intake_stage": {k: v for k, v in (evidence.get("intake_stage") or {}).items() if k in ("stage", "reading", "review", "actions", "errors", "remeasured")},
             "evaluator_protocol": mevaluate.PROTOCOL,
             "visual_bar_calibrated": bool(calibration.get("calibrated")),
             "calibration": calibration,
             "gate_thresholds_mm": mevaluate.GATE_THRESHOLDS_MM, "report_only_thresholds_mm": mevaluate.REPORT_ONLY_MM,
             "provisional_thresholds_mm": mevaluate.PROVISIONAL_THRESHOLDS_MM, "threshold_provenance": mevaluate.THRESHOLD_PROVENANCE,
             "scale": evidence["scale"],
-            "leakage": {"author_inputs": "fit-view photos, their mattes and measurements; the author never receives the held-out photo",
-                        "evaluator_inputs": "all photos including held out, candidate renders, metrics; no author rationale",
+            "leakage": {"author_inputs": "fit-view photos, their mattes and measurements; the author never receives the held-out photo"
+                        + ("; plus the vision product reading and measurement review (from the fit-view crops, the measured overlay and the listing text)"
+                           if evidence.get("intake_reading") else ""),
+                        "evaluator_inputs": "all photos including held out, candidate renders, metrics; no author rationale"
+                        + ("; the identity checklist comes from the vision reading of the fit-view photos" if evidence.get("identity_features_vision") and not self.identity_checklist else ""),
                         "donor_assets": "none" if not self.request.donor else self.request.donor,
                         "previously_solved_assets": "none used; every candidate is built from the author's program alone"},
         }
@@ -462,46 +549,124 @@ class Job:
                 return inc, f"incumbent kept: the author's choice {chosen.id} is not valid"
         return inc, "incumbent (strongest observed valid candidate)"
 
+    def evaluator_name(self, protocol: dict | None = None) -> str | None:
+        """The evaluator whose answers this job adopts: the configured driver's name, else the one frozen in the
+        protocol's calibration block, else the driver recovered from the journal (a finalize without an evaluator)."""
+        if self.evaluator_driver is not None:
+            return getattr(self.evaluator_driver, "name", None)
+        frozen = ((protocol or {}).get("calibration") or {}).get("evaluator")
+        return frozen or getattr(self, "recovered_driver_name", None)
+
+    def _store_evaluation(self, delivered: Candidate, evaluation: dict, meta: dict, asset_sha256: str | None) -> dict:
+        """The job's evaluation record, bound to the evaluated bytes (asset_sha256) and the protocol (meta.protocol)."""
+        eval_dir = self.dir / "evaluation"
+        eval_dir.mkdir(exist_ok=True)
+        meta = dict(meta or {})
+        meta.setdefault("protocol", mevaluate.PROTOCOL)
+        (eval_dir / "evaluation.json").write_text(json.dumps({"evaluation": evaluation, "meta": meta, "candidate": delivered.id,
+                                                              "asset_sha256": asset_sha256}, indent=1), encoding="utf-8")
+        return meta
+
+    def stored_evaluation(self, delivered: Candidate, protocol: dict) -> tuple[dict | None, dict | None]:
+        """An evaluation of the delivered candidate bound to its CURRENT bytes: first ``modeler.evaluate_asset``'s
+        record under the evaluator's own folder (``calibration.evaluation_dir_for``: an external agent's answers and an
+        API evaluator's live apart), adopted only when its asset_sha256 equals the rehashed model.glb and its protocol
+        is the current one; else the job's own evaluation.json, reused under the same binding plus the candidate id.
+        Anything unbound is journaled (``evaluation_not_adopted`` / ``evaluation_not_reused``) and skipped as
+        legacy/unverified; until 2026-09-27 a record without a digest was adopted and the export record's digest
+        stood in for the bytes."""
+        glb = delivered.glb
+        current_sha = mauthor.sha256_file(glb) if glb is not None else None
+        name = self.evaluator_name(protocol)
+        external = delivered.root / evaluation_dir_for(name) / "evaluation.json"
+        if external.exists():
+            try:
+                rec = json.loads(external.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                rec, problem = {}, f"unreadable: {e}"
+            else:
+                problem = evaluation_binding_problem(rec, current_sha)
+            evaluation = None
+            if problem is None:
+                try:
+                    evaluation = mevaluate.validate_evaluation(rec["evaluation"])
+                except ValueError as e:
+                    problem = f"invalid_evaluation: {e}"
+            if problem is None:
+                eval_meta = self._store_evaluation(delivered, evaluation, dict(rec.get("meta") or {}, source=str(external)), current_sha)
+                self.journal.write("evaluation_adopted", candidate=delivered.id, source=str(external), evaluator=name, asset_sha256=current_sha)
+                return evaluation, eval_meta
+            self.journal.write("evaluation_not_adopted", candidate=delivered.id, source=str(external), evaluator=name, reason=problem)
+        stored = self.dir / "evaluation" / "evaluation.json"
+        if stored.exists():
+            try:
+                prev = json.loads(stored.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                prev, problem = {}, f"unreadable: {e}"
+            else:
+                problem = (f"candidate_mismatch: stored {prev.get('candidate')!r}, delivered {delivered.id!r}" if prev.get("candidate") != delivered.id
+                           else evaluation_binding_problem(prev, current_sha))
+            evaluation = None
+            if problem is None:
+                try:
+                    evaluation = mevaluate.validate_evaluation(prev["evaluation"])
+                except ValueError as e:
+                    problem = f"invalid_evaluation: {e}"
+            if problem is None:
+                self.journal.write("evaluation_reused", candidate=delivered.id, asset_sha256=current_sha)
+                return evaluation, dict(prev.get("meta") or {}, reused=True)
+            self.journal.write("evaluation_not_reused", candidate=delivered.id, reason=problem)
+        return None, None
+
     def finalize(self, evidence: dict, protocol: dict, finish: dict | None) -> dict:
         delivered, rule = self.choose_delivery(finish)
         evaluation = None
         eval_meta = None
         eval_dir = self.dir / "evaluation"
-        stored = eval_dir / "evaluation.json"
-        # An evaluation of the delivered candidate produced by `modeler.evaluate_asset` (an external agent answering
-        # the current protocol's package) is the job's evaluation when it names the same asset; otherwise a stored evaluation of the same
-        # candidate is reused.
-        v2 = delivered.root / "evaluation_v2" / "evaluation.json" if delivered is not None else None
-        if evaluation is None and v2 is not None and v2.exists():
-            rec = json.loads(v2.read_text(encoding="utf-8"))
-            asset_sha = (delivered.export or {}).get("sha256")
-            if rec.get("evaluation") and (not rec.get("asset_sha256") or rec.get("asset_sha256") == asset_sha):
-                evaluation = mevaluate.validate_evaluation(rec["evaluation"])
-                eval_meta = dict(rec.get("meta") or {}, source=str(v2))
-                eval_dir.mkdir(exist_ok=True)
-                (eval_dir / "evaluation.json").write_text(json.dumps({"evaluation": evaluation, "meta": eval_meta, "candidate": delivered.id}, indent=1), encoding="utf-8")
-                self.journal.write("evaluation_adopted", candidate=delivered.id, source=str(v2))
-        if evaluation is None and delivered is not None and stored.exists():
-            prev = json.loads(stored.read_text(encoding="utf-8"))
-            if prev.get("candidate") in (None, delivered.id):
-                evaluation, eval_meta = prev.get("evaluation"), dict(prev.get("meta") or {}, reused=True)
-                self.journal.write("evaluation_reused", candidate=delivered.id)
+        if delivered is not None:
+            evaluation, eval_meta = self.stored_evaluation(delivered, protocol)
         if delivered is not None and self.evaluator_driver is not None and evaluation is None:
             eval_dir.mkdir(exist_ok=True)
             try:
-                request, images = mevaluate.write_evaluator_package(self.dir, delivered.root, evidence, self.identity_checklist, eval_dir,
+                request, images = mevaluate.write_evaluator_package(self.dir, delivered.root, evidence,
+                                                                    list(protocol.get("identity_checklist") or self.identity_checklist), eval_dir,
                                                                     glb_path=delivered.glb)
                 evaluation, eval_meta = self.evaluator_driver.decide(eval_dir, request, images, role="evaluator",
                                                                      schema_check=mevaluate.validate_evaluation, log=self.log)
-                (eval_dir / "evaluation.json").write_text(json.dumps({"evaluation": evaluation, "meta": eval_meta, "candidate": delivered.id}, indent=1), encoding="utf-8")
+                eval_meta = self._store_evaluation(delivered, evaluation, eval_meta, mauthor.sha256_file(delivered.glb) if delivered.glb else None)
             except Exception as e:  # noqa: BLE001
                 self.journal.write("evaluation_failed", error=f"{type(e).__name__}: {e}")
                 self.log(f"[final] evaluation failed: {e}")
         input_flags = sorted({f for v in evidence["views"].values() for f in v["flags"]})
+        # the asset's tags (kind of glasses from the intake, translucent / mirrored from its materials) against the
+        # calibration set's coverage frozen in the protocol: an uncovered tag withholds 'accepted'
+        from .tags import asset_tags
+        materials = None
+        if delivered is not None:
+            recorded = (delivered.build or {}).get("materials_json")
+            for candidate_path in ([Path(recorded)] if recorded else []) + [delivered.root / "build" / "materials.json"]:
+                try:
+                    materials = json.loads(Path(candidate_path).read_text(encoding="utf-8"))
+                    break
+                except Exception:  # noqa: BLE001 - the next location, then the GLB itself
+                    continue
+        tags = asset_tags(evidence, materials, delivered.glb) if delivered is not None else []
+        cov = (protocol.get("calibration") or {}).get("coverage")
+        coverage_note = None
+        if cov is None:
+            # a protocol frozen before coverage by kind existed (2026-09-27) has no coverage block: nothing to gate on
+            cov, uncovered = {}, []
+            coverage_note = "coverage by kind was not frozen in this job's protocol (frozen before 2026-09-27): tags recorded, not gated"
+        else:
+            uncovered = [t for t in tags if not (cov.get(t) or {}).get("covered")]
         status = mevaluate.decide_status(candidate_valid=delivered is not None and delivered.valid(),
                                          metrics=(delivered.observation or {}).get("summary") if delivered else None,
                                          heldout=delivered.heldout if delivered else None, evaluation=evaluation,
-                                         input_flags=input_flags, protocol_calibrated=bool(protocol.get("visual_bar_calibrated")))
+                                         input_flags=input_flags, protocol_calibrated=bool(protocol.get("visual_bar_calibrated")),
+                                         tags=tags, uncovered_tags=uncovered, gate_overrides=protocol.get("gate_overrides") or evidence.get("gate_overrides"))
+        status["calibration_coverage"] = {t: cov.get(t) for t in tags}
+        if coverage_note and tags:
+            status["reasons"] = list(status.get("reasons") or []) + [coverage_note]
         manifest = self.write_manifest(evidence, protocol, delivered, rule, finish, status, evaluation)
         self.journal.write("job_finished", status=status["status"], delivered=delivered.id if delivered else None)
         self.log(f"[final] status {status['status']}; delivered {delivered.id if delivered else None} ({rule})")
@@ -518,22 +683,29 @@ class Job:
         deliver_dir = self.dir / "deliverable"
         deliver_dir.mkdir(exist_ok=True)
         delivered_path = None
+        delivered_sha = None
         if glb is not None:
             delivered_path = deliver_dir / f"{self.request.product_id}.glb"
             shutil.copy2(glb, delivered_path)
+            # the manifest's digest is of the bytes delivered, not the export record's claim about them
+            delivered_sha = mauthor.sha256_file(delivered_path)
+            if (exp or {}).get("sha256") and exp["sha256"] != delivered_sha:
+                self.journal.write("asset_sha256_mismatch", candidate=delivered.id, export_record=exp["sha256"], delivered=delivered_sha)
         manifest = {
             "schema_version": 1, "job": self.dir.name, "product_id": self.request.product_id, "written": now(),
             "status": status["status"], "status_detail": status, "visual_bar_calibrated": bool(protocol.get("visual_bar_calibrated")),
+            "tags": list(status.get("tags") or []), "calibration_coverage": status.get("calibration_coverage") or {},
             "delivered_candidate": delivered.id if delivered else None, "delivery_rule": rule,
             "author_finish": finish,
-            "asset": None if glb is None else {"path": str(delivered_path), "source_candidate_glb": str(glb), "sha256": exp.get("sha256"),
+            "asset": None if glb is None else {"path": str(delivered_path), "source_candidate_glb": str(glb), "sha256": delivered_sha,
+                                                **({"export_record_sha256": exp.get("sha256")} if exp.get("sha256") != delivered_sha else {}),
                                                 "bytes": exp.get("bytes"), "triangles": (exp.get("receipt") or {}).get("triangles"),
                                                 "contract": {"ok": (exp.get("contract") or {}).get("ok"), "failures": (exp.get("contract") or {}).get("failures")}},
             "mounting": {"units": "metres", "up": "+Y", "front": "+Z", "origin": "bridge underside on the symmetry axis (bsa.export rule)",
                          "origin_receipt": (exp or {}).get("receipt", {}).get("origin"),
                          "front_width_mm_measured": width_mm, "temple_clip_z_m_recommended": -0.14,
-                         "lens_env_intensity_recommended": ((obs or {}).get("summary") or {}).get("lens_env_intensity_recommended"),
-                         "handover": "?model=<url>&width=<front_width_mm_measured>&clip=-0.14&sha256=<sha256>" + ("&lensenv=<lens_env_intensity_recommended>" if ((obs or {}).get("summary") or {}).get("lens_env_intensity_recommended") is not None else "")},
+                         "lens_env_intensity_recommended": lens_env_recommendation((obs or {}).get("summary")),
+                         "handover": "?model=<url>&width=<front_width_mm_measured>&clip=-0.14&sha256=<sha256>" + ("&lensenv=<lens_env_intensity_recommended>" if lens_env_recommendation((obs or {}).get("summary")) is not None else "")},
             "scale": {**evidence["scale"], "note": "millimetres are nominal unless a physical dimension was supplied"},
             "evidence": {"inputs": evidence["inputs"], "fit_views": protocol["fit_views"], "held_out_views": protocol["held_out_views"],
                          "evidence_json": str(self.evidence_dir / "evidence.json")},
@@ -548,26 +720,26 @@ class Job:
             "runtime": {"elapsed_min": getattr(self, "recovered_elapsed_min", None) or round((time.time() - self.started) / 60, 1),
                         "turns": self.turn_index},
         }
-        # A re-finalize must not erase the owner's recorded verdict on this same asset (modeler.owner_verdict).
+        # A re-finalize must not erase the owner's recorded verdict on this same asset (modeler.owner_verdict): it is
+        # kept only when the delivered file's rehashed bytes are the bytes the owner judged; otherwise it is recorded
+        # as stale and not applied (until 2026-09-27 the export record's digest stood in for the bytes).
         mp = self.dir / "manifest.json"
         if mp.exists():
             try:
                 old = json.loads(mp.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 old = {}
+            if old.get("owner_verdict_history"):
+                manifest["owner_verdict_history"] = list(old["owner_verdict_history"])
             ov = old.get("owner_verdict")
-            if ov and manifest.get("asset") and ov.get("asset_sha256") == manifest["asset"].get("sha256"):
-                manifest["owner_verdict"] = ov
-                if ov.get("verdict") == "accept":
-                    sd = dict(manifest["status_detail"], previous_status=manifest["status"], previous_reasons=list(manifest["status_detail"].get("reasons") or []),
-                              accepted_by="owner", reasons=[f"owner accepted the delivered asset ({ov['asset_sha256'][:12]}…) in the {ov.get('medium')} on {str(ov.get('when'))[:10]}"
-                                                            + (f": {ov['note']}" if ov.get("note") else "")], status="accepted")
-                    manifest["status"], manifest["status_detail"] = "accepted", sd
-                elif ov.get("verdict") in ("reject", "borderline"):
-                    sd = dict(manifest["status_detail"])
-                    sd["owner_rejected" if ov["verdict"] == "reject" else "owner_borderline"] = True
-                    manifest["status_detail"] = sd
-                self.journal.write("owner_verdict_kept", verdict=ov.get("verdict"))
+            if ov:
+                if delivered_sha is not None and str(ov.get("asset_sha256") or "").lower() == delivered_sha:
+                    apply_to_manifest(manifest, ov, record_history=False)
+                    self.journal.write("owner_verdict_kept", verdict=ov.get("verdict"), asset_sha256=delivered_sha)
+                else:
+                    manifest["owner_verdict_stale"] = dict(ov, reason=f"the owner judged {str(ov.get('asset_sha256'))[:12]}…; the delivered bytes are now "
+                                                                        f"{(delivered_sha or 'none')[:12]}…; not applied")
+                    self.journal.write("owner_verdict_stale", verdict=ov.get("verdict"), judged=ov.get("asset_sha256"), delivered=delivered_sha)
         mp.write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
         return manifest
 
@@ -595,6 +767,9 @@ def main(argv=None) -> int:
     ap.add_argument("--checklist", type=Path, help="JSON list of identity features for the evaluator")
     ap.add_argument("--seed-program", type=Path, help="start from this program folder (a previous candidate's program/): built and observed as this job's first candidate, recorded in the manifest")
     ap.add_argument("--finalize", action="store_true", help="open the existing job in --output, evaluate the incumbent, write the manifest; no author turn")
+    ap.add_argument("--intake", choices=("none", "astra", "package", "scripted"), default="none",
+                    help="the vision reading + measurement review before the first turn (astra: two paid calls on their own call ledger sharing the dollar cap)")
+    ap.add_argument("--intake-script", type=Path, help="scripted intake: JSON {reading: {...}, review: {...}}")
     args = ap.parse_args(argv)
     if args.finalize:
         request = Request.from_dict({k: v for k, v in json.loads((args.output / "request.json").read_text(encoding="utf-8")).items() if k != "loaded_from"})
@@ -612,8 +787,10 @@ def main(argv=None) -> int:
         import os
         if secret_holder.get("v"):
             return secret_holder["v"]
-        if not args.astra_cap or not args.astra_ledger or not args.astra_cap_usd:
-            ap.error("astra needs an explicit --astra-cap (1..10 calls), --astra-cap-usd and --astra-ledger; no paid call without a cap")
+        needs_call_cap = driver_name == "astra" or args.evaluator == "astra"    # the intake has its own fixed call ledger
+        if not args.astra_ledger or not args.astra_cap_usd or (needs_call_cap and not args.astra_cap):
+            ap.error("astra needs an explicit --astra-cap-usd and --astra-ledger (and --astra-cap, 1..10 calls, for an astra author or evaluator); "
+                     "no paid call without a cap")
         if args.astra_ledger.resolve().is_relative_to(args.output.resolve()):
             ap.error("--astra-ledger must live outside the job folder")
         secret = None
@@ -646,10 +823,31 @@ def main(argv=None) -> int:
         evaluator = mauthor.ScriptedDriver(json.loads(args.evaluator_script.read_text(encoding="utf-8")) if args.evaluator_script else [])
     else:
         evaluator = mauthor.PackageDriver(timeout_s=int(args.author_timeout_min * 60))
+    intake_drivers = None
+    if args.intake == "astra":
+        from . import intake_astra
+        intake_drivers = intake_astra.astra_intake_drivers(astra_secret(), budget_path=args.astra_ledger, cap_usd=args.astra_cap_usd,
+                                                           usd_ledger_path=args.astra_usd_ledger, reasoning_effort=args.astra_effort)
+    elif args.intake == "package":
+        from . import intake_astra
+        d = intake_astra.package_intake(int(args.author_timeout_min * 60))
+        intake_drivers = (d, d)
+    elif args.intake == "scripted":
+        from . import intake_astra
+        if not args.intake_script:
+            ap.error("--intake-script is required with the scripted intake")
+        d = intake_astra.ScriptedIntake(json.loads(args.intake_script.read_text(encoding="utf-8")))
+        intake_drivers = (d, d)
     secret_holder.clear()
     checklist = json.loads(args.checklist.read_text(encoding="utf-8")) if args.checklist else []
     if isinstance(checklist, dict):
-        checklist = list(checklist.get("identity_features") or []) + [f"condition: {c}" for c in checklist.get("conditions_for_success") or []]
+        conditions = checklist.get("conditions_for_success") or []
+        cond = checklist.get("conditions")
+        if isinstance(cond, dict):          # the protocol files' 'conditions' dict was silently dropped until 2026-09-27
+            conditions = list(conditions) + [f"{k}: {v}" for k, v in cond.items()]
+        elif isinstance(cond, list):
+            conditions = list(conditions) + [str(c) for c in cond]
+        checklist = list(checklist.get("identity_features") or []) + [f"condition: {c}" for c in conditions]
     if args.max_turns:
         request.limits["max_turns"] = args.max_turns
     if args.finalize:
@@ -657,7 +855,7 @@ def main(argv=None) -> int:
         manifest = job.finalize_only()
     else:
         job = Job.create(args.request, args.output, driver=driver, evaluator_driver=evaluator, ar=not args.no_ar, identity_checklist=checklist,
-                         seed_program=args.seed_program)
+                         seed_program=args.seed_program, intake_drivers=intake_drivers)
         job.request = request
         manifest = job.run()
     print(json.dumps({"status": manifest["status"], "delivered": manifest["delivered_candidate"], "asset": manifest["asset"]}, indent=1))

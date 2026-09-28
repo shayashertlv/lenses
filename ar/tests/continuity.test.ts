@@ -1,11 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, PerspectiveCamera, Texture, Vector3} from 'three';
 import type {Material} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render/continuity.ts';
+import {buildTempleContinuityModel, loadTempleContinuityModel, projectTempleContinuity,
+  registerPinnedGeometry, verifyPinnedGeometryBytes} from '../src/render/continuity.ts';
 import type {ProjectedTemplePath} from '../src/render/continuity.ts';
+
+test('geometry verification always hashes bytes and distinguishes missing pins from mismatches', async () => {
+  const bytes = new Uint8Array([1, 2, 3]).buffer;
+  const sha256 = createHash('sha256').update(new Uint8Array(bytes)).digest('hex');
+  assert.deepEqual(await verifyPinnedGeometryBytes('memory:unregistered-verification.glb', bytes), {sha256, pinned: false});
+  await assert.rejects(verifyPinnedGeometryBytes('memory:unregistered-verification.glb', bytes, true), /No pinned/);
+  const url = 'memory:pinned-verification.glb?request=1';
+  registerPinnedGeometry(url, sha256);
+  assert.deepEqual(await verifyPinnedGeometryBytes(url, bytes, true), {sha256, pinned: true});
+  const changed = new Uint8Array([1, 2, 4]).buffer;
+  await assert.rejects(verifyPinnedGeometryBytes(url, changed), /differs from the pinned/);
+  await assert.rejects(verifyPinnedGeometryBytes(url, changed, true), /differs from the pinned/);
+});
+
+test('continuity parses the supplied pinned bytes without fetching a second asset', async () => {
+  const raw = await readFile(new URL('../public/models/tom-ford-clear.glb', import.meta.url));
+  const bytes = new Uint8Array(raw).buffer;
+  const sha256 = createHash('sha256').update(raw).digest('hex');
+  // fetch cannot load this scheme: success proves no network/global fetch mock is needed.
+  const url = 'memory:shared-render-and-continuity.glb';
+  registerPinnedGeometry(url, sha256);
+  const model = await loadTempleContinuityModel(url, -.11, new AbortController().signal, bytes);
+  assert.equal(model.assetSHA256, sha256);
+  assert.equal(model.assetUrl, url);
+  assert.equal(model.sides.length, 2);
+  assert.ok(model.sides.every(side => side.length === 33));
+  const changed = bytes.slice(0), changedView = new Uint8Array(changed); changedView[0] = changedView[0]! ^ 1;
+  await assert.rejects(loadTempleContinuityModel(url, -.11, new AbortController().signal, changed), /differs from the pinned/);
+  const aborted = new AbortController(); aborted.abort();
+  await assert.rejects(loadTempleContinuityModel(url, -.11, aborted.signal, bytes), {name: 'AbortError'});
+});
 
 test('real triangle cross-sections preserve buffers and project the downward Y curve with both yaw signs', () => {
   const root = new Group(), left = new BoxGeometry(.004, .004, .1), right = left.clone();

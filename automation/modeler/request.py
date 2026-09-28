@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
-VIEWS = ("front", "back", "left", "right", "angled", "top", "unknown")
+VIEWS = ("front", "back", "left", "right", "angled", "top", "rear_angled", "other", "unknown")   # the code fits cameras for the first five
 DEFAULT_LIMITS = {"max_turns": 10, "blender_time_limit_s": 300, "wall_time_limit_min": 180,
                   "stagnation_turns": 3, "render_scale": 0.5}
 DEFAULT_FRONT_WIDTH_MM = 140.0
@@ -61,7 +61,7 @@ class Request:
             if view not in VIEWS:
                 raise ValueError(f"Unknown view label {view!r}; use one of {VIEWS}")
             photos.append(Photo(path, view, bool(p.get("held_out", view in held))))
-        views = [p.view for p in photos if p.view != "unknown"]
+        views = [p.view for p in photos if p.view not in ("unknown", "other")]
         if len(views) != len(set(views)):
             raise ValueError("Each view label may be used once")
         if all(p.held_out for p in photos):

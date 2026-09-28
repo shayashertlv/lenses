@@ -11,7 +11,6 @@ Millimetre conventions of the evidence (the MODEL frame the construction program
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -21,18 +20,17 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
+from bsa.core import sha256_file
+
 from .request import Request
 
 AUTHOR_MAX_PX = 1024
 LENS_VIEWS = ("front", "back", "angled")
-
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+RIM_GUARD_FLAG = "rim_invisible_to_matte"
+RIM_GUARD_FRAME_FRACTION = 0.5     # this share of frame-typed outline points contradicts a 'rimless' read of the matte
+RIM_GUARD_NOTE = ("rim not measured: the contrast matte saw no rim around this lens (every rim width 0) while the outline "
+                  "points are frame-typed or the rimless read is low-confidence; a clear or low-contrast rim is invisible to "
+                  "the matte, so the rim class is unknown and the rim widths are not evidence")
 
 
 def copy_inputs(request: Request, job_dir: Path) -> list[dict]:
@@ -41,7 +39,7 @@ def copy_inputs(request: Request, job_dir: Path) -> list[dict]:
     inputs.mkdir(parents=True, exist_ok=True)
     rows = []
     for i, p in enumerate(request.photos):
-        name = p.view if p.view != "unknown" else f"photo{i:02d}"
+        name = p.view if p.view not in ("unknown", "other") else f"photo{i:02d}"
         dst = inputs / f"{name}{p.path.suffix.lower()}"
         if not dst.exists():
             shutil.copy2(p.path, dst)
@@ -66,9 +64,59 @@ def largest_contour_mm(mask: np.ndarray, to_mm, n: int = 256) -> list | None:
     return np.round(to_mm(c), 3).tolist()
 
 
+def _frame_fraction(front: dict) -> float | None:
+    """The largest frame-typed share of any lens outline, else the pooled refinement share; None when neither exists."""
+    fr = [((l.get("type_fractions") or {}).get("frame")) for l in front.get("lenses") or []]
+    fr = [float(v) for v in fr if v is not None]
+    if fr:
+        return max(fr)
+    pooled = ((front.get("refinement") or {}).get("point_type_fractions") or {}).get("frame")
+    return None if pooled is None else float(pooled)
+
+
+def guard_rim_class(front: dict | None, frame_fraction_min: float = RIM_GUARD_FRAME_FRACTION) -> dict | None:
+    """A 'rimless' read the contrast matte cannot vouch for becomes 'unknown' (in place; idempotent; returns ``front``).
+
+    ``bsa.front`` classes a lens rimless when the matte shows no rim around it. On a clear crystal or otherwise
+    low-contrast frame the matte is EMPTY (every rim width 0.0), so the class reads rimless although the outline points
+    are frame-typed and the read itself carries ``rimless_low_confidence`` (test-pilot-001: 85 % frame-typed, all three
+    flags, tagged rim_rimless and calibrated as such). When the class is rimless and either that flag is set or the
+    frame-typed share of the outline points reaches ``frame_fraction_min``, the front's class and every lens's class
+    become 'unknown' (no rim tag: ``modeler.tags.kind_tags``), the flag ``rim_invisible_to_matte`` is added, each lens's
+    rim width fields are set to None with a ``rim_note`` saying why, and ``front['rim_guard']`` records the measured
+    class and the reasons. A true rimless read (rimless-typed points, no low-confidence flag) is left as it is.
+    """
+    if not front or front.get("rim_class") != "rimless":
+        return front
+    flags = list(front.get("flags") or [])
+    frac = _frame_fraction(front)
+    reasons = []
+    if "rimless_low_confidence" in flags:
+        reasons.append("rimless_low_confidence")
+    if frac is not None and frac >= frame_fraction_min:
+        reasons.append(f"frame_typed_points>={frame_fraction_min}")
+    if not reasons:
+        return front
+    front["rim_guard"] = {"measured_rim_class": "rimless", "rim_class": "unknown", "reasons": reasons,
+                          "frame_fraction": frac, "flag": RIM_GUARD_FLAG, "note": RIM_GUARD_NOTE}
+    front["rim_class"] = "unknown"
+    if RIM_GUARD_FLAG not in flags:
+        flags.append(RIM_GUARD_FLAG)
+    front["flags"] = flags
+    for l in front.get("lenses") or []:
+        l["rim_class"] = "unknown"
+        l["rim_width_mm"] = None
+        l["rim_w_median_mm"] = None
+        l["rim_note"] = RIM_GUARD_NOTE
+    return front
+
+
 def measure_front(rgb: np.ndarray, fg: np.ndarray, lens: np.ndarray, matte: np.ndarray, info: dict,
-                  front_width_mm: float) -> dict:
-    """Lens outlines, rim widths and frame measurements of the front photo in mm (MODEL frame)."""
+                  front_width_mm: float, band_rim_mm: float | None = None) -> dict:
+    """Lens outlines, rim widths and frame measurements of the front photo in mm (MODEL frame).
+    ``band_rim_mm``: when the folded temples show above the front (the intake reading says so), the front's height,
+    its y = 0 line and its silhouette come from the lens band (the lens rows plus this rim thickness above and below)
+    instead of the whole matte, whose top would be the temple tips."""
     from bsa import front as bfront
     from bsa import intake as bintake
     bg_lab = bintake.backdrop_lab(np.asarray(info["backdrop_lab_coef"], float), fg.shape)
@@ -77,6 +125,18 @@ def measure_front(rgb: np.ndarray, fg: np.ndarray, lens: np.ndarray, matte: np.n
     mm_px = part["mm_per_px"]
     x0 = part["axis_x_px"]
     rows = np.nonzero(a["fg_sym"].any(1))[0]
+    height_band = None
+    fg_sil = a["fg_sym"]
+    if band_rim_mm is not None and part["lenses"] and len(rows):
+        lens_rows = np.concatenate([np.asarray(a[f"lens{i}_poly"], float)[:, 1] for i in range(1, len(part["lenses"]) + 1)])
+        pad = float(band_rim_mm) / mm_px
+        top = int(max(rows.min(), np.floor(lens_rows.min() - pad)))
+        bot = int(min(rows.max(), np.ceil(lens_rows.max() + pad)))
+        band_mask = np.zeros_like(a["fg_sym"])
+        band_mask[top:bot + 1] = True
+        fg_sil = a["fg_sym"] & band_mask
+        rows = np.arange(top, bot + 1)
+        height_band = {"rim_mm": float(band_rim_mm), "rows_px": [top, bot], "reason": "folded temples above the front: height, y = 0 and silhouette from the lens band"}
     y_mid = (rows.min() + rows.max()) / 2.0 if len(rows) else fg.shape[0] / 2.0
 
     def to_mm(px):
@@ -98,7 +158,7 @@ def measure_front(rgb: np.ndarray, fg: np.ndarray, lens: np.ndarray, matte: np.n
                                   "y_range": [round(float(lo[1]), 2), round(float(hi[1]), 2)]},
                        "rim_class": li["rim_class"], "rim_w_median_mm": li["rim_w_median_mm"],
                        "type_fractions": li["type_fractions"]})
-    sil = largest_contour_mm(a["fg_sym"], to_mm)
+    sil = largest_contour_mm(fg_sil, to_mm)
     frame_only = largest_contour_mm(a["frame_mask"], to_mm)
     cols = np.nonzero(a["fg_sym"].any(0))[0]
     height_mm = (rows.max() - rows.min() + 1) * mm_px if len(rows) else None
@@ -128,15 +188,16 @@ def measure_front(rgb: np.ndarray, fg: np.ndarray, lens: np.ndarray, matte: np.n
         thick.append({"side": l["side"], "brow_mm": None if brow is None else round(float(brow), 2),
                       "bottom_rim_mm": None if bottom is None else round(float(bottom), 2),
                       "endpiece_mm": None if end is None else round(float(end), 2)})
-    return {"mm_per_px": mm_px, "axis_x_px": x0, "y_mid_px": y_mid, "width_px": part["width_px"],
+    # the measurement is adopted through the rim guard: a 'rimless' the empty matte cannot vouch for reads 'unknown'
+    return guard_rim_class({"mm_per_px": mm_px, "axis_x_px": x0, "y_mid_px": y_mid, "width_px": part["width_px"],
             "front_width_mm": front_width_mm, "front_height_mm": None if height_mm is None else round(float(height_mm), 2),
             "layout": part["layout"], "rim_class": part["rim_class"], "lens_share": part["lens_share"],
             "fg_mirror_iou": part["fg_mirror_iou"], "lens_mirror_iou": part["lens_mirror_iou"],
             "bridge_dbl_mm": dbl, "thickness_mm": thick, "lenses": lenses, "silhouette_mm": sil,
-            "frame_without_lenses_mm": frame_only, "flags": part["flags"],
+            "frame_without_lenses_mm": frame_only, "flags": part["flags"], "height_band": height_band,
             "refinement": {k: part["refinement"].get(k) for k in ("median_bevel_offset_mm", "low_contrast_share",
                                                                   "point_type_fractions", "offset_mm")},
-            "arrays": {"frame_mask": a["frame_mask"], "fg_sym": a["fg_sym"], "lens_label": a["lens_label"]}}
+            "arrays": {"frame_mask": a["frame_mask"], "fg_sym": a["fg_sym"], "lens_label": a["lens_label"]}})
 
 
 def measure_side(view: str, fg: np.ndarray, front_height_mm: float | None) -> dict:
@@ -147,15 +208,21 @@ def measure_side(view: str, fg: np.ndarray, front_height_mm: float | None) -> di
         return {"error": "empty matte"}
     h_px = ys.max() - ys.min() + 1
     w_px = xs.max() - xs.min() + 1
-    mm_px = (front_height_mm / h_px) if front_height_mm else None
     # the front piece is the thick end: compare the matte column density at both ends
-    left_density = fg[:, xs.min():xs.min() + max(1, w_px // 10)].mean()
-    right_density = fg[:, xs.max() - max(1, w_px // 10):xs.max() + 1].mean()
+    band = max(1, w_px // 10)
+    left_density = fg[:, xs.min():xs.min() + band].mean()
+    right_density = fg[:, xs.max() - band:xs.max() + 1].mean()
     front_at_right = right_density > left_density
+    # the scale bar is the FRONT PIECE's height in this photo (the matte over the thick-end columns), not the whole
+    # matte, whose height includes the temple drop (until 2026-09-27 the two temples of one product measured 4 % apart)
+    front_cols = fg[:, xs.max() - band:xs.max() + 1] if front_at_right else fg[:, xs.min():xs.min() + band]
+    fy = np.nonzero(front_cols.any(1))[0]
+    h_front_px = (fy.max() - fy.min() + 1) if len(fy) else h_px
+    mm_px = (front_height_mm / h_front_px) if front_height_mm else None
     y_mid = (ys.min() + ys.max()) / 2.0
     out = {"view": view, "bbox_px": [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())],
-           "front_at_image_right": bool(front_at_right), "mm_per_px": mm_px,
-           "scale_note": "side scale = front piece height from the front photo / this matte's height (approximate)"}
+           "front_at_image_right": bool(front_at_right), "mm_per_px": mm_px, "front_piece_height_px": int(h_front_px),
+           "scale_note": "side scale = front piece height from the front photo / the front piece's height in this photo (its thick-end columns; approximate)"}
     if mm_px:
         x_front = xs.max() if front_at_right else xs.min()
 
@@ -205,8 +272,9 @@ def overlay_front(rgb: np.ndarray, front: dict, dst: Path, transform: dict) -> N
     im.save(dst, quality=90)
 
 
-def run_intake(request: Request, job_dir: Path, *, front_width_mm: float, width_provenance: dict) -> dict:
-    """Build job/inputs and job/evidence. Returns the evidence dict (also written to evidence/evidence.json)."""
+def run_intake(request: Request, job_dir: Path, *, front_width_mm: float, width_provenance: dict, band_rim_mm: float | None = None) -> dict:
+    """Build job/inputs and job/evidence. Returns the evidence dict (also written to evidence/evidence.json).
+    ``band_rim_mm``: see ``measure_front`` (set by the intake reading when the folded temples show above the front)."""
     from bsa import intake as bintake
     t0 = time.time()
     inputs = copy_inputs(request, job_dir)
@@ -238,10 +306,20 @@ def run_intake(request: Request, job_dir: Path, *, front_width_mm: float, width_
         views[row["id"]] = entry
         if view == "front":
             front_rgb = rgb
-            front_meas = measure_front(rgb, fg, lens, pure, info, front_width_mm)
+            front_meas = measure_front(rgb, fg, lens, pure, info, front_width_mm, band_rim_mm=band_rim_mm)
             masks["front_frame_mask"] = front_meas["arrays"]["frame_mask"]
             masks["front_fg_sym"] = front_meas["arrays"]["fg_sym"]
             masks["front_lens_label"] = front_meas["arrays"]["lens_label"]
+            if front_meas.get("height_band"):
+                # the folded temple tips are cut from the FIT mask too: a model's open temples never show above the
+                # front, so a photo matte that keeps the tips would penalise every correct candidate on the front view
+                top, bot = front_meas["height_band"]["rows_px"]
+                masks[f"fg_{row['id']}_full"] = fg
+                cut = fg.copy()
+                cut[:top] = False
+                cut[bot + 1:] = False
+                masks[f"fg_{row['id']}"] = cut
+                entry["fit_mask"] = "lens band (folded temple tips cut)"
             front_meas.pop("arrays")
     sides = {}
     fh = front_meas["front_height_mm"] if front_meas else None

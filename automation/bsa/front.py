@@ -72,9 +72,7 @@ from skimage import measure
 from skimage.filters import sato
 
 from . import core, intake
-from .intake import (BAND_CHROMA_SEP, BAND_L_MIN, CARVE_CORE_MM, CARVE_EVIDENCE_MM2, CARVE_FRAME_SIGMA_MM,  # noqa: F401
-                     CARVE_FRAME_TOL_MIN, CARVE_LENS_P, CARVE_MIN_LAB, CARVE_REF_SIGMA_MM, CARVE_RING_DEPTH_MM,
-                     CARVE_RING_MM, CARVE_THICK_MM, _nconv, carve_nonlens, chromaticity)
+from .intake import BAND_CHROMA_SEP, BAND_L_MIN, CARVE_MIN_LAB, carve_nonlens, chromaticity
 
 STAGE = "s2_front"
 FOURIER_K = 24
@@ -326,17 +324,6 @@ def _robust_fourier_1d(t: np.ndarray, y: np.ndarray, w: np.ndarray, K: int) -> n
     sel2 = sel & (r <= np.percentile(r[sel], 80))
     coef = np.linalg.lstsq(A[sel2], y[sel2], rcond=None)[0]
     return A @ coef
-
-
-def _fill_ring(a: np.ndarray) -> np.ndarray:
-    """Periodic linear interpolation over NaNs (all-NaN -> zeros)."""
-    good = np.isfinite(a)
-    if good.all():
-        return a.copy()
-    if not good.any():
-        return np.zeros_like(a)
-    idx = np.arange(len(a))
-    return np.interp(idx, idx[good], a[good], period=len(a))
 
 
 def band_extend(prof: np.ndarray, s_mm: np.ndarray, c_in: np.ndarray, out_sel: np.ndarray, inmatte: np.ndarray,

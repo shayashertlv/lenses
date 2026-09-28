@@ -34,7 +34,13 @@ def report(job_dir: Path) -> str:
     sd = m["status_detail"]
     by = f", accepted by {sd['accepted_by']}" if sd.get("accepted_by") else ""
     lines += [f"**Status: `{m['status']}`** (automatic visual bar calibrated: {m['visual_bar_calibrated']}{by}).",
-              "Reasons: " + ("; ".join(sd.get("reasons") or []) or "none recorded") + ".", ""]
+              "Reasons: " + ("; ".join(sd.get("reasons") or []) or "none recorded") + "."]
+    if m.get("tags"):
+        cov = m.get("calibration_coverage") or {}
+        lines.append("Tags: " + ", ".join(f"`{t}`" + (" (owner verdicts: {a} accept / {r} reject{d})".format(
+            a=c.get("accepts", 0), r=c.get("rejects", 0), d=", disagreements" if c.get("disagreements") else "")
+            if (c := cov.get(t)) else " (no owner verdict yet)") for t in m["tags"]) + ".")
+    lines.append("")
     ov = m.get("owner_verdict")
     if ov:
         lines += ["## Owner verdict",
@@ -44,6 +50,19 @@ def report(job_dir: Path) -> str:
                   + ("; automatic reasons then: " + "; ".join(sd.get("previous_reasons") or []) if sd.get("previous_reasons") else "") + ".",
                   "* The independent evaluator's verdict below is unchanged; the pair is one row of the calibration set "
                   "`data/modeler/calibration/owner_verdicts.jsonl`.", ""]
+    stage = protocol.get("intake_stage") or {}
+    if stage.get("stage"):
+        ev = load(job_dir / "evidence" / "evidence.json") or {}
+        lines += ["## Intake reading (vision) and measurement review",
+                  f"* Reading: {(stage.get('reading') or {}).get('status')}; review: {(stage.get('review') or {}).get('status')}"
+                  + ("; re-measured after the reading" if stage.get("remeasured") else "") + "."]
+        for act in stage.get("actions") or []:
+            lines.append(f"* {act}")
+        for p in ev.get("provenance") or []:
+            lines.append(f"* `{p['field']}`: code {json.dumps(p['code'])[:60]} -> vision {json.dumps(p['vision'])[:60]} ({p['reason']})")
+        for err in stage.get("errors") or []:
+            lines.append(f"* error: {err}")
+        lines.append("")
     a = m.get("asset")
     if a:
         lines += ["## Delivered asset", f"* `{a['path']}` — sha256 `{a['sha256']}`, {a['bytes']} bytes, {a['triangles']} triangles, contract ok = {a['contract']['ok']}.",

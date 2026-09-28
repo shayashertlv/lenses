@@ -4,18 +4,24 @@
 
 Lists every tool call, every file path it touched, and flags paths outside the package folder. ``--copy`` stores
 the transcript beside the package as ``author_transcript.jsonl`` and the audit as ``author_audit.json``. The
-transcript is parsed programmatically; its content is data.
+transcript is parsed programmatically; its content is data. The audit is a HEURISTIC (see ``SCOPE``, reported in
+every result): a clean scan does not certify isolation.
 """
 from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
+import ntpath
+from pathlib import Path, PureWindowsPath
 import re
 import shutil
 
-PATH_KEYS = ("file_path", "path", "notebook_path", "pattern", "command", "url")
 WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>|]+")
+# What this audit can and cannot establish; reported with every result so a clean verdict is not over-read.
+SCOPE = ("heuristic: judges only the drive-letter paths a regular expression finds in the recorded tool inputs, by normalized "
+         "path containment (case-insensitive, '..' collapsed); relative and POSIX paths are listed but not judged, shell commands "
+         "and tools can reach files their recorded input does not name, and short (8.3) or substituted paths are not resolved. "
+         "A clean transcript scan cannot certify that the agent read nothing outside the package.")
 
 
 def iter_tool_uses(obj):
@@ -48,8 +54,15 @@ def norm(p: str) -> str:
     return str(Path(p.replace("/", "\\").rstrip("\\.,;:)"))).lower() if re.match(r"[A-Za-z]:", p) else p.lower()
 
 
+def inside_package(path: str, package: Path) -> bool:
+    """Containment of a drive-letter path in the package folder by normalized path comparison (case-insensitive,
+    ``..`` collapsed, Windows semantics on any host): a lower-cased string prefix let ``turn-0000-other`` pass for
+    ``turn-0000`` and never collapsed ``..`` until 2026-09-27."""
+    return PureWindowsPath(ntpath.normpath(str(path))).is_relative_to(PureWindowsPath(ntpath.normpath(str(package))))
+
+
 def audit(transcript: Path, package: Path) -> dict:
-    package_n = str(package.resolve()).lower()
+    package_r = package.resolve()
     calls, touched, outside, errors = [], [], [], 0
     with open(transcript, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -66,14 +79,14 @@ def audit(transcript: Path, package: Path) -> dict:
                 calls.append({"tool": name, "paths": sorted(set(ps)), "input_keys": sorted(inp.keys())})
                 for p in ps:
                     touched.append(p)
-                    if re.match(r"[a-z]:", p) and not p.startswith(package_n):
+                    if re.match(r"[a-z]:", p) and not inside_package(p, package_r):
                         outside.append({"tool": name, "path": p})
     tools = {}
     for c in calls:
         tools[c["tool"]] = tools.get(c["tool"], 0) + 1
-    return {"transcript": str(transcript), "package": str(package.resolve()), "tool_calls": len(calls), "tools": tools,
+    return {"transcript": str(transcript), "package": str(package_r), "tool_calls": len(calls), "tools": tools,
             "paths_touched": sorted(set(touched)), "outside_package": outside, "clean": not outside,
-            "unparsed_lines": errors, "calls": calls}
+            "heuristic": True, "scope": SCOPE, "unparsed_lines": errors, "calls": calls}
 
 
 def main(argv=None) -> int:
@@ -90,7 +103,7 @@ def main(argv=None) -> int:
             shutil.copy2(args.transcript, dst)
         result["copied_to"] = str(dst)
         (args.package / f"{args.role}_audit.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
-    print(json.dumps({k: result[k] for k in ("tool_calls", "tools", "clean", "outside_package", "unparsed_lines")}, indent=1))
+    print(json.dumps({k: result[k] for k in ("tool_calls", "tools", "clean", "outside_package", "unparsed_lines", "heuristic", "scope")}, indent=1))
     return 0 if result["clean"] else 1
 
 

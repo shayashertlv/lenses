@@ -1,7 +1,6 @@
 """Independent frozen-evidence fixtures: no neural runtime or private corpus."""
 from copy import deepcopy
 import hashlib
-import io
 import json
 from pathlib import Path
 import tempfile

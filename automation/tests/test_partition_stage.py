@@ -1,5 +1,4 @@
 from contextlib import redirect_stdout
-from copy import deepcopy
 import hashlib
 import io
 import json

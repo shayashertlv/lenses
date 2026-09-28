@@ -6,8 +6,9 @@ route on the visible failures the owner and Astra's look stage both called geome
 temples, missing hardware).
 
 This folder is an isolated development path. It imports from `bsa/` and `reconstruction/` (numeric image tools,
-camera fitting, the contract GLB writer, the AR harness driver) and changes nothing in them, in `ar/src`, or in
-the deployed application.
+camera fitting, the contract GLB writer, the AR harness driver). Changes to them (the translucent export and
+contract, the AR runtime's translucent twin) are made there, with their own tests. It changes nothing in the
+deployed application.
 
 ## The loop
 
@@ -82,12 +83,15 @@ construction or finish; after twice that the host stops. `request_views` turns c
 
 ## Statuses
 
-`accepted` (a job awards it on its own only with a calibrated automatic visual bar — not yet available; the owner
-can award it after the run by judging the delivered asset in the live try-on, `python -m modeler.owner_verdict`,
-which records the verdict against the asset's digest, keeps the evaluator's verdict beside it and appends the pair
-to `data/modeler/calibration/owner_verdicts.jsonl`, the data a future automatic bar must reproduce),
+`accepted` (a job awards it on its own only with a calibrated automatic visual bar whose owner verdicts also cover
+every tag of the delivered asset — its kind from the intake, `translucent` / `mirrored` from its materials
+(`modeler.tags`, coverage in `calibration.json`); the owner can award it after the run by judging the delivered asset
+in the live try-on, `python -m modeler.owner_verdict`, which records the verdict against the asset's digest, keeps
+the evaluator's verdict beside it and appends the pair to `data/modeler/calibration/owner_verdicts.jsonl`, the data
+the automatic bar must reproduce),
 `best_effort` (valid asset, measured and evaluated; provisional thresholds and evaluator verdict recorded),
-`quality_unverified` (valid asset, evaluation missing), `inconsistent_inputs`, `execution_failed`. The manifest
+`quality_unverified` (valid asset, evaluation missing), `execution_failed` (`inconsistent_inputs` was removed
+2026-09-29: its input flag `lens_count_mismatch` had no producer, so the status was unreachable). The manifest
 (`manifest.json`) names the exact delivered GLB (sha256), mounting metadata, scale provenance, measurements,
 the evaluator's verdict and every candidate.
 
@@ -97,8 +101,8 @@ the evaluator's verdict and every candidate.
   started external agent answers each turn; its transcript is stored beside the turn for the provenance audit.
 * `astra`: `gpt-6-astra` over the OpenAI Responses API, three strict function tools, `tool_choice: required`,
   `store: false`, one reservation per call in a shared ledger capped by the authorization (1..10); receipts and
-  raw responses kept; no retries. Constructed only with an explicit credential and cap. Never exercised in this
-  session (no cap was established).
+  raw responses kept; no retries. Constructed only with an explicit credential and cap. First exercised
+  2026-09-26 (vb-astra1); see RESULTS.
 * `scripted`: replay, tests and dry runs.
 
 ## Interventions during the measured runs (2026-09-26)
@@ -184,6 +188,12 @@ shift. Three causes, three generic capabilities:
   angle, exported as the runtime descriptor's angular reflectance table (`export.material_spec`), which the runtime
   already rendered but no helper could express; the head-on row replaces `mirror_rgb`, a missing 90-degree row is
   appended as near-white.
+* **Superseded (note of 2026-09-29; the two items below are kept as history).** `modeler/lens_colour.py` no longer
+  compares the lens pixels of the actual-AR render. It fits `out = T_eff bg + A` per channel from two solid-fixture
+  renders (`fit_fixtures`), predicts the runtime's lens over the front photo's own backdrop and compares that with the
+  photo's lens core (the module docstring). The summary keys are `observe.LENS_COLOUR_SUMMARY_KEYS` (observe.py:69-71).
+  `lens_env_intensity_recommended` is recommended only for a near-opaque mirror (T_eff below `OPAQUE_TRANSMISSION`);
+  for a transmissive lens it is None.
 * `modeler/lens_colour.py`: for every observed candidate with an AR check, the lens pixels of the actual-AR front
   render are found by projecting the lens meshes with the harness's recorded `mesh_to_world` and camera matrices,
   and their core colour is compared with the photo's lens core (`summary.lens_colour`: hue_error, saturation_ratio,
@@ -240,3 +250,124 @@ folders; their full findings are in the session's workflow journal and summarise
   `evaluation_v2`, API answers in `evaluation_v2_astra`).
 * `lens_colour` reports no hue error for neutral (grey, clear) lenses; a saturation difference replaces the ratio.
 * Contract limits (triangle budget, closed parts, lens sheet rule, width range) are in the author rules.
+
+## Astra at the start of the loop: the intake reading and the measurement review (2026-09-27)
+
+The first paid run on a crystal frame (Tom Ford FT1123-D, `RESULTS_2026-09-26.md`) failed on the evidence, not on the
+author: the contrast matte cannot see a near-white rim on a white backdrop, so the front partition called the frame
+rimless (rim 0.66 mm), the lens outlines stopped under the flash-mirror reflection, the folded temple tips counted as
+front height, and the author built what the numbers said. An inventory of every guess made before the first author turn
+(77 items, three readers) sorted them into what a vision model reads better (classes, views, markings, what a photo
+region is) and what the code measures better (edges, axes, contours, metrics). `modeler/intake_astra.py` adds two
+strict-schema calls before the first turn and applies their answers as code actions with provenance; the plan and the
+action table are in `PLAN_2026-09-27_astra_intake.md`, the review that shaped them found and fixed: the transport's
+replay re-charging every Astra role, in-place re-runs overwriting finished jobs' evidence (now a preview), the gate
+override diverging from the calibration's verdict (now read from the job's protocol), the lip bias of a lens-only scale
+(lens + bridge over the outer-to-inner span is lip-invariant), the side scale's wrong denominator, and the temple tips
+surviving in the fit mask. The hand-written product notes and identity checklists are replaced by the reading (an owner
+file still wins), so the start of the loop no longer needs the development agent.
+
+## Translucent fronts and calibration coverage by kind (2026-09-27)
+
+The review of the retired stacks (`REVIEW_2026-09-27_model_studio_modeling_auto_and_routes.md`) showed that
+model_studio and the old ar_v4 runtime had rendered a crystal frame through authored part roles, and that the live
+runtime had dropped that vocabulary. The general pipeline now carries the capability without any route:
+
+* **Runtime (lenses/ar, source only, unpublished):** `classifyAssetMaterials` in `ar/src/eyewear/optical-material.ts`
+  reads the exporter's `partRole` extras once per loaded asset; in an asset with a canonical descriptor, a material used
+  only by frame/temple parts is never optical, whatever its transmission. The canonical adapter, the continuity loader,
+  the shadow (a material-coloured, arm-clipped `translucent-frame` caster), the visibility overlays (skipped) and the
+  stencil-limited hair pass (opaque fallback, no background there) know the case. Shipped legacy assets carry no
+  descriptor and are untouched (`ar/tests/frame-roles.test.ts`; the whole suite, 425 tests, passes).
+* **Helper and rules:** `gl.material_translucent(name, tint_srgb, thickness_mm=...)` for frame AND temple parts
+  (crystal or translucent acetate; since 2026-09-28 the temples too, it was frame-only on 09-27): physical
+  transmission, IOR and volume absorption (`tint_srgb` = the colour seen through `thickness_mm`), exported as
+  `KHR_materials_transmission` / `ior` / `volume`. Hardware (metal hinges, pins, logo plates) stays opaque. `bsa.export`
+  forces a translucent frame or temple material single-sided and refuses any lens descriptor on a frame or temple part,
+  and the contract check `frame_temple_materials` enforces it (translucent frame or temple parts are allowed only beside
+  canonical lenses, single-sided, carrying the part's own role; `lens_materials_private` refuses a material shared
+  between a lens node and another node, which would keep the part optical in the runtime).
+* **Observation:** `summary.frame_see_through` (`modeler/see_through.py`): only when a translucent material is present,
+  the front view is rendered twice on two solid fixtures (skin `#cba68d`, blue `#3a4f6e`); the frame node's pixels
+  (projected with the harness's root transform, lens pixels removed) change colour in proportion to what they transmit
+  (0 opaque … 1 clear). The two renders form the see-through sheet the author sees. `summary.temple_see_through`, beside
+  it and only when the temples are translucent: the same measure in the angled view (35 deg yaw) of the same two harness
+  runs, over the NEAR arm only (the camera's side of the asset's X: temple_L at +35 deg), projected as the runtime
+  deforms it (`see_through.runtime_arm_vertices`, a port of `ar/src/render` face-width.ts armSpreadCurve/spreadArmX,
+  rear-drop.ts eligibility and hinge, temple-terminal-fit.ts return: the row's `armSpreadM` 0.018 m from its
+  `armSpreadStartZM` pivot to the registered clip cap, then the inward return over the terminal band at the render's
+  fit scale; production drops nothing vertically; on r0002 the port matches the runtime's own deformed vertices,
+  evaluated under node, to 4e-9 m), only its geometry in front of the runtime's rear temple clip (the endpoint the
+  harness row records, else `bsa.tryon.HARNESS_CLIP_ZM`), the arm's own opaque hardware removed (drawn over the
+  crystal; removed after the silhouette erosion, since its projection overstates what is drawn), frame and lens pixels
+  removed and every pixel at the bare fixture colour in both renders dropped (the synthetic head's occluders hide the
+  arm there; the harness records no depth or visibility mask). Its two renders follow on the see-through sheet
+  (`see-through temples <fixture>`); it is written even when the front has no number (`no_frame_pixels`), and a
+  translucent temple that could not be measured is reported as `{status}` (`no_temple_pixels`, `no_temple_render`, a
+  failure with its `error`). It is absent for opaque temples, and also when the front's harness run fails before the
+  temples are rendered (`render_failed`, `no_front_render`, a front `render_mismatch`, observe's outer failure):
+  `frame_see_through` then carries that status. Measured against a ground truth (r0002's
+  crystal-temple variant through the local harness with the near crystal arm painted opaque green, same camera, pose
+  and timing: 0.886 over 885 eroded drawn pixels, 0.919 on the strict interior): the undeformed, hardware-inclusive
+  projection read 0.796 (757 pixels, 103 of them not arm, 388 drawn-arm pixels missed, the metal strip counted); the
+  registered measure reads 0.885 over 776 pixels (0.876 with the hardware removed before the erosion). Remaining bias:
+  the bare-fixture tolerance also drops the clearest crystal pixels (tolerance 0/3/6/10/20 read 0.897/0.891/0.885/
+  0.873/0.860), the runtime fades the last 5 mm before the endpoint, and mixed edge pixels inside the erosion still count.
+* **Coverage by kind:** every calibration row carries the asset's tags; `calibration.json` reports owner verdicts per
+  tag (`covered` = at least 2 evaluated verdicts, no disagreement). A job whose delivered asset carries an uncovered tag
+  gets `best_effort` with the tag named, even with the bar calibrated overall — today `translucent` has no owner
+  verdict, so the first translucent product needs the owner's live verdict before any translucent job can be `accepted`.
+  On the 2026-09-27 set: pair 3/4, rim_full 2/2, rim_rimless 1/2, single 4/0, rim_mixed 4/0, mirrored 4/0 (accepts/rejects),
+  all covered.
+* **Not done, on purpose:** alpha-blended frames and any per-kind pipeline route. (Translucent temples were on this
+  list on 09-27 - the arm clip and hair blends would composite the camera twice - and landed on 09-28 through the
+  camera-transmission twin below.)
+
+Review of the same day (three reviewers, adversarial verification; 17 findings, 6 verified real, all fixed):
+
+* The runtime scales the asset to centimetres and Three scales `thickness` with it but reads `attenuationDistance` in
+  world units: every `KHR_materials_volume` material absorbed 100x too strongly (the first dry run's black front, the
+  Tom Ford test asset's black lenses). `ar/src/render/eyewear-volume.ts` converts the distance once; the shadow divides
+  it back. No shipped asset carries a volume extension.
+* The tint was applied twice (base colour AND volume attenuation): the GLB base colour of a translucent front is now
+  white. `thickness_mm` cancelled out (attenuation distance = thickness): the tint is now defined through a fixed 4 mm
+  reference (`TRANSLUCENT_REFERENCE_MM`), so a thicker wall really reads denser; the author rule says so.
+* Pass B toggled `transmission` across zero, which bumps the material version and rebuilds the shader program every
+  guarded frame (three r185): the renderer swaps each translucent frame or temple mesh to a twin material for pass B.
+  On 09-27 that twin was opaque (transmission 0), which drew a crystal arm opaque in exactly the corridors where an arm
+  lives; since 09-28 it is the camera-transmission twin (`ar/src/render/translucent-twin.ts`): still transmission 0 and
+  the original's wrappers (arm clip, cheek/lens input, hair occlusion, overlay relief), with Three's transmission chunk
+  replaced by the paired camera texture at the fragment's own pixel, absorbed by the material's volume and mixed by its
+  transmission, so pass B shows the camera through the tint as pass A does (no refraction offset or roughness blur). Translucent fronts are no longer tone-mapped (the camera seen through them is not).
+* The contract judged roles by node name while the runtime reads `partRole` extras: `bsa.contract` now derives the
+  runtime's role from the extras, allows a translucent front only with a `frame` role, and a new check `part_roles`
+  requires the extras the names promise (and `lensSurfaceProfile` on canonical lens meshes).
+* Coverage gate: a protocol frozen before 2026-09-27 has no coverage block and is not gated (a reason says so);
+  modifier tags fall back to the exported GLB when no material record exists (baselines, unreadable builds); the
+  see-through mask uses the translucent materials only (not the hardware on the frame part); a failed see-through
+  measurement is visible in the summary.
+* Left as documented limits: the volume conversion uses the fixed 100x, not the width-fit scale (up to 25 % on the
+  absorption exponent); a translucent front's shadow follows the lens strength slider; in the canonical layered shadow a
+  crystal front is an opaque depth stop for a lens sheet behind it along the light ray; where an arm corridor crosses the
+  endpiece the pass-B twin shows a straight look-through without refraction or blur (an opaque notch before 09-28); the
+  canonical opaque capture runs a second transmission pre-pass per frame for a translucent asset.
+
+## The agentic route (2026-09-27, evening): one durable author conversation
+
+The working-tree audit of the same day (`reviews/agentic/20260927-working-tree-review/REVIEW.md`) found that this
+loop already had the geometry freedom, the strict export, the observation tools and an intake stage, but not a
+connected author conversation: `author_astra` sends a fresh one-decision package every turn and discards the
+response's items and call ids; images were copied by basename and sliced to 14; the dollar ledger checked and charged
+in two steps; delivery could name a candidate whose images the author never received; the held-out photo had no
+pixel-level boundary. `modeler/agentic/` (its own README) consolidates the loop around one Responses conversation with
+`store: false` and full replay, strict tools that create immutable revisions, a worker protocol (fake, native fixed
+fixtures, Docker) that never runs generated code on the host, a SQLite state with a fenced lease, a shared budget
+gateway that reserves the worst case before every request of every role, an observation queue whose images are
+acknowledged only by the completed response that carried them, a sealed evidence boundary by decoded pixels, a
+fresh-context critic and a sealed final evaluator whose verdict never returns to the author, and byte-bound
+delivery. `python -m modeler.job` is unchanged and remains the legacy route; the audited defects in the shared
+modules (delivery flag, containment, image names, missing-metric acceptance, exact-byte binding of evaluations and
+owner verdicts, the AR harness validator, the look session's observed-revision barrier and see-through bound, the
+segmented reservation, the appearance resume, the deformation scene isolation) were fixed in place with regression
+tests (`tests/test_agentic_legacy_*.py`). The offline demo (`python -m modeler.agentic demo`) proves the state machine
+on synthetic inputs; paid inference, the Docker worker and unseen-product fidelity remain unverified on this machine.

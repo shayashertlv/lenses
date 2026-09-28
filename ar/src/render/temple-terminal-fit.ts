@@ -1,8 +1,9 @@
 /** A fixed posterior return for the temple pipeline. This is an authored render fit to the
  * canonical head volume, not an ear estimate. The front 75 mm of each asset is unchanged. */
-import {Mesh, MeshPhysicalMaterial} from 'three';
+import {Mesh} from 'three';
 import type {BufferGeometry, Object3D} from 'three';
 import {spreadArmX} from './face-width.ts';
+import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 
 export const TEMPLE_HEAD_VOLUME = Object.freeze({
   scaleCm: Object.freeze([7.4, 9.5, 7.5] as const),
@@ -68,7 +69,7 @@ export function createTempleTerminalFitEvaluator(root: Object3D, input: FitInput
     if (!p) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const [materialIndex, material] of materials.entries()) {
-      if (material.transparent || material instanceof MeshPhysicalMaterial && material.transmission > 0) continue;
+      if (isOpticalMaterial(material) || material.transparent) continue;
       const groups = Array.isArray(object.material) ? geometry.groups.filter(group => group.materialIndex === materialIndex)
         : [{start: 0, count: index?.count ?? p.count}];
       for (const group of groups) for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
@@ -107,7 +108,7 @@ export function createTempleTerminalFitEvaluator(root: Object3D, input: FitInput
   };
 }
 
-/** One-off compatibility entry point. Production visual fitting should retain the evaluator instead. */
+/** Single evaluation at input.fitScale (tests and one-off callers); the renderer keeps the evaluator (renderer.ts terminalFitAtScale). */
 export function createTempleTerminalFit(root: Object3D, input: FitInput): TempleTerminalFit | null {
   return createTempleTerminalFitEvaluator(root, input)(input.fitScale ?? 1);
 }

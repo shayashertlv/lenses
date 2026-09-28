@@ -29,6 +29,9 @@ INFERRED_GROUPING = 'physical_group_inference'
 GROUPING_MODES = ('explicit_declarations', 'source_part_hypotheses', INFERRED_GROUPING)
 _DECLARATION_SNAPSHOT = 'optical-group-declarations.json'
 APPEARANCE_CANDIDATE = 'candidate-appearance.glb'
+# Request keys that name held-out evaluation photos; only reserve_job_evaluation
+# may see such a request, so every other route must refuse it before any capture.
+EVALUATION_REQUEST_KEYS = ('evaluation_photos', 'reserved_photo_ids')
 
 
 def _sha(path):
@@ -642,7 +645,7 @@ def run_job(request_path: Path, output: Path, *, resolution=320, camera_evaluati
         raise ValueError('Use resolution 128–768 and camera evaluations 20–1000')
     request_raw = request_path.read_bytes()
     request = _decode(request_raw)
-    has_evaluation = isinstance(request, dict) and bool({'evaluation_photos', 'reserved_photo_ids'} & set(request))
+    has_evaluation = isinstance(request, dict) and bool(set(EVALUATION_REQUEST_KEYS) & set(request))
     if appearance_mode not in ('photo', 'semantic_ar_v1'):
         raise ValueError('Unknown appearance mode')
     if has_evaluation and appearance_mode != 'semantic_ar_v1':
@@ -1085,9 +1088,18 @@ def main(argv=None):
     route_parser = argparse.ArgumentParser(add_help=False)
     route_parser.add_argument('--request', type=Path)
     route_args, _ = route_parser.parse_known_args(argv)
-    if route_args.request and route_args.request.is_file() and _read(route_args.request).get('pipeline') == 'segmented_ar_v1':
-        from .segmented_job import main as segmented_main
-        return segmented_main(argv)
+    if route_args.request and route_args.request.is_file():
+        request = _read(route_args.request)
+        if request.get('pipeline') == 'segmented_ar_v1':
+            # The segmented route has no reservation stage: photos named as
+            # held-out evidence would be captured and sent to providers. Fail
+            # closed before the route is imported, validated, or writes anything.
+            reserved = sorted(set(EVALUATION_REQUEST_KEYS) & set(request))
+            if reserved:
+                route_parser.error('the segmented_ar_v1 route does not support evaluation reservation; '
+                                   'remove ' + ', '.join(reserved) + ' or use the semantic_ar_v1 job path')
+            from .segmented_job import main as segmented_main
+            return segmented_main(argv)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--request', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)

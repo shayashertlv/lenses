@@ -505,11 +505,41 @@ class ViewFit:
                                                       "camera": [round(c.yaw, 2), round(c.pitch, 2), round(c.roll, 2)]}
                                                      for l, c, o in fits]}
 
+    def final_losses(self, cams: list[Camera]) -> list[float]:
+        """Final-level loss of each camera AS IT IS on one common level (the matte bbox united with every camera's
+        projected hull, ``FINAL_ROI_MARGIN``): the fit-level ROI depends on the fitted render, so two cameras are only
+        comparable on a level built for both. Used to hold a refit against the previous revision's camera
+        (modeler.observe.fit_view): on test-pilot-002 the parent back camera scored 0.2848 there against the refit's 0.2905,
+        but had never been evaluated unchanged (its perspective was re-seeded at ``SEED_PERSPECTIVE``)."""
+        boxes = []
+        for c in cams:
+            pts = raster._project_norm(self.scene.hull, c)
+            if pts is not None:
+                boxes.append((*pts.min(axis=0), *pts.max(axis=0)))
+        inc = None
+        if boxes:
+            b = np.asarray(boxes, float)
+            inc = (float(b[:, 0].min()), float(b[:, 1].min()), float(b[:, 2].max()), float(b[:, 3].max()))
+        lv = Level(self.fg, FINAL_W, "final_common", margin=FINAL_ROI_MARGIN, include_xyxy=inc)
+        lv.ignore_faces = self.ignore_faces
+        self.evals += len(cams)
+        return [float(lv.loss(self.scene, c)) for c in cams]
+
 
 def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
     yaws = ([PRIOR_YAW[view] + d for d in PRIOR_YAW_OFFSETS] if view != "angled"
             else [s * y for s in (1.0, -1.0) for y in ANGLED_YAWS])
     return [(y, p, 0.0, "prior") for y in yaws for p in PITCHES]
+
+
+def prior_seeds_near(view: str, yaw: float, pitch: float, n: int) -> list[tuple[float, float, float, str]]:
+    """The ``n`` prior seeds nearest (yaw, pitch), yaw difference wrapped to +/-180 (ties keep the prior order). A warm
+    start used ``prior_seeds(view)[:n]``, the first two yaw offsets only (front -12/-8, back 168/172): the prior yaw
+    itself was never seeded again once a revision had a camera."""
+    seeds = prior_seeds(view)
+    d = [math.hypot((s[0] - yaw + 180.0) % 360.0 - 180.0, s[1] - pitch) for s in seeds]
+    order = sorted(range(len(seeds)), key=lambda i: (d[i], i))
+    return [seeds[i] for i in order[:n]]
 
 
 def cross_seeds(target: str, winners: dict[str, Camera]) -> list[tuple[float, float, float, str]]:

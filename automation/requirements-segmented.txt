@@ -6,3 +6,8 @@ python-dotenv==1.1.1
 open3d==0.19.0
 torch==2.7.1
 torchvision==0.22.1
+# bsa/ (skimage in assemble/donor/front/gate/lens/texture; matplotlib in depth/ground_truth)
+scikit-image==0.25.2
+matplotlib==3.10.3
+# reconstruction/region_engine.py
+ultralytics==8.4.14

@@ -20,8 +20,9 @@ only after its guards pass and its observation in the actual AR runtime succeeds
   samplers, texCoord, texture transforms, extra attributes, morph targets, node transforms) are identical to S9
   (``geometry_check``);
 - ``contract.check`` passes; the AR harness reports runtime_compatible with every lens node optical;
-- an edited lens stays see-through: luminous transmission >= ``LENS_MIN_LUMINOUS_T`` at every density knot from
-  head-on to ``SEE_THROUGH_MAX_DEG`` incidence (``see_through``; the floor follows S9 when the export is darker).
+- an edited lens stays see-through: luminous transmission >= ``LENS_MIN_LUMINOUS_T`` over the whole gradient (a
+  certified lower bound between the density knots, not only at them) from head-on to ``SEE_THROUGH_MAX_DEG``
+  incidence (``see_through``; the floor follows S9 when the export is darker).
 
 Operations (strict schema of the forced function ``edit_candidate``; ``build_tools_schema``):
 - ``frame_material`` {material: a non-lens material name | "all_frame", color_ratio_rgb | null, roughness | null,
@@ -92,7 +93,7 @@ from reconstruction.lens_appearance import COLOR_SPACE, DENSITY_INTERPOLATION, V
 from reconstruction.segmented_astra_job import ScriptedClient, add_astra_arguments, client_from_args, run_astra_job
 from reconstruction.segmented_astra_session import digest, read
 from reconstruction.segmented_astra_tools import nullable, number, obj, rgb
-from reconstruction.segmented_astra_transport import AstraClient, validate_plan, validate_tools_schema
+from reconstruction.segmented_astra_transport import validate_plan, validate_tools_schema
 from reconstruction.segmented_providers import pin, verified
 
 from . import archeck, contract, core, texture
@@ -111,6 +112,7 @@ LENS_R0_MAX = 0.95                      # = S8's CANON_R_MAX, so every S8 lens c
 LENS_ROUGHNESS = (0.02, 0.5)
 LENS_MIN_LUMINOUS_T = 0.03              # ISO 12312-1 category 4 lower bound: an edited lens stays see-through
 SEE_THROUGH_MAX_DEG = 60.0              # ... from head-on to this incidence (every m2 S9 lens is >= 0.047 there)
+SEE_THROUGH_GRID = 129                  # v samples per density interval of the certified see-through bound (~0.001 slack)
 LUMA = np.array([0.2126, 0.7152, 0.0722])   # Rec.709 luminance of scene-linear sRGB
 MAX_KNOTS = 16                          # the runtime's limit per table (ar/src/eyewear/lens-appearance.ts)
 SAME_TOL = 5e-4                         # a lens value within this of the current one is unchanged (context: 4 decimals)
@@ -510,23 +512,58 @@ def angular_summary(desc: dict, s9: dict | None) -> dict:
 
 
 def see_through(desc: dict, *, floor: float = LENS_MIN_LUMINOUS_T) -> dict:
-    """Luminous (Rec.709 Y) transmission over the lens (every density knot and both ends; smoothstep between knots
-    stays within the knot values) from head-on to ``SEE_THROUGH_MAX_DEG`` incidence (every 2.5 deg plus the angular
-    table's knots): a measured angular table can darken the lens at 20-30 deg while head-on stays clear (until
-    2026-09-25 only 0 deg was checked). ``floor`` is ``LENS_MIN_LUMINOUS_T`` unless the S9 export itself is darker
-    (``BsaLookSession.see_through_floor``)."""
-    la = LensAppearance.from_dict(desc)
-    v = np.asarray(sorted({0.0, 1.0} | {k.v for k in la.optical_density_keyframes}), float)
+    """Luminous (Rec.709 Y) transmission over the whole lens, from head-on to ``SEE_THROUGH_MAX_DEG`` incidence (every
+    2.5 deg plus the angular table's knots: a measured table can darken the lens at 20-30 deg while head-on stays
+    clear). A rendering-consistency check that an edited lens stays see-through in the AR runtime's own evaluation
+    (``LensAppearance``), NOT an eye-safety certificate: no spectral measurement, no real coating.
+
+    Between knots the per-channel density is d_c(t) = d_c,i + delta_c * smoothstep(t), so a red that rises where green
+    falls puts the darkest point BETWEEN the knots (a two-knot lens whose knots both read Y 0.20 is 0.028 at v 0.44):
+    until 2026-09-27 only the knots were evaluated and that lens passed. Now Y is sampled on ``SEE_THROUGH_GRID``
+    points per interval and bounded in between: smoothstep's slope is at most 1.5, T_c = (1 - R_c(a)) exp(-d_c /
+    cos_inside(a)) (Snell lengthens the path) is monotone in t on a cell, so on each grid cell |dY/dt| <= L = 1.5 /
+    cos_inside * sum_c LUMA_c |delta_c| max(T_c at the cell's ends) and Y >= min(Y at the ends) - L * step / 2.
+    ``certified_lower_bound`` is the least of these (<= the sampled minimum, about 0.001 below it near the floor: a
+    lens whose true minimum is within that of the floor is refused, conservatively); ``ok`` requires it >= ``floor``.
+    ``min_luminous_transmission`` is the sampled minimum with its v and angle (the bound is certified in v at each
+    swept angle; the angle sweep itself is a sampling, as before). ``floor`` is ``LENS_MIN_LUMINOUS_T`` unless the S9
+    export itself is darker (``see_through_floor``, on this same bound)."""
+    b = _luminous_bound(LensAppearance.from_dict(desc))
+    return {"min_luminous_transmission": round(b["sampled"], 5), "at_v": round(b["at_v"], 6),
+            "at_angle_deg": b["at_angle"], "certified_lower_bound": round(b["bound"], 5),
+            "bound_gap": round(b["sampled"] - b["bound"], 5), "grid_points_per_interval": SEE_THROUGH_GRID,
+            "min_head_on": round(b["min_head_on"], 5), "angles_deg": [0.0, SEE_THROUGH_MAX_DEG],
+            "floor": round(float(floor), 5), "ok": bool(b["bound"] >= floor)}
+
+
+def _luminous_bound(la: LensAppearance) -> dict:
+    """The unrounded numbers behind ``see_through`` (sampled minimum, its v and angle, the certified lower bound, the
+    head-on minimum): ``see_through_floor`` takes the exact bound, since a floor rounded up by 5e-6 would refuse the
+    very S9 lens it was taken from."""
+    knots = np.asarray([k.v for k in la.optical_density_keyframes], float)
+    dens = np.asarray([k.optical_density_rgb for k in la.optical_density_keyframes], float)
     angles = {float(x) for x in np.arange(0.0, SEE_THROUGH_MAX_DEG + 1e-9, 2.5).round(3)}
     angles |= {float(k.angle_degrees) for k in (la.angular_reflectance_keyframes or [])
                if k.angle_degrees <= SEE_THROUGH_MAX_DEG}
     a = np.asarray(sorted(angles), float)
-    T = np.asarray(la.evaluate(v[:, None], a[None, :]).transmission_rgb, float)
+    if len(knots) < 2:                                    # one knot: the density is constant, Y is exact at the ends
+        v = np.array([[0.0, 1.0]])
+        bound_cells = None
+    else:
+        t = np.linspace(0.0, 1.0, SEE_THROUGH_GRID)
+        v = knots[:-1, None] * (1.0 - t)[None, :] + knots[1:, None] * t[None, :]    # (intervals, grid); exact knots
+    T = np.asarray(la.evaluate(v[..., None], a[None, None, :]).transmission_rgb, float)   # (intervals, grid, angles, 3)
     Y = T @ LUMA
-    i, j = np.unravel_index(int(np.argmin(Y)), Y.shape)
-    return {"min_luminous_transmission": round(float(Y[i, j]), 5), "at_v": float(v[i]), "at_angle_deg": float(a[j]),
-            "min_head_on": round(float(Y[:, 0].min()), 5), "angles_deg": [0.0, SEE_THROUGH_MAX_DEG],
-            "floor": round(float(floor), 5), "ok": bool(Y[i, j] >= floor)}
+    if len(knots) >= 2:
+        cos_inside = np.sqrt(1.0 - (np.sin(np.radians(a)) / la.refractive_index) ** 2)
+        delta = np.abs(np.diff(dens, axis=0))                                       # (intervals, 3)
+        slope = 1.5 / cos_inside[None, None, :] * ((delta[:, None, None, :] * np.maximum(T[:, :-1], T[:, 1:])) @ LUMA)
+        bound_cells = np.minimum(Y[:, :-1], Y[:, 1:]) - slope * (0.5 / (SEE_THROUGH_GRID - 1))
+    k = np.unravel_index(int(np.argmin(Y)), Y.shape)
+    sampled = float(Y[k])
+    bound = sampled if bound_cells is None else min(sampled, float(bound_cells.min()))
+    return {"sampled": sampled, "at_v": float(v[k[0], k[1]]), "at_angle": float(a[k[2]]), "bound": bound,
+            "min_head_on": float(Y[..., 0].min())}
 
 
 def fallback_tint(desc: dict) -> list:
@@ -668,7 +705,8 @@ def compile_lens(params: dict, base: dict, *, floor: float = LENS_MIN_LUMINOUS_T
       clipped to [0, 1] is reported (``angular_clipped``).
     - every change of a knot count (density or angular) is reported (``knots_changed``).
     - values within SAME_TOL of the current ones are unchanged, so restating the current lens is a no-op.
-    - see-through: luminous transmission >= ``floor`` over 0-``SEE_THROUGH_MAX_DEG`` deg incidence (``see_through``)."""
+    - see-through: the certified lower bound of the luminous transmission >= ``floor`` over the whole gradient and
+      0-``SEE_THROUGH_MAX_DEG`` deg incidence (``see_through``)."""
     la = LensAppearance.from_dict(base)
     cur = lens_state(base)
     notes = []
@@ -786,8 +824,8 @@ def compile_lens(params: dict, base: dict, *, floor: float = LENS_MIN_LUMINOUS_T
     if not st["ok"]:
         raise ValueError(f"Refused: the lens would be nearly opaque (luminous transmission "
                          f"{st['min_luminous_transmission']:.4f} at v={st['at_v']}, {st['at_angle_deg']:g} deg "
-                         f"incidence < floor {st['floor']}); lenses must stay see-through from head-on to "
-                         f"{SEE_THROUGH_MAX_DEG:g} deg")
+                         f"incidence; certified lower bound {st['certified_lower_bound']:.4f} < floor {st['floor']}); "
+                         f"lenses must stay see-through from head-on to {SEE_THROUGH_MAX_DEG:g} deg")
     return desc, notes
 
 
@@ -926,8 +964,9 @@ FACTOR_TOL = 5e-6                       # a frame factor within this of its curr
 def see_through_floor(s9_lenses: dict) -> float:
     """The see-through floor of an edited lens: ``LENS_MIN_LUMINOUS_T``, or the darkest S9 lens's own minimum when
     the export is already darker than that (an edit may then not make it darker still, but is not refused for what
-    S9 already was)."""
-    mins = [see_through(d)["min_luminous_transmission"] for d in s9_lenses.values() if d]
+    S9 already was). The minimum is the exact CERTIFIED bound (what ``ok`` compares, unrounded), so an S9 gradient
+    that keeps its densities (a roughness or mirror edit) clears its own floor."""
+    mins = [_luminous_bound(LensAppearance.from_dict(d))["bound"] for d in s9_lenses.values() if d]
     return float(min([LENS_MIN_LUMINOUS_T, *mins]))
 
 
@@ -1763,15 +1802,38 @@ def _held_out_item(text) -> bool:
     return any(k in t for k in ("heldout", "held_out", "held-out", *core.HELD_OUT_VIEWS))
 
 
+def reasons_decision(reasons: list) -> str:
+    """The gate's rule (``bsa.gate.decide``) replayed over its reason tokens: REVIEW when a review rule fired
+    (``review:<rule>``), else RETRY when an applicable criterion failed or could not be evaluated (``failed:<c>``,
+    ``unevaluated:<c>``), else READY (``n/a:<c>`` and ``info:<flag>`` never change it). Each token names one
+    criterion's outcome, so the rule over a subset of the tokens is the decision that subset alone supports."""
+    heads = {str(r).split(":", 1)[0] for r in reasons}
+    if "review" in heads:
+        return "REVIEW"
+    if heads & {"failed", "unevaluated"}:
+        return "RETRY"
+    return "READY"
+
+
 def editor_s10(s10: dict) -> dict:
-    """S10 as the editor may see it: the decision, and its reasons / flags WITHOUT those derived from the held-out
-    view (``core.HELD_OUT_VIEWS``: e.g. ``failed:c3_heldout_angled_front_piece``), so no edit is chosen on the
-    held-out photo's verdict. The full S10 record stays in the seed and in result.json."""
-    return {"decision": s10.get("decision"),
-            "reasons": [r for r in s10.get("reasons") or [] if not _held_out_item(r)],
+    """S10 as the editor may see it: its reasons / flags WITHOUT those derived from the held-out view
+    (``core.HELD_OUT_VIEWS``: e.g. ``failed:c3_heldout_angled_front_piece``) and a decision recomputed from the shown
+    reasons alone (``reasons_decision``), so no edit is chosen on the held-out photo's verdict: two exports whose fit
+    evidence is identical read identically here whatever the held-out criterion said (until 2026-09-27 the gate's own
+    decision was shown, and it carries that criterion's outcome). The decision is withheld (None) when the stored record
+    is not the gate's rule applied to its own reasons (another format or a pruned record: nothing to recompute from).
+    The full S10 record stays in the seed and in result.json."""
+    reasons = s10.get("reasons")
+    shown = [r for r in reasons or [] if not _held_out_item(r)]
+    recomputable = isinstance(reasons, list) and reasons_decision(reasons) == s10.get("decision")
+    return {"decision": reasons_decision(shown) if recomputable else None,
+            "reasons": shown,
             "flags": [f for f in s10.get("flags") or [] if not _held_out_item(f)],
-            "note": "the gate decision of the unedited export; the look never changes it. Reasons that come from the "
-                    "held-out view are not shown."}
+            "note": ("the gate decision of the unedited export as its shown reasons alone support it (the gate's rule "
+                     "over the fit-view criteria); the look never changes the gate's decision. " if recomputable else
+                     "decision withheld: the gate decision includes held-out criteria and the stored record does not "
+                     "let the host recompute one from the fit-view criteria alone; the look never changes it. ")
+                    + "Reasons and flags that come from the held-out view are not shown."}
 
 
 def last_turn_summary(event: dict | None) -> dict | None:
@@ -2146,14 +2208,13 @@ class BsaLookSession:
         images = [{"id": s["id"], "label": s["label"], "path": s["path"], "sha256": s["sha256"]} for s in obs["sheets"]]
         return context, images
 
-    def finish_record(self, reason: str | None) -> dict | None:
+    def finish_record(self, reason: str | None, *, delivered: str | None = None) -> dict | None:
         """``state.finish`` (the editor's finish operation), or when the session stopped without one (the turn limit,
         a failed request) the host's record of the editor's plan notes, so they are never lost. None while a manual
         turn waits for its plan (the session is not over) or when no plan was ever made."""
         if self.state.get("finish"):
             return self.state["finish"]
-        turns = self.state.get("turns") or []
-        if turns and (turns[-1].get("status") == "awaiting_plan" or turns[-1].get("error_type") == "AwaitingPlan"):
+        if self.awaiting_plan():
             return None
         notes = [{"turn_id": e["turn_id"], "status": e.get("status"),
                   "operations": [o.get("operation") for o in (e.get("operations") or []) if isinstance(o, dict)],
@@ -2161,28 +2222,51 @@ class BsaLookSession:
         if not notes:
             return None
         return {"verdict": None, "recorded_by": "host", "stop_reason": reason, "note": notes[-1]["note"],
-                "delivered_revision": self.state["current_revision"], "turn_notes": notes}
+                "delivered_revision": delivered or self.state["current_revision"], "turn_notes": notes}
+
+    def awaiting_plan(self) -> bool:
+        """The manual driver wrote a request package and waits for its plan: the session is paused, not over
+        (``finish_record`` reports no finish, ``deliver`` moves no revision; the waiting snapshot is reviewed when the
+        plan arrives). The job records the pause as needs_attention / AwaitingPlan until ``settle_turns`` renames it."""
+        turns = self.state.get("turns") or []
+        return bool(turns) and (turns[-1].get("status") == "awaiting_plan" or turns[-1].get("error_type") == "AwaitingPlan")
 
     def shown_revisions(self) -> list[str]:
-        """The current revision of every turn's snapshot, in turn order: what the editor has reviewed."""
-        return [read(verified(t["input"]))["context"]["current_revision"] for t in self.state["turns"] if t.get("input")]
+        """The current revision of every COMPLETED turn's snapshot, in turn order: what the editor has reviewed. A turn
+        counts once its request completed (``status: applied``, run_astra_job's marker after ``apply`` returned, whatever
+        the plan's outcome: a rejected plan was still the editor's answer to that snapshot). A prepared input
+        (request_pending), a sent but unanswered request (planned), a failed or refused response (needs_attention) and a
+        manual turn waiting for its plan (awaiting_plan) do not: nobody reviewed their snapshot (until 2026-09-27 every
+        turn with an input counted, so a revision shown only by a failed request could be delivered as reviewed)."""
+        return [read(verified(t["input"]))["context"]["current_revision"]
+                for t in self.state["turns"] if t.get("status") == "applied" and t.get("input")]
 
     def deliver(self, reason: str) -> dict:
-        """The report of the delivered revision. A session that stops without a finish (the turn limit) never
-        delivers a revision the editor has not reviewed: an edit made on the last turn is committed and observed
-        (evidence) but the last reviewed revision is delivered (``unreviewed_revision`` records the other)."""
-        if self.state.get("status") != "finished" and self.state["turns"]:
+        """The report of the delivered revision. A session that stops without a finish (the turn limit, a failed
+        request) never delivers a revision the editor has not reviewed (``shown_revisions``: completed turns only): an
+        edit made on the last turn is committed and observed (evidence) but the last reviewed revision is delivered
+        (``unreviewed_revision`` records the other). A session paused for a manual plan (``awaiting_plan``) is not over:
+        its current revision stays, to be reviewed when the plan arrives."""
+        delivered_id, unreviewed = self.state["current_revision"], self.state.get("unreviewed_revision")
+        if self.state.get("status") != "finished" and self.state["turns"] and not self.awaiting_plan():
             shown = self.shown_revisions()
             cur = self.state["current_revision"]
             if shown and cur not in shown:
-                self.state.update(current_revision=shown[-1], unreviewed_revision=cur)
-                self.save()
-        current = self.current()
+                delivered_id, unreviewed = shown[-1], cur
+                # a session whose last turn did not complete (a failed or uncertain request) is RESUMABLE: the retried
+                # turn must find the checkpoint its snapshot named, so the state keeps current_revision and only the
+                # REPORT delivers the last reviewed revision (until 2026-09-27 the state was moved, and run_astra_job
+                # then refused the retry with 'Persisted plan refers to a different current checkpoint')
+                if self.state["turns"][-1].get("status") == "applied":
+                    self.state.update(current_revision=shown[-1], unreviewed_revision=cur)
+                    self.save()
+        current = self.revision(delivered_id) if delivered_id is not None else self.current()
         self.observation(current)
         result = {"schema_version": 1, "pipeline": PROTOCOL, "product_id": self.seed["product_id"],
                   "status": "candidate_available", "stop_reason": reason, "current_revision": current["id"],
                   "glb": current["glb"], "baseline_glb_sha256": self.seed["s9_sha256"], "look": current["look"],
-                  "finish": self.finish_record(reason), "unreviewed_revision": self.state.get("unreviewed_revision"),
+                  "finish": self.finish_record(reason, delivered=current["id"]), "unreviewed_revision": unreviewed,
+                  "checkpoint_revision": self.state["current_revision"],
                   "model_reviewed_current": self.state.get("model_reviewed_revision") == current["id"],
                   "s10_decision": self.seed["s10"]["decision"], "final_decision": self.seed["s10"]["decision"],
                   "accepted": False, "requires_review": True, "production_ready": False}
@@ -2288,7 +2372,8 @@ def ledger_usage(budget_path, session_id: str | None = None) -> dict:
 def finalize(run: str, product: str, session: BsaLookSession, report: dict, driver: str, seconds: float) -> dict:
     """Write s11_look/{model.glb, look.json, result.json, sheets/} from the session's current revision."""
     sd = core.stage_dir(run, product, STAGE)
-    current = session.current()
+    # the report names the revision the editor reviewed (a resumable session keeps its checkpoint in state)
+    current = session.revision(report["current_revision"]) if report.get("current_revision") else session.current()
     obs = session.observation(current)
     checks = read(verified(current["checks"]))
     _write_bytes(sd.root / "model.glb", verified(current["glb"]).read_bytes())
@@ -2339,7 +2424,7 @@ def finalize(run: str, product: str, session: BsaLookSession, report: dict, driv
         flags.append("look_contract_failed")
     if status != "delivered":
         flags.append(f"look_{status}")
-    unreviewed = session.state.get("unreviewed_revision")
+    unreviewed = report.get("unreviewed_revision") or session.state.get("unreviewed_revision")
     if unreviewed:
         flags.append("look_final_edit_unreviewed")
     budget = ((session.state.get("driver") or {}).get("client") or {}).get("budget_path")
@@ -2352,8 +2437,8 @@ def finalize(run: str, product: str, session: BsaLookSession, report: dict, driv
               "turns_completed": report.get("turns_completed", 0),
               # this session's own paid requests; ``ledger`` = the whole authorization (superseded sessions included)
               "paid_calls_used": (ledger or {}).get("this_session", 0), "ledger": ledger,
-              "unreviewed_revision": unreviewed,
-              "stop_reason": report.get("stop_reason"), "finish": session.finish_record(report.get("stop_reason")),
+              "unreviewed_revision": unreviewed, "checkpoint_revision": session.state["current_revision"],
+              "stop_reason": report.get("stop_reason"), "finish": session.finish_record(report.get("stop_reason"), delivered=current["id"]),
               "model_reviewed_current": report.get("model_reviewed_current", False),
               "s10_decision": {"decision": s10["decision"], "reasons": s10["reasons"], "flags": s10["flags"]},
               "final_decision": s10["decision"],

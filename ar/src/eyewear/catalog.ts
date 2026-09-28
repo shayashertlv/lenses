@@ -23,6 +23,8 @@ export interface EyewearDefinition {
    *  2.5 cm above it: the shipped assets carry the hook, which curves down to y 0.4 cm and inward to |x| 4.9 cm. It now
    *  runs to just inside each asset's own arm end, and the head occluder is what takes the hook away. */
   readonly templeClipLocalZM: number;
+  /** Reflection (environment map) intensity of the lens materials; 1 leaves the renderer's default. */
+  readonly lensEnvIntensity?: number;
 }
 
 export const SHIPPED_EYEWEAR = Object.freeze({
@@ -75,6 +77,8 @@ export interface ModelingAutoHandover {
   readonly widthMm: number;
   /** Fixed endpoint before the rear hook, in the asset's local meters. */
   readonly templeClipLocalZM: number;
+  /** Reflection (environment map) intensity of the lens materials; 1 leaves the renderer's default. */
+  readonly lensEnvIntensity?: number;
   readonly description?: string;
 }
 
@@ -94,6 +98,7 @@ export function registerModelingAutoEyewear(model: ModelingAutoHandover): Eyewea
     description: model.description ?? `Prepared by Modeling Auto at ${model.widthMm} mm across the front. Preview placement is not measured wearer fit.`,
     finish: 'Modeling Auto · Prepared model', assetUrl: model.assetUrl, offsetCm: GLASSES_OFFSET_CM,
     assumedWidthMm: model.widthMm, templeClipLocalZM: Math.min(model.templeClipLocalZM, TEMPLE_CLIP_NEAREST_LOCAL_Z_M),
+    ...(model.lensEnvIntensity === undefined ? {} : {lensEnvIntensity: model.lensEnvIntensity}),
   });
   Object.defineProperty(EYEWEAR, MODELING_AUTO_EYEWEAR_ID, {value: definition, enumerable: true, configurable: true, writable: false});
   return definition;

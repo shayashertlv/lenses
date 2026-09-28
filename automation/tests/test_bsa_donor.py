@@ -11,17 +11,13 @@ import open3d as o3d
 from bsa import depth, donor, raster
 from bsa import temples as T
 from bsa.contract import topology
-from bsa.core import NormFrame, stage_dir
+from bsa.core import NormFrame, run_dir, stage_dir
+from _meshes import box
 
 FRAME = NormFrame((0.0, 0.0, 60.0), 140.0)
 
 
-def _box(x0, x1, y0, y1, z0, z1, subdivide=0):
-    m = o3d.geometry.TriangleMesh.create_box(x1 - x0, y1 - y0, z1 - z0)
-    m.translate((x0, y0, z0))
-    if subdivide:
-        m = m.subdivide_midpoint(subdivide)
-    return np.asarray(m.vertices, np.float64), np.asarray(m.triangles, np.int64)
+_box = box
 
 
 def _signed_volume(V, F):
@@ -322,7 +318,8 @@ class SyntheticExtraction(unittest.TestCase):
 PRODUCTS = ("miu", "oakley", "rayban", "vb", "invu")
 
 
-@unittest.skipUnless(all(stage_dir("m1", p, T.STAGE).done() for p in PRODUCTS), "S5 m1 artifacts missing")
+# an existence test that builds no StageDir: StageDir() creates its folder, so collection would write under data/
+@unittest.skipUnless(all((run_dir("m1", p) / T.STAGE / "result.json").is_file() for p in PRODUCTS), "S5 m1 artifacts missing")
 class RealRunDonors(unittest.TestCase):
     def test_saved_donors(self):
         for p in PRODUCTS:

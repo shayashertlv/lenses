@@ -21,6 +21,8 @@ export interface ExternalModel {
   readonly widthMm: number | null;
   /** SHA-256 of the asset bytes, or null when absent or malformed; without it continuity is unavailable for the model. */
   readonly sha256: string | null;
+  /** Lens reflection intensity requested by the export (a mirror lens reads stronger on a face), or null. */
+  readonly lensEnvIntensity: number | null;
 }
 
 function optionalNumber(value: string | null, low: number, high: number): number | null {
@@ -42,7 +44,9 @@ export function parseExternalModel(search: string, pageOrigin: string): External
   const name = (params.get('name') ?? '').trim().slice(0, MAX_EXTERNAL_NAME_LENGTH) || 'Modeling Auto model';
   const digest = (params.get('sha256') ?? '').trim().toLowerCase();
   return Object.freeze({url: url.href, name, clipZM: optionalNumber(params.get('clip'), -0.2, -0.03),
-    widthMm: optionalNumber(params.get('width'), 60, 250), sha256: /^[0-9a-f]{64}$/.test(digest) ? digest : null});
+    widthMm: optionalNumber(params.get('width'), 60, 250), sha256: /^[0-9a-f]{64}$/.test(digest) ? digest : null,
+    // The 0.3-4 lensenv range is mirrored by the exporter's clip in automation/modeler/lens_colour.py.
+    lensEnvIntensity: optionalNumber(params.get('lensenv'), 0.3, 4)});
 }
 
 export function describeExternalModel(model: ExternalModel): string {
@@ -55,7 +59,8 @@ export function describeExternalModel(model: ExternalModel): string {
 /** Register the model as this page's Modeling Auto frame and pin its geometry for continuity. */
 export function installExternalModel(model: ExternalModel): EyewearDefinition {
   const definition = registerModelingAutoEyewear({name: model.name, assetUrl: model.url,
-    widthMm: model.widthMm ?? DEFAULT_EXTERNAL_WIDTH_MM, templeClipLocalZM: model.clipZM ?? DEFAULT_EXTERNAL_CLIP_ZM});
+    widthMm: model.widthMm ?? DEFAULT_EXTERNAL_WIDTH_MM, templeClipLocalZM: model.clipZM ?? DEFAULT_EXTERNAL_CLIP_ZM,
+    lensEnvIntensity: model.lensEnvIntensity ?? undefined});
   if (model.sha256) registerPinnedGeometry(model.url, model.sha256);
   return definition;
 }

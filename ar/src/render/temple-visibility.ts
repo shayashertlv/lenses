@@ -1,10 +1,11 @@
 import {
-  CanvasTexture, Color, DepthTexture, DoubleSide, Material, MathUtils, Matrix3, Matrix4, Mesh, MeshBasicMaterial,
-  MeshPhysicalMaterial, NearestFilter, Scene, ShaderMaterial, SRGBColorSpace, UnsignedIntType, Vector2,
+  CanvasTexture, Color, ColorManagement, DepthTexture, DoubleSide, Material, MathUtils, Matrix3, Matrix4, Mesh, MeshBasicMaterial,
+  NearestFilter, Scene, ShaderMaterial, SRGBColorSpace, UnsignedIntType, Vector2,
   Vector4, WebGLRenderTarget,
 } from 'three';
 import type {BufferGeometry, Object3D, PerspectiveCamera, Texture, WebGLRenderer} from 'three';
 import type {TempleCheekContact} from './temple-cheek-contact.ts';
+import {isFrameMaterial, isOpticalMaterial, isTranslucentFrameMaterial, markFrameMaterial} from '../eyewear/optical-material.ts';
 
 /** Per-pixel relief from the arm fragment's distance behind the head surface. */
 export const TEMPLE_VISIBILITY_METHOD = 'temple-behind-head-v4';
@@ -45,6 +46,10 @@ export interface TempleVisibilityConfiguration {
   /** Keep posterior opaque arms out of the camera image sampled by physical lenses. Ordinary shaft drawing is
    * unaffected; this applies only while Three renders its internal transmission input. */
   readonly excludeArmsFromLensInput?: boolean;
+  /** Whether Three's internal transmission pre-pass is lens input (default true). Only a legacy transmissive lens samples
+   * it; canonical lenses read the explicit input (`withLensInput`), and the pre-pass then feeds translucent frame
+   * materials only, which must see the opaque hardware inside them. The explicit input always excludes the arms. */
+  readonly internalTransmissionIsLensInput?: boolean;
   /** Current observed cheek eligibility. A separate observed depth pass decides actual occlusion. */
   readonly cheekContact?: TempleCheekContact | null;
   /** Minimum projected contact transition, in render pixels; zero preserves the original 1–3mm ramp. */
@@ -64,6 +69,9 @@ export function validateTempleVisibility(value: TempleVisibilityConfiguration): 
     || value.terminalReturn.endZM < -.2)) throw new Error('The terminal relief exclusion is invalid.');
   if (value.excludeArmsFromLensInput !== undefined && typeof value.excludeArmsFromLensInput !== 'boolean') {
     throw new Error('The lens input arm exclusion is invalid.');
+  }
+  if (value.internalTransmissionIsLensInput !== undefined && typeof value.internalTransmissionIsLensInput !== 'boolean') {
+    throw new Error('The internal transmission lens input setting is invalid.');
   }
   if (value.cheekContact && (value.cheekContact.polygon.length < 3 || value.cheekContact.polygon.length > 64
     || value.cheekContact.polygon.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)))) {
@@ -108,7 +116,6 @@ interface VisibilityContext {
   observedFaceSurface?: BufferGeometry;
 }
 
-const isLens = (material: Material): boolean => material instanceof MeshPhysicalMaterial && material.transmission > 0;
 const copyConfiguration = (value: TempleVisibilityConfiguration): TempleVisibilityConfiguration => ({...value,
   ...(value.cheekContact ? {cheekContact: {...value.cheekContact, polygon: value.cheekContact.polygon.map(p => ({...p}))}} : {})});
 
@@ -127,9 +134,9 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     const geometry: BufferGeometry = object.geometry;
     const position = geometry.getAttribute('position'), index = geometry.getIndex();
     if (!position) return;
-    if (materials.some(material => !isLens(material) && !material.transparent)) originals.push(object);
+    if (materials.some(material => !isOpticalMaterial(material) && !material.transparent)) originals.push(object);
     for (const [materialIndex, material] of materials.entries()) {
-      if (!isLens(material)) continue;
+      if (!isOpticalMaterial(material)) continue;
       const groups = Array.isArray(object.material)
         ? geometry.groups.filter(group => group.materialIndex === materialIndex)
         : [{start: 0, count: index?.count ?? position.count}];
@@ -193,11 +200,19 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     originalHooks.clear();
   };
   const wrapFrontal = (material: Material) => {
-    if (isLens(material) || material.transparent || originalHooks.has(material)) return;
+    if (isOpticalMaterial(material) || material.transparent || originalHooks.has(material)) return;
     const hook = material.onBeforeCompile, key = material.customProgramCacheKey;
     const wrapper: Material['onBeforeCompile'] = function(this: Material, shader, backend) {
       hook.call(this, shader, backend);
       Object.assign(shader.uniforms, frontalUniforms);
+      // The observed-cheek blocks belong to the final canvas draw only; Three's internal transmission pre-pass (and
+      // every other render target) keeps its lens input exact. A tone-mapped material detects the canvas by
+      // TONE_MAPPING, which Three defines only there. A translucent frame material (a crystal arm, its overlay clone,
+      // their pass-B twins) is drawn without tone mapping (renderer.ts), so for it the program's output colour space
+      // decides: Three encodes the canvas in the renderer's output space and writes every render target in the linear
+      // working space. That colour space is part of Three's program cache key, so the two programs are never shared.
+      const canvasGate = this.toneMapped ? '#ifdef TONE_MAPPING'
+        : `#if ${shader.outputColorSpace !== undefined && shader.outputColorSpace !== ColorManagement.workingColorSpace ? 1 : 0}`;
       shader.vertexShader = 'varying vec3 templeFrontalOriginalPosition;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>', `#include <begin_vertex>
           templeFrontalOriginalPosition = position;`);
@@ -235,7 +250,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       shader.fragmentShader = shader.fragmentShader.replace('void main() {', `void main() {
         float cheekBehindCm = 0.0;
         float cheekBandCm = ${(TEMPLE_VISIBILITY_PARAMETERS.cheekBehindFullCm - TEMPLE_VISIBILITY_PARAMETERS.cheekBehindStartCm).toFixed(3)};
-        #ifdef TONE_MAPPING
+        ${canvasGate}
         if (templeCheekCount >= 3) {
           vec2 cheekDepthUV = gl_FragCoord.xy / templeFrontalViewport;
           float cheekObservedDepth = texture2D(templeCheekDepth, cheekDepthUV).x;
@@ -257,10 +272,10 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       // Color only: preserve opaque depth/coverage and exclude the optical front.
       // Later overlay wrapping runs its coverage/depth block before this footer;
       // the earlier clip wrapper's endpoint RGB footer runs afterwards.
-      // This baseline renders beauty to the native ACES framebuffer. Three's
-      // internal transmission pass has no TONE_MAPPING; keep its lens input exact.
+      // This baseline renders beauty to the native ACES framebuffer; the canvas gate
+      // above keeps Three's internal transmission pass exact.
       shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
-        #ifdef TONE_MAPPING
+        ${canvasGate}
         if (templeCheekCount >= 3 && abs(templeFrontalOriginalPosition.x) > ${TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM}
             && templeFrontalOriginalPosition.z < templeCheekFront) {
           float cheekCoverage = templeCheekCoverage(vec2(gl_FragCoord.x, templeFrontalViewport.y - gl_FragCoord.y));
@@ -277,16 +292,18 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         }
         #endif`);
     };
-    const wrapperKey = () => `${key === Material.prototype.customProgramCacheKey ? hook.toString() : key.call(material)}|temple-lens-input-v1|observed-cheek-v2`;
+    const wrapperKey = () => `${key === Material.prototype.customProgramCacheKey ? hook.toString() : key.call(material)}|temple-lens-input-v1|observed-cheek-v2${
+      material.toneMapped ? '' : '|canvas-output-color-space'}`;
     originalHooks.set(material, {hook, key, wrapper, wrapperKey});
     material.onBeforeCompile = wrapper; material.customProgramCacheKey = wrapperKey; material.needsUpdate = true;
   };
   const overlays: Mesh[] = [], materials = new Map<Material, Material>();
   const entryTargets = new WeakMap<Object3D, WebGLRenderTarget | null>();
+  let explicitLensInput = false, internalLensInput = true;
   const originalRenderHooks = new Map<Mesh, {before: Mesh['onBeforeRender']; wrapper: Mesh['onBeforeRender']}>();
   const markLensInput = (backend: WebGLRenderer, renderCamera: Object3D): void => {
-    frontalUniforms.templeInternalLensInput.value = Number(backend === renderer && entryTargets.has(renderCamera)
-      && backend.getRenderTarget() !== entryTargets.get(renderCamera));
+    frontalUniforms.templeInternalLensInput.value = Number(backend === renderer && (explicitLensInput
+      || (internalLensInput && entryTargets.has(renderCamera) && backend.getRenderTarget() !== entryTargets.get(renderCamera))));
   };
   const restoreRenderHooks = (): void => {
     for (const [mesh, saved] of originalRenderHooks) if (mesh.onBeforeRender === saved.wrapper) mesh.onBeforeRender = saved.before;
@@ -301,10 +318,16 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   let configuration: TempleVisibilityConfiguration | null = null, disposed = false;
   let alphaToCoverage = false;
   const wrap = (original: Material): Material => {
-    if (isLens(original) || original.transparent) return hiddenMaterial;
+    if (isOpticalMaterial(original) || original.transparent) return hiddenMaterial;
     const existing = materials.get(original);
     if (existing) return existing;
     const material = original.clone(), hook = original.onBeforeCompile, key = original.customProgramCacheKey;
+    // A translucent frame material (a crystal arm, authored roles) keeps its transmission on the overlay: Three draws
+    // it in the same transmissive list as the arm itself after the one pre-pass of the render call, so the overlay
+    // shows the camera through the crystal exactly like the arm and lifts it in front of the head proxy. The clone is
+    // a new object, so it must be registered as frame itself or the transmission rule would make it optical and
+    // hair occlusion, clipping and the lens layers would treat it as a lens.
+    if (isFrameMaterial(original)) markFrameMaterial(material);
     material.depthWrite = false; material.depthTest = true; material.transparent = false; material.alphaToCoverage = false;
     material.onBeforeCompile = function(shader, backend) {
       hook.call(this, shader, backend);
@@ -367,7 +390,10 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       const overlay = original.clone(false);
       overlay.material = Array.isArray(original.material) ? original.material.map(wrap) : wrap(original.material);
       overlay.name = original.name + ' near-temple overlay';
-      overlay.renderOrder = 1; overlay.visible = false;
+      // A translucent arm's overlay shows the hardware inside it through its look-through image; drawn after the opaque
+      // overlays, it is never overwritten by the bare hardware at the same lifted depth.
+      overlay.renderOrder = (Array.isArray(original.material) ? original.material : [original.material]).some(isTranslucentFrameMaterial) ? 2 : 1;
+      overlay.visible = false;
       overlay.userData = {...original.userData, templeVisibilityOverlay: true};
       overlay.onBeforeRender = (backend, _scene, renderCamera, _geometry, material) => {
         restoreColorWrites();
@@ -375,7 +401,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         pendingColorWrites.set(material, material.colorWrite);
         // Scene.onBeforeRender identifies the caller's actual output target.
         // Three's internal transmission target is entered without that callback.
-        material.colorWrite = material.colorWrite && entryTargets.has(renderCamera)
+        material.colorWrite = material.colorWrite && !explicitLensInput && entryTargets.has(renderCamera)
           && backend.getRenderTarget() === entryTargets.get(renderCamera);
       };
       overlay.onAfterRender = () => restoreColorWrites();
@@ -397,6 +423,20 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   };
   scene.onBeforeRender = sceneBeforeRender;
   return {
+    /** Apply the same inner-arm exclusions to the owned canonical opaque input. */
+    withLensInput<T>(draw: () => T): T {
+      const previous = explicitLensInput;
+      explicitLensInput = true;
+      try {return draw();} finally {explicitLensInput = previous; restoreColorWrites();}
+    },
+    /** The translucent look-through image (translucent-look-through.ts): overlays draw at full relief up to the drop
+     *  distance and not beyond. A translucent overlay applies the relief coverage itself when it samples the image, so
+     *  hardware relieved inside it is attenuated once, as it is without the crystal, not twice. */
+    withLookThroughInput<T>(draw: () => T): T {
+      const relief = uniforms.templeVisibilityRelief.value, saved = relief.clone();
+      relief.set(saved.y, saved.y + .01);
+      try {return draw();} finally {relief.copy(saved);}
+    },
     get configuration(): TempleVisibilityConfiguration | null { return configuration ? copyConfiguration(configuration) : null; },
     set(value: TempleVisibilityConfiguration | null): void {
       if (disposed) throw new Error('Temple visibility is disposed.');
@@ -412,6 +452,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       frontalUniforms.templeFrontalCameraSource.value = null;
       frontalUniforms.templeExcludeArmsFromLensInput.value = value?.excludeArmsFromLensInput ? 1 : 0;
       frontalUniforms.templeInternalLensInput.value = 0;
+      internalLensInput = value?.internalTransmissionIsLensInput ?? true;
       const contact = value?.cheekContact;
       frontalUniforms.templeCheekCount.value = contact?.polygon.length ?? 0;
       frontalUniforms.templeCheekTransitionPx.value = value?.cheekTransitionPx ?? 0;

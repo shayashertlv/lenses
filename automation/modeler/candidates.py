@@ -79,13 +79,19 @@ class Candidate:
         return "observed"
 
     def valid(self) -> bool:
-        """Contract ok and loaded in the AR renderer with at least one optical mesh."""
+        """Contract ok and loaded in the AR renderer with at least one optical mesh, inside a harness run that
+        validated: ``summary.ar_report_valid`` (``observe.summarize`` through ``bsa.archeck.validate_ar_result``:
+        run status, console errors, source snapshot, the candidate's GLB sha, every AR view rendered and hashed)
+        must be True. An observation without the key - every one written before 2026-09-27 - is invalid on
+        purpose: a row inside a failed run was never evidence, and there is no vacuous success."""
         e, o = self.export, self.observation
         if not e or not (e.get("contract") or {}).get("ok"):
             return False
         if not o or not o.get("ar"):
             return False
         m = o["ar"].get("models", {}).get("candidate", {})
+        if (o.get("summary") or {}).get("ar_report_valid") is not True:
+            return False
         # the runtime's temple continuity check is a gate of the visual bar (both BSA rejects failed it): a candidate
         # whose temples the runtime cuts short is not a valid deliverable
         return bool(m.get("runtime_compatible")) and (m.get("optical_meshes_detected") or 0) >= 1 and not m.get("continuity_failure")
@@ -108,21 +114,35 @@ class Candidate:
         None when the candidate is not valid or no fit view was measured."""
         if not self.valid():
             return None
+        weights = self.score_weights()
         s = (self.observation or {}).get("summary", {})
         terms, wsum = 0.0, 0.0
         views = (self.observation or {}).get("views", {})
         for vid, v in views.items():
             if "contour_mean_mm" not in v:
                 continue
-            w = SCORE_WEIGHTS.get(v["view"], 0.1)
+            w = weights.get(v["view"], 0.1)
             terms += w * v["contour_mean_mm"]
             wsum += w
-        if "lens_outline_mean_mm" in s:
-            terms += SCORE_WEIGHTS["lens_outline"] * s["lens_outline_mean_mm"]
-            wsum += SCORE_WEIGHTS["lens_outline"]
+        if "lens_outline_mean_mm" in s and weights.get("lens_outline", 0.0) > 0:
+            terms += weights["lens_outline"] * s["lens_outline_mean_mm"]
+            wsum += weights["lens_outline"]
         if wsum == 0:
             return None
         return round(terms / wsum, 4)
+
+    def score_weights(self) -> dict:
+        """The job's frozen incumbent weights (``evaluation_protocol.json``): the intake review may take the lens
+        outline out of the score when the measured outline is not trusted; the constant otherwise."""
+        try:
+            proto = self.root.parents[1] / "evaluation_protocol.json"
+            if proto.exists():
+                w = (json.loads(proto.read_text(encoding="utf-8")).get("incumbent_rule") or {}).get("weights")
+                if isinstance(w, dict) and w:
+                    return {k: float(v) for k, v in w.items()}
+        except Exception:  # noqa: BLE001 - an unreadable protocol falls back to the constant
+            pass
+        return dict(SCORE_WEIGHTS)
 
     def summary(self) -> dict:
         out = {"id": self.id, "status": self.status(), "valid": self.valid(), "score_mm": self.score(),

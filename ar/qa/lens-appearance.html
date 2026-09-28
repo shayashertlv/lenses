@@ -1,0 +1,190 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Lens appearance conformance</title>
+<style>
+body{font:14px system-ui;margin:24px;background:#edf0f3;color:#1b2430}h1{font-size:24px;margin-bottom:6px}p{max-width:900px}.cases{display:grid;grid-template-columns:repeat(2,490px);gap:14px}.case{padding:12px;background:white;border:1px solid #ccd4de;border-radius:8px}.views{display:flex;gap:8px}.case figure{margin:6px 0}.case img{width:148px;height:148px}.case strong{display:block}.case small{display:block;color:#4e5c6b}.status{padding:12px;background:white;white-space:pre-wrap}canvas{display:none}
+</style>
+<h1>Lens appearance: export and GPU conformance</h1>
+<p>Controlled fixtures, independent transmitted background and reflected environment. The same material response drives visible color and transmission output. This page tests the response contract; it does not prove physical coating recovery, roughness illumination or live AR integration.</p>
+<div class="status" id="status">Running…</div><div class="cases" id="cases"></div>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {LENS_RESPONSE_GLSL, createLensAppearanceUniforms, evaluateLensAppearance,
+  readMaterialLensAppearance, isLensAppearanceMaterial} from '../src/eyewear/lens-appearance.ts';
+
+const renderer = new THREE.WebGLRenderer({antialias:false, preserveDrawingBuffer:true});
+renderer.setPixelRatio(1); renderer.setSize(224,224); renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.NoToneMapping;
+const vertex=`varying vec2 vLensUv; varying vec3 vLensNormal, vLensPosition;
+void main(){vLensUv=uv; vLensNormal=normalMatrix*normal; vec4 p=modelViewMatrix*vec4(position,1.0);
+vLensPosition=p.xyz; gl_Position=projectionMatrix*p;}`;
+const fragment=`${LENS_RESPONSE_GLSL}
+uniform vec3 probeBackground,probeReflection; uniform int probeMode,probeGrid,probeCount,probeAngleCount,probeFlip;
+uniform float probeAngles[16]; varying vec2 vLensUv; varying vec3 vLensNormal,vLensPosition;
+void main(){float v=vLensUv.y; float angle=degrees(acos(clamp(abs(dot(normalize(vLensNormal),normalize(-vLensPosition))),0.0,1.0)));
+if(probeGrid==1){int ix=int(floor(vLensUv.x*float(probeCount))); int iy=int(floor(vLensUv.y*float(probeAngleCount)));
+v=float(min(ix,probeCount-1))/float(probeCount-1); angle=probeAngles[min(iy,probeAngleCount-1)];}
+if(probeFlip==1)v=1.0-v;
+LensResponse response=evaluateLensResponse(v,angle);
+vec3 color=response.transmission*probeBackground+response.reflectance*probeReflection;
+if(probeMode==1)color=response.transmission; if(probeMode==2)color=response.reflectance; if(probeMode==3)color=response.absorption;
+gl_FragColor=vec4(color,1.0);
+#include <colorspace_fragment>
+}`;
+function material(appearance){
+ return new THREE.ShaderMaterial({name:'Canonical lens response conformance',vertexShader:vertex,fragmentShader:fragment,
+ side:THREE.DoubleSide,toneMapped:false,uniforms:{...createLensAppearanceUniforms(appearance),
+ probeBackground:{value:new THREE.Vector3()},probeReflection:{value:new THREE.Vector3()},probeMode:{value:0},
+ probeGrid:{value:1},probeCount:{value:9},probeAngleCount:{value:7},probeAngles:{value:new Float32Array(16)},probeFlip:{value:0}}});
+}
+function target(width,height){return new THREE.WebGLRenderTarget(width,height,{type:THREE.FloatType,
+ minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true,colorSpace:THREE.LinearSRGBColorSpace});}
+function read(scene,camera,buffer){renderer.setRenderTarget(buffer);renderer.setClearColor(0,0);renderer.clear();renderer.render(scene,camera);
+ const result=new Float32Array(buffer.width*buffer.height*4);renderer.readRenderTargetPixels(buffer,0,0,buffer.width,buffer.height,result);renderer.setRenderTarget(null);return result;}
+const error=(a,b)=>Math.max(...a.map((value,index)=>Math.abs(value-b[index])));
+const canonical=value=>JSON.stringify(value,(_key,item)=>item && typeof item==='object' && !Array.isArray(item)
+ ? Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
+function uniformColors(mat,env){mat.uniforms.probeBackground.value.fromArray(env.background_linear_rgb);mat.uniforms.probeReflection.value.fromArray(env.reflected_linear_rgb);}
+
+// Independent analytic oracle for the intentionally narrow 60 x 45 mm test-sheet contract.
+// Do not infer expected UVs/normals from the same attributes used by the shader.
+function verifyFixtureSurface(mesh){
+ const positions=mesh.geometry.getAttribute('position'),uv=mesh.geometry.getAttribute('uv'),normals=mesh.geometry.getAttribute('normal');
+ if(!positions||!uv||!normals||positions.count!==uv.count||positions.count!==normals.count)throw Error('Fixture attributes missing');
+ const identity=new THREE.Matrix4();
+ if(mesh.matrixWorld.elements.some((x,i)=>Math.abs(x-identity.elements[i])>1e-8))throw Error('Fixture transform changed');
+ let maximum=0,minU=1,minV=1,maxU=0,maxV=0;
+ for(let i=0;i<positions.count;i++){
+   const x=positions.getX(i),y=positions.getY(i),z=positions.getZ(i),u=uv.getX(i),v=uv.getY(i);
+   const expectedNormal=new THREE.Vector3(2*.006*x/.030**2,2*.006*y/.0225**2,1).normalize();
+   const expectedZ=.006*(1-(x/.030)**2-(y/.0225)**2);
+   const deviations=[u-(x/.060+.5),v-(y/.045+.5),(z-expectedZ)/.060,
+     normals.getX(i)-expectedNormal.x,normals.getY(i)-expectedNormal.y,normals.getZ(i)-expectedNormal.z];
+   if(deviations.some(x=>!Number.isFinite(x)))throw Error('Nonfinite fixture attributes');
+   maximum=Math.max(maximum,...deviations.map(Math.abs));minU=Math.min(minU,u);maxU=Math.max(maxU,u);minV=Math.min(minV,v);maxV=Math.max(maxV,v);
+ }
+ if(maximum>2e-6||Math.abs(minU)>1e-6||Math.abs(minV)>1e-6||Math.abs(maxU-1)>1e-6||Math.abs(maxV-1)>1e-6)
+   throw Error('Fixture UV, normal or metric geometry differs from independent analytic surface');
+ return maximum;
+}
+
+async function run(){
+ const bundle=await (await fetch('/__lens-fixtures/cases.json')).json(), report={schema:'lens-gpu-conformance-v1',status:'running',
+ limits:['An isolated Three.js GPU path using the AR source module; live TryOnRenderer is not integrated.',
+ 'Uniform reflection environments do not test roughness convolution or recover product optical parameters.',
+ 'Fixtures use a thin effective response without ray displacement, multiple internal reflections or back-side asymmetry.'],
+ cases:[],negativeControls:[],renderer:renderer.getContext().getParameter(renderer.getContext().RENDERER)};
+ const expectedCases=['clear','neutral_tint','saturated_tint','vertical_gradient','multi_stop_gradient','strong_neutral_mirror','strong_colored_mirror','angular_coating','mirrored_gradient','total_mirror'];
+ const expectedEnvironments=['neutral_gray','dark_mirror','black','white','colored_studio','transmission_only'];
+ const exactIds=(entries,expected)=>entries.length===expected.length&&new Set(entries.map(x=>x.id)).size===expected.length&&expected.every(id=>entries.some(x=>x.id===id));
+ if(!exactIds(bundle.cases,expectedCases)||!exactIds(bundle.environments,expectedEnvironments))throw Error('Conformance case/environment coverage changed');
+ const scene=new THREE.Scene(), camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);camera.position.z=2;
+ const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.MeshBasicMaterial());scene.add(plane);
+ const grid=target(9,7), loader=new GLTFLoader();
+ for(const entry of bundle.cases){
+   const response=await fetch('/__lens-fixtures/'+entry.model);
+   if(!response.ok)throw Error(entry.id+': exported GLB could not be fetched');
+   const bytes=await response.arrayBuffer();
+   const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
+   if(digest!==entry.model_sha256)throw Error(entry.id+': exported GLB hash does not match fixture manifest');
+   const asset=await loader.parseAsync(bytes,''); const meshes=[];
+   asset.scene.traverse(o=>{if(o.isMesh)meshes.push(o);});
+   if(meshes.length!==1||Array.isArray(meshes[0].material))throw Error(entry.id+': expected exactly one fixture mesh and material');
+   const lensObject=meshes[0],source=lensObject.material;asset.scene.updateMatrixWorld(true);
+   const attributeError=verifyFixtureSurface(lensObject);
+   if(!source || !isLensAppearanceMaterial(source))throw Error(entry.id+': exported lens semantics missing');
+   const appearance=readMaterialLensAppearance(source);
+   if(canonical(appearance)!==canonical(entry.appearance))throw Error(entry.id+': descriptor changed across GLB loading');
+   if(lensObject.userData.partRole!=='lens')throw Error(entry.id+': mesh lens role lost');
+   const mat=material(appearance);plane.material=mat;
+   const angles=[...new Set(entry.samples.map(s=>s.angle_degrees))].sort((a,b)=>a-b);
+   const positions=[...new Set(entry.samples.map(s=>s.v))].sort((a,b)=>a-b);
+   const expectedAngles=[0,15,30,45,60,75,85],expectedPositions=Array.from({length:9},(_,i)=>i/8);
+   if(canonical(positions)!==canonical(expectedPositions)||canonical(angles)!==canonical(expectedAngles)||entry.samples.length!==63
+     ||new Set(entry.samples.map(s=>s.v+','+s.angle_degrees)).size!==63)throw Error('Fixture grid coverage changed; all 63 explicit samples are required');
+   mat.uniforms.probeAngles.value.set(angles);
+   const result={id:entry.id,modelSha256:digest,attributeMaxError:attributeError,cpuMaxError:0,gpuResponseMaxError:0,gpuCompositionMaxError:0,surfaceMaxError:0,surfaceSamples:0,frames:[]};
+   if(entry.id==='vertical_gradient'){
+     const uv=lensObject.geometry.getAttribute('uv'),original=uv.array.slice();
+     for(let i=0;i<uv.count;i++)uv.setY(i,1-uv.getY(i));
+     let detected=false;try{verifyFixtureSurface(lensObject);}catch{detected=true;}finally{uv.array.set(original);}
+     report.negativeControls.push({id:entry.id,mutation:'reverse exported UV gradient coordinates',detected});
+   }
+   if(entry.id==='clear'){
+     const normals=lensObject.geometry.getAttribute('normal'),original=normals.array.slice();normals.array.fill(0);
+     let detected=false;try{verifyFixtureSurface(lensObject);}catch{detected=true;}finally{normals.array.set(original);}
+     report.negativeControls.push({id:entry.id,mutation:'erase exported surface normals',detected});
+   }
+   for(const sample of entry.samples){const value=evaluateLensAppearance(appearance,sample.v,sample.angle_degrees);
+     result.cpuMaxError=Math.max(result.cpuMaxError,error(value.reflectance_rgb,sample.R),error(value.transmission_rgb,sample.T),error(value.absorption_rgb,sample.A));}
+   for(const [mode,key] of [[1,'T'],[2,'R'],[3,'A']]){
+     mat.uniforms.probeMode.value=mode;const pixels=read(scene,camera,grid);
+     for(const sample of entry.samples){const at=(angles.indexOf(sample.angle_degrees)*9+positions.indexOf(sample.v))*4;
+       result.gpuResponseMaxError=Math.max(result.gpuResponseMaxError,error([...pixels.slice(at,at+3)],sample[key]));}
+   }
+   mat.uniforms.probeMode.value=0;
+   for(const env of bundle.environments){uniformColors(mat,env);const pixels=read(scene,camera,grid);
+     for(const sample of entry.samples){const at=(angles.indexOf(sample.angle_degrees)*9+positions.indexOf(sample.v))*4;
+       result.gpuCompositionMaxError=Math.max(result.gpuCompositionMaxError,error([...pixels.slice(at,at+3)],sample.compositions[env.id]));}
+   }
+   // Negative controls compare intentionally broken output against unchanged Python reference samples.
+   if(entry.id==='vertical_gradient' || entry.id==='mirrored_gradient'){
+     mat.uniforms.probeFlip.value=1;mat.uniforms.probeMode.value=1;const pixels=read(scene,camera,grid);let maximum=0;
+     for(const sample of entry.samples){const at=(angles.indexOf(sample.angle_degrees)*9+positions.indexOf(sample.v))*4;maximum=Math.max(maximum,error([...pixels.slice(at,at+3)],sample.T));}
+     report.negativeControls.push({id:entry.id,mutation:'reverse gradient',maximumError:maximum,detected:maximum>.03});mat.uniforms.probeFlip.value=0;
+   }
+   if(entry.id==='strong_neutral_mirror'){
+     const original=mat.uniforms.uLensNormalReflectance.value.slice();mat.uniforms.uLensNormalReflectance.value=Float32Array.from(original,x=>x*.3);
+     mat.uniforms.probeMode.value=2;const pixels=read(scene,camera,grid);let maximum=0;
+     for(const sample of entry.samples){const at=(angles.indexOf(sample.angle_degrees)*9+positions.indexOf(sample.v))*4;maximum=Math.max(maximum,error([...pixels.slice(at,at+3)],sample.R));}
+     report.negativeControls.push({id:entry.id,mutation:'weaken mirror to 30%',maximumError:maximum,detected:maximum>.3});mat.uniforms.uLensNormalReflectance.value=original;
+   }
+   // Actual exported curved geometry exercises UV preservation and per-fragment incidence, including head roll.
+   const meshScene=new THREE.Scene(), group=new THREE.Group();group.add(asset.scene);meshScene.add(group);
+   const bounds=new THREE.Box3().setFromObject(asset.scene),center=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3());
+   asset.scene.position.sub(center);group.scale.setScalar(1.5/size.x);asset.scene.traverse(o=>{if(o.isMesh)o.material=mat;});
+   const view=new THREE.PerspectiveCamera(40,1,.1,10);view.position.z=3;view.lookAt(0,0,0);view.updateMatrixWorld();
+   const renderTarget=target(128,128),raycaster=new THREE.Raycaster(),normalMatrix=new THREE.Matrix3();
+   mat.uniforms.probeGrid.value=0;mat.uniforms.probeMode.value=0;
+   const environment=bundle.environments.find(e=>e.id==='colored_studio');uniformColors(mat,environment);
+   for(const [yaw,roll] of [[0,0],[35,0],[35,45]]){
+     group.rotation.set(0,THREE.MathUtils.degToRad(yaw),THREE.MathUtils.degToRad(roll));meshScene.updateMatrixWorld(true);
+     const pixels=read(meshScene,view,renderTarget);let samples=0,maximum=0;
+     for(let y=12;y<116;y+=9)for(let x=12;x<116;x+=9){
+       raycaster.setFromCamera(new THREE.Vector2((x+.5)/128*2-1,(y+.5)/128*2-1),view);
+       const hit=raycaster.intersectObject(group,true)[0];if(!hit?.uv||!hit.normal)continue;
+       const normal=hit.normal.clone().applyNormalMatrix(normalMatrix.getNormalMatrix(hit.object.matrixWorld));
+       const direction=view.position.clone().sub(hit.point).normalize();const angle=THREE.MathUtils.radToDeg(Math.acos(Math.min(1,Math.abs(normal.dot(direction)))));
+       const expected=evaluateLensAppearance(appearance,hit.uv.y,angle);
+       const color=expected.transmission_rgb.map((t,i)=>t*environment.background_linear_rgb[i]+expected.reflectance_rgb[i]*environment.reflected_linear_rgb[i]);
+       const at=(y*128+x)*4;
+       if(pixels[at+3]<.5)throw Error(entry.id+': exported surface was hit by the CPU ray but missing in the GPU render');
+       maximum=Math.max(maximum,error([...pixels.slice(at,at+3)],color));samples++;
+     }
+     if(samples<8)throw Error(entry.id+': too few geometry samples');
+     result.surfaceMaxError=Math.max(result.surfaceMaxError,maximum);result.surfaceSamples+=samples;result.frames.push({yaw,roll,samples,maximumError:maximum});
+   }
+   group.rotation.set(0,.3,0);mat.uniforms.probeMode.value=0;
+   const card=document.createElement('div');card.className='case';const title=document.createElement('strong');title.textContent=entry.label;
+   const views=document.createElement('div');views.className='views';card.append(title,views);
+   for(const [environmentId,caption] of [['transmission_only','Transmission only'],['dark_mirror','Reflection only'],['colored_studio','Colored background + light']]){
+     const env=bundle.environments.find(e=>e.id===environmentId);uniformColors(mat,env);
+     renderer.setRenderTarget(null);renderer.setClearColor(new THREE.Color().fromArray(env.background_linear_rgb),1);renderer.render(meshScene,view);
+     const figure=document.createElement('figure'),image=document.createElement('img'),label=document.createElement('small');
+     image.src=renderer.domElement.toDataURL();image.alt=entry.label+' — '+caption;label.textContent=caption;
+     figure.append(image,label);views.append(figure);
+   }
+   document.querySelector('#cases').append(card);
+   renderTarget.dispose();asset.scene.traverse(o=>o.geometry?.dispose());mat.dispose();
+   result.passed=result.cpuMaxError<1e-10&&result.gpuResponseMaxError<3e-5&&result.gpuCompositionMaxError<3e-5&&result.surfaceMaxError<.002;
+   report.cases.push(result);
+ }
+ grid.dispose();plane.geometry.dispose();
+ report.status=report.cases.length===10&&report.cases.every(c=>c.passed)&&report.negativeControls.length===5&&report.negativeControls.every(c=>c.detected)?'passed':'failed';
+ document.querySelector('#status').textContent=JSON.stringify({status:report.status,cases:report.cases.length,negativeControls:report.negativeControls.length},null,2);
+ return report;
+}
+window.lensConformance={run};
+</script>

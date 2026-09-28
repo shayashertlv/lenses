@@ -1,0 +1,19 @@
+{
+  "product_id": "tomford_ft1123d",
+  "frozen_at": "2026-09-27",
+  "written_by": "development agent from the five catalog photos, before the first measured run; evaluator-only input (the author receives the request notes only)",
+  "identity_features": [
+    "Round panto front in clear crystal acetate: the rims, bridge and endpieces are transparent (champagne-clear), the lens edges and the inner rim groove are visible through the acetate; the rim is thick (about 5 mm) and softly rounded",
+    "Simple arched saddle bridge, transparent, sitting low between the lenses; no keyhole",
+    "Flat, light brown flash-mirror lenses with a champagne-gold reflection, uniform in tone, filling the round rims; a small grey 'TOM FORD' print in the upper outer area of the right lens",
+    "Temples in clear crystal acetate, wide at the hinge and tapering to the tip, with a thin gold metal core wire visible inside along their length (in the release the temples render opaque: judge their shape and the gold accents, not their transparency)",
+    "A flat gold-tone 'T' inlay on the outer face of each temple at the hinge; a small gold oval plaque on the underside near each tip",
+    "Small gold metal hinges visible through the crystal endpieces",
+    "Overall proportions: compact round front, lens height close to lens width, slim temples bending gently down behind the ear"
+  ],
+  "conditions": {
+    "photos": "front, back, left side and a rear three-quarter view; one front three-quarter angled view held out from the author",
+    "scale": "nominal; no physical dimension supplied",
+    "translucency": "the runtime renders the front translucent (see-through) and the temples opaque; a transparent front that shows the wearer's skin through the rim is the expected look"
+  }
+}

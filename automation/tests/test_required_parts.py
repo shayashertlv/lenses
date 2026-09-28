@@ -1,4 +1,3 @@
-from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -16,7 +15,7 @@ from reconstruction.mesh import TriangleMesh, load_glb
 from reconstruction.raster import rasterize
 from reconstruction.view_scene import (PartBinding, ViewState, make_view_scene_contract,
                                       mesh_geometry_sha256, pose_scene)
-from reconstruction.required_parts import (ROLES, aggregate_required_parts,
+from reconstruction.required_parts import (aggregate_required_parts,
     build_alpha_object_support, exact_final_role_binding, exclusive_edge_matches,
     build_region_object_support, measure_required_parts, measure_view_parts, object_support_arrays, read_object_support,
     replay_required_parts, run_required_parts_stage)

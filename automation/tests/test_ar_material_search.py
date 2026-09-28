@@ -1,7 +1,6 @@
 import copy
 import unittest
 
-import numpy as np
 
 from reconstruction.ar_material_search import propose_material_candidates, select_ar_material
 from reconstruction.lens_appearance import LensAppearance, DensityKeyframe

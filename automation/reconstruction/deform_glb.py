@@ -3,7 +3,9 @@
 Only geometry in the selected scene is changed. Existing binary data, UVs,
 indices, materials, textures, extras, and node transforms are retained. Each
 node instance receives its own mesh and new geometry accessors, so shared source
-meshes/accessors cannot make one instance overwrite another.
+meshes/accessors cannot make one instance overwrite another. A node that another
+scene also reaches is cloned for the selected scene first, so unselected scenes
+keep their original node->mesh bindings (reported as cloned_shared_nodes).
 
 The callback returns (new_world_positions, world_jacobians), with Jacobian
 J[i,a,b] = d(new_position[a])/d(old_position[b]). Units are the source GLB's
@@ -183,6 +185,32 @@ def deform_glb(source: str | Path, destination: str | Path, deformation: Deforma
     for root in doc["scenes"][selected_scene].get("nodes", []):
         visit(root, np.eye(4), set())
 
+    # Rebinding a node's mesh would also deform every other scene that reaches
+    # that node. Give the selected scene private clones of each shared node (a
+    # shared node's descendants are shared too) and leave the originals bound.
+    elsewhere = set()
+    for scene_index, scene in enumerate(doc["scenes"]):
+        if scene_index == selected_scene:
+            continue
+        stack = list(scene.get("nodes", []))
+        while stack:
+            index = stack.pop()
+            if type(index) is int and 0 <= index < len(nodes) and index not in elsewhere:
+                elsewhere.add(index)
+                stack.extend(nodes[index].get("children", []))
+    shared = sorted(set(transforms) & elsewhere)
+    clone_of = {}
+    for index in shared:
+        clone_of[index] = len(nodes)
+        nodes.append(deepcopy(nodes[index]))
+    if shared:
+        for index in transforms:
+            node = nodes[clone_of.get(index, index)]
+            if "children" in node:
+                node["children"] = [clone_of.get(child, child) for child in node["children"]]
+        scene = doc["scenes"][selected_scene]
+        scene["nodes"] = [clone_of.get(root, root) for root in scene.get("nodes", [])]
+
     def append(values, source_accessor, position=False):
         values = np.asarray(values, dtype="<f4")
         if not np.isfinite(values).all():
@@ -205,7 +233,8 @@ def deform_glb(source: str | Path, destination: str | Path, deformation: Deforma
     discrete_reports = []
     original_mesh_count = len(doc.get("meshes", []))
     for node_index, world in transforms.items():
-        node = nodes[node_index]
+        target = clone_of.get(node_index, node_index)
+        node = nodes[target]
         if "mesh" not in node:
             continue
         if "skin" in node or node.get("weights"):
@@ -264,7 +293,7 @@ def deform_glb(source: str | Path, destination: str | Path, deformation: Deforma
             determinant_max = max(determinant_max, float(determinant.max()))
         node["mesh"] = len(doc["meshes"])
         doc["meshes"].append(mesh)
-        changed_nodes.append(node_index)
+        changed_nodes.append(target)
     if not changed_nodes:
         raise ValueError("Selected scene contains no deformable geometry")
     doc["buffers"][0]["byteLength"] = len(binary)
@@ -278,6 +307,7 @@ def deform_glb(source: str | Path, destination: str | Path, deformation: Deforma
     destination.write_bytes(encoded)
     return {"source_sha256": hashlib.sha256(raw).hexdigest(), "output_sha256": hashlib.sha256(encoded).hexdigest(),
             "selected_scene": selected_scene, "changed_node_indices": changed_nodes,
+            "cloned_shared_nodes": [{"source_node_index": index, "clone_node_index": clone_of[index]} for index in shared],
             "new_mesh_instances": len(doc["meshes"]) - original_mesh_count,
             "primitives": primitive_count, "vertices": vertex_count,
             "max_displacement_world_units": max_displacement,

@@ -17,7 +17,7 @@ from bsa import archeck, contract, core, export, pipeline, texture
 from bsa import look as L
 from reconstruction.lens_appearance import LensAppearance
 from reconstruction.segmented_astra_job import run_astra_job
-from reconstruction.segmented_astra_transport import PROMPT, AstraClient, validate_tools_schema
+from reconstruction.segmented_astra_transport import AstraClient, validate_tools_schema
 from test_segmented_astra_transport import HTTP, result
 
 PROD = "fixture"

@@ -1,5 +1,4 @@
 """Source-bound material proposals, immutable recovery, and geometry invariants."""
-from copy import deepcopy
 import json
 from pathlib import Path
 import tempfile

@@ -136,8 +136,8 @@ class DegenerateTriangles(unittest.TestCase):
         self.assertEqual(len(parts["frame"]["F"]), 2)
         self.assertTrue(any("degenerate" in n for n in notes))
 
-    def test_closed_mesh_keeps_its_zero_area_face(self):
-        # a closed tetrahedron plus one zero-area face on an edge: dropping it would open the mesh, so it is kept
+    def test_a_closed_mesh_is_kept_whole(self):
+        # a closed tetrahedron (four non-degenerate faces): assemble keeps every face and reports nothing degenerate
         V = np.array([[0, 0, 0], [10, 0, 0], [0, 10, 0], [0, 0, 10]], float)
         F = np.array([[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]])
         self.assertTrue(mexport.is_closed(V, F))

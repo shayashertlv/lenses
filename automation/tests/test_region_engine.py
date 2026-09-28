@@ -239,7 +239,8 @@ class LocalSAM2CompatibilityTests(unittest.TestCase):
         corpus_path = root / "data/refinement-corpus.json"
         corpus = json.loads(corpus_path.read_text())
         source = (corpus_path.parent / corpus["cases"][0]["photos"]["front"]).resolve(strict=True)
-        weights = Path("C:/Users/Shay/.cache/huggingface/hub/models--facebook--sam2.1-hiera-base-plus/snapshots/b7320756a13354e7530a63935656d35b2f91a290/sam2.1_hiera_base_plus.pt")
+        weights = Path(os.environ.get("LENSES_SAM2_WEIGHTS") or Path.home() / ".cache/huggingface/hub/models--facebook--sam2.1-hiera-base-plus"
+                       "/snapshots/b7320756a13354e7530a63935656d35b2f91a290/sam2.1_hiera_base_plus.pt")
         with Image.open(source) as original:
             image = np.asarray(ImageOps.exif_transpose(original).convert("RGB"))
         h, w = image.shape[:2]

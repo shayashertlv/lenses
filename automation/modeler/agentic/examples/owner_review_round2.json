@@ -1,0 +1,171 @@
+{
+ "note": "round 2 of the owner review example: the lens tint toward lens_transmission_recommended (0.59, 0.485, 0.38), then request_delivery",
+ "owner_text": "the lens colour is too light, the frame is too clear",
+ "steps": [
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or2_edit",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or2_edit",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or2_edit"
+     },
+     {
+      "type": "message",
+      "id": "msg_or2_edit",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling edit_program.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or2_edit",
+      "call_id": "or2_edit",
+      "name": "edit_program",
+      "status": "completed",
+      "arguments": "{\"base_revision_id\": \"r0001\", \"modules\": {\"setup\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}, \"frame\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}, \"lenses\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}, \"temples\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}, \"hardware\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}, \"materials\": {\"mode\": \"patch\", \"content\": \"[{\\\"find\\\": \\\"transmission_top_rgb=(0.75,0.725,0.67),transmission_bottom_rgb=(0.75,0.725,0.67)\\\", \\\"replace\\\": \\\"transmission_top_rgb=(0.59,0.485,0.38),transmission_bottom_rgb=(0.59,0.485,0.38)\\\"}]\", \"expected_base_sha256\": \"18ffc71001bd2d7f6457cd30fdb9f46e2524b0d0e1ee0ebed6f6f81630ebdffe\"}, \"finish\": {\"mode\": \"inherit\", \"content\": null, \"expected_base_sha256\": null}}, \"rationale\": \"the owner: the lens colour is too light; the tint set to lens_transmission_recommended\", \"expected_changes\": [\"a darker, warmer lens\"], \"build_now\": true, \"deliver_if_compatible\": false}"
+     }
+    ]
+   },
+   "expect": {
+    "has_text": [
+     "Owner review, round 1",
+     "lens_transmission_recommended"
+    ]
+   }
+  },
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or2_fetch",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or2_fetch",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or2_fetch"
+     },
+     {
+      "type": "message",
+      "id": "msg_or2_fetch",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling fetch_pending_images.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or2_fetch",
+      "call_id": "or2_fetch",
+      "name": "fetch_pending_images",
+      "status": "completed",
+      "arguments": "{\"max_images\": 14}"
+     }
+    ]
+   },
+   "expect": {
+    "contains_call_output": "or2_edit"
+   }
+  },
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or2_deliver",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or2_deliver",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or2_deliver"
+     },
+     {
+      "type": "message",
+      "id": "msg_or2_deliver",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling request_delivery.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or2_deliver",
+      "call_id": "or2_deliver",
+      "name": "request_delivery",
+      "status": "completed",
+      "arguments": "{\"revision_id\": \"r0002\", \"status_claim\": \"improved\", \"note\": \"lens tint changed to the recommended transmission; the crystal body left as it was\"}"
+     }
+    ]
+   },
+   "expect": {
+    "contains_call_output": "or2_fetch"
+   }
+  }
+ ]
+}

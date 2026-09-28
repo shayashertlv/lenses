@@ -10,8 +10,11 @@ the number of optical meshes the runtime detected (``instance.lensMeshes`` - a m
 has transmission > 0 or a canonical lens descriptor), whether the synthetic fit settled, and the
 paths of the render PNGs.
 
-The harness marks the WHOLE run ``failed`` when the page logs any console error; per-model rows
-are still reported (``harness_status`` says which).
+The harness marks the WHOLE run ``failed`` when the page logs any console error, a response >= 400,
+a blocked external request or an unstable source snapshot; per-model rows are still reported
+(``harness_status`` says which). ``validate_ar_result`` is the ONE reading of a result every consumer
+uses: a row is only evidence when the run around it succeeded and the renders it names exist, hash and
+cover exactly the requested views. Until 2026-09-27 every consumer judged the rows alone (fail-open).
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from .core import AUTOMATION
 
 DEFAULT_AR_VIEWS = ({"id": "front", "yaw_degrees": 0}, {"id": "angled", "yaw_degrees": 35})
 HARNESS_TIMEOUT_S = 1800
+HARNESS_OK_STATUSES = ("rendered", "inspected")     # the harness's own success words (provider-comparison.mjs)
 
 
 def safe_id(name: str) -> str:
@@ -85,16 +89,21 @@ def write_manifest(glb_paths: dict[str, str | Path], out_dir: Path, *, ar_views=
 
 
 def parse_report(out_dir: Path, ids: dict[str, str]) -> dict:
-    """Per-model summary of a harness report.json."""
+    """Per-model summary of a harness report.json. ``renders`` are the actual-ar PNG paths (kept for the sheet
+    writers); ``render_files`` carry each one's view and the sha256 the harness wrote for its bytes, which
+    ``validate_ar_result`` checks against the file."""
     out_dir = Path(out_dir)
     report_path = out_dir / "report.json"
     if not report_path.exists():
-        return {"harness_status": "no_report", "models": {n: {"status": "not_run"} for n in ids.values()}}
+        return {"harness_status": "no_report", "harness_errors": [], "source_snapshot_stable": None,
+                "models": {n: {"status": "not_run", "runtime_compatible": False} for n in ids.values()}}
     report = json.loads(report_path.read_text(encoding="utf-8"))
     models = {}
     for row in report.get("cases", []):
         name = ids.get(row.get("id"), row.get("id"))
-        renders = [str(out_dir / r["filename"]) for r in row.get("renders", []) if r.get("mode") == "actual-ar"]
+        render_files = [{"view": r.get("view"), "filename": r.get("filename"), "path": str(out_dir / r["filename"]),
+                         "sha256": r.get("sha256"), "environment": r.get("environment")}
+                        for r in row.get("renders", []) if r.get("mode") == "actual-ar"]
         models[name] = {
             "status": row.get("status"),
             "runtime_compatible": row.get("status") == "runtime_compatible",
@@ -104,8 +113,12 @@ def parse_report(out_dir: Path, ids: dict[str, str]) -> dict:
                                        for l in (r.get("spatial") or {}).get("lenses", [])}),
             "synthetic_fit_ready": row.get("synthetic_fit_ready"),
             "continuity_failure": row.get("continuity_failure"),
+            # the key's presence: null means measured and passed, absence a harness that predates the measurement
+            # (until 2026-09-28 both read as None and a fresh pass was recorded as 'measured': false)
+            "continuity_measured": "continuity_failure" in row,
             "load_milliseconds": row.get("load_milliseconds"),
-            "renders": renders,
+            "renders": [r["path"] for r in render_files],
+            "render_files": render_files,
             "model_sha256": row.get("model_sha256"),
             "file_bytes": row.get("file_bytes"),
         }
@@ -115,6 +128,91 @@ def parse_report(out_dir: Path, ids: dict[str, str]) -> dict:
             "rejected_count": report.get("rejected_count"), "harness_errors": report.get("errors", []),
             "source_snapshot_stable": report.get("source_snapshot_stable"), "report_path": str(report_path),
             "models": models}
+
+
+def _file_sha256(path: str | Path) -> str | None:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def validate_ar_result(result: dict, *, expected_models: dict[str, str | None], expected_views,
+                       require_optical: bool = True) -> dict:
+    """The one fail-closed reading of a harness result (the ``run`` / ``parse_report`` shape plus ``returncode``).
+
+    Global: returncode 0, harness_status in ``HARNESS_OK_STATUSES``, no harness_errors, source_snapshot_stable True,
+    a nonempty model list that is exactly ``expected_models``. Per model: status ``runtime_compatible`` with no
+    error, ``model_sha256`` equal to the expected sha when one is given, the actual-ar renders covering EXACTLY
+    ``expected_views`` (one existing file per view whose bytes hash to the sha256 the harness wrote; a subset, zero
+    views, an extra view or an unhashed render fails) and, with ``require_optical``, at least one optical mesh.
+    Nothing here defaults to success: a missing key is a failure, so a legacy or hand-built result is invalid.
+    Returns {"ok", "harness_ok", "reasons", "models": {name: {"ok", "reasons"}}}: ``harness_ok`` is the run-level
+    verdict alone (``reasons``), ``ok`` = harness_ok and every model ok. A consumer of ONE row of a batch needs
+    ``harness_ok and models[name]["ok"]`` (another product's rejection is that product's failure, not the run's)."""
+    reasons: list[str] = []
+    views = [str(v) for v in (expected_views or [])]
+    if result.get("returncode") != 0:
+        reasons.append(f"harness returncode {result.get('returncode')!r}")
+    if result.get("harness_status") not in HARNESS_OK_STATUSES:
+        reasons.append(f"harness status {result.get('harness_status')!r}")
+    if result.get("harness_errors"):
+        reasons.append(f"harness errors: {len(result['harness_errors'])} (first: {str(result['harness_errors'][0])[:160]})")
+    if result.get("source_snapshot_stable") is not True:
+        reasons.append(f"source snapshot stable {result.get('source_snapshot_stable')!r}")
+    if not expected_models:
+        reasons.append("no models expected")
+    if not views:
+        reasons.append("no views requested")
+    if len(set(views)) != len(views):
+        reasons.append("duplicate view ids requested")
+    models = result.get("models") or {}
+    if not models:
+        reasons.append("empty result")
+    unexpected = sorted(set(models) - set(expected_models or {}))
+    if unexpected:
+        reasons.append(f"unexpected models {unexpected[:4]}")
+    per_model = {}
+    for name, sha in (expected_models or {}).items():
+        mr: list[str] = []
+        row = models.get(name)
+        if row is None:
+            per_model[name] = {"ok": False, "reasons": ["missing from the report"]}
+            continue
+        if row.get("status") != "runtime_compatible":
+            mr.append(f"status {row.get('status')!r}")
+        if row.get("error"):
+            mr.append(f"error: {str(row['error'])[:160]}")
+        if sha is not None and row.get("model_sha256") != sha:
+            mr.append(f"model sha256 {str(row.get('model_sha256'))[:12]} != expected {sha[:12]}")
+        if require_optical and (row.get("optical_meshes_detected") or 0) < 1:
+            mr.append(f"optical meshes detected {row.get('optical_meshes_detected')!r}")
+        files = row.get("render_files")
+        if files is None:
+            mr.append("renders carry no sha256 (not a parse_report row)")
+            files = []
+        by_view: dict[str, list[dict]] = {}
+        for r in files:
+            by_view.setdefault(str(r.get("view")), []).append(r)
+        extra = sorted(set(by_view) - set(views))
+        if extra:
+            mr.append(f"unexpected views {extra[:4]}")
+        for v in views:
+            got = by_view.get(v, [])
+            if len(got) != 1:
+                mr.append(f"view {v!r}: {len(got)} renders (need exactly 1)")
+                continue
+            r = got[0]
+            if not r.get("sha256"):
+                mr.append(f"view {v!r}: render without sha256")
+            elif not r.get("path") or not Path(r["path"]).is_file():
+                mr.append(f"view {v!r}: render file missing")
+            elif _file_sha256(r["path"]) != r["sha256"]:
+                mr.append(f"view {v!r}: render bytes do not match the report's sha256")
+        per_model[name] = {"ok": not mr, "reasons": mr}
+    harness_ok = not reasons
+    ok = harness_ok and bool(per_model) and all(m["ok"] for m in per_model.values())
+    return {"ok": ok, "harness_ok": harness_ok, "reasons": reasons, "models": per_model}
 
 
 def run(glb_paths: dict[str, str | Path], out_dir: str | Path, *, ar_views=DEFAULT_AR_VIEWS,
@@ -147,8 +245,12 @@ def run(glb_paths: dict[str, str | Path], out_dir: str | Path, *, ar_views=DEFAU
     result = parse_report(out_dir, ids)
     result.update({"returncode": returncode, "command": cmd, "manifest_path": str(manifest), "out_dir": str(out_dir),
                    "stderr_tail": stderr[-2000:] if stderr else "", "stdout_tail": stdout[-1500:] if stdout else ""})
-    result["all_compatible_with_lenses"] = all(m.get("runtime_compatible") and (m.get("optical_meshes_detected") or 0) > 0
-                                               for m in result["models"].values())
+    # the manifest's sha256 is the hash of the bytes we handed over; the report's row must name the same bytes
+    expected = {ids[c["id"]]: c.get("model_sha256") for c in json.loads(manifest.read_text(encoding="utf-8"))["cases"]}
+    result["validation"] = validate_ar_result(result, expected_models=expected, expected_views=[v["id"] for v in ar_views])
+    # the key predates the validator; its meaning is now the validator's verdict (a failed run, an unstable snapshot
+    # or a missing render is not compatibility, whatever the rows say)
+    result["all_compatible_with_lenses"] = bool(result["validation"]["ok"])
     (out_dir / "archeck.json").write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")
     return result
 

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -50,6 +51,17 @@ class Gates(unittest.TestCase):
                                      heldout=None, evaluation=_eval("reject", majors=0), input_flags=[], protocol_calibrated=True)
         self.assertEqual(s2["automatic_verdict"], "reject")
 
+    def test_inconsistent_inputs_status_is_gone(self):
+        # removed 2026-09-29: 'lens_count_mismatch' had no producer, so 'inconsistent_inputs' was unreachable. A legacy
+        # flag of that name is now an ordinary input flag: it is listed nowhere and an unclean result is best_effort.
+        from modeler import owner_verdict
+        self.assertNotIn("inconsistent_inputs", mevaluate.STATUSES)
+        s = mevaluate.decide_status(candidate_valid=True, metrics={"front_contour_mean_mm": 0.3, "lens_outline_mean_mm": 1.1, "ar_continuity_failure": None},
+                                    heldout=None, evaluation=_eval(), input_flags=["lens_count_mismatch", "low_resolution"], protocol_calibrated=True)
+        self.assertEqual(s["status"], "best_effort")
+        self.assertIn("input flags: ['low_resolution']", s["reasons"])
+        self.assertEqual(owner_verdict.non_owner_status({"status_detail": {"clean": False, "input_flags": ["lens_count_mismatch"]}}), "best_effort")
+
 
 class CalibrationSet(unittest.TestCase):
     def _asset(self, jobs: Path, job: str, kind: str, name: str, *, lens: float, continuity, evaluation: dict | None):
@@ -57,9 +69,15 @@ class CalibrationSet(unittest.TestCase):
         (d / "observe").mkdir(parents=True)
         (d / "observe" / "observation.json").write_text(json.dumps({"summary": {"front_contour_mean_mm": 0.2, "lens_outline_mean_mm": lens,
                                                                                  "ar_runtime_compatible": True, "ar_continuity_failure": continuity}}), encoding="utf-8")
+        # the asset's bytes: a stored evaluation counts only when bound to them (asset_sha256 + meta.protocol; 2026-09-27)
+        glb = d / ("b.glb" if kind == "baseline" else "model.glb")
+        glb.write_bytes(f"glb-{job}-{name}".encode())
+        if kind == "baseline":
+            (d / "baseline.json").write_text(json.dumps({"glb": str(glb)}), encoding="utf-8")
         if evaluation is not None:
             (d / "evaluation_v2").mkdir()
-            (d / "evaluation_v2" / "evaluation.json").write_text(json.dumps({"evaluation": evaluation}), encoding="utf-8")
+            (d / "evaluation_v2" / "evaluation.json").write_text(json.dumps({"evaluation": evaluation, "asset_sha256": hashlib.sha256(glb.read_bytes()).hexdigest(),
+                                                                             "meta": {"protocol": mevaluate.PROTOCOL}}), encoding="utf-8")
         return {"kind": kind, "job": job, "product_id": "p", "candidate" if kind == "delivered" else "baseline": name,
                 "asset_sha256": name * 8, "verdict": None, "note": ""}
 

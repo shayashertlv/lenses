@@ -1,0 +1,177 @@
+{
+ "note": "round 1 of the owner review example: test-pilot-002 r0006's exact modules as r0001, then request_delivery",
+ "source": {
+  "job": "test-pilot-002",
+  "revision": "r0006",
+  "modules_sha256": {
+   "setup": "32891ef9a59af53da756162da40e8396b72553de390423472561e98ec5c3eff6",
+   "frame": "2f7a414bac9b48c2b419466236165106d9b88f51282d25362fa4d54c882ebb6f",
+   "lenses": "60c555902c8d84df8e13d939af73fe03c95daf443b588ff542bf72f85d7b7558",
+   "temples": "a84b1d4abd3e0ad46bc9e023201140326c700c773fad7d4de837a66bc6bae18f",
+   "hardware": "4e650a3e21b01a10ab12f56620cb7219c894c3dcede1877c537e9dc0520a3ec4",
+   "materials": "18ffc71001bd2d7f6457cd30fdb9f46e2524b0d0e1ee0ebed6f6f81630ebdffe",
+   "finish": "df0171ad937846ce2d1f99ff0a3043a1d9a217f4dac2ecc04bc3caad586ebd46"
+  }
+ },
+ "steps": [
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or1_edit",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or1_edit",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or1_edit"
+     },
+     {
+      "type": "message",
+      "id": "msg_or1_edit",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling edit_program.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or1_edit",
+      "call_id": "or1_edit",
+      "name": "edit_program",
+      "status": "completed",
+      "arguments": "{\"base_revision_id\": null, \"modules\": {\"setup\": {\"mode\": \"replace\", \"content\": \"gl.reset_scene()\\ncrystal_objects=[]\\ngold_objects=[]\\ndark_objects=[]\\nprint_objects=[]\\nlens_objects=[]\\ntemple_paths={}\\n\", \"expected_base_sha256\": null}, \"frame\": {\"mode\": \"replace\", \"content\": \"lens_outlines=[]\\nfor i in range(2):\\n    p=gl.evidence_outline('front','lenses',i,'outline_mm')\\n    p=gl.resample_closed(p,256)\\n    # Low pass the unreliable reflection-clipped nasal arc without replacing the measured panto.\\n    ft=np.fft.rfft(p,axis=0)\\n    ft[7:]=0\\n    p=np.fft.irfft(ft,n=256,axis=0)\\n    lens_outlines.append(gl.ensure_ccw(p))\\nouter=gl.front_outline(lens_outlines,rim_width_mm=3.1,bridge_top_crown_mm=3.4,bridge_bottom_mm=0.6,bridge_top_mm=4.3,bridge_bottom_attach_mm=-1.0,endpiece_flare_mm=10.0,n=256)\\nouter=gl.smooth_closed(gl.resample_closed(outer,768),iterations=12,alpha=0.5)\\n# Fuller molded nasal cheeks and a narrower, rounded plain bridge opening.\\nx=outer[:,0].copy(); y=outer[:,1].copy()\\nw=np.exp(-((y+3.0)/7.0)**2)*np.clip((14.0-np.abs(x))/6.0,0,1)\\nw*=np.clip((3.3-y)/2.5,0,1)\\nouter[:,0]-=np.sign(x)*1.9*w*np.minimum(np.abs(x)/5.0,1.0)\\nouter[:,1]-=0.85*w*np.minimum((np.abs(x)/7.0)**2,1.0)\\nouter=gl.smooth_closed(outer,iterations=4,alpha=0.5)\\nfront=gl.plate_with_holes(outer,lens_outlines,0,5.5,'Crystal one piece front','frame','front',interior_spacing=2.4,smooth=False)\\nbm=gl.bmesh_of(front)\\nbmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=0.0001)\\nbmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))\\ngl.write_bmesh(front,bm)\\nbm.free()\\ngl.bevel(front,0.95,segments=4)\\ngl.apply_modifiers(front)\\nbm=gl.bmesh_of(front)\\nbmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=0.0001)\\nbmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))\\ngl.write_bmesh(front,bm)\\nbm.free()\\n# Continuous back-surface bulges are part of the same front solid, not added pads.\\nfor v in front.data.vertices:\\n    x,y,z=v.co\\n    nasal=np.exp(-((abs(x)-9.3)/3.3)**2-((y+8.5)/8.0)**2)\\n    back=max(0,min(1,-z/5.5))**2\\n    v.co.z-=3.1*nasal*back\\ngl.wrap_cylinder(front,700,z_apex=0)\\ngl.shade_smooth(front)\\ncrystal_objects.append(front)\\n\", \"expected_base_sha256\": null}, \"lenses\": {\"mode\": \"replace\", \"content\": \"for i,side in enumerate(['R','L']):\\n    ob=gl.lens_solid(lens_outlines[i],-1.05,'Flash lens '+side,'lens_'+side,base_curve=0,thickness=1.5,spacing=2.3)\\n    gl.wrap_cylinder(ob,700,z_apex=0)\\n    lens_objects.append(ob)\\n\", \"expected_base_sha256\": null}, \"temples\": {\"mode\": \"replace\", \"content\": \"for sign,side in [(1,'R'),(-1,'L')]:\\n    part='temple_'+side\\n    controls=[(sign*67.0,3.5,-5.5),(sign*68.0,3.5,-13),(sign*70.0,3.1,-42),(sign*70.5,2.4,-75),(sign*69.0,1.2,-106),(sign*66.8,-2.2,-122),(sign*63.2,-13.0,-143),(sign*60.0,-26,-159),(sign*59.4,-29.5,-163.5),(sign*59.2,-30.3,-164.5)]\\n    path=gl.smooth_path(controls,n=112,iterations=4)\\n    d=-path[:,2]\\n    widths=np.interp(d,[5,18,55,100,125,155,161,164.5],[3.8,3.5,3.3,3.0,3.1,3.7,3.6,0.6])\\n    heights=np.interp(d,[5,18,55,80,105,125,155,161,164.5],[6.1,5.9,5.8,7.3,5.3,6.3,7.5,7.3,0.6])\\n    end=np.clip((d-161.0)/3.6,0,1)\\n    cap=np.sqrt(np.maximum(0.004,1-end**2))\\n    widths=np.where(d>161,3.6*cap,widths)\\n    heights=np.where(d>161,7.3*cap,heights)\\n    ob=gl.tube_along_path(path,widths,heights,'Crystal temple '+side,part,'acetate_'+side,radius=np.minimum(0.85,widths*0.35),n=20)\\n    crystal_objects.append(ob)\\n    temple_paths[side]=path\\n\", \"expected_base_sha256\": null}, \"hardware\": {\"mode\": \"replace\", \"content\": \"for sign,side in [(1,'R'),(-1,'L')]:\\n    part='temple_'+side\\n    hinge=gl.box((sign*65.4,3.7,-7.3),(2.2,4.4,3.2),'Hinge base '+side,part,'hinge_'+side,bevel_mm=0.22)\\n    gold_objects.append(hinge)\\n    anchor=gl.box((sign*63.2,3.7,-8.6),(3.8,4.5,0.8),'Rear hinge anchor '+side,'frame','hinge_anchor_'+side,bevel_mm=0.12)\\n    gold_objects.append(anchor)\\n    for yy in [2.3,5.1]:\\n        rivet=gl.cylinder((sign*62.5,yy,-8.95),(sign*62.5,yy,-9.12),0.36,'Anchor fastener '+side+str(yy),'frame','hinge_anchor_'+side,segments=16)\\n        gold_objects.append(rivet)\\n    for j in range(3):\\n        y=1.6+j*1.45\\n        ob=gl.cylinder((sign*64.8,y,-9.8),(sign*64.8,y+1.3,-9.8),1.13,'Hinge knuckle '+side+str(j),part,'hinge_'+side,segments=20)\\n        gold_objects.append(ob)\\n    screw=gl.cylinder((sign*64.8,6.0,-9.8),(sign*64.8,6.2,-9.8),0.79,'Screw '+side,part,'hinge_'+side,segments=20)\\n    gold_objects.append(screw)\\n    slot=gl.box((sign*64.8,6.21,-9.8),(1.0,0.06,0.16),'Screw slot '+side,part,'screw_slot_'+side)\\n    dark_objects.append(slot)\\n    for x,w,h,label in [(65.3,1.05,4.8,'upright'),(66.7,2.8,1.05,'return')]:\\n        ob=gl.box((sign*x,3.5,-0.06),(w,h,0.18),'T front '+label+' '+side,'frame','T_'+side,bevel_mm=0.04)\\n        gl.apply_modifiers(ob)\\n        gl.wrap_cylinder(ob,700,z_apex=0)\\n        gold_objects.append(ob)\\n    path=temple_paths[side]\\n    stem_path=path[-path[:,2]<26].copy()\\n    stem_path[:,0]+=sign*1.7\\n    ob=gl.tube_along_path(stem_path,0.20,1.05,'T side stem '+side,part,'T_'+side,radius=0.065,n=8)\\n    gold_objects.append(ob)\\n    # Fine reinforcement remains physically within the outer half of the acetate.\\n    q=path[2:-7].copy()\\n    d=-q[:,2]\\n    q[:,0]+=sign*0.85\\n    widths=np.interp(d,[8,22,32,147,158],[0.75,0.75,0.6,0.6,0.45])\\n    heights=np.interp(d,[8,22,32,147,158],[3.5,3.5,0.75,0.75,0.5])\\n    core=gl.tube_along_path(q,widths,heights,'Gold embedded core '+side,part,'core_'+side,radius=0.18,n=12)\\n    gold_objects.append(core)\\n    k=len(path)-7\\n    tangent,sidev,upv=gl.path_frames(path)\\n    c=path[k]+np.array([sign*1.77,0,0])\\n    normal=np.array([sign,0.,0.]); a=tangent[k]; b=upv[k]\\n    sections=[gl.section_rect(c+normal*t,7.7,2.9,a,b,radius=1.3,n=32) for t in [-0.10,0.10]]\\n    plaque=gl.loft(sections,'Capsule tip plaque '+side,part,'tip_plaque_'+side)\\n    gold_objects.append(plaque)\\n    lettering=gl.text_mesh('TOM FORD',0.9,0.035,'Tip inscription '+side,part,'tip_print_'+side,font='sans',align='CENTER')\\n    gl.apply_modifiers(lettering)\\n    gl.apply_transform(lettering)\\n    for v in lettering.data.vertices:\\n        u,vv,zz=v.co.copy()\\n        v.co=Vector(c+normal*(0.115+zz)+a*u+b*(vv-0.25))\\n    bm=gl.bmesh_of(lettering)\\n    bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=0.0001)\\n    bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))\\n    gl.write_bmesh(lettering,bm); bm.free()\\n    print_objects.append(lettering)\\nmark=gl.lens_print(lens_objects[0],'TOM FORD',2.45,(44.5,4.4),'Lens print',font='sans',thickness=0.055,standoff=0.07,rotation_deg=-15)\\ngl.apply_transform(mark)\\nzmin=min(v.co.z for v in mark.data.vertices)\\nfor v in mark.data.vertices:\\n    oldz=v.co.z\\n    v.co.z=-1.05-(700-math.sqrt(700**2-v.co.x**2))+0.10+(oldz-zmin)\\nprint_objects.append(mark)\\n\", \"expected_base_sha256\": null}, \"materials\": {\"mode\": \"replace\", \"content\": \"crystal=gl.material_translucent('Colourless polished crystal',(253,253,251),thickness_mm=5.5,roughness=0.055,ior=1.49,transmission=1.0)\\nfor ob in crystal_objects: gl.assign(ob,crystal)\\ngold=gl.material_metal('Pale champagne gold',(218,192,132),roughness=0.23)\\nfor ob in gold_objects: gl.assign(ob,gold)\\ndark=gl.material_pbr('Hardware grooves',(83,72,48),roughness=0.5)\\nfor ob in dark_objects: gl.assign(ob,dark)\\nink=gl.material_pbr('Muted taupe lens ink',(148,133,107),roughness=0.75)\\nfor ob in print_objects: gl.assign(ob,ink)\\noptics=gl.lens_optics(transmission_top_rgb=(0.75,0.725,0.67),transmission_bottom_rgb=(0.75,0.725,0.67),mirror_rgb=(0.23,0.20,0.15),roughness=0.055)\\nlensmat=gl.material_lens('Light brown gold flash',optics)\\nfor ob in lens_objects: gl.assign(ob,lensmat)\\n\", \"expected_base_sha256\": null}, \"finish\": {\"mode\": \"replace\", \"content\": \"gl.set_bridge_underside((0,0.6,-2.7))\\ngl.set_temple_clip_z(-154)\\n\", \"expected_base_sha256\": null}}, \"rationale\": \"r0006 of test-pilot-002, unchanged\", \"expected_changes\": [\"the owner's accepted-in-principle pilot model\"], \"build_now\": true, \"deliver_if_compatible\": false}"
+     }
+    ]
+   }
+  },
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or1_fetch",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or1_fetch",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or1_fetch"
+     },
+     {
+      "type": "message",
+      "id": "msg_or1_fetch",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling fetch_pending_images.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or1_fetch",
+      "call_id": "or1_fetch",
+      "name": "fetch_pending_images",
+      "status": "completed",
+      "arguments": "{\"max_images\": 14}"
+     }
+    ]
+   },
+   "expect": {
+    "contains_call_output": "or1_edit"
+   }
+  },
+  {
+   "endpoint": "responses",
+   "body": {
+    "id": "resp_or1_deliver",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-6-astra",
+    "usage": {
+     "input_tokens": 1200,
+     "input_tokens_details": {
+      "cached_tokens": 800,
+      "cache_write_tokens": 100
+     },
+     "output_tokens": 300,
+     "output_tokens_details": {
+      "reasoning_tokens": 200
+     },
+     "total_tokens": 1500
+    },
+    "output": [
+     {
+      "type": "reasoning",
+      "id": "rs_or1_deliver",
+      "summary": [],
+      "encrypted_content": "opaque-rs_or1_deliver"
+     },
+     {
+      "type": "message",
+      "id": "msg_or1_deliver",
+      "role": "assistant",
+      "status": "completed",
+      "phase": "commentary",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Calling request_delivery.",
+        "annotations": []
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_or1_deliver",
+      "call_id": "or1_deliver",
+      "name": "request_delivery",
+      "status": "completed",
+      "arguments": "{\"revision_id\": \"r0001\", \"status_claim\": \"best_effort\", \"note\": \"r0006 rebuilt unchanged for the owner's review\"}"
+     }
+    ]
+   },
+   "expect": {
+    "contains_call_output": "or1_fetch"
+   }
+  }
+ ]
+}

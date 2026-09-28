@@ -1,12 +1,18 @@
 /** Camera-space eyewear shadows. Only the observed face receives them; the camera image stays on the GPU. */
 import {
-  Box3, Color, DepthTexture, DoubleSide, LinearFilter, Matrix3, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial,
+  Box3, Color, DepthTexture, DoubleSide, FloatType, FrontSide, LinearFilter, Matrix3, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial,
   NearestFilter, NoBlending, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial, SRGBColorSpace,
   UnsignedIntType, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
 import type {BufferGeometry, CanvasTexture, DataTexture, Material, Object3D, PerspectiveCamera, Texture, WebGLRenderer} from 'three';
 import {validateTempleClip} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
+import {createLensAppearanceUniforms, LENS_INCIDENCE_GLSL, LENS_RESPONSE_GLSL, readMaterialLensAppearance} from '../eyewear/lens-appearance.ts';
+import type {LensAppearanceDescriptor} from '../eyewear/lens-appearance.ts';
+import {EFFECTIVE_OPTICAL_GROUP_PROFILE as EFFECTIVE_GROUP_PROFILE, isOpticalMaterial} from '../eyewear/optical-material.ts';
+import {OpticalLayerOverflowError, OpticalOverflowChecker} from './layer-overflow.ts';
+import {NearestOpticalGroups} from './nearest-optical-groups.ts';
+import {volumeAttenuationRgb} from './eyewear-volume.ts';
 
 export interface ShadowSettings {
   enabled: boolean;
@@ -37,35 +43,168 @@ export function lensShadowTransmission(material: MeshPhysicalMaterial): readonly
   const ior = Number.isFinite(material.ior) ? Math.max(1, material.ior) : 1.5;
   const reflection = ((ior - 1) / (ior + 1)) ** 2;
   const transmitted = bounded(material.transmission, 1, 1) * (1 - reflection) ** 2;
-  const thickness = Math.max(0, Number.isFinite(material.thickness) ? material.thickness : 0);
-  const distance = material.attenuationDistance;
-  const exponent = Number.isFinite(distance) && distance > 0 ? thickness / distance : 0;
+  // The volume's Beer-Lambert term in asset units, whatever the scene's unit conversion: the one the pass-B twin uses.
+  const volume = volumeAttenuationRgb(material);
   return [0, 1, 2].map(index => {
     const channel = (['r', 'g', 'b'] as const)[index]!;
-    const tint = bounded(material.color[channel], 1, 1);
-    const attenuation = bounded(material.attenuationColor[channel], 1, 1);
-    return tint * transmitted * (exponent > 0 ? attenuation ** exponent : 1);
+    return bounded(material.color[channel], 1, 1) * transmitted * volume[index]!;
   }) as [number, number, number];
 }
 
 const MAP_SIZE = 512;
+/** Bounded per-light-ray interface capacity, checked with an additional peel. */
+export const MAX_CANONICAL_SHADOW_LAYERS = 4;
 const LIGHT_DIRECTION = new Vector3(-10, 15, 20).normalize();
 const LIGHT_RIGHT = new Vector3().crossVectors(new Vector3(0, 1, 0), LIGHT_DIRECTION).normalize();
 const LIGHT_UP = new Vector3().crossVectors(LIGHT_DIRECTION, LIGHT_RIGHT).normalize();
 
 interface CasterRecord {source: Mesh; mesh: Mesh}
+interface EffectiveShadowGroup {id: string; meshes: Mesh[]; descriptor: string}
 interface ClipUniforms {
   clipEnabled: {value: number}; clipCutoffs: {value: Vector2}; clipFades: {value: Vector2};
+}
+interface PeelUniforms {
+  shadowPeelPreviousColor: {value: Texture | null};
+  shadowPeelOpaqueDepth: {value: Texture | null}; shadowPeelIndex: {value: number};
+}
+
+export interface ShadowOpticalLayerDiagnostics {
+  readonly enabled: boolean;
+  readonly maxLayers: number;
+  readonly overflow: boolean;
+  readonly overflowCheck: 'not_run' | 'per_frame_gpu_reduction';
+}
+
+/** The owning importer validates each declared canonical profile; this pass
+ * additionally requires actual intrinsic UV and normals. Effective groups use
+ * their nearest closed/multipart event and reciprocal front/rear transmission.
+ * Fallback glTF colors, textures, opacity and Fresnel are not optical inputs. */
+function canonicalCasterMaterial(appearance: LensAppearanceDescriptor, geometry: BufferGeometry,
+  peel: PeelUniforms, groupId: string | null): ShaderMaterial {
+  const position = geometry.getAttribute('position'), uv = geometry.getAttribute('uv'), normal = geometry.getAttribute('normal');
+  if (!position || !uv || uv.itemSize !== 2 || uv.count !== position.count
+      || !normal || normal.itemSize !== 3 || normal.count !== position.count) {
+    throw new Error('Canonical lens shadows require matching TEXCOORD_0 and surface normals.');
+  }
+  for (let i = 0; i < position.count; i++) {
+    const coordinates = [uv.getX(i), uv.getY(i)], normals = [normal.getX(i), normal.getY(i), normal.getZ(i)];
+    if (!coordinates.every(Number.isFinite) || coordinates[1]! < 0 || coordinates[1]! > 1
+        || !normals.every(Number.isFinite) || Math.hypot(...normals) === 0) {
+      throw new Error('Canonical lens shadows require finite intrinsic UV.y in [0,1] and nonzero finite normals.');
+    }
+  }
+  const material = new ShaderMaterial({
+    name: 'Canonical lens RGB transmission caster',
+    side: groupId === null ? FrontSide : DoubleSide,
+    transparent: false, blending: NoBlending, depthTest: true, depthWrite: true, toneMapped: false,
+    uniforms: {...createLensAppearanceUniforms(appearance), ...peel,
+      ...(groupId === null ? {} : {shadowGroupCapture: {value: 0}, shadowGroupNearest: {value: null as Texture | null}})},
+    vertexShader: `
+      varying float vLensIntrinsicV;
+      varying vec3 vLensLightNormal, vLensLightFrontAxis;
+      void main() {
+        vLensIntrinsicV = uv.y;
+        // modelViewMatrix/normalMatrix belong to the SHADOW light camera here,
+        // including the current posed source matrix copied onto this caster.
+        // Match Three's visible normal_vertex path: normalize before
+        // interpolation, then normalize the interpolated normal in the fragment.
+        vLensLightNormal = normalize(normalMatrix * normal);
+        vLensLightFrontAxis = normalize((modelViewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `${LENS_RESPONSE_GLSL}
+      ${groupId === null ? '' : LENS_INCIDENCE_GLSL}
+      uniform sampler2D shadowPeelPreviousColor, shadowPeelOpaqueDepth;
+      uniform float shadowPeelIndex;
+      ${groupId === null ? '' : 'uniform float shadowGroupCapture; uniform sampler2D shadowGroupNearest;'}
+      varying float vLensIntrinsicV;
+      varying vec3 vLensLightNormal, vLensLightFrontAxis;
+      void main() {
+        ${groupId === null ? '' : `
+        // Capture and peel use this SAME shader/material/vertex arithmetic.
+        // This branch precedes opaque/peel tests and all optical evaluation.
+        if (shadowGroupCapture > 0.5) {
+          gl_FragColor = vec4(0.0, 0.0, 0.0, gl_FragCoord.z);
+          return;
+        }`}
+        vec2 shadowUV = gl_FragCoord.xy / ${MAP_SIZE}.0;
+        ${groupId === null ? '' : `
+        // 1 means empty; zero is a valid captured fragment depth.
+        float nearestDepth = texture2D(shadowGroupNearest, shadowUV).a;
+        if (nearestDepth >= 1.0 || gl_FragCoord.z != nearestDepth) discard;`}
+        float opaqueDepth = texture2D(shadowPeelOpaqueDepth, shadowUV).r;
+        if (gl_FragCoord.z >= opaqueDepth) discard;
+        if (shadowPeelIndex > 0.5) {
+          // Store exact fragment depth in float alpha, avoiding a quantized
+          // depth-texture epsilon that could repeat or silently omit a layer.
+          float previousDepth = texture2D(shadowPeelPreviousColor, shadowUV).a;
+          if (gl_FragCoord.z <= previousDepth) discard;
+        }
+        // The orthographic light's incident direction is +Z in its view frame.
+        // Material side follows transformed source +Z, independently of normals.
+        // Front sheets retain their existing front-only incidence convention.
+        float cosine = clamp(${groupId === null ? 'normalize(vLensLightNormal).z' : 'abs(normalize(vLensLightNormal).z)'}, 0.0, 1.0);
+        // Asset UVs are validated; match the visible pass's endpoint-roundoff guard.
+        bool rearSide = normalize(vLensLightFrontAxis).z < 0.0;
+        LensResponse response = evaluateLensResponse(clamp(vLensIntrinsicV, 0.0, 1.0), ${groupId === null ? 'degrees(acos(cosine))' : 'lensIncidenceAngleDegrees(cosine)'}, rearSide);
+        // Alpha stores exact light depth, including for a total mirror (T=0).
+        gl_FragColor = vec4(response.transmission, gl_FragCoord.z);
+      }`,
+  });
+  material.userData.kind = 'lens';
+  material.userData.lensAppearanceSchema = 1;
+  material.userData.incidenceFrame = 'shadow_light_orthographic_view';
+  if (groupId !== null) {
+    material.userData.canonicalLensProfile = EFFECTIVE_GROUP_PROFILE;
+    material.userData.canonicalOpticalGroupId = groupId;
+  }
+  return material;
+}
+
+/** Material identity never substitutes for the owning asset's explicit group. */
+function effectiveGroupId(source: Material, mesh: Mesh): string | null {
+  const materialProfile = source.userData.canonicalLensProfile, nodeProfile = mesh.userData.lensSurfaceProfile;
+  if (materialProfile !== undefined && nodeProfile !== undefined && materialProfile !== nodeProfile) {
+    throw new Error('Canonical shadow material and node profiles disagree.');
+  }
+  const profile = materialProfile ?? nodeProfile;
+  if (profile !== undefined && profile !== 'front_sheet_v1' && profile !== EFFECTIVE_GROUP_PROFILE) {
+    throw new Error('Unsupported canonical shadow optical profile.');
+  }
+  if (profile !== EFFECTIVE_GROUP_PROFILE) {
+    if (source.userData.canonicalOpticalGroupId !== undefined || mesh.userData.opticalGroupId !== undefined) {
+      throw new Error('An optical shadow group ID requires the effective group profile.');
+    }
+    return null;
+  }
+  const materialId = source.userData.canonicalOpticalGroupId, nodeId = mesh.userData.opticalGroupId;
+  if (materialId !== undefined && nodeId !== undefined && materialId !== nodeId) {
+    throw new Error('Canonical shadow material and node group IDs disagree.');
+  }
+  const id = materialId ?? nodeId;
+  if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) {
+    throw new Error('Effective canonical shadows require a stable explicit optical group ID.');
+  }
+  if (Array.isArray(mesh.material)) throw new Error('Effective optical group shadow members require a single material.');
+  if (!readMaterialLensAppearance(source)) throw new Error('Effective optical group shadows require a canonical descriptor.');
+  return id;
 }
 
 /** Builds an independent material, retaining the source geometry and its material groups. No original render
  * hooks run in this pass: visibility overlays and the camera-replacement shaders are not shadow casters. */
-function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUniforms): ShaderMaterial {
-  const lens = source instanceof MeshPhysicalMaterial && source.transmission > 0;
+function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUniforms,
+  peel: PeelUniforms, groupId: string | null): ShaderMaterial {
+  const appearance = readMaterialLensAppearance(source);
+  if (appearance) return canonicalCasterMaterial(appearance, geometry, peel, groupId);
+  const lens = isOpticalMaterial(source);
   const physical = source instanceof MeshPhysicalMaterial ? source : null;
+  // A crystal / translucent frame (authored roles) casts a material-coloured shadow like a lens, but it is still
+  // clipped with the arms and never enters the canonical optical layers.
+  const translucent = !lens && physical !== null && physical.transmission > 0;
+  const transmissive = lens || translucent;
   const standard = source instanceof MeshStandardMaterial ? source : null;
   const map = standard?.map ?? null;
-  const transmissionMap = lens ? physical!.transmissionMap : null;
+  const transmissionMap = transmissive ? physical!.transmissionMap : null;
   const alphaMap = standard?.alphaMap ?? null;
   const maps = [map, transmissionMap, alphaMap];
   const uvNames = maps.map(texture => {
@@ -74,14 +213,15 @@ function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUn
   });
   const attributes = [...new Set(uvNames.filter(name => name !== 'uv'))].map(name => `attribute vec2 ${name};`).join('\n');
   for (const texture of maps) if (texture?.matrixAutoUpdate) texture.updateMatrix();
-  const transmission = lens ? lensShadowTransmission(physical!) : [0, 0, 0];
+  const transmission = transmissive ? lensShadowTransmission(physical!) : [0, 0, 0];
   const material = new ShaderMaterial({
-    name: lens ? 'Lens RGB transmission caster' : 'Opaque eyewear caster',
+    name: lens ? 'Lens RGB transmission caster' : translucent ? 'Translucent frame RGB transmission caster' : 'Opaque eyewear caster',
     side: DoubleSide, transparent: false, blending: NoBlending, depthTest: true, depthWrite: true, toneMapped: false,
     uniforms: {
       ...clip,
       baseTransmission: {value: new Vector3(...transmission as [number, number, number])},
-      lens: {value: lens ? 1 : 0}, colorMap: {value: map}, useColorMap: {value: map ? 1 : 0},
+      lens: {value: transmissive ? 1 : 0}, clipped: {value: lens ? 0 : 1},
+      colorMap: {value: map}, useColorMap: {value: map ? 1 : 0},
       colorUv: {value: map?.matrix.clone() ?? new Matrix3()},
       transmissionMap: {value: transmissionMap}, useTransmissionMap: {value: transmissionMap ? 1 : 0},
       transmissionUv: {value: transmissionMap?.matrix.clone() ?? new Matrix3()},
@@ -101,14 +241,14 @@ function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUn
       }`,
     fragmentShader: `
       uniform vec3 baseTransmission;
-      uniform float lens, useColorMap, useTransmissionMap, useAlphaMap, opacity, alphaTest;
+      uniform float lens, clipped, useColorMap, useTransmissionMap, useAlphaMap, opacity, alphaTest;
       uniform float clipEnabled;
       uniform vec2 clipCutoffs, clipFades;
       uniform sampler2D colorMap, transmissionMap, alphaMap;
       varying vec2 vColorUv, vTransmissionUv, vAlphaUv, vLocalXZ;
       void main() {
         float coverage = 1.0;
-        if (lens < 0.5 && clipEnabled > 0.5) {
+        if (clipped > 0.5 && clipEnabled > 0.5) {
           float cutoff = vLocalXZ.x < 0.0 ? clipCutoffs.x : clipCutoffs.y;
           float fade = vLocalXZ.x < 0.0 ? clipFades.x : clipFades.y;
           if (vLocalXZ.y < cutoff) discard;
@@ -121,13 +261,14 @@ function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUn
         if (alpha < max(alphaTest, 0.001)) discard;
         vec3 transmitted = baseTransmission * tint.rgb;
         if (useTransmissionMap > 0.5) transmitted *= texture2D(transmissionMap, vTransmissionUv).r;
-        if (lens < 0.5) transmitted = vec3(1.0 - coverage);
-        // Alpha labels lenses; nearest depth chooses one physical surface, avoiding double tint from the
-        // front/back of a closed lens. Empty texels are distinguished by their cleared depth.
+        // A clipped translucent frame fades to full transmission (no shadow) where its arm is cut away.
+        transmitted = lens < 0.5 ? vec3(1.0 - coverage) : mix(vec3(1.0), transmitted, coverage);
+        // Alpha labels transmissive casters; nearest depth chooses one physical surface, avoiding double tint
+        // from the front/back of a closed lens. Empty texels are distinguished by their cleared depth.
         gl_FragColor = vec4(clamp(transmitted, 0.0, 1.0), lens);
       }`,
   });
-  material.userData.kind = lens ? 'lens' : 'frame';
+  material.userData.kind = lens ? 'lens' : translucent ? 'translucent-frame' : 'frame';
   return material;
 }
 
@@ -149,13 +290,16 @@ const receiverVertex = `
 
 const receiverFragment = `
   uniform sampler2D sourceImage, shadowColor, shadowDepth, hairMask;
+  #ifdef CANONICAL_SHADOW_LAYERS
+    ${Array.from({length: MAX_CANONICAL_SHADOW_LAYERS}, (_, i) => `uniform sampler2D canonicalLayer${i};`).join('\n')}
+  #endif
   uniform mat3 sourceUv, maskUv;
   uniform vec2 viewport, strengths;
   uniform float mapSpanCm, depthSpanCm, softness, hasHairMask;
   const float shadowMapSize = ${MAP_SIZE}.0;
   varying vec4 vLightPosition;
 
-  vec3 blockedLight(vec2 uv, float receiverDepth) {
+  vec3 nearestBlockedLight(vec2 uv, float receiverDepth) {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec3(0.0);
     float depth = texture2D(shadowDepth, uv).r;
     float separationCm = (receiverDepth - depth) * depthSpanCm;
@@ -168,6 +312,34 @@ const receiverFragment = `
     vec3 reduction = transmission.a > 0.5
       ? strengths.y * (vec3(1.0) - transmission.rgb) : strengths.x * (vec3(1.0) - transmission.rgb);
     return reduction * contact * falloff;
+  }
+
+  #ifdef CANONICAL_SHADOW_LAYERS
+    vec3 layerTransmission(vec4 layer, float receiverDepth) {
+      // Float alpha is the original light-space fragment depth; 1 is empty.
+      // A sheet behind the receiver must never tint it, regardless of strength.
+      if (layer.a >= 1.0 || layer.a >= receiverDepth) return vec3(1.0);
+      float separationCm = (receiverDepth - layer.a) * depthSpanCm;
+      float contact = smoothstep(0.025, max(0.14, 2.0 * mapSpanCm / shadowMapSize), separationCm);
+      float falloff = 1.0 - smoothstep(4.0, 10.0, separationCm);
+      return mix(vec3(1.0), layer.rgb, contact * falloff);
+    }
+  #endif
+
+  vec3 blockedLight(vec2 uv, float receiverDepth) {
+    vec3 reduction = nearestBlockedLight(uv, receiverDepth);
+    #ifdef CANONICAL_SHADOW_LAYERS
+      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec3(0.0);
+      vec3 transmission = vec3(1.0);
+      ${Array.from({length: MAX_CANONICAL_SHADOW_LAYERS}, (_, i) =>
+        `transmission *= layerTransmission(texture2D(canonicalLayer${i}, uv), receiverDepth);`).join('\n')}
+      // The same opaque stop was applied during peeling. Independent artistic
+      // strength/contact controls are applied once to the accumulated optical
+      // response; at unit strengths an intervening opaque caster blocks fully.
+      reduction = vec3(1.0) - (vec3(1.0) - reduction)
+        * mix(vec3(1.0), transmission, strengths.y);
+    #endif
+    return reduction;
   }
 
   vec3 filteredBlockedLight(vec2 uv, float receiverDepth) {
@@ -225,6 +397,16 @@ export class EyewearShadow {
     minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: true, stencilBuffer: false,
     depthTexture: new DepthTexture(MAP_SIZE, MAP_SIZE, UnsignedIntType),
   });
+  /** Canonical RGB=T, alpha=exact light depth; last target is overflow probe. */
+  private readonly canonicalTargets: WebGLRenderTarget[] = [];
+  private readonly overflowChecker = new OpticalOverflowChecker();
+  private readonly peelUniforms: PeelUniforms = {
+    shadowPeelPreviousColor: {value: null}, shadowPeelOpaqueDepth: {value: this.shadowTarget.depthTexture},
+    shadowPeelIndex: {value: 0},
+  };
+  private opticalDiagnostics: ShadowOpticalLayerDiagnostics = {
+    enabled: false, maxLayers: MAX_CANONICAL_SHADOW_LAYERS, overflow: false, overflowCheck: 'not_run',
+  };
   private readonly compositeTarget = new WebGLRenderTarget(1, 1, {
     minFilter: LinearFilter, magFilter: LinearFilter, depthBuffer: true, stencilBuffer: false,
   });
@@ -254,6 +436,8 @@ export class EyewearShadow {
   });
   private readonly casters: CasterRecord[] = [];
   private readonly casterMaterials = new Set<ShaderMaterial>();
+  private nearestGroups: NearestOpticalGroups | null = null;
+  private readonly effectiveGroups = new Map<string, EffectiveShadowGroup>();
   private readonly clipUniforms: ClipUniforms = {
     clipEnabled: {value: 0}, clipCutoffs: {value: new Vector2(-.09, -.09)}, clipFades: {value: new Vector2(.015, .015)},
   };
@@ -286,16 +470,54 @@ export class EyewearShadow {
     receiver.name = 'Observed face shadow receiver'; receiver.frustumCulled = false;
     this.receiverScene.add(receiver);
     const quad = new Mesh(this.quadGeometry, this.copyMaterial); quad.frustumCulled = false; this.copyScene.add(quad);
-    eyewearRoot.traverse(object => {
+    try {eyewearRoot.traverse(object => {
       if (!(object instanceof Mesh) || object.userData.templeVisibilityOverlay === true || !object.geometry.hasAttribute('position')) return;
       const materials = (Array.isArray(object.material) ? object.material : [object.material]).map(material => {
-        const caster = casterMaterial(material, object.geometry, this.clipUniforms); this.casterMaterials.add(caster); return caster;
+        const groupId = effectiveGroupId(material, object);
+        const caster = casterMaterial(material, object.geometry, this.clipUniforms, this.peelUniforms, groupId);
+        this.casterMaterials.add(caster); return caster;
       });
       const mesh = new Mesh(object.geometry, Array.isArray(object.material) ? materials : materials[0]!);
       mesh.name = `Shadow caster: ${object.name}`; mesh.matrixAutoUpdate = false; mesh.frustumCulled = false;
       this.casters.push({source: object, mesh}); this.lightScene.add(mesh);
+      const groupId = materials[0]!.userData.canonicalOpticalGroupId as string | undefined;
+      if (groupId !== undefined) {
+        const descriptor = JSON.stringify(readMaterialLensAppearance(object.material as Material));
+        let group = this.effectiveGroups.get(groupId);
+        if (group && group.descriptor !== descriptor) throw new Error('Every effective shadow group requires one shared canonical descriptor.');
+        if (!group) {group = {id: groupId, meshes: [], descriptor}; this.effectiveGroups.set(groupId, group);}
+        group.meshes.push(mesh);
+      }
     });
+    if ([...this.casterMaterials].some(material => material.userData.lensAppearanceSchema === 1)) {
+      if (!renderer.extensions.has('EXT_color_buffer_float')) {
+        this.dispose();
+        throw new Error('Canonical layered shadows require EXT_color_buffer_float.');
+      }
+      if ([...this.casterMaterials].some(material => material.userData.kind === 'lens' && material.userData.lensAppearanceSchema !== 1)) {
+        this.dispose();
+        throw new Error('Canonical layered shadows cannot mix front sheets with legacy transmissive volumes.');
+      }
+      for (let i = 0; i <= MAX_CANONICAL_SHADOW_LAYERS; i++) {
+        const target = new WebGLRenderTarget(MAP_SIZE, MAP_SIZE, {type: FloatType,
+          minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: true, stencilBuffer: false,
+          depthTexture: new DepthTexture(MAP_SIZE, MAP_SIZE, FloatType)});
+        target.texture.name = i === MAX_CANONICAL_SHADOW_LAYERS ? 'Canonical shadow overflow depth'
+          : `Canonical shadow transmission and depth ${i}`;
+        target.texture.generateMipmaps = false; this.canonicalTargets.push(target);
+        if (i < MAX_CANONICAL_SHADOW_LAYERS) this.receiverMaterial.uniforms[`canonicalLayer${i}`] = {value: target.texture};
+      }
+      this.receiverMaterial.defines.CANONICAL_SHADOW_LAYERS = 1;
+      this.opticalDiagnostics = {...this.opticalDiagnostics, enabled: true};
+    }
+    if (this.effectiveGroups.size) this.nearestGroups = new NearestOpticalGroups([...this.effectiveGroups.values()]);
+    } catch (error) {this.dispose(); throw error;}
   }
+
+  /** Overflow is conservatively checked across the light map before receiver
+   * composition, including rays outside the observed face. Coplanar duplicate
+   * sheets are outside the importer-validated optical profile. */
+  get layerDiagnostics(): Readonly<ShadowOpticalLayerDiagnostics> {return {...this.opticalDiagnostics};}
 
   /** Apply the same local endpoint and terminal fade as the visible shafts. A shaft already hidden beyond a hair
    * crossing must not cast a detached shadow farther along the cheek. Lens transmission is unaffected. */
@@ -323,6 +545,10 @@ export class EyewearShadow {
       let visible = original.visible, parent = original.parent;
       while (parent && parent !== this.eyewearRoot) {visible &&= parent.visible; parent = parent.parent;}
       mesh.visible = visible;
+      if (!Array.isArray(mesh.material) && mesh.material.userData.canonicalOpticalGroupId !== undefined) {
+        mesh.material.visible = (original.material as Material).visible;
+        mesh.layers.mask = original.layers.mask; mesh.renderOrder = original.renderOrder;
+      }
       hasVisibleCaster ||= visible;
     }
     if (!hasVisibleCaster) return source;
@@ -374,21 +600,61 @@ export class EyewearShadow {
     if (this.compositeTarget.width !== width || this.compositeTarget.height !== height) this.compositeTarget.setSize(width, height);
 
     const renderer = this.renderer;
-    const saved = {
+    const gl = renderer.getContext(), saved = {
       target: renderer.getRenderTarget(), face: renderer.getActiveCubeFace(), level: renderer.getActiveMipmapLevel(),
       viewport: renderer.getViewport(new Vector4()), scissor: renderer.getScissor(new Vector4()), scissorTest: renderer.getScissorTest(),
       clearColor: renderer.getClearColor(new Color()), clearAlpha: renderer.getClearAlpha(), autoClear: renderer.autoClear,
-      xr: renderer.xr.enabled,
+      xr: renderer.xr.enabled, depthClear: gl.getParameter(gl.DEPTH_CLEAR_VALUE) as number,
     };
+    const materialVisibility = new Map([...this.casterMaterials].map(material => [material, material.visible]));
     try {
       renderer.xr.enabled = false; renderer.autoClear = false;
+      renderer.state.buffers.depth.setClear(1);
+      if (this.canonicalTargets.length) {
+        for (const material of this.casterMaterials) material.visible = materialVisibility.get(material)! && material.userData.lensAppearanceSchema !== 1;
+      }
       renderer.setRenderTarget(this.shadowTarget); renderer.setScissorTest(false); renderer.setClearColor(0xffffff, 0);
       renderer.clear(true, true, false); renderer.render(this.lightScene, this.lightCamera);
+      if (this.canonicalTargets.length) {
+        for (const material of this.casterMaterials) material.visible = materialVisibility.get(material)! && material.userData.lensAppearanceSchema === 1;
+        if (this.nearestGroups) {
+          this.nearestGroups.capture(renderer, this.lightCamera, MAP_SIZE, MAP_SIZE, sourceMaterial => {
+            const material = sourceMaterial as ShaderMaterial;
+            const capture = material.uniforms.shadowGroupCapture!, nearest = material.uniforms.shadowGroupNearest!;
+            const previousCapture = capture.value, previousNearest = nearest.value;
+            capture.value = 1;
+            // Avoid a sampler/attachment feedback loop on later frames even
+            // when shader control flow returns before sampling this texture.
+            nearest.value = null;
+            return () => {capture.value = previousCapture; nearest.value = previousNearest;};
+          });
+          for (const group of this.effectiveGroups.values()) for (const mesh of group.meshes) {
+            (mesh.material as ShaderMaterial).uniforms.shadowGroupNearest!.value = this.nearestGroups.texture(group.id);
+          }
+        }
+        for (let i = 0; i < this.canonicalTargets.length; i++) {
+          this.peelUniforms.shadowPeelIndex.value = i;
+          this.peelUniforms.shadowPeelPreviousColor.value = i > 0 ? this.canonicalTargets[i - 1]!.texture : null;
+          renderer.setRenderTarget(this.canonicalTargets[i]!); renderer.setClearColor(0xffffff, 1);
+          renderer.clear(true, true, false); renderer.render(this.lightScene, this.lightCamera);
+        }
+        this.opticalDiagnostics = {...this.opticalDiagnostics, overflow: false, overflowCheck: 'per_frame_gpu_reduction'};
+        try {
+          this.overflowChecker.assertNoOverflow(renderer, this.canonicalTargets[MAX_CANONICAL_SHADOW_LAYERS]!.texture,
+            MAP_SIZE, MAP_SIZE, 'Canonical shadow', 'one_minus_alpha');
+        } catch (error) {
+          if (error instanceof OpticalLayerOverflowError) this.opticalDiagnostics = {...this.opticalDiagnostics, overflow: true};
+          throw error;
+        }
+      }
       renderer.setRenderTarget(this.compositeTarget); renderer.setScissorTest(false); renderer.setClearColor(0x000000, 1);
       renderer.clear(true, true, false); renderer.render(this.copyScene, this.copyCamera);
       renderer.render(this.receiverScene, camera);
       return this.compositeTarget.texture;
     } finally {
+      for (const [material, visible] of materialVisibility) material.visible = visible;
+      this.peelUniforms.shadowPeelPreviousColor.value = null;
+      renderer.state.buffers.depth.setClear(saved.depthClear);
       renderer.setRenderTarget(saved.target, saved.face, saved.level);
       renderer.setViewport(saved.viewport); renderer.setScissor(saved.scissor); renderer.setScissorTest(saved.scissorTest);
       renderer.setClearColor(saved.clearColor, saved.clearAlpha); renderer.autoClear = saved.autoClear; renderer.xr.enabled = saved.xr;
@@ -399,6 +665,9 @@ export class EyewearShadow {
     if (this.disposed) return;
     this.disposed = true;
     this.shadowTarget.dispose(); this.compositeTarget.dispose();
+    for (const target of this.canonicalTargets) target.dispose();
+    this.canonicalTargets.length = 0; this.overflowChecker.dispose();
+    this.nearestGroups?.dispose(); this.nearestGroups = null; this.effectiveGroups.clear();
     this.copyMaterial.dispose(); this.receiverMaterial.dispose(); this.quadGeometry.dispose();
     for (const material of this.casterMaterials) material.dispose();
     this.casterMaterials.clear(); this.casters.length = 0;

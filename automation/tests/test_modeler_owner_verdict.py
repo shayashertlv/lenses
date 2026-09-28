@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -5,14 +6,25 @@ from pathlib import Path
 
 from modeler.owner_verdict import apply_verdict
 
+GLB_BYTES = b"delivered glb bytes"
+GLB_SHA = hashlib.sha256(GLB_BYTES).hexdigest()
 
-def _manifest(status="best_effort", overall="reject"):
+
+def _deliver(job: Path) -> Path:
+    """The delivered file on disk: a verdict is bound to its rehashed bytes (2026-09-27), not to the manifest's claim."""
+    (job / "deliverable").mkdir(parents=True, exist_ok=True)
+    glb = job / "deliverable" / "p.glb"
+    glb.write_bytes(GLB_BYTES)
+    return glb
+
+
+def _manifest(status="best_effort", overall="reject", path="x/p.glb"):
     return {
         "job": "j1", "product_id": "p", "written": "2026-09-26T00:00:00", "status": status,
         "status_detail": {"status": status, "reasons": ["evaluator overall: reject"],
                           "provisional": {"front_contour_mean_mm": {"value": 0.1, "limit_mm": 0.6, "pass": True}}},
         "visual_bar_calibrated": False, "delivered_candidate": "c0001",
-        "asset": {"path": "x/p.glb", "sha256": "ab" * 32, "bytes": 10, "triangles": 1, "contract": {"ok": True}},
+        "asset": {"path": str(path), "sha256": GLB_SHA, "bytes": len(GLB_BYTES), "triangles": 1, "contract": {"ok": True}},
         "measurements": {"author_visible": {"front_contour_mean_mm": 0.1}, "held_out": {"mean_contour_mm_all_fit_views": 0.9}},
         "evaluation": {"overall": overall, "discrepancies": [{"severity": "major"}], "identity_checklist": []},
         "scale": {"front_width_mm": 140.0, "source": "assumed_default"},
@@ -24,9 +36,9 @@ class OwnerVerdictTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             job = Path(td) / "j1"
             job.mkdir()
-            (job / "manifest.json").write_text(json.dumps(_manifest()), encoding="utf-8")
+            (job / "manifest.json").write_text(json.dumps(_manifest(path=_deliver(job))), encoding="utf-8")
             cal = Path(td) / "cal.jsonl"
-            rec = apply_verdict(job, "accept", "live AR try-on", "perfect", sha256="AB" * 32, when="2026-09-26T16:40:00+03:00",
+            rec = apply_verdict(job, "accept", "live AR try-on", "perfect", sha256=GLB_SHA.upper(), when="2026-09-26T16:40:00+03:00",
                                 calibration_file=cal, write_report=False)
             m = json.loads((job / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(m["status"], "accepted")
@@ -47,7 +59,7 @@ class OwnerVerdictTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             job = Path(td) / "j1"
             job.mkdir()
-            (job / "manifest.json").write_text(json.dumps(_manifest(overall="accept")), encoding="utf-8")
+            (job / "manifest.json").write_text(json.dumps(_manifest(overall="accept", path=_deliver(job))), encoding="utf-8")
             cal = Path(td) / "cal.jsonl"
             with self.assertRaises(ValueError):
                 apply_verdict(job, "accept", "live", sha256="cd" * 32, calibration_file=cal, write_report=False)

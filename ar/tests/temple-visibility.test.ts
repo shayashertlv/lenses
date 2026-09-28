@@ -3,12 +3,14 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 import {
   BufferAttribute, BufferGeometry, CanvasTexture, Color, DoubleSide, Group, Material, Matrix4, Mesh, MeshBasicMaterial, MeshPhysicalMaterial,
-  Euler, MeshStandardMaterial, PerspectiveCamera, Quaternion, Scene, ShaderLib, Texture, UniformsUtils,
+  Euler, LinearSRGBColorSpace, MeshStandardMaterial, PerspectiveCamera, Quaternion, Scene, ShaderLib, Texture, UniformsUtils,
   SRGBColorSpace, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
 import type {ShaderMaterial, WebGLRenderer} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {EYEWEAR} from '../src/eyewear/catalog.ts';
+import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
+import {classifyAssetMaterials, isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
 import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {
@@ -16,6 +18,7 @@ import {
   TEMPLE_VISIBILITY_METHOD, TEMPLE_VISIBILITY_PARAMETERS, validateTempleVisibility,
 } from '../src/render/temple-visibility.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
+import {createCameraTransmissionTwin, createCameraTransmissionUniforms} from '../src/render/translucent-twin.ts';
 
 const pose = (yaw: number) => new Matrix4().makeRotationY(yaw).setPosition(0, 0, -50).toArray();
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
@@ -26,6 +29,25 @@ function compile(material: Material) {
   };
   Reflect.apply(material.onBeforeCompile, material, [shader, {}]);
   return shader;
+}
+/** As Three compiles a program: the physical chunks and the output colour space it derives from the render target
+ *  (the renderer's sRGB on the canvas, the linear working space in any render target, the transmission pre-pass's too). */
+function compileFor(material: Material, outputColorSpace: string) {
+  const physical = ShaderLib.physical!;
+  const shader: Pick<CompileInput, 'uniforms' | 'vertexShader' | 'fragmentShader' | 'outputColorSpace'> = {
+    uniforms: UniformsUtils.clone(physical.uniforms), vertexShader: physical.vertexShader, fragmentShader: physical.fragmentShader,
+    outputColorSpace,
+  };
+  Reflect.apply(material.onBeforeCompile, material, [shader, {}]);
+  return shader;
+}
+/** The preprocessor gate enclosing each observed-cheek block: the contact depth and the camera RGB concealment. */
+function cheekGates(source: string): string[] {
+  return ['fwidth(cheekBehindCm)', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, cheekCameraRGB'].map(marker => {
+    const at = source.indexOf(marker);
+    assert.ok(at > 0, `${marker} is emitted`);
+    return source.slice(0, at).split('\n').map(line => line.trim()).filter(line => line.startsWith('#')).at(-1)!;
+  });
 }
 
 function fakeBackend(samples = 4) {
@@ -616,6 +638,101 @@ test('lens input exclusion preserves existing original mesh callbacks and restor
   assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
 });
 
+test('owned canonical opaque input applies exclusions and restores them after a thrown draw', t => {
+  const f = syntheticFixture(); t.after(f.dispose);
+  const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
+  const shader = compile(f.frame);
+  f.controller.set({...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true});
+  Reflect.apply(f.scene.onBeforeRender, f.scene, [f.fake.renderer, f.scene, f.camera, null]);
+  const draw = () => Reflect.apply(original.onBeforeRender, original,
+    [f.fake.renderer, f.scene, f.camera, original.geometry, f.frame, null]);
+  assert.throws(() => f.controller.withLensInput(() => {
+    draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);
+    f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);});
+    throw new Error('deliberate opaque input failure');
+  }), /deliberate opaque input failure/);
+  draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
+});
+
+test('Three\'s internal transmission pre-pass is lens input only for a legacy transmissive lens; the explicit canonical input always is', t => {
+  // A canonical lens (transmission 0) reads only the explicit input; the internal pre-pass then feeds only translucent
+  // frame materials, which must see the opaque hardware inside them. A legacy transmissive lens still samples it.
+  const f = syntheticFixture(); t.after(f.dispose);
+  const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
+  const shader = compile(f.frame);
+  const internal = new WebGLRenderTarget(8, 8); t.after(() => internal.dispose());
+  const draw = () => Reflect.apply(original.onBeforeRender, original,
+    [f.fake.renderer, f.scene, f.camera, original.geometry, f.frame, null]);
+  const internalDraw = () => {
+    f.fake.state.target = null;
+    Reflect.apply(f.scene.onBeforeRender, f.scene, [f.fake.renderer, f.scene, f.camera, null]);
+    f.fake.state.target = internal; draw();
+    const value = shader.uniforms.templeInternalLensInput!.value as number;
+    f.fake.state.target = null; return value;
+  };
+  const base = {...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true};
+  f.controller.set(base);
+  assert.equal(internalDraw(), 1, 'omitted: the internal pre-pass is lens input, exactly as before (legacy assets)');
+  f.controller.set({...base, internalTransmissionIsLensInput: true});
+  assert.equal(internalDraw(), 1, 'a legacy transmissive lens samples the internal pre-pass: arms stay out of it');
+  f.controller.set({...base, internalTransmissionIsLensInput: false});
+  assert.equal(internalDraw(), 0, 'canonical lenses: the internal pre-pass feeds only translucent frame, arms stay in it');
+  f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1, 'the explicit canonical input always excludes arms');});
+  f.fake.state.target = internal;
+  f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);});
+  assert.equal(f.controller.configuration!.internalTransmissionIsLensInput, false, 'the setting is recorded with the configuration');
+  assert.throws(() => f.controller.set({...base, internalTransmissionIsLensInput: 0} as unknown as TempleVisibilityConfiguration),
+    /internal transmission lens input setting is invalid/);
+  assert.equal(f.controller.configuration!.internalTransmissionIsLensInput, false, 'an invalid replacement changes nothing');
+});
+
+test('the look-through input draws overlays at full relief up to the drop distance, restored afterwards even when the draw throws', t => {
+  // A translucent overlay applies the relief coverage itself; hardware drawn into its look-through image at that same
+  // coverage would be attenuated twice (coverage squared) and fade before the crystal around it does.
+  const f = syntheticFixture(); t.after(f.dispose);
+  f.controller.set(createTempleVisibilityConfiguration(4, .3, 1.2));
+  const relief = compile(f.overlays[0]!.material as Material).uniforms.templeVisibilityRelief!.value as Vector2;
+  assert.deepEqual(relief.toArray(), [.3, 1.2]);
+  const seen = f.controller.withLookThroughInput(() => relief.toArray());
+  assert.deepEqual(seen, [1.2, 1.21], 'full coverage to 1.2 cm behind, none beyond: nothing the crystal overlay cannot show');
+  assert.deepEqual(relief.toArray(), [.3, 1.2]);
+  assert.throws(() => f.controller.withLookThroughInput(() => {throw new Error('deliberate look-through failure');}), /deliberate/);
+  assert.deepEqual(relief.toArray(), [.3, 1.2], 'the recorded band is restored');
+  f.controller.set(createTempleVisibilityConfiguration(4, 1, 3));
+  assert.deepEqual(f.controller.withLookThroughInput(() => relief.toArray()), [3, 3.01], 'it follows the recorded band');
+});
+
+test('a translucent arm\'s overlay draws after the opaque overlays, so relieved hardware inside it is seen through the crystal', t => {
+  const arm = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.055, 0, -.02, -.055, 0, -.08, -.057, .002, -.11,
+  ]), 3));
+  arm.setIndex([0, 1, 2]); arm.computeVertexNormals();
+  const lensGeometry = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.03, 0, -.014, -.02, 0, 0, -.02, .01, 0,
+  ]), 3));
+  const crystal = new MeshPhysicalMaterial({transmission: 1, thickness: .004}), core = new MeshStandardMaterial({color: 0xd4af37});
+  const lens = new MeshPhysicalMaterial({transmission: 0});
+  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
+    schema_version: 1, color_space: 'scene_linear_srgb_D65',
+    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
+    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
+    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
+  }}};
+  const shell = new Mesh(arm, crystal), wire = new Mesh(arm, core), lensMesh = new Mesh(lensGeometry, lens);
+  shell.userData.partRole = wire.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
+  const root = new Group().add(shell, wire, lensMesh);
+  const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
+  scene.add(eyewearPose);
+  classifyAssetMaterials(root);
+  const controller = createTempleVisibility(root, {renderer: fakeBackend().renderer, scene, camera, eyewearPose});
+  t.after(() => {controller.dispose(); arm.dispose(); lensGeometry.dispose(); crystal.dispose(); core.dispose(); lens.dispose();});
+  const overlays = root.children.filter((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true);
+  const overlayOf = (type: typeof MeshPhysicalMaterial | typeof MeshStandardMaterial) => overlays.find(overlay => overlay.material.constructor === type)!;
+  assert.equal(overlays.length, 2);
+  assert.equal(overlayOf(MeshStandardMaterial).renderOrder, 1, 'opaque hardware overlays keep their order (legacy frames included)');
+  assert.equal(overlayOf(MeshPhysicalMaterial).renderOrder, 2, 'the crystal overlay follows them at the same lifted depth');
+});
+
 test('head pass clears its mask and restores all renderer/scene state even when rendering throws', t => {
   const f = syntheticFixture(); t.after(f.dispose);
   const previousTarget = new WebGLRenderTarget(4, 4); t.after(() => previousTarget.dispose());
@@ -679,6 +796,121 @@ test('partial construction failure removes new overlays and disposes only cloned
   assert.equal(f.scene.onBeforeRender, sceneHook);
   assert.equal(f.frame.onBeforeCompile, sourceHook); assert.equal(f.frame.customProgramCacheKey, sourceKey);
   assert.equal(cloneDisposals, 1); assert.equal(sourceDisposals, 0);
+});
+
+test('a role-classified translucent arm gets a transmissive overlay clone that is frame, never optical, with the same relief as an opaque arm', t => {
+  const arm = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.055, 0, -.02, -.055, 0, -.08, -.057, .002, -.11,
+  ]), 3));
+  arm.setIndex([0, 1, 2]); arm.computeVertexNormals();
+  const lensGeometry = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.03, 0, -.014, -.02, 0, 0, -.02, .01, 0,
+  ]), 3));
+  const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0});
+  const lens = new MeshPhysicalMaterial({transmission: 0});
+  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
+    schema_version: 1, color_space: 'scene_linear_srgb_D65',
+    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
+    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
+    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
+  }}};
+  const left = new Mesh(arm, crystal), lensMesh = new Mesh(lensGeometry, lens);
+  left.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
+  const root = new Group().add(left, lensMesh);
+  const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
+  scene.add(eyewearPose);
+  const fake = fakeBackend(), classification = classifyAssetMaterials(root);
+  assert.deepEqual(classification.translucentFrameMaterials, [crystal]);
+  const clip = createTempleClip(root);
+  const controller = createTempleVisibility(root, {renderer: fake.renderer, scene, camera, eyewearPose});
+  t.after(() => {controller.dispose(); clip.dispose(); arm.dispose(); lensGeometry.dispose(); crystal.dispose(); lens.dispose();});
+  const overlays = root.children.filter((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true);
+  assert.equal(overlays.length, 1, 'the crystal arm gets an overlay; the lens does not');
+  const clone = overlays[0]!.material as MeshPhysicalMaterial;
+  assert.ok(clone instanceof MeshPhysicalMaterial); assert.notEqual(clone, crystal);
+  assert.equal(clone.visible, true, 'no hidden placeholder');
+  assert.equal(clone.transmission, 1, 'the overlay is drawn through Three\'s transmission like the arm itself');
+  assert.equal(clone.transparent, false); assert.equal(clone.depthWrite, false); assert.equal(clone.depthTest, true);
+  assert.equal(isOpticalMaterial(clone), false, 'the clone is marked frame: hair and clipping wrap it, the lens layers ignore it');
+  assert.equal(isTranslucentFrameMaterial(clone), true);
+  assert.equal(isOpticalMaterial(crystal), false); assert.equal(isOpticalMaterial(lens), true);
+  const shader = compile(clone), original = compile(crystal);
+  assert.ok(shader.uniforms.templeVisibilityHeadDepth!.value.isDepthTexture);
+  assert.ok(shader.fragmentShader.includes('gl_FragDepth = min(gl_FragCoord.z, templeLifted);'), 'the relief lifts the crystal arm in front of the head proxy');
+  assert.equal(shader.uniforms.templeClipEnabled, original.uniforms.templeClipEnabled, 'the clone inherits the live clip uniforms');
+  assert.equal(shader.uniforms.templeCheekCount, original.uniforms.templeCheekCount, 'and the cheek/lens-input uniforms');
+  assert.ok(!original.fragmentShader.includes('gl_FragDepth'));
+  assert.equal(compile(lens).uniforms.templeClipEnabled, undefined);
+  controller.set(createTempleVisibilityConfiguration(4)); controller.prepare(pose(.2));
+  assert.equal(overlays[0]!.visible, true);
+  assert.equal(classifyAssetMaterials(root).translucentFrameMaterials.length, 1, 'reclassification skips the overlay and keeps the clone marked');
+  assert.equal(isTranslucentFrameMaterial(clone), true);
+  let cloneDisposals = 0, sourceDisposals = 0;
+  clone.addEventListener('dispose', () => cloneDisposals++); crystal.addEventListener('dispose', () => sourceDisposals++);
+  controller.dispose();
+  assert.equal(cloneDisposals, 1); assert.equal(sourceDisposals, 0);
+});
+
+test('a translucent arm, its overlay clone and their twins get the observed-cheek mask on the canvas, never in the transmission pre-pass', t => {
+  const arm = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.055, 0, -.02, -.055, 0, -.08, -.057, .002, -.11,
+  ]), 3));
+  arm.setIndex([0, 1, 2]); arm.computeVertexNormals();
+  const opaqueArm = arm.clone().scale(-1, 1, 1);
+  const lensGeometry = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -.03, 0, -.014, -.02, 0, 0, -.02, .01, 0,
+  ]), 3));
+  const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0});
+  crystal.toneMapped = false;   // as renderer.ts draws every physically transmitting surface
+  const frame = new MeshStandardMaterial(), lens = new MeshPhysicalMaterial({transmission: 0});
+  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
+    schema_version: 1, color_space: 'scene_linear_srgb_D65',
+    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
+    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
+    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
+  }}};
+  const left = new Mesh(arm, crystal), right = new Mesh(opaqueArm, frame), lensMesh = new Mesh(lensGeometry, lens);
+  left.userData.partRole = 'temple'; right.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
+  const root = new Group().add(left, right, lensMesh);
+  const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
+  scene.add(eyewearPose);
+  const observedFaceSurface = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
+    -10, -10, -50, 10, -10, -50, 0, 10, -50,
+  ]), 3));
+  assert.deepEqual(classifyAssetMaterials(root).translucentFrameMaterials, [crystal]);
+  const clip = createTempleClip(root);
+  const controller = createTempleVisibility(root, {renderer: fakeBackend().renderer, scene, camera, eyewearPose, observedFaceSurface});
+  const overlayOf = (geometry: BufferGeometry) => root.children.find((child): child is Mesh => child instanceof Mesh
+    && child.userData.templeVisibilityOverlay === true && child.geometry === geometry)!.material as MeshStandardMaterial;
+  const clone = overlayOf(arm) as MeshPhysicalMaterial, opaqueOverlay = overlayOf(opaqueArm);
+  const uniforms = createCameraTransmissionUniforms();
+  const twin = createCameraTransmissionTwin(crystal, uniforms), overlayTwin = createCameraTransmissionTwin(clone, uniforms);
+  t.after(() => {
+    twin.dispose(); overlayTwin.dispose(); controller.dispose(); clip.dispose();
+    arm.dispose(); opaqueArm.dispose(); lensGeometry.dispose(); observedFaceSurface.dispose(); crystal.dispose(); frame.dispose(); lens.dispose();
+  });
+  controller.set({...createTempleVisibilityConfiguration(4), cheekContact: cheekContact(), cheekTransitionPx: 2, excludeArmsFromLensInput: true});
+  const opaqueUniforms = compileFor(frame, SRGBColorSpace).uniforms;
+  for (const [name, material] of Object.entries({crystal, clone, twin, overlayTwin})) {
+    assert.equal(material.toneMapped, false, `${name}: not tone mapped, so Three never defines TONE_MAPPING for it`);
+    const canvas = compileFor(material, SRGBColorSpace), prePass = compileFor(material, LinearSRGBColorSpace);
+    assert.deepEqual(cheekGates(canvas.fragmentShader), ['#if 1', '#if 1'],
+      `${name}: the cheek depth and the cheek mask compile on the canvas, as for an opaque arm`);
+    assert.deepEqual(cheekGates(prePass.fragmentShader), ['#if 0', '#if 0'],
+      `${name}: Three's transmission pre-pass (a linear render target) keeps its lens input exact`);
+    for (const uniform of ['templeCheekCount', 'templeCheekPolygon', 'templeCheekDepth', 'templeCheekMask', 'templeFrontalCameraSource']) {
+      assert.equal(canvas.uniforms[uniform], opaqueUniforms[uniform], `${name}: ${uniform} has the opaque arm's live owner`);
+    }
+    assert.ok(material.customProgramCacheKey().includes('|observed-cheek-v2|canvas-output-color-space'),
+      `${name}: the program key records the colour-space gate`);
+  }
+  // Opaque materials keep their exact program: the TONE_MAPPING gate, whatever the output colour space.
+  for (const [name, material] of Object.entries({frame, opaqueOverlay})) {
+    const canvas = compileFor(material, SRGBColorSpace).fragmentShader;
+    assert.deepEqual(cheekGates(canvas), ['#ifdef TONE_MAPPING', '#ifdef TONE_MAPPING'], name);
+    assert.equal(compileFor(material, LinearSRGBColorSpace).fragmentShader, canvas, `${name}: only the tone-mapping define decides`);
+    assert.ok(!material.customProgramCacheKey().includes('canvas-output-color-space'), `${name}: the program key is unchanged`);
+  }
 });
 
 for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: observed cheek masking protects the rim without changing buffers or lens exclusion`, async t => {

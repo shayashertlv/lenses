@@ -4,7 +4,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-import numpy as np
 from PIL import Image
 
 from reconstruction.photo_semantics import (build_image_manifest, infer_product_hypotheses,

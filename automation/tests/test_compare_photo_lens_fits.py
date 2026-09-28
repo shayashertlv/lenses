@@ -1,5 +1,4 @@
 """Saved-artifact comparison controls; no product-specific thresholds."""
-import copy
 from dataclasses import asdict
 import hashlib
 import json

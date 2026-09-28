@@ -1,5 +1,19 @@
 # Glasses reconstruction automation
 
+## Routes
+
+This folder holds four routes. Which one is current is the owner's decision; the paragraphs after this list describe
+`segmented_ar_v1` as its own documents last recorded it.
+
+- `segmented_ar_v1` (`reconstruction/`): [the job contract](plan/SEGMENTED_AR_JOB.md). Tripo generation and
+  segmentation, optical candidates and actual AR rendering; the 2026-09-24 route decision kept this route.
+- BSA, Best-Source Assembly (`bsa/`): [bsa/DESIGN.md](bsa/DESIGN.md). Each part comes from the source that measures it
+  best, parts are assembled by construction and every output is scored against the photos (M0 + M1, no paid calls).
+- Modeler, the legacy per-turn loop (`python -m modeler.job`): [modeler/README.md](modeler/README.md). An AI author
+  writes Blender construction programs; the host builds, observes and exports them through the BSA contract.
+- Modeler, the agentic route (`python -m modeler.agentic`): [modeler/agentic/README.md](modeler/agentic/README.md).
+  The same author as one durable, budgeted, recoverable conversation per product.
+
 Current route: [`segmented_ar_v1`](plan/SEGMENTED_AR_JOB.md), with an opt-in [canonical Astra editing stage](plan/SEGMENTED_ASTRA.md). The stage edits retained source parts and optical descriptors, recompiles through the strict optical contract, and observes the result in actual AR before promoting a checkpoint. See the Astra runbook for current validation status; implementation and runtime checks do not establish photographic accuracy. The [earlier readiness audit](plan/ASTRA_READINESS_2026_09_23.md) is historical. The separate Blender editor remains incompatible with these optical assets.
 
 Target: existing product photos and optional dimensions to an accurate-looking 3D glasses model for AR try-on, without per-product modeling work.
@@ -66,7 +80,7 @@ From this directory, using Python 3.10 or later:
 
 ```powershell
 python audit_saved_runs.py --jobs-dir ../ar_v4/modeling_auto/data/jobs --output plan/baseline-inventory.json
-python -m unittest discover -s tests -v
+python -B -m pytest tests -q -p no:cacheprovider
 ```
 
 The audit reads direct saved job records and verifies normalized reference-image hashes. It does not import either modeling application, alter a job, load credentials or call a provider. It reports workflow state, duplicate input sets and seam-measurement coverage. These are evidence inventory checks, not reconstruction-quality scores.
@@ -136,6 +150,6 @@ python -m reconstruction.refine_photos --model C:/path/model.glb --photo front=C
 
 Use an empty output directory for standalone refinement, or the job command above for verified recovery. The stage writes pinned evidence, camera hypotheses, one shared deformation, comparison images and a report. It exports a proposal only after correspondence and triangle checks; a later footprint regression moves it to `rejected-proposal.glb`. It does not infer missing components or lens materials, and every result still has `quality_verdict=unmeasured`. [The refinement contract](plan/GEOMETRY_REFINEMENT.md) describes the checks and remaining limits.
 
-Run all current tests with `python -m unittest discover -s tests -v`. These tests establish local mathematical and software properties, not end-to-end reconstruction fidelity.
+Run all current tests from this directory with `python -B -m pytest tests -q -p no:cacheprovider`. `python -m unittest discover` does not run the pytest-style classes (for example tests/test_modeler_instruments.py, test_modeler_observe_cost.py and test_agentic_executor.py). For a fast loop add `-m "not slow"`: it deselects the tests marked `slow` (host Blender, or longer than about 15 s). Tests that read real artifacts under the ignored `data/` folder (saved BSA runs, modeler jobs and pilots, segmented runs) or need host Blender skip on a clean clone. These tests establish local mathematical and software properties, not end-to-end reconstruction fidelity.
 
 For reproducible native and GPU rendering checks, see [the conformance commands and limitations](plan/LENS_CONFORMANCE.md).

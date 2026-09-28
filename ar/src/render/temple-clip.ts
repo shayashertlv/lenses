@@ -1,5 +1,6 @@
-import {CanvasTexture, Material, Matrix3, Mesh, MeshPhysicalMaterial, SRGBColorSpace, Vector2} from 'three';
+import {CanvasTexture, Material, Matrix3, Mesh, SRGBColorSpace, Vector2} from 'three';
 import type {Object3D, Texture} from 'three';
+import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 
 export const TEMPLE_BLEND_METHOD = 'temple-end-blend-v3';
 export const TEMPLE_BLEND_LENGTH_LOCAL_M = 0.015;
@@ -62,7 +63,7 @@ export function createTempleClip(root: Object3D) {
     if (!(object instanceof Mesh)) return;
     const materials: Material[] = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
-      if (owned.has(material) || material instanceof MeshPhysicalMaterial && material.transmission > 0) continue;
+      if (isOpticalMaterial(material) || owned.has(material)) continue;
       const hook = material.onBeforeCompile;
       const key = material.customProgramCacheKey;
       owned.set(material, {hook, key});

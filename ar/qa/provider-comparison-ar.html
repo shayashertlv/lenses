@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8"><link rel="icon" href="data:,"><title>Raw provider AR handover check</title>
+<h1>Raw provider AR handover compatibility</h1><p id="status">Ready</p>
+<script type="module">
+import * as THREE from 'three';
+import {TryOnRenderer} from '../src/render/renderer.ts';
+import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+import {registerPinnedGeometry} from '../src/render/continuity.ts';
+import {lightingConfigurations,createLighting,applyRuntimeLighting,environmentSuffix} from './provider-comparison-lighting.mjs';
+
+const width=720,height=480;
+function detection(canonical,yaw=0,pitch=0,roll=0){
+ const matrix=new THREE.Matrix4().compose(new THREE.Vector3(0,0,-23),new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch*Math.PI/180,yaw*Math.PI/180,roll*Math.PI/180,'YXZ')),new THREE.Vector3(1,1,1));
+ const positions=[],point=new THREE.Vector3();let mean=0;
+ for(let i=0;i<468;i++){point.fromArray(canonical.positions,i*3).applyMatrix4(matrix);positions.push(point.clone());mean-=point.z/468;}
+ const vertical=2*Math.tan(63*Math.PI/360),horizontal=vertical*width/height;
+ const landmarks=positions.map(p=>({x:.5+p.x/(-p.z*horizontal),y:.5-p.y/(-p.z*vertical),z:(-p.z/mean-1)/horizontal}));
+ for(const [a,b]of[[33,133],[362,263]])for(let i=0;i<5;i++)landmarks.push({x:(landmarks[a].x+landmarks[b].x)/2,y:(landmarks[a].y+landmarks[b].y)/2,z:(landmarks[a].z+landmarks[b].z)/2});
+ return {matrix:matrix.toArray(),landmarks,inferenceMs:0};
+}
+async function run(){
+ const manifest=await fetch('/__providers/manifest.json').then(r=>r.json()),canonical=await fetch('/models/canonical-face.json').then(r=>r.json());
+ const backgroundFixture=manifest.background_fixture??'solid';
+ const backgroundColor=manifest.background_color??'#cba68d';
+ if(typeof backgroundColor!=='string'||!/^#[a-fA-F0-9]{6}$/.test(backgroundColor))throw Error('background_color must be #RRGGBB');
+ if(manifest.background_color!==undefined&&backgroundFixture!=='solid')throw Error('background_color applies only to the solid fixture');
+ const configurations=lightingConfigurations(manifest),viewIds=new Set();
+ const views=manifest.ar_views??[{id:'front',yaw_degrees:0},{id:'angled',yaw_degrees:35}];
+ if(!Array.isArray(views)||!views.length)throw Error('ar_views must be a nonempty array');
+ for(const view of views){
+  if(!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(view.id)||viewIds.has(view.id))throw Error('Unique safe AR view IDs required');viewIds.add(view.id);
+  if(!['pose','asset-back'].includes(view.type??'pose'))throw Error('AR view type must be pose or asset-back');
+  if(view.type==='asset-back'&&['yaw_degrees','pitch_degrees','roll_degrees'].some(key=>(view[key]??0)!==0))throw Error('asset-back inspection uses a settled front pose, not a reversed face pose');
+  for(const [key,limit]of[['yaw_degrees',80],['pitch_degrees',60],['roll_degrees',60]])if(!Number.isFinite(view[key]??0)||Math.abs(view[key]??0)>limit)throw Error(`AR ${key} must be finite and within +/-${limit}`);
+ }
+ if(!['solid','checker'].includes(backgroundFixture))throw Error('background_fixture must be solid or checker');
+ const inputDescription=manifest.input_description;
+ if(inputDescription!==undefined&&typeof inputDescription!=='string')throw Error('input_description must be a string');
+ const report={schema_version:1,status:'running',quality_verdict:'unmeasured',accepted:false,cases:[],
+  scope:inputDescription?`Actual TryOnRenderer loads the supplied GLB bytes. ${inputDescription} This browser harness applies no asset orientation, scale, origin or material preprocessing; the supplied assets may already contain such changes. Rejection is an integration finding, not a product-accuracy verdict.`:'Actual TryOnRenderer attempts to load the unchanged provider bytes. No orientation, scale, origin normalization, optical inference or repair is applied. Rejection is an integration finding, not a raw geometry quality verdict.',
+  input_description:inputDescription??null,environments:configurations,ar_views:views,
+  lighting_adapter:'QA-only explicit scene/optical environment injection follows canonical-lens-runtime QA; optical coefficients, mesh and runtime logic stay unchanged. Omitted environments use the untouched native runtime lighting.',
+  background_fixture:backgroundFixture==='checker'?'controlled-checker':'controlled-solid',
+  background_color:backgroundFixture==='solid'?backgroundColor:null,
+  source_fixture_description:'Generated canvas with synthetic canonical-face pose coordinates; no photograph, camera recording or actual wearer is used.',
+  requirements:'Current external asset contract: baked identity mesh transforms; metres; bridge underside origin; +Z forward; physical lens materials plus posterior opaque temple geometry.',
+  raw_viewer_success_is_not_ar_compatibility:true};
+ window.providerReport=report;window.providerImages=[];
+ const source=document.createElement('canvas');source.width=width;source.height=height;
+ const context=source.getContext('2d');
+ if(backgroundFixture==='checker'){
+  for(let y=0;y<height;y+=32)for(let x=0;x<width;x+=32){context.fillStyle=(x/32+y/32)%2?'#b4a190':'#ebe0d2';context.fillRect(x,y,32,32);}
+ }else{context.fillStyle=backgroundColor;context.fillRect(0,0,width,height);}
+ for(const entry of manifest.cases){
+  document.querySelector('#status').textContent='Checking '+entry.id;
+  const row={id:entry.id,product:entry.product,provider:entry.provider,model_sha256:entry.model_sha256,file_bytes:entry.file_bytes,
+   status:'running',renders:[],orientation_override_applied:false,
+   orientation_override_scope:'Browser harness only; supplied asset coordinates may already be canonicalized or otherwise transformed.',
+   input_provenance:entry.input_provenance??entry.provenance??{pipeline:entry.pipeline??null},
+   input_pipeline:entry.pipeline??null};report.cases.push(row);let instance;
+  try{
+   const url=`/__providers/${entry.id}.glb`;
+   registerPinnedGeometry(url,entry.model_sha256);
+   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:-.14});
+   const started=performance.now();
+   instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{sync:false,steady:null});
+   row.load_milliseconds=performance.now()-started;row.asset_integrity=instance.renderedAssetIntegrity;
+   row.optical_meshes_detected=instance.lensMeshes.length;row.continuity_failure=instance.continuityFailure??null;
+   for(let timestamp=0;timestamp<=5000;timestamp+=100)if(!instance.pose(source,detection(canonical),timestamp))throw Error('Synthetic fitting pose rejected');
+   row.synthetic_fit_ready=instance.fitting.ready;
+   if(!instance.fitting.ready)throw Error('Synthetic fitting did not settle');
+   if(manifest.background_audit){
+    const capture=(pixels,view,mode)=>{
+     const image=document.createElement('canvas');image.width=pixels.width;image.height=pixels.height;image.getContext('2d').putImageData(pixels,0,0);
+     const filename=`${entry.id}__${mode}__${view}.png`;row.renders.push({filename,view,mode,background:report.background_fixture});
+     window.providerImages.push({id:entry.id,filename,data:image.toDataURL('image/png')});
+    };
+    const expected=context.getImageData(0,0,width,height);capture(expected,'source','background-audit');
+    instance.render(null,{hair:false,eyewear:false,shadows:false,guard:false});
+    const bare=instance.readback();capture(bare,'bare','background-audit');
+    let maximum=0,changed=0;
+    for(let pixel=0;pixel<width*height;pixel++){let delta=0;for(let channel=0;channel<3;channel++)delta=Math.max(delta,Math.abs(expected.data[pixel*4+channel]-bare.data[pixel*4+channel]));maximum=Math.max(maximum,delta);if(delta>2)changed++;}
+    row.background_validation={source_width:source.width,source_height:source.height,render_width:bare.width,render_height:bare.height,
+     bare_maximum_rgb_delta:maximum,bare_pixels_differing_over_2:changed,source_texture_matrix:instance.backgroundTexture.matrix.toArray(),
+     source_texture_size:[instance.backgroundTexture.image.width,instance.backgroundTexture.image.height]};
+    instance.render(null,{hair:false,eyewear:true,shadows:false,guard:true});capture(instance.readback(),'eyewear-no-shadows','background-audit');
+   }
+   let timestamp=6000;
+   for(const configuration of configurations){
+    let lighting,restore;
+    try{
+     if(configuration.explicit){lighting=createLighting(instance.renderer,configuration);restore=applyRuntimeLighting(instance,lighting);}
+     for(const view of views){
+      const pose=detection(canonical,view.yaw_degrees??0,view.pitch_degrees??0,view.roll_degrees??0);
+      // Explicit matrices settle across the same pose sequence, independent of the preceding environment/view.
+      const settle=manifest.ar_views||configuration.explicit?30:1;
+      for(let step=0;step<settle;step++)if(!instance.pose(source,pose,timestamp+=100))throw Error('Synthetic view pose rejected: '+view.id);
+      const rearInspection=view.type==='asset-back',inspectionHidden=[];
+      const originalAssetMatrix=rearInspection?instance.eyewearPose.matrix.clone():null;
+      let timing,pixels,spatial;
+      try{
+       if(rearInspection){
+        // Established semantic-material-cards inspection: rotate the asset, never fabricate a rear-facing tracked face.
+        instance.eyewearPose.matrix.multiply(new THREE.Matrix4().makeRotationY(Math.PI));instance.eyewearPose.updateMatrixWorld(true);
+        for(const object of new Set([...instance.facePose.children,instance.surfaceMesh,instance.templeHeadShell]))if(object){inspectionHidden.push([object,object.visible]);object.visible=false;}
+       }
+       timing=instance.render(null,{hair:false,shadows:rearInspection?false:manifest.shadows??true,guard:!rearInspection});pixels=instance.readback();
+       const cameraOrigin=instance.camera.getWorldPosition(new THREE.Vector3());
+       const assetInverse=instance.eyewearAsset.matrixWorld.clone().invert();
+       spatial={asset_to_world:instance.eyewearAsset.matrixWorld.toArray(),world_to_asset:assetInverse.toArray(),
+        camera_origin_world:cameraOrigin.toArray(),camera_origin_in_asset:cameraOrigin.clone().applyMatrix4(assetInverse).toArray(),
+        matrix_layout:'column-major',world_units:'AR centimetres',asset_units:'Supplied glTF scene coordinates; canonical inputs use metres',
+        scope:'Read after rendering, before restoring any rear inspection transform. Per-mesh coordinates directly match that mesh POSITION and NORMAL accessors.',
+        lenses:instance.lensMeshes.map(mesh=>{const inverse=mesh.matrixWorld.clone().invert();return {
+         name:mesh.name,group_id:mesh.userData.opticalGroupId??null,member_id:mesh.userData.opticalGroupMemberId??null,
+         mesh_to_world:mesh.matrixWorld.toArray(),world_to_mesh:inverse.toArray(),camera_origin_in_mesh:cameraOrigin.clone().applyMatrix4(inverse).toArray()};})};
+      }finally{
+       for(const [object,visible]of inspectionHidden)object.visible=visible;
+       if(originalAssetMatrix){instance.eyewearPose.matrix.copy(originalAssetMatrix);instance.eyewearPose.updateMatrixWorld(true);}
+      }
+      const image=document.createElement('canvas');image.width=pixels.width;image.height=pixels.height;image.getContext('2d').putImageData(pixels,0,0);
+      const filename=`${entry.id}__actual-ar${environmentSuffix(configuration)}__${view.id}.png`;
+      row.renders.push({filename,view:view.id,mode:'actual-ar',background:report.background_fixture,environment:configuration.id,environment_explicit:configuration.explicit,
+       requested_pose:{yaw_degrees:view.yaw_degrees??0,pitch_degrees:view.pitch_degrees??0,roll_degrees:view.roll_degrees??0,rotation_order:'YXZ',matrix:pose.matrix},pose_settle_steps:settle,
+       inspection:rearInspection?{type:'rear_asset_inspection',asset_rotation_y_degrees:180,synthetic_face_occluders_hidden:true,shadows:false,guard:false,actual_wearer_pose:false}:{type:'synthetic_front_face_pose'},
+       spatial,
+       camera:{view_matrix:instance.camera.matrixWorldInverse.toArray(),projection_matrix:instance.camera.projectionMatrix.toArray(),width:pixels.width,height:pixels.height,matrix_layout:'column-major'},
+       synthetic_pose:true,timing});
+      window.providerImages.push({id:entry.id,filename,data:image.toDataURL('image/png')});
+     }
+    }finally{restore?.();lighting?.dispose();}
+   }
+   row.status='runtime_compatible';
+  }catch(error){row.status=inputDescription?'asset_handover_rejected':'raw_handover_rejected';row.error=String(error.stack??error);}
+  finally{instance?.dispose();}
+ }
+ report.status='inspected';report.compatible_count=report.cases.filter(row=>row.status==='runtime_compatible').length;
+ report.rejected_count=report.cases.length-report.compatible_count;
+ document.querySelector('#status').textContent=JSON.stringify({status:report.status,compatible:report.compatible_count,rejected:report.rejected_count});
+ return report;
+}
+window.providerComparison={run};
+</script>

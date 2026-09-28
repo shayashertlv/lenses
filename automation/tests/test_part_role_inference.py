@@ -1,8 +1,6 @@
 """Adversarial local tests for optical role proposals and evidence lineage."""
 from copy import deepcopy
 import hashlib
-from io import BytesIO
-import json
 from pathlib import Path
 import tempfile
 import unittest

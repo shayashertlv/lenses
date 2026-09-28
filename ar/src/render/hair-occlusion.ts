@@ -2,8 +2,9 @@
  *  forward) blend toward the paired camera texture by the hair mask sampled at their screen position. The 0/255 mask
  *  stays nearest (renderer.ts). An optional small tent filter softens only the rendered edge, leaving category
  *  evidence for the endpoint tracker unchanged. */
-import {Material, Matrix3, Mesh, MeshPhysicalMaterial, Vector2} from 'three';
+import {Material, Matrix3, Mesh, Vector2} from 'three';
 import type {Texture, DataTexture, Object3D} from 'three';
+import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 
 export const HAIR_OCCLUSION_METHOD = 'hair-gpu-occlusion-v1';
 /** Mesh-local metres (+Z forward): fragments behind this plane count as temple arm and may blend toward the camera. */
@@ -23,7 +24,7 @@ export function createHairOcclusion(root: Object3D) {
     if (!(object instanceof Mesh)) return;
     const materials: Material[] = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
-      if (owned.has(material) || material instanceof MeshPhysicalMaterial && material.transmission > 0) continue;
+      if (isOpticalMaterial(material) || owned.has(material)) continue;
       const hook = material.onBeforeCompile, key = material.customProgramCacheKey;
       owned.set(material, {hook, key});
       material.onBeforeCompile = function(shader, renderer) {

@@ -69,7 +69,21 @@ def material_spec(name: str, spec: dict, *, lens: bool) -> dict:
         out["roughness"] = float(optics.get("roughness", 0.05))
         out["metallic"] = 0.0
     else:
-        out["transmission"] = 0.0
+        tr = spec.get("translucent") if spec.get("kind") == "translucent" else None
+        if tr:
+            # crystal / translucent acetate (gl.material_translucent): physical transmission with volume absorption,
+            # single-sided; the runtime classifies it as frame through the node's partRole extra, never as a lens
+            out["transmission"] = float(tr.get("transmission", 1.0))
+            out["ior"] = float(tr.get("ior", 1.49))
+            # the tint lives in the volume absorption only: Three multiplies the transmitted light by the base colour
+            # AND by the volume attenuation, so a tinted base colour would apply the tint twice
+            out["base_color"] = [1.0, 1.0, 1.0, float(spec.get("alpha", 1.0))]
+            out["gltf"] = {"extensions": {"KHR_materials_volume": {
+                "thicknessFactor": float(tr["thickness_mm"]) / 1000.0,
+                "attenuationColor": [float(x) for x in tr["attenuation_rgb_linear"]],
+                "attenuationDistance": float(tr["attenuation_distance_mm"]) / 1000.0}}}
+        else:
+            out["transmission"] = 0.0
     return out
 
 

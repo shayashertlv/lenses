@@ -189,10 +189,44 @@ class ValidationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             export.write_glb(self.parts, self.mats, self.out)
 
-    def test_frame_must_be_opaque(self):
-        self.mats["frame"]["transmission"] = 0.5
-        with self.assertRaises(ValueError):
+    def test_translucent_temple_exports_single_sided_with_a_flag(self):
+        # a transmissive TEMPLE is a translucent temple (crystal products, 2026-09-28): the writer forces it single-sided
+        # (back faces would enter the transmission pre-pass twice) and flags it, like a translucent front; whether the
+        # runtime can classify it is the contract check frame_temple_materials
+        self.mats["temple"]["transmission"] = 0.5
+        self.mats["temple"]["double_sided"] = True
+        r = export.write_glb(self.parts, self.mats, self.out)
+        self.assertIn("temple_R_material_translucent", r["flags"])
+        self.assertIn("temple_L_material_translucent", r["flags"])
+        self.assertIn("temple_R_translucent_forced_single_sided", r["flags"])
+        doc = read_glb(self.out)["doc"]
+        temple = next(m for m in doc["materials"] if m["name"] == "temple")
+        self.assertFalse(temple.get("doubleSided", False))
+        self.assertGreater(temple["extensions"]["KHR_materials_transmission"]["transmissionFactor"], 0)
+
+    def test_lens_descriptor_off_the_lenses_is_refused(self):
+        # the relaxed temple rule keeps this guard: a canonical lens descriptor on a frame or temple material
+        self.mats["temple"]["transmission"] = 0.5
+        self.mats["temple"]["gltf"] = {"extensions": {export.LENS_APPEARANCE_EXTENSION: {"version": 1}}}
+        with self.assertRaisesRegex(ValueError, "lens descriptor"):
             export.write_glb(self.parts, self.mats, self.out)
+
+    def test_lens_descriptor_on_an_opaque_frame_part_is_refused(self):
+        # the runtime treats any material carrying the descriptor as optical, transmission or not: an opaque temple or
+        # frame with a descriptor would render as a lens, so the writer refuses it too (not only on translucent parts)
+        for key in ("temple", "frame"):
+            mats = {k: dict(v) for k, v in self.mats.items()}
+            mats[key]["transmission"] = 0.0
+            mats[key]["gltf"] = {"extensions": {export.LENS_APPEARANCE_EXTENSION: {"version": 1}}}
+            with self.subTest(part=key), self.assertRaisesRegex(ValueError, "lens descriptor"):
+                export.write_glb(self.parts, mats, self.out)
+
+    def test_translucent_front_exports_with_a_flag(self):
+        # a transmissive FRAME is a translucent front (2026-09-27); whether the runtime can classify it (canonical lenses
+        # present, single-sided) is the contract check frame_temple_materials, not the writer's business
+        self.mats["frame"]["transmission"] = 0.5
+        r = export.write_glb(self.parts, self.mats, self.out)
+        self.assertIn("frame_material_translucent", r["flags"])
 
     def test_lens_names(self):
         self.parts["lens_C"] = self.parts.pop("lens_L")
@@ -427,8 +461,11 @@ class TempleAndCriterionTest(unittest.TestCase):
         self.assertIsNone(export.temple_arrays(a5, {"R": {"accepted": False}}, "R"))
 
     def test_c1_needs_every_lens_node(self):
-        r = {"contract": {"ok": True}, "export": {"nodes": ["frame", "temple_R", "temple_L", "lens_R", "lens_L"]},
-             "archeck": {"status": "runtime_compatible", "optical_meshes_detected": 2}}
+        bare = {"contract": {"ok": True}, "export": {"nodes": ["frame", "temple_R", "temple_L", "lens_R", "lens_L"]},
+                "archeck": {"status": "runtime_compatible", "optical_meshes_detected": 2}}
+        # a row without the harness validation (a pre-2026-09-27 record) is legacy/unverified: never compatible
+        self.assertFalse(export.m1_criterion_1(bare))
+        r = dict(bare, archeck=dict(bare["archeck"], validation={"ok": True, "harness_ok": True, "model": {"ok": True}}))
         self.assertTrue(export.m1_criterion_1(r))
         r["archeck"]["optical_meshes_detected"] = 1                   # a pair with one lens found
         self.assertFalse(export.m1_criterion_1(r))
@@ -525,3 +562,527 @@ class EdgeRingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(ValueError):
                 export.write_glb(parts, mats, Path(td) / "x.glb")
+
+
+# --------------------------------------------------------------------------- facets (test-pilot-002 r0006, 2026-09-28)
+def bevelled_disc(radius=10.0, bevel=1.0, segments=4, k=96, thickness=3.0, spacing=1.8, seed=0):
+    """A flat plate (a disc, irregular Delaunay top like ``plate_with_holes``) whose top edge rolls over in a
+    ``segments``-step round bevel (22.5 deg steps at 4), a vertical wall and a fan bottom. Returns V, F and a per-face
+    role: 0 top plate, 1 bevel, 2 wall, 3 bottom."""
+    from scipy.spatial import Delaunay
+    a = np.linspace(0, 2 * np.pi, k, endpoint=False)
+    rng = np.random.default_rng(seed)
+    g = np.arange(-radius, radius + 1e-9, spacing)
+    xy = np.stack(np.meshgrid(g, g), -1).reshape(-1, 2) + rng.uniform(-0.3, 0.3, (len(g) ** 2, 2)) * spacing
+    xy = xy[np.linalg.norm(xy, axis=1) < radius - 0.6 * spacing]
+    ring = np.c_[radius * np.cos(a), radius * np.sin(a)]
+    P2 = np.vstack([ring, xy])
+    top = Delaunay(P2).simplices
+    V = [np.c_[P2, np.zeros(len(P2))]]
+    rings = [np.arange(k)]
+    n = len(P2)
+    for j in range(1, segments + 1):                                  # bevel rings, quarter circle about (R, -b)
+        t = np.pi / 2 - j * (np.pi / 2) / segments
+        rr, z = radius + bevel * np.cos(t), -bevel + bevel * np.sin(t)
+        V.append(np.c_[rr * np.cos(a), rr * np.sin(a), np.full(k, z)])
+        rings.append(np.arange(n, n + k))
+        n += k
+    V.append(np.c_[(radius + bevel) * np.cos(a), (radius + bevel) * np.sin(a), np.full(k, -thickness)])
+    rings.append(np.arange(n, n + k))
+    n += k
+    V.append([[0.0, 0.0, -thickness]])
+    V = np.vstack(V)
+    F, role = [top], [np.zeros(len(top), int)]
+    for j in range(len(rings) - 1):
+        r0, r1 = rings[j], rings[j + 1]
+        q = np.c_[r0, np.roll(r0, -1), np.roll(r1, -1), r1]
+        F.append(np.r_[q[:, [0, 1, 2]], q[:, [0, 2, 3]]])
+        role.append(np.full(2 * k, 1 if j < segments else 2))
+    last = rings[-1]
+    F.append(np.c_[last, np.full(k, n), np.roll(last, -1)])
+    role.append(np.full(k, 3))
+    F, role = np.vstack(F), np.concatenate(role)
+    fn, _ = export._face_normals(V, F)
+    out = V[F].mean(1) - np.array([0.0, 0.0, -thickness / 2])        # convex: outward = away from the centre
+    flip = np.einsum("ij,ij->i", fn, out) < 0
+    F[flip] = F[flip][:, ::-1]
+    return V, F, role
+
+
+def rounded_tube(width=3.3, height=5.8, radius=0.85, per_corner=8, length=130.0, step=1.5, x0=68.0, y0=8.0):
+    """A straight closed tube along -Z (a temple) with a rounded-rectangle section, ``per_corner`` points per 90 deg
+    corner; ``radius=None`` gives an octagon (a coarse section: 45 deg turns when width == height)."""
+    if radius is None:
+        a = np.linspace(0, 2 * np.pi, 8, endpoint=False) + np.pi / 8
+        sec = np.c_[width / 2 * np.cos(a), height / 2 * np.sin(a)]
+    else:
+        pts = []
+        for c, (cx, cy) in enumerate([(width / 2 - radius, height / 2 - radius), (-width / 2 + radius, height / 2 - radius),
+                                      (-width / 2 + radius, -height / 2 + radius), (width / 2 - radius, -height / 2 + radius)]):
+            for t in np.linspace(c * np.pi / 2, (c + 1) * np.pi / 2, per_corner, endpoint=False):
+                pts.append((cx + radius * np.cos(t), cy + radius * np.sin(t)))
+        sec = np.asarray(pts)
+    zs = np.linspace(-2.0, -2.0 - length, int(round(length / step)) + 1)
+    K = len(sec)
+    V = np.vstack([np.c_[sec[:, 0] + x0, sec[:, 1] + y0, np.full(K, z)] for z in zs])
+    F = []
+    for s in range(len(zs) - 1):
+        a0, b0 = s * K, (s + 1) * K
+        for i in range(K):
+            j = (i + 1) % K
+            F += [[a0 + i, b0 + i, b0 + j], [a0 + i, b0 + j, a0 + j]]
+    F = np.asarray(F)
+    V = np.vstack([V, [[x0, y0, zs[0]], [x0, y0, zs[-1]]]])
+    c0, c1 = len(V) - 2, len(V) - 1
+    last = (len(zs) - 1) * K
+    F = np.vstack([F, [[c0, (i + 1) % K, i] for i in range(K)], [[c1, last + i, last + (i + 1) % K] for i in range(K)]])
+    fn, _ = export._face_normals(V, F)
+    cen = V[F].mean(1)
+    out = cen - np.c_[np.full(len(F), x0), np.full(len(F), y0), cen[:, 2]]
+    out[-2 * K:-K] = [0, 0, 1]
+    out[-K:] = [0, 0, -1]
+    flip = np.einsum("ij,ij->i", fn, out) < 0
+    F[flip] = F[flip][:, ::-1]
+    return V, F
+
+
+def lens_sheet(cx, base_curve_radius=None):
+    """A lens solid (ellipse 50 x 38 mm about x = cx) whose front is flat (None) or a sphere of that radius (mm)."""
+    from shapely.geometry import Point
+    from shapely import affinity
+    poly = affinity.scale(Point(cx, 0).buffer(1.0, 64), 25, 19)
+    if base_curve_radius is None:
+        zf = lambda x, y: 0.0 * x - 1.0
+    else:
+        Rs = float(base_curve_radius)
+        zf = lambda x, y: np.sqrt(Rs ** 2 - (x - cx) ** 2 - y ** 2) - Rs - 1.0
+    V, F, _ = export.extrude_polygon(poly, zf, lambda x, y: np.full_like(x, 1.2), spacing_mm=1.0)
+    return V, F
+
+
+def facet_parts(frame=None, temple=None, lens_curve=None, reflectance=0.04):
+    """frame + temples + a canonical lens pair; ``frame``/``temple`` = (V, F) or (V, F, N) replace the defaults."""
+    V, F, _ = bevelled_disc()
+    parts = {"frame": {"V": V, "F": F, "material": "frame"}}
+    if frame is not None:
+        parts["frame"] = {"V": frame[0], "F": frame[1], "material": "frame"}
+        if len(frame) > 2:
+            parts["frame"]["N"] = frame[2]
+    tV, tF = temple if temple is not None else rounded_tube()
+    for side, sx in (("R", 1.0), ("L", -1.0)):
+        parts[f"temple_{side}"] = {"V": tV * [sx, 1, 1], "F": tF if sx > 0 else tF[:, ::-1], "material": "temple"}
+    for side, cx in (("R", 32.0), ("L", -32.0)):
+        lV, lF = lens_sheet(cx, lens_curve)
+        parts[f"lens_{side}"] = {"V": lV, "F": lF, "material": "lens"}
+    mats = {"frame": {"base_color": [0.9, 0.9, 0.9, 1], "roughness": 0.06},
+            "temple": {"base_color": [0.9, 0.9, 0.9, 1], "roughness": 0.06},
+            "lens": {"base_color": [0.5, 0.5, 0.5, 1], "roughness": 0.05, "transmission": 1.0, "ior": 1.5,
+                     "lens_appearance": _descriptor(0.3, reflectance)}}
+    return parts, mats
+
+
+class FacetNormalsTest(unittest.TestCase):
+    """The exporter's frame/temple normals: a flat plate stays flat next to its bevel (the frame-front staircase the owner
+    saw in r0006: angle-weighted crease normals bled the 22.5 deg bevel steps into the plate's coarse triangles), the
+    curvature stays in the bevel, and curved surfaces stay smooth."""
+
+    def test_flat_plate_with_a_bevel_stays_flat_in_the_glb(self):
+        parts, mats = facet_parts()
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "disc.glb"
+            export.write_glb(parts, mats, p)
+            g = read_glb(p)
+        pr = next(n for n in g["nodes"] if n["name"] == "frame")["primitives"][0]
+        P, N, T = pr["P"].astype(float), pr["N"].astype(float), pr["I"].reshape(-1, 3)
+        top_z = P[:, 2].max()
+        fn, _ = export._face_normals(P, T)
+        top = (fn[:, 2] > np.cos(np.radians(0.1))) & (np.abs(P[T][:, :, 2] - top_z).max(1) < 1e-7)
+        self.assertGreater(top.sum(), 50)
+        dev = np.degrees(np.arccos(np.clip(N[T[top]] @ np.array([0.0, 0.0, 1.0]), -1, 1)))
+        self.assertLess(dev.max(), 0.5, "the plate's corner normals must stay within 0.5 deg of the plate normal")
+        # the plate/bevel boundary stays smooth: a plate position carries one normal (not split between plate and bevel)
+        key = np.round(P / 1e-8).astype(np.int64)
+        _, inv = np.unique(key, axis=0, return_inverse=True)
+        inv = inv.ravel()
+        on_top = np.flatnonzero(np.abs(P[:, 2] - top_z) < 1e-7)
+        self.assertEqual(len(np.unique(inv[on_top])), len(on_top), "a plate vertex is split between the plate and its bevel")
+        # ... and the bevel carries the curvature: its middle ring leans about 45 deg
+        tilt = np.degrees(np.arccos(np.clip(N[:, 2], -1, 1)))
+        mid = np.abs(P[:, 2] - (top_z - 1e-3 * (1 - np.sqrt(0.5)))) < 2e-6
+        self.assertTrue(mid.any())
+        self.assertTrue(np.all(np.abs(tilt[mid] - 45.0) < 6.0), tilt[mid][:8])
+
+    def test_part_normals_versus_the_angle_weighted_auto_smooth(self):
+        V, F, role = bevelled_disc()
+        fn, _ = export._face_normals(V, F)
+        N = export.part_normals(V, F)
+        dev = np.degrees(np.arccos(np.clip(np.einsum("fij,fj->fi", N[role == 0], fn[role == 0]), -1, 1)))
+        self.assertLess(dev.max(), 0.5)
+        # the angle-weighted auto-smooth (still crease_normals' default, used for the lens fallbacks) is what bled
+        old = export.crease_normals(V, F, 40.0)
+        dev_old = np.degrees(np.arccos(np.clip(np.einsum("fij,fj->fi", old[role == 0], fn[role == 0]), -1, 1)))
+        self.assertGreater(dev_old.max(), 3.0)
+
+    def test_curved_surfaces_stay_smooth(self):
+        V, F = uv_sphere()
+        N = export.part_normals(V, F)
+        radial = V[F] / np.linalg.norm(V[F], axis=-1, keepdims=True)
+        # a coarse UV sphere (24 rings): only its pole cap (a shallow 48-face cone, 3.75 deg) shades as one flat region
+        self.assertLess(np.degrees(np.arccos(np.clip((N * radial).sum(-1), -1, 1))).max(), 4.0)
+        # a 24-sided barrel subdivided along its length: its flat strips are not plates (they would shade as facets)
+        a = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+        B = np.vstack([np.c_[5 * np.cos(a), 5 * np.sin(a), np.full(24, z)] for z in np.linspace(0, -30, 21)])
+        BF = np.array([[s * 24 + i, s * 24 + (i + 1) % 24, (s + 1) * 24 + (i + 1) % 24] for s in range(20) for i in range(24)]
+                      + [[s * 24 + i, (s + 1) * 24 + (i + 1) % 24, (s + 1) * 24 + i] for s in range(20) for i in range(24)])
+        self.assertEqual(int(export.flat_regions(B, BF).max()), -1)
+        # an irregular triangulation of a sphere (a random hull): the area weighting must not break it into blotches
+        from scipy.spatial import ConvexHull
+        rng = np.random.default_rng(0)
+        P = rng.normal(size=(4000, 3))
+        P = 10.0 * P / np.linalg.norm(P, axis=1, keepdims=True)
+        Fh = ConvexHull(P).simplices.copy()
+        fn, _ = export._face_normals(P, Fh)
+        flip = np.einsum("ij,ij->i", fn, P[Fh].mean(1)) < 0
+        Fh[flip] = Fh[flip][:, ::-1]
+        err = np.degrees(np.arccos(np.clip((export.part_normals(P, Fh) * (P[Fh] / 10.0)).sum(-1), -1, 1)))
+        self.assertLess(err.mean(), 1.8)
+        self.assertLess(err.max(), 6.0)
+
+    def test_rounded_sweep_strips_are_not_plates(self):
+        # the long thin strips of a large rounded corner are near-planar along a straight run: taking them for plates
+        # would split the corner into hard facets
+        V, F = rounded_tube(width=6.0, height=9.0, radius=2.0, length=130.0)
+        a = export.surface_audit(V, F, export.part_normals(V, F))
+        self.assertLess(a["hard_crease_mm"], 1.0, a)
+        self.assertLess(a["normal_bleed_fraction"], 0.05, a)
+
+    def test_boxes_keep_their_corners(self):
+        V, F = cube()
+        N = export.part_normals(V, F)
+        fn, _ = export._face_normals(V, F)
+        self.assertTrue(np.allclose(N, fn[:, None, :], atol=1e-9))
+
+
+class FacetAuditTest(unittest.TestCase):
+    """receipt['audit']: measures of the delivered normals fed back to the author, with a flag and a one-line note."""
+
+    def write(self, parts, mats):
+        with tempfile.TemporaryDirectory() as td:
+            return export.write_glb(parts, mats, Path(td) / "a.glb")
+
+    def test_audit_block_shape(self):
+        a = self.write(*facet_parts())["audit"]
+        self.assertEqual(set(a), {"flags", "parts", "notes"})
+        self.assertEqual(a["flags"], [])
+        self.assertEqual(a["notes"], [])
+        for name in ("frame", "temple_R", "temple_L", "lens_R", "lens_L"):
+            self.assertIn(name, a["parts"])
+            for k, v in a["parts"][name].items():
+                self.assertIsInstance(v, (int, float), (name, k))
+        for k in ("plane_area_mm2", "normal_bleed_mm2", "normal_bleed_fraction", "hard_crease_mm"):
+            self.assertIn(k, a["parts"]["frame"])
+        for k in ("normal_span_h_deg", "normal_span_v_deg", "reflectance"):
+            self.assertIn(k, a["parts"]["lens_R"])
+
+    def test_coarse_sweep_is_flagged_smooth_sweep_and_box_are_not(self):
+        coarse = self.write(*facet_parts(temple=rounded_tube(4.5, 4.5, radius=None)))["audit"]   # 45 deg turns
+        self.assertIn("faceted_sweep", coarse["flags"])
+        self.assertGreater(coarse["parts"]["temple_R"]["hard_crease_mm"], 500.0)
+        self.assertTrue(any(n.startswith("temple_R") and "tube_along_path" in n for n in coarse["notes"]), coarse["notes"])
+        smooth = self.write(*facet_parts())["audit"]
+        self.assertNotIn("faceted_sweep", smooth["flags"])
+        self.assertLess(smooth["parts"]["temple_R"]["hard_crease_mm"], 1.0)
+        box = self.write(*facet_parts(temple=cube(4.0, (68.0, 8.0, -20.0))))["audit"]
+        self.assertNotIn("faceted_sweep", box["flags"])
+        self.assertEqual(box["parts"]["temple_R"]["hard_crease_mm"], 0.0)
+
+    def test_flat_plane_normal_bleed(self):
+        V, F, _ = bevelled_disc()
+        bled = self.write(*facet_parts(frame=(V, F, export.crease_normals(V, F, 40.0))))["audit"]   # the old normals
+        self.assertIn("flat_plane_normal_bleed", bled["flags"])
+        self.assertGreater(bled["parts"]["frame"]["normal_bleed_fraction"], 0.05)
+        self.assertTrue(any(n.startswith("frame") for n in bled["notes"]), bled["notes"])
+        own = self.write(*facet_parts())["audit"]
+        self.assertNotIn("flat_plane_normal_bleed", own["flags"])
+        self.assertLess(own["parts"]["frame"]["normal_bleed_fraction"], 0.05)
+        self.assertGreater(own["parts"]["frame"]["plane_area_mm2"], 250.0)
+
+    def test_planar_mirror_lens(self):
+        flat = self.write(*facet_parts(reflectance=0.23))["audit"]
+        self.assertIn("planar_mirror_lens", flat["flags"])
+        self.assertLess(flat["parts"]["lens_R"]["normal_span_h_deg"], 1.0)
+        note = next(n for n in flat["notes"] if n.startswith("lens_R"))
+        self.assertIn("base curve", note)
+        # a base-4 lens (sphere radius 530/4 mm) is curved enough; a flat lens without a coating mirrors little
+        curved = self.write(*facet_parts(lens_curve=132.5, reflectance=0.23))["audit"]
+        self.assertNotIn("planar_mirror_lens", curved["flags"])
+        self.assertGreater(curved["parts"]["lens_R"]["normal_span_h_deg"], 8.0)
+        plain = self.write(*facet_parts(reflectance=0.04))["audit"]
+        self.assertNotIn("planar_mirror_lens", plain["flags"])
+
+
+# --------------------------------------------------------------------------- the faceted_sweep audit measures sweeps only (2026-09-28)
+def folded_plates(angle_deg=30.0, length=80.0, width=10.0, n_len=41, n_wid=11):
+    """Two flat plates of ``width`` mm meeting along a straight ``length`` mm fold, turning ``angle_deg`` (a designed
+    bend: a folded bridge or endpiece); plates narrower than the flat-region width are two strips on one crease."""
+    xs, ys = np.linspace(0.0, width, n_wid), np.linspace(0.0, length, n_len)
+    a = np.radians(angle_deg)
+    V, F = [], []
+    for side in (0, 1):
+        base = len(V)
+        for y in ys:
+            for x in xs:
+                V.append((-x, y, 0.0) if side == 0 else (x * np.cos(a), y, x * np.sin(a)))
+        for j in range(n_len - 1):
+            for i in range(n_wid - 1):
+                q = base + j * n_wid + i
+                f = [(q, q + 1, q + n_wid + 1), (q, q + n_wid + 1, q + n_wid)]
+                F += f if side == 1 else [t[::-1] for t in f]
+    return np.array(V, float), np.array(F)        # the two copies of the fold line x = 0 weld by position
+
+
+def noisy_sphere(nu=180, nv=90, r=10.0, sigma=0.002, seed=0):
+    """A dense UV sphere with scan-like vertex noise (the bsa pipeline's reconstructed meshes)."""
+    th = np.linspace(0, np.pi, nv + 1)
+    ph = np.linspace(0, 2 * np.pi, nu, endpoint=False)
+    V = np.array([(r * np.sin(t) * np.cos(p), r * np.sin(t) * np.sin(p), r * np.cos(t)) for t in th for p in ph])
+    F = []
+    for i in range(nv):
+        for j in range(nu):
+            a, b, c, d = i * nu + j, i * nu + (j + 1) % nu, (i + 1) * nu + (j + 1) % nu, (i + 1) * nu + j
+            F += [(a, d, c), (a, c, b)]
+    return V + np.random.default_rng(seed).normal(0, sigma, V.shape), np.array(F)
+
+
+def audit_of(V, F):
+    return export.surface_audit(V, F, export.part_normals(V, F))
+
+
+class SweepFacetAuditTest(unittest.TestCase):
+    """faceted_sweep names hard creases running ALONG a swept section (parallel facet lines each at least
+    AUDIT_SWEEP_CHAIN_MM long), not every hard shading edge: test-pilot-001 r0002's frame read 62 mm of short hard edges
+    (a bevelled plate, stretched nose-pad spheres), a designed fold between two plates read as a facet line and a
+    scan-noise sphere read hundreds of mm, and each note told the author to rebuild with gl.tube_along_path."""
+
+    def test_a_designed_fold_between_two_plates_is_not_a_sweep(self):
+        V, F = folded_plates(30.0, length=80.0, width=10.0)
+        a = audit_of(V, F)
+        self.assertGreater(a["hard_crease_mm"], 70.0, a)                  # the fold is one hard 80 mm line ...
+        self.assertEqual(a["sweep_facet_mm"], 0.0, a)                     # ... between two flat regions
+        flags, notes = export.audit_findings({"frame": a})
+        self.assertNotIn("faceted_sweep", flags, notes)
+
+    def test_a_single_crease_between_two_strips_is_not_a_sweep(self):
+        # strips too narrow to be flat regions, one 50 deg crease: a single line has no parallel partner
+        V, F = folded_plates(50.0, length=80.0, width=1.5, n_wid=3)
+        a = audit_of(V, F)
+        self.assertGreater(a["hard_crease_mm"], 70.0, a)
+        self.assertEqual(a["sweep_facet_mm"], 0.0, a)
+        self.assertNotIn("faceted_sweep", export.audit_findings({"frame": a})[0])
+
+    def test_scan_noise_is_not_a_sweep(self):
+        V, F = noisy_sphere()
+        a = audit_of(V, F)
+        self.assertGreater(a["hard_crease_mm"], export.AUDIT_FACETED_SWEEP_MM, a)   # short random hard edges ...
+        self.assertEqual(a["sweep_facet_mm"], 0.0, a)                                # ... in no long line
+        self.assertNotIn("faceted_sweep", export.audit_findings({"frame": a})[0])
+
+    def test_a_coarse_sweep_is_measured_as_parallel_lines(self):
+        V, F = rounded_tube(4.5, 4.5, radius=None)                       # an octagon: 8 facet lines of 130 mm
+        a = audit_of(V, F)
+        self.assertGreater(a["sweep_facet_mm"], 900.0, a)
+        self.assertGreaterEqual(a["sweep_facet_lines"], 8, a)
+        flags, notes = export.audit_findings({"temple_R": a})
+        self.assertIn("faceted_sweep", flags)
+        note = next(n for n in notes if n.startswith("temple_R"))
+        self.assertIn("tube_along_path", note)
+        self.assertIn("along", note)
+        smooth = audit_of(*rounded_tube())
+        self.assertEqual(smooth["sweep_facet_mm"], 0.0, smooth)
+
+    def test_notes_past_the_cap_end_in_a_truncation_marker(self):
+        from modeler.agentic import tools
+        self.assertEqual(export.AUDIT_MAX_NOTES, tools.MAX_AUDIT_ITEMS, "the exporter and the build reply cap in step")
+        bad = {"plane_area_mm2": 100.0, "normal_bleed_mm2": 50.0, "normal_bleed_fraction": 0.5, "hard_crease_mm": 900.0,
+               "sweep_facet_mm": 900.0, "sweep_facet_lines": 8}
+        flags, notes = export.audit_findings({f"part_{i:02d}": dict(bad) for i in range(30)})     # 60 notes
+        self.assertEqual(len(notes), export.AUDIT_MAX_NOTES)
+        self.assertIn("37 more", notes[-1])
+        self.assertIn("export.json", notes[-1])
+        self.assertEqual(flags, ["flat_plane_normal_bleed", "faceted_sweep"])
+        shown = tools.export_audit({"receipt": {"audit": {"flags": flags, "notes": notes}}})
+        self.assertEqual(shown["notes"][-1], notes[-1][:400], "the marker survives the build reply's cap")
+        exact = export.audit_findings({f"part_{i:02d}": dict(bad) for i in range(12)})[1]         # 24 notes: no marker
+        self.assertEqual(len(exact), 24)
+        self.assertFalse(any("more audit notes" in n for n in exact))
+
+
+# --------------------------------------------------------------------------- the sweep audit's cost is bounded (2026-09-28)
+def reference_sweep_facet_lines(a, b, pa, pb):
+    """sweep_facet_lines as first written (a ball query per edge; quadratic in the local density of hard edges): the
+    oracle the bounded search must reproduce exactly."""
+    import math
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.spatial import cKDTree
+    n = len(a)
+    if not n:
+        return 0.0, 0
+    L = np.linalg.norm(pb - pa, axis=1)
+    ends = np.r_[a, b]
+    eid = np.r_[np.arange(n), np.arange(n)]
+    deg = np.bincount(ends)
+    order = np.argsort(ends, kind="stable")
+    se, sid = ends[order], eid[order]
+    joint = np.flatnonzero((se[1:] == se[:-1]) & (deg[se[1:]] == 2))
+    G = coo_matrix((np.ones(len(joint)), (sid[joint], sid[joint + 1])), shape=(n, n))
+    k, lab = connected_components(G, directed=False)
+    clen = np.bincount(lab, weights=L, minlength=k)
+    idx = np.flatnonzero((clen[lab] >= export.AUDIT_SWEEP_CHAIN_MM) & (L > 0))
+    if not len(idx):
+        return 0.0, 0
+    mid = (pa[idx] + pb[idx]) / 2
+    d = (pb[idx] - pa[idx]) / L[idx, None]
+    cos_par = math.cos(math.radians(export.AUDIT_SWEEP_PARALLEL_DEG))
+    partnered = np.zeros(len(idx), bool)
+    for i, near in enumerate(cKDTree(mid).query_ball_point(mid, export.AUDIT_SWEEP_PARTNER_MM)):
+        near = np.asarray(near, np.int64)
+        near = near[lab[idx[near]] != lab[idx[i]]]
+        partnered[i] = bool(len(near)) and bool((np.abs(d[near] @ d[i]) >= cos_par).any())
+    beside = np.bincount(lab[idx], weights=L[idx] * partnered, minlength=k)
+    line = (clen >= export.AUDIT_SWEEP_CHAIN_MM) & (beside >= 0.5 * clen)
+    return float(clen[line].sum()), int(line.sum())
+
+
+def hard_edges(V, F):
+    """The hard, non-designed edges surface_audit hands to sweep_facet_lines (its own selection, repeated here)."""
+    import math
+    N = export.part_normals(V, F)
+    N = N / np.maximum(np.linalg.norm(N, axis=-1, keepdims=True), 1e-12)
+    fn, _ = export._face_normals(V, F)
+    Fw = export.weld(V, F)
+    a, b = Fw.ravel(), np.roll(Fw, -1, axis=1).ravel()
+    na, nb = N.reshape(-1, 3), np.roll(N, -1, axis=1).reshape(-1, 3)
+    pa, pb = V[F].reshape(-1, 3), np.roll(V[F], -1, axis=1).reshape(-1, 3)
+    face = np.repeat(np.arange(len(F)), 3)
+    swap = a > b
+    a, b = np.where(swap, b, a), np.where(swap, a, b)
+    na, nb = np.where(swap[:, None], nb, na), np.where(swap[:, None], na, nb)
+    ok = a != b
+    key = a * (int(Fw.max()) + 1) + b
+    order = np.argsort(np.where(ok, key, -1), kind="stable")
+    order = order[ok[order]]
+    ks = key[order]
+    start = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    cnt = np.diff(np.r_[start, len(ks)])
+    two = start[cnt == 2]
+    e1, e2 = order[two], order[two + 1]
+    split = np.minimum(np.einsum("ij,ij->i", na[e1], na[e2]), np.einsum("ij,ij->i", nb[e1], nb[e2]))
+    dih = np.einsum("ij,ij->i", fn[face[e1]], fn[face[e2]])
+    hard = (split < math.cos(math.radians(export.AUDIT_HARD_SPLIT_DEG))) & \
+        (dih > math.cos(math.radians(export.AUDIT_DESIGNED_CORNER_DEG)))
+    reg = export.flat_regions(V, F) if hard.any() else np.full(len(F), -1)
+    sweep = hard & ~((reg[face[e1]] >= 0) & (reg[face[e2]] >= 0))
+    return a[e1[sweep]], b[e1[sweep]], pa[e1[sweep]], pb[e1[sweep]]
+
+
+class BoundedSweepAuditTest(unittest.TestCase):
+    """The faceted_sweep partner search ran one ball query per hard edge and held every neighbour list at once: a
+    69k-face coarse tube (edges 0.03 mm long, thousands of neighbours within 6 mm) took 8.2 s / 4.7 GB. The bounded
+    search asks for a few nearest neighbours and widens only the edges still undecided, in memory-capped batches; its
+    answers equal the ball query's."""
+
+    def test_the_bounded_search_equals_the_ball_query(self):
+        cases = {"coarse tube": rounded_tube(4.5, 4.5, radius=None), "dense coarse tube": rounded_tube(4.5, 4.5, radius=None, step=0.3),
+                 "rounded tube": rounded_tube(), "fold": folded_plates(30.0), "single crease": folded_plates(50.0, width=1.5, n_wid=3),
+                 "noisy sphere": noisy_sphere(nu=90, nv=45)}
+        for name, (V, F) in cases.items():
+            a, b, pa, pb = hard_edges(V, F)
+            self.assertEqual(export.sweep_facet_lines(a, b, pa, pb), reference_sweep_facet_lines(a, b, pa, pb), name)
+        # and through surface_audit: the coarse tube's eight lines along 130 mm
+        self.assertEqual(audit_of(*cases["dense coarse tube"])["sweep_facet_lines"], 8)
+
+    def test_a_69k_face_coarse_tube_is_audited_quickly_in_bounded_memory(self):
+        import time
+        import tracemalloc
+        V, F = rounded_tube(4.5, 4.5, radius=None, step=0.03)
+        self.assertGreater(len(F), 69000)
+        N = export.part_normals(V, F)
+        tracemalloc.start()
+        t0 = time.perf_counter()
+        a = export.surface_audit(V, F, N)
+        seconds = time.perf_counter() - t0
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertGreater(a["sweep_facet_mm"], 1000.0, a)
+        self.assertEqual(a["sweep_facet_lines"], 8, a)
+        self.assertLess(peak, 600e6, f"peak {peak / 1e6:.0f} MB")
+        self.assertLess(seconds, 6.0)
+
+
+# --------------------------------------------------------------------------- planar_front (2026-09-28)
+def wrapped_front(radius=None, width=136.0, height=40.0, thickness=4.0, nx=69, ny=21):
+    """A front plate (two sheets, front toward +Z) bent about the vertical axis on a cylinder of ``radius`` mm (None:
+    flat): the shape gl.wrap_cylinder gives a plate_with_holes front."""
+    xs, ys = np.linspace(-width / 2, width / 2, nx), np.linspace(-height / 2, height / 2, ny)
+    X, Y = np.meshgrid(xs, ys)
+    V, F = [], []
+    for side, dz in ((0, 0.0), (1, -thickness)):
+        if radius is None:
+            P = np.c_[X.ravel(), Y.ravel(), np.full(X.size, dz)]
+        else:
+            r = radius + dz                                         # the back sheet: the inner cylinder
+            t = X.ravel() / radius
+            P = np.c_[r * np.sin(t), Y.ravel(), r * np.cos(t) - radius]
+        base = side * X.size
+        V.append(P)
+        for j in range(ny - 1):
+            for i in range(nx - 1):
+                q = base + j * nx + i
+                f = [(q, q + 1, q + nx + 1), (q, q + nx + 1, q + nx)]
+                F += f if side == 0 else [tr[::-1] for tr in f]
+    return np.vstack(V), np.asarray(F)
+
+
+class PlanarFrontAuditTest(unittest.TestCase):
+    """planar_front: a near-flat frame front reflects the AR room panel as one slab sliding across it (test-pilot-002's
+    Tom Ford front, wrapped at 700 mm). The audit fits the front's wrap radius (z = a + b x + c x^2 + d y + e y^2 over
+    the front-facing faces, radius -1 / 2c) and flags it above AUDIT_PLANAR_FRONT_RADIUS_MM."""
+
+    def write(self, parts, mats):
+        with tempfile.TemporaryDirectory() as td:
+            return export.write_glb(parts, mats, Path(td) / "a.glb")
+
+    def test_the_fitted_radius_recovers_the_wrap(self):
+        for radius in (150.0, 300.0, 700.0):
+            m = export.front_wrap(*wrapped_front(radius))
+            self.assertAlmostEqual(m["front_wrap_radius_mm"], radius, delta=0.05 * radius)     # 150 reads 143.5
+            self.assertTrue(125.0 < m["front_width_mm"] < 137.0, m)     # the projected width of the 136 mm plate
+        # a tight wrap (the ends turn 39 deg) reads tighter through the quadratic: 90.5 mm for 100
+        self.assertAlmostEqual(export.front_wrap(*wrapped_front(100.0))["front_wrap_radius_mm"], 100.0, delta=12.0)
+        flat = export.front_wrap(*wrapped_front(None))
+        self.assertEqual(abs(flat["front_wrap_radius_mm"]), export.AUDIT_FRONT_RADIUS_CAP_MM)
+
+    def test_a_near_flat_front_is_flagged_with_a_note(self):
+        for radius in (700.0, None):
+            a = self.write(*facet_parts(frame=wrapped_front(radius)))["audit"]
+            self.assertIn("planar_front", a["flags"], radius)
+            self.assertGreater(abs(a["parts"]["frame"]["front_wrap_radius_mm"]), export.AUDIT_PLANAR_FRONT_RADIUS_MM)
+            note = next(n for n in a["notes"] if n.startswith("frame") and "flat" in n)
+            self.assertIn("wrap_cylinder", note)
+            self.assertIn("top photo", note)
+
+    def test_a_wrapped_front_is_not(self):
+        for radius in (120.0, 300.0):
+            a = self.write(*facet_parts(frame=wrapped_front(radius)))["audit"]
+            self.assertNotIn("planar_front", a["flags"], radius)
+            self.assertFalse([n for n in a["notes"] if n.startswith("frame")], a["notes"])
+
+    def test_a_small_or_absent_front_is_not_measured(self):
+        a = self.write(*facet_parts())["audit"]                     # the 22 mm disc: no front to fit
+        self.assertNotIn("front_wrap_radius_mm", a["parts"]["frame"])
+        self.assertNotIn("planar_front", a["flags"])
+        self.assertEqual(export.front_wrap(*rounded_tube()), {})   # a temple-like part faces sideways
+        flags, _ = export.audit_findings({"frame": {"plane_area_mm2": 0.0, "normal_bleed_mm2": 0.0,
+                                                    "normal_bleed_fraction": 0.0, "hard_crease_mm": 0.0}})
+        self.assertEqual(flags, [])

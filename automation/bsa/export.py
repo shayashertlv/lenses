@@ -4,7 +4,8 @@ Output convention (the AR runtime's external-asset contract, ``ar/src/eyewear/ex
 metres, +Y up, +Z toward the viewer (lenses face +Z), origin at the bridge underside on the
 symmetry axis, identity node transforms, one node per part named ``frame``, ``temple_R``,
 ``temple_L`` and ``lens_R`` + ``lens_L`` (pair) or ``lens_C`` (single/shield). Frame and temples
-are opaque; every lens material has ``KHR_materials_transmission`` > 0 (the runtime's lens
+are opaque or physically translucent (``KHR_materials_transmission`` + ``KHR_materials_volume``, forced
+single-sided, flagged ``<node>_material_translucent``, never a lens descriptor); every lens material has ``KHR_materials_transmission`` > 0 (the runtime's lens
 detection rule, ``ar/src/eyewear/optical-material.ts``) and ``KHR_materials_ior``, and - when S8 supplies one - the
 canonical ``LENSES_lens_appearance`` descriptor, which the runtime renders with its own optics (unblurred background,
 v-profile density, angular reflectance; ``canonical_sheet``: TEXCOORD_0.y = lens-local height, bottom 0 -> top 1, and
@@ -25,7 +26,7 @@ normals on both caps, flat walls) for diagnostics.
   (u right, v DOWN the image, 0..1); optional ``COLOR`` (N,3|4) or (M,3,3|4) - float = linear 0..1,
   uint8 = sRGB (converted to linear); optional ``N`` (N,3) or (M,3,3) shading normals (MODEL frame);
   ``material``: a material name, or a list of names with ``face_material`` (M,) int indices into it;
-  optional ``crease_deg`` (frame/temples); optional ``front_mask`` (M,) bool for lenses; optional
+  optional ``crease_deg`` (frame/temples: auto-smooth angle of ``part_normals``); optional ``front_mask`` (M,) bool for lenses; optional
   ``edge_ring`` {"width_mm", "material"} for lenses: the front sheet is cut in place (``split_edge_ring``) and
   the band within width_mm of its outline gets that (transmissive) material as a second primitive.
 ``materials``: name -> dict with any of
@@ -71,6 +72,43 @@ GENERATOR = "bsa.export v1"
 LENS_APPEARANCE_EXTENSION = "LENSES_lens_appearance"   # the runtime's canonical optics (ar/src/eyewear/lens-appearance.ts)
 CANONICAL_SURFACE_PROFILE = "front_sheet_v1"           # ar/src/render/lens-material.ts CANONICAL_LENS_SURFACE_PROFILE
 CANONICAL_MIN_NZ = 0.02                                # a canonical front-sheet vertex normal must point toward +Z
+# frame/temple shading normals (``part_normals``): face-area weighted, and flat plates keep their plane's normal
+PART_NORMALS_AREA_POWER = 1.0         # corner weight = corner angle x face area ** this (Blender's "Face Area And Angle")
+FLAT_REGION_DIHEDRAL_DEG = 1.0        # faces joined across edges flatter than this form a flat-region candidate ...
+FLAT_REGION_SPREAD_DEG = 8.0          # ... whose normals stay within this of their mean (a plate, not a sweep) ...
+FLAT_REGION_MIN_MM2 = 5.0             # ... at least this large, of this many faces (not one planar quad) ...
+FLAT_REGION_MIN_FACES = 8
+FLAT_REGION_MIN_WIDTH_MM = 2.5        # ... and this wide (area / extent): no facet strip of a sweep or a 24-sided barrel
+FLAT_REGION_JOIN_DEG = 2.0            # two flat regions meeting flatter than this still shade as one surface
+# the export receipt's facet audit (``surface_audit`` / ``lens_audit``), fed back to the author
+AUDIT_PLANE_TOL_DEG = 4.0             # a dominant plane: the faces within this of one normal ...
+AUDIT_PLANE_MIN_FRACTION = 0.05       # ... holding this share of the part's area (and AUDIT_PLANE_MIN_MM2)
+AUDIT_PLANE_MIN_MM2 = 20.0
+AUDIT_PLANE_MAX = 4
+AUDIT_BLEED_DEG = 3.0                 # a plane face bleeds when a corner normal is this far off its face normal
+AUDIT_BLEED_FLAG_FRACTION = 0.05      # flag flat_plane_normal_bleed above this share of the plane area
+AUDIT_HARD_SPLIT_DEG = 1.0            # an edge is hard when its two faces' corner normals differ by this much
+AUDIT_DESIGNED_CORNER_DEG = 60.0      # hard edges at or above this dihedral are designed corners, below it facet lines
+AUDIT_FACETED_SWEEP_MM = 50.0         # flag faceted_sweep above this length of sweep facet lines per part
+AUDIT_SWEEP_CHAIN_MM = 10.0           # a sweep facet line: an unbranched chain of hard edges at least this long ...
+AUDIT_SWEEP_PARTNER_MM = 6.0          # ... with another such line running beside it (within this, edges within
+AUDIT_SWEEP_PARALLEL_DEG = 25.0       # this angle) over at least half its length: a coarse section's corners, side by side
+AUDIT_MAX_NOTES = 24                  # the build reply's cap (modeler.agentic.tools.MAX_AUDIT_ITEMS); the last note says what was cut
+AUDIT_MIRROR_REFLECTANCE = 0.08       # a lens is coated/flash/mirrored when its normal-incidence reflectance exceeds this
+AUDIT_PLANAR_LENS_H_DEG = 8.0         # flag planar_mirror_lens when the front sheet's normals span less than this
+AUDIT_PLANAR_LENS_V_DEG = 2.0         # horizontally and less than this vertically
+AUDIT_PARTNER_K = 16                  # the sweep partner search: nearest neighbours asked first, x4 per round for the
+AUDIT_PARTNER_BATCH = 2_000_000       # edges still undecided, at most this many (edge, neighbour) pairs per batch
+# planar_front: the frame front's wrap radius, fitted over its front-facing faces (normal z above AUDIT_FRONT_MIN_NZ)
+AUDIT_FRONT_MIN_NZ = 0.3
+AUDIT_FRONT_MIN_WIDTH_MM = 100.0      # a whole front (both rims): narrower frame parts (a bridge, a test plate) are not fitted
+AUDIT_FRONT_MIN_FACES = 20
+AUDIT_FRONT_RADIUS_CAP_MM = 100000.0  # a flat front's radius is reported as this (signed)
+# flag above this radius: every authored wrap of 300 mm or less fits at most 254 mm (vb-run1: 135 -> 122, 300 -> 219-254),
+# every one of 700 mm or more at least 603 mm (test-pilot-002 r0002-r0006: 700 -> 603-707; test-pilot-001: 1300 -> 1848-1869;
+# tomford-astra1: 950 -> 925-1294); scan fronts: vb bsa-m3 188, miu bsa-m3 365. Over a 136 mm front, 400 mm is a 5.8 mm
+# sag and normals turning +-10 deg: the room panel's reflection stays one slab across it
+AUDIT_PLANAR_FRONT_RADIUS_MM = 400.0
 
 _GL_FLOAT, _GL_UINT = 5126, 5125
 _ARRAY_BUFFER, _ELEMENT_ARRAY_BUFFER = 34962, 34963
@@ -106,13 +144,23 @@ def weld(V: np.ndarray, F: np.ndarray, tol_mm: float = 1e-4) -> np.ndarray:
 
 
 def crease_normals(V: np.ndarray, F: np.ndarray, crease_deg: float = DEFAULT_CREASE_DEG,
-                   chunk: int = 400_000) -> np.ndarray:
+                   chunk: int = 400_000, *, area_power: float = 0.0, regions: np.ndarray | None = None) -> np.ndarray:
     """Per-corner smooth normals (M,3,3): the angle-weighted mean of the faces around the corner's
-    vertex whose normal is within ``crease_deg`` of the corner's own face (auto-smooth)."""
+    vertex whose normal is within ``crease_deg`` of the corner's own face (auto-smooth); with ``area_power`` > 0 each
+    face's weight is also multiplied by its area ** area_power (1: Blender's Weighted Normal, Face Area And Angle,
+    so a large flat face outweighs the thin strips of the rounding beside it). ``regions`` (M,) int, -1 =
+    none (``flat_regions``): a corner of a region face averages only its own region (and regions within
+    FLAT_REGION_JOIN_DEG of its face); any other corner at a vertex a region touches averages only the region faces
+    (like face influence in Blender's Weighted Normal), so a plate keeps its plane normal and the bevel or curve beside
+    it takes the whole turn."""
     V = np.asarray(V, float)
     F = np.asarray(F, np.int64)
-    fn, _ = _face_normals(V, F)
+    fn, area = _face_normals(V, F)
     w = _corner_angles(V, F).ravel()
+    if area_power:
+        w = w * np.repeat(area, 3) ** float(area_power)
+    reg = None if regions is None else np.asarray(regions, np.int64)
+    cos_join = math.cos(math.radians(FLAT_REGION_JOIN_DEG))
     cv = weld(V, F).ravel()                                  # incidence on welded positions
     cf = np.repeat(np.arange(len(F)), 3)
     order = np.argsort(cv, kind="stable")
@@ -122,6 +170,7 @@ def crease_normals(V: np.ndarray, F: np.ndarray, crease_deg: float = DEFAULT_CRE
     gid = np.repeat(np.arange(len(starts)), counts)          # group of each sorted corner
     cos_c = math.cos(math.radians(crease_deg))
     acc = np.zeros((len(cv), 3))
+    touches = np.zeros(len(cv), bool)                        # the corner's vertex touches a region face (within crease)
     s_of = counts[gid]
     # process sorted corners in chunks so the (corner, neighbour-corner) pair list stays small
     pos = 0
@@ -137,9 +186,17 @@ def crease_normals(V: np.ndarray, F: np.ndarray, crease_deg: float = DEFAULT_CRE
         other = starts[gid[rep]] + local
         c1, c2 = order[rep], order[other]
         f1, f2 = cf[c1], cf[c2]
-        keep = np.einsum("ij,ij->i", fn[f1], fn[f2]) >= cos_c
-        c1, c2, f2 = c1[keep], c2[keep], f2[keep]
-        contrib = fn[f2] * w[c2, None]
+        dot = np.einsum("ij,ij->i", fn[f1], fn[f2])
+        keep = dot >= cos_c
+        c1, c2, f1, f2, dot = c1[keep], c2[keep], f1[keep], f2[keep], dot[keep]
+        wk = w[c2]
+        if reg is not None:
+            # every pair of a corner lies in this chunk, so the region test per corner is complete here
+            own, other = reg[f1], reg[f2]
+            np.logical_or.at(touches, c1, other >= 0)
+            ok = np.where(own >= 0, (other == own) | ((other >= 0) & (dot >= cos_join)), ~touches[c1] | (other >= 0))
+            wk = wk * ok
+        contrib = fn[f2] * wk[:, None]
         for d in range(3):
             acc[:, d] += np.bincount(c1, weights=contrib[:, d], minlength=len(cv))
         pos = end
@@ -148,6 +205,48 @@ def crease_normals(V: np.ndarray, F: np.ndarray, crease_deg: float = DEFAULT_CRE
     acc[~bad] /= nrm[~bad, None]
     acc[bad] = fn[cf[bad]]
     return acc.reshape(len(F), 3, 3)
+
+
+def flat_regions(V: np.ndarray, F: np.ndarray) -> np.ndarray:
+    """Per-face flat-region label (-1 = none): faces joined across edges flatter than FLAT_REGION_DIHEDRAL_DEG whose
+    normals stay within FLAT_REGION_SPREAD_DEG of their mean, of at least FLAT_REGION_MIN_MM2 and on average
+    FLAT_REGION_MIN_WIDTH_MM wide (area / bounding-box diagonal), of FLAT_REGION_MIN_FACES faces or more. A front plate
+    or a wide flat side; not a curved surface (its faces turn by more per edge), not one planar quad of a coarse sphere
+    and not the long flat strip of a sweep or a many-sided barrel (whose shading would turn into facets)."""
+    V = np.asarray(V, float)
+    F = np.asarray(F, np.int64)
+    fn, area = _face_normals(V, F)
+    labels = smooth_patches(V, F, FLAT_REGION_DIHEDRAL_DEG)
+    k = int(labels.max()) + 1
+    A = np.bincount(labels, weights=area, minlength=k)
+    mean = np.stack([np.bincount(labels, weights=fn[:, d] * area, minlength=k) for d in range(3)], 1)
+    mean /= np.maximum(np.linalg.norm(mean, axis=1, keepdims=True), 1e-30)
+    spread = np.zeros(k)
+    np.maximum.at(spread, labels, np.degrees(np.arccos(np.clip(np.einsum("ij,ij->i", fn, mean[labels]), -1, 1))))
+    lo, hi = np.full((k, 3), np.inf), np.full((k, 3), -np.inf)
+    P = V[F]
+    for c in range(3):
+        np.minimum.at(lo, labels, P[:, c])
+        np.maximum.at(hi, labels, P[:, c])
+    extent = np.linalg.norm(hi - lo, axis=1)
+    good = ((np.bincount(labels, minlength=k) >= FLAT_REGION_MIN_FACES) & (A >= FLAT_REGION_MIN_MM2)
+            & (spread <= FLAT_REGION_SPREAD_DEG) & (A >= FLAT_REGION_MIN_WIDTH_MM * extent))
+    remap = np.full(k, -1, np.int64)
+    remap[good] = np.arange(int(good.sum()))
+    return remap[labels]
+
+
+def part_normals(V: np.ndarray, F: np.ndarray, crease_deg: float = DEFAULT_CREASE_DEG) -> np.ndarray:
+    """Frame/temple shading normals (M,3,3): the ``crease_deg`` auto-smooth weighted by face area and corner angle,
+    with flat regions taking precedence (``crease_normals``, ``flat_regions``). Flat plates stay flat and the curvature
+    stays in their bevel strips and roundings. The angle-weighted auto-smooth used until 2026-09-28 blended a 4-segment
+    bevel's 22.5 deg steps into a plate's coarse triangles, and the plate's mirror-like reflections broke into stair
+    steps that crawled with the head (test-pilot-002 r0006, the frame front's bridge and endpieces: 330 of 422 mm2 of
+    the front plane more than 3 deg off). The area weight alone leaves slivers at the plate's edge bleeding and the
+    region rule alone leaves a narrow flat side (a temple's) bleeding into its rounding; the cost is on coarse curved
+    meshes: a random-hull sphere's normals 1.5 deg off on average instead of 0.7, a 24-segment UV sphere's pole cap
+    shading as one flat cap (3.75 deg at its rim)."""
+    return crease_normals(V, F, crease_deg, area_power=PART_NORMALS_AREA_POWER, regions=flat_regions(V, F))
 
 
 def _poly_terms(x: np.ndarray, y: np.ndarray, deg: int):
@@ -247,19 +346,6 @@ def _sheet_boundary(F: np.ndarray) -> np.ndarray:
     e = np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), axis=1)
     u, c = np.unique(e, axis=0, return_counts=True)
     return u[c == 1]
-
-
-def _dist_to_segments(P: np.ndarray, A: np.ndarray, B: np.ndarray, chunk: int = 2048) -> np.ndarray:
-    """Euclidean distance of each point to the nearest of the segments A[k]-B[k]."""
-    out = np.empty(len(P))
-    AB = B - A
-    L2 = np.maximum((AB * AB).sum(1), 1e-30)
-    for s in range(0, len(P), chunk):
-        p = P[s:s + chunk, None, :]
-        t = np.clip(((p - A[None]) * AB[None]).sum(-1) / L2[None], 0.0, 1.0)
-        q = A[None] + t[..., None] * AB[None]
-        out[s:s + chunk] = np.sqrt(((p - q) ** 2).sum(-1).min(1))
-    return out
 
 
 def split_edge_ring(V: np.ndarray, F: np.ndarray, width_mm: float, UV: np.ndarray | None = None) -> dict:
@@ -609,8 +695,10 @@ def build_material(b: GlbBuilder, name: str, spec: dict, lens_rule: bool = False
     for e in m.get("extensions", {}):
         b.extensions.add(e)
     t = m.get("extensions", {}).get("KHR_materials_transmission", {}).get("transmissionFactor", 0.0)
+    la = m.get("extensions", {}).get(LENS_APPEARANCE_EXTENSION, {}).get("appearance") or {}
     summary = {"transmission": float(t), "double_sided": bool(m.get("doubleSided", False)),
                "canonical": LENS_APPEARANCE_EXTENSION in m.get("extensions", {}),
+               "reflectance": [float(x) for x in la.get("normal_reflectance_rgb") or []],
                "alpha_mode": m.get("alphaMode", "OPAQUE"), "textures": sorted(k for k, v in pbr.items() if isinstance(v, dict)),
                "overrides": overrides}
     return m, summary
@@ -748,7 +836,7 @@ def write_glb(parts: dict[str, dict], materials: dict[str, dict], path: str | Pa
             mat_summary[name] = s
         return mat_index[name]
 
-    receipt_parts = {}
+    receipt_parts, audit_parts = {}, {}
     for n in order:
         part = parts[n]
         role = PART_ROLE[n]
@@ -838,19 +926,40 @@ def write_glb(parts: dict[str, dict], materials: dict[str, dict], path: str | Pa
         else:
             for mn in names:
                 material(mn)
-                if mat_summary[mn]["transmission"] > 0:
-                    raise ValueError(f"{n}: frame/temple material {mn!r} must be opaque (transmission 0); "
-                                     "the runtime would treat the part as a lens")
-                if mat_summary[mn]["alpha_mode"] != "OPAQUE":
+                s = mat_summary[mn]
+                if s["canonical"]:
+                    # the runtime treats a material carrying the descriptor as optical whatever its transmission: on a
+                    # frame or temple (opaque or translucent) it would render the part as a lens
+                    raise ValueError(f"{n}: {role} material {mn!r} carries a lens descriptor; a translucent {role} uses "
+                                     "physical transmission only, an opaque one none")
+                if s["transmission"] > 0:
+                    # a translucent frame OR temple (crystal / translucent acetate; the branch is frame|temple by
+                    # construction, lens parts take the lens rule above): the runtime classifies it by the node's
+                    # partRole extra; single-sided, since back faces would enter the transmission pre-pass twice
+                    doc_m = b.doc["materials"][mat_index[mn]]
+                    if doc_m.get("doubleSided"):
+                        doc_m["doubleSided"] = False
+                        s["double_sided"] = False
+                        flags.append(f"{n}_translucent_forced_single_sided")
+                    if f"{n}_material_translucent" not in flags:
+                        flags.append(f"{n}_material_translucent")
+                if s["alpha_mode"] != "OPAQUE":
                     flags.append(f"{n}_material_not_opaque")
             if part.get("N") is not None:
                 N_c = _per_corner(part["N"], F, 3).astype(float)
                 info["normals"] = {"method": "supplied"}
             else:
                 cd = float(part.get("crease_deg", crease_deg))
-                N_c = crease_normals(V, F, cd)
-                info["normals"] = {"method": "crease", "crease_deg": cd}
+                N_c = part_normals(V, F, cd)
+                info["normals"] = {"method": "crease", "crease_deg": cd, "flat_regions": "precedence"}
         N_c = N_c / np.maximum(np.linalg.norm(N_c, axis=-1, keepdims=True), 1e-12)
+        if role == "lens":
+            refl = [max(mat_summary[mn]["reflectance"]) for mn in names if mat_summary[mn].get("reflectance")]
+            audit_parts[n] = lens_audit(N_c[keep], max(refl) if refl else 0.04)
+        else:
+            audit_parts[n] = surface_audit(V, F[keep], N_c[keep])
+            if n == FRAME_NODE:
+                audit_parts[n].update(front_wrap(V, F[keep]))
         UV_c = _per_corner(part.get("UV"), F, 2)
         COL_c = _per_corner(part.get("COLOR"), F, 0)
         if COL_c is not None:
@@ -901,10 +1010,244 @@ def write_glb(parts: dict[str, dict], materials: dict[str, dict], path: str | Pa
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
+    audit_flags, audit_notes = audit_findings(audit_parts)
     return {"path": str(path), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
             "triangles": int(sum(p["faces_out"] for p in receipt_parts.values())),
             "nodes": order, "lens_profile": lens_profile, "origin": origin_receipt, "parts": receipt_parts,
-            "materials": mat_summary, "textures": b.texture_log, "flags": flags}
+            "materials": mat_summary, "textures": b.texture_log, "flags": flags,
+            "audit": {"flags": audit_flags, "parts": audit_parts, "notes": audit_notes}}
+
+
+# --------------------------------------------------------------------------- facet audit (the export receipt's ``audit``)
+def dominant_planes(fn: np.ndarray, area: np.ndarray) -> np.ndarray:
+    """Per-face dominant-plane label (-1 = none), greedily: the direction whose faces within AUDIT_PLANE_TOL_DEG hold the
+    most area (candidates: the largest faces' normals and the axes), refined to their area-weighted mean; up to
+    AUDIT_PLANE_MAX planes, each holding AUDIT_PLANE_MIN_FRACTION of the part's area and AUDIT_PLANE_MIN_MM2."""
+    lab = np.full(len(fn), -1, np.int64)
+    total = float(area.sum())
+    c = math.cos(math.radians(AUDIT_PLANE_TOL_DEG))
+    for p in range(AUDIT_PLANE_MAX):
+        free = np.flatnonzero((lab < 0) & (area > 0))
+        if not len(free):
+            break
+        cand = free[np.argsort(-area[free], kind="stable")[:256]]
+        dirs = np.vstack([fn[cand], np.eye(3), -np.eye(3)])
+        best = dirs[int(np.argmax(((fn[free] @ dirs.T) >= c).T @ area[free]))]
+        for _ in range(2):
+            m = free[(fn[free] @ best) >= c]
+            best = (fn[m] * area[m, None]).sum(0)
+            best /= max(float(np.linalg.norm(best)), 1e-30)
+        m = free[(fn[free] @ best) >= c]
+        if area[m].sum() < max(AUDIT_PLANE_MIN_FRACTION * total, AUDIT_PLANE_MIN_MM2):
+            break
+        lab[m] = p
+    return lab
+
+
+def sweep_facet_lines(a: np.ndarray, b: np.ndarray, pa: np.ndarray, pb: np.ndarray) -> tuple[float, int]:
+    """Length (mm) and count of the hard edges (welded endpoints ``a``, ``b``; positions ``pa``, ``pb``) that run ALONG a
+    swept section: unbranched chains at least AUDIT_SWEEP_CHAIN_MM long with a parallel partner chain within
+    AUDIT_SWEEP_PARTNER_MM over at least half their length. A coarse section turns more than the smoothing angle at each
+    of its corner points, and every such point draws a line down the whole sweep beside its neighbours' (test-pilot-002
+    r0006's old temples: 10 lines, 1,081 mm per arm). A bevelled plate's or a stretched sphere's hard edges are short
+    (test-pilot-001 r0002's frame: 62 mm in chains of at most 1.2 mm), scan noise draws no long line (a noisy 130k-face
+    sphere: 347 mm, longest chain 2.1 mm) and a single designed crease has no partner."""
+    n = len(a)
+    if not n:
+        return 0.0, 0
+    L = np.linalg.norm(pb - pa, axis=1)
+    ends = np.r_[a, b]
+    eid = np.r_[np.arange(n), np.arange(n)]
+    deg = np.bincount(ends)
+    order = np.argsort(ends, kind="stable")
+    se, sid = ends[order], eid[order]
+    joint = np.flatnonzero((se[1:] == se[:-1]) & (deg[se[1:]] == 2))      # the two edges at a degree-2 vertex
+    G = coo_matrix((np.ones(len(joint)), (sid[joint], sid[joint + 1])), shape=(n, n))
+    k, lab = connected_components(G, directed=False)
+    clen = np.bincount(lab, weights=L, minlength=k)
+    idx = np.flatnonzero((clen[lab] >= AUDIT_SWEEP_CHAIN_MM) & (L > 0))
+    if not len(idx):
+        return 0.0, 0
+    mid = (pa[idx] + pb[idx]) / 2
+    d = (pb[idx] - pa[idx]) / L[idx, None]
+    partnered = _parallel_partner(mid, d, lab[idx], AUDIT_SWEEP_PARTNER_MM, math.cos(math.radians(AUDIT_SWEEP_PARALLEL_DEG)))
+    beside = np.bincount(lab[idx], weights=L[idx] * partnered, minlength=k)
+    line = (clen >= AUDIT_SWEEP_CHAIN_MM) & (beside >= 0.5 * clen)
+    return float(clen[line].sum()), int(line.sum())
+
+
+def _parallel_partner(mid: np.ndarray, d: np.ndarray, chain: np.ndarray, radius: float, cos_par: float) -> np.ndarray:
+    """Per edge (midpoint ``mid``, unit direction ``d``, chain label ``chain``): is there an edge of ANOTHER chain whose
+    midpoint lies within ``radius`` and whose direction is within acos(cos_par)? Exactly the answer of a ball query per
+    edge, without holding every neighbour list: each edge asks for its AUDIT_PARTNER_K nearest midpoints, and only the
+    edges still undecided (no partner found yet, and the farthest neighbour returned still inside the radius) ask again
+    for four times as many, in batches of at most AUDIT_PARTNER_BATCH pairs. A coarse sweep's edges find a partner among
+    their first few dozen neighbours, so the cost no longer grows with the square of the edge density (a 69k-face coarse
+    tube took 8.2 s / 4.7 GB with the ball query)."""
+    from scipy.spatial import cKDTree
+    n = len(mid)
+    found = np.zeros(n, bool)
+    if n < 2:
+        return found
+    tree = cKDTree(mid)
+    bound = radius * (1.0 + 1e-9) + 1e-12            # returns every point the ball query would; filtered to <= radius
+    todo, k = np.arange(n), AUDIT_PARTNER_K
+    while len(todo):
+        kk = min(k, n)
+        step = max(1, AUDIT_PARTNER_BATCH // kk)
+        undecided = []
+        for s in range(0, len(todo), step):
+            rows = todo[s:s + step]
+            dist, nb = tree.query(mid[rows], k=kk, distance_upper_bound=bound)
+            dist, nb = dist.reshape(len(rows), kk), nb.reshape(len(rows), kk)
+            inside = dist <= radius
+            nb = np.where(inside, nb, 0)
+            ok = inside & (chain[nb] != chain[rows, None]) & (np.abs(np.einsum("rkj,rj->rk", d[nb], d[rows])) >= cos_par)
+            hit = ok.any(1)
+            found[rows[hit]] = True
+            more = ~hit & inside[:, -1] & (kk < n)       # the k-th neighbour is still inside: more may follow
+            undecided.append(rows[more])
+        todo = np.concatenate(undecided)
+        k *= 4
+    return found
+
+
+def front_wrap(V: np.ndarray, F: np.ndarray) -> dict:
+    """The frame front's horizontal wrap: z = a + b x + c x^2 + d y + e y^2 fitted (area-weighted) to the centroids of
+    the front-facing faces (normal z above AUDIT_FRONT_MIN_NZ), radius -1 / 2c in mm (positive: the temples bend back;
+    +-AUDIT_FRONT_RADIUS_CAP_MM for a flat front), with the width it spans. Empty when the part has no whole front
+    (fewer than AUDIT_FRONT_MIN_FACES such faces, or narrower than AUDIT_FRONT_MIN_WIDTH_MM)."""
+    V = np.asarray(V, float)
+    F = np.asarray(F, np.int64)
+    if not len(F):
+        return {}
+    fn, area = _face_normals(V, F)
+    sel = (fn[:, 2] > AUDIT_FRONT_MIN_NZ) & (area > 0)
+    if sel.sum() < AUDIT_FRONT_MIN_FACES:
+        return {}
+    c, w = V[F[sel]].mean(1), area[sel]
+    width = float(np.ptp(c[:, 0]))
+    if width < AUDIT_FRONT_MIN_WIDTH_MM:
+        return {}
+    x = c[:, 0] - float((c[:, 0] * w).sum() / w.sum())
+    y = c[:, 1] - float((c[:, 1] * w).sum() / w.sum())
+    A = np.column_stack([np.ones_like(x), x, x * x, y, y * y])
+    sw = np.sqrt(w)
+    coef = np.linalg.lstsq(A * sw[:, None], c[:, 2] * sw, rcond=None)[0]
+    cap = AUDIT_FRONT_RADIUS_CAP_MM
+    curv = -2.0 * float(coef[2])                      # 1 / radius
+    radius = float(np.clip(1.0 / curv, -cap, cap)) if abs(curv) * cap > 1.0 else (cap if curv >= 0 else -cap)
+    return {"front_wrap_radius_mm": round(radius, 1), "front_width_mm": round(width, 1)}
+
+
+def surface_audit(V: np.ndarray, F: np.ndarray, N: np.ndarray) -> dict:
+    """Facet measures of a frame/temple part's delivered shading normals ``N`` (M,3,3): the dominant planes' area, the
+    part of it that bleeds (a corner normal more than AUDIT_BLEED_DEG off its face: reflections on the plate break into
+    stair steps along the triangles), the length (mm) of hard shading edges flatter than AUDIT_DESIGNED_CORNER_DEG
+    (sharper hard edges are designed corners) and, of those, the facet lines running along a swept section
+    (``sweep_facet_lines``; edges between two flat regions, a designed fold between plates, left out)."""
+    V = np.asarray(V, float)
+    F = np.asarray(F, np.int64)
+    N = np.asarray(N, float)
+    N = N / np.maximum(np.linalg.norm(N, axis=-1, keepdims=True), 1e-12)
+    fn, area = _face_normals(V, F)
+    planes = dominant_planes(fn, area)
+    dev = np.degrees(np.arccos(np.clip(np.einsum("fij,fj->fi", N, fn), -1, 1))).max(1)
+    on = planes >= 0
+    plane_area = float(area[on].sum())
+    bleed = float(area[on & (dev > AUDIT_BLEED_DEG)].sum())
+    # hard edges: the two faces of a manifold edge disagree on a corner normal at either end
+    Fw = weld(V, F)
+    a, b = Fw.ravel(), np.roll(Fw, -1, axis=1).ravel()
+    na, nb = N.reshape(-1, 3), np.roll(N, -1, axis=1).reshape(-1, 3)
+    pa, pb = V[F].reshape(-1, 3), np.roll(V[F], -1, axis=1).reshape(-1, 3)
+    face = np.repeat(np.arange(len(F)), 3)
+    swap = a > b
+    a, b = np.where(swap, b, a), np.where(swap, a, b)
+    na, nb = np.where(swap[:, None], nb, na), np.where(swap[:, None], na, nb)
+    ok = a != b
+    key = a * (int(Fw.max()) + 1) + b
+    order = np.argsort(np.where(ok, key, -1), kind="stable")
+    order = order[ok[order]]
+    ks = key[order]
+    start = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    cnt = np.diff(np.r_[start, len(ks)])
+    two = start[cnt == 2]
+    e1, e2 = order[two], order[two + 1]
+    split = np.minimum(np.einsum("ij,ij->i", na[e1], na[e2]), np.einsum("ij,ij->i", nb[e1], nb[e2]))
+    dih = np.einsum("ij,ij->i", fn[face[e1]], fn[face[e2]])
+    hard = (split < math.cos(math.radians(AUDIT_HARD_SPLIT_DEG))) & (dih > math.cos(math.radians(AUDIT_DESIGNED_CORNER_DEG)))
+    length = np.linalg.norm(pb[e1] - pa[e1], axis=1)
+    reg = flat_regions(V, F) if hard.any() else np.full(len(F), -1)
+    sweep = hard & ~((reg[face[e1]] >= 0) & (reg[face[e2]] >= 0))
+    sweep_mm, lines = sweep_facet_lines(a[e1[sweep]], b[e1[sweep]], pa[e1[sweep]], pb[e1[sweep]])
+    return {"plane_area_mm2": round(plane_area, 2), "normal_bleed_mm2": round(bleed, 2),
+            "normal_bleed_fraction": round(bleed / plane_area, 4) if plane_area > 0 else 0.0,
+            "hard_crease_mm": round(float(length[hard].sum()), 2), "sweep_facet_mm": round(sweep_mm, 2),
+            "sweep_facet_lines": lines}
+
+
+def lens_audit(N: np.ndarray, reflectance: float) -> dict:
+    """Planarity of a lens front sheet from its shading normals ``N`` (..., 3): the span (deg) of their horizontal and
+    vertical tilt, with the lens's normal-incidence reflectance. A flat mirror-coated lens reflects the AR room's light
+    panel as one hard-edged slab that sweeps by twice the head rotation (r0006: 3.85 x 0 deg, a slab of up to 16,807
+    px jumping 6,934 px per 3 deg of yaw; a base-6 probe: bright spots of at most 5,282 px)."""
+    n = np.asarray(N, float).reshape(-1, 3)
+    h = np.degrees(np.arctan2(n[:, 0], n[:, 2]))
+    v = np.degrees(np.arctan2(n[:, 1], n[:, 2]))
+    return {"normal_span_h_deg": round(float(np.ptp(h)), 3) if len(n) else 0.0,
+            "normal_span_v_deg": round(float(np.ptp(v)), 3) if len(n) else 0.0, "reflectance": round(float(reflectance), 4)}
+
+
+def audit_findings(measures: dict[str, dict]) -> tuple[list[str], list[str]]:
+    """Flags and one-line notes (each naming the part and the change) from the per-part audit measures; at most
+    AUDIT_MAX_NOTES notes, the last one then saying how many were cut (the build reply keeps that many)."""
+    flags, notes = [], []
+
+    def flag(f):
+        if f not in flags:
+            flags.append(f)
+    for n, m in measures.items():
+        if PART_ROLE.get(n) == "lens":
+            if (m["reflectance"] > AUDIT_MIRROR_REFLECTANCE and m["normal_span_h_deg"] < AUDIT_PLANAR_LENS_H_DEG
+                    and m["normal_span_v_deg"] < AUDIT_PLANAR_LENS_V_DEG):
+                flag("planar_mirror_lens")
+                notes.append(f"{n} is flat (its normals span {m['normal_span_h_deg']:.1f} x {m['normal_span_v_deg']:.1f} deg): a "
+                             "mirror-coated flat lens reflects the AR room panel as a sliding slab; give it a base curve (4 "
+                             "default, 6 typical for sunglasses) unless a side or top photo shows it flat")
+            continue
+        wrap = m.get("front_wrap_radius_mm")
+        if PART_ROLE.get(n) == "frame" and wrap is not None and abs(wrap) > AUDIT_PLANAR_FRONT_RADIUS_MM:
+            flag("planar_front")
+            width = float(m.get("front_width_mm", 0.0))
+            fit = ("no measurable wrap" if abs(wrap) >= AUDIT_FRONT_RADIUS_CAP_MM else
+                   f"wrap radius {abs(wrap):.0f} mm{' (bowed forward)' if wrap < 0 else ''}")
+            turn = math.degrees(math.asin(min(1.0, width / 2 / abs(wrap))))
+            notes.append(f"{n}: the front is nearly flat ({fit} fitted over its {width:.0f} mm width: its face normals turn "
+                         f"only about +-{turn:.0f} deg across it), so a polished front reflects the AR room panel as one slab "
+                         "that slides across it as the head turns; wrap it (gl.wrap_cylinder, radius about 100-300 mm on a "
+                         "typical front) unless the top photo shows a flat front")
+        if m["plane_area_mm2"] > 0 and m["normal_bleed_fraction"] > AUDIT_BLEED_FLAG_FRACTION:
+            flag("flat_plane_normal_bleed")
+            change = ("build it with gl.tube_along_path rounded sections (radius > 0) so the rounding, not the flat side, "
+                      "carries the turn" if PART_ROLE.get(n) == "temple" else
+                      "triangulate the plate more finely toward its edges (plate_with_holes interior_spacing about 1.2 mm) "
+                      "or give it a real curve")
+            notes.append(f"{n}: {100 * m['normal_bleed_fraction']:.0f}% of its flat area ({m['normal_bleed_mm2']:.0f} of "
+                         f"{m['plane_area_mm2']:.0f} mm2) shades with normals tilted over {AUDIT_BLEED_DEG:g} deg by a "
+                         f"neighbouring bevel or curve, so its reflections break into stair steps; {change}")
+        if m.get("sweep_facet_mm", 0.0) > AUDIT_FACETED_SWEEP_MM:
+            flag("faceted_sweep")
+            notes.append(f"{n} has {m['sweep_facet_mm']:.0f} mm of hard facet lines in {m.get('sweep_facet_lines', 0)} "
+                         "parallel lines running along its sweep (its section turns more than the smoothing angle at single "
+                         "corner points, and each point draws a line down the part that flickers as the head turns): give "
+                         "the section more points around its corners: gl.tube_along_path rounded sections (radius > 0) do "
+                         "this; a loft, extrusion or bevel needs about 8 points per 90 deg of corner")
+    if len(notes) > AUDIT_MAX_NOTES:
+        cut = len(notes) - (AUDIT_MAX_NOTES - 1)
+        notes = notes[:AUDIT_MAX_NOTES - 1] + [f"... {cut} more audit notes not shown (flags: {', '.join(flags)}); every "
+                                               "part's measures are in export.json receipt.audit.parts"]
+    return flags, notes
 
 
 # --------------------------------------------------------------------------- synthetic fixture (M0 test 2)
@@ -1211,9 +1554,17 @@ def lens_nodes(result: dict) -> list[str]:
 
 def m1_criterion_1(result: dict) -> bool:
     """M1 criterion 1 for one S9 result: contract ok AND runtime_compatible in the AR harness AND every exported
-    lens node detected as optical by the runtime (optical meshes >= lens nodes; a pair with one lens found fails)."""
+    lens node detected as optical by the runtime (optical meshes >= lens nodes; a pair with one lens found fails)
+    AND the harness run around the row validated (``archeck.validate_ar_result`` through ``attach_archeck``: a
+    failed run, an unstable source snapshot, a missing or unhashed render, a stale GLB sha cannot yield M1
+    compatibility, whatever the row says). Every result merged by ``attach_archeck`` carries that ``validation``
+    and is judged by it; a record WITHOUT one (an S9 result.json written before 2026-09-27, a hand-built row) is a
+    legacy, unverified record and is never compatible: it is read as such, not silently upgraded."""
     ac = result.get("archeck") or {}
     need = max(1, len(lens_nodes(result)))
+    val = ac.get("validation")
+    if not isinstance(val, dict) or not (val.get("harness_ok") and (val.get("model") or {}).get("ok")):
+        return False
     return bool((result.get("contract") or {}).get("ok") and ac.get("status") == "runtime_compatible"
                 and (ac.get("optical_meshes_detected") or 0) >= need)
 
@@ -1223,19 +1574,33 @@ def attach_archeck(result: dict, harness: dict, name: str, product: str, run: st
     ``m1_criterion_1``. Used by ``export_product`` (one model per harness call) and by ``bsa.pipeline``
     (all products in one harness call). With ``sheet_dir`` it also writes ``sheet.png`` there."""
     from . import archeck
-    from .core import PRODUCTS
+    from .core import PRODUCTS, sha256_file
     m = (harness.get("models") or {}).get(name) or {"status": "not_run", "runtime_compatible": False}
+    views = ([v.get("id") for v in json.loads(Path(harness["manifest_path"]).read_text()).get("ar_views", [])]
+             if harness.get("manifest_path") and Path(harness["manifest_path"]).exists() else None)
+    # the row is evidence only for the GLB as it is now and only inside a run that succeeded: the validator reads
+    # the whole harness result (every model of the batch, this one against the file's sha) and this row's verdict
+    glb = Path(result["glb"]) if result.get("glb") else None
+    expected_sha = sha256_file(glb) if glb is not None and glb.is_file() else None
+    expected = {n: None for n in (harness.get("models") or {})}
+    expected[name] = expected_sha
+    v = archeck.validate_ar_result(harness, expected_models=expected, expected_views=views or [])
+    validation = {"ok": bool(v["harness_ok"] and (v["models"].get(name) or {}).get("ok")), "harness_ok": v["harness_ok"],
+                  "reasons": list(v["reasons"]), "model": dict(v["models"].get(name) or {}), "expected_sha256": expected_sha}
+    if expected_sha is None:
+        # a row cannot be evidence for bytes that are not there: without the GLB file there is nothing to bind it to
+        validation["ok"] = False
+        validation["reasons"].append("result has no GLB file to bind the harness row to")
+        validation["model"]["ok"] = False
     result["archeck"] = {"status": m.get("status"), "optical_meshes_detected": m.get("optical_meshes_detected"),
                          "lens_mesh_names": m.get("lens_mesh_names", []),
                          "synthetic_fit_ready": m.get("synthetic_fit_ready"),
                          "continuity_failure": m.get("continuity_failure"), "error": m.get("error"),
                          "renders": m.get("renders", []), "harness_status": harness.get("harness_status"),
                          "harness_out_dir": harness.get("out_dir"), "case": name,
-                         "model_sha256": m.get("model_sha256"),
-                         "views": [v.get("id") for v in json.loads(Path(harness["manifest_path"]).read_text()).get("ar_views", [])]
-                         if harness.get("manifest_path") and Path(harness["manifest_path"]).exists() else None}
+                         "model_sha256": m.get("model_sha256"), "views": views, "validation": validation}
     flags = [f for f in result.get("flags", []) if f != "ar_check_failed"]
-    if not (m.get("runtime_compatible") and (m.get("optical_meshes_detected") or 0) > 0):
+    if not (m.get("runtime_compatible") and (m.get("optical_meshes_detected") or 0) > 0 and validation["ok"]):
         flags.append("ar_check_failed")
     result["flags"] = flags
     if sheet_dir is not None:

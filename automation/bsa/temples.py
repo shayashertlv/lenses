@@ -1183,13 +1183,6 @@ def textured_render(parts: list[tuple], cam: Camera, frame: NormFrame, shape: tu
     return img
 
 
-def _crop_resize(img: np.ndarray, roi, width: int) -> tuple[np.ndarray, float]:
-    x0, y0, x1, y1 = roi
-    c = img[y0:y1, x0:x1]
-    k = width / c.shape[1]
-    return cv2.resize(c, (width, max(1, int(round(c.shape[0] * k)))), interpolation=cv2.INTER_AREA), k
-
-
 def _overlay(photo, fg, roi, static, donor, refined, focus, width):
     """red = photo only, green = render only (front piece + refined temples); blue = refined focus temple
     contour, yellow = donor focus temple contour."""

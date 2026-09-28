@@ -314,18 +314,31 @@ class TestCodeProvenance(TempRun):
 
 
 def _harness(tmp: Path, rows: dict, views=pipeline.AR_VIEWS) -> dict:
+    """A COMPLETE harness result as archeck.run returns it after 2026-09-27: the run-level fields the validator
+    requires and, per compatible row, one hashed render file per requested view (a bare row is legacy/unverified)."""
     man = tmp / "manifest.json"
     man.write_text(json.dumps({"ar_views": [dict(v) for v in views]}))
-    return {"harness_status": "inspected", "manifest_path": str(man), "out_dir": str(tmp), "models": rows}
+    for name, row in rows.items():
+        if row.get("status") == "runtime_compatible" and "render_files" not in row:
+            files = []
+            for v in views:
+                p = tmp / f"{name}__actual-ar__{v['id']}.png"
+                Image.new("RGB", (8, 8), (10, 20, 30)).save(p)
+                files.append({"view": v["id"], "filename": p.name, "path": str(p), "sha256": core.sha256_file(p)})
+            row["render_files"] = files
+            row["renders"] = [f["path"] for f in files]
+    return {"harness_status": "inspected", "returncode": 0, "harness_errors": [], "source_snapshot_stable": True,
+            "manifest_path": str(man), "out_dir": str(tmp), "models": rows}
 
 
 class TestArMerge(unittest.TestCase):
     def test_attach_archeck_sets_criterion_1(self):
         with tempfile.TemporaryDirectory() as t:
             t = Path(t)
+            (t / "m.glb").write_bytes(b"glb-bytes")                                   # the row binds to these bytes
             base = {"contract": {"ok": True}, "flags": ["x"], "glb": str(t / "m.glb")}
             ok = _harness(t, {"vb-bsa-m1": {"status": "runtime_compatible", "runtime_compatible": True,
-                                             "optical_meshes_detected": 2, "renders": [], "model_sha256": "abc"}})
+                                             "optical_meshes_detected": 2, "model_sha256": core.sha256_file(t / "m.glb")}})
             r = export.attach_archeck(dict(base), ok, "vb-bsa-m1", "vb", "m1")
             self.assertTrue(r["m1_criterion_1"])
             self.assertEqual(r["archeck"]["views"], ["front", "angled", "rolled"])
@@ -341,6 +354,11 @@ class TestArMerge(unittest.TestCase):
             self.assertFalse(export.attach_archeck(dict(base), _harness(t, {}), "vb-bsa-m1", "vb", "m1")["m1_criterion_1"])
             bad = dict(base, contract={"ok": False})
             self.assertFalse(export.attach_archeck(bad, ok, "vb-bsa-m1", "vb", "m1")["m1_criterion_1"])
+            # a run that failed around a good row, and a row for other bytes, are not compatibility (2026-09-27)
+            failed_run = dict(ok, harness_status="failed", harness_errors=["console error"])
+            self.assertFalse(export.attach_archeck(dict(base), failed_run, "vb-bsa-m1", "vb", "m1")["m1_criterion_1"])
+            (t / "m.glb").write_bytes(b"other bytes")
+            self.assertFalse(export.attach_archeck(dict(base), ok, "vb-bsa-m1", "vb", "m1")["m1_criterion_1"])
 
     def test_ar_row_is_current_only_for_the_same_bytes_and_views(self):
         with tempfile.TemporaryDirectory() as t:
@@ -366,7 +384,8 @@ class TestProductSummary(TempRun):
         s9 = {"status": "exported", "glb": str(glb), "flags": [],
               "export": {"sha256": sha, "bytes": 3, "triangles": 10, "parts": {"frame": {"faces_out": 10}}},
               "contract": {"ok": True, "failures": [], "summary": {"width_m": 0.14}},
-              "archeck": {"status": "runtime_compatible", "optical_meshes_detected": 2, "continuity_failure": "gap"}}
+              "archeck": {"status": "runtime_compatible", "optical_meshes_detected": 2, "continuity_failure": "gap",
+                          "validation": {"ok": True, "harness_ok": True, "model": {"ok": True}}}}
         _touch_result(self.root, "r", "vb", "s9_export", t + 20, s9)
         s10 = {"decision": {"decision": "RETRY", "reasons": ["failed:c3_heldout_angled_front_piece"]}, "flags": [],
                "m1_criteria": {"bsa": {"c1_contract_ar_lenses": {"pass": True},
@@ -752,7 +771,11 @@ class TestRealSummary(unittest.TestCase):
                 s9 = json.loads((core.run_dir("m1", p) / "s9_export" / "result.json").read_text())
                 self.assertEqual(s9["archeck"]["status"], "runtime_compatible")
                 self.assertGreaterEqual(s9["archeck"]["optical_meshes_detected"], len(export.lens_nodes(s9)))
-                self.assertTrue(export.m1_criterion_1(s9))
+                # the shipped m1 records predate the harness validation (2026-09-27): the row alone is legacy/unverified,
+                # never silently compatible; the summary says so instead of failing them
+                self.assertNotIn("validation", s9["archeck"])
+                self.assertFalse(export.m1_criterion_1(s9))
+                self.assertTrue(pipeline.product_summary(p, "m1")["m1_criteria"]["c1_contract_ar_lenses"].get("legacy_unverified"))
                 s10 = json.loads((core.run_dir("m1", p) / "s10_gate" / "result.json").read_text())
                 self.assertEqual(s10["m1_criteria"]["bsa"]["c4_zero_seam_gaps"]["gap_pixels"], 0)
 

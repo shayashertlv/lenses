@@ -1,7 +1,6 @@
 """Automatic arm discovery, pose recovery and shared downstream view contracts."""
 from copy import deepcopy
 import hashlib
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,7 +13,7 @@ from reconstruction.camera import Camera, render_mask
 from reconstruction.lens_asset import _pack_glb
 from reconstruction.mesh import TriangleMesh, load_glb
 from reconstruction.view_scene import (ViewState, pose_scene, make_view_scene_contract,
-    pose_mesh_from_contract, read_view_scene_contract, transfer_face_roles)
+    pose_mesh_from_contract, read_view_scene_contract)
 from reconstruction.component_projection import project_components
 from reconstruction.observations import observe_image
 from reconstruction.optical_group_observations import project_effective_group_fields

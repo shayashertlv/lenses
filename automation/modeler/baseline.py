@@ -17,8 +17,6 @@ from reconstruction.mesh import load_glb_bytes
 
 from .observe import observe_candidate
 
-ROLE_TO_PART = {"frame": "frame", "temple": "temple", "lens": "lens"}
-
 
 def parts_from_glb(glb: Path, out_dir: Path) -> tuple[Path, Path]:
     """Write parts.npz + materials.json (the harness's export format) from a GLB: metres -> mm, parts by declared

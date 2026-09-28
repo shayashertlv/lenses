@@ -116,7 +116,6 @@ from . import core, depth, raster
 from .core import NormFrame, stage_dir
 
 STAGE = "s7_texture"
-REGION_NAMES = ("front", "back", "wall")
 
 ERODE_PX = 2                     # DESIGN: frame region eroded 2 px before sampling ...
 ERODE_MAX_MM = 0.75              # ... but never more than 0.75 mm (INVU's front photo is 1.3 px/mm -> 1 px)
@@ -874,8 +873,12 @@ def ar_render(glbs: dict[str, bytes], out_dir, views=AR_FIT_VIEWS, background_rg
               shadows: bool = False, width_mm: float | None = None, timeout_s: int = 1800) -> dict:
     """Write the GLBs, render them in the actual AR runtime and return per model/view the render path and its
     exact camera: {"models": {name: {"status", "error", "optical_meshes", "views": {view: {png, P, V, A2W, W, H,
-    camera_in_asset}}}}, "harness_status", "returncode"}. The GLB files are removed afterwards (the renders,
-    manifest and report stay)."""
+    camera_in_asset}}}}, "harness_status", "harness_errors", "source_snapshot_stable", "returncode",
+    "validation"}. ``validation`` is ``archeck.validate_ar_result`` over the same report (every model, the bytes
+    written here, exactly ``views``): a consumer that scores a render without its ``ok`` (or ``harness_ok`` plus
+    its own row's ok) is reading a failed run. The GLB files are removed afterwards (the renders, manifest and
+    report stay)."""
+    import hashlib
     import json
     import subprocess
     import sys
@@ -911,14 +914,17 @@ def ar_render(glbs: dict[str, bytes], out_dir, views=AR_FIT_VIEWS, background_rg
     for p in paths.values():
         if p.exists():
             p.unlink()
+    parsed = archeck.parse_report(out_dir, ids)
     out = {"returncode": rc, "stderr_tail": err, "models": {}, "manifest": str(manifest),
-           "background_hex": doc.get("background_color", "checker")}
+           "background_hex": doc.get("background_color", "checker"), "harness_status": parsed.get("harness_status"),
+           "harness_errors": parsed.get("harness_errors", []), "source_snapshot_stable": parsed.get("source_snapshot_stable")}
+    out["validation"] = archeck.validate_ar_result(
+        {**parsed, "returncode": rc}, expected_models={n: hashlib.sha256(d).hexdigest() for n, d in glbs.items()},
+        expected_views=[v["id"] for v in views])
     rp = out_dir / "report.json"
     if not rp.exists():
-        out["harness_status"] = "no_report"
         return out
     report = json.loads(rp.read_text(encoding="utf-8"))
-    out["harness_status"] = report.get("status")
     for row in report.get("cases", []):
         name = ids.get(row.get("id"), row.get("id"))
         vw = {}
@@ -1007,17 +1013,6 @@ def slab_distance(lab_a: np.ndarray, lab_b: np.ndarray, n: int = AR_FIT_SLABS) -
     """Mean dE00 between the L*-sorted slab means of two pixel sets: 0 when the brightness distributions and
     the colour at every brightness agree. Registration-free (speculars sit elsewhere under other lighting)."""
     return float(deltaE_ciede2000(lab_slabs(lab_a, n), lab_slabs(lab_b, n)).mean())
-
-
-def resample_to(img: np.ndarray, mask: np.ndarray, k: float) -> tuple[np.ndarray, np.ndarray]:
-    """Photo and region mask scaled by k (area average when shrinking); a scaled pixel belongs to the region
-    only when it lies entirely inside it, then the region is eroded one pixel (like the render's)."""
-    H, W = mask.shape
-    size = (max(1, int(round(W * k))), max(1, int(round(H * k))))
-    interp = cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR
-    im = cv2.resize(img, size, interpolation=interp)
-    m = cv2.resize(mask.astype(np.float32), size, interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR) > 0.999
-    return im, erode_px(m, 1)
 
 
 def backdrop_mix_mask(photo: np.ndarray, region: np.ndarray, outside: np.ndarray, backdrop_rgb,
@@ -1155,6 +1150,33 @@ class HarnessError(RuntimeError):
     """The AR harness (an external process) produced no usable renders - as opposed to a defect in this code."""
 
 
+VERIFICATION_FAILED = "verification_render_failed"
+
+
+def complete_verifications(ver: dict, names: dict, planned) -> dict:
+    """The verification candidates whose renders may be scored. ``names`` maps a candidate key to its model name in
+    the ``ar_render`` result ``ver``; a candidate is kept only when the run validated (``ver["validation"]``: the
+    harness ok and this row ok) and its views hold an existing PNG for EVERY planned view. A candidate missing one
+    view is excluded - its objective would average fewer views than the others' and a synthesised value is no
+    substitute for the render. {} means nothing was verified (``VERIFICATION_FAILED``), never a score from a subset."""
+    from pathlib import Path
+    val = ver.get("validation") or {}
+    rows = val.get("models") or {}
+    out = {}
+    for key, name in names.items():
+        if not val.get("harness_ok") or not (rows.get(name) or {}).get("ok"):
+            continue
+        vm = ((ver.get("models") or {}).get(name) or {}).get("views") or {}
+        if all(v in vm and vm[v].get("png") and Path(vm[v]["png"]).is_file() for v in planned):
+            out[key] = {v: vm[v] for v in planned}
+    return out
+
+
+def verification_status(complete: dict) -> str:
+    """``chosen_rendered.status``: the runtime's word when at least one candidate was fully rendered, else the failure."""
+    return "runtime_compatible" if complete else VERIFICATION_FAILED
+
+
 def fit_frame_material(base_glb: bytes, materials: list[str], regions: dict, out_dir, mclass: str,
                        old: dict, origin_mm, log=print, classes: dict | None = None) -> dict:
     """Choose (metallic, roughness, base-colour gain g) for the frame/temple materials by rendering candidates
@@ -1194,9 +1216,10 @@ def fit_frame_material(base_glb: bytes, materials: list[str], regions: dict, out
     log(f"[s7 fit] {len(glbs)} candidates x {len(AR_FIT_VIEWS)} views rendered in {time.time() - t0:.1f} s "
         f"(harness {res.get('harness_status')}, rc {res.get('returncode')})")
     bad = [n for n, m in res["models"].items() if m.get("status") != "runtime_compatible"]
-    if not res["models"] or bad:
+    val = res.get("validation") or {}
+    if not res["models"] or bad or not val.get("ok"):
         raise HarnessError(f"harness: {res.get('harness_status')} rc {res.get('returncode')}; not compatible: "
-                           f"{bad[:4]}; {(res.get('stderr_tail') or '')[-300:]}")
+                           f"{bad[:4]}; validation {val.get('reasons', ['absent'])[:3]}; {(res.get('stderr_tail') or '')[-300:]}")
     prims = glb_primitives(base_glb)
     opaque = [i for i, p in enumerate(prims) if not str(p["node"]).startswith("lens")]
     first = next(iter(res["models"].values()))["views"]
@@ -1324,23 +1347,21 @@ def fit_frame_material(base_glb: bytes, materials: list[str], regions: dict, out
         base_glb, {n: {"pbr": {"metallicFactor": float(m_b), "roughnessFactor": float(r_b),
                                "baseColorFactor": gvec(g) + [1.0]}} for n in materials}) for g in gv}
     ver = ar_render(vglbs, out_dir / "verify", views=AR_FIT_VIEWS, background_rgb=bg)
+    complete = complete_verifications(ver, {g: f"g{int(round(g * 10000)):05d}" for g in gv}, list(view_data))
     rendered = []
-    for g in gv:
-        vm = (ver["models"].get(f"g{int(round(g * 10000)):05d}") or {}).get("views", {})
+    for g, vm in complete.items():
         vv = {}
         for v, d in view_data.items():
-            if v in vm:
-                lab_r = rgb2lab(np.asarray(Image.open(vm[v]["png"]).convert("RGB"))[d["mask"]][None].astype(np.float64) / 255.0)[0]
-                vv[v] = {"slab_dE00": round(slab_distance(d["photo_lab"], lab_r), 2),
-                         "mean_colour_dE00": round(float(deltaE_ciede2000(d["photo_lab"].mean(0), lab_r.mean(0))), 2)}
-        if vv:
-            rendered.append({"gain": g, "gain_rgb": gvec(g), "views": vv,
-                             "objective": round(float(np.mean([x["slab_dE00"] for x in vv.values()])), 3),
-                             "renders": {v: m["png"] for v, m in vm.items()}})
+            lab_r = rgb2lab(np.asarray(Image.open(vm[v]["png"]).convert("RGB"))[d["mask"]][None].astype(np.float64) / 255.0)[0]
+            vv[v] = {"slab_dE00": round(slab_distance(d["photo_lab"], lab_r), 2),
+                     "mean_colour_dE00": round(float(deltaE_ciede2000(d["photo_lab"].mean(0), lab_r.mean(0))), 2)}
+        rendered.append({"gain": g, "gain_rgb": gvec(g), "views": vv,
+                         "objective": round(float(np.mean([x["slab_dE00"] for x in vv.values()])), 3),
+                         "renders": {v: m["png"] for v, m in vm.items()}})
     if rendered:
         best_r = min(rendered, key=lambda x: (x["objective"], abs(x["gain"] - 1.0)))
         out["chosen_rendered"] = {"views": best_r["views"], "objective": best_r["objective"], "gain": best_r["gain_rgb"],
-                                  "synthesised_gain": g_rgb.tolist(), "status": "runtime_compatible",
+                                  "synthesised_gain": g_rgb.tolist(), "status": verification_status(complete),
                                   "gain_candidates": [{"scale": x["gain"], "gain_rgb": x["gain_rgb"],
                                                        "objective": x["objective"]} for x in rendered]}
         out["chosen"]["gain"] = best_r["gain_rgb"]
@@ -1350,7 +1371,12 @@ def fit_frame_material(base_glb: bytes, materials: list[str], regions: dict, out
             if f.name not in keep_ver:
                 f.unlink()
     else:
-        out["chosen_rendered"] = {"views": {}, "objective": None, "status": "verification_render_failed"}
+        # no candidate was seen rendered in every fit view: the sweep's synthesised gain is a prediction, not a fit
+        out["chosen_rendered"] = {"views": {}, "objective": None, "status": verification_status(complete),
+                                  "harness_status": ver.get("harness_status"),
+                                  "reasons": (ver.get("validation") or {}).get("reasons", [])[:4]}
+        out["ok"] = False
+        out["reason"] = f"{VERIFICATION_FAILED}: harness {ver.get('harness_status')} rc {ver.get('returncode')}"
         vm = {}
     # keep the before (old rule) and verification renders; drop the sweep's other images
     old_name = f"m{int(round(old_key[0] * 100)):03d}-r{int(round(old_key[1] * 1000)):04d}-g1"
@@ -1495,24 +1521,22 @@ def _fit_classes(res: dict, view_data: dict, grid: list, old_key: tuple, classes
     scales = (0.85, 1.0, 1.15)
     vglbs = {f"s{int(round(sc * 100)):03d}": classes["rebuild"](chosen[fk], chosen, sc) for sc in scales}
     ver = ar_render(vglbs, out_dir / "verify", views=AR_FIT_VIEWS, background_rgb=bg)
+    complete = complete_verifications(ver, {sc: f"s{int(round(sc * 100)):03d}" for sc in scales}, list(view_data))
     rendered = []
-    for sc in scales:
-        vm = (ver["models"].get(f"s{int(round(sc * 100)):03d}") or {}).get("views", {})
+    for sc, vm in complete.items():
         vv = {}
         for v, d in view_data.items():
-            if v in vm:
-                lab_r = rgb2lab(np.asarray(Image.open(vm[v]["png"]).convert("RGB"))[d["mask"]][None].astype(np.float64) / 255.0)[0]
-                vv[v] = {"slab_dE00": round(slab_distance(d["photo_lab"], lab_r), 2),
-                         "mean_colour_dE00": round(float(deltaE_ciede2000(d["photo_lab"].mean(0), lab_r.mean(0))), 2)}
-        if vv:
-            rendered.append({"scale": sc, "views": vv, "renders": {v: m["png"] for v, m in vm.items()},
-                             "objective": round(float(np.mean([x["slab_dE00"] for x in vv.values()])), 3)})
+            lab_r = rgb2lab(np.asarray(Image.open(vm[v]["png"]).convert("RGB"))[d["mask"]][None].astype(np.float64) / 255.0)[0]
+            vv[v] = {"slab_dE00": round(slab_distance(d["photo_lab"], lab_r), 2),
+                     "mean_colour_dE00": round(float(deltaE_ciede2000(d["photo_lab"].mean(0), lab_r.mean(0))), 2)}
+        rendered.append({"scale": sc, "views": vv, "renders": {v: m["png"] for v, m in vm.items()},
+                         "objective": round(float(np.mean([x["slab_dE00"] for x in vv.values()])), 3)})
     if rendered:
         best_r = min(rendered, key=lambda x: (x["objective"], abs(x["scale"] - 1.0)))
         sc = best_r["scale"]
         out["scale"] = sc
         out["chosen_rendered"] = {"views": best_r["views"], "objective": best_r["objective"], "scale": sc,
-                                  "status": "runtime_compatible",
+                                  "status": verification_status(complete),
                                   "scale_candidates": [{"scale": x["scale"], "objective": x["objective"]} for x in rendered]}
         keep_ver = set(Path(x).name for x in best_r["renders"].values())
         for f_ in (out_dir / "verify").glob("*.png"):
@@ -1520,8 +1544,13 @@ def _fit_classes(res: dict, view_data: dict, grid: list, old_key: tuple, classes
                 f_.unlink()
         vm = best_r["renders"]
     else:
+        # no candidate was seen rendered in every fit view: the class gains are a prediction, not a fit
         out["scale"] = 1.0
-        out["chosen_rendered"] = {"views": {}, "objective": None, "status": "verification_render_failed"}
+        out["chosen_rendered"] = {"views": {}, "objective": None, "status": verification_status(complete),
+                                  "harness_status": ver.get("harness_status"),
+                                  "reasons": (ver.get("validation") or {}).get("reasons", [])[:4]}
+        out["ok"] = False
+        out["reason"] = f"{VERIFICATION_FAILED}: harness {ver.get('harness_status')} rc {ver.get('returncode')}"
         vm = {}
     # the gains as rendered: x the verified scale, clipped to 1 (a base colour is at most the texture's own colour)
     out["class_factors"] = {CLASS_NAMES[k]: {"metallic": chosen[k][0], "roughness": chosen[k][1],
@@ -2336,6 +2365,9 @@ def run(product: str, run: str = "m1", force: bool = False, log=print) -> dict:
                                     log=lambda *a: log(f"[s7 {product}]", *a), classes=tclass)
     except HarnessError as e:
         ar_fit = {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+    if ar_fit.get("ok") and (ar_fit.get("chosen_rendered") or {}).get("status") == VERIFICATION_FAILED:
+        # the chosen material was never seen rendered: applying its synthesised gain would ship a prediction
+        ar_fit = {**ar_fit, "ok": False, "reason": ar_fit.get("reason") or VERIFICATION_FAILED}
     if ar_fit.get("ok"):
         c = ar_fit["chosen"]
         g = [round(float(x), 4) for x in np.broadcast_to(np.asarray(c["gain"], float), (3,))]

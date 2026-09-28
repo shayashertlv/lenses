@@ -220,6 +220,15 @@ def _clay_material():
     return mat
 
 
+def set_raytracing(sc, enabled):
+    """EEVEE's use_raytracing for the next render; silently nothing on a version without the property."""
+    if hasattr(sc.eevee, "use_raytracing"):
+        try:
+            sc.eevee.use_raytracing = bool(enabled)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def render_views(renders, out_dir, samples=16):
     import glasses_lib as gl
     sc = bpy.context.scene
@@ -228,12 +237,6 @@ def render_views(renders, out_dir, samples=16):
         sc.eevee.taa_render_samples = samples
     except Exception:  # noqa: BLE001 - property names differ across versions
         pass
-    for attr, value in (("use_raytracing", True),):
-        if hasattr(sc.eevee, attr):
-            try:
-                setattr(sc.eevee, attr, value)
-            except Exception:  # noqa: BLE001
-                pass
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGBA"
     sc.render.resolution_percentage = 100
@@ -247,6 +250,10 @@ def render_views(renders, out_dir, samples=16):
         sc.render.resolution_x, sc.render.resolution_y = W, H
         sc.render.film_transparent = bool(spec.get("transparent", True))
         clay = spec.get("kind", "textured") == "clay"
+        # EEVEE ray tracing (screen-space reflections/refractions) only where a material can show it: the textured
+        # views. Clay views swap every material for the opaque mdl_clay below, so tracing there only costs time on
+        # the worker's CPU rasterizer (no measurement reads these renders: the sheets are the only consumer).
+        set_raytracing(sc, not clay)
         # clay: a dimmer ambient so the key light's shading reads as shape; textured: a bright neutral studio
         setup_world(spec.get("background"), strength=0.45 if clay else 0.7)
         cam = camera_object(spec["camera"], W, H)

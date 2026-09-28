@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from bsa import gate, raster
 from bsa import cameras as C
@@ -433,6 +434,10 @@ class TestViewConsistency(unittest.TestCase):
         self.assertTrue(any((v or 0) > gate.VIEW_CONSISTENCY_K for k, v in r["sensitivity_ratio"].items() if k in ("-3mm", "+3mm")))
         self.assertIsNotNone(r["detects_outline_error_mm"])
 
+
+class TestGrowRing(unittest.TestCase):
+    """Analytic (an ellipse), so it runs without the saved m1 artifacts that guard TestViewConsistency."""
+
     def test_grow_ring(self):
         P = np.stack([100 + 30 * np.cos(np.linspace(0, 2 * np.pi, 200, endpoint=False)),
                       100 + 20 * np.sin(np.linspace(0, 2 * np.pi, 200, endpoint=False))], 1)
@@ -441,6 +446,7 @@ class TestViewConsistency(unittest.TestCase):
         self.assertAlmostEqual(front.contour_distance(P, gate._grow_ring(P, -3.0))[0], 3.0, delta=0.15)
 
 
+@pytest.mark.slow   # ~18 s
 @unittest.skipUnless(_have("vb", "s0_intake", "s1_generator", "s2_front", "s3_cameras"), "m1 artifacts missing")
 class TestRealVB(unittest.TestCase):
     def test_previous_candidate_alignment(self):

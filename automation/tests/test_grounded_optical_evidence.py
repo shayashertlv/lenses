@@ -1,6 +1,5 @@
 import copy
 from dataclasses import replace
-import hashlib
 import unittest
 from unittest.mock import patch
 
@@ -10,7 +9,7 @@ from reconstruction import joint_photo_lens_fit as joint
 from reconstruction import photo_lens_fit as single
 from reconstruction.grounded_fit_support import freeze_grounded_fit_support,apply_grounded_fit_support
 from reconstruction.rear_correspondence import find_rear_template_correspondences,register_rear_template,collect_rear_transmission_anchors
-from reconstruction.lens_appearance import linear_to_srgb,LensAppearance,DensityKeyframe,ReflectanceKeyframe
+from reconstruction.lens_appearance import linear_to_srgb
 from test_semantic_photo_lens_fit import fixture,policy,SOURCE
 
 

@@ -107,7 +107,7 @@ class OfflineLensApertureEngine:
             raise ValueError('propose requires an 8-bit RGB array within the native pixel capacity')
         import torch
         from torchvision.transforms.v2.functional import normalize, to_dtype, to_image
-        image = Image.fromarray(pixels, 'RGB')
+        image = Image.fromarray(pixels)   # uint8 HxWx3 (checked above) is RGB; the mode argument is deprecated
         width, height = image.size
         crop, contrast = contrast_crop_box(image)
         runtime = Path(self.runtime_dir) if self.runtime_dir is not None else self.folder/'.runtime'

@@ -1,15 +1,17 @@
 """bsa.cameras (S3): parametrisation, loss, sign conventions, synthetic recovery, real-run smoke."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import unittest
 
 import numpy as np
 import open3d as o3d
+import pytest
 
 from bsa import cameras as C
 from bsa import raster
-from bsa.core import VIEWS, NormFrame, camera_from_dict, project_mm, px_per_mm, stage_dir
+from bsa.core import VIEWS, NormFrame, camera_from_dict, project_mm, px_per_mm, run_dir, stage_dir
 from reconstruction.camera import Camera
 
 
@@ -180,6 +182,7 @@ class Seeds(unittest.TestCase):
         self.assertGreater(right[2], 0.99)
 
 
+@pytest.mark.slow   # 10-26 s per test
 class SyntheticRecovery(unittest.TestCase):
     """Render the toy glasses with a known camera, fit from the priors, recover the camera."""
 
@@ -228,17 +231,20 @@ class SyntheticRecovery(unittest.TestCase):
         truth = _truth(self.frame, 2.0, 5.0, 0.0, 0.1, 2.0, (240, 360))
         a = self._fit("front", truth, (240, 360))[1]
         b = self._fit("front", truth, (240, 360))[1]
-        self.assertEqual(a, b)
+        # Determinism to 1e-7 relative, not bit-identity: the loss's cv2.distanceTransform(DIST_L2, DIST_MASK_PRECISE)
+        # (bsa/cameras.py _dist_to) runs on OpenCV's parallel backend, whose serial and threaded paths differ by up to
+        # 1.5e-5 px, so the same fit in a busy suite drifted by 2e-9 to 4e-9 deg (yaw 2.006654876 vs 2.006654878). A real
+        # determinism break (another seed or candidate winning) moves yaw/pitch by >= 1e-3. The absolute bound covers the
+        # fields near zero (roll ~0.002 drifted by 1.5e-8 in a full-suite run), still 1000x below a real break.
+        np.testing.assert_allclose(dataclasses.astuple(a), dataclasses.astuple(b), rtol=1e-7, atol=1e-6)
 
 
 RUN = "m1"
 
 
 def _have(product):
-    try:
-        return stage_dir(RUN, product, C.STAGE).result_path.exists()
-    except Exception:
-        return False
+    # an existence test that builds no StageDir: StageDir() creates its folder, so collection would write under data/
+    return (run_dir(RUN, product) / C.STAGE / "result.json").is_file()
 
 
 @unittest.skipUnless(_have("vb"), "S3 m1 artifacts missing")

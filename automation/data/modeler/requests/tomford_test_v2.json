@@ -1,0 +1,31 @@
+{
+  "product_id": "tomford_test",
+  "photos": [
+    {
+      "path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\inputs\\tomford_test\\front.jpeg",
+      "view": "front"
+    },
+    {
+      "path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\inputs\\tomford_test\\left.jpeg",
+      "view": "left"
+    },
+    {
+      "path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\inputs\\tomford_test\\back.jpeg",
+      "view": "back"
+    },
+    {
+      "path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\inputs\\tomford_test\\rear_angled.jpeg",
+      "view": "rear_angled"
+    },
+    {
+      "path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\inputs\\tomford_test\\angled.jpeg",
+      "view": "angled",
+      "held_out": true
+    }
+  ],
+  "dimensions": {},
+  "notes": "Owner's test pair, photos only (catalog product photos, white background). What the photos show: round panto sunglasses in clear, colourless crystal acetate; front, bridge, endpieces and temples are transparent so the lens edges, the hinge barrels and a thin gold metal core wire inside each temple are visible. A flat gold 'T' inlay on the outer face of each temple at the hinge; a small gold oval plaque on the outside near each temple tip. Lenses: light brown flash-mirror with a gold sheen (the photos do not show the lens curvature; give them a normal sunglass base curve), a small 'TOM FORD' print in the upper outer area of the right lens. Keyhole-free plain bridge, rounded lens shape, temples slightly bowed. No physical dimensions supplied.",
+  "held_out_views": [
+    "angled"
+  ]
+}

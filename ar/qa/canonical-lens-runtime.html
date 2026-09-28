@@ -1,0 +1,228 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Canonical lenses in the actual try-on renderer</title>
+<style>body{font:14px system-ui;margin:24px;background:#edf0f3;color:#1b2430}h1{font-size:23px}.cases{display:grid;grid-template-columns:repeat(3,320px);gap:12px}.case{background:white;padding:10px;border:1px solid #ccd4de}.case img{width:300px}.status{white-space:pre-wrap;background:white;padding:12px}canvas{display:none}</style>
+<h1>Canonical lens runtime conformance</h1>
+<p>Actual TryOnRenderer loading, fitting, optical protection, visible lens composition and face-shadow shaders. Controlled synthetic pose and environments; no camera permission, provider call or product-fidelity claim.</p>
+<div id="status" class="status">Ready</div><div id="cases" class="cases"></div>
+<script type="module">
+import * as THREE from 'three';
+import {TryOnRenderer} from '../src/render/renderer.ts';
+import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+import {registerPinnedGeometry} from '../src/render/continuity.ts';
+import {evaluateLensAppearance} from '../src/eyewear/lens-appearance.ts';
+import {runLayerConformance,debugLayerTransport,debugShadowRaster} from './canonical-lens-layers.mjs';
+
+const width=480,height=320,poses=[{yaw:0,roll:0},{yaw:35,roll:0},{yaw:65,roll:0},{yaw:70,roll:0},{yaw:35,roll:30}];
+const linear=byte=>{const s=byte/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;};
+const encode=value=>Math.round(255*(value<=.0031308?12.92*value:1.055*value**(1/2.4)-.055));
+const sha=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+const source=document.createElement('canvas');source.width=width;source.height=height;const context=source.getContext('2d');
+const background=[.18,.32,.5].map(encode), backgroundLinear=background.map(linear);
+function setBackground(bytes=background){context.fillStyle=`rgb(${bytes.join(',')})`;context.fillRect(0,0,width,height);}
+setBackground();
+function detection(canonical,yaw=0,roll=0){
+ const matrix=new THREE.Matrix4().compose(new THREE.Vector3(0,0,-43),new THREE.Quaternion().setFromEuler(new THREE.Euler(0,yaw*Math.PI/180,roll*Math.PI/180,'YXZ')),new THREE.Vector3(1,1,1));
+ const positions=[],point=new THREE.Vector3();let mean=0;
+ for(let i=0;i<468;i++){point.fromArray(canonical.positions,i*3).applyMatrix4(matrix);positions.push(point.clone());mean-=point.z/468;}
+ const vertical=2*Math.tan(63*Math.PI/360),horizontal=vertical*width/height;
+ const landmarks=positions.map(p=>({x:.5+p.x/(-p.z*horizontal),y:.5-p.y/(-p.z*vertical),z:(-p.z/mean-1)/horizontal}));
+ for(const [a,b] of [[33,133],[362,263]])for(let i=0;i<5;i++)landmarks.push({x:(landmarks[a].x+landmarks[b].x)/2,y:(landmarks[a].y+landmarks[b].y)/2,z:(landmarks[a].z+landmarks[b].z)/2});
+ return {matrix:matrix.toArray(),landmarks,inferenceMs:0};
+}
+function png(pixels){const canvas=document.createElement('canvas');canvas.width=pixels.width;canvas.height=pixels.height;canvas.getContext('2d').putImageData(pixels,0,0);
+ const crop=document.createElement('canvas');crop.width=180;crop.height=120;crop.getContext('2d').drawImage(canvas,150,80,180,120,0,0,180,120);return crop.toDataURL('image/png');}
+function flatEnvironment(renderer,color){
+ const scene=new THREE.Scene();scene.background=new THREE.Color(...color);
+ const generator=new THREE.PMREMGenerator(renderer);try{return generator.fromScene(scene,0,0.1,100);}finally{generator.dispose();}
+}
+function structuredEnvironment(renderer){
+ const w=256,h=128,data=new Float32Array(w*h*4);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+  const phi=(x+.5)/w*2*Math.PI,theta=(y+.5)/h*Math.PI;
+  const direction=new THREE.Vector3(-Math.sin(theta)*Math.cos(phi),Math.cos(theta),-Math.sin(theta)*Math.sin(phi));
+  const cap=Math.exp((direction.z-1)/.012),i=(y*w+x)*4;
+  data[i]=.04+.9*cap;data[i+1]=.04+.45*(direction.y+1)/2;data[i+2]=.04+.45*(direction.x+1)/2;data[i+3]=1;
+ }
+ const texture=new THREE.DataTexture(data,w,h,THREE.RGBAFormat,THREE.FloatType);texture.mapping=THREE.EquirectangularReflectionMapping;texture.colorSpace=THREE.LinearSRGBColorSpace;texture.needsUpdate=true;
+ const generator=new THREE.PMREMGenerator(renderer);try{return generator.fromEquirectangular(texture);}finally{generator.dispose();texture.dispose();}
+}
+function optics(renderer){return renderer.lensMeshes.filter(mesh=>mesh.userData.lensSurfaceProfile==='front_sheet_v1');}
+function isolateOptics(instance){const hidden=[],lenses=new Set(optics(instance));instance.eyewearAsset.traverse(object=>{if(object.isMesh&&!lenses.has(object)){hidden.push([object,object.visible]);object.visible=false;}});return()=>{for(const [object,visible]of hidden)object.visible=visible;};}
+function setEnvironment(instance,target){
+ instance.scene.environment=target.texture;instance.scene.environmentIntensity=1;
+ for(const mesh of optics(instance))for(const material of (Array.isArray(mesh.material)?mesh.material:[mesh.material])){
+  material.envMap=target.texture;material.envMapIntensity=1;material.needsUpdate=true;
+ }
+}
+function checkSurface(mesh,sheet,normalMagnitudes){
+ const position=mesh.geometry.getAttribute('position'),uv=mesh.geometry.getAttribute('uv'),normal=mesh.geometry.getAttribute('normal');
+ if(!position||!uv||!normal)throw Error('Runtime fixture lost optical attributes');
+ const cx=mesh.name.includes('left')?sheet.centers_x[0]:sheet.centers_x[1];let maximum=0;
+ for(let i=0;i<position.count;i++)maximum=Math.max(maximum,Math.abs(uv.getX(i)-((position.getX(i)-cx)/sheet.width+.5)),Math.abs(uv.getY(i)-((position.getY(i)-sheet.center_y)/sheet.height+.5)),Math.abs(position.getZ(i)-sheet.z),Math.abs(normal.getX(i)),Math.abs(normal.getY(i)),Math.abs(normal.getZ(i)-normalMagnitudes[i]));
+ if(maximum>2e-6)throw Error(`Authored optical sheet changed: ${maximum}`);
+ return maximum;
+}
+function sample(instance,pixels,sheet,appearance,reflected,transmitted=backgroundLinear){
+ const rows=[],camera=instance.camera,cameraPosition=new THREE.Vector3();camera.getWorldPosition(cameraPosition);instance.scene.updateMatrixWorld(true);
+ for(const mesh of optics(instance)){
+  const cx=mesh.name.includes('left')?sheet.centers_x[0]:sheet.centers_x[1],inverse=mesh.matrixWorld.clone().invert();
+  const normal=new THREE.Vector3(0,0,1).applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize();
+  for(const v of [0.15,.3,.5,.7,.85])for(const u of [.3,.5,.7]){
+   const local=new THREE.Vector3(cx+sheet.width*(u-.5),sheet.center_y+sheet.height*(v-.5),sheet.z),projected=local.clone().applyMatrix4(mesh.matrixWorld).project(camera);
+   const x=Math.floor((projected.x+1)*pixels.width/2),y=Math.floor((1-projected.y)*pixels.height/2);
+   if(x<2||y<2||x>=pixels.width-2||y>=pixels.height-2||projected.z>1)continue;
+   const raycaster=new THREE.Raycaster();raycaster.setFromCamera(new THREE.Vector2(2*(x+.5)/pixels.width-1,1-2*(y+.5)/pixels.height),camera);
+   const ray=raycaster.ray.clone().applyMatrix4(inverse),t=(sheet.z-ray.origin.z)/ray.direction.z;
+   if(t<=0)continue;
+   const hit=ray.at(t,new THREE.Vector3()),realU=(hit.x-cx)/sheet.width+.5,realV=(hit.y-sheet.center_y)/sheet.height+.5;
+   if(realU<.12||realU>.88||realV<.08||realV>.92)continue;
+   const world=hit.clone().applyMatrix4(mesh.matrixWorld),view=cameraPosition.clone().sub(world).normalize(),cos=normal.dot(view);
+   if(cos<=.02)continue;
+   const angle=Math.acos(THREE.MathUtils.clamp(cos,0,1))*180/Math.PI,response=evaluateLensAppearance(appearance,realV,angle),offset=(y*pixels.width+x)*4;
+   const actual=[0,1,2].map(c=>linear(pixels.data[offset+c]));
+   const expected=response.transmission_rgb.map((value,c)=>value*transmitted[c]+response.reflectance_rgb[c]*reflected[c]);
+   rows.push({mesh:mesh.name,x,y,u:realU,v:realV,angle,actual,expected,maximumError:Math.max(...actual.map((value,c)=>Math.abs(value-expected[c])))});
+  }
+ }
+ return rows;
+}
+function shadowSamples(instance,sheet,appearance){
+ const target=instance.shadows.canonicalTargets[0],camera=instance.shadows.lightCamera,raw=new Float32Array(target.width*target.height*4),samples=[];
+ instance.renderer.readRenderTargetPixels(target,0,0,target.width,target.height,raw);
+ for(const mesh of optics(instance)){
+  const cx=mesh.name.includes('left')?sheet.centers_x[0]:sheet.centers_x[1],inverse=mesh.matrixWorld.clone().invert();
+  const lightMatrix=new THREE.Matrix4().multiplyMatrices(camera.matrixWorldInverse,mesh.matrixWorld);
+  const normal=new THREE.Vector3(0,0,1).applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(lightMatrix)).normalize();
+  const angle=Math.acos(THREE.MathUtils.clamp(normal.z,0,1))*180/Math.PI;
+  for(const v of [.2,.5,.8])for(const u of [.3,.5,.7]){
+   const position=new THREE.Vector3(cx+sheet.width*(u-.5),sheet.center_y+sheet.height*(v-.5),sheet.z).applyMatrix4(mesh.matrixWorld).project(camera);
+   const x=Math.floor((position.x+1)*target.width/2),y=Math.floor((position.y+1)*target.height/2);if(x<1||y<1||x>=target.width-1||y>=target.height-1)continue;
+   const raycaster=new THREE.Raycaster();raycaster.setFromCamera(new THREE.Vector2(2*(x+.5)/target.width-1,2*(y+.5)/target.height-1),camera);
+   const ray=raycaster.ray.clone().applyMatrix4(inverse),hit=ray.at((sheet.z-ray.origin.z)/ray.direction.z,new THREE.Vector3());
+   const intrinsicV=(hit.y-sheet.center_y)/sheet.height+.5,offset=(y*target.width+x)*4;
+   if(!(raw[offset+3]>0&&raw[offset+3]<1))throw Error('Interior optical shadow sample lost its exact-depth occupancy');
+   const expected=evaluateLensAppearance(appearance,intrinsicV,angle).transmission_rgb,actual=[0,1,2].map(c=>raw[offset+c]);
+   samples.push({mesh:mesh.name,v:intrinsicV,angle,actual,expected,maximumError:Math.max(...actual.map((value,c)=>Math.abs(value-expected[c])))});
+  }
+ }
+ return {samples,maximumError:Math.max(...samples.map(s=>s.maximumError)),scope:'Actual FloatRGBA canonical shadow first peel; analytic sheet/light oracle, before receiver strength/contact filtering'};
+}
+async function create(entry,canonical){
+ const controller=new AbortController(),canvas=document.createElement('canvas');
+ registerPinnedGeometry(`/__runtime-fixtures/${entry.model}`,entry.model_sha256);
+ registerModelingAutoEyewear({name:entry.id,assetUrl:`/__runtime-fixtures/${entry.model}`,widthMm:145,templeClipLocalZM:-.14});
+ const instance=await TryOnRenderer.create(canvas,controller.signal,'modeling-auto',{sync:false,steady:null});
+ if(instance.renderedAssetIntegrity?.sha256!==entry.model_sha256||instance.renderedAssetIntegrity?.pinned!==true)throw Error('Renderer did not verify actual parsed fixture bytes');
+ instance.renderer.toneMapping=THREE.NoToneMapping;
+ for(let timestamp=0;timestamp<=5000;timestamp+=100)if(!instance.pose(source,detection(canonical),timestamp))throw Error(`Synthetic pose rejected for ${entry.id}`);
+ if(!instance.fitting.ready)throw Error(`Synthetic fit incomplete for ${entry.id}`);
+ return instance;
+}
+async function displayIdentity(manifest,canonical){
+ if(manifest.display_cases?.length!==1||manifest.display_cases[0].id!=='clear_identity_display')throw Error('Missing display identity fixture');
+ const entry=manifest.display_cases[0],instance=await create(entry,canonical),environment=flatEnvironment(instance.renderer,[1,1,1]);
+ const restore=isolateOptics(instance),hidden=[],planes=[],probes=[];let timestamp=6000;
+ try{
+  instance.renderer.toneMapping=THREE.ACESFilmicToneMapping;instance.renderer.toneMappingExposure=1;setEnvironment(instance,environment);
+  instance.scene.traverse(object=>{if(object.isMesh)for(const material of Array.isArray(object.material)?object.material:[object.material])if(!material.colorWrite&&!hidden.some(pair=>pair[0]===material)){hidden.push([material,material.visible]);material.visible=false;}});
+  const lenses=optics(instance),materials=[...new Set(lenses.flatMap(lens=>Array.isArray(lens.material)?lens.material:[lens.material]))];
+  for(const lens of lenses){const cx=lens.name.includes('left')?manifest.sheet.centers_x[0]:manifest.sheet.centers_x[1];
+   const plane=new THREE.Mesh(new THREE.PlaneGeometry(manifest.sheet.width,manifest.sheet.height),new THREE.MeshStandardMaterial({color:0xffffff,roughness:.45,metalness:0,toneMapped:true}));
+   plane.position.set(cx,manifest.sheet.center_y,manifest.sheet.z-.0008);lens.parent.add(plane);planes.push(plane);
+  }
+  for(const color of [[.35,.10,.04],[1,.4,.05],[2,1.2,.6]]){
+   for(const plane of planes)plane.material.color.setRGB(...color);
+   instance.pose(source,detection(canonical),timestamp+=100);for(const material of materials)material.visible=false;
+   instance.render(null,{hair:false,shadows:false});const baseline=instance.readback();
+   instance.renderer.toneMapping=THREE.NoToneMapping;instance.render(null,{hair:false,shadows:false});const withoutToneMapping=instance.readback();instance.renderer.toneMapping=THREE.ACESFilmicToneMapping;
+   for(const material of materials)material.visible=true;
+   instance.render(null,{hair:false,shadows:false});const after=instance.readback();
+   const rows=sample(instance,after,manifest.sheet,entry.appearance,[0,0,0]).map(row=>{
+    const offset=(row.y*baseline.width+row.x)*4,expected=[0,1,2].map(c=>linear(baseline.data[offset+c]));
+    const noTone=[0,1,2].map(c=>linear(withoutToneMapping.data[offset+c]));
+    return {x:row.x,y:row.y,expected,actual:row.actual,noToneMapping:noTone,toneMappingDifference:Math.max(...noTone.map((value,c)=>Math.abs(value-expected[c]))),maximumError:Math.max(...row.actual.map((value,c)=>Math.abs(value-expected[c])))};
+   });
+   probes.push({opaqueLinearColor:color,samples:rows,maximumError:Math.max(...rows.map(row=>row.maximumError)),maximumToneMappingDifference:Math.max(...rows.map(row=>row.toneMappingDifference))});
+  }
+  return {status:probes.length===3&&probes.every(probe=>probe.samples.length>=12&&probe.maximumError<=.008)&&probes.some(probe=>probe.maximumToneMappingDifference>.03)?'passed':'failed',
+   modelSha256:entry.model_sha256,renderedAssetIntegrity:instance.renderedAssetIntegrity,probes,maximumError:Math.max(...probes.map(probe=>probe.maximumError)),
+   scope:'Actual ACESFilm/exposure1 renderer; T1R0 canonical sheets must preserve ordinary toneMapped=true opaque MeshStandardMaterial display. Independent baseline is the same opaque geometry rendered with optical materials hidden.'};
+ }finally{for(const [material,visible]of hidden)material.visible=visible;for(const plane of planes){plane.removeFromParent();plane.geometry.dispose();plane.material.dispose();}restore();environment.dispose();instance.dispose();}
+}
+async function run(){
+ const manifest=await fetch('/__runtime-fixtures/manifest.json').then(r=>r.json()),canonical=await fetch('/models/canonical-face.json').then(r=>r.json());
+ const report={schema_version:1,status:'running',scope:'Actual renderer conformance, not product reconstruction or lighting recovery',cases:[],negativeControls:[],structured:[],limitations:['Controlled synthetic face/pose; no live tracking or wearer evaluation.','Visible samples use 8-bit sRGB readback and an independent analytic planar-sheet oracle.','Reflection uses controlled PMREM environments; roughness checks are directional/relative, not a microfacet integration reference.']};
+ window.runtimeReport=report;
+ for(const entry of manifest.cases){
+  document.getElementById('status').textContent=`Running ${entry.id}`;
+  const bytes=await fetch(`/__runtime-fixtures/${entry.model}`).then(r=>r.arrayBuffer());if(await sha(bytes)!==entry.model_sha256)throw Error(`Fixture hash mismatch ${entry.id}`);
+  let instance,black,white,structured;
+  try{
+   instance=await create(entry,canonical);const lenses=optics(instance);if(lenses.length!==2)throw Error(`Expected two canonical runtime optics; found ${lenses.length}`);
+   const row={id:entry.id,modelSha256:entry.model_sha256,renderedAssetIntegrity:instance.renderedAssetIntegrity,lensMeshes:lenses.length,surfaceMaximumError:Math.max(...lenses.map(m=>checkSurface(m,manifest.sheet,entry.normal_magnitudes))),probes:[],shadows:null,opticalMeasurementScope:'Opaque fixture meshes hidden in advance, preserving actual renderer setup/composition; complete frame restored for smoke and shadows'};report.cases.push(row);
+   black=flatEnvironment(instance.renderer,[0,0,0]);white=flatEnvironment(instance.renderer,[1,1,1]);
+   const restore=isolateOptics(instance);let timestamp=6000;
+   for(const [environment,target,color] of [['black',black,[0,0,0]],['white',white,[1,1,1]]]){
+    setEnvironment(instance,target);
+    for(let index=0;index<poses.length;index++){
+     const pose=poses[index];setBackground();instance.pose(source,detection(canonical,pose.yaw,pose.roll),timestamp+=100);
+     instance.render(null,{hair:false,shadows:false});const pixels=instance.readback();
+     const samples=sample(instance,pixels,manifest.sheet,entry.appearance,color);
+     if(samples.length<6)throw Error(`Too few independent optical samples: ${entry.id}/${environment}/${index}`);
+     row.probes.push({environment,...pose,samples,maximumError:Math.max(...samples.map(s=>s.maximumError))});
+    }
+   }
+   // An independently specified opaque surface must replace the camera color
+   // in Three's transmission input. This would fail a raw-camera-only adapter.
+   const knownColor=[.65,.08,.22],planes=[];setEnvironment(instance,black);
+   for(const lens of lenses){const cx=lens.name.includes('left')?manifest.sheet.centers_x[0]:manifest.sheet.centers_x[1];
+    const plane=new THREE.Mesh(new THREE.PlaneGeometry(manifest.sheet.width,manifest.sheet.height),new THREE.MeshBasicMaterial({color:new THREE.Color(...knownColor),toneMapped:false}));
+    plane.position.set(cx,manifest.sheet.center_y,manifest.sheet.z-.0005);lens.parent.add(plane);planes.push(plane);
+   }
+   instance.pose(source,detection(canonical),timestamp+=100);instance.render(null,{hair:false,shadows:false});
+   const opaqueSamples=sample(instance,instance.readback(),manifest.sheet,entry.appearance,[0,0,0],knownColor);
+   row.probes.push({environment:'known_opaque_plane_black',yaw:0,roll:0,knownOpaqueLinearRGB:knownColor,samples:opaqueSamples,maximumError:Math.max(...opaqueSamples.map(s=>s.maximumError))});
+   for(const plane of planes){plane.removeFromParent();plane.geometry.dispose();plane.material.dispose();}
+   restore();instance.pose(source,detection(canonical),timestamp+=100);setEnvironment(instance,white);instance.render(null,{hair:false,shadows:false});
+   {const card=document.createElement('div');card.className='case';card.innerHTML=`<strong>${entry.label}</strong><img src="${png(instance.readback())}">`;document.getElementById('cases').append(card);}
+   setEnvironment(instance,black);
+   instance.setShadows({enabled:true,frameStrength:0,lensStrength:1,softness:1});
+   const off=instance.render(null,{hair:false,shadows:false}),before=instance.readback();
+   const on=instance.render(null,{hair:false,shadows:true}),after=instance.readback();let changed=0,maximum=0;
+   for(let p=0;p<before.data.length;p+=4){const delta=Math.max(...[0,1,2].map(c=>Math.abs(before.data[p+c]-after.data[p+c])));if(delta)changed++;maximum=Math.max(maximum,delta);}
+   row.shadows={applied:on.shadowsApplied===true,changedPixels:changed,maximumByteDifference:maximum,transmission:shadowSamples(instance,manifest.sheet,entry.appearance)};
+   if(!row.shadows.applied)throw Error(`Actual shadow path was not applied for ${entry.id}`);
+   if(entry.id==='total_mirror'||entry.id.startsWith('mirror_roughness')){
+    structured=structuredEnvironment(instance.renderer);setEnvironment(instance,structured);const measurements=[],restoreStructured=isolateOptics(instance);
+    for(const yaw of [-25,0,25]){
+     instance.pose(source,detection(canonical,yaw,0),timestamp+=100);instance.render(null,{hair:false,shadows:false});const pixels=instance.readback(),samples=sample(instance,pixels,manifest.sheet,entry.appearance,[0,0,0]);
+     measurements.push({yaw,mean:samples.reduce((sum,s)=>sum.map((v,c)=>v+s.actual[c]/samples.length),[0,0,0]),samples:samples.length});
+     if(yaw===0){const card=document.createElement('div');card.className='case';card.innerHTML=`<strong>Structured reflection · roughness ${entry.appearance.roughness}</strong><img src="${png(pixels)}">`;document.getElementById('cases').append(card);}
+    }
+    report.structured.push({id:entry.id,roughness:entry.appearance.roughness,measurements});
+    restoreStructured();
+   }
+   row.maximumError=Math.max(...row.probes.map(p=>p.maximumError));row.passed=row.maximumError<=.008&&row.shadows.applied&&row.shadows.transmission.samples.length>=12&&row.shadows.transmission.maximumError<=.008;
+   console.log(`Runtime ${entry.id}: ${row.maximumError.toFixed(5)} maximum linear error`);
+  }finally{black?.dispose();white?.dispose();structured?.dispose();instance?.dispose();}
+ }
+ for(const entry of manifest.negative_controls){let instance,error=null;try{instance=await create(entry,canonical);}catch(e){error=String(e.message??e);}finally{instance?.dispose();}report.negativeControls.push({id:entry.id,rejected:!!error,error});}
+ const sharp=report.structured.find(s=>s.roughness===0),rough=report.structured.find(s=>s.roughness===.75);
+ const span=row=>row.measurements[2].mean[2]-row.measurements[0].mean[2];
+ report.structuredChecks={directionalResponse:report.structured.every(row=>row.measurements[0].mean[2]+.05<row.measurements[1].mean[2]&&row.measurements[1].mean[2]+.05<row.measurements[2].mean[2]),roughnessReducesDirectionalContrast:span(rough)<span(sharp)*.9,
+  sharpHighlight:sharp.measurements[1].mean[0]>Math.max(sharp.measurements[0].mean[0],sharp.measurements[2].mean[0])+.1,
+  roughnessBroadensHighlight:rough.measurements[1].mean[0]<sharp.measurements[1].mean[0]-.1};
+ report.maximumError=Math.max(...report.cases.map(c=>c.maximumError));report.status=report.cases.every(c=>c.passed)&&report.negativeControls.every(c=>c.rejected)&&Object.values(report.structuredChecks).every(Boolean)?'passed':'failed';
+ report.completeness={expectedCases:13,expectedNegativeControls:4,expectedNumericProbesPerCase:11,casesComplete:report.cases.length===13&&report.cases.every(row=>row.probes.length===11&&row.probes.every(probe=>probe.samples.length>=6)),negativeControlsComplete:report.negativeControls.length===4};
+ if(!report.completeness.casesComplete||!report.completeness.negativeControlsComplete)report.status='failed';
+ await runLayerConformance({manifest,canonical,create,flatEnvironment,setEnvironment,source,detection,backgroundLinear,setBackground,linear,png,parentReport:report});
+ if(report.layers.status!=='passed')report.status='failed';
+ report.displayIdentity=await displayIdentity(manifest,canonical);if(report.displayIdentity.status!=='passed')report.status='failed';
+ document.getElementById('status').textContent=JSON.stringify({status:report.status,cases:report.cases.length,maximumError:report.maximumError,negativeControls:report.negativeControls},null,2);
+ return report;
+}
+const diagnosticApi=async()=>({manifest:await fetch('/__runtime-fixtures/manifest.json').then(r=>r.json()),canonical:await fetch('/models/canonical-face.json').then(r=>r.json()),create,flatEnvironment,setEnvironment,source,detection});
+window.canonicalLensRuntime={run,debugLayers:async()=>debugLayerTransport(await diagnosticApi()),debugRaster:async()=>debugShadowRaster(await diagnosticApi())};
+</script>

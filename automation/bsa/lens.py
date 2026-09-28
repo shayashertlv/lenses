@@ -42,7 +42,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage, optimize
@@ -937,9 +936,6 @@ def swatches(meas: dict, ana: dict, n_bands: int = 8) -> dict:
 
 
 # --------------------------------------------------------------------------- AR calibration (mirror) + edge ring
-MIRROR_SPEC_GRID = (0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0)   # scale on the coat's F0; 0 = bare glass (F0 0.04)
-MIRROR_EMISSIVE = (0.0, 1.0)                                 # baked-reflection factor bounds (1 = the measured R)
-MIRROR_EMISSIVE_STEP = 0.01
 BLOB_CLIP = 250                   # a blob pixel is clipped in some channel ...
 BLOB_EXCESS_L = 10.0              # ... and brighter than the lens's median L* by this much
 EDGE_RING_WIDTH_MM = (0.3, 0.5)   # clear-lens frosted edge ring: width bounds (task spec) ...
@@ -1402,9 +1398,10 @@ def calibrate_canonical(product: str, run: str, meas: dict, ana: dict, coat: dic
     res = texture.ar_render(variants, out_dir, views=({"id": "front", "yaw_degrees": 0},), background_rgb=bg_rgb)
     log(f"[s8 {product}] canonical calibration: {len(variants)} renders in {time.time() - t0:.1f} s ({res.get('harness_status')})")
     bad = [n for n, m in res["models"].items() if m.get("status") != "runtime_compatible" or not m.get("views")]
-    if not res["models"] or bad or set(res["models"]) != set(variants):
+    val = res.get("validation") or {}         # the whole run: status, errors, snapshot, every variant's front render hashed
+    if not res["models"] or bad or set(res["models"]) != set(variants) or not val.get("ok"):
         raise HarnessError(f"harness {res.get('harness_status')} rc {res.get('returncode')}; failed {bad[:4]}; "
-                           f"{(res.get('stderr_tail') or '')[-300:]}")
+                           f"validation {val.get('reasons', ['absent'])[:3]}; {(res.get('stderr_tail') or '')[-300:]}")
     meta = res["models"]["bare"]["views"]["front"]
     prims = texture.glb_primitives(variants["bare"])
     lens_ids = [i for i, p in enumerate(prims) if str(p["node"]).startswith("lens")]
@@ -1479,6 +1476,10 @@ def calibrate_canonical(product: str, run: str, meas: dict, ana: dict, coat: dic
             verify["bin_fit"] = variant(table_descriptor(T_uv, knots, fit["R"], rear))
     if verify:
         ver = texture.ar_render(verify, out_dir / "verify", views=({"id": "front", "yaw_degrees": 0},), background_rgb=bg_rgb)
+        vval = ver.get("validation") or {}
+        if not vval.get("ok"):
+            raise HarnessError(f"verification harness {ver.get('harness_status')} rc {ver.get('returncode')}: "
+                               f"{vval.get('reasons', ['absent'])[:3]}")
         for name in verify:
             vm = ((ver["models"].get(name) or {}).get("views") or {}).get("front")
             if vm is None:
@@ -1549,9 +1550,11 @@ def lens_render_check(product: str, run: str, meas: dict, ana: dict, la: dict, o
         data = (Path(td) / "check.glb").read_bytes()
     t0 = time.time()
     res = texture.ar_render({"lens_check": data}, out_dir, views=({"id": "front", "yaw_degrees": 0},), background_rgb=bg_rgb)
+    val = res.get("validation") or {}
     vm = ((res["models"].get("lens_check") or {}).get("views") or {}).get("front")
-    if vm is None:
-        raise HarnessError(f"lens check render failed: {res.get('harness_status')} rc {res.get('returncode')}")
+    if vm is None or not val.get("ok"):
+        raise HarnessError(f"lens check render failed: {res.get('harness_status')} rc {res.get('returncode')}; "
+                           f"validation {val.get('reasons', ['absent'])[:3]}")
     log(f"[s8 {product}] lens check render in {time.time() - t0:.1f} s")
     prims = texture.glb_primitives(data)
     rp = render_lens_pixels(vm, prims)

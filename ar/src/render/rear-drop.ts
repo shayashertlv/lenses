@@ -4,9 +4,10 @@
  *  Every shape update restores the original storage and composes all offsets in one pass. */
 import {
   Box3, BufferAttribute, InterleavedBufferAttribute, MathUtils, Matrix4, Mesh,
-  MeshPhysicalMaterial, Vector3,
+  Vector3,
 } from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
+import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
 import {MAX_TERMINAL_INSET_M, terminalFitX, terminalFitSlope} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
@@ -93,8 +94,6 @@ function restoreAttribute(destination: Attribute, source: Attribute): void {
   } else throw new Error('The rear-drop geometry clone has incompatible attributes.');
 }
 
-const isLens = (material: Material): boolean => material instanceof MeshPhysicalMaterial && material.transmission > 0;
-
 /**
  * Install on loaded assets before visibility creates its sharing overlays.
  * Owns cloned geometry only. Original buffers and material hooks remain untouched.
@@ -127,7 +126,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       const materials: Material[] = Array.isArray(object.material) ? object.material : [object.material];
       const index = original.getIndex();
       for (const [materialIndex, material] of materials.entries()) {
-        const lens = isLens(material), opaque = !lens && !material.transparent;
+        const lens = isOpticalMaterial(material), opaque = !lens && !material.transparent;
         const groups = Array.isArray(object.material) ? original.groups.filter(group => group.materialIndex === materialIndex)
           : [{start: 0, count: index?.count ?? position.count}];
         for (const group of groups) for (let i = group.start; i < group.start + group.count; i++) {
@@ -170,8 +169,12 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
         throw new Error('The arm-spread pivot is out of range.');
       }
       const plane = hingeStartZM - pivot;
-      if (plane <= cutoffZM + Math.max(HINGE_MIN_SPAN_M, SPREAD_HINGE_ROUND_M)) {
-        throw new Error('The arm-spread pivot must be forward of the accepted cap.');
+      const nearest = cutoffZM + Math.max(HINGE_MIN_SPAN_M, SPREAD_HINGE_ROUND_M);
+      if (plane <= nearest) {
+        // A frame whose arm shaft starts far back (an oversized acetate with a long hinge block, such as the VB 7007)
+        // puts the pivot's plane behind the accepted cap. Refusing the whole model for that left it unviewable; the
+        // ramp is still drawable from the nearest plane the cap allows, so the pivot is clamped there instead.
+        return nearest + 1e-4;
       }
       return plane;
     };

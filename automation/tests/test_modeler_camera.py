@@ -8,6 +8,7 @@ import unittest
 
 import numpy as np
 from PIL import Image
+import pytest
 
 from modeler import export as mexport
 from modeler.paths import blender_executable
@@ -30,6 +31,7 @@ def iou(a, b):
     return float((a & b).sum()) / max(float((a | b).sum()), 1.0)
 
 
+@pytest.mark.slow   # host Blender, ~16 s set-up
 @unittest.skipIf(blender_executable() is None, "Blender not installed")
 class CameraEquivalence(unittest.TestCase):
     @classmethod

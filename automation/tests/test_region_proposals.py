@@ -13,7 +13,6 @@ from reconstruction.camera import Camera
 from reconstruction.mesh import TriangleMesh
 from reconstruction.region_proposals import (_camera_regions, _lens_parts, _native_grid, _prompts,
                                                run_region_stage)
-from test_refine_photos import _write_mesh
 
 
 def sha(path):

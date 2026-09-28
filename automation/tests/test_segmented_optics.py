@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 import numpy as np
+import pytest
 
 from reconstruction.deform_glb import _read
 from reconstruction.lens_asset import _pack_glb
@@ -64,6 +65,7 @@ class SegmentedOpticsRecoveryTests(unittest.TestCase):
                                                declarations=declarations(source, [('lens', [0])]))
         return output, report
 
+    @pytest.mark.slow   # ~18 s
     def test_real_conflicting_normals_recover_without_geometry_frame_or_uv_changes(self):
         failed, original = self.prepare()
         self.assertEqual(original['status'], 'unsupported_optical_group_preparation')

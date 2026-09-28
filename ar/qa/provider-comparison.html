@@ -1,0 +1,155 @@
+<!doctype html>
+<meta charset="utf-8"><link rel="icon" href="data:,"><title>Raw provider comparison</title>
+<style>body{font:14px system-ui;margin:24px;background:#eef1f5;color:#202d3d}canvas{display:none}</style>
+<h1>Raw provider comparison</h1><p id="status">Ready</p>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';
+import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
+import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
+import {lightingConfigurations,createLighting,environmentSuffix} from './provider-comparison-lighting.mjs';
+
+const views={front:[0,0,1],back:[0,0,-1],left:[1,0,0],right:[-1,0,0],angled:[0.68,0.22,1],'angled-opposite':[-.68,.22,1],rolled:[0,0,1],top:[0,1,0.001]};
+const bgColors={light:'#eeeeee',dark:'#342d2b'};
+function materialSummary(material){
+ const texture=value=>value?{name:value.name,width:value.image?.width??null,height:value.image?.height??null,
+  color_space:value.colorSpace,channel:value.channel}:null;
+ return {name:material.name,type:material.type,color:material.color?.getHexString(),opacity:material.opacity,
+  transparent:material.transparent,alpha_test:material.alphaTest,side:material.side,depth_write:material.depthWrite,
+  roughness:material.roughness,metalness:material.metalness,transmission:material.transmission,ior:material.ior,
+  thickness:material.thickness,normal_scale:material.normalScale?.toArray(),vertex_colors:material.vertexColors,
+  map:texture(material.map),normal_map:texture(material.normalMap),metalness_map:texture(material.metalnessMap),
+  roughness_map:texture(material.roughnessMap),alpha_map:texture(material.alphaMap),transmission_map:texture(material.transmissionMap)};
+}
+function checker(){
+ const c=document.createElement('canvas');c.width=512;c.height=384;const ctx=c.getContext('2d');
+ for(let y=0;y<c.height;y+=32)for(let x=0;x<c.width;x+=32){ctx.fillStyle=(x/32+y/32)%2?'#b4a190':'#ebe0d2';ctx.fillRect(x,y,32,32);}
+ const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
+}
+function diagnosticMaterial(mode,material,index){
+ if(mode==='normals')return new THREE.MeshNormalMaterial({side:material.side});
+ if(mode==='primitives')return new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL((index*.6180339887)%1,.65,.52),side:THREE.DoubleSide,toneMapped:false});
+ return new THREE.MeshBasicMaterial({color:material.color??0xffffff,map:material.map,alphaMap:material.alphaMap,
+  opacity:material.opacity,transparent:material.transparent,alphaTest:material.alphaTest,side:material.side,
+  vertexColors:material.vertexColors,depthWrite:material.depthWrite,toneMapped:false});
+}
+async function run(){
+ const manifest=await fetch('/__providers/manifest.json').then(r=>r.json());
+ const width=manifest.width??640,height=manifest.height??480;
+ const modes=manifest.modes??['raw','normals'],backgrounds=manifest.backgrounds??['light'];
+ const viewNames=manifest.views??['front','back','left','right','angled'];
+ const configurations=lightingConfigurations(manifest);
+ for(const mode of modes)if(!['raw','normals','unlit','primitives'].includes(mode))throw Error('Unknown diagnostic mode '+mode);
+ for(const name of viewNames)if(!views[name])throw Error('Unknown view '+name);
+ for(const name of backgrounds)if(!bgColors[name]&&name!=='checker')throw Error('Unknown background '+name);
+ const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+ renderer.setPixelRatio(1);renderer.setSize(width,height);renderer.toneMapping=THREE.ACESFilmicToneMapping;
+ renderer.toneMappingExposure=1;renderer.outputColorSpace=THREE.SRGBColorSpace;
+ const gl=renderer.getContext(),debug=gl.getExtension('WEBGL_debug_renderer_info');
+ const report={schema_version:1,status:'running',quality_verdict:'unmeasured',accepted:false,cases:[],
+  scope:`GLTFLoader materials and mesh, centered and uniformly scaled only by this harness. ${manifest.input_description??'Unchanged provider input.'} AR matching, fitting, optical overrides, clipping and repair are not applied by this viewer.`,
+  environments:configurations,
+  renderer:{three:THREE.REVISION,tone_mapping:'ACESFilmic',exposure:1,environment:'Per-render environment ID resolves to the configurations above; standard GLTFLoader uses regular PMREM blur 0.04',
+   directional_light_intensity:2,directional_light_position:[-10,15,20],camera:'orthographic',width,height,shadows:false},
+  conventions:'After the declared XYZ Euler orientation, front is camera +Z, back -Z, left +X and right -X. Side labels match the cached photo bundles; they are not inferred manufacturer labels.',
+  device:{browser:navigator.userAgent,renderer:gl.getParameter(gl.RENDERER),unmasked_renderer:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null}};
+ window.providerReport=report;window.providerImages=[];
+ const lighting=configurations.map(configuration=>createLighting(renderer,configuration));
+ const draco=new DRACOLoader().setDecoderPath('/node_modules/three/examples/jsm/libs/draco/gltf/');
+ const ktx=new KTX2Loader().setTranscoderPath('/node_modules/three/examples/jsm/libs/basis/').detectSupport(renderer);
+ const loader=new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder);
+ const checkerTexture=checker();
+ for(const entry of manifest.cases){
+  document.querySelector('#status').textContent='Rendering '+entry.id;
+  const row={id:entry.id,product:entry.product??entry.id,provider:entry.provider??entry.id,status:'running',model_sha256:entry.model_sha256,
+   file_bytes:entry.file_bytes,source_inventory:entry.source_inventory,input_provenance:entry.input_provenance??entry.provenance??null,renders:[]};report.cases.push(row);
+  let model;const diagnostics=[];
+  try{
+   const started=performance.now(),gltf=await loader.loadAsync(`/__providers/${entry.id}.glb`);model=gltf.scene;
+   row.load_milliseconds=performance.now()-started;
+   const originalBounds=new THREE.Box3().setFromObject(model,true),materials=new Map(),meshes=[];
+   model.traverse(object=>{if(!object.isMesh)return;meshes.push(object);for(const m of Array.isArray(object.material)?object.material:[object.material])if(!materials.has(m))materials.set(m,materials.size);});
+   row.material_count=materials.size;row.mesh_count=meshes.length;row.triangles=0;row.vertices=0;
+   row.materials=[...materials.keys()].map(materialSummary);
+   row.meshes=meshes.map((mesh,index)=>{
+    const association=gltf.parser.associations.get(mesh)??{};
+    let nodeObject=mesh;while(nodeObject&&!gltf.parser.associations.get(nodeObject)?.hasOwnProperty('nodes'))nodeObject=nodeObject.parent;
+    const binding={node_index:nodeObject?gltf.parser.associations.get(nodeObject).nodes:null,mesh_index:association.meshes??null,primitive_index:association.primitives??0};
+    const triangles=(mesh.geometry.index?.count??mesh.geometry.attributes.position?.count??0)/3;
+    row.triangles+=triangles;row.vertices+=mesh.geometry.attributes.position?.count??0;
+    return {index,name:mesh.name,binding,triangles,vertices:mesh.geometry.attributes.position?.count??0,
+     has_normals:!!mesh.geometry.attributes.normal,has_uv:!!mesh.geometry.attributes.uv,has_vertex_colors:!!mesh.geometry.attributes.color,
+     material_indices:(Array.isArray(mesh.material)?mesh.material:[mesh.material]).map(m=>materials.get(m)),groups:mesh.geometry.groups.length};
+   });
+   if(!meshes.length)throw Error('No mesh in active scene');
+   row.original_bounds={min:originalBounds.min.toArray(),max:originalBounds.max.toArray()};
+   const oriented=new THREE.Group(),normalized=new THREE.Group();oriented.add(model);normalized.add(oriented);
+   const degrees=entry.rotation_degrees??[0,0,0];if(degrees.length!==3||degrees.some(v=>!Number.isFinite(v)))throw Error('rotation_degrees must be finite XYZ');
+   oriented.rotation.set(...degrees.map(v=>v*Math.PI/180),'XYZ');oriented.updateMatrixWorld(true);
+   const bounds=new THREE.Box3().setFromObject(oriented,true),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
+   if(!Number.isFinite(size.x)||size.x<=0)throw Error('Zero or invalid width after orientation');
+   const scale=2/size.x;oriented.position.sub(center);normalized.scale.setScalar(scale);normalized.updateMatrixWorld(true);
+   row.normalization={rotation_degrees:degrees,rotation_order:'XYZ',translation:center.clone().negate().toArray(),uniform_scale:scale,normalized_size:size.clone().multiplyScalar(scale).toArray(),world_to_render:oriented.matrixWorld.toArray(),matrix_layout:'column-major',world_to_render_scope:'Input active-scene world coordinates to normalized render coordinates; input node transforms remain applied once'};
+   const bindingKey=b=>`${b.node_index}/${b.mesh_index}/${b.primitive_index}`;
+   const partIndices=new Map((entry.part_bindings??[]).map((binding,index)=>[bindingKey(binding),index]));
+   if(entry.visible_bindings){
+    const requested=new Set(entry.visible_bindings.map(bindingKey)),found=new Set();
+    meshes.forEach((mesh,index)=>{const key=bindingKey(row.meshes[index].binding);mesh.visible=requested.has(key);if(mesh.visible)found.add(key);});
+    if(found.size!==requested.size)throw Error('A requested primitive binding was not found in GLTFLoader scene');
+    row.visible_bindings=entry.visible_bindings;row.visible_triangles=row.meshes.filter((_,index)=>meshes[index].visible).reduce((sum,mesh)=>sum+mesh.triangles,0);
+   }
+   const scene=new THREE.Scene();scene.add(normalized);
+   const key=new THREE.DirectionalLight(0xffffff,2);key.position.set(-10,15,20);scene.add(key);
+   const verticalSpan=manifest.vertical_span??Math.max(2.05,size.y*scale*1.25,size.z*scale*height/width*1.25);
+   row.orthographic_vertical_span=verticalSpan;
+   const camera=new THREE.OrthographicCamera(-verticalSpan*width/height/2,verticalSpan*width/height/2,verticalSpan/2,-verticalSpan/2,.01,100);
+   const originals=meshes.map(mesh=>mesh.material);
+   for(const environment of lighting){
+    scene.environment=environment.regular.texture;scene.environmentIntensity=environment.configuration.intensity;
+   for(const mode of modes){
+    meshes.forEach((mesh,index)=>{
+     if(mode==='raw'){mesh.material=originals[index];return;}
+     const source=Array.isArray(originals[index])?originals[index]:[originals[index]];
+     const partIndex=partIndices.get(bindingKey(row.meshes[index].binding))??index;
+     const material=source.map((m,mi)=>{const d=diagnosticMaterial(mode,m,partIndex+mi);diagnostics.push(d);return d;});
+     mesh.material=Array.isArray(originals[index])?material:material[0];
+    });
+    for(const background of backgrounds){
+     // A camera-aligned plane gives transmissive materials a controlled background
+     // object, including a visible pattern when the checker diagnostic is requested.
+     scene.background=background==='checker'?new THREE.Color('#ebe0d2'):new THREE.Color(bgColors[background]);
+     const backdrop=new THREE.Mesh(new THREE.PlaneGeometry(verticalSpan*width/height,verticalSpan),new THREE.MeshBasicMaterial({color:background==='checker'?0xffffff:bgColors[background],map:background==='checker'?checkerTexture:null,toneMapped:false}));
+     scene.add(backdrop);
+     for(const view of viewNames){
+      const direction=new THREE.Vector3(...views[view]).normalize();camera.position.copy(direction).multiplyScalar(8);camera.up.set(0,1,0);camera.lookAt(0,0,0);if(view==='rolled')camera.rotateZ(25*Math.PI/180);camera.updateMatrixWorld();
+      backdrop.position.copy(direction).multiplyScalar(-5);backdrop.quaternion.copy(camera.quaternion);scene.updateMatrixWorld(true);
+      renderer.render(scene,camera);
+      const filename=`${entry.id}__${mode}__${background}${environmentSuffix(environment.configuration)}__${view}.png`;
+      row.renders.push({filename,mode,background,view,environment:environment.configuration.id,environment_explicit:environment.configuration.explicit,
+       camera:{direction:direction.toArray(),position:camera.position.toArray(),up:new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).toArray(),view_matrix:camera.matrixWorldInverse.toArray(),projection_matrix:camera.projectionMatrix.toArray(),width,height,orthographic_vertical_span:verticalSpan,matrix_layout:'column-major'},
+       draw_calls:renderer.info.render.calls,render_triangles:renderer.info.render.triangles,
+       material_behavior:mode==='raw'?(entry.source_inventory?.approximate_standard_material_fallback?
+        'Approximate standard glTF fallback; GLTFLoader does not interpret private canonical optical descriptors. Use actual-AR stage for canonical material review.':'Original GLTFLoader material'):'Diagnostic override; not provider appearance'});
+      window.providerImages.push({id:entry.id,filename,data:renderer.domElement.toDataURL('image/png')});
+     }
+     scene.remove(backdrop);backdrop.geometry.dispose();backdrop.material.dispose();
+    }
+   }
+   }
+   meshes.forEach((mesh,index)=>mesh.material=originals[index]);
+   row.status='rendered';
+  }catch(error){row.status='failed';row.error=String(error.stack??error);}
+  finally{
+   for(const material of diagnostics)material.dispose();
+   const textures=new Set(),materials=new Set(),geometries=new Set();
+   model?.traverse(object=>{if(object.geometry)geometries.add(object.geometry);for(const material of object.material?(Array.isArray(object.material)?object.material:[object.material]):[]){materials.add(material);for(const value of Object.values(material))if(value?.isTexture)textures.add(value);}});
+   for(const geometry of geometries)geometry.dispose();for(const material of materials)material.dispose();for(const texture of textures)texture.dispose();
+  }
+ }
+ checkerTexture.dispose();for(const environment of lighting)environment.dispose();draco.dispose();ktx.dispose();renderer.dispose();
+ report.status=report.cases.every(row=>row.status==='rendered')?'rendered':'failed';
+ document.querySelector('#status').textContent=report.status;return report;
+}
+window.providerComparison={run};
+</script>

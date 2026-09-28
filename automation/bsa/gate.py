@@ -138,8 +138,6 @@ ROUGHNESS_MAX_RATIO = 1.5
 # Flags that are recorded but never force REVIEW (they describe the product or a bounded, handled condition):
 INFORMATIONAL_FLAGS = ("rimless_review", "refinement_clipped_high", "lens_mirror_iou_low", "lens_share_out_of_range",
                        "outline_from_back_mirrored", "front_low_resolution", "bevel_offset_unmeasured")
-S2_REVIEW_FLAGS = ("rimless_low_confidence", "low_contrast_high", "lens_count_disagree", "back_registration_failed",
-                   "lens_components")
 VIEW_CONSISTENCY_K = 2.0          # flag above 2 x the measured noise (no-fault values on the 5 products: 0.6-1.3 x)
 VIEW_CONSISTENCY_FAULTS_MM = (-3.0, -2.0, -1.0, 1.0, 2.0, 3.0)   # sensitivity: the check on the S2 outline grown by these
 FAULTS = ("temples_x085", "front_stretch_x105", "lens_dilate_1mm", "scale_x105", "card_lens_dilate_1mm")

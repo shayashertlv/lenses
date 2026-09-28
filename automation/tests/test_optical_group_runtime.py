@@ -1,5 +1,4 @@
 """Common rounding witnesses, exact normal hulls, budgets and cross-language cases."""
-from copy import deepcopy
 import json
 from pathlib import Path
 import shutil

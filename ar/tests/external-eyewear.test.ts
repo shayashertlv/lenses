@@ -18,9 +18,9 @@ test('a page without a model parameter carries no handover', () => {
 
 test('loopback and same-origin model addresses are accepted; clip, width and digest are optional', () => {
   const model = parseExternalModel(`?model=${encodeURIComponent(ASSET)}`, PAGE)!;
-  assert.deepEqual(model, {url: ASSET, name: 'Modeling Auto model', clipZM: null, widthMm: null, sha256: null});
+  assert.deepEqual(model, {url: ASSET, name: 'Modeling Auto model', clipZM: null, widthMm: null, sha256: null, lensEnvIntensity: null});
   const relative = parseExternalModel(`?model=/models/tom-ford-clear.glb&name=%20Sample%20&clip=-0.11&width=138&sha256=${DIGEST.toUpperCase()}`, PAGE)!;
-  assert.deepEqual(relative, {url: `${PAGE}/models/tom-ford-clear.glb`, name: 'Sample', clipZM: -0.11, widthMm: 138, sha256: DIGEST});
+  assert.deepEqual(relative, {url: `${PAGE}/models/tom-ford-clear.glb`, name: 'Sample', clipZM: -0.11, widthMm: 138, sha256: DIGEST, lensEnvIntensity: null});
   assert.equal(parseExternalModel('?model=http://localhost:8060/api/jobs/a/files/b', PAGE)!.url, 'http://localhost:8060/api/jobs/a/files/b');
   assert.equal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&name=${'x'.repeat(200)}`, PAGE)!.name.length, 120);
   const unusable = parseExternalModel(`?model=${encodeURIComponent(ASSET)}&clip=0.5&width=900&sha256=nothex`, PAGE)!;

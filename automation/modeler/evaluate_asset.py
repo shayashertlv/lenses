@@ -29,25 +29,33 @@ from pathlib import Path
 
 from .calibration import EVALUATION_DIR, asset_dir as _asset_dir, automatic_verdict, load_rows, latest_by_asset
 from .evaluate import PROTOCOL, validate_evaluation, write_evaluator_package, write_package_files
-from .paths import AUTOMATION, JOBS
+from .paths import JOBS
+from .tags import asset_glb as tags_asset_glb
 
 
 def _load(p: Path):
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def _resolve(p: str | Path) -> Path:
-    p = Path(p)
-    return p if p.is_absolute() else AUTOMATION / p
-
-
 def asset_glb(job_dir: Path, asset_dir: Path) -> Path:
-    if (asset_dir / "model.glb").is_file():
-        return asset_dir / "model.glb"
-    b = asset_dir / "baseline.json"
-    if b.exists():
-        return _resolve(_load(b)["glb"])
-    raise FileNotFoundError(f"no GLB for {asset_dir}")
+    """``modeler.tags.asset_glb``, failing closed: FileNotFoundError when the asset has no model.glb and no readable
+    baseline.json naming a GLB (until 2026-09-29 a baseline.json without ``glb`` raised KeyError)."""
+    glb = tags_asset_glb(asset_dir)
+    if glb is None:
+        raise FileNotFoundError(f"no GLB for {asset_dir}")
+    return glb
+
+
+def wearer_runtime_digest(asset_dir: Path) -> str | None:
+    """The AR runtime digest the asset's wearer renders were made in (observe/ar_wearer/archeck.json ``cache_key``);
+    None for a legacy cache without one."""
+    p = Path(asset_dir) / "observe" / "ar_wearer" / "archeck.json"
+    if not p.exists():
+        return None
+    try:
+        return (_load(p).get("cache_key") or {}).get("ar_runtime_digest")
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def archive_previous_run(out: Path) -> Path:
@@ -77,7 +85,9 @@ def prepare(job_dir: Path, asset_dir: Path, *, force_renders: bool = False, eval
         if cached.exists():
             cached.unlink()
     request, images = write_evaluator_package(job_dir, asset_dir, evidence, protocol["identity_checklist"], out, glb_path=glb)
+    # the package is bound to the exact bytes it shows and to the runtime that rendered them
     request["asset_sha256"] = hashlib.sha256(glb.read_bytes()).hexdigest()
+    request["ar_runtime_digest"] = wearer_runtime_digest(asset_dir)
     path = write_package_files(out, request, images)
     (out / "images.json").write_text(json.dumps(images, indent=1), encoding="utf-8")
     return path
@@ -86,7 +96,9 @@ def prepare(job_dir: Path, asset_dir: Path, *, force_renders: bool = False, eval
 def collect(job_dir: Path, asset_dir: Path, *, driver: str = "package", evaluation_dir: str = EVALUATION_DIR,
             evaluation: dict | None = None, meta: dict | None = None) -> dict:
     """Validate the answer (response.json from an external agent, or the evaluation an API driver returned) into
-    evaluation.json beside the package."""
+    evaluation.json beside the package. The record carries its binding: the asset bytes the package showed
+    (``asset_sha256``), the protocol (``meta.protocol``) and the AR runtime the wearer renders ran in
+    (``meta.ar_runtime_digest``); ``modeler.calibration`` and a job's finalize accept nothing without it."""
     asset_dir = Path(asset_dir)
     out = asset_dir / evaluation_dir
     if evaluation is None:
@@ -98,7 +110,8 @@ def collect(job_dir: Path, asset_dir: Path, *, driver: str = "package", evaluati
     req = _load(out / "request.json")
     record = {"evaluation": ev, "meta": dict(meta or {}, driver=driver, protocol=PROTOCOL,
                                              collected=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                                             images=[im["file"] for im in req.get("images", [])]),
+                                             images=[im["file"] for im in req.get("images", [])],
+                                             ar_runtime_digest=req.get("ar_runtime_digest") or wearer_runtime_digest(asset_dir)),
               "asset_sha256": req.get("asset_sha256"), "asset_dir": str(asset_dir)}
     (out / "evaluation.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     return record

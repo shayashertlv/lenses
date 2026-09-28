@@ -5,7 +5,13 @@
 /data/modeler/*
 # Small pipeline state that is part of the modeler: calibration set, requests, evaluator protocols, scripted fixtures, results.
 !/data/modeler/calibration/
+# modeler/calibration.py --freeze-tags writes these backups next to owner_verdicts.jsonl; they stay local.
+/data/modeler/calibration/*.before-freeze-*
 !/data/modeler/requests/
 !/data/modeler/protocols/
 !/data/modeler/scripts/
 !/data/modeler/RESULTS_2026-09-26.md
+# Local review output (third-party doc snapshots, extracted code, logs) and its one-off prompt stay out of Git.
+# /reviews/* rather than /reviews/ so a later !/reviews/<path> re-include remains possible.
+/reviews/*
+/AGENTIC_AUTOMATION_REVIEW_PROMPT.md

@@ -1,0 +1,3 @@
+# Test runner for automation/tests (several modules are pytest-only). Install from automation/.
+-r requirements-segmented.txt
+pytest==9.0.3

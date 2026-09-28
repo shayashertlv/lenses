@@ -1,0 +1,40 @@
+{
+  "product_id": "tomford_ft1123d",
+  "photos": [
+    {
+      "path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/modeler/inputs/tomford_ft1123d/front.jpg",
+      "view": "front"
+    },
+    {
+      "path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/modeler/inputs/tomford_ft1123d/back.webp",
+      "view": "back"
+    },
+    {
+      "path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/modeler/inputs/tomford_ft1123d/left.jpg",
+      "view": "left"
+    },
+    {
+      "path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/modeler/inputs/tomford_ft1123d/angled.jpg",
+      "view": "angled",
+      "held_out": true
+    },
+    {
+      "path": "C:/Users/Shay/PycharmProjects/lenses/automation/data/modeler/inputs/tomford_ft1123d/rear_angled.webp",
+      "view": "unknown"
+    }
+  ],
+  "dimensions": {},
+  "notes": "Tom Ford FT1123-D 26E 49 (catalog listing): round panto sunglasses in clear crystal ('champagne') acetate. The front, bridge, endpieces and temples are transparent: the lens edges and the hinges show through the acetate. A thin gold metal core wire runs inside each clear temple from the hinge to the tip; a flat gold-tone 'T' inlay sits on the outer face of each temple at the hinge; a small gold oval plaque on the underside near each temple tip. Lenses: flat, light brown flash-mirror (champagne gold reflection), with a small grey 'TOM FORD' print in the upper outer area of the right lens. No physical dimensions supplied. The runtime renders a translucent FRONT (gl.material_translucent, a near-white crystal tint); temples are exported opaque in this release, so give them the closest opaque look (a pale warm ivory acetate) with the gold accents.",
+  "limits": {
+    "max_turns": 10,
+    "blender_time_limit_s": 300,
+    "wall_time_limit_min": 180,
+    "stagnation_turns": 3
+  },
+  "author": {
+    "driver": "astra"
+  },
+  "held_out_views": [
+    "angled"
+  ]
+}

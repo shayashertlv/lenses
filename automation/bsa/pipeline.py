@@ -839,6 +839,11 @@ def product_summary(product: str, run: str, previous_ar_row: dict | None = None)
                                       "contract_failures": row.get("contract", {}).get("failures"),
                                       "ar_status": row["ar"].get("status"),
                                       "lenses_detected": row["ar"].get("optical_meshes_detected")}}
+    if s9 and isinstance(s9.get("archeck"), dict) and "validation" not in s9["archeck"]:
+        # an S9 record written before 2026-09-27 carries the harness row but no validation of the run around it:
+        # c1 reads unverified (never a silent pass, never a silent failure)
+        crit["c1_contract_ar_lenses"]["legacy_unverified"] = True
+        crit["c1_contract_ar_lenses"]["note"] = "S9 record predates the harness validation: its run was never validated as a whole; c1 is unverified"
     if s10:
         mc = s10.get("m1_criteria", {})
         b, pv = mc.get("bsa") or {}, mc.get("previous") or {}

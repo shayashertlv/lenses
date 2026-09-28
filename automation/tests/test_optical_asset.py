@@ -7,7 +7,7 @@ import unittest
 
 import numpy as np
 
-from reconstruction.deform_glb import _read, _float_accessor, _triangles
+from reconstruction.deform_glb import _read, _float_accessor
 from reconstruction.lens_appearance import DensityKeyframe, LensAppearance, ReflectanceKeyframe
 from reconstruction.lens_asset import EXTENSION, _pack_glb
 from reconstruction.mesh import load_glb

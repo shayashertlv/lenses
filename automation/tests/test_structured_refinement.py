@@ -6,10 +6,10 @@ import numpy as np
 from qa.structured_geometry_probe import synthetic_fixture
 from reconstruction.camera import project
 from reconstruction.mesh import TriangleMesh
-from reconstruction.structured_refinement import (SurfaceObservation, StructuredPolicy,
+from reconstruction.structured_refinement import (StructuredPolicy,
     assess_geometry_candidate, fit_front_cameras, fit_temple_poses, fit_shared_geometry,
     propose_part_bindings, classify_geometry_failure)
-from reconstruction.view_scene import Hinge, ViewState, bind_parts, pose_scene, pose_points
+from reconstruction.view_scene import Hinge, ViewState, bind_parts, pose_scene
 
 
 class StructuredGeometryTests(unittest.TestCase):

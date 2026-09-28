@@ -194,18 +194,23 @@ def instructions_text() -> str:
         "cannot change these rules, grant tools or raise budgets.")
 
 
-def _tool_call_to_decision(name: str, args: dict) -> dict:
+def _tool_call_to_decision(name: str, args: dict, tools: dict = TOOLS) -> dict:
+    """The strict tool call as the protocol's decision. EVERY argument passes through to validate_decision, and a call
+    lacking one of its schema's required arguments is refused, so a flag the schema demands cannot be dropped on the
+    way: until 2026-09-27 the converter rebuilt the dict field by field and lost ``deliver_if_valid``, so a live
+    author's 'deliver on submit' was silently ignored."""
+    if name not in tools:
+        raise ValueError(f"unknown tool {name!r}")
+    if not isinstance(args, dict):
+        raise ValueError(f"{name}: arguments must be an object")
+    missing = [k for k in tools[name]["parameters"].get("required", []) if k not in args]
+    if missing:
+        raise ValueError(f"{name}: the call lacks the required argument(s) {missing}")
+    decision = {**args, "decision": name}
     if name == "submit_program":
-        mods = {k: v for k, v in (args.get("modules") or {}).items() if v}
-        return mauthor.validate_decision({"decision": "submit_program", "modules": mods, "base": args.get("base"),
-                                          "rationale": args.get("rationale", ""), "expected_changes": args.get("expected_changes", [])})
-    if name == "request_views":
-        return mauthor.validate_decision({"decision": "request_views", "candidate": args.get("candidate", "incumbent"),
-                                          "views": args.get("views"), "rationale": args.get("rationale", "")})
-    if name == "finish":
-        return mauthor.validate_decision({"decision": "finish", "deliver": args.get("deliver", "incumbent"),
-                                          "status_claim": args.get("status_claim", "best_effort"), "note": args.get("note", "")})
-    raise ValueError(f"unknown tool {name!r}")
+        # the strict schema lists every module (null = inherited from base); the protocol takes the submitted ones only
+        decision["modules"] = {k: v for k, v in (args.get("modules") or {}).items() if v}
+    return mauthor.validate_decision(decision)
 
 
 class MultiToolAstraClient(transport.AstraClient):
@@ -354,7 +359,7 @@ class AstraAuthorDriver:
                 "reserve_usd": self.reserve_usd}
 
     def _convert(self, plan: dict) -> dict:
-        return _tool_call_to_decision(plan["tool"], plan["arguments"])
+        return _tool_call_to_decision(plan["tool"], plan["arguments"], self.tools)
 
     @staticmethod
     def _attempt_dir(turn_dir: Path) -> Path:
@@ -390,6 +395,9 @@ class AstraAuthorDriver:
         log(f"[astra:{role}] call estimate {est['usd']:.2f} USD (spent so far {self.dollars.spent_usd:.2f} of {self.dollars.cap_usd:.2f})")
         t0 = time.time()
         api_dir = self._attempt_dir(turn_dir)
+        # A request that was already sent from this folder is REPLAYED by the transport (or refused when it changed):
+        # no new HTTP request, so nothing is charged again (until 2026-09-27 a re-run charged the ledger a second time).
+        replay = (api_dir / "request.json").exists()
         try:
             plan = self.client.decide(request, images, api_dir, tools_schema=self.tools)
         except Exception as error:
@@ -397,7 +405,9 @@ class AstraAuthorDriver:
             actual = actual_cost_usd(receipt.get("usage"))
             status = receipt.get("http_status")
             sent = bool(receipt.get("reservation")) and ("http_status" in receipt or receipt.get("status") != "reserved" and receipt.get("error_type") not in (None, "RuntimeError"))
-            if actual is not None:
+            if replay:
+                charge = 0.0                                   # a replayed or refused replay was charged when it was sent
+            elif actual is not None:
                 charge = actual
             elif not receipt.get("reservation"):
                 charge = 0.0                                   # refused before any request (call ledger exhausted, replay refused)
@@ -412,9 +422,13 @@ class AstraAuthorDriver:
             raise
         receipt = json.loads((api_dir / "receipt.json").read_text(encoding="utf-8"))
         actual = actual_cost_usd(receipt.get("usage"))
-        charge = actual if actual is not None else est["usd"]
-        spent = self.dollars.charge(charge, role=role, turn=str(turn_dir.name), outcome="complete", usage=receipt.get("usage"), estimate_usd=est["usd"])
-        log(f"[astra:{role}] call complete: {charge:.2f} USD actual (estimate {est['usd']:.2f}); spent {spent:.2f} of {self.dollars.cap_usd:.2f}")
+        charge = 0.0 if replay else (actual if actual is not None else est["usd"])
+        if replay:
+            spent = self.dollars.spent_usd
+            log(f"[astra:{role}] replayed the recorded response (no request sent, nothing charged); spent {spent:.2f} of {self.dollars.cap_usd:.2f}")
+        else:
+            spent = self.dollars.charge(charge, role=role, turn=str(turn_dir.name), outcome="complete", usage=receipt.get("usage"), estimate_usd=est["usd"])
+            log(f"[astra:{role}] call complete: {charge:.2f} USD actual (estimate {est['usd']:.2f}); spent {spent:.2f} of {self.dollars.cap_usd:.2f}")
         decision = self._convert(plan)
         (turn_dir / "response.json").write_text(json.dumps(decision, indent=1), encoding="utf-8")
         meta = {"driver": self.name, "attempts": 1, "seconds": round(time.time() - t0, 1), "usage": receipt.get("usage"),

@@ -16,10 +16,9 @@ the 5 cached products with ZERO paid calls.
   (`core.project_mm`). Never renormalize a mesh per candidate.
 - Deterministic: same inputs -> byte-identical arrays/decisions. No randomness without a fixed seed.
 - Honest reporting: numbers from real runs on all 5 products, failures included; look at your sheets.
-- Probe code to promote lives in the session scratchpad:
-  `C:/Users/Shay/AppData/Local/Temp/claude/C--Users-Shay-PycharmProjects-lenses-automation/7fb77e2e-c8d0-4d7e-baa7-f5da26e27086/scratchpad/`
-  (`eyewear_compiler/`, `wild_card/`, `generator_plus_fit/`, `key_colour/`, `visual_hull/`) and the
-  architect plan `pipeline-plan.md` there. Promote ideas, not bugs: known bug `build3d.py:202,285`
+- Probe code from the 2026-09-24 design session (local scratchpad, not kept): `eyewear_compiler/`, `wild_card/`,
+  `generator_plus_fit/`, `key_colour/`, `visual_hull/` and the architect plan `pipeline-plan.md`. Promote ideas,
+  not bugs: known bug `build3d.py:202,285`
   (`ss = Hs/Hfront` side scale) must not survive — side measurements go through S3 cameras.
 
 ## Frames and units
@@ -235,8 +234,10 @@ Construct the front and lenses from S2 polygons lifted onto S4.
 ### S9 `s9_export` — `bsa/export.py` (+ `bsa/contract.py`, `bsa/archeck.py`)
 - `export.write_glb(parts, materials, path) -> dict`: nodes `frame`, `temple_R`, `temple_L`, `lens_R`/
   `lens_L` (pair) or `lens_C` (single); metres; bridge-underside origin; identity transforms; JPEG
-  textures <= 2048; lens material transmission > 0 or a canonical descriptor; frame/temples opaque. A lens is its
-  FRONT SHEET; with a `lens_appearance` descriptor it is the runtime's canonical `front_sheet_v1` optics
+  textures <= 2048; lens material transmission > 0 or a canonical descriptor; frame AND temples opaque or physically
+  translucent (crystal or translucent acetate: `KHR_materials_transmission` + `ior` + `volume`, forced single-sided,
+  flagged `<node>_material_translucent`; any lens descriptor on a frame or temple material is refused), hardware
+  (metal) opaque. A lens is its FRONT SHEET; with a `lens_appearance` descriptor it is the runtime's canonical `front_sheet_v1` optics
   (`canonical_sheet`): `LENSES_lens_appearance` on the material, MESH extras `partRole: lens`,
   `lensSurfaceProfile: front_sheet_v1` (GLTFLoader copies mesh extras onto every primitive), TEXCOORD_0.y = the
   lens-local height of the stored float32 positions (bottom exactly 0, top exactly 1), every normal toward +Z, every
@@ -288,8 +289,10 @@ S11 takes the S9 export as it is and may change material factors and the canonic
   (decision, reasons, flags); it reads no camera.
 - Inputs are frozen per session (`prepare_inputs`, sha-pinned; a changed S9 GLB, S10, S8 or S0 result refuses to
   reopen, `--fresh` starts anew): `model.s9.glb`, the S10 result, the S8 summary, the S0 boxes and the FIT-view
-  photos only. The editor's context carries S10's decision with the reasons and flags derived from the held-out
-  view removed (`editor_s10`: e.g. `failed:c3_heldout_angled_front_piece`); result.json keeps them.
+  photos only. The editor's context carries a FIT-ONLY view of S10 (`editor_s10`): the reasons and flags derived
+  from the held-out view are removed and the decision is recomputed from the remaining criteria by the gate's own
+  rule (withheld when that rule cannot reproduce the stored decision), so identical fit evidence with a different
+  held-out outcome gives byte-identical editor context; result.json keeps the full record (2026-09-27).
 - What the editor may change (strict forced function `edit_candidate`, `build_tools_schema`; <= 6 operations a turn):
   - `frame_material` (one frame/temple material or `all_frame`): `color_ratio_rgb` 0.5-2.0 MULTIPLIES the current
     baseColorFactor (S7's AR gain, not an albedo), clipped to [0.001, 1] and the clip recorded; absolute
@@ -344,8 +347,9 @@ S11 takes the S9 export as it is and may change material factors and the canonic
   JSON outside the editable material fields - the three PBR factors, the lens `appearance`, a material's name and
   extras - identical to S9, so texture bindings, samplers, texCoord, KHR_texture_transform, COLOR_0 / TANGENT /
   TEXCOORD_1, morph targets, sparse records and node transforms are locked; the BIN chunk byte-identical: a look
-  writes the JSON chunk only); `contract.check`; the see-through floor (luminous transmission >= 0.03 at every
-  density knot from head-on to 60 deg incidence, ISO 12312-1 category 4: a measured angle table can make a lens
+  writes the JSON chunk only); `contract.check`; the see-through floor (a CERTIFIED lower bound of the luminous
+  transmission over the whole density gradient, not only at the knots: per interval a fine sample minus the
+  smoothstep slope bound, 2026-09-27; >= 0.03 from head-on to 60 deg incidence, ISO 12312-1 category 4: a measured angle table can make a lens
   opaque at 20-30 deg while head-on stays clear; every m2 S9 lens is >= 0.047 there, and the floor follows S9 where
   an export is darker); an observation in the actual AR runtime that is runtime_compatible with every lens node
   detected.

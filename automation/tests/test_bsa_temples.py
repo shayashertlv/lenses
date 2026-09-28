@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import unittest
 
 import numpy as np
@@ -11,16 +10,12 @@ import open3d as o3d
 from bsa import raster
 from bsa import temples as T
 from bsa.contract import topology
-from bsa.core import NormFrame, project_mm, stage_dir
+from bsa.core import NormFrame, project_mm, run_dir, stage_dir
 from reconstruction.camera import Camera
+from _meshes import box
 
 
-def _box(x0, x1, y0, y1, z0, z1, subdivide=0):
-    m = o3d.geometry.TriangleMesh.create_box(x1 - x0, y1 - y0, z1 - z0)
-    m.translate((x0, y0, z0))
-    if subdivide:
-        m = m.subdivide_midpoint(subdivide)
-    return np.asarray(m.vertices, np.float64), np.asarray(m.triangles, np.int64)
+_box = box
 
 
 def _open_front(V, F, z_front):
@@ -289,8 +284,9 @@ class SyntheticRefinement(unittest.TestCase):
         self.assertGreater(rf["fit_iou_refined"]["back"], rf["fit_iou_donor"]["back"])
 
 
-def _have(product: str) -> bool:
-    return stage_dir("m1", product, T.STAGE).done()
+def _have(product: str, stage: str = T.STAGE) -> bool:
+    # an existence test that builds no StageDir: StageDir() creates its folder, so collection would write under data/
+    return (run_dir("m1", product) / stage / "result.json").is_file()
 
 
 PRODUCTS = ("miu", "oakley", "rayban", "vb", "invu")
@@ -336,7 +332,7 @@ class RealRunSmoke(unittest.TestCase):
                 self.assertLess(abs(zb["R"] - zb["L"]), 1.0)
 
 
-@unittest.skipUnless(stage_dir("m1", "vb", "s1_generator").done(), "S1 m1 artifacts missing")
+@unittest.skipUnless(_have("vb", "s1_generator"), "S1 m1 artifacts missing")
 class RealExtract(unittest.TestCase):
     def test_vb_donors(self):
         from bsa import generator

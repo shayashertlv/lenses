@@ -1,6 +1,5 @@
 """S8 lens appearance: synthetic photometry/classification fixtures + real-data smoke (skips without data)."""
 import json
-import math
 import tempfile
 import unittest
 from pathlib import Path

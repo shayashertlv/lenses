@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Prepared eyewear in the AR renderer</title>
+<style>body{font:14px system-ui;margin:24px;background:#edf0f3;color:#1b2430}h1{font-size:23px}.cases{display:grid;grid-template-columns:repeat(3,320px);gap:12px}.case{background:white;padding:10px;border:1px solid #ccd4de}.case img{width:300px}.status{white-space:pre-wrap;background:white;padding:12px}canvas{display:none}</style>
+<h1>Prepared optical candidates</h1>
+<p>Actual AR loading, surface validation, fitting and rendering. Diagnostic materials and synthetic pose; product appearance remains unverified.</p>
+<div id="status" class="status">Ready</div><div id="cases" class="cases"></div>
+<script type="module">
+import * as THREE from 'three';
+import {TryOnRenderer} from '../src/render/renderer.ts';
+import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
+import {registerPinnedGeometry} from '../src/render/continuity.ts';
+import {readMaterialLensAppearance} from '../src/eyewear/lens-appearance.ts';
+
+const width=480,height=320;
+const sha=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+const bytesOf=array=>new Uint8Array(array.buffer,array.byteOffset,array.byteLength);
+const source=document.createElement('canvas');source.width=width;source.height=height;
+source.getContext('2d').fillStyle='rgb(176,132,100)';source.getContext('2d').fillRect(0,0,width,height);
+function detection(canonical,yaw=0,roll=0){
+ const matrix=new THREE.Matrix4().compose(new THREE.Vector3(0,0,-23),new THREE.Quaternion().setFromEuler(new THREE.Euler(0,yaw*Math.PI/180,roll*Math.PI/180,'YXZ')),new THREE.Vector3(1,1,1));
+ const positions=[],point=new THREE.Vector3();let mean=0;
+ for(let i=0;i<468;i++){point.fromArray(canonical.positions,i*3).applyMatrix4(matrix);positions.push(point.clone());mean-=point.z/468;}
+ const vertical=2*Math.tan(63*Math.PI/360),horizontal=vertical*width/height;
+ const landmarks=positions.map(p=>({x:.5+p.x/(-p.z*horizontal),y:.5-p.y/(-p.z*vertical),z:(-p.z/mean-1)/horizontal}));
+ for(const [a,b]of[[33,133],[362,263]])for(let i=0;i<5;i++)landmarks.push({x:(landmarks[a].x+landmarks[b].x)/2,y:(landmarks[a].y+landmarks[b].y)/2,z:(landmarks[a].z+landmarks[b].z)/2});
+ return {matrix:matrix.toArray(),landmarks,inferenceMs:0};
+}
+function preview(pixels,label){
+ const canvas=document.createElement('canvas');canvas.width=pixels.width;canvas.height=pixels.height;canvas.getContext('2d').putImageData(pixels,0,0);
+ const tile=document.createElement('div');tile.className='case';const heading=document.createElement('p');heading.textContent=label;
+ const image=document.createElement('img');image.src=canvas.toDataURL('image/png');tile.append(heading,image);document.getElementById('cases').append(tile);
+}
+function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
+async function run(){
+ const manifest=await fetch('/__prepared/manifest.json').then(r=>r.json()),canonical=await fetch('/models/canonical-face.json').then(r=>r.json());
+ const report={schema_version:1,status:'running',quality_verdict:'unmeasured',accepted:false,cases:[],synthetic_pose_translation:[0,0,-23],scope:'Prepared real-asset runtime compatibility, not reconstruction or material accuracy'};
+ window.preparedReport=report;
+ for(const entry of manifest.cases){
+  document.getElementById('status').textContent=`Loading ${entry.id}`;
+  const row={id:entry.id,model_sha256:entry.model_sha256,status:'running',surfaces:[],renders:[]};report.cases.push(row);
+  let instance;
+  try{
+   const url=`/__prepared/${entry.id}.glb`;
+   registerPinnedGeometry(url,entry.model_sha256);
+   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:-.14});
+   instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{sync:false,steady:null});
+   if(instance.renderedAssetIntegrity?.sha256!==entry.model_sha256||!instance.renderedAssetIntegrity.pinned)throw Error('Rendered asset bytes differ from manifest');
+   const lenses=instance.lensMeshes.filter(mesh=>mesh.userData.lensSurfaceProfile==='front_sheet_v1');
+   if(lenses.length!==entry.surfaces.length)throw Error('Prepared optical mesh count changed');
+   for(const expected of entry.surfaces){
+    const matching=lenses.filter(mesh=>mesh.userData.opticalCandidateSurfaceId===expected.surface_id);
+    if(matching.length!==1)throw Error('Optical surface identity missing or duplicated');
+    const mesh=matching[0],actual={};
+    for(const [key,name]of[['positions','position'],['normals','normal'],['uv','uv']])actual[key]=await sha(bytesOf(mesh.geometry.getAttribute(name).array));
+    actual.indices=await sha(bytesOf(mesh.geometry.getIndex().array));
+    for(const key of Object.keys(actual))if(actual[key]!==expected.attribute_sha256[key])throw Error(`Optical ${key} changed during actual AR preparation`);
+    const descriptor=readMaterialLensAppearance(mesh.material);
+    if(JSON.stringify(stable(descriptor))!==JSON.stringify(stable(expected.appearance)))throw Error('Canonical material descriptor changed during load');
+    row.surfaces.push({id:expected.surface_id,attribute_sha256:actual,descriptor_preserved:true,vertices:mesh.geometry.getAttribute('position').count});
+   }
+   for(let timestamp=0;timestamp<=5000;timestamp+=100)if(!instance.pose(source,detection(canonical),timestamp))throw Error('Synthetic fitting pose rejected');
+   if(!instance.fitting.ready)throw Error('Synthetic fit did not settle');
+   let timestamp=6000;
+   for(const [yaw,roll]of[[0,0],[40,0],[35,25]]){
+    instance.pose(source,detection(canonical,yaw,roll),timestamp+=100);
+    const timing=instance.render(null,{hair:false,shadows:true});
+    const pixels=instance.readback();
+    if(!pixels.data.some(value=>value))throw Error('Empty render');
+    preview(pixels,`${entry.id} · yaw ${yaw}° · roll ${roll}°`);
+    row.renders.push({yaw,roll,sha256:await sha(bytesOf(pixels.data)),timing});
+   }
+   row.status='runtime_compatible';row.rendered_asset_integrity=instance.renderedAssetIntegrity;
+  }catch(error){row.status='rejected_or_failed';row.error=String(error.stack??error);}
+  finally{instance?.dispose();}
+ }
+ report.status=report.cases.length&&report.cases.every(row=>row.status==='runtime_compatible')?'passed':'failed';
+ document.getElementById('status').textContent=JSON.stringify({status:report.status,cases:report.cases.map(row=>({id:row.id,status:row.status,error:row.error})),quality_verdict:'unmeasured'},null,2);
+ return report;
+}
+window.preparedOptics={run};
+</script>

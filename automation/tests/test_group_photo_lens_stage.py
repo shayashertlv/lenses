@@ -1,7 +1,6 @@
 """Actual multipart preparation -> photo sampling -> joint fit -> GLB preview."""
 import hashlib
 import json
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 

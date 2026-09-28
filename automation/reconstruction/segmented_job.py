@@ -65,6 +65,11 @@ def _copy(source, target):
 def validate_request(request):
     if request.get('schema_version') != 1 or request.get('pipeline') != 'segmented_ar_v1':
         raise ValueError('Expected segmented_ar_v1 version-one request')
+    # the keys reconstruction.job.EVALUATION_REQUEST_KEYS refuses at the shared entry point: this route has no
+    # evaluation reservation, so a request naming reserved photos is refused before any photo is captured
+    reserved = sorted({'evaluation_photos', 'reserved_photo_ids'} & set(request))
+    if reserved:
+        raise ValueError('The segmented route does not support evaluation reservation; remove ' + ', '.join(reserved))
     product = request.get('product_id')
     if not isinstance(product, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', product):
         raise ValueError('Safe product_id required')

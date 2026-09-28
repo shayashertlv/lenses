@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import pytest
 
 from bsa import archeck, contract, export
 from bsa.core import AUTOMATION, DATA
@@ -129,6 +130,46 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(c["parts"]["lens_R"]["profile"], "solid")
         self.assertTrue(c["parts"]["lens_R"]["double_sided"])
 
+    def test_translucent_temple_beside_legacy_lens_fails(self):
+        # a transmissive temple with no canonical descriptor anywhere: the runtime has no authored roles to classify it
+        # by, so it would render as a third optical mesh (the same rule as a translucent front)
+        mats = dict(self.mats)
+        mats["temple"] = dict(mats["temple"], transmission=0.5)
+        p = self.dir / "temple_legacy.glb"
+        r = export.write_glb(self.parts, mats, p)
+        self.assertIn("temple_R_material_translucent", r["flags"])
+        c = self.fails(p, "frame_temple_materials")
+        self.assertFalse(c["checks"]["frame_temple_materials"]["value"]["temple_R"])
+        self.assertFalse(c["checks"]["frame_temple_materials"]["value"]["temple_L"])
+        self.assertTrue(c["checks"]["frame_temple_materials"]["value"]["frame"])
+
+    def test_double_sided_translucent_temple_fails(self):
+        # with descriptors present and the temple role authored, a single-sided translucent temple passes; the same
+        # material double-sided does not (back faces would enter the transmission pre-pass twice)
+        mats = dict(self.mats)
+        mats["temple"] = dict(mats["temple"], transmission=0.5)
+        p = self.dir / "temple_crystal.glb"
+        export.write_glb(self.parts, mats, p)
+
+        def with_descriptors(doc):
+            for m in doc["materials"]:
+                if m["name"] == "lens":
+                    m.setdefault("extensions", {})[contract.CANONICAL_LENS_EXTENSION] = {"version": 1}
+        ok_path = patch_glb(p, self.dir / "temple_crystal_ok.glb", edit_doc=with_descriptors)
+        c = contract.check(ok_path)
+        self.assertTrue(c["checks"]["frame_temple_materials"]["pass"], c["checks"]["frame_temple_materials"])
+        self.assertEqual(c["checks"]["lens_detection"]["value"]["runtime_lens_meshes"], 2)
+
+        def double_sided(doc):
+            with_descriptors(doc)
+            for m in doc["materials"]:
+                if m["name"] == "temple":
+                    m["doubleSided"] = True
+        bad = patch_glb(p, self.dir / "temple_crystal_bad.glb", edit_doc=double_sided)
+        c = self.fails(bad, "frame_temple_materials")
+        self.assertFalse(c["checks"]["frame_temple_materials"]["value"]["temple_R"])
+        self.assertTrue(c["checks"]["frame_temple_materials"]["value"]["frame"])
+
     def test_garbage_does_not_raise(self):
         p = self.dir / "junk.glb"
         p.write_bytes(b"not a glb at all")
@@ -160,6 +201,7 @@ class ArCheckTest(unittest.TestCase):
             self.assertAlmostEqual(doc["cases"][0]["width_mm"], 140.0, places=1)
             self.assertNotIn("environments", doc)
 
+    @pytest.mark.slow   # ~30 s: node + playwright
     @unittest.skipUnless(_ar_available(), "node / ar playwright not installed")
     def test_synthetic_loads_in_actual_runtime(self):
         with tempfile.TemporaryDirectory() as t:

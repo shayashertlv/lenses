@@ -1,7 +1,6 @@
 """Author protocol validation, request composition and the candidate store (no Blender, no network)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import tempfile
 import unittest

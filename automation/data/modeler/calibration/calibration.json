@@ -1,17 +1,74 @@
 {
- "computed": "2026-09-27T07:32:59+03:00",
+ "computed": "2026-09-27T12:55:54+03:00",
  "rows_file": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\calibration\\owner_verdicts.jsonl",
- "evaluation_dir": "evaluation_v2_astra",
+ "evaluation_dir": "evaluation_v2",
  "min_accepts": 3,
  "min_rejects": 3,
+ "min_tag_verdicts": 2,
  "owner_accepts_evaluated": 7,
  "owner_rejects_evaluated": 4,
  "borderline": 1,
  "unevaluated": 0,
- "disagreements": 4,
- "calibrated": false,
- "reasons": [
-  "4 automatic verdicts disagree with the owner: oakley-astra1/c0007 owner accept vs automatic reject, invu-astra1/c0007 owner accept vs automatic reject, oakley-astra2/c0001 owner accept vs automatic reject, invu-astra2/c0001 owner accept vs automatic reject"
+ "disagreements": 0,
+ "calibrated": true,
+ "reasons": [],
+ "coverage": {
+  "mirrored": {
+   "accepts": 4,
+   "rejects": 0,
+   "borderline": 0,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  },
+  "pair": {
+   "accepts": 3,
+   "rejects": 4,
+   "borderline": 1,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  },
+  "rim_full": {
+   "accepts": 2,
+   "rejects": 2,
+   "borderline": 1,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  },
+  "rim_mixed": {
+   "accepts": 4,
+   "rejects": 0,
+   "borderline": 0,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  },
+  "rim_rimless": {
+   "accepts": 1,
+   "rejects": 2,
+   "borderline": 0,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  },
+  "single": {
+   "accepts": 4,
+   "rejects": 0,
+   "borderline": 0,
+   "unevaluated": 0,
+   "disagreements": 0,
+   "covered": true
+  }
+ },
+ "covered_tags": [
+  "mirrored",
+  "pair",
+  "rim_full",
+  "rim_mixed",
+  "rim_rimless",
+  "single"
  ],
  "table": [
   {
@@ -32,15 +89,19 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.7,
-     "front": 9.1,
-     "materials_and_lenses": 9.0,
-     "mirror_overall": 8.8,
-     "side": 8.4
+     "front": 7.0,
+     "side": 7.0,
+     "angled_held_out": 7.0,
+     "materials_and_lenses": 6.0,
+     "mirror_overall": 7.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\candidates\\c0002\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\candidates\\c0002\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_rimless"
+   ]
   },
   {
    "product_id": "vb",
@@ -60,15 +121,19 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.8,
-     "front": 9.4,
-     "materials_and_lenses": 8.8,
-     "mirror_overall": 9.1,
-     "side": 9.0
+     "front": 9.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
+     "materials_and_lenses": 8.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\candidates\\c0004\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\candidates\\c0004\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_full"
+   ]
   },
   {
    "product_id": "vb",
@@ -88,15 +153,19 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.9,
-     "front": 9.4,
-     "materials_and_lenses": 8.9,
-     "mirror_overall": 9.1,
-     "side": 8.8
+     "front": 9.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
+     "materials_and_lenses": 8.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-run1\\candidates\\c0003\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-run1\\candidates\\c0003\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_full"
+   ]
   },
   {
    "product_id": "vb",
@@ -110,21 +179,25 @@
     "verdict": "reject",
     "evaluator_overall": "reject",
     "major_discrepancies": 1,
-    "absent_features": 0,
+    "absent_features": 1,
     "gates": {
      "lens_outline_mean_mm": true,
      "ar_temple_continuity": false
     },
     "resemblance_0_10": {
-     "angled_held_out": 7.0,
-     "front": 9.0,
-     "materials_and_lenses": 8.5,
-     "mirror_overall": 7.5,
-     "side": 6.0
+     "front": 8.0,
+     "side": 4.0,
+     "angled_held_out": 5.0,
+     "materials_and_lenses": 7.0,
+     "mirror_overall": 6.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\baselines\\bsa-m3\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\baselines\\bsa-m3\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_full"
+   ]
   },
   {
    "product_id": "vb",
@@ -144,15 +217,19 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 7.5,
-     "front": 7.7,
-     "materials_and_lenses": 5.5,
-     "mirror_overall": 6.8,
-     "side": 7.8
+     "front": 7.0,
+     "side": 7.0,
+     "angled_held_out": 7.0,
+     "materials_and_lenses": 5.0,
+     "mirror_overall": 6.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\baselines\\tripo-previous\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\vb-astra1\\baselines\\tripo-previous\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_full"
+   ]
   },
   {
    "product_id": "miu",
@@ -165,22 +242,26 @@
    "automatic": {
     "verdict": "reject",
     "evaluator_overall": "reject",
-    "major_discrepancies": 1,
-    "absent_features": 0,
+    "major_discrepancies": 2,
+    "absent_features": 1,
     "gates": {
      "lens_outline_mean_mm": true,
      "ar_temple_continuity": false
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.0,
-     "front": 8.8,
-     "materials_and_lenses": 8.2,
-     "mirror_overall": 7.4,
-     "side": 6.0
+     "front": 7.0,
+     "side": 4.0,
+     "angled_held_out": 5.0,
+     "materials_and_lenses": 5.0,
+     "mirror_overall": 5.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\baselines\\bsa-m3\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\baselines\\bsa-m3\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_rimless"
+   ]
   },
   {
    "product_id": "miu",
@@ -200,15 +281,19 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 9.0,
-     "front": 9.0,
-     "materials_and_lenses": 8.7,
-     "mirror_overall": 9.0,
-     "side": 8.7
+     "front": 8.0,
+     "side": 7.0,
+     "angled_held_out": 7.0,
+     "materials_and_lenses": 6.0,
+     "mirror_overall": 7.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\baselines\\tripo-previous\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\miu-astra2\\baselines\\tripo-previous\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_rimless"
+   ]
   },
   {
    "product_id": "rayban_rb4455",
@@ -221,22 +306,26 @@
    "automatic": {
     "verdict": "accept",
     "evaluator_overall": "accept",
-    "major_discrepancies": 0,
+    "major_discrepancies": 1,
     "absent_features": 0,
     "gates": {
      "lens_outline_mean_mm": true,
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.8,
-     "front": 8.8,
-     "materials_and_lenses": 8.2,
-     "mirror_overall": 8.6,
-     "side": 8.5
+     "front": 8.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
+     "materials_and_lenses": 7.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\rayban-astra1\\candidates\\c0005\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\rayban-astra1\\candidates\\c0005\\evaluation_v2\\evaluation.json"
    },
-   "agree": true
+   "agree": true,
+   "tags": [
+    "pair",
+    "rim_full"
+   ]
   },
   {
    "product_id": "oakley_oo9208",
@@ -247,8 +336,8 @@
    "owner": "accept",
    "owner_note": "perfect; the lens colour is close but not right",
    "automatic": {
-    "verdict": "reject",
-    "evaluator_overall": "reject",
+    "verdict": "accept",
+    "evaluator_overall": "accept",
     "major_discrepancies": 1,
     "absent_features": 0,
     "gates": {
@@ -256,15 +345,20 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.3,
      "front": 8.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
      "materials_and_lenses": 6.0,
-     "mirror_overall": 7.5,
-     "side": 8.6
+     "mirror_overall": 7.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\oakley-astra1\\candidates\\c0007\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\oakley-astra1\\candidates\\c0007\\evaluation_v2\\evaluation.json"
    },
-   "agree": false
+   "agree": true,
+   "tags": [
+    "single",
+    "rim_mixed",
+    "mirrored"
+   ]
   },
   {
    "product_id": "invu_ia22403b",
@@ -275,8 +369,8 @@
    "owner": "accept",
    "owner_note": "perfect; the lens colour is close but not right",
    "automatic": {
-    "verdict": "reject",
-    "evaluator_overall": "reject",
+    "verdict": "accept",
+    "evaluator_overall": "accept",
     "major_discrepancies": 1,
     "absent_features": 0,
     "gates": {
@@ -284,15 +378,20 @@
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.5,
-     "front": 8.7,
-     "materials_and_lenses": 6.5,
-     "mirror_overall": 7.8,
-     "side": 8.8
+     "front": 8.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
+     "materials_and_lenses": 6.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\invu-astra1\\candidates\\c0007\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\invu-astra1\\candidates\\c0007\\evaluation_v2\\evaluation.json"
    },
-   "agree": false
+   "agree": true,
+   "tags": [
+    "single",
+    "rim_mixed",
+    "mirrored"
+   ]
   },
   {
    "product_id": "oakley_oo9208",
@@ -303,24 +402,29 @@
    "owner": "accept",
    "owner_note": "perfect",
    "automatic": {
-    "verdict": "reject",
-    "evaluator_overall": "reject",
-    "major_discrepancies": 1,
+    "verdict": "accept",
+    "evaluator_overall": "accept",
+    "major_discrepancies": 0,
     "absent_features": 0,
     "gates": {
      "lens_outline_mean_mm": true,
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.3,
-     "front": 8.4,
-     "materials_and_lenses": 6.5,
-     "mirror_overall": 7.6,
-     "side": 8.5
+     "front": 8.0,
+     "side": 8.0,
+     "angled_held_out": 8.0,
+     "materials_and_lenses": 7.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\oakley-astra2\\candidates\\c0001\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\oakley-astra2\\candidates\\c0001\\evaluation_v2\\evaluation.json"
    },
-   "agree": false
+   "agree": true,
+   "tags": [
+    "single",
+    "rim_mixed",
+    "mirrored"
+   ]
   },
   {
    "product_id": "invu_ia22403b",
@@ -331,24 +435,29 @@
    "owner": "accept",
    "owner_note": "perfect",
    "automatic": {
-    "verdict": "reject",
-    "evaluator_overall": "reject",
-    "major_discrepancies": 1,
+    "verdict": "accept",
+    "evaluator_overall": "accept",
+    "major_discrepancies": 0,
     "absent_features": 0,
     "gates": {
      "lens_outline_mean_mm": true,
      "ar_temple_continuity": true
     },
     "resemblance_0_10": {
-     "angled_held_out": 8.0,
-     "front": 8.2,
-     "materials_and_lenses": 6.0,
-     "mirror_overall": 7.4,
-     "side": 8.7
+     "front": 8.0,
+     "side": 7.0,
+     "angled_held_out": 7.0,
+     "materials_and_lenses": 7.0,
+     "mirror_overall": 8.0
     },
-    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\invu-astra2\\candidates\\c0001\\evaluation_v2_astra\\evaluation.json"
+    "evaluation_path": "C:\\Users\\Shay\\PycharmProjects\\lenses\\automation\\data\\modeler\\jobs\\invu-astra2\\candidates\\c0001\\evaluation_v2\\evaluation.json"
    },
-   "agree": false
+   "agree": true,
+   "tags": [
+    "single",
+    "rim_mixed",
+    "mirrored"
+   ]
   }
  ]
 }

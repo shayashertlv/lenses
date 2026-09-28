@@ -10,6 +10,7 @@ from shapely.geometry import Polygon
 
 from bsa import assemble, core, depth, raster
 from bsa.core import NormFrame
+from _meshes import box
 
 FRAME = NormFrame((0.0, 0.0, 60.0), 140.0)
 
@@ -382,17 +383,11 @@ class SyntheticFront(unittest.TestCase):
         self.assertAlmostEqual(v, 350.0, delta=1.5)
 
 
-@unittest.skipUnless((core.BSA_DATA / "runs" / "m1").exists(), "no m1 artifacts")
 class DonorContact(unittest.TestCase):
     """S6's final donor anchoring (the S10 integrity rule on the delivered geometry) and the plate back meeting the
-    donors directly behind it."""
+    donors directly behind it. Synthetic boxes only: no saved run is read, so no skip guard."""
 
-    @staticmethod
-    def _box(x0, x1, y0, y1, z0, z1):
-        import open3d as o3d
-        m = o3d.geometry.TriangleMesh.create_box(x1 - x0, y1 - y0, z1 - z0)
-        m.translate((x0, y0, z0))
-        return np.asarray(m.vertices, np.float64), np.asarray(m.triangles, np.int64)
+    _box = staticmethod(box)
 
     def test_donor_anchoring_snaps_or_drops(self):
         from bsa import donor, export

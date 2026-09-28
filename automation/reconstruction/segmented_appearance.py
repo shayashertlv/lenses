@@ -403,6 +403,23 @@ def _load_preparation(path):
     return {'stage':stage,'receipt':receipt,'groups':groups,'source':folder/stage['source_snapshot']['path'],'pins':pins}
 
 
+def _resume_candidate(record_path):
+    """Re-verify an exported candidate that an interrupted run recorded.
+
+    The strict reader takes the decoded receipt, never its path. The record's
+    export sha256 pins the receipt bytes before they are decoded, so a rewritten
+    export.json cannot be resumed as if it were the exported one.
+    """
+    from .optical_group_asset import read_optical_group_candidate
+    candidate = json.loads(Path(record_path).read_bytes())
+    export = candidate['export']
+    raw = Path(export['path']).read_bytes()
+    if 'sha256' in export and _sha(raw) != export['sha256']:
+        raise ValueError('Candidate export receipt changed: ' + str(export['path']))
+    read_optical_group_candidate(candidate['path'], json.loads(raw), expected_sha256=candidate['sha256'])
+    return candidate
+
+
 def run_segmented_appearance(preparation_report, photos, output, *, semantic_report=None, client=None,
                              maximum_candidates=6, resume=True, aperture_engine=None, sampling_report=None):
     """Photo bundle + verified optical preparation -> compact material candidates.
@@ -512,8 +529,7 @@ def run_segmented_appearance(preparation_report, photos, output, *, semantic_rep
         folder=output/'candidates'/proposal['candidate_id'];folder.mkdir(parents=True,exist_ok=True)
         record_path=folder/'candidate.json'
         if record_path.exists():
-            candidate=json.loads(record_path.read_bytes())
-            read_optical_group_candidate(candidate['path'],candidate['export']['path'],expected_sha256=candidate['sha256'])
+            candidate=_resume_candidate(record_path)
         else:
             with tempfile.TemporaryDirectory(prefix='.appearance-',dir=output) as temporary:
                 temporary=Path(temporary)
