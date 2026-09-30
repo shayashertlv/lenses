@@ -881,3 +881,24 @@ test('a role-tagged crystal temple casts the same clipped translucent-frame shad
   assert.equal(drawn.filter(mesh => mesh.geometry === arm.geometry).length, 1, 'the arm geometry is drawn once per pass: by the original');
   assert.ok(!drawn.flatMap(materials).some(material => material.userData.kind === 'lens' && material.userData.lensAppearanceSchema !== 1));
 });
+
+test('a native opaque mirror lens loaded as MeshStandardMaterial casts a zero-transmission lens shadow', t => {
+  const f = sceneFixture(); t.after(f.dispose);
+  const mirror = new MeshStandardMaterial({metalness: 1, roughness: .02, color: 0xc5ced8});
+  const geometry = new BoxGeometry(.04, .03, .002), lens = new Mesh(geometry, mirror);
+  lens.userData.partRole = 'lens'; f.root.add(lens);
+  t.after(() => {geometry.dispose(); mirror.dispose();});
+  const before = mirror.toJSON();
+  classifyAssetMaterials(f.root);
+  const controller = new EyewearShadow(f.fake.renderer, f.root, f.face); t.after(() => controller.dispose());
+  controller.render(f.camera, f.source, 640, 360, DEFAULT_SHADOW_SETTINGS);
+  const casters = [...new Set(f.fake.state.draws.flatMap(draw => draw.meshes))]
+    .filter(mesh => mesh.geometry === geometry).flatMap(materials) as ShaderMaterial[];
+  assert.equal(casters.length, 1);
+  const caster = casters[0]!;
+  assert.equal(caster.userData.kind, 'lens');
+  assert.deepEqual(caster.uniforms.baseTransmission!.value.toArray(), [0, 0, 0]);
+  assert.equal(caster.uniforms.lens!.value, 1); assert.equal(caster.uniforms.clipped!.value, 0);
+  assert.equal(caster.uniforms.useTransmissionMap!.value, 0);
+  assert.deepEqual(mirror.toJSON(), before);
+});

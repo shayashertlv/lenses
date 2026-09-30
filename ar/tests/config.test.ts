@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {studioConnection} from '../src/studio/protocol.ts';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
@@ -111,6 +112,7 @@ test('the address options list is exactly what the page reads, and any other key
   try {
     for (const agent of ['', iphone]) {parseConfig('', agent); parseConfig('?hairframes=2&exposure=312&hair=1', agent);}
     parseExternalModel('?model=/m.glb', 'https://example.test');
+    studioConnection('?studioOrigin=http://localhost:8767&studioChannel=a-long-random-channel&sha256=' + 'a'.repeat(64), 'http://localhost:8240');
   } finally {URLSearchParams.prototype.get = get; URLSearchParams.prototype.has = has;}
   assert.deepEqual([...read].sort(), [...ADDRESS_OPTIONS].sort());
   // The iPhone B run that ran A: one letter short.

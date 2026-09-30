@@ -3,6 +3,7 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
 import './style.css';
+import './studio/embedded.css';
 import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
@@ -15,6 +16,8 @@ import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
+import {createStudioBridge} from './studio/bridge.ts';
+import {installStudioLayout} from './studio/embedded.ts';
 import {EyewearFitSession} from './render/eyewear-fit.ts';
 import {DEFAULT_SHADOW_SETTINGS} from './render/eyewear-shadow.ts';
 import type {ShadowSettings} from './render/eyewear-shadow.ts';
@@ -49,6 +52,9 @@ interface Session {
   exposure: {applied: number | null; mode: string | null; error: string | null} | null;
 }
 let current: Session | null = null;
+const studio = createStudioBridge('ar');
+if (studio) installStudioLayout();
+window.addEventListener('pagehide', () => studio?.dispose(), {once: true});
 let changingEyewear = false;
 let hairEnabled = config.hair ?? true;
 const fitAdjustment = element<HTMLInputElement>('fit-adjustment');
@@ -159,6 +165,7 @@ let selectedEyewear: string = DEFAULT_EYEWEAR_ID;
 for (const eyewear of Object.values(EYEWEAR)) eyewearSelect.add(new Option(eyewear.optionLabel, eyewear.id));
 for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, model.id));
 eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
+if (studio && selectedEyewear === MODELING_AUTO_EYEWEAR_ID) eyewearSelect.value = selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
@@ -179,7 +186,7 @@ eyewearSelect.addEventListener('change', () => {
 hairToggle.addEventListener('change', () => { hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
 function updateControls(): void {
   const live = !!current;
-  eyewearSelect.disabled = changingEyewear || (live && !current?.pipeline) || cancelMeasure !== null;
+  eyewearSelect.disabled = !!studio || changingEyewear || (live && !current?.pipeline) || cancelMeasure !== null;
   hairSelect.disabled = live;
   start.hidden = live; stop.hidden = !live; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
@@ -260,10 +267,11 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
     beginStep('Loading the glasses');
     const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, fitSession}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, fitSession, studioControls: !!studio && eyewearId === MODELING_AUTO_EYEWEAR_ID}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); renderer.setShadows(shadowSettings); session.renderer = renderer;
+    if (studio && eyewearId === MODELING_AUTO_EYEWEAR_ID) studio.attach({materials: () => renderer.studioMaterialCatalog, apply: preview => renderer.applyStudioPreview(preview)});
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -307,6 +315,7 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
   } catch (error) {if (owns()) closeSession(messageFor(error), true);}
 }
 function closeSession(message = 'Camera closed.', failed = false): void {
+  studio?.detach();
   const session = current; current = null;
   if (session) report(failed ? 'failed' : 'closed', message);
   if (session) {

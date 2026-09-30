@@ -1,5 +1,5 @@
-/** Authored part roles classify materials: a transmissive material owned only by frame/temple parts of a canonical
- * asset is frame (crystal / translucent acetate), never optics. Legacy assets without descriptors are untouched. */
+/** Authored part roles classify native and canonical assets independently of their shader; untagged catalog
+ * materials retain the legacy transmission rule. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {BoxGeometry, Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Scene, ShaderLib, UniformsUtils} from 'three';
@@ -56,7 +56,7 @@ function crystalAsset({roles = true, descriptor = true, crystalTemples = false, 
   return {root, lensMaterial, crystal, opaque, lens, front, left, right, dispose};
 }
 
-test('roles make a transmissive frame material frame in a canonical asset; a legacy asset keeps the transmission rule', t => {
+test('roles identify crystal in canonical and native assets; untagged assets keep the transmission rule', t => {
   const f = crystalAsset(); t.after(f.dispose);
   const classification = classifyAssetMaterials(f.root);
   assert.equal(classification.canonical, true);
@@ -67,11 +67,17 @@ test('roles make a transmissive frame material frame in a canonical asset; a leg
   assert.equal(isFrameMaterial(f.opaque), true); assert.equal(isTranslucentFrameMaterial(f.opaque), false);
   assert.equal(isOpticalMaterial(f.lensMaterial), true, 'the canonical lens stays optical');
   assert.equal(f.crystal.transmission, 1, 'classification never edits materials');
-  const legacy = crystalAsset({descriptor: false}); t.after(legacy.dispose);
+  const native = crystalAsset({descriptor: false}); t.after(native.dispose);
+  const nativeClassification = classifyAssetMaterials(native.root);
+  assert.equal(nativeClassification.canonical, false);
+  assert.deepEqual(nativeClassification.translucentFrameMaterials, [native.crystal]);
+  assert.equal(isOpticalMaterial(native.crystal), false);
+  assert.equal(isFrameMaterial(native.crystal), true);
+  const legacy = crystalAsset({descriptor: false, roles: false}); t.after(legacy.dispose);
   const legacyClassification = classifyAssetMaterials(legacy.root);
   assert.equal(legacyClassification.canonical, false);
   assert.deepEqual(legacyClassification.translucentFrameMaterials, []);
-  assert.equal(isOpticalMaterial(legacy.crystal), true, 'without a descriptor the shipped rule is untouched, roles or not');
+  assert.equal(isOpticalMaterial(legacy.crystal), true, 'without roles the shipped rule is untouched');
   assert.equal(isFrameMaterial(legacy.crystal), false);
 });
 
@@ -83,7 +89,7 @@ test('without roles a transmissive front keeps its conservative optical identity
   assert.equal(isOpticalMaterial(f.crystal), true);
 });
 
-test('a material shared by a lens mesh and a frame mesh stays optical and is reported to the producer', t => {
+test('a native material shared by lens and frame is separated without affecting canonical optics', t => {
   const f = crystalAsset(); t.after(f.dispose);
   const shared = new MeshPhysicalMaterial({transmission: 1}); t.after(() => shared.dispose());
   const secondLens = new Mesh(new BoxGeometry(.01, .01, .001), shared); secondLens.userData.partRole = 'lens';
@@ -93,6 +99,10 @@ test('a material shared by a lens mesh and a frame mesh stays optical and is rep
   const classification = classifyAssetMaterials(f.root);
   assert.deepEqual(classification.sharedMaterials, [shared]);
   assert.equal(isOpticalMaterial(shared), true);
+  assert.equal(secondLens.material, shared);
+  assert.notEqual(trim.material, shared); t.after(() => (trim.material as Material).dispose());
+  assert.equal(isOpticalMaterial(trim.material as Material), false);
+  assert.equal(isTranslucentFrameMaterial(trim.material as Material), true);
   assert.equal(isOpticalMaterial(f.crystal), false, 'the properly owned front is still classified');
 });
 

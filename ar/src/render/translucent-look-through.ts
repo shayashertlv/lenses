@@ -6,7 +6,7 @@
  *  as if a lens read it, and the near-arm overlays write no colour there while the head proxy writes depth, so a core
  *  relieved in front of the head was missing; where it survived, the blur smeared a 0.6 mm wire into a wide band.
  *
- *  With canonical lenses the renderer owns this image instead. Once per frame, after the canonical lens input and before
+ *  The renderer owns the crystal image beside both canonical and native transmissive lenses. Once per frame, after any canonical lens input and before
  *  the canvas passes, the eyewear scene is rendered into a multisampled linear half-float target: the camera background
  *  (or its shadowed composite), the head occluders' depth, the opaque eyewear with the arms (no lens-input exclusion:
  *  this is not lens input) and the near-arm overlays in colour, so relieved hardware is in it too (at full relief up to
@@ -16,13 +16,12 @@
  *  material that samples the image (the crystal twins, translucent-twin.ts) are hidden by material, so descendants and
  *  sibling primitives keep drawing. The twins replace the crystal in every pass and, in the canvas passes, sample the
  *  image at the fragment's own pixel with the identity UV: no refraction offset, no LOD blur, the volume absorption
- *  applied as before. The canonical lens input is the exception: it excludes the arms, and this image has them, so a
+ *  applied as before. Explicit canonical and native internal lens inputs are the exception: they exclude arms, and this image has them, so a
  *  crystal part drawn there (a far rim or bridge seen through a lens) samples the background instead, and the far arm's
- *  hardware never crosses the near lens (renderer.ts). Nothing drawn then transmits, so Three runs no pre-pass of its
- *  own: the owned pass replaces it rather than adding to it.
+ *  hardware never crosses the near lens (renderer.ts). Canonical lenses need no native transmission pre-pass.
  *
- *  Legacy assets (a transmissive lens without a canonical descriptor) keep Three's transmission untouched; they carry no
- *  translucent frame material (classification needs canonical optics) and never get this image. */
+ *  Native lenses without a canonical descriptor retain Three's physical transmission. Their internal pre-pass remains
+ *  lens input, while classified crystal frame materials use the separate image. Assets without crystal keep their prior path. */
 import {HalfFloatType, LinearSRGBColorSpace, Mesh, MeshPhysicalMaterial, NearestFilter, Vector4, Color, WebGLRenderTarget} from 'three';
 import type {Camera, Material, Object3D, Scene, Texture, WebGLRenderer} from 'three';
 import {isOpticalMaterial} from '../eyewear/optical-material.ts';

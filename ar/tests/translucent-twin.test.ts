@@ -16,7 +16,7 @@ import {applyVolumeAttenuationScale, authoredAttenuationDistance, volumeAttenuat
 import {lensShadowTransmission} from '../src/render/eyewear-shadow.ts';
 import {
   CAMERA_TRANSMISSION_TWIN_KEY, createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin,
-  setCameraTransmissionSource,
+  setCameraTransmissionSource, setCrystalLookThroughSource,
 } from '../src/render/translucent-twin.ts';
 
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
@@ -51,10 +51,10 @@ function crystalArmFixture(t: {after(fn: () => void): void}, {hair = true} = {})
   const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
   scene.add(eyewearPose);
   const clip = createTempleClip(root);
-  const visibility = createTempleVisibility(root, {renderer, scene, camera, eyewearPose});
+  const uniforms = createCameraTransmissionUniforms();
+  const visibility = createTempleVisibility(root, {renderer, scene, camera, eyewearPose, lensInputUniform: uniforms.twinLensInput});
   const occlusion = hair ? createHairOcclusion(root) : null;
   const overlay = root.children.find((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true)!;
-  const uniforms = createCameraTransmissionUniforms();
   t.after(() => {
     occlusion?.dispose(); visibility.dispose(); clip.dispose();
     lensMesh.geometry.dispose(); arm.geometry.dispose(); lens.dispose(); crystal.dispose();
@@ -98,18 +98,25 @@ test('the twin is an opaque clone that shows the paired camera through the mater
   assert.ok(!shader.fragmentShader.includes('#include <transmission_fragment>'), 'Three\'s transmission chunk is replaced');
   assert.ok(original.fragmentShader.includes('#include <transmission_fragment>'), 'only in the twin');
   const totalDiffuse = shader.fragmentShader.indexOf('vec3 totalDiffuse = ');
-  const mix = shader.fragmentShader.indexOf('totalDiffuse = mix( totalDiffuse, twinCameraRGB');
+  const mix = shader.fragmentShader.indexOf('twinThrough = twinTransmission * ( 1.0 - twinReflectance ) * twinCameraRGB');
   const outgoing = shader.fragmentShader.indexOf('vec3 outgoingLight = totalDiffuse');
   assert.ok(totalDiffuse >= 0 && mix > totalDiffuse && outgoing > mix, 'the camera enters exactly where Three mixes its transmitted light');
   assert.match(shader.fragmentShader, /vec2 twinCameraUV = \( twinCameraUvTransform \* vec3\( gl_FragCoord\.xy \/ twinCameraViewport, 1\.0 \) \)\.xy;/,
     'the camera is sampled at this fragment\'s own pixel, through the texture\'s UV transform');
-  assert.match(shader.fragmentShader, /vec3 twinCameraRGB = texture2D\( twinCameraSource, twinCameraUV \)\.rgb;/);
+  assert.match(shader.fragmentShader, /twinCameraRGB = texture2D\( twinCameraSource, twinCameraUV \)\.rgb;/);
+  assert.match(shader.fragmentShader, /if \( twinLensInput > 0\.5 \)/);
+  assert.match(shader.fragmentShader, /twinCameraRGB = texture2D\( twinLensSource, twinLensUV \)\.rgb;/);
   assert.ok(!shader.fragmentShader.includes('linearToOutputTexel( texture2D( twinCameraSource'),
     'the sample stays linear: it enters before tone mapping and the output encoding, unlike the clip footer');
-  assert.match(shader.fragmentShader, /\* twinAttenuation, twinTransmission \)/, 'attenuated by the volume, weighted by the material transmission');
+  assert.match(shader.fragmentShader, /twinThrough = twinTransmission \* \( 1\.0 - twinReflectance \) \* twinCameraRGB \* material\.diffuseContribution \* twinAttenuation;/,
+    'attenuated by the volume, weighted by the material transmission (and, v2, less what the surface reflects)');
   assert.equal(shader.uniforms.twinCameraSource, f.uniforms.twinCameraSource, 'the camera uniforms are the shared owner\'s');
   assert.equal(shader.uniforms.twinCameraViewport, f.uniforms.twinCameraViewport);
   assert.equal(shader.uniforms.twinCameraUvTransform, f.uniforms.twinCameraUvTransform);
+  assert.equal(shader.uniforms.twinLensSource, f.uniforms.twinLensSource);
+  assert.equal(shader.uniforms.twinLensUvTransform, f.uniforms.twinLensUvTransform);
+  assert.equal(shader.uniforms.twinLensInput, f.uniforms.twinLensInput);
+  assert.equal(shader.uniforms.templeInternalLensInput, f.uniforms.twinLensInput, 'visibility and source selection share the per-draw flag');
   assert.equal(shader.uniforms.twinTransmission!.value, .9);
   assert.deepEqual(shader.uniforms.twinAttenuation!.value.toArray(), volumeAttenuationRgb(f.crystal));
   for (const name of ['templeClipEnabled', 'templeCameraSource', 'templeCheekCount', 'templeFrontalCameraSource', 'hairOcclusionEnabled', 'hairOcclusionMask']) {
@@ -119,7 +126,7 @@ test('the twin is an opaque clone that shows the paired camera through the mater
   assert.ok(shader.fragmentShader.includes('gl_FragColor.rgb = mix(gl_FragColor.rgb, hairCameraRGB, hairWeight);'));
   assert.ok(!shader.fragmentShader.includes('gl_FragDepth'), 'the original arm keeps ordinary depth');
   assert.ok(twin.customProgramCacheKey().endsWith(`|${CAMERA_TRANSMISSION_TWIN_KEY}`));
-  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v1');
+  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v3');
   assert.ok(twin.customProgramCacheKey().startsWith(f.crystal.customProgramCacheKey()), 'the key follows the original\'s wrappers');
   assert.equal(isOpticalMaterial(twin), false, 'the twin is frame too');
   assert.equal(isTranslucentFrameMaterial(twin), false, 'but with transmission 0 it never enters the twin swap itself');
@@ -133,7 +140,7 @@ test('a crystal arm\'s clipped end fades into the camera like an opaque arm: the
   const f = crystalArmFixture(t);
   const twin = createCameraTransmissionTwin(f.crystal, f.uniforms); t.after(() => twin.dispose());
   const shader = compile(twin), original = compile(f.crystal), fragment = shader.fragmentShader;
-  const cameraMix = fragment.indexOf('totalDiffuse = mix( totalDiffuse, twinCameraRGB');
+  const cameraMix = fragment.indexOf('twinThrough = twinTransmission * ( 1.0 - twinReflectance ) * twinCameraRGB');
   const dithering = fragment.indexOf('#include <dithering_fragment>');
   const weight = fragment.indexOf('float templeBlendWeight = smoothstep(templeBlendEndpointZ, templeBlendEndpointZ + templeBlendFadeLength, templeOriginalXZ.y);');
   const blend = fragment.indexOf('gl_FragColor.rgb = mix(templeCameraRGB, gl_FragColor.rgb, templeBlendWeight);');
@@ -152,8 +159,9 @@ test('the twin of a visibility overlay clone keeps the depth relief and gets the
   assert.equal(twin.transmission, 0); assert.equal(twin.depthWrite, false);
   const shader = compile(twin);
   assert.ok(shader.fragmentShader.includes('gl_FragDepth = min(gl_FragCoord.z, templeLifted);'));
-  assert.ok(shader.fragmentShader.includes('totalDiffuse = mix( totalDiffuse, twinCameraRGB'));
+  assert.ok(shader.fragmentShader.includes('twinThrough = twinTransmission * ( 1.0 - twinReflectance ) * twinCameraRGB'));
   assert.equal(shader.uniforms.templeVisibilityHeadDepth, compile(f.clone).uniforms.templeVisibilityHeadDepth);
+  assert.equal(shader.uniforms.templeInternalLensInput, f.uniforms.twinLensInput, 'the overlay uses the same lens-input flag');
   assert.equal(shader.uniforms.hairOcclusionEnabled, compile(f.crystal).uniforms.hairOcclusionEnabled);
   assert.notEqual(createCameraTransmissionTwin(f.crystal, f.uniforms), twin, 'the overlay clone and the original have separate twins');
 });
@@ -179,8 +187,18 @@ test('the twin follows wrapper changes of its original through refresh, and the 
   texture.updateMatrix();
   assert.deepEqual(f.uniforms.twinCameraUvTransform.value.elements, texture.matrix.elements);
   assert.notEqual(f.uniforms.twinCameraUvTransform.value, texture.matrix);
+  assert.equal(f.uniforms.twinLensSource.value, texture);
+  assert.deepEqual(f.uniforms.twinLensUvTransform.value.elements, texture.matrix.elements);
+  const owned = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement); t.after(() => owned.dispose());
+  setCrystalLookThroughSource(f.uniforms, owned, 640, 360);
+  assert.equal(f.uniforms.twinCameraSource.value, owned);
+  assert.deepEqual(f.uniforms.twinCameraUvTransform.value.elements, owned.matrix.elements);
+  assert.equal(f.uniforms.twinLensSource.value, texture, 'owned hardware capture never replaces the lens-safe background');
+  assert.deepEqual(f.uniforms.twinLensUvTransform.value.elements, texture.matrix.elements, 'lens input retains the camera UV transform');
   setCameraTransmissionSource(f.uniforms, null, 1, 1);
   assert.equal(f.uniforms.twinCameraSource.value, null);
+  assert.equal(f.uniforms.twinLensSource.value, null);
+  assert.deepEqual(f.uniforms.twinLensUvTransform.value.elements, new Matrix3().elements);
   assert.deepEqual(f.uniforms.twinCameraUvTransform.value.elements, new Matrix3().elements);
   assert.deepEqual(f.uniforms.twinCameraViewport.value.toArray(), new Vector2(1, 1).toArray());
   assert.throws(() => setCameraTransmissionSource(f.uniforms, texture, 0, 360), /viewport/);

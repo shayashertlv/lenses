@@ -9,5 +9,6 @@ export default defineConfig({
   worker: {format: 'es'},
   server: {host: '127.0.0.1', port: 8240, strictPort: true},
   preview: {host: '127.0.0.1', port: 8241, strictPort: true},
-  build: {outDir: 'dist', emptyOutDir: true, copyPublicDir: true, sourcemap: false, target: 'es2022'},
+  build: {outDir: 'dist', emptyOutDir: true, copyPublicDir: true, sourcemap: false, target: 'es2022',
+    rollupOptions: {input: {main: 'index.html', studio: 'studio-viewer.html'}}},
 });

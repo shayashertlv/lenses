@@ -2,7 +2,7 @@
 
 ## Routes
 
-This folder holds four routes. Which one is current is the owner's decision; the paragraphs after this list describe
+This folder holds five routes. Which one is current is the owner's decision; the paragraphs after this list describe
 `segmented_ar_v1` as its own documents last recorded it.
 
 - `segmented_ar_v1` (`reconstruction/`): [the job contract](plan/SEGMENTED_AR_JOB.md). Tripo generation and
@@ -13,6 +13,11 @@ This folder holds four routes. Which one is current is the owner's decision; the
   writes Blender construction programs; the host builds, observes and exports them through the BSA contract.
 - Modeler, the agentic route (`python -m modeler.agentic`): [modeler/agentic/README.md](modeler/agentic/README.md).
   The same author as one durable, budgeted, recoverable conversation per product.
+- Live Blender agent (`python -m blender_agent`): [blender_agent/README.md](blender_agent/README.md).
+  Experimental autonomous Astra session using the standard Agents SDK and community Blender MCP, with a persistent
+  editable scene, native full-geometry export and actual AR feedback. The [local studio](blender_agent/STUDIO.md)
+  adds image intake, optional Gemini descriptions, budgeted runs and shared 3D/AR material controls;
+  launch it with `agentic-studio.cmd`. This opt-in route leaves the live Railway application unchanged.
 
 Current route: [`segmented_ar_v1`](plan/SEGMENTED_AR_JOB.md), with an opt-in [canonical Astra editing stage](plan/SEGMENTED_ASTRA.md). The stage edits retained source parts and optical descriptors, recompiles through the strict optical contract, and observes the result in actual AR before promoting a checkpoint. See the Astra runbook for current validation status; implementation and runtime checks do not establish photographic accuracy. The [earlier readiness audit](plan/ASTRA_READINESS_2026_09_23.md) is historical. The separate Blender editor remains incompatible with these optical assets.
 

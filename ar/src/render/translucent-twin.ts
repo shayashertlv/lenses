@@ -11,36 +11,77 @@
  *  through its tint like it does in pass A. Refraction offsets and roughness blur are not reproduced: the corridor
  *  is narrow and the arm thin, so a straight look-through is what pass A shows there too.
  *
- *  With canonical lenses the twin is the crystal in every pass, and in the canvas passes its source is the renderer's
+ *  With either canonical or native transmissive lenses the twin is the crystal in every pass. On the canvas its source is the renderer's
  *  owned look-through image (translucent-look-through.ts: the camera behind the opaque eyewear, identity UV) instead of
- *  the raw camera, so hardware inside the crystal is seen as a sharp line. Inside the canonical lens input, which
- *  excludes the arms, it keeps the background: the image has the arms in it.
+ *  raw camera, so hardware inside the crystal is seen as a sharp line. Inside explicit canonical or native lens input,
+ *  which excludes the arms, a shared per-draw flag selects the paired background instead: the owned image has arms in it.
  *
  *  The twin runs the original's compile hooks on the original's live uniforms (arm clip, cheek/lens-input, hair
  *  occlusion and, for a visibility overlay clone, the depth relief), read at compile time so a wrapper installed after
- *  the twin was made is honoured; `refreshCameraTransmissionTwin` bumps the program when that happened. */
+ *  the twin was made is honoured; `refreshCameraTransmissionTwin` bumps the program when that happened.
+ *
+ *  Energy and the reflection (v2, 2026-09-30). The look-through is kept apart from the surface's own light until the end
+ *  of the shader, for two reasons measured on the Tom Ford FT1123-D crystal (r0009, the continued job's r0003):
+ *  - It loses what the surface reflects, (1 - F) with F = EnvironmentBRDF, as Three's own refraction path does
+ *    (transmission_pars_fragment getIBLVolumeRefraction returns (1 - F) * attenuatedColor). v1 mixed the full camera in and
+ *    Three added the reflection on top, so a grazing rim wall showed the camera plus a near-total reflection and read
+ *    milky. F rises toward the silhouette, so there the look-through fades and the room's reflection takes over: the rims
+ *    read as reflective crystal edges (lighter lines over dark skin, darker over a white backdrop).
+ *  - The reflection (specular, clearcoat, the body's own lit diffuse) goes through the reflection limit
+ *    (eyewear-reflection.ts) against the look-through: the twin is not tone-mapped (renderer.ts, it carries the camera
+ *    image), and the room panel's reflection clipped 12 % of r0009's crystal to flat white.
+ *  A clearcoat (KHR_materials_clearcoat, loaded by GLTFLoader and kept by the clone) is Three's coat layer: its Fresnel
+ *  takes its share from the look-through as it does from the base layer, and its sharp reflection of the see-through room
+ *  (renderer.ts: PMREM blur 0, not the scene room's 0.04 floor) is what shows as crisp bright rim lines.
+ *  Measured with the see-through room (the pipeline's harness, 2026-09-30): r0009's crystal clipped share 0.116 -> 0 over
+ *  the observation's 19 views, frame_see_through 0.553 -> 0.701 (the pipeline's crystal line is 0.6), temple_see_through
+ *  0.811 -> 0.762 (the temples' oblique faces give their Fresnel share to the reflection); a clearcoat 1 copy of the
+ *  continued job's r0003 moves 10-33 % of the crystal front's pixels by more than 8 levels (checker / dim skin), and
+ *  roughness 0 -> 0.2 -> 0.5 moves 7 / 19 % (checker): the finish is a visible knob again. */
 import {Material, Matrix3, MeshPhysicalMaterial, Vector2, Vector3} from 'three';
 import type {Texture} from 'three';
 import {isTranslucentFrameMaterial, markFrameMaterial} from '../eyewear/optical-material.ts';
 import {volumeAttenuationRgb} from './eyewear-volume.ts';
+import {CRYSTAL_REFLECTION_KNEE, REFLECTION_LIMIT_GLSL, reflectionLimitCall} from './eyewear-reflection.ts';
 
-/** Program cache key suffix of every twin. */
-export const CAMERA_TRANSMISSION_TWIN_KEY = 'camera-transmission-twin-v1';
+/** Program cache key suffix. v3: separate canvas and lens-input sources selected by the shared draw-state flag. */
+export const CAMERA_TRANSMISSION_TWIN_KEY = 'camera-transmission-twin-v3';
 
-/** The per-frame camera inputs, shared by every twin of one renderer: the paired background texture (camera or its
- *  shadowed composite), the render viewport and the texture's UV transform. */
+/** three 0.185.1 meshphysical.glsl.js: the clearcoat layer's composition, where the look-through is attenuated too. */
+export const TWIN_CLEARCOAT_LAYER = 'outgoingLight = outgoingLight * ( 1.0 - material.clearcoat * Fcc ) + ( clearcoatSpecularDirect + clearcoatSpecularIndirect ) * material.clearcoat;';
+
+function replaceOnce(source: string, marker: string, value: string): string {
+  if (source.split(marker).length !== 2) throw new Error(`Camera transmission twin: pinned Three shader marker changed: ${marker}`);
+  return source.replace(marker, () => value);
+}
+
+/** Shared by every twin of one renderer: the owned crystal image, paired lens-safe background, their UV transforms,
+ *  render viewport and the temple-visibility draw-state flag. */
 export interface CameraTransmissionUniforms {
   readonly twinCameraSource: {value: Texture | null};
   readonly twinCameraViewport: {value: Vector2};
   readonly twinCameraUvTransform: {value: Matrix3};
+  /** The paired background stays separate from the core-inclusive crystal image. */
+  readonly twinLensSource: {value: Texture | null};
+  readonly twinLensUvTransform: {value: Matrix3};
+  /** Shared with temple visibility's per-draw explicit/native lens-input flag. */
+  readonly twinLensInput: {value: number};
 }
 
 export function createCameraTransmissionUniforms(): CameraTransmissionUniforms {
-  return {twinCameraSource: {value: null}, twinCameraViewport: {value: new Vector2(1, 1)}, twinCameraUvTransform: {value: new Matrix3()}};
+  return {twinCameraSource: {value: null}, twinCameraViewport: {value: new Vector2(1, 1)}, twinCameraUvTransform: {value: new Matrix3()},
+    twinLensSource: {value: null}, twinLensUvTransform: {value: new Matrix3()}, twinLensInput: {value: 0}};
 }
 
-/** Bind this frame's background texture and render size (the same texture the arm clip and hair occlusion sample). */
+/** Bind the paired background for this frame. Both paths start here; the canvas path can later use the owned image. */
 export function setCameraTransmissionSource(uniforms: CameraTransmissionUniforms, texture: Texture | null, width: number, height: number): void {
+  setCrystalLookThroughSource(uniforms, texture, width, height);
+  uniforms.twinLensSource.value = texture;
+  uniforms.twinLensUvTransform.value.copy(uniforms.twinCameraUvTransform.value);
+}
+
+/** Rebind only the crystal's canvas input. Native/canonical lens input must never sample its posterior hardware. */
+export function setCrystalLookThroughSource(uniforms: CameraTransmissionUniforms, texture: Texture | null, width: number, height: number): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
     throw new Error('The camera transmission viewport must be a positive integer size.');
   }
@@ -83,23 +124,50 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
     // The source's current hook: the arm clip, cheek/lens-input, hair occlusion and (overlay clone) relief wrappers.
     material.onBeforeCompile.call(this, shader, backend);
     Object.assign(shader.uniforms, uniforms, owned);
-    shader.fragmentShader = `uniform sampler2D twinCameraSource;
+    let fragment = `uniform sampler2D twinCameraSource;
+      uniform sampler2D twinLensSource;
       uniform vec2 twinCameraViewport;
       uniform mat3 twinCameraUvTransform;
+      uniform mat3 twinLensUvTransform;
+      uniform float twinLensInput;
       uniform vec3 twinAttenuation;
       uniform float twinTransmission;
-      ` + shader.fragmentShader.replace('#include <transmission_fragment>', `{
+      ` + REFLECTION_LIMIT_GLSL + shader.fragmentShader;
+    fragment = replaceOnce(fragment, '#include <transmission_fragment>', `vec3 twinThrough = vec3( 0.0 );
+      {
         // The paired camera at this pixel (linear: the sRGB texture is decoded on sampling), absorbed by the
-        // material's volume and tinted by its diffuse colour as Three's transmission is, mixed by the transmission.
+        // material's volume and tinted by its diffuse colour as Three's transmission is, weighted by the transmission,
+        // less what the surface reflects. The body's own lit diffuse keeps the remaining (1 - transmission) share.
         vec2 twinCameraUV = ( twinCameraUvTransform * vec3( gl_FragCoord.xy / twinCameraViewport, 1.0 ) ).xy;
-        vec3 twinCameraRGB = texture2D( twinCameraSource, twinCameraUV ).rgb;
-        totalDiffuse = mix( totalDiffuse, twinCameraRGB * material.diffuseContribution * twinAttenuation, twinTransmission );
+        vec3 twinCameraRGB;
+        if ( twinLensInput > 0.5 ) {
+          // Three draws these opaque twins again inside its native lens transmission target.
+          // The owned crystal image contains posterior metal, which must not cross the wearer's eyes.
+          vec2 twinLensUV = ( twinLensUvTransform * vec3( gl_FragCoord.xy / twinCameraViewport, 1.0 ) ).xy;
+          twinCameraRGB = texture2D( twinLensSource, twinLensUV ).rgb;
+        } else {
+          twinCameraRGB = texture2D( twinCameraSource, twinCameraUV ).rgb;
+        }
+        vec3 twinReflectance = EnvironmentBRDF( geometryNormal, geometryViewDir, material.specularColorBlended, material.specularF90, material.roughness );
+        twinThrough = twinTransmission * ( 1.0 - twinReflectance ) * twinCameraRGB * material.diffuseContribution * twinAttenuation;
+        totalDiffuse *= 1.0 - twinTransmission;
       }`);
+    // outgoingLight is now the surface's own light only; the coat's Fresnel takes its share of the look-through too.
+    fragment = replaceOnce(fragment, TWIN_CLEARCOAT_LAYER, `twinThrough *= 1.0 - material.clearcoat * Fcc;
+      ${TWIN_CLEARCOAT_LAYER}`);
+    // The crystal's own knee, half the headroom (eyewear-reflection.ts): the lens knee is absolute for lensenv, which the
+    // crystal has not, and the crystal's see-through measurements were taken with this one.
+    shader.fragmentShader = replaceOnce(fragment, '#include <opaque_fragment>', `outgoingLight = twinThrough + ${reflectionLimitCall('outgoingLight', 'twinThrough', CRYSTAL_REFLECTION_KNEE)};
+      #include <opaque_fragment>`);
   };
   twin.customProgramCacheKey = () => `${sourceKey(material)}|${CAMERA_TRANSMISSION_TWIN_KEY}`;
   twin.needsUpdate = true;
   twins.set(material, twin);
   records.set(twin, {source: material, hook: material.onBeforeCompile, key: material.customProgramCacheKey});
+  twin.addEventListener('dispose', () => {
+    if (twins.get(material) === twin) twins.delete(material);
+    records.delete(twin);
+  });
   return twin;
 }
 

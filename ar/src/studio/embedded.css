@@ -1,0 +1,20 @@
+/* Applied only after the explicit loopback parent/channel bridge is accepted. Ordinary AR layout is unchanged. */
+.studio-embedded .workspace{max-width:none;padding:12px}
+.studio-embedded .topbar,.studio-embedded .intro,.studio-embedded footer,.studio-embedded .product,
+.studio-embedded .profile-panel,.studio-embedded .pipeline-controls,.studio-embedded #config-note{display:none}
+.studio-embedded .tryon-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:0}
+.studio-embedded .mirror-column{position:static}
+.studio-embedded .stage{height:calc(100svh - 84px);min-height:340px;max-height:none}
+.studio-embedded .stage-top,.studio-embedded .stage-bottom{left:14px;right:14px}
+.studio-embedded .stage-top{top:14px}.studio-embedded .stage-bottom{bottom:14px}
+.studio-embedded .welcome{padding:48px 18px}.studio-embedded .frame-symbol{display:none}
+.studio-embedded .welcome h2{font-size:19px;margin:0 0 10px}
+.studio-embedded .welcome .primary{margin-top:12px}.studio-embedded .welcome .privacy{font-size:11px}
+.studio-embedded .sidebar{display:block;padding:0;border:0}
+.studio-embedded .studio-options{border:1px solid #ffffff20;border-radius:9px;padding:0 14px}
+.studio-embedded .studio-options>summary{cursor:pointer;padding:13px 0;font-size:13px;color:#d7e7da}
+.studio-embedded .studio-options-content{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}
+.studio-embedded .studio-options-content>section{padding:14px 0;margin:0}
+.studio-embedded .studio-options .eyebrow{font-size:10px;margin:0 0 8px}
+.studio-embedded .studio-options select{padding:9px;font-size:12px}
+@media(max-width:460px){.studio-embedded .workspace{padding:8px}.studio-embedded .studio-options-content{grid-template-columns:minmax(0,1fr)}.studio-embedded .stage{height:calc(100svh - 76px)}.studio-embedded #guidance{font-size:11px}}

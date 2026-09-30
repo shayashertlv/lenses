@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f3ee">
+  <title>Lenses — Studio</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <header class="app-header">
+    <a class="wordmark" href="/" aria-label="Lenses Studio home"><svg viewBox="0 0 54 24" aria-hidden="true"><path d="M2 6h18v9c0 4-3 7-7 7H9c-4 0-7-3-7-7V6Zm32 0h18v9c0 4-3 7-7 7h-4c-4 0-7-3-7-7V6ZM20 10c4-4 10-4 14 0M1 5l-1-3m53 3 1-3"/></svg><span>Lenses<span class="wordmark-divider">/</span><span class="wordmark-studio">Studio</span></span></a>
+    <div class="header-right"><span class="local-tag"><span class="status-dot"></span>Local workspace</span><button id="new-project" class="button button-dark button-small" type="button"><span aria-hidden="true">+</span> New model</button></div>
+  </header>
+  <div class="app-layout">
+    <aside class="sidebar" aria-label="Projects">
+      <div class="sidebar-title"><span class="eyebrow">Your models</span><span id="project-count" class="count">0</span></div>
+      <div id="project-list" class="project-list"><p class="muted small">Loading your workspace…</p></div>
+      <div class="sidebar-footer"><div class="eyebrow">Connected tools</div><div id="capabilities" class="capabilities"></div><p>Blender runs here.<br>Model inference uses your API accounts.</p></div>
+    </aside>
+    <main id="workspace" class="workspace">
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div class="workspace-heading"><div><div class="eyebrow">Eyewear workshop</div><h1 id="project-title">Start with a closer look.</h1><p id="project-subtitle" class="subtitle">Bring the references. Give the artist a clear brief.</p></div><span id="job-status" class="status-badge">New draft</span></div>
+      <nav class="workspace-tabs" aria-label="Project sections"><button type="button" data-section="brief" class="active">01 <span>Brief</span></button><button type="button" data-section="progress">02 <span>Run & evidence</span></button><button type="button" data-section="model">03 <span>Model studio</span></button><span id="draft-state" class="save-state">Not saved yet</span></nav>
+
+      <section id="section-brief" class="section-panel" aria-label="Model brief">
+        <div class="brief-layout">
+          <div class="brief-main">
+            <section class="card references-card"><div class="card-heading"><div><span class="eyebrow">Reference set</span><h2>Every angle tells a little more.</h2></div><span id="image-count" class="meta">0 images</span></div><p class="muted">Original product photos are strongest. Label generated views so the artist can treat them as supporting evidence.</p>
+              <label id="drop-zone" class="drop-zone" for="image-input"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 20v7h22v-7M16 4v17M9 11l7-7 7 7"/></svg><strong>Drop product images here</strong><span>or choose files · PNG, JPEG or WebP</span><input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+              <div id="reference-grid" class="reference-grid"></div><p id="reference-lock-note" class="small muted" hidden>Reference images are fixed after the first build starts. Start a new model to use a different set.</p>
+            </section>
+            <section class="card"><div class="card-heading"><div><span class="eyebrow">The brief</span><h2>Describe the pair you see.</h2></div><button id="describe" type="button" class="button button-quiet"><span aria-hidden="true">✧</span> Generate description</button></div>
+              <label class="field">Model name<input id="model-name" maxlength="120" placeholder="e.g. Oakley Radar EV Path" autocomplete="off"></label>
+              <label class="field">Description<textarea id="description" maxlength="24000" rows="7" placeholder="Describe the shape, construction and details that make this pair distinctive. Leave uncertain details open for the artist to investigate."></textarea></label>
+              <p class="inline-disclosure"><span aria-hidden="true">↗</span> Generate sends these images and the brief to Gemini Pro. It uses your Gemini API account; review and edit the result before starting Astra.</p>
+              <div id="description-notes" class="description-notes" hidden></div>
+            </section>
+            <section class="card"><div class="card-heading"><div><span class="eyebrow">What you know</span><h2>Specifics, without the guesswork.</h2></div><span class="meta">Optional</span></div><p class="muted">Leave a value unknown when the photographs don’t establish it.</p><div id="spec-fields"></div></section>
+          </div>
+          <aside class="brief-aside"><section class="card run-card"><span class="eyebrow">Artist session</span><h2>Build in Blender.</h2><p>Astra works in a persistent scene, inspects its edits and checks the exported model in AR.</p><div class="artist-line"><span class="artist-avatar" aria-hidden="true">A</span><div><strong>Astra</strong><span>Maximum reasoning effort</span></div><span class="status-dot teal"></span></div><label class="field budget-field">Total Astra budget<span class="money-input"><span>$</span><input id="budget" type="number" min="1" max="1000" step="0.01" value="20" inputmode="decimal"><span>USD</span></span></label><p class="small muted">One total cap across this model’s runs and resumes. Failed requests can retain a reserve. Gemini description costs are separate.</p><div class="run-actions"><button id="save-draft" class="button button-outline" type="button">Save draft</button><button id="start-run" class="button button-primary" type="button">Start building <span aria-hidden="true">↗</span></button></div><p id="start-hint" class="small muted">Starting uses the paid Astra API and launches local Blender. Your draft is saved first.</p><div class="quiet-rule"></div><div class="small muted">An artist’s completed model is a candidate for your review, not an automatic guarantee of accuracy.</div></section></aside>
+        </div>
+      </section>
+
+      <section id="section-progress" class="section-panel" aria-label="Run status" hidden>
+        <div class="progress-layout"><section class="card progress-card"><div class="card-heading"><div><span class="eyebrow">Live session</span><h2 id="progress-title">Ready when you are.</h2></div><span id="progress-indicator" class="live-indicator" hidden><span></span>Active</span></div><p id="progress-message" class="progress-message">Save your brief and start a run to see the artist’s activity here.</p><div id="run-error" class="error-box" hidden></div><div class="spend-row"><div><span class="meta">Settled usage</span><strong id="spent">$0.00</strong></div><div><span class="meta">Unresolved reserves</span><strong id="reserved">$0.00</strong></div><div><span class="meta">Total cap</span><strong id="cap">$20.00</strong></div></div><div id="budget-track" class="budget-track" aria-hidden="true"><span id="spent-bar"></span><span id="reserve-bar"></span></div><p id="accounting-note" class="small muted">This bar shows budget commitment, not model completion. Reserves are not confirmed charges.</p><div class="progress-actions"><button id="resume-run" type="button" class="button button-primary" hidden>Resume artist</button><button id="stop-run" type="button" class="button button-outline" hidden>Stop after current work</button><button id="open-result" type="button" class="button button-outline" hidden>Review model <span aria-hidden="true">↗</span></button></div><details id="artist-notes" class="artist-notes" hidden><summary>Artist’s final notes &amp; limitations</summary><p id="candidate-scope" class="small muted"></p><div id="candidate-validation"></div><pre id="artist-final-output"></pre></details><div id="timeline" class="timeline"></div></section><section class="card progress-note"><span class="eyebrow">A visible process</span><h2>Evidence over a progress guess.</h2><p>The artist chooses its own modeling steps. This view shows reported activity and accounting, rather than estimating a completion percentage.</p><p>The model studio becomes available when an exported candidate is ready. A stopped or failed run may still have a useful checkpoint.</p><div id="run-links" class="link-list"></div></section></div>
+      </section>
+
+      <section id="section-model" class="section-panel" aria-label="Model and materials" hidden>
+        <div id="result-empty" class="empty-result"><svg viewBox="0 0 120 52" aria-hidden="true"><path d="M6 11h40v22c0 9-7 16-16 16h-8c-9 0-16-7-16-16V11Zm68 0h40v22c0 9-7 16-16 16h-8c-9 0-16-7-16-16V11ZM46 19c9-8 19-8 28 0M6 11 1 3m113 8 5-8"/></svg><h2>A space for the finished details.</h2><p>An exported candidate will appear here.<br>Inspect the form in 3D, then see it in AR with the same material controls.</p><button id="back-to-brief" type="button" class="button button-outline">Back to brief</button></div>
+        <div id="model-layout" class="model-layout" hidden><section class="viewer-card"><div class="viewer-toolbar"><div class="segmented" role="group" aria-label="Preview mode"><button id="mode-3d" type="button" class="active" aria-pressed="true">3D view</button><button id="mode-ar" type="button" aria-pressed="false">AR try-on</button></div><span id="preview-state" class="meta">Connecting preview…</span><a id="viewer-external" class="icon-link" target="_blank" rel="noopener" aria-label="Open preview in a new tab">↗</a></div><div class="viewer-stage"><iframe id="model-frame" title="Interactive eyewear preview" allow="camera; fullscreen" referrerpolicy="no-referrer" hidden></iframe><div id="viewer-placeholder" class="viewer-placeholder"><span class="loading-ring"></span><p>Preparing the preview…</p></div></div><div class="viewer-footer"><span id="model-identity" class="small muted"></span><span id="result-qualification" class="small"></span></div></section>
+          <aside class="card material-panel"><div class="card-heading"><div><span class="eyebrow">Material workshop</span><h2>Finish the details.</h2></div><span id="material-dirty" class="edited-tag" hidden>Unsaved</span></div><p class="small muted">Changes preview in both views. Save a revision to update the exported model.</p><label class="field">Material<select id="material-select"></select></label><div id="material-roles" class="material-roles"></div><div id="material-controls" class="material-controls"></div><div class="viewer-controls"><label for="lens-reflection">Lens reflection <output id="reflection-value">1.00</output></label><input id="lens-reflection" type="range" min="0.3" max="4" step="0.01" value="1"><p class="small muted">Viewer setting for this model. Surface values above are saved in the GLB.</p></div><div id="material-message" class="small muted"></div><div class="material-actions"><button id="reset-materials" type="button" class="button button-outline">Reset changes</button><button id="save-materials" type="button" class="button button-primary">Save revision</button></div><div class="download-links"><a id="download-model" class="button button-outline" download>Download GLB <span aria-hidden="true">↓</span></a><a id="download-scene" class="text-link" download>Original Blender source <span aria-hidden="true">↓</span></a></div></aside>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="discard-dialog"><h2>Keep your changes?</h2><p>You have unsaved changes in this model. Stay here to save them, or discard them to continue.</p><div class="dialog-actions"><button id="discard-cancel" type="button" class="button button-outline">Stay here</button><button id="discard-confirm" type="button" class="button button-dark">Discard changes</button></div></dialog>
+</body>
+</html>

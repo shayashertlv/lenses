@@ -114,6 +114,8 @@ interface VisibilityContext {
   eyewearPose: Object3D;
   /** Camera-space centimetres, kept current before fitting the main face proxy. Caller owns geometry. */
   observedFaceSurface?: BufferGeometry;
+  /** Optional shared draw-state uniform for other materials that must keep posterior hardware out of lens input. */
+  lensInputUniform?: {value: number};
 }
 
 const copyConfiguration = (value: TempleVisibilityConfiguration): TempleVisibilityConfiguration => ({...value,
@@ -185,7 +187,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     templeCheekNearFar: uniforms.templeVisibilityNearFar,
     templeCheekTransitionPx: {value: 0},
     templeFrontalViewport: {value: new Vector2(1, 1)}, templeFrontalUvTransform: {value: new Matrix3()},
-    templeExcludeArmsFromLensInput: {value: 0}, templeInternalLensInput: {value: 0},
+    templeExcludeArmsFromLensInput: {value: 0}, templeInternalLensInput: context.lensInputUniform ?? {value: 0},
   };
   const originalHooks = new Map<Material, {
     hook: Material['onBeforeCompile']; key: Material['customProgramCacheKey'];

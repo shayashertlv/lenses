@@ -74,7 +74,7 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
   'sync', 'exposure', 'guard', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256', 'lensenv']);
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256', 'lensenv', 'studioOrigin', 'studioChannel']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {

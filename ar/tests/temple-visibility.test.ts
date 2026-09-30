@@ -87,7 +87,7 @@ function fakeBackend(samples = 4) {
   return {state, backend, renderer: backend as unknown as WebGLRenderer};
 }
 
-function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender']) {
+function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender'], lensInputUniform?: {value: number}) {
   const geometry = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
     -.055, 0, -.02, -.055, 0, -.08, -.057, .002, -.11,
   ]), 3));
@@ -105,7 +105,7 @@ function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender']) {
   scene.add(eyewearPose); scene.background = new Color(0xabcdef);
   if (beforeRender) scene.onBeforeRender = beforeRender;
   const fake = fakeBackend(samples), clip = createTempleClip(root);
-  const controller = createTempleVisibility(root, {renderer: fake.renderer, scene, camera, eyewearPose, observedFaceSurface});
+  const controller = createTempleVisibility(root, {renderer: fake.renderer, scene, camera, eyewearPose, observedFaceSurface, lensInputUniform});
   const overlays = root.children.filter((child): child is Mesh => child instanceof Mesh && child.userData.templeVisibilityOverlay === true);
   return {geometry, lensGeometry, observedFaceSurface, frame, lens, texture, root, scene, eyewearPose, camera, fake, clip, controller, overlays,
     dispose: () => { controller.dispose(); clip.dispose(); geometry.dispose(); lensGeometry.dispose(); observedFaceSurface.dispose(); frame.dispose(); lens.dispose(); texture.dispose(); }};
@@ -584,9 +584,11 @@ test('internal transmission is excluded while native and explicit role targets k
 });
 
 test('lens input exclusion follows scene entry targets and never suppresses an explicit output target', t => {
-  const f = syntheticFixture(); t.after(f.dispose);
+  const sharedInput = {value: 0};
+  const f = syntheticFixture(4, undefined, sharedInput); t.after(f.dispose);
   const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
   const shader = compile(f.frame), version = f.frame.version;
+  assert.equal(shader.uniforms.templeInternalLensInput, sharedInput, 'external crystal source selection follows this exact draw state');
   const configuration = {...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true};
   f.controller.set(configuration);
   assert.equal(shader.uniforms.templeExcludeArmsFromLensInput!.value, 1);
@@ -615,6 +617,8 @@ test('lens input exclusion follows scene entry targets and never suppresses an e
   assert.equal(f.frame.version, version, 'lens exclusion changes update uniforms without recompiling material programs');
   assert.throws(() => f.controller.set({...configuration, excludeArmsFromLensInput: 1} as unknown as TempleVisibilityConfiguration),
     /lens input arm exclusion is invalid/);
+  sharedInput.value = 1; f.controller.dispose();
+  assert.equal(sharedInput.value, 0, 'disposal cannot leave another shader selecting stale lens input');
 });
 
 test('lens input exclusion preserves existing original mesh callbacks and restores them on disposal', t => {

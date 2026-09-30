@@ -204,7 +204,7 @@ function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUn
   const transmissive = lens || translucent;
   const standard = source instanceof MeshStandardMaterial ? source : null;
   const map = standard?.map ?? null;
-  const transmissionMap = transmissive ? physical!.transmissionMap : null;
+  const transmissionMap = transmissive && physical ? physical.transmissionMap : null;
   const alphaMap = standard?.alphaMap ?? null;
   const maps = [map, transmissionMap, alphaMap];
   const uvNames = maps.map(texture => {
@@ -213,7 +213,9 @@ function casterMaterial(source: Material, geometry: BufferGeometry, clip: ClipUn
   });
   const attributes = [...new Set(uvNames.filter(name => name !== 'uv'))].map(name => `attribute vec2 ${name};`).join('\n');
   for (const texture of maps) if (texture?.matrixAutoUpdate) texture.updateMatrix();
-  const transmission = transmissive ? lensShadowTransmission(physical!) : [0, 0, 0];
+  // An explicitly tagged native mirror can be a MeshStandardMaterial. It is still a lens for clipping, but has
+  // no physical transmission channel: its shadow blocks light rather than reading absent volume properties.
+  const transmission = transmissive && physical ? lensShadowTransmission(physical) : [0, 0, 0];
   const material = new ShaderMaterial({
     name: lens ? 'Lens RGB transmission caster' : translucent ? 'Translucent frame RGB transmission caster' : 'Opaque eyewear caster',
     side: DoubleSide, transparent: false, blending: NoBlending, depthTest: true, depthWrite: true, toneMapped: false,

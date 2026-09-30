@@ -19,6 +19,17 @@ node qa/pipeline-smoke.mjs --base=http://127.0.0.1:8241
 `npm run preview` serves the frozen build at `http://127.0.0.1:8241/`.
 `npm run dev` serves the development build with hot reload at port 8240; use a frozen build for measurements.
 Opening the page does not start the camera. Choose glasses and a hair model, then open the camera.
+The local agentic studio also uses `/studio-viewer.html` for an orbitable 3D view of the same hash-pinned native GLB.
+Both views accept bounded material previews only when explicitly embedded on loopback with `studioOrigin` and
+`studioChannel` query parameters. Messages must come from that parent window and origin, match the random channel and
+model SHA-256, and contain supported material properties. AR retains pending edits while the camera is closed and
+applies them when the model loads, without reopening the camera for subsequent edits. Transmission cannot cross
+between opaque and transmitting during a live preview; canonical optical descriptors and unlit materials are not
+edited through native PBR controls. Colors are sRGB hex and absorption distances are metres (zero means unlimited).
+The 3D view uses comparable room lighting; AR additionally applies camera composition, fitting, shadows and occlusion.
+`node qa/studio-preview-smoke.mjs` verifies visible edits and exact reset in synthetic AR, including crystal twins and
+material shadows; optional `--model=http://127.0.0.1:PORT/model.glb --sha256=...` also tests a local product revision.
+This local tooling does not publish or change `ar/site/`.
 Look forward for a few seconds while automatic sizing collects consistent upper-face observations. The Fit panel
 shows progress; glasses and their shadows appear only after calibration and size settling finish. Refit hides
 them again until the new fit is ready. Later slider adjustments remain visible. The default includes an 8% wider visual fit; the size slider's zero
@@ -110,9 +121,12 @@ Regression tests protect these rules; live appearance still depends on tracking 
 Assets carrying `LENSES_lens_appearance` opt into a validated optical descriptor. The authored front-sheet adapter requires
 separate, static, single-material `front_sheet_v1` meshes with `partRole: lens`, baked coordinates, intrinsic
 bottom-to-top UVs and authored +Z-facing normals/triangles. Camera and light passes retain up to four optical
-layers per pixel, ordered by depth, and stop at opaque geometry. The camera combines `R * environment + T * behind`
-in linear RGB; the opaque input preserves the frame's native display response and leaves camera colors unchanged.
-A separate PMREM environment avoids forced mirror preblur. Shadows accumulate the same transmission at the light
+layers per pixel, ordered by depth, and stop at opaque geometry. The camera combines `T * behind + limit(R * environment)`
+in linear RGB, where the limit (`src/render/eyewear-reflection.ts`) leaves a lens reflection unchanged while the total stays
+under 0.8 linear (sRGB 231; absolute, so `?lensenv` scales mirror reflections linearly) and keeps the sum under 0.9 (sRGB 243);
+the opaque input preserves the frame's native display response and leaves camera colors unchanged. Lenses and translucent
+(crystal) frame materials reflect an unblurred see-through room: three's `RoomEnvironment` without its +Z panel, which sits
+behind the selfie camera and clipped to a flat white rectangle on every lens. Shadows accumulate the same transmission at the light
 angle, using only layers before the receiving surface. A total mirror remains a lens in geometry, fitting,
 visibility and hair consumers. Untagged assets retain their existing material path.
 
@@ -120,17 +134,23 @@ Each mesh must be a single-valued front sheet in authored XY coordinates. Triang
 and coincident interfaces while allowing separate layers, holes and supported curved sheets. A fifth layer
 causes an explicit capacity error. This path requires float color targets and adds synchronous capacity checks;
 mobile memory/performance is not established. Closed volumes, back coatings, refraction, internal reflections,
-alpha-blended frames, translucent temples and mixed legacy/canonical optics remain unsupported. These are
+alpha-blended frames and mixed legacy/canonical optics remain unsupported by this canonical profile. These are
 rendering-profile checks, not general product-model acceptance or proof of accurate photo reconstruction.
 
 Authored part roles (`partRole` node extras `frame` / `temple` / `lens`, written by the automation exporter) classify
-materials once per loaded asset (`src/eyewear/optical-material.ts`): in an asset that carries a canonical descriptor, a
-material used only by frame or temple parts is never optical whatever its transmission, so a crystal or translucent
-acetate front (physical transmission with `KHR_materials_volume`, single-sided) renders through Three's transmission
-against the camera and is treated as frame by hair occlusion, arm clipping, continuity, rear drop and the shadow
-(material-coloured caster, clipped with the arms). In the stencil-limited hair pass, which redraws no background, such
-a material falls back to its opaque response; visibility overlays skip it. The producer contract keeps temples opaque.
-Assets without a descriptor (the shipped catalog) keep the transmission rule unchanged. Volume absorption distances
+materials once per loaded asset (`src/eyewear/optical-material.ts`), with or without a canonical descriptor. Native lenses
+retain their authored geometry and physical material. Materials used by frame or temple parts remain structural even
+when they transmit light; untagged assets retain the legacy transmission classification.
+
+Crystal frame materials with opaque alpha mode use a separate, sharp look-through capture of the camera and opaque
+hardware, including the near-arm visibility overlays. Lenses and crystal sampling materials are excluded from that
+capture. On the canvas, the crystal samples it; inside either the explicit canonical or Three's native lens input,
+the crystal instead samples the paired background. The two sources prevent the lens arm-exclusion rule from erasing
+an internal temple core, while keeping far-arm hardware out of the lenses. Hair occlusion, arm clipping, continuity,
+rear drop and face depth remain active. This straight look-through approximates crystal transmission without refraction
+offsets or roughness blur. The crystal twin loses the surface's reflected share and limits its reflection, clearcoat
+included, with the crystal's knee (half the headroom). Alpha-blended temples are not covered by this structural path.
+Volume absorption distances
 (`KHR_materials_volume`, metres in the file) are converted once to the scene's centimetres (`src/render/eyewear-volume.ts`),
 since Three scales the thickness through the model matrix but reads the distance in world units; the shadow keeps the
 authored ratio. No shipped asset carries a volume extension.

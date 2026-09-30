@@ -16,12 +16,14 @@
 import {
   ACESFilmicToneMapping, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
   DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh, NearestFilter,
-  MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
+  MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
   SRGBColorSpace, Texture, UnsignedByteType, Vector3, Vector4, WebGLRenderer,
 } from 'three';
 import type {WebGLRenderTarget} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
+import {applyStudioMaterials, studioMaterials, tagStudioMaterials} from '../studio/materials.ts';
+import type {StudioPreview} from '../studio/protocol.ts';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import type {Detection} from '../face/protocol.ts';
 import type {CategoryMask} from '../hair/protocol.ts';
@@ -64,8 +66,9 @@ import {isOpticalMaterial, isTranslucentFrameMaterial} from '../eyewear/optical-
 import {installCanonicalLensMaterials} from './lens-material.ts';
 import {applyVolumeAttenuationScale} from './eyewear-volume.ts';
 import {CanonicalLensLayers} from './lens-layers.ts';
-import {createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin, setCameraTransmissionSource} from './translucent-twin.ts';
+import {createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin, setCameraTransmissionSource, setCrystalLookThroughSource} from './translucent-twin.ts';
 import {hasLegacyTransmissiveOptics, TranslucentLookThrough} from './translucent-look-through.ts';
+import {createSeeThroughRoom} from './eyewear-reflection.ts';
 
 export const GUARD_METHOD = 'gpu-stencil-protection-v1';
 export {HAIR_OCCLUSION_METHOD, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
@@ -78,6 +81,8 @@ const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
 const HIDDEN_TAIL_M = .025, END_FADE_M = .005, ARM_SPREAD_M = .018;
 
 export interface RendererOptions {
+  /** Explicit local studio bridge only; ordinary AR sessions do not expose editable material bindings. */
+  studioControls?: boolean;
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
   hairStartZ?: number;
   /** Gate each frame on the previous frame's GPU completion (fence), so submission cannot run ahead of the GPU (default on). */
@@ -153,7 +158,8 @@ export class TryOnRenderer {
   private canonicalLensMaterials: readonly MeshPhysicalMaterial[] = [];
   private canonicalLayers: CanonicalLensLayers | null = null;
   private retiredLensMaterials: readonly Material[] = [];
-  private canonicalEnvironmentTarget: WebGLRenderTarget | null = null;
+  /** The see-through room (eyewear-reflection.ts), unblurred: what canonical lenses and crystal reflect. */
+  private seeThroughEnvironmentTarget: WebGLRenderTarget | null = null;
   private assetIntegrity: Readonly<{sha256: string; pinned: boolean}> | null = null;
   private readonly fitSession: EyewearFitSession;
   private fitScale = 1;
@@ -190,6 +196,7 @@ export class TryOnRenderer {
   private readonly reader = new PixelReader();
   private backgroundTexture: CanvasTexture | null = null;
   private shadows: EyewearShadow | null = null;
+  private studioRoot: Group | null = null;
   private shadowSettings: ShadowSettings = {...DEFAULT_SHADOW_SETTINGS};
   private shadowBackground: Texture | null = null;
   private shadowPending = true;
@@ -205,18 +212,18 @@ export class TryOnRenderer {
   /** Crystal / translucent frame materials (authored roles, isTranslucentFrameMaterial). These are the meshes drawing
    *  such materials, including the near-arm visibility overlays whose clones are translucent frame too, and, per
    *  material, a twin (translucent-twin.ts: transmission 0, a straight look-through mixed in where Three mixes its
-   *  refraction, same shader wrappers). With canonical lenses (every asset that has such materials) the twins replace
+   *  refraction, same shader wrappers). With canonical or native lenses the twins replace
    *  them in every pass and look through to the owned look-through image (translucent-look-through.ts): the camera
-   *  behind the opaque eyewear, so hardware inside the crystal is seen, sharp. Otherwise Three's transmission renders
-   *  them and only pass B, which redraws no background, swaps in twins looking through to the camera itself. Swapping
+   *  behind the opaque eyewear, so hardware inside the crystal is seen, sharp. In either kind of lens input they
+   *  instead sample the paired background, excluding the captured arm hardware. Swapping
    *  materials keeps both programs cached; toggling `transmission` across zero would rebuild the program. */
   private translucentFrameMeshes: {mesh: Mesh; original: Material | Material[]}[] = [];
   private translucentTwins = new Map<MeshPhysicalMaterial, MeshPhysicalMaterial>();
   /** The twins' shared look-through inputs, bound per frame: the look-through image, or the background the arm clip samples. */
   private readonly twinUniforms = createCameraTransmissionUniforms();
-  /** The owned look-through image, for an asset with translucent frame materials and no legacy transmissive lens. */
+  /** The owned look-through image for an asset with classified translucent frame materials. */
   private lookThrough: TranslucentLookThrough | null = null;
-  /** The lens materials the look-through image leaves out (it is built before the canonical lens input). */
+  /** All optical materials are left out of the look-through image, captured after any canonical lens input. */
   private lookThroughHidden: Material[] = [];
   /** A legacy transmissive lens samples Three's internal pre-pass, which then stays lens input (arms excluded). */
   private legacyTransmissiveOptics = false;
@@ -283,6 +290,31 @@ export class TryOnRenderer {
     this.shadowPending = true;
   }
   get shadowsSettings(): ShadowSettings {return {...this.shadowSettings};}
+  get studioMaterialCatalog() {return this.studioRoot ? studioMaterials(this.studioRoot) : [];}
+  /** Material-only preview: pose, camera, geometry and optical membership stay unchanged. */
+  applyStudioPreview(preview: StudioPreview): void {
+    if (!this.studioRoot) throw new Error('Studio material editing is not enabled for this renderer.');
+    this.swapTranslucentFrames(false);
+    const ids = applyStudioMaterials(this.studioRoot, preview.edits, GLASSES_METERS_TO_CENTIMETERS);
+    if (preview.viewer.lens_reflection !== undefined) {
+      for (const mesh of this.lensMeshes) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (material instanceof MeshStandardMaterial && isOpticalMaterial(material)) {
+          if (!material.envMap) {material.envMap = this.environmentTarget?.texture ?? null; material.needsUpdate = true;}
+          material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * preview.viewer.lens_reflection;
+        }
+      }
+    }
+    if (ids.length) {
+      // These derived materials capture color/volume at construction; rebuild them from edited originals and overlays.
+      for (const twin of this.translucentTwins.values()) twin.dispose();
+      this.translucentTwins.clear();
+      if (this.shadowReceiverGeometry) {
+        const replacement = new EyewearShadow(this.renderer, this.studioRoot, this.shadowReceiverGeometry, GLASSES_METERS_TO_CENTIMETERS * 1.30);
+        this.shadows?.dispose(); this.shadows = replacement;
+      }
+      this.shadowBackground = null; this.shadowPending = true;
+    }
+  }
   get fitting(): EyewearFitSession['report'] & {scale: number; limited: boolean; ready: boolean} {
     const report = this.fitSession.report;
     return {...report, scale: this.fitScale, limited: this.fitLimited || report.limited, ready: this.fitRevealed};
@@ -383,6 +415,7 @@ export class TryOnRenderer {
       const integrity = await verifyPinnedGeometryBytes(eyewear.assetUrl, glasses);
       if (signal.aborted) throw abortError();
       gltf = await new GLTFLoader().parseAsync(glasses, assetPath('models/'));
+      if (options.studioControls) tagStudioMaterials(gltf);
       if (signal.aborted) throw abortError();
       // The guard needs a stencil buffer on the default framebuffer. The WebGLRenderer itself is created without one:
       // with `stencil: true` Three also gives its lens-transmission render target a stencil buffer (cleared to 0), and
@@ -396,6 +429,7 @@ export class TryOnRenderer {
       instance.assetScenes = gltf.scenes;
       const eyewearScene = gltf.scene; gltf = null;
       instance.configure(face, eyewearScene);
+      if (options.studioControls) instance.studioRoot = eyewearScene;
       if (signal.aborted) throw abortError();
       // The pinned arm centrelines support hair endpoints; failure retains the fixed buried cap.
       try {instance.continuityModel = await loadTempleContinuityModel(eyewear.assetUrl, eyewear.templeClipLocalZM, loading.signal, glasses);}
@@ -474,15 +508,24 @@ export class TryOnRenderer {
     this.shadows = new EyewearShadow(this.renderer, eyewearScene, this.shadowReceiverGeometry, GLASSES_METERS_TO_CENTIMETERS * 1.30);
     const key = new DirectionalLight(0xffffff, 2); key.position.set(-10, 15, 20); this.scene.add(key);
     const environment = new RoomEnvironment(); let generator: PMREMGenerator | null = null;
+    let seeThrough: RoomEnvironment | null = null;
     try {
       generator = new PMREMGenerator(this.renderer);
       this.environmentTarget = generator.fromScene(environment, 0.04);
       this.scene.environment = this.environmentTarget.texture; this.scene.environmentIntensity = SCENE_ENVIRONMENT_INTENSITY;
       // A forced blur floor destroys sharp mirror reflections. Canonical optics
       // select their own roughness while legacy/frame illumination stays intact.
-      if (this.canonicalLensMaterials.length) this.canonicalEnvironmentTarget = generator.fromScene(environment, 0);
+      // Canonical lenses and crystal (translucent frame materials) reflect the see-through room: the scene's room without
+      // the front panel behind the selfie camera, which was the flat white rectangle on every lens and the white slab and
+      // milky wash on the crystal (eyewear-reflection.ts). Unblurred for the crystal too: the scene room's 0.04 pre-blur is
+      // a second roughness floor on top of three's 0.0525, under which the owner's "glossy" crystal edits (roughness
+      // 0.085 -> 0.02 -> 0) could not change a pixel. Opaque acetate, metal and a legacy lens keep the scene room above.
+      if (this.canonicalLensMaterials.length || this.translucentFrameMeshes.length) {
+        seeThrough = createSeeThroughRoom();
+        this.seeThroughEnvironmentTarget = generator.fromScene(seeThrough, 0);
+      }
     }
-    finally {generator?.dispose(); environment.dispose();}
+    finally {generator?.dispose(); environment.dispose(); seeThrough?.dispose();}
     // A material lit by scene.environment has its envMapIntensity overwritten with scene.environmentIntensity at every
     // render (three r185, WebGLRenderer.setProgram), so setting envMapIntensity alone has no effect. The lens materials
     // own the environment map at SCENE_ENVIRONMENT_INTENSITY times lensEnvIntensity (1 = unchanged).
@@ -493,9 +536,18 @@ export class TryOnRenderer {
         }
       }
     }
-    if (this.canonicalEnvironmentTarget) for (const material of this.canonicalLensMaterials) {
-      material.envMap = this.canonicalEnvironmentTarget.texture;
+    if (this.seeThroughEnvironmentTarget) for (const material of this.canonicalLensMaterials) {
+      material.envMap = this.seeThroughEnvironmentTarget.texture;
       material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * (this.eyewear.lensEnvIntensity ?? 1);
+    }
+    // Every translucent frame material, the near-arm overlay clones included (installArmShaders collected them), owns the
+    // see-through room at the scene's intensity before any twin is cloned from it (twinOf, at the first render; the clone
+    // copies envMap and envMapIntensity). lensenv is a lens setting and does not apply.
+    if (this.seeThroughEnvironmentTarget) for (const {original} of this.translucentFrameMeshes) {
+      for (const material of Array.isArray(original) ? original : [original]) {
+        if (!(material instanceof MeshPhysicalMaterial) || !isTranslucentFrameMaterial(material)) continue;
+        material.envMap = this.seeThroughEnvironmentTarget.texture; material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY;
+      }
     }
     if (this.canonicalLensMaterials.length) this.canonicalLayers = new CanonicalLensLayers(
       this.lensMeshes.filter(mesh => !Array.isArray(mesh.material) && this.canonicalLensMaterials.includes(mesh.material as MeshPhysicalMaterial)),
@@ -506,7 +558,8 @@ export class TryOnRenderer {
    *  the order their shader wrappers nest (the temple clip is installed first). Needs the observed cheek geometry. */
   private installArmShaders(eyewearScene: Object3D): void {
     this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera,
-      eyewearPose: this.eyewearPose, observedFaceSurface: this.observedCheekGeometry ?? undefined});
+      eyewearPose: this.eyewearPose, observedFaceSurface: this.observedCheekGeometry ?? undefined,
+      lensInputUniform: this.twinUniforms.twinLensInput});
     // After the visibility overlays exist: a crystal arm's overlay draws a transmissive clone registered as frame, and
     // pass B must swap that clone to its twin too, or the overlay would transmit the clear colour in the corridors.
     eyewearScene.traverse(object => {
@@ -514,10 +567,10 @@ export class TryOnRenderer {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       if (materials.some(isTranslucentFrameMaterial)) this.translucentFrameMeshes.push({mesh: object, original: object.material});
     });
-    // Translucent frame materials exist only beside canonical optics (classifyAssetMaterials); the check keeps a legacy
-    // transmissive lens, which reads Three's pre-pass, on Three's transmission whatever the classification says.
+    // Authored crystal is frame beside either native or canonical lenses. Its input includes internal hardware;
+    // native lenses still use Three's arm-excluded pre-pass. The twins share that pass identity with temple visibility.
     this.legacyTransmissiveOptics = hasLegacyTransmissiveOptics(eyewearScene);
-    if (this.translucentFrameMeshes.length && !this.legacyTransmissiveOptics) {
+    if (this.translucentFrameMeshes.length) {
       this.lookThrough = new TranslucentLookThrough();
       const lenses = new Set<Material>();
       eyewearScene.traverse(object => {
@@ -811,7 +864,7 @@ export class TryOnRenderer {
       const image = this.lookThrough.render(this.renderer, this.scene, this.camera, width, height,
         [...this.lookThroughHidden, ...this.translucentTwins.values()],
         draw => {if (this.templeVisibility) this.templeVisibility.withLookThroughInput(draw); else draw();});
-      setCameraTransmissionSource(this.twinUniforms, image, width, height);
+      setCrystalLookThroughSource(this.twinUniforms, image, width, height);
     }
     this.renderer.setRenderTarget(null);
     let passes = 1;
@@ -904,13 +957,14 @@ export class TryOnRenderer {
     this.protectionConfiguration = null; this.nasalRect = null; this.reader.dispose();
     this.scene.background = null; this.scene.environment = null;
     this.shadows?.dispose(); this.shadows = null; this.shadowBackground = null;
+    this.studioRoot = null;
     this.canonicalLayers?.dispose(); this.canonicalLayers = null;
     this.eyewearAsset = null; this.fitFrontBounds = null; this.terminalFitAtScale = null;
     this.shadowReceiverGeometry?.dispose(); this.shadowReceiverGeometry = null; this.shadowReceiverAttribute = null;
     this.backgroundTexture?.dispose(); this.backgroundTexture = null;
     this.maskTexture?.dispose(); this.maskTexture = null; this.maskBytes = null;
     this.environmentTarget?.dispose(); this.environmentTarget = null;
-    this.canonicalEnvironmentTarget?.dispose(); this.canonicalEnvironmentTarget = null;
+    this.seeThroughEnvironmentTarget?.dispose(); this.seeThroughEnvironmentTarget = null;
     this.hairOcclusion?.dispose(); this.hairOcclusion = null;
     this.templeVisibility?.dispose(); this.templeVisibility = null;
     this.observedCheekGeometry?.dispose(); this.observedCheekGeometry = null; this.observedCheekAttribute = null; this.cheekContact = null;

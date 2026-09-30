@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><title>Studio material regression</title>
+<h1>Studio material regression</h1><button id="run">Run synthetic AR check</button><pre id="report">No camera is used.</pre><div id="captures"></div>
+<script type="module">
+import {Euler, Matrix4, Mesh, MeshPhysicalMaterial, Quaternion, Vector3} from 'three';
+import {TryOnRenderer} from '../src/render/renderer.ts';
+import {parseExternalModel, installExternalModel} from '../src/eyewear/external.ts';
+import {studioMaterialBindings} from '../src/studio/materials.ts';
+import {isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
+import {authoredAttenuationDistance} from '../src/render/eyewear-volume.ts';
+const width=720,height=480;
+const digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',value))].map(v=>v.toString(16).padStart(2,'0')).join('');
+function detection(canonical,yaw=0){
+ const matrix=new Matrix4().compose(new Vector3(0,0,-23),new Quaternion().setFromEuler(new Euler(0,yaw,0)),new Vector3(1,1,1));
+ const points=[];let mean=0;
+ for(let i=0;i<468;i++){const p=new Vector3().fromArray(canonical.positions,i*3).applyMatrix4(matrix);points.push(p);mean-=p.z/468;}
+ const vertical=2*Math.tan(63*Math.PI/360),horizontal=vertical*width/height;
+ const landmarks=points.map(p=>({x:.5+p.x/(-p.z*horizontal),y:.5-p.y/(-p.z*vertical),z:(-p.z/mean-1)/horizontal}));
+ for(const[a,b]of[[33,133],[362,263]])for(let i=0;i<5;i++)landmarks.push({x:(landmarks[a].x+landmarks[b].x)/2,y:(landmarks[a].y+landmarks[b].y)/2,z:(landmarks[a].z+landmarks[b].z)/2});
+ return{matrix:matrix.toArray(),landmarks,inferenceMs:0};
+}
+function difference(a,b){let changed=0,max=0;for(let i=0;i<a.data.length;i+=4){let delta=0;for(let c=0;c<3;c++)delta=Math.max(delta,Math.abs(a.data[i+c]-b.data[i+c]));max=Math.max(max,delta);if(delta>2)changed++;}return{pixels_over_2:changed,maximum_delta:max};}
+async function geometry(root){const rows=[];root.traverse(o=>{if(o instanceof Mesh)rows.push({name:o.name,index:o.geometry.index?Array.from(o.geometry.index.array):null,attributes:Object.fromEntries(Object.entries(o.geometry.attributes).map(([key,a])=>[key,Array.from(a.array)]))});});return digest(new TextEncoder().encode(JSON.stringify(rows)));}
+const assert=(condition,message)=>{if(!condition)throw Error(message);};
+async function run(){
+ document.querySelector('#captures').replaceChildren();
+ const model=parseExternalModel(location.search,location.origin);assert(model?.sha256,'Supply model and sha256 query parameters.');installExternalModel(model);
+ const source=document.createElement('canvas');source.width=width;source.height=height;
+ const ctx=source.getContext('2d');for(let y=0;y<height;y+=24)for(let x=0;x<width;x+=24){ctx.fillStyle=(x/24+y/24)%2?'#cba68d':'#eedccb';ctx.fillRect(x,y,24,24);}
+ const canonical=await fetch('/models/canonical-face.json').then(r=>r.json()),pose=detection(canonical);
+ const instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{studioControls:true,sync:false,steady:null});
+ const report={model_sha256:model.sha256,limits:'Synthetic fixed pose and generated background; no real camera, tracking, mobile performance or product-fidelity claim.',catalog:instance.studioMaterialCatalog,checks:[]};
+ const capture=label=>{instance.render(null);const pixels=instance.readback(),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.title=label;canvas.getContext('2d').putImageData(pixels,0,0);document.querySelector('#captures').append(canvas);return pixels;};
+ try{
+  assert(instance.renderedAssetIntegrity?.sha256===model.sha256,'Model integrity mismatch.');
+  for(let t=0;t<=5000;t+=100)assert(instance.pose(source,pose,t),'Synthetic pose failed.');
+  assert(instance.fitting.ready,'Synthetic fit did not settle.');
+  for(let t=5100;t<=8000;t+=100)assert(instance.pose(source,detection(canonical,.45),t),'Oblique pose failed.');
+  // Initialize draw-time matrices, overlay state and lazy twins before comparing edits against a stable render.
+  for(let i=0;i<3;i++)instance.render(null);
+  const initialGeometry=await geometry(instance.studioRoot), initialPose=JSON.stringify(instance.eyewearPose.matrixWorld.toArray());
+  // A completed guarded render may leave crystal twins assigned. The public preview entry restores originals first.
+  instance.applyStudioPreview({edits:{},viewer:{}});
+  const bindings=studioMaterialBindings(instance.studioRoot), chosen=[];
+  for(const[id,items]of bindings){const m=[...items][0];if(isOpticalMaterial(m)&&!chosen.some(x=>x.role==='lens'))chosen.push({id,m,role:'lens'});if(isTranslucentFrameMaterial(m)&&!chosen.some(x=>x.role==='crystal'))chosen.push({id,m,role:'crystal'});}
+  assert(chosen.some(x=>x.role==='lens'),'Fixture needs a native optical material.');
+  if(new URLSearchParams(location.search).get('expectCrystal')==='1')assert(chosen.some(x=>x.role==='crystal'),'Crystal regression fixture was not classified as crystal.');
+  const originalIridescence=new Map(chosen.map(({id,m})=>[id,m.iridescence]));
+  for(const{id,m,role}of chosen){
+   const baseline=capture(role+' baseline'), original={base_color:'#'+m.color.getHexString(),roughness:m.roughness};
+   const changed={base_color:role==='lens'?'#285ad8':'#e88945',roughness:.43};
+   const supported=instance.studioMaterialCatalog.find(row=>row.id===id).editable_keys;
+   if(supported.includes('transmission')){original.transmission=m.transmission;changed.transmission=.42;}
+   if(supported.includes('attenuation_distance')){
+    original.attenuation_distance=Number.isFinite(authoredAttenuationDistance(m))?authoredAttenuationDistance(m):0;
+    original.attenuation_color='#'+m.attenuationColor.getHexString();changed.attenuation_distance=.003;changed.attenuation_color='#b78cd0';
+   }
+   instance.applyStudioPreview({edits:{[id]:changed},viewer:{}});
+   const edited=capture(role+' edited'),delta=difference(baseline,edited);assert(delta.pixels_over_2>20,role+' material did not visibly change.');
+   instance.applyStudioPreview({edits:{[id]:original},viewer:{}});
+   const reset=capture(role+' reset'),resetDelta=difference(baseline,reset);assert(resetDelta.pixels_over_2===0,role+' reset did not restore pixels: '+JSON.stringify(resetDelta));
+   report.checks.push({role,material_id:id,edited:delta,reset:resetDelta});
+   if(supported.includes('iridescence')){
+    instance.applyStudioPreview({edits:{[id]:{iridescence:m.iridescence>0?0:1}},viewer:{}});
+    const coatingDelta=difference(reset,capture('iridescence toggled'));
+    assert(coatingDelta.pixels_over_2>20,'Iridescence toggle did not change pixels.');
+    // The material is live, so recover its initial coefficient from the original GLB baseline saved by this test.
+    instance.applyStudioPreview({edits:{[id]:{iridescence:originalIridescence.get(id)}},viewer:{}});
+    const coatingReset=difference(reset,capture('iridescence reset'));assert(coatingReset.pixels_over_2===0,'Iridescence reset did not restore pixels.');
+    report.checks.push({role:'iridescence',material_id:id,edited:coatingDelta,reset:coatingReset});
+   }
+  }
+  const baseline=capture('reflection baseline'),shadows=instance.shadows,twins=[...instance.translucentTwins.values()];
+  const reflection=model.lensEnvIntensity??1;
+  instance.applyStudioPreview({edits:{},viewer:{lens_reflection:reflection>.5?.3:3}});
+  assert(instance.shadows===shadows,'Reflection rebuilt shadows.');assert([...instance.translucentTwins.values()].every((v,i)=>v===twins[i]),'Reflection rebuilt twins.');
+  const reflectionDelta=difference(baseline,capture('reflection edited'));assert(reflectionDelta.pixels_over_2>20,'Lens reflection did not visibly change.');
+  instance.applyStudioPreview({edits:{},viewer:{lens_reflection:reflection}});
+  const resetReflection=difference(baseline,capture('reflection reset'));assert(resetReflection.pixels_over_2===0,'Reflection reset did not restore pixels.');
+  assert(await geometry(instance.studioRoot)===initialGeometry,'Material edits changed mesh geometry.');
+  assert(JSON.stringify(instance.eyewearPose.matrixWorld.toArray())===initialPose,'Material edits changed pose.');
+  report.checks.push({role:'lens_reflection',edited:reflectionDelta,reset:resetReflection,derived_materials_reused:true});
+  report.geometry_sha256=initialGeometry;report.geometry_unchanged=true;report.pose_unchanged=true;report.status='passed';return report;
+ }finally{instance.dispose();}
+}
+window.studioSmoke={run};document.querySelector('#run').onclick=async()=>{try{const result=await run();document.querySelector('#report').textContent=JSON.stringify(result,null,2);}catch(error){document.querySelector('#report').textContent=String(error);}};
+</script>

@@ -60,7 +60,7 @@ interface Draw {target: WebGLRenderTarget | null; background: unknown; drawn: Dr
 /** A TryOnRenderer on a recording backend, wired by the renderer's own arm-shader installation. By default the delivered
  *  case: a crystal arm (authored roles) around a gold core, beside a canonical lens. `crystal: false` builds a legacy
  *  asset instead: opaque arms around the same core beside a transmissive lens, with neither roles nor descriptors. */
-function harness(options: RendererOptions = {}, {crystal: withCrystal = true} = {}) {
+function harness(options: RendererOptions = {}, {crystal: withCrystal = true, nativeLens = false} = {}) {
   const draws: Draw[] = [];
   const state = {target: null as WebGLRenderTarget | null, viewport: new Vector4(), scissor: new Vector4(), color: new Color(), alpha: 1};
   const noop = () => {};
@@ -104,8 +104,8 @@ function harness(options: RendererOptions = {}, {crystal: withCrystal = true} = 
     installArmShaders(root: Group): void; translucentFrameMeshes: {mesh: Mesh}[]; lookThrough: TranslucentLookThrough | null;
     templeVisibility: {configuration: TempleVisibilityConfiguration | null}; protectionConfiguration: unknown};
   Object.assign(renderer, {fitRevealed: true});
-  const lens = new MeshPhysicalMaterial({transmission: withCrystal ? 0 : 1});
-  if (withCrystal) lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
+  const lens = new MeshPhysicalMaterial({transmission: nativeLens ? .94 : withCrystal ? 0 : 1});
+  if (withCrystal && !nativeLens) lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
     schema_version: 1, color_space: 'scene_linear_srgb_D65',
     density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
     normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
@@ -146,7 +146,7 @@ function harness(options: RendererOptions = {}, {crystal: withCrystal = true} = 
   const find = (draw: Draw, mesh: Mesh) => draw.drawn.find(entry => entry.mesh === mesh);
   // The overlays' live relief band (keep, drop), shared by every overlay.
   const relief = compile(overlayOf(core).material as Material).uniforms.templeVisibilityRelief as {value: Vector2};
-  return {renderer, internal, root, arm, core, lensMesh, lens, overlayOf, find, crystal, gold, draws, state,
+  return {renderer, internal, root, arm, core, lensMesh, lens, overlayOf, find, crystal, gold, draws, state, backend,
     render: (scene: Scene, camera: PerspectiveCamera) => backend.render(scene, camera), dispose: () => renderer.dispose()};
 }
 
@@ -178,6 +178,36 @@ function assertLooksThrough(f: Harness, draw: Draw, label: string): void {
 
 const passes = (f: Harness, extra: Map<WebGLRenderTarget, string> = new Map()) => f.draws.map(draw => draw.target === null ? 'canvas'
   : draw.target === f.internal.lookThrough?.target ? 'look-through' : extra.get(draw.target) ?? 'other');
+
+test('native lenses keep their PBR transmission while crystal uses separate canvas and lens-input sources', t => {
+  const f = harness({}, {nativeLens: true}); t.after(f.dispose);
+  assert.equal(f.renderer.pose(frame, detection(), 100), true);
+  assert.equal(f.internal.templeVisibility.configuration?.internalTransmissionIsLensInput, true);
+  f.renderer.render(null);
+  assert.deepEqual(passes(f), ['look-through', 'canvas', 'canvas']);
+  const [image, canvas] = f.draws as [Draw, Draw, Draw];
+  assert.equal(f.find(image, f.lensMesh), undefined, 'native lenses are absent from the owned crystal capture');
+  assert.equal(f.find(image, f.arm), undefined, 'sampling crystal is absent from its own capture');
+  assert.ok(f.find(image, f.core));
+  assert.ok(f.find(image, f.overlayOf(f.core))?.colorWrite, 'relieved core contributes to the capture');
+  assert.equal(f.lens.transmission, .94, 'lens optics stay authored');
+  assert.equal(f.lensMesh.material, f.lens);
+  const shader = compile(f.arm.material as Material);
+  assert.equal(shader.uniforms.twinCameraSource!.value, lookThroughTarget(f).texture);
+  assert.equal(shader.uniforms.twinLensSource!.value, canvas.background, 'lens-safe background remains separate');
+  assert.equal(shader.uniforms.twinLensInput, shader.uniforms.templeInternalLensInput);
+  const camera = new PerspectiveCamera(), transmission = new WebGLRenderTarget(8, 8);
+  t.after(() => transmission.dispose());
+  f.state.target = null;
+  Reflect.apply(f.internal.scene.onBeforeRender, f.internal.scene, [f.backend, f.internal.scene, camera, null]);
+  for (const mesh of [f.arm, f.overlayOf(f.arm)]) {
+    const draw = () => Reflect.apply(mesh.onBeforeRender, mesh, [f.backend, f.internal.scene, camera, mesh.geometry, mesh.material, null]);
+    f.state.target = transmission; draw();
+    assert.equal(shader.uniforms.twinLensInput!.value, 1, 'native internal input selects the background');
+    f.state.target = null; draw();
+    assert.equal(shader.uniforms.twinLensInput!.value, 0, 'canvas selects hardware again, including overlays');
+  }
+});
 
 test('a crystal asset with canonical lenses: every pass draws the twins, which look through to the owned image of the hardware inside', t => {
   const f = harness(); t.after(f.dispose);

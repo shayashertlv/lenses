@@ -38,24 +38,36 @@ for(const entry of manifest.cases){
  allowed.set(`${entry.id}.glb`,bytes);
 }
 allowed.set('manifest.json',Buffer.from(JSON.stringify(manifest)));
-// 'ar' stage: the transitive relative-import closure (within src/) of renderer.ts, rear-drop.ts, temple-clip.ts,
-// optical-material.ts and continuity.ts, sorted. Until 2026-09-27 only those five were fingerprinted, so an edit to a
-// runtime dependency (lens-material.ts, eyewear-volume.ts, lens-layers.ts, ...) left source_snapshot_stable true.
-const AR_STAGE_SOURCES=['src/assets.ts','src/eyewear/catalog.ts','src/eyewear/lens-appearance.ts','src/eyewear/optical-material.ts',
- 'src/face/protocol.ts','src/hair/mask-reuse.ts','src/hair/models.ts','src/hair/protocol.ts','src/render/bridge-pose.ts',
- 'src/render/continuity.ts','src/render/effective-optical-topology.ts','src/render/eyewear-fit.ts','src/render/eyewear-shadow.ts',
- 'src/render/eyewear-volume.ts','src/render/face-surface.ts','src/render/face-width.ts','src/render/hair-occlusion.ts',
- 'src/render/layer-overflow.ts','src/render/lens-layers.ts','src/render/lens-material.ts','src/render/nasal-shape.ts',
- 'src/render/nearest-optical-groups.ts','src/render/opaque-display.ts','src/render/optical-topology.ts','src/render/pixel-reader.ts',
- 'src/render/pose-stabilizer.ts','src/render/projection.ts','src/render/protection.ts','src/render/rear-drop.ts','src/render/renderer.ts',
- 'src/render/shadow-receiver.ts','src/render/temple-cheek-contact.ts','src/render/temple-clip.ts','src/render/temple-contact-depth.ts',
- 'src/render/temple-endpoint.ts','src/render/temple-head-fit.ts','src/render/temple-head-shell.ts','src/render/temple-surface.ts',
- 'src/render/temple-terminal-fit.ts','src/render/temple-visibility.ts'];
+// 'ar' stage: the transitive relative-import closure (within src/) of what the AR page imports, computed at launch.
+// It was a hand-kept list until 2026-09-30, and it went stale twice: until 2026-09-27 only five files were fingerprinted,
+// so an edit to a runtime dependency (lens-material.ts, eyewear-volume.ts, lens-layers.ts, ...) left
+// source_snapshot_stable true; then translucent-twin.ts and translucent-look-through.ts (every crystal pixel) were imported
+// by renderer.ts and never added. Static `from '...'` / `import('...')` specifiers that start with ./ or ../ are followed.
+async function importClosure(roots){
+ const seen=new Set(),todo=[...roots];
+ while(todo.length){
+  const name=todo.pop();if(seen.has(name))continue;seen.add(name);
+  const text=await fs.readFile(path.join(root,name),'utf8');
+  for(const match of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)){
+   const target=path.posix.normalize(path.posix.join(path.posix.dirname(name),match[1]));
+   if(target.startsWith('src/'))todo.push(target);
+  }
+ }
+ return [...seen].sort();
+}
+const AR_STAGE_SOURCES=stage==='ar'?await importClosure(['src/render/renderer.ts','src/eyewear/catalog.ts','src/render/continuity.ts']):[];
 const sources=['qa/provider-comparison.mjs','qa/provider-comparison.html','qa/provider-comparison-ar.html','qa/provider-comparison-lighting.mjs','package.json',
- ...(stage==='ar'?AR_STAGE_SOURCES:[])];
+ ...AR_STAGE_SOURCES];
 const snapshot=async()=>Object.fromEntries(await Promise.all(sources.map(async name=>[name,digest(await fs.readFile(path.join(root,name)))])));
 const before=await snapshot(),errors=[],warnings=[],failedResponses=[],blockedExternal=[];
-const server=await createServer({configFile:false,root,server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{
+// The harness's own dependency cache (review SPEED-4, 2026-09-29): vite's default is ar/node_modules/.vite, which the AR
+// app's dev server (8240, started by the Studio) and the other ar/qa scripts also write, each with its own config. A launch
+// that found it written under another config re-optimised it, and launches doing so together swapped each other's files
+// under their pages: one of four parallel observation runs lost its page to the 180 s timeout; a re-optimisation also
+// rewrites the files the running dev server serves its pages from. This config is identical on every launch, so after
+// the first run this cache stays valid and only harness launches ever write it.
+const HARNESS_VITE_CACHE_DIR='node_modules/.vite-provider-comparison';
+const server=await createServer({configFile:false,root,cacheDir:path.join(root,HARNESS_VITE_CACHE_DIR),server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{
  name:'private-provider-models',configureServer(server){server.middlewares.use((req,res,next)=>{
   const url=new URL(req.url??'/','http://127.0.0.1');if(!url.pathname.startsWith('/__providers/'))return next();
   const name=url.pathname.slice('/__providers/'.length),bytes=allowed.get(name);

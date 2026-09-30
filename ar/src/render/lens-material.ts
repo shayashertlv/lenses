@@ -12,6 +12,7 @@ import type {LensAppearanceDescriptor} from '../eyewear/lens-appearance.ts';
 import {classifyAssetMaterials, EFFECTIVE_OPTICAL_GROUP_PROFILE, isOpticalMaterial} from '../eyewear/optical-material.ts';
 import {validateCanonicalOpticalTopology} from './optical-topology.ts';
 import {validateEffectiveOpticalGroups} from './effective-optical-topology.ts';
+import {LENS_REFLECTION_KNEE, REFLECTION_LIMIT_GLSL, reflectionLimitCall} from './eyewear-reflection.ts';
 
 export const CANONICAL_LENS_SURFACE_PROFILE = 'front_sheet_v1';
 
@@ -110,7 +111,9 @@ export function createCanonicalLensMaterial(source: Material, descriptor: LensAp
   material.userData.canonicalLensProfile = effective ? EFFECTIVE_OPTICAL_GROUP_PROFILE : CANONICAL_LENS_SURFACE_PROFILE;
   if (effective) material.userData.canonicalOpticalGroupId = effectiveGroupId;
   renderStates.set(material, state);
-  material.customProgramCacheKey = () => effective ? 'canonical-effective-group-transport-v2' : 'canonical-lens-layer-transport-v3';
+  // v4 / v3 (2026-09-30): the reflection is added through the reflection limit (eyewear-reflection.ts); v5 / v4 (review
+  // AR-R2): with the lens's absolute knee, so lensenv scales ordinary mirror reflections linearly.
+  material.customProgramCacheKey = () => effective ? 'canonical-effective-group-transport-v4' : 'canonical-lens-layer-transport-v5';
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms, state, {uCanonicalReflectionRoughness: {value: descriptor.roughness}});
     shader.vertexShader = 'varying float vCanonicalLensV;\nvarying vec3 vCanonicalWorldPosition, vCanonicalFrontAxis;\n' + replaceOnce(shader.vertexShader,
@@ -125,7 +128,7 @@ export function createCanonicalLensMaterial(source: Material, descriptor: LensAp
          uniform vec2 uCanonicalLayerSize;
          uniform bool uCanonicalFirstLayer;\n`
       + (effective ? 'uniform bool uCanonicalGroupEnabled;\nuniform sampler2D uCanonicalGroupNearest;\n' + LENS_INCIDENCE_GLSL : '')
-      + LENS_RESPONSE_GLSL + shader.fragmentShader;
+      + LENS_RESPONSE_GLSL + REFLECTION_LIMIT_GLSL + shader.fragmentShader;
     if (effective) shader.fragmentShader = replaceOnce(shader.fragmentShader, '#include <clipping_planes_fragment>', /* glsl */`
       #include <clipping_planes_fragment>
       if (uCanonicalLayerMode > 2.5) {
@@ -177,8 +180,14 @@ export function createCanonicalLensMaterial(source: Material, descriptor: LensAp
       #endif
       // The optical response is already energy-accounted. Do not reuse the
       // physical material's Fresnel, fallback color, opacity or absorption.
-      gl_FragColor = vec4(canonicalResponse.transmission * canonicalBackground
-        + canonicalResponse.reflectance * canonicalEnvironment, uCanonicalLayerMode > 0.5 ? gl_FragCoord.z : 1.0);
+      // The lens is not tone-mapped (it carries the camera image), so its reflection is added through the reflection
+      // limit against what it transmits: the room's front panel clipped 10-13 % of r0009's lens to flat white
+      // (eyewear-reflection.ts; the see-through room no longer has that panel, and the limit keeps any other emitter off 255).
+      // The lens knee is absolute (exact up to 0.8 linear in total): lensenv multiplies the reflection before the limit and
+      // must scale an ordinary mirror reflection linearly, as the pipeline's lensenv recommendation assumes.
+      vec3 canonicalThrough = canonicalResponse.transmission * canonicalBackground;
+      gl_FragColor = vec4(canonicalThrough + ${reflectionLimitCall('canonicalResponse.reflectance * canonicalEnvironment', 'canonicalThrough', LENS_REFLECTION_KNEE)},
+        uCanonicalLayerMode > 0.5 ? gl_FragCoord.z : 1.0);
       }
     `);
   };

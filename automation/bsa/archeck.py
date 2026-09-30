@@ -215,6 +215,33 @@ def validate_ar_result(result: dict, *, expected_models: dict[str, str | None], 
     return {"ok": ok, "harness_ok": harness_ok, "reasons": reasons, "models": per_model}
 
 
+def _descendants_opt_out():
+    """modeler.winqos.DescendantsOptOut when importable (the modeler package beside bsa/), else a context that does nothing:
+    bsa itself never depends on modeler, the opt-out is a speed measure only."""
+    try:
+        from modeler.winqos import DescendantsOptOut
+    except ImportError:
+        import contextlib
+        return contextlib.nullcontext()
+    return DescendantsOptOut()
+
+
+def run_harness_command(cmd: list[str], *, cwd, timeout_s: int) -> tuple[int | None, str, str]:
+    """(returncode or None on a timeout, stdout, stderr) of one harness run, with every descendant of this process opted out
+    of Windows power throttling while it runs.
+
+    Why (2026-09-29): the harness's processes are grandchildren of the job (python -> node -> vite, Chromium: 37 in one run)
+    and inherit no opt-out. From a job the Studio detached, the three GLB-only runs of an observation took 156.4 s against
+    69.1 s from a shell; with every descendant opted out, 52.9 s (modeler.winqos). The renders are the same bytes either way.
+    The sweep walks this process's tree (the harness's pid is not needed, so several runs at once each sweep it harmlessly)."""
+    with _descendants_opt_out():
+        try:
+            proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout_s, encoding="utf-8", errors="replace")
+            return proc.returncode, proc.stdout, proc.stderr
+        except subprocess.TimeoutExpired as e:
+            return None, str(e.stdout or ""), f"timeout after {timeout_s}s"
+
+
 def run(glb_paths: dict[str, str | Path], out_dir: str | Path, *, ar_views=DEFAULT_AR_VIEWS,
         environment: dict | None = None, background: str = "checker", shadows: bool = True,
         photos: dict[str, dict[str, str]] | None = None, description: str | None = None,
@@ -236,12 +263,7 @@ def run(glb_paths: dict[str, str | Path], out_dir: str | Path, *, ar_views=DEFAU
     if old.exists():
         old.unlink()  # never read a stale report as this run's result
     cmd = [sys.executable, "-m", "qa.provider_comparison", "--manifest", str(manifest), "--output", str(out_dir), "--ar-check"]
-    try:
-        proc = subprocess.run(cmd, cwd=str(AUTOMATION), capture_output=True, text=True, timeout=timeout_s,
-                              encoding="utf-8", errors="replace")
-        returncode, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
-    except subprocess.TimeoutExpired as e:
-        returncode, stdout, stderr = None, str(e.stdout or ""), f"timeout after {timeout_s}s"
+    returncode, stdout, stderr = run_harness_command(cmd, cwd=AUTOMATION, timeout_s=timeout_s)
     result = parse_report(out_dir, ids)
     result.update({"returncode": returncode, "command": cmd, "manifest_path": str(manifest), "out_dir": str(out_dir),
                    "stderr_tail": stderr[-2000:] if stderr else "", "stdout_tail": stdout[-1500:] if stdout else ""})

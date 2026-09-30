@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import {TryOnRenderer} from '../src/render/renderer.ts';
 import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
 import {registerPinnedGeometry} from '../src/render/continuity.ts';
-import {lightingConfigurations,createLighting,applyRuntimeLighting,environmentSuffix} from './provider-comparison-lighting.mjs';
+import {lightingConfigurations,createLighting,applyRuntimeLighting,environmentSuffix,caseLensEnvIntensity} from './provider-comparison-lighting.mjs';
 
 const width=720,height=480;
 function detection(canonical,yaw=0,pitch=0,roll=0){
@@ -34,6 +34,8 @@ async function run(){
   for(const [key,limit]of[['yaw_degrees',80],['pitch_degrees',60],['roll_degrees',60]])if(!Number.isFinite(view[key]??0)||Math.abs(view[key]??0)>limit)throw Error(`AR ${key} must be finite and within +/-${limit}`);
  }
  if(!['solid','checker'].includes(backgroundFixture))throw Error('background_fixture must be solid or checker');
+ // Each case's lensenv (the try-on link's lens reflection multiplier), validated before any case loads.
+ const lensEnv=new Map(manifest.cases.map(entry=>[entry.id,caseLensEnvIntensity(entry)]));
  const inputDescription=manifest.input_description;
  if(inputDescription!==undefined&&typeof inputDescription!=='string')throw Error('input_description must be a string');
  const report={schema_version:1,status:'running',quality_verdict:'unmeasured',accepted:false,cases:[],
@@ -57,11 +59,13 @@ async function run(){
    status:'running',renders:[],orientation_override_applied:false,
    orientation_override_scope:'Browser harness only; supplied asset coordinates may already be canonicalized or otherwise transformed.',
    input_provenance:entry.input_provenance??entry.provenance??{pipeline:entry.pipeline??null},
-   input_pipeline:entry.pipeline??null};report.cases.push(row);let instance;
+   input_pipeline:entry.pipeline??null,lens_env_intensity:lensEnv.get(entry.id)??null};report.cases.push(row);let instance;
   try{
    const url=`/__providers/${entry.id}.glb`;
    registerPinnedGeometry(url,entry.model_sha256);
-   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:-.14});
+   // With lens_env_intensity the lenses are drawn as the owner's try-on link draws them (?lensenv=, tryon.py).
+   const lensEnvIntensity=lensEnv.get(entry.id);
+   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:-.14,...(lensEnvIntensity===undefined?{}:{lensEnvIntensity})});
    const started=performance.now();
    instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{sync:false,steady:null});
    row.load_milliseconds=performance.now()-started;row.asset_integrity=instance.renderedAssetIntegrity;

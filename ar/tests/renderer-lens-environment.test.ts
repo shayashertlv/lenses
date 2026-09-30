@@ -53,7 +53,7 @@ function configured(lensEnvIntensity: number | undefined, {canonicalLens}: {cano
   }
   root.add(left, right, lensMesh);
   const internal = renderer as unknown as {scene: Scene; environmentTarget: WebGLRenderTarget | null;
-    canonicalEnvironmentTarget: WebGLRenderTarget | null; configure(face: typeof canonical, root: Group): void};
+    seeThroughEnvironmentTarget: WebGLRenderTarget | null; configure(face: typeof canonical, root: Group): void};
   internal.configure(canonical, root);
   const drawn = lensMesh.material as MeshPhysicalMaterial;
   return {renderer, internal, lens, drawn, arms, dispose: () => renderer.dispose()};
@@ -81,8 +81,8 @@ test('lensenv scales a canonical lens\'s sharp environment map; without it the c
   for (const [lensenv, expected] of [[2.5, SCENE_ENVIRONMENT_INTENSITY * 2.5], [undefined, SCENE_ENVIRONMENT_INTENSITY]] as const) {
     const f = configured(lensenv, {canonicalLens: true}); t.after(f.dispose);
     assert.notEqual(f.drawn, f.lens, 'the canonical lens material replaces the authored one');
-    assert.ok(f.internal.canonicalEnvironmentTarget, 'canonical optics get an unblurred environment');
-    assert.equal(f.drawn.envMap, texture(f.internal.canonicalEnvironmentTarget), `lensenv ${lensenv}: the sharp environment`);
+    assert.ok(f.internal.seeThroughEnvironmentTarget, 'canonical optics get an unblurred environment');
+    assert.equal(f.drawn.envMap, texture(f.internal.seeThroughEnvironmentTarget), `lensenv ${lensenv}: the sharp environment`);
     assert.equal(f.drawn.envMapIntensity, expected, `lensenv ${lensenv}`);
   }
 });

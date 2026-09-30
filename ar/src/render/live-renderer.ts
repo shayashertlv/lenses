@@ -11,6 +11,7 @@ import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
 import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
 import type {ShadowSettings} from './eyewear-shadow.ts';
+import type {StudioPreview} from '../studio/protocol.ts';
 
 /** Finished frames an audit passes over while they draw a mask reused from another frame, waiting for one that draws
  *  its own (the CPU reference composes only a frame's own mask); after that many it audits a reused one and says so. */
@@ -61,6 +62,8 @@ export class LiveRenderer {
   setFitAdjustment(value: number): void {this.renderer.setFitAdjustment(value);}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
   setShadows(settings: Partial<ShadowSettings>): void {this.renderer.setShadows(settings);}
+  get studioMaterialCatalog() {return this.renderer.studioMaterialCatalog;}
+  applyStudioPreview(preview: StudioPreview): void {this.renderer.applyStudioPreview(preview);}
   /** The next finished frame is audited; the result is available through takeAudit(). */
   requestAudit(): void {if (!this.disposed) {this.auditRequested = true; this.auditPassedOver = 0;}}
   /** An audit is waiting for a frame: with a hair schedule the pipeline then gives the next frame its own mask. */
