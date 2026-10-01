@@ -1,7 +1,7 @@
 # Agentic eyewear studio
 
-A local interface for the persistent Astra–Blender agent. Upload references, write
-a brief, fill in known product details, and start a budgeted build from an empty
+A local interface for the persistent Astra–Blender agent. Upload references, enter
+the exact product identity and known details, and start a budgeted build from an empty
 Blender scene. The agent chooses its modeling and inspection actions through MCP.
 Opening the app, importing an existing result and adjusting materials make no paid
 model requests.
@@ -33,19 +33,24 @@ GEMINI_API_KEY=your-gemini-api-key
 
 Keys stay on the Python server. The UI receives availability flags only. Explicit
 nonempty values in the selected `.env` take precedence over process environment
-values. `GOOGLE_API_KEY` is also accepted for Gemini. Description generation uses
-`gemini-3.1-pro-preview` by default; use `--gemini-model` to select another supported
-Gemini model. No image or inference request is sent until the corresponding button
-is clicked.
+values. `GOOGLE_API_KEY` is also accepted for Gemini. **Generate specifics** uses
+`gemini-3.1-pro-preview` with Google Search grounding by default; `--gemini-model`
+must select a model supporting both Search and structured output. Syntax-only repair
+uses `gemini-3.1-flash-lite` without search. No image or inference request is sent
+until the corresponding button is clicked.
 
 ## Workflow and cost
 
 1. Add product images and label their view and provenance. Generated auxiliary
    views are weaker evidence than original product photographs.
-2. Enter a description and known facts about frame material, finish, colour,
-   lenses, dimensions and small details. Unknown values can remain unknown.
-3. Optionally ask Gemini to draft the description. Review its uncertainty notes
-   and inferred details; known user-supplied specifications remain authoritative.
+2. Enter the exact brand, model and colour/size SKU code. Add known facts about
+   frame material, finish, colour, lenses, dimensions and small details if available.
+3. Press **Generate specifics** to search online and fill **What you know**. Only
+   fields supported by citations for that exact variant are populated; unknown or
+   conflicting facts remain `null` in JSON and unknown in the form. Each accepted
+   field has source links; Google Search suggestions and the sorted JSON are
+   available for inspection. User-supplied values remain authoritative and are
+   labeled separately. The free-text description section has been removed.
 4. Choose the Astra budget and start. The default is **$20**, `max` reasoning effort
    and an 8192-token response ceiling. This is a ceiling, not a spending target.
 5. Inspect progress, accounted usage and held reservations. Stop requests finish
@@ -53,27 +58,57 @@ is clicked.
    original conversation, checkpoint and remaining trial allowance.
 6. Inspect the result in 3D or AR, adjust appearance, then **Save revision**.
 
-The optional Gemini description request is billed separately from the Astra
-modeling cap. Failed/unknown Astra requests retain their reserved maximum cost;
-refreshing or resuming does not erase this accounting. There are no silent paid
-retries or automatic budget increases. Provider charges should be reconciled with
-the provider dashboard; local receipts are the guard's evidence.
+Gemini research, Google Search and any formatting repair are billed separately
+from the Astra modeling cap. A button press permits at most **two Pro research
+attempts**. Provider/transport, blocked/truncated, missing-grounding or invalid-schema
+failures resend to Pro; they never ask a fallback model to invent specifics. Only a
+completed, grounded Pro answer with invalid JSON syntax may go to Flash Lite for
+one formatting repair per answer. The repair must preserve every key/scalar value
+in order, then pass the original source checks; otherwise fresh Pro research is
+required within the same two-attempt limit. This permits at most **four model
+requests per button press**: two research attempts and two possible syntax repairs.
+Exhaustion leaves a visible error and
+the button can explicitly retry. Restarting never silently retries paid work.
+
+The API's actual search queries, cited chunks and field-linked supports must be
+present; enabling Search alone is insufficient. Model-generated URLs or confidence
+scores do not establish evidence. Exact variant codes must be in the requested
+identity and cited identity excerpt. Dimensions need the exact dimension label,
+number and mm unit; family options and visual estimates are not accepted. This is
+a conservative **source-backed** filter, not a guarantee of absolute truth. A source
+can still be wrong. Manufacturer lens base colour and front mirror appearance are
+kept distinct in the modeling instructions.
+
+`specifics-requests/` stores an attempt journal, raw output and grounding metadata
+for review; `specifics.json` holds the recursively sorted research result. The
+algorithm receives sorted structured values and their user/web provenance, not an
+old description. Editing a generated value makes it user-supplied. Changing product
+identity or reference images clears earlier generated fields; manual values remain.
+Failed/unknown Astra requests retain their reserved maximum cost. Refreshing or
+resuming does not erase accounting. Provider charges should be reconciled with the
+provider dashboard; local receipts include unresolved usage where necessary.
+
+Google documents Search with structured outputs for Gemini 3 models in its
+[structured-output guide](https://ai.google.dev/gemini-api/docs/structured-output#structured_outputs_with_tools)
+and [grounding metadata reference](https://ai.google.dev/api/generate-content#GroundingMetadata).
 
 ## Appearance controls
 
-Both previews share the material panel. Controls are available only for features
-actually authored in a native GLB:
+Both previews share the material panel. The preview stays visible beside scrolling
+controls on desktop and as a compact pinned panel on mobile. Every available control
+explains its effect, direction and relevant limits. Controls are available only for
+features actually authored in a native GLB:
 
 | Control | Changes |
 | --- | --- |
 | Colour / tint | Base material colour, multiplied with any existing texture |
 | Mirror / metallic strength | Metallic reflection response |
 | Surface roughness | Sharp versus blurred highlights |
-| See-through strength | Transmission for existing transmissive materials |
-| Glass refraction | Index of refraction |
+| See-through strength | Transmitted light for existing materials; not alpha opacity |
+| Glass refraction | Index of refraction; AR crystal uses an approximate straight look-through |
 | Clearcoat gloss / roughness | Existing clear surface coating |
 | Colour-shift strength, refraction, thickness | Existing iridescent coating |
-| Absorption tint / distance | Existing volume tint; 0 distance means unlimited |
+| Absorption tint / distance | Existing volume tint; larger distances weaken it, 0 disables absorption |
 | Lens reflection | Shared viewer lighting multiplier, saved with the project |
 
 The material picker identifies which authored parts share a material. Editing it
@@ -132,5 +167,8 @@ node qa/studio-preview-smoke.mjs
 ```
 
 Provider transports are mocked in unit tests. Running tests does not authorize
-paid modeling or Gemini description calls. Rendering tests and interactive review
-cover the actual exported model and current viewer independently of inference.
+paid modeling or Gemini research calls. Browser tests cover field population,
+sources, request failures and retries, research recovery, control explanations and
+scrolling in both preview modes across six desktop/mobile viewports. Rendering
+tests and interactive review cover the actual exported model and current viewer
+independently of inference.

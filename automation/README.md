@@ -16,7 +16,7 @@ This folder holds five routes. Which one is current is the owner's decision; the
 - Live Blender agent (`python -m blender_agent`): [blender_agent/README.md](blender_agent/README.md).
   Experimental autonomous Astra session using the standard Agents SDK and community Blender MCP, with a persistent
   editable scene, native full-geometry export and actual AR feedback. The [local studio](blender_agent/STUDIO.md)
-  adds image intake, optional Gemini descriptions, budgeted runs and shared 3D/AR material controls;
+  adds image intake, optional Gemini web research for sourced specifications, budgeted runs and shared 3D/AR material controls;
   launch it with `agentic-studio.cmd`. This opt-in route leaves the live Railway application unchanged.
 
 Current route: [`segmented_ar_v1`](plan/SEGMENTED_AR_JOB.md), with an opt-in [canonical Astra editing stage](plan/SEGMENTED_ASTRA.md). The stage edits retained source parts and optical descriptors, recompiles through the strict optical contract, and observes the result in actual AR before promoting a checkpoint. See the Astra runbook for current validation status; implementation and runtime checks do not establish photographic accuracy. The [earlier readiness audit](plan/ASTRA_READINESS_2026_09_23.md) is historical. The separate Blender editor remains incompatible with these optical assets.

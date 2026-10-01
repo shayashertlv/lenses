@@ -1,6 +1,6 @@
 """Loopback-only agentic eyewear studio. Run with ``python -m blender_agent.studio_server``.
 
-Development/startup never invokes a paid model. Start/resume and Describe are explicit
+Development/startup never invokes a paid model. Start/resume and Generate specifics are explicit
 CSRF-protected actions. Only this studio's allowlisted job artifacts are served.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ import httpx
 
 from . import studio_description
 from .studio_jobs import (ACTIVE, AUTOMATION, DEFAULT_BLENDER, DEFAULT_ROOT, JobError, JobStore,
-                          atomic_json, bounded_path, clean_process_env, now, process_identity, process_options, read_json, sha)
+                          atomic_json, bounded_path, clean_process_env, known_spec, now, process_identity, process_options, read_json, sha, validated_specs)
 
 
 class Studio:
@@ -37,21 +37,22 @@ class Studio:
         self.ar_lock = threading.Lock()
         self.web_root = Path(__file__).with_name("studio_web")
         self.ar_root = AUTOMATION.parent / "ar"
-        self.recover_descriptions()
+        self.recover_research()
 
-    def recover_descriptions(self):
+    def recover_research(self):
         """A lost local request is not retried; users can review and explicitly ask again."""
         with self.store.lock:
             for path in (self.store.root / "jobs").glob("*/job.json"):
                 job = self.store.metadata(path.parent.name)
-                if job["status"] != "describing":
+                if job["status"] not in {"describing", "researching"}:
                     continue
-                owner = job.get("description_request") or {}
+                owner = job.get("specifics_request") or job.get("description_request") or {}
                 identity = process_identity(owner["pid"]) if type(owner.get("pid")) is int else False
                 if identity is False or (identity is not None and owner.get("process_created") is not None
                                           and identity != owner["process_created"]):
-                    job.update(status="draft", error="Previous description request was interrupted. Its Gemini charge may be unresolved; no automatic retry occurred.")
+                    job.update(status="draft", error="Previous Gemini request was interrupted. Its Gemini charge may be unresolved; no automatic retry occurred after restart.")
                     job.pop("description_request", None)
+                    job.pop("specifics_request", None)
                     self.store.save(job)
 
     @property
@@ -67,42 +68,75 @@ class Studio:
                                  "blender": self.store.blender.is_file(),
                                  "ar": (self.ar_root / "node_modules/vite/bin/vite.js").is_file(),
                                  "stop": True}, "ar_origin": self.store.ar_origin,
-                "description_billing": "Gemini description is an optional separately billed request; the Astra cap covers building and resumes"}
+                "specifics_billing": "Google Search research is separately billed: at most two Gemini Pro attempts, plus one syntax-only repair per malformed answer. The Astra cap covers building and resumes."}
 
-    def describe(self, job_id):
+    def specifics(self, job_id):
         with self.store.lock:
             job = self.store.metadata(job_id)
             if job["status"] != "draft" or job["started_once"]:
-                raise JobError("Describe is available only before the first start", 409)
+                raise JobError("Generate specifics is available only before the first start", 409)
             keys = studio_description.credentials(self.store.env_file)
             key = keys.get("GEMINI_API_KEY") or keys.get("GOOGLE_API_KEY")
             if not key:
                 raise JobError("Configure GEMINI_API_KEY or GOOGLE_API_KEY on the server", 409)
-            job["status"] = "describing"
-            job["description_request"] = {"pid": os.getpid(), "process_created": process_identity(os.getpid()), "started_at": now()}
+            if not job["name"].strip() or job["name"] == "Untitled eyewear":
+                raise JobError("Enter the exact brand, model and variant/SKU before generating specifics", 400)
+            job["status"] = "researching"
+            job["specifics_request"] = {"pid": os.getpid(), "process_created": process_identity(os.getpid()), "started_at": now()}
             job["error"] = None
             self.store.save(job)
+        receipts = self.store.directory(job_id) / "specifics-requests"
+        receipt_path = receipts / (uuid.uuid4().hex + ".json")
+        journal = {"created_at": now(), "product_name": job["name"], "state": "started", "attempts": []}
+        def record_attempts(value):
+            journal.update(value)
+            atomic_json(receipt_path, journal)
         try:
-            result = studio_description.describe(self.store.image_paths(job), job["description"], job["specs"],
-                                                 key=key, model=self.gemini_model)
+            receipts.mkdir(exist_ok=True)
+            atomic_json(receipt_path, journal)
+            provenance = job.get("spec_provenance", {})
+            user_specs = {k: v for k, v in job["specs"].items() if known_spec(v) and provenance.get(k, {}).get("kind") != "web"}
+            result = studio_description.generate_specifics(self.store.image_paths(job), job["name"], user_specs,
+                key=key, model=self.gemini_model, on_attempt=record_attempts)
+            result["specs"] = validated_specs(result["specs"])
             with self.store.lock:
                 job = self.store.metadata(job_id)
-                receipts = self.store.directory(job_id) / "descriptions"
-                receipts.mkdir(exist_ok=True)
-                atomic_json(receipts / (uuid.uuid4().hex + ".json"), {"created_at": now(), **result})
-                # Inferred text cannot erase dimensions/material facts the user already supplied.
-                specs = {**result["specs"], **{k: v for k, v in job["specs"].items()
-                                              if v is not None and not (isinstance(v, str) and v.strip().lower() in ("", "unknown"))}}
-                job.update(description=result["description"], specs=specs, uncertainties=result["uncertainties"],
-                           description_model=result["model"], status="draft")
+                previous_auto = validated_specs((job.get("specifics") or {}).get("specs", {}))
+                previous_provenance = job.get("spec_provenance", {})
+                manual = {k: v for k, v in validated_specs(job["specs"]).items() if known_spec(v)
+                    and not (previous_provenance.get(k, {}).get("kind") == "web" and v == previous_auto.get(k))}
+                specs = {k: v for k, v in result["specs"].items() if known_spec(v)}
+                provenance = {k: {"kind": "web", "evidence": result["evidence"].get(k, [])} for k in specs}
+                for field, value in manual.items():
+                    if specs.get(field) is not None and specs[field] != value:
+                        result["uncertainties"].append(f"{field}: your supplied value was retained over the different researched value.")
+                    specs[field] = value
+                    provenance[field] = {"kind": "user", "evidence": []}
+                canonical = studio_description.canonical_json(result)
+                specifics_path = self.store.directory(job_id) / "specifics.json"
+                temporary = specifics_path.with_name("specifics." + uuid.uuid4().hex + ".tmp")
+                temporary.write_text(canonical + "\n", encoding="utf-8")
+                os.replace(temporary, specifics_path)
+                job.update(specs=specs, spec_provenance=provenance, specifics=result, specifics_json=canonical,
+                           uncertainties=result["uncertainties"], specifics_model=result["model"], status="draft")
                 self.store.save(job)
+                journal.update(state="completed", result=result)
+                atomic_json(receipt_path, journal)
                 return {**result, "specs": specs}
+        except studio_description.SpecificsError as error:
+            journal.update(state="failed", error=str(error), attempts=error.attempts)
+            atomic_json(receipt_path, journal)
+            with self.store.lock:
+                job = self.store.metadata(job_id)
+                job["error"] = str(error)
+                self.store.save(job)
+            raise JobError(str(error), 502) from None
         finally:
             with self.store.lock:
                 job = self.store.metadata(job_id)
-                if job["status"] == "describing":
+                if job["status"] == "researching":
                     job["status"] = "draft"
-                job.pop("description_request", None)
+                job.pop("specifics_request", None)
                 self.store.save(job)
 
     def materials(self, job_id):
@@ -326,8 +360,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply(self.studio.store.start(job_id, resume=action == "resume"), 202)
                     if action == "stop":
                         return self.reply(self.studio.store.stop(job_id), 202)
-                    if action == "describe":
-                        return self.reply(self.studio.describe(job_id))
+                    if action == "specifics":
+                        return self.reply(self.studio.specifics(job_id))
             if not mutation and not path.startswith("/api/"):
                 relative = "index.html" if path == "/" else path.lstrip("/")
                 if Path(relative).suffix not in {".html", ".js", ".css", ".svg", ".png", ".ico"}:

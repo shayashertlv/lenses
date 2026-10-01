@@ -1,7 +1,7 @@
 # Live Astra Blender agent
 
 The [local eyewear studio](STUDIO.md) provides image intake, guided specifications,
-optional Gemini description generation, budgeted runs, and shared appearance
+optional Gemini web research for sourced specifics, budgeted runs, and shared appearance
 controls in current 3D/AR previews. Start it with `agentic-studio.cmd` from
 `automation/`. It uses the persistent agent described below.
 

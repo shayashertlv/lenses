@@ -52,6 +52,20 @@ def test_frozen_draft_and_checkpoint_identity(tmp_path):
         store._checkpoint(job["id"])
 
 
+def test_algorithm_brief_uses_sorted_specifics_provenance_not_legacy_description(tmp_path):
+    store = jobs.JobStore(tmp_path)
+    public = store.create({"name": "Oakley OO9208 44", "description": "obsolete invented description",
+                           "specs": {"lens_color": "Rose", "frame_color": "Black"}})
+    job = store.metadata(public["id"])
+    job["specifics"] = {"schema_version": 1, "specs": {"lens_color": "Rose"}, "evidence": {"lens_color": [{"url": "https://example.com/", "quote": "Base: Rose"}]},
+                         "search_suggestions_html": "<div>must not enter artist prompt</div>"}
+    prompt = store._prompt(job)
+    assert "obsolete invented description" not in prompt and "must not enter artist prompt" not in prompt
+    assert '"kind": "user"' in prompt and '"quote": "Base: Rose"' in prompt
+    assert prompt.index('"frame_color"') < prompt.index('"lens_color"')
+    assert "not the front reflection colour" in prompt
+
+
 def test_progress_sums_settlements_and_unknown_holds_not_all_reservations(tmp_path):
     store = jobs.JobStore(tmp_path)
     agent = tmp_path / "agent"
