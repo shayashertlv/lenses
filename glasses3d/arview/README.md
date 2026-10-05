@@ -1,0 +1,264 @@
+# Lenses AR
+
+The browser-based eyewear try-on pipeline served at `/ar/` by the Lenses Python application.
+The root application stays on Railway, started by `Procfile` with `python -m UI.app`.
+Camera images, face tracking, hair segmentation and rendering stay in the browser.
+
+## Run and verify
+
+Run these commands inside `ar/` with Node.js 22.18 or later:
+
+```bash
+npm install
+npm test
+npm run build
+npm run preview
+node qa/pipeline-smoke.mjs --base=http://127.0.0.1:8241
+```
+
+`npm run preview` serves the frozen build at `http://127.0.0.1:8241/`.
+`npm run dev` serves the development build with hot reload at port 8240; use a frozen build for measurements.
+Opening the page does not start the camera. Choose glasses and a hair model, then open the camera.
+The local agentic studio also uses `/studio-viewer.html` for an orbitable 3D view of the same hash-pinned native GLB.
+Both views accept bounded material previews only when explicitly embedded on loopback with `studioOrigin` and
+`studioChannel` query parameters. Messages must come from that parent window and origin, match the random channel and
+model SHA-256, and contain supported material properties. AR retains pending edits while the camera is closed and
+applies them when the model loads, without reopening the camera for subsequent edits. Transmission cannot cross
+between opaque and transmitting during a live preview; canonical optical descriptors and unlit materials are not
+edited through native PBR controls. Colors are sRGB hex and absorption distances are metres (zero means unlimited).
+The 3D view uses comparable room lighting; AR additionally applies camera composition, fitting, shadows and occlusion.
+`node qa/studio-preview-smoke.mjs` verifies visible edits and exact reset in synthetic AR, including crystal twins and
+material shadows; optional `--model=http://127.0.0.1:PORT/model.glb --sha256=...` also tests a local product revision.
+This local tooling does not publish or change `ar/site/`.
+Look forward for a few seconds while automatic sizing collects consistent upper-face observations. The Fit panel
+shows progress; glasses and their shadows appear only after calibration and size settling finish. Refit hides
+them again until the new fit is ready. Later slider adjustments remain visible. The default includes an 8% wider visual fit; the size slider's zero
+uses that fit. Size adjustment provides a small personal correction within the frame's supported size limits;
+Refit starts a new calibration. Switching glasses while the camera is open reuses the fit; closing and reopening starts fresh.
+The normal page includes fitting, shadows and occlusion; no preview URL or comparison mode is required.
+
+## Frame pipeline
+
+1. **Capture** (`src/pipeline/`): acquire a frame of at most 1280 pixels on its longest edge. Laptops default
+   to VideoFrame capture; phones and tablets use canvas capture. Frame identity and a SHA-256 bind inference
+   results to the captured pixels. The frame pump bounds ownership and overlaps inference with preparation.
+2. **Inference** (`src/face/`, `src/hair/`): workers run the pinned MediaPipe face landmarker and hair segmenter
+   on reduced inputs. The face detector tries CPU first. Hair uses a 640-pixel input; Apple phones and tablets
+   default to the CPU hair delegate, while other devices use the capability probe.
+3. **Attachment** (`src/render/`): reconstruct the observed face, retain a separate cheek-depth input, apply
+   nasal shaping, smooth orientation/depth, and pin the bridge to the current nose landmarks. The default
+   movement gains are 0.3 for rotation and 0.8 for depth, with a 3 Hz velocity filter and 1 Hz resting cutoffs.
+   Image-plane attachment is not given another smoothing delay.
+   **Sizing** (`src/render/eyewear-fit.ts`) compares upper-face proportions with the frame front in a shared virtual
+   reference view, removing initial camera distance and head rotation from the observations. Each model has a
+   preferred front-to-face proportion. A robust estimate requires both
+   sufficient samples and stable observation time, eases into a bounded uniform scale around the bridge, then
+   stays locked through head movement and tracking loss until Refit or a new camera session. Calibration stores
+   only rendering proportions in memory; it does not measure physical face dimensions.
+4. **Temple visibility**: project the fixed arm geometry, update each hair endpoint once per frame, and
+   combine head depth, observed cheek depth and the current hair mask. Audit renders reuse that same state.
+5. **Face shadows** (`src/render/eyewear-shadow.ts`): project soft frame shadows and colored lens transmission
+   onto the observed face. Lens tint and gradients come from the loaded material, including its texture UV set.
+   A camera-relative upper light approximates soft studio lighting; it does not estimate the room's lighting.
+   The shadowed camera underlay stays on the GPU and is shared by the lenses, temple fades and hair composition.
+   The Shadows controls change frame strength, lens tint and softness without restarting the camera.
+   Defaults are 16% frame strength, 18% lens tint and 1.9× softness.
+6. **GPU composition**: render directly to the visible canvas, with stencil protection for the optical and
+   nasal regions. Hair blending stays inside the editable arm corridors. Explicitly authored front parts
+   receive no hair-mask shader, while actual face depth remains active. Untagged models retain the legacy behavior.
+   Camera image pixels stay on the GPU
+   during live use. Canonical optics read one generated capacity flag per camera/light layer pass; an explicit
+   audit can separately read the rendered image.
+7. **Profiling**: collect numeric timings and frame age. Images, detections, masks and hashes are excluded
+   from timing reports.
+
+On laptops every frame waits for its own hair mask. Phones and tablets normally segment every second frame
+and reuse the latest sufficiently recent mask, transformed with head movement. Reuse supplies no new
+permission to reveal a hidden temple. A stalled or unavailable mask does not release a held endpoint.
+
+## Fixed temples and occlusion
+
+The shipped models use an authored 18 mm outward splay. An inward return begins at model-local z = -75 mm
+and buries the terminal band inside the canonical head volume. Its containment is recalculated when the uniform
+eyewear size changes; the front and lens proportions are preserved. After fitting, shape does not bend with
+head angle or camera distance, and the system does not try to fit the tips around an ear. Drawn geometry,
+optical protection, hair paths and shadow coverage all use the same fitted asset scale.
+
+A closed posterior head shell joins the canonical face perimeter to the head proxy. Canonical lateral depth,
+attached to the glasses pose, prevents asymmetric landmark shape changes from cutting one arm earlier
+while nodding. The central face and nose retain observed shape. A bounded bilateral head-width calibration
+adjusts the anterior occluder independently of eyewear sizing or the terminal volume.
+
+The observed cheek has its own depth pass, independent of the stable main head surface. Posterior arm pixels
+in front of that cheek remain visible; pixels behind it blend toward the paired camera image. A guarded
+optical front, native fragment depth and exclusion from the physical lenses' transmission input prevent
+inner temples from appearing across the eyes. The cheek transition begins 1 mm behind the surface and
+widens toward two render pixels, bounded to full concealment by 6 mm. A 45 ms head-local shape filter limits
+cheek depth correction to 0.75 mm and preserves the current pose and image rays.
+
+Hair ending follows the **first resolved crossing from hinge to tip**, separately for each arm. Once that
+crossing hides the shaft, every section behind it remains hidden, including gaps between later hair patches.
+The fade fits inside the supported hair interval. A newly earlier crossing hides the rear immediately;
+lengthening requires distinct fresh clear observations and proceeds at a bounded rate. Warped reuse can
+hide more but cannot accumulate release confidence. Missing or uncertain masks hold the previous endpoint.
+Brief fringe changes in a reused mask preserve recent fresh clearance evidence without extending the arm;
+missing, invalid or expired evidence restarts the dwell. Light edge contacts with a clear shaft centre do not
+pin an old cutoff, even when no later hair patch is detected. Centre or thick obstructions still block release.
+A small two-pixel tent filter softens the rendered hair edge without changing category evidence.
+
+Shadows use the separately observed face, before nasal/head-occluder reshaping. They disappear with tracking
+loss and in the clean-camera audit view. Hair masks protect foreground hair from skin shadows when available.
+Shadow lookup coordinates use a filtered local face shape attached to the same pose as the glasses, while
+the receiver still rasterizes the current observed face. This stabilizes depth without delaying head motion
+or filtering camera pixels. A fixed light frustum, texel-aligned sampling grid and continuous depth/edge
+filtering reduce shimmer as the head turns. Tracking loss clears the local-shape history.
+The light's color filtering is an appearance approximation, not a measured optical simulation or prescription
+lens model. Clear lenses cast a much weaker neutral shadow than tinted lenses.
+
+The model dimensions and learned face depth are rendering estimates, not anatomical measurements.
+Regression tests protect these rules; live appearance still depends on tracking and segmentation quality.
+
+## Canonical lens response
+
+Assets carrying `LENSES_lens_appearance` opt into a validated optical descriptor. The authored front-sheet adapter requires
+separate, static, single-material `front_sheet_v1` meshes with `partRole: lens`, baked coordinates, intrinsic
+bottom-to-top UVs and authored +Z-facing normals/triangles. Camera and light passes retain up to four optical
+layers per pixel, ordered by depth, and stop at opaque geometry. The camera combines `T * behind + limit(R * environment)`
+in linear RGB, where the limit (`src/render/eyewear-reflection.ts`) leaves a lens reflection unchanged while the total stays
+under 0.8 linear (sRGB 231; absolute, so `?lensenv` scales mirror reflections linearly) and keeps the sum under 0.9 (sRGB 243);
+the opaque input preserves the frame's native display response and leaves camera colors unchanged. Lenses and translucent
+(crystal) frame materials reflect an unblurred see-through room: three's `RoomEnvironment` without its +Z panel, which sits
+behind the selfie camera and clipped to a flat white rectangle on every lens. Shadows accumulate the same transmission at the light
+angle, using only layers before the receiving surface. A total mirror remains a lens in geometry, fitting,
+visibility and hair consumers. Untagged assets retain their existing material path.
+
+Each mesh must be a single-valued front sheet in authored XY coordinates. Triangle checks reject self-overlap
+and coincident interfaces while allowing separate layers, holes and supported curved sheets. A fifth layer
+causes an explicit capacity error. This path requires float color targets and adds synchronous capacity checks;
+mobile memory/performance is not established. Closed volumes, back coatings, refraction, internal reflections,
+alpha-blended frames and mixed legacy/canonical optics remain unsupported by this canonical profile. These are
+rendering-profile checks, not general product-model acceptance or proof of accurate photo reconstruction.
+
+Authored part roles (`partRole` node extras `frame` / `temple` / `lens`, written by the automation exporter) classify
+materials once per loaded asset (`src/eyewear/optical-material.ts`), with or without a canonical descriptor. Native lenses
+retain their authored geometry and physical material. Materials used by frame or temple parts remain structural even
+when they transmit light; untagged assets retain the legacy transmission classification.
+
+Compact authored front-frame parts keep their inner rim and hinge hardware in the lens input. The temple-only
+visibility rules do not apply to those parts, even when the frame and arms share a glTF material. Eligibility requires
+an explicit `frame` role and geometry wholly inside the protected front region (local Z at least -30 mm), with baked
+transforms. Untagged parts and long frame-tagged bodies retain the legacy geometric arm rules. Ordinary face depth
+still applies; this exemption does not draw a frame through the wearer's head.
+
+New exports can provide explicit node extras `LENSES_part_visibility: {version: 1, region: ...}` with
+`front`, `temple_left` (native negative X), `temple_right` (positive X), or `lens`. This opt-in contract must cover
+every mesh primitive, agree with `partRole`, and contain static geometry with baked authored transforms.
+Only an immediate glTF primitive Group may supply a part's profile; model-wide metadata does not substitute
+for ownership. Malformed, partial, or conflicting profiles fail with a diagnostic before material changes.
+Unprofiled assets keep the legacy behavior above; old whole-body `frame` tags are never automatically upgraded.
+
+For profiled assets, front pieces and their hardware remain fixed and survive all arm-specific clipping,
+deformation, lens-input filtering, and shadow trimming regardless of wrap depth. Explicit arms supply continuity
+and fitting geometry independently of color or transmission. Shared materials and geometry are separated by
+ownership policy without changing their PBR values or source buffers. Normal face depth still occludes the front.
+A binary hair category cannot tell whether hair is in front of the frame or behind it, so it never erases explicit
+front parts or their hardware. True bangs over the front would require additional depth/order evidence that this
+pipeline does not have. This preserves temple hair behavior without claiming perfect front-hair ordering and
+does not relax the canonical lens profile's existing alpha/material restrictions. Alpha-blended native arms
+retain ordinary depth behavior; they are not converted into opaque depth-relief overlays.
+
+Crystal frame materials with opaque alpha mode use a separate, sharp look-through capture of the camera and opaque
+hardware, including the near-arm visibility overlays. Lenses and crystal sampling materials are excluded from that
+capture. On the canvas, the crystal samples it; inside either the explicit canonical or Three's native lens input,
+the crystal instead samples the paired background. The two sources prevent the lens arm-exclusion rule from erasing
+an internal temple core, while keeping far-arm hardware out of the lenses. Hair occlusion, arm clipping, continuity,
+rear drop and face depth remain active. This straight look-through approximates crystal transmission without refraction
+offsets or roughness blur. The crystal twin loses the surface's reflected share and limits its reflection, clearcoat
+included, with the crystal's knee (half the headroom). Alpha-blended temples are not covered by this structural path.
+Volume absorption distances
+(`KHR_materials_volume`, metres in the file) are converted once to the scene's centimetres (`src/render/eyewear-volume.ts`),
+since Three scales the thickness through the model matrix but reads the distance in world units; the shadow keeps the
+authored ratio. No shipped asset carries a volume extension.
+
+The local harness `node qa/canonical-lens-runtime.mjs` exercises the actual renderer with controlled fixtures,
+synthetic poses, gradients, mirrors, opaque content, light-angle transmission and structured environments.
+See [fixture generation, commands, evidence and limitations](../automation/plan/LENS_RUNTIME.md).
+This integration is source-only until an explicit publish operation.
+
+The separate `effective_optical_group_v1_experiment` profile preserves explicitly grouped closed/multipart
+geometry. A strict importer checks group bindings, shared intrinsic height, nonvanishing interpolated normals
+and exact coplanar agreement. Camera and light passes first retain one nearest event per group, then compose
+distinct groups. Equal descriptors never merge distinct groups. Eight groups and four interactions per ray
+are the explicit bounds. This is a symmetric effective response, not volume refraction or separate back coatings.
+All five saved candidate GLBs load through this local path, but its strict GPU depth qualification remains
+incomplete and photographic materials remain unmeasured. See [the experimental runtime evidence and limits](../automation/plan/EFFECTIVE_GROUP_RUNTIME.md).
+
+## Audit and diagnostics
+
+**Hold & audit** keeps one frame, renders it with/without hair and without eyewear, and checks that hair edits
+preserve the optical region, nose, background and pixels outside the editable corridors. All four equality checks
+remain strict: a geometric front/hair-mask overlap does not authorize a protected pixel change. It records endpoint,
+fixed-return and head-fit metadata, plus lossless images and difference maps. The CPU binary-mask baseline
+is a diagnostic reference; it does not reproduce GPU edge feathering. Reused masks skip that reference
+comparison because it requires a frame's own mask. Audit images stay local unless the user downloads them.
+An additional shadows-off view and difference map record the effect on that exact same held frame; hair-on
+and hair-off views share the same shadow underlay, retaining all four existing protection checks.
+
+`?diag=1` enables numeric startup and timing reports to the same site's `/ar/diagnostic` endpoint, readable at
+`/ar/diagnostics.json`. The page identifies when this is enabled. Reports contain no images, face landmarks,
+masks or hashes; server memory holds only a bounded recent history and clears on deployment.
+Unknown address options are shown as ignored. Old temple comparison and sweep options no longer select
+alternate pipelines.
+
+Useful diagnostic options are defined in `src/config.ts`:
+
+| Option | Default / purpose |
+|---|---|
+| `capture`, `source` | 1280-pixel maximum; VideoFrame on laptops, canvas on mobile |
+| `face` | CPU first; `gpu` reverses the fallback order |
+| `hairinput`, `hairdelegate` | 640-pixel input; auto delegate except CPU on Apple mobile |
+| `hairframes`, `hairmove`, `hairmaxage` | Device-specific mask scheduling, motion-triggered refresh and reuse age |
+| `hairwait` | 120 ms worker-stall limit where a frame waits for its own mask |
+| `eyewear`, `hairModel`, `hair` | Initial glasses, hair model and local hair-occlusion toggle |
+| `steady`, `steadyhz`, `steadybeta`, `steadydepthhz`, `steadydepthbeta` | Pose filter diagnostics |
+| `guard`, `sync`, `hairz`, `exposure` | Render/camera diagnostics; normal defaults retain protection and GPU pacing |
+| `diag` | Same-origin numeric telemetry, off by default |
+| `model`, `name`, `clip`, `width`, `sha256`, `lensenv` | Validated external-model handover through `src/eyewear/external.ts`; `lensenv` (0.3-4) scales the lens environment reflection |
+
+`node qa/measure.mjs --sessions=1 --warm=10 --measure=30` runs a synthetic-camera measurement using the checked-in
+fixture. It verifies lifecycle and rendering under controlled input; it does not measure real wearer motion,
+phone performance or sustained thermal behavior. `qa/pipeline-smoke.mjs` verifies the normal page on desktop/mobile
+layouts, both shipped models, restart behavior and audit protections without opening a real camera.
+For deterministic shadow/color comparisons against a development server, run
+`node qa/shadow-smoke.mjs --base=http://127.0.0.1:8240`. It saves same-frame on/off images and verifies both
+models, controls, tracking loss and clean-camera output using the synthetic camera fixture.
+`node qa/shadow-stability.mjs --base=http://127.0.0.1:8240` measures frame-to-frame shadow variation under
+repeatable pose and landmark-depth noise with fixed camera pixels. It saves images and attenuation metrics
+for both models; these controlled measurements do not replace a live wearer check.
+`node qa/fit-smoke.mjs --base=http://127.0.0.1:8240` checks opening calibration, locked sizing, manual adjustment,
+model changes, Refit, fresh camera sessions and held-frame protection with the synthetic camera fixture.
+
+## Publish
+
+The live route serves the committed `site/` output, not `src/` or `dist/`:
+
+```bash
+npm run publish
+```
+
+This builds with base `/ar/` and writes `site/public-manifest.json` containing every public file's size and
+SHA-256. `UI/ar_site.py` serves only manifest-listed files, checks their hashes and applies isolation and
+Content Security Policy headers. Published bytes have line-ending conversion disabled by `site/.gitattributes`.
+AR changes must not replace the root Python application or its deployment configuration.
+
+After deployment, verify the served bytes and headers against the local manifest:
+
+```bash
+python qa/verify-published.py --url https://web-production-ef3ca.up.railway.app --output qa/output/published-receipt.json
+```
+
+Keep package manifests, assets and regression tests within `ar/`. The pinned models and MediaPipe runtime are
+prepared by `scripts/prepare-assets.mjs`. Keep private recordings, local modeling work, `.env` files and experiment
+archives outside Git. `node_modules/`, `dist/` and `qa/output/` are ignored. Temporary comparison pages and session
+experiments are not part of the production pipeline. [qa/README.md](qa/README.md) indexes the QA tools: page gates,
+harnesses used by automation, and optical-group evidence reproducers.

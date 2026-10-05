@@ -713,15 +713,367 @@ These modules sit OUTSIDE blender_agent/, are not in any inventory, and are stil
 
 ## 7. The `ar/` fork (arview, WP1)
 
-Filled in WP1: per-file decisions for 75ae133 + the chosen stash@{0} edits, the throw-site classification and the
-list of every copied file. Diff stats recorded in WP0:
+Base: `git archive 75ae133 ar` (the runtime the owner judged Studio results on; main is its merge-base, so 75ae133 is strictly ahead) plus chosen `stash@{0}` edits (source `stash`) and files that were untracked when stashed (source `untracked`, read with `git show 'stash@{0}^3:<path>'`). Never copied: `site/`, `modeling/`, `public/` (Vite `publicDir` reads `../../ar/public` read-only), `qa/fixtures/` (the portrait reads `../../ar/qa/fixtures/face-a.jpg` read-only). Verdicts: a 14-agent analysis (5 area readers, 5 adversarial verifiers, throw-site classifier + verifier, lens-identification and capture designers); corrections applied; stage-A reconciliations marked. Full analysis: `port_review/arview.json`.
 
-- `git diff --stat main 75ae133 -- ar/`: 45 files, +2362 / -138 (main is the merge-base, so 75ae133 is strictly ahead).
-- `git diff --stat 75ae133 'stash@{0}' -- ar/`: 20 files, +350 / -87 (optical-material, continuity, eyewear-shadow,
-  hair-occlusion, rear-drop, renderer, temple-clip, temple-terminal-fit, temple-visibility, main, README, 4 qa files,
-  5 tests).
-- `stash@{0}^3` (untracked when stashed) under `ar/`: 25 files (qa diagnostics, `src/eyewear/part-visibility.ts`,
-  `tests/part-visibility.test.ts`).
+Diff stats recorded in WP0: `git diff --stat main 75ae133 -- ar/` 45 files +2362/-138; `git diff --stat 75ae133 'stash@{0}' -- ar/` 20 files +350/-87; `stash@{0}^3` under `ar/` 25 files.
+
+Totals: keep 83, rewrite 52, drop 93 (135 files copied). Every file present in any of the three copies has a verdict.
+
+Stage-A reconciliations (beyond the analysis): the canonical-lens runtime (`LENSES_lens_appearance`: lens-material, lens-layers, layer-overflow, optical-topology, effective-optical-topology, nearest-optical-groups) is dropped with its tests, because only the retired bsa/reconstruction routes ever wrote that descriptor and no Studio GLB uses it; `src/studio/*` is dropped with its tests (the Studio web UI is not ported, §3); QA harnesses no WP uses are dropped (geometry-comparison*, part-visibility-probe*, studio-preview-smoke*); one capture runner replaces the provider and Studio preview harnesses.
+
+
+### src
+
+| File | Verdict | Source | Why |
+|---|---|---|---|
+| `src/assets.ts` | **keep** | 75 | The base-URL helper behind every model, weight and wasm path. |
+| `src/audit/audit.ts` | **keep** | 75 | Hold & audit is a correctness diagnostic for the live renderer (stencil guard, hair compose, endpoints, shadows). |
+| `src/audit/reference.ts` | **keep** | 75 | The CPU reference compose and protection checks behind the audit. |
+| `src/camera/camera.ts` | **keep** | 75 | getUserMedia session for the owner's webcam page (WP1.5). |
+| `src/camera/exposure.ts` | **keep** | 75 | The opt-in ?exposure= lock. The owner's webcam drops to about 15 fps in dim light without it, which voided past evening fps verdicts. |
+| `src/env.d.ts` | **keep** | 75 | Declares __BUILD_TIME__, which vite.config.ts defines and main.ts shows. |
+| `src/eyewear/lens-appearance.ts` | **keep** | 75 | This is the canonical LENSES_lens_appearance response math that five render modules import. |
+| `src/face/detector.ts` | **keep** | 75 | The MediaPipe face landmarker client for the webcam page. |
+| `src/face/detector.worker.ts` | **keep** | 75 | The face landmarker worker, needed by detector.ts. |
+| `src/face/protocol.ts` | **keep** | 75 | The Landmark/Detection types and the worker-boundary validation. |
+| `src/face/timing.ts` | **keep** | 75 | Face worker timing sidechannel types and validation, used by detector.ts and pipeline.ts. |
+| `src/hair/backend.ts` | **keep** | 75 | WebGL probe that picks the hair delegate. |
+| `src/hair/client.ts` | **keep** | 75 | Hair worker client used by the webcam page and the pipeline. |
+| `src/hair/mask-reuse.ts` | **keep** | 75 | The hair schedule and mask warp, shared by the pipeline, config and render (maskUvMatrix, applyAffine). |
+| `src/hair/models.ts` | **keep** | 75 | Pinned hair segmentation weights, served from ar/public through publicDir. |
+| `src/hair/protocol.ts` | **keep** | 75 | Hair worker envelopes and mask types that the renderer, audit and pipeline consume. |
+| `src/hair/worker.ts` | **keep** | 75 | Hair segmenter worker. It verifies the weights' size and SHA-256 at runtime, which makes the separate hair-asset script unnecessary. |
+| `src/pipeline/capture.ts` | **keep** | 75 | Camera frame capture (VideoFrame or canvas) and the orientation probe used by pipeline.ts. |
+| `src/pipeline/frame-identity.ts` | **keep** | 75 | Frame freshness via the rVFC counter, used by pipeline.ts. |
+| `src/pipeline/frame-pump.ts` | **keep** | 75 | Bounded two-frame ownership and inference overlap for the live pipeline. |
+| `src/pipeline/hair-report.ts` | **keep** | 75 | Hair schedule and overlap readout for the live panel. |
+| `src/pipeline/pipeline.ts` | **keep** | 75 | The camera frame pipeline for the owner's webcam page (WP1.5). |
+| `src/pipeline/profiler.ts` | **keep** | 75 | Numeric timing telemetry for the webcam page's live panel and the measure flow. |
+| `src/pipeline/steadiness.ts` | **keep** | 75 | Pose-shake readout for the live panel. Small and self-contained. |
+| `src/render/bridge-pose.ts` | **keep** | 75 | Pure function that pins the bridge to the nose landmarks; no model logic. |
+| `src/render/eyewear-fit.ts` | **keep** | 75 | The owner-judged visual fit, and the reveal gate. |
+| `src/render/eyewear-reflection.ts` | **keep** | 75 | The crystal half of the 75ae133 white-glare fix: the see-through room (RoomEnvironment without the light4 panel), the reflection limit GLSL and the crystal knee, used by translucent-twin.ts, renderer.ts and src/studio/viewer.ts. |
+| `src/render/eyewear-volume.ts` | **keep** | 75 | Converts KHR_materials_volume attenuation from metres to centimetres; without it, translucent fronts and volume lenses render black. |
+| `src/render/face-surface.ts` | **keep** | 75 | Reconstructs the MediaPipe camera-space face surface used for occlusion and shadows. |
+| `src/render/face-width.ts` | **keep** | 75 | Not imported by the renderer, but continuity, rear-drop, temple-head-fit and temple-terminal-fit depend on it. |
+| `src/render/hair-occlusion.ts` | **keep (corrected)** | stash | I agree with keep and with taking the stash. |
+| `src/render/nasal-shape.ts` | **keep** | 75 | Face-side nasal occluder shaping with no model logic. |
+| `src/render/opaque-display.ts` | **keep** | 75 | Needed by translucent-look-through.ts for crystal: the opaque display response inside the look-through image. |
+| `src/render/pixel-reader.ts` | **keep** | 75 | Top-down canvas readback; the pixel source for arview captures through renderer.readback(). |
+| `src/render/pose-stabilizer.ts` | **keep** | 75 | One Euro pose steadiness, owner-accepted as the default. |
+| `src/render/projection.ts` | **keep** | 75 | The fixed MediaPipe virtual camera (63° FOV), shared by bridge-pose, face-surface, protection and renderer. |
+| `src/render/shadow-receiver.ts` | **keep** | 75 | Smooths the face-side shadow lookup. It never throws: invalid input resets it and returns false, which the renderer already uses to disable shadows (a correct fallback). |
+| `src/render/temple-cheek-contact.ts` | **keep** | 75 | Builds the observed lower-face polygon used for cheek occlusion from the canonical face topology and live landmarks. |
+| `src/render/temple-clip.ts` | **keep** | stash | A fragment-shader truncation plus camera blend at the temple end; it never changes geometry. |
+| `src/render/temple-contact-depth.ts` | **keep** | 75 | Filters the observed face shape for the private cheek-depth pass. |
+| `src/render/temple-endpoint.ts` | **keep** | 75 | The hair-first endpoint tracker over continuity paths; identical in 75, stash and main. |
+| `src/render/temple-head-fit.ts` | **keep** | 75 | Head-local lateral fit of the occluder from canonical face landmarks; it changes the occluder, never the eyewear. |
+| `src/render/temple-head-shell.ts` | **keep** | 75 | Builds the closed posterior head depth volume from canonical-face.json (read through publicDir from ar/public) plus the TEMPLE_HEAD_VOLUME ellipsoid. |
+| `src/render/temple-surface.ts` | **keep** | 75 | Blends fitted canonical temple-side face samples into the observed face, in the eyewear's pose. |
+| `src/render/temple-terminal-fit.ts` | **keep (corrected)** | stash | I agree with keep and with taking the stash. |
+| `src/render/translucent-twin.ts` | **keep** | 75 | The core of crystal transparency. It is an opaque twin that mixes in the camera or look-through image through the material's volume and (1 - F), with clearcoat and the crystal reflection limit. |
+| `src/style.css` | **keep** | 75 | Page styles for index.html. The Studio-only styles live in the separately dropped embedded.css. |
+| `src/config.ts` | **rewrite (corrected)** | 75 | This cannot be copied unchanged. The reviewer's own reason asks for an edit: take studioOrigin and studioChannel out of ADDRESS_OPTIONS and fix the ?diag text. |
+| `src/eyewear/catalog.ts` | **rewrite (corrected)** | 75 | The verdict is correct and the reason needs one fix. |
+| `src/eyewear/external.ts` | **rewrite** | 75 | Keep the ?model= handover (parse, then install), but replace the silent range fallbacks with reported warnings. |
+| `src/eyewear/optical-material.ts` | **rewrite** | stash | This is the lens/frame classifier every renderer pass relies on. |
+| `src/eyewear/part-visibility.ts` | **rewrite (corrected)** | untracked | The verdict says 'keep', but the stated plan changes the code. |
+| `src/main.ts` | **rewrite** | stash | The webcam page entry. Keep the camera/face/hair/pipeline flow, Hold & audit, Measure and window.__ar. |
+| `src/render/continuity.ts` | **rewrite (corrected)** | stash | I agree with the verdict and the source. Three corrections and one omission. |
+| `src/render/eyewear-shadow.ts` | **rewrite (corrected)** | stash | I agree with the rewrite and with removing the canonical caster, effective groups, the float peel and the overflow rethrow. |
+| `src/render/live-renderer.ts` | **rewrite (corrected)** | 75 | Same verdict, but one import was missed. live-renderer.ts imports the StudioPreview type from ../studio/protocol.ts and forwards the studio material bridge. |
+| `src/render/protection.ts` | **rewrite (corrected)** | 75 | Not a plain keep. First, :9 imports GLASSES_METERS_TO_CENTIMETERS from catalog.ts, which the plan drops, so the file as listed breaks the build. |
+| `src/render/rear-drop.ts` | **rewrite (corrected)** | stash | I agree with the verdict and the source. I disagree with four parts of the reason. |
+| `src/render/renderer.ts` | **rewrite** | 75 | Keep the draw loop as it is: pose(), render(), the stencil guard passes, translucent twins, the look-through image, shadows and fitting are the runtime the owner judged. |
+| `src/render/temple-visibility.ts` | **rewrite (corrected)** | stash | I agree with rewrite and with taking the stash, plus two points the review misses. |
+| `src/render/translucent-look-through.ts` | **rewrite (corrected)** | 75 | Keep the class, but delete the readMaterialLensAppearance clause now rather than 'only if lens-appearance.ts is dropped'. |
+| `src/render/effective-optical-topology.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; The retired optical-group experiment. |
+| `src/render/layer-overflow.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; Only the canonical lens peel and the canonical shadow layers use it, and its whole job is to throw OpticalLayerOverflowError. |
+| `src/render/lens-layers.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; The far-to-near depth peel for canonical lenses only. |
+| `src/render/lens-material.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; Everything here is the canonical LENSES_lens_appearance optics: front_sheet_v1 and the retired effective_optical_group_v1_experiment. |
+| `src/render/nearest-optical-groups.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; Exists only to capture one nearest hit per explicit effective optical group. |
+| `src/render/optical-topology.ts` | **drop** | n/a | canonical-lens (LENSES_lens_appearance) runtime: only retired routes wrote it; Validates canonical front_sheet_v1 optical sheets only, and does it purely by throwing. |
+| `src/studio/bridge.ts` | **drop** | n/a | A postMessage bridge so a human in the Blender Studio web UI could live-edit materials in an iframed AR or 3D view. |
+| `src/studio/embedded.css` | **drop** | n/a | Styles applied only under .studio-embedded. |
+| `src/studio/embedded.ts` | **drop** | n/a | Compacts the AR page layout when it is embedded in the Studio iframe. |
+| `src/studio/materials.ts` | **drop** | n/a | Studio material tagging and live edits. It only serves the dropped bridge. |
+| `src/studio/protocol.ts` | **drop** | n/a | The message schema for the dropped Studio bridge (material edit bounds, channel and sha checks). |
+| `src/studio/viewer.ts` | **drop** | n/a | An orbitable 3D viewer for the Studio iframe. |
+
+### tests
+
+| File | Verdict | Source | Why |
+|---|---|---|---|
+| `tests/bridge-pose.test.ts` | **keep** | 75 | Tests src/render/bridge-pose.ts, the bridge pin used by renderer.ts:40. |
+| `tests/camera.test.ts` | **keep** | 75 | Tests src/camera/camera.ts (openCamera), which the WP1.5 webcam page needs. |
+| `tests/capture.test.ts` | **keep** | 75 | Tests src/pipeline/capture.ts (VideoFrame/canvas capture, orientation). |
+| `tests/config.test.ts` | **keep** | 75 | Tests src/config.ts (address options, delegates, hair schedule, steadiness). |
+| `tests/eyewear-reflection.test.ts` | **keep** | 75 | Tests src/render/eyewear-reflection.ts, the see-through room and reflection limit. |
+| `tests/eyewear-shadow.test.ts` | **keep (corrected)** | 75 | Not a rewrite. - The EyewearShadow constructor already wraps its build in try{...}catch{this.dispose();throw} (eyewear-shadow.ts:476-518). |
+| `tests/eyewear-volume.test.ts` | **keep** | 75 | Tests src/render/eyewear-volume.ts (Beer-Lambert unit scale for crystal/transmissive materials), used by renderer.ts:67. |
+| `tests/face-detector.test.ts` | **keep** | 75 | Tests src/face/detector.ts (worker client, delegate fallback, timing), which the webcam page needs. |
+| `tests/frame-identity.test.ts` | **keep** | 75 | Tests src/pipeline/frame-identity.ts. Pure. |
+| `tests/frame-pump.test.ts` | **keep** | 75 | Tests src/pipeline/frame-pump.ts (fresh/overlap scheduling, ownership, failure). |
+| `tests/hair-client.test.ts` | **keep** | 75 | Tests src/hair/client.ts (worker lifecycle, pinned models, delegate). |
+| `tests/hair-occlusion.test.ts` | **keep** | 75 | Tests src/render/hair-occlusion.ts (feather, mask warp, clip composition). |
+| `tests/hair-protocol.test.ts` | **keep** | 75 | Tests src/hair/protocol.ts and models.ts validation. |
+| `tests/lens-appearance.test.ts` | **keep** | 75 | Unit tests for the LENSES_lens_appearance parser and evaluator in src/eyewear/lens-appearance.ts. |
+| `tests/lens-reflection-knee.test.ts` | **keep** | 75 | Tests the src/render/eyewear-reflection.ts lens/crystal knees. |
+| `tests/live-renderer-audit.test.ts` | **keep** | 75 | Tests src/render/live-renderer.ts audit gating with a fake inner renderer. |
+| `tests/mask-reuse.test.ts` | **keep** | 75 | Tests src/hair/mask-reuse.ts, hair-report.ts, the config hair schedule and the hair-occlusion warp lookup. |
+| `tests/opaque-display.test.ts` | **keep** | 75 | Tests src/render/opaque-display.ts. translucent-look-through.ts:29 uses it for the crystal look-through, which arview needs for crystal frames, and lens-layers.ts:11 uses it too. |
+| `tests/pipeline-hair-schedule.test.ts` | **keep** | 75 | Tests the real runPipeline with fakes (src/pipeline/pipeline.ts). |
+| `tests/pixel-reader.test.ts` | **keep** | 75 | Tests src/render/pixel-reader.ts, needed for capture readback. |
+| `tests/pose-stabilizer.test.ts` | **keep** | 75 | Tests src/render/pose-stabilizer.ts, steadiness.ts and the config steady options. |
+| `tests/profiler.test.ts` | **keep** | 75 | Tests src/pipeline/profiler.ts. Pure. |
+| `tests/protection.test.ts` | **keep** | 75 | Tests src/render/protection.ts (guard rectangles). |
+| `tests/reference.test.ts` | **keep** | stash | Tests src/audit/reference.ts (hair compose and the protection audit oracle), used by the live audit (live-renderer.ts:8-10). |
+| `tests/see-through-shading.test.ts` | **keep** | 75 | Tests the crystal twin and canonical-lens composition in shader text (translucent-twin.ts, lens-material.ts, eyewear-reflection.ts). |
+| `tests/shadow-receiver.test.ts` | **keep** | 75 | Tests src/render/shadow-receiver.ts. Pure. |
+| `tests/temple-contact-depth.test.ts` | **keep** | 75 | Tests src/render/temple-contact-depth.ts. |
+| `tests/temple-endpoint.test.ts` | **keep** | 75 | Tests src/render/temple-endpoint.ts (hair-crossing endpoint tracker) with a synthetic model. |
+| `tests/temple-surface.test.ts` | **keep** | 75 | Tests src/render/temple-surface.ts. Pure. |
+| `tests/translucent-look-through.test.ts` | **keep** | 75 | Tests src/render/translucent-look-through.ts, the crystal look-through image arview needs for crystal frames. |
+| `tests/translucent-twin.test.ts` | **keep** | 75 | Tests src/render/translucent-twin.ts (camera transmission twin for crystal arms). |
+| `tests/continuity.test.ts` | **rewrite (corrected)** | 75 | The verdict stands, but the scope is wrong. |
+| `tests/external-eyewear.test.ts` | **rewrite (corrected)** | 75 | The verdict stands, but every line the first review cites (L115-140, L128-129, L142-171, L166-167, L173-190) is out of range: the file has 88 lines, byte-identical in 75 and the stash. |
+| `tests/eyewear-fit.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical. This file does not run unedited in arview. |
+| `tests/face-surface.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: it reads ../public/models/canonical-face.json (L7), which does not exist under glasses3d/arview. |
+| `tests/face-width.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: it reads ../public at L20 and L352. |
+| `tests/fixed-temple-renderer.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical. It calls eyewearById(DEFAULT_EYEWEAR_ID) (L18, L43); swap in a local EyewearDefinition. |
+| `tests/frame-roles.test.ts` | **rewrite (corrected)** | stash | The verdict and the stash choice stand; this entry corrects scope only. |
+| `tests/nasal-shape.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: ../public repoint at L8. |
+| `tests/native-optical-material.test.ts` | **rewrite (corrected)** | stash | The verdict stands; this narrows the scope. |
+| `tests/optical-material.test.ts` | **rewrite** | 75 | Module src/eyewear/optical-material.ts (isOpticalMaterial). |
+| `tests/part-visibility.test.ts` | **rewrite** | untracked | Module src/eyewear/part-visibility.ts (untracked in the stash). |
+| `tests/renderer-lens-environment.test.ts` | **rewrite (corrected)** | 75 | The area notes say drop this test, but only one of its three tests is canonical. |
+| `tests/renderer-see-through-environment.test.ts` | **rewrite (corrected)** | 75 | Missing from the adjust list. The non-legacy fixture pairs the crystal with a canonical lens. |
+| `tests/responsive-steadiness.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: ../public repoint at L15. |
+| `tests/temple-cheek-contact.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: ../public repoint at L107. |
+| `tests/temple-clip.test.ts` | **rewrite (corrected)** | 75 | Label only, but a real code edit. The real-asset loop iterates Object.values(EYEWEAR) (L10, L40), hashes each GLB against public/models/manifest.json (L37, L42-43) and reads ../public. |
+| `tests/temple-endpoint-assets.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: it reads ../public GLBs by id (L33). |
+| `tests/temple-head-fit.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical. It uses SHIPPED_EYEWEAR (L7, loop at L80-83) and reads ../public (L10). |
+| `tests/temple-head-shell.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical: ../public repoint at L9-10. |
+| `tests/temple-terminal-fit.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical. It loops over SHIPPED_EYEWEAR (L7, L42) and loads GLBs from '../public' + assetUrl (L43). |
+| `tests/temple-visibility.test.ts` | **rewrite (corrected)** | stash | Label only, mechanical. The real-asset test at L994-1127 iterates EYEWEAR (L11, L994) and reads '../public' + assetUrl (L995). |
+| `tests/translucent-renderer.test.ts` | **rewrite (corrected)** | 75 | Label only, mechanical. It calls eyewearById(DEFAULT_EYEWEAR_ID) (L27, L101) and reads ../public (L30). |
+| `tests/effective-lens-material.test.ts` | **drop (corrected)** | 75 | tests the dropped effective-optical-group runtime (reconciled in stage A) |
+| `tests/effective-optical-topology.test.ts` | **drop** | 75 | tests a dropped module (reconciled in stage A) |
+| `tests/lens-layers.test.ts` | **drop** | 75 | tests the dropped canonical-lens compositor (reconciled in stage A) |
+| `tests/lens-material.test.ts` | **drop (corrected)** | 75 | tests the dropped canonical-lens installer (reconciled in stage A) |
+| `tests/nearest-optical-groups.test.ts` | **drop** | 75 | tests a dropped module (reconciled in stage A) |
+| `tests/optical-topology.test.ts` | **drop** | 75 | tests a dropped module (reconciled in stage A) |
+| `tests/provider-harness-sources.test.ts` | **drop** | n/a | pins strings of the provider harness; capture gets its own tests (reconciled in stage A) |
+| `tests/studio-materials.test.ts` | **drop** | stash | src/studio/* is dropped with the Studio web UI (reconciled in stage A) |
+| `tests/studio-protocol.test.ts` | **drop** | 75 | src/studio/* is dropped with the Studio web UI (reconciled in stage A) |
+
+### qa
+
+| File | Verdict | Source | Why |
+|---|---|---|---|
+| `qa/provider-comparison-lighting.mjs` | **keep** | 75 | Shared QA lighting seam used by the portrait (condition B) and the capture page. |
+| `qa/README.md` | **rewrite** | 75 | Index of the old harness set. It routes readers to callers in automation/ and to the optical-group reproducers, none of which arview ports. |
+| `qa/astra-preview-smoke.mjs` | **rewrite** | untracked | This is the WP1.5 webcam-page proof: face-a streamed as a fake getUserMedia camera into the normal app with the ?model= handover. |
+| `qa/astra-preview.mjs` | **rewrite** | untracked | Base for the WP1.5 owner webcam page: a frozen Vite build served on loopback with COOP/COEP/CORP and camera Permissions-Policy, and sha-pinned models handed over by URL. |
+| `qa/portrait-preview-contract.mjs` | **rewrite (corrected)** | 75 | This is not a pure keep. validatePortraitManifest hard-throws when width_mm is missing or outside 60-250. |
+| `qa/portrait-preview-contract.test.mjs` | **rewrite (corrected)** | 75 | Test 2 lists width_mm:NaN among the invalid manifests. |
+| `qa/portrait-preview.html` | **rewrite** | stash | Port for the WP1.4 worn front portrait. Keep the face-a CPU detection, hair mask, eye crop and lighting conditions A/B. |
+| `qa/portrait-preview.mjs` | **rewrite (corrected)** | 75 | The verdict stands, but reason (2) is wrong on two counts, and one of them matters for the build. |
+| `qa/provider-comparison-ar.html` | **rewrite** | stash | Despite its name this is not a provider harness. |
+| `qa/provider-comparison-lighting.test.mjs` | **rewrite (corrected)** | stash | Take it from the same copy as the capture page the review chose (stash). |
+| `qa/provider-comparison.mjs` | **rewrite** | 75 | Becomes the 'arview capture <glb> --poses ... |
+| `qa/temple-cutoff.mjs` | **rewrite** | untracked | It only selects a clip when every part carries LENSES_part_visibility; otherwise it returns the fixed -.14. |
+| `qa/temple-cutoff.test.mjs` | **rewrite** | untracked | Keep the cases (short arms, asymmetric tips, multipart arms, interior gaps never bypassed, a missing side stays an error, legacy behaviour) and re-express them for geometry-based detection. |
+| `qa/acos-precision-browser.mjs` | **drop** | n/a | Optical-group research reproducer (builtin acos versus a Taylor-24 polynomial). |
+| `qa/acos-precision.html` | **drop** | n/a | Page for the acos probe. Optical-group research. |
+| `qa/acos-precision.mjs` | **drop** | n/a | Runner for the acos probe. Optical-group research, no arview use. |
+| `qa/camera-probe.mjs` | **drop** | n/a | Opens the real default camera to measure delivered fps for live-site pacing work. |
+| `qa/camera-rate.mjs` | **drop** | n/a | Offline reader of timing exports, with no imports. |
+| `qa/canonical-display-regression-browser.mjs` | **drop** | n/a | MSAA display regression for the effective-optical-group canonical lens path. |
+| `qa/canonical-display-regression.html` | **drop** | n/a | Page for the dropped display regression. |
+| `qa/canonical-display-regression.mjs` | **drop** | n/a | Runner for the dropped display regression. |
+| `qa/canonical-lens-layers.mjs` | **drop** | n/a | Analytic layered-light oracle for front_sheet_v1 canonical (LENSES_lens_appearance) fixtures. |
+| `qa/canonical-lens-runtime.html` | **drop** | n/a | Conformance of the private canonical lens extension. |
+| `qa/canonical-lens-runtime.mjs` | **drop** | n/a | Runner for the dropped canonical runtime harness. |
+| `qa/effective-optical-groups-angle.mjs` | **drop** | n/a | Math-override runner for the retired optical-group prototype. |
+| `qa/effective-optical-groups-browser.mjs` | **drop** | n/a | QA-only nearest-group transport prototype. |
+| `qa/effective-optical-groups.html` | **drop** | n/a | Page for the retired optical-group prototype. |
+| `qa/effective-optical-groups.md` | **drop** | n/a | Historical notes on the optical-group experiment. |
+| `qa/effective-optical-groups.mjs` | **drop** | n/a | Runner for the optical-group prototype. It is documented as failing on purpose. |
+| `qa/fit-smoke.mjs` | **drop** | n/a | Live-site fit-UI gate. It is hard-wired to the shipped catalog frames (catalog code is dropped) and to the live fit controls. |
+| `qa/fixtures/.gitignore` | **drop (corrected)** | n/a | read read-only from ../../ar/qa/fixtures (one pinned face image in the repo) |
+| `qa/fixtures/face-a.jpg` | **drop (corrected)** | n/a | read read-only from ../../ar/qa/fixtures (one pinned face image in the repo) |
+| `qa/geometry-comparison-core.mjs` | **drop** | untracked | landmark comparison harness; WP2 compare_to_photos renders in Blender at WP3b cameras (reconciled in stage A) |
+| `qa/geometry-comparison-depth.html` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison-depth.mjs` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison-smoke.mjs` | **drop (corrected)** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison.README.md` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison.html` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison.mjs` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/geometry-comparison.test.mjs` | **drop** | untracked | as geometry-comparison-core (reconciled in stage A) |
+| `qa/lens-appearance.html` | **drop** | n/a | Isolated shader conformance for the private LENSES_lens_appearance descriptor. |
+| `qa/lens-conformance.mjs` | **drop** | n/a | Runner for lens-appearance.html. Its fixtures live in automation/data, which arview never reads. |
+| `qa/measure.mjs` | **drop** | n/a | Live-app performance measurement, out of arview scope, and unchanged in main ar/qa. |
+| `qa/native-crystal-probe.html` | **drop** | n/a | Hard-wired to one Tom Ford product's mesh names, which breaks the §2 rule 'no fixed mesh count or names'. |
+| `qa/native-crystal-probe.mjs` | **drop** | n/a | Runner for the product-specific probe. It also reads public/models from root, which does not exist in arview. |
+| `qa/nearest-group-depth-comparison.mjs` | **drop** | n/a | Compares frozen optical-group reports in qa/output. |
+| `qa/nearest-group-depth-diagnostic-browser.mjs` | **drop** | n/a | Optical-group depth diagnostic. |
+| `qa/nearest-group-depth-diagnostic.html` | **drop** | n/a | Page for the optical-group depth diagnostic. |
+| `qa/nearest-group-depth-diagnostic.mjs` | **drop** | n/a | Runner for the optical-group depth diagnostic. |
+| `qa/part-visibility-probe.html` | **drop** | untracked | diagnostic only; part-visibility is covered by its unit tests (reconciled in stage A) |
+| `qa/part-visibility-probe.mjs` | **drop** | untracked | diagnostic only (reconciled in stage A) |
+| `qa/pipeline-smoke.mjs` | **drop** | n/a | Live-site page gate tied to the shipped catalog frames and the live title and UI. |
+| `qa/prepared-optical-groups-diagnostic.html` | **drop** | n/a | Copy of 75 prepared-optical-groups.html with extra fit diagnostics. |
+| `qa/prepared-optical-groups-diagnostic.mjs` | **drop** | n/a | Runner copy for the diagnostic page. |
+| `qa/prepared-optical-groups.html` | **drop** | n/a | Audit of effective-optical-group candidates. |
+| `qa/prepared-optical-groups.mjs` | **drop** | n/a | Runner for the optical-group audit. |
+| `qa/prepared-optics.html` | **drop** | n/a | Audit of front_sheet_v1 candidates from the photo-lens pipeline. |
+| `qa/prepared-optics.mjs` | **drop** | n/a | Runner for prepared-optics. |
+| `qa/production-optical-groups-arithmetic.mjs` | **drop** | n/a | Arithmetic diagnostic for the optical-group conformance. |
+| `qa/production-optical-groups-browser.mjs` | **drop** | n/a | Conformance of the production effective-group modules. |
+| `qa/production-optical-groups-oracle.mjs` | **drop** | n/a | Recipe-only oracle for the optical-group conformance. |
+| `qa/production-optical-groups.html` | **drop** | n/a | Page for the optical-group conformance. |
+| `qa/production-optical-groups.md` | **drop** | n/a | Documentation of the optical-group conformance. |
+| `qa/production-optical-groups.mjs` | **drop** | n/a | Runner for the optical-group conformance. |
+| `qa/provider-comparison.README.md` | **drop** | 75 | merged into qa/README.md; the runner becomes qa/capture (reconciled in stage A) |
+| `qa/provider-comparison.html` | **drop** | n/a | The raw stage is the real provider harness: it centres and rescales provider GLBs for the retired provider benchmarks. |
+| `qa/raster-arithmetic-override.mjs` | **drop** | n/a | Test-only override that patches the retired optical-group prototype. |
+| `qa/raster-arithmetic-override.test.mjs` | **drop** | n/a | tests a dropped harness (reconciled in stage A) |
+| `qa/semantic-material-cards.html` | **drop** | n/a | Material cards for effective-optical-group candidates. |
+| `qa/semantic-material-cards.mjs` | **drop** | n/a | Runner for the semantic cards. |
+| `qa/semantic-render-diagnostic.mjs` | **drop** | n/a | Patches optical-group shader markers in lens-material.ts in memory and serves the dropped semantic-material-cards.html. |
+| `qa/shadow-smoke.mjs` | **drop** | n/a | Live-site shadow-UI gate with per-catalog-model assertions. |
+| `qa/shadow-stability.mjs` | **drop** | n/a | Shadow flicker measurement on the catalog frames. |
+| `qa/source-optical-groups-browser.mjs` | **drop** | n/a | Real-source optical-group experiment. Retired. |
+| `qa/source-optical-groups.html` | **drop** | n/a | Page for the retired experiment. |
+| `qa/source-optical-groups.md` | **drop** | n/a | Historical notes. |
+| `qa/source-optical-groups.mjs` | **drop** | n/a | Runner for the retired experiment. It reads automation/data. |
+| `qa/studio-preview-smoke.html` | **drop (corrected)** | 75 | Studio preview smoke; the single capture runner replaces it (reconciled in stage A) |
+| `qa/studio-preview-smoke.mjs` | **drop** | 75 | Studio preview smoke; the single capture runner replaces it (reconciled in stage A) |
+| `qa/taylor24-angle-override.mjs` | **drop** | n/a | Override that patches the retired optical-group prototype shader. |
+| `qa/verify-published.py` | **drop** | n/a | Verifies the deployed /ar/ against site/public-manifest.json. |
+| `qa/viewport-subpixel-probe.mjs` | **drop** | n/a | Viewport qualifier for the optical-group oracle. |
+
+### root
+
+| File | Verdict | Source | Why |
+|---|---|---|---|
+| `.gitignore` | **keep** | 75 | Local ignore rules (node_modules/, dist/, qa/output/). |
+| `index.html` | **keep** | 75 | The webcam page markup. main.ts depends on its element ids. |
+| `package-lock.json` | **keep** | 75 | The exact lock for an unchanged dependency set. |
+| `tsconfig.json` | **keep** | 75 | Strict TypeScript settings suited to the copied tree. |
+| `README.md` | **rewrite** | stash | This is the live /ar/ README (Railway route, publish, Studio embedding, old partRole rule). |
+| `package.json` | **rewrite (corrected)** | 75 | The reviewer lists required edits (drop publish, verify-only assets, re-point measure, add capture), and that is a rewrite. |
+| `scripts/prepare-assets.mjs` | **rewrite** | 75 | As written, it writes into public/ and reads assets relative to its own package. |
+| `vite.config.ts` | **rewrite** | 75 | Point publicDir at ../../ar/public (read-only), move the ports so arview runs beside ar's own dev server, remove the Studio build input, and serve the Draco, KTX2 and meshopt decoders some way other than publicDir. |
+| `scripts/prepare-hair-assets.mjs` | **drop** | n/a | Its only extra over prepare-assets is a --download mode that fetches from Google and writes into public/models/hair, which would be ar/public. |
+| `scripts/publish-site.mjs` | **drop** | n/a | It builds and manifests the live site/ that UI/ar_site.py serves at /ar/. |
+| `studio-viewer.html` | **drop** | n/a | The entry page for the dropped Studio 3D viewer. |
+
+### Throw sites on the load path (stash copy), classified against §2
+
+88 sites: 16 owner-table refusals, 29 warning + fallback, 43 internal invariants (kept). Every entry was re-checked line by line by a verifier; its corrections and the dangerous-fallback list follow the table.
+
+| Site | Class | Message | Fallback / report |
+|---|---|---|---|
+| `stash: src/render/rear-drop.ts:106 (75/main :103)` | warning+fallback | The rear-drop endpoint is invalid. | arview derives the clip from the asset itself (rear end of the temple candidates, i.e. |
+| `stash: src/render/rear-drop.ts:123` | owner-table refusal | Rear-drop assets require three-component positions. | Report names the mesh: 'mesh <name> has no XYZ positions (§2 Geometry)'. |
+| `stash: src/render/rear-drop.ts:142` | owner-table refusal | The rear-drop mesh index is invalid. | Report the mesh and the first bad index (§2 Geometry: finite vertices and indices). |
+| `stash: src/render/rear-drop.ts:144` | owner-table refusal | The rear-drop mesh contains invalid positions. | Report the mesh and the vertex count (§2 Geometry). |
+| `stash: src/render/rear-drop.ts:154 (condition :153; 75/main :144-145)` | owner-table refusal | Rear-drop curve thresholds require identity mesh transforms inside the asset root. | - (keep: this is exactly the §2 Transforms row). |
+| `stash: src/render/rear-drop.ts:158 (75/main :149)` | owner-table refusal | Rear drop requires physical lens geometry to protect the optical front. | - (refuse only after the arview lens-ID order fails: (1) partRole=='lens' or legacy part_role starting 'lens'; (2) whole-word lens/lenses/glass name token, excluding etch/lettering/inscription/print; (3) transmission or alpha<1. |
+| `stash: src/render/rear-drop.ts:160 (75/main :151)` | warning+fallback | The rear-drop start must be forward of the accepted cap. | (1) Run unit detection first: X span 60-250 means mm, so rescale x0.001 with a loud warning. |
+| `stash: src/render/rear-drop.ts:203 (75/main :194)` | warning+fallback | The asset has no eligible posterior opaque shaft. | Find the temples by position, whatever their opacity, transparency or lens class: non-lens-front geometry behind the lens rear at \|x\|>45 mm and z < -0.03, split by sign of x. |
+| `stash: src/render/continuity.ts:31 (pin block 29-49; plan's 75/main :3` | warning+fallback | The pinned geometry registration is invalid. | Drop the pin registry in arview. Continuity reads the same bytes the renderer parsed (renderer.ts:435 already passes them), and sha256 goes into report.json. |
+| `stash: src/render/continuity.ts:44` | warning+fallback | No pinned original geometry is available for this frame model. | Build continuity from the loaded bytes without a pin, and record the sha256. |
+| `stash: src/render/continuity.ts:47` | warning+fallback | The continuity model differs from the pinned original GLB. | Render the bytes as loaded and warn 'handover sha256 <x> != actual <y>'. |
+| `stash: src/render/continuity.ts:69` | warning+fallback | The continuity cap is invalid. | Use the derived and clamped clip (see rear-drop.ts:106). |
+| `stash: src/render/continuity.ts:78 (message :79)` | owner-table refusal | The rear-curve convention requires identity mesh transforms. | - (single validate_spec check, see rear-drop.ts:154) |
+| `stash: src/render/continuity.ts:82` | owner-table refusal | Continuity requires original XYZ vertex positions. | Report the mesh (§2 Geometry). |
+| `stash: src/render/continuity.ts:90` | owner-table refusal | The continuity mesh contains incomplete triangles. | Report the mesh: 'not triangulated (§2 Geometry)'. |
+| `stash: src/render/continuity.ts:95` | owner-table refusal | The continuity triangle index is invalid. | Report the mesh (§2 Geometry). |
+| `stash: src/render/continuity.ts:97` | owner-table refusal | The continuity triangle contains a nonfinite vertex. | Report the mesh (§2 Geometry). |
+| `stash: src/render/continuity.ts:111` | warning+fallback | The original lens/proximal rear-arm span is missing. | Use the positional temple detection and the front-zone lensRearZM (rear-drop.ts:160/:203). |
+| `stash: src/render/continuity.ts:134` | warning+fallback | An original posterior arm cross-section is missing. | Set the cutoff from the measured temple extent per side, and interpolate across gaps of at most a few mm. |
+| `stash: src/render/continuity.ts:147` | warning+fallback | No pinned original geometry is available for this frame model. | Build continuity from the loaded bytes without a pin (see :44). |
+| `stash: src/render/continuity.ts:156` | warning+fallback | GLTFLoader.parseAsync rejection (e.g. 'THREE.GLTFLoader: No DRACOLoader instance provided.') | Register the same decoders as the main parse, or reuse the renderer's parsed scene instead of a second parse. |
+| `stash: src/render/continuity.ts:161` | warning+fallback | (rethrows from classifyAssetMaterials: part-visibility.ts / optical-material.ts:92 / lens-appearance.ts) | Same as those sites: ignore the malformed optional metadata. |
+| `stash: src/render/temple-visibility.ts:151` | warning+fallback | Temple visibility requires an opaque frame and physical lenses. | For the opaque-frame half, treat every non-lens material as frame whatever its transparency, as the profiled path at :140 already does, and warn 'alpha-blended frame'. |
+| `stash: src/render/renderer.ts:415` | warning+fallback | (rejects with continuity.ts:47 'The continuity model differs from the pinned original GLB.') | See continuity.ts:47: render the bytes as loaded and warn. |
+| `stash: src/render/renderer.ts:417 (format errors)` | owner-table refusal | THREE.GLTFLoader: Unsupported glTF-Binary header. / Legacy binary file detected. / JSON content not found. / U | Report: 'not a readable GLB (§2 Format)', with the loader message. |
+| `stash: src/render/renderer.ts:417 (decoders)` | warning+fallback | THREE.GLTFLoader: No DRACOLoader instance provided. / setMeshoptDecoder must be called before loading compress | Register DRACOLoader, MeshoptDecoder and KTX2Loader (WP1.2), with decoder files read-only from ../../ar/public or npm, and note 'compressed: <ext>' in report.json. |
+| `stash: src/render/renderer.ts:417 (external resources)` | warning+fallback | THREE.GLTFLoader: Failed to load buffer '<uri>'. / Image <n> is missing URI and bufferView (GLTFLoader.js:3035 | Resolve relative URIs against the model URL's directory and warn 'not self-contained (§2 Format: preferred)'. |
+| `stash: src/eyewear/external.ts:46 (silent range, not a throw)` | warning+fallback | (none: optionalNumber returns null) | Warn 'clip <v> ignored'. Prefer the clip derived from the asset geometry (rear-drop.ts:106 entry) over any URL value. |
+| `stash: src/eyewear/external.ts:47 (width; silent range)` | warning+fallback | (none: optionalNumber returns null) | Warn when it is ignored. Report the measured bbox X span instead. |
+| `stash: src/eyewear/external.ts:47 (sha256) and :49 (lensenv)` | warning+fallback | (none: silently null) | Warn. Continuity no longer depends on sha256 (continuity.ts:44 entry). |
+| `untracked: src/eyewear/part-visibility.ts:28, :31` | warning+fallback | LENSES_part_visibility: expected a versioned object on <name> / unsupported version/region or extra fields on  | Validate once at load. On failure, ignore LENSES_part_visibility for the whole asset (legacy/positional path) and warn with the mesh name. |
+| `untracked: src/eyewear/part-visibility.ts:54` | owner-table refusal | LENSES_part_visibility: no rendered mesh parts | 'model contains no triangle meshes' FAIL. |
+| `untracked: src/eyewear/part-visibility.ts:57, :58, :61, :65` | warning+fallback | ...mixed profiled and unprofiled parts; missing <name> / model-root metadata cannot replace per-part profiles  | Drop the profiles asset-wide and use the lens-ID order (partRole first) plus positional temples. |
+| `untracked: src/eyewear/part-visibility.ts:68` | owner-table refusal | LENSES_part_visibility: realize static geometry for <name> | - (the same check must run for unprofiled assets in validate_spec) |
+| `untracked: src/eyewear/part-visibility.ts:73` | owner-table refusal | LENSES_part_visibility: bake authored transforms for <name> | - (one validate_spec check, tolerance about 1e-6) |
+| `untracked: src/eyewear/part-visibility.ts:78, :80` | owner-table refusal | LENSES_part_visibility: missing XYZ geometry on <name> / nonfinite geometry on <name> | Report the mesh (§2 Geometry). |
+| `stash: src/eyewear/optical-material.ts:92` | warning+fallback | LENSES_part_visibility: structural parts cannot carry canonical lens descriptors. | Strip the descriptor from structural materials and warn. |
+| `stash: src/render/lens-material.ts:45-79 (via requireCondition :37)` | warning+fallback | Canonical lens: partRole must explicitly be lens. / lensSurfaceProfile must explicitly be front_sheet_v1. / .. | Strip LENSES_lens_appearance from that material and render it as a native glTF lens (classified by the lens-ID order). |
+| `stash: src/render/lens-material.ts:91, :222-223, :228, :238-239, :240-` | warning+fallback | Canonical lens: effective optical group identity is invalid. / an effective optical group requires its canonic | Strip LENSES_lens_appearance asset-wide (native lens path) and warn with the message. |
+| `stash: src/render/lens-material.ts:230-231` | owner-table refusal | Canonical lens: bake mesh transforms into authored optical coordinates. | - (single validate_spec check) |
+| `stash: src/eyewear/lens-appearance.ts:65-126, :149-150 (+ GPU packing ` | warning+fallback | LensAppearance v1 must be an object / requires exactly its declared fields / Unsupported ... / Keyframes must  | Validate once at load, then delete userData.gltfExtensions.LENSES_lens_appearance from that material and warn. |
+| `stash: src/render/optical-topology.ts:119, :129, :150, :151; effective` | warning+fallback | Canonical optical topology requires complete validated triangles. / ...finite +Z-wound triangles. / ...not sin | Strip the descriptors (native lens path) and warn. |
+| `stash: src/render/eyewear-shadow.ts:88, :94, :169, :173, :177, :183, :` | warning+fallback | Canonical lens shadows require matching TEXCOORD_0 and surface normals. / ...profiles disagree. / Unsupported  | Strip the descriptors, or construct shadows in try/catch and set shadows=null with a warning. |
+| `stash: src/render/eyewear-shadow.ts:499` | warning+fallback | Canonical layered shadows require EXT_color_buffer_float. | Turn shadows off and warn. |
+| `stash: src/render/lens-layers.ts:54, :63, :64` | warning+fallback | Canonical optical layers require installed physical materials. / Effective optical material requires an explic | Strip the descriptors (native lens path). |
+
+**Verifier corrections:**
+
+- VERIFIED OVERALL: every cited line number and message checks out against the stash, untracked, 75 and main copies, as do the GLTFLoader 0.185.1 lines (:473, :1478, :1621, :1857, :1861, :1897, :1918, :3035, :3321). The 75 to stash mapping for rear-drop (103→106, 105→108, 144-145→153-154, 149→158, 151→160, 169→178, 194→203) is correct, and main's rear-drop.ts is byte-identical to 75's. The r9 prediction holds: I measured the GLB (scratchpad/glb_lenszone.py). It has no partRole, only legacy part_role. 'Crystal acetate' has transmission 1 and the temple tip is at z=-0.14724, so startZM=-0.1622, which is not ahead of -0.11 and fails at stash rear-drop.ts:160. Nothing earlier throws for r9: there are no node transforms, no descriptors and no profiles. The entries below are the exceptions.
+- stash continuity.ts:31, 'unreachable': WRONG. The regex at external.ts:47 checks only the digest. continuity.ts:22/:31 also refuses an empty last path segment. So ?model=http://127.0.0.1:8000/models/&sha256=<64hex> or ?model=http://127.0.0.1:8000/?f=a.glb throws at external.ts:64. main.ts:162 catches it, and the model is not loaded at all. The fallback (drop the pin registry) is still right.
+- stash continuity.ts:44, 'every ?model= without &sha256': MISATTRIBUTED. loadTempleContinuityModel checks pinnedHashFor at :147, with the same message, before :154 calls verifyPinnedGeometryBytes(...,true). With loadedBytes supplied, nothing can register a pin in between. So :44 is unreachable from the renderer path, and those models die at :147 (entry continuity.ts:147). The only other requirePin=true caller is untracked qa/temple-cutoff.mjs:54, and its caller, stash qa/portrait-preview.html, registers a pin first at :61. Merge :44 into :147.
+- stash continuity.ts:78/:82/:95/:97, labelled 'owner-table refusal': they never refuse anything. Every continuity throw is caught at renderer.ts:436 and only sets continuityFailure. The same conditions are refused earlier by rear-drop.ts:154/:123/:142/:144, because configure (renderer.ts:486) runs before continuity (renderer.ts:435). They are duplicates, not refusal sites.
+- stash continuity.ts:90, mapped to 'not triangulated (§2 Geometry)': WRONG mapping. GLTFLoader converts TRIANGLE_STRIP/FAN into triangle lists (GLTFLoader.js:3857-3864). It turns LINES/LINE_STRIP/LINE_LOOP/POINTS into LineSegments/Line/LineLoop/Points (:3867-3881), and no `instanceof Mesh` traversal ever sees those. So :90 fires only on a malformed triangle list (index or vertex count not a multiple of 3). Because it is caught (renderer.ts:436) and rear-drop has no count%3 check, such a file renders today with the endpoint silently off. validate_spec must check primitive.mode and count%3 itself.
+- renderer.ts:417 'external resources' entry: GLTFLoader.js:3321 'Image <n> is missing URI and bufferView' is a malformed image entry (neither uri nor bufferView), not a missing external file. A missing or undecodable external or embedded image rejects through loader.load at :3344 and the rethrow at :3366.
+- stash temple-visibility.ts:151 as a live 'warning+fallback': it is unreachable once rear-drop passes. rear-drop.ts:203 needs an eligible vertex whose material is non-optical and (opaque or profiled). That is exactly what puts the mesh into `originals` at temple-visibility.ts:140. frontZM is finite whenever rear-drop.ts:158 passed, because both use isOpticalMaterial. It only becomes reachable if arview's rear-drop fallback deforms transparent temples while temple-visibility keeps its own rule, which is an argument for doing the fallback in classification (see dangerous_fallbacks).
+- Note #2, 'only a clip in [-0.2,-0.163] gets past :160': the bound is startZM=-0.1622 (-0.14724-0.015), so any clip below -0.1622 passes. Also, the r9 part_role values are frame, hardware, lens_left, lens_right, temple_left and temple_right. 'hardware' is on 30 of 38 nodes, all Champagne gold. 'frame/temple_* map to frame' is therefore not enough: once step (1) finds a lens anywhere, every other material must be frame, or untagged transmissive parts fall through to step (3).
+- effective-optical-topology.ts, '46 call sites': there are 46 occurrences, but one is the definition at :33, so 45 call sites. Trivial.
+- Note #4's silent-fallback list omits protection.ts. createProtection's catch-all (protection.ts:98) swallows every protection throw and returns null, and renderer.ts:843 then draws with safeFallback (hair off). See missed_throws.
+
+**Missed throws:**
+
+- GLTFLoader throws on the renderer.ts:417 parse that are not listed (three 0.185.1, ar/node_modules/three/examples/jsm/loaders/GLTFLoader.js): :3885 'Primitive mode unsupported'; :3018 non-arraybuffer buffer type; :3191 sparse itemSize >= 5; :2527 unsupported normalized accessor component type; :741 unexpected KHR_lights_punctual type; :2958 'Unknown type'. Most important is texture decode failure: loadImageSource logs and rethrows (:3366), and neither loadTextureImage nor assignTexture catches it, so one corrupt or undecodable embedded image rejects the whole load. That needs a §2 Format message, or a placeholder-texture plugin plus a warning. In the opposite direction, an unknown REQUIRED extension only warns (:536) and loads.
+- A GLB with no `scenes` array: getDependencies('scene') returns [] (GLTFLoader.js:2988), so result.scene is undefined (scene: dependencies[0][json.scene\|\|0]). renderer.ts:430 passes undefined into configure, and lens-material.ts:212 `root.updateWorldMatrix` throws a TypeError ('Cannot read properties of undefined'). The whole load fails with no §2 message. An empty default scene instead reaches rear-drop.ts:158, whose message would be misreported as a Components FAIL. The report needs 'no default scene / scene has no meshes'.
+- stash nearest-optical-groups.ts:25, :44, :50, :54 throw at load. They come from `new NearestOpticalGroups` in eyewear-shadow.ts:517 (rethrown at :518; renderer.ts:508 is not wrapped) and in lens-layers.ts:68 (renderer.ts:552). lens-layers.ts:55 also throws through lens-material.ts:32 ('material was not installed by the canonical adapter'). All are canonical-descriptor only, so the same 'strip LENSES_lens_appearance' fallback applies, but none are listed.
+- stash protection.ts:28, :33, :44, :52, :59 fire per pose from renderer.ts:701. All are swallowed by protection.ts:98 `catch { return null; }`, then renderer.ts:843 sets safeFallback and hair occlusion goes off silently. They depend on the GLB: a mm-scale asset's opticalBounds cross the near plane (:59), and a missing temple gives originalArms.length 1, which is accepted silently (:87 only rejects more than 2). report.json must record guarded/safeFallback per capture.
+- stash qa/portrait-preview.html is the harness WP1.4 ports for the worn portrait, and it hard-throws: :69 `!optical_mesh_count \|\| continuity_failure` gives no portrait for ANY asset whose continuity fails (continuity.ts:111/:134: unprofiled crystal, a gapped temple, a clip behind the shorter arm); :88 `timing.safeFallback \|\| !timing.guarded` fires when protection is null; :68 identity/pin not confirmed; :73 fitting not settled; also :32, :41, :71, :87. It calls untracked qa/temple-cutoff.mjs, which throws at :20, :27, :31, :39 ('requires actual geometry for both explicitly authored temple sides'), :44 and :53, and calls verifyPinnedGeometryBytes(...,true) at :54. Each needs a §2-or-warning classification in the arview port.
+- Per-pose throws not listed. They end the live session (main.ts:301) or fail a synthetic capture: bridge-pose.ts:46, :50, :53, :57, :62, :65, :74, :88, :102, :115 (renderer.ts:664; :88 'Nose anchor ... at/behind the camera near plane' is the one extreme synthetic poses can hit); nasal-shape.ts:70, :74, :78, :80, :82 (renderer.ts:653); pose-stabilizer.ts:94 (renderer.ts:658) and :57 (constructor, renderer.ts:262, from config.steady).
+
+**Dangerous fallbacks (each is a WP1 requirement):**
+
+- rear-drop.ts:106, derived clip 'min z of non-lens geometry at \|x\|>45 mm': a single global minimum lands behind the SHORTER arm's tip. continuity.ts:134 then finds no cross-section on that side and the endpoint dies. The stash's own QA derivation (untracked qa/temple-cutoff.mjs:38-44) works per side: shared plane = max over sides of (side min z + 1e-6), floored at -0.14, refused if above -0.045 or at/behind a side's max z. Use per-side tips, report both, and flag asymmetry.
+- The 'temple missing' test in the :106/:203 flags ('no geometry behind z=-0.03 at \|x\|>45 mm') is too shallow: endpiece and hinge hardware passes it with no temples at all. Measured: on Oakley 3dff8674 h_detailed_closed_shield, 'Frame \| molded latch housing L/R.001' (partRole frame) reach z=-0.0427 at \|x\| 0.060-0.075, and the icon seats reach -0.0400. On r9, the 'T temple tail' hardware reaches -0.0258. Real arms reach much further: FT1119 -0.1446, Prada -0.1474, r9 -0.1472, Oakley -0.1572/-0.1711, INVU -0.1732. Require each side to extend to at least about -0.08 m (or span coverage). Anything shorter is a 'temple <side> missing/truncated' FAIL, never a warning.
+- rear-drop.ts:160 fallback (2), 'lensRearZM only from lens geometry with z >= -0.03; lens-classified geometry behind it at \|x\|>45 mm becomes temple', is knife-edge on both regression products. The Oakley lens (partRole lens) reaches z=-0.0280 and the INVU final lens -0.0299. A slightly deeper wrap shield would have its wings relabelled temple (spread by ARM_SPREAD_M 0.018, clipped, hair-blended) and raise a false '§2 Origin/Orientation suspect'. Apply the split only to materials decided by lens-ID step (3), never to partRole- or name-identified lenses. r9 does not need it once legacy part_role is read.
+- rear-drop.ts:160 fallback (3), 'move the clip to max(-0.2, startZM-0.05)': with a correctly identified lens, startZM <= clip means lens geometry sits about 95 mm or more behind the bridge, i.e. a rotated or mis-originated model, or lens/frame confusion. Re-clipping behind it hides that error and puts the clip behind the arm tips, so continuity.ts:134 fails anyway. Keep rendering for Astra, but report a §2 Origin/Orientation/Components FAIL.
+- rear-drop.ts:203 fallback ('temples by position whatever their ... lens class'), implemented in rear-drop only. (a) It contradicts the lens-ID order: a partRole-lens wing at \|x\|>45 mm and z<-0.03 would be deformed, so exclude step-1 and step-2 lenses. (b) Six other consumers keep their own opacity rules: continuity.ts:100; temple-terminal-fit.ts:75 (counts become 0, then a silent null cap at :93); temple-visibility.ts:140, :210, :328; lens-material.ts:225. Alpha-blended temples would be deformed but silently get no terminal fit, continuity or near-temple overlay. Do the detection once at load, as classification: write partRole plus LENSES_part_visibility, because the profiled path already ignores `transparent` (rear-drop.ts:137, continuity.ts:100, temple-terminal-fit.ts:75, temple-visibility.ts:140/:210). temple-visibility.ts:328 (`wrap` hides ANY transparent material's overlay, profiled or not) must change too. Fused single-mesh assets cannot be profiled per mesh (part-visibility.ts:18-24) and need a load-time split by sign of x.
+- Every load-time normalization must also reach the second parses: units rescale, baked transforms, legacy part_role to partRole, positional profiles, stripped descriptors. Continuity re-parses the raw bytes (continuity.ts:156) and re-classifies its own material objects (:161; classification is a WeakSet keyed by material object, optical-material.ts:25-26). qa/temple-cutoff.mjs:55 parses a third time. A rescaled main scene paired with a raw continuity parse fails continuity.ts:69/:111. Of the two options in the continuity.ts:156 entry, choose 'reuse the renderer's normalized scene', not 'register decoders'.
+- §2 Transforms ('one validate_spec check at ~1e-6'): the runtime still enforces 1e-12 (rear-drop.ts:153, continuity.ts:78, part-visibility.ts:72) and 1e-10 (lens-material.ts:230). A file with 1e-9 export noise passes validate_spec and is still refused at load, which breaks 'acceptance = §2 only'. Within tolerance, bake the transform into the geometry at load and reset it to identity, or relax all four checks together.
+- Units fallback (rear-drop.ts:160 step (1)): it must also scale KHR_materials_volume thicknessFactor and attenuationDistance (applyVolumeAttenuationScale at renderer.ts:459 assumes metres), run before classifyAssetMaterials and createRearDrop, and handle centimetres (X span 6-25), not only millimetres.
+- Eyewear fit auto-scale, a silent fallback not on the list: renderer.ts:386-395 rescales the asset to the face within minimumAutoScale .85 / maximumAutoScale 1.15, and .782-1.242 overall (eyewear-fit.ts:12-15). A frame authored up to about ±15% off real size is pulled toward the face in every capture, so the AR images cannot show a §2 Units or scale error. report.json must give the measured width and the applied fitScale, with an option to capture at fitScale 1.
+- LINES/POINTS primitives are dropped silently from every check and every render consumer, because all traversals test instanceof Mesh (rear-drop.ts:120, continuity.ts:76, temple-visibility.ts:135, part-visibility.ts:50). A temple authored as lines vanishes with no message, and §2 'triangulated' is enforced nowhere at runtime. Separately, temple-terminal-fit.ts:55/:93/:95/:102/:108-109 and createProtection (protection.ts:98) turn a missing arm into a silent fixed cap or hair-off. Each must become a report flag.
+- continuity.ts:47 / renderer.ts:415 fallback, 'render the bytes as loaded and warn': the WP2 verdict ledger must bind to renderedAssetIntegrity.sha256 (renderer.ts:588), never to the &sha256 handover, or verdicts get recorded against bytes the owner never saw. Also delete the shipped filename registry (continuity.ts:16-19, checked first at :26): a handed-over file named tom-ford-clear.glb or amber-horizon.glb is pinned to the shipped hash and aborts the whole load.
+- Lens-ID step (3) 'alpha<1' cannot work through the existing code. isOpticalMaterial (optical-material.ts:157-160) knows only descriptor, lensMaterials and transmission>0, and lensMaterials is a module-private WeakSet filled only from partRole 'lens' (:133). An alpha-blended lens found by step (3) stays non-optical, so rear-drop.ts:158 still refuses it, or its geometry is treated as frame or temple. arview must write userData.partRole='lens' (and 'frame' on everything else) before classifyAssetMaterials, and report the deciding signal.
+
+### Lens identification: current rules vs the required order
+
+- G1 (step 1, material extras). partRole on materials is never read. part-visibility.ts:17 reads only Object3D userData, while GLTFLoader puts material extras in material.userData (GLTFLoader.js:3684). Today's Studio files carry no material extras (all three proof GLBs: material extras None), but the WP3 exporter will write partRole there.
+- G2 (step 1, legacy part_role). 'part_role' has 0 hits in all three copies (src, qa, tests). The crystal Tom Ford r9 GLB (ar_v4/.../8c315e48.../candidate.glb) carries only node extras part_role: 'frame' on 'Crystal front', 'temple_left'/'temple_right' on the temples, 'lens_left'/'lens_right' on the lenses, 'hardware' elsewhere. So every role is unknown, and R4 turns material 0 'Crystal acetate' (T=1, used by the front and both temples, z down to -147.2 mm) into a lens. Unverified consequence: rear-drop then takes lensRearZM -0.1472 -> startZM -0.162, which is behind the default external clip -0.11 (external.ts:11). The first guard reached is probably stash rear-drop.ts:160 / main :151, not :203 / main :194. WP1.6 still has to measure the real refusal.
+- G3 (step 2 missing). No name-token rule exists in src (grep for match/test/includes of lens\|glass: 0 hits). The shipped amber-horizon.glb ('AmberGradientLenses') and tom-ford-clear.glb ('TomFordClearTestLenses') have no roles at all. Today they classify only through transmission. Under the required rule they classify by name, but only if the tokenizer splits camelCase. The only name rule anywhere (untracked qa/geometry-comparison-core.mjs:106-111) differs in tokens, exclusions and splitting (R14).
+- G4 (step 3 is not a last resort). Every untagged material is decided live by MeshPhysical && transmission>0 (optical-material.ts:160), with no warning. Alpha<1 is never a lens signal. Alpha-blended untagged parts are treated as 'not lens, not opaque' (rear-drop.ts:137, continuity.ts:100, temple-terminal-fit.ts:75, temple-visibility.ts:140/:210/:328). An asset whose lenses are BLEND with alpha<1 and no transmission has no lens geometry, so it throws at rear-drop.ts:158, continuity.ts:111 and temple-visibility.ts:151.
+- G5 (decided class not stable). Class for an unknown-role material follows its current transmission (R4). A Studio transmission edit (studio/materials.ts:96) can flip isOpticalMaterial while renderer.lensMeshes stays frozen (renderer.ts:468-472, re-checked at :301). Clones that are not registered fall back to the same rule; markFrameMaterial exists for frame clones only (:147).
+- G6 (no explicit non-lens step). Only partRole frame\|temple counts as an explicit non-lens. Legacy part_role values ('hardware', 'temple_left', ...) and unrecognized partRole strings fall to the transmission rule. A structural explicit role must stop steps 2-3, or clear crystal and pads become lenses: FT1119 q001 'Clear pads.001' has T=0.96 under partRole frame, and r9 'Crystal acetate' has T=1.
+- G7 (scope of node roles). inherited() leaks a role from any non-Mesh ancestor, including the model root (part-visibility.ts:11-14). A lens-tagged multi-primitive node makes its frame primitive a lens, because the only guard (optical-material.ts:93/:100) needs several materials on one Mesh, which GLTFLoader never produces. Node-over-mesh precedence flips between single- and multi-primitive nodes (R1).
+- G8 (§2 Components row not checked). A material shared by lens and frame owners is silently cloned (optical-material.ts:106-134). An asset with zero lens materials is not detected as a spec failure. It surfaces as unrelated throws instead: rear-drop.ts:158, continuity.ts:111, temple-visibility.ts:151, portrait-preview.html:69.
+- G9 (no report). classifyAssetMaterials returns only {canonical, translucentFrameMaterials, sharedMaterials} (:28-36, :136). Nothing records which signal decided each material, nor the exclusions, conflicts or fallbacks.
+- G10 (extra signals outside the order). The canonical LENSES_lens_appearance descriptor (optical-material.ts:158) and the LENSES_part_visibility region (:87) currently decide the class ahead of partRole. The required order does not list them. Proposal: keep them as corroborating evidence only, warn on disagreement, and decide in PORT_REVIEW whether canonical optics survive at all.
+- G11 (hard throws on raw partRole). part-visibility.ts:63-66, lens-material.ts:45 and effective-optical-topology.ts:342 require userData.partRole exactly. A GLB tagged by material extras, legacy part_role or name with a LENSES_part_visibility profile would throw 'region conflicts with partRole'. Under §2-only acceptance this becomes a warning, with the profile ignored as the fallback.
+- G12 (no geometric check). Nothing flags an implausible lens set: lens material behind the front zone (z < -0.03 m, AUTHORED_FRAME_FRONT_MIN_Z_M optical-material.ts:43), or lenses that are actually temples. Without such a check a last-resort fallback could hide a real geometry error, which breaks the WP1 stop rule.
+- G13 (QA inconsistency). Three different lens rules are live: runtime R1-R4, the geometry-comparison diagnosticRole, and the native-crystal-probe name regexes. arview needs one shared classifier that captures and diagnostics import.
 
 ## 8. Plan prototypes (`plan/prototypes/`)
 

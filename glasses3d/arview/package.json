@@ -1,0 +1,30 @@
+{
+  "name": "arview",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "description": "glasses3d development AR (fork of ar/ at 75ae133 + chosen stash@{0} edits): accepts any GLB meeting the owner's spec (PLAN.md section 2), captures posed AR images for Astra, webcam page for the owner.",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 8250 --strictPort",
+    "check": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "test:qa": "node --test qa/*.test.mjs",
+    "assets": "node scripts/prepare-assets.mjs",
+    "build": "npm run assets && npm run check && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 8251 --strictPort"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.0.1",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.4.1",
+    "@types/three": "0.185.4",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}
