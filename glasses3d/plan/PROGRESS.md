@@ -8,10 +8,11 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP | State | Commit |
 |---|---|---|
 | WP0 | **done, $0 proof passed** | (this commit; see git log) |
-| WP1 | in progress: stage A committed (1870359); stages B-D2 running (workflow g3d-wp1-arview-runtime) | 1870359 (stage A) |
+| WP1 | in progress: A (1870359) and B-D2 (960ad54) committed; R/E/F/G running (workflow g3d-wp1-capture-proof) | 960ad54 |
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
-| WP4, WP5, WP6, WP2, WP7, WP8 | not started | - |
+| WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
+| WP5, WP6, WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
@@ -127,3 +128,25 @@ lens-id and capture design) is running.
   the fit equals the 'left' result (IoU 0.708). The 0.71 ceiling comes from thin temples (contour error 1.05 mm).
 - **Owner question (blocks WP3b "done" and WP5's stop rule): the registration threshold.** Recommended: mean contour
   <= 1.0 mm and p90 <= 2.5 mm per view used for projection (FT1119: front, rear, top, angled qualify).
+
+## 2026-10-05: WP1 stages B-D2 committed (960ad54)
+
+tsc 0 errors, node tests 476/476, qa 18/18, vite build OK; ar/ untouched. Each stage implemented, adversarially reviewed,
+fixed. Stage D1's round-2 fix (default-scene-only parse via defaultSceneDocument/packGlb; webcam page listing failed §2
+rows) was not re-reviewed inside that workflow: stage R of g3d-wp1-capture-proof reviews it and aligns arview's origin-x
+and orientation checks with the fixed validator (agreement test on shared fixtures). Remaining WP1: R, E (capture CLI),
+F (webcam page `arview serve`), G ($0 proof: r9 refusal on main's ar/, captures of r9 / q001 / Prada / mm copy / renamed
+multi-mesh copy / temples-removed copy, Python-vs-arview agreement table, q001 vs prototype seated junction).
+PORT_REVIEW §7: `tests/lens-appearance.test.ts` row still says keep (dropped in stage B with its module) - fix at the WP1 commit.
+
+## 2026-10-05: WP4 design (plan/WP4_DESIGN.md)
+
+Judge panel: 3 independent designs (robust 45, minimal 47, physical 42 of 60), synthesized on the minimal base. Measured facts
+that decided it: all four real lenses (FT1119 q001, Prada, Oakley, INVU) are closed manifold solids with a back cap translated
+along -Z and one wall ring; FT and INVU caps are toric (no sphere growth); §3 defaults as hard thresholds would fail accepted
+models (FT eyewire capture 0.40 vs 0.45; Prada 65% of stations reach 0.8; INVU top rail 0.10), so pass = §3 lower bound,
+target = §3 default, per station, growth only where the grown edge stays hidden; 42-45% of each shield edge is exposed and
+never grown (Oakley must move 0 vertices). FT1119 browline: hide_eyewire with per-station lift (0.84 mm median) over x
+11.6-56.2 mm; must match the prototype seated+rimsplit numbers (top edge inside 100%, band 0, rim split 78-102 deg).
+Open risk the owner may want to know: under §3, Prada (~26% of nodes, <=0.45 mm) and INVU (~267 top nodes, <=0.9 mm) change
+at HIDDEN stations inside opaque material, plus Prada's rim sharpening (intended rimsplit fix).
