@@ -1,7 +1,14 @@
 /** The try-on renderer: bridge pose, nasal shape, face and head occluders, fixed temple endings, side-depth
  *  visibility and hair occlusion applied inside the eyewear fragment shaders, drawn straight
- *  into the visible canvas. Camera image pixels stay on the GPU during live use;
- *  canonical optics read one generated capacity flag per camera/light layer pass.
+ *  into the visible canvas. Camera image pixels stay on the GPU during live use.
+ *
+ *  It renders one ModelDefinition (eyewear/catalog.ts; there is no catalog). Loading (WP1_DESIGN.md §1, §5): the
+ *  WebGLRenderer exists before the GLB is parsed (KTX2 needs it); model/load.ts reads the container, resolves external
+ *  resources against the model URL and parses with Draco, meshopt and KTX2; model/normalize.ts then runs the one
+ *  normalisation pass (transforms, geometry, units, lens identification, the measured §2 rows) before any subsystem.
+ *  A §2 refusal throws ModelRefusal carrying the whole report; everything else renders, and every subsystem that
+ *  cannot be built (temple clip, rear drop, continuity, terminal fit, temple visibility, look-through, twins, hair
+ *  occlusion, shadows, protection) falls back on its own, recorded in `report()`, never silent.
  *
  *  Guard (default on): the protection geometry (the optical and nasal rectangles and the arm corridors) is computed
  *  per frame; the stencil buffer marks the editable region (arm corridors minus protected rectangles), and the frame
@@ -9,22 +16,37 @@
  *  editable region with the hair blend. No shader can write a hair-blended fragment into a
  *  protected pixel. When the protection cannot be established the frame is drawn without hair.
  *
- *  The pinned arm centrelines are projected per pose. The first resolved hair crossing hides the
+ *  Temples (WP1_DESIGN.md §3, temple-geometry.ts) are found per side by position, whatever their opacity; a side
+ *  without one keeps a fixed cap and is reported per side (the §2 Orientation row fails on its own). The clip is derived
+ *  from the arms' tips (just inside the shorter arm, floored at -0.14 m) unless a usable clip was handed over. The fit
+ *  (WP1_DESIGN.md §4) is the live auto-fit, whose applied scale is reported (warned beyond 3 %), or the authored size
+ *  with RendererOptions.fixedScale.
+ *
+ *  The arm centrelines, read from the normalised scene (the same bytes and normalisation that are drawn; no pin, no
+ *  second parse), are projected per pose, per side. The first resolved hair crossing hides the
  *  downstream shaft; the fixed terminal return remains buried when no usable mask is available.
  *
  *  `readback()` exists for the audit only. */
 import {
   ACESFilmicToneMapping, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
-  DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Mesh, NearestFilter,
-  MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
+  DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Matrix4, Mesh, NearestFilter,
+  MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
   SRGBColorSpace, Texture, UnsignedByteType, Vector3, Vector4, WebGLRenderer,
 } from 'three';
 import type {WebGLRenderTarget} from 'three';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
-import {applyStudioMaterials, studioMaterials, tagStudioMaterials} from '../studio/materials.ts';
-import type {StudioPreview} from '../studio/protocol.ts';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {loadModel} from '../model/load.ts';
+import type {LoadModelOptions} from '../model/load.ts';
+import {nodeName, normalizeModel} from '../model/normalize.ts';
+import {ModelReportBuilder} from '../model/report.ts';
+import type {ModelReport} from '../model/report.ts';
+import {createLightingMaps} from './lighting.ts';
+import type {LightingConfig, LightingMaps} from './lighting.ts';
+import {createClipUniforms, FLAT_OVERRIDES, flatOverrideMaterial, isRenderOverride, LENS_ID_RGB, partColour} from './override.ts';
+import type {PaletteEntry, PartSide, RenderOverride} from './override.ts';
+import {meshClassOf} from '../eyewear/part-class.ts';
+import {partVisibilityOf, profileTempleSide} from '../eyewear/part-visibility.ts';
 import type {Detection} from '../face/protocol.ts';
 import type {CategoryMask} from '../hair/protocol.ts';
 import {FaceSurface} from './face-surface.ts';
@@ -40,8 +62,10 @@ import type {TempleEndpointReport} from './temple-endpoint.ts';
 import {correctedBridgePose} from './bridge-pose.ts';
 import {createNasalShape} from './nasal-shape.ts';
 import {VIRTUAL_CAMERA} from './projection.ts';
-import {DEFAULT_EYEWEAR_ID, eyewearById, GLASSES_METERS_TO_CENTIMETERS} from '../eyewear/catalog.ts';
-import type {EyewearDefinition} from '../eyewear/catalog.ts';
+import {GLASSES_METERS_TO_CENTIMETERS, resolveModelDefinition, TEMPLE_CLIP_FLOOR_LOCAL_Z_M} from '../eyewear/catalog.ts';
+import type {ModelDefinition, ResolvedModel} from '../eyewear/catalog.ts';
+import {deriveTempleClip, templeInventory, templeMeasurements, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
+import type {TempleInventory} from './temple-geometry.ts';
 import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
 import {createTempleVisibility, createTempleVisibilityConfiguration,
@@ -49,7 +73,7 @@ import {createTempleVisibility, createTempleVisibilityConfiguration,
 import {createRearDrop} from './rear-drop.ts';
 import {createProtection, nasalRoi, protectionProjection} from './protection.ts';
 import type {PixelRect, ProtectionConfiguration} from './protection.ts';
-import {loadTempleContinuityModel, projectTempleContinuity, verifyPinnedGeometryBytes} from './continuity.ts';
+import {buildTempleContinuityModel, projectTempleContinuity} from './continuity.ts';
 import type {ProjectedTemplePath, TempleContinuityModel} from './continuity.ts';
 import {createHairOcclusion, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts';
 import {PixelReader} from './pixel-reader.ts';
@@ -61,11 +85,10 @@ import {assetPath} from '../assets.ts';
 import {DEFAULT_SHADOW_SETTINGS, EyewearShadow, normalizeShadowSettings} from './eyewear-shadow.ts';
 import type {ShadowSettings} from './eyewear-shadow.ts';
 import {ShadowReceiver} from './shadow-receiver.ts';
-import {EyewearFitSession, observeFitWidth} from './eyewear-fit.ts';
+import {EYEWEAR_FIT, EyewearFitSession, observeFitWidth} from './eyewear-fit.ts';
 import {isOpticalMaterial, isTranslucentFrameMaterial} from '../eyewear/optical-material.ts';
-import {installCanonicalLensMaterials} from './lens-material.ts';
+import type {GltfSource, LensIdentificationReport} from '../eyewear/optical-material.ts';
 import {applyVolumeAttenuationScale} from './eyewear-volume.ts';
-import {CanonicalLensLayers} from './lens-layers.ts';
 import {createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin, setCameraTransmissionSource, setCrystalLookThroughSource} from './translucent-twin.ts';
 import {hasLegacyTransmissiveOptics, TranslucentLookThrough} from './translucent-look-through.ts';
 import {createSeeThroughRoom} from './eyewear-reflection.ts';
@@ -79,10 +102,38 @@ export const SCENE_ENVIRONMENT_INTENSITY = 0.8;
 const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
 /** Authored fixed shape, not measured ear positions. The final band remains inside the head volume. */
 const HIDDEN_TAIL_M = .025, END_FADE_M = .005, ARM_SPREAD_M = .018;
+/** Frame-front to upper-face ratio for the automatic fit (eyewear-fit.ts). The catalog's per-frame ratios are gone;
+ *  every handed-over model always used 1. */
+const FIT_FRONT_RATIO = 1;
+/** WP1_DESIGN.md §4: an applied auto-fit scale further than this from 1 is a warning (the images do not show the
+ *  authored size). */
+export const FIT_SCALE_WARN_FRACTION = 0.03;
+
+export type {ModelReport} from '../model/report.ts';
+export {ModelRefusal} from '../model/report.ts';
+export type {LightingConfig} from './lighting.ts';
+export type {PaletteEntry, PartSide, RenderOverride} from './override.ts';
+
+/** One eyewear mesh as the capture sees it (WP1_DESIGN.md §5 `parts()`). */
+export interface RenderedPart {
+  readonly mesh: Mesh;
+  /** The glTF node name (as the report names it), else the mesh's own name. */
+  readonly name: string;
+  /** The decided lens/frame class (WP1_DESIGN.md §2); 'mixed' only for a hand-built multi-material mesh. */
+  readonly class: 'lens' | 'frame' | 'mixed';
+  /** By geometry, never by name: 'left' x < 0, 'right' x > 0, 'centre' when the part crosses x = 0. */
+  readonly side: PartSide;
+  /** A near-arm visibility overlay (a clone the renderer draws over an arm), not an authored part. */
+  readonly overlay: boolean;
+}
+/** The virtual camera of the posed frame (WP1_DESIGN.md §5 `cameraState()`): column-major matrices, render pixels. */
+export interface CameraState {
+  readonly view: number[]; readonly projection: number[];
+  readonly width: number; readonly height: number;
+  readonly near: number; readonly far: number; readonly verticalFovDegrees: number;
+}
 
 export interface RendererOptions {
-  /** Explicit local studio bridge only; ordinary AR sessions do not expose editable material bindings. */
-  studioControls?: boolean;
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
   hairStartZ?: number;
   /** Gate each frame on the previous frame's GPU completion (fence), so submission cannot run ahead of the GPU (default on). */
@@ -93,8 +144,18 @@ export interface RendererOptions {
   steady?: SteadyOptions | null;
   /** Share only while explicitly switching models for the same wearer. New camera sessions start fresh. */
   fitSession?: EyewearFitSession;
+  /** Render at the authored size (fit scale exactly 1, WP1_DESIGN.md §4): no automatic fit to the face, no size
+   *  adjustment, shown from the first pose. Default off: the live auto-fit (×0.85-1.15 times the 1.08 preference), whose
+   *  applied scale the report records. */
+  fixedScale?: boolean;
+  /** The load front-end's options beyond the address (tests stub texture decoding; a digest handed over is compared). */
+  load?: Pick<LoadModelOptions, 'fetchResource' | 'plugins' | 'handoverSha256'>;
 }
-export interface RenderVariant {hair: boolean; eyewear: boolean; guard: boolean; shadows: boolean;}
+export interface RenderVariant {
+  hair: boolean; eyewear: boolean; guard: boolean; shadows: boolean;
+  /** A diagnostic override (override.ts), applied to originals, overlays and twins alike and restored after the draw. */
+  override?: RenderOverride | null;
+}
 export interface FrameTimings {
   templeEndMaximumZM: number | null; templeEndNegativeZM: number | null; templeEndPositiveZM: number | null; templeEndState: string;
   maskUploadMs: number; endpointMs: number; submitMs: number;
@@ -103,18 +164,41 @@ export interface FrameTimings {
   templeKeepCm: number; templeDropCm: number;
   armSpreadM: number; armSpreadStartZM: number | null;
   shadowsApplied?: boolean; shadowMs?: number;
+  /** The override this draw used, and for 'part-id' the colour of every part. */
+  override?: RenderOverride; palette?: PaletteEntry[];
 }
 interface CanonicalFace {positions: number[]; indices: number[];}
+/** The fit as the renderer applies it: the session's report, the applied scale, and whether it is the live auto-fit
+ *  ('auto') or the authored size ('fixed', RendererOptions.fixedScale). */
+export type FittingReport = EyewearFitSession['report'] & {scale: number; limited: boolean; ready: boolean; mode: 'auto' | 'fixed'};
 export interface CaptureGeometry {
   templeTerminalFit?: TempleTerminalFit | null;
   templeHeadFit?: TempleHeadFit['report'] | null;
-  fitting?: EyewearFitSession['report'] & {scale: number; limited: boolean; ready: boolean};
+  fitting?: FittingReport;
+  /** The rendered model's address (its identity on this page). */
   eyewearModelId: string; rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number;
   templeClip: TempleClipConfiguration | null; hairStartZ: number;
   protection: ProtectionConfiguration | null; noseRoi: PixelRect | null;
 }
 
 function abortError(): DOMException {return new DOMException('Renderer startup was cancelled.', 'AbortError');}
+const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error);
+/** The bounding box of every eyewear vertex in the front 25 mm (asset-local metres): the fit width's fallback when the
+ *  rear drop, whose optical bounds it normally is, could not be built. */
+function frontRegionBounds(root: Object3D): Box3 {
+  const all = new Box3(), front = new Box3(), point = new Vector3();
+  root.updateWorldMatrix(true, true);
+  const inverse = root.matrixWorld.clone().invert();
+  const each = (visit: (point: Vector3) => void) => root.traverse(object => {
+    if (!(object instanceof Mesh) || object.userData.templeVisibilityOverlay === true) return;
+    const position = object.geometry.getAttribute('position'), matrix = inverse.clone().multiply(object.matrixWorld);
+    if (position) for (let i = 0; i < position.count; i++) visit(point.fromBufferAttribute(position, i).applyMatrix4(matrix));
+  });
+  each(p => all.expandByPoint(p));
+  const band = all.max.z - .025;
+  each(p => {if (p.z >= band) front.expandByPoint(p);});
+  return front;
+}
 function validateFace(value: unknown): CanonicalFace {
   if (typeof value !== 'object' || value === null) throw new Error('The canonical face is missing.');
   const face = value as Partial<CanonicalFace>;
@@ -128,8 +212,8 @@ async function fetchAsset(url: string, signal: AbortSignal): Promise<Response> {
   if (!response.ok) throw new Error(`Could not load ${url} (${response.status}).`);
   return response;
 }
-function disposeObjects(roots: Object3D[], retiredMaterials: readonly Material[] = []): void {
-  const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(retiredMaterials), textures = new Set<Texture>(), bitmaps = new Set<ImageBitmap>();
+function disposeObjects(roots: Object3D[]): void {
+  const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(), textures = new Set<Texture>(), bitmaps = new Set<ImageBitmap>();
   for (const root of roots) root.traverse(object => {
     if (!(object instanceof Mesh)) return;
     geometries.add(object.geometry);
@@ -147,7 +231,19 @@ function disposeObjects(roots: Object3D[], retiredMaterials: readonly Material[]
 const GPU_WAIT_LIMIT_MS = 1000, GPU_WAIT_TIMEOUTS_LIMIT = 3;
 
 export class TryOnRenderer {
-  readonly eyewear: EyewearDefinition;
+  readonly model: ResolvedModel;
+  /** The model report (model/report.ts): the definition's own warnings first, then the load, then render-time fallbacks. */
+  private readonly modelReport: ModelReportBuilder;
+  /** The loaded glTF scene (asset-local metres, normalised). */
+  private eyewearRoot: Object3D | null = null;
+  private lighting: {maps: LightingMaps; undo: () => void} | null = null;
+  /** The hard temple cut of the flat overrides follows the live clip planes. */
+  private readonly overrideClip = createClipUniforms();
+  /** Materials whose twin could not be built: they keep Three's own transmission (reported once each). */
+  private readonly twinFailures = new Set<Material>();
+  private readonly protectionFailures = new Set<string>();
+  /** The report's name of every loaded mesh (its glTF node name). */
+  private readonly partNames = new Map<Object3D, string>();
   private readonly renderer: WebGLRenderer;
   private readonly gl: WebGL2RenderingContext;
   private readonly scene = new Scene();
@@ -155,15 +251,22 @@ export class TryOnRenderer {
   private readonly facePose = new Group();
   private readonly eyewearPose = new Group();
   private eyewearAsset: Group | null = null;
-  private canonicalLensMaterials: readonly MeshPhysicalMaterial[] = [];
-  private canonicalLayers: CanonicalLensLayers | null = null;
-  private retiredLensMaterials: readonly Material[] = [];
-  /** The see-through room (eyewear-reflection.ts), unblurred: what canonical lenses and crystal reflect. */
+  /** The see-through room (eyewear-reflection.ts), unblurred: what crystal reflects. Native lenses keep the scene room. */
   private seeThroughEnvironmentTarget: WebGLRenderTarget | null = null;
-  private assetIntegrity: Readonly<{sha256: string; pinned: boolean}> | null = null;
   private readonly fitSession: EyewearFitSession;
+  /** RendererOptions.fixedScale: the authored size, no auto-fit. */
+  private readonly fixedScale: boolean;
   private fitScale = 1;
   private fitLimited = false;
+  /** The last fit scale written to the report, and the scales already warned about (each once). */
+  private notedFitScale: string | null = null;
+  private readonly fitScaleWarnings = new Set<string>();
+  private adjustmentIgnored = false;
+  /** The temple clip plane in use (model-local metres): the handover's, else derived from the temples at configure
+   *  (temple-geometry.ts deriveTempleClip). Until configure it is the handover or the floor. */
+  private clipZM: number;
+  /** The temples by position, per side (temple-geometry.ts), once configured. */
+  private templeSides: TempleInventory | null = null;
   /** Reveal once this model's initial fit settles; later manual adjustments remain visible. */
   private fitRevealed = false;
   private fitFrontBounds: Box3 | null = null;
@@ -196,7 +299,6 @@ export class TryOnRenderer {
   private readonly reader = new PixelReader();
   private backgroundTexture: CanvasTexture | null = null;
   private shadows: EyewearShadow | null = null;
-  private studioRoot: Group | null = null;
   private shadowSettings: ShadowSettings = {...DEFAULT_SHADOW_SETTINGS};
   private shadowBackground: Texture | null = null;
   private shadowPending = true;
@@ -209,13 +311,15 @@ export class TryOnRenderer {
   private rearDrop: ReturnType<typeof createRearDrop> | null = null;
   private hairOcclusion: ReturnType<typeof createHairOcclusion> | null = null;
   private lensMeshes: Mesh[] = [];
+  /** The lens_identification block of the load (WP1_DESIGN.md §2): one entry per glTF material. */
+  private lensIdentificationReport: LensIdentificationReport | null = null;
   /** Crystal / translucent frame materials (authored roles, isTranslucentFrameMaterial). These are the meshes drawing
    *  such materials, including the near-arm visibility overlays whose clones are translucent frame too, and, per
    *  material, a twin (translucent-twin.ts: transmission 0, a straight look-through mixed in where Three mixes its
-   *  refraction, same shader wrappers). With canonical or native lenses the twins replace
-   *  them in every pass and look through to the owned look-through image (translucent-look-through.ts): the camera
-   *  behind the opaque eyewear, so hardware inside the crystal is seen, sharp. In either kind of lens input they
-   *  instead sample the paired background, excluding the captured arm hardware. Swapping
+   *  refraction, same shader wrappers). The twins replace them in every pass and look through to the owned
+   *  look-through image (translucent-look-through.ts): the camera behind the opaque eyewear, so hardware inside the
+   *  crystal is seen, sharp. Inside Three's lens input they instead sample the paired background, excluding the
+   *  captured arm hardware. Swapping
    *  materials keeps both programs cached; toggling `transmission` across zero would rebuild the program. */
   private translucentFrameMeshes: {mesh: Mesh; original: Material | Material[]}[] = [];
   private translucentTwins = new Map<MeshPhysicalMaterial, MeshPhysicalMaterial>();
@@ -223,7 +327,7 @@ export class TryOnRenderer {
   private readonly twinUniforms = createCameraTransmissionUniforms();
   /** The owned look-through image for an asset with classified translucent frame materials. */
   private lookThrough: TranslucentLookThrough | null = null;
-  /** All optical materials are left out of the look-through image, captured after any canonical lens input. */
+  /** All optical materials are left out of the look-through image. */
   private lookThroughHidden: Material[] = [];
   /** A legacy transmissive lens samples Three's internal pre-pass, which then stays lens input (arms excluded). */
   private legacyTransmissiveOptics = false;
@@ -255,9 +359,18 @@ export class TryOnRenderer {
   private readonly templeKeepCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
   private readonly templeDropCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
 
-  private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, eyewear: EyewearDefinition, options: RendererOptions) {
-    this.renderer = renderer; this.gl = gl; this.eyewear = eyewear;
+  private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, model: ResolvedModel, options: RendererOptions,
+    report?: ModelReportBuilder) {
+    this.renderer = renderer; this.gl = gl; this.model = model;
+    this.modelReport = report ?? new ModelReportBuilder(model.url, model.displayName, model.warnings);
     this.fitSession = options.fitSession ?? new EyewearFitSession();
+    this.clipZM = model.templeClipZM ?? TEMPLE_CLIP_FLOOR_LOCAL_Z_M;
+    this.fixedScale = options.fixedScale === true;
+    if (this.fixedScale) {
+      // Nothing to settle: the model is shown at its authored size from the first pose.
+      this.fitRevealed = true;
+      this.modelReport.measure('fit_scale', {mode: 'fixed', applied: 1});
+    } else this.modelReport.measure('fit_scale', {mode: 'auto', applied: 1, state: 'collecting'});   // replaced once the fit settles
     const steady = options.steady === undefined ? DEFAULT_STEADY : options.steady;
     this.stabilizer = steady ? new PoseStabilizer(steady) : null;
     this.hairStartZ = options.hairStartZ ?? DEFAULT_HAIR_START_Z_M; this.sync = options.sync ?? true; this.guard = options.guard ?? true;
@@ -274,11 +387,106 @@ export class TryOnRenderer {
     const value: unknown = this.gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : this.gl.RENDERER);
     return typeof value === 'string' ? value : null;
   }
-  get templeClipConfiguration(): TempleClipConfiguration {return createTempleBlendConfiguration(this.eyewear.templeClipLocalZM);}
+  get templeClipConfiguration(): TempleClipConfiguration {return createTempleBlendConfiguration(this.clipZM);}
+  /** The temple clip plane in use (model-local metres): the handed-over clip, else the one derived from the model's own
+   *  temples (the report's `temple_clip` measurement says which). */
+  get templeClipZM(): number {return this.clipZM;}
+  /** The temples by position, per side (temple-geometry.ts), or null before a model is configured. A copy. */
+  temples(): TempleInventory | null {return this.templeSides ? structuredClone(this.templeSides) : null;}
+  /** The model report (model/report.ts): status, the seven §2 rows, warnings, fallbacks (render-time ones included),
+   *  lens identification, measurements, the rendered bytes' SHA-256 and what the live site would reject. A copy. */
+  report(): ModelReport {return this.modelReport.snapshot('rendered');}
+  /** Record a fallback a caller took on this model's behalf (the live renderer's failed audit). It is a warning too. */
+  recordFallback(subsystem: string, detail: string): void {this.modelReport.fallback(subsystem, detail, 'render');}
+  /** The lens identification of the loaded model (class, deciding signal and uses of every glTF material, the §2
+   *  Components verdict), or null before a model is configured. A copy. */
+  lensIdentification(): LensIdentificationReport | null {
+    return this.lensIdentificationReport ? structuredClone(this.lensIdentificationReport) : null;
+  }
+  /** The posed frame's virtual camera, or null before the first pose. Copies. */
+  cameraState(): CameraState | null {
+    if (!this.frameWidth || this.disposed) return null;
+    this.camera.updateMatrixWorld();
+    const {width, height} = this.renderSize;
+    return {view: this.camera.matrixWorldInverse.toArray(), projection: this.camera.projectionMatrix.toArray(), width, height,
+      near: this.camera.near, far: this.camera.far, verticalFovDegrees: this.camera.fov};
+  }
+  /** Asset-local metres to the scene (centimetres, camera space), as drawn: the bridge pose, the bridge offset and the
+   *  fit scale included. Null before the first pose. Column-major, a copy. */
+  assetMatrixWorld(): number[] | null {
+    if (!this.lastPose || !this.eyewearRoot || this.disposed) return null;
+    this.scene.updateMatrixWorld(true);
+    return this.eyewearRoot.matrixWorld.toArray();
+  }
+  /** Every eyewear mesh with its decided class and its side by geometry (overlays flagged). */
+  parts(): RenderedPart[] {
+    const root = this.eyewearRoot, found: RenderedPart[] = [];
+    if (!root || this.disposed) return found;
+    const box = new Box3();
+    root.traverse(object => {
+      if (!(object instanceof Mesh)) return;
+      const overlay = object.userData.templeVisibilityOverlay === true;
+      const decided = meshClassOf(object) ?? 'frame';
+      box.setFromBufferAttribute(object.geometry.getAttribute('position') as BufferAttribute);
+      const side: PartSide = box.max.x <= 0 ? 'left' : box.min.x >= 0 ? 'right' : 'centre';
+      found.push({mesh: object, name: this.partNames.get(object) ?? object.name, class: decided, side, overlay});
+    });
+    return found;
+  }
+  /** Project asset-local metres (xyz triples) to render pixels: [x, y (top-down), NDC z] per point, NaN for a point at or
+   *  behind the camera. Same matrices as the draw. Null before the first pose. */
+  projectAssetPoints(points: Float32Array): Float32Array | null {
+    const matrix = this.assetMatrixWorld();
+    if (!matrix || points.length % 3) return null;
+    const {width, height} = this.renderSize;
+    const transform = this.camera.projectionMatrix.clone().multiply(this.camera.matrixWorldInverse).multiply(new Matrix4().fromArray(matrix));
+    const out = new Float32Array(points.length), clip = new Vector4();
+    for (let i = 0; i < points.length; i += 3) {
+      clip.set(points[i]!, points[i + 1]!, points[i + 2]!, 1).applyMatrix4(transform);
+      if (!(clip.w > 0)) {out[i] = out[i + 1] = out[i + 2] = NaN; continue;}
+      out[i] = (clip.x / clip.w + 1) * width / 2; out[i + 1] = (1 - clip.y / clip.w) * height / 2; out[i + 2] = clip.z / clip.w;
+    }
+    return out;
+  }
+  /** Replace the environment the eyewear reflects (lighting.ts), or restore the runtime's own with null. Only environment
+   *  maps and the illumination multiplier change: the scene, native lenses that own a map (lensenv, scaled the same) and
+   *  every translucent frame material, its near-arm overlay clones and twins included. Throws for an unusable config. */
+  setLighting(config: LightingConfig | null): void {
+    if (this.disposed) throw new Error('The renderer is disposed.');
+    if (this.lighting) {this.lighting.undo(); this.lighting.maps.dispose(); this.lighting = null;}
+    if (config === null) return;
+    const maps = createLightingMaps(this.renderer, config);
+    const scene = this.scene, previous = {environment: scene.environment, intensity: scene.environmentIntensity};
+    const crystal = new Set<MeshPhysicalMaterial>(), lenses = new Set<MeshPhysicalMaterial>();
+    for (const mesh of this.lensMeshes) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (material instanceof MeshPhysicalMaterial && material.envMap) lenses.add(material);
+    }
+    for (const {original} of this.translucentFrameMeshes) for (const material of Array.isArray(original) ? original : [original]) {
+      if (material instanceof MeshPhysicalMaterial && isTranslucentFrameMaterial(material)) crystal.add(material);
+    }
+    for (const twin of this.translucentTwins.values()) crystal.add(twin);
+    const saved = [...lenses, ...crystal].map(material => ({material, map: material.envMap, intensity: material.envMapIntensity}));
+    scene.environment = maps.scene.texture; scene.environmentIntensity = config.intensity;
+    for (const {material, intensity} of saved) {
+      if (crystal.has(material)) {material.envMap = maps.crystal.texture; material.envMapIntensity = config.intensity;}
+      else {material.envMap = maps.scene.texture; material.envMapIntensity = config.intensity * intensity / SCENE_ENVIRONMENT_INTENSITY;}
+      material.needsUpdate = true;
+    }
+    this.lighting = {maps, undo: () => {
+      scene.environment = previous.environment; scene.environmentIntensity = previous.intensity;
+      for (const {material, map, intensity} of saved) {material.envMap = map; material.envMapIntensity = intensity; material.needsUpdate = true;}
+      // A twin cloned while the lighting was applied returns to its original's restored map.
+      for (const [original, twin] of this.translucentTwins) {
+        if (saved.some(entry => entry.material === twin)) continue;
+        twin.envMap = original.envMap; twin.envMapIntensity = original.envMapIntensity; twin.needsUpdate = true;
+      }
+    }};
+  }
   /** The protection for the posed frame (render pixels), or null when it could not be established. */
   get protection(): ProtectionConfiguration | null {return this.protectionConfiguration ? structuredClone(this.protectionConfiguration) : null;}
   get noseRoi(): PixelRect | null {return this.nasalRect ? {...this.nasalRect} : null;}
-  /** The projected arm centrelines for the posed frame (null without pinned geometry). */
+  /** The projected arm centrelines for the posed frame, from the normalised scene (null when continuity fell back,
+   *  see `endpointUnavailable` and the report, or before a pose). */
   get paths(): ProjectedTemplePath[] | null {return this.templePaths;}
   get endpointUnavailable(): string | null {return this.continuityFailure;}
   /** How the next `render` reads its mask: null for the frame's own mask, or a mask reused from an earlier frame placed
@@ -290,44 +498,28 @@ export class TryOnRenderer {
     this.shadowPending = true;
   }
   get shadowsSettings(): ShadowSettings {return {...this.shadowSettings};}
-  get studioMaterialCatalog() {return this.studioRoot ? studioMaterials(this.studioRoot) : [];}
-  /** Material-only preview: pose, camera, geometry and optical membership stay unchanged. */
-  applyStudioPreview(preview: StudioPreview): void {
-    if (!this.studioRoot) throw new Error('Studio material editing is not enabled for this renderer.');
-    this.swapTranslucentFrames(false);
-    const ids = applyStudioMaterials(this.studioRoot, preview.edits, GLASSES_METERS_TO_CENTIMETERS);
-    if (preview.viewer.lens_reflection !== undefined) {
-      for (const mesh of this.lensMeshes) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-        if (material instanceof MeshStandardMaterial && isOpticalMaterial(material)) {
-          if (!material.envMap) {material.envMap = this.environmentTarget?.texture ?? null; material.needsUpdate = true;}
-          material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * preview.viewer.lens_reflection;
-        }
-      }
-    }
-    if (ids.length) {
-      // These derived materials capture color/volume at construction; rebuild them from edited originals and overlays.
-      for (const twin of this.translucentTwins.values()) twin.dispose();
-      this.translucentTwins.clear();
-      if (this.shadowReceiverGeometry) {
-        const replacement = new EyewearShadow(this.renderer, this.studioRoot, this.shadowReceiverGeometry, GLASSES_METERS_TO_CENTIMETERS * 1.30);
-        this.shadows?.dispose(); this.shadows = replacement;
-      }
-      this.shadowBackground = null; this.shadowPending = true;
-    }
-  }
-  get fitting(): EyewearFitSession['report'] & {scale: number; limited: boolean; ready: boolean} {
+  get fitting(): FittingReport {
     const report = this.fitSession.report;
-    return {...report, scale: this.fitScale, limited: this.fitLimited || report.limited, ready: this.fitRevealed};
+    if (this.fixedScale) return {...report, state: 'fitted', progress: 1, adjustment: 0, rejection: null, scale: 1, limited: false,
+      ready: this.fitRevealed, mode: 'fixed'};
+    return {...report, scale: this.fitScale, limited: this.fitLimited || report.limited, ready: this.fitRevealed, mode: 'auto'};
   }
   refit(): void {
-    this.fitSession.reset(); this.fitLimited = false; this.fitRevealed = false;
+    this.fitSession.reset(); this.fitLimited = false; this.fitRevealed = this.fixedScale;
     this.eyewearPose.visible = false; this.shadowPending = true;
   }
-  setFitAdjustment(value: number): void {this.fitSession.setAdjustment(value);}
+  /** A manual size adjustment of the auto-fit. With fixedScale it is ignored (reported once): the size stays authored. */
+  setFitAdjustment(value: number): void {
+    if (!this.fixedScale) {this.fitSession.setAdjustment(value); return;}
+    if (!this.adjustmentIgnored) {
+      this.adjustmentIgnored = true;
+      this.modelReport.warn('The size adjustment is ignored: this renderer draws the model at its authored size (fixedScale).');
+    }
+  }
   /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
   get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
   private get templeEndMaximumZM(): number {
-    const original = this.eyewear.templeClipLocalZM;
+    const original = this.clipZM;
     // An already-short external frame must never grow a tail, or place its endpoint ahead of its usable shaft.
     return Math.max(original, Math.min(-.055, original + HIDDEN_TAIL_M, (this.continuityModel?.startZM ?? Infinity) - .008));
   }
@@ -343,7 +535,7 @@ export class TryOnRenderer {
   private projectPaths(eyewearMatrix: readonly number[]): ProjectedTemplePath[] | null {
     if (!this.continuityModel) return null;
     const {width, height} = this.renderSize;
-    return projectTempleContinuity(this.continuityModel, {eyewearMatrix, offsetCm: this.eyewear.offsetCm,
+    return projectTempleContinuity(this.continuityModel, {eyewearMatrix, offsetCm: this.model.offsetCm,
       sourceAspect: this.frameWidth / this.frameHeight, width, height, dropM: 0,
       // The endpoint probe and the drawn vertices share the fixed spread and the asset's actual hinge plane.
       spreadM: ARM_SPREAD_M, spreadStartZM: this.rearDrop?.spreadStartZM, terminalFit: this.templeTerminalFit, fitScale: this.fitScale});
@@ -356,7 +548,7 @@ export class TryOnRenderer {
   }
   get captureSnapshot(): CaptureGeometry | null {
     const pose = this.lastPose; if (!pose || this.disposed) return null;
-    return {eyewearModelId: this.eyewear.id, rawMatrix: pose.rawMatrix.slice(), eyewearMatrix: pose.eyewearMatrix.slice(), yawDegrees: pose.yawDegrees,
+    return {eyewearModelId: this.model.url, rawMatrix: pose.rawMatrix.slice(), eyewearMatrix: pose.eyewearMatrix.slice(), yawDegrees: pose.yawDegrees,
       templeTerminalFit: this.templeTerminalFit ? {...this.templeTerminalFit} : null,
       templeHeadFit: this.templeHeadFit?.report ?? null,
       fitting: this.fitting,
@@ -364,12 +556,33 @@ export class TryOnRenderer {
       protection: this.protection, noseRoi: this.noseRoi};
   }
 
+  /** Record the settled auto-fit scale in the report (`fit_scale`), and warn once per distinct scale that is more than
+   *  FIT_SCALE_WARN_FRACTION from 1 (WP1_DESIGN.md §4: the images then do not show the authored size). */
+  private noteFitScale(): void {
+    const scale = this.fitScale, key = scale.toFixed(3), session = this.fitSession.report, limited = this.fitLimited || session.limited;
+    const noted = `${key}|${session.adjustment}|${limited}`;
+    if (noted === this.notedFitScale) return;
+    this.notedFitScale = noted;
+    this.modelReport.measure('fit_scale', {mode: 'auto', applied: Math.round(scale * 1e4) / 1e4, state: session.state,
+      face_width_cm: session.faceWidthCm === null ? null
+      : Math.round(session.faceWidthCm * 1e3) / 1e3, front_width_cm: Math.round(this.fitFrontWidthCm * 1e3) / 1e3,
+      adjustment: session.adjustment, limited});
+    if (Math.abs(scale - 1) > FIT_SCALE_WARN_FRACTION && !this.fitScaleWarnings.has(key)) {
+      this.fitScaleWarnings.add(key);
+      const percent = (scale - 1) * 100;
+      this.modelReport.warn(`FIT SCALE: the live fit draws this model at ×${key} its authored size (${percent >= 0 ? '+' : ''}${percent.toFixed(1)} %; the `
+        + `auto-fit to the face is clamped to ×${EYEWEAR_FIT.minimumAutoScale}-${EYEWEAR_FIT.maximumAutoScale} and multiplied by the `
+        + `${EYEWEAR_FIT.defaultFitPreference} fit preference${session.adjustment ? `, size adjustment ${session.adjustment >= 0 ? '+' : ''}${session.adjustment}` : ''}). `
+        + 'These images do not show the authored size; render with fixedScale for that.');
+    }
+  }
+
   /** Normalize upper-face proportions to the fitting reference view; this frame's baseline projection
    * supplies a visibility check. Calibration never observes its own resized output. */
   private updateFitting(detection: Detection, attachment: readonly number[], timestampMs: number): void {
     if (!this.eyewearAsset || !this.fitFrontBounds || !this.observedCheekAttribute || !(this.fitFrontWidthCm > 0) || !detection.matrix) return;
     if (this.fitSession.report.faceWidthCm === null) {
-      const projection = protectionProjection(attachment, this.eyewear.offsetCm, this.camera.aspect);
+      const projection = protectionProjection(attachment, this.model.offsetCm, this.camera.aspect);
       const bounds = this.fitFrontBounds;
       let minX = Infinity, maxX = -Infinity, valid = true;
       for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
@@ -383,7 +596,7 @@ export class TryOnRenderer {
         observedPositions: this.observedCheekAttribute.array as Float32Array,
         canonicalPositions: this.canonicalPositions, sourceAspect: this.camera.aspect}), timestampMs);
     }
-    const scale = this.fitSession.scaleFor(this.fitFrontWidthCm, this.eyewear.preferredFrontRatio ?? 1, timestampMs);
+    const scale = this.fitSession.scaleFor(this.fitFrontWidthCm, FIT_FRONT_RATIO, timestampMs);
     if (!Number.isFinite(scale)) return;
     if (Math.abs(scale - this.fitScale) < 1e-6) {this.fitLimited = false; return;}
     const terminal = this.terminalFitAtScale?.(scale) ?? null;
@@ -397,43 +610,39 @@ export class TryOnRenderer {
     this.shadowPending = true;
   }
 
-  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, eyewearId: string = DEFAULT_EYEWEAR_ID, options: RendererOptions = {}): Promise<TryOnRenderer> {
+  /** Load `model` and build the renderer for it. Unusable definition values fall back with a warning (catalog.ts). A
+   *  §2 refusal rejects with ModelRefusal, whose `report` is the whole model report (status 'refused'). */
+  static async create(canvas: HTMLCanvasElement, signal: AbortSignal, model: ModelDefinition, options: RendererOptions = {}): Promise<TryOnRenderer> {
     if (signal.aborted) throw abortError();
-    const eyewear = eyewearById(eyewearId);
+    const resolved = resolveModelDefinition(model);
+    const report = new ModelReportBuilder(resolved.url, resolved.displayName, resolved.warnings);
     const loading = new AbortController();
     let instance: TryOnRenderer | null = null, gltf: GLTF | null = null, webgl: WebGLRenderer | null = null, context: WebGL2RenderingContext | null = null;
     const onAbort = () => {loading.abort(); instance?.dispose();};
     signal.addEventListener('abort', onAbort, {once: true});
     try {
       const [glasses, face] = await Promise.all([
-        fetchAsset(eyewear.assetUrl, loading.signal).then(response => response.arrayBuffer()),
+        fetchAsset(resolved.url, loading.signal).then(response => response.arrayBuffer()),
         fetchAsset(assetPath('models/canonical-face.json'), loading.signal).then(response => response.json()).then(validateFace),
       ]);
       if (signal.aborted) throw abortError();
-      // Bind the rendered descriptor and geometry to the same bytes as the
-      // continuity model; never verify a second fetch after already rendering.
-      const integrity = await verifyPinnedGeometryBytes(eyewear.assetUrl, glasses);
-      if (signal.aborted) throw abortError();
-      gltf = await new GLTFLoader().parseAsync(glasses, assetPath('models/'));
-      if (options.studioControls) tagStudioMaterials(gltf);
-      if (signal.aborted) throw abortError();
+      // The WebGLRenderer exists before the GLB is parsed: KTX2Loader detects the GPU's compressed formats from it.
       // The guard needs a stencil buffer on the default framebuffer. The WebGLRenderer itself is created without one:
       // with `stencil: true` Three also gives its lens-transmission render target a stencil buffer (cleared to 0), and
       // the opaque scene then fails the EQUAL-1 test inside that target during the protected pass.
       context = canvas.getContext('webgl2', {alpha: false, antialias: true, stencil: true, powerPreference: 'high-performance'});
       if (!context) throw new Error('WebGL 2 is unavailable on this browser.');
       webgl = new WebGLRenderer({canvas, context, alpha: false, antialias: true, stencil: false});
-      instance = new TryOnRenderer(webgl, context, eyewear, options);
-      instance.assetIntegrity = Object.freeze(integrity);
+      // The rendered bytes, their SHA-256 and the Format row (model/load.ts); every later check binds to these bytes.
+      const loaded = await loadModel(glasses, report, {url: resolved.url, renderer: webgl, signal: loading.signal,
+        ...options.load, handoverSha256: options.load?.handoverSha256 ?? resolved.handoverSha256 ?? null});
+      gltf = loaded.gltf;
+      if (signal.aborted) throw abortError();
+      instance = new TryOnRenderer(webgl, context, resolved, options, report);
       instance.removeAbortListener = () => signal.removeEventListener('abort', onAbort);
       instance.assetScenes = gltf.scenes;
       const eyewearScene = gltf.scene; gltf = null;
-      instance.configure(face, eyewearScene);
-      if (options.studioControls) instance.studioRoot = eyewearScene;
-      if (signal.aborted) throw abortError();
-      // The pinned arm centrelines support hair endpoints; failure retains the fixed buried cap.
-      try {instance.continuityModel = await loadTempleContinuityModel(eyewear.assetUrl, eyewear.templeClipLocalZM, loading.signal, glasses);}
-      catch (error) {if (signal.aborted) throw abortError(); instance.continuityFailure = error instanceof Error ? error.message : String(error);}
+      instance.configure(face, eyewearScene, loaded.source);
       if (signal.aborted) throw abortError();
       return instance;
     } catch (error) {
@@ -444,17 +653,29 @@ export class TryOnRenderer {
     }
   }
 
-  private configure(face: CanonicalFace, eyewearScene: Group): void {
+  /** Build everything for the loaded scene. `source` is the glTF the scene was parsed from (names and lens
+   *  identification read its JSON); hand-built test scenes omit it and are identified from their userData (the report's
+   *  source says so). The normalisation pass runs first and may throw ModelRefusal; every subsystem after it is built in
+   *  its own try block and falls back, reported, when it cannot be. */
+  private configure(face: CanonicalFace, eyewearScene: Group, source: GltfSource | null = null): void {
     this.renderer.setPixelRatio(1); this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.canonicalPositions = face.positions; this.nasalShape = createNasalShape(face.positions, face.indices);
-    try {this.templeHeadFit = new TempleHeadFit(face.positions);} catch {this.templeHeadFit = null;}
-    const asset = new Group(); asset.name = `${this.eyewear.name} bridge attachment`;
+    try {this.templeHeadFit = new TempleHeadFit(face.positions);}
+    catch (error) {
+      this.templeHeadFit = null;
+      this.fallback('temple head fit', `The head-width fit of the face occluder is unavailable (${messageOf(error)}); the canonical head width is used.`);
+    }
+    const asset = new Group(); asset.name = `${this.model.displayName} bridge attachment`;
     this.eyewearAsset = asset;
-    asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.eyewear.offsetCm);
-    const canonical = installCanonicalLensMaterials(eyewearScene);
-    this.canonicalLensMaterials = canonical.materials;
-    this.retiredLensMaterials = canonical.replacedMaterials;
+    asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.model.offsetCm);
+    // The one normalisation pass (WP1_DESIGN.md §1): the retired lens descriptor stripped, transforms, geometry, units,
+    // lens identification (every material's class decided once, read by every consumer below) and the measured §2 rows.
+    // A §2 refusal throws here.
+    const normalized = normalizeModel(eyewearScene, this.modelReport, source);
+    this.eyewearRoot = eyewearScene;
+    eyewearScene.traverse(object => {if (object instanceof Mesh) this.partNames.set(object, nodeName(object, source));});
+    this.lensIdentificationReport = normalized.classification.lensIdentification;
     // The asset is scaled to centimetres below; volume attenuation distances are metres in the file (see eyewear-volume.ts).
     applyVolumeAttenuationScale(eyewearScene, GLASSES_METERS_TO_CENTIMETERS);
     eyewearScene.traverse(object => {
@@ -470,7 +691,8 @@ export class TryOnRenderer {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       if (materials.some(isOpticalMaterial)) this.lensMeshes.push(object);
     });
-    this.templeClip = createTempleClip(eyewearScene);
+    try {this.templeClip = createTempleClip(eyewearScene);}
+    catch (error) {this.templeClip = null; this.fallback('temple clip', `The temple clip could not be installed (${messageOf(error)}); the arms are drawn to their full length.`);}
     this.cheekContact = new TempleCheekContactEstimator(face.positions, face.indices);
     this.observedCheekGeometry = new BufferGeometry();
     this.observedCheekAttribute = new BufferAttribute(new Float32Array(face.positions.length), 3).setUsage(DynamicDrawUsage);
@@ -483,14 +705,36 @@ export class TryOnRenderer {
     this.shadowReceiverGeometry.setIndex(face.indices);
     this.shadowReceiverAttribute = new BufferAttribute(new Float32Array(face.positions.length), 3).setUsage(DynamicDrawUsage);
     this.shadowReceiverGeometry.setAttribute('shadowPosition', this.shadowReceiverAttribute);
-    this.rearDrop = createRearDrop(eyewearScene, this.eyewear.templeClipLocalZM, 0);
-    this.fitFrontBounds = this.rearDrop.opticalBounds;
+    // The temples by position, per side, and the clip derived from them (WP1_DESIGN.md §3), before anything that cuts or
+    // shapes an arm reads the clip.
+    const sides = this.installTemples(eyewearScene);
+    try {this.rearDrop = createRearDrop(eyewearScene, this.clipZM, 0, {sides});}
+    catch (error) {
+      this.rearDrop = null;
+      this.fallback('rear drop', `The fixed arm shape could not be built (${messageOf(error)}): the arms are drawn without the fixed spread and `
+        + 'terminal return, the fit width is measured on the front 25 mm, and hair occlusion stays off (no protection geometry).');
+    }
+    this.fitFrontBounds = this.rearDrop?.opticalBounds ?? frontRegionBounds(eyewearScene);
     this.fitFrontWidthCm = (this.fitFrontBounds.max.x - this.fitFrontBounds.min.x) * GLASSES_METERS_TO_CENTIMETERS;
     // Capture original terminal samples before any fit/spread modifies the cloned geometry.
-    this.terminalFitAtScale = createTempleTerminalFitEvaluator(eyewearScene, {offsetCm: this.eyewear.offsetCm,
-      spreadM: ARM_SPREAD_M, spreadStartZM: this.rearDrop.spreadStartZM,
-      modelCutoffZM: this.eyewear.templeClipLocalZM, maximumZM: this.templeEndMaximumZM});
-    this.templeTerminalFit = this.terminalFitAtScale(1);
+    if (this.rearDrop && (sides[0] || sides[1])) {
+      try {
+        const evaluator = createTempleTerminalFitEvaluator(eyewearScene, {offsetCm: this.model.offsetCm,
+          spreadM: ARM_SPREAD_M, spreadStartZM: this.rearDrop.spreadStartZM,
+          modelCutoffZM: this.clipZM, maximumZM: this.templeEndMaximumZM, sides});
+        this.terminalFitAtScale = evaluator;
+        this.templeTerminalFit = evaluator(1);
+        if (evaluator.unavailable) {
+          this.fallback('terminal fit', `The fixed temple return is unavailable (${evaluator.unavailable}); the arms keep the shortened cap.`);
+        } else if (!this.templeTerminalFit) {
+          this.fallback('terminal fit', 'The fixed temple return cannot be contained in the head volume at the authored size; the arms keep the '
+            + 'shortened cap at that size.');
+        }
+      } catch (error) {
+        this.terminalFitAtScale = null; this.templeTerminalFit = null;
+        this.fallback('terminal fit', `The fixed temple return could not be fitted (${messageOf(error)}); both arms keep the shortened cap.`);
+      }
+    }
     const occlusionMaterial = new MeshBasicMaterial({colorWrite: false, depthWrite: true, depthTest: true, side: DoubleSide});
     this.faceSurface = new FaceSurface(face.positions);
     const geometry = new BufferGeometry();
@@ -505,7 +749,8 @@ export class TryOnRenderer {
     shell.visible = false; this.templeHeadShell = shell; this.facePose.add(shell);
     this.templeHeadShellFit = createTempleHeadShellFit(shell.geometry);
     this.installArmShaders(eyewearScene);
-    this.shadows = new EyewearShadow(this.renderer, eyewearScene, this.shadowReceiverGeometry, GLASSES_METERS_TO_CENTIMETERS * 1.30);
+    try {this.shadows = new EyewearShadow(this.renderer, eyewearScene, this.shadowReceiverGeometry, GLASSES_METERS_TO_CENTIMETERS * 1.30);}
+    catch (error) {this.shadows = null; this.fallback('shadows', `The eyewear shadows could not be built (${messageOf(error)}); the frame draws without shadows.`);}
     const key = new DirectionalLight(0xffffff, 2); key.position.set(-10, 15, 20); this.scene.add(key);
     const environment = new RoomEnvironment(); let generator: PMREMGenerator | null = null;
     let seeThrough: RoomEnvironment | null = null;
@@ -513,14 +758,12 @@ export class TryOnRenderer {
       generator = new PMREMGenerator(this.renderer);
       this.environmentTarget = generator.fromScene(environment, 0.04);
       this.scene.environment = this.environmentTarget.texture; this.scene.environmentIntensity = SCENE_ENVIRONMENT_INTENSITY;
-      // A forced blur floor destroys sharp mirror reflections. Canonical optics
-      // select their own roughness while legacy/frame illumination stays intact.
-      // Canonical lenses and crystal (translucent frame materials) reflect the see-through room: the scene's room without
-      // the front panel behind the selfie camera, which was the flat white rectangle on every lens and the white slab and
-      // milky wash on the crystal (eyewear-reflection.ts). Unblurred for the crystal too: the scene room's 0.04 pre-blur is
-      // a second roughness floor on top of three's 0.0525, under which the owner's "glossy" crystal edits (roughness
-      // 0.085 -> 0.02 -> 0) could not change a pixel. Opaque acetate, metal and a legacy lens keep the scene room above.
-      if (this.canonicalLensMaterials.length || this.translucentFrameMeshes.length) {
+      // Crystal (translucent frame materials) reflects the see-through room: the scene's room without the front panel
+      // behind the selfie camera, which was the white slab and milky wash on the crystal (eyewear-reflection.ts).
+      // Unblurred: the scene room's 0.04 pre-blur is a second roughness floor on top of three's 0.0525, under which the
+      // owner's "glossy" crystal edits (roughness 0.085 -> 0.02 -> 0) could not change a pixel. Native lenses, opaque
+      // acetate and metal keep the scene room above (the owner-judged look).
+      if (this.translucentFrameMeshes.length) {
         seeThrough = createSeeThroughRoom();
         this.seeThroughEnvironmentTarget = generator.fromScene(seeThrough, 0);
       }
@@ -529,16 +772,13 @@ export class TryOnRenderer {
     // A material lit by scene.environment has its envMapIntensity overwritten with scene.environmentIntensity at every
     // render (three r185, WebGLRenderer.setProgram), so setting envMapIntensity alone has no effect. The lens materials
     // own the environment map at SCENE_ENVIRONMENT_INTENSITY times lensEnvIntensity (1 = unchanged).
-    if (this.eyewear.lensEnvIntensity !== undefined && this.environmentTarget) {
+    const lensEnvIntensity = this.model.lensEnvIntensity;
+    if (lensEnvIntensity !== undefined && this.environmentTarget) {
       for (const mesh of this.lensMeshes) {
         for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-          if (material instanceof MeshPhysicalMaterial && isOpticalMaterial(material)) {material.envMap = this.environmentTarget.texture; material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * this.eyewear.lensEnvIntensity;}
+          if (material instanceof MeshPhysicalMaterial && isOpticalMaterial(material)) {material.envMap = this.environmentTarget.texture; material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * lensEnvIntensity;}
         }
       }
-    }
-    if (this.seeThroughEnvironmentTarget) for (const material of this.canonicalLensMaterials) {
-      material.envMap = this.seeThroughEnvironmentTarget.texture;
-      material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY * (this.eyewear.lensEnvIntensity ?? 1);
     }
     // Every translucent frame material, the near-arm overlay clones included (installArmShaders collected them), owns the
     // see-through room at the scene's intensity before any twin is cloned from it (twinOf, at the first render; the clone
@@ -549,17 +789,79 @@ export class TryOnRenderer {
         material.envMap = this.seeThroughEnvironmentTarget.texture; material.envMapIntensity = SCENE_ENVIRONMENT_INTENSITY;
       }
     }
-    if (this.canonicalLensMaterials.length) this.canonicalLayers = new CanonicalLensLayers(
-      this.lensMeshes.filter(mesh => !Array.isArray(mesh.material) && this.canonicalLensMaterials.includes(mesh.material as MeshPhysicalMaterial)),
-      this.lookThrough?.display);
+    // The arm centrelines for the hair endpoint, from this same normalised scene (no second parse, no pin): built last,
+    // like the separate load it replaces, on geometry nothing has posed yet. Each side stands alone: a side without a
+    // posterior cross-section keeps the fixed buried cap (reported for that side); only no usable side at all turns the
+    // endpoint off.
+    try {
+      const continuity = buildTempleContinuityModel(eyewearScene, this.clipZM, {sides});
+      for (const gap of continuity.missing ?? []) {
+        // A side without a temple is already reported as a missing temple; an arm without a cross-section is new.
+        if (!sides[gap.side]) continue;
+        this.fallback('continuity', `Temple continuity, ${TEMPLE_SIDE_NAMES[gap.side]} arm: ${gap.reason}. That arm keeps the fixed buried cap and `
+          + 'gets no hair endpoint.');
+      }
+      if (continuity.sides.every(stations => stations.length === 0)) {
+        this.continuityFailure = (continuity.missing ?? []).map(gap => gap.reason).join('; ');
+        this.fallback('continuity', `The temple continuity model has no usable arm (${this.continuityFailure}); both arms keep the fixed buried cap and `
+          + 'no hair endpoint.');
+      } else {
+        this.continuityModel = {...continuity, assetUrl: this.model.url,
+          ...(this.modelReport.renderedSha256 ? {assetSHA256: this.modelReport.renderedSha256} : {})};
+      }
+    } catch (error) {this.noteContinuityFailure(error);}
   }
 
+  /** The temples by position, per side, and the clip derived from them (temple-geometry.ts, WP1_DESIGN.md §3), all
+   *  written into the report: `temples` and `temple_clip` measurements; a 'temple <side>' fallback for a side without a
+   *  temple (that side keeps a fixed cap: no arm shape, continuity, terminal return or hair endpoint; the §2 Orientation
+   *  row fails on its own and is never hidden by this); and every measurement or clip warning. Returns which sides carry
+   *  a temple. */
+  private installTemples(root: Object3D): readonly [boolean, boolean] {
+    let inventory: TempleInventory;
+    try {inventory = templeInventory(root);}
+    catch (error) {
+      // A pure measurement of the normalised scene; should it fail anyway, both sides are treated as temples (as before
+      // stage D2) and the clip stays at the handover or the floor, reported.
+      this.fallback('temples', `The temples could not be measured (${messageOf(error)}); both sides are treated as temples and the clip stays at `
+        + `${this.clipZM.toFixed(3)} m.`);
+      return [true, true];
+    }
+    this.templeSides = inventory;
+    for (const warning of inventory.warnings) this.modelReport.warn(`Temples: ${warning}.`);
+    for (const side of inventory.sides) {
+      if (side.present) continue;
+      this.fallback(`temple ${side.side}`, `TEMPLE ${side.side.toUpperCase()} MISSING: ${side.missing}. That side keeps a fixed cap: no arm shape, `
+        + 'temple continuity, terminal return or hair endpoint is built for it. A missing temple is a geometry defect of the model.');
+    }
+    const clip = deriveTempleClip(inventory, this.model.templeClipZM);
+    this.clipZM = clip.clipZM;
+    for (const warning of clip.warnings) {
+      if (clip.source === 'default') this.fallback('temple clip depth', `Temple clip: ${warning}.`);
+      else this.modelReport.warn(`Temple clip: ${warning}.`);
+    }
+    const measured = templeMeasurements(inventory, clip);
+    this.modelReport.measure('temples', measured.temples);
+    this.modelReport.measure('temple_clip', measured.temple_clip);
+    return inventory.present;
+  }
+
+  /** A fallback of this model: a fallbacks[] entry and a warning (model/report.ts). */
+  private fallback(subsystem: string, detail: string, stage: 'load' | 'render' = 'load'): void {this.modelReport.fallback(subsystem, detail, stage);}
+
   /** The near-arm visibility overlays, the translucent frame meshes pass B swaps to their twins, and hair occlusion, in
-   *  the order their shader wrappers nest (the temple clip is installed first). Needs the observed cheek geometry. */
+   *  the order their shader wrappers nest (the temple clip is installed first). Needs the observed cheek geometry. Each
+   *  is built in its own try block: a failure turns that one feature off, reported. */
   private installArmShaders(eyewearScene: Object3D): void {
-    this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera,
-      eyewearPose: this.eyewearPose, observedFaceSurface: this.observedCheekGeometry ?? undefined,
-      lensInputUniform: this.twinUniforms.twinLensInput});
+    try {
+      this.templeVisibility = createTempleVisibility(eyewearScene, {renderer: this.renderer, scene: this.scene, camera: this.camera,
+        eyewearPose: this.eyewearPose, observedFaceSurface: this.observedCheekGeometry ?? undefined,
+        lensInputUniform: this.twinUniforms.twinLensInput});
+    } catch (error) {
+      this.templeVisibility = null;
+      this.fallback('temple visibility', `The near-arm visibility overlays could not be built (${messageOf(error)}); the arms are drawn without the `
+        + 'side-depth relief and observed-cheek occlusion.');
+    }
     // After the visibility overlays exist: a crystal arm's overlay draws a transmissive clone registered as frame, and
     // pass B must swap that clone to its twin too, or the overlay would transmit the clear colour in the corridors.
     eyewearScene.traverse(object => {
@@ -567,25 +869,50 @@ export class TryOnRenderer {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       if (materials.some(isTranslucentFrameMaterial)) this.translucentFrameMeshes.push({mesh: object, original: object.material});
     });
-    // Authored crystal is frame beside either native or canonical lenses. Its input includes internal hardware;
-    // native lenses still use Three's arm-excluded pre-pass. The twins share that pass identity with temple visibility.
+    // Authored crystal is frame. Its input includes internal hardware; native lenses still use Three's arm-excluded
+    // pre-pass. The twins share that pass identity with temple visibility.
     this.legacyTransmissiveOptics = hasLegacyTransmissiveOptics(eyewearScene);
     if (this.translucentFrameMeshes.length) {
-      this.lookThrough = new TranslucentLookThrough();
-      const lenses = new Set<Material>();
-      eyewearScene.traverse(object => {
-        if (object instanceof Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-          if (isOpticalMaterial(material)) lenses.add(material);
-        }
-      });
-      this.lookThroughHidden = [...lenses];
+      try {
+        this.lookThrough = new TranslucentLookThrough();
+        const lenses = new Set<Material>();
+        eyewearScene.traverse(object => {
+          if (object instanceof Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+            if (isOpticalMaterial(material)) lenses.add(material);
+          }
+        });
+        this.lookThroughHidden = [...lenses];
+      } catch (error) {
+        this.lookThrough = null; this.lookThroughHidden = [];
+        this.fallback('look-through', `The crystal look-through image could not be built (${messageOf(error)}); translucent frame parts draw their `
+          + 'camera twins only inside the editable corridors and Three\'s own transmission elsewhere.');
+      }
     }
     // Installed last so it wraps the clip and visibility hooks; its blend commutes with the clip's terminal blend.
-    this.hairOcclusion = createHairOcclusion(eyewearScene);
+    try {this.hairOcclusion = createHairOcclusion(eyewearScene);}
+    catch (error) {this.hairOcclusion = null; this.fallback('hair occlusion', `Hair occlusion could not be installed (${messageOf(error)}); the arms are never hidden by hair.`);}
   }
 
-  /** Digest of the exact parsed/rendered bytes; a digest alone is not a supplier attestation. */
-  get renderedAssetIntegrity(): Readonly<{sha256: string; pinned: boolean}> | null {return this.assetIntegrity;}
+  /** A pose whose protection could not be established draws without hair; each distinct reason is reported once. */
+  private noteProtectionFailure(reason: string): void {
+    if (this.protectionFailures.has(reason)) return;
+    this.protectionFailures.add(reason);
+    this.fallback('protection', `The optical/nasal protection could not be established for a frame (${reason}); such frames draw without `
+      + 'hair occlusion.', 'render');
+  }
+
+  /** The continuity fallback: both arms keep the fixed buried cap and get no hair endpoint, and the report says why. */
+  private noteContinuityFailure(error: unknown): void {
+    this.continuityFailure = messageOf(error);
+    this.fallback('continuity', `The temple continuity model is unavailable (${this.continuityFailure}); both arms keep the fixed buried cap and no hair endpoint.`);
+  }
+
+  /** SHA-256 of the exact bytes parsed and rendered (the report's rendered_sha256), or null for a hand-built scene. A
+   *  digest alone is not a supplier attestation; nothing is pinned. */
+  get renderedAssetIntegrity(): Readonly<{sha256: string}> | null {
+    const sha256 = this.modelReport.renderedSha256;
+    return sha256 ? {sha256} : null;
+  }
 
   /** Waits (yielding) until the previous frame's GPU work completed, so submission cannot run ahead of completion. A
    *  fence that has not signalled after GPU_WAIT_LIMIT_MS ends the wait (the frame is late, not lost); after
@@ -662,10 +989,11 @@ export class TryOnRenderer {
             steadyDepthCm: steadied?.depthCm ?? null, steadyLagDeg: steady?.lagDeg ?? null, steadyRotationCutoffHz: steady?.rotationCutoffHz ?? null,
             steadyDepthCutoffHz: steady?.depthCutoffHz ?? null, steadyReset: steady?.reset ?? null};
           const attachment = correctedBridgePose(poseMatrix, detection.landmarks, this.canonicalPositions, this.camera.aspect);
-          if (cheekDepthValid) {
+          // fixedScale: the authored size, nothing to fit (revealed from the start).
+          if (cheekDepthValid && !this.fixedScale) {
             this.updateFitting(detection, attachment.matrix, timestampMs);
             // A shared session can still hold the previous model's settled scale. Evaluate this model first.
-            if (this.fitSession.report.state === 'fitted') this.fitRevealed = true;
+            if (this.fitSession.report.state === 'fitted') {this.fitRevealed = true; this.noteFitScale();}
           }
           if (this.shadowReceiverAttribute && this.observedCheekAttribute) {
             this.shadowSurfaceValid = cheekDepthValid && this.shadowReceiver.apply(this.observedCheekAttribute.array as Float32Array,
@@ -684,7 +1012,7 @@ export class TryOnRenderer {
           this.templeVisibility?.set(
             {...createTempleVisibilityConfiguration(this.renderer.capabilities?.samples ?? 0, this.templeKeepCm, this.templeDropCm),
               excludeArmsFromLensInput: true,
-              // Canonical lenses read only the explicit input; Three's pre-pass is lens input for a legacy lens alone.
+              // Three's pre-pass is lens input only when a lens actually transmits (an opaque mirror lens samples none).
               internalTransmissionIsLensInput: this.legacyTransmissiveOptics,
               cheekContact,
               cheekTransitionPx: 2,
@@ -699,7 +1027,8 @@ export class TryOnRenderer {
           // The protection geometry for this exact pose, fixed shape and frame size.
           const {width, height} = this.renderSize, shape = this.rearDrop;
           this.protectionConfiguration = shape ? createProtection({optical: shape.opticalBounds, originalArms: shape.originalArmBounds, candidateArms: shape.candidateArmBounds},
-            attachment.matrix, this.eyewear.offsetCm, detection.landmarks, width, height, frame.width / frame.height, this.fitScale) : null;
+            attachment.matrix, this.model.offsetCm, detection.landmarks, width, height, frame.width / frame.height, this.fitScale,
+            reason => this.noteProtectionFailure(reason)) : null;
           this.nasalRect = nasalRoi(detection, width, height);
           this.templePaths = this.projectPaths(attachment.matrix);
           this.templeEndpointPending = true;
@@ -751,9 +1080,17 @@ export class TryOnRenderer {
    *  overlay relief) with their shared uniforms. Created on first use, rebuilt when the original's wrappers change. */
   private twinOf(material: Material): Material {
     if (!(material instanceof MeshPhysicalMaterial) || !isTranslucentFrameMaterial(material)) return material;
+    if (this.twinFailures.has(material)) return material;
     let twin = this.translucentTwins.get(material);
     if (!twin) {
-      twin = createCameraTransmissionTwin(material, this.twinUniforms);
+      try {twin = createCameraTransmissionTwin(material, this.twinUniforms);}
+      catch (error) {
+        // The material keeps Three's own physical transmission (inside pass B it then shows the clear colour).
+        this.twinFailures.add(material);
+        this.fallback('translucent twin', `The camera twin of translucent frame material "${material.name || '(unnamed)'}" could not be built `
+          + `(${messageOf(error)}); it is drawn with Three's own transmission.`, 'render');
+        return material;
+      }
       this.translucentTwins.set(material, twin);
     }
     refreshCameraTransmissionTwin(twin);
@@ -795,9 +1132,96 @@ export class TryOnRenderer {
   }
 
   /** Draw the posed frame into the canvas. Live frames use `{hair, eyewear: true, guard}`; the audit draws
-   *  other variants of the same posed frame and reads them back. */
+   *  other variants of the same posed frame and reads them back. `override` (override.ts) draws a diagnostic image
+   *  instead, applied to the originals, the near-arm overlays and the twins alike and restored afterwards. */
   render(mask: CategoryMask | null, variant: Partial<RenderVariant> = {}): FrameTimings {
     if (this.disposed) throw new Error('The renderer is disposed.');
+    if (!this.backgroundTexture) throw new Error('Nothing is posed.');
+    const override = variant.override ?? null;
+    if (override === null) return this.renderFrame(mask, variant);
+    if (!isRenderOverride(override)) throw new Error(`Unknown render override ${JSON.stringify(override)}.`);
+    if (FLAT_OVERRIDES.has(override)) return this.renderFlat(override);
+    // lens-hidden / lens-only: the beauty draw (one unguarded pass) with a visibility filter over every eyewear mesh
+    // (overlays included; the twins are materials of the same meshes, the shadow casters follow their sources' visibility).
+    const hidden: {object: Object3D; visible: boolean}[] = [];
+    this.eyewearRoot?.traverse(object => {
+      if (!(object instanceof Mesh)) return;
+      const lens = (Array.isArray(object.material) ? object.material : [object.material]).some(isOpticalMaterial);
+      if (override === 'lens-hidden' ? lens : !lens) {hidden.push({object, visible: object.visible}); object.visible = false;}
+    });
+    this.shadowPending = true;
+    try {
+      // One unguarded pass: the guarded pass B toggles the lens meshes itself (it skips them, then shows them again).
+      return {...this.renderFrame(mask, {...variant, override: null, guard: false}), override};
+    } finally {
+      for (const {object, visible} of hidden) object.visible = visible;
+      this.shadowPending = true;
+    }
+  }
+
+  /** part-id, lens-mask and normals (override.ts): flat materials on every eyewear mesh, black background, no guard, hair,
+   *  shadows or look-through; overlays hidden; the face and head depth occluders kept; temples cut at the live clip. */
+  private renderFlat(override: RenderOverride): FrameTimings {
+    const root = this.eyewearRoot, tracked = this.facePose.visible, showEyewear = tracked && this.fitRevealed;
+    const saved = new Map<Mesh, Mesh['material']>(), overlays: {mesh: Mesh; visible: boolean}[] = [], created: Material[] = [];
+    const palette: PaletteEntry[] = [];
+    const background = this.scene.background, poseVisible = this.eyewearPose.visible;
+    const clip = this.templeClip?.configuration ?? null;
+    this.overrideClip.enabled.value = clip ? 1 : 0;
+    if (clip) {this.overrideClip.negative.value = clip.negativeXCutoffLocalZM; this.overrideClip.positive.value = clip.positiveXCutoffLocalZM;}
+    const parts = new Map(this.parts().map(part => [part.mesh, part]));
+    const submitStart = performance.now();
+    let frameIndex = 0;
+    try {
+      root?.traverse(object => {
+        if (!(object instanceof Mesh)) return;
+        if (object.userData.templeVisibilityOverlay === true) {overlays.push({mesh: object, visible: object.visible}); object.visible = false; return;}
+        saved.set(object, object.material);
+        const slots = Array.isArray(object.material) ? object.material : [object.material];
+        const lensMesh = slots.some(isOpticalMaterial);
+        const profile = partVisibilityOf(object), side = profileTempleSide(object);
+        const rgb: readonly [number, number, number] = override === 'part-id' ? (lensMesh ? LENS_ID_RGB : partColour(frameIndex++))
+          : lensMesh ? [255, 255, 255] : [0, 0, 0];
+        const replaced = slots.map(material => {
+          const lens = isOpticalMaterial(material);
+          const cut = !lens && (!profile || profile.region === 'temple_left' || profile.region === 'temple_right');
+          const flat = flatOverrideMaterial(override, override === 'lens-mask' ? (lens ? [255, 255, 255] : [0, 0, 0]) : rgb, this.overrideClip, cut, side);
+          created.push(flat); return flat;
+        });
+        object.material = Array.isArray(object.material) ? replaced : replaced[0]!;
+        if (override === 'part-id') {
+          const part = parts.get(object);
+          palette.push({rgb: [rgb[0], rgb[1], rgb[2]], name: part?.name ?? object.name, class: part?.class ?? (lensMesh ? 'lens' : 'frame'),
+            side: part?.side ?? 'centre'});
+        }
+      });
+      this.scene.background = new Color(0x000000);
+      this.setStencil(false, 0); this.hairOcclusion?.set(false, this.hairStartZ);
+      this.eyewearPose.visible = showEyewear;
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+      if (this.sync) {
+        if (this.fence) this.gl.deleteSync(this.fence);
+        this.fence = this.gl.fenceSync(this.gl.SYNC_GPU_COMMANDS_COMPLETE, 0); this.gl.flush();
+      }
+    } finally {
+      for (const [mesh, material] of saved) mesh.material = material;
+      for (const {mesh, visible} of overlays) mesh.visible = visible;
+      for (const material of created) material.dispose();
+      this.scene.background = background; this.eyewearPose.visible = poseVisible;
+    }
+    const maximum = this.templeEndMaximumZM;
+    return {templeEndMaximumZM: maximum, templeEndNegativeZM: this.templeEndpointReport?.negativeZM ?? maximum,
+      templeEndPositiveZM: this.templeEndpointReport?.positiveZM ?? maximum,
+      templeEndState: this.templeEndpointReport ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap',
+      maskUploadMs: 0, endpointMs: 0, submitMs: performance.now() - submitStart, hairApplied: false, maskWidth: 0, maskHeight: 0, sync: this.sync,
+      guarded: false, passes: 1, protectedRects: 0, editableRects: 0, safeFallback: false,
+      templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm, armSpreadM: this.rearDrop?.spreadM ?? 0,
+      armSpreadStartZM: this.rearDrop?.spreadStartZM ?? null, shadowsApplied: false, shadowMs: 0, override,
+      ...(override === 'part-id' ? {palette} : {})};
+  }
+
+  private renderFrame(mask: CategoryMask | null, variant: Partial<RenderVariant>): FrameTimings {
     if (!this.backgroundTexture) throw new Error('Nothing is posed.');
     const v: RenderVariant = {hair: true, eyewear: true, guard: this.guard, shadows: true, ...variant};
     // With a look-through image the twins are the crystal in every pass (refreshed here, which follows wrapper changes).
@@ -810,7 +1234,17 @@ export class TryOnRenderer {
     // Update once per posed frame. Audit variants reuse the exact same endpoint, even when their hair flag differs.
     if (this.templeEndpointPending && tracked) {
       if (this.continuityModel && this.latestPose) {
-        this.templeEndpointTracker ??= new TempleEndpointTracker(this.continuityModel, this.templeEndMaximumZM);
+        if (!this.templeEndpointTracker) {
+          try {this.templeEndpointTracker = new TempleEndpointTracker(this.continuityModel, this.templeEndMaximumZM);}
+          catch (error) {
+            // Both arms keep the fixed buried cap; a throw here would otherwise end the live session.
+            this.continuityModel = null; this.continuityFailure = messageOf(error);
+            this.fallback('continuity', `The temple endpoint tracker could not start (${this.continuityFailure}); both arms keep the fixed buried cap `
+              + 'and no hair endpoint.', 'render');
+          }
+        }
+      }
+      if (this.continuityModel && this.latestPose && this.templeEndpointTracker) {
         this.templeEndpointReport = this.templeEndpointTracker.update({paths: this.templePaths, mask: wantsHair ? mask : null,
           render: this.renderSize, warp: this.maskWarp, timestampMs: this.poseTimestampMs,
           yawDegrees: this.latestPose.steadyYawDeg ?? this.latestPose.yawDeg,
@@ -844,21 +1278,12 @@ export class TryOnRenderer {
     this.eyewearPose.visible = showEyewear;
     this.templeClip?.prepareRender(background, width, height);
     // The twins of translucent frame materials look through to this same background at their own pixel; with a
-    // look-through image they are rebound to it below, once it is drawn, after the canonical lens input (which keeps this).
+    // look-through image they are rebound to it below, once it is drawn.
     setCameraTransmissionSource(this.twinUniforms, background, width, height);
     if (tracked && this.posedMatrix && this.templeVisibility?.configuration) this.templeVisibility.prepare(this.posedMatrix, background);
     this.hairOcclusion?.prepareRender(showHair ? this.maskTexture : null, width, height, background, 2);
-    if (showEyewear && (this.lookThrough || this.canonicalLayers)) {this.setStencil(false, 0); this.hairOcclusion?.set(false, this.hairStartZ);}
-    if (showEyewear && this.canonicalLayers) {
-      // The explicit lens input excludes the arms, and so must the crystal drawn in it (a far rim or bridge seen through
-      // a lens): its twins keep the background bound above. The look-through image has the arms in it, so a crystal part
-      // sampling it would carry the far arm's hardware across the near lens. An arm-excluded look-through image instead
-      // (opaque front hardware kept) measured identical on the crystal assets (test-pilot-001/002, yaw 0-90) and would
-      // cost a second multisampled scene pass per frame.
-      this.canonicalLayers.render(this.renderer, this.scene, this.camera, width, height,
-        draw => {if (this.templeVisibility) this.templeVisibility.withLensInput(draw); else draw();});
-    }
     if (showEyewear && this.lookThrough) {
+      this.setStencil(false, 0); this.hairOcclusion?.set(false, this.hairStartZ);
       // For the canvas passes: the camera behind the opaque eyewear, the arms and their relieved overlays included,
       // without the lenses and without anything that samples the image.
       const image = this.lookThrough.render(this.renderer, this.scene, this.camera, width, height,
@@ -957,13 +1382,12 @@ export class TryOnRenderer {
     this.protectionConfiguration = null; this.nasalRect = null; this.reader.dispose();
     this.scene.background = null; this.scene.environment = null;
     this.shadows?.dispose(); this.shadows = null; this.shadowBackground = null;
-    this.studioRoot = null;
-    this.canonicalLayers?.dispose(); this.canonicalLayers = null;
     this.eyewearAsset = null; this.fitFrontBounds = null; this.terminalFitAtScale = null;
     this.shadowReceiverGeometry?.dispose(); this.shadowReceiverGeometry = null; this.shadowReceiverAttribute = null;
     this.backgroundTexture?.dispose(); this.backgroundTexture = null;
     this.maskTexture?.dispose(); this.maskTexture = null; this.maskBytes = null;
     this.environmentTarget?.dispose(); this.environmentTarget = null;
+    if (this.lighting) {this.lighting.maps.dispose(); this.lighting = null;}
     this.seeThroughEnvironmentTarget?.dispose(); this.seeThroughEnvironmentTarget = null;
     this.hairOcclusion?.dispose(); this.hairOcclusion = null;
     this.templeVisibility?.dispose(); this.templeVisibility = null;
@@ -975,11 +1399,10 @@ export class TryOnRenderer {
     // The authored materials go back on their meshes so the scene disposal frees them; the twins are freed here.
     this.swapTranslucentFrames(false);
     this.lookThrough?.dispose(); this.lookThrough = null; this.lookThroughHidden = [];
-    disposeObjects([this.scene, ...this.assetScenes], this.retiredLensMaterials); this.assetScenes = [];
+    disposeObjects([this.scene, ...this.assetScenes]); this.assetScenes = [];
     for (const twin of this.translucentTwins.values()) twin.dispose();
     this.translucentTwins.clear(); this.translucentFrameMeshes = [];
     setCameraTransmissionSource(this.twinUniforms, null, 1, 1);
-    this.retiredLensMaterials = []; this.canonicalLensMaterials = []; this.assetIntegrity = null;
     this.canonicalPositions = []; this.nasalShape = null; this.faceSurface = null; this.surfaceMesh = null; this.templeHeadShell = null; this.surfaceAttribute = null;
     this.scene.clear(); this.renderer.dispose(); this.renderer.forceContextLoss();
   }

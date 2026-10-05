@@ -4,10 +4,10 @@ import {readFile} from 'node:fs/promises';
 import {Euler, Matrix4, Vector3} from 'three';
 import {TempleHeadFit, templeHeadFitX, TEMPLE_HEAD_FIT} from '../src/render/temple-head-fit.ts';
 import {createTempleHeadShell, createTempleHeadShellFit} from '../src/render/temple-head-shell.ts';
-import {SHIPPED_EYEWEAR} from '../src/eyewear/catalog.ts';
+import {SHIPPED_MODELS, publicFile} from './shipped-models.ts';
 import {TempleSurface} from '../src/render/temple-surface.ts';
 
-const face: {positions: number[]; indices: number[]} = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8'));
+const face: {positions: number[]; indices: number[]} = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8'));
 const pose = (depth = 45, pitch = 0, yaw = 0) => new Matrix4().makeRotationFromEuler(new Euler(pitch * Math.PI / 180, yaw * Math.PI / 180, 0, 'YXZ')).setPosition(0, 0, -depth);
 const observed = (matrix: Matrix4, ratio = 1, sideErrorCm = 0) => new Float32Array(face.positions.flatMap((_, i) => {
   if (i % 3) return [];
@@ -77,9 +77,9 @@ test('fitting the closed shell preserves shared edges and all posterior facets, 
       assert.ok(preserved > 100); if (ratio !== 1) assert.ok(moved > 100);
     }
     assert.deepEqual(p.array, baseline, 'returning to identity exactly restores the owned base positions');
-    for (const model of Object.values(SHIPPED_EYEWEAR)) {
-      const terminalFrontCm = (model.templeClipLocalZM + .025 + .005) * 100 + model.offsetCm[2];
-      assert.ok(terminalFrontCm < TEMPLE_HEAD_FIT.posteriorZCm - 1, `${model.name} terminal band is wholly inside unchanged posterior volume`);
+    for (const model of SHIPPED_MODELS) {
+      const terminalFrontCm = (model.templeClipZM + .025 + .005) * 100 + model.offsetCm[2];
+      assert.ok(terminalFrontCm < TEMPLE_HEAD_FIT.posteriorZCm - 1, `${model.displayName} terminal band is wholly inside unchanged posterior volume`);
     }
   } finally {geometry.dispose();}
 });

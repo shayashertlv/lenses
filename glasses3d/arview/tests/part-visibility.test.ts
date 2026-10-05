@@ -6,7 +6,7 @@ import {
   RedFormat, Scene, ShaderLib, ShaderMaterial, SRGBColorSpace, Texture, UniformsUtils,
 } from 'three';
 import type {WebGLRenderer} from 'three';
-import {PART_VISIBILITY_KEY, partVisibilityOf, validatePartVisibility} from '../src/eyewear/part-visibility.ts';
+import {IGNORED_PART_VISIBILITY_KEY, PART_VISIBILITY_KEY, partVisibilityOf, validatePartVisibility} from '../src/eyewear/part-visibility.ts';
 import type {PartVisibilityRegion} from '../src/eyewear/part-visibility.ts';
 import {classifyAssetMaterials, isAuthoredFrontFrame, isOpticalMaterial} from '../src/eyewear/optical-material.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
@@ -15,6 +15,8 @@ import {createTempleClip} from '../src/render/temple-clip.ts';
 import {createHairOcclusion} from '../src/render/hair-occlusion.ts';
 import {createTempleVisibility} from '../src/render/temple-visibility.ts';
 import {EyewearShadow} from '../src/render/eyewear-shadow.ts';
+import {normalizeModel} from '../src/model/normalize.ts';
+import {ModelRefusal, ModelReportBuilder} from '../src/model/report.ts';
 
 function part(name: string, region: PartVisibilityRegion, geometry: BufferGeometry, material: Material): Mesh {
   const mesh = new Mesh(geometry, material); mesh.name = name;
@@ -44,41 +46,94 @@ function compile(material: Material) {
   Reflect.apply(material.onBeforeCompile, material, [shader, {}]); return shader;
 }
 
-test('profile validation is complete, coherent, strict, and atomic before shared material changes', t => {
-  const f = fixture(t);
-  assert.equal(validatePartVisibility(f.root), true);
-  for (const malformed of [null, [], {version: 2, region: 'front'}, {version: 1, region: ['front']}, {version: 1, region: 'front', guess: true}]) {
-    f.front.userData[PART_VISIBILITY_KEY] = malformed;
-    assert.throws(() => classifyAssetMaterials(f.root), /LENSES_part_visibility/);
-    assert.equal(f.left.material, f.material); assert.equal(f.front.material, f.material);
+/** Classify `f` and return the part-visibility warnings, asserting the profiles were ignored for the whole asset. */
+function ignored(f: ReturnType<typeof fixture>): string[] {
+  const {warnings, partVisibilityIgnored: profile} = classifyAssetMaterials(f.root);
+  assert.ok(profile.length > 0 && profile.every(warning => warning.startsWith(`${PART_VISIBILITY_KEY} ignored for the whole asset`)));
+  assert.deepEqual(warnings.filter(warning => warning.includes(PART_VISIBILITY_KEY)), [],
+    'an ignored profile is reported apart from the lens identification warnings (the model report makes it a fallback)');
+  for (const mesh of [f.front, f.otherFront, f.left, f.right, f.lens]) {
+    assert.equal(partVisibilityOf(mesh), null, `${mesh.name}: no profile is read after the asset's profiles are ignored`);
   }
-  f.front.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'front'};
-  delete f.left.userData[PART_VISIBILITY_KEY]; f.left.visible = false;
-  assert.throws(() => classifyAssetMaterials(f.root), /missing left arm/);
-  f.left.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
-  f.lens.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'front'};
-  assert.throws(() => classifyAssetMaterials(f.root), /conflicts with partRole/);
-  f.lens.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'lens'};
-  f.front.position.z = -.001;
-  assert.throws(() => classifyAssetMaterials(f.root), /bake authored transforms/);
-  f.front.position.z = 0; delete f.front.userData.partRole; f.root.userData.partRole = 'frame';
-  assert.throws(() => classifyAssetMaterials(f.root), /conflicts with partRole/);
+  assert.equal(validatePartVisibility(f.root), false, 'the asset takes the positional path');
+  return [...profile];
+}
+
+// Rewritten (WP1_DESIGN.md §1): LENSES_part_visibility is optional metadata. Malformed or inconsistent profiles used to
+// throw; they are now ignored for the whole asset with one warning per problem, and the asset still classifies and
+// renders by the positional path. Unbaked transforms stay a refusal (a §2 Transforms row, not metadata).
+test('malformed or inconsistent profiles are ignored for the whole asset with a warning, never thrown', t => {
+  const valid = fixture(t);
+  assert.equal(validatePartVisibility(valid.root), true);
+  for (const malformed of [null, [], {version: 2, region: 'front'}, {version: 1, region: ['front']}, {version: 1, region: 'front', guess: true}]) {
+    const f = fixture(t); f.front.userData[PART_VISIBILITY_KEY] = malformed;
+    const warnings = ignored(f);
+    assert.equal(warnings.length, 1); assert.match(warnings[0]!, /expected \{version: 1, region: .*\} and nothing else on "deep wraparound endpiece"/);
+    assert.deepEqual(f.front.userData[IGNORED_PART_VISIBILITY_KEY], malformed, 'the ignored value is kept as evidence');
+    assert.ok(isOpticalMaterial(f.lens.material as Material) && !isOpticalMaterial(f.left.material as Material),
+      'the asset still classifies (positional path)');
+  }
+  const missing = fixture(t); delete missing.left.userData[PART_VISIBILITY_KEY]; missing.left.visible = false;
+  assert.match(ignored(missing).join(), /missing "left arm hardware and shaft"/);
+  const conflict = fixture(t); conflict.lens.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'front'};
+  assert.match(ignored(conflict).join(), /"lens" region 'front' conflicts with its identified class 'lens'/);
+  const lensRegion = fixture(t); lensRegion.front.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'lens'};
+  assert.match(ignored(lensRegion).join(), /region 'lens' conflicts with its identified class 'frame'/);
+  // The class comes from lens identification, not a raw partRole: an untagged endpiece is frame by default, so its
+  // front region agrees with it, and a role on the model root plays no part.
+  const untagged = fixture(t); delete untagged.front.userData.partRole; untagged.root.userData.partRole = 'lens';
+  const {warnings, partVisibilityIgnored} = classifyAssetMaterials(untagged.root);
+  assert.deepEqual(warnings.filter(warning => warning.includes(PART_VISIBILITY_KEY)), []); assert.deepEqual(partVisibilityIgnored, []);
+  assert.equal(partVisibilityOf(untagged.front)?.region, 'front');
+  // In the model report an ignored profile is a 'part visibility' fallback (and so a warning too), never only a
+  // lens-identification note.
+  const reported = fixture(t); reported.front.userData[PART_VISIBILITY_KEY] = {version: 2, region: 'front'};
+  const builder = new ModelReportBuilder('profiled', 'profiled');
+  normalizeModel(reported.root, builder);
+  const snapshot = builder.snapshot();
+  assert.deepEqual(snapshot.fallbacks.map(entry => entry.subsystem), ['part visibility']);
+  assert.match(snapshot.fallbacks[0]!.detail, /^LENSES_part_visibility ignored for the whole asset: expected \{version: 1, .*"deep wraparound endpiece"\. Every part is classified and drawn by the positional path/);
+  assert.ok(snapshot.warnings.includes(snapshot.fallbacks[0]!.detail));
+  assert.ok(!snapshot.warnings.some(warning => warning.startsWith('Lens identification:') && warning.includes(PART_VISIBILITY_KEY)));
+  // Unbaked transforms are refused once, by the load-time §2 check (model/normalize.ts), no longer by this reader.
+  const moved = fixture(t); moved.front.position.z = -.001;
+  assert.throws(() => normalizeModel(moved.root, new ModelReportBuilder('moved', 'moved')),
+    (error: unknown) => error instanceof ModelRefusal && /§2 Transforms: 1 mesh node\(s\) with a non-identity world transform/.test(error.message));
   const empty = new Group(); empty.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'front'};
-  assert.throws(() => validatePartVisibility(empty), /no rendered mesh/);
+  const messages: string[] = [];
+  assert.equal(validatePartVisibility(empty, message => messages.push(message)), false);
+  assert.match(messages.join(), /no rendered mesh parts/);
+});
+
+// WP1 stage D2: every consumer maps temple_left to the negative-X side, so a temple region on the other half of X (the
+// anatomical-left convention, temple_left at +x) is ignored for the whole asset and position decides (sides by geometry).
+test('a temple region on the wrong half of X is ignored for the whole asset', t => {
+  const f = fixture(t);
+  f.left.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_right'}; f.right.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
+  const warnings = ignored(f).join(' | ');
+  assert.match(warnings, /"left arm hardware and shaft" region 'temple_right' lies at x -61\.0 mm, but temple_left must lie at x < 0 and temple_right at x > 0/);
+  assert.match(warnings, /"right arm hardware and shaft" region 'temple_left' lies at x 61\.0 mm/);
 });
 
 test('a glTF primitive Group may provide one part profile; model-wide, conflicting, and Mesh-parent inheritance may not', t => {
-  const f = fixture(t), profile = f.front.userData[PART_VISIBILITY_KEY];
-  delete f.front.userData[PART_VISIBILITY_KEY];
-  const node = new Group(); node.userData[PART_VISIBILITY_KEY] = profile; node.add(f.front); f.root.add(node);
+  const grouped = (f: ReturnType<typeof fixture>) => {
+    const profile = f.front.userData[PART_VISIBILITY_KEY];
+    delete f.front.userData[PART_VISIBILITY_KEY];
+    const node = new Group(); node.userData[PART_VISIBILITY_KEY] = profile; node.add(f.front); f.root.add(node);
+    return {node, profile};
+  };
+  const f = fixture(t); grouped(f);
   assert.equal(validatePartVisibility(f.root), true);
-  f.front.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
-  assert.throws(() => validatePartVisibility(f.root), /conflicting node and primitive/);
-  delete f.front.userData[PART_VISIBILITY_KEY]; node.remove(f.front); f.lens.add(f.front);
-  assert.equal(partVisibilityOf(f.front), null);
-  assert.throws(() => validatePartVisibility(f.root), /missing deep wraparound/);
-  f.root.add(f.front); f.root.remove(node); f.root.userData[PART_VISIBILITY_KEY] = profile;
-  assert.throws(() => validatePartVisibility(f.root), /model-root metadata|conflicting node and primitive/);
+  const conflicting = fixture(t); grouped(conflicting);
+  conflicting.front.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
+  assert.match(ignored(conflicting).join(), /conflicting node and primitive regions on "deep wraparound endpiece"/);
+  const meshParent = fixture(t); const {node} = grouped(meshParent);
+  node.remove(meshParent.front); meshParent.lens.add(meshParent.front);
+  assert.equal(partVisibilityOf(meshParent.front), null);
+  assert.match(ignored(meshParent).join(), /missing "deep wraparound endpiece"/);
+  const modelWide = fixture(t); const wide = grouped(modelWide);
+  modelWide.root.add(modelWide.front); modelWide.root.remove(wide.node); modelWide.root.userData[PART_VISIBILITY_KEY] = wide.profile;
+  assert.match(ignored(modelWide).join(), /model-root metadata cannot replace per-part profiles/);
 });
 
 for (const crystal of [false, true]) test(`deep front is unchanged by spread and arm clipping, with PBR retained (crystal ${crystal})`, t => {

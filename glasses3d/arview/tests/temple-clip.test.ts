@@ -7,11 +7,12 @@ import {
   ShaderLib, SRGBColorSpace, Texture, UniformsUtils,
 } from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {EYEWEAR} from '../src/eyewear/catalog.ts';
 import {
   createTempleBlendConfiguration, createTempleClip, TEMPLE_BLEND_METHOD, TEMPLE_BLEND_LENGTH_LOCAL_M, validateTempleClip,
 } from '../src/render/temple-clip.ts';
 import type {TempleBlendConfiguration, TempleClipConfiguration} from '../src/render/temple-clip.ts';
+import {publicFile, SHIPPED_MODELS} from './shipped-models.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
 const clipping = (negativeXCutoffLocalZM: number, positiveXCutoffLocalZM = negativeXCutoffLocalZM): TempleClipConfiguration =>
@@ -34,18 +35,19 @@ function pairedCamera(width = 960, height = 720): CanvasTexture {
   return texture;
 }
 
-const manifest = JSON.parse(await readFile(new URL('../public/models/manifest.json', import.meta.url), 'utf8')) as
+const manifest = JSON.parse(await readFile(publicFile('models/manifest.json'), 'utf8')) as
   Record<string, {sha256: string}>;
 
-for (const definition of Object.values(EYEWEAR)) {
-  test(`${definition.name}: the fixed clip excludes rear stems while preserving the real front and lenses`, async t => {
-    const bytes = await readFile(new URL('../public' + definition.assetUrl, import.meta.url));
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest['public' + definition.assetUrl]!.sha256);
+for (const definition of SHIPPED_MODELS) {
+  test(`${definition.displayName}: the fixed clip excludes rear stems while preserving the real front and lenses`, async t => {
+    const bytes = await readFile(publicFile(definition.url));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest['public' + definition.url]!.sha256);
     // Geometry and real material classes are parsed unchanged. Only embedded
     // raster decoding is replaced because Node has no browser image decoder.
     const gltf = await new GLTFLoader().register(() => ({
       name: 'NodeTempleAssetImages', loadTexture: async () => new Texture(),
     })).parseAsync(new Uint8Array(bytes).buffer, '/models/');
+    classifyAssetMaterials(gltf.scene, gltf);   // the class is decided at load, from the glTF JSON
     const meshes: Mesh[] = [], resources = new Set<BufferGeometry | Material | Texture>();
     gltf.scene.traverse(object => {
       if (!(object instanceof Mesh)) return;
@@ -70,7 +72,7 @@ for (const definition of Object.values(EYEWEAR)) {
     }));
     const clip = createTempleClip(gltf.scene);
     t.after(() => clip.dispose());
-    const configuration = clipping(definition.templeClipLocalZM);
+    const configuration = clipping(definition.templeClipZM);
     clip.set(configuration);
     assert.ok(configuration.negativeXCutoffLocalZM <= -.03, 'the entire optical-front region stays ahead of the cutoff');
     let removedFrameVertices = 0, retainedFrontVertices = 0, lensVertices = 0, armVertices = 0, drawnArmVertices = 0, armRearZ = 0;
@@ -131,7 +133,7 @@ for (const definition of Object.values(EYEWEAR)) {
     assert.ok(configuration.negativeXCutoffLocalZM - armRearZ < 0.01,
       `and within a centimetre of its end (cut ${configuration.negativeXCutoffLocalZM}, arm ends ${armRearZ.toFixed(4)})`);
     assert.deepEqual(crossingSides, new Set([-1, 1]), 'both original stems cross the endpoint plane');
-    const blend = createTempleBlendConfiguration(definition.templeClipLocalZM), camera = pairedCamera();
+    const blend = createTempleBlendConfiguration(definition.templeClipZM), camera = pairedCamera();
     t.after(() => camera.dispose());
     clip.set(blend); clip.prepareRender(camera, 960, 720);
     assert.equal(blend.fadeLengthLocalM, .015);
@@ -177,6 +179,7 @@ test('one shared material wrapper preserves prior hooks, dynamic cache keys and 
   const lens = new MeshPhysicalMaterial({transmission: 1}), geometry = new BufferGeometry(), texture = new Texture();
   frame.map = texture;
   const root = new Group().add(new Mesh(geometry, [frame, lens]), new Mesh(geometry, frame), new Mesh(geometry, other));
+  classifyAssetMaterials(root);   // untagged: the transmissive material is the lens by the (warned) last resort
   const backend = {identity: 'compile renderer'};
   let hookCalls = 0;
   frame.userData.variant = 'first';

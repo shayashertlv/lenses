@@ -257,26 +257,26 @@ h1 {
 .product {
   min-width: 0;
 }
-#eyewear-select {
-  display: block;
-  width: 100%;
-  margin-top: 10px;
-  padding: 12px 10px;
-  border: 1px solid #637366;
+/* The model report's warnings (every fallback the load took). */
+.model-warnings {
+  margin: 12px 0 0;
+  padding: 10px 12px 10px 26px;
+  border: 1px solid #8a7440;
   border-radius: 6px;
-  background: #17231c;
-  color: #e4ebdf;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
+  background: #2a2414;
+  color: #efd68c;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
-#eyewear-select:disabled {
-  opacity: 0.65;
-  cursor: default;
+.model-warnings li + li {
+  margin-top: 6px;
 }
-#eyewear-select:focus-visible {
-  outline: 2px solid #b8cfa3;
-  outline-offset: 3px;
+/* A refusal reason or a failed §2 row (reportLines) reads before, and louder than, the warnings. */
+.model-warnings li.model-refusal,
+.model-warnings li.model-error {
+  color: #ffb8a8;
+  font-weight: 600;
 }
 #eyewear-hint {
   color: #9daea1;

@@ -18,14 +18,14 @@ export function lightingConfigurations(manifest) {
   return {id,preset,intensity,explicit,regular_pmrem_blur:.04,canonical_pmrem_blur:0,
    description:preset==='room'?'Existing Three.js RoomEnvironment':
     `Neutral analytic ${preset==='broad_studio'?'overhead':'side'} broad illumination; smooth nonzero directional reflections`,
-   canonical_description:preset==='room'?'Canonical lenses and translucent (crystal) frame materials reflect the runtime\'s see-through room: the RoomEnvironment without its +Z front panel (src/render/eyewear-reflection.ts)':
-    'Canonical lenses and translucent (crystal) frame materials reflect the same analytic map, unblurred',
+   canonical_description:preset==='room'?'Translucent (crystal) frame materials reflect the runtime\'s see-through room: the RoomEnvironment without its +Z front panel (src/render/eyewear-reflection.ts)':
+    'Translucent (crystal) frame materials reflect the same analytic map, unblurred',
    direct_light:'Unchanged white directional key, intensity 2 at [-10,15,20]',
    material_coefficients:'Unchanged; environment map and illumination multiplier only'};
  });
 }
 
-/** A case's lensenv, the canonical lens reflection's multiplier the owner's try-on link carries (?lensenv=, src/eyewear/
+/** A case's lensenv, the lens reflection multiplier the owner's try-on link carries (?lensenv=, src/eyewear/
  *  external.ts, 0.3-4; automation's tryon.py writes the pipeline's lens_env_intensity_recommended there). Review AR-R2
  *  (2026-09-30): the harness registered every case without it, so no harness run ever drew a mirror lens at the lensenv
  *  the owner accepted it with (invu-astra2 1.49, oakley-astra2 1.23). undefined leaves the runtime default (1). The link
@@ -52,12 +52,10 @@ function studioTexture(preset){
  return texture;
 }
 
-/** `regular` is what scene.environment gets (blur 0.04), `canonical` what canonical lenses and crystal reflect (blur 0).
- *  For 'room' they are the runtime's two rooms (renderer.ts configure): the scene keeps three's RoomEnvironment, panel
- *  included, while lenses and crystal reflect the see-through room without the +Z panel behind the selfie camera. Review
- *  AR-R4 (2026-09-30): both were built from one full room, so an explicit 'room' environment drew the front panel on the
- *  canonical lenses again (the white rectangles the runtime no longer draws; the shader limit kept them at a pale sRGB
- *  243 plateau instead of 255). */
+/** `regular` is what scene.environment gets (blur 0.04), `canonical` (the name is historical) what crystal reflects
+ *  (blur 0). For 'room' they are the runtime's two rooms (renderer.ts configure): the scene keeps three's RoomEnvironment,
+ *  panel included, while crystal reflects the see-through room without the +Z panel behind the selfie camera. Native
+ *  lenses keep the scene room (review AR-R4, 2026-09-30; the canonical lens runtime was dropped in WP1 stage B). */
 export function createLighting(renderer,configuration){
  const generator=new THREE.PMREMGenerator(renderer);
  let source,seeThrough,texture,regular,canonical;
@@ -73,7 +71,7 @@ export function createLighting(renderer,configuration){
 /** The materials of a mesh-material slot (a mesh can carry an array). */
 const slot=material=>Array.isArray(material)?material:[material];
 
-/** Same QA seam as canonical-lens-runtime.html. Runtime has no public light injection API.
+/** QA lighting seam. Runtime has no public light injection API yet (WP1_DESIGN §5 setLighting replaces this).
  * Save and restore every touched field; material optical coefficients and model bytes stay intact.
  * Crystal (review AR-R4): translucent frame materials own the see-through room at the scene intensity (renderer.ts), and
  * their camera-transmission twins, which draw every crystal pixel, copy envMap when they are cloned at the first render.
@@ -85,7 +83,7 @@ export function applyRuntimeLighting(instance,lighting){
  if(!instance.scene?.isScene||!instance.renderer?.isWebGLRenderer||!Array.isArray(instance.lensMeshes)
   ||!Array.isArray(instance.translucentFrameMeshes)||!(instance.translucentTwins instanceof Map))throw Error('Runtime QA lighting seam changed');
  const scene=instance.scene,previousEnvironment=scene.environment,previousIntensity=scene.environmentIntensity;
- const canonical=new Set(instance.canonicalLensMaterials??[]),materials=new Set(),crystal=new Set();
+ const materials=new Set(),crystal=new Set();
  for(const mesh of instance.lensMeshes)for(const material of slot(mesh.material))if(material.isMeshPhysicalMaterial)materials.add(material);
  // The runtime's filter (renderer.ts): a mesh's slot can mix crystal with gold or acetate, which keep the scene room.
  for(const {original}of instance.translucentFrameMeshes)for(const material of slot(original))if(material&&isTranslucentFrameMaterial(material))crystal.add(material);
@@ -97,10 +95,10 @@ export function applyRuntimeLighting(instance,lighting){
   const {material,map,intensity}=record;
   // Crystal reflects the see-through room at the scene intensity (lensenv is a lens setting).
   if(crystal.has(material)){material.envMap=lighting.canonical.texture;material.envMapIntensity=lighting.configuration.intensity;material.needsUpdate=true;continue;}
-  // An explicit map carries the runtime's optional lens multiplier; inherited maps use scene intensity.
-  if(map||canonical.has(material)){
-   material.envMap=(canonical.has(material)?lighting.canonical:lighting.regular).texture;
-   material.envMapIntensity=lighting.configuration.intensity*(map?intensity/.8:1);material.needsUpdate=true;
+  // An explicit map carries the runtime's optional lens multiplier (lensenv); inherited maps use scene intensity.
+  if(map){
+   material.envMap=lighting.regular.texture;
+   material.envMapIntensity=lighting.configuration.intensity*intensity/.8;material.needsUpdate=true;
   }
  }
  const touched=new Set(materials);

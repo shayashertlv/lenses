@@ -2,32 +2,15 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 import {
-  Box3, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DoubleSide, FloatType, FrontSide, Group, Matrix3, Matrix4, Mesh, MeshPhysicalMaterial,
+  Box3, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, FloatType, Group, Matrix3, Mesh, MeshPhysicalMaterial,
   MeshStandardMaterial, PerspectiveCamera, Scene, SRGBColorSpace, Texture, Vector2, Vector3, Vector4,
   WebGLRenderTarget,
 } from 'three';
 import type {Camera, Material, OrthographicCamera, ShaderMaterial, WebGLRenderer} from 'three';
-import {EyewearShadow, DEFAULT_SHADOW_SETTINGS, lensShadowTransmission, MAX_CANONICAL_SHADOW_LAYERS,
-  normalizeShadowSettings} from '../src/render/eyewear-shadow.ts';
-import {OpticalLayerOverflowError, OpticalOverflowChecker} from '../src/render/layer-overflow.ts';
+import {EyewearShadow, DEFAULT_SHADOW_SETTINGS, lensShadowTransmission, normalizeShadowSettings} from '../src/render/eyewear-shadow.ts';
 import {createTempleBlendConfiguration} from '../src/render/temple-clip.ts';
-import {createLensAppearanceUniforms, evaluateLensAppearance, LENS_APPEARANCE_EXTENSION, LENS_INCIDENCE_GLSL, LENS_RESPONSE_GLSL,
-  MAX_LENS_DENSITY_KNOTS} from '../src/eyewear/lens-appearance.ts';
-import type {LensAppearanceDescriptor} from '../src/eyewear/lens-appearance.ts';
-import {classifyAssetMaterials, EFFECTIVE_OPTICAL_GROUP_PROFILE} from '../src/eyewear/optical-material.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 import {applyVolumeAttenuationScale, volumeAttenuationRgb} from '../src/render/eyewear-volume.ts';
-
-function canonicalAppearance(overrides: Partial<LensAppearanceDescriptor> = {}): LensAppearanceDescriptor {
-  return {schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [.65, .4, .2], refractive_index: 1.5, roughness: .15,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [.1, .2, .3]}, {v: 1, optical_density_rgb: [1.1, .8, .5]}],
-    angular_reflectance_keyframes: null, ...overrides};
-}
-
-function attachAppearance(material: Material, appearance = canonicalAppearance()): void {
-  material.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance}};
-}
 
 function backendFixture() {
   const initialTarget = new WebGLRenderTarget(16, 12);
@@ -36,11 +19,9 @@ function backendFixture() {
     viewport: new Vector4(7, 8, 120, 80), scissor: new Vector4(2, 3, 40, 30), scissorTest: true,
     color: new Color(0x123456), alpha: .6,
     draws: [] as {scene: Scene; camera: Camera; target: WebGLRenderTarget | null; meshes: Mesh[];
-      visibleMaterials: Material[]; peelIndex: number | null; previousColor: Texture | null;
-      inputTexture: Texture | null; inputSize: number[] | null; invertAlpha: number | null;
-      groupCapture: number | null; groupNearest: Texture | null; matrices: number[][]}[],
+      visibleMaterials: Material[]; matrices: number[][]}[],
     readbacks: [] as {target: WebGLRenderTarget; width: number; height: number}[],
-    clearCount: 0, failOnDraw: 0, overflowFlag: 0, floatColorSupported: true, skipReadback: false, depthClear: .7,
+    clearCount: 0, failOnDraw: 0, floatColorSupported: true, depthClear: .7,
   };
   const backend = {
     capabilities: {samples: 4}, extensions: {has: () => state.floatColorSupported}, autoClear: false, xr: {enabled: true},
@@ -72,22 +53,12 @@ function backendFixture() {
       const meshes: Mesh[] = [];
       scene.traverseVisible(object => {if (object instanceof Mesh) meshes.push(object);});
       const visibleMaterials = meshes.flatMap(materials).filter(material => material.visible);
-      const canonical = visibleMaterials.find(material => material.userData.lensAppearanceSchema === 1) as ShaderMaterial | undefined;
-      const reducer = visibleMaterials.find(material => material.name === 'Optical layer overflow flag reduction') as ShaderMaterial | undefined;
       state.draws.push({scene, camera, target: state.target, meshes, visibleMaterials,
-        peelIndex: canonical?.uniforms.shadowPeelIndex!.value ?? null,
-        previousColor: canonical?.uniforms.shadowPeelPreviousColor!.value ?? null,
-        inputTexture: reducer?.uniforms.inputImage!.value ?? null,
-        inputSize: reducer?.uniforms.inputSize!.value.toArray() ?? null,
-        invertAlpha: reducer?.uniforms.invertAlpha!.value ?? null,
-        groupCapture: canonical?.uniforms.shadowGroupCapture?.value ?? null,
-        groupNearest: canonical?.uniforms.shadowGroupNearest?.value ?? null,
         matrices: meshes.map(mesh => mesh.matrixWorld.toArray())});
       if (state.failOnDraw === state.draws.length) throw new Error('Injected shadow draw failure');
     },
     readRenderTargetPixels: (target: WebGLRenderTarget, _x: number, _y: number, width: number, height: number, out: Uint8Array) => {
-      state.readbacks.push({target, width, height});
-      if (!state.skipReadback) {out.fill(0); out[3] = state.overflowFlag;}
+      state.readbacks.push({target, width, height}); out.fill(0);
     },
   };
   const snapshot = () => ({target: state.target, face: state.face, mip: state.mip,
@@ -118,8 +89,10 @@ function sceneFixture(configureMaterials?: (frame: MeshStandardMaterial, lens: M
   const frame = new MeshStandardMaterial({color: 0x402010, map: texture});
   const lens = new MeshPhysicalMaterial({color: 0xffffff, transmission: 1, roughness: .15});
   configureMaterials?.(frame, lens, texture);
-  const mixed = new Mesh(geometry, [frame, lens]); mixed.name = 'Mixed frame and lens';
+  // A node named '... lens' would make every primitive under it a lens by its name token (lens identification rule 2).
+  const mixed = new Mesh(geometry, [frame, lens]); mixed.name = 'Mixed frame and optic';
   const root = new Group().add(mixed); root.position.set(2, 3, -50); root.scale.setScalar(100);
+  classifyAssetMaterials(root);   // untagged: the transmissive group is the lens by the (warned) last resort
   const camera = new PerspectiveCamera(63, 16 / 9, 1, 10_000); camera.updateMatrixWorld();
   const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
   source.colorSpace = SRGBColorSpace;
@@ -154,28 +127,6 @@ function deepFrameFixture() {
   for (let i = 0; i < positions.count; i++) positions.setZ(i, i % 2 ? -.14 : 0);
   positions.needsUpdate = true; f.geometry.computeBoundingBox();
   return f;
-}
-
-/** Closed members deliberately share one source material across DIFFERENT
- * groups. Group identity must come from metadata, never material equality. */
-function effectiveFixture(ids: readonly string[] = ['left', 'left', 'right']) {
-  const fake = backendFixture(), geometry = new BoxGeometry(.06, .04, .012), face = triangleGeometry();
-  const p = geometry.getAttribute('position'), uv = geometry.getAttribute('uv');
-  for (let i = 0; i < p.count; i++) uv.setY(i, (p.getY(i) + .02) / .04);
-  const material = new MeshPhysicalMaterial({transmission: 0}); attachAppearance(material);
-  const parts = ids.map((id, i) => {
-    const mesh = new Mesh(geometry, material); mesh.name = `Closed member ${i}`;
-    mesh.position.z = -.02 * i;
-    mesh.userData.lensSurfaceProfile = EFFECTIVE_OPTICAL_GROUP_PROFILE;
-    mesh.userData.opticalGroupId = id; return mesh;
-  });
-  const root = new Group().add(...parts); root.position.set(2, 3, -50); root.scale.setScalar(100);
-  const camera = new PerspectiveCamera(63, 16 / 9, 1, 10_000); camera.updateMatrixWorld();
-  const source = new CanvasTexture({width: 640, height: 360} as HTMLCanvasElement);
-  const controller = new EyewearShadow(fake.renderer, root, face);
-  const render = () => controller.render(camera, source, 640, 360, DEFAULT_SHADOW_SETTINGS);
-  const dispose = () => {controller.dispose(); geometry.dispose(); face.dispose(); material.dispose(); source.dispose(); fake.dispose();};
-  return {fake, geometry, face, material, parts, root, camera, source, controller, render, dispose};
 }
 
 function shadowView(f: ReturnType<typeof sceneFixture>) {
@@ -313,117 +264,6 @@ test('mapped lens casters retain UV1 geometry, each texture transform and the ma
   }
   assert.deepEqual(material.uniforms.baseTransmission!.value.toArray(), lensShadowTransmission(f.lens));
   assert.equal(material.uniforms.alphaTest!.value, .1);
-});
-
-test('canonical shadow casters use the exact response and intrinsic UV without fallback optical multipliers', t => {
-  const appearance = canonicalAppearance();
-  const f = sceneFixture((_frame, lens, texture) => {
-    attachAppearance(lens, appearance);
-    // These generic-viewer fallback values must never recolor canonical T.
-    lens.color.setRGB(.01, .02, .03); lens.transmission = .2; lens.ior = 2.1;
-    lens.thickness = 7; lens.attenuationDistance = .1; lens.attenuationColor.setRGB(.1, .1, .1);
-    lens.map = texture; lens.transmissionMap = texture; lens.alphaMap = texture; lens.opacity = .2;
-  });
-  t.after(f.dispose);
-  const original = f.sourceSnapshot(), descriptor = structuredClone(f.lens.userData);
-  f.render();
-  const caster = casterMeshes(f).flatMap(materials)
-    .find(material => material.userData.lensAppearanceSchema === 1) as ShaderMaterial;
-  assert.ok(caster);
-  const expectedUniforms = createLensAppearanceUniforms(appearance);
-  for (const [name, uniform] of Object.entries(expectedUniforms)) assert.deepEqual(caster.uniforms[name], uniform);
-  assert.ok(caster.fragmentShader.includes(LENS_RESPONSE_GLSL));
-  assert.ok(caster.vertexShader.includes('vLensIntrinsicV = uv.y;'));
-  assert.ok(caster.fragmentShader.includes('vec4(response.transmission, gl_FragCoord.z)'));
-  assert.equal(caster.side, FrontSide);
-  assert.equal(caster.depthWrite, true); assert.equal(caster.transparent, false); assert.equal(caster.toneMapped, false);
-  for (const name of ['baseTransmission', 'colorMap', 'transmissionMap', 'alphaMap', 'opacity', 'clipEnabled']) {
-    assert.equal(caster.uniforms[name], undefined, `${name} is a legacy input, not a canonical optical factor`);
-  }
-  assert.deepEqual(f.sourceSnapshot(), original); assert.deepEqual(f.lens.userData, descriptor);
-  const legacyFrame = casterMeshes(f).flatMap(materials).find(material => material.userData.kind === 'frame') as ShaderMaterial;
-  assert.equal(legacyFrame.uniforms.colorMap!.value, f.texture, 'the opaque neighboring material retains its legacy texture');
-});
-
-test('total-mirror canonical lens retains the lens label when fallback transmission is zero', t => {
-  const appearance = canonicalAppearance({normal_reflectance_rgb: [1, 1, 1]});
-  const f = sceneFixture((_frame, lens) => {attachAppearance(lens, appearance); lens.transmission = 0;});
-  t.after(f.dispose); f.render();
-  const caster = casterMeshes(f).flatMap(materials).find(material => material.userData.lensAppearanceSchema === 1) as ShaderMaterial;
-  assert.equal(caster.userData.kind, 'lens');
-  assert.deepEqual(Array.from(caster.uniforms.uLensNormalReflectance!.value as Float32Array), [1, 1, 1]);
-  for (const v of [0, .5, 1]) assert.deepEqual(evaluateLensAppearance(appearance, v, 50).transmission_rgb, [0, 0, 0]);
-  let casterDisposals = 0, sourceDisposals = 0;
-  caster.addEventListener('dispose', () => {casterDisposals++;});
-  f.lens.addEventListener('dispose', () => {sourceDisposals++;});
-  f.controller.dispose(); f.controller.dispose();
-  assert.equal(casterDisposals, 1); assert.equal(sourceDisposals, 0);
-});
-
-test('canonical incidence uses the posed normal in the shadow light frame, independently of the viewing camera', t => {
-  const f = sceneFixture((_frame, lens) => attachAppearance(lens)); t.after(f.dispose);
-  f.root.rotation.set(.2, .35, -.12); f.root.scale.set(90, 105, 100);
-  f.render();
-  const sourceNormal = new Vector3(0, 0, 1);
-  const lightAngle = () => {
-    const light = shadowView(f).camera;
-    const modelView = new Matrix4().multiplyMatrices(light.matrixWorldInverse, f.mixed.matrixWorld);
-    const inLightFrame = sourceNormal.clone().applyNormalMatrix(new Matrix3().getNormalMatrix(modelView));
-    const worldNormal = sourceNormal.clone().applyNormalMatrix(new Matrix3().getNormalMatrix(f.mixed.matrixWorld));
-    const worldLight = new Vector3().setFromMatrixColumn(light.matrixWorld, 2).normalize();
-    assert.ok(Math.abs(inLightFrame.z - worldNormal.dot(worldLight)) < 1e-12);
-    return Math.acos(Math.min(1, Math.max(0, inLightFrame.z))) * 180 / Math.PI;
-  };
-  const before = lightAngle();
-  const viewNormal = sourceNormal.clone().applyNormalMatrix(new Matrix3().getNormalMatrix(
-    new Matrix4().multiplyMatrices(f.camera.matrixWorldInverse, f.mixed.matrixWorld)));
-  const viewerAngle = Math.acos(viewNormal.z) * 180 / Math.PI;
-  assert.ok(Math.abs(before - viewerAngle) > 5, 'fixture distinguishes light incidence from view incidence');
-  const lightT = evaluateLensAppearance(canonicalAppearance(), .4, before).transmission_rgb;
-  const viewT = evaluateLensAppearance(canonicalAppearance(), .4, viewerAngle).transmission_rgb;
-  assert.ok(lightT.some((value, i) => Math.abs(value - viewT[i]!) > .001));
-  f.camera.position.set(8, -4, 3); f.camera.lookAt(0, 0, -50); f.camera.updateMatrixWorld();
-  f.render(); assert.ok(Math.abs(lightAngle() - before) < 1e-12, 'moving only the observer cannot change lens shadow transmission');
-  f.root.rotation.y += .2; f.render();
-  assert.ok(Math.abs(lightAngle() - before) > 1, 'head rotation changes incidence to the fixed shadow light');
-  const caster = casterMeshes(f).flatMap(materials).find(material => material.userData.lensAppearanceSchema === 1) as ShaderMaterial;
-  assert.ok(caster.vertexShader.includes('normalMatrix * normal'));
-  assert.ok(caster.fragmentShader.includes('normalize(vLensLightNormal).z'));
-  assert.equal(caster.userData.incidenceFrame, 'shadow_light_orthographic_view');
-});
-
-test('canonical shadow normal interpolation is independent of authored normal magnitudes', t => {
-  const f = sceneFixture((_frame, lens) => attachAppearance(lens)); t.after(f.dispose); f.render();
-  const caster = casterMeshes(f).flatMap(materials).find(material => material.userData.lensAppearanceSchema === 1) as ShaderMaterial;
-  // Three's visible normal_vertex normalizes each transformed vertex normal.
-  // Normalizing only in the fragment weights interpolation by source magnitude.
-  assert.ok(caster.vertexShader.includes('vLensLightNormal = normalize(normalMatrix * normal);'));
-  assert.ok(caster.fragmentShader.includes('normalize(vLensLightNormal)'));
-  const transform = new Matrix3().getNormalMatrix(new Matrix4().multiplyMatrices(
-    shadowView(f).camera.matrixWorldInverse, f.mixed.matrixWorld));
-  const unitDirections = [new Vector3(1, 0, 1).normalize(), new Vector3(0, 0, 1), new Vector3(0, 1, 1).normalize()];
-  const authored = unitDirections.map((normal, i) => normal.clone().multiplyScalar([1, 100, .2][i]!));
-  const expected = unitDirections.reduce((sum, normal) => sum.add(normal.clone().applyNormalMatrix(transform)), new Vector3()).normalize();
-  const actual = authored.reduce((sum, normal) => sum.add(normal.clone().applyNormalMatrix(transform)), new Vector3()).normalize();
-  assert.ok(actual.distanceTo(expected) < 1e-12);
-  const fragmentOnly = authored.reduce((sum, normal) => sum.add(normal.clone().applyMatrix3(transform)), new Vector3()).normalize();
-  assert.ok(fragmentOnly.distanceTo(expected) > .2, 'the unequal-magnitude fixture detects fragment-only normalization');
-});
-
-test('canonical shadow inputs reject missing coordinates, invalid normals, malformed schema and excessive GPU knots', t => {
-  const f = sceneFixture(); t.after(f.dispose); f.controller.dispose(); attachAppearance(f.lens);
-  const uv = f.geometry.getAttribute('uv'), normal = f.geometry.getAttribute('normal');
-  const construct = () => new EyewearShadow(f.fake.renderer, f.root, f.face);
-  f.geometry.deleteAttribute('uv'); assert.throws(construct, /TEXCOORD_0/); f.geometry.setAttribute('uv', uv);
-  f.geometry.deleteAttribute('normal'); assert.throws(construct, /surface normals/); f.geometry.setAttribute('normal', normal);
-  const savedY = uv.getY(3); uv.setY(3, 1.2); assert.throws(construct, /intrinsic UV/); uv.setY(3, savedY);
-  const savedNormal = new Vector3().fromBufferAttribute(normal, 3);
-  normal.setXYZ(3, 0, 0, 0); assert.throws(construct, /nonzero finite normals/); normal.setXYZ(3, ...savedNormal.toArray());
-  f.lens.userData.gltfExtensions[LENS_APPEARANCE_EXTENSION].texcoord = 1;
-  assert.throws(construct, /TEXCOORD_0/);
-  attachAppearance(f.lens, canonicalAppearance({optical_density_keyframes: Array.from({length: MAX_LENS_DENSITY_KNOTS + 1},
-    (_, i) => ({v: i / MAX_LENS_DENSITY_KNOTS, optical_density_rgb: [.1, .1, .1] as const}))}));
-  assert.throws(construct, /at most/);
 });
 
 test('visible shaft endpoints and asymmetric fades are shared by every caster without altering geometry', t => {
@@ -615,230 +455,17 @@ test('disposing shadow passes leaves caller geometry, materials and camera textu
   assert.equal(f.render(), f.source); assert.equal(f.fake.state.draws.length, draws, 'disposed effects cannot submit more GPU work');
 });
 
-test('legacy-only shadows retain one caster pass and require no floating targets or overflow readback', t => {
+test('native shadows draw one caster pass and require no floating targets or readback', t => {
   const f = sceneFixture(); t.after(f.dispose); f.fake.state.floatColorSupported = false;
   f.render();
   assert.equal(f.fake.state.draws.length, 3);
   assert.equal(f.fake.state.readbacks.length, 0);
-  assert.equal(f.controller.layerDiagnostics.enabled, false);
   assert.ok(f.fake.state.draws.every(draw => draw.target?.texture.type !== FloatType));
 });
 
-test('canonical layers peel independently after opaque blockers with exact depth and a checked extra layer', t => {
-  const f = sceneFixture((_frame, lens) => attachAppearance(lens)); t.after(f.dispose);
-  const before = f.fake.snapshot(), source = f.sourceSnapshot(); f.render();
-  const draws = f.fake.state.draws;
-  const base = draws[0]!;
-  assert.deepEqual(base.visibleMaterials.map(material => material.userData.kind), ['frame']);
-  const peels = draws.filter(draw => draw.peelIndex !== null);
-  assert.equal(peels.length, MAX_CANONICAL_SHADOW_LAYERS + 1);
-  for (let i = 0; i < peels.length; i++) {
-    const peel = peels[i]!;
-    assert.equal(peel.peelIndex, i);
-    assert.equal(peel.previousColor, i ? peels[i - 1]!.target!.texture : null);
-    assert.equal(peel.target!.texture.type, FloatType);
-    assert.equal(peel.target!.depthTexture!.type, FloatType);
-    for (const material of peel.visibleMaterials as ShaderMaterial[]) {
-      assert.equal(material.userData.lensAppearanceSchema, 1);
-      assert.equal(material.uniforms.shadowPeelOpaqueDepth!.value, base.target!.depthTexture);
-      assert.ok(material.fragmentShader.includes('gl_FragCoord.z >= opaqueDepth'));
-      assert.ok(material.fragmentShader.includes('gl_FragCoord.z <= previousDepth'));
-    }
-  }
-  const receiver = draws.flatMap(draw => draw.visibleMaterials).find(material =>
-    material.name === 'Observed face eyewear shadow receiver') as ShaderMaterial;
-  for (let i = 0; i < MAX_CANONICAL_SHADOW_LAYERS; i++) {
-    assert.equal(receiver.uniforms[`canonicalLayer${i}`]!.value, peels[i]!.target!.texture);
-  }
-  assert.equal(receiver.defines.CANONICAL_SHADOW_LAYERS, 1);
-  assert.ok(receiver.fragmentShader.includes('layer.a >= receiverDepth'));
-  assert.deepEqual(f.controller.layerDiagnostics, {enabled: true, maxLayers: 4, overflow: false, overflowCheck: 'per_frame_gpu_reduction'});
-  assert.deepEqual(f.fake.snapshot(), before); assert.deepEqual(f.sourceSnapshot(), source);
-  assert.equal(f.fake.state.readbacks.length, 1);
-  assert.equal(f.fake.state.readbacks[0]!.width, 1); assert.equal(f.fake.state.readbacks[0]!.height, 1);
-  assert.equal(f.fake.state.readbacks[0]!.target.texture.name, 'Generated optical overflow flag');
-});
-
-test('excess canonical shadow layers fail before composition and restore all state', t => {
-  const f = sceneFixture((_frame, lens) => attachAppearance(lens)); t.after(f.dispose);
-  const before = f.fake.snapshot(), source = f.sourceSnapshot();
-  f.fake.state.overflowFlag = 255;
-  assert.throws(() => f.render(), OpticalLayerOverflowError);
-  assert.equal(f.controller.layerDiagnostics.overflow, true);
-  assert.ok(!f.fake.state.draws.some(draw => draw.visibleMaterials.some(material =>
-    material.name === 'Shadow camera copy' || material.name === 'Observed face eyewear shadow receiver')));
-  assert.deepEqual(f.fake.snapshot(), before); assert.deepEqual(f.sourceSnapshot(), source);
-  for (const caster of casterMeshes(f)) for (const material of materials(caster)) assert.equal(material.visible, true);
-  f.fake.state.overflowFlag = 0;
-  assert.ok(f.render() instanceof Texture);
-  assert.equal(f.controller.layerDiagnostics.overflow, false);
-});
-
-test('canonical shadows reject unavailable float render targets and mixed legacy optical volumes', t => {
-  const f = sceneFixture(); t.after(f.dispose); f.controller.dispose();
-  attachAppearance(f.lens); f.fake.state.floatColorSupported = false;
-  assert.throws(() => new EyewearShadow(f.fake.renderer, f.root, f.face), /EXT_color_buffer_float/);
-  f.fake.state.floatColorSupported = true;
-  const legacy = new MeshPhysicalMaterial({transmission: .8}); t.after(() => legacy.dispose());
-  f.root.add(new Mesh(f.geometry, legacy));
-  assert.throws(() => new EyewearShadow(f.fake.renderer, f.root, f.face), /legacy transmissive volumes/);
-});
-
-test('overflow reduction covers odd extents, binarizes before RGBA8 and reuses resources', t => {
-  const fake = backendFixture(), checker = new OpticalOverflowChecker(), texture = new Texture();
-  t.after(() => {checker.dispose(); texture.dispose(); fake.dispose();});
-  const before = fake.snapshot();
-  checker.assertNoOverflow(fake.renderer, texture, 5, 3, 'Fixture', 'one_minus_alpha');
-  const first = fake.state.draws.slice();
-  assert.deepEqual(first.map(draw => [draw.target!.width, draw.target!.height]), [[3, 2], [2, 1], [1, 1]]);
-  assert.deepEqual(first.map(draw => draw.inputSize), [[5, 3], [3, 2], [2, 1]]);
-  assert.deepEqual(first.map(draw => draw.invertAlpha), [1, 0, 0]);
-  assert.equal(first[0]!.inputTexture, texture);
-  assert.equal(first[1]!.inputTexture, first[0]!.target!.texture);
-  const shader = first[0]!.visibleMaterials[0] as ShaderMaterial;
-  assert.ok(shader.fragmentShader.includes('value > 0.0 ? 1.0 : 0.0'));
-  assert.ok(shader.fragmentShader.includes('pixel.x >= inputSize.x || pixel.y >= inputSize.y'));
-  checker.assertNoOverflow(fake.renderer, texture, 5, 3, 'Fixture');
-  assert.deepEqual(fake.state.draws.slice(3).map(draw => draw.target), first.map(draw => draw.target));
-  assert.equal(fake.state.draws[3]!.invertAlpha, 0);
-  assert.deepEqual(fake.snapshot(), before);
-  let disposed = 0;
-  for (const draw of first) draw.target!.addEventListener('dispose', () => {disposed++;});
-  checker.assertNoOverflow(fake.renderer, texture, 1, 1, 'Fixture');
-  assert.equal(disposed, 3);
-  assert.equal(fake.state.readbacks.at(-1)!.width, 1); assert.equal(fake.state.readbacks.at(-1)!.height, 1);
-});
-
-test('overflow checker fails closed on an unwritten readback and preserves renderer state after failure', t => {
-  const fake = backendFixture(), checker = new OpticalOverflowChecker(), texture = new Texture();
-  t.after(() => {checker.dispose(); texture.dispose(); fake.dispose();});
-  const before = fake.snapshot(); fake.state.skipReadback = true;
-  assert.throws(() => checker.assertNoOverflow(fake.renderer, texture, 3, 2, 'Fixture'), /Fixture: optical layer capacity exceeded/);
-  assert.deepEqual(fake.snapshot(), before);
-  fake.state.skipReadback = false; fake.state.overflowFlag = 255;
-  assert.throws(() => checker.assertNoOverflow(fake.renderer, texture, 3, 2, 'Fixture'), OpticalLayerOverflowError);
-  fake.state.overflowFlag = 0;
-  checker.assertNoOverflow(fake.renderer, texture, 3, 2, 'Fixture');
-  checker.dispose(); checker.dispose();
-  assert.throws(() => checker.assertNoOverflow(fake.renderer, texture, 3, 2, 'Fixture'), /disposed/);
-});
-
-test('canonical layer targets and generated overflow resources dispose without disposing source assets', t => {
-  const f = sceneFixture((_frame, lens) => attachAppearance(lens)); t.after(f.dispose); f.render();
-  const targets = new Set(f.fake.state.draws.map(draw => draw.target).filter(target => target !== null));
-  let targetDisposals = 0, sourceDisposals = 0;
-  for (const target of targets) target.addEventListener('dispose', () => {targetDisposals++;});
-  for (const resource of [f.geometry, f.face, f.frame, f.lens, f.source]) resource.addEventListener('dispose', () => {sourceDisposals++;});
-  f.controller.dispose(); f.controller.dispose();
-  assert.equal(targetDisposals, targets.size);
-  assert.equal(sourceDisposals, 0);
-});
-
-test('effective shadow groups capture one nearest map per explicit group with the SAME caster shader used for peels', t => {
-  const f = effectiveFixture(); t.after(f.dispose);
-  const before = f.fake.snapshot(); f.render();
-  const captures = f.fake.state.draws.filter(draw => draw.groupCapture === 1);
-  assert.equal(captures.length, 2, 'three closed members form two effective groups');
-  assert.deepEqual(captures.map(draw => draw.meshes.length), [2, 1]);
-  const peels = f.fake.state.draws.filter(draw => draw.groupCapture === 0);
-  assert.equal(peels.length, MAX_CANONICAL_SHADOW_LAYERS + 1);
-  const peelMaterials = peels[0]!.visibleMaterials as ShaderMaterial[];
-  assert.equal(peelMaterials.length, 3);
-  assert.notEqual(captures[0]!.target, captures[1]!.target, 'same source material does not alias group depth');
-  for (const capture of captures) {
-    assert.equal(capture.groupNearest, null, 'capture must not bind its own framebuffer texture');
-    for (const material of capture.visibleMaterials as ShaderMaterial[]) {
-      assert.ok(peelMaterials.includes(material), 'nearest capture borrows exact peel material, not a surrogate shader');
-      assert.equal(material.side, DoubleSide);
-      assert.equal(material.uniforms.shadowGroupCapture!.value, 0, 'capture mode restored before peels');
-      assert.equal(material.uniforms.shadowGroupNearest!.value, capture.target!.texture);
-      assert.ok(material.fragmentShader.includes(LENS_INCIDENCE_GLSL));
-      assert.ok(material.fragmentShader.includes('abs(normalize(vLensLightNormal).z)'));
-      assert.ok(material.vertexShader.includes('modelViewMatrix * vec4(0.0, 0.0, 1.0, 0.0)'));
-      assert.ok(material.fragmentShader.includes('normalize(vLensLightFrontAxis).z < 0.0'));
-      assert.ok(material.fragmentShader.includes('lensIncidenceAngleDegrees(cosine)'));
-      assert.ok(material.fragmentShader.includes('nearestDepth >= 1.0 || gl_FragCoord.z != nearestDepth'));
-      assert.ok(material.fragmentShader.indexOf('if (shadowGroupCapture > 0.5)')
-        < material.fragmentShader.indexOf('float opaqueDepth'), 'capture runs before opaque, peeling and optical evaluation');
-      assert.ok(material.fragmentShader.includes('gl_FragCoord.z >= opaqueDepth'));
-      assert.ok(material.fragmentShader.includes('gl_FragCoord.z <= previousDepth'));
-    }
-  }
-  assert.deepEqual(f.fake.snapshot(), before, 'including caller depth-clear value');
-  f.fake.state.draws.length = 0; f.render();
-  const next = f.fake.state.draws.filter(draw => draw.groupCapture === 1);
-  assert.deepEqual(next.map(draw => draw.target), captures.map(draw => draw.target));
-  assert.ok(next.every(draw => draw.groupNearest === null), 'later captures must also clear attached samplers');
-});
-
-test('effective group shadow capture follows current world transforms and respects source hierarchy/material visibility', t => {
-  const f = effectiveFixture(); t.after(f.dispose);
-  const hidden = new Group(); f.root.add(hidden); hidden.add(f.parts[1]!); hidden.visible = false;
-  f.parts[0]!.rotation.y = .4; f.root.rotation.y = .6; f.render();
-  const captures = f.fake.state.draws.filter(draw => draw.groupCapture === 1);
-  assert.deepEqual(captures.map(draw => draw.meshes.length), [1, 1]);
-  assert.deepEqual(captures[0]!.matrices[0], f.parts[0]!.matrixWorld.toArray());
-  f.parts[0]!.position.x += .01; f.fake.state.draws.length = 0; f.render();
-  assert.deepEqual(f.fake.state.draws.find(draw => draw.groupCapture === 1)!.matrices[0], f.parts[0]!.matrixWorld.toArray());
-  f.material.visible = false; f.fake.state.draws.length = 0; f.render();
-  assert.ok(f.fake.state.draws.every(draw => draw.groupCapture === null));
-  assert.equal(f.material.visible, false, 'source material visibility is never overridden');
-});
-
-test('effective capture failure restores mode, sampler, material ownership and all renderer state before retry', t => {
-  const f = effectiveFixture(); t.after(f.dispose); f.render();
-  const captures = f.fake.state.draws.filter(draw => draw.groupCapture === 1);
-  const casters = captures.flatMap(draw => draw.visibleMaterials) as ShaderMaterial[];
-  const samplerBefore = casters.map(material => material.uniforms.shadowGroupNearest!.value);
-  const before = f.fake.snapshot(); f.fake.state.draws.length = 0;
-  f.fake.state.failOnDraw = 2; // Opaque pass, then first group capture.
-  assert.throws(f.render, /Injected shadow draw failure/);
-  assert.deepEqual(f.fake.snapshot(), before);
-  for (let i = 0; i < casters.length; i++) {
-    assert.equal(casters[i]!.uniforms.shadowGroupCapture!.value, 0);
-    assert.equal(casters[i]!.uniforms.shadowGroupNearest!.value, samplerBefore[i]);
-    assert.equal(casters[i]!.visible, true);
-  }
-  f.fake.state.failOnDraw = 0; assert.ok(f.render() instanceof Texture);
-});
-
-test('effective shadow grouping rejects missing/conflicting identities and inconsistent descriptors without inferring from material', t => {
-  const f = effectiveFixture(['one', 'one']); t.after(f.dispose); f.controller.dispose();
-  const construct = () => new EyewearShadow(f.fake.renderer, f.root, f.face);
-  delete f.parts[0]!.userData.opticalGroupId;
-  assert.throws(construct, /explicit optical group ID/); f.parts[0]!.userData.opticalGroupId = 'one';
-  f.material.userData.canonicalOpticalGroupId = 'different';
-  assert.throws(construct, /group IDs disagree/); delete f.material.userData.canonicalOpticalGroupId;
-  f.material.userData.canonicalLensProfile = 'front_sheet_v1';
-  assert.throws(construct, /profiles disagree/); delete f.material.userData.canonicalLensProfile;
-  const different = new MeshPhysicalMaterial(); attachAppearance(different, canonicalAppearance({normal_reflectance_rgb: [.1, .1, .1]}));
-  t.after(() => different.dispose()); f.parts[1]!.material = different;
-  assert.throws(construct, /one shared canonical descriptor/);
-  f.parts[1]!.material = f.material;
-  let sourceDisposals = 0;
-  for (const resource of [f.material, f.geometry, f.face]) resource.addEventListener('dispose', () => {sourceDisposals++;});
-  const valid = construct(); valid.dispose(); assert.equal(sourceDisposals, 0);
-});
-
-test('effective shadow nearest targets dispose once and layer overflow still fails before receiver composition', t => {
-  const f = effectiveFixture(); t.after(f.dispose); f.render();
-  const targets = new Set(f.fake.state.draws.map(draw => draw.target).filter(target => target !== null));
-  const nearest = [...targets].filter(target => target.texture.name.startsWith('Nearest optical group '));
-  assert.equal(nearest.length, 2);
-  let disposals = 0, sourceDisposals = 0;
-  for (const target of targets) target.addEventListener('dispose', () => {disposals++;});
-  for (const resource of [f.material, f.geometry, f.face, f.source]) resource.addEventListener('dispose', () => {sourceDisposals++;});
-  f.fake.state.draws.length = 0; f.fake.state.overflowFlag = 255;
-  assert.throws(f.render, OpticalLayerOverflowError);
-  assert.ok(!f.fake.state.draws.some(draw => draw.visibleMaterials.some(material => material.name === 'Observed face eyewear shadow receiver')));
-  f.controller.dispose(); f.controller.dispose();
-  assert.equal(disposals, targets.size); assert.equal(sourceDisposals, 0);
-});
-
-test('a role-tagged translucent front casts a material-coloured shadow that is clipped like a frame and stays out of the optical layers', t => {
-  const f = sceneFixture((_frame, lens) => {attachAppearance(lens); lens.transmission = 0;});
+test('a role-tagged translucent front casts a material-coloured shadow that is clipped like a frame and is never a lens caster', t => {
+  const f = sceneFixture();
   t.after(f.dispose);
-  f.mixed.userData.partRole = 'lens';
   const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0});
   const front = new Mesh(new BoxGeometry(.12, .04, .012).translate(0, 0, -.01), crystal); front.userData.partRole = 'frame';
   f.root.add(front);
@@ -852,14 +479,17 @@ test('a role-tagged translucent front casts a material-coloured shadow that is c
   assert.deepEqual(caster.uniforms.baseTransmission!.value.toArray(), lensShadowTransmission(crystal));
   assert.equal(caster.uniforms.lens!.value, 1, 'labelled transmissive for the receiver');
   assert.equal(caster.uniforms.clipped!.value, 1, 'clipped with the arms, unlike a lens');
-  assert.ok(!casters.some(material => material.userData.kind === 'lens' && material.userData.lensAppearanceSchema !== 1),
-    'the translucent front never counts as a legacy transmissive lens beside the canonical layers');
+  const lensCasters = casters.filter(material => material.userData.kind === 'lens') as ShaderMaterial[];
+  assert.ok(lensCasters.length > 0, 'the native lens beside it casts a lens shadow');
+  for (const lens of lensCasters) {
+    assert.deepEqual(lens.uniforms.baseTransmission!.value.toArray(), lensShadowTransmission(f.lens), 'every lens caster is the lens');
+    assert.equal(lens.uniforms.clipped!.value, 0, 'lenses are never clipped');
+  }
 });
 
 test('a role-tagged crystal temple casts the same clipped translucent-frame shadow as a crystal front, and a visibility overlay of it casts nothing', t => {
-  const f = sceneFixture((_frame, lens) => {attachAppearance(lens); lens.transmission = 0;});
+  const f = sceneFixture();
   t.after(f.dispose);
-  f.mixed.userData.partRole = 'lens';
   const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0,
     attenuationColor: 0xf3ead6, attenuationDistance: .005});
   const arm = new Mesh(new BoxGeometry(.004, .004, .15).translate(-.065, 0, -.09), crystal); arm.userData.partRole = 'temple';
@@ -879,7 +509,9 @@ test('a role-tagged crystal temple casts the same clipped translucent-frame shad
   assert.equal(caster.uniforms.lens!.value, 1, 'labelled transmissive for the receiver');
   assert.equal(caster.uniforms.clipped!.value, 1, 'clipped with the arms');
   assert.equal(drawn.filter(mesh => mesh.geometry === arm.geometry).length, 1, 'the arm geometry is drawn once per pass: by the original');
-  assert.ok(!drawn.flatMap(materials).some(material => material.userData.kind === 'lens' && material.userData.lensAppearanceSchema !== 1));
+  const lensCasters = drawn.flatMap(materials).filter(material => material.userData.kind === 'lens') as ShaderMaterial[];
+  assert.ok(lensCasters.every(lens => lens.uniforms.baseTransmission!.value.toArray().join() === lensShadowTransmission(f.lens).join()),
+    'no lens caster is built from the crystal');
 });
 
 test('a native opaque mirror lens loaded as MeshStandardMaterial casts a zero-transmission lens shadow', t => {

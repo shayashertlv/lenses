@@ -18,18 +18,50 @@ node qa/pipeline-smoke.mjs --base=http://127.0.0.1:8241
 
 `npm run preview` serves the frozen build at `http://127.0.0.1:8241/`.
 `npm run dev` serves the development build with hot reload at port 8240; use a frozen build for measurements.
-Opening the page does not start the camera. Choose glasses and a hair model, then open the camera.
-The local agentic studio also uses `/studio-viewer.html` for an orbitable 3D view of the same hash-pinned native GLB.
-Both views accept bounded material previews only when explicitly embedded on loopback with `studioOrigin` and
-`studioChannel` query parameters. Messages must come from that parent window and origin, match the random channel and
-model SHA-256, and contain supported material properties. AR retains pending edits while the camera is closed and
-applies them when the model loads, without reopening the camera for subsequent edits. Transmission cannot cross
-between opaque and transmitting during a live preview; canonical optical descriptors and unlit materials are not
-edited through native PBR controls. Colors are sRGB hex and absorption distances are metres (zero means unlimited).
-The 3D view uses comparable room lighting; AR additionally applies camera composition, fitting, shadows and occlusion.
-`node qa/studio-preview-smoke.mjs` verifies visible edits and exact reset in synthetic AR, including crystal twins and
-material shadows; optional `--model=http://127.0.0.1:PORT/model.glb --sha256=...` also tests a local product revision.
-This local tooling does not publish or change `ar/site/`.
+Opening the page does not start the camera. arview has no frame catalog and no Studio bridge (WP1 stage B): the page
+renders the one model handed over as `?model=<GLB address on this computer>&name=&clip=&width=&sha256=&lensenv=`
+(`src/eyewear/external.ts`, a `ModelDefinition` in `src/eyewear/catalog.ts`). Without a model the camera stays closed
+and the page says how to hand one over. Every fallback the load takes (an unusable handover value, a missing temple,
+a stripped retired descriptor, an arm without temple continuity, ...) is a warning in the renderer's model report
+(`TryOnRenderer.report()`, `window.__ar.modelReport()`). The page lists, under the model name, the refusal reasons,
+then every failed §2 row (`report().errors`, worded as spec.py's `errors`; most row failures write no warning of their
+own), then the warnings (`reportLines` in `src/model/report.ts`).
+
+Loading (WP1_DESIGN.md §1, §5): the WebGLRenderer exists before the GLB is parsed; `src/model/load.ts` reads the
+container and JSON, resolves external resources against the model URL's directory (fetched once, parsed from those
+bytes), and parses with Draco, meshopt and KTX2 (decoders from three's `examples/jsm/libs`, served at `/decoders/` by
+`vite.config.ts`). `src/model/normalize.ts` is the one normalisation pass before any subsystem: transforms (one 1e-6
+check; noise within it is baked), geometry, units (60-250 units = mm, 6-25 = cm: rescaled with a loud warning),
+lens identification and the measured origin/orientation rows, ported from `glasses3d/g3d_host/spec.py` and tested to
+agree with it (origin x is judged on the lenses' bounding box, the front region only when no lens spans x = 0; an
+origin off by more than 1 mm is a loud `ORIGIN:` warning as well as a failed row). three is handed the default scene
+alone (`defaultSceneDocument` in `src/model/glb.ts`): other scenes, nodes outside it, animations, cameras, lights and
+skins are never parsed, so a broken reference there refuses nothing (each omission is a warning, the lights a
+fallback; animations and declared skins fail the Geometry row from the original JSON, as spec.py). Only references on
+that path are refused when broken; a missing external resource is refused (used or not, WP1_DESIGN.md §1); a primitive
+without POSITION fails the Format row and is not drawn. A §2 violation of the §1 table is refused (`ModelRefusal`, carrying the whole report); everything
+else renders, each subsystem in its own try block, every fallback in `report().fallbacks` and `report().warnings`. The
+report also has the seven §2 rows, measurements, `rendered_sha256` (the exact bytes parsed; a `&sha256=` handover is
+only compared with it) and `live_site_would_fail`. Capture accessors: `cameraState()`, `assetMatrixWorld()`,
+`parts()`, `projectAssetPoints()`, `setLighting()`, and `render(mask, {override})` with `part-id`, `lens-mask`,
+`lens-hidden`, `lens-only` or `normals`. `src/model/check.ts` runs the same load and pass without drawing (without a
+renderer, KTX2 textures are a reported `textures` fallback); the QA temple-cutoff loader uses it.
+
+Temples, clip and fit scale (WP1_DESIGN.md §3, §4; `src/render/temple-geometry.ts`): temples are found per side by
+position, whatever their opacity (crystal and alpha-blended arms are temples like opaque ones; lens-class geometry never
+is): the non-lens geometry at |x| > 45 mm behind the lens rear, or the `temple_left`/`temple_right` region of a valid
+`LENSES_part_visibility` profile. A side has a temple only when it reaches z <= -60 mm (the §2 Orientation rule), so
+hinge hardware alone never counts. A side without one keeps a fixed cap (no arm shape, continuity, terminal return or
+hair endpoint), is a `temple <side>` fallback, and the Orientation row fails with "temple <side> missing"; a model with
+no temple at all still renders. Lens geometry behind -60 mm is a warning. The temple clip is derived from the arms'
+tips, each side measured on its own: the one shared plane lies just inside the shorter arm, never behind it, and never
+further back than -0.14 m, clamped to [-0.2, -0.045] m; a handed-over `&clip=` inside that range overrides it (and is
+cross-checked against the tips), one outside it is ignored with a warning. The report records `temples`, `temple_clip`
+and `fit_scale` measurements. Continuity is built from the normalised scene the renderer draws (no pin, no second
+parse), per side: an arm with no cross-section somewhere before the clip loses only its own path, named with its z.
+The live auto-fit's applied scale is reported, and a scale more than 3 % from 1 is a warning (with the 1.08 fit
+preference that is the usual case); `TryOnRenderer.create(..., {fixedScale: true})` renders at the authored size.
+
 Look forward for a few seconds while automatic sizing collects consistent upper-face observations. The Fit panel
 shows progress; glasses and their shadows appear only after calibration and size settling finish. Refit hides
 them again until the new fit is ready. Later slider adjustments remain visible. The default includes an 8% wider visual fit; the size slider's zero
@@ -67,8 +99,7 @@ The normal page includes fitting, shadows and occlusion; no preview URL or compa
    nasal regions. Hair blending stays inside the editable arm corridors. Explicitly authored front parts
    receive no hair-mask shader, while actual face depth remains active. Untagged models retain the legacy behavior.
    Camera image pixels stay on the GPU
-   during live use. Canonical optics read one generated capacity flag per camera/light layer pass; an explicit
-   audit can separately read the rendered image.
+   during live use; an explicit audit can separately read the rendered image.
 7. **Profiling**: collect numeric timings and frame age. Images, detections, masks and hashes are excluded
    from timing reports.
 
@@ -118,44 +149,47 @@ lens model. Clear lenses cast a much weaker neutral shadow than tinted lenses.
 The model dimensions and learned face depth are rendering estimates, not anatomical measurements.
 Regression tests protect these rules; live appearance still depends on tracking and segmentation quality.
 
-## Canonical lens response
+## Lens and crystal materials
 
-Assets carrying `LENSES_lens_appearance` opt into a validated optical descriptor. The authored front-sheet adapter requires
-separate, static, single-material `front_sheet_v1` meshes with `partRole: lens`, baked coordinates, intrinsic
-bottom-to-top UVs and authored +Z-facing normals/triangles. Camera and light passes retain up to four optical
-layers per pixel, ordered by depth, and stop at opaque geometry. The camera combines `T * behind + limit(R * environment)`
-in linear RGB, where the limit (`src/render/eyewear-reflection.ts`) leaves a lens reflection unchanged while the total stays
-under 0.8 linear (sRGB 231; absolute, so `?lensenv` scales mirror reflections linearly) and keeps the sum under 0.9 (sRGB 243);
-the opaque input preserves the frame's native display response and leaves camera colors unchanged. Lenses and translucent
-(crystal) frame materials reflect an unblurred see-through room: three's `RoomEnvironment` without its +Z panel, which sits
-behind the selfie camera and clipped to a flat white rectangle on every lens. Shadows accumulate the same transmission at the light
-angle, using only layers before the receiving surface. A total mirror remains a lens in geometry, fitting,
-visibility and hair consumers. Untagged assets retain their existing material path.
+arview draws every lens through its own glTF material (native lenses). The retired canonical lens descriptor
+(`LENSES_lens_appearance`, written only by the retired bsa/reconstruction routes) has no runtime here: a material that
+still carries it is stripped at load, reported as a warning, and drawn as its native glTF material. Translucent (crystal)
+frame materials reflect an unblurred see-through room: three's `RoomEnvironment` without its +Z panel, which sits behind
+the selfie camera and clipped to a flat white rectangle. Native lenses keep the scene room (with `?lensenv`, they own that
+room at 0.8 × lensenv). A total mirror remains a lens in geometry, fitting, visibility and hair consumers.
 
-Each mesh must be a single-valued front sheet in authored XY coordinates. Triangle checks reject self-overlap
-and coincident interfaces while allowing separate layers, holes and supported curved sheets. A fifth layer
-causes an explicit capacity error. This path requires float color targets and adds synchronous capacity checks;
-mobile memory/performance is not established. Closed volumes, back coatings, refraction, internal reflections,
-alpha-blended frames and mixed legacy/canonical optics remain unsupported by this canonical profile. These are
-rendering-profile checks, not general product-model acceptance or proof of accurate photo reconstruction.
-
-Authored part roles (`partRole` node extras `frame` / `temple` / `lens`, written by the automation exporter) classify
-materials once per loaded asset (`src/eyewear/optical-material.ts`), with or without a canonical descriptor. Native lenses
-retain their authored geometry and physical material. Materials used by frame or temple parts remain structural even
-when they transmit light; untagged assets retain the legacy transmission classification.
+Lens identification (WP1_DESIGN.md §2, `src/eyewear/lens-identification.ts`, the same order and shared test vectors
+as `glasses3d/g3d_host/lens_id.py`) decides every material's class once at load, from the glTF JSON (never three's
+merged userData), per use (node x primitive):
+1. extras on the material, then mesh, then node: `partRole` equal to `lens`, or legacy `part_role` starting with
+   `lens`; any other explicit role (frame, temple, hardware, temple_left, ...) is not a lens;
+2. a whole-word name token `lens` / `lenses` / `glass` (never `glasses`) in the material or node name, unless either
+   name marks an etch, lettering, inscription or print;
+3. only when nothing in the file is a lens by rules 1-2: transmission > 0 or alpha-blended alpha < 1, as a warned
+   last resort.
+The class is never re-derived from live transmission, so a transmissive frame or temple (crystal) stays frame. A
+material used by lens and frame primitives is cloned per class (both render) and fails the §2 Components row; a
+model with no identified lens is refused. Every material, its class, deciding signal and uses are in the renderer's
+`lensIdentification()` block; every fallback is a model-report warning. Native lenses retain their authored geometry
+and physical material.
 
 Compact authored front-frame parts keep their inner rim and hinge hardware in the lens input. The temple-only
 visibility rules do not apply to those parts, even when the frame and arms share a glTF material. Eligibility requires
-an explicit `frame` role and geometry wholly inside the protected front region (local Z at least -30 mm), with baked
-transforms. Untagged parts and long frame-tagged bodies retain the legacy geometric arm rules. Ordinary face depth
+an explicit `frame` role (`partRole` or legacy `part_role`) and geometry wholly inside the protected front region
+(local Z at least -30 mm), with baked transforms. Untagged parts and long frame-tagged bodies retain the geometric arm
+rules. Ordinary face depth
 still applies; this exemption does not draw a frame through the wearer's head.
 
 New exports can provide explicit node extras `LENSES_part_visibility: {version: 1, region: ...}` with
 `front`, `temple_left` (native negative X), `temple_right` (positive X), or `lens`. This opt-in contract must cover
-every mesh primitive, agree with `partRole`, and contain static geometry with baked authored transforms.
-Only an immediate glTF primitive Group may supply a part's profile; model-wide metadata does not substitute
-for ownership. Malformed, partial, or conflicting profiles fail with a diagnostic before material changes.
+every mesh primitive, agree with the identified class (region `lens` on lens parts only), and contain static
+geometry with baked authored transforms. Only an immediate glTF primitive Group may supply a part's profile;
+model-wide metadata does not substitute for ownership. The regions are optional metadata: malformed, partial, or
+conflicting profiles are ignored for the whole asset, recorded as a `part visibility` fallback listing every problem (unbaked transforms
+and non-static geometry are still refused, once, by the load-time §2 check in `src/model/normalize.ts`).
 Unprofiled assets keep the legacy behavior above; old whole-body `frame` tags are never automatically upgraded.
+Sides are judged by geometry: a `temple_left` region must lie at x < 0 and `temple_right` at x > 0 (every consumer maps
+`temple_left` to the negative-X side), otherwise the profiles are ignored for the whole asset and position decides.
 
 For profiled assets, front pieces and their hardware remain fixed and survive all arm-specific clipping,
 deformation, lens-input filtering, and shadow trimming regardless of wrap depth. Explicit arms supply continuity
@@ -174,7 +208,9 @@ the crystal instead samples the paired background. The two sources prevent the l
 an internal temple core, while keeping far-arm hardware out of the lenses. Hair occlusion, arm clipping, continuity,
 rear drop and face depth remain active. This straight look-through approximates crystal transmission without refraction
 offsets or roughness blur. The crystal twin loses the surface's reflected share and limits its reflection, clearcoat
-included, with the crystal's knee (half the headroom). Alpha-blended temples are not covered by this structural path.
+included, with the crystal's knee (half the headroom). Alpha-blended temples are not covered by this look-through path;
+they are still temples (shaped, clipped, followed by continuity, hair-occluded), but their near-arm overlay stays hidden
+because a blended overlay is not built.
 Volume absorption distances
 (`KHR_materials_volume`, metres in the file) are converted once to the scene's centimetres (`src/render/eyewear-volume.ts`),
 since Three scales the thickness through the model matrix but reads the distance in world units; the shadow keeps the

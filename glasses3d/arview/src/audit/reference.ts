@@ -1,10 +1,10 @@
 /** CPU binary-category diagnostic reference and four protection checks for held-frame audits.
  *  Live rendering never reads pixels back or runs this reference. GPU edge feathering differs. */
 import type {HairMask} from '../hair/protocol.ts';
-import {isEyewearId} from '../eyewear/catalog.ts';
 import {validateProtection} from '../render/protection.ts';
 import type {PixelRect, ProtectionConfiguration} from '../render/protection.ts';
 
+/** `eyewearModel` is the rendered model's address, its identity on the page (there is no catalog id). */
 export interface PairIdentity {sourceSHA256: string; detectionSHA256: string; eyewearModel: string;}
 export interface HairModelContract {id: string; sha256: string; labels: readonly string[]; hairIndex: number;}
 export interface HairArmInput {
@@ -34,6 +34,8 @@ export const HAIR_ARM_POLICY = Object.freeze({method: 'hair-arm-camera-copy-v1',
 const OPTICAL = 1, NASAL = 2, CORRIDOR = 4, PROTECTED = OPTICAL | NASAL;
 const check = (value: unknown, message: string): void => { if (!value) throw new Error(message); };
 const isHash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+/** A model identity: a non-empty address of bounded length. */
+const isModelId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 4096;
 const emptyCheck = (): PixelCheck => ({testedPixels: 0, changedPixels: 0, maxDelta: 0});
 const emptyStatistics = (): HairArmStatistics => ({changedPixels: 0, renderResidualPixels: 0, eligiblePixels: 0,
   eligibleResidualPixels: 0, hairEligibleResidualPixels: 0, fullReplacementPixels: 0, featheredPixels: 0,
@@ -70,7 +72,7 @@ function validate(input: HairArmInput): void {
   const {width, height, before, background, mask, expectedModel} = input;
   check(background instanceof Uint8ClampedArray && background.length === before.length, 'Clean camera output dimensions differ.');
   for (const pair of [input.pair, input.geometryPair]) check(pair && isHash(pair.sourceSHA256) && isHash(pair.detectionSHA256)
-    && isEyewearId(pair.eyewearModel), 'The image/geometry identity is invalid.');
+    && isModelId(pair.eyewearModel), 'The image/geometry identity is invalid.');
   check(input.pair.sourceSHA256 === input.geometryPair.sourceSHA256 && input.pair.detectionSHA256 === input.geometryPair.detectionSHA256
     && input.pair.eyewearModel === input.geometryPair.eyewearModel, 'The geometry belongs to a different image, detection, or frame model.');
   check(mask && mask.sourceSHA256 === input.pair.sourceSHA256 && mask.detectionSHA256 === input.pair.detectionSHA256,

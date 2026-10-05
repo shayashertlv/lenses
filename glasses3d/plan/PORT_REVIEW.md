@@ -732,7 +732,7 @@ Stage-A reconciliations (beyond the analysis): the canonical-lens runtime (`LENS
 | `src/camera/camera.ts` | **keep** | 75 | getUserMedia session for the owner's webcam page (WP1.5). |
 | `src/camera/exposure.ts` | **keep** | 75 | The opt-in ?exposure= lock. The owner's webcam drops to about 15 fps in dim light without it, which voided past evening fps verdicts. |
 | `src/env.d.ts` | **keep** | 75 | Declares __BUILD_TIME__, which vite.config.ts defines and main.ts shows. |
-| `src/eyewear/lens-appearance.ts` | **keep** | 75 | This is the canonical LENSES_lens_appearance response math that five render modules import. |
+| `src/eyewear/lens-appearance.ts` | **drop (stage B)** | 75 | Copied in stage A, dropped in stage B with its test: with the canonical-lens runtime gone its only job was spotting the retired LENSES_lens_appearance descriptor, now a key check in optical-material.ts stripRetiredLensAppearance() (strip + warning). |
 | `src/face/detector.ts` | **keep** | 75 | The MediaPipe face landmarker client for the webcam page. |
 | `src/face/detector.worker.ts` | **keep** | 75 | The face landmarker worker, needed by detector.ts. |
 | `src/face/protocol.ts` | **keep** | 75 | The Landmark/Detection types and the worker-boundary validation. |

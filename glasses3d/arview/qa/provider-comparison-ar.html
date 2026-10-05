@@ -4,8 +4,6 @@
 <script type="module">
 import * as THREE from 'three';
 import {TryOnRenderer} from '../src/render/renderer.ts';
-import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
-import {registerPinnedGeometry} from '../src/render/continuity.ts';
 import {loadQATempleCutoff} from './temple-cutoff.mjs';
 import {lightingConfigurations,createLighting,applyRuntimeLighting,environmentSuffix,caseLensEnvIntensity} from './provider-comparison-lighting.mjs';
 
@@ -63,14 +61,16 @@ async function run(){
    input_pipeline:entry.pipeline??null,lens_env_intensity:lensEnv.get(entry.id)??null};report.cases.push(row);let instance;
   try{
    const url=`/__providers/${entry.id}.glb`;
-   registerPinnedGeometry(url,entry.model_sha256);
    // With lens_env_intensity the lenses are drawn as the owner's try-on link draws them (?lensenv=, tryon.py).
    const lensEnvIntensity=lensEnv.get(entry.id);
    row.temple_cutoff=await loadQATempleCutoff(url);
-   registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:row.temple_cutoff.cutoff_m,...(lensEnvIntensity===undefined?{}:{lensEnvIntensity})});
+   const model={url,displayName:entry.id,templeClipZM:row.temple_cutoff.cutoff_m,...(lensEnvIntensity===undefined?{}:{lensEnvIntensity})};
    const started=performance.now();
-   instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,'modeling-auto',{sync:false,steady:null});
+   instance=await TryOnRenderer.create(document.createElement('canvas'),new AbortController().signal,model,{sync:false,steady:null});
+   row.model_report=instance.report();
    row.load_milliseconds=performance.now()-started;row.asset_integrity=instance.renderedAssetIntegrity;
+   // The renderer pins nothing (WP1_DESIGN.md §3): the SHA-256 of the bytes it actually rendered is the identity.
+   if(row.asset_integrity?.sha256!==entry.model_sha256)throw Error('Rendered GLB identity differs from the manifest');
    row.optical_meshes_detected=instance.lensMeshes.length;row.continuity_failure=instance.continuityFailure??null;
    for(let timestamp=0;timestamp<=5000;timestamp+=100)if(!instance.pose(source,detection(canonical),timestamp))throw Error('Synthetic fitting pose rejected');
    row.synthetic_fit_ready=instance.fitting.ready;

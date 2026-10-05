@@ -8,8 +8,6 @@ import {
 } from 'three';
 import type {ShaderMaterial, WebGLRenderer} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {EYEWEAR} from '../src/eyewear/catalog.ts';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {classifyAssetMaterials, isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
 import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
@@ -19,6 +17,7 @@ import {
 } from '../src/render/temple-visibility.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
 import {createCameraTransmissionTwin, createCameraTransmissionUniforms} from '../src/render/translucent-twin.ts';
+import {publicFile, SHIPPED_MODELS} from './shipped-models.ts';
 
 const pose = (yaw: number) => new Matrix4().makeRotationY(yaw).setPosition(0, 0, -50).toArray();
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
@@ -98,6 +97,7 @@ function syntheticFixture(samples = 4, beforeRender?: Scene['onBeforeRender'], l
   const frame = new MeshStandardMaterial(), lens = new MeshPhysicalMaterial({transmission: 1}), texture = new Texture();
   frame.map = texture;
   const root = new Group().add(new Mesh(geometry, frame), new Mesh(geometry, frame), new Mesh(lensGeometry, lens));
+  classifyAssetMaterials(root);   // untagged: the transmissive material is the lens by the (warned) last resort
   const scene = new Scene(), eyewearPose = new Group().add(root), camera = new PerspectiveCamera(60, 16 / 9, 1, 1000);
   const observedFaceSurface = new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array([
     -10, -10, -50, 10, -10, -50, 0, 10, -50,
@@ -790,12 +790,6 @@ test('a translucent arm\'s overlay draws after the opaque overlays, so relieved 
   ]), 3));
   const crystal = new MeshPhysicalMaterial({transmission: 1, thickness: .004}), core = new MeshStandardMaterial({color: 0xd4af37});
   const lens = new MeshPhysicalMaterial({transmission: 0});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
   const shell = new Mesh(arm, crystal), wire = new Mesh(arm, core), lensMesh = new Mesh(lensGeometry, lens);
   shell.userData.partRole = wire.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
   const root = new Group().add(shell, wire, lensMesh);
@@ -886,12 +880,6 @@ test('a role-classified translucent arm gets a transmissive overlay clone that i
   ]), 3));
   const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0});
   const lens = new MeshPhysicalMaterial({transmission: 0});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
   const left = new Mesh(arm, crystal), lensMesh = new Mesh(lensGeometry, lens);
   left.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
   const root = new Group().add(left, lensMesh);
@@ -909,7 +897,7 @@ test('a role-classified translucent arm gets a transmissive overlay clone that i
   assert.equal(clone.visible, true, 'no hidden placeholder');
   assert.equal(clone.transmission, 1, 'the overlay is drawn through Three\'s transmission like the arm itself');
   assert.equal(clone.transparent, false); assert.equal(clone.depthWrite, false); assert.equal(clone.depthTest, true);
-  assert.equal(isOpticalMaterial(clone), false, 'the clone is marked frame: hair and clipping wrap it, the lens layers ignore it');
+  assert.equal(isOpticalMaterial(clone), false, 'the clone is marked frame: hair and clipping wrap it, it is never a lens');
   assert.equal(isTranslucentFrameMaterial(clone), true);
   assert.equal(isOpticalMaterial(crystal), false); assert.equal(isOpticalMaterial(lens), true);
   const shader = compile(clone), original = compile(crystal);
@@ -941,12 +929,6 @@ test('a translucent arm, its overlay clone and their twins get the observed-chee
   const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004, color: 0xf2ece0});
   crystal.toneMapped = false;   // as renderer.ts draws every physically transmitting surface
   const frame = new MeshStandardMaterial(), lens = new MeshPhysicalMaterial({transmission: 0});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
   const left = new Mesh(arm, crystal), right = new Mesh(opaqueArm, frame), lensMesh = new Mesh(lensGeometry, lens);
   left.userData.partRole = 'temple'; right.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens';
   const root = new Group().add(left, right, lensMesh);
@@ -991,11 +973,12 @@ test('a translucent arm, its overlay clone and their twins get the observed-chee
   }
 });
 
-for (const definition of Object.values(EYEWEAR)) test(`${definition.name}: observed cheek masking protects the rim without changing buffers or lens exclusion`, async t => {
-  const bytes = await readFile(new URL('../public' + definition.assetUrl, import.meta.url));
+for (const definition of SHIPPED_MODELS) test(`${definition.displayName}: observed cheek masking protects the rim without changing buffers or lens exclusion`, async t => {
+  const bytes = await readFile(publicFile(definition.url));
   const gltf = await new GLTFLoader().register(() => ({name: 'NodeVisibilityImages', loadTexture: async () => new Texture()}))
     .parseAsync(new Uint8Array(bytes).buffer, '/models/');
-  const frontMeasurement = createRearDrop(gltf.scene, definition.templeClipLocalZM);
+  classifyAssetMaterials(gltf.scene, gltf);   // the class is decided at load, from the glTF JSON
+  const frontMeasurement = createRearDrop(gltf.scene, definition.templeClipZM);
   const opticalBounds = frontMeasurement.opticalBounds;
   frontMeasurement.dispose();
   const originals: Mesh[] = [], resources = new Set<BufferGeometry | Material | Texture>();

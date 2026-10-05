@@ -6,38 +6,36 @@
  *  as if a lens read it, and the near-arm overlays write no colour there while the head proxy writes depth, so a core
  *  relieved in front of the head was missing; where it survived, the blur smeared a 0.6 mm wire into a wide band.
  *
- *  The renderer owns the crystal image beside both canonical and native transmissive lenses. Once per frame, after any canonical lens input and before
- *  the canvas passes, the eyewear scene is rendered into a multisampled linear half-float target: the camera background
+ *  The renderer owns the crystal image beside native lenses. Once per frame, before the canvas passes, the eyewear
+ *  scene is rendered into a multisampled linear half-float target: the camera background
  *  (or its shadowed composite), the head occluders' depth, the opaque eyewear with the arms (no lens-input exclusion:
  *  this is not lens input) and the near-arm overlays in colour, so relieved hardware is in it too (at full relief up to
  *  the drop distance: the crystal overlay sampling it applies the relief coverage once). Opaque materials get
- *  the display response they get on the canvas (opaque-display.ts, the capture the canonical lens input uses): the twin
+ *  the display response they get on the canvas (opaque-display.ts): the twin
  *  is not tone-mapped, so an HDR core would otherwise show saturated and bleed wider than itself. The lenses and every
  *  material that samples the image (the crystal twins, translucent-twin.ts) are hidden by material, so descendants and
  *  sibling primitives keep drawing. The twins replace the crystal in every pass and, in the canvas passes, sample the
  *  image at the fragment's own pixel with the identity UV: no refraction offset, no LOD blur, the volume absorption
- *  applied as before. Explicit canonical and native internal lens inputs are the exception: they exclude arms, and this image has them, so a
+ *  applied as before. Three's internal lens input is the exception: it excludes arms, and this image has them, so a
  *  crystal part drawn there (a far rim or bridge seen through a lens) samples the background instead, and the far arm's
- *  hardware never crosses the near lens (renderer.ts). Canonical lenses need no native transmission pre-pass.
+ *  hardware never crosses the near lens (renderer.ts, translucent-twin.ts).
  *
- *  Native lenses without a canonical descriptor retain Three's physical transmission. Their internal pre-pass remains
- *  lens input, while classified crystal frame materials use the separate image. Assets without crystal keep their prior path. */
+ *  Native lenses retain Three's physical transmission. Their internal pre-pass remains lens input, while classified
+ *  crystal frame materials use the separate image. Assets without crystal keep their prior path. */
 import {HalfFloatType, LinearSRGBColorSpace, Mesh, MeshPhysicalMaterial, NearestFilter, Vector4, Color, WebGLRenderTarget} from 'three';
 import type {Camera, Material, Object3D, Scene, Texture, WebGLRenderer} from 'three';
 import {isOpticalMaterial} from '../eyewear/optical-material.ts';
-import {readMaterialLensAppearance} from '../eyewear/lens-appearance.ts';
 import {OpaqueDisplayCapture} from './opaque-display.ts';
 
-/** Whether any optical material under `root` is a legacy transmissive lens: optical, no canonical descriptor, and still
- *  transmitting. Such a lens samples Three's internal pre-pass, which then stays lens input. Canonical lenses carry
- *  their descriptor whatever their current transmission (1 at install, 0 once their layers own the transport). */
+/** Whether any optical material under `root` is a transmissive lens: optical and still transmitting. Such a lens samples
+ *  Three's internal pre-pass, which then stays lens input. An opaque (mirror) lens and crystal frame materials do not
+ *  count. The renderer strips a retired canonical descriptor at load (optical-material.ts), so it plays no part here. */
 export function hasLegacyTransmissiveOptics(root: Object3D): boolean {
   let legacy = false;
   root.traverse(object => {
     if (legacy || !(object instanceof Mesh)) return;
     for (const material of (Array.isArray(object.material) ? object.material : [object.material]) as Material[]) {
-      if (isOpticalMaterial(material) && readMaterialLensAppearance(material) === null
-        && material instanceof MeshPhysicalMaterial && material.transmission > 0) legacy = true;
+      if (isOpticalMaterial(material) && material instanceof MeshPhysicalMaterial && material.transmission > 0) legacy = true;
     }
   });
   return legacy;
@@ -48,8 +46,7 @@ export class TranslucentLookThrough {
    *  single-level texture sampled at pixel centres. */
   readonly target = new WebGLRenderTarget(1, 1, {type: HalfFloatType, samples: 4, depthBuffer: true, stencilBuffer: false,
     generateMipmaps: false, minFilter: NearestFilter, magFilter: NearestFilter, colorSpace: LinearSRGBColorSpace});
-  /** The opaque display capture of the eyewear scene. A material has one capture owner, so the canonical lens layers
-   *  share this one (lens-layers.ts); it is disposed with the image. */
+  /** The opaque display capture of the eyewear scene; it is disposed with the image. */
   readonly display = new OpaqueDisplayCapture();
   private disposed = false;
 

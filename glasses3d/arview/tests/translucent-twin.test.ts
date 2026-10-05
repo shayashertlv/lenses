@@ -7,7 +7,6 @@ import {
   SRGBColorSpace, UniformsUtils, Vector2,
 } from 'three';
 import type {WebGLRenderer} from 'three';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {classifyAssetMaterials, isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
 import {createTempleClip} from '../src/render/temple-clip.ts';
 import {createTempleVisibility} from '../src/render/temple-visibility.ts';
@@ -29,21 +28,15 @@ function compile(material: Material) {
   return shader;
 }
 
-/** A canonical lens beside a crystal arm with the exporter's roles, wrapped the way the renderer wraps it. */
+/** A native lens beside a crystal arm with the exporter's roles, wrapped the way the renderer wraps it. */
 function crystalArmFixture(t: {after(fn: () => void): void}, {hair = true} = {}) {
-  const lens = new MeshPhysicalMaterial({transmission: 0});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
+  const lens = new MeshPhysicalMaterial({transmission: 1});
   const crystal = new MeshPhysicalMaterial({transmission: .9, ior: 1.49, thickness: .004, color: 0xf2ece0,
     attenuationColor: 0xf3ead6, attenuationDistance: .005});
   crystal.toneMapped = false;
   const lensMesh = new Mesh(new PlaneGeometry(.05, .04).translate(0, 0, -.01), lens);
   const arm = new Mesh(new BoxGeometry(.004, .004, .15).translate(-.065, 0, -.09), crystal);
-  lensMesh.userData.partRole = 'lens'; lensMesh.userData.lensSurfaceProfile = 'front_sheet_v1'; arm.userData.partRole = 'temple';
+  lensMesh.userData.partRole = 'lens'; arm.userData.partRole = 'temple';
   const root = new Group().add(lensMesh, arm);
   classifyAssetMaterials(root);
   applyVolumeAttenuationScale(root, 100);

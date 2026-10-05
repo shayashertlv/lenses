@@ -1,7 +1,5 @@
 import {test} from 'node:test';
-import {studioConnection} from '../src/studio/protocol.ts';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {ADDRESS_OPTIONS, APPLE_PHONE_HAIR_DELEGATE, DEFAULT_CONFIG, describeConfig, isApplePhoneOrTablet, isPhoneOrTablet, parseConfig, unrecognizedOptions} from '../src/config.ts';
 import {parseExternalModel} from '../src/eyewear/external.ts';
 import {DEFAULT_HAIR_INPUT_MAX_EDGE, HAIR_WAIT_MS} from '../src/pipeline/pipeline.ts';
@@ -16,10 +14,10 @@ test('an empty search yields the accepted pipeline defaults', () => {
 });
 
 test('ordinary camera, hair, and diagnostic controls retain their bounds and off spelling', () => {
-  const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&eyewear=tom-ford-clear&hairModel=selfie-multiclass&hair=0');
+  const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120,
     hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false,
-    eyewear: 'tom-ford-clear', hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
+    hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
   assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false);
   assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
   assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/);
@@ -38,7 +36,7 @@ test('ordinary camera, hair, and diagnostic controls retain their bounds and off
 
 test('retired temple experiments cannot reactivate a different pipeline through an old address', () => {
   const retired = ['templepreview', 'templetest', 'fit', 'temples', 'templekeep', 'templedrop', 'templebend', 'templepivot', 'continuity', 'hairrun'];
-  const ordinary = '?capture=960&source=canvas&face=gpu&hairModel=selfie-multiclass&hairdelegate=cpu&hairframes=2&hair=0&eyewear=tom-ford-clear';
+  const ordinary = '?capture=960&source=canvas&face=gpu&hairModel=selfie-multiclass&hairdelegate=cpu&hairframes=2&hair=0';
   for (const mode of ['current', 'fixed', 'geometry', 'capped', 'stable']) {
     const old = `${ordinary}&templepreview=${mode}&templetest=Z2&fit=width&temples=angles&templekeep=3&templedrop=6&templebend=0&templepivot=8&continuity=0&hairrun=40`;
     assert.deepEqual(parseConfig(old), parseConfig(ordinary), 'old comparison URLs cannot override the accepted renderer or ordinary hair choice');
@@ -112,7 +110,6 @@ test('the address options list is exactly what the page reads, and any other key
   try {
     for (const agent of ['', iphone]) {parseConfig('', agent); parseConfig('?hairframes=2&exposure=312&hair=1', agent);}
     parseExternalModel('?model=/m.glb', 'https://example.test');
-    studioConnection('?studioOrigin=http://localhost:8767&studioChannel=a-long-random-channel&sha256=' + 'a'.repeat(64), 'http://localhost:8240');
   } finally {URLSearchParams.prototype.get = get; URLSearchParams.prototype.has = has;}
   assert.deepEqual([...read].sort(), [...ADDRESS_OPTIONS].sort());
   // The iPhone B run that ran A: one letter short.
@@ -120,9 +117,7 @@ test('the address options list is exactly what the page reads, and any other key
   assert.deepEqual(unrecognizedOptions('?hairframes=2&diag=1'), []);
   assert.deepEqual(unrecognizedOptions(''), []); assert.deepEqual(unrecognizedOptions('?&&=1'), []);
   assert.deepEqual(unrecognizedOptions('?HairFrames=2&x=1&x=2&hairModel=selfie-multiclass&model=/m.glb'), ['HairFrames', 'x']);
-  // The measurement harness forwards only options the page reads.
-  const forwarded = readFileSync(new URL('../qa/measure.mjs', import.meta.url), 'utf8').match(/for \(const name of \[([^\]]+)\]\)/)?.[1];
-  assert.ok(forwarded, 'qa/measure.mjs forwards a list of options');
-  const names = [...forwarded.matchAll(/'([^']+)'/g)].map(match => match[1]!);
-  assert.ok(names.length > 10 && names.every(name => ADDRESS_OPTIONS.includes(name)), names.filter(name => !ADDRESS_OPTIONS.includes(name)).join(', '));
+  // Retired page levers are named as ignored, not silently honoured: the catalog selector and the Studio bridge.
+  assert.deepEqual(unrecognizedOptions('?eyewear=tom-ford-clear&studioOrigin=http://localhost:8767&studioChannel=c'),
+    ['eyewear', 'studioOrigin', 'studioChannel']);
 });

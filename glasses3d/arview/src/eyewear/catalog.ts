@@ -1,110 +1,101 @@
-/** The frame catalog: the two shipped frames plus one slot for a model handed over by Modeling Auto when the page
- *  opens (see external.ts). The slot is hidden (not enumerable) until a model is registered, so a page without a
- *  handover lists exactly the shipped frames. Dimensions are visual assumptions, not measured fit. */
-import {assetPath} from '../assets.ts';
+/** The model a page or capture renders, and the constants the renderer places it with. arview has no catalog
+ *  (WP1_DESIGN §5): one ModelDefinition comes from the ?model= handover (external.ts) or from the caller (the capture
+ *  runner, tests). `resolveModelDefinition` turns it into the values the renderer uses and says, as warnings for the
+ *  model report, every value it could not use. */
 
 export const GLASSES_METERS_TO_CENTIMETERS = 100;
-/** Bridge height uses canonical landmark 168; the front plane keeps the baseline's 6.691763 cm depth. */
+/** Bridge height uses canonical landmark 168; the front plane keeps the baseline's 6.691763 cm depth. The model's
+ *  origin (the bridge underside, PLAN §2) is placed here. */
 export const GLASSES_OFFSET_CM = Object.freeze([0, 3.271027, 6.531958919387042] as const);
 
-export interface EyewearDefinition {
-  readonly id: string;
-  readonly name: string;
-  readonly optionLabel: string;
-  readonly description: string;
-  readonly finish: string;
-  readonly assetUrl: string;
-  readonly offsetCm: readonly [number, number, number];
-  readonly assumedWidthMm: number;
-  /** Preferred frame-front/upper-face ratio for visual calibration; this is not a measured anatomical fit. */
-  readonly preferredFrontRatio?: number;
-  /** Where the drawn arm ends, in the original GLB's local metres. Until 2026-09-18 this stopped in front of the ear
-   *  hook (-0.105 and -0.110), which left the arm as a straight shaft ending in mid-air about 4 cm short of the ear and
-   *  2.5 cm above it: the shipped assets carry the hook, which curves down to y 0.4 cm and inward to |x| 4.9 cm. It now
-   *  runs to just inside each asset's own arm end, and the head occluder is what takes the hook away. */
-  readonly templeClipLocalZM: number;
-  /** Reflection (environment map) intensity of the lens materials; 1 leaves the renderer's default. */
-  readonly lensEnvIntensity?: number;
-}
-
-export const SHIPPED_EYEWEAR = Object.freeze({
-  'amber-horizon': Object.freeze({
-    id: 'amber-horizon', name: 'Amber Horizon', optionLabel: 'Amber Horizon · Tinted lenses',
-    description: 'A rectangular tortoiseshell frame with warm brown gradient lenses.',
-    finish: 'Amber tortoiseshell', assetUrl: assetPath('models/amber-horizon.glb'),
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, preferredFrontRatio: .98, templeClipLocalZM: -0.140,
-  }),
-  'tom-ford-clear': Object.freeze({
-    id: 'tom-ford-clear', name: 'Tom Ford', optionLabel: 'Tom Ford · Clear lenses',
-    description: 'A rounded tortoiseshell frame with clear lenses for a closer look at the eyes and temples.',
-    finish: 'Tortoiseshell · Clear lenses', assetUrl: assetPath('models/tom-ford-clear.glb'),
-    offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, preferredFrontRatio: .96, templeClipLocalZM: -0.148,
-  }),
-} satisfies Record<string, EyewearDefinition>);
-
-export const MODELING_AUTO_EYEWEAR_ID = 'modeling-auto';
-const UNREGISTERED: EyewearDefinition = Object.freeze({
-  id: MODELING_AUTO_EYEWEAR_ID, name: 'Modeling Auto model', optionLabel: 'Modeling Auto model',
-  description: 'No Modeling Auto model was handed over on this page.', finish: 'Modeling Auto',
-  assetUrl: '', offsetCm: GLASSES_OFFSET_CM, assumedWidthMm: 145, templeClipLocalZM: -0.11,
-});
-type Catalog = typeof SHIPPED_EYEWEAR & {readonly [MODELING_AUTO_EYEWEAR_ID]: EyewearDefinition};
-export const EYEWEAR: Catalog = Object.defineProperty({...SHIPPED_EYEWEAR}, MODELING_AUTO_EYEWEAR_ID,
-  {value: UNREGISTERED, enumerable: false, configurable: true, writable: false}) as Catalog;
-export type EyewearId = keyof Catalog;
-export const DEFAULT_EYEWEAR_ID: EyewearId = 'amber-horizon';
-
-/** The handed-over model, or null when this page has none. */
-export function modelingAutoEyewear(): EyewearDefinition | null {
-  return Object.prototype.propertyIsEnumerable.call(EYEWEAR, MODELING_AUTO_EYEWEAR_ID) ? EYEWEAR[MODELING_AUTO_EYEWEAR_ID] : null;
-}
-
-/** True for a shipped frame id or the Modeling Auto slot (registered or not): the ids a paired image may carry. */
-export function isEyewearId(id: unknown): id is EyewearId {
-  return typeof id === 'string' && (Object.hasOwn(SHIPPED_EYEWEAR, id) || id === MODELING_AUTO_EYEWEAR_ID);
-}
-
-export function eyewearById(id: string): EyewearDefinition {
-  if (!Object.hasOwn(EYEWEAR, id) || (id === MODELING_AUTO_EYEWEAR_ID && !modelingAutoEyewear()))
-    throw new Error('This frame is unavailable. Choose another frame.');
-  return EYEWEAR[id as EyewearId];
-}
-
-export interface ModelingAutoHandover {
-  readonly name: string;
-  /** Same-origin or loopback address of the prepared GLB: real-size meters, bridge underside at the origin, front toward +Z. */
-  readonly assetUrl: string;
-  readonly widthMm: number;
-  /** Fixed endpoint before the rear hook, in the asset's local meters. */
-  readonly templeClipLocalZM: number;
-  /** Reflection (environment map) intensity of the lens materials; 1 leaves the renderer's default. */
-  readonly lensEnvIntensity?: number;
-  readonly description?: string;
-}
-
-const finite = (value: number, low: number, high: number): boolean => Number.isFinite(value) && value >= low && value <= high;
 /** The nearest temple clip depth the renderer can draw: the v3 end blend fades over 15 mm and must end behind -0.03 m
- *  (render/temple-clip.ts). A handed-over depth between this and -0.03 m is drawn from here rather than refused per frame. */
+ *  (render/temple-clip.ts). */
 export const TEMPLE_CLIP_NEAREST_LOCAL_Z_M = -0.045;
+/** The farthest temple clip depth the rear drop, continuity and the clip shader accept. */
+export const TEMPLE_CLIP_FARTHEST_LOCAL_Z_M = -0.2;
+/** A clip derived from the model's temples never lies further back than this (the Studio's default clip, so long arms
+ *  end where the owner judged them; render/temple-geometry.ts deriveTempleClip). It is also the clip of a model with no
+ *  temple at all (reported). Without a usable handover the clip is always derived from the model's own temples; the old
+ *  fixed ?model= default of -0.11 m (about 4 cm short of the ear on the shipped frames) is gone. */
+export const TEMPLE_CLIP_FLOOR_LOCAL_Z_M = -0.14;
+/** Lens reflection multiplier range (?lensenv=); outside it the value is ignored with a warning. */
+export const LENS_ENV_INTENSITY_RANGE = Object.freeze([0.3, 4] as const);
 
-/** Register the handed-over model as this page's Modeling Auto frame and return its definition. */
-export function registerModelingAutoEyewear(model: ModelingAutoHandover): EyewearDefinition {
-  if (typeof model.assetUrl !== 'string' || model.assetUrl === '') throw new Error('The Modeling Auto model has no asset address.');
-  if (!finite(model.widthMm, 60, 250)) throw new Error('The Modeling Auto frame width is unusable.');
-  if (!finite(model.templeClipLocalZM, -0.2, -0.03)) throw new Error('The Modeling Auto temple clip depth is unusable.');
-  const name = model.name.trim() || 'Modeling Auto model';
-  const definition: EyewearDefinition = Object.freeze({
-    id: MODELING_AUTO_EYEWEAR_ID, name, optionLabel: `${name} · Modeling Auto`,
-    description: model.description ?? `Prepared by Modeling Auto at ${model.widthMm} mm across the front. Preview placement is not measured wearer fit.`,
-    finish: 'Modeling Auto · Prepared model', assetUrl: model.assetUrl, offsetCm: GLASSES_OFFSET_CM,
-    assumedWidthMm: model.widthMm, templeClipLocalZM: Math.min(model.templeClipLocalZM, TEMPLE_CLIP_NEAREST_LOCAL_Z_M),
-    ...(model.lensEnvIntensity === undefined ? {} : {lensEnvIntensity: model.lensEnvIntensity}),
-  });
-  Object.defineProperty(EYEWEAR, MODELING_AUTO_EYEWEAR_ID, {value: definition, enumerable: true, configurable: true, writable: false});
-  return definition;
+export interface ModelDefinition {
+  /** Address of the GLB: real-size metres, bridge underside at the origin, +Y up, +Z front (PLAN §2). */
+  readonly url: string;
+  readonly displayName: string;
+  /** Where the drawn arms end, in the model's local metres: an override of the clip the renderer derives from the
+   *  model's own temples (inside [-0.2, -0.045] m, else ignored with a warning). Absent: derived. */
+  readonly templeClipZM?: number;
+  /** Reflection (environment map) multiplier of the lens materials; absent leaves the renderer's default. */
+  readonly lensEnvIntensity?: number;
+  /** Where the bridge origin sits on the canonical face, centimetres; absent means GLASSES_OFFSET_CM. */
+  readonly offsetCm?: readonly [number, number, number];
+  /** A digest handed over with the model (?sha256=). Only compared with the loaded bytes (a mismatch is a warning): the
+   *  report and every verdict bind to the bytes actually rendered, never to this value (WP1_DESIGN.md §3). */
+  readonly handoverSha256?: string;
+  /** Problems found while building this definition (an unusable handover value, ...), carried into the model report. */
+  readonly warnings?: readonly string[];
 }
 
-/** Forget a registered model; the slot is hidden again. */
-export function unregisterModelingAutoEyewear(): void {
-  Object.defineProperty(EYEWEAR, MODELING_AUTO_EYEWEAR_ID, {value: UNREGISTERED, enumerable: false, configurable: true, writable: false});
+/** A ModelDefinition with every value the renderer needs, and the warnings for each value it could not use. */
+export interface ResolvedModel {
+  readonly url: string;
+  readonly displayName: string;
+  /** The usable handed-over clip, or null: the renderer then derives the clip from the model's temples (and it always
+   *  cross-checks a handover against them). */
+  readonly templeClipZM: number | null;
+  readonly lensEnvIntensity?: number;
+  readonly offsetCm: readonly [number, number, number];
+  readonly handoverSha256?: string;
+  readonly warnings: readonly string[];
+}
+
+const fileName = (url: string): string => url.split('?')[0]!.split('/').filter(Boolean).at(-1) ?? url;
+const metres = (value: number): string => `${value.toFixed(3)} m`;
+
+/** Resolve a definition. A missing or unusable value never throws: it falls back and says so in `warnings`. Only a
+ *  definition without an address throws, since there is nothing to load. */
+export function resolveModelDefinition(model: ModelDefinition): ResolvedModel {
+  if (typeof model?.url !== 'string' || model.url.trim() === '') throw new Error('The model definition has no address.');
+  const warnings: string[] = [...(model.warnings ?? [])];
+  let displayName = typeof model.displayName === 'string' ? model.displayName.trim() : '';
+  if (!displayName) {
+    displayName = fileName(model.url);
+    warnings.push(`The model has no display name; it is shown by its file name "${displayName}".`);
+  }
+  // No clip is the normal case: the renderer derives it from the model's own temples (temple-geometry.ts).
+  let templeClipZM: number | null = null;
+  const clip = model.templeClipZM;
+  if (clip !== undefined) {
+    if (typeof clip === 'number' && Number.isFinite(clip) && clip >= TEMPLE_CLIP_FARTHEST_LOCAL_Z_M && clip <= TEMPLE_CLIP_NEAREST_LOCAL_Z_M) {
+      templeClipZM = clip;
+    } else {
+      warnings.push(`The temple clip depth ${String(clip)} is outside the drawable range `
+        + `[${metres(TEMPLE_CLIP_FARTHEST_LOCAL_Z_M)}, ${metres(TEMPLE_CLIP_NEAREST_LOCAL_Z_M)}] and was ignored; `
+        + 'the arms end at the clip derived from the model\'s own temples.');
+    }
+  }
+  let lensEnvIntensity: number | undefined;
+  const lensenv = model.lensEnvIntensity;
+  if (lensenv !== undefined) {
+    const [low, high] = LENS_ENV_INTENSITY_RANGE;
+    if (typeof lensenv === 'number' && Number.isFinite(lensenv) && lensenv >= low && lensenv <= high) lensEnvIntensity = lensenv;
+    else warnings.push(`The lens reflection multiplier ${String(lensenv)} is outside ${low}-${high} and was ignored; the lenses use the default reflection.`);
+  }
+  let offsetCm: readonly [number, number, number] = GLASSES_OFFSET_CM;
+  const offset = model.offsetCm;
+  if (offset !== undefined) {
+    if (Array.isArray(offset) && offset.length === 3 && offset.every(value => typeof value === 'number' && Number.isFinite(value))) {
+      offsetCm = Object.freeze([offset[0], offset[1], offset[2]] as const);
+    } else warnings.push(`The bridge offset ${JSON.stringify(offset)} is not three finite centimetre values and was ignored; the standard offset is used.`);
+  }
+  const handover = typeof model.handoverSha256 === 'string' ? model.handoverSha256.trim().toLowerCase() : undefined;
+  if (handover !== undefined && !/^[0-9a-f]{64}$/.test(handover)) {
+    warnings.push(`The handed-over digest "${handover.slice(0, 80)}" is not 64 hexadecimal characters and was ignored.`);
+  }
+  return Object.freeze({url: model.url, displayName, templeClipZM, offsetCm, warnings: Object.freeze(warnings),
+    ...(lensEnvIntensity === undefined ? {} : {lensEnvIntensity}),
+    ...(handover !== undefined && /^[0-9a-f]{64}$/.test(handover) ? {handoverSha256: handover} : {})});
 }

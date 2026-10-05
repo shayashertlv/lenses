@@ -53,7 +53,7 @@ function oracle(input: HairArmInput): Oracle {
     const isHash = (value: unknown): boolean => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
     check(background.length === before.length, 'Clean camera output dimensions differ.');
     for (const pair of [input.pair, input.geometryPair]) check(isHash(pair.sourceSHA256) && isHash(pair.detectionSHA256)
-      && ['tom-ford-clear', 'amber-horizon', 'modeling-auto'].includes(pair.eyewearModel), 'The image/geometry identity is invalid.');
+      && typeof pair.eyewearModel === 'string' && pair.eyewearModel.length > 0 && pair.eyewearModel.length <= 4096, 'The image/geometry identity is invalid.');
     check(input.pair.sourceSHA256 === input.geometryPair.sourceSHA256 && input.pair.detectionSHA256 === input.geometryPair.detectionSHA256
       && input.pair.eyewearModel === input.geometryPair.eyewearModel, 'pair');
     check(mask.sourceSHA256 === input.pair.sourceSHA256 && mask.detectionSHA256 === input.pair.detectionSHA256, 'mask pair');
@@ -103,7 +103,7 @@ function fixture(seed: number, width = 23, height = 17): HairArmInput {
   const random = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
   const before = new Uint8ClampedArray(width * height * 4), background = before.slice();
   const labels = seed % 2 ? ['background', 'hair'] : ['background', 'hair', 'body-skin', 'face-skin', 'clothes', 'others'];
-  const pair = {sourceSHA256: '1'.repeat(64), detectionSHA256: '2'.repeat(64), eyewearModel: seed % 2 ? 'tom-ford-clear' : 'amber-horizon'};
+  const pair = {sourceSHA256: '1'.repeat(64), detectionSHA256: '2'.repeat(64), eyewearModel: seed % 2 ? '/models/tom-ford-clear.glb' : 'http://127.0.0.1:8250/m.glb'};
   const maskWidth = Math.max(1, Math.floor(width * ([.4, 1, 1.7][seed % 3]!))), maskHeight = Math.max(1, Math.floor(height * .7));
   const category = new Uint8Array(maskWidth * maskHeight);
   for (let index = 0; index < category.length; index++) category[index] = random() < .75 ? 1 : Math.floor(random() * labels.length);
@@ -175,7 +175,8 @@ test('invalid identity, dimensions, labels, category, guards and camera referenc
     input => { input.mask.modelSHA256 = '9'.repeat(64); },
     input => { input.mask.hairIndex = 0; }, input => { input.mask.width++; },
     input => { input.mask.category[0] = 255; },
-    input => { input.pair.eyewearModel = 'unknown-frame'; input.geometryPair.eyewearModel = 'unknown-frame'; },
+    input => { input.pair.eyewearModel = ''; input.geometryPair.eyewearModel = ''; },
+    input => { input.geometryPair.eyewearModel = 'http://127.0.0.1:8250/other.glb'; },
     input => { input.protection = {...input.protection, width: 100}; },
     input => { input.noseRoi = {x0: -1, y0: 0, x1: 2, y1: 2}; },
     input => { input.background[0] = (input.before[0]! + 1) % 256; },

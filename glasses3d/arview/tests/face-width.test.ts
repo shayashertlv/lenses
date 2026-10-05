@@ -16,8 +16,10 @@ import {buildTempleContinuityModel, CONTINUITY_GEOMETRY, projectTempleContinuity
 import {createProtection, protectionProjection, projectBounds} from '../src/render/protection.ts';
 import {TEMPLE_VISIBILITY_PARAMETERS} from '../src/render/temple-visibility.ts';
 import {GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
+import {publicFile} from './shipped-models.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
-const canonical: number[] = (JSON.parse(readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]}).positions;
+const canonical: number[] = (JSON.parse(readFileSync(publicFile('models/canonical-face.json'), 'utf8')) as {positions: number[]}).positions;
 const SPANS = canonicalRegionSpans(canonical);
 
 interface Pose {yawDeg?: number; pitchDeg?: number; rollDeg?: number; depthCm?: number; scale?: number;}
@@ -349,9 +351,10 @@ test('the pivot is the asset\'s own hinge: where the frame front ends and the sh
 
 for (const [id, cap, hinge, lensRear] of [['amber-horizon', -.140, -0.015, -0.0107], ['tom-ford-clear', -.148, -0.014, -0.0144]] as const) {
   test(`${id}: the hinge is found behind the endpiece, and the bend pivots there instead of 1 cm further back`, async () => {
-    const bytes = await readFile(new URL(`../public/models/${id}.glb`, import.meta.url));
+    const bytes = await readFile(publicFile(`models/${id}.glb`));
     const gltf = await new GLTFLoader().register(() => ({name: 'GeometryOnlyTestTextures', loadTexture: async () => new Texture()}))
       .parseAsync(new Uint8Array(bytes).buffer, '/models/');
+    classifyAssetMaterials(gltf.scene, gltf);   // the class is decided at load, from the glTF JSON
     const drop = createRearDrop(gltf.scene, cap);
     try {
       assert.equal(drop.hingeZM, hinge, 'the measured hinge plane of this asset');
@@ -425,6 +428,7 @@ function asset(depthSegments = 1) {
   const frame = new MeshStandardMaterial(), lensMaterial = new MeshPhysicalMaterial({transmission: 1});
   const lens = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([-.02, 0, -.01, .02, 0, -.01, 0, .01, -.005], 3));
   root.add(new Mesh(left, frame), new Mesh(right, frame), new Mesh(lens, lensMaterial));
+  classifyAssetMaterials(root);   // untagged: the transmissive lens is a lens by the (warned) last resort
   return {root, left, right, lens, dispose: () => {for (const resource of [left, right, lens, frame, lensMaterial]) resource.dispose();}};
 }
 const armPositions = (root: Group): Float32Array[] =>

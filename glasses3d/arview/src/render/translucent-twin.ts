@@ -40,7 +40,7 @@
  *  roughness 0 -> 0.2 -> 0.5 moves 7 / 19 % (checker): the finish is a visible knob again. */
 import {Material, Matrix3, MeshPhysicalMaterial, Vector2, Vector3} from 'three';
 import type {Texture} from 'three';
-import {isTranslucentFrameMaterial, markFrameMaterial} from '../eyewear/optical-material.ts';
+import {isTranslucentFrameMaterial, registerDerivedMaterial} from '../eyewear/optical-material.ts';
 import {volumeAttenuationRgb} from './eyewear-volume.ts';
 import {CRYSTAL_REFLECTION_KNEE, REFLECTION_LIMIT_GLSL, reflectionLimitCall} from './eyewear-reflection.ts';
 
@@ -115,7 +115,7 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
   const twin = material.clone();
   twin.transmission = 0; twin.transmissionMap = null; twin.transparent = false;
   twin.name = `${material.name} (camera transmission twin)`;
-  markFrameMaterial(twin);
+  registerDerivedMaterial(twin, material);
   const owned = {
     twinTransmission: {value: Math.min(1, Math.max(0, material.transmission))},
     twinAttenuation: {value: new Vector3(...volumeAttenuationRgb(material))},

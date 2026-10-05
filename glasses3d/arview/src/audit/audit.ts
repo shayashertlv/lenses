@@ -91,7 +91,7 @@ export function runAudit(renderer: TryOnRenderer, held: HeldFrame, live: FrameTi
   let composeMs = 0, checksMs = 0;
   if (mask && protection && noseRoi) {
     const input: HairArmInput = {width, height, before: before.data, background: background.data, pair, mask, expectedModel: model, protection, noseRoi,
-      geometryPair: {sourceSHA256: pair.sourceSHA256, detectionSHA256: pair.detectionSHA256, eyewearModel: renderer.eyewear.id}};
+      geometryPair: {sourceSHA256: pair.sourceSHA256, detectionSHA256: pair.detectionSHA256, eyewearModel: renderer.model.url}};
     const t0 = performance.now();
     // The CPU reference composes a frame's own mask only; a reused one is skipped explicitly (its identity alone would not
     // refuse it when two consecutive frames are byte-identical). The four protection checks still run.

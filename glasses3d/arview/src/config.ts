@@ -43,13 +43,13 @@ export interface Config {
   exposure: number | null;
   /** `?guard=0` draws the unguarded single pass. */
   guard: boolean;
-  /** `?eyewear=`, `?hairModel=`, `?hair=0|1`: initial control values, or null for the page defaults. */
-  eyewear: string | null;
+  /** `?hairModel=`, `?hair=0|1`: initial control values, or null for the page defaults. (The model itself comes from
+   *  the `?model=` handover, eyewear/external.ts; arview has no frame catalog, so there is no `?eyewear=`.) */
   hairModel: string | null;
   hair: boolean | null;
-  /** `?diag=1` sends the startup step log and, every 10 s, the last 10 s of stage medians (numbers only; never an image,
-   *  detection, mask or hash) to this site, readable at /ar/diagnostics.json. Off by default since the phone work of
-   *  2026-09-15 closed; the page says so in its footer when on. */
+  /** `?diag=1` posts the startup step log and, every 10 s, the last 10 s of stage medians (numbers only; never an image,
+   *  detection, mask or hash) to this site's `diagnostic` endpoint. Only the live site (UI/ar_site.py) has that
+   *  endpoint; under arview's loopback servers the post goes nowhere. Off by default; the page says so in its footer when on. */
   diagnostics: boolean;
   /** Pose steadiness (pose-stabilizer.ts), on by default since the owner's live test of 2026-09-17: the glasses'
    *  orientation and depth are smoothed over time; `?steady=0` restores the unfiltered pose (null). `?steadyhz=` rotation
@@ -66,15 +66,15 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
-  guard: true, eyewear: null, hairModel: null, hair: null, diagnostics: false,
+  guard: true, hairModel: null, hair: null, diagnostics: false,
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE,
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
-  'sync', 'exposure', 'guard', 'eyewear', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
-  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256', 'lensenv', 'studioOrigin', 'studioChannel']);
+  'sync', 'exposure', 'guard', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
+  'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256', 'lensenv']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
 export function unrecognizedOptions(search: string): string[] {
@@ -128,7 +128,6 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     sync: flag('sync', true),
     exposure: exposure === null || exposure.toLowerCase() === 'auto' ? null : number('exposure', 0, 1, 10000) || null,
     guard: flag('guard', true),
-    eyewear: params.get('eyewear'),
     hairModel: params.get('hairModel'),
     hair: params.has('hair') ? flag('hair', true) : null,
     diagnostics: flag('diag', false),

@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { FaceSurface } from '../src/render/face-surface.ts';
 import type { Landmark } from '../src/face/protocol.ts';
+import {publicFile} from './shipped-models.ts';
 
-const canonical = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as { positions: number[] };
+const canonical = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8')) as { positions: number[] };
 const positions = canonical.positions.map(Math.fround);
 
 function observation(yawDegrees: number, pitchDegrees: number, aspect: number, depth: number, scale: number, zOffset = 0.2) {

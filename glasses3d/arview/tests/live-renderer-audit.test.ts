@@ -11,6 +11,8 @@ function harness() {
     pose() {return true;}, setMaskWarp() {},
     render(): {hairApplied: boolean; safeFallback: boolean} {return {hairApplied: inner.fitting.ready, safeFallback: false};},
     poseSample: null, dispose() {},
+    fallbacks: [] as string[],
+    recordFallback(subsystem: string, detail: string) {inner.fallbacks.push(`${subsystem}: ${detail}`);},
   };
   const live = new (LiveRenderer as unknown as new (renderer: unknown) => LiveRenderer)(inner);
   const mask = {width: 4, height: 4, category: new Uint8Array(16), hairIndex: 1} as never;
@@ -21,7 +23,7 @@ function harness() {
     live.finish(withMask ? mask : null, null, carried);
     return live.stats!.audit.ran;
   };
-  return {live, frame, setReady: (value: boolean) => {inner.fitting.ready = value;}};
+  return {live, frame, setReady: (value: boolean) => {inner.fitting.ready = value;}, fallbacks: inner.fallbacks};
 }
 
 async function quietly<T>(run: () => Promise<T>): Promise<T> {
@@ -30,7 +32,7 @@ async function quietly<T>(run: () => Promise<T>): Promise<T> {
 }
 
 test('an audit passes over frames with a reused mask and holds the first frame that draws its own', () => quietly(async () => {
-  const {live, frame} = harness();
+  const {live, frame, fallbacks} = harness();
   assert.equal(await frame(false), false, 'nothing is audited without a request');
   assert.equal(live.auditRequestPending, false);
   live.requestAudit(); assert.equal(live.auditRequestPending, true);
@@ -38,6 +40,8 @@ test('an audit passes over frames with a reused mask and holds the first frame t
   assert.equal(live.auditRequestPending, true);
   assert.equal(await frame(false), true, 'the own mask is audited');
   assert.equal(live.auditRequestPending, false);
+  // The fake renderer cannot run the audit: the failure is a model-report fallback, never only a console line.
+  assert.equal(fallbacks.length, 1); assert.match(fallbacks[0]!, /^audit: Hold & audit failed on frame \d+ \(.+\); no audit was produced for it\.$/);
   assert.equal(await frame(false), false, 'one request, one audit');
 }));
 

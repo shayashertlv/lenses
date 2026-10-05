@@ -1,8 +1,8 @@
-/** The renderer's wiring of translucent (crystal) frames. With canonical lenses every pass (pass A, pass B, the unguarded
- *  frame, the safe fallback) draws the crystal's twin, which looks through to the renderer's owned look-through image:
- *  the camera behind the opaque eyewear, the relieved near-arm hardware included, the lenses and the crystal left out.
- *  Inside the canonical lens input, which excludes the arms, the twins sample the background instead of that image.
- *  Legacy assets (no translucent frame, transmissive lenses) render exactly as before. */
+/** The renderer's wiring of translucent (crystal) frames. Every pass (pass A, pass B, the unguarded frame, the safe
+ *  fallback) draws the crystal's twin, which looks through to the renderer's owned look-through image: the camera behind
+ *  the opaque eyewear, the relieved near-arm hardware included, the lenses and the crystal left out. Inside Three's lens
+ *  input, which excludes the arms, the twins sample the background instead of that image. Legacy assets (no translucent
+ *  frame, transmissive lenses) render exactly as before. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -22,12 +22,12 @@ import {TempleCheekContactEstimator} from '../src/render/temple-cheek-contact.ts
 import {CAMERA_TRANSMISSION_TWIN_KEY} from '../src/render/translucent-twin.ts';
 import type {TranslucentLookThrough} from '../src/render/translucent-look-through.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {classifyAssetMaterials, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
-import {eyewearById, DEFAULT_EYEWEAR_ID} from '../src/eyewear/catalog.ts';
+import {resolveModelDefinition} from '../src/eyewear/catalog.ts';
 import type {Detection} from '../src/face/protocol.ts';
+import {publicFile, shippedModel} from './shipped-models.ts';
 
-const canonical = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]; indices: number[]};
+const canonical = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8')) as {positions: number[]; indices: number[]};
 const frame = {width: 640, height: 480} as HTMLCanvasElement;
 
 function detection(): Detection {
@@ -57,9 +57,10 @@ interface Drawn {mesh: Mesh; material: Material; colorWrite: boolean; lensInput:
 interface Draw {target: WebGLRenderTarget | null; background: unknown; drawn: Drawn[]; twinSource: Texture | null; twinUv: number[]; twinViewport: number[];
   relief: number[]}
 
-/** A TryOnRenderer on a recording backend, wired by the renderer's own arm-shader installation. By default the delivered
- *  case: a crystal arm (authored roles) around a gold core, beside a canonical lens. `crystal: false` builds a legacy
- *  asset instead: opaque arms around the same core beside a transmissive lens, with neither roles nor descriptors. */
+/** A TryOnRenderer on a recording backend, wired by the renderer's own arm-shader installation. By default a crystal arm
+ *  (authored roles) around a gold core, beside an opaque native (mirror) lens: no part transmits through Three's pre-pass.
+ *  `nativeLens` makes that lens transmissive (.94), the Studio convention. `crystal: false` builds a legacy asset instead:
+ *  opaque arms around the same core beside a transmissive lens, with no roles. */
 function harness(options: RendererOptions = {}, {crystal: withCrystal = true, nativeLens = false} = {}) {
   const draws: Draw[] = [];
   const state = {target: null as WebGLRenderTarget | null, viewport: new Vector4(), scissor: new Vector4(), color: new Color(), alpha: 1};
@@ -98,19 +99,13 @@ function harness(options: RendererOptions = {}, {crystal: withCrystal = true, na
   };
   const gl = {SCISSOR_TEST: 1, COLOR_BUFFER_BIT: 2, DEPTH_BUFFER_BIT: 4, STENCIL_BUFFER_BIT: 8, disable: noop, enable: noop, clear: noop, scissor: noop};
   const renderer = new (TryOnRenderer as unknown as new (backend: unknown, gl: unknown, eyewear: unknown, options: RendererOptions) => TryOnRenderer)(
-    backend, gl, eyewearById(DEFAULT_EYEWEAR_ID), {sync: false, guard: true, ...options});
+    backend, gl, resolveModelDefinition(shippedModel('amber-horizon')), {sync: false, guard: true, ...options});
   const internal = renderer as unknown as {scene: Scene; eyewearPose: Group; facePose: Group;
     twinUniforms: {twinCameraSource: {value: Texture | null}; twinCameraUvTransform: {value: {elements: number[]}}; twinCameraViewport: {value: Vector2}};
     installArmShaders(root: Group): void; translucentFrameMeshes: {mesh: Mesh}[]; lookThrough: TranslucentLookThrough | null;
     templeVisibility: {configuration: TempleVisibilityConfiguration | null}; protectionConfiguration: unknown};
   Object.assign(renderer, {fitRevealed: true});
-  const lens = new MeshPhysicalMaterial({transmission: nativeLens ? .94 : withCrystal ? 0 : 1});
-  if (withCrystal && !nativeLens) lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
+  const lens = new MeshPhysicalMaterial({transmission: nativeLens ? .94 : withCrystal ? 0 : 1, metalness: withCrystal && !nativeLens ? 1 : 0});
   const crystal = withCrystal ? new MeshPhysicalMaterial({transmission: .9, ior: 1.49, thickness: .004, color: 0xf2ece0})
     : new MeshStandardMaterial({color: 0x222222});
   crystal.toneMapped = !withCrystal;
@@ -132,7 +127,7 @@ function harness(options: RendererOptions = {}, {crystal: withCrystal = true, na
   const surface = new Mesh(new BoxGeometry(), depth), head = new Mesh(new BoxGeometry(), depth);
   internal.scene.add(surface); internal.facePose.add(head);
   Object.assign(renderer, {canonicalPositions: canonical.positions, rearDrop, templeClip: clip,
-    templeTerminalFit: createTempleTerminalFit(root, {offsetCm: renderer.eyewear.offsetCm, spreadM: .018,
+    templeTerminalFit: createTempleTerminalFit(root, {offsetCm: renderer.model.offsetCm, spreadM: .018,
       spreadStartZM: rearDrop.spreadStartZM, modelCutoffZM: -.14, maximumZM: -.115}),
     surfaceMesh: surface, templeHeadShell: head, faceSurface: new FaceSurface(canonical.positions),
     observedCheekGeometry: observedGeometry, observedCheekAttribute: observed,
@@ -154,7 +149,7 @@ type Harness = ReturnType<typeof harness>;
 /** The renderer's own look-through target. */
 function lookThroughTarget(f: Harness): WebGLRenderTarget {
   const image = f.internal.lookThrough;
-  assert.ok(image, 'a crystal asset with canonical lenses owns a look-through image');
+  assert.ok(image, 'a crystal asset owns a look-through image');
   return image.target;
 }
 
@@ -209,7 +204,7 @@ test('native lenses keep their PBR transmission while crystal uses separate canv
   }
 });
 
-test('a crystal asset with canonical lenses: every pass draws the twins, which look through to the owned image of the hardware inside', t => {
+test('a crystal asset beside an opaque native lens: every pass draws the twins, which look through to the owned image of the hardware inside', t => {
   const f = harness(); t.after(f.dispose);
   const clone = f.overlayOf(f.arm).material as MeshPhysicalMaterial;
   assert.notEqual(clone, f.crystal); assert.equal(isTranslucentFrameMaterial(clone), true);
@@ -220,7 +215,7 @@ test('a crystal asset with canonical lenses: every pass draws the twins, which l
   assert.equal(f.overlayOf(f.core).renderOrder, 1);
   assert.equal(f.renderer.pose(frame, detection(), 100), true);
   assert.equal(f.internal.templeVisibility.configuration?.internalTransmissionIsLensInput, false,
-    'canonical lenses read the explicit input only: Three\'s internal pre-pass is not lens input');
+    'an opaque lens samples no pre-pass: Three\'s internal pre-pass is not lens input');
   for (const frameIndex of [0, 1]) {
     f.draws.length = 0;
     const timing = f.renderer.render(null);
@@ -274,43 +269,6 @@ test('a crystal asset with canonical lenses: every pass draws the twins, which l
   f.renderer.dispose();
   assert.equal(f.arm.material, f.crystal, 'the originals are restored on disposal');
   assert.equal(imageDisposals, 1);
-});
-
-test('the canonical lens input excludes the arms in its crystal too: the twins look through to the background there, to the image after', t => {
-  const f = harness(); t.after(f.dispose);
-  const opaqueTarget = new WebGLRenderTarget(8, 8); t.after(() => opaqueTarget.dispose());
-  const layers = {
-    render(_renderer: unknown, scene: Scene, camera: PerspectiveCamera, _width: number, _height: number, withOpaqueInput: (draw: () => void) => void) {
-      f.state.target = opaqueTarget;
-      try {withOpaqueInput(() => f.render(scene, camera));} finally {f.state.target = null;}
-    },
-    dispose() {},
-  };
-  Object.assign(f.renderer, {canonicalLayers: layers});
-  assert.equal(f.renderer.pose(frame, detection(), 100), true);
-  for (const guard of [true, false]) {
-    f.draws.length = 0;
-    f.renderer.render(null, {guard});
-    const input = f.draws.find(draw => draw.target === opaqueTarget)!;
-    assert.ok(input, 'the lens input is drawn');
-    assert.equal(f.find(input, f.core)!.lensInput, 1, 'the explicit canonical input always excludes the arms (no far arm across a lens)');
-    // The look-through image holds the arms (it is not lens input). A crystal part seen through a lens (a far rim, a
-    // bridge) that sampled it would carry the far arm's hardware across the near lens; it samples the background.
-    const crystal = f.find(input, f.arm)!;
-    assert.ok(crystal.material.customProgramCacheKey().endsWith(`|${CAMERA_TRANSMISSION_TWIN_KEY}`), 'the crystal is its twin in the lens input');
-    assert.ok(input.background, 'the lens input has the camera behind it');
-    assert.equal(input.twinSource, input.background, 'inside the lens input the twins sample the background, which has no arms');
-    assert.notEqual(input.twinSource, lookThroughTarget(f).texture, 'never the look-through image with the arms in it');
-    const background = input.background as Texture;
-    assert.deepEqual(input.twinUv, background.matrix.elements.map(value => value + 0), 'at the background\'s own UV transform');
-    assert.deepEqual(input.twinViewport, [640, 480]);
-    // After the lens input the canvas passes draw the crystal from the image with the hardware inside it.
-    const canvas = f.draws.filter(draw => draw.target === null);
-    assert.equal(canvas.length, guard ? 2 : 1);
-    for (const [i, draw] of canvas.entries()) assertLooksThrough(f, draw, `${guard ? 'guarded' : 'unguarded'} canvas pass ${i}`);
-    assert.deepEqual(passes(f, new Map([[opaqueTarget, 'lens input']])), ['lens input', 'look-through', ...canvas.map(() => 'canvas')],
-      'the lens input needs no look-through image, so the image is drawn after it, right before the passes that sample it');
-  }
 });
 
 test('a legacy asset renders exactly as before: no look-through image, no twins, the internal pre-pass stays lens input', t => {

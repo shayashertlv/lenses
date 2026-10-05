@@ -7,7 +7,6 @@ import test from 'node:test';
 import * as THREE from 'three';
 import {FRONT_PANEL} from '../src/render/eyewear-reflection.ts';
 import {classifyAssetMaterials,isTranslucentFrameMaterial,markFrameMaterial} from '../src/eyewear/optical-material.ts';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {applyRuntimeLighting,caseLensEnvIntensity,createLighting,lightingConfigurations} from './provider-comparison-lighting.mjs';
 
 /** Every PMREM createLighting generates: the source's emitters [x,y,z,emissive], its background, the blur, the target. */
@@ -23,7 +22,7 @@ function recordPmrem(t){
 }
 const isPanel=row=>row.join()===[...FRONT_PANEL.position,FRONT_PANEL.emissiveIntensity].join();
 
-test('an explicit room lights canonical lenses and crystal with the runtime\'s see-through room, without the front panel',t=>{
+test('an explicit room lights crystal with the runtime\'s see-through room, without the front panel',t=>{
  const calls=recordPmrem(t);
  const [configuration]=lightingConfigurations({environments:[{id:'room',preset:'room',intensity:.8}]});
  const lighting=createLighting({},configuration);
@@ -49,30 +48,27 @@ test('an analytic studio preset lights both from the same map, as before',t=>{
  }
 });
 
-/** A runtime instance as the seam reads it: a canonical lens, a crystal front, a crystal temple whose near-arm overlay mesh
+/** A runtime instance as the seam reads it: a native lens, a crystal front, a crystal temple whose near-arm overlay mesh
  *  carries [overlay clone, gold] in one slot, their see-through room map (renderer.ts), and one twin already cloned. */
 function instanceWithCrystal(){
  const seeThroughRoom=new THREE.Texture(),sceneRoom=new THREE.Texture();
- const lensSource=new THREE.MeshPhysicalMaterial();
- lensSource.userData.gltfExtensions={[LENS_APPEARANCE_EXTENSION]:{schema_version:1,texcoord:0,appearance:{schema_version:1,color_space:'scene_linear_srgb_D65',
-  density_interpolation:'piecewise_smoothstep_optical_density',vertical_coordinate:'lens_local_bottom_0_top_1',normal_reflectance_rgb:[1,1,1],
-  refractive_index:1.5,roughness:.065,optical_density_keyframes:[{v:0,optical_density_rgb:[.3,.4,.5]}],angular_reflectance_keyframes:null}}};
+ const lensSource=new THREE.MeshPhysicalMaterial({transmission:1});
  const crystalFront=new THREE.MeshPhysicalMaterial({name:'crystal front',transmission:1,envMap:seeThroughRoom,envMapIntensity:.8});
  const crystalTemple=new THREE.MeshPhysicalMaterial({name:'crystal temple',transmission:1,envMap:seeThroughRoom,envMapIntensity:.8});
  const gold=new THREE.MeshPhysicalMaterial({name:'gold',metalness:1});
  const lensMesh=new THREE.Mesh(new THREE.PlaneGeometry(),lensSource),front=new THREE.Mesh(new THREE.BoxGeometry(),crystalFront);
  const temple=new THREE.Mesh(new THREE.BoxGeometry(),crystalTemple),hinge=new THREE.Mesh(new THREE.BoxGeometry(),gold);
- lensMesh.userData={partRole:'lens',lensSurfaceProfile:'front_sheet_v1'};front.userData.partRole=hinge.userData.partRole='frame';temple.userData.partRole='temple';
+ lensMesh.userData={partRole:'lens'};front.userData.partRole=hinge.userData.partRole='frame';temple.userData.partRole='temple';
  classifyAssetMaterials(new THREE.Group().add(lensMesh,front,temple,hinge));
  const overlay=crystalTemple.clone();overlay.name='crystal temple overlay';markFrameMaterial(overlay);   // as temple-visibility.ts registers it
  assert.ok([crystalFront,crystalTemple,overlay].every(isTranslucentFrameMaterial)&&!isTranslucentFrameMaterial(gold));
- // The drawn canonical lens owns the see-through room at 0.8 x lensenv 1.5 (renderer.ts).
- const lens=new THREE.MeshPhysicalMaterial({name:'canonical lens',envMap:seeThroughRoom,envMapIntensity:.8*1.5});
+ // A native lens with lensenv 1.5 owns the scene room at 0.8 x 1.5 (renderer.ts); it never reflects the see-through room.
+ const lens=new THREE.MeshPhysicalMaterial({name:'native lens',transmission:1,envMap:sceneRoom,envMapIntensity:.8*1.5});
  const twin=crystalFront.clone();twin.name='crystal front twin';twin.transmission=0;
  const scene=new THREE.Scene();scene.environment=sceneRoom;scene.environmentIntensity=.8;
  const overlayMesh=new THREE.Mesh(new THREE.BoxGeometry(),[overlay,gold]);
  return {seeThroughRoom,sceneRoom,crystalFront,crystalTemple,overlay,gold,lens,twin,instance:{scene,renderer:{isWebGLRenderer:true},
-  lensMeshes:[new THREE.Mesh(new THREE.PlaneGeometry(),lens)],canonicalLensMaterials:[lens],
+  lensMeshes:[new THREE.Mesh(new THREE.PlaneGeometry(),lens)],
   translucentFrameMeshes:[{mesh:front,original:crystalFront},{mesh:temple,original:crystalTemple},{mesh:overlayMesh,original:[overlay,gold]}],
   translucentTwins:new Map([[crystalFront,twin]])}};
 }
@@ -87,7 +83,7 @@ test('crystal follows the explicit environment, twins included, and every touche
   assert.equal(material.envMap,lighting.canonical.texture,`${material.name}: the explicit environment, not the runtime room`);
   assert.equal(material.envMapIntensity,1.4,`${material.name}: the configuration's intensity; lensenv is a lens setting`);
  }
- assert.equal(f.lens.envMap,lighting.canonical.texture);assert.ok(Math.abs(f.lens.envMapIntensity-1.4*1.5)<1e-12,'the lens keeps its lensenv');
+ assert.equal(f.lens.envMap,lighting.regular.texture,'a native lens follows the explicit scene environment');assert.ok(Math.abs(f.lens.envMapIntensity-1.4*1.5)<1e-12,'the lens keeps its lensenv');
  assert.equal(f.gold.envMap,null,'gold in the overlay\'s slot keeps the scene environment');
  // A twin cloned while the explicit lighting is applied copies it from its original (the clone copies envMap)...
  const late=f.crystalTemple.clone();late.name='crystal temple twin';late.transmission=0;f.instance.translucentTwins.set(f.crystalTemple,late);
@@ -99,7 +95,7 @@ test('crystal follows the explicit environment, twins included, and every touche
   assert.equal(material.envMapIntensity,.8,material.name);
  }
  // ...and returns to its original's restored map, so a disposed explicit map is never left on a drawn twin.
- assert.equal(f.lens.envMap,f.seeThroughRoom);assert.ok(Math.abs(f.lens.envMapIntensity-.8*1.5)<1e-12);
+ assert.equal(f.lens.envMap,f.sceneRoom);assert.ok(Math.abs(f.lens.envMapIntensity-.8*1.5)<1e-12);
  lighting.dispose();
 });
 
@@ -125,7 +121,9 @@ test('a case\'s lens_env_intensity is the try-on link\'s lensenv: 0.3-4, absent 
 test('the AR page registers each case with its lensenv and reports it',async()=>{
  const page=await fs.readFile(new URL('./provider-comparison-ar.html',import.meta.url),'utf8');
  assert.ok(page.includes('const lensEnv=new Map(manifest.cases.map(entry=>[entry.id,caseLensEnvIntensity(entry)]));'),'validated before any case loads');
- assert.ok(page.includes('registerModelingAutoEyewear({name:entry.id,assetUrl:url,widthMm:entry.width_mm??145,templeClipLocalZM:row.temple_cutoff.cutoff_m,...(lensEnvIntensity===undefined?{}:{lensEnvIntensity})});'));
+ assert.ok(page.includes('const model={url,displayName:entry.id,templeClipZM:row.temple_cutoff.cutoff_m,...(lensEnvIntensity===undefined?{}:{lensEnvIntensity})};'));
+ assert.ok(page.includes('instance=await TryOnRenderer.create(document.createElement(\'canvas\'),new AbortController().signal,model,{sync:false,steady:null});'));
+ assert.ok(!page.includes('registerModelingAutoEyewear'),'there is no catalog to register with');
  assert.ok(page.includes('lens_env_intensity:lensEnv.get(entry.id)??null'),'the report row records what the lenses were drawn with');
  assert.ok(page.indexOf('const lensEnv=')<page.indexOf('for(const entry of manifest.cases){'));
 });

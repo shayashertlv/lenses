@@ -5,8 +5,8 @@ import {
 } from 'three';
 import type {BufferGeometry, Object3D, PerspectiveCamera, Texture, WebGLRenderer} from 'three';
 import type {TempleCheekContact} from './temple-cheek-contact.ts';
-import {isAuthoredFrontFrame, isFrameMaterial, isOpticalMaterial, isTranslucentFrameMaterial, markFrameMaterial} from '../eyewear/optical-material.ts';
-import {isProfiledTemple, partVisibilityOf} from '../eyewear/part-visibility.ts';
+import {isAuthoredFrontFrame, isOpticalMaterial, isTranslucentFrameMaterial, registerDerivedMaterial} from '../eyewear/optical-material.ts';
+import {isProfiledTemple} from '../eyewear/part-visibility.ts';
 
 /** Per-pixel relief from the arm fragment's distance behind the head surface. */
 export const TEMPLE_VISIBILITY_METHOD = 'temple-behind-head-v4';
@@ -137,7 +137,10 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     const geometry: BufferGeometry = object.geometry;
     const position = geometry.getAttribute('position'), index = geometry.getIndex();
     if (!position) return;
-    if (materials.some(material => !isOpticalMaterial(material) && (!material.transparent || partVisibilityOf(object) !== null))) originals.push(object);
+    // Every non-lens material is frame, whatever its opacity (WP1_DESIGN.md §3): crystal and alpha-blended parts are
+    // originals like opaque ones. (An alpha-blended arm's overlay stays hidden, see wrap(): drawing it opaque in front of
+    // the head would be wrong, and a blended overlay is not built.)
+    if (materials.some(material => !isOpticalMaterial(material))) originals.push(object);
     for (const [materialIndex, material] of materials.entries()) {
       if (!isOpticalMaterial(material)) continue;
       const groups = Array.isArray(object.material)
@@ -148,7 +151,8 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
       }
     }
   });
-  if (!Number.isFinite(frontZM) || originals.length === 0) throw new Error('Temple visibility requires an opaque frame and physical lenses.');
+  // Unreachable for a loaded model (the load refuses one without a lens, §2 Components); kept as an internal check.
+  if (!Number.isFinite(frontZM) || originals.length === 0) throw new Error('Temple visibility requires lens geometry and at least one frame part.');
   // Classification has already split materials shared by a compact authored front and arms. A deep inner rim
   // can sit behind the lens rear without becoming a shaft. Legacy untagged or long frame-tagged meshes keep
   // their geometric eligibility; an asset containing just an authored front and lenses is valid too.
@@ -207,7 +211,8 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     originalHooks.clear();
   };
   const wrapFrontal = (material: Material, profiledArm: boolean) => {
-    if (isOpticalMaterial(material) || material.transparent && !profiledArm || originalHooks.has(material)) return;
+    // Alpha-blended arms get the lens-input exclusion and observed-cheek blend too (as authored arms always did).
+    if (isOpticalMaterial(material) || originalHooks.has(material)) return;
     const hook = material.onBeforeCompile, key = material.customProgramCacheKey;
     const wrapper: Material['onBeforeCompile'] = function(this: Material, shader, backend) {
       hook.call(this, shader, backend);
@@ -332,9 +337,9 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     // A translucent frame material (a crystal arm, authored roles) keeps its transmission on the overlay: Three draws
     // it in the same transmissive list as the arm itself after the one pre-pass of the render call, so the overlay
     // shows the camera through the crystal exactly like the arm and lifts it in front of the head proxy. The clone is
-    // a new object, so it must be registered as frame itself or the transmission rule would make it optical and
-    // hair occlusion, clipping and the lens layers would treat it as a lens.
-    if (isFrameMaterial(original)) markFrameMaterial(material);
+    // a new object, so it takes the original's decided class (frame) or it would be unclassified, and neither the twin
+    // swap nor the see-through room would treat it as crystal.
+    registerDerivedMaterial(material, original);
     material.depthWrite = false; material.depthTest = true; material.transparent = false; material.alphaToCoverage = false;
     material.onBeforeCompile = function(shader, backend) {
       hook.call(this, shader, backend);

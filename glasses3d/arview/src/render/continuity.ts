@@ -1,55 +1,40 @@
-/** Original temple cross-sections from hash-verified frame geometry (33 stations per arm), projected to
- *  match the drawn shaft geometry. These paths supply the first-hair endpoint tracker. */
-import {Matrix4, Mesh, Texture, Vector3, Vector4} from 'three';
-import type {BufferGeometry, Material, Object3D} from 'three';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+/** Original temple cross-sections (33 stations per arm) from the renderer's own normalised scene, projected to match
+ *  the drawn shaft geometry. These paths supply the first-hair endpoint tracker.
+ *
+ *  WP1_DESIGN.md §3: there is no pin registry and no second parse. The renderer builds the model with
+ *  buildTempleContinuityModel from the scene the load front-end parsed and the normalisation pass normalised (units
+ *  rescaled, transforms baked to identity), and records the SHA-256 of the bytes it rendered.
+ *
+ *  The arms are the temples by position (temple-geometry.ts), whatever their opacity. Each side stands alone: a side
+ *  with no temple, or whose arm has no cross-section at some station (it ends before the clip, or has a gap), is left
+ *  empty with its reason in `missing`, and only that arm keeps the fixed buried cap. Only a model with no usable side at
+ *  all (no temple anywhere, or no span between the lens rear and the clip) throws. */
+import {Matrix4, Mesh, Vector3, Vector4} from 'three';
+import type {BufferGeometry, Object3D} from 'three';
 import {protectionProjection} from './protection.ts';
 import {rearDropCurve} from './rear-drop.ts';
 import {spreadArmX} from './face-width.ts';
 import {terminalFitX} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
-import {assetPath} from '../assets.ts';
-import {classifyAssetMaterials, isOpticalMaterial} from '../eyewear/optical-material.ts';
+import {templeInventory, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
+import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 import {profileTempleSide, validatePartVisibility} from '../eyewear/part-visibility.ts';
 
 export const CONTINUITY_GEOMETRY = Object.freeze({stations: 33, lateralMinM: .045, proximalGuardM: .015});
-const GEOMETRY_HASHES: Readonly<Record<string, string>> = Object.freeze({
-  'tom-ford-clear.glb': '06ba7498dd1225bec26a2e6640f6a23695bc3614855500aa9788a91ef1f5c94f',
-  'amber-horizon.glb': '78e0b472cd3e289ea7b784a86534fdeb0c90d27675e6f7ed55cc16ea3f7cc004',
-});
-const REGISTERED_GEOMETRY_HASHES = new Map<string, string>();
-/** The last path segment of an asset address without its query: the key the geometry pins are stored under. */
-const assetFilename = (assetUrl: string): string | undefined => assetUrl.split('/').at(-1)?.split('?')[0];
-/** The pinned SHA-256 for an asset address: the shipped filename registry first, then handed-over registrations. */
-function pinnedHashFor(assetUrl: string): string | undefined {
-  const filename = assetFilename(assetUrl);
-  return filename ? GEOMETRY_HASHES[filename] ?? REGISTERED_GEOMETRY_HASHES.get(filename) : undefined;
-}
-/** Pin a handed-over asset's geometry by the last segment of its address, as the shipped frames are pinned by filename. */
-export function registerPinnedGeometry(assetUrl: string, sha256: string): void {
-  const filename = assetFilename(assetUrl);
-  if (!filename || !/^[0-9a-f]{64}$/.test(sha256)) throw new Error('The pinned geometry registration is invalid.');
-  REGISTERED_GEOMETRY_HASHES.set(filename, sha256);
-}
-
-/** Hash the actual bytes before parsing, including when no pin was supplied.
- * A missing optional pin is explicitly unverified; a present pin never falls
- * back after a mismatch. The existing filename registry remains authoritative.
- */
-export async function verifyPinnedGeometryBytes(assetUrl: string, bytes: ArrayBuffer, requirePin = false): Promise<{sha256: string; pinned: boolean}> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const sha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
-  const expected = pinnedHashFor(assetUrl);
-  if (expected === undefined) {
-    if (requirePin) throw new Error('No pinned original geometry is available for this frame model.');
-    return {sha256, pinned: false};
-  }
-  if (sha256 !== expected) throw new Error('The continuity model differs from the pinned original GLB.');
-  return {sha256, pinned: true};
-}
 export interface TempleStation {zM: number; centerXM: number; centerYM: number; minXM: number; maxXM: number; minYM: number; maxYM: number;}
-export interface TempleContinuityModel {startZM: number; cutoffZM: number; sides: readonly (readonly TempleStation[])[];
+/** A side left without a path, and why (side 0 is x < 0, 1 is x > 0). */
+export interface ContinuityGap {readonly side: 0 | 1; readonly reason: string;}
+export interface TempleContinuityModel {startZM: number; cutoffZM: number;
+  /** Two entries (x < 0, x > 0); a side listed in `missing` is empty. */
+  sides: readonly (readonly TempleStation[])[];
+  /** The sides that have no path (that arm keeps the fixed buried cap), with the reason. Absent or empty: both have one. */
+  missing?: readonly ContinuityGap[];
   assetSHA256?: string; assetUrl?: string;}
+export interface ContinuityOptions {
+  /** Which sides carry a temple; default: the temple inventory of `root` (temple-geometry.ts). */
+  readonly sides?: readonly [boolean, boolean];
+}
+const mm = (metres: number): string => (metres * 1000).toFixed(1);
 export interface ProjectedTemplePoint {x: number; y: number; radiusPx: number; progressPx: number;}
 export interface ProjectedTemplePath {side: 0 | 1; points: readonly ProjectedTemplePoint[]; lengthPx: number;}
 export interface ContinuityProjection {eyewearMatrix: readonly number[]; offsetCm: readonly [number, number, number];
@@ -63,20 +48,23 @@ export interface ContinuityProjection {eyewearMatrix: readonly number[]; offsetC
   spreadStartZM?: number; terminalFit?: TempleTerminalFit | null;}
 const check = (value: unknown, message: string): void => {if (!value) throw new Error(message);};
 
-/** Read original root-local triangle sections; geometry/material buffers are never changed. */
-export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): TempleContinuityModel {
+/** Read original root-local triangle sections; geometry/material buffers are never changed. `root` must be a scene
+ *  the normalisation pass (model/normalize.ts) has run on: positions are read as root-local metres. */
+export function buildTempleContinuityModel(root: Object3D, cutoffZM: number, options: ContinuityOptions = {}): TempleContinuityModel {
   const profiled = validatePartVisibility(root);
   check(Number.isFinite(cutoffZM) && cutoffZM >= -.2 && cutoffZM <= -.03, 'The continuity cap is invalid.');
   root.updateWorldMatrix(true, true);
   check(Math.abs(root.matrixWorld.determinant()) > 1e-12, 'The continuity root transform is singular.');
-  const inverseRoot = root.matrixWorld.clone().invert();
+  const wanted: readonly [boolean, boolean] = options.sides ?? templeInventory(root).present;
+  const missing: ContinuityGap[] = [];
+  for (const side of [0, 1] as const) if (!wanted[side]) missing.push({side, reason: `no temple on the ${TEMPLE_SIDE_NAMES[side]} side`});
+  if (missing.length === 2) throw new Error('No temple on either side: there is no arm to follow.');
   let lensRearZM = Infinity;
   const triangles: {coordinates: number[]; side: 0 | 1 | null}[] = [], armFront = [-Infinity, -Infinity];
   root.traverse(object => {
     if (!(object instanceof Mesh) || object.userData.templeVisibilityOverlay === true) return;
-    const toRoot = inverseRoot.clone().multiply(object.matrixWorld);
-    check(toRoot.elements.every((value, index) => Math.abs(value - (index % 5 === 0 ? 1 : 0)) <= 1e-12),
-      'The rear-curve convention requires identity mesh transforms.');
+    // Positions are read as root-local: the §2 Transforms row (one load-time check at 1e-6, model/normalize.ts) leaves
+    // every mesh exactly identity relative to the asset root.
     const geometry: BufferGeometry = object.geometry;
     const position = geometry.getAttribute('position'), index = geometry.getIndex();
     check(position && position.itemSize === 3, 'Continuity requires original XYZ vertex positions.');
@@ -97,7 +85,8 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): Te
             check([x, y, z].every(Number.isFinite), 'The continuity triangle contains a nonfinite vertex.');
             coordinates.push(x, y, z); if (lens) lensRearZM = Math.min(lensRearZM, z);
           }
-          if (!lens && (!material.transparent || profiled) && (!profiled || side !== null)) {
+          // Every non-lens material is frame, whatever its opacity (WP1_DESIGN.md §3).
+          if (!lens && (!profiled || side !== null)) {
             triangles.push({coordinates, side});
             if (side !== null) armFront[side] = Math.max(armFront[side]!, coordinates[2]!, coordinates[5]!, coordinates[8]!);
           }
@@ -105,11 +94,14 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): Te
       }
     }
   });
-  // Both explicit arms must have begun: front/endpiece geometry cannot fill missing arm cross-sections.
-  const startZM = profiled ? Math.min(lensRearZM - CONTINUITY_GEOMETRY.proximalGuardM, ...armFront) - 1e-7
+  // Every explicit arm that is drawn must have begun: front/endpiece geometry cannot fill missing arm cross-sections.
+  const live = ([0, 1] as const).filter(side => wanted[side]);
+  const startZM = profiled ? Math.min(lensRearZM - CONTINUITY_GEOMETRY.proximalGuardM, ...live.map(side => armFront[side]!)) - 1e-7
     : lensRearZM - CONTINUITY_GEOMETRY.proximalGuardM;
-  check(Number.isFinite(startZM) && startZM > cutoffZM, 'The original lens/proximal rear-arm span is missing.');
-  const sides: TempleStation[][] = [[], []];
+  check(Number.isFinite(startZM) && startZM > cutoffZM, `The arm span is empty: it would start at z ${mm(startZM)} mm (15 mm behind the lens rear `
+    + `${Number.isFinite(lensRearZM) ? `z ${mm(lensRearZM)} mm` : '(no lens geometry)'}${profiled ? ', or at the authored arm front' : ''}), which is not ahead of `
+    + `the clip z ${mm(cutoffZM)} mm.`);
+  const sides: TempleStation[][] = [[], []], gapAt: (number | null)[] = [null, null];
   for (let station = 0; station < CONTINUITY_GEOMETRY.stations; station++) {
     const zM = startZM + (cutoffZM - startZM) * station / (CONTINUITY_GEOMETRY.stations - 1);
     const bounds = [{minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity},
@@ -129,50 +121,28 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number): Te
         bound.minY = Math.min(bound.minY, y); bound.maxY = Math.max(bound.maxY, y);
       }
     }
-    for (const side of [0, 1] as const) {
+    for (const side of live) {
+      if (gapAt[side] !== null) continue;
       const bound = bounds[side]!;
-      check([bound.minX, bound.maxX, bound.minY, bound.maxY].every(Number.isFinite), 'An original posterior arm cross-section is missing.');
+      if (![bound.minX, bound.maxX, bound.minY, bound.maxY].every(Number.isFinite)) {gapAt[side] = zM; continue;}
       sides[side]!.push({zM, centerXM: (bound.minX + bound.maxX) / 2, centerYM: (bound.minY + bound.maxY) / 2,
         minXM: bound.minX, maxXM: bound.maxX, minYM: bound.minY, maxYM: bound.maxY});
     }
   }
-  return {startZM, cutoffZM, sides};
+  for (const side of live) {
+    const z = gapAt[side];
+    if (z === null || z === undefined) continue;
+    sides[side] = [];
+    missing.push({side, reason: `the ${TEMPLE_SIDE_NAMES[side]} arm has no cross-section at z ${mm(z)} mm (the 33 sections run from z ${mm(startZM)} mm to `
+      + `the clip at z ${mm(cutoffZM)} mm): it ends before the clip or has a gap there`});
+  }
+  missing.sort((a, b) => a.side - b.side);
+  return {startZM, cutoffZM, sides, missing};
 }
 
-/** One geometry-only parse of the pinned GLB. A caller may share its already
- * loaded bytes so displayed geometry and continuity cannot come from two fetches.
- * Texture pixels are never decoded or sent to the GPU.
- */
-export async function loadTempleContinuityModel(assetUrl: string, cutoffZM: number, signal: AbortSignal, loadedBytes?: ArrayBuffer): Promise<TempleContinuityModel> {
-  check(pinnedHashFor(assetUrl), 'No pinned original geometry is available for this frame model.');
-  if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
-  let bytes = loadedBytes;
-  if (bytes === undefined) {
-    const response = await fetch(assetUrl, {signal}); check(response.ok, 'The original continuity geometry could not load.');
-    bytes = await response.arrayBuffer();
-  }
-  const {sha256: assetSHA256} = await verifyPinnedGeometryBytes(assetUrl, bytes, true);
-  if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
-  const gltf = await new GLTFLoader().register(() => ({name: 'ContinuityGeometryOnlyTextures', loadTexture: async () => new Texture()})).parseAsync(bytes, assetPath('models/'));
-  try {
-    if (signal.aborted) throw new DOMException('Continuity loading cancelled.', 'AbortError');
-    // This parse has its own material objects: classify them by their authored roles exactly as the displayed
-    // asset is classified, so a translucent frame counts as opaque arm/front geometry here too.
-    classifyAssetMaterials(gltf.scene);
-    return {...buildTempleContinuityModel(gltf.scene, cutoffZM), assetSHA256, assetUrl};
-  } finally {
-    const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(), textures = new Set<Texture>();
-    for (const scene of gltf.scenes) scene.traverse(object => {
-      if (!(object instanceof Mesh)) return; geometries.add(object.geometry);
-      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-        materials.add(material); for (const value of Object.values(material)) if (value instanceof Texture) textures.add(value);
-      }
-    });
-    for (const resource of [...textures, ...materials, ...geometries]) resource.dispose();
-  }
-}
-
-/** The arm centrelines in render pixels for this pose (drop applied), hinge first; null when the pose cannot be projected. */
+/** The arm centrelines in render pixels for this pose (drop applied), hinge first, one per side that has a path (a side
+ *  in `missing` has none, so the endpoint tracker keeps its fixed cap); null when the pose cannot be projected or no side
+ *  has a path. */
 export function projectTempleContinuity(model: TempleContinuityModel, input: ContinuityProjection): ProjectedTemplePath[] | null {
   try {
     check(model.sides.length === 2 && input.eyewearMatrix.length === 16 && input.eyewearMatrix.every(Number.isFinite)
@@ -188,7 +158,9 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
       check(clip.toArray().every(Number.isFinite) && clip.w > 1 && clip.z >= -clip.w, 'The continuity arm crosses the near plane.');
       return new Vector3((clip.x / clip.w + 1) * input.width / 2, (1 - clip.y / clip.w) * input.height / 2, 0);
     };
-    return model.sides.map((stations, side) => {
+    const paths: ProjectedTemplePath[] = [];
+    model.sides.forEach((stations, side) => {
+      if (stations.length === 0) return;
       check(stations.length >= 2, 'The continuity path is missing.');
       let lengthPx = 0;
       const points: ProjectedTemplePoint[] = [];
@@ -198,7 +170,8 @@ export function projectTempleContinuity(model: TempleContinuityModel, input: Con
         const last = points.at(-1); if (last) lengthPx += Math.hypot(center.x - last.x, center.y - last.y);
         points.push({x: center.x, y: center.y, radiusPx, progressPx: lengthPx});
       }
-      return {side: side as 0 | 1, points, lengthPx};
+      paths.push({side: side as 0 | 1, points, lengthPx});
     });
+    return paths.length ? paths : null;
   } catch { return null; }
 }

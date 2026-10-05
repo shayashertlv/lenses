@@ -7,23 +7,9 @@ import {
   MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Scene, ShaderLib, Texture, UniformsUtils, Vector2, Vector4, WebGLRenderTarget,
 } from 'three';
 import type {WebGLRenderer} from 'three';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 import {hasLegacyTransmissiveOptics, TranslucentLookThrough} from '../src/render/translucent-look-through.ts';
-import {CanonicalLensLayers} from '../src/render/lens-layers.ts';
-import {installCanonicalLensMaterials} from '../src/render/lens-material.ts';
 import {createCameraTransmissionUniforms, setCameraTransmissionSource} from '../src/render/translucent-twin.ts';
-
-function canonicalLens(): MeshPhysicalMaterial {
-  const lens = new MeshPhysicalMaterial({transmission: 1});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
-  return lens;
-}
 
 function recordingBackend() {
   const state = {
@@ -97,9 +83,9 @@ test('the look-through image is a sharp linear owned target, rendered with the s
   assert.throws(() => image.render(f.renderer, scene, new PerspectiveCamera(), 320, 240, []), /disposed/);
 });
 
-test('opaque hardware enters the image with the display response it has on the canvas, shared with the canonical lens input', t => {
-  // The crystal twin is not tone-mapped (it shows the camera); what it looks through to must hold display values, as the
-  // canonical lens input does, or a bright core seen through the crystal is HDR-saturated and bleeds wider than itself.
+test('opaque hardware enters the image with the display response it has on the canvas', t => {
+  // The crystal twin is not tone-mapped (it shows the camera); what it looks through to must hold display values, or a
+  // bright core seen through the crystal is HDR-saturated and bleeds wider than itself.
   const image = new TranslucentLookThrough(); t.after(() => image.dispose());
   const f = recordingBackend();
   const core = new MeshStandardMaterial(), crystal = new MeshPhysicalMaterial({transmission: .9});
@@ -118,19 +104,6 @@ test('opaque hardware enters the image with the display response it has on the c
   assert.equal(during, 1, 'ACES, as the canvas applies it, while the image is drawn');
   assert.equal(compile(core).uniforms.uOpaqueDisplayCapture!.value, 0, 'and only then');
   assert.equal(compile(crystal).uniforms.uOpaqueDisplayCapture, undefined, 'untone-mapped materials are not captured');
-  // The canonical lens layers share this capture (a material has one capture owner) and never dispose it.
-  const descriptor = {schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: 0,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null};
-  const source = new MeshPhysicalMaterial(), sheet = new PlaneGeometry(.04, .03);
-  source.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: descriptor}};
-  const lens = new Mesh(sheet, source); lens.userData = {partRole: 'lens', lensSurfaceProfile: 'front_sheet_v1'};
-  const installed = installCanonicalLensMaterials(new Group().add(lens));
-  t.after(() => {sheet.dispose(); source.dispose(); for (const material of installed.materials) material.dispose();});
-  const layers = new CanonicalLensLayers([lens], image.display);
-  layers.dispose();
-  assert.doesNotThrow(() => image.display.prepare(scene), 'the shared capture outlives the layers');
 });
 
 test('bound as the twins\' source the look-through image is sampled at the fragment\'s own pixel: identity UV, render-size viewport', t => {
@@ -146,20 +119,22 @@ test('bound as the twins\' source the look-through image is sampled at the fragm
   assert.ok(uniforms.twinCameraViewport.value.equals(new Vector2(640, 480)));
 });
 
-test('only a lens without a canonical descriptor that still transmits is legacy optics', t => {
-  const crystal = new MeshPhysicalMaterial({transmission: .9}), lens = canonicalLens(), legacy = new MeshPhysicalMaterial({transmission: 1});
-  const opaque = new MeshStandardMaterial();
-  t.after(() => {for (const material of [crystal, lens, legacy, opaque]) material.dispose();});
+test('a transmitting lens is legacy optics; a crystal frame and an opaque mirror lens are not', t => {
+  const crystal = new MeshPhysicalMaterial({transmission: .9}), lens = new MeshPhysicalMaterial({transmission: 1, metalness: .2});
+  const legacy = new MeshPhysicalMaterial({transmission: 1}), opaque = new MeshStandardMaterial(), shippedFrame = new MeshStandardMaterial();
+  t.after(() => {for (const material of [crystal, lens, legacy, opaque, shippedFrame]) material.dispose();});
   const box = new BoxGeometry(), sheet = new PlaneGeometry(); t.after(() => {box.dispose(); sheet.dispose();});
   const arm = new Mesh(box, crystal), lensMesh = new Mesh(sheet, lens), frame = new Mesh(box, opaque);
   arm.userData.partRole = 'temple'; lensMesh.userData.partRole = 'lens'; frame.userData.partRole = 'frame';
-  const canonical = new Group().add(arm, lensMesh, frame);
-  classifyAssetMaterials(canonical);
-  assert.equal(hasLegacyTransmissiveOptics(canonical), false,
-    'a canonical lens (transmission 1 at install, 0 once its layers own it) and a crystal frame are not legacy optics');
-  const shipped = new Group().add(new Mesh(sheet, legacy), new Mesh(box, new MeshStandardMaterial()));
-  classifyAssetMaterials(shipped);
-  assert.equal(hasLegacyTransmissiveOptics(shipped), true, 'the shipped catalog\'s transmissive lenses are');
+  const tagged = new Group().add(arm, lensMesh, frame);
+  classifyAssetMaterials(tagged);
+  assert.equal(hasLegacyTransmissiveOptics(tagged), true, 'a role-tagged native lens that transmits samples Three\'s pre-pass');
+  lens.transmission = 0;
+  assert.equal(hasLegacyTransmissiveOptics(tagged), false,
+    'an opaque (mirror) lens samples nothing, and the crystal frame beside it never counts as optics');
+  const untagged = new Group().add(new Mesh(sheet, legacy), new Mesh(box, shippedFrame));
+  classifyAssetMaterials(untagged);
+  assert.equal(hasLegacyTransmissiveOptics(untagged), true, 'untagged transmissive lenses (the legacy rule) are');
   legacy.transmission = 0;
-  assert.equal(hasLegacyTransmissiveOptics(shipped), false);
+  assert.equal(hasLegacyTransmissiveOptics(untagged), false);
 });

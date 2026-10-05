@@ -5,9 +5,10 @@ import {Plane, SphereGeometry, Vector3} from 'three';
 import type {BufferGeometry} from 'three';
 import {canonicalFaceOuterBoundary, createTempleHeadShell} from '../src/render/temple-head-shell.ts';
 import {TEMPLE_HEAD_VOLUME} from '../src/render/temple-terminal-fit.ts';
+import {publicFile} from './shipped-models.ts';
 
 const face: {positions: number[]; indices: number[]} = JSON.parse(await readFile(
-  new URL('../public/models/canonical-face.json', import.meta.url), 'utf8'));
+  publicFile('models/canonical-face.json'), 'utf8'));
 const planes = (geometry: BufferGeometry): Plane[] => {
   const p = geometry.getAttribute('position'), result: Plane[] = [];
   for (let i = 0; i < p.count; i += 3) result.push(new Plane().setFromCoplanarPoints(

@@ -2,16 +2,15 @@
  *  frame, `finish(mask)` uploads the mask and draws straight into the display canvas. Live frames are never read back;
  *  an explicitly requested audit reads the next finished frame (see audit/audit.ts). */
 import {TryOnRenderer} from './renderer.ts';
-import type {FrameTimings, RendererOptions} from './renderer.ts';
+import type {CameraState, FrameTimings, LightingConfig, ModelReport, RenderedPart, RendererOptions} from './renderer.ts';
 import type {Detection} from '../face/protocol.ts';
 import type {CategoryMask, HairMask} from '../hair/protocol.ts';
 import {runAudit} from '../audit/audit.ts';
 import type {Audit} from '../audit/audit.ts';
 import type {HairModelContract, PairIdentity} from '../audit/reference.ts';
-import {DEFAULT_EYEWEAR_ID} from '../eyewear/catalog.ts';
+import type {ModelDefinition} from '../eyewear/catalog.ts';
 import type {MaskWarp} from '../hair/mask-reuse.ts';
 import type {ShadowSettings} from './eyewear-shadow.ts';
-import type {StudioPreview} from '../studio/protocol.ts';
 
 /** Finished frames an audit passes over while they draw a mask reused from another frame, waiting for one that draws
  *  its own (the CPU reference composes only a frame's own mask); after that many it audits a reused one and says so. */
@@ -40,17 +39,27 @@ export class LiveRenderer {
   private frame: HTMLCanvasElement | null = null;
   private detection: Detection | null = null;
   private pair: PairIdentity | null = null;
-  private model: HairModelContract | null = null;
+  private hairContract: HairModelContract | null = null;
   private auditRequested = false;
   private auditPassedOver = 0;
   private audit: Audit | null = null;
   private readonly renderer: TryOnRenderer;
   private constructor(renderer: TryOnRenderer) {this.renderer = renderer;}
-  static async create(display: HTMLCanvasElement, signal: AbortSignal, eyewearId: string = DEFAULT_EYEWEAR_ID, options: RendererOptions = {}): Promise<LiveRenderer> {
-    return new LiveRenderer(await TryOnRenderer.create(display, signal, eyewearId, options));
+  static async create(display: HTMLCanvasElement, signal: AbortSignal, model: ModelDefinition, options: RendererOptions = {}): Promise<LiveRenderer> {
+    return new LiveRenderer(await TryOnRenderer.create(display, signal, model, options));
   }
   get stats(): LiveStats | null {return this.pending || this.disposed ? null : this.latest;}
-  get eyewear() {return this.renderer.eyewear;}
+  get model() {return this.renderer.model;}
+  /** The model report: every fallback the load took (TryOnRenderer.report). */
+  report(): ModelReport {return this.renderer.report();}
+  /** The lens identification of the loaded model (TryOnRenderer.lensIdentification). */
+  lensIdentification() {return this.renderer.lensIdentification();}
+  /** The capture accessors (WP1_DESIGN.md §5), forwarded. */
+  cameraState(): CameraState | null {return this.renderer.cameraState();}
+  assetMatrixWorld(): number[] | null {return this.renderer.assetMatrixWorld();}
+  parts(): RenderedPart[] {return this.renderer.parts();}
+  projectAssetPoints(points: Float32Array): Float32Array | null {return this.renderer.projectAssetPoints(points);}
+  setLighting(config: LightingConfig | null): void {this.renderer.setLighting(config);}
   get nativeSamples(): number {return this.renderer.nativeSamples;}
   get gpuRenderer(): string | null {return this.renderer.gpuRenderer;}
   get guardEnabled(): boolean {return this.renderer.guardEnabled;}
@@ -62,8 +71,6 @@ export class LiveRenderer {
   setFitAdjustment(value: number): void {this.renderer.setFitAdjustment(value);}
   setHairEnabled(value: boolean): void {this.hairEnabled = value;}
   setShadows(settings: Partial<ShadowSettings>): void {this.renderer.setShadows(settings);}
-  get studioMaterialCatalog() {return this.renderer.studioMaterialCatalog;}
-  applyStudioPreview(preview: StudioPreview): void {this.renderer.applyStudioPreview(preview);}
   /** The next finished frame is audited; the result is available through takeAudit(). */
   requestAudit(): void {if (!this.disposed) {this.auditRequested = true; this.auditPassedOver = 0;}}
   /** An audit is waiting for a frame: with a hair schedule the pipeline then gives the next frame its own mask. */
@@ -83,7 +90,7 @@ export class LiveRenderer {
       const poseStart = performance.now();
       this.visible = this.renderer.pose(frame, detection, timestampMs);
       this.poseMs = performance.now() - poseStart;
-      this.frame = frame; this.detection = detection; this.pair = pair; this.model = model;
+      this.frame = frame; this.detection = detection; this.pair = pair; this.hairContract = model;
       this.needsHair = needsHair; this.preparedAt = started; this.prepareMs = performance.now() - started;
       return this.visible;
     } catch (error) {this.pending = false; throw error;}
@@ -102,12 +109,16 @@ export class LiveRenderer {
       const ready = this.visible && this.renderer.fitting.ready;
       const passOver = gpuMask !== null && carried && this.auditPassedOver < AUDIT_OWN_MASK_FRAMES;
       if (this.auditRequested && ready && passOver) this.auditPassedOver++;
-      else if (this.auditRequested && ready && this.frame && this.detection && this.pair && this.model) {
+      else if (this.auditRequested && ready && this.frame && this.detection && this.pair && this.hairContract) {
         this.auditRequested = false; audited = true;
         const auditStart = performance.now();
-        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.model,
+        try {this.audit = runAudit(this.renderer, {frame: this.frame, detection: this.detection, pair: this.pair, model: this.hairContract,
           mask, gpuMask, maskCarried: gpuMask !== null && carried, maskWarped: gpuMask !== null && warp !== null}, timings, this.sequence);}
-        catch (error) {this.audit = null; console.warn('Audit failed', error);}
+        catch (error) {
+          this.audit = null;
+          this.renderer.recordFallback('audit', `Hold & audit failed on frame ${this.sequence} (${error instanceof Error ? error.message : String(error)}); `
+            + 'no audit was produced for it.');
+        }
         auditMs = performance.now() - auditStart;
       }
       const finishMs = performance.now() - started;

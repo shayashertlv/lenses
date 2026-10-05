@@ -1,20 +1,21 @@
-/** Which room each material of a configured asset reflects (TryOnRenderer.configure). Canonical lenses and crystal
- *  (translucent frame materials, the near-arm overlay clones and the twins included) reflect the see-through room: the
- *  scene's RoomEnvironment without the front panel behind the selfie camera, unblurred (eyewear-reflection.ts). Opaque
- *  acetate, metal and a legacy asset keep the scene room exactly as before: scene.environment, PMREM blur 0.04, 0.8. */
+/** Which room each material of a configured asset reflects (TryOnRenderer.configure). Crystal (translucent frame
+ *  materials, the near-arm overlay clones and the twins included) reflects the see-through room: the scene's
+ *  RoomEnvironment without the front panel behind the selfie camera, unblurred (eyewear-reflection.ts). Native lenses,
+ *  opaque acetate, metal and a legacy asset keep the scene room exactly as before: scene.environment, PMREM blur 0.04,
+ *  0.8 (a native lens owns that scene room only to carry lensenv). This is the owner-judged look for Studio GLBs. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {BoxGeometry, Color, Group, Material, Mesh, MeshLambertMaterial, MeshPhysicalMaterial, PlaneGeometry, PMREMGenerator, Vector2, Vector4} from 'three';
+import {BoxGeometry, Color, Group, Material, Mesh, MeshLambertMaterial, MeshPhysicalMaterial, PMREMGenerator, Vector2, Vector4} from 'three';
 import type {Object3D, Scene, Texture, WebGLRenderTarget} from 'three';
 import {SCENE_ENVIRONMENT_INTENSITY, TryOnRenderer} from '../src/render/renderer.ts';
 import type {RendererOptions} from '../src/render/renderer.ts';
 import {FRONT_PANEL} from '../src/render/eyewear-reflection.ts';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
-import {isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
-import {eyewearById, DEFAULT_EYEWEAR_ID} from '../src/eyewear/catalog.ts';
+import {isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
+import {resolveModelDefinition} from '../src/eyewear/catalog.ts';
+import {publicFile, shippedModel} from './shipped-models.ts';
 
-const canonical = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]; indices: number[]};
+const canonical = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8')) as {positions: number[]; indices: number[]};
 
 /** Every PMREM the renderer generates: the source room's emitters [x, y, z, emissive] and the blur. */
 interface Generated {emitters: number[][]; sigma: number; target: WebGLRenderTarget}
@@ -32,8 +33,8 @@ function recordPmrem(t: {after(fn: () => void): void}): Generated[] {
 }
 
 /** A TryOnRenderer on a backend that draws nothing, configured for a crystal asset as the exporter writes it (a crystal
- *  front with a clearcoat, crystal temples, gold hardware, an opaque acetate part, a canonical lens) or, with
- *  `legacy`, the shipped catalog's kind: a transmissive lens and opaque parts, no roles, no descriptors. */
+ *  front with a clearcoat, crystal temples, gold hardware, an opaque acetate part, a native transmissive lens, every
+ *  part role-tagged) or, with `legacy`, the shipped GLBs' kind: a transmissive lens and opaque parts, no roles. */
 function configured(t: {after(fn: () => void): void}, {legacy = false, lensEnvIntensity}: {legacy?: boolean; lensEnvIntensity?: number} = {}) {
   const state = {target: null as WebGLRenderTarget | null, color: new Color(), alpha: 1};
   const noop = () => {};
@@ -49,16 +50,10 @@ function configured(t: {after(fn: () => void): void}, {legacy = false, lensEnvIn
     setClearColor: (value: Color | number, alpha = 1) => {state.color.set(value); state.alpha = alpha;},
   };
   const gl = {SCISSOR_TEST: 1, COLOR_BUFFER_BIT: 2, DEPTH_BUFFER_BIT: 4, STENCIL_BUFFER_BIT: 8, disable: noop, enable: noop, clear: noop, scissor: noop};
-  const eyewear = {...eyewearById(DEFAULT_EYEWEAR_ID), ...(lensEnvIntensity === undefined ? {} : {lensEnvIntensity})};
+  const eyewear = resolveModelDefinition({...shippedModel('amber-horizon'), ...(lensEnvIntensity === undefined ? {} : {lensEnvIntensity})});
   const renderer = new (TryOnRenderer as unknown as new (backend: unknown, gl: unknown, eyewear: unknown, options: RendererOptions) => TryOnRenderer)(
     backend, gl, eyewear, {sync: false, guard: true});
-  const lens = new MeshPhysicalMaterial({transmission: legacy ? 1 : 0});
-  if (!legacy) lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65',
-    density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-    normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: .065,
-    optical_density_keyframes: [{v: 0, optical_density_rgb: [.3, .4, .5]}], angular_reflectance_keyframes: null,
-  }}};
+  const lens = new MeshPhysicalMaterial({name: 'Champagne lens', transmission: 1, roughness: .065, ior: 1.5});
   // The Tom Ford FT1123-D r0009 materials as GLTFLoader builds them (every one carries KHR_materials_transmission).
   const crystalFront = new MeshPhysicalMaterial({name: 'Clear warm crystal acetate', transmission: legacy ? 0 : 1, roughness: .085, ior: 1.49,
     thickness: .0048, attenuationDistance: .02, clearcoat: 1, clearcoatRoughness: .03});
@@ -71,11 +66,11 @@ function configured(t: {after(fn: () => void): void}, {legacy = false, lensEnvIn
   const bridge = new Mesh(new BoxGeometry(.02, .006, .004).translate(0, .016, -.004), acetate);
   const left = new Mesh(new BoxGeometry(.004, .004, .17, 1, 1, 16).translate(-.065, 0, -.1), crystalTemples);
   const right = new Mesh(new BoxGeometry(.004, .004, .17, 1, 1, 16).translate(.065, 0, -.1), crystalTemples);
-  const lensMesh = new Mesh(legacy ? new BoxGeometry(.05, .025, .002).translate(0, 0, -.01) : new PlaneGeometry(.05, .025).translate(0, 0, -.01), lens);
+  const lensMesh = new Mesh(new BoxGeometry(.05, .025, .002).translate(0, 0, -.01), lens);
   if (!legacy) {
     front.userData.partRole = hardware.userData.partRole = bridge.userData.partRole = 'frame';
     left.userData.partRole = right.userData.partRole = 'temple';
-    lensMesh.userData = {partRole: 'lens', lensSurfaceProfile: 'front_sheet_v1'};
+    lensMesh.userData.partRole = 'lens';
   }
   root.add(front, hardware, bridge, left, right, lensMesh);
   const calls = recordPmrem(t);
@@ -94,9 +89,9 @@ function configured(t: {after(fn: () => void): void}, {legacy = false, lensEnvIn
 const texture = (target: WebGLRenderTarget | null): Texture | undefined => target?.texture;
 const withPanel = (emitters: number[][]) => emitters.some(row => row.join() === [...FRONT_PANEL.position, FRONT_PANEL.emissiveIntensity].join());
 
-test('the scene keeps three\'s room with its front panel at blur 0.04; lenses and crystal share one unblurred room without it', t => {
+test('the scene keeps three\'s room with its front panel at blur 0.04; crystal shares one unblurred room without it', t => {
   const f = configured(t);
-  assert.equal(f.calls.length, 2, 'two rooms: the scene\'s and the see-through room, whatever the number of lens and crystal materials');
+  assert.equal(f.calls.length, 2, 'two rooms: the scene\'s and the see-through room, whatever the number of crystal materials');
   const [scene, seeThrough] = f.calls;
   assert.equal(scene!.sigma, .04); assert.equal(scene!.emitters.length, 6); assert.ok(withPanel(scene!.emitters), 'the scene room is unchanged');
   assert.equal(f.internal.scene.environment, scene!.target.texture);
@@ -105,15 +100,6 @@ test('the scene keeps three\'s room with its front panel at blur 0.04; lenses an
   assert.equal(seeThrough!.emitters.length, 5); assert.ok(!withPanel(seeThrough!.emitters), 'the front panel is gone');
   assert.deepEqual(seeThrough!.emitters, scene!.emitters.filter(row => !withPanel([row])), 'every other emitter is the scene room\'s');
   assert.equal(texture(f.internal.seeThroughEnvironmentTarget), seeThrough!.target.texture);
-});
-
-test('canonical lenses reflect the see-through room at the scene intensity times lensenv', t => {
-  for (const [lensEnvIntensity, expected] of [[undefined, SCENE_ENVIRONMENT_INTENSITY], [2.5, SCENE_ENVIRONMENT_INTENSITY * 2.5]] as const) {
-    const f = configured(t, {lensEnvIntensity});
-    assert.notEqual(f.drawnLens, f.lens, 'the canonical lens material replaced the authored one');
-    assert.equal(f.drawnLens.envMap, texture(f.internal.seeThroughEnvironmentTarget));
-    assert.equal(f.drawnLens.envMapIntensity, expected);
-  }
 });
 
 test('crystal owns the see-through room, overlay clones and twins included, and keeps its clearcoat; lensenv does not apply', t => {
@@ -142,6 +128,18 @@ test('crystal owns the see-through room, overlay clones and twins included, and 
   }
 });
 
+test('a native lens beside crystal keeps the scene room: lensenv gives it that room at the scene intensity times lensenv, never the see-through room', t => {
+  for (const [lensEnvIntensity, map, intensity] of [[undefined, 'none', 1], [2.5, 'scene', SCENE_ENVIRONMENT_INTENSITY * 2.5]] as const) {
+    const f = configured(t, {lensEnvIntensity});
+    assert.ok(isOpticalMaterial(f.lens), 'the role-tagged lens is optical');
+    assert.equal(f.drawnLens, f.lens, 'a native lens keeps its authored material');
+    assert.ok(f.internal.seeThroughEnvironmentTarget, 'the crystal still gets its see-through room');
+    assert.notEqual(f.drawnLens.envMap, texture(f.internal.seeThroughEnvironmentTarget), `lensenv ${lensEnvIntensity}: never the see-through room`);
+    assert.equal(f.drawnLens.envMap, map === 'none' ? null : texture(f.internal.environmentTarget), `lensenv ${lensEnvIntensity}`);
+    assert.equal(f.drawnLens.envMapIntensity, intensity, `lensenv ${lensEnvIntensity}`);
+  }
+});
+
 test('opaque acetate and metal keep the scene room, as before', t => {
   const f = configured(t);
   for (const material of [f.gold, f.acetate]) {
@@ -150,7 +148,7 @@ test('opaque acetate and metal keep the scene room, as before', t => {
   }
 });
 
-test('a legacy asset (no canonical lens, no crystal) builds no see-through room and renders exactly as before', t => {
+test('a legacy asset (no crystal) builds no see-through room and renders exactly as before', t => {
   const f = configured(t, {legacy: true});
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0]!.sigma, .04); assert.ok(withPanel(f.calls[0]!.emitters));
   assert.equal(f.internal.seeThroughEnvironmentTarget, null);

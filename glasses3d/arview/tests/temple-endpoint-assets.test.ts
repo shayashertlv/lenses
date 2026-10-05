@@ -8,6 +8,8 @@ import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render
 import type {TempleContinuityModel, ProjectedTemplePath} from '../src/render/continuity.ts';
 import {TempleEndpointTracker, TEMPLE_ENDPOINT} from '../src/render/temple-endpoint.ts';
 import {GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
+import {publicFile} from './shipped-models.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 /** A strip bounded along the actual projected path; unlike round brush strokes it cannot inflate
  * a physically narrow hair crossing by painting beyond its front/rear limits. */
@@ -30,9 +32,10 @@ function narrowBand(model: TempleContinuityModel, paths: ProjectedTemplePath[], 
 
 for (const [id, cutoffZM] of [['amber-horizon', -.14], ['tom-ford-clear', -.148]] as const) {
   test(`${id}: an early sideburn patch cuts the actual projected shaft at two distances and mask resolutions`, async () => {
-    const bytes = await readFile(new URL(`../public/models/${id}.glb`, import.meta.url));
+    const bytes = await readFile(publicFile(`models/${id}.glb`));
     const gltf = await new GLTFLoader().register(() => ({name: 'EndpointGeometryOnlyTextures', loadTexture: async () => new Texture()}))
       .parseAsync(new Uint8Array(bytes).buffer, '/models/');
+    classifyAssetMaterials(gltf.scene, gltf);   // the class is decided at load, from the glTF JSON
     const geometries = new Set<BufferGeometry>(), materials = new Set<Material>(), textures = new Set<Texture>();
     gltf.scene.traverse(object => {
       if (!(object instanceof Mesh)) return; geometries.add(object.geometry);

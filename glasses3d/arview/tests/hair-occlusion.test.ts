@@ -7,6 +7,7 @@ import {
 } from 'three';
 import {createHairOcclusion} from '../src/render/hair-occlusion.ts';
 import {createTempleBlendConfiguration, createTempleClip} from '../src/render/temple-clip.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
 function compile(material: Material) {
@@ -23,6 +24,7 @@ function fixture(t: TestContext) {
   const lens = new MeshPhysicalMaterial({transmission: 1});
   const root = new Group().add(new Mesh(geometry, frame), new Mesh(geometry, frame),
     new Mesh(geometry, overlay), new Mesh(geometry, lens));
+  classifyAssetMaterials(root);   // untagged: the transmissive material is the lens by the (warned) last resort
   const camera = new CanvasTexture({width: 32, height: 24} as HTMLCanvasElement);
   const mask = new DataTexture(new Uint8Array(64).fill(255), 8, 8);
   mask.minFilter = NearestFilter; mask.magFilter = NearestFilter;

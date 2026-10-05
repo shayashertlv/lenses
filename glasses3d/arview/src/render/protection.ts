@@ -70,21 +70,26 @@ function clippedRect(x0: number, y0: number, x1: number, y1: number, width: numb
   return rect.x1 > rect.x0 && rect.y1 > rect.y0 ? rect : null;
 }
 
+/** The protection for a posed frame, or null when it cannot be established (the renderer then draws without hair).
+ *  `onFailure` receives why (never silent: the renderer records each distinct reason in the model report). */
 export function createProtection(bounds: RearBounds, eyewearMatrix: readonly number[], offsetCm: readonly [number, number, number],
-  landmarks: Detection['landmarks'], width: number, height: number, sourceAspect = width / height, fitScale = 1): ProtectionConfiguration | null {
+  landmarks: Detection['landmarks'], width: number, height: number, sourceAspect = width / height, fitScale = 1,
+  onFailure?: (reason: string) => void): ProtectionConfiguration | null {
+  const fail = (reason: string): null => {onFailure?.(reason); return null;};
   try {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0
       || eyewearMatrix.length !== 16 || !eyewearMatrix.every(Number.isFinite)
-      || !offsetCm.every(Number.isFinite) || landmarks.length < 468 || !Number.isFinite(sourceAspect) || sourceAspect <= 0) return null;
+      || !offsetCm.every(Number.isFinite) || landmarks.length < 468 || !Number.isFinite(sourceAspect) || sourceAspect <= 0) return fail('the frame size, pose or landmarks are invalid');
     const projection = protectionProjection(eyewearMatrix, offsetCm, sourceAspect, fitScale);
     const optical = projectBounds(bounds.optical, projection, width, height, 4);
-    if (!optical) return null;
+    if (!optical) return fail('the optical rectangle is outside the frame');
     const points = NASAL_AND_EYE_LANDMARKS.map(index => landmarks[index]!);
-    if (points.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
+    if (points.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return fail('a nasal or eye landmark is missing');
     const xs = points.map(point => point.x * width), ys = points.map(point => point.y * height);
     const nasalMargin = Math.max(4, (Math.max(...xs) - Math.min(...xs)) * .08);
     const nasal = clippedRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), width, height, nasalMargin);
-    if (!nasal || bounds.originalArms.length !== bounds.candidateArms.length || bounds.originalArms.length > 2) return null;
+    if (!nasal) return fail('the nasal rectangle is outside the frame');
+    if (bounds.originalArms.length !== bounds.candidateArms.length || bounds.originalArms.length > 2) return fail('the arm bounds are inconsistent');
     const editableRects: PixelRect[] = [];
     for (let index = 0; index < bounds.originalArms.length; index++) {
       const corridor = bounds.originalArms[index]!.clone().union(bounds.candidateArms[index]!);
@@ -95,7 +100,7 @@ export function createProtection(bounds: RearBounds, eyewearMatrix: readonly num
       protectedRects: [optical, nasal], editableRects};
     validateProtection(configuration, width, height);
     return configuration;
-  } catch { return null; }
+  } catch (error) {return fail(error instanceof Error ? error.message : String(error));}
 }
 
 /** The independent nasal region (nose landmarks with a margin), protected alongside the optical rectangle. */

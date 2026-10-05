@@ -69,7 +69,8 @@ interface Prepared {
 export interface PipelineContext {
   id: string; video: HTMLVideoElement; renderer: LiveRenderer; detector: DetectorClient;
   hair: () => HairClient; hairModel: HairModel; hairReady: () => boolean; hairEnabled: () => boolean;
-  eyewearId: string;
+  /** The rendered model's identity (its address), bound into every frame's image/geometry pair. */
+  modelId: string;
   /** Capture max edge in px; default 1280. */
   captureMaxEdge?: number;
   /** How long a frame waits for its own hair mask before it is drawn without it; default HAIR_WAIT_MS. */
@@ -267,7 +268,7 @@ export function runPipeline(c: PipelineContext): Pipeline {
       const hairEnabled = c.hairEnabled();
       c.renderer.setHairEnabled(hairEnabled);
       at("waiting for the previous frame's GPU work, then posing"); const started = performance.now();
-      const visible = await c.renderer.prepare(p.canvas, i.detection, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256, eyewearModel: c.eyewearId},
+      const visible = await c.renderer.prepare(p.canvas, i.detection, {sourceSHA256: i.sourceSHA256, detectionSHA256: i.detectionSHA256, eyewearModel: c.modelId},
         c.hairModel, hairEnabled, p.capturedAtMs);
       const prepareMs = performance.now() - started, waitStart = performance.now();
       if (decoupled) {

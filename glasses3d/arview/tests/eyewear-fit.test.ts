@@ -4,9 +4,9 @@ import test from 'node:test';
 import {Euler, Matrix4, Vector3} from 'three';
 import type {Landmark} from '../src/face/protocol.ts';
 import {EYEWEAR_FIT, EyewearFitSession, observeFitWidth} from '../src/render/eyewear-fit.ts';
-import {SHIPPED_EYEWEAR} from '../src/eyewear/catalog.ts';
+import {publicFile} from './shipped-models.ts';
 
-const canonical: {positions: number[]} = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8'));
+const canonical: {positions: number[]} = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8'));
 const close = (actual: number, expected: number, tolerance = 1e-8): void => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
 const collect = (fit: EyewearFitSession, width = 14, start = 0): void => {
   for (let t = start; t <= start + 2000; t += 50) fit.observe({faceWidthCm: width}, t);
@@ -160,7 +160,6 @@ test('upper-face observations survive ordinary distance and admitted tilt, and r
   assert.equal(tiltedFar.rejection, null); close(tiltedFar.faceWidthCm, near.faceWidthCm, 1e-8);
   const narrowFrame = observeFitWidth(projectedFixture({frontWidth: 12})), wideFrame = observeFitWidth(projectedFixture({frontWidth: 17}));
   close(narrowFrame.faceWidthCm, wideFrame.faceWidthCm, 1e-8);
-  for (const eyewear of Object.values(SHIPPED_EYEWEAR)) assert.ok(eyewear.preferredFrontRatio > .9 && eyewear.preferredFrontRatio <= 1);
 });
 
 test('pose, clipped landmarks, collapsed eyes and inconsistent upper-side groups are rejected', () => {

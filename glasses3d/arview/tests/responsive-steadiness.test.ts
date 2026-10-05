@@ -6,13 +6,14 @@ import {correctedBridgePose} from '../src/render/bridge-pose.ts';
 import {DEFAULT_STEADY, PoseStabilizer} from '../src/render/pose-stabilizer.ts';
 import type {SteadyOptions} from '../src/render/pose-stabilizer.ts';
 import type {Landmark} from '../src/face/protocol.ts';
+import {publicFile} from './shipped-models.ts';
 
 // Historical reference stays in this regression only; the application has one accepted default.
 const previousSteady: SteadyOptions = {rotationMinCutoffHz: 1, rotationBeta: .1, depthMinCutoffHz: 1,
   depthBeta: .2, derivativeCutoffHz: 1, resetGapMs: 500};
 
 // Capture-relative screen error, not raw-angle smoothness: a smooth but trailing frame can still float off the face.
-const canonical: number[] = JSON.parse(readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')).positions;
+const canonical: number[] = JSON.parse(readFileSync(publicFile('models/canonical-face.json'), 'utf8')).positions;
 const width=1280, height=720, aspect=width/height;
 const camera=new PerspectiveCamera(63,aspect,1,10000); camera.updateMatrixWorld();
 const points=[[0,3.271027,6.531958919387042],[-7.25,4.5,6.53],[7.25,4.5,6.53],[-6,0,6.53],[6,0,6.53],[-7.3,3.6,2.5],[7.3,3.6,2.5]];

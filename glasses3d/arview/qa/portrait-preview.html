@@ -5,8 +5,6 @@ import {TryOnRenderer} from '../src/render/renderer.ts';
 import {DetectorClient} from '../src/face/detector.ts';
 import {HairClient} from '../src/hair/client.ts';
 import {DEFAULT_HAIR_MODEL_ID} from '../src/hair/models.ts';
-import {registerModelingAutoEyewear} from '../src/eyewear/catalog.ts';
-import {registerPinnedGeometry} from '../src/render/continuity.ts';
 import {loadQATempleCutoff} from './temple-cutoff.mjs';
 import {poseAngles} from '../src/render/pose-stabilizer.ts';
 import {lightingConfigurations, createLighting, applyRuntimeLighting} from './provider-comparison-lighting.mjs';
@@ -58,14 +56,15 @@ async function run() {
     };
     capture(sourcePixels, 'clean-eye-detail', 'source', 'eyes');
     const assetUrl = '/__portrait/candidate.glb';
-    registerPinnedGeometry(assetUrl, manifest.model_sha256);
     report.temple_cutoff = await loadQATempleCutoff(assetUrl, signal);
-    registerModelingAutoEyewear({name: 'Portrait inspection', assetUrl, widthMm: manifest.width_mm, templeClipLocalZM: report.temple_cutoff.cutoff_m});
-    instance = await TryOnRenderer.create(document.createElement('canvas'), signal, 'modeling-auto', {sync: false, steady: null});
+    instance = await TryOnRenderer.create(document.createElement('canvas'), signal,
+      {url: assetUrl, displayName: 'Portrait inspection', templeClipZM: report.temple_cutoff.cutoff_m}, {sync: false, steady: null});
+    report.model_report = instance.report();
     report.asset_integrity = instance.renderedAssetIntegrity;
     report.optical_mesh_count = instance.lensMeshes.length;
     report.continuity_failure = instance.continuityFailure ?? null;
-    if (report.asset_integrity?.sha256 !== manifest.model_sha256 || !report.asset_integrity.pinned) throw Error('Rendered GLB identity was not confirmed');
+    // The renderer pins nothing (WP1_DESIGN.md §3): the SHA-256 of the bytes it actually rendered is the identity.
+    if (report.asset_integrity?.sha256 !== manifest.model_sha256) throw Error('Rendered GLB identity was not confirmed');
     if (!report.optical_mesh_count || report.continuity_failure) throw Error('Optical geometry or temple continuity unavailable');
     for (let timestamp = 0; timestamp <= 5000; timestamp += 100) {
       if (!instance.pose(source, detection, timestamp)) throw Error('Detected portrait pose was rejected');

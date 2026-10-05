@@ -1,10 +1,12 @@
+/** The native (Studio) path through lens identification (WP1_DESIGN.md §2): explicit roles decide, materials keep every
+ *  PBR property, shared materials are split per class and per front/arm owner, and the class is decided once. These are
+ *  hand-built scenes (roles from userData); tests/lens-identification.test.ts covers the glTF JSON path. */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {BoxGeometry, BufferAttribute, BufferGeometry, Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Texture} from 'three';
 import type {Material} from 'three';
-import {classifyAssetMaterials, isAuthoredFrontFrame, isFrameMaterial, isOpticalMaterial, isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
-import {installCanonicalLensMaterials} from '../src/render/lens-material.ts';
+import {classifyAssetMaterials, isAuthoredFrontFrame, isFrameMaterial, isOpticalMaterial, isTranslucentFrameMaterial,
+  RETIRED_LENS_APPEARANCE_EXTENSION, stripRetiredLensAppearance} from '../src/eyewear/optical-material.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {createTempleClip} from '../src/render/temple-clip.ts';
 
@@ -24,7 +26,7 @@ function dispose(root: Group, originals: Material[] = []): void {
   for (const material of materials) material.dispose();
 }
 
-test('native closed curved lenses keep their geometry and complete PBR material without canonical descriptors', t => {
+test('native closed curved lenses keep their geometry and complete PBR material through classification', t => {
   const lensMaterial = new MeshPhysicalMaterial({color: 0x856039, transmission: .92, thickness: .0018,
     ior: 1.51, roughness: .07, clearcoat: .2, attenuationColor: 0xa57443, attenuationDistance: .004});
   const lens = mesh('lens', lensMaterial, new BoxGeometry(.05, .04, .0018, 8, 6, 1));
@@ -36,9 +38,8 @@ test('native closed curved lenses keep their geometry and complete PBR material 
     normals: lens.geometry.getAttribute('normal').array.slice(), material: lensMaterial.toJSON()};
   const crystal = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, thickness: .004});
   const front = mesh('frame', crystal), root = new Group().add(lens, front); t.after(() => dispose(root));
-  const installed = installCanonicalLensMaterials(root);
-  assert.equal(installed.profile, 'none'); assert.equal(installed.meshCount, 0);
-  assert.deepEqual(installed.translucentFrameMaterials, [crystal]);
+  const classified = classifyAssetMaterials(root);
+  assert.deepEqual(classified.translucentFrameMaterials, [crystal]);
   assert.equal(lens.material, lensMaterial); assert.deepEqual(lensMaterial.toJSON(), before.material);
   assert.equal(lens.geometry, before.geometry);
   assert.deepEqual(positions.array, before.position);
@@ -56,8 +57,8 @@ test('explicit native opaque mirror lenses are protected from arm deformation an
   const left = mesh('temple', crystal, new BoxGeometry(.004, .004, .15).translate(-.065, 0, -.09));
   const right = mesh('temple', crystal, new BoxGeometry(.004, .004, .15).translate(.065, 0, -.09));
   const root = new Group().add(lens, left, right); t.after(() => dispose(root));
-  const installed = installCanonicalLensMaterials(root);
-  assert.equal(installed.profile, 'none'); assert.equal(lens.material, mirror);
+  classifyAssetMaterials(root);
+  assert.equal(lens.material, mirror);
   assert.equal(isOpticalMaterial(mirror), true); assert.equal(isTranslucentFrameMaterial(crystal), true);
   const before = lens.geometry.getAttribute('position').array.slice(), hook = mirror.onBeforeCompile;
   const rear = createRearDrop(root, -.14), clip = createTempleClip(root);
@@ -69,7 +70,10 @@ test('explicit native opaque mirror lenses are protected from arm deformation an
   assert.ok(rear.diagnostics.affectedVertexCount > 0);
 });
 
-test('shared native materials are isolated by explicit roles and keep untagged legacy behavior', t => {
+// Rewritten for the decided class: the untagged mesh beside role-tagged parts is frame by default (no live transmission
+// rule), it shares the arm instance with the temple, and the lens keeps the original. The old assertion 'untagged owners
+// retain the numeric transmission fallback' is removed: that fallback no longer exists.
+test('shared native materials are isolated by explicit roles; an untagged part beside them is frame', t => {
   for (const transmission of [0, .85]) {
     const texture = new Texture(); t.after(() => texture.dispose());
     const source = new MeshPhysicalMaterial({color: 0x95622f, transmission, thickness: .004, ior: 1.49,
@@ -84,15 +88,15 @@ test('shared native materials are isolated by explicit roles and keep untagged l
     const classification = classifyAssetMaterials(root);
     const frameMaterial = (frame.material as Material[])[0]!;
     assert.deepEqual(classification.sharedMaterials, [source]);
-    assert.equal((unknown.material as Material[])[0], source);
+    assert.equal(lens.material, source, 'the lens keeps the original');
+    assert.equal(slots[0], source, 'the shared Material[] storage itself is never edited');
     assert.notEqual(temple.material, frameMaterial, 'front and arm shaders require independent structural materials');
-    assert.notEqual(temple.material, source);
-    assert.notEqual(frameMaterial, source); assert.notEqual(lens.material, source);
-    assert.notEqual(lens.material, frameMaterial);
+    assert.notEqual(temple.material, source); assert.notEqual(frameMaterial, source);
+    assert.equal((unknown.material as Material[])[0], temple.material, 'the untagged part shares the arm instance');
     assert.equal(isFrameMaterial(frameMaterial), true); assert.equal(isOpticalMaterial(frameMaterial), false);
     assert.equal(isFrameMaterial(temple.material as Material), true); assert.equal(isOpticalMaterial(temple.material as Material), false);
-    assert.equal(isOpticalMaterial(lens.material as Material), true);
-    assert.equal(isOpticalMaterial(source), transmission > 0, 'untagged owners retain the numeric transmission fallback');
+    assert.equal(isOpticalMaterial(source), true);
+    assert.equal(classification.lensIdentification.components.pass, false, 'one material on lens and frame fails §2 Components');
     for (const material of [frameMaterial, temple.material, lens.material] as MeshPhysicalMaterial[]) {
       for (const property of ['transmission', 'thickness', 'ior', 'roughness', 'metalness', 'clearcoat',
         'clearcoatRoughness', 'attenuationDistance'] as const) assert.equal(material[property], source[property]);
@@ -106,13 +110,14 @@ test('shared native materials are isolated by explicit roles and keep untagged l
   }
 });
 
-test('compact authored fronts are isolated from a shared frame-tagged long arm without changing legacy identity', t => {
+test('compact authored fronts are isolated from a shared frame-tagged long arm without changing their identity', t => {
   const source = new MeshPhysicalMaterial({transmission: .9, thickness: .004, roughness: .18});
   const front = mesh('frame', source), arm = mesh('frame', source, new BoxGeometry(.004, .005, .15).translate(.06, 0, -.075));
   const root = new Group().add(front, arm); t.after(() => dispose(root));
+  assert.equal(isAuthoredFrontFrame(front, root), false, 'an unclassified mesh is never an authored front');
+  assert.deepEqual(classifyAssetMaterials(root).sharedMaterials, [source]);
   assert.equal(isAuthoredFrontFrame(front, root), true);
   assert.equal(isAuthoredFrontFrame(arm, root), false);
-  assert.deepEqual(classifyAssetMaterials(root).sharedMaterials, [source]);
   assert.equal(front.material, source); assert.notEqual(arm.material, source);
   for (const material of [front.material, arm.material] as MeshPhysicalMaterial[]) {
     assert.equal(isTranslucentFrameMaterial(material), true); assert.equal(isOpticalMaterial(material), false);
@@ -129,6 +134,7 @@ test('front exemption requires finite baked geometry inside the asset and ignore
   const front = mesh(undefined, material, geometry), parent = new Group().add(front), root = new Group().add(parent);
   parent.userData.partRole = 'frame'; t.after(() => dispose(root));
   const pose = new Group().add(root); pose.scale.setScalar(100); pose.position.z = -50;
+  classifyAssetMaterials(root);
   assert.equal(isAuthoredFrontFrame(front, root), true, 'a primitive inherits its authored node role');
   for (const axis of ['x', 'y', 'z'] as const) {
     const previous = position.getComponent(0, {x: 0, y: 1, z: 2}[axis]);
@@ -142,7 +148,11 @@ test('front exemption requires finite baked geometry inside the asset and ignore
   front.matrixAutoUpdate = false; front.matrix.makeTranslation(0, 0, -.08);
   assert.equal(isAuthoredFrontFrame(front, root), false); front.matrix.identity();
   assert.equal(isAuthoredFrontFrame(front, root), true);
-  front.userData.partRole = 'temple'; assert.equal(isAuthoredFrontFrame(front, root), false);
+  // The role is the decided one: a changed role counts only after (re)classification.
+  front.userData.partRole = 'temple'; assert.equal(isAuthoredFrontFrame(front, root), true);
+  classifyAssetMaterials(root); assert.equal(isAuthoredFrontFrame(front, root), false);
+  front.userData.part_role = 'frame'; delete front.userData.partRole; classifyAssetMaterials(root);
+  assert.equal(isAuthoredFrontFrame(front, root), true, 'a legacy part_role frame qualifies too');
   front.userData.partRole = 'frame'; geometry.deleteAttribute('position');
   assert.equal(isAuthoredFrontFrame(front, root), false);
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(), 3));
@@ -156,8 +166,11 @@ test('roles inherit from a glTF primitive parent, explicit child overrides win, 
   classifyAssetMaterials(root); assert.equal(isOpticalMaterial(material), true);
   inherited.userData.partRole = 'frame'; classifyAssetMaterials(root);
   assert.equal(isFrameMaterial(material), true); assert.equal(isOpticalMaterial(material), false);
+  // Any explicit role other than lens is an explicit non-lens (it stops the name and transmission rules).
   inherited.userData.partRole = 'unrecognized'; classifyAssetMaterials(root);
-  assert.equal(isFrameMaterial(material), false); assert.equal(isOpticalMaterial(material), false);
+  assert.equal(isFrameMaterial(material), true); assert.equal(isOpticalMaterial(material), false);
+  inherited.userData.partRole = 'lens'; classifyAssetMaterials(root);
+  assert.equal(isOpticalMaterial(material), true, 'the class follows the roles at each classification, never transmission');
 });
 
 test('a lens mesh does not relabel an opaque child mesh as optical', t => {
@@ -172,30 +185,25 @@ test('a lens mesh does not relabel an opaque child mesh as optical', t => {
   assert.equal(isOpticalMaterial(childMaterial), true, 'an explicit child role still applies');
 });
 
-test('canonical descriptors remain authoritative and malformed descriptors fail before shared native assignments change', t => {
-  const shared = new MeshStandardMaterial(), frame = mesh('frame', shared), lens = mesh('lens', shared);
-  const described = new MeshPhysicalMaterial({transmission: 0});
-  described.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance: {
-    schema_version: 1, color_space: 'scene_linear_srgb_D65', density_interpolation: 'piecewise_smoothstep_optical_density',
-    vertical_coordinate: 'lens_local_bottom_0_top_1', normal_reflectance_rgb: [.04, .04, .04], refractive_index: 1.5,
-    roughness: .05, optical_density_keyframes: [{v: 0, optical_density_rgb: [0, 0, 0]}], angular_reflectance_keyframes: null,
-  }}};
-  const conflict = mesh('frame', described), root = new Group().add(frame, lens, conflict); t.after(() => dispose(root));
-  const extension = described.userData.gltfExtensions[LENS_APPEARANCE_EXTENSION];
-  extension.schema_version = 99;
-  assert.throws(() => classifyAssetMaterials(root), /schema_version/);
-  assert.equal(frame.material, shared); assert.equal(lens.material, shared);
-  extension.schema_version = 1;
-  const classification = classifyAssetMaterials(root);
-  assert.equal(classification.canonical, true); assert.equal(conflict.material, described);
-  assert.equal(isFrameMaterial(described), false); assert.equal(isOpticalMaterial(described), true);
-  assert.ok(classification.sharedMaterials.includes(described));
-  assert.throws(() => installCanonicalLensMaterials(root), /partRole must explicitly be lens/);
-  // Existing shadow assets can store canonical lenses and opaque frame material groups in one mesh. Their lens
-  // descriptor identifies the optical group; a whole-mesh lens tag must not convert its frame material too.
-  const ordinary = new MeshStandardMaterial(); t.after(() => ordinary.dispose());
-  const mixed = mesh('lens', described); mixed.material = [ordinary, described];
-  const mixedRoot = new Group().add(mixed); t.after(() => mixed.geometry.dispose());
-  classifyAssetMaterials(mixedRoot);
-  assert.equal(isOpticalMaterial(ordinary), false); assert.equal(isOpticalMaterial(described), true);
+test('a retired canonical descriptor is stripped and reported once per material; the material then classifies by its role', t => {
+  // The descriptor (only the retired bsa/reconstruction routes wrote it) has no runtime in arview. Even a malformed one
+  // never throws: it is removed, the caller reports it, and the native glTF material is what draws.
+  const lensMaterial = new MeshPhysicalMaterial({name: 'Retired canonical lens', transmission: 1});
+  lensMaterial.userData.gltfExtensions = {[RETIRED_LENS_APPEARANCE_EXTENSION]: {schema_version: 99},
+    KHR_example_unknown: {kept: true}};
+  const frameMaterial = new MeshPhysicalMaterial({transmission: 0});
+  frameMaterial.userData.gltfExtensions = {[RETIRED_LENS_APPEARANCE_EXTENSION]: {schema_version: 1}};
+  const plain = new MeshStandardMaterial({name: 'Plain acetate'});
+  const lens = mesh('lens', lensMaterial), second = mesh('lens', lensMaterial), frame = mesh('frame', frameMaterial), arm = mesh('temple', plain);
+  const root = new Group().add(lens, second, frame, arm); t.after(() => dispose(root));
+  assert.deepEqual(stripRetiredLensAppearance(root), ['Retired canonical lens', '(unnamed material)'], 'one report per material, not per mesh');
+  assert.deepEqual(lensMaterial.userData.gltfExtensions, {KHR_example_unknown: {kept: true}}, 'other extensions are untouched');
+  assert.equal(frameMaterial.userData.gltfExtensions, undefined, 'an emptied extension record is removed');
+  assert.equal(lensMaterial.transmission, 1, 'the native material is not edited');
+  assert.deepEqual(stripRetiredLensAppearance(root), [], 'idempotent');
+  classifyAssetMaterials(root);
+  assert.equal(isOpticalMaterial(lensMaterial), true);
+  assert.equal(isFrameMaterial(frameMaterial), true); assert.equal(isOpticalMaterial(frameMaterial), false,
+    'a frame part that carried the descriptor is frame by its role');
+  assert.equal(isOpticalMaterial(plain), false);
 });

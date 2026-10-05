@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {TempleCheekContactEstimator, MAX_TEMPLE_CHEEK_VERTICES} from '../src/render/temple-cheek-contact.ts';
 import type {TempleCheekPoint} from '../src/render/temple-cheek-contact.ts';
 import type {Landmark} from '../src/face/protocol.ts';
+import {publicFile} from './shipped-models.ts';
 
 function fixture(): {estimator: TempleCheekContactEstimator; landmarks: Landmark[]} {
   const positions = new Float64Array(468 * 3);
@@ -104,7 +105,7 @@ test('missing points, crossing contours, collapsed eye lines and unusable topolo
 });
 
 test('the shipped canonical exterior produces a bounded observed cheek polygon', async () => {
-  const canonical = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]; indices: number[]};
+  const canonical = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8')) as {positions: number[]; indices: number[]};
   const estimator = new TempleCheekContactEstimator(canonical.positions, canonical.indices);
   const landmarks: Landmark[] = Array.from({length: canonical.positions.length / 3}, (_, i) => ({
     x: .5 + canonical.positions[i * 3]! / 25, y: .5 - canonical.positions[i * 3 + 1]! / 25, z: 0,

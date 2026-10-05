@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Euler, Matrix4, Vector3 } from 'three';
 import { createNasalShape } from '../src/render/nasal-shape.ts';
+import {publicFile} from './shipped-models.ts';
 
-const canonical = JSON.parse(readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {
+const canonical = JSON.parse(readFileSync(publicFile('models/canonical-face.json'), 'utf8')) as {
   positions: number[]; indices: number[];
 };
 const shape = createNasalShape(canonical.positions, canonical.indices);

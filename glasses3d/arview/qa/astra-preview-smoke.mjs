@@ -117,10 +117,10 @@ try {
     row.initial = await page.evaluate(() => ({secure: isSecureContext, isolated: crossOriginIsolated,
       camera_stub: window.__syntheticCamera.installed, requests: window.__syntheticCamera.requests,
       open: window.__ar.isOpen(), external: document.querySelector('.stage').dataset.externalModel,
-      eyewear: document.querySelector('#eyewear-select').value, name: document.querySelector('#frame-name').textContent}));
+      name: document.querySelector('#frame-name').textContent}));
     assert.equal(row.initial.secure, true); assert.equal(row.initial.camera_stub, true);
     assert.equal(row.initial.requests, 0); assert.equal(row.initial.open, false);
-    assert.equal(row.initial.external, 'ready'); assert.equal(row.initial.eyewear, 'modeling-auto');
+    assert.equal(row.initial.external, 'ready');
     assert.equal(row.initial.name, entry.name);
     await page.locator('#start').click();
     await page.waitForFunction(() => {

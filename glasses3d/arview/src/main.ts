@@ -1,23 +1,26 @@
 /** The try-on page. Nothing starts until Open camera. One session = one camera stream, one renderer, one face
  *  landmarker worker and one hair segmenter worker, driven by the frame pipeline; closing the camera disposes all
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
- *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report. */
+ *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report.
+ *  The page renders the one model handed over with ?model= (eyewear/external.ts); there is no frame catalog. It shows
+ *  that model's report: every fallback the load took, as a warning. */
 import './style.css';
-import './studio/embedded.css';
 import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import {openCamera} from './camera/camera.ts';
 import type {CameraSession} from './camera/camera.ts';
 import {lockCameraExposure} from './camera/exposure.ts';
-import {DEFAULT_EYEWEAR_ID, EYEWEAR, eyewearById, MODELING_AUTO_EYEWEAR_ID} from './eyewear/catalog.ts';
-import {describeExternalModel, installExternalModel, parseExternalModel} from './eyewear/external.ts';
+import {resolveModelDefinition} from './eyewear/catalog.ts';
+import type {ModelDefinition} from './eyewear/catalog.ts';
+import {describeExternalModel, modelFromExternal, parseExternalModel} from './eyewear/external.ts';
 import {DEFAULT_HAIR_MODEL_ID, getHairModel, HAIR_MODEL_LIST, isHairModelId} from './hair/models.ts';
 import {HairClient} from './hair/client.ts';
 import {detectHairBackend} from './hair/backend.ts';
 import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
-import {createStudioBridge} from './studio/bridge.ts';
-import {installStudioLayout} from './studio/embedded.ts';
+import type {ModelReport} from './render/renderer.ts';
+import {ModelRefusal, reportLines} from './model/report.ts';
+import type {ReportLine} from './model/report.ts';
 import {EyewearFitSession} from './render/eyewear-fit.ts';
 import {DEFAULT_SHADOW_SETTINGS} from './render/eyewear-shadow.ts';
 import type {ShadowSettings} from './render/eyewear-shadow.ts';
@@ -33,7 +36,7 @@ import {describeHairReport, describeOverlapReport, hairReport, overlapReport} fr
 export const config = parseConfig(location.search);
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const value = document.getElementById(id); if (!value) throw new Error(`Missing control: ${id}`); return value as T;};
 const stage = document.querySelector<HTMLElement>('.stage') as HTMLElement;
-const eyewearSelect = element<HTMLSelectElement>('eyewear-select'), hairSelect = element<HTMLSelectElement>('hair-model-select');
+const hairSelect = element<HTMLSelectElement>('hair-model-select');
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
@@ -52,10 +55,6 @@ interface Session {
   exposure: {applied: number | null; mode: string | null; error: string | null} | null;
 }
 let current: Session | null = null;
-const studio = createStudioBridge('ar');
-if (studio) installStudioLayout();
-window.addEventListener('pagehide', () => studio?.dispose(), {once: true});
-let changingEyewear = false;
 let hairEnabled = config.hair ?? true;
 const fitAdjustment = element<HTMLInputElement>('fit-adjustment');
 function fitting(): LiveRenderer['fitting'] | null {
@@ -151,44 +150,54 @@ function report(event: string, detail?: string): void {
 window.addEventListener('error', event => report('window.error', `${event.message} @ ${event.filename?.split('/').at(-1) ?? ''}:${event.lineno}`));
 window.addEventListener('unhandledrejection', event => report('unhandledrejection', String((event as PromiseRejectionEvent).reason)));
 
-// Opt-in handover from Modeling Auto (?model=&name=&clip=&width=&sha256=): the prepared asset becomes this page's
-// Modeling Auto frame and is selected. Absent, nothing changes; an unusable address leaves the shipped frames in place.
-let selectedEyewear: string = DEFAULT_EYEWEAR_ID;
+// The model comes only from the ?model=&name=&clip=&width=&sha256=&lensenv= handover. Without one (or with an
+// unusable address) the page explains how to hand one over and the camera stays closed.
+const NO_MODEL_MESSAGE = 'No model was handed over. Open this page with ?model=<GLB address on this computer>&name=<label>.';
+let pageModel: ModelDefinition | null = null;
 {
   const note = document.createElement('p'); note.className = 'control-hint'; note.id = 'external-model';
   try {
     const externalModel = parseExternalModel(location.search, location.origin);
-    if (externalModel) {installExternalModel(externalModel); selectedEyewear = MODELING_AUTO_EYEWEAR_ID; note.textContent = describeExternalModel(externalModel); stage.dataset.externalModel = 'ready';}
-  } catch (error) {note.textContent = `The model in this address was not loaded: ${messageFor(error)} The shipped frames remain available.`; stage.dataset.externalModel = 'invalid';}
-  if (note.textContent) element('frame-description').after(note);
+    if (externalModel) {pageModel = modelFromExternal(externalModel); note.textContent = describeExternalModel(externalModel); stage.dataset.externalModel = 'ready';}
+    else {note.textContent = NO_MODEL_MESSAGE; stage.dataset.externalModel = 'none';}
+  } catch (error) {note.textContent = `The model in this address was not loaded: ${messageFor(error)}`; stage.dataset.externalModel = 'invalid';}
+  element('frame-description').after(note);
 }
-for (const eyewear of Object.values(EYEWEAR)) eyewearSelect.add(new Option(eyewear.optionLabel, eyewear.id));
+/** The model report on the page (WP1_DESIGN.md §6): before a session, the warnings of its definition; once loaded or
+ *  refused, the renderer's report through reportLines (refusal reasons, every failed §2 row, then the warnings). */
+function showModelReport(lines: readonly ReportLine[]): void {
+  const list = element<HTMLUListElement>('model-warnings');
+  list.replaceChildren(...lines.map(line => {
+    const item = document.createElement('li'); item.textContent = line.text; item.className = `model-${line.kind}`; return item;
+  }));
+  list.hidden = lines.length === 0;
+}
+/** Shows `modelReport` on the page and adds its errors and warnings to the step log. */
+function presentModelReport(modelReport: ModelReport): void {
+  showModelReport(reportLines(modelReport));
+  if (modelReport.errors.length) report('model-errors', modelReport.errors.join(' | '));
+  if (modelReport.warnings.length) report('model-warnings', modelReport.warnings.join(' | '));
+}
+function showModel(): void {
+  if (!pageModel) {element('frame-name').textContent = 'No model'; showModelReport([]); return;}
+  const resolved = resolveModelDefinition(pageModel);
+  element('frame-name').textContent = resolved.displayName;
+  showModelReport(resolved.warnings.map(text => ({kind: 'warning', text})));
+}
+showModel();
 for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, model.id));
-eyewearSelect.value = config.eyewear && Object.hasOwn(EYEWEAR, config.eyewear) && [...eyewearSelect.options].some(option => option.value === config.eyewear) ? config.eyewear : selectedEyewear;
-if (studio && selectedEyewear === MODELING_AUTO_EYEWEAR_ID) eyewearSelect.value = selectedEyewear;
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
 element('diag-note').hidden = !config.diagnostics;
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
-function showEyewear(): void {const model = eyewearById(eyewearSelect.value); element('frame-name').textContent = model.name; element('frame-description').textContent = model.description;}
-eyewearSelect.addEventListener('change', () => {
-  showEyewear();
-  if (!current?.pipeline || changingEyewear) return;
-  const fitSession = current.fitSession;
-  changingEyewear = true;
-  // Stop the old stream synchronously before opening its replacement. Only an explicit glasses change
-  // shares this wearer's calibration; ordinary Close/Open and measurement sessions start fresh.
-  closeSession('Changing glasses…');
-  void openSession(fitSession).finally(() => {changingEyewear = false; updateControls();});
-}); showEyewear();
+if (!pageModel) setState('idle', 'NO MODEL', NO_MODEL_MESSAGE);
 hairToggle.addEventListener('change', () => { hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
 function updateControls(): void {
   const live = !!current;
-  eyewearSelect.disabled = !!studio || changingEyewear || (live && !current?.pipeline) || cancelMeasure !== null;
   hairSelect.disabled = live;
-  start.hidden = live; stop.hidden = !live; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
+  start.hidden = live; stop.hidden = !live; start.disabled = !pageModel; element<HTMLButtonElement>('download-metrics').disabled = !profiler.hasSamples;
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
   updateFitControls();
 }
@@ -239,6 +248,8 @@ function updateUi(): void {
 
 async function openSession(fitSession = new EyewearFitSession()): Promise<void> {
   if (current) return;
+  const model = pageModel;
+  if (!model) {setState('error', 'NO MODEL', NO_MODEL_MESSAGE); report('failed', NO_MODEL_MESSAGE); return;}
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement; previous.replaceWith(canvas);
   const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, fitSession, renderer: null, detector: null, hair: null,
     hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null};
@@ -265,13 +276,13 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
     const beginStep = (text: string): void => {stepText = text; step(text); report('step', text);
       if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') {step(stepText); if (++ticks % 10 === 0) report('still', `${stepText} · ${session.pipeline?.describe() ?? 'pipeline not started'}`);} else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
     beginStep('Loading the glasses');
-    const eyewearId = eyewearSelect.value, hairModel = getHairModel(hairSelect.value);
+    const hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
-    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, eyewearId, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, fitSession, studioControls: !!studio && eyewearId === MODELING_AUTO_EYEWEAR_ID}),
+    const renderer = await withDeadline(LiveRenderer.create(canvas, signal, model, {hairStartZ: config.hairStartZ, sync: config.sync, guard: config.guard, steady: config.steady, fitSession}),
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); renderer.setShadows(shadowSettings); session.renderer = renderer;
-    if (studio && eyewearId === MODELING_AUTO_EYEWEAR_ID) studio.attach({materials: () => renderer.studioMaterialCatalog, apply: preview => renderer.applyStudioPreview(preview)});
+    presentModelReport(renderer.report());
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -294,7 +305,7 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
     beginStep('Waiting for the first camera frame');
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
-      hair: () => session.hair!, hairModel, eyewearId, hairReady: () => session.hairReady && !session.hairError,
+      hair: () => session.hair!, hairModel, modelId: renderer.model.url, hairReady: () => session.hairReady && !session.hairError,
       hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, captureSource: config.captureSource, hairSchedule: config.hairSchedule,
       onCaptureSource: (source, reason) => report('capture-source', `${source}${reason ? ' · ' + reason : ''}`), owns, nextSequence: () => ++session.sequence,
       onHairError: error => {if (owns()) {session.hairError = messageFor(error); session.hairReady = false; session.hair?.close(); element('hair-engine').textContent = `hair error: ${session.hairError}`;}},
@@ -312,10 +323,14 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
     });
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face ${detector.delegate ?? '—'}`;
     updateControls(); if (!uiTimer) uiTimer = setInterval(updateUi, 500);
-  } catch (error) {if (owns()) closeSession(messageFor(error), true);}
+  } catch (error) {
+    if (!owns()) return;
+    // A §2 refusal carries the whole report: its reasons, every failed row and the warnings stay on the page.
+    if (error instanceof ModelRefusal) presentModelReport(error.report);
+    closeSession(messageFor(error), true);
+  }
 }
 function closeSession(message = 'Camera closed.', failed = false): void {
-  studio?.detach();
   const session = current; current = null;
   if (session) report(failed ? 'failed' : 'closed', message);
   if (session) {
@@ -413,7 +428,7 @@ async function measure(sessions: number, warmupMs: number, measurementMs: number
   const status = cancelled ? 'stopped' : 'complete';
   element('measure-status').textContent = status === 'complete' ? 'Measurement complete. Download the report; sessions are the unit of comparison.' : 'Measurement stopped.';
   lastReport = {schema: 'ar-sessions-v1', createdAt: new Date().toISOString(), status, sessions: sessions, warmupMs, measurementMs, config,
-    eyewear: eyewearSelect.value, hairModel: hairSelect.value, hair: hairEnabled,
+    model: pageModel ? {url: pageModel.url, name: pageModel.displayName} : null, hairModel: hairSelect.value, hair: hairEnabled,
     page: {userAgent: navigator.userAgent, url: location.href, hardwareConcurrency: navigator.hardwareConcurrency},
     measured};
   element('report-download').hidden = false;
@@ -450,8 +465,13 @@ declare global {interface Window {__ar: {
   config(): typeof config;
   setShadows(settings: Partial<ShadowSettings>): ShadowSettings; shadowSettings(): ShadowSettings;
   fitting(): LiveRenderer['fitting'] | null; refit(): void; setFitAdjustment(value: number): void;
+  /** The open session's model report (every fallback its load took), or null without a loaded model. */
+  modelReport(): ModelReport | null;
+  /** The open session's lens identification (one entry per glTF material, the §2 Components verdict), or null. */
+  lensIdentification(): ReturnType<LiveRenderer['lensIdentification']>;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
   lastReport: () => lastReport, audit: runAudit, config: () => config, setShadows, shadowSettings: () => ({...shadowSettings}),
-  fitting, refit, setFitAdjustment};
+  fitting, refit, setFitAdjustment, modelReport: () => current?.renderer?.report() ?? null,
+  lensIdentification: () => current?.renderer?.lensIdentification() ?? null};
 updateControls();

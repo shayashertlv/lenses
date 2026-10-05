@@ -15,10 +15,12 @@ import {createTempleTerminalFit, createTempleTerminalFitEvaluator} from '../src/
 import {EyewearFitSession} from '../src/render/eyewear-fit.ts';
 import {TempleCheekContactEstimator} from '../src/render/temple-cheek-contact.ts';
 import type {TempleVisibilityConfiguration} from '../src/render/temple-visibility.ts';
-import {eyewearById, DEFAULT_EYEWEAR_ID} from '../src/eyewear/catalog.ts';
+import {resolveModelDefinition} from '../src/eyewear/catalog.ts';
 import type {Detection} from '../src/face/protocol.ts';
+import {publicFile, shippedModel} from './shipped-models.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
-const canonical = JSON.parse(await readFile(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')) as {positions: number[]; indices: number[]};
+const canonical = JSON.parse(await readFile(publicFile('models/canonical-face.json'), 'utf8')) as {positions: number[]; indices: number[]};
 const frame = {width: 640, height: 480} as HTMLCanvasElement;
 const mask = {width: 4, height: 4, category: new Uint8Array(16).fill(1), hairIndex: 1};
 const missing: Detection = {matrix: null, landmarks: [], inferenceMs: 0};
@@ -40,7 +42,7 @@ function harness(options: RendererOptions = {}) {
     render() {draws.push({face: surface.visible, head: head.visible, clip: clip.configuration !== null,
       relief: visibility.configuration !== null, eyewear: internal.eyewearPose.visible});}};
   const renderer = new (TryOnRenderer as unknown as new (backend: unknown, gl: unknown, eyewear: unknown, options: RendererOptions) => TryOnRenderer)(
-    backend, {}, eyewearById(DEFAULT_EYEWEAR_ID), {sync: false, guard: false, ...options});
+    backend, {}, resolveModelDefinition(shippedModel('amber-horizon')), {sync: false, guard: false, ...options});
   const internal = renderer as unknown as {facePose: Group; eyewearPose: Group};
   // Occlusion-only fixtures start after presentation; fitting fixtures explicitly supply a fresh session.
   if (!options.fitSession) Object.assign(renderer, {fitRevealed: true});
@@ -52,6 +54,7 @@ function harness(options: RendererOptions = {}) {
   const lens = new BoxGeometry(.05, .025, .002); lens.translate(0, 0, -.01);
   root.add(new Mesh(lens, new MeshPhysicalMaterial({transmission: 1})));
   internal.eyewearPose.add(root);
+  classifyAssetMaterials(root);   // untagged: the transmissive lens is a lens by the (warned) last resort
   const clip = createTempleClip(root), rearDrop = createRearDrop(root, -.14), hair = createHairOcclusion(root);
   const visibility = {configuration: null as TempleVisibilityConfiguration | null,
     set(value: TempleVisibilityConfiguration | null) {this.configuration = value;}, prepare() {}};
@@ -60,7 +63,7 @@ function harness(options: RendererOptions = {}) {
   internal.facePose.add(head);
   const observed = new BufferAttribute(new Float32Array(canonical.positions.length), 3);
   Object.assign(renderer, {canonicalPositions: canonical.positions, rearDrop, templeClip: clip,
-    templeTerminalFit: createTempleTerminalFit(root, {offsetCm: renderer.eyewear.offsetCm, spreadM: .018,
+    templeTerminalFit: createTempleTerminalFit(root, {offsetCm: renderer.model.offsetCm, spreadM: .018,
       spreadStartZM: rearDrop.spreadStartZM, modelCutoffZM: -.14, maximumZM: -.115}),
     templeVisibility: visibility, hairOcclusion: hair, surfaceMesh: surface, templeHeadShell: head,
     faceSurface: new FaceSurface(canonical.positions), observedCheekAttribute: observed,
@@ -236,7 +239,7 @@ test('consecutive renderer poses retain shadow-shape smoothing, audits hold it, 
 });
 
 test('each camera pose advances the hair endpoint once, while audit variants preserve the exact ending', () => {
-  const {renderer, clip} = harness(), maximum = renderer.eyewear.templeClipLocalZM + .025;
+  const {renderer, clip} = harness(), maximum = renderer.templeClipZM + .025;
   let updates = 0;
   const report = {negativeZM: maximum + .01, positiveZM: maximum + .02,
     negativeFadeM: .001, positiveFadeM: .003, negativeState: 'tracking', positiveState: 'tracking', maximumZM: maximum,
@@ -257,12 +260,13 @@ test('the buried cap is always applied without hair, and short external frames n
   renderer.pose(frame, detection(), 100);
   for (const variant of [{}, {hair: false}, {eyewear: false}]) {
     const timing = renderer.render(null, variant);
-    assert.ok(timing.templeEndMaximumZM! > renderer.eyewear.templeClipLocalZM);
+    assert.ok(timing.templeEndMaximumZM! > renderer.templeClipZM);
     assert.equal(clip.configuration!.negativeXCutoffLocalZM, timing.templeEndMaximumZM);
     assert.equal(clip.configuration!.positiveXCutoffLocalZM, timing.templeEndMaximumZM);
     assert.equal(clip.configuration!.fadeLengthLocalM, .005);
   }
-  Object.assign(renderer, {eyewear: {...renderer.eyewear, templeClipLocalZM: -.045},
+  // The clip in use is the renderer's own (handed over, or derived from the temples at configure).
+  Object.assign(renderer, {clipZM: -.045,
     continuityModel: {startZM: -.035, cutoffZM: -.045, sides: [[], []]}});
   assert.equal(renderer.pose(frame, detection(), 133), true);
   const timing = renderer.render(null);
@@ -313,15 +317,15 @@ test('LiveRenderer retains ordinary hair toggling without a comparison mode or a
   assert.equal('templePreview' in live, false);
 });
 
-function fittingHarness(fitSession = new EyewearFitSession()) {
-  const fixture = harness({fitSession, steady: null});
+function fittingHarness(fitSession = new EyewearFitSession(), options: RendererOptions = {}) {
+  const fixture = harness({fitSession, steady: null, ...options});
   const {renderer, root, rearDrop} = fixture;
   const pose = (renderer as unknown as {eyewearPose: Group}).eyewearPose;
-  const asset = new Group(); asset.position.set(...renderer.eyewear.offsetCm); asset.scale.setScalar(100);
+  const asset = new Group(); asset.position.set(...renderer.model.offsetCm); asset.scale.setScalar(100);
   asset.add(root); pose.add(asset);
   const front = rearDrop.opticalBounds;
   Object.assign(renderer, {eyewearAsset: asset, fitFrontBounds: front, fitFrontWidthCm: (front.max.x - front.min.x) * 100,
-    terminalFitAtScale: createTempleTerminalFitEvaluator(root, {offsetCm: renderer.eyewear.offsetCm, spreadM: .018,
+    terminalFitAtScale: createTempleTerminalFitEvaluator(root, {offsetCm: renderer.model.offsetCm, spreadM: .018,
       spreadStartZM: rearDrop.spreadStartZM, modelCutoffZM: -.14, maximumZM: -.115})});
   return {...fixture, asset, fitSession};
 }
@@ -382,8 +386,8 @@ test('a new frame reuses the fitted profile but waits for its own size to settle
   const previous = first.renderer.fitting;
   assert.equal(previous.ready, true);
   const next = fittingHarness(first.fitSession);
-  Object.assign(next.renderer, {eyewear: {...next.renderer.eyewear,
-    preferredFrontRatio: next.renderer.eyewear.preferredFrontRatio! * .94}});
+  // A different frame: its front measures wider, so the same face asks for a smaller scale.
+  Object.assign(next.renderer, {fitFrontWidthCm: (next.renderer as unknown as {fitFrontWidthCm: number}).fitFrontWidthCm / .94});
   assert.equal(next.renderer.fitting.state, 'fitted', 'the shared profile still describes the previous frame before posing');
   assert.equal(next.renderer.fitting.ready, false, 'readiness belongs to each frame renderer');
   next.renderer.pose(frame, input, 7000); next.renderer.render(mask);
@@ -424,6 +428,33 @@ test('automatic frame fitting locks one size through distance, nods, audits and 
   renderer.render(mask); assert.equal(draws.at(-1)?.eyewear, true);
   assert.deepEqual(renderer.fitting, fitted);
   assert.deepEqual(asset.position, bridge, 'uniform sizing leaves the bridge anchor unchanged');
+  // WP1_DESIGN.md §4: the report carries the applied scale, and a scale more than 3 % from 1 is a warning (once).
+  assert.equal(fitted.mode, 'auto');
+  const report = renderer.report(), measured = report.measurements.fit_scale as {mode: string; applied: number; limited: boolean; state: string};
+  assert.deepEqual([measured.mode, measured.applied, measured.limited, measured.state], ['auto', Math.round(fitted.scale * 1e4) / 1e4, false, 'fitted']);
+  assert.ok(Math.abs(fitted.scale - 1) > .03, `this fixture's scale ${fitted.scale} is outside the 3 % band`);
+  const warnings = report.warnings.filter(warning => warning.startsWith('FIT SCALE: '));
+  assert.equal(warnings.length, 1, 'once per distinct scale, however many frames are posed');
+  assert.match(warnings[0]!, new RegExp(`^FIT SCALE: the live fit draws this model at ×${fitted.scale.toFixed(3)} its authored size .*1\\.08 fit preference.*render with fixedScale`));
+});
+
+test('fixedScale renders at the authored size: shown from the first pose, never fitted or adjusted, and reported', () => {
+  const {renderer, asset, draws} = fittingHarness(new EyewearFitSession(), {fixedScale: true}), input = detection(0);
+  const narrow = {...input, landmarks: input.landmarks.map(point => ({...point, x: .5 + (point.x - .5) * .9}))};
+  assert.deepEqual([renderer.fitting.mode, renderer.fitting.scale, renderer.fitting.ready, renderer.fitting.state], ['fixed', 1, true, 'fitted']);
+  renderer.pose(frame, narrow, 100); renderer.render(mask);
+  assert.equal(draws.at(-1)?.eyewear, true, 'nothing to settle: the glasses are drawn at once');
+  for (let i = 1; i < 90; i++) renderer.pose(frame, narrow, 100 + i * 75);
+  assert.equal(asset.scale.x, 100, 'the auto-fit never resizes the model (the same face asks for a correction in auto mode)');
+  assert.equal(renderer.fitting.scale, 1); assert.equal(renderer.fitting.faceWidthCm, null, 'no face width is even collected');
+  renderer.setFitAdjustment(.08); renderer.setFitAdjustment(-.05);
+  for (let i = 0; i < 20; i++) renderer.pose(frame, narrow, 8000 + i * 75);
+  assert.equal(asset.scale.x, 100); assert.equal(renderer.fitting.adjustment, 0);
+  const report = renderer.report();
+  assert.deepEqual(report.measurements.fit_scale, {mode: 'fixed', applied: 1});
+  assert.deepEqual(report.warnings.filter(warning => warning.includes('size adjustment is ignored')).length, 1, 'the ignored adjustment is said once');
+  assert.ok(!report.warnings.some(warning => warning.startsWith('FIT SCALE: ')));
+  renderer.refit(); assert.equal(renderer.fitting.ready, true, 'refit keeps a fixed-size model visible');
 });
 
 test('manual size follows the fitted asset and guard while refit starts fresh without a size snap', () => {

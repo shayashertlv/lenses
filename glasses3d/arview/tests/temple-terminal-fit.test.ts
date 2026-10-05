@@ -4,11 +4,13 @@ import {readFile} from 'node:fs/promises';
 import {BoxGeometry, Euler, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Texture, Vector4} from 'three';
 import type {BufferGeometry, Material} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {SHIPPED_EYEWEAR, GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
+import {GLASSES_OFFSET_CM} from '../src/eyewear/catalog.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render/continuity.ts';
 import {protectionProjection} from '../src/render/protection.ts';
 import {createTempleTerminalFit, createTempleTerminalFitEvaluator, TEMPLE_HEAD_VOLUME, terminalFitSlope, terminalFitX, terminalReturn} from '../src/render/temple-terminal-fit.ts';
+import {publicFile, SHIPPED_MODELS} from './shipped-models.ts';
+import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 type Point = readonly [number, number, number];
 
@@ -39,10 +41,11 @@ function clearanceValue(point: Point, fitScale = 1): number {
   return ((Math.abs(x) + .3) / rx) ** 2 + (y / ry) ** 2 + (z / rz) ** 2;
 }
 
-for (const definition of Object.values(SHIPPED_EYEWEAR)) for (const fitScale of [.782, .8, 1, 1.242]) test(`${definition.name} at ${fitScale} fit: the drawn terminal band is contained, with the optical front and fixed baseline preserved`, async t => {
-  const bytes = await readFile(new URL('../public' + definition.assetUrl, import.meta.url));
+for (const definition of SHIPPED_MODELS) for (const fitScale of [.782, .8, 1, 1.242]) test(`${definition.displayName} at ${fitScale} fit: the drawn terminal band is contained, with the optical front and fixed baseline preserved`, async t => {
+  const bytes = await readFile(publicFile(definition.url));
   const gltf = await new GLTFLoader().register(() => ({name: 'TerminalFitGeometryOnly', loadTexture: async () => new Texture()}))
     .parseAsync(new Uint8Array(bytes).buffer, '/models/');
+  classifyAssetMaterials(gltf.scene, gltf);   // the class is decided at load, from the glTF JSON
   const resources = new Set<BufferGeometry | Material | Texture>();
   const meshes: Mesh[] = [];
   gltf.scene.traverse(object => {
@@ -53,13 +56,13 @@ for (const definition of Object.values(SHIPPED_EYEWEAR)) for (const fitScale of 
       for (const value of Object.values(material)) if (value instanceof Texture) resources.add(value);
     }
   });
-  const rear = createRearDrop(gltf.scene, definition.templeClipLocalZM);
+  const rear = createRearDrop(gltf.scene, definition.templeClipZM);
   t.after(() => {rear.dispose(); for (const resource of resources) resource.dispose();});
-  const continuity = buildTempleContinuityModel(gltf.scene, definition.templeClipLocalZM);
+  const continuity = buildTempleContinuityModel(gltf.scene, definition.templeClipZM);
   assert.ok(rear.hingeZM !== null, 'the actual asset supplies its own hinge');
-  const maximumZM = definition.templeClipLocalZM + .025;
+  const maximumZM = definition.templeClipZM + .025;
   const input = {offsetCm: definition.offsetCm, spreadM: .018,
-    spreadStartZM: rear.spreadStartZM, modelCutoffZM: definition.templeClipLocalZM, maximumZM};
+    spreadStartZM: rear.spreadStartZM, modelCutoffZM: definition.templeClipZM, maximumZM};
   const evaluate = createTempleTerminalFitEvaluator(gltf.scene, input), fit = evaluate(fitScale), unitFit = evaluate(1);
   assert.deepEqual(fit, createTempleTerminalFit(gltf.scene, {...input, fitScale}), 'the one-off API and cached original geometry agree');
   assert.ok(fit, 'both shipped frames support the fixed posterior return');

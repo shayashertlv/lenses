@@ -1,16 +1,13 @@
-/** How the crystal twin and the canonical lens compose the camera seen through them with their own reflection (v2 twin,
- *  v4 / v3 lens programs, 2026-09-30). Tom Ford FT1123-D review: v1 mixed the full camera into the crystal and Three
- *  added the room reflection on top, untone-mapped, so grazing rim walls read milky and the room's front panel clipped
- *  12 % of the crystal (and 10-13 % of the lens) to flat white. The actual driver compilation and pixels are the
- *  runtime harness's (ar/qa/provider-comparison.mjs --stage=ar); these checks pin the composition in the shader text. */
+/** How the crystal twin composes the camera seen through it with its own reflection (v2 twin, 2026-09-30). Tom Ford
+ *  FT1123-D review: v1 mixed the full camera into the crystal and Three added the room reflection on top, untone-mapped,
+ *  so grazing rim walls read milky and the room's front panel clipped 12 % of the crystal to flat white. The actual
+ *  driver compilation and pixels are the runtime harness's; these checks pin the composition in the shader text. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {BoxGeometry, Group, Material, Mesh, MeshPhysicalMaterial, PlaneGeometry, ShaderChunk, ShaderLib, UniformsUtils} from 'three';
 import type {WebGLRenderer} from 'three';
-import {LENS_APPEARANCE_EXTENSION} from '../src/eyewear/lens-appearance.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 import {REFLECTION_LIMIT_GLSL} from '../src/render/eyewear-reflection.ts';
-import {createCanonicalLensMaterial} from '../src/render/lens-material.ts';
 import {
   CAMERA_TRANSMISSION_TWIN_KEY, createCameraTransmissionTwin, createCameraTransmissionUniforms, TWIN_CLEARCOAT_LAYER,
 } from '../src/render/translucent-twin.ts';
@@ -25,20 +22,14 @@ function compile(material: Material) {
   return shader;
 }
 
-const appearance = {schema_version: 1, color_space: 'scene_linear_srgb_D65',
-  density_interpolation: 'piecewise_smoothstep_optical_density', vertical_coordinate: 'lens_local_bottom_0_top_1',
-  normal_reflectance_rgb: [1, 1, 1], refractive_index: 1.5, roughness: .065,
-  optical_density_keyframes: [{v: 0, optical_density_rgb: [.3, .4, .5]}], angular_reflectance_keyframes: null};
-
-/** A crystal front (frame role, the exporter's clearcoat) beside a canonical lens, classified as the renderer does. */
+/** A crystal front (frame role, the exporter's clearcoat) beside a native lens, classified as the renderer does. */
 function crystal(t: {after(fn: () => void): void}, parameters: ConstructorParameters<typeof MeshPhysicalMaterial>[0] = {}) {
-  const lens = new MeshPhysicalMaterial({transmission: 0});
-  lens.userData.gltfExtensions = {[LENS_APPEARANCE_EXTENSION]: {schema_version: 1, texcoord: 0, appearance}};
+  const lens = new MeshPhysicalMaterial({transmission: 1});
   const material = new MeshPhysicalMaterial({transmission: 1, ior: 1.49, roughness: .085, thickness: .0048, clearcoat: 1, clearcoatRoughness: .03,
     ...parameters});
   material.toneMapped = false;
   const lensMesh = new Mesh(new PlaneGeometry(.05, .04), lens), front = new Mesh(new BoxGeometry(.13, .04, .005), material);
-  lensMesh.userData = {partRole: 'lens', lensSurfaceProfile: 'front_sheet_v1'}; front.userData.partRole = 'frame';
+  lensMesh.userData = {partRole: 'lens'}; front.userData.partRole = 'frame';
   classifyAssetMaterials(new Group().add(lensMesh, front));
   const twin = createCameraTransmissionTwin(material, createCameraTransmissionUniforms());
   t.after(() => {twin.dispose(); material.dispose(); lens.dispose(); lensMesh.geometry.dispose(); front.geometry.dispose();});
@@ -94,21 +85,5 @@ test('a Three upgrade that moves a marker the twin needs fails at compile instea
     material.onBeforeCompile = shader => {shader.fragmentShader = shader.fragmentShader.replace(marker, '');};
     try {assert.throws(() => compile(twin), /pinned Three shader marker changed/, marker);}
     finally {material.onBeforeCompile = hook;}
-  }
-});
-
-test('the canonical lens adds its reflection through the limit against what it transmits', () => {
-  for (const effective of [false, true]) {
-    const material = createCanonicalLensMaterial(new MeshPhysicalMaterial(), appearance as never, effective ? 'group-a' : undefined);
-    const shader = {vertexShader: ShaderLib.physical!.vertexShader, fragmentShader: ShaderLib.physical!.fragmentShader, uniforms: {}};
-    material.onBeforeCompile(shader as CompileInput, {} as WebGLRenderer);
-    const fragment = shader.fragmentShader;
-    assert.ok(fragment.indexOf(REFLECTION_LIMIT_GLSL) >= 0 && fragment.indexOf(REFLECTION_LIMIT_GLSL) < fragment.indexOf('void main()'));
-    assert.ok(fragment.includes('vec3 canonicalThrough = canonicalResponse.transmission * canonicalBackground;'));
-    assert.ok(fragment.includes('gl_FragColor = vec4(canonicalThrough + eyewearReflectionLimit( canonicalResponse.reflectance * canonicalEnvironment, canonicalThrough, 0.0000, 0.8000 ),'),
-      'the lens\'s absolute knee (exact up to 0.8 linear in total, review AR-R2)');
-    assert.ok(!fragment.includes('+ canonicalResponse.reflectance * canonicalEnvironment, uCanonicalLayerMode'), 'the unlimited sum is gone');
-    assert.equal(material.customProgramCacheKey(), effective ? 'canonical-effective-group-transport-v4' : 'canonical-lens-layer-transport-v5');
-    material.dispose();
   }
 });

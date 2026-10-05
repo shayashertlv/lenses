@@ -1,7 +1,13 @@
 /** Cloned arm geometry, optical protection bounds and normal/tangent correction. The renderer uses a fixed
  *  lateral spread and posterior inward return, with zero vertical shear. Original buffers and material hooks stay
  *  untouched. The lower-level shear parameter remains available to geometry callers; it is never driven by pose.
- *  Every shape update restores the original storage and composes all offsets in one pass. */
+ *  Every shape update restores the original storage and composes all offsets in one pass.
+ *
+ *  The arms are the temples by position (temple-geometry.ts, WP1_DESIGN.md §3), whatever their opacity: every non-lens
+ *  material is frame, so crystal and alpha-blended arms deform like opaque ones, and lens-class geometry never does.
+ *  A side without a temple (nothing there reaches z <= -60 mm; hinge hardware alone is not a temple) has no arm: its
+ *  geometry stays fixed and protected, and the caller reports it. A model with no temple at all still builds (no arm,
+ *  everything protected) instead of refusing. */
 import {
   Box3, BufferAttribute, InterleavedBufferAttribute, MathUtils, Matrix4, Mesh,
   Vector3,
@@ -10,6 +16,7 @@ import type {BufferGeometry, Material, Object3D} from 'three';
 import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 import {isProfiledTemple, partVisibilityOf, validatePartVisibility} from '../eyewear/part-visibility.ts';
 import {TEMPLE_BLEND_LENGTH_LOCAL_M} from './temple-clip.ts';
+import {templeInventory} from './temple-geometry.ts';
 import {MAX_TERMINAL_INSET_M, terminalFitX, terminalFitSlope} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
 import {
@@ -26,9 +33,14 @@ interface GeometryRecord {
   clone: BufferGeometry;
   referenced: Uint8Array;
   fixed: Uint8Array;
-  opaque: Uint8Array;
+  /** Referenced by a non-lens (frame-class) material, whatever its opacity. */
+  frame: Uint8Array;
   lens: Uint8Array;
   arm: Uint8Array;
+}
+export interface RearDropOptions {
+  /** Which sides (0: x < 0, 1: x > 0) carry a temple; default: the temple inventory of `root` (temple-geometry.ts). */
+  readonly sides?: readonly [boolean, boolean];
 }
 interface MeshRecord {mesh: Mesh; geometry: GeometryRecord; toRoot: Matrix4}
 
@@ -101,12 +113,14 @@ function restoreAttribute(destination: Attribute, source: Attribute): void {
  * Owns cloned geometry only. Original buffers and material hooks remain untouched.
  * Bounds are root-local; the caller applies its asset/pose projection externally.
  */
-export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 0) {
+export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 0, options: RearDropOptions = {}) {
   const profiled = validatePartVisibility(root);
   if (!Number.isFinite(cutoffZM) || cutoffZM < -.2 || cutoffZM > -.03) throw new Error('The rear-drop endpoint is invalid.');
   if (!Number.isFinite(spreadPivotM) || spreadPivotM < SPREAD_PIVOT_RANGE_M.min || spreadPivotM > SPREAD_PIVOT_RANGE_M.max) {
     throw new Error('The arm-spread pivot is out of range.');
   }
+  const armSides: readonly [boolean, boolean] = options.sides ?? templeInventory(root).present;
+  const sideOf = (x: number): 0 | 1 => x < 0 ? 0 : 1;
   const records = new Set<GeometryRecord>();
   const ownership = new Map<BufferGeometry, Map<string, GeometryRecord>>();
   const meshes: MeshRecord[] = [];
@@ -128,13 +142,14 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       let record = owners.get(region);
       if (!record) {
         record = {original, clone: original.clone(), referenced: new Uint8Array(position.count), fixed: new Uint8Array(position.count),
-          opaque: new Uint8Array(position.count), lens: new Uint8Array(position.count), arm: new Uint8Array(position.count)};
+          frame: new Uint8Array(position.count), lens: new Uint8Array(position.count), arm: new Uint8Array(position.count)};
         owners.set(region, record); records.add(record);
       }
       const materials: Material[] = Array.isArray(object.material) ? object.material : [object.material];
       const index = original.getIndex();
       for (const [materialIndex, material] of materials.entries()) {
-        const lens = isOpticalMaterial(material), opaque = !lens && (!material.transparent || profile !== null);
+        // Every non-lens material is frame, whatever its opacity (crystal, alpha-blended): WP1_DESIGN.md §3.
+        const lens = isOpticalMaterial(material), frame = !lens;
         const groups = Array.isArray(object.material) ? original.groups.filter(group => group.materialIndex === materialIndex)
           : [{start: 0, count: index?.count ?? position.count}];
         for (const group of groups) for (let i = group.start; i < group.start + group.count; i++) {
@@ -143,16 +158,16 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
           const x = position.getX(vertex), y = position.getY(vertex), z = position.getZ(vertex);
           if (![x, y, z].every(Number.isFinite)) throw new Error('The rear-drop mesh contains invalid positions.');
           record.referenced[vertex] = 1;
-          if (!opaque || profile && !arm) record.fixed[vertex] = 1;
+          // A side without a temple has no arm: everything there stays fixed (and protected).
+          if (!frame || profile && !arm || !armSides[sideOf(x)]) record.fixed[vertex] = 1;
           if (arm) record.arm[vertex] = 1;
           if (lens) {record.lens[vertex] = 1; lensRearZM = Math.min(lensRearZM, z);}
-          if (opaque) record.opaque[vertex] = 1;
+          if (frame) record.frame[vertex] = 1;
         }
       }
+      // The §2 Transforms row (one load-time check at 1e-6, model/normalize.ts) leaves every mesh exactly identity
+      // relative to the asset root; the bounds still apply the matrix so a hand-built scene is measured where it is.
       const toRoot = rootInverse.clone().multiply(object.matrixWorld);
-      if (!toRoot.elements.every((value, index) => Math.abs(value - (index % 5 === 0 ? 1 : 0)) <= 1e-12)) {
-        throw new Error('Rear-drop curve thresholds require identity mesh transforms inside the asset root.');
-      }
       meshes.push({mesh: object, geometry: record, toRoot});
     });
     if (!Number.isFinite(lensRearZM)) throw new Error('Rear drop requires physical lens geometry to protect the optical front.');
@@ -163,7 +178,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
     for (const record of records.values()) {
       const p = record.original.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
-        if (record.opaque[i] !== 1 || record.fixed[i] === 1 || (profiled ? record.arm[i] !== 1 : Math.abs(p.getX(i)) <= REAR_DROP_PARAMETERS.lateralMinM)) continue;
+        if (record.frame[i] !== 1 || record.fixed[i] === 1 || (profiled ? record.arm[i] !== 1 : Math.abs(p.getX(i)) <= REAR_DROP_PARAMETERS.lateralMinM)) continue;
         const y = p.getY(i), slice = Math.floor(p.getZ(i) / HINGE_SLICE_M);
         const extent = extents.get(slice);
         if (extent) {extent.low = Math.min(extent.low, y); extent.high = Math.max(extent.high, y);}
@@ -195,19 +210,24 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
     let candidateArmBounds = [new Box3(), new Box3()];
     const eligible = (record: GeometryRecord, vertex: number): boolean => {
       const p = record.original.getAttribute('position');
-      return record.opaque[vertex] === 1 && record.fixed[vertex] === 0
+      return record.frame[vertex] === 1 && record.fixed[vertex] === 0
         && (profiled ? record.arm[vertex] === 1 : Math.abs(p.getX(vertex)) > REAR_DROP_PARAMETERS.lateralMinM && p.getZ(vertex) < deformableStartZM);
     };
+    // No eligible vertex (no temple on either side) is no longer a refusal: nothing deforms, everything is protected, and
+    // the caller has reported the missing temples (the §2 Orientation row fails on its own).
     let affectedVertexCount = 0;
-    for (const record of records.values()) for (let i = 0; i < record.opaque.length; i++) affectedVertexCount += Number(eligible(record, i));
-    if (!affectedVertexCount) throw new Error('The asset has no eligible posterior opaque shaft.');
+    const affectedBySide = [0, 0];
+    for (const record of records.values()) {
+      const p = record.original.getAttribute('position');
+      for (let i = 0; i < record.frame.length; i++) if (eligible(record, i)) {affectedVertexCount++; affectedBySide[sideOf(p.getX(i))]!++;}
+    }
     const point = new Vector3();
     for (const {geometry, toRoot} of meshes) {
       const p = geometry.original.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
         point.fromBufferAttribute(p, i).applyMatrix4(toRoot);
         // Protect every referenced point that the curve cannot deform, including
-        // proximal shafts, small-X pads/bridge and other transparent materials.
+        // proximal shafts, small-X pads/bridge, the lenses and a temple-less side.
         if (geometry.referenced[i] && !eligible(geometry, i)) opticalBounds.expandByPoint(point);
         if (eligible(geometry, i)) originalArmBounds[p.getX(i) < 0 ? 0 : 1]!.expandByPoint(point);
       }
@@ -271,7 +291,8 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       get candidateArmBounds(): Box3[] {return candidateArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get diagnostics() {
         return {method: 'temple-geometry-offsets-v1', dropM, spreadM, spreadStartZM, hingeZM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
-          fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, sourceGeometryCount: ownership.size, geometryPolicyCount: records.size,
+          fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, affectedVertexCountBySide: [...affectedBySide], armSides: [...armSides],
+          sourceGeometryCount: ownership.size, geometryPolicyCount: records.size,
           originalZPreserved: true, originalXPreserved: spreadM === 0 && terminalFit === null, opticalFrontPreserved: true,
           meshTransformIdentityChecked: true, protectionIncludesAllUndeformedReferencedVertices: true,
           interpretation: 'Model-space arm offsets and terminal return; production uses fixed lateral spread and zero vertical shear.'};
