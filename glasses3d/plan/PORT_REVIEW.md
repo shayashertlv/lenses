@@ -1083,3 +1083,397 @@ configs). They still import `automation/bsa` and `ar/node_modules` at runtime, w
 WP0 repointed their paths to `glasses3d/data/reference/` and reproduced make_uv_test's coverage exactly. Known
 prototype defects (do not port as is): `glbmesh.meshes()` ignores node transforms; `glbload` has no sparse-accessor or
 external-buffer support. The new host reader is `g3d_host/glb.py` (written fresh, tested).
+
+## 9. automation/bsa port (WP3b)
+
+Camera fitting for every reference view, copied into `g3d_host/` with tests (2026-10-05). Sources read in full:
+`automation/reconstruction/camera.py`, `automation/bsa/raster.py`, `automation/bsa/cameras.py`, `automation/bsa/core.py`
+(frame/camera contract), the six named helpers of `automation/bsa/texture.py`, and the prototype
+`plan/prototypes/projection/make_uv_test.py`. Targets: `g3d_host/camera.py`, `raster.py`, `cameras.py`, `matte.py`,
+`texture_utils.py`, `fitmesh.py`, and the driver `fit_views.py` (new). No module under `g3d_host/` or `g3d/` imports
+`automation`, `reconstruction`, `bsa`, `modeler` or `ar_v4`: `tests/test_camera_port.py::test_no_glasses3d_module_imports_automation`
+parses every `.py` in both trees (g3d is parsed, not imported: it runs inside Blender) and checks `sys.modules` after
+importing the seven WP3b modules. Legacy `reconstruction.camera.Camera` pickles are read by a restricted Unpickler
+(`camera.load_camera_pickle`) that maps only that class and refuses every other global.
+
+**Status (2026-10-05, review fixes applied): port done; $0 proof MEASURED (12-view table below); the owner's WP5
+registration threshold is NOT yet confirmed, so WP3b is not done.**
+
+### Verdicts per function
+
+`reconstruction/camera.py` -> `camera.py`
+
+| Function | Verdict | Reason |
+|---|---|---|
+| `Camera` (:20) | keep | Value class; field order kept so old pickles/JSON load. Added `from_dict`. |
+| `project` (:34) | keep | Verbatim (the arithmetic every fitted camera depends on). |
+| `render_mask` (:47) | drop | OpenCV polygon-fill renderer on `reconstruction.mesh.TriangleMesh`; superseded by `raster.RasterScene` (same pixel-centre convention, exact ray casting). |
+| `initial_camera` (:63), `fit_camera` (:74) | drop | The old single-start fitter; bsa never used it, `cameras.ViewFit` replaces it. |
+
+`bsa/core.py` -> `camera.py` (re-exported by `cameras.py`)
+
+| Function | Verdict | Reason |
+|---|---|---|
+| `NormFrame` (:86) | keep | Verbatim, plus `from_bbox` (bbox centre, largest side: the rule of bsa `generator.py:453` and modeler `observe.py:92`; it reproduces q001's fits.json frame exactly). Lives in `camera.py` so `raster.py` needs no import of `cameras.py`. |
+| `camera_from_dict` (:105), `px_per_mm` (:109), `project_mm` (:114) | keep | Verbatim. |
+| `PRODUCTS`, `Product`, `load_photo`, `StageDir`, `stage_dir`, `run_dir`, `sha256_file`, `VIEWS`, `FIT_VIEWS` | drop | The bsa product registry and stage-artifact layout under `automation/data`. `HELD_OUT_VIEWS` survives as a constant in `cameras.py`; glasses3d's own product table, `sha256_file` and photo loader are `fit_views.PRODUCTS`, `fit_views.sha256_file`, `matte.load_photo` (written fresh). |
+| `AUTOMATION`, `DATA`, `BSA_DATA` (+ `BSA_DATA_DIR` env), `GROUND_TRUTH`, `DETECTOR_WEIGHTS`, `_SEG`, `_PC`, `STAGES`, `_json_default`, `DEFAULT_FRONT_WIDTH_MM` | drop (registry/stage layout) | Path constants into `automation/data`, the S0..S7 stage list and its JSON encoder, and bsa's 140 mm fallback front width (no glasses3d code guesses a width; scale comes from the model). |
+
+`bsa/raster.py` -> `raster.py`: **keep, verbatim** (`camera_basis`, `camera_rays`, `_project_norm`, `grid_shape`,
+`pixel_grid`, `_roi`, `downsample_mask`, `mesh_key`, `RasterScene.cast/render`, `get_scene`, `clear_cache`, `render`,
+`view_camera`). Only the imports changed. open3d 0.20.0 (now pinned) renders bit-identical face ids, depths and hit points
+to open3d 0.19.0 (the prototype's) at the three FT1119 cameras, stride 1 and 4.
+
+`bsa/cameras.py` -> `cameras.py`
+
+| Function | Verdict | Reason |
+|---|---|---|
+| `Level` (:105) | keep | Verbatim. |
+| `_edge`, `_dist_to` | keep (+ evidence) | Verbatim arithmetic; a `cv2.error` is now re-raised as RuntimeError with the array's shape, dtype, contiguity and True count (`_describe`), see open items. |
+| `_pivot_terms`, `pack`, `unpack`, `align`, `_clip_into`, `powell` | keep | Verbatim. |
+| `yaw_window` | keep | Verbatim; `PRIOR_YAW` gained `top` 0, `topb` 180, `top_oblique_left` +90, `top_oblique_right` -90. |
+| `_bounds`, `contour_icp` | rewrite (minimal) | Optional `pitch_win` (default `PITCH_BOUNDS`, identical arithmetic) so the elevated side views get a positive-only pitch window. |
+| `ViewFit` (:380) | keep (+ additive kwargs) | Passes `pitch_window(view)` to the two functions above; `powell`/`staged` take an optional `pitch_win` override (default = the view's window, identical results) used only by `pitch_twin`. The side-twin set is `SIDE_VIEWS` = (left, right) as before. The run_starts key line was a mangled line continuation in the source (same tuple, re-wrapped); its yaw component now applies to `YAW_DISTINCT_VIEWS` = angled + the two elevated side views (bsa: angled only), see "Search changes" below. |
+| `ViewFit.final_losses` | keep | Same arithmetic, now in the module function `common_final_losses(fg, scene, cams, ignore_faces)`, which `fit_best` calls (tested: `test_final_losses_put_cameras_on_one_level`). |
+| `pitch_twin` (:814) | rewrite (re-ported) | Now `ViewFit.pitch_twin(cam)`, run by every `fit_view` (`result["sign"]`): refit at the fit level from (yaw, -pitch, roll) with `MAXFEV["twin"]` 120, as bsa, but with the pitch HELD on the opposite sign (`opposite_pitch_window`: +/-95 -> (-95, 0) or (0, 95); (5, 85) -> (-85, -5)), where bsa let the twin drift back to the winner's sign. margin = twin loss - own fit-level loss; `PITCH_TWIN_TIE` 0.005 kept for the "pitch_sign_ambiguous" flag, negative margin = "pitch_twin_better". Skipped below `PITCH_TWIN_MIN_DEG` 3. This is the sign-margin safety check the first port had dropped. |
+| `sign_test` (:796) | drop (safety check replaced) | It was the left/right yaw-sign margin of the side views. `fit_views` now fits BOTH sides fully for every 'side' label and keeps the lower common-level loss, reporting the loser's loss (FT1119 ref-03: 0.296 vs 0.717; Prada 01: 0.432 vs 0.693, 05: 0.194 vs 0.816), which is the same margin from full fits instead of coarse ones. |
+| `yaw_profile` (:824) | drop | The angled view's yaw-determinacy diagnostic; nothing in WP3b/WP5 reads it. Re-port with a test if a report needs it. |
+| `prior_seeds` | rewrite (extension) | Unchanged for front/back/left/right/angled. New: `top`/`topb` = the prototype's explicit reference-04 grid, same order (yaw 0/180 +/-6 x pitch +/-70/80/88), FOLLOWED by a camera-above band +45/55/62 (`TOP_LOW_PITCHES`, see "Search changes"); `top_oblique_*` = the prior yaw offsets x pitch 15, 20, 25..60 (56 seeds). Unknown views raise. |
+| `prior_seeds_near` | keep | Verbatim. |
+| `cross_seeds` | rewrite | `NOT_CROSS_SOURCES` = angled (held out), top, topb (near pitch 90 a yaw offset is not a turntable rotation) and top_oblique_* (a deliberately different camera height, not the shared elevation the rotated/mirrored seeds assume) are never sources; seeds outside the target's pitch window are dropped (a no-op for bsa's views). Called by `fit_views` for the angled view only, as bsa `fit_all` did. |
+| `_wrap_yaw` | rewrite | Every 180-prior view (back, topb) wraps to 0..360; bsa special-cased 'back' only. |
+| `native_metrics`, `contour_stats`, `px_per_mm_at`, `resized_camera` (:1045) | keep | Verbatim (`resized_camera` serves capture/crop tiles). |
+| new `pitch_window`, `opposite_pitch_window`, `common_final_losses`, `wrap_seeds`, `matte_roi`, `fit_view`, `fit_best` | new | `wrap_seeds` = fit_all's inline yaw-window filter. `fit_view` = make_uv_test.py's `fit()` + optional cross seeds (`N_CROSS_POWELL` 1) + the sign margin. **`n_refine` defaults to bsa's `N_COARSE_POWELL` = 3** (make_uv_test.py used 2; the repro test and the FT1119 refs 02/03/04 in `fit_views` pass 2 explicitly). `fit_best` fits every candidate and chooses on ONE common final level (`common_final_losses`, strict <), reporting both `loss` (own level) and `common_loss`; make_uv_test.py compared own-level losses, whose ROIs differ (measured: equal on all 18 candidate fits of the 12 references, because every ROI already contained its whole render; the common level matters only when an ROI clips a render, `test_fit_best_chooses_on_the_common_level_not_the_own_level`). |
+| `front_piece_centre`, `front_piece_faces`, `front_piece_scale` | drop | Read the S1 generator's result fields; the pivot now comes from `fitmesh.FitMesh.front_pivot`. |
+| `lens_faces`, `lens_coverage` | drop | Need S2 lens outlines and the generator. The lens-optional machinery itself (`Level.ignore_faces`, `ViewFit.set_ignore`, `native_metrics(ignore_faces=)`) is kept. |
+| `fit_all` | drop (schedule rewritten) | bsa's five-view schedule. Its order survives in `fit_views.fit_product`: every non-angled photo first (in parallel), then the angled photos with cross seeds from those winners. Its lens labelling (S2 outlines) is not ported. |
+| `run`, `_consistency`, `load_cameras`, `_cam_dict`, `_union_roi` | drop | bsa stage artifacts and `PRODUCTS` widths. |
+| `_font`, `overlay_tile`, `textured_tile`, `make_sheet`, `contact_sheet`, `iou_table`, `main` | drop | Sheets built on the generator texture and the bsa run layout (`fit_views` writes its own overlay PNGs). |
+| constants | rewrite | `PITCH_BOUNDS` (-40, 60) -> (-95, 95), see below. Kept: `N_COARSE_POWELL` 3 (fit_view's default), `N_CROSS_POWELL` 1 (cross seeds), `PITCH_TWIN_TIE` 0.005 and `MAXFEV["twin"]` 120 (`pitch_twin`). New: `TOP_LOW_PITCHES`, `YAW_DISTINCT_VIEWS`, `TOP_OBLIQUE_VIEWS`, `NOT_CROSS_SOURCES`. Dropped with their functions: `FRONT_IOU_MIN`, `VIEW_IOU_MIN`, `LOW_WEIGHT`, `YAW_PROFILE_DEG`, `YAW_SIGN_MIN_MARGIN`, `FP_SCALE_TOL`, `LENS_*`, `MAXFEV` fp/profile. |
+
+`bsa/texture.py` -> `texture_utils.py`: `de00` (:176), `quantile_gain` (:185, with `GAIN_*`), `rasterize_triangles`
+(:237), `nearest_fill` (:270), `sample_bilinear` (:383), `visible_points` (:1744) **keep, verbatim**; their
+dependencies `srgb_to_linear`, `linear_to_srgb`, `lab_of` and the inverse `apply_gain` **keep**. `WALL_MIN_COS` /
+`WALL_VIS_TOL_MM` are renamed `VIS_MIN_COS` / `VIS_TOL_MM` (same 0.15 / 0.5). The rest of texture.py (S7 generator
+bake, lens-like colour masks, `prepare_photo`, `sample_nearest`, erosion helpers, cap/wall bakes, inpainting,
+evaluation renders, sheets) is **not ported**: product/generator-specific. WP5 writes its own on these helpers.
+
+`make_uv_test.py` -> `matte.py`, `fitmesh.py`, `cameras.py`
+
+| Piece | Verdict | Reason |
+|---|---|---|
+| `matte()` (:46) | keep | Verbatim, its numbers as named defaults (border 10, threshold 18, open 1, close 2, components > 300 px); plus `background_model`, `load_photo`. Equal to the prototype's saved mattes for references 02-04 (tested). |
+| top/topb monkeypatch (:73-75) | rewrite | First-class priors (above). No monkeypatching anywhere. |
+| `fit()` (:78) | rewrite | `cameras.fit_view`; the candidate loop (:91-106) is `cameras.fit_best`. |
+| mesh assembly + front pivot (:25-39) | rewrite | `fitmesh.load_fit_mesh` (GLB via `g3d_host/glb.py`, metres -> mm, skip by node-name substring, NormFrame given or from the bbox) and `FitMesh.front_pivot` (named parts, or the faces within 12 mm of the front). V, F, part ids and the pivot are bit-identical to the prototype's on q001 (tested). Differences, both deliberate: (1) `front_pivot` raises when ANY requested name is missing (the prototype's `names.index` did too; the first port raised only when none matched, so on a differently named GLB the pivot could silently shrink to e.g. the lens bbox); (2) `part_ids` takes every primitive of a node name, the prototype only the first (identical on q001, where every front name is one primitive: tested). The geometric fallback is new code: on q001 it lands 0.42 mm behind the named pivot (x, y exact; it also takes the pads, pad mounts and front hinges), tested. |
+| strip unroll / atlas (:116-241) | not ported | WP5 (projection) material. |
+
+### PITCH_BOUNDS is part of the result
+
+The prototype set `PITCH_BOUNDS = (-95, 95)` before fitting ANY view, so the back and side reference cameras were
+fitted under it too. The bounds shape `contour_icp`'s `least_squares` trust region even when no bound is active: the
+original bsa code with its own (-40, 60) moves the reference-02 rear camera by 0.71 px (centre_y) and 0.055 deg (pitch)
+away from the prototype's camera (measured in the venv, where the same fit under +/-95 matches it to 4e-7). glasses3d therefore uses +/-95 for every view; `PITCH_WINDOWS` narrows only the new
+`top_oblique_*` views to (5, 85).
+
+### Search changes made in the review-fix pass (measured, venv)
+
+The review asked for harder synthetic tests: a top photo off the seed grid, a top photo with roll, and an elevated
+side fitted from the full prior at a pitch between seeds. The first port failed them. Two changes fixed them, each
+with its measurement:
+
+| Change | Why | Synthetic test glasses | Real photos |
+|---|---|---|---|
+| `TOP_LOW_PITCHES` = +45/55/62 appended to top/topb, after the prototype grid (camera above only) | Every real top photo sits below the prototype's +70..88 grid: FT1119 04 at +59.9, Prada 03 at +54.4. | Top at +60 fitted from the grid alone: pitch 77.7, IoU 0.46. With the band: IoU 0.9999. | FT1119 04: loss 0.18902 (grid alone: 0.18893), camera within 0.06 deg of the prototype pickle; under scipy 1.16.0 loss 0.18927 vs 0.18902, within 0.21 deg. Same basin either way (tested). Prada 03: loss 0.2313 vs 0.2322. |
+| `YAW_DISTINCT_VIEWS`: the two elevated side views join 'angled' in the yaw part of the start-pick key | The label fixes the side and the height band but not the yaw offset. Keyed on pitch alone, only one yaw per height was refined. | Elevated side at pitch 18 from the full prior: perspective 0.037 vs 0.12, IoU 0.869. With the change: IoU 0.997. | FT1119 06: loss 0.3204 -> 0.3136, IoU 0.7079 -> 0.7141, contour 1.08 -> 1.05 mm. |
+
+The yaw-distinct key is NOT applied to left/right (measured). With it, FT1119 03 ends in another basin: yaw -90.9,
+loss 0.3036 vs 0.2961, IoU 0.728 vs 0.739, but contour 1.07 vs 1.44 mm. Prada 01 and 05 are unchanged. The side search
+stays bsa's, because it is the reproduction anchor. Two residuals remain, each asserted as measured:
+- The synthetic side at pitch 18 fails the same way with the 'left' prior (open item 4).
+- The synthetic top at +62 with a 9 deg roll reaches IoU 0.973, with yaw/pitch/roll within 0.6/0.2/0.7 deg. Roll
+  seeds are always 0.
+
+### Reproduction proof (tests/test_cameras_repro.py)
+
+The test runs the production path: `cameras.fit_best` per reference with `n_refine=2`, make_uv_test.py's value.
+- ref-02 runs `[('back', None)]` and ref-03 runs `[('right', None), ('left', None)]`, both on `prior_seeds` unchanged.
+- ref-04 runs top/topb on the first 18 seeds of `prior_seeds(view)`. Those 18 are exactly make_uv_test.py's explicit
+  grid (asserted).
+- A fourth job fits ref-04 'top' from the FULL production prior, band included. It must land in the prototype's basin:
+  within the cross-version tolerance, and with a loss at most 0.001 above the prototype's.
+
+The photos are read from the sha256-checked `data/reference/ft1119/` (`fit_views.reference_files`). The four
+`fit_best` calls run in parallel worker processes: 198 s in the venv, 208 s under host Python (2026-10-05). Set
+`G3D_REPRO_WORKERS=1` to run them sequentially. The band job gives loss 0.18902 in the venv and 0.18927 under scipy
+1.16.0; the prototype's own loss is 0.18902.
+
+| Interpreter | ref-02 back | ref-03 right | ref-04 top | Cameras vs the prototype's pickles |
+|---|---|---|---|---|
+| venv: numpy 2.5.3, scipy 1.18.1, open3d 0.20.0 | IoU 0.8970, contour 5.458 px | IoU 0.7389, 11.453 px | IoU 0.8304, 5.259 px | ref-02 within 4e-7; ref-03 off by up to 0.09 deg / 2.4 in scale (0.22 %) / 1.07 px; ref-04 off by up to 0.19 deg / 0.34 px. Equal to the original bsa code in the venv to 1e-6 (golden). |
+| host Python: numpy 2.3.1, scipy 1.16.0, open3d 0.19.0 (the prototype's) | IoU 0.8970, 5.458 px | IoU 0.7382, 11.474 px | IoU 0.8302, 5.244 px | **all 21 fields within 1e-6**; IoU/contour/losses identical. Re-run on the final `fit_best` + `prior_seeds` path in this pass: 6 passed, 1 skipped (the venv golden, by fingerprint) (`py -3.12 -m pytest tests/test_cameras_repro.py`). |
+| venv numpy 2.5.3 + open3d 0.20.0 with scipy 1.16.0 overlaid (first port) | IoU 0.8970, 5.458 px | IoU 0.7382, 11.474 px | IoU 0.8302, 5.244 px | **all within 1e-6** |
+
+**The bit-exact tests run only on a recorded fingerprint.** The fingerprint is: CPU model, core count, numpy version
+and BLAS build, scipy version and BLAS/LAPACK builds. Recorded ones:
+- `PROTOTYPE_FINGERPRINTS`: host Python (numpy 2.3.1 / OpenBLAS 0.3.29, scipy 1.16.0 / OpenBLAS 0.3.28); and the venv's
+  numpy with scipy 1.16.0 overlaid.
+- `VENV_FINGERPRINTS`: numpy 2.5.3 / OpenBLAS 0.3.34.106.0, scipy 1.18.1 / OpenBLAS 0.3.31.dev.
+
+All were recorded on the Intel Core Ultra 9 285H with 16 logical cores. Anywhere else the exact tests skip and name
+the differing keys.
+
+These portable gates run everywhere:
+- the chosen views, with loser margins of at least 0.1 on the own levels AND on the common level;
+- the cross-version tolerance (0.5 deg, perspective 0.02, scale 0.5 %, centre 2 px, IoU 0.003, contour 0.1 px);
+- the band-basin check.
+
+Pinning scipy==1.16.0 is the orchestrator's decision. Nothing downstream needs prototype bits: the drift is 0.34-1.07
+px, against 5-11 px of contour error.
+
+Why the venv differs: scipy 1.18.1's `least_squares` returns a different step (about 1e-8 deg) on the very first
+contour-ICP call of the reference-03 fit, with bit-identical inputs. Traced: 203 identical loss evaluations, then the
+first `least_squares` call differs. Its finite-difference step code (`_numdiff`) and its bundled OpenBLAS changed; the
+trf/least_squares Python code did not. The fit's discrete accept/reject decisions amplify that.
+
+### Reference data and the driver (`g3d_host/fit_views.py`, new code)
+
+**Reference data.** `python -m glasses3d.g3d_host.fit_views import <product> --job-dir <job> --model <glb>` copies the
+six photos and the model into `glasses3d/data/reference/<product>/` (git-ignored, verified with `git check-ignore`). It
+checks every photo against the job.json's own sha256 and writes `manifest.json`: sha256, size, PLAN §5 label and source
+of every file. The job.json view labels are ignored (PLAN §0.3).
+
+| Product | Source | model.glb |
+|---|---|---|
+| ft1119 | job d4b716a6 | quality-001, sha af6e9d10…, = `projection/q001.glb` = job 3b8a1c7a `original/model.glb` |
+| prada | job 8c82d986 | the delivery, sha 975ebe34… |
+
+`fit_views.reference_files` re-hashes every file on each call:
+- no manifest -> `ReferenceDataMissing` (tests skip);
+- manifest present, file missing or changed -> `ReferenceDataError`: the tests FAIL, they never skip.
+
+The repro and matte tests now read from there. Nothing in glasses3d reads `automation/data` except the explicit
+`import` command.
+
+**Mapping from PLAN §5 labels to candidate views** (`LABEL_CANDIDATES`; `fit_best` keeps the lower common-level loss):
+
+| §5 label | Candidate views |
+|---|---|
+| front | front |
+| rear | back |
+| side | right, left |
+| top | top, topb |
+| elevated side | top_oblique_left, top_oblique_right |
+| angled | angled |
+
+**Schedule (bsa `fit_all`'s order):**
+1. Every non-angled photo, in parallel worker processes.
+2. The angled photos, which also receive `cross_seeds` from step 1's winners. `NOT_CROSS_SOURCES` excludes top, topb
+   and top_oblique_*.
+
+**Sign rule.** A 'top' or 'elevated side' winner with pitch <= 0 is `status: refused`, with the reason recorded.
+Projecting a camera below the glasses would paint photo colours onto undersides. Every fit also reports its
+`pitch_twin` sign margin. The top views keep the prototype's signed seeds and +/-95 window, because that is what
+reproduces reference-04, so this refusal is the guard instead of a (0, 95) window.
+
+**mm.** mm = px / `px_per_mm_at(camera, frame, front pivot)`, bsa's `contour_mean_mm` convention.
+
+**n_refine.** The default is `N_COARSE_POWELL` 3. FT1119 02/03/04 use 2, to keep the prototype cameras as WP5's.
+
+**Mesh setup per product:**
+- FT1119: front pivot from `PROTOTYPE_FRONT_PARTS`; skips `PROTOTYPE_SKIP`.
+- Prada: front pivot from the 'Front | continuous milled acetate' part plus the two lens parts; skips the 7 decals
+  (gold hallmarks and ribbons, the lens etch).
+
+**Outputs.** Since the generic driver landed (next subsection), `fit` is `fit_views()` on the product's
+sha256-checked files: `cameras.json` (one record per photo) and one overlay PNG per photo (matte edge green, render
+edge magenta, both thickened with the image size) in `--out-dir` (default `data/out/wp3b/<product>/`); `--out` also
+writes the JSON at that path. The first port wrote per-photo JSON files plus `summary.json`; the files from that run are
+still in `data/out/wp3b/<product>/`. Runtime with 5 workers: FT1119 about 4-6.5 min, Prada about 7-7.5 min.
+
+`data/out/wp3b/ref06_top_oblique.json` first came from a script that is not in the repo. It is now regenerated by the
+committed driver:
+
+```
+python -m glasses3d.g3d_host.fit_views fit ft1119 --only reference-06.png \
+  --candidates reference-06.png=top_oblique_left,top_oblique_right,left \
+  --out glasses3d/data/out/wp3b/ref06_top_oblique.json --out-dir glasses3d/data/out/wp3b/ref06
+```
+
+| View | Loss | IoU | Contour | Camera |
+|---|---|---|---|---|
+| top_oblique_left | 0.31357 | 0.7141 | 5.00 px = 1.05 mm | yaw 89.98, pitch 18.89 |
+| left (bsa's picks) | 0.32041 | 0.7079 | 5.12 px = 1.08 mm | yaw 89.28, pitch 18.81, the old file's result |
+| top_oblique_right | 0.72338 | 0.3702 | 13.57 px | |
+
+### Generic driver `fit_views()` and the cameras.json run (2026-10-05, `data/wp3b/`)
+
+`fit_views(glb_path, images: {name: path}, views: {name: view kind}, out_dir, *, skip, front_parts, candidates,
+n_refine, workers)` fits a camera for every photo given (no product table, no manifest) and writes
+`out_dir/cameras.json` plus `overlay_<stem>.png` per photo. The product path `fit_product` now calls it, so there is one
+scheduler. Nothing was ported from bsa for it; the verdicts below are against the first port's driver and bsa `fit_all`.
+
+| Function | Verdict | Reason |
+|---|---|---|
+| `fit_views` | new | The generic entry point. It validates everything before any fit (one kind per image, files exist, kinds and candidate views known, `n_refine` names known, overlay stems unique) and runs bsa `fit_all`'s order: non-angled photos in parallel, then angled photos with `cross_seeds` from those winners. It lifts the per-model data into one `model` block and raises if two worker processes loaded different meshes. |
+| `fit_image` | rewrite of the first port's `fit_reference` | Takes a GLB path, a photo path and a kind instead of a product key. It adds `contour_p90_px/mm`, both directed contour means, the metrics `roi` and the image sha256. An empty matte raises (it used to crash inside the fit). The kind's pitch sign is checked even when `candidates` overrides the views. |
+| `VIEW_KINDS`, `view_candidates`, `kind_pitch_sign` | new | The §5 labels (ambiguous ones expand: side -> right, left; top -> top, topb; elevated side / top-oblique -> top_oblique_left, top_oblique_right; rear -> back), plus every exact `cameras.VIEWS` name as a single candidate. Case, '_' and '-' are ignored. The sign is +1 when every candidate is a top/top-oblique view, which reproduces `LABEL_PITCH_SIGN` (tested). |
+| `contour_summary` | new | `cameras.contour_stats` arithmetic plus p90 and both directed means. It equals `contour_stats` and `native_metrics` bit for bit on the same masks (tested). |
+| `overlay_image` | rewrite of `_overlay` | Same colours. Edges are thickened by 1 px per ~700 px of the longer image side, because the 1 px edges disappeared in a downscaled view. |
+| `fit_product` | rewrite | Now `fit_views` on the manifest-checked files with the product table's skip, front parts and `n_refine`. |
+| `write_outputs`, `_candidate_record` fields `loss_own_level` | drop / renamed | `cameras.json` replaces the per-photo JSON files and `summary.json`. `loss` is the own final-level loss, `loss_common_level` the choice criterion. |
+| `reference_files`, `import_references`, `sha256_file`, `load_mesh`, `sign_check`, `_parse_candidates` | keep | Unchanged behaviour; `sign_check` now takes any kind. |
+
+CLI: `python -m glasses3d.g3d_host.fit_views views --glb <glb> --out-dir <dir> --image KIND=PATH ... [--skip ...]
+[--front-parts ...] [--n-refine N NAME=N ...] [--candidates NAME=v1,v2] [--workers N]`. Each photo is named by its
+file name. The commands of this run, from the repository root (`J=automation/data/blender_agent/studio/jobs`; the
+`n_refine` 2 overrides keep the prototype cameras; Prada's references 01 and 02 are `.webp` in the job, not `.png`):
+
+```
+glasses3d/.venv/Scripts/python -B -m glasses3d.g3d_host.fit_views views \
+  --glb glasses3d/data/reference/projection/q001.glb --out-dir glasses3d/data/wp3b/ft1119 \
+  --image angled=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-01.png \
+  --image rear=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-02.png \
+  --image side=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-03.png \
+  --image top=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-04.png \
+  --image front=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-05.png \
+  --image "elevated side=$J/d4b716a6afc445f89cbed8beddad4c37/images/reference-06.png" \
+  --skip inner_brand_print TOM_FORD medallion \
+  --front-parts Brow_Left Brow_Right Eyewire_Left Eyewire_Right Lens_Left Lens_Right Saddle_bridge \
+  --n-refine reference-02.png=2 reference-03.png=2 reference-04.png=2 --workers 5
+glasses3d/.venv/Scripts/python -B -m glasses3d.g3d_host.fit_views views \
+  --glb $J/8c82d986e6c14d26b4b38f3807712ea0/agent/ar/prada-pr17ws-delivery-3e3ac97b/model.glb \
+  --out-dir glasses3d/data/wp3b/prada \
+  --image side=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-01.webp \
+  --image angled=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-02.webp \
+  --image top=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-03.png \
+  --image front=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-04.png \
+  --image side=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-05.png \
+  --image rear=$J/8c82d986e6c14d26b4b38f3807712ea0/images/reference-06.png \
+  --skip hallmark etch ribbon --workers 5 \
+  --front-parts "Front | continuous milled acetate" "Lens left | closed 49 x 36 mm" "Lens right | closed 49 x 36 mm"
+```
+
+Runtime, both runs concurrent on 16 logical cores: FT1119 394 s, Prada 447 s. `fit ft1119 --only reference-05.png`
+through `fit_product` gives the same camera, IoU and p90 as the generic run (checked).
+
+Test: `tests/test_fit_views_synthetic.py`. It writes the procedural glasses of `test_cameras_fit` as a GLB (Front +
+two temples + two lens discs) and renders a front, a 'side' (the glasses' left side, yaw +88) and an angled photo on a
+grey gradient. `fit_views` with `front_parts=("Front",)` must then:
+- reach IoU > 0.97, contour < 1.5 px and yaw/pitch within 1.5 deg on all three;
+- give px/mm at the pivot within 3 % of the true camera's;
+- choose 'left' over 'right' by a common-level loss margin > 0.1;
+- feed cross seeds from front + left to the angled photo;
+- write overlays of the photo's size.
+
+The lens discs are required. The matte fills closed rims, so rims without lenses never match: at the true camera the
+front IoU was 0.45.
+
+**Result: identical cameras.** On all 12 photos the cameras equal those of the `fit` run in
+`data/out/wp3b/<product>/` (max field difference 0.0), so the table in the next subsection stands. The run added these
+measurements:
+
+| Reference | Kind | Chosen view (winning start) | Common loss | Losing candidate (loss / IoU) | IoU | Contour mean px | px/mm | **mm** | p90 px / mm | render->photo / photo->render mean mm |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FT1119 01 | angled | angled (prior) | 0.1485 | - | 0.870 | 3.79 | 4.77 | **0.79** | 8.9 / 1.87 | 0.81 / 0.77 |
+| FT1119 02 | rear | back (prior) | 0.1198 | - | 0.897 | 5.46 | 7.97 | **0.68** | 12.2 / 1.53 | 0.68 / 0.69 |
+| FT1119 03 | side | right (prior+pitch_twin) | 0.2961 | left 0.717 / 0.383 | 0.739 | 11.45 | 7.94 | **1.44** | 48.9 / 6.16 | 2.05 / 0.84 |
+| FT1119 04 | top | top (prior) | 0.1890 | topb 0.341 / 0.698 | 0.830 | 5.26 | 7.60 | **0.69** | 14.0 / 1.84 | 0.61 / 0.77 |
+| FT1119 05 | front | front (prior) | 0.1166 | - | 0.902 | 3.19 | 4.81 | **0.66** | 7.0 / 1.46 | 0.64 / 0.68 |
+| FT1119 06 | elevated side | top_oblique_left (prior) | 0.3136 | top_oblique_right 0.723 / 0.370 | 0.714 | 5.00 | 4.78 | **1.05** | 13.4 / 2.81 | 1.09 / 1.01 |
+| Prada 01 | side | right (prior) | 0.4321 | left 0.693 / 0.559 | 0.693 | 44.26 | 7.93 | **5.58** | 163.3 / 20.60 | 4.55 / 6.62 |
+| Prada 02 | angled | angled (prior) | 0.1362 | - | 0.894 | 11.04 | 8.73 | **1.27** | 36.3 / 4.16 | 1.66 / 0.87 |
+| Prada 03 | top | top (prior) | 0.2313 | topb 0.324 / 0.728 | 0.803 | 9.51 | 7.66 | **1.24** | 25.5 / 3.33 | 0.86 / 1.62 |
+| Prada 04 | front | front (prior) | 0.0284 | - | 0.979 | 1.95 | 7.55 | **0.26** | 4.5 / 0.59 | 0.26 / 0.26 |
+| Prada 05 | side | left (prior) | 0.1940 | right 0.816 / 0.349 | 0.852 | 13.58 | 6.82 | **1.99** | 28.8 / 4.22 | 2.42 / 1.56 |
+| Prada 06 | rear | back (prior) | 0.2890 | - | 0.778 | 18.38 | 6.65 | **2.76** | 76.0 / 11.43 | 1.42 / 4.11 |
+
+The directed means separate the two causes: render -> photo large means the model shows something the photo does not;
+photo -> render large means the matte holds something the model lacks. Read from the overlays
+(`data/wp3b/<product>/overlay_*.png`):
+- **FT1119 03 (render -> photo 2.05 mm):** at yaw -73.6 the render shows the far temple below the near one; the photo
+  hides it. The fit buys the photo's visible lens width with yaw. The brow's front top also sits about 4 mm higher in
+  the photo than in the render.
+- **FT1119 04 and 06:** the model's temple tips differ in length from the photo's by about 3.7 mm (04, shorter) and
+  about 5 mm (06, longer). 04 misses the nose pads above the bridge and the hinge screws (photo-only).
+- **Prada 01 (photo -> render 6.62 mm):** the matte keeps the floor reflection and fills the gap between the temples;
+  the far temple's tip also ends about 15 mm from the photo's.
+- **Prada 06 (photo -> render 4.11 mm):** the matte keeps the lenses' floor reflections, and the render's right temple
+  swings about 24 mm inward relative to the left one. The model's temples are not in the photo's articulation, which
+  pulls the yaw to 187.3.
+- **Prada 02, 03, 05:** the far or near temple's shape and depth differ (the faceted temples, WP6). 03's matte also
+  takes the soft shadows beside the temples and below the front.
+
+### WP3b $0 proof: all 12 references (measured 2026-10-05, venv, `fit_views fit ft1119|prada`)
+
+Column notes:
+- mm values are per px/mm at the front pivot.
+- "p95" is the larger of the two directed 95th percentiles.
+- "outer" is the contour with holes filled on both masks.
+- "Sign margin" is the pitch_twin loss minus the own fit-level loss.
+
+| Reference | §5 label | Chosen view | IoU | Contour mean px | **mm** | p95 px / mm | Outer mean mm | px/mm | yaw / pitch / roll / persp | Sign margin |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FT1119 01 | angled | angled | 0.870 | 3.79 | **0.79** | 11.2 / 2.34 | 0.79 | 4.77 | 30.1 / 18.1 / -1.0 / 0.070 | +0.756 |
+| FT1119 02 | rear | back | 0.897 | 5.46 | **0.68** | 14.6 / 1.83 | 0.68 | 7.97 | 179.9 / 9.8 / -0.0 / 0.216 | +0.441 |
+| FT1119 03 | side | right | 0.739 | 11.45 | **1.44** | 95.5 / 12.03 | 1.44 | 7.94 | -73.6 / 3.3 / 1.6 / 0.446 | +0.161 |
+| FT1119 04 | top | top | 0.830 | 5.26 | **0.69** | 22.9 / 3.01 | 0.69 | 7.60 | 0.0 / 59.9 / 0.0 / 0.178 | +0.869 |
+| FT1119 05 | front | front | 0.902 | 3.19 | **0.66** | 8.7 / 1.80 | 0.66 | 4.81 | 0.0 / 18.4 / -0.1 / 0.051 | +0.835 |
+| FT1119 06 | elevated side | top_oblique_left | 0.714 | 5.00 | **1.05** | 17.0 / 3.56 | 1.05 | 4.78 | 90.0 / 18.9 / -1.1 / 0.167 | +0.044 |
+| Prada 01 | side | right | 0.693 | 44.26 | **5.58** | 203.9 / 25.73 | 5.37 | 7.93 | -92.9 / 11.0 / -0.4 / 0.135 | +0.040 |
+| Prada 02 | angled | angled | 0.894 | 11.04 | **1.27** | 80.0 / 9.17 | 0.98 | 8.73 | 31.4 / 10.4 / 0.6 / 0.172 | +0.214 |
+| Prada 03 | top | top | 0.803 | 9.51 | **1.24** | 61.6 / 8.04 | 1.24 | 7.66 | 0.0 / 54.4 / 0.1 / 0.337 | +0.776 |
+| Prada 04 | front | front | 0.979 | 1.95 | **0.26** | 6.0 / 0.79 | 0.26 | 7.55 | 0.0 / 10.4 / 0.0 / 0.087 | +0.070 |
+| Prada 05 | side | left | 0.852 | 13.58 | **1.99** | 110.4 / 16.20 | 1.40 | 6.82 | 90.7 / 13.2 / 1.3 / 0.223 | +0.047 |
+| Prada 06 | rear | back | 0.778 | 18.38 | **2.76** | 96.7 / 14.54 | 2.76 | 6.65 | 187.3 / 6.3 / 1.0 / 0.081 | +0.064 |
+
+The losing candidates (own = common level, loss / IoU):
+- FT1119 03: left 0.717 / 0.383.
+- FT1119 04: topb 0.341 / 0.698, at pitch -57.2, a camera below.
+- FT1119 06: top_oblique_right 0.723 / 0.370.
+- Prada 01: left 0.693 / 0.560.
+- Prada 03: topb 0.324 / 0.728, again at pitch -57.2.
+- Prada 05: right 0.816 / 0.349.
+
+Refusals: 0. Flags: none. On all 18 candidate fits the common-level loss equals the own-level loss, because every ROI
+already contained its whole render.
+
+How to read it:
+- **FT1119 (WP5's product):** mean contour 0.66-1.44 mm, median 0.74 mm. p95 is 1.8-3.6 mm, except ref-03 at 12.0 mm.
+  - ref-03's p95: the render shows the far (left) temple below the near one at yaw -73.6. The photo, a true side view,
+    hides it.
+  - A second basin at yaw -90.9 has the better contour (1.07 mm) but the higher loss (0.3036 vs 0.2961). The silhouette
+    loss cannot separate the two, because the model differs from the photo.
+  - The ref-01 and ref-05 cameras are now refitted in glasses3d. The prototype's "earlier probe" pickles had IoU
+    0.869 / 0.898; the refits reach 0.870 / 0.902.
+- **Prada (WP6's product):** front 0.26 mm, angled 1.27, top 1.24, but side 01 5.58 mm, side 05 1.99 and rear 2.76.
+  The overlays (`data/out/wp3b/prada/overlay_*.png`) show two causes:
+  1. On these white, reflective-floor shots the prototype matte keeps the floor reflections: in 01, 32k of the 117k
+     photo-only px lie below the entire render; in 05, 3.5k of 26k; in 06, the lens reflections. In 01 it also fills
+     the closed region between the two temples.
+  2. The delivered temples do not match the photos (the known WP6 failure). A temple mismatch also pulls the side and
+     rear cameras: 06 sits at yaw 187.3.
+
+  So Prada's side and rear numbers measure the matte and the model as much as the camera.
+
+**Owner question (blocks "WP3b done"):** what registration threshold should WP5 stop on? The measured FT1119 baseline
+is a mean silhouette contour error of 0.66-1.44 mm per view (median 0.74 mm), with p95 1.8-3.6 mm on five views.
+
+### Open items
+
+1. **The owner's WP5 threshold** (above).
+2. **The matte on white, reflective-floor backgrounds** (Prada 01/05/06, partly 03). It needs a matte that drops floor
+   reflections and does not fill between overlapping temples. Until then, Prada's side and rear registration numbers
+   are upper bounds. This is new design work, not part of the port.
+3. **FT1119 ref-03 has two near-equal basins** (yaw -73.6 vs -90.9, above). WP5 should weigh ref-03's right-temple
+   texels with that in mind.
+4. **Synthetic side at pitch 18 with the left/right prior** ends in a perspective basin (IoU 0.869). Adding left/right to
+   `YAW_DISTINCT_VIEWS` fixes the synthetic but moves FT1119 03 to the other basin above: an orchestrator decision.
+5. **One unexplained cv2.error** in `test_contour_stats_and_downsample_mask`, seen once under CPU load with no traceback.
+   - Not reproduced: the reviewer ran 27,000 calls in 9 threads with 0 errors, and no recurrence in this pass.
+   - `_edge`/`_dist_to` now re-raise any `cv2.error` with the array description (tested).
+   - If it recurs, run pytest with `-rA` and keep the message.
+6. **scipy pin** (see the reproduction proof).
+7. **For WP6:** the Prada side and rear cameras are fitted against the delivered (wrong) temples. Before tracing the
+   temples through them, consider fitting those views with the temple faces optional (`ViewFit.set_ignore`, kept from
+   bsa). That is WP6's call.

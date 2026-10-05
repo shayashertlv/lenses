@@ -1,9 +1,15 @@
 # glasses3d host venv (Python 3.12): py -3.12 -m venv glasses3d/.venv && glasses3d/.venv/Scripts/python -m pip install -r glasses3d/requirements.txt
 # Pinned to the versions verified in WP0 (2026-10-05). PyPatchMatch 2.0.1 ships a Windows wheel (verified: inpaint works).
 numpy==2.5.3
-scipy==1.18.1
+scipy==1.16.0   # 1.16.0: reproduces the prototype camera fits to 1e-6 (1.18.1 drifts up to 0.19 deg; WP3b)
 opencv-python==5.0.0.93
 scikit-image==0.26.0
 pillow==12.3.0
 pypatchmatch==2.0.1
+# WP3b camera fitting: ray-cast renderer (g3d_host/raster.py). Renders are bit-identical to open3d 0.19.0 (verified).
+# Note: g3d_host/cameras.py results depend on the scipy build (least_squares) and the BLAS kernels the CPU selects; the
+# FT1119 prototype cameras were fitted under scipy 1.16.0 and reproduce to 1e-6 only there. tests/test_cameras_repro.py
+# gates its two bit-exact tests on recorded fingerprints (plan/PORT_REVIEW.md section 9); the drift elsewhere is
+# 0.34-1.07 px, against 5-11 px contour error.
+open3d==0.20.0
 pytest==9.1.1

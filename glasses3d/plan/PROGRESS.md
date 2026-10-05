@@ -8,8 +8,10 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP | State | Commit |
 |---|---|---|
 | WP0 | **done, $0 proof passed** | (this commit; see git log) |
-| WP1 | next: analysis running (read-only) | - |
-| WP3, WP3b, WP4, WP5, WP6, WP2, WP7, WP8 | not started | - |
+| WP1 | in progress: stage A committed (1870359); stages B-D2 running (workflow g3d-wp1-arview-runtime) | 1870359 (stage A) |
+| WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
+| WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
+| WP4, WP5, WP6, WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
@@ -67,3 +69,61 @@ WP3 groundwork found while WP0 ran (not yet committed; lands with WP3):
 
 Next step: WP1 (arview). The WP1 read-only analysis workflow (per-file fork verdicts, throw-site classification,
 lens-id and capture design) is running.
+
+## 2026-10-05 (later): WP1 / WP3 / WP3b in parallel (state for a resuming session)
+
+- WP1 analysis (14 agents) -> `plan/port_review/arview.json`, PORT_REVIEW §7, binding decisions in `plan/WP1_DESIGN.md`.
+  Stage A (verbatim copy, 135 files kept, 93 dropped) committed 1870359; `npm ci` done in `glasses3d/arview`; baseline was
+  19 TS errors (imports of dropped modules). Stages B (build), C (lens id), D1 (load front-end + acceptance policy), D2
+  (temples/clip/continuity/fit scale) run as one sequential workflow (implement -> adversarial review -> fix, max 2 rounds).
+  Remaining after it: stage E (capture CLI), F (webcam page), G ($0 proof incl. r9 refusal recorded on main's ar/).
+- WP3: `g3d/export_glb.py` (+ glb_patch, cli), `g3d_host/blender.py` (export_copy, export_and_validate), validator. $0 proof
+  passed before review (flat facets, clearcoat 0.8, 64x48 embedded image, q001 + Prada scenes export and pass). The review
+  (28 agents) reproduced real defects: upside-down/roll/pitch models passed; shields false-failed; unmeasurable origin
+  passed; instancing ignored; validator crashed on bad indices; exporter corrupted custom normals on mirrored objects, used
+  viewport evaluation, ignored excluded collections, lost relative textures silently; facet test could not detect a 40°
+  re-smooth; texture test had no UVs. Calibrated thresholds (8 real models) now in WP1_DESIGN §1. Fix + re-verify running.
+- WP3b: porting automation/bsa cameras into `g3d_host/` (camera, raster, cameras, matte, texture_utils, fitmesh,
+  fit_views); acceptance = reproduce the prototype's three FT1119 fits exactly, then measure all 12 reference views
+  (6 FT1119 vs q001, 6 Prada vs the delivery), report IoU and contour error in px and mm, then ASK THE OWNER for the WP5
+  registration threshold. open3d 0.20.0 installed in the venv.
+
+## 2026-10-05: WP3 done (6acfc5a)
+
+- Exporter `g3d/export_glb.py` + validator `g3d_host/spec.py` (see the commit message for the full list).
+- $0 proof: flat facets survive (12-gon temple, per-corner NORMAL directions read back), smooth parts stay smooth,
+  sharp-edge / weighted-normal / mirrored / non-uniformly-scaled custom normals match Blender's evaluated corner normals
+  within 0.025°, clearcoat 0.8 (roughness 0.05), UV-mapped 64x48 embedded image, transmission; the q001 and Prada
+  scene.blend files export and pass validate_spec with their sha256 unchanged; all 41 unique Studio/live GLBs pass;
+  ar_v4 r9 fails only the origin row (bridge underside +10.23 mm).
+- Adversarial review: 28 agents, 25 reproduced defects (upside-down/roll/pitch models passed, shields false-failed,
+  crashes on bad indices, mirrored custom normals corrupted, viewport-vs-render evaluation, excluded collections,
+  relative textures lost, weak facet/texture tests). All fixed; re-verified by a separate agent; mutation tests 13/13
+  killed. Suite: 228 passed, 1 skipped.
+- Orientation thresholds (hard; calibrated on 8 real models): temple roots above the lens centre (real +4.0..+18.0 mm),
+  left/right lens halves within 3 mm (real <= 0.16), temple slope < 15° (real -9.4..+4.7). Origin: frame + lens
+  triangles sliced at x in {-1..1} mm (shields), x judged on the lens box; unmeasurable origin fails.
+- Known limit: Draco/meshopt geometry is not decoded by the Python reader; affected rows become 'unverified'
+  warnings only where a compressed primitive's POSITION bounds could change the result.
+- Convention: KHR_materials_volume lengths are authored in METRES (Studio convention); validate_spec warns above 0.01.
+
+## 2026-10-05: WP3b port + $0 proof done (waiting for the owner)
+
+- Ported (PORT_REVIEW §9): `g3d_host/camera.py`, `raster.py` (open3d ray casting), `cameras.py` (ViewFit, priors incl.
+  first-class top/topb and top_oblique_left/right, contour ICP, Powell, native_metrics), `matte.py` (quadratic
+  background), `texture_utils.py` (de00, quantile_gain, rasterize_triangles, nearest_fill, sample_bilinear,
+  visible_points), `fitmesh.py`, `fit_views.py` (driver + CLI). No runtime import of automation/reconstruction
+  (a test enforces it).
+- Exact reproduction: under **scipy 1.16.0 (now pinned)** the ported production path reproduces the prototype's three
+  FT1119 cameras on all 21 fields within 1e-6. scipy 1.18.1 drifts up to 0.19° / 1.07 px (traced to a ~1e-8
+  least_squares step difference amplified by accept/reject; the original automation code drifts identically).
+- 12-view baseline (mean contour mm / p90 mm; px ÷ px/mm at the front pivot), outputs `data/wp3b/`:
+  FT1119 vs q001: front 0.66/1.46, rear 0.68/1.53, top 0.69/1.84, angled 0.79/1.87, elevated side 1.05/2.81,
+  side 1.44/6.16 (model shape differs: brow ~4 mm higher in the photo, fit turns to show the far temple).
+  Prada vs delivery: front 0.26/0.59, top 1.24/3.33, angled 1.27/4.16, side-05 1.99/4.22, rear 2.76/11.4,
+  side-01 5.58/20.6 (matte keeps floor reflections and fills the gap between temples: an upper bound; delivered
+  temples also differ from the photos = the WP6 failure).
+- Ref-06 (elevated side): PLAN §1's "needs a proper prior" is wrong: the photo sits at ~19° pitch; with seeds there
+  the fit equals the 'left' result (IoU 0.708). The 0.71 ceiling comes from thin temples (contour error 1.05 mm).
+- **Owner question (blocks WP3b "done" and WP5's stop rule): the registration threshold.** Recommended: mean contour
+  <= 1.0 mm and p90 <= 2.5 mm per view used for projection (FT1119: front, rear, top, angled qualify).
