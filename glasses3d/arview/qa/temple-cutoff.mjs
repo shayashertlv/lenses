@@ -38,6 +38,7 @@ export async function loadQATempleCutoff(assetUrl, signal) {
   const bytes = await response.arrayBuffer();
   const {report, scene} = await checkModel(bytes, {url: assetUrl, renderer: null, signal,
     plugins: [() => ({name: 'QATempleCutoffGeometryOnly', loadTexture: async () => new Texture()})]});
+  if (report.status === 'unchecked') throw Error(`QA temple cutoff: the model could not be checked here, no verdict on the file (${report.unchecked.join('; ')})`);
   if (report.status !== 'rendered' || !scene) throw Error(`QA temple cutoff: the model was refused (${report.refusal.join('; ')})`);
   try {
     return {...selectQATempleCutoff(scene), model_sha256: report.rendered_sha256, model_status: report.status,

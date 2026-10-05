@@ -250,7 +250,8 @@ export function originRow(g: MeasuredGeometry, sink: RowSink, excluded = 0): voi
   const bandLo = hi[2] - FRONT_BAND_MM / 1000;
   const failOrigin = (message: string): void => {
     sink.fail('origin', message);
-    sink.warn(`ORIGIN: ${message}. arview renders the model where it was authored; the delivered file violates §2 Origin.`);
+    // No render claim: the same warning stands on a model refused for another row.
+    sink.warn(`ORIGIN: ${message}. The delivered file violates §2 Origin; arview never moves a model (it is drawn where it was authored).`);
   };
   const cut = (triangles: Float64Array): number[] => {
     const out: number[] = [];

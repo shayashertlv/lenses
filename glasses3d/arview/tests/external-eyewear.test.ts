@@ -17,10 +17,10 @@ test('a page without a model parameter carries no handover', () => {
 
 test('loopback and same-origin model addresses are accepted; clip, width and digest are optional', () => {
   const model = parseExternalModel(`?model=${encodeURIComponent(ASSET)}`, PAGE)!;
-  assert.deepEqual(model, {url: ASSET, name: DEFAULT_EXTERNAL_NAME, clipZM: null, widthMm: null, sha256: null, lensEnvIntensity: null, warnings: []});
+  assert.deepEqual(model, {url: ASSET, name: DEFAULT_EXTERNAL_NAME, clipZM: null, widthMm: null, sha256: null, lensEnvIntensity: null, reportUrl: null, warnings: []});
   const relative = parseExternalModel(`?model=/models/tom-ford-clear.glb&name=%20Sample%20&clip=-0.11&width=138&sha256=${DIGEST.toUpperCase()}&lensenv=1.5`, PAGE)!;
   assert.deepEqual(relative, {url: `${PAGE}/models/tom-ford-clear.glb`, name: 'Sample', clipZM: -0.11, widthMm: 138, sha256: DIGEST,
-    lensEnvIntensity: 1.5, warnings: []});
+    lensEnvIntensity: 1.5, reportUrl: null, warnings: []});
   assert.equal(parseExternalModel('?model=http://localhost:8060/api/jobs/a/files/b', PAGE)!.url, 'http://localhost:8060/api/jobs/a/files/b');
   assert.equal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&name=${'x'.repeat(200)}`, PAGE)!.name.length, 120);
 });
@@ -114,4 +114,23 @@ test('a handed-over digest is carried along, normalised and never pinned; a malf
   const malformed = resolveModelDefinition({url: ASSET, displayName: 'x', templeClipZM: -0.14, handoverSha256: 'nothex'});
   assert.equal(malformed.handoverSha256, undefined);
   assert.match(malformed.warnings.join(' '), /handed-over digest "nothex" is not 64 hexadecimal characters and was ignored/);
+});
+
+test('the server report address (?report=, arview serve) follows the model\'s rules; an unusable one is a warning, never silent', () => {
+  const served = parseExternalModel(`?model=${encodeURIComponent(ASSET)}&report=${encodeURIComponent(`${PAGE}/__arview/report.json`)}`, PAGE)!;
+  assert.equal(served.reportUrl, `${PAGE}/__arview/report.json`);
+  assert.deepEqual(served.warnings, []);
+  assert.equal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&report=/__arview/report.json`, PAGE)!.reportUrl, `${PAGE}/__arview/report.json`);
+  assert.equal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&report=http://localhost:8251/__arview/report.json`, PAGE)!.reportUrl,
+    'http://localhost:8251/__arview/report.json');
+  for (const [value, reason] of [['https://evil.example/report.json', /must be served from this computer/], ['javascript:alert(1)', /plain http\(s\) URL/],
+    ['http://user:pw@127.0.0.1:8251/r.json', /plain http\(s\) URL/], ['http://127.0.0.1:8251/r.json%23x', null]] as const) {
+    const parsed = parseExternalModel(`?model=${encodeURIComponent(ASSET)}&report=${encodeURIComponent(value)}`, PAGE)!;
+    if (reason === null) {assert.equal(parsed.reportUrl, 'http://127.0.0.1:8251/r.json%23x', 'an encoded # is part of the path'); continue;}
+    assert.equal(parsed.reportUrl, null, value);
+    assert.equal(parsed.warnings.length, 1, value);
+    assert.match(parsed.warnings[0]!, /^The model report address \(\?report=\) /);
+    assert.match(parsed.warnings[0]!, reason);
+  }
+  assert.equal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&report=`, PAGE)!.reportUrl, null);
 });

@@ -26,19 +26,32 @@ const landmarksAt = (timeMs: number, pxPerMs: number) => Array.from({length: 478
 
 interface Finish {mask: boolean; warp: MaskWarp | null; carried: boolean; waitMs: number; at: number;}
 interface Run {rows: FrameInput[]; finishes: Finish[]; hairCalls: number; errors: string[]; hairErrors: string[]; facelessAt: Set<number>;
-  jobs: HairJobsSummary | null; recentJobs: HairJobsSummary | null; describe: string; auditRequestedAt: number | null; auditedFinish: number | null;}
-interface Options {schedule?: HairSchedule; hairMs: number; faceMs?: number; auditAtMs?: number; hangFromCall?: number; rejectCall?: number; durationMs: number; pxPerMs?: number; faceless?: (timeMs: number) => boolean;}
+  jobs: HairJobsSummary | null; recentJobs: HairJobsSummary | null; describe: string; auditRequestedAt: number | null; auditedFinish: number | null;
+  /** Frames (sequence) whose mask was delivered only after the renderer had posed that frame. */
+  maskAfterPrepare: Set<number>;}
+interface Options {schedule?: HairSchedule; hairMs: number; faceMs?: number; auditAtMs?: number; hangFromCall?: number; rejectCall?: number; durationMs: number; pxPerMs?: number; faceless?: (timeMs: number) => boolean;
+  /** Hold each hair job's result until its own frame has been posed (renderer.prepare), so the frame must wait for it
+   *  whatever the machine load (a frame dropped before its pose releases its job after 400 ms). */
+  hairAfterPrepare?: boolean;}
 
 async function run(options: Options): Promise<Run> {
   let callback: ((now: number, metadata: {presentedFrames: number; mediaTime: number}) => void) | null = null, presented = 0;
   const video = {srcObject: null, readyState: 4, videoWidth: 320, videoHeight: 180, currentTime: 0,
     requestVideoFrameCallback(cb: typeof callback) {callback = cb; return 1;}, cancelVideoFrameCallback() {callback = null;}};
   const camera = setInterval(() => {presented++; fill = presented & 255; const cb = callback; callback = null; cb?.(performance.now(), {presentedFrames: presented, mediaTime: presented / 30});}, 33);
-  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set(), jobs: null, recentJobs: null, describe: '', auditRequestedAt: null, auditedFinish: null};
+  const result: Run = {rows: [], finishes: [], hairCalls: 0, errors: [], hairErrors: [], facelessAt: new Set(), jobs: null, recentJobs: null, describe: '', auditRequestedAt: null, auditedFinish: null,
+    maskAfterPrepare: new Set()};
   let lastMask = false, preparedAt = 0, auditPending = false;
+  // The frame each hair job belongs to (segment gets the sequence and the image digest; prepare gets the digest).
+  const sequenceOf = new Map<string, number>(), posed = new Set<number>(), gates = new Map<number, () => void>();
   // Like LiveRenderer: a pending audit is taken by the first frame that draws its own mask.
   const auditTimer = options.auditAtMs === undefined ? null : setTimeout(() => {auditPending = true; result.auditRequestedAt = result.finishes.length;}, options.auditAtMs);
-  const renderer = {setHairEnabled() {}, async prepare() {await sleep(2); preparedAt = performance.now(); return true;},
+  const renderer = {setHairEnabled() {}, async prepare(_canvas: unknown, _detection: unknown, ids: {sourceSHA256: string}) {
+    await sleep(2); preparedAt = performance.now();
+    const sequence = sequenceOf.get(ids.sourceSHA256);
+    if (sequence !== undefined) {posed.add(sequence); gates.get(sequence)?.();}
+    return true;
+  },
     get auditRequestPending() {return auditPending;},
     // The time from the renderer's pose to the draw: the pipeline's own wait for a mask, if any, sits in between.
     finish(mask: unknown, warp: MaskWarp | null = null, carried = false) {lastMask = mask !== null;
@@ -52,9 +65,15 @@ async function run(options: Options): Promise<Run> {
     return {landmarks: landmarksAt(timestampMs, options.pxPerMs ?? 0), matrix: null, inferenceMs: 1};
   }};
   const hair = {async segment(bitmap: {close(): void}, sourceSHA256: string, sequence: number) {
-    const call = ++result.hairCalls; bitmap.close();
+    const call = ++result.hairCalls; bitmap.close(); sequenceOf.set(sourceSHA256, sequence);
     if (options.hangFromCall !== undefined && call >= options.hangFromCall) await new Promise(() => {});
     await sleep(options.hairMs);
+    if (options.hairAfterPrepare && !posed.has(sequence)) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await new Promise<void>(resolve => {gates.set(sequence, resolve); timer = setTimeout(resolve, 400);});
+      clearTimeout(timer); gates.delete(sequence);
+    }
+    if (posed.has(sequence)) result.maskAfterPrepare.add(sequence);
     if (call === options.rejectCall) throw new Error('The hair worker failed.');
     return {sequence, sourceSHA256, inferenceMs: options.hairMs, extractionMs: 1, width: 32, height: 18, hairIndex: 1, category: new Uint8Array(32 * 18),
       model: 'hair-only', modelSHA256: '0'.repeat(64), labels: ['background', 'hair'], delegate: 'CPU', categorySHA256: '1'.repeat(64)};
@@ -73,8 +92,9 @@ const percentile = (values: number[], p: number) => {const sorted = [...values].
 const jobsOf = (r: Run) => r.rows.filter(row => row.native?.['hair.requested'] === true).length;
 
 test('default: every frame waits for and draws its own mask', async () => {
-  // Hair (40 ms) is slower than face + pose, so each frame must wait for its mask.
-  const r = await run({hairMs: 40, durationMs: 1200});
+  // Hair (40 ms) is slower than face + pose, and the harness holds each mask until its frame is posed, so each frame
+  // must wait for its mask however late the timers fire on a loaded machine.
+  const r = await run({hairMs: 40, durationMs: 1200, hairAfterPrepare: true});
   assert.deepEqual(r.errors, []); assert.ok(r.rows.length > 5, `${r.rows.length} frames`);
   assert.ok(r.rows.every(row => row.native?.['hair.schedule'] === 'every' && row.native?.['hair.requested'] === true));
   assert.ok(r.rows.slice(1).every(row => row.hasMask && row.hairInferenceMs !== null && row.native?.['hair.carried'] === false), 'every frame draws its own mask');
@@ -83,7 +103,11 @@ test('default: every frame waits for and draws its own mask', async () => {
   assert.ok(r.recentJobs && r.recentJobs.jobs >= 1 && r.recentJobs.jobs < r.jobs.jobs && r.recentJobs.jobs <= Math.ceil(150 / 40) + 1, `${r.recentJobs?.jobs} jobs in the last 150 ms of ${r.jobs.jobs}`);
   assert.ok(r.rows.every(row => typeof row.native?.['overlap.hairAtSubmit'] === 'boolean'));
   assert.ok(r.finishes.slice(1).every(finish => finish.mask && finish.warp === null && !finish.carried));
-  assert.ok(percentile(r.finishes.slice(1).map(f => f.waitMs), 0.5) > 10, `median wait ${percentile(r.finishes.map(f => f.waitMs), 0.5)} ms: frames wait for their masks`);
+  // Scheduling order, not wall-clock time (a 10 ms median-wait threshold failed once under a parallel Python child):
+  // every drawn frame's own mask was delivered only after that frame was posed, so drawing it meant waiting for it.
+  const early = r.rows.slice(1).filter(row => !r.maskAfterPrepare.has(row.sequence)).map(row => row.sequence);
+  assert.deepEqual(early, [], `frames whose mask was ready before their pose (median wait ${percentile(r.finishes.map(f => f.waitMs), 0.5).toFixed(1)} ms)`);
+  assert.ok(r.rows.slice(1).every(row => row.hairWaitMs > 0), 'the pipeline measured a wait on every frame');
 });
 
 test('every 2nd frame: frames never wait, half the jobs, the rest draw a reused mask', async () => {

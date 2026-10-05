@@ -278,6 +278,25 @@ h1 {
   color: #ffb8a8;
   font-weight: 600;
 }
+/* A fallback (served-report.ts labels it with its subsystem): what arview drew instead. */
+.model-warnings li.model-fallback {
+  color: #c9d6a3;
+}
+/* The sha256 the verdicts bind to (the WP2 ledger binds to the rendered sha256): selectable in one click. */
+.model-digest {
+  margin: 10px 0 0;
+  color: #9daea1;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.model-digest code {
+  color: #d7e3d9;
+  user-select: all;
+}
+.model-digest[data-kind="mismatch"] {
+  color: #ffb8a8;
+  font-weight: 600;
+}
 #eyewear-hint {
   color: #9daea1;
   font-size: 11px;

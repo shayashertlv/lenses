@@ -29,6 +29,29 @@ export const isRecord = (value: unknown): value is Json => typeof value === 'obj
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const isIndex = (value: unknown, length: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < length;
 
+/** A readable sentence for anything a loader rejects with. Not every rejection is an Error: three's DRACOLoader rejects
+ *  with its worker's message object ({type: 'error', id, error: '<the decoder's message>'}), and image loaders reject
+ *  with DOM events. An Error gives its message (its name when the message is empty); a string itself; a record its
+ *  string `error` or `message` field (or that field's Error message); anything else its JSON, else String(value). The
+ *  reason must never be lost to "[object Object]" (owner rule: never fail silently). */
+export function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === 'string') return error;
+  if (isRecord(error)) {
+    for (const key of ['error', 'message'] as const) {
+      const value = error[key];
+      if (typeof value === 'string' && value) return value;
+      if (value instanceof Error) return value.message || value.name;
+    }
+  }
+  try {
+    const text = JSON.stringify(error);
+    if (text !== undefined && text !== '{}') return text;
+  } catch {/* cyclic or not serialisable: String() below */}
+  const text = String(error);
+  return text === '[object Object]' && error !== null && typeof error === 'object' ? `${error.constructor?.name ?? 'object'} with no message` : text;
+}
+
 /** The file is not a readable GLB. The message is the §2 Format detail. */
 export class GlbFormatError extends Error {
   constructor(message: string) {super(message); this.name = 'GlbFormatError';}
@@ -62,7 +85,7 @@ export function readGlbContainer(bytes: ArrayBuffer): GlbContainer {
   if (text === null) throw new GlbFormatError('GLB has no JSON chunk');
   let json: unknown;
   try {json = JSON.parse(text);}
-  catch (error) {throw new GlbFormatError(`the GLB JSON chunk is not valid JSON (${error instanceof Error ? error.message : String(error)})`);}
+  catch (error) {throw new GlbFormatError(`the GLB JSON chunk is not valid JSON (${describeError(error)})`);}
   if (!isRecord(json)) throw new GlbFormatError('GLB JSON chunk is not an object');
   return {json, bin, byteLength: data.length};
 }
@@ -95,26 +118,58 @@ export function externalResources(json: Json): ExternalResource[] {
 export const TEXTURE_SOURCE_EXTENSIONS = Object.freeze(['KHR_texture_basisu', 'EXT_texture_webp', 'EXT_texture_avif'] as const);
 const MESHOPT_VIEW_EXTENSIONS = ['EXT_meshopt_compression', 'KHR_meshopt_compression'] as const;
 
+/** A default-scene primitive whose `material` names no material object (spec.py fails the Format row for it, unless the
+ *  value is null). defaultSceneDocument hands it to three without the reference: it draws with the glTF default material. */
+export interface DanglingMaterial {
+  readonly node: number;
+  readonly nodeName: string;
+  readonly mesh: number;
+  readonly primitive: number;
+  readonly material: unknown;
+}
+/** A texture reference of a drawn material that three cannot load (it would throw inside the material, ending the
+ *  parse). defaultSceneDocument removes the reference from the material three is handed: the material draws without
+ *  that texture. `kind` 'texture': the texture index itself does not exist (spec.py fails the Format row for it, as
+ *  load.ts inspectTextures does); 'source': the texture exists but its image source cannot be loaded (spec.py does not
+ *  check image sources; arview fails the Format row for it). */
+export interface DanglingTexture {
+  readonly material: number;
+  readonly materialName: string;
+  readonly path: string;
+  readonly texture: unknown;
+  readonly kind: 'texture' | 'source';
+  readonly reason: string;
+}
+
 export interface LoadedReferences {
-  /** The first reference on the loaded path that does not resolve, or null (the §2 Format refusal detail). */
+  /** The first reference on the loaded path that does not resolve and cannot be left out, or null (the §2 Format
+   *  refusal detail). */
   readonly problem: string | null;
   /** The nodes of the default scene's tree (the only nodes arview parses: defaultSceneDocument). */
   readonly nodes: ReadonlySet<number>;
   /** The buffers and images the loaded path reaches (the default scene's primitives and their materials). */
   readonly buffers: ReadonlySet<number>;
   readonly images: ReadonlySet<number>;
+  /** Broken material and texture references on the loaded path that arview leaves out instead of refusing the file
+   *  (WP1_DESIGN.md §1: only an unreadable GLB, a missing external resource or a file with no scene is a Format
+   *  refusal; a texture that cannot be loaded is a reported fallback). */
+  readonly danglingMaterials: readonly DanglingMaterial[];
+  readonly danglingTextures: readonly DanglingTexture[];
 }
 
 /** Check the references three's GLTFLoader dereferences without checking, on the loaded path only: the default scene's
  *  node tree (a node reachable twice is reported as glb.py does), its primitives' materials and accessors, the buffer
  *  views and buffers those reach (Draco and meshopt included), and the used materials' textures and images. A broken
- *  reference there makes three throw a TypeError, so it is refused with a precise message. Unused entries are never
+ *  node, mesh, accessor, buffer view or buffer reference there makes three throw a TypeError, so it is refused with a
+ *  precise message. A broken material or texture reference is not refused: it is listed (danglingMaterials,
+ *  danglingTextures), and defaultSceneDocument leaves it out of what three parses. Unused entries are never
  *  dereferenced and never refused (spec.py passes them too). A primitive without POSITION is valid glTF (clients skip
  *  it): it is not refused here; the normalisation pass fails the Format row for it and does not draw it. */
 export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences {
   const nodes = list(json.nodes), meshes = list(json.meshes), materials = list(json.materials), accessors = list(json.accessors);
   const views = list(json.bufferViews), buffers = list(json.buffers), textures = list(json.textures), images = list(json.images);
   const reachedBuffers = new Set<number>(), reachedImages = new Set<number>(), usedMaterials = new Set<number>();
+  const danglingMaterials: DanglingMaterial[] = [], danglingTextures: DanglingTexture[] = [];
   const checkBuffer = (index: unknown, where: string): string | null => {
     if (!isIndex(index, buffers.length)) return `${where} refers to buffer ${JSON.stringify(index)}, which does not exist`;
     const buffer = buffers[index];
@@ -161,7 +216,8 @@ export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences 
     return null;
   };
   const seen = new Set<number>();
-  const result = (problem: string | null): LoadedReferences => ({problem, nodes: seen, buffers: reachedBuffers, images: reachedImages});
+  const result = (problem: string | null): LoadedReferences => ({problem, nodes: seen, buffers: reachedBuffers, images: reachedImages,
+    danglingMaterials, danglingTextures});
 
   const scenes = list(json.scenes), sceneIndex = json.scene ?? 0, scene = isIndex(sceneIndex, scenes.length) ? scenes[sceneIndex] : undefined;
   const roots = isRecord(scene) ? list(scene.nodes) : [];
@@ -179,10 +235,13 @@ export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences 
         const where = `node ${JSON.stringify(node.name ?? index)} primitive ${primitiveIndex}`;
         if (!isRecord(primitive)) return result(`${where} is not an object`);
         if (primitive.material !== undefined) {
-          if (!isIndex(primitive.material, materials.length)) {
-            return result(`${where}: material ${JSON.stringify(primitive.material)} does not exist (${materials.length} material(s))`);
+          // A material index that names no material object: three would dereference it blindly. Left out (drawn with
+          // the default material) and reported, as spec.py fails only the Format row for it.
+          if (isIndex(primitive.material, materials.length) && isRecord(materials[primitive.material])) usedMaterials.add(primitive.material);
+          else {
+            danglingMaterials.push({node: index, nodeName: typeof node.name === 'string' ? node.name : `node${index}`, mesh: node.mesh as number,
+              primitive: primitiveIndex, material: primitive.material});
           }
-          usedMaterials.add(primitive.material);
         }
         for (const [semantic, accessor] of Object.entries(isRecord(primitive.attributes) ? primitive.attributes : {})) {
           const problem = checkAccessor(accessor, `${where} ${semantic}`); if (problem) return result(problem);
@@ -202,21 +261,26 @@ export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences 
     for (const child of [...list(node.children)].reverse()) stack.push(child);
   }
   for (const index of [...usedMaterials].sort((a, b) => a - b)) {
-    const material = materials[index];
-    if (!isRecord(material)) return result(`material ${index} is not an object`);
+    const material = materials[index] as Json;
+    const materialName = typeof material.name === 'string' ? material.name : `material${index}`;
+    const dangling = (path: string, texture: unknown, kind: DanglingTexture['kind'], reason: string): void => {
+      danglingTextures.push({material: index, materialName, path, texture, kind, reason});
+    };
     for (const {path, info} of textureInfos(material)) {
-      const label = `material ${JSON.stringify(material.name ?? index)} ${path}`;
-      if (!isIndex(info.index, textures.length)) return result(`${label}: texture ${JSON.stringify(info.index)} does not exist`);
+      if (!isIndex(info.index, textures.length)) {dangling(path, info.index, 'texture', `texture ${JSON.stringify(info.index)} does not exist`); continue;}
       const texture = textures[info.index];
-      if (!isRecord(texture)) return result(`texture ${info.index} is not an object`);
+      if (!isRecord(texture)) {dangling(path, info.index, 'source', `texture ${info.index} is not an object`); continue;}
       const extensions = isRecord(texture.extensions) ? texture.extensions : {};
       const sources: [unknown, string][] = texture.source !== undefined ? [[texture.source, `texture ${info.index}`]] : [];
       for (const name of TEXTURE_SOURCE_EXTENSIONS) {
         const extension = extensions[name];
         if (isRecord(extension) && extension.source !== undefined) sources.push([extension.source, `texture ${info.index} ${name}`]);
       }
-      if (!sources.length) return result(`${label}: texture ${info.index} has no image source`);
-      for (const [source, where] of sources) {const problem = checkImage(source, where); if (problem) return result(problem);}
+      if (!sources.length) {dangling(path, info.index, 'source', `texture ${info.index} has no image source`); continue;}
+      // Any broken source: three reads every source it is offered without checking (the core loader and the
+      // KHR_texture_basisu / EXT_texture_webp / EXT_texture_avif plugins), so the whole reference is left out.
+      const problems = sources.flatMap(([source, where]) => {const problem = checkImage(source, where); return problem ? [problem] : [];});
+      if (problems.length) dangling(path, info.index, 'source', problems.join('; '));
     }
   }
   return result(null);
@@ -244,9 +308,12 @@ export interface DefaultSceneDocument {
  *  every other node becomes an empty object, and other scenes, animations, cameras and skins are dropped. Node-level
  *  camera, skin, light and EXT_mesh_gpu_instancing references are removed: cameras and lights are not drawn (arview
  *  has its own camera and lights); skins and instancing are §2 refusals that the normalisation pass decides from the
- *  ORIGINAL JSON, which also reports animations and declared skins (the Geometry row, as spec.py). The original bytes
- *  stay the identity: the report's SHA-256 is theirs. */
-export function defaultSceneDocument(json: Json, reached: ReadonlySet<number>): DefaultSceneDocument {
+ *  ORIGINAL JSON, which also reports animations and declared skins (the Geometry row, as spec.py). The broken material
+ *  and texture references loadedReferences lists are removed from the copies three parses (a primitive draws with the
+ *  glTF default material, a material without that texture); load.ts reports each. The original bytes stay the
+ *  identity: the report's SHA-256 is theirs. */
+export function defaultSceneDocument(json: Json, references: Pick<LoadedReferences, 'nodes' | 'danglingMaterials' | 'danglingTextures'>): DefaultSceneDocument {
+  const reached = references.nodes;
   const scenes = list(json.scenes), nodes = list(json.nodes), meshes = list(json.meshes);
   const sceneIndex = isIndex(json.scene ?? 0, scenes.length) ? (json.scene ?? 0) as number : 0;
   let cameraNodes = 0, lights = 0;
@@ -265,8 +332,30 @@ export function defaultSceneDocument(json: Json, reached: ReadonlySet<number>): 
     if (isIndex(copy.mesh, meshes.length) && isRecord(meshes[copy.mesh]) && !Array.isArray((meshes[copy.mesh] as Json).primitives)) shapeless.add(copy.mesh);
     return copy;
   });
-  const pruned: Json = {...json, scene: 0, scenes: [scenes[sceneIndex]], nodes: prunedNodes,
-    meshes: meshes.map((mesh, index) => shapeless.has(index) ? {...(mesh as Json), primitives: []} : mesh)};
+  // Primitives whose material does not exist lose the reference (three then draws the glTF default material).
+  const withoutMaterial = new Map<number, Set<number>>();
+  for (const entry of references.danglingMaterials) withoutMaterial.set(entry.mesh, (withoutMaterial.get(entry.mesh) ?? new Set()).add(entry.primitive));
+  const prunedMeshes = meshes.map((mesh, index) => {
+    if (shapeless.has(index)) return {...(mesh as Json), primitives: []};
+    const primitives = withoutMaterial.get(index);
+    if (!primitives) return mesh;
+    return {...(mesh as Json), primitives: list((mesh as Json).primitives).map((primitive, primitiveIndex) => {
+      if (!primitives.has(primitiveIndex) || !isRecord(primitive)) return primitive;
+      const copy: Json = {...primitive}; delete copy.material; return copy;
+    })};
+  });
+  // Texture references three cannot load are removed from (copies of) their materials.
+  const materials = list(json.materials), prunedMaterials = new Map<number, Json>();
+  for (const entry of references.danglingTextures) {
+    let copy = prunedMaterials.get(entry.material);
+    if (!copy) {copy = structuredClone(materials[entry.material]) as Json; prunedMaterials.set(entry.material, copy);}
+    const keys = entry.path.split('.'), last = keys.pop()!;
+    let holder: unknown = copy;
+    for (const key of keys) holder = isRecord(holder) || Array.isArray(holder) ? (holder as Record<string, unknown>)[key] : undefined;
+    if (isRecord(holder)) delete holder[last];
+  }
+  const pruned: Json = {...json, scene: 0, scenes: [scenes[sceneIndex]], nodes: prunedNodes, meshes: prunedMeshes};
+  if (prunedMaterials.size) pruned.materials = materials.map((material, index) => prunedMaterials.get(index) ?? material);
   if (json.nodes === undefined) delete pruned.nodes;
   if (json.meshes === undefined) delete pruned.meshes;
   delete pruned.animations; delete pruned.cameras; delete pruned.skins;

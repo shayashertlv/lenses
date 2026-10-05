@@ -196,7 +196,9 @@ export const useKey = (node: number, primitive: number): string => `${node}:${pr
 export function enumerateGltfUses(json: unknown): GltfUse[] {
   if (!isRecord(json)) return [];
   const nodes = Array.isArray(json.nodes) ? json.nodes : [], meshes = Array.isArray(json.meshes) ? json.meshes : [];
-  const accessors = Array.isArray(json.accessors) ? json.accessors : [];
+  const accessors = Array.isArray(json.accessors) ? json.accessors : [], materials = Array.isArray(json.materials) ? json.materials : [];
+  const validMaterial = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < materials.length
+    && isRecord(materials[value]);
   let roots: unknown[];
   const scenes = Array.isArray(json.scenes) ? json.scenes : null;
   if (scenes && scenes.length) {
@@ -227,7 +229,9 @@ export function enumerateGltfUses(json: unknown): GltfUse[] {
         const vertices = row.indices !== undefined ? count(row.indices) : count(attributes.POSITION);
         uses.push({key: useKey(index, primitiveIndex), node: index,
           nodeName: typeof node.name === 'string' ? node.name : `node${index}`, mesh: node.mesh as number,
-          primitive: primitiveIndex, material: typeof row.material === 'number' ? row.material : null, mode,
+          // A material index that names no material object is the glTF default material: what three draws for it (load
+          // leaves the broken reference out, glb.ts defaultSceneDocument) and what spec.py's glb.material() returns.
+          primitive: primitiveIndex, material: validMaterial(row.material) ? row.material as number : null, mode,
           triangles: mode === 4 ? Math.floor(vertices / 3) : mode === 5 || mode === 6 ? Math.max(0, vertices - 2) : 0});
       });
     }

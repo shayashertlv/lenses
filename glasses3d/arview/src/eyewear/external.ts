@@ -1,11 +1,14 @@
 /** A model handed over by URL:
  *    ?model=<glb url>&name=<label>&clip=<temple clip z, meters>&width=<frame width, mm>&sha256=<asset digest>&lensenv=<0.3-4>
+ *      &report=<the server's model report, JSON>
  *  The asset is real-size metres with the bridge underside at the origin and its front toward +Z (PLAN §2). It becomes
  *  this page's one ModelDefinition (there is no catalog). The digest is only compared with the bytes actually loaded (a
  *  mismatch is a report warning); nothing is pinned, and the temple continuity model reads the rendered scene itself
  *  (WP1_DESIGN.md §3). The address must be a plain http(s) URL on this page's origin or on loopback. A value that cannot
  *  be used is never dropped silently: it becomes a warning in the definition, which the renderer copies into its model
- *  report (range checks for clip and lensenv are resolveModelDefinition's, catalog.ts). */
+ *  report (range checks for clip and lensenv are resolveModelDefinition's, catalog.ts). `report` is the address of the model
+ *  report `arview serve` made before the page opened (qa/serve.mjs, /__arview/report.json; src/model/served-report.ts):
+ *  the same origin and loopback rules as the model; an unusable one is ignored with a warning. */
 import type {ModelDefinition} from './catalog.ts';
 
 export const MAX_EXTERNAL_NAME_LENGTH = 120;
@@ -25,8 +28,20 @@ export interface ExternalModel {
   readonly sha256: string | null;
   /** Lens reflection multiplier handed over, or null when absent or not a number (range is checked when resolved). */
   readonly lensEnvIntensity: number | null;
+  /** The address of the server's model report (?report=), or null when absent or unusable. */
+  readonly reportUrl: string | null;
   /** Every handover value that was present but could not be read. */
   readonly warnings: readonly string[];
+}
+
+/** A plain http(s) URL on the page's origin or on loopback, or the reason it is not one. */
+function localAddress(value: string, pageOrigin: string): URL | string {
+  let url: URL;
+  try { url = new URL(value, pageOrigin); }
+  catch { return 'is not a valid URL'; }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) return 'must be a plain http(s) URL';
+  if (url.origin !== pageOrigin && !LOOPBACK_HOSTS.has(url.hostname)) return 'must be served from this computer';
+  return url;
 }
 
 function optionalNumber(params: URLSearchParams, key: string, what: string, warnings: string[]): number | null {
@@ -43,11 +58,8 @@ export function parseExternalModel(search: string, pageOrigin: string): External
   const params = new URLSearchParams(search);
   const model = params.get('model');
   if (model === null || model.trim() === '') return null;
-  let url: URL;
-  try { url = new URL(model, pageOrigin); }
-  catch { throw new Error('The model address is not a valid URL.'); }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('The model address must be a plain http(s) URL.');
-  if (url.origin !== pageOrigin && !LOOPBACK_HOSTS.has(url.hostname)) throw new Error('The model must be served from this computer.');
+  const url = localAddress(model, pageOrigin);
+  if (typeof url === 'string') throw new Error(url === 'must be served from this computer' ? 'The model must be served from this computer.' : `The model address ${url}.`);
   const warnings: string[] = [];
   const name = (params.get('name') ?? '').trim().slice(0, MAX_EXTERNAL_NAME_LENGTH) || DEFAULT_EXTERNAL_NAME;
   const clipZM = optionalNumber(params, 'clip', 'temple clip depth', warnings);
@@ -64,7 +76,14 @@ export function parseExternalModel(search: string, pageOrigin: string): External
   if (rawDigest !== null && rawDigest.trim() !== '' && sha256 === null) {
     warnings.push('The model digest (?sha256=) is not 64 hexadecimal characters and was ignored.');
   }
-  return Object.freeze({url: url.href, name, clipZM, widthMm, sha256, lensEnvIntensity, warnings: Object.freeze(warnings)});
+  let reportUrl: string | null = null;
+  const report = params.get('report');
+  if (report !== null && report.trim() !== '') {
+    const address = localAddress(report.trim(), pageOrigin);
+    if (typeof address === 'string') warnings.push(`The model report address (?report=) ${address} and was ignored.`);
+    else reportUrl = address.href;
+  }
+  return Object.freeze({url: url.href, name, clipZM, widthMm, sha256, lensEnvIntensity, reportUrl, warnings: Object.freeze(warnings)});
 }
 
 export function describeExternalModel(model: ExternalModel): string {

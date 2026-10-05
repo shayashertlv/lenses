@@ -3,7 +3,10 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report.
  *  The page renders the one model handed over with ?model= (eyewear/external.ts); there is no frame catalog. It shows
- *  that model's report: every fallback the load took, as a warning. */
+ *  that model's report (WP1_DESIGN.md §6): before the camera opens, the report `arview serve` made (?report=, spec.py and
+ *  arview's Node-side load; model/served-report.ts); once the renderer has loaded the model, the renderer's own report with
+ *  spec.py's verdict beside it. Both list the failed §2 rows, the warnings and every fallback, and the sha256 line names
+ *  the bytes the verdicts bind to (the rendered sha256). */
 import './style.css';
 import {describeConfig, parseConfig, unrecognizedOptions} from './config.ts';
 import {openCamera} from './camera/camera.ts';
@@ -19,7 +22,10 @@ import type {HairBackend} from './hair/backend.ts';
 import {DetectorClient} from './face/detector.ts';
 import {LiveRenderer} from './render/live-renderer.ts';
 import type {ModelReport} from './render/renderer.ts';
-import {ModelRefusal, reportLines} from './model/report.ts';
+import {ModelRefusal, ModelUnchecked} from './model/report.ts';
+import {digestLine, parseServedReport, renderedReportLines, servedReportLines} from './model/served-report.ts';
+import type {ServedReport} from './model/served-report.ts';
+import {describeError} from './model/glb.ts';
 import type {ReportLine} from './model/report.ts';
 import {EyewearFitSession} from './render/eyewear-fit.ts';
 import {DEFAULT_SHADOW_SETTINGS} from './render/eyewear-shadow.ts';
@@ -40,7 +46,7 @@ const hairSelect = element<HTMLSelectElement>('hair-model-select');
 const hairToggle = element<HTMLSelectElement>('hair-toggle');
 const start = element<HTMLButtonElement>('start'), stop = element<HTMLButtonElement>('stop');
 const profiler = new FrameProfiler(8192);
-const messageFor = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const messageFor = describeError;
 const withDeadline = <T,>(promise: Promise<T>, ms: number, what: string): Promise<T> => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error(`${what} did not finish within ${Math.round(ms / 1000)} s. Check the connection and try again.`)), ms);
   promise.then(value => {clearTimeout(timer); resolve(value);}, error => {clearTimeout(timer); reject(error);});
@@ -53,6 +59,9 @@ interface Session {
   hairReady: boolean; hairError: string | null; pipeline: Pipeline | null; sequence: number;
   startedAtMs: number; firstAtMs: number | null; rows: number;
   exposure: {applied: number | null; mode: string | null; error: string | null} | null;
+  /** What the page last listed of the model report (refusal, error, warning and fallback counts): render-time
+   *  fallbacks (a twin or the hair occlusion falling back mid-session) are added to the list when they happen. */
+  reportShown: string;
 }
 let current: Session | null = null;
 let hairEnabled = config.hair ?? true;
@@ -152,39 +161,86 @@ window.addEventListener('unhandledrejection', event => report('unhandledrejectio
 
 // The model comes only from the ?model=&name=&clip=&width=&sha256=&lensenv= handover. Without one (or with an
 // unusable address) the page explains how to hand one over and the camera stays closed.
-const NO_MODEL_MESSAGE = 'No model was handed over. Open this page with ?model=<GLB address on this computer>&name=<label>.';
+const NO_MODEL_MESSAGE = 'No model was handed over. Open this page with ?model=<GLB address on this computer>&name=<label>, or start it with: node qa/serve.mjs <model.glb>.';
 let pageModel: ModelDefinition | null = null;
+let servedReportUrl: string | null = null;
 {
   const note = document.createElement('p'); note.className = 'control-hint'; note.id = 'external-model';
   try {
     const externalModel = parseExternalModel(location.search, location.origin);
-    if (externalModel) {pageModel = modelFromExternal(externalModel); note.textContent = describeExternalModel(externalModel); stage.dataset.externalModel = 'ready';}
+    if (externalModel) {pageModel = modelFromExternal(externalModel); servedReportUrl = externalModel.reportUrl; note.textContent = describeExternalModel(externalModel); stage.dataset.externalModel = 'ready';}
     else {note.textContent = NO_MODEL_MESSAGE; stage.dataset.externalModel = 'none';}
   } catch (error) {note.textContent = `The model in this address was not loaded: ${messageFor(error)}`; stage.dataset.externalModel = 'invalid';}
   element('frame-description').after(note);
 }
-/** The model report on the page (WP1_DESIGN.md §6): before a session, the warnings of its definition; once loaded or
- *  refused, the renderer's report through reportLines (refusal reasons, every failed §2 row, then the warnings). */
-function showModelReport(lines: readonly ReportLine[]): void {
+/** The server's report (?report=, arview serve), once fetched and checked; a fetch or shape problem is listed as an
+ *  error line (servedProblem), never shown as a clean report. */
+let served: ServedReport | null = null, servedProblem: string | null = null, servedPending = false;
+/** The model report on the page (WP1_DESIGN.md §6): before a session, the definition's warnings and the server's report;
+ *  once loaded or refused, the renderer's report (renderedReportLines: refusal reasons, every failed §2 row, spec.py's
+ *  verdict beside it, the warnings, then each fallback with its subsystem). `source` says which it is. */
+function showModelReport(lines: readonly ReportLine[], source = '', digest: ReturnType<typeof digestLine> = null): void {
+  const problem: ReportLine[] = servedProblem ? [{kind: 'error', text: servedProblem}] : [];
+  const all = [...problem, ...lines];
   const list = element<HTMLUListElement>('model-warnings');
-  list.replaceChildren(...lines.map(line => {
+  list.replaceChildren(...all.map(line => {
     const item = document.createElement('li'); item.textContent = line.text; item.className = `model-${line.kind}`; return item;
   }));
-  list.hidden = lines.length === 0;
+  list.hidden = all.length === 0;
+  const sourceNote = element('model-report-source');
+  sourceNote.textContent = source; sourceNote.hidden = !source;
+  const digestNote = element('model-digest');
+  // The digest itself in a <code> of its own, so one click selects exactly the 64 hex characters.
+  const at = digest ? digest.text.indexOf(digest.sha256) : -1;
+  if (digest && at >= 0) {
+    const code = document.createElement('code'); code.textContent = digest.sha256;
+    digestNote.replaceChildren(digest.text.slice(0, at), code, digest.text.slice(at + digest.sha256.length));
+  } else digestNote.textContent = digest?.text ?? '';
+  digestNote.dataset.kind = digest?.kind ?? ''; digestNote.hidden = !digest;
 }
-/** Shows `modelReport` on the page and adds its errors and warnings to the step log. */
-function presentModelReport(modelReport: ModelReport): void {
-  showModelReport(reportLines(modelReport));
+const servedSource = (report: ServedReport): string => `Checked by arview serve (${report.created_at.slice(0, 19).replace('T', ' ')} UTC): `
+  + `spec.py ${report.spec.available ? (report.spec.ok ? 'passes' : 'FAILS') : 'UNAVAILABLE'}, arview's load ${report.status}. `
+  + 'Open the camera for the renderer\'s own report.';
+/** Shows `modelReport` on the page and adds its errors and warnings to the step log. Returns what was shown
+ *  (reportSignature). */
+function presentModelReport(modelReport: ModelReport): string {
+  showModelReport(renderedReportLines(modelReport, served), `The renderer's own report (${modelReport.status})${served ? ', with spec.py\'s verdict from arview serve' : ''}.`,
+    digestLine(served, modelReport.rendered_sha256));
   if (modelReport.errors.length) report('model-errors', modelReport.errors.join(' | '));
   if (modelReport.warnings.length) report('model-warnings', modelReport.warnings.join(' | '));
+  return reportSignature(modelReport);
 }
+const reportSignature = (modelReport: ModelReport): string =>
+  `${modelReport.refusal.length}/${modelReport.errors.length}/${modelReport.warnings.length}/${modelReport.fallbacks.length}`;
 function showModel(): void {
   if (!pageModel) {element('frame-name').textContent = 'No model'; showModelReport([]); return;}
   const resolved = resolveModelDefinition(pageModel);
   element('frame-name').textContent = resolved.displayName;
-  showModelReport(resolved.warnings.map(text => ({kind: 'warning', text})));
+  const definition: ReportLine[] = resolved.warnings.map(text => ({kind: 'warning', text}));
+  if (served) showModelReport([...definition, ...servedReportLines(served)], servedSource(served), digestLine(served, null));
+  else showModelReport(definition, servedPending ? 'Reading the model report from arview serve…' : '');
+}
+/** Fetch the server's report (same origin or loopback, checked by external.ts) with a deadline. Every failure is an
+ *  error line on the page and in the step log. A session that already shows the renderer's report keeps it, with the
+ *  served spec.py verdict joined to it now. */
+async function loadServedReport(url: string): Promise<void> {
+  servedPending = true; showModel();
+  try {
+    const response = await withDeadline(fetch(url, {cache: 'no-store', redirect: 'error'}), 15_000, 'Reading the model report');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const parsed = parseServedReport(await withDeadline(response.json() as Promise<unknown>, 15_000, 'Reading the model report'));
+    if (pageModel && parsed.model.url !== pageModel.url) {
+      servedProblem = `The model report at ${url} describes ${parsed.model.url}, not this page's model ${pageModel.url}; it is not shown.`;
+    } else served = parsed;
+  } catch (error) {servedProblem = `The model report from arview serve (${url}) could not be read: ${messageFor(error)}`;}
+  finally {servedPending = false;}
+  if (servedProblem) report('served-report', servedProblem);
+  const renderer = current?.renderer;
+  if (renderer && current) current.reportShown = presentModelReport(renderer.report());
+  else showModel();
 }
 showModel();
+if (servedReportUrl) void loadServedReport(servedReportUrl);
 for (const model of HAIR_MODEL_LIST) hairSelect.add(new Option(model.title, model.id));
 hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_HAIR_MODEL_ID;
 hairToggle.value = hairEnabled ? 'on' : 'off';
@@ -211,6 +267,9 @@ const hairWorkerLine = (pipeline: Pipeline | null | undefined): string => {
 function updateUi(): void {
   const session = current; if (!session) return;
   updateFitControls();
+  // A fallback taken while rendering joins the page's list when it happens, never only the downloadable report.
+  const modelReport = session.renderer?.report();
+  if (modelReport && reportSignature(modelReport) !== session.reportShown) session.reportShown = presentModelReport(modelReport);
   const recent = profiler.recent(session.id).filter(row => performance.now() - row.publishedAtMs <= 10_000);
   const summary = summarize(recent);
   element('fps').textContent = summary.processedFps === null ? 'Starting' : `${summary.processedFps.toFixed(1)} fps`;
@@ -252,7 +311,7 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
   if (!model) {setState('error', 'NO MODEL', NO_MODEL_MESSAGE); report('failed', NO_MODEL_MESSAGE); return;}
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement; previous.replaceWith(canvas);
   const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, fitSession, renderer: null, detector: null, hair: null,
-    hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null};
+    hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null, reportShown: ''};
   current = session; stage.dataset.sessionId = session.id; updateControls();
   const signal = session.abort.signal, owns = (): boolean => current === session;
   setState('starting', 'STARTING CAMERA', 'Allow camera access when your browser asks.');
@@ -282,7 +341,7 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
       90_000, 'Loading the glasses');
     if (!owns()) {renderer.dispose(); return;}
     renderer.setHairEnabled(hairEnabled); renderer.setShadows(shadowSettings); session.renderer = renderer;
-    presentModelReport(renderer.report());
+    session.reportShown = presentModelReport(renderer.report());
     element('gpu').textContent = `${renderer.gpuRenderer ?? '—'} · face starting`;
     beginStep(`Starting the face tracker (${config.faceDelegates.join(', then ')})`);
     const detector = new DetectorClient({delegates: config.faceDelegates}); session.detector = detector;
@@ -326,7 +385,7 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
   } catch (error) {
     if (!owns()) return;
     // A §2 refusal carries the whole report: its reasons, every failed row and the warnings stay on the page.
-    if (error instanceof ModelRefusal) presentModelReport(error.report);
+    if (error instanceof ModelRefusal || error instanceof ModelUnchecked) presentModelReport(error.report);
     closeSession(messageFor(error), true);
   }
 }
@@ -469,9 +528,11 @@ declare global {interface Window {__ar: {
   modelReport(): ModelReport | null;
   /** The open session's lens identification (one entry per glTF material, the §2 Components verdict), or null. */
   lensIdentification(): ReturnType<LiveRenderer['lensIdentification']>;
+  /** The report arview serve handed over (?report=), once read; null without one. */
+  servedReport(): ServedReport | null;
 };}}
 window.__ar = {open: openSession, close: () => closeSession(), isOpen: () => current !== null, measure, samplesAfter: serial => profiler.samplesAfter(serial),
   lastReport: () => lastReport, audit: runAudit, config: () => config, setShadows, shadowSettings: () => ({...shadowSettings}),
   fitting, refit, setFitAdjustment, modelReport: () => current?.renderer?.report() ?? null,
-  lensIdentification: () => current?.renderer?.lensIdentification() ?? null};
+  lensIdentification: () => current?.renderer?.lensIdentification() ?? null, servedReport: () => served};
 updateControls();

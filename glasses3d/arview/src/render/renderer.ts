@@ -36,6 +36,7 @@ import {
 import type {WebGLRenderTarget} from 'three';
 import type {GLTF} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {describeError} from '../model/glb.ts';
 import {loadModel} from '../model/load.ts';
 import type {LoadModelOptions} from '../model/load.ts';
 import {nodeName, normalizeModel} from '../model/normalize.ts';
@@ -110,7 +111,7 @@ const FIT_FRONT_RATIO = 1;
 export const FIT_SCALE_WARN_FRACTION = 0.03;
 
 export type {ModelReport} from '../model/report.ts';
-export {ModelRefusal} from '../model/report.ts';
+export {ModelRefusal, ModelUnchecked} from '../model/report.ts';
 export type {LightingConfig} from './lighting.ts';
 export type {PaletteEntry, PartSide, RenderOverride} from './override.ts';
 
@@ -182,7 +183,7 @@ export interface CaptureGeometry {
 }
 
 function abortError(): DOMException {return new DOMException('Renderer startup was cancelled.', 'AbortError');}
-const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const messageOf = describeError;
 /** The bounding box of every eyewear vertex in the front 25 mm (asset-local metres): the fit width's fallback when the
  *  rear drop, whose optical bounds it normally is, could not be built. */
 function frontRegionBounds(root: Object3D): Box3 {
@@ -557,7 +558,8 @@ export class TryOnRenderer {
   }
 
   /** Record the settled auto-fit scale in the report (`fit_scale`), and warn once per distinct scale that is more than
-   *  FIT_SCALE_WARN_FRACTION from 1 (WP1_DESIGN.md §4: the images then do not show the authored size). */
+   *  FIT_SCALE_WARN_FRACTION from 1 (WP1_DESIGN.md §4: what is drawn is then not the authored size). The wording serves
+   *  the webcam page and the captures alike. */
   private noteFitScale(): void {
     const scale = this.fitScale, key = scale.toFixed(3), session = this.fitSession.report, limited = this.fitLimited || session.limited;
     const noted = `${key}|${session.adjustment}|${limited}`;
@@ -573,7 +575,7 @@ export class TryOnRenderer {
       this.modelReport.warn(`FIT SCALE: the live fit draws this model at ×${key} its authored size (${percent >= 0 ? '+' : ''}${percent.toFixed(1)} %; the `
         + `auto-fit to the face is clamped to ×${EYEWEAR_FIT.minimumAutoScale}-${EYEWEAR_FIT.maximumAutoScale} and multiplied by the `
         + `${EYEWEAR_FIT.defaultFitPreference} fit preference${session.adjustment ? `, size adjustment ${session.adjustment >= 0 ? '+' : ''}${session.adjustment}` : ''}). `
-        + 'These images do not show the authored size; render with fixedScale for that.');
+        + 'What is drawn is not the authored size; captures can render at the authored size with --fixed-scale.');
     }
   }
 
@@ -611,7 +613,8 @@ export class TryOnRenderer {
   }
 
   /** Load `model` and build the renderer for it. Unusable definition values fall back with a warning (catalog.ts). A
-   *  §2 refusal rejects with ModelRefusal, whose `report` is the whole model report (status 'refused'). */
+   *  §2 refusal rejects with ModelRefusal, whose `report` is the whole model report (status 'refused'); a file this
+   *  environment cannot check (Draco without a Web Worker) rejects with ModelUnchecked (status 'unchecked', no verdict). */
   static async create(canvas: HTMLCanvasElement, signal: AbortSignal, model: ModelDefinition, options: RendererOptions = {}): Promise<TryOnRenderer> {
     if (signal.aborted) throw abortError();
     const resolved = resolveModelDefinition(model);

@@ -6,7 +6,10 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "description": "glasses3d development AR (fork of ar/ at 75ae133 + chosen stash@{0} edits): accepts any GLB meeting the owner's spec (PLAN.md section 2), captures posed AR images for Astra, webcam page for the owner.",
+  "description": "glasses3d development AR (fork of ar/ at 75ae133 + chosen stash@{0} edits): accepts any GLB meeting the owner's spec (PLAN.md section 2), captures posed AR images for Astra (arview capture), serves the owner's webcam page for one model (arview serve).",
+  "bin": {
+    "arview": "bin/arview.mjs"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 8250 --strictPort",
     "check": "tsc --noEmit",
@@ -14,7 +17,9 @@
     "test:qa": "node --test qa/*.test.mjs",
     "assets": "node scripts/prepare-assets.mjs",
     "build": "npm run assets && npm run check && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 8251 --strictPort"
+    "preview": "vite preview --host 127.0.0.1 --port 8251 --strictPort",
+    "capture": "node qa/capture.mjs",
+    "serve": "node qa/serve.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",

@@ -435,7 +435,8 @@ test('automatic frame fitting locks one size through distance, nods, audits and 
   assert.ok(Math.abs(fitted.scale - 1) > .03, `this fixture's scale ${fitted.scale} is outside the 3 % band`);
   const warnings = report.warnings.filter(warning => warning.startsWith('FIT SCALE: '));
   assert.equal(warnings.length, 1, 'once per distinct scale, however many frames are posed');
-  assert.match(warnings[0]!, new RegExp(`^FIT SCALE: the live fit draws this model at ×${fitted.scale.toFixed(3)} its authored size .*1\\.08 fit preference.*render with fixedScale`));
+  assert.match(warnings[0]!, new RegExp(`^FIT SCALE: the live fit draws this model at ×${fitted.scale.toFixed(3)} its authored size .*1\\.08 fit preference.*not the authored size; captures can render at the authored size with --fixed-scale\\.$`));
+  assert.doesNotMatch(warnings[0]!, /images|fixedScale/, 'page-neutral wording: the webcam page has no images and no fixedScale option');
 });
 
 test('fixedScale renders at the authored size: shown from the first pose, never fitted or adjusted, and reported', () => {

@@ -19,20 +19,16 @@ import {checkModel} from '../src/model/check.ts';
 import {createGltfLoader, loadModel} from '../src/model/load.ts';
 import {ModelReportBuilder, reportLines, SPEC_ROWS} from '../src/model/report.ts';
 import type {ModelReport, SpecRowName} from '../src/model/report.ts';
-import {imageSize, loadedReferences, readGlbContainer, GlbFormatError} from '../src/model/glb.ts';
+import {describeError, imageSize, loadedReferences, readGlbContainer, GlbFormatError} from '../src/model/glb.ts';
 import {materialClassOf} from '../src/eyewear/part-class.ts';
 import {isTranslucentFrameMaterial} from '../src/eyewear/optical-material.ts';
-import {buildGlb, defaultParts, diag, joinGlb, matmul, pngBytes, r9Like, replaceBox, rot, shieldParts, splitGlb, trans, without} from './glb-fab.ts';
+import {box, buildGlb, defaultParts, diag, joinGlb, matmul, pngBytes, r9Like, replaceBox, rot, shieldParts, splitGlb, stripIndices, trans, without} from './glb-fab.ts';
 import type {BuildOptions, Built, Json, Part} from './glb-fab.ts';
 
-// Node lacks two browser globals three's loaders use: FileLoader reports progress with ProgressEvent (external buffers),
-// and GLTFLoader reads `self.URL` before decoding an image. Test-only stand-ins; the browser has both.
-(globalThis as {ProgressEvent?: unknown}).ProgressEvent ??= class ProgressEvent extends Event {
-  readonly lengthComputable: boolean; readonly loaded: number; readonly total: number;
-  constructor(type: string, init: {lengthComputable?: boolean; loaded?: number; total?: number} = {}) {
-    super(type); this.lengthComputable = init.lengthComputable ?? false; this.loaded = init.loaded ?? 0; this.total = init.total ?? 0;
-  }
-};
+// Node lacks `self`, which GLTFLoader reads (self.URL) before decoding an image: a test-only stand-in; the browser has it.
+// There is deliberately NO ProgressEvent stand-in: three's FileLoader calls `new ProgressEvent`, which Node lacks, and
+// load.ts keeps FileLoader off the buffer path (prefetchedBuffers), so the external and data: buffer cases below prove
+// that a renderer-less Node load (arview serve's check) never reaches it.
 (globalThis as {self?: unknown}).self ??= globalThis;
 
 const URL_BASE = 'http://127.0.0.1:8250/models/';
@@ -228,7 +224,8 @@ const CASES: readonly Case[] = [
   {name: 'unreadable bytes', build: () => new TextEncoder().encode('not a glb at all, sorry').slice().buffer, rows: [...SPEC_ROWS], text: 'unreadable GLB',
     refused: 'format'},
   {name: 'empty default scene', build: b({patch: pEmptyScene}), rows: [...SPEC_ROWS], text: 'has no nodes', refused: 'format', compare: ['format']},
-  {name: 'material 7', build: b({patch: pBadMaterial}), rows: [...SPEC_ROWS], text: 'material 7 does not exist', refused: 'format', compare: ['format']},
+  // A drawn primitive naming a material that does not exist: drawn with the default material, the Format row failed (spec.py).
+  {name: 'material 7', build: b({patch: pBadMaterial}), rows: ['format'], text: 'Bridge: material 7 does not exist (2 material(s))', refused: null},
   {name: 'zero vertices', build: b({patch: pZeroVertices}), rows: ['geometry', 'units', 'origin', 'orientation'], text: 'the file has no triangles',
     refused: 'geometry'},
   // Origin x is judged on the lenses (spec.py _origin, test_origin_x_is_judged_on_the_lenses_not_the_temples_or_ornaments):
@@ -310,12 +307,34 @@ test('format refusals: not a GLB, wrong version, truncated, broken references, n
   for (const row of SPEC_ROWS.filter(row => row !== 'format')) assert.deepEqual(report.spec[row].detail, ['not checked: the file could not be read']);
 });
 
-test('broken references are refused only on the loaded path: used images, used views and buffers, meshopt read from its extension buffer', async () => {
+test('broken references are refused only on the loaded path: used views and buffers, meshopt read from its extension buffer; a broken texture or material reference renders without it', async () => {
   const {doc, bin} = splitGlb(buildGlb().glb);
-  // An image the frame material uses, with neither uri nor bufferView: three would throw, so the file is refused.
+  // An image the frame material uses, with neither uri nor bufferView: three would throw inside the material, so the
+  // reference is left out (WP1_DESIGN.md §1: a texture that cannot be loaded is a reported fallback): the material draws
+  // without it, the Format row fails, and the file renders.
   let report = await check(joinGlb({...doc, images: [{name: 'x'}], textures: [{source: 0}],
     materials: (doc.materials as Json[]).map((material, index) => index === 0 ? {...material, pbrMetallicRoughness: {baseColorTexture: {index: 0}}} : material)}, bin));
-  assert.deepEqual(report.refusal, ['§2 Format: unreadable GLB: image 0 has neither a uri nor a bufferView']);
+  assert.equal(report.status, 'rendered', report.refusal.join(' | '));
+  assert.deepEqual(sorted(failed(report)), ['format']);
+  assert.deepEqual(report.spec.format.detail.slice(1),
+    ["material 'Frame acetate' pbrMetallicRoughness.baseColorTexture: texture 0 cannot be loaded (image 0 has neither a uri nor a bufferView)"]);
+  assert.deepEqual(report.fallbacks.map(entry => [entry.subsystem, entry.detail]), [['textures', 'Material "Frame acetate" pbrMetallicRoughness.baseColorTexture: '
+    + 'image 0 has neither a uri nor a bufferView, so three.js could not load it; the reference was left out and the material draws without that texture (§2 Format).']]);
+  // A drawn texture index that does not exist: the Format row as spec.py words it, one fallback, rendered.
+  report = await check(joinGlb({...doc, materials: (doc.materials as Json[]).map((material, index) => index === 0
+    ? {...material, pbrMetallicRoughness: {baseColorTexture: {index: 4}}, emissiveTexture: {index: 0}} : material)}, bin));
+  assert.equal(report.status, 'rendered', report.refusal.join(' | '));
+  assert.deepEqual(report.spec.format.detail.slice(1), ["material 'Frame acetate' pbrMetallicRoughness.baseColorTexture: texture 4 does not exist",
+    "material 'Frame acetate' emissiveTexture: texture 0 does not exist"]);
+  assert.deepEqual(report.fallbacks.map(entry => entry.subsystem), ['textures', 'textures']);
+  // A lens primitive naming material 7: the default material, Format failed, and Components failed as spec.py does
+  // ("has no material": the lens is not distinguished by material).
+  report = await check(joinGlb({...doc, meshes: (doc.meshes as Json[]).map(mesh => mesh.name === 'Lens_L'
+    ? {...mesh, primitives: (mesh.primitives as Json[]).map(primitive => ({...primitive, material: 7}))} : mesh)}, bin));
+  assert.equal(report.status, 'rendered', report.refusal.join(' | '));
+  assert.deepEqual(sorted(failed(report)), ['components', 'format']);
+  assert.ok(report.spec.format.detail.includes('Lens_L: material 7 does not exist (2 material(s))'), report.spec.format.detail.join(' | '));
+  assert.ok(report.spec.components.detail.includes("lens primitive 'Lens_L' has no material, so it is not distinguished by material"), report.spec.components.detail.join(' | '));
   // A used bufferView pointing at a buffer that does not exist.
   report = await check(joinGlb({...doc, bufferViews: (doc.bufferViews as Json[]).map((v, index) => index === 0 ? {...v, buffer: 5} : v)}, bin));
   assert.deepEqual(report.refusal, ['§2 Format: unreadable GLB: bufferView 0 refers to buffer 5, which does not exist']);
@@ -429,6 +448,88 @@ test('a primitive without POSITION fails the Format row, is left out of every me
   assert.equal(meshes, 7, 'the seven readable parts still render');
 });
 
+test('an index accessor WebGL cannot draw as stored (signed, VEC3, normalized, FLOAT) fails the Geometry row as spec.py words it, is left out of the measurements, and still draws', async () => {
+  const faces = box(0, 1, 0, 1, 0, 1).faces.flat();
+  /** The bridge's indices re-declared: Int16 (the same bytes as Uint16 for 0..7), Uint32 VEC3 (count 12), a normalized
+   *  Uint16 (three's getX would read 5 as 5/65535), or FLOAT (three hands it to drawElements as gl.FLOAT: INVALID_ENUM). */
+  const redeclare = (componentType: number, type: string, component: number, extra: Json = {}): Patch => (doc, add) => {
+    const accessor = add(faces, component, 'SCALAR'), accessors = doc.accessors as Json[];
+    accessors[accessor] = {...accessors[accessor]!, componentType, type, count: faces.length / (type === 'VEC3' ? 3 : 1), ...extra};
+    ((doc.meshes as Json[])[0]!.primitives as Json[])[0]!.indices = accessor;
+  };
+  const bridgeIndex = (scene: CheckedScene): {array: ArrayLike<number>; itemSize: number; normalized: boolean; isInterleavedBufferAttribute?: boolean} | null => {
+    let index: unknown = null;
+    scene!.traverse(object => {if (object instanceof Mesh && object.name === 'Bridge') index = object.geometry.getIndex();});
+    return index as {array: ArrayLike<number>; itemSize: number; normalized: boolean} | null;
+  };
+  for (const [patch, issue, stored] of [
+    [redeclare(5122, 'SCALAR', 5123), 'indices componentType 5122 is not valid glTF (indices are unsigned: 5121, 5123 or 5125)', 'Int16Array'],
+    [redeclare(5125, 'VEC3', 5125), "indices accessor type 'VEC3' is not SCALAR", 'Uint32Array x3'],
+    [redeclare(5123, 'SCALAR', 5123, {normalized: true}), 'indices accessor is normalized', 'Uint16Array (normalized)'],
+    [redeclare(5126, 'SCALAR', 5126), 'indices componentType 5126 is not valid glTF (indices are unsigned: 5121, 5123 or 5125)', 'Float32Array'],
+  ] as const) {
+    const {report, scene} = await checkModel(buildGlb({patch}).glb, {url: URL_BASE + 'indices.glb', renderer: null, plugins: [stubTextures]});
+    assert.equal(report.status, 'rendered', `${stored}: ${report.refusal.join(' | ')}`);
+    // spec.py: the Geometry row fails and the bridge leaves the measurements, so the origin is unverifiable.
+    assert.deepEqual(sorted(failed(report)), ['geometry', 'origin'], errors(report).join(' | '));
+    assert.deepEqual(report.spec.geometry.detail, [`Bridge: ${issue}`]);
+    assert.deepEqual(report.measurements.excluded_from_measurement, ['Bridge']);
+    assert.equal(report.measurements.triangles, 84, 'twelve bridge triangles, as spec.py counts the stored values');
+    assert.deepEqual(report.fallbacks.map(entry => [entry.subsystem, entry.detail]),
+      [['geometry', `"Bridge" stores its indices as ${stored} (not valid glTF): they were rewritten as unsigned 32-bit SCALAR indices so it draws (§2 Geometry).`]]);
+    const drawn = bridgeIndex(scene);
+    assert.ok(drawn && drawn.array instanceof Uint32Array && drawn.itemSize === 1 && !drawn.normalized, `${stored}: WebGL draws unsigned, non-normalized SCALAR indices only`);
+    assert.deepEqual(Array.from(drawn.array), faces, `${stored}: the stored vertex numbers, never denormalized`);
+  }
+  // An index view with a byteStride is valid glTF (spec.py reads the stride and passes): three makes it an
+  // InterleavedBufferAttribute, which WebGL cannot draw as stored. Rewritten and reported; no row fails.
+  const interleaved = buildGlb({patch: (doc, add) => {
+    const padded = faces.flatMap(value => [value, 0]), accessor = add(padded, 5123, 'SCALAR'), accessors = doc.accessors as Json[];
+    accessors[accessor] = {...accessors[accessor]!, count: faces.length};
+    (doc.bufferViews as Json[])[accessors[accessor]!.bufferView as number]!.byteStride = 4;
+    ((doc.meshes as Json[])[0]!.primitives as Json[])[0]!.indices = accessor;
+  }});
+  const strided = await checkModel(interleaved.glb, {url: URL_BASE + 'interleaved.glb', renderer: null, plugins: [stubTextures]});
+  assert.equal(strided.report.status, 'rendered', strided.report.refusal.join(' | '));
+  assert.deepEqual(sorted(failed(strided.report)), [], errors(strided.report).join(' | '));
+  assert.deepEqual(strided.report.fallbacks.map(entry => entry.detail), ['"Bridge" stores its indices as Uint16Array (interleaved) (not drawable by WebGL as stored): '
+    + 'they were rewritten as unsigned 32-bit SCALAR indices so it draws (§2 Geometry).']);
+  const restrided = bridgeIndex(strided.scene);
+  assert.ok(restrided && restrided.array instanceof Uint32Array && restrided.isInterleavedBufferAttribute !== true);
+  assert.deepEqual(Array.from(restrided.array), faces);
+  // A TRIANGLE_STRIP with a normalized or VEC3 index: three's loader triangulates it through getX (every vertex number
+  // denormalized to 0; one component per VEC3 element), so arview rebuilds its triangles from the stored values (load.ts
+  // rebuildMisdeclaredStrips). Rendered, the row failed, and a reported fallback.
+  const strip = stripIndices(box(0, 1, 0, 1, 0, 1).faces), used = strip.length - strip.length % 3;
+  /** glTF 2.0 §3.7.2.1 (spec.py `triangulate`): triangle i is (i, i+1, i+2), every odd one with its winding flipped. */
+  const stripTriangles = (values: readonly number[]): number[] => values.slice(0, -2).flatMap((_, i) => [values[i]!, values[i + 1 + (i % 2)]!, values[i + 2 - (i % 2)]!]);
+  for (const [declaration, issue, stored] of [
+    [{normalized: true}, 'indices accessor is normalized', strip],
+    [{type: 'VEC3', count: used / 3}, "indices accessor type 'VEC3' is not SCALAR", strip.slice(0, used)],
+  ] as const) {
+    const checked = await checkModel(buildGlb({mode: 5, patch: doc => {
+      const accessors = doc.accessors as Json[], index = (((doc.meshes as Json[])[0]!.primitives as Json[])[0]!.indices as number);
+      accessors[index] = {...accessors[index]!, ...declaration};
+    }}).glb, {url: URL_BASE + 'strip.glb', renderer: null, plugins: [stubTextures]});
+    assert.equal(checked.report.status, 'rendered', checked.report.refusal.join(' | '));
+    assert.deepEqual(checked.report.spec.geometry.detail, [`Bridge: ${issue}`]);
+    assert.deepEqual(checked.report.fallbacks.map(entry => [entry.subsystem, entry.detail]), [['geometry', `"Bridge" is a TRIANGLE_STRIP whose index accessor is `
+      + `${'normalized' in declaration ? 'normalized' : 'VEC3, not SCALAR'} (not valid glTF): three.js would triangulate the indices as declared, so arview `
+      + 'rebuilt its triangles from the stored values (§2 Geometry).']]);
+    const drawn = bridgeIndex(checked.scene);
+    assert.ok(drawn && drawn.array instanceof Uint32Array && drawn.itemSize === 1 && !drawn.normalized);
+    assert.deepEqual(Array.from(drawn.array), stripTriangles(stored), 'the stored strip, triangulated as glTF (and spec.py) do');
+    assert.equal(checked.report.measurements.triangles, 72 + stored.length - 2, 'as spec.py counts the stored strip');
+  }
+  // A fractional FLOAT index names no vertex: out of range, a §1 Geometry refusal (spec.py fails the row).
+  const fractional = await check(buildGlb({patch: (doc, add) => {
+    const accessor = add([2.5, ...faces.slice(1)], 5126, 'SCALAR'); ((doc.meshes as Json[])[0]!.primitives as Json[])[0]!.indices = accessor;
+  }}));
+  assert.equal(fractional.status, 'refused');
+  assert.ok(fractional.refusal.includes('§2 Geometry: Bridge: index value 2.5 is not an integer (out of range: no vertex has that number)'), fractional.refusal.join(' | '));
+});
+type CheckedScene = Awaited<ReturnType<typeof checkModel>>['scene'];
+
 test('KTX2 without a GPU renderer: a required KHR_texture_basisu texture is a reported fallback, never a parse refusal', async () => {
   const quiet = console.warn; console.warn = () => {};
   let checked: Awaited<ReturnType<typeof checkModel>>;
@@ -453,6 +554,100 @@ test('KTX2 without a GPU renderer: a required KHR_texture_basisu texture is a re
   }});
   const optionalReport = await check(optional);
   assert.equal(optionalReport.status, 'rendered'); assert.deepEqual(optionalReport.fallbacks, []);
+});
+
+test('a texture three did not request during the parse is loaded while its bytes and decoders are still alive: no false "could not be decoded"', async t => {
+  // The REAL three image path, no texture plugin: GLTFLoader decodes with ImageBitmapLoader (fetch + createImageBitmap).
+  // Node fetches blob: URLs (and fails on a revoked one, as a browser does) but has no createImageBitmap: only that
+  // browser global gets a test stand-in, which insists on the fetched bytes.
+  const scope = globalThis as {createImageBitmap?: unknown}, previous = scope.createImageBitmap;
+  let decoded = 0;
+  scope.createImageBitmap = async (blob: Blob) => {
+    const head = new Uint8Array(await blob.arrayBuffer());
+    if (head.length < 8 || head[1] !== 0x50) throw new Error('not the PNG bytes');
+    decoded++; return {width: 8, height: 8, close() {}};
+  };
+  t.after(() => {scope.createImageBitmap = previous;});
+  // An external image used only by a material slot three never reads (an unknown extension's *Texture): the texture is
+  // first requested by loadModel's decode check, after the parse.
+  const built = buildGlb({patch: doc => {
+    doc.images = [{uri: 'only-in-an-extension.png'}]; doc.textures = [{source: 0}];
+    (doc.materials as Json[])[0]!.extensions = {VENDOR_unread: {sparkleTexture: {index: 0}}};
+    doc.extensionsUsed = [...(doc.extensionsUsed as string[] ?? []), 'VENDOR_unread'];
+  }});
+  const report = await check(built, {plugins: false, resources: {'only-in-an-extension.png': pngBytes(8, 8)}});
+  assert.equal(report.status, 'rendered', report.refusal.join(' | '));
+  assert.deepEqual(report.fallbacks, [], 'the external bytes were still reachable when the texture was asked for');
+  assert.equal(decoded, 1, 'the image went through the real loader once');
+});
+
+test('no silent stalls: Draco without a Web Worker ends "unchecked" up front (no verdict) and every load settles; a stalled parse is a §2 Format refusal; an abort ends the load', async () => {
+  /** `promise`, failed with a named error after `ms` (the test itself must never hang). */
+  const within = <T>(promise: Promise<T>, ms: number, what: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([promise, new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms);})])
+      .finally(() => clearTimeout(timer));
+  };
+  const compressed = buildGlb({patch: doc => {
+    ((doc.meshes as Json[])[0]!.primitives as Json[])[0]!.extensions = {KHR_draco_mesh_compression: {bufferView: 0, attributes: {POSITION: 0}}};
+    doc.extensionsUsed = [...(doc.extensionsUsed as string[] ?? []), 'KHR_draco_mesh_compression'];
+  }});
+  // Before canDecodeDraco the first load failed on the decoder URL and the SECOND waited forever behind it.
+  for (const attempt of [1, 2, 3]) {
+    const report = await within(check(compressed), 10_000, `Draco load ${attempt}`);
+    // An environment limit, not a §2 verdict: no refusal, the Format row as really checked (it passes), the other rows
+    // not checked, and a loud warning that the page lists first.
+    const reason = '1 default-scene primitive(s) use KHR_draco_mesh_compression (["Bridge"]), which cannot be decoded here: there is '
+      + 'no Web Worker for the Draco decoder (a renderer-less Node load). This says nothing about the file; check it in the browser (the arview page or the '
+      + 'capture CLI), which decodes Draco';
+    assert.equal(report.status, 'unchecked');
+    assert.deepEqual(report.refusal, []);
+    assert.deepEqual(report.unchecked, [reason]);
+    assert.equal(report.spec.format.pass, true, report.spec.format.detail.join(' | '));
+    for (const row of SPEC_ROWS.filter(row => row !== 'format')) {
+      assert.deepEqual(report.spec[row].detail, ['not checked: the Draco-compressed geometry cannot be decoded here (an environment limit, not a verdict on the file)']);
+    }
+    const lines = reportLines(report);
+    assert.equal(lines[0]!.kind, 'warning');
+    assert.ok(lines[0]!.text.startsWith(`NOT CHECKED HERE: ${reason}. No §2 verdict was reached on this file`), lines[0]!.text);
+  }
+  // A parse that never finishes (a buffer view that never arrives, as a dead decoder would) is abandoned at the deadline.
+  const stall = (): GLTFLoaderPlugin => ({name: 'ArviewTestStall', loadBufferView: () => new Promise<ArrayBuffer>(() => {})}) as GLTFLoaderPlugin;
+  const started = performance.now();
+  const stalled = await within(checkModel(buildGlb().glb, {url: URL_BASE + 'stall.glb', renderer: null, plugins: [stubTextures, stall], parseTimeoutMs: 300}), 10_000, 'stalled parse');
+  assert.equal(stalled.report.status, 'refused');
+  assert.deepEqual(stalled.report.refusal, ["§2 Format: the GLB could not be parsed: three.js's GLTFLoader parse did not finish within 0.3 s and was abandoned "
+    + '(a decoder or a buffer load stalled)']);
+  assert.ok(performance.now() - started < 5_000, 'abandoned at the deadline');
+  assert.match(stalled.report.rendered_sha256 ?? '', /^[0-9a-f]{64}$/);
+  // The abort signal ends a stalled parse at once (the renderer's cancel, qa/temple-cutoff's signal).
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 50);
+  await within(assert.rejects(checkModel(buildGlb().glb, {url: URL_BASE + 'stall.glb', renderer: null, plugins: [stubTextures, stall], signal: controller.signal}),
+    {name: 'AbortError'}), 10_000, 'aborted parse');
+});
+
+test('a parse rejected with something that is not an Error keeps its reason (three\'s DRACOLoader rejects with its worker message object)', async () => {
+  // DRACOLoader.js: worker._callbacks[id].reject(message), message = {type: 'error', id, error: '<the decoder\'s message>'}.
+  const rejecting = (value: unknown) => (): GLTFLoaderPlugin => ({name: 'ArviewTestReject', loadMesh: () => Promise.reject(value)}) as GLTFLoaderPlugin;
+  const cases: [unknown, string][] = [
+    [{type: 'error', id: 3, error: 'Draco: invalid geometry type 7'}, 'Draco: invalid geometry type 7'],
+    [{message: 'a plain record with a message'}, 'a plain record with a message'],
+    ['a bare string', 'a bare string'],
+    [{code: 42}, '{"code":42}'],
+    [new TypeError('a real error'), 'a real error'],
+  ];
+  for (const [value, text] of cases) {
+    const {report} = await checkModel(buildGlb().glb, {url: URL_BASE + 'reject.glb', renderer: null, plugins: [stubTextures, rejecting(value)]});
+    assert.equal(report.status, 'refused');
+    assert.deepEqual(report.refusal, [`§2 Format: the GLB could not be parsed: ${text}`]);
+    assert.ok(!report.refusal[0]!.includes('[object Object]'));
+  }
+  assert.equal(describeError({}), 'Object with no message');
+  assert.equal(describeError(null), 'null');
+  assert.equal(describeError(Object.assign(new Error(''), {name: 'NamedOnly'})), 'NamedOnly');
+  const cyclic: Record<string, unknown> = {}; cyclic.self = cyclic;
+  assert.equal(describeError(cyclic), 'Object with no message');
 });
 
 test('the refusal keeps checking: every row it can measure is in the report', async () => {
@@ -515,6 +710,23 @@ test('millimetres: rescaled x0.001 before anything reads the scene, volume lengt
   assert.ok(lensMaterial);
   assert.ok(Math.abs(lensMaterial.thickness - 0.0015) < 1e-9 && Math.abs(lensMaterial.attenuationDistance - 0.5) < 1e-9, 'volume lengths rescaled too');
   assert.ok(report.warnings.some(w => w.includes('thicknessFactor 1.5 looks like millimetres')));
+  // The rows a rescaled file fails as authored say what the measurement after the rescale found (WP1 proof: the line
+  // used to end "as follows" with nothing following when the rescaled model passed).
+  for (const row of ['origin', 'orientation'] as const) {
+    assert.deepEqual(report.spec[row], {pass: false, detail: ['not checked as authored: units are wrong; measured after the ×0.001 rescale: no defect '
+      + '(the rescaled model passes this row)']});
+  }
+});
+
+test('millimetres with an origin defect: the as-authored line counts the defects found after the rescale, which follow it', async () => {
+  const report = await check(buildGlb({scale: 1.0, offsetMm: [0, 5, 0]}));
+  assert.equal(report.status, 'rendered');
+  assert.equal(report.measurements.units_scale, 0.001);
+  assert.equal(report.spec.origin.pass, false);
+  assert.equal(report.spec.origin.detail[0], 'not checked as authored: units are wrong; measured after the ×0.001 rescale: 1 defect (listed next)');
+  assert.equal(report.spec.origin.detail.length, 2, report.spec.origin.detail.join(' | '));
+  assert.match(report.spec.origin.detail[1]!, /^bridge underside is at y \+5\.00 mm/);
+  assert.equal(report.spec.orientation.detail[0], 'not checked as authored: units are wrong; measured after the ×0.001 rescale: no defect (the rescaled model passes this row)');
 });
 
 test('centimetres: rescaled x0.01', async () => {
@@ -540,8 +752,8 @@ test('every row that renders anyway says why, and every fallback is a warning to
     + 'lenses are centred at x +0.00 mm (asymmetric temples or ornaments?)'), report.warnings.join(' | '));
   // Origin off by more than 1 mm, or unverifiable: the row fails AND a loud warning says so (WP1_DESIGN.md §1).
   report = await check(buildGlb({offsetMm: [0, 5, 0]}));
-  assert.ok(report.warnings.includes('ORIGIN: bridge underside is at y +5.00 mm (must be 0 +/- 1.0 mm). arview renders the model where it was '
-    + 'authored; the delivered file violates §2 Origin.'), report.warnings.join(' | '));
+  assert.ok(report.warnings.includes('ORIGIN: bridge underside is at y +5.00 mm (must be 0 +/- 1.0 mm). The delivered file violates §2 Origin; '
+    + 'arview never moves a model (it is drawn where it was authored).'), report.warnings.join(' | '));
   report = await check(buildGlb({parts: without(['Bridge'])}));
   assert.ok(report.warnings.some(w => w.startsWith('ORIGIN: origin unverifiable: no frame or lens surface crosses x = 0')), report.warnings.join(' | '));
   report = await check(buildGlb({parts: leftLensOnly()}));
@@ -581,6 +793,9 @@ test('every row that renders anyway says why, and every fallback is a warning to
   report = await check(external);
   assert.equal(report.status, 'rendered'); assert.ok(report.warnings.includes('not self-contained: external resources ["external.bin"]'));
   assert.deepEqual((report.measurements.external_resources as {uri: string; bytes: number}[]).map(r => [r.uri, r.bytes]), [['external.bin', external.external!.length]]);
+  // Format: a data: URI buffer is decoded without three's FileLoader too (no ProgressEvent in Node; see the top).
+  report = await check(buildGlb({dataUriBuffer: true}));
+  assert.equal(report.status, 'rendered', report.refusal.join(' | ')); assert.ok(!report.warnings.some(w => w.startsWith('not self-contained')));
   // Format: unknown required extensions load with a warning.
   const {doc, bin} = splitGlb(buildGlb().glb);
   report = await check(joinGlb({...doc, extensionsRequired: ['ACME_magic'], extensionsUsed: [...(doc.extensionsUsed as string[]), 'ACME_magic']}, bin));
@@ -612,15 +827,17 @@ test('textures: sizes are read from the bytes; above 4096 px a warning, above 20
 });
 
 test('live-site notes: compression, triangles, file size, non-opaque frame, temples; arview warns above 300k triangles', async t => {
-  // Draco declared: the decoder is registered (a bare GLTFLoader throws "No DRACOLoader instance provided"). GLTFLoader
-  // then preloads the decoder from /decoders/draco/ (vite.config.ts serves it); Node can neither fetch that relative URL
-  // nor start the decoder's Web Worker, so the preload is mocked here.
-  t.mock.method(DRACOLoader.prototype, 'preload', function (this: DRACOLoader) {return this;});
+  // Draco declared, no primitive compressed. In the browser GLTFLoader preloads the decoder from /decoders/draco/; Node
+  // has no Web Worker to run it (load.ts canDecodeDraco), so the unused declaration is kept from three and the decoder
+  // never starts (a spy, not a stand-in: it must stay uncalled).
+  const preload = t.mock.method(DRACOLoader.prototype, 'preload');
   const {doc, bin} = splitGlb(buildGlb().glb);
   let report = await check(joinGlb({...doc, extensionsUsed: [...(doc.extensionsUsed as string[]), 'KHR_draco_mesh_compression']}, bin));
   assert.equal(report.status, 'rendered', report.refusal.join(' | '));
+  assert.equal(preload.mock.callCount(), 0, 'Node never starts the Draco decoder');
   assert.ok(report.live_site_would_fail.includes('uses KHR_draco_mesh_compression (live site loads plain glTF only)'));
-  assert.ok(report.spec.format.detail.includes('compressed with KHR_draco_mesh_compression: decoded by arview'));
+  assert.ok(report.spec.format.detail.includes('compressed with KHR_draco_mesh_compression: not decoded here (no Web Worker for the Draco decoder: a renderer-less Node load)'),
+    report.spec.format.detail.join(' | '));
   // 300 003 triangles: one repeated valid triangle.
   const heavy = buildGlb({patch: (patched, add) => {
     const indices = new Array(300_003 * 3); for (let i = 0; i < indices.length; i++) indices[i] = [0, 1, 2][i % 3]!;
@@ -661,7 +878,7 @@ test('r9-style legacy crystal: lenses by legacy part_role, crystal is frame, ren
   assert.match(report.spec.origin.detail.join(' '), /bridge underside is at y \+10\.23 mm \(must be 0 \+\/- 1\.0 mm\)/);
   // WP1_DESIGN.md §1: render anyway, LOUD warning (the webcam page shows the warnings, not the rows).
   assert.deepEqual(report.warnings.filter(w => w.startsWith('ORIGIN:')), ['ORIGIN: bridge underside is at y +10.23 mm (must be 0 +/- 1.0 mm). '
-    + 'arview renders the model where it was authored; the delivered file violates §2 Origin.']);
+    + 'The delivered file violates §2 Origin; arview never moves a model (it is drawn where it was authored).']);
   assert.deepEqual(report.lens_identification!.materials.map(entry => [entry.name, entry.class, entry.signal, entry.value]), [
     ['Crystal acetate', 'frame', 'part_role_legacy', 'frame'],
     ['Warm brown optical tint', 'lens', 'part_role_legacy', 'lens_left'],

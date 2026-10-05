@@ -786,16 +786,26 @@ def validate_spec(path: str | Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Exit 0 when every file passes, 1 when any fails, 2 on a usage error. `--full` prints ONE JSON list holding every
+    file's complete validate_spec report (rows, materials, primitives included), in argument order, for callers that
+    parse it (arview's capture report and agreement test)."""
     argv = sys.argv[1:] if argv is None else argv
-    if not argv:
-        print("usage: python -m glasses3d.g3d_host.spec <model.glb> [...]", file=sys.stderr)
+    full = "--full" in argv
+    paths = [a for a in argv if a != "--full"]
+    if not paths:
+        print("usage: python -m glasses3d.g3d_host.spec [--full] <model.glb> [...]", file=sys.stderr)
         return 2
-    worst = 0
-    for a in argv:
+    worst, reports = 0, []
+    for a in paths:
         r = validate_spec(a)
-        print(json.dumps({k: r[k] for k in ("path", "ok", "errors", "warnings", "live_site_would_fail",
-                                             "measurements")}, indent=1))
+        if full:
+            reports.append(r)
+        else:
+            print(json.dumps({k: r[k] for k in ("path", "ok", "errors", "warnings", "live_site_would_fail",
+                                                 "measurements")}, indent=1))
         worst = max(worst, 0 if r["ok"] else 1)
+    if full:
+        print(json.dumps(reports, indent=1))
     return worst
 
 

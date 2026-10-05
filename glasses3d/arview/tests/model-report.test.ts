@@ -83,8 +83,8 @@ test('a retired canonical descriptor is stripped with a warning and the lens dra
   // The hand-built asset sits off the origin (its front's underside is at y -20 mm): that is a loud ORIGIN warning of
   // its own (WP1_DESIGN.md §1), asserted apart from the fallback under test.
   const all = instance.report().warnings, warnings = all.filter(w => !w.startsWith('ORIGIN: '));
-  assert.ok(all.includes('ORIGIN: bridge underside is at y -20.00 mm (must be 0 +/- 1.0 mm). arview renders the model where it was authored; '
-    + 'the delivered file violates §2 Origin.'), all.join(' | '));
+  assert.ok(all.includes('ORIGIN: bridge underside is at y -20.00 mm (must be 0 +/- 1.0 mm). The delivered file violates §2 Origin; '
+    + 'arview never moves a model (it is drawn where it was authored).'), all.join(' | '));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0]!, new RegExp(`"Retired route lens" carried the retired ${RETIRED_LENS_APPEARANCE_EXTENSION} descriptor; it was stripped`));
   assert.equal(asset.lens.userData.gltfExtensions, undefined, 'nothing downstream can read the descriptor');

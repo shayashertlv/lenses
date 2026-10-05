@@ -1,53 +1,29 @@
-# ar/qa index
+# arview/qa index
 
-Run every tool from `ar/`. None of them opens a real camera (except `camera-probe.mjs`), calls a provider or
-publishes `site/`. Every output goes to the ignored `qa/output/` (or the `--output`/`--out` you pass). Where a
-tool or doc below cites evidence under `qa/output/...`, that is a local, uncommitted run: regenerate it with the
-command given rather than expecting it in a clone.
+Run every tool from `glasses3d/arview/`. None of them opens a real camera (the webcam page waits for the owner's Open
+camera), calls a provider, publishes anything or writes into `../../ar/` (it is read-only: `public/` assets and
+`qa/fixtures/face-a.jpg`). Write outputs under
+`glasses3d/data/` (git-ignored). `npm run test:qa` (`node --test qa/*.test.mjs`) runs the tests below.
 
-## 1. Page gates (the app on a synthetic camera)
+| Tool | What it does |
+|---|---|
+| `capture.mjs` (bin `arview capture`; `capture.html`, `capture/`) | Posed AR captures of one GLB for Astra and the owner, plus the worn front portrait on face-a and report.json (README "Capture CLI"). `capture/cli.ts` arguments, `capture/poses.ts` pose sets and file names, `capture/synthetic-face.ts` the synthetic detection, `capture/junction.ts` lens-brow slicing and crops, `capture/id-palette.ts` part-id decode and junction metrics, `capture/report.ts` report assembly, `capture/glb-input.ts` input preflight, `capture/portrait*.ts` the portrait, `capture/page.ts` the page API, `capture/chromium.mjs` the killable Chromium (BrowserServer, tree kill, bounded child commands), `capture/live-probe*.{mjs,js}` the `--live-probe` on main's ar/. `fixtures/spec-full-q001.json` is a verbatim `spec.py --full` output the report test compares against. |
+| `temple-cutoff.mjs` | The temple clip exactly as the renderer derives it (src/render/temple-geometry.ts), for QA callers. |
+| `serve.mjs` (bin `arview serve`; `serve/`) | The owner's webcam page for one GLB (README "Webcam page"): builds the frozen page if its sources changed, checks the model (spec.py --full and arview's Node-side load), serves the page, the public binaries and the model with its sha256 on loopback with COOP/COEP/CORP and the camera Permissions-Policy, prints `http://127.0.0.1:8251/?model=...&report=...`; `--detach`, `--stop`, `--status`. `serve/cli.ts` arguments and deadlines, `serve/build.mjs` the content-addressed, stamped build, `serve/report.ts` the served report (`/__arview/report.json`, read by `src/model/served-report.ts`), `serve/detach.mjs` the WMI start. Replaces the stash-era `astra-preview.mjs` / `astra-preview-smoke.mjs` (removed; in git at HEAD). |
+| `capture/spec-validator.mjs` | `spec.py --full` as a child process with a deadline, shared by capture and serve. |
 
-These drive the normal page. The `--base` tools need a running dev (`npm run dev`, 8240) or preview (8241) server.
-
-| Tool | What it checks | Inputs |
-|---|---|---|
-| `measure.mjs` (`npm run measure`) | Lifecycle, pacing and one audited frame on the checked-in face-a fixture | `--base`, default 8241 |
-| `pipeline-smoke.mjs` | Normal page, both shipped models, restart, held-frame protection | `--base`, default 8241 |
-| `shadow-smoke.mjs` | Same-frame shadow on/off images, controls, tracking loss | `--base`, default 8247 |
-| `shadow-stability.mjs` | Frame-to-frame shadow variation under repeatable pose/depth noise | `--base`, default 8247 |
-| `fit-smoke.mjs` | Calibration, locked sizing, Refit, fresh sessions | `--base`, default 8247 |
-| `verify-published.py` | Served bytes and headers of the deployed `/ar/` against `site/public-manifest.json` | `--url` of the deployment |
-| `camera-probe.mjs` | What the real default camera delivers under several constraint sets (opens the camera; nothing is stored) | `--base`, default 8241 |
-| `camera-rate.mjs` | Camera delivery rate versus processed rate, read from a timing export | a saved timing/measurement report |
-
-## 2. Harnesses used by automation code or plan docs
-
-Each starts and closes its own local Vite server and headless Chromium (ANGLE D3D11) unless noted.
-
-| Tool | Caller | Inputs |
-|---|---|---|
-| `provider-comparison.mjs` (+ `.html`, `-ar.html`, `-lighting.mjs`) | `automation/qa/provider_comparison.py`, `bsa/archeck.py`, `bsa/tryon.py`, `modeler/appearance.py`, `modeler/agentic/`, `reconstruction/segmented_*` | `--manifest` of local GLBs; see [provider-comparison.README.md](provider-comparison.README.md) |
-| `semantic-material-cards.mjs` (+ `.html`) | `automation/reconstruction/semantic_appearance_stage.py` | `--manifest` written by that stage |
-| `prepared-optical-groups.mjs` (+ `.html`) | `automation/qa/preview_manifest.py` (builds its manifest) | `--manifest` |
-| `prepared-optics.mjs` (+ `.html`) | `automation/plan/PHOTO_LENS_PIPELINE.md` | `--manifest` |
-| `canonical-lens-runtime.mjs` (+ `.html`, `canonical-lens-layers.mjs`) | `ar/README.md`, `automation/plan/LENS_RUNTIME.md` | fixtures from `python scripts/runtime_lens_fixtures.py` (run in `automation/`; default output `ar/qa/output/canonical-lens-fixtures`) |
-| `lens-conformance.mjs` (+ `lens-appearance.html`) | `automation/plan/LENS_CONFORMANCE.md` | fixtures from `python -m reconstruction.lens_asset --output data/lens-conformance` (run in `automation/`; ignored data) |
-| `production-optical-groups.mjs` (+ `.html`, `-browser.mjs`, `-oracle.mjs`, `-arithmetic.mjs`, `viewport-subpixel-probe.mjs`) | `automation/plan/EFFECTIVE_GROUP_RUNTIME.md`; see [production-optical-groups.md](production-optical-groups.md) | none (synthetic recipes); `--mode=arithmetic` for the diagnostic mode |
-
-## 3. Optical-group evidence reproducers
-
-Research harnesses behind `automation/plan/OPTICAL_GROUPS.md`. They reproduce recorded experiments; they are
-not gates of the production renderer.
-
-| Tool | What it reproduces | Inputs |
-|---|---|---|
-| `effective-optical-groups.mjs` (+ `.html`, `-browser.mjs`); `effective-optical-groups-angle.mjs` | The isolated QA-only group renderer, and its math-override runs; see [effective-optical-groups.md](effective-optical-groups.md) | none |
-| `source-optical-groups.mjs` (+ `.html`, `-browser.mjs`) | Real source triangles in the QA-only transport; see [source-optical-groups.md](source-optical-groups.md) | `--bundle`, default `../automation/data/source-optical-groups-browser-v1` (built as that doc describes) |
-| `acos-precision.mjs` (+ `.html`, `-browser.mjs`) | Builtin `acos` versus the fixed Taylor formula on the GPU | none |
-| `taylor24-angle-override.mjs`, `raster-arithmetic-override.mjs` | The fixed math overrides applied by `effective-optical-groups-angle.mjs` and `source-optical-groups.mjs` | imported, not run directly |
-| `canonical-display-regression.mjs` (+ `.html`, `-browser.mjs`) | The canonical lens display shader against composed RGB; `--old-gate=true` is the negative control | none |
-
-`raster-arithmetic-override.test.mjs` is a `node:test` suite for the raster override. `npm test` does not run it
-(it reads the prototype harness source); run it with `npm run test:qa`.
-
-Files in `qa/` that are not listed here are local session experiments, not part of any pipeline.
+| Test | Covers |
+|---|---|
+| `capture-cli.test.mjs` | every option, the defaults, every usage error, the stall budget (every stall path in `stallReportPathsMs`, inner kills included, < 120 s at every step deadline) |
+| `capture-poses.test.mjs` | the three pose sets, counts, file names, backgrounds |
+| `capture-synthetic-face.test.mjs` | 478 landmarks; poseAngles and FaceSurface.reconstruct recover the pose exactly; the iris |
+| `capture-junction.test.mjs` | triangle slicing, window clipping, seated / gap / browline / rimless / floor / shield fixtures, crops |
+| `capture-id-palette.test.mjs` | per-colour tolerances (the r9 close pair shrinks only its two parts), colour conflicts (frame-frame and frame-lens), the part-id palette's separation (25 colours 102 apart, 200 at 51, then 17), decode, junction columns, band metrics |
+| `capture-report.test.mjs` | status and exit codes, validator unavailable, spec disagreements (on a real spec.py --full report), "not checked" rows uncompared, model/portrait warnings mirrored, live verdict (static vs runtime, the q001 contradiction), software GPU, preflight |
+| `capture-portrait-contract.test.mjs` | eye crop, console triage, the face-a pin |
+| `capture-refusal.test.mjs` | unrouted model paths are 404 (`routesMiddleware`); a GLB with a missing external image is refused by the real orchestrator (status refused, exit 4, HTTP 404 seen); malformed percent escapes (`100%.png` present: served; `%zz-missing.png` absent: refused, as spec.py; no URIError, the report written) |
+| `capture-stall.test.mjs` | a stalled page step, a stalled Chromium connect and a stalled `--live-probe` step each kill the Chromium tree (checked in the OS process table after `main()` returns in-process; a process still exiting is logged with its type and parent, one still listed 30 s later fails), write a partial report naming the step and exit 1 (real orchestrator, test hook); `launchChromium`'s failure records |
+| `temple-cutoff.test.mjs` | the QA clip receipts |
+| `serve-cli.test.mjs` | every serve option, the defaults, every usage error, the deadlines, the Windows command-line quoting of the detached start (round trip through CommandLineToArgvW rules) |
+| `serve-report.test.mjs` | the served report on arview's real Node-side check of synthetic GLBs: origin failure, millimetre rescale without spec.py, disagreements, digest mismatch, a check that never finished, what the page lists before and after Open camera (spec.py's own warnings kept, an "unverified" pass said, both-fail rows with spec.py's detail first, no "authority" line under a refusal, the Node check's own lines dropped, notes never errors), an external buffer (rendered, no ProgressEvent), `EXT_texture_webp` / `EXT_texture_avif` (rendered, never refused in Node), external resources resolved as spec.py resolves them (`100%.png`, `../`, `%2e%2e/`, links: served, outside the folder with a warning; absolute and missing: refused; a route collision with the model or a reserved path: an error), `pythonUnquote` equal to Python's `urllib.parse.unquote`, spec.py's note sites, the sha256 line, a report that cannot be trusted |
+| `serve.test.mjs` | the real server end to end (port 0, private state dir): headers on every response, page, script, public binary, model with X-Arview-Sha256 / Repr-Digest, 404/405/403/421 (Host), the localhost redirect (307; the page opened as localhost lands on 127.0.0.1), the report endpoint's Origin failure and ORIGIN warning, a second server on the same port refused, the page in headless Chromium (served report and sha256; face-a streamed as the camera: renderer report, rendered sha256, fit settled with hair masks, Hold & audit sees the glasses, Close camera ends the stream), a file re-exported while serving (a report error, cleared when the bytes come back), an external buffer alone (rendered, page served), external resources (present `100%.png` and `../outside.png`: served at the raw path, rendered, spec.py passes; missing ones, one with a malformed escape: 404, refused, as spec.py), the still-checking window (state file ready:false, 503 naming the server, `--status` "still checking", second serve refused, `--stop` during the check), `--detach` (WMI) with the units rescale, `--status`, `--stop` |

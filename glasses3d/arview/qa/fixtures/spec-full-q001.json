@@ -1,0 +1,468 @@
+[
+ {
+  "path": "automation\\data\\blender_agent\\studio\\jobs\\3b8a1c7ae8114868b49b298b681f1b29\\original\\model.glb",
+  "sha256": "af6e9d100fcf7a30ee3862884bff6418f7166a7395c34834559c2da6fcad6cd7",
+  "ok": true,
+  "errors": [],
+  "rows": {
+   "format": {
+    "pass": true,
+    "detail": [
+     "GLB 2.0, 1902148 bytes"
+    ]
+   },
+   "units": {
+    "pass": true,
+    "detail": [
+     "width 0.1419 units = 141.9 mm (metres)"
+    ]
+   },
+   "origin": {
+    "pass": true,
+    "detail": []
+   },
+   "orientation": {
+    "pass": true,
+    "detail": []
+   },
+   "transforms": {
+    "pass": true,
+    "detail": []
+   },
+   "geometry": {
+    "pass": true,
+    "detail": []
+   },
+   "components": {
+    "pass": true,
+    "detail": []
+   }
+  },
+  "warnings": [
+   "Lens_Left.001: 189 degenerate (zero-area) triangles",
+   "Lens_Right.001: 191 degenerate (zero-area) triangles"
+  ],
+  "live_site_would_fail": [
+   "frame material 'Clear pads.001' is not fully opaque"
+  ],
+  "measurements": {
+   "file_bytes": 1902148,
+   "extensions_used": [
+    "KHR_materials_clearcoat",
+    "KHR_materials_transmission",
+    "KHR_materials_volume"
+   ],
+   "triangles": 47776,
+   "textures": [
+    {
+     "image": 0,
+     "size": [
+      512,
+      512
+     ]
+    },
+    {
+     "image": 1,
+     "size": [
+      512,
+      512
+     ]
+    },
+    {
+     "image": 2,
+     "size": [
+      512,
+      512
+     ]
+    }
+   ],
+   "lens_primitives": 2,
+   "bbox_mm": {
+    "min": [
+     -70.95,
+     -27.07,
+     -144.59
+    ],
+    "max": [
+     70.95,
+     11.93,
+     2.04
+    ]
+   },
+   "width_mm": 141.91,
+   "temple_reach_z_mm": {
+    "left": -144.59,
+    "right": -144.59
+   },
+   "temple_roots_above_lens_centre_mm": 15.75,
+   "lens_halves_dy_mm": 0.0,
+   "lens_bbox_centre_mm": [
+    0.0,
+    -9.07,
+    -1.09
+   ],
+   "temple_slope_deg": {
+    "left": 0.93,
+    "right": 1.36
+   },
+   "bridge_underside_mm": {
+    "y": -0.004,
+    "z_range": [
+     -0.9,
+     0.91
+    ],
+    "surface": "frame"
+   },
+   "front_centre_x_mm": 0.0,
+   "lens_centre_x_mm": 0.0,
+   "origin_x_judged_on": "lenses"
+  },
+  "materials": [
+   {
+    "index": 0,
+    "name": "Front source havana.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=frame"
+    ]
+   },
+   {
+    "index": 1,
+    "name": "Champagne alloy.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=frame",
+     "mesh.extras.partRole=temple"
+    ]
+   },
+   {
+    "index": 2,
+    "name": "Subtle inner temple print.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=temple"
+    ]
+   },
+   {
+    "index": 3,
+    "name": "Champagne lens.001",
+    "class": "lens",
+    "signals": [
+     "mesh.extras.partRole=lens"
+    ]
+   },
+   {
+    "index": 4,
+    "name": "Clear pads.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=frame"
+    ]
+   },
+   {
+    "index": 5,
+    "name": "Brushed champagne tip medallion.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=temple"
+    ]
+   },
+   {
+    "index": 6,
+    "name": "Fine warm engraved lettering.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=temple"
+    ]
+   },
+   {
+    "index": 7,
+    "name": "Left source havana.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=temple"
+    ]
+   },
+   {
+    "index": 8,
+    "name": "Right source havana.001",
+    "class": "frame",
+    "signals": [
+     "mesh.extras.partRole=temple"
+    ]
+   }
+  ],
+  "primitives": [
+   {
+    "index": 0,
+    "node": "Brow_Left.001",
+    "mesh": "Brow_Left structured sweep.001",
+    "material": 0,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 1,
+    "node": "Brow_Right.001",
+    "mesh": "Brow_Right structured sweep.001",
+    "material": 0,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 2,
+    "node": "Eyewire_Left.001",
+    "mesh": "Eyewire_Left mesh.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 3,
+    "node": "Eyewire_Right.001",
+    "mesh": "Eyewire_Right mesh.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 4,
+    "node": "Front_hinge_Left.001",
+    "mesh": "Front_hinge_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 5,
+    "node": "Front_hinge_Right.001",
+    "mesh": "Front_hinge_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 6,
+    "node": "Hinge_screw_Left.001",
+    "mesh": "Hinge_screw_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 7,
+    "node": "Hinge_screw_Right.001",
+    "mesh": "Hinge_screw_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 8,
+    "node": "Left_inner_brand_print.001",
+    "mesh": "Left_inner_brand_print editable source.001",
+    "material": 2,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 9,
+    "node": "Lens_Left.001",
+    "mesh": "Lens_Left mesh.001",
+    "material": 3,
+    "class": "lens",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=lens"
+   },
+   {
+    "index": 10,
+    "node": "Lens_Right.001",
+    "mesh": "Lens_Right mesh.001",
+    "material": 3,
+    "class": "lens",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=lens"
+   },
+   {
+    "index": 11,
+    "node": "Nose_pad_Left.001",
+    "mesh": "Nose_pad_Left.001",
+    "material": 4,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 12,
+    "node": "Nose_pad_Right.001",
+    "mesh": "Nose_pad_Right.001",
+    "material": 4,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 13,
+    "node": "Pad_mount_Left.001",
+    "mesh": "Pad_mount_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 14,
+    "node": "Pad_mount_Right.001",
+    "mesh": "Pad_mount_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 15,
+    "node": "Pad_stalk_Left.001",
+    "mesh": "Pad_stalk_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 16,
+    "node": "Pad_stalk_Right.001",
+    "mesh": "Pad_stalk_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 17,
+    "node": "Right_tip_medallion.001",
+    "mesh": "Tip medallion capsule mesh.001",
+    "material": 5,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 18,
+    "node": "Right_tip_TOM_FORD.001",
+    "mesh": "Right_tip_TOM_FORD editable source.001",
+    "material": 6,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 19,
+    "node": "Saddle_bridge.001",
+    "mesh": "Saddle_bridge mesh.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 20,
+    "node": "T_arm_Left.001",
+    "mesh": "T_arm_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 21,
+    "node": "T_arm_Right.001",
+    "mesh": "T_arm_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 22,
+    "node": "T_return_Left.001",
+    "mesh": "T_return_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 23,
+    "node": "T_return_Right.001",
+    "mesh": "T_return_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 24,
+    "node": "T_vertical_Left.001",
+    "mesh": "T_vertical_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 25,
+    "node": "T_vertical_Right.001",
+    "mesh": "T_vertical_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=frame"
+   },
+   {
+    "index": 26,
+    "node": "Temple_hinge_Left.001",
+    "mesh": "Temple_hinge_Left.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 27,
+    "node": "Temple_hinge_Right.001",
+    "mesh": "Temple_hinge_Right.001",
+    "material": 1,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 28,
+    "node": "Temple_Left.001",
+    "mesh": "Temple_Left mesh.001",
+    "material": 7,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   },
+   {
+    "index": 29,
+    "node": "Temple_Right.001",
+    "mesh": "Temple_Right mesh.001",
+    "material": 8,
+    "class": "frame",
+    "rule": 1,
+    "signal": "mesh.extras.partRole=temple"
+   }
+  ]
+ }
+]

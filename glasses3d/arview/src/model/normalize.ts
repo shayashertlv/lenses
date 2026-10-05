@@ -2,7 +2,8 @@
  *  rear drop, continuity, temple visibility and clip, hair occlusion, terminal fit, shadows, twins) reads it.
  *
  *  In order: transforms (one check at 1e-6 absolute, EXT_mesh_gpu_instancing; within tolerance the transform is baked
- *  so every later consumer sees exact identity), geometry (finite positions, in-range indices, static, triangles;
+ *  so every later consumer sees exact identity), geometry (finite positions, in-range indices declared unsigned SCALAR,
+ *  static, triangles;
  *  LINES/POINTS are removed and reported, never silently dropped; a primitive without XYZ positions fails the Format
  *  row as spec.py fails it and is removed, reported), units (an X span of 60-250 units is millimetres,
  *  6-25 centimetres: rescaled with a loud warning, KHR_materials_volume lengths included), lens identification
@@ -12,11 +13,11 @@
  *  §1-table violations are refusals: the pass records them and keeps checking every row it can, then throws
  *  ModelRefusal with the whole report. Everything else renders, with a warning (and a fallback entry when arview
  *  changes what it draws). */
-import {Line, Matrix4, Mesh, MeshPhysicalMaterial, Points, Vector3} from 'three';
-import type {BufferGeometry, Material, Object3D} from 'three';
+import {BufferAttribute, Line, Matrix4, Mesh, MeshPhysicalMaterial, Points, Vector3} from 'three';
+import type {BufferGeometry, InterleavedBufferAttribute, Material, Object3D} from 'three';
 import {classifyAssetMaterials, materialClassOf, RETIRED_LENS_APPEARANCE_EXTENSION, stripRetiredLensAppearance} from '../eyewear/optical-material.ts';
 import type {AssetMaterialClassification, GltfSource} from '../eyewear/optical-material.ts';
-import {INSTANCING_EXTENSION, isRecord, jsonPrimitives} from './glb.ts';
+import {describeError, INSTANCING_EXTENSION, isRecord, jsonPrimitives} from './glb.ts';
 import type {Json} from './glb.ts';
 import {measureBounds, orientationRow, originRow, unitsRow} from './measure.ts';
 import type {MeasuredGeometry, PointSet, RowSink} from './measure.ts';
@@ -60,6 +61,63 @@ export function nodeName(object: Object3D, source: GltfSource | null): string {
 function relativeMatrix(object: Object3D, rootInverse: Matrix4): Matrix4 {return rootInverse.clone().multiply(object.matrixWorld);}
 const isExactIdentity = (matrix: Matrix4): boolean => matrix.elements.every((value, index) => value === (index % 5 === 0 ? 1 : 0));
 const withinIdentity = (matrix: Matrix4): boolean => matrix.elements.every((value, index) => Number.isFinite(value) && Math.abs(value - (index % 5 === 0 ? 1 : 0)) <= IDENTITY_ATOL);
+
+/** The index componentTypes glTF allows (unsigned byte, short, int). */
+const INDEX_COMPONENT_TYPES: readonly number[] = [5121, 5123, 5125];
+/** The index arrays WebGL's drawElements takes (UNSIGNED_BYTE, UNSIGNED_SHORT, UNSIGNED_INT). three hands any other
+ *  typed array to it as its own type (a Float32Array as gl.FLOAT: INVALID_ENUM, nothing drawn) and ignores
+ *  `normalized` on an index. */
+const isDrawableIndexArray = (array: ArrayLike<number>): boolean => array instanceof Uint8Array || array instanceof Uint16Array || array instanceof Uint32Array;
+type IndexAttribute = BufferAttribute | InterleavedBufferAttribute;
+const isInterleaved = (index: IndexAttribute): index is InterleavedBufferAttribute => (index as InterleavedBufferAttribute).isInterleavedBufferAttribute === true;
+
+/** Every value an index attribute stores, as the file stores it (value k is component k % itemSize of element
+ *  floor(k / itemSize), as spec.py reads a non-SCALAR accessor). Raw array reads: BufferAttribute.getX/getComponent
+ *  DENORMALIZE a normalized attribute (a stored 5 reads 5/65535), and an index buffer view with a byteStride arrives as
+ *  an InterleavedBufferAttribute. */
+function rawIndexValues(index: IndexAttribute): {readonly count: number; at(k: number): number} {
+  const itemSize = index.itemSize, count = index.count * itemSize;
+  if (isInterleaved(index)) {
+    const array = index.data.array, stride = index.data.stride, offset = index.offset;
+    return {count, at: k => array[Math.floor(k / itemSize) * stride + offset + k % itemSize]!};
+  }
+  const array = index.array;
+  return {count, at: k => array[k]!};
+}
+
+/** The index accessor of `mesh`'s glTF primitive, from the original JSON through three's associations, or null (a
+ *  hand-built scene, or an unindexed primitive). */
+function jsonIndexAccessor(mesh: Mesh, source: GltfSource | null, json: Json | null): {accessor: Json} | null {
+  const association = source?.associations.get(mesh);
+  if (!json || association?.meshes === undefined || association.primitives === undefined) return null;
+  const meshDef = Array.isArray(json.meshes) ? json.meshes[association.meshes] : undefined;
+  const primitive = isRecord(meshDef) && Array.isArray(meshDef.primitives) ? meshDef.primitives[association.primitives] : undefined;
+  const accessor = isRecord(primitive) && typeof primitive.indices === 'number' && Array.isArray(json.accessors) ? json.accessors[primitive.indices] : undefined;
+  return isRecord(accessor) ? {accessor} : null;
+}
+
+/** Why `mesh`'s index accessor is not valid glTF, worded as spec.py `_index_issue` words it (componentType, type,
+ *  normalized), or null. The declaration is read from the original JSON (three converts strips and fans, so its
+ *  attribute does not always show it); a hand-built scene is judged on its index attribute. (A negative index is the
+ *  refusal below, as spec.py fails "index -1 < 0".) */
+function indexAccessorIssue(declared: {accessor: Json} | null, mesh: Mesh, source: GltfSource | null, index: IndexAttribute | null): string | null {
+  if (declared) {
+    const {accessor} = declared, issues: string[] = [];
+    if (!INDEX_COMPONENT_TYPES.includes(accessor.componentType as number)) {
+      issues.push(`indices componentType ${String(accessor.componentType)} is not valid glTF (indices are unsigned: 5121, 5123 or 5125)`);
+    }
+    if (accessor.type !== 'SCALAR') issues.push(`indices accessor type '${String(accessor.type)}' is not SCALAR`);
+    if (accessor.normalized) issues.push('indices accessor is normalized');
+    return issues.join('; ') || null;
+  }
+  // A glTF primitive without an index accessor: three's index (if any) is its own strip/fan conversion, not the file's.
+  if (!index || source?.associations.get(mesh)?.primitives !== undefined) return null;
+  const array = isInterleaved(index) ? index.data.array : index.array, issues: string[] = [];
+  if (!isDrawableIndexArray(array)) issues.push(`indices stored as ${array.constructor.name} (indices are unsigned integers)`);
+  if (index.itemSize !== 1) issues.push(`indices attribute has ${index.itemSize} components, not 1 (SCALAR)`);
+  if (index.normalized) issues.push('indices attribute is normalized');
+  return issues.join('; ') || null;
+}
 
 /** Triangle index triples of a mesh with each group's material: [start, count) ranges over the index (or the vertices
  *  for a non-indexed geometry), one per material slot. */
@@ -206,12 +264,13 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     report.fallback('geometry', `"${name(stray)}" is a ${MODE_NAMES[mode]} primitive (not triangles): it is not drawn (§2 Geometry).`);
     stray.removeFromParent();
   }
-  const measurable: Mesh[] = [], excluded = new Set<string>(), unreadable = new Set<Mesh>();
+  // spec.py leaves every primitive that fails a geometry check out of the measurements and lists it: strays included.
+  const measurable: Mesh[] = [], excluded = new Set<string>(strays.map(name)), unreadable = new Set<Mesh>();
   let triangleTotal = 0;
   for (const mesh of meshes) {
     const label = name(mesh), geometry: BufferGeometry = mesh.geometry;
     const bad: string[] = [];
-    const position = geometry.getAttribute('position'), index = geometry.getIndex();
+    const position = geometry.getAttribute('position'), index = geometry.getIndex() as IndexAttribute | null;
     if (isSkinned(mesh)) report.refuse('geometry', `${label}: skinned mesh (the model must be static)`);
     if (Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) report.refuse('geometry', `${label}: morph targets (the model must be static)`);
     if (!position || position.itemSize < 3) {
@@ -224,17 +283,45 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     let finite = true;
     for (let i = 0; i < position.count && finite; i++) finite = Number.isFinite(position.getX(i)) && Number.isFinite(position.getY(i)) && Number.isFinite(position.getZ(i));
     if (!finite) {report.refuse('geometry', `${label}: non-finite vertex positions`); bad.push('finite');}
-    const count = index?.count ?? position.count;
+    // The index accessor as the file declares it (spec.py `_index_issue`: unsigned SCALAR, not normalized). A primitive
+    // with an invalid declaration fails the row and is left out of the measurements, as spec.py does; it still draws.
+    const declared = jsonIndexAccessor(mesh, source, json);
+    const indexIssue = indexAccessorIssue(declared, mesh, source, index);
+    if (indexIssue) {report.fail('geometry', `${label}: ${indexIssue}`); bad.push('index-type');}
     if (index) {
-      let maxIndex = -1, integral = true;
-      for (let i = 0; i < index.count; i++) {const value = index.getX(i); if (!Number.isInteger(value) || value < 0) integral = false; else if (value > maxIndex) maxIndex = value;}
-      if (!integral) {report.refuse('geometry', `${label}: indices that are not non-negative integers`); bad.push('index');}
-      else if (maxIndex >= position.count) {report.refuse('geometry', `${label}: index ${maxIndex} >= vertex count ${position.count}`); bad.push('index');}
+      // Every stored value, read raw (never denormalized): a normalized or FLOAT declaration still stores the vertex
+      // numbers, and a value that is negative, fractional or not finite names no vertex (out of range: §1 refuses it).
+      const raw = rawIndexValues(index);
+      let maxIndex = -1, minIndex = 0, nonInteger: number | null = null;
+      for (let k = 0; k < raw.count; k++) {
+        const value = raw.at(k);
+        if (!Number.isInteger(value)) {nonInteger ??= value; continue;}
+        if (value > maxIndex) maxIndex = value;
+        if (value < minIndex) minIndex = value;
+      }
+      if (minIndex < 0) {report.refuse('geometry', `${label}: index ${minIndex} < 0 (out of range)`); bad.push('index');}
+      if (nonInteger !== null) {report.refuse('geometry', `${label}: index value ${nonInteger} is not an integer (out of range: no vertex has that number)`); bad.push('index');}
+      if (maxIndex >= position.count) {report.refuse('geometry', `${label}: index ${maxIndex} >= vertex count ${position.count}`); bad.push('index');}
+      const array = isInterleaved(index) ? index.data.array : index.array;
+      if (!bad.includes('index') && (index.itemSize !== 1 || index.normalized || isInterleaved(index) || !isDrawableIndexArray(array))) {
+        // WebGL draws unsigned, non-interleaved SCALAR indices only, and every later reader (getX) would denormalize a
+        // normalized one: rewritten from the stored values so the primitive draws what the file stores.
+        const rewritten = new Uint32Array(raw.count);
+        for (let k = 0; k < raw.count; k++) rewritten[k] = raw.at(k);
+        geometry.setIndex(new BufferAttribute(rewritten, 1));
+        const stored = `${array.constructor.name}${index.itemSize === 1 ? '' : ` x${index.itemSize}`}${index.normalized ? ' (normalized)' : ''}${isInterleaved(index) ? ' (interleaved)' : ''}`;
+        report.fallback('geometry', `"${label}" stores its indices as ${stored} (${indexIssue ? 'not valid glTF' : 'not drawable by WebGL as stored'}): `
+          + 'they were rewritten as unsigned 32-bit SCALAR indices so it draws (§2 Geometry).');
+      }
+      // (A TRIANGLE_STRIP/FAN with a normalized or non-SCALAR index arrives already rebuilt from its stored values:
+      // load.ts rebuildMisdeclaredStrips, which reports it.)
     }
+    const count = geometry.getIndex()?.count ?? position.count;
     if (count % 3) {
       report.fail('geometry', `${label}: ${count} ${index ? 'indices' : 'vertices'} is not a multiple of 3`);
-      const kept = count - count % 3, indices = new Uint32Array(kept);
-      for (let i = 0; i < kept; i++) indices[i] = index ? index.getX(i) : i;
+      const kept = count - count % 3, indices = new Uint32Array(kept), current = geometry.getIndex() as IndexAttribute | null;
+      const stored = current ? rawIndexValues(current) : null;
+      for (let i = 0; i < kept; i++) indices[i] = stored ? stored.at(i) : i;
       geometry.setIndex(Array.from(indices));
       report.fallback('geometry', `"${label}" has ${count} ${index ? 'indices' : 'vertices'}, not a multiple of 3: the trailing ${count % 3} are dropped and `
         + 'the rest drawn as triangles (§2 Geometry).');
@@ -242,14 +329,16 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     }
     const triangles = Math.floor(count / 3);
     triangleTotal += triangles;
-    if (bad.length || isSkinned(mesh) || Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) {excluded.add(label); continue;}
+    // A skinned mesh is refused but still measured in its bind pose (spec.py fails the row for skins and measures every
+    // primitive that passes the per-primitive checks); morph targets are left out, as spec.py does.
+    if (bad.length || Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) {excluded.add(label); continue;}
     if (!triangles) {report.warn(`${label}: primitive has no triangles`); continue;}
     let degenerate = 0;
-    const a = new Vector3(), b = new Vector3(), c = new Vector3();
+    const a = new Vector3(), b = new Vector3(), c = new Vector3(), drawn = geometry.getIndex();
     for (let t = 0; t < triangles; t++) {
-      a.fromBufferAttribute(position, index ? index.getX(t * 3) : t * 3);
-      b.fromBufferAttribute(position, index ? index.getX(t * 3 + 1) : t * 3 + 1);
-      c.fromBufferAttribute(position, index ? index.getX(t * 3 + 2) : t * 3 + 2);
+      a.fromBufferAttribute(position, drawn ? drawn.getX(t * 3) : t * 3);
+      b.fromBufferAttribute(position, drawn ? drawn.getX(t * 3 + 1) : t * 3 + 1);
+      c.fromBufferAttribute(position, drawn ? drawn.getX(t * 3 + 2) : t * 3 + 2);
       if (b.sub(a).cross(c.sub(a)).length() < 1e-14) degenerate++;
     }
     if (degenerate) report.warn(`${label}: ${degenerate} degenerate (zero-area) triangles`);
@@ -304,7 +393,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
   let classification: AssetMaterialClassification;
   try {classification = classifyAssetMaterials(root, source);}
   catch (error) {
-    report.refuse('components', `lens identification could not run (${error instanceof Error ? error.message : String(error)}); treat the file as malformed`);
+    report.refuse('components', `lens identification could not run (${describeError(error)}); treat the file as malformed`);
     report.throwIfRefused();
     throw error;
   }
@@ -334,14 +423,28 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
   // The measured rows, on the normalised geometry.
   const classOf = (material: Material): 'lens' | 'frame' => materialClassOf(material) === 'lens' ? 'lens' : 'frame';
   if (measurable.length && unitsPlausible) {
-    if (unitsScale !== 1) {
-      for (const row of ['origin', 'orientation'] as const) {
-        report.fail(row, `not checked as authored: units are wrong; measured after the ×${unitsScale} rescale as follows`);
-      }
-    }
     const geometry = collectPoints(measurable, root.matrixWorld.clone().invert(), classOf);
-    guard(report, 'orientation', () => orientationRow(geometry, measured));
-    guard(report, 'origin', () => originRow(geometry, measured, excluded.size));
+    const rows = [['orientation', (sink: RowSink) => orientationRow(geometry, sink)],
+      ['origin', (sink: RowSink) => originRow(geometry, sink, excluded.size)]] as const;
+    for (const [row, run] of rows) {
+      if (unitsScale === 1) {guard(report, row, () => run(measured)); continue;}
+      // A rescaled file fails the row as authored. The row's first line says so AND what the measurement after the
+      // rescale found, so it never promises detail that does not follow: the row's own lines are buffered while it
+      // runs, then written after that first line in their original order.
+      const lines: {kind: 'fail' | 'note'; message: string}[] = [];
+      const sink: RowSink = {fail: (target, message) => target === row ? lines.push({kind: 'fail', message}) : report.fail(target, message),
+        note: (target, message) => target === row ? lines.push({kind: 'note', message}) : report.note(target, message),
+        warn: message => report.warn(message), measure: (key, value) => report.measure(key, value)};
+      try {run(sink);}
+      catch (error) {
+        lines.push({kind: 'fail', message: `check could not run (${error instanceof Error ? `${error.name}: ${error.message}` : describeError(error)}); `
+          + 'treat the file as malformed'});
+      }
+      const defects = lines.filter(line => line.kind === 'fail').length;
+      report.fail(row, `not checked as authored: units are wrong; measured after the ×${unitsScale} rescale: ${defects
+        ? `${defects} defect${defects === 1 ? '' : 's'} (listed next)` : 'no defect (the rescaled model passes this row)'}`);
+      for (const line of lines) report[line.kind](row, line.message);
+    }
   } else if (measurable.length) report.notChecked(['origin', 'orientation'], 'units are wrong');
 
   // Live-site notes that need the classes (spec.py `_live_site`).
@@ -358,7 +461,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
 
 function guard(report: ModelReportBuilder, row: SpecRowName, run: () => void): void {
   try {run();}
-  catch (error) {report.fail(row, `check could not run (${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}); treat the file as malformed`);}
+  catch (error) {report.fail(row, `check could not run (${error instanceof Error ? `${error.name}: ${error.message}` : describeError(error)}); treat the file as malformed`);}
 }
 
 /** A material is opaque for the live site when it neither transmits nor blends (spec.py `_is_opaque`: GLTFLoader maps
