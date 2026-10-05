@@ -1,0 +1,66 @@
+{
+ "about": "Shared lens-identification vectors (PLAN.md WP1.3, WP1_DESIGN.md §2). Used by glasses3d/tests/test_lens_id.py and by arview's vitest suite. expect: key -> [is_lens, rule].",
+ "cases": [
+  {"name": "studio partRole on mesh", "prims": [
+    {"key": "a", "node_name": "Lens_Left.001", "mesh_extras": {"partRole": "lens"}, "material_name": "Champagne lens.001"},
+    {"key": "b", "node_name": "Brow_Left.001", "mesh_extras": {"partRole": "frame"}, "material_name": "Front source havana.001"}],
+   "expect": {"a": [true, 1], "b": [false, 1]}},
+  {"name": "explicit frame role beats a lens name token (FT1119 lens etch)", "prims": [
+    {"key": "etch", "node_name": "Subtle TOM FORD front lens marking.001", "node_extras": {"partRole": "frame"}, "material_name": "Subtle lens laser etch.001"},
+    {"key": "lens", "node_name": "Left solid champagne lens.001", "node_extras": {"partRole": "lens"}, "material_name": "Very light warm transmitting lens.001"}],
+   "expect": {"etch": [false, 1], "lens": [true, 1]}},
+  {"name": "legacy part_role prefix (ar_v4 r9)", "prims": [
+    {"key": "l", "node_name": "Lens left", "node_extras": {"part_role": "lens_left"}, "material_name": "Warm brown optical tint"},
+    {"key": "c", "node_name": "Crystal front", "node_extras": {"part_role": "frame"}, "material_name": "Crystal acetate", "material": {"extensions": {"KHR_materials_transmission": {"transmissionFactor": 0.9}}}}],
+   "expect": {"l": [true, 1], "c": [false, 1]}},
+  {"name": "partRole must equal lens (trimmed, any case); part_role only needs the prefix", "prims": [
+    {"key": "p", "node_name": "x", "mesh_extras": {"partRole": "lens_left"}, "material_name": "m1"},
+    {"key": "q", "node_name": "y", "mesh_extras": {"part_role": "lenses"}, "material_name": "m2"}],
+   "expect": {"p": [false, 1], "q": [true, 1]}},
+  {"name": "material extras outrank mesh and node", "prims": [
+    {"key": "m", "node_name": "Shield", "node_extras": {"partRole": "frame"}, "material_name": "Shield", "material_extras": {"partRole": "lens"}}],
+   "expect": {"m": [true, 1]}},
+  {"name": "name tokens: whole words only, glasses is not glass", "prims": [
+    {"key": "a", "node_name": "Object_3", "material_name": "Lens | smoke"},
+    {"key": "b", "node_name": "LensRight", "material_name": "Material.002"},
+    {"key": "c", "node_name": "glasses_frame", "material_name": "Sunglasses body"},
+    {"key": "d", "node_name": "mesh", "material_name": "Tinted glass"},
+    {"key": "e", "node_name": "Lenses", "material_name": "m"},
+    {"key": "f", "node_name": "Lensmaker bevel", "material_name": "m"}],
+   "expect": {"a": [true, 2], "b": [true, 2], "c": [false, 0], "d": [true, 2], "e": [true, 2], "f": [false, 0]}},
+  {"name": "etch, lettering, inscription and print are never lenses by name", "prims": [
+    {"key": "a", "node_name": "Lens logo", "material_name": "Lens etched lettering"},
+    {"key": "b", "node_name": "Lens inscription", "material_name": "Gold"},
+    {"key": "c", "node_name": "Lens", "material_name": "Lens print"},
+    {"key": "d", "node_name": "Lens_R", "material_name": "Clear lens"}],
+   "expect": {"a": [false, 0], "b": [false, 0], "c": [false, 0], "d": [true, 2]}},
+  {"name": "transmission is the last resort, only when nothing else names a lens", "prims": [
+    {"key": "t", "node_name": "Object_1", "material_name": "Material.001", "material": {"extensions": {"KHR_materials_transmission": {"transmissionFactor": 1.0}}}},
+    {"key": "o", "node_name": "Object_2", "material_name": "Material.002", "material": {}}],
+   "expect": {"t": [true, 3], "o": [false, 0]}},
+  {"name": "a transmissive crystal frame stays frame when a named lens exists", "prims": [
+    {"key": "crystal", "node_name": "Front", "material_name": "Crystal acetate", "material": {"extensions": {"KHR_materials_transmission": {"transmissionFactor": 0.8}}}},
+    {"key": "lens", "node_name": "Lens_L", "material_name": "Tint"}],
+   "expect": {"crystal": [false, 0], "lens": [true, 2]}},
+  {"name": "alpha blend below 1 counts as see-through (last resort)", "prims": [
+    {"key": "a", "node_name": "Object_1", "material_name": "M1", "material": {"alphaMode": "BLEND", "pbrMetallicRoughness": {"baseColorFactor": [0.2, 0.2, 0.2, 0.4]}}},
+    {"key": "b", "node_name": "Object_2", "material_name": "M2", "material": {"alphaMode": "OPAQUE", "pbrMetallicRoughness": {"baseColorFactor": [0.2, 0.2, 0.2, 0.4]}}}],
+   "expect": {"a": [true, 3], "b": [false, 0]}},
+  {"name": "partRole is trimmed and case-insensitive", "prims": [
+    {"key": "cap", "node_name": "a", "mesh_extras": {"partRole": "Lens"}, "material_name": "m1"},
+    {"key": "pad", "node_name": "b", "mesh_extras": {"partRole": " lens "}, "material_name": "m2"},
+    {"key": "up", "node_name": "c", "material_extras": {"partRole": "LENS"}, "material_name": "m3"},
+    {"key": "frame", "node_name": "Lens_d", "node_extras": {"partRole": " Frame "}, "material_name": "Lens m4"}],
+   "expect": {"cap": [true, 1], "pad": [true, 1], "up": [true, 1], "frame": [false, 1]}},
+  {"name": "ACRONYMCase names split into words", "prims": [
+    {"key": "a", "node_name": "LENSRight", "material_name": "Material.002"},
+    {"key": "b", "node_name": "GLASSLeft", "material_name": "Material.003"},
+    {"key": "c", "node_name": "FRAMEFront", "material_name": "Material.004"},
+    {"key": "d", "node_name": "LENSRIGHT", "material_name": "Material.005"}],
+   "expect": {"a": [true, 2], "b": [true, 2], "c": [false, 0], "d": [false, 0]}},
+  {"name": "mesh extras outrank node extras (both directions)", "prims": [
+    {"key": "ml", "node_name": "P1", "mesh_extras": {"partRole": "lens"}, "node_extras": {"partRole": "frame"}, "material_name": "m1"},
+    {"key": "mf", "node_name": "P2", "mesh_extras": {"partRole": "frame"}, "node_extras": {"partRole": "lens"}, "material_name": "m2"}],
+   "expect": {"ml": [true, 1], "mf": [false, 1]}}
+ ]
+}
