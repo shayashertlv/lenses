@@ -12,7 +12,8 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
 | WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
-| WP5, WP6, WP2, WP7, WP8 | not started | - |
+| WP5 | **STOPPED by its stop rule** (feasibility probe + judged design, plan/WP5_DESIGN.md = NO-GO as written); owner decisions D1/D4/D6 needed | - |
+| WP6, WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
@@ -150,3 +151,25 @@ never grown (Oakley must move 0 vertices). FT1119 browline: hide_eyewire with pe
 11.6-56.2 mm; must match the prototype seated+rimsplit numbers (top edge inside 100%, band 0, rim split 78-102 deg).
 Open risk the owner may want to know: under §3, Prada (~26% of nodes, <=0.45 mm) and INVU (~267 top nodes, <=0.9 mm) change
 at HIDDEN stations inside opaque material, plus Prada's rim sharpening (intended rimsplit fix).
+
+## 2026-10-05: WP5 STOPPED (stop rule) - report to the owner
+
+$0 feasibility probe + 3 designs + judge (plan/WP5_DESIGN.md, verdict NO-GO for WP5 as PLAN §4 writes it). Scratch evidence:
+C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp5/ (step1..4 JSON + side-by-side PNGs).
+- With q001 geometry and the WP3b silhouette cameras, photo projection does NOT beat Astra's procedural texture on both
+  held-out band-pass r (DoG sigma 1 px - 4 px) and gained deltaE00. Gained deltaE00 ties on views 01/04/05; band-pass r is
+  above 2 sigma of the shift null only on view 04.
+- Cause = registration: the brow print is 1.88-2.39 mm off between views 01 and 05 (the only pair whose print matches)
+  although their silhouettes fit at 0.66-0.79 mm. ~2.5 mm is a rigid per-view offset (q001's shape biases the
+  silhouette-fitted cameras), 0.6-0.8 mm non-rigid (geometry). Silhouette accuracy does NOT predict print registration.
+- Needed: <= 0.8 mm print registration (0.5 mm with margin): registered, band-pass r 0.61-0.74 vs Astra 0.11-0.17; at
+  0.83 mm 0.22-0.27; at 1.25 mm ~0.
+- What works: a joint model (one camera per view + a bounded per-brow depth correction, silhouette guards, fit on even
+  4 mm stripes, tested on odd ones): Brow_Right residual 0.00-0.21 mm, band-pass r 0.58-0.69 vs Astra 0.02-0.15, gained
+  deltaE00 4.68-6.74 vs 5.50-12.76, both folds. Brow_Left and the temples still fail (~16% of the print area verified).
+- The PLAN's "0.017 vs 0.066" baseline cannot be reproduced (its filter was never recorded).
+- My WP3b recommendation (1.0 mm mean SILHOUETTE contour) is WITHDRAWN: it would pass views whose print is ~2 mm off.
+- Owner decisions (WP5_DESIGN §12): D1 photometric print threshold 0.8 mm (target 0.5) replaces the silhouette threshold;
+  D4 is WP5 acceptable with only Brow_Right pixel-verified (other regions printed from one anchor view, flagged, judged
+  by eye in arview)? if not, WP5 stops on FT1119; D6 text handling (default: the decal carries brand text, photo text is
+  filled). D2/D3/D5 are technical defaults.
