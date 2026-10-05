@@ -1,0 +1,5 @@
+{"output":"../../../data/reference/ar_capture/seated","width":1280,"height":854,"backgrounds":["skin"],
+ "cases":[{"id":"q1seated","path":"C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/reference/junction/copies/q1-seated.glb","width_mm":141.91}],
+ "views":[{"id":"front"},{"id":"above20","pitch":20},{"id":"below20","pitch":-20},{"id":"below30","pitch":-30},
+          {"id":"yawL35","yaw":-35},{"id":"yawR35","yaw":35},{"id":"yawR30below15","yaw":30,"pitch":-15},{"id":"yawL25above15","yaw":-25,"pitch":15}],
+ "variants":["base","lens_hidden","lens_only","lens_nospec","lens_mask","lens_xray","normals","plain"]}

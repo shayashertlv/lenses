@@ -65,3 +65,25 @@ lenses_erroca_proposal.*
 # Private verified backups and local verification receipts.
 .recovery/
 .pytest_cache/
+
+# glasses3d: local data, outputs and binaries never enter Git (photos, job data,
+# renders, GLBs, .blend files). Test fixtures are re-included deliberately.
+/glasses3d/data/
+/glasses3d/**/output/
+/glasses3d/**/dist/
+/glasses3d/**/qa/output/
+/glasses3d/**/.venv/
+/glasses3d/**/venv/
+/glasses3d/**/*.glb
+/glasses3d/**/*.blend
+/glasses3d/**/*.blend1
+/glasses3d/**/*.webp
+/glasses3d/**/*.pkl
+/glasses3d/**/*.npz
+/glasses3d/arview/modeling/
+/glasses3d/arview/site/
+!/glasses3d/tests/fixtures/
+!/glasses3d/tests/fixtures/**
+/glasses3d/tests/fixtures/**/*.glb
+/glasses3d/tests/fixtures/**/*.blend
+/glasses3d/tests/fixtures/**/*.blend1

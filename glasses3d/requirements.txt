@@ -1,0 +1,9 @@
+# glasses3d host venv (Python 3.12): py -3.12 -m venv glasses3d/.venv && glasses3d/.venv/Scripts/python -m pip install -r glasses3d/requirements.txt
+# Pinned to the versions verified in WP0 (2026-10-05). PyPatchMatch 2.0.1 ships a Windows wheel (verified: inpaint works).
+numpy==2.5.3
+scipy==1.18.1
+opencv-python==5.0.0.93
+scikit-image==0.26.0
+pillow==12.3.0
+pypatchmatch==2.0.1
+pytest==9.1.1
