@@ -13,7 +13,8 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
 | WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
 | WP5 | **STOPPED by its stop rule** (feasibility probe + judged design, plan/WP5_DESIGN.md = NO-GO as written); owner decisions D1/D4/D6 needed | - |
-| WP6, WP2, WP7, WP8 | not started | - |
+| WP6 | design done (plan/WP6_DESIGN.md, judged panel of 3); build queued until the WP4 build finishes (shared g3d/ files) | - |
+| WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
@@ -173,3 +174,35 @@ C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp5/ (step1..4 JSON + side-by-side P
   D4 is WP5 acceptable with only Brow_Right pixel-verified (other regions printed from one anchor view, flagged, judged
   by eye in arview)? if not, WP5 stops on FT1119; D6 text handling (default: the decal carries brand text, photo text is
   filled). D2/D3/D5 are technical defaults.
+
+### WP5 owner exchange (2026-10-05)
+The owner found D1-D6 unclear ("I'm not really understanding what you want"). Correction of approach: D1, D2, D3, D5, D6 are
+engineering choices and Claude takes them as recommended in WP5_DESIGN §12 (photometric print gate 0.8 mm / target 0.5;
+per-(view, part) edge gate for colour donors; stripes-and-folds proof on registered regions; parallax used for sampling
+only, discrepancy reported to Astra; brand text from the decal, photo text filled). The owner gets ONE question, with
+visual evidence (data/evidence/wp5_right_brow.png, wp5_left_brow.png): continue building WP5 although only the
+registered regions can be pixel-proven, the rest judged by eye in AR?
+
+### WP5 resumed (2026-10-05, owner: "the images show promise, don't give up")
+- Owner answered: continue WP5 (D4 = yes in substance). D1-D3, D5, D6 taken as engineering decisions (WP5_DESIGN §12).
+- CORRECTION (owner was right): every FT1119 temple face is photographed. Image 03 (owner file "ChatGPT Image Oct 1, 2026,
+  07_41_47 PM.png") = the wearer's RIGHT side (-X temple, outer face). Image 06 = the wearer's LEFT side from ~19° above
+  (+X temple outer face, tip medallion) plus the -X temple's INNER face with "TOM FORD MADE IN ITALY CE". PLAN §1's "no photo
+  shows its outer face, so mirror fill is needed" is wrong. Trap: Astra's q001 names temples by the VIEWER's side
+  (Temple_Left = -X = wearer's right), so every tool must use the x sign, never part names.
+- Model content note (for Astra, not hand-fixed): both photographed temple tips carry a gold medallion; q001 has one.
+- Seams: the research solution (gain from same-surface overlaps, graph-cut seams inside near-best overlaps, multi-band
+  blending) is in WP5_DESIGN §6.4; it needs aligned photos, which step 0 provides.
+- Each product has six images: front, back, left, right, top, angled (FT1119: 05, 02, 06, 03, 04, 01).
+
+## 2026-10-05: WP6 design (plan/WP6_DESIGN.md)
+
+Panel: tool 36, measure 36, trace 39 (base). Measured on Prada: delivered temples are a slab (outer bulge <= 0.62 mm, inner face
+flat); photos show 4 facets near the hinge (F1 top, F2 logo triangle, F3 front-lower, F4 rear-lower), flat inner face; facet
+corners trace to 0.1-0.3 mm in 05 and 01 independently; relief (sideways offset) only to ~+-3 mm absolute (front photo bounds
+|X| <= ~72.5 mm). New matte mode `glossy_floor` (removes floor reflections, only removes pixels): side-01 fit 5.58 -> 1.43 mm.
+Rear camera stays unreliable unless fitted jointly with a per-photo hinge angle.
+PLAN correction (technical, recorded for the owner): the 1.9-4.3 mm bulge band is kept as a REPORTED warning, not a pass gate,
+because a thicker slab passes it; relief gates R1-R4 (single-plane share <= 0.5 vs delivered 0.81; crease normal change;
+cross-view crease transfer within 0.7 mm; silhouette cost <= 0.1 mm) plus the plan's top-view and rear-envelope comparisons
+decide, and a zero-relief slab control must fail them.
