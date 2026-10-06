@@ -30,7 +30,7 @@ def outdir():
 @pytest.fixture(scope="module")
 def bake(ft1119_job, outdir):
     return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=4, log=None,
-                                    **TH)
+                                    compare_fill=("patchmatch",), **TH)
 
 
 def test_outputs_written(bake, outdir):
@@ -40,6 +40,22 @@ def test_outputs_written(bake, outdir):
     im = Image.open(outdir / "print.png")
     assert im.mode == "RGB" and max(im.size) <= 4096
     assert im.size == (bake["layout"].width, bake["layout"].height)
+
+
+def test_print_manifest_written(bake, outdir):
+    """Step 4 (Blender side): the bake writes print_manifest.json, what g3d.attach_print reads: the print, its atlas
+    and density, and the print geometry's identities, computed from the job's own mesh (not recomputed later)."""
+    import json
+    from glasses3d.g3d import printuv as PU
+    man = json.loads((outdir / "print_manifest.json").read_text(encoding="utf-8"))
+    lay = bake["layout"]
+    assert bake["files"]["manifest"] == str(outdir / "print_manifest.json") and "manifest_error" not in bake["files"]
+    assert man["identity_recomputed"] is False and man["layer"] == "g3d_print" and man["parts"] == list(IN.FT1119_PARTS)
+    assert (man["width"], man["height"]) == (lay.width, lay.height) and man["tx_per_mm"] == lay.tx_per_mm
+    assert man["charts_sha"] == PU.glbmesh.charts_sha(lay.charts, lay.width, lay.height)
+    V, F, part, names = PU.glbmesh.mesh_arrays(PU.glbmesh.read_glb(man["glb"]))
+    assert man["geometry_sha"] == PU.glbmesh.geometry_sha(V, F, part, names, man["parts"])
+    assert bake["report"]["print_uv"]["geometry_sha"] == man["geometry_sha"]
 
 
 def test_print_png_declares_srgb(bake, outdir):
@@ -94,24 +110,36 @@ def test_a3_read_back_independently(ft1119_job, bake, outdir):
     assert r["pass"], r
 
 
-def test_a5_graded_off_the_seam(ft1119_job, bake, outdir):
-    """Fix round 1: A5 by the instrument's own seam samples, 1 and 2 texels inside each chart, against the texture's
-    within-chart change at the same separation. KNOWN STATE (a tripwire, update it deliberately): A5 FAILS on FT1119
-    at 1 texel (8 texels/mm, fix round 2: p95 10.6 vs 9.5; at 2 texels 14.0 vs 16.2 passes). Fix round 2 breakdown:
-    the samples over the p95 are almost all chart seams with a PatchMatch fill on BOTH sides (independent fills of two
-    charts), not label seams (photos of two views on the two sides: 9 of about 10,000 samples). The same-3D-point
-    agreement after harmonisation is set by construction and only reported; the criterion's status is recorded."""
+A5_KNOWN_AT_8 = True
+
+
+def test_a5_graded_beyond_the_reflection_band(ft1119_job, bake, outdir):
+    """A5 by the instrument's own seam samples against the texture's within-chart change at the same separation.
+    History: before step 4 A5 FAILED at 1 texel (8 texels/mm: p95 10.6 vs 9.5; fill on BOTH sides of chart seams). Step
+    4 fix 4 (``seams.reflect_seams``: the losing side's fill copies the winner reflected across the seam, fully to 1.5
+    texels, fading to 6) made the 1-2 texel reading pass, but BY CONSTRUCTION (step 4 fix round 1, review): inside
+    the band the two sides are the same texels. So the verdict is now read beyond the band, at 7 and 8 texels (sample
+    points kept on their face's chart), and 1, 2, 4 and 6 texels are reported, not graded. KNOWN STATE (a tripwire,
+    update it deliberately): ``A5_KNOWN_AT_8``. The same-3D-point agreement after harmonisation is set by construction
+    and only reported; the criterion's status is recorded."""
     r = PP.seams(ft1119_job, bake, outdir)
     o = r["offsets"]
-    assert o[1]["samples"] > 2000 and o[2]["samples"] > 1000 and o[1]["within_samples"] > 1000
+    assert bake["report"]["chart_seam_reflection"]["band_texels"] == 6.0 and r["reflection_band_texels"] == 6.0
+    assert r["graded_offsets"] == [7, 8] and set(r["criteria"]) == {"p95_at_7_texels", "p95_at_8_texels"}
+    assert all(not o[k]["graded"] for k in (1, 2, 4, 6)) and all(o[k]["graded"] for k in (7, 8))
+    for k in (7, 8):
+        assert o[k]["samples"] > 2000 and o[k]["within_samples"] > 1000, o[k]
+        assert o[k]["across_max"] >= o[k]["across_p95"]                 # p95 is not the worst case; both reported
     assert r["image"] == "print.png read back"
-    assert not r["pass"] and o[1]["across_p95"] > o[1]["within_p95"], r
+    assert r["pass"] == A5_KNOWN_AT_8, r
+    # inside the band the reflection makes the two sides agree (constructed, not evidence)
+    assert o[1]["across_p95"] < o[1]["within_p95"]
     kinds = r["breakdown"][1]["kinds"]
-    assert kinds["fill both"]["share_of_over_p95"] > 0.5, kinds
     assert kinds.get("photo, two views", {"samples": 0})["samples"] < 0.01 * o[1]["samples"]
-    assert "NOT yet recorded in PROGRESS" in r["criterion_decision"]
-    # harmonisation writes the seam texels: before it they disagree, after it they agree by construction
-    assert r["diagnostic_tool_pairs_pre_harmonise"]["de00_p95"] > 3.0
+    assert set(r["breakdown"]) >= {7, 8}
+    assert "NOT yet recorded in PROGRESS" in r["criterion_decision"] and "BEYOND" in r["criterion_decision"]
+    assert bake["report"]["chart_seam_reflection"]["texels_changed"] > 0
+    # harmonisation writes the seam texels: after it they agree by construction
     assert r["diagnostic_tool_pairs_final_by_construction"]["de00_p50"] < 1.0
 
 
@@ -240,6 +268,69 @@ def test_gain_support_and_saturation_are_reported(bake):
     assert bool(sat) == any(w.startswith("gains:") and "stage-2 groups" in w for w in bake["report"]["warnings"])
 
 
+def test_level_field_clip_is_reported_like_stage2(bake):
+    """Step 4 fix round 1 (review: the stage-2 saturation moved into the stage-3 field, which reached its own clip, log
+    2): the report counts the texels and nodes at the field's clip and the texels beyond x1.5 / x1/1.5, recomputed here
+    from the per-texel gain, and warns exactly when any texel sits at the clip."""
+    from glasses3d.g3d_host.photoprint import gains as GN
+    lf = bake["report"]["gains"]["level_field"]
+    g = np.asarray(bake["level_gain"], float)
+    lg = np.abs(np.log(g))
+    assert int((lg >= GN.LEVEL_CLIP - 1e-6).any(1).sum()) == lf["texels_at_clip"]
+    assert int((lg >= np.log(GN.LEVEL_LARGE) - 1e-12).any(1).sum()) >= lf["texels_gain_beyond_x1.5"] > 0
+    warned = [w for w in bake["report"]["warnings"] if w.startswith("gains: the stage-3 levelling field sits at its clip")]
+    assert bool(warned) == (lf["texels_at_clip"] > 0)
+    assert lf["clip_log"] == GN.LEVEL_CLIP and lf["max_abs_log"] <= GN.LEVEL_CLIP + 1e-12
+
+
+def test_small_enclosed_holes_are_filled_locally(bake):
+    """Step 4 fix round 1 (review: quilting left staircase-edged dark fragments in honey blotches): hole components up
+    to 2 mm2 whose ring is mostly photo texels are filled by PatchMatch (0.3 mm patches) in local tiles, from the part's
+    photo texels; each tile call changes nothing outside its holes; the rest of the holes go to the production filler."""
+    from glasses3d.g3d_host.photoprint import fill as FL
+    se = bake["report"]["fill"]["small_enclosed"]
+    assert se["filler"] == "patchmatch" and se["max_mm2"] == FL.SMALL_HOLE_MM2
+    assert sum(v["texels"] for v in se["per_part"].values()) > 0 and se["tiles"] > 0
+    calls = [c for c in bake["report"]["checks"]["A3"]["calls"] if c["class"].endswith("_small_enclosed")]
+    assert len(calls) == se["tiles"] and all(c["outside_changed"] == 0 and c["hole_changed"] > 0 for c in calls)
+    assert all(v["texels"] <= v["components"] * FL.SMALL_HOLE_MM2 * TX * TX for v in se["per_part"].values())
+
+
+def test_gains_step4_mirror_same_part_and_levelling(ft1119_job, bake):
+    """Step 4 fix 3: every view is connected to the reference (03 and 02 were not: their only edges were rejected by
+    the old [0.5, 2] clip, so the -x temple's outer face from 03 kept gain 1 and stage 2 pushed it to its clip);
+    stage-1 mirror edges exist; stage-2 edges never cross parts; mirrored groups of one view share one gain; the
+    levelling field is reported and written."""
+    g = bake["report"]["gains"]
+    assert all(r["connected"] for r in g["per_view"].values()), g["per_view"]
+    assert any(e["kind"] == "mirror" and "gain" in e for e in g["edges"])
+    ab = g["across_boundaries"]
+    tex = bake["tex"]
+    regions = {r.rid: r for r in bake["regions"]}
+    for e in ab["edges"]:
+        assert regions[e["a"] // 64].part_name == regions[e["b"] // 64].part_name, e
+    same = [m for m in ab["mirrors"] if m["kind"] == "mirror_same_view"]
+    gains = {(x["region"], x["view_index"]): x["gain"] for x in ab["groups"]}
+    assert same
+    for m in same:
+        ga, gb = gains[(m["a"] // 64, m["a"] % 64)], gains[(m["b"] // 64, m["b"] % 64)]
+        assert np.allclose(ga, gb, rtol=0.05), (m, ga, gb)
+    lf = g["level_field"]
+    assert lf["nodes"] > 100 and lf["boundary_pairs"] > 0
+    assert bake["level_gain"].shape == (len(tex), 3)
+
+
+def test_metal_and_highlight_holes_are_reported(bake):
+    """Step 4 fix 1: per photo the pigment arm and the reasons (pale colour, hardware margin, edge halo, enclosed) are
+    in the report; photo 02 (the rear view, with the gold hinges and pad arms) loses donors to the colour model and to
+    the hardware margin, and the hardware parts are q001's small metal parts."""
+    m = bake["report"]["metal"]
+    r02 = m["reference-02.png"]["reasons"]
+    assert r02["pale"] > 0 and r02["hardware_margin"] > 0 and r02["metal_or_highlight"] >= r02["pale"]
+    assert m["reference-02.png"]["arm"]["fitted"] >= 2
+    assert all(v["reasons"]["metal_or_highlight"] is not None for v in m.values())
+
+
 def test_refusals(ft1119_job, outdir):
     with pytest.raises(PR.RefusedError, match="thresholds missing"):
         PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, print_reg_mm=0.8)
@@ -249,24 +340,71 @@ def test_refusals(ft1119_job, outdir):
         PR.project_photo_texture(ft1119_job, ["Eyewire_Left"], out_dir=outdir, tx_per_mm=TX, **TH)
 
 
-A4_KNOWN_AT_8 = {"Brow_Left": False, "Brow_Right": True, "Temple_Left": False, "Temple_Right": False}
+A4_KNOWN_AT_8 = {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False}
+# 7ac7c8f (PyPatchMatch at its knockout radii) passed Brow_Right here; step 4's quilting fails it: a REGRESSION of A4,
+# taken for the visual reason in report['fill']['choice'] (see A4_FILLERS_KNOWN_AT_8 for PyPatchMatch on the same holes)
+A4_AT_8_7AC7C8F = {"Brow_Left": False, "Brow_Right": True, "Temple_Left": False, "Temple_Right": False}
 
 
 def test_a4_fill_knockout_known_verdicts(bake):
     """A4 graded by the instrument, fix round 2: 8 seeded holes per part drawn BY THE PROOF over every single-view area
     (never the tool's hole functions), medians with their spread, the mean-colour limit calibrated by the donor ring.
-    The verdicts are PINNED so that a change cannot hide (8 texels/mm: the three failing parts fail on fine-scale
-    energy, |log energy| 0.19-0.35 at 0.25-1 mm: PatchMatch is smoother than real print, design risk 9). Update
-    A4_KNOWN_AT_8 deliberately."""
+    The verdicts are PINNED so that a change cannot hide. Step 4: the filler under test is the bake's own (block
+    quilting) at its own knockout radius. KNOWN STATE at 8 texels/mm: all four parts FAIL (fine-band log energy; seam
+    ratios in ``test_a4_each_filler_at_its_own_radius``); at 7ac7c8f Brow_Right passed (``A4_AT_8_7AC7C8F``): a
+    regression. Every hole also gets a REAL-vs-real floor (step 4 fix round 1: a nearby same-shaped real region on the
+    hole's own chart and facing class, same photo, magnification within x/: 1.25), reported with its spread as a
+    DIAGNOSTIC: it never changes or excuses the verdict. With more holes in the photo texels (step 4's metal / line
+    holes) a hole may find no room (reported). Update A4_KNOWN_AT_8 deliberately."""
     rows = {p: PP.knockout(bake, p) for p in IN.FT1119_PARTS}
     for p, r in rows.items():
-        assert r["hole_source"].startswith("printproof.knockout") and r["a4"]["holes"] == 8 and not r["skipped"], p
+        assert r["hole_source"].startswith("printproof.knockout") and r["method"] == "quilt", p
+        assert r["radius_mm"] == bake["radii"][p]
+        assert r["a4"]["holes"] + len(r["skipped"]) == 8 and r["a4"]["holes"] >= 6, (p, r["skipped"])
+        assert all(sk["reason"] for sk in r["skipped"])
         assert all(h["outside_changed"] == 0 and h["hole_changed"] > 0 for h in r["holes"]), p
         assert all(np.isfinite(h["log_energy_0.25_1mm"]) for h in r["holes"])
         centres = {tuple(h["centre_atlas_px"]) for h in r["holes"]}
-        assert len(centres) == 8                                       # eight distinct places, not one
-        assert r["a4"]["spread"]["mean_colour_de00"]["n"] == 8
+        assert len(centres) == r["a4"]["holes"]                        # distinct places, not one
+        assert r["a4"]["spread"]["mean_colour_de00"]["n"] == r["a4"]["holes"]
+        fl = r["a4"]["real_vs_real_floor"]
+        assert fl["holes"] >= 3 and fl["role"].startswith("diagnostic") and fl["spread"]["log_energy_0.25_1mm"]["n"]
+        assert "log_energy_within_floor" not in r["a4"]
+        for h in r["holes"]:
+            nb = (h.get("real_vs_real") or {}).get("neighbour")
+            if nb is not None and nb["mag_ratio"] is not None:
+                assert 1 / 1.3 <= nb["mag_ratio"] <= 1.3, nb                # restricted to similar magnification
     assert {p: r["a4"]["pass"] for p, r in rows.items()} == A4_KNOWN_AT_8, {p: r["a4"] for p, r in rows.items()}
+
+
+A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False},
+                         "patchmatch": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False,
+                                        "Temple_Right": True}}
+
+
+def test_a4_each_filler_at_its_own_radius(bake):
+    """Step 4 fix round 1 (review: the step-4 comparison ran PyPatchMatch at quilting's 0.9 mm): each filler at the
+    radius ITS OWN knockout chose in this bake (``compare_fill``; PyPatchMatch from 0.3 / 0.5 / 0.9 mm), on the same
+    A4 holes. KNOWN STATE at 8 texels/mm (pinned): PyPatchMatch PASSES A4 on the +x temple (q001 Temple_Right), where
+    quilting fails; neither passes elsewhere. The production filler stays quilting for the VISUAL reason recorded in
+    report['fill']['choice'] (the owner saw PatchMatch's wood grain along the strips): a choice that costs A4.
+    Update A4_FILLERS_KNOWN_AT_8 deliberately."""
+    from glasses3d.g3d_host.photoprint import fill as FL
+    rb = bake["radii_by_method"]
+    assert set(rb) == {"quilt", "patchmatch"} and rb["quilt"] == bake["radii"]
+    assert all(rb["quilt"][p] in FL.QUILT_RADII_MM and rb["patchmatch"][p] in FL.RADII_MM for p in IN.FT1119_PARTS)
+    bm = bake["report"]["fill"]["by_method"]
+    assert set(bm) == {"quilt", "patchmatch"} and bm["patchmatch"]["radii_mm"] == rb["patchmatch"]
+    assert "VISUAL" in bake["report"]["fill"]["choice"]
+    got = {}
+    for m in ("quilt", "patchmatch"):
+        got[m] = {}
+        for p in IN.FT1119_PARTS:
+            r = PP.knockout(bake, p, method=m, radius_mm=rb[m][p])
+            assert r["method"] == m and r["radius_mm"] == rb[m][p]
+            assert all(h["outside_changed"] == 0 and h["hole_changed"] > 0 for h in r["holes"])
+            got[m][p] = r["a4"]["pass"]
+    assert got == A4_FILLERS_KNOWN_AT_8, got
 
 
 @pytest.mark.parametrize("view", ["reference-01.png", "reference-02.png", "reference-03.png", "reference-04.png",

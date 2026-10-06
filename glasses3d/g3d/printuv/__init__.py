@@ -1,12 +1,13 @@
 """WP5 print UV layout core (WP5_DESIGN §6.1, §10): strip + cap charts, mirror-partner index copy, shelf packing and
-the A1 checks. **numpy only** (no bpy, scipy or open3d), so the same code runs on host arrays (photoprint, tests) and,
-later, inside Blender 5.2 through ``g3d.print_uv`` (not built yet).
+the A1 checks. **numpy only** (no bpy, scipy or open3d), so the same code runs on host arrays (photoprint, tests) and
+inside Blender 5.2 through ``g3d.print_uv`` (``g3d/print_bpy.py``), which lays out the arrays of an in-process export.
 
     strip   strip parametrisation (s along a smooth centreline, t around the section from a cut direction)
     charts  strip chart + planar cap charts of one part, overlap resolution, numpy graph helpers
     mirror  mirror-partner detection (x -> -x) and the index copy of a layout
     pack    shelf packing into one atlas <= 4096, 8-texel gutters, density fitting
     check   the A1 report (overlaps, flips, anisotropy p95, density p1, mirror index identity)
+    glbmesh a GLB's arrays as the host reads them, and the print geometry / packing identities (step 4)
 
 ``layout(V, F, part, names, parts, tx_per_mm)`` is the entry point. Atlas texel convention: texel (i, j) has its centre
 at (x, y) = (j + 0.5, i + 0.5) (``g3d_host.texture_utils.rasterize_triangles``); glTF uv = (x / width, y / height).
@@ -21,6 +22,7 @@ import numpy as np
 
 from . import charts as CH
 from . import check as CK
+from . import glbmesh  # noqa: F401  (PU.glbmesh)
 from . import mirror as MR
 from . import pack as PK
 

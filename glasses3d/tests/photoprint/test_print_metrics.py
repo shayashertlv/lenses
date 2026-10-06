@@ -194,6 +194,19 @@ def test_a4_mean_colour_limit_is_calibrated_by_the_donor_ring():
     assert PM.ring_baseline(blotch, hole, np.zeros_like(hole)) is None
 
 
+def test_a4_real_vs_real_floor_is_a_diagnostic_with_spread():
+    """Step 4 fix round 1: the floor is reported with its spread and never changes the verdict (no 'within floor'
+    alternative pass)."""
+    k1, k2 = "log_energy_0.25_1mm", "log_energy_1_4mm"
+    bad = {k1: 0.5, k2: 0.3, "mean_colour_de00": 1.0, "seam_ratio": 1.0,
+           "real_vs_real": {k1: 0.9, k2: 0.6, "mean_colour_de00": 3.0}}
+    a = PM.a4_criteria([bad, dict(bad), dict(bad, real_vs_real=None)])
+    assert not a["pass"] and "log_energy_within_floor" not in a
+    f = a["real_vs_real_floor"]
+    assert f["holes"] == 2 and f["holes_without"] == 1 and f["role"].startswith("diagnostic")
+    assert f["spread"]["log_energy_0.25_1mm"]["n"] == 2 and f["median_log_energy"] == [0.9, 0.6]
+
+
 def test_seam_continuity():
     a = havana(texture((50, 50), 1)).reshape(-1, 3)
     assert PM.seam_continuity(a, a)["pass"] and PM.seam_continuity(a, a)["de00_p95"] == 0.0
@@ -254,3 +267,25 @@ def test_seam_steps_detect_a_step_and_pass_a_continuous_texture():
     V, F, uv, img2 = _two_chart_square(25.0)
     bad = PM.seam_steps(img2, PM.uv_seam_samples(V, F, np.array([0, 1]), uv))
     assert not bad["pass"] and bad["offsets"][1]["across_p95"] > 3 * bad["offsets"][1]["within_p95"], bad
+
+
+def test_seam_steps_grade_only_the_given_offsets_and_chart_mode_walks_past_the_face():
+    """Step 4 fix round 1: the verdict reads only ``graded`` offsets (the others are reported, graded False); a graded
+    offset without samples fails; with a chart image, points are kept where they land on their face's chart, so
+    offsets past one triangle (the seam is 14.1 texels from the far corner; the 3k baseline of k = 5 is 15) still
+    sample."""
+    V, F, uv, img = _two_chart_square(25.0)
+    img2 = img.copy()
+    img2[:, 33:] -= 25.0                                                    # continuous again
+    chart = np.zeros(img.shape[:2], np.int64)
+    chart[:, 33:] = 1
+    tri = PM.uv_seam_samples(V, F, np.array([0, 1]), uv, offsets=(0, 1, 5))
+    ch = PM.uv_seam_samples(V, F, np.array([0, 1]), uv, offsets=(0, 1, 5), chart_img=chart, face_chart=np.array([0, 1]))
+    assert tri[5]["ok3"].sum() == 0 and ch[5]["ok3"].sum() > 5 and len(ch[5]["a"]) >= len(tri[5]["a"])
+    r = PM.seam_steps(img, ch, graded=[5])
+    assert r["graded_offsets"] == [5] and r["offsets"][1]["graded"] is False and r["offsets"][5]["graded"] is True
+    assert set(r["criteria"]) == {"p95_at_5_texels"}
+    assert not PM.seam_steps(img, ch, graded=[1])["pass"]                   # the 25-level step, read at 1 texel
+    assert not PM.seam_steps(img2, ch, graded=[9])["pass"]                   # no samples at 9: not a pass
+    ok = PM.seam_steps(img2, ch, graded=[5])
+    assert ok["pass"] and ok["offsets"][5]["across_max"] >= ok["offsets"][5]["across_p95"]

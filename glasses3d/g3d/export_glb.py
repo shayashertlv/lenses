@@ -34,8 +34,12 @@ check that the live scene is unchanged afterwards. Changed:
 - no LENSES_part_visibility gate;
 - WP4 allowlist (WP4_DESIGN §1 finding 1): the object properties `g3d_seat` and `g3d_hidden_x_ranges_mm` (JSON
   strings written by the seating tools) are copied from each source object to its export node's extras, so the host
-  seating check reads the declared frame type, the sharpening flag and the hidden ranges. Nothing else of the
-  source's custom properties reaches the GLB.
+  seating check reads the declared frame type, the sharpening flag and the hidden ranges;
+- WP5 allowlist (WP5_DESIGN §4): the object property `g3d_print_uv` (JSON written by g3d.print_uv) is copied to the
+  node extras with its `texcoord` set to the index of its UV layer in the EXPORTED mesh (Blender's exporter writes
+  every UV layer as TEXCOORD_<its index>), so the host reads which TEXCOORD carries the print; a property whose layer
+  the exported mesh lacks is not copied and the receipt notes it. Nothing else of the source's custom properties
+  reaches the GLB.
 
 Volume lengths (KHR_materials_volume): Blender's exporter writes the shader's Thickness and 1/density exactly as
 authored, NOT scaled with the geometry. The Studio convention is shader lengths in METRES (q001's 'Champagne lens'
@@ -66,6 +70,8 @@ SURFACE_TYPES = ("MESH", "CURVE", "SURFACE", "FONT", "META")
 VOLUME_THICKNESS_SUSPECT_M = 0.01
 REPLACE_TRIES = 25
 SEAT_EXTRAS = ("g3d_seat", "g3d_hidden_x_ranges_mm")     # WP4 allowlist: object property -> node extras
+PRINT_UV_KEY = "g3d_print_uv"                            # WP5 allowlist: object property -> node extras (+ TEXCOORD)
+PRINT_UV_LAYER = "g3d_print"
 
 
 class ExportError(ValueError):
@@ -617,6 +623,7 @@ def export_glb(path: str | Path, scene=None) -> dict:
         volume_sources: dict[str, str] = {}          # exported material copy name -> authored name
         renormalised = []
         seat_extras: dict = {}
+        print_extras: dict = {}
         for obj, evaluated_obj, mesh in evaluated:
             role = roles[obj]
             for key in list(mesh.keys()):
@@ -638,6 +645,26 @@ def export_glb(path: str | Path, scene=None) -> dict:
                 if value is not None:
                     dup[key] = value if isinstance(value, str) else json.dumps(_plain(value))
                     seat_extras.setdefault(obj.name, []).append(key)
+            pv = obj.get(PRINT_UV_KEY)                               # WP5 allowlist (module docstring)
+            if pv is not None:
+                try:
+                    info = dict(json.loads(pv) if isinstance(pv, str) else _plain(pv))
+                except (TypeError, ValueError):
+                    info = None
+                layer = str(info.get("layer", PRINT_UV_LAYER)) if info is not None else PRINT_UV_LAYER
+                k = mesh.uv_layers.find(layer)
+                if info is None:
+                    notes.append(f"{obj.name}: {PRINT_UV_KEY} is not a JSON object; not exported")
+                elif k < 0:
+                    notes.append(f"{obj.name}: {PRINT_UV_KEY} names UV layer {layer!r}, which the exported mesh lacks; "
+                                 f"not exported (re-run g3d.print_uv)")
+                else:
+                    if info.get("texcoord") != k:
+                        notes.append(f"{obj.name}: {PRINT_UV_KEY} said texcoord {info.get('texcoord')}, the exported "
+                                     f"mesh has {layer!r} at {k}; exported {k}")
+                    info["texcoord"] = k
+                    dup[PRINT_UV_KEY] = json.dumps(info, sort_keys=True)
+                    print_extras[obj.name] = k
             node_names[dup.name] = obj.name
             mesh_names[mesh.name] = obj.data.name if obj.type == "MESH" else obj.name
             textured = sorted({s.material.name for s in evaluated_obj.material_slots
@@ -669,6 +696,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
             receipt["normals_reset"] = renormalised
         if seat_extras:
             receipt["seat_extras"] = seat_extras
+        if print_extras:
+            receipt["print_uv_extras"] = print_extras             # object -> TEXCOORD index of its print layer
         # A material on lens AND non-lens objects is exported as separate lens and non-lens materials (§2 needs
         # lenses distinguished by material); frame/temple copies only carry their partRole and are not reported.
         receipt["split_materials"] = sorted(n for n, r in roles_by_material.items() if "lens" in r and len(r) > 1)

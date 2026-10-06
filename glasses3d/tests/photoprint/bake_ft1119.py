@@ -2,7 +2,7 @@
 about it, written to ``data/wp5/ft1119_bake/``.
 
     glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.bake_ft1119 [--out DIR] [--workers 4]
-        [--heldout-workers 3] [--skip-checks] [--skip-heldout] [--a7-serial] [--sheets-only]
+        [--heldout-workers 3] [--skip-checks] [--skip-heldout] [--a7-serial] [--sheets-only] [--a4-seeds 5]
 
 Inputs: q001 (``data/reference/projection/q001.glb``), the six FT1119 photos, the WP3b cameras
 (``data/wp3b/ft1119/cameras.json``), step 0's report (``data/wp5/ft1119_strip_null/report.json``: nothing registers,
@@ -24,7 +24,10 @@ Writes DIR/ (default ``data/wp5/ft1119_bake``):
   Astra's texture | what painted each pixel (photo by view colour, mirror, PatchMatch, text / highlight fill, seam
   band), with the shares in the row header;
 - ``bake.json``: the area table, the checks (A1 from the layout, A2 round trip per view, A3 read back, A4 knockout, A5
-  off the seam, A7 determinism, the single-source audit from the outputs), B3 per held-out view, the B2 diagnostic
+  off the seam, A7 determinism, the single-source audit from the outputs), ``A4_fillers`` (fix round 1 of step 4: the
+  production filler and PyPatchMatch, EACH at the radius its own knockout chose in this bake, on the same holes: the
+  A4 holes (seed 0) and pooled over ``--a4-seeds`` seeds, 8 holes each), ``A4_vs_7ac7c8f`` (the A4 verdicts and
+  medians of the 7ac7c8f bake, ``data/wp5/pre_step4_bake``, beside this one's), B3 per held-out view, the B2 diagnostic
   (this bake's held-out renders in the strict leave-one-view-out form, plus step 0's stripes rows by reference), the
   sheet paths and STOP B (§9) with its reasons.
 
@@ -59,6 +62,8 @@ from glasses3d.tests.photoprint import printproof as PP
 OUT = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_bake"
 STEP0 = PPF.STEP0
 PREV = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_print" / "43aea1bb"     # earlier pool + serial bakes
+PRE_STEP4 = IN.REPO / "glasses3d" / "data" / "wp5" / "pre_step4_bake"            # the 7ac7c8f bake (PyPatchMatch)
+COMPARE = ("patchmatch",)                                                        # fillers compared with the production one
 TH = PPF.TH
 PIXEL_FILES = ("print.png", "classes.png", "source.png", "tier.png")
 
@@ -350,6 +355,85 @@ def pixel_identity(out: Path, prev: Path) -> dict:
                       "area_table and print.png's sRGB chunk, so file sha256 cannot be compared)"}
 
 
+# ----------------------------------------------------------------------------- A4 per filler (fix round 1 of step 4)
+A4_KEYS = ("median_log_energy", "median_seam_ratio", "median_mean_colour_de00", "mean_colour_limit", "criteria",
+           "pass", "holes")
+
+
+def _a4_brief(a: dict) -> dict:
+    out = {k: a.get(k) for k in A4_KEYS}
+    f = a.get("real_vs_real_floor")
+    if f:
+        out["real_vs_real_floor"] = {"median_log_energy": f["median_log_energy"], "holes": f["holes"],
+                                     "spread_0.25_1mm": f["spread"]["log_energy_0.25_1mm"]}
+    return out
+
+
+def a4_fillers(res: dict, parts, seeds: int, prog) -> dict:
+    """Every filler (the production one and ``COMPARE``) at the radius ITS OWN knockout chose in this bake
+    (``res['radii_by_method']``), graded by the instrument on the same holes: the A4 holes (seed 0, what A4 grades) and
+    the holes of ``seeds`` seeds pooled (8 per seed). The comparison behind the production choice; graded, not chosen
+    from (the production filler is a visual decision, ``report['fill']['choice']``)."""
+    radii_by = res.get("radii_by_method") or {}
+    out = {"seeds": int(seeds), "holes_per_seed": PP.A4_HOLES, "radii_by_method": radii_by,
+           "note": "each filler at its own knockout-chosen radius, same holes and seeds; the production verdict is A4"}
+    rows = {}
+    for m, radii in radii_by.items():
+        rows[m] = {}
+        for p in parts:
+            per, pooled, t = [], [], time.perf_counter()
+            for sd in range(int(seeds)):
+                k = PP.knockout(res, p, seed=sd, method=m, radius_mm=radii[p])
+                per.append(k)
+                pooled += k["holes"]
+            rows[m][p] = {"radius_mm": radii[p], "a4_holes": _a4_brief(per[0]["a4"]),
+                          "pooled": _a4_brief(PM.a4_criteria(pooled)),
+                          "per_seed_fine_energy": [k["a4"].get("median_log_energy", [None])[0] for k in per],
+                          "skipped": sum(len(k["skipped"]) for k in per)}
+            prog(f"A4 {m} {p} r {radii[p]} mm: holes {rows[m][p]['a4_holes']['median_log_energy']} pooled "
+                 f"{rows[m][p]['pooled']['median_log_energy']} seam {rows[m][p]['pooled']['median_seam_ratio']} "
+                 f"({time.perf_counter() - t:.0f} s)", force=True)
+    out["by_method"] = rows
+    prod = (res.get("report") or {}).get("fill", {}).get("method")
+    if prod in rows:
+        better = {}
+        for p in parts:
+            def key(m):
+                a = rows[m][p]["pooled"]
+                return max(a["median_log_energy"])
+            best = min(rows, key=key)
+            better[p] = {"closest_to_a4_pooled_fine_energy": best, "production": prod,
+                         "production_costs_a4_here": best != prod,
+                         "pooled_worst_energy": {m: key(m) for m in rows},
+                         "pooled_seam_ratio": {m: rows[m][p]["pooled"]["median_seam_ratio"] for m in rows},
+                         "a4_holes_pass": {m: rows[m][p]["a4_holes"]["pass"] for m in rows}}
+        out["per_part"] = better
+    return out
+
+
+def a4_vs_7ac7c8f(a4_now: dict) -> dict:
+    """The 7ac7c8f bake's A4 (PyPatchMatch at its knockout radii, holes drawn then) beside this bake's, per part; a
+    pass that turned into a fail is listed as a regression. The 8 texels/mm pins of tests/photoprint/test_print_bake.py
+    are recorded there."""
+    f = PRE_STEP4 / "bake.json"
+    if not f.is_file():
+        return {"available": False}
+    d = json.loads(f.read_text(encoding="utf-8"))
+    rows, reg = {}, []
+    for p, r in (d.get("A4") or {}).items():
+        a0, a1 = r.get("a4") or {}, (a4_now.get(p) or {}).get("a4") or {}
+        rows[p] = {"7ac7c8f": {"radius_mm": r.get("radius_mm"), "filler": "patchmatch", **_a4_brief(a0)},
+                   "now": {"radius_mm": (a4_now.get(p) or {}).get("radius_mm"),
+                           "filler": (a4_now.get(p) or {}).get("method"), **_a4_brief(a1)}}
+        if a0.get("pass") and not a1.get("pass"):
+            reg.append(p)
+    return {"available": True, "source": str(f), "parts": rows, "regressions_16_tx_per_mm": reg,
+            "regressions_8_tx_per_mm": ["Brow_Right"],
+            "note": "16 tx/mm from the two bakes' bake.json; 8 tx/mm from test_print_bake's A4_KNOWN_AT_8 pin (7ac7c8f: "
+                    "Brow_Right passed; since step 4 it fails). The holes differ: each bake draws them among its own "
+                    "photo texels (step 4 punched metal / glint holes into them)."}
+
+
 # ----------------------------------------------------------------------------- summaries
 def b3_by_view(heldout_rows: dict) -> dict:
     out = {}
@@ -413,6 +497,8 @@ def main(argv=None) -> int:
     ap.add_argument("--a7-serial", action="store_true", help="also rerun the bake serially (workers=1) for A7")
     ap.add_argument("--sheets-only", action="store_true",
                     help="remake the maps and sheets from the written outputs (no bake)")
+    ap.add_argument("--a4-seeds", type=int, default=5,
+                    help="seeds of 8 A4 holes pooled per part in the filler comparison (A4_fillers)")
     a = ap.parse_args(argv)
     opt_out_ecoqos()
     prog = Progress("bake_ft1119")
@@ -466,7 +552,8 @@ def _main(a, prog) -> int:
     out.mkdir(parents=True, exist_ok=True)
     job = IN.load_job()
     prog(f"production bake -> {out} (q001 sha {job.sources['glb_sha256'][:12]}, {len(job.views)} photos)", force=True)
-    res = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers, step0_report=STEP0, **TH)
+    res = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers, step0_report=STEP0,
+                                   compare_fill=COMPARE, **TH)
     tx = float(res["layout"].tx_per_mm)
     rep = res["report"]
     bake = {"out": str(out), "inputs": rep["inputs"], "mode": rep["mode"], "tx_per_mm": tx,
@@ -475,8 +562,10 @@ def _main(a, prog) -> int:
             "texture_parts": rep["texture_parts"], "below_min_cover": rep["below_min_cover"],
             "warnings": rep["warnings"], "decisions": PPF.DECISIONS, "A1": rep["checks"]["A1"]}
     bake["maps"] = write_maps(res, out, res["regions"])
-    bake["A7"] = pixel_identity(out, PREV) if PREV.is_dir() else {"pass": None, "note": "no earlier bake to compare"}
-    prog(f"A7 (pixel identity with the earlier pool and serial bakes): {bake['A7']['pass']}", force=True)
+    # step 4: the pipeline changed (metal model, fill, gains, seams), so the earlier bakes are no reference for A7;
+    # A7 is the serial rerun of THIS pipeline (--a7-serial), the earlier comparison is kept as a record only
+    bake["A7_vs_step3_record"] = (pixel_identity(out, PREV) if PREV.is_dir() else {"pass": None}) | {
+        "note": "expected to differ: step 4 changed the pipeline; not a verdict"}
     if not a.skip_checks:
         bake["audit"] = PPF.audit(res)
         bake["audit_outputs"] = PP.audit_outputs(job, res, out)
@@ -487,18 +576,23 @@ def _main(a, prog) -> int:
         prog(f"A5 pass {bake['A5']['pass']}", force=True)
         bake["A4"] = {p: PP.knockout(res, p) for p in IN.FT1119_PARTS}
         prog("A4 " + json.dumps({p: r["a4"].get("pass") for p, r in bake["A4"].items()}), force=True)
+        bake["A4_vs_7ac7c8f"] = a4_vs_7ac7c8f(bake["A4"])
+        # fix round 1: every filler at ITS OWN knockout radius, same holes (the comparison behind the choice)
+        bake["A4_fillers"] = a4_fillers(res, IN.FT1119_PARTS, a.a4_seeds, prog)
+        bake["fill_choice"] = rep["fill"].get("choice")
         views = sorted(job.views)
         bake["A2"] = dict(zip(views, pool_map(PPF._a2_job, [(v, tx) for v in views], min(a.workers, 6))))
         prog("A2 " + json.dumps({_short(v): r["pass"] for v, r in bake["A2"].items()}), force=True)
     if a.a7_serial:
         prog("A7: serial bake (workers=1)", force=True)
         PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
-                                 step0_report=STEP0, log=print, **TH)
+                                 step0_report=STEP0, compare_fill=COMPARE, log=print, **TH)
         names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")
         sha = {n: (hashlib.sha256((out / n).read_bytes()).hexdigest(),
                    hashlib.sha256((out / "a7_serial" / n).read_bytes()).hexdigest()) for n in names}
         bake["A7_serial"] = {"files": {n: {"pool": x, "serial": y, "equal": x == y} for n, (x, y) in sha.items()},
                              "pass": all(x == y for x, y in sha.values())}
+        bake["A7"] = bake["A7_serial"]
         prog(f"A7 serial {bake['A7_serial']['pass']}", force=True)
     heldout = {}
     if not a.skip_heldout:
@@ -530,7 +624,7 @@ def _main(a, prog) -> int:
     if not a.skip_checks and not a.skip_heldout:
         proof_like = {"A1": rep["checks"]["A1"], "A2": bake["A2"], "A3_readback": bake["A3_readback"],
                       "A4": bake["A4"], "audit_outputs": bake["audit_outputs"], "A5": bake["A5"],
-                      "A7": bake.get("A7_serial") or bake["A7"], "B3_summary": bake["B3_summary"]}
+                      "A7": bake.get("A7_serial") or {"pass": None}, "B3_summary": bake["B3_summary"]}
         bake["STOP_B"] = PPF.stop_b(proof_like)
         prog(("STOP B FIRED: " + " | ".join(bake["STOP_B"]["reasons"])) if bake["STOP_B"]["fired"]
              else "STOP B not fired", force=True)

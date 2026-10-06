@@ -42,6 +42,10 @@ front pivot.
 - ``tol_bp`` (diagnostic only): the best bp 1-4 px r over shifts within 2.5 mm, against the same search at +/-40,
   +/-60 px along x.
 
+A6 / B5 (step 4, the Blender side; section at the end): exported GLBs are read with WP3's reader (g3d_host.glb), never
+with the tool's own (g3d.printuv.glbmesh); ``print_uv_invariance``, ``a6_round_trip``, ``b5_material_control`` and
+``uv_identity`` compare them.
+
 Criteria (§8): B2 C1 gained dE00(P) <= dE00(A) - 0.5 and the CI's upper end < 0; C2 bp(P) - bp(A) >= max(0.15,
 2 sigma_null) and bp(P) >= mu_null + 2 sigma_null; C3 energy at 0.4-1.6 mm in [0.8, 1.25] and at 1-4 px >= 0.7;
 C4 contamination <= 2 %; a case needs >= 1000 E px. B3 spectrum error <= 0.25, correlation-length ratio 0.8-1.25,
@@ -49,6 +53,9 @@ raw decile dE00 <= 4.0 and <= Astra's - 3.0, and C3.
 """
 from __future__ import annotations
 
+import hashlib
+import io
+import json
 import math
 
 import numpy as np
@@ -438,6 +445,20 @@ def a4_criteria(rows: list[dict]) -> dict:
                        "seam": bool(sr and out["median_seam_ratio"] <= A4_SEAM_MAX)}
     out["mean_colour_literal"] = bool(out["median_mean_colour_de00"] <= A4_DE00_MAX)
     out["pass"] = bool(all(out["criteria"].values()))
+    # step 4: the real-vs-real floor (each hole refilled by the caller with a nearby same-shaped REAL region of the same
+    # photo, graded identically): how far real print itself differs in fine-scale energy over that distance. A
+    # DIAGNOSTIC with its spread over the holes; it never changes the literal verdict and is no excuse for a failing
+    # one (fix round 1 of step 4: the per-hole floors ran 0.09-1.55, and its neighbour region could lie on another
+    # chart / facing / photo magnification; the caller now restricts it and says how).
+    fl = [r["real_vs_real"] for r in rows if r.get("real_vs_real")]
+    if fl:
+        f1 = float(np.median([r[k1] for r in fl]))
+        f2 = float(np.median([r[k2] for r in fl]))
+        out["real_vs_real_floor"] = {"median_log_energy": [f1, f2], "holes": len(fl), "holes_without": len(rows) - len(fl),
+                                     "median_mean_colour_de00": float(np.median([r["mean_colour_de00"] for r in fl])),
+                                     "spread": {"log_energy_0.25_1mm": _spread([r[k1] for r in fl]),
+                                                "log_energy_1_4mm": _spread([r[k2] for r in fl])},
+                                     "role": "diagnostic only; never changes or excuses the A4 verdict"}
     return out
 
 
@@ -523,13 +544,16 @@ def _inside(p, t0, t1, t2):
 
 
 def uv_seam_samples(V, F, faces, uv, *, offsets=(0,) + A5_OFFSETS_TX, step: float = A5_STEP_TX,
-                    weld_mm: float = A5_WELD_MM) -> dict:
+                    weld_mm: float = A5_WELD_MM, chart_img=None, face_chart=None) -> dict:
     """Sample points on both sides of every uv seam, computed here from the geometry and the layout's per-corner uv
     (not from the tool's seam pairs): a uv seam is a mesh edge (positions welded at ``weld_mm``) shared by two layout
     faces whose uv differ at either end. Points every ``step`` texels along the edge in each face's uv; for offset k the
     point moves k texels along the edge's inward perpendicular in that face's uv (dropped when it leaves the face's
     triangle), and the WITHIN-chart baseline partner moves 3k texels (the same 2k separation, on one side only).
-    Returns {k: {'a', 'b' (m, 2) uv across the seam, 'a3', 'b3' (m, 2) baseline partners, 'ok3' (m,)}}."""
+    Fix round 1 of step 4: with ``chart_img`` ((H, W) chart id of each texel, -1 outside; the caller's own rasteriser of
+    the layout) and ``face_chart`` (chart id per layout face), a point is kept when the texel under it belongs to its
+    face's CHART instead (offsets beyond one face: 7-8 texels and their 21-24 texel baselines leave q001's 0.5-1 mm
+    triangles). Returns {k: {'a', 'b' (m, 2) uv across the seam, 'a3', 'b3' (m, 2) baseline partners, 'ok3' (m,)}}."""
     faces = np.asarray(faces, np.int64)
     uv = np.asarray(uv, np.float64)
     tri = np.asarray(V, np.float64)[np.asarray(F)[faces]]
@@ -568,11 +592,26 @@ def uv_seam_samples(V, F, faces, uv, *, offsets=(0,) + A5_OFFSETS_TX, step: floa
     na = _inward(ua0[rep], ua1[rep], ua2[rep])
     nb = _inward(ub0[rep], ub1[rep], ub2[rep])
     out = {}
+    if chart_img is not None:
+        chart_img = np.asarray(chart_img)
+        face_chart = np.asarray(face_chart)
+        Hc, Wc = chart_img.shape
+        ca_, cb_ = face_chart[fa[rep]], face_chart[fb[rep]]
+
+        def in_chart(q, c):
+            ii = np.floor(q[:, 1]).astype(np.int64)
+            jj = np.floor(q[:, 0]).astype(np.int64)
+            ok_ = (ii >= 0) & (ii < Hc) & (jj >= 0) & (jj < Wc)
+            ok_[ok_] &= chart_img[ii[ok_], jj[ok_]] == c[ok_]
+            return ok_
     for kk in offsets:
         kk = int(kk)
         a, b = pa + kk * na, pb + kk * nb
         a3, b3 = pa + 3 * kk * na, pb + 3 * kk * nb
-        if kk:
+        if kk and chart_img is not None:
+            ok = in_chart(a, ca_) & in_chart(b, cb_)
+            ok3 = in_chart(a3, ca_) & in_chart(b3, cb_)
+        elif kk:
             ok = _inside(a, ua0[rep], ua1[rep], ua2[rep]) & _inside(b, ub0[rep], ub1[rep], ub2[rep])
             ok3 = _inside(a3, ua0[rep], ua1[rep], ua2[rep]) & _inside(b3, ub0[rep], ub1[rep], ub2[rep])
         else:
@@ -582,7 +621,7 @@ def uv_seam_samples(V, F, faces, uv, *, offsets=(0,) + A5_OFFSETS_TX, step: floa
     return out
 
 
-def seam_steps(img, samples: dict, *, p95_max: float = A5_P95_MAX) -> dict:
+def seam_steps(img, samples: dict, *, p95_max: float = A5_P95_MAX, graded=None) -> dict:
     """A5 off the seam (fix round 1): per offset k, CIEDE2000 of the rendered (bilinear, glTF) colours on the two
     sides of every uv seam, k texels inside each chart, against the within-chart baseline at the same 2k separation
     (k and 3k texels inside one chart, both sides pooled). The verdict is on offsets >= 1 (the tool's seam
@@ -592,7 +631,10 @@ def seam_steps(img, samples: dict, *, p95_max: float = A5_P95_MAX) -> dict:
     **Deviation (measured, reported):** the design's literal "p95 <= 3 between texels of the same 3D point" can only
     be read at offset 0, which the tool writes; 1-2 texels inside the charts the texture itself already varies by
     p95 9-20 dE00 on FT1119 (seams lie on creases and edges), so a bare 3 dE00 would fail any texture there.
-    Offset 0 (the seam itself, the bilinear footprint reaching the gutters) is reported only."""
+    Offset 0 (the seam itself, the bilinear footprint reaching the gutters) is reported only. ``graded`` (fix round 1
+    of step 4): the offsets the verdict uses (default every offset >= 1); the caller passes offsets BEYOND a band the
+    tool writes on purpose (the chart-seam reflection makes the two sides equal inside it), and the others are reported
+    as not graded. Every row carries its p95 and max (the max is the worst case; p95 is not)."""
     out = {"offsets": {}}
     for kk, s in sorted(samples.items()):
         row = {"samples": int(len(s["a"]))}
@@ -609,9 +651,270 @@ def seam_steps(img, samples: dict, *, p95_max: float = A5_P95_MAX) -> dict:
                             "within_p95": float(np.percentile(w, 95)),
                             "across_over_within_p95": float(row["across_p95"] / max(np.percentile(w, 95), 1e-6))})
         out["offsets"][int(kk)] = row
+    gset = sorted(int(k) for k in (graded if graded is not None else [k for k in out["offsets"] if k >= 1]))
+    for kk, r in out["offsets"].items():
+        r["graded"] = kk in gset
     crit = {f"p95_at_{kk}_texels": bool("across_p95" in r and "within_p95" in r
                                         and r["across_p95"] <= max(p95_max, r["within_p95"]))
-            for kk, r in out["offsets"].items() if kk >= 1}
+            for kk, r in out["offsets"].items() if kk in gset}
+    out["graded_offsets"] = gset
     out["criteria"] = crit
-    out["pass"] = bool(crit and all(crit.values()))
+    out["pass"] = bool(crit and len(crit) == len(gset) and all(crit.values()))
     return out
+
+
+# ------------------------------------------------------------------------------------------------ A6 / B5 (NEW)
+# The Blender side (step 4): read exported GLBs with WP3's own reader (g3d_host.glb), never with the tool's
+# (g3d.printuv.glbmesh), and compare them. Texture references are resolved to the image bytes' sha256 and the sampler
+# (indices shift when another material gains a texture); materials are compared as canonical JSON.
+B5_IGNORED = ("baseColorTexture", "baseColorFactor")
+NORMAL_TOL_DEG = 0.05
+
+
+def _canon(x) -> str:
+    return json.dumps(x, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def resolved_material(g, index) -> dict | None:
+    if index is None:
+        return None
+    mat = json.loads(json.dumps(g.materials[index]))
+
+    def walk(x, key=""):
+        if isinstance(x, dict):
+            if key.endswith("Texture") and "index" in x:
+                tex = g.doc["textures"][x["index"]]
+                src = tex.get("source")
+                data = g.image_bytes(src) if src is not None else None
+                y = {k: walk(v, k) for k, v in x.items() if k != "index"}
+                y["image_sha256"] = hashlib.sha256(data).hexdigest() if data is not None else None
+                y["image_index"] = src
+                y["sampler"] = g.doc.get("samplers", [])[tex["sampler"]] if "sampler" in tex else None
+                return y
+            return {k: walk(v, k) for k, v in x.items()}
+        if isinstance(x, list):
+            return [walk(v, key) for v in x]
+        return x
+    return walk(mat)
+
+
+def strip_base_colour(mat: dict | None) -> dict | None:
+    """The material without baseColorTexture / baseColorFactor (and without the resolved image index)."""
+    if mat is None:
+        return None
+    m = json.loads(json.dumps(mat))
+    pbr = m.get("pbrMetallicRoughness")
+    if pbr is not None:
+        for k in B5_IGNORED:
+            pbr.pop(k, None)
+        if not pbr:
+            m.pop("pbrMetallicRoughness")
+    return _drop_image_index(m)
+
+
+def _drop_image_index(x):
+    if isinstance(x, dict):
+        return {k: _drop_image_index(v) for k, v in x.items() if k != "image_index"}
+    if isinstance(x, list):
+        return [_drop_image_index(v) for v in x]
+    return x
+
+
+def glb_view(path) -> dict:
+    """{node name: [primitive rows]}: per primitive every attribute accessor (as stored), the triangles, the resolved
+    material, the material name and the node's extras; '__glb__' holds the loaded file."""
+    from glasses3d.g3d_host import glb as glbmod
+    g = glbmod.load(path)
+    out: dict = {"__glb__": g}
+    for p in g.primitives:
+        node = g.nodes[p.node_index]
+        prim = g.doc["meshes"][p.mesh_index]["primitives"][p.primitive_index]
+        arrays = {k: g.accessor(v) for k, v in prim.get("attributes", {}).items()}
+        out.setdefault(p.node_name, []).append({
+            "attributes": arrays, "triangles": p.triangles, "material": resolved_material(g, p.material_index),
+            "material_name": (g.material(p.material_index) or {}).get("name"), "extras": node.get("extras") or {}})
+    return out
+
+
+def _nodes(view: dict) -> list[str]:
+    return sorted(k for k in view if k != "__glb__")
+
+
+def corner(row: dict, attr: str) -> np.ndarray:
+    return np.asarray(row["attributes"][attr])[row["triangles"]]
+
+
+def _print_info(row: dict) -> dict:
+    raw = row["extras"].get("g3d_print_uv")
+    if raw is None:
+        return {}
+    return json.loads(raw) if isinstance(raw, str) else dict(raw)
+
+
+def _angle_deg(a, b) -> np.ndarray:
+    a = np.asarray(a, np.float64)
+    b = np.asarray(b, np.float64)
+    c = (a * b).sum(-1) / np.maximum(np.linalg.norm(a, axis=-1) * np.linalg.norm(b, axis=-1), 1e-30)
+    return np.degrees(np.arccos(np.clip(c, -1.0, 1.0)))
+
+
+def _same_but_name(a: dict | None, b: dict | None) -> bool:
+    if a is None or b is None:
+        return a is b
+    return _canon({k: v for k, v in a.items() if k != "name"}) == _canon({k: v for k, v in b.items() if k != "name"})
+
+
+def a6_round_trip(original, painted, parts, *, print_png=None, allow_rename: bool = False) -> dict:
+    """A6 (§8): on the painted GLB every print part's primitive has TEXCOORD_k (k = its node's g3d_print_uv texcoord),
+    its baseColorTexture reads texCoord k, and its material JSON other than baseColorTexture / baseColorFactor is
+    bit-identical to the same node's material in the original export (texture references resolved); every other
+    node's material is identical in full. With ``print_png`` the GLB's base-colour image must decode to print.png's
+    pixels exactly. ``allow_rename``: a material the tool made single-user (WP5_DESIGN §4: shared with a part that is
+    not printed) is a copy with its own name; then the name alone may differ, and the rename is listed."""
+    from PIL import Image
+    A, B = glb_view(original), glb_view(painted)
+    gB = B["__glb__"]
+    rows, fails, renamed = {}, [], {}
+    want_px = np.asarray(Image.open(print_png).convert("RGB")) if print_png else None
+    for node in sorted(set(_nodes(A)) | set(_nodes(B))):
+        if node not in A or node not in B or len(A[node]) != len(B[node]):
+            fails.append(f"{node}: primitives differ")
+            continue
+        for a, b in zip(A[node], B[node]):
+            if node in parts:
+                k = _print_info(b).get("texcoord")
+                info = ((b["material"] or {}).get("pbrMetallicRoughness") or {}).get("baseColorTexture") or {}
+                sa, sb = strip_base_colour(a["material"]), strip_base_colour(b["material"])
+                same = _canon(sa) == _canon(sb)
+                if not same and allow_rename and _same_but_name(sa, sb):
+                    same = True
+                    renamed[node] = [a["material_name"], b["material_name"]]
+                row = {"texcoord": k, "has_texcoord": f"TEXCOORD_{k}" in b["attributes"],
+                       "base_color_texcoord": info.get("texCoord", 0) if info else None,
+                       "other_material_json_identical": same, "material": b["material_name"]}
+                if want_px is not None and info:
+                    got = np.asarray(Image.open(io.BytesIO(gB.image_bytes(info["image_index"]))).convert("RGB"))
+                    row["print_pixels_identical"] = bool(got.shape == want_px.shape and np.array_equal(got, want_px))
+                ok = (k is not None and row["has_texcoord"] and row["base_color_texcoord"] == k and same
+                      and row.get("print_pixels_identical", True))
+                row["pass"] = bool(ok)
+                rows[node] = row
+                if not ok:
+                    fails.append(f"{node}: {row}")
+            elif _canon(_drop_image_index(a["material"])) != _canon(_drop_image_index(b["material"])):
+                fails.append(f"{node}: material changed (not a print part)")
+    missing = [p for p in parts if p not in rows]
+    if missing:
+        fails.append(f"print parts missing: {missing}")
+    return {"parts": rows, "renamed": renamed, "failures": fails[:20], "pass": not fails}
+
+
+def b5_material_control(before, after, parts, *, allow_rename: bool = False) -> dict:
+    """B5 (§8): attaching the print changes the GLB only in baseColorTexture / baseColorFactor: every primitive's
+    every accessor array and triangle list bit-identical, node extras identical, materials identical except those two
+    keys on the print parts' materials. Images that appear / disappear are listed (the print added; Astra's base
+    colour textures no longer sampled). ``allow_rename`` as in a6_round_trip."""
+    A, B = glb_view(before), glb_view(after)
+    fails, changed, renamed = [], {}, {}
+    for node in sorted(set(_nodes(A)) | set(_nodes(B))):
+        if node not in A or node not in B or len(A[node]) != len(B[node]):
+            fails.append(f"{node}: primitives differ")
+            continue
+        for a, b in zip(A[node], B[node]):
+            if set(a["attributes"]) != set(b["attributes"]):
+                fails.append(f"{node}: attribute set differs")
+            for k in a["attributes"]:
+                if k in b["attributes"] and not np.array_equal(a["attributes"][k], b["attributes"][k]):
+                    fails.append(f"{node}: {k} differs")
+            if not np.array_equal(a["triangles"], b["triangles"]):
+                fails.append(f"{node}: indices differ")
+            if _canon(a["extras"]) != _canon(b["extras"]):
+                fails.append(f"{node}: node extras differ")
+            ma, mb = a["material"], b["material"]
+            if node in parts:
+                sa, sb = strip_base_colour(ma), strip_base_colour(mb)
+                if _canon(sa) != _canon(sb):
+                    if allow_rename and _same_but_name(sa, sb):
+                        renamed[node] = [a["material_name"], b["material_name"]]
+                    else:
+                        fails.append(f"{node}: material differs beyond the base colour")
+                pa = (ma or {}).get("pbrMetallicRoughness") or {}
+                pb = (mb or {}).get("pbrMetallicRoughness") or {}
+                changed[node] = {k: [_drop_image_index(pa.get(k)), _drop_image_index(pb.get(k))]
+                                 for k in B5_IGNORED if pa.get(k) != pb.get(k)}
+            elif _canon(_drop_image_index(ma)) != _canon(_drop_image_index(mb)):
+                fails.append(f"{node}: material of a non-print part changed")
+
+    def shas(view):
+        g = view["__glb__"]
+        return {hashlib.sha256(g.image_bytes(i)).hexdigest() for i in range(len(g.doc.get("images", [])))}
+    ia, ib = shas(A), shas(B)
+    return {"pass": not fails, "failures": fails[:20], "base_colour_changes": changed, "renamed": renamed,
+            "images_added": sorted(ib - ia), "images_no_longer_sampled": sorted(ia - ib)}
+
+
+def print_uv_invariance(original, printed, parts, *, normal_tol_deg: float = NORMAL_TOL_DEG) -> dict:
+    """What g3d.print_uv may change in the GLB: on the print parts only the vertex split (the new TEXCOORD_k seams),
+    the new TEXCOORD_k (last) and corner normals within ``normal_tol_deg`` (the split polygons' custom normals);
+    corner positions and every older TEXCOORD per triangle corner identical in order; every other node bit-identical;
+    materials identical."""
+    A, B = glb_view(original), glb_view(printed)
+    rows, fails = {}, []
+    for node in sorted(set(_nodes(A)) | set(_nodes(B))):
+        if node not in A or node not in B or len(A[node]) != len(B[node]):
+            fails.append(f"{node}: primitives differ")
+            continue
+        for a, b in zip(A[node], B[node]):
+            if _canon(_drop_image_index(a["material"])) != _canon(_drop_image_index(b["material"])):
+                fails.append(f"{node}: material changed")
+            if node in parts:
+                k = _print_info(b).get("texcoord")
+                old_tc = sorted(t for t in a["attributes"] if t.startswith("TEXCOORD_"))
+                row = {"texcoord": k, "triangles": [len(a["triangles"]), len(b["triangles"])],
+                       "vertices": [len(a["attributes"]["POSITION"]), len(b["attributes"]["POSITION"])]}
+                same_n = len(a["triangles"]) == len(b["triangles"])
+                row["positions_identical_in_order"] = bool(same_n and np.array_equal(corner(a, "POSITION"),
+                                                                                     corner(b, "POSITION")))
+                row["older_texcoords_identical"] = bool(same_n and all(
+                    t in b["attributes"] and np.array_equal(corner(a, t), corner(b, t)) for t in old_tc))
+                row["new_texcoord_is_last"] = bool(k is not None and f"TEXCOORD_{k}" in b["attributes"]
+                                                   and k == len(old_tc))
+                ang = _angle_deg(corner(a, "NORMAL"), corner(b, "NORMAL")) if same_n else np.array([np.inf])
+                row["normal_max_change_deg"] = float(ang.max())
+                row["normal_changed_corner_share"] = float((ang > 1e-4).mean())
+                ok = (row["positions_identical_in_order"] and row["older_texcoords_identical"]
+                      and row["new_texcoord_is_last"] and row["normal_max_change_deg"] <= normal_tol_deg)
+                row["pass"] = bool(ok)
+                rows[node] = row
+                if not ok:
+                    fails.append(f"{node}: {row}")
+            else:
+                same = (set(a["attributes"]) == set(b["attributes"])
+                        and all(np.array_equal(a["attributes"][t], b["attributes"][t]) for t in a["attributes"])
+                        and np.array_equal(a["triangles"], b["triangles"]))
+                if not same:
+                    fails.append(f"{node}: geometry changed although it is not a print part")
+    return {"parts": rows, "failures": fails[:20], "pass": not fails}
+
+
+def uv_identity(painted, expected: dict, width: int, height: int, *, tol_texel: float = 1e-3) -> dict:
+    """The renderer's uvs are the bake's: per part, TEXCOORD_k of every triangle corner (x = u * width, y = v *
+    height) against ``expected[part]`` (M, 3, 2) texel coordinates in the same triangle order (the bake's layout,
+    computed independently on the bake's GLB)."""
+    B = glb_view(painted)
+    rows = {}
+    for part, want in expected.items():
+        rs = B.get(part) or []
+        if len(rs) != 1:
+            rows[part] = {"pass": False, "reason": f"{len(rs)} primitives"}
+            continue
+        k = _print_info(rs[0]).get("texcoord")
+        if f"TEXCOORD_{k}" not in rs[0]["attributes"]:
+            rows[part] = {"pass": False, "reason": f"no TEXCOORD_{k}"}
+            continue
+        got = corner(rs[0], f"TEXCOORD_{k}").astype(np.float64) * np.array([width, height], np.float64)
+        want = np.asarray(want, np.float64)
+        err = float(np.abs(got - want).max()) if got.shape == want.shape else math.inf
+        rows[part] = {"texcoord": k, "corners": int(want.size // 2), "max_err_texel": err,
+                      "pass": bool(err <= tol_texel)}
+    return {"parts": rows, "tol_texel": tol_texel, "pass": bool(rows) and all(r["pass"] for r in rows.values())}

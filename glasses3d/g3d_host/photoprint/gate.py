@@ -283,13 +283,16 @@ _STRIPS: dict = {}
 
 
 def strip_coords(job, region) -> StripCoords:
+    """Cached per (mesh object, region); the cache holds the mesh and checks identity (step 4 fix round 1: keyed by
+    ``id()`` alone, a later job's mesh could reuse a freed mesh's id and get its strip coordinates)."""
     key = (id(job.mesh), region.rid, region.name)
-    sc = _STRIPS.get(key)
-    if sc is None:
-        if len(_STRIPS) > 64:
-            _STRIPS.clear()
-        sc = StripCoords(job.mesh.V, job.mesh.F, region)
-        _STRIPS[key] = sc
+    hit = _STRIPS.get(key)
+    if hit is not None and hit[0] is job.mesh:
+        return hit[1]
+    if len(_STRIPS) > 64:
+        _STRIPS.clear()
+    sc = StripCoords(job.mesh.V, job.mesh.F, region)
+    _STRIPS[key] = (job.mesh, sc)
     return sc
 
 

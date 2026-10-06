@@ -23,10 +23,15 @@ graded by the independent instrument (tests/instruments/print_metrics.py), never
   truth in a 1-3 mm ring around the hole and inside it: how predictable the hole's colour is from its surroundings).
   The part's verdict uses medians over the holes with their spread (``print_metrics.a4_criteria``). Fix round 1 put
   all five holes on one point of one chart, so the median was one correlated sample (Temple_Left's 14.98 dE00 was one
-  amber blotch no donor strip contained).
+  amber blotch no donor strip contained). Step 4 fix round 1: the filler under test runs at the radius ITS OWN
+  knockout chose (``radius_mm``; comparing PatchMatch at quilting's 0.9 mm skewed the step-4 comparison), and the
+  real-vs-real floor (a nearby same-shaped real region copied into the hole) is restricted to the hole's chart, facing
+  class and projection magnification; it is a diagnostic with its spread, never an excuse for the literal verdict.
 - ``seams`` (A5, fix round 1): the instrument's own uv-seam samples (from the geometry and the layout's uv, not the
-  tool's seam pairs) on print.png read back, graded 1 and 2 texels inside each chart against the within-chart change
-  at the same separation (``print_metrics.seam_steps``); the same-3D-point agreement BEFORE the tool's harmonisation is
+  tool's seam pairs) on print.png read back, graded k texels inside each chart against the within-chart change
+  at the same separation (``print_metrics.seam_steps``; step 4 fix round 1: graded at 7 and 8 texels, BEYOND the tool's
+  6-texel chart-seam reflection band, inside which the two sides agree by construction; 1, 2, 4 and 6 texels are
+  reported only); the same-3D-point agreement BEFORE the tool's harmonisation is
   reported as a diagnostic (after it, it is set by construction). Fix round 2: the samples are broken down by what
   lies on the two sides (classes.png and source.png read back: photo of one view, photos of two views, photo and
   fill, fill on both), and the criterion's status is recorded (``criterion_decision``).
@@ -61,6 +66,8 @@ A4_RING_MM = (1.0, 3.0)
 A3_LEVEL_TOL = 1            # read-back colour within 1 level per channel (uint8 rounding) ...
 A3_SHARE_MIN = 0.995        # ... on at least 99.5 % of the protected photo texels
 A3_DE00_P99_MAX = 1.0
+FLOOR_MAG_TOL = 1.25        # the real-vs-real neighbour's photo px per texel within x/: 1.25 of the hole's
+A5_INSIDE_BAND_TX = (1, 2, 4, 6)    # A5 offsets reported inside the chart-seam reflection band (set by construction)
 
 
 def _region_E(mask: np.ndarray, acet: np.ndarray) -> np.ndarray:
@@ -172,6 +179,10 @@ def readback_a3(job, res: dict, out_dir) -> dict:
     reg_img = tex.image(tex.region, -1, np.int64)
     per_view = {v: rep["gains"]["per_view"].get(v, {"gain": [1.0, 1.0, 1.0]})["gain"] for v in views}
     grp = {(g["region"], g["view_index"]): g["gain"] for g in rep["gains"]["across_boundaries"]["groups"]}
+    lev = None
+    if (out_dir / "gain_field.npz").is_file():          # step 4: the stage-3 levelling field, per texel
+        lev = np.load(out_dir / "gain_field.npz")["gain"].astype(np.float64)
+    out["level_field"] = lev is not None
     ii, jj = np.nonzero(sel)
     faces = lay.faces[row[ii, jj]]
     P = (bar[ii, jj][:, :, None] * job.mesh.V[job.mesh.F[faces]]).sum(1)
@@ -192,6 +203,8 @@ def readback_a3(job, res: dict, out_dir) -> dict:
         gg = np.ones((m.sum(), 3))
         for r_ in np.unique(regs):
             gg[regs == r_] = grp.get((int(r_), k), [1.0, 1.0, 1.0])
+        if lev is not None:
+            gg = gg * lev[ii[m], jj[m]]
         e = np.clip(T.linear_to_srgb(T.srgb_to_linear(e) * gg), 0, 255)
         expect[m] = e
     got = img[ii, jj]
@@ -217,8 +230,63 @@ def _part_mask(res: dict, part: str) -> np.ndarray:
     return np.isin(tex.chart, charts)
 
 
-def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES) -> dict:
-    """A4 for one part (see the module docstring)."""
+def neighbour_copy(img: np.ndarray, hole: np.ndarray, support: np.ndarray, seed: int) -> tuple | None:
+    """The real-vs-real floor of one knockout hole (step 4): the hole filled with an exact copy of the NEAREST
+    same-shaped region of real texels (centre offset just over the hole's size, not overlapping it, entirely inside
+    ``support``): perfect texture statistics, no prediction of the hole's own content. ``support`` is the caller's
+    restriction (``knockout``: the same photo, chart and facing class, similar projection magnification). Returns
+    (filled image, (dy, dx) offset of the copied region) or None when no such region exists in the crop."""
+    ys, xs = np.nonzero(hole)
+    y0, x0 = ys.min(), xs.min()
+    hh, ww = ys.max() - y0 + 1, xs.max() - x0 + 1
+    don = np.asarray(support, bool) & ~hole
+    ok = ndimage.minimum_filter(don.astype(np.uint8), size=(hh + 2, ww + 2), mode="constant", cval=0) > 0
+    cy, cx = np.nonzero(ok)
+    if not len(cy):
+        return None
+    c0y, c0x = y0 + hh // 2, x0 + ww // 2
+    d = np.hypot(cy - c0y, cx - c0x)
+    near = np.nonzero(d <= d.min() * 1.25)[0]
+    k = near[np.random.default_rng(seed).integers(len(near))]
+    out = np.array(img, copy=True)
+    dy, dx = int(cy[k] - c0y), int(cx[k] - c0x)
+    out[ys, xs] = img[ys + dy, xs + dx]
+    return out, (dy, dx)
+
+
+def magnification(res: dict, view: str, box) -> np.ndarray:
+    """(h, w) projection magnification of ``view`` in the atlas ``box`` = (y0, y1, x0, x1): photo pixels per texel,
+    sqrt |det J| of the texel's photo coordinate (the bake's per-texel ``samples[view].uv``) over the atlas grid, by
+    finite differences within one chart (forward, else backward); NaN where unknown."""
+    tex = res["tex"]
+    y0, y1, x0, x1 = box
+    U = tex.image(np.asarray(res["samples"][view].uv, float), np.nan, float)[y0:y1, x0:x1]
+    C = tex.image(tex.chart, -1, np.int64)[y0:y1, x0:x1]
+
+    def d(axis):
+        a = U[:, 1:] - U[:, :-1] if axis == 1 else U[1:] - U[:-1]
+        same = (C[:, 1:] == C[:, :-1]) & (C[:, 1:] >= 0) if axis == 1 else (C[1:] == C[:-1]) & (C[1:] >= 0)
+        a[~same] = np.nan
+        fwd = np.full(U.shape, np.nan)
+        bwd = np.full(U.shape, np.nan)
+        if axis == 1:
+            fwd[:, :-1], bwd[:, 1:] = a, a
+        else:
+            fwd[:-1], bwd[1:] = a, a
+        return np.where(np.isnan(fwd), bwd, fwd)
+    dx, dy = d(1), d(0)
+    return np.sqrt(np.abs(dx[..., 0] * dy[..., 1] - dx[..., 1] * dy[..., 0]))
+
+
+def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES, method: str | None = None,
+             radius_mm: float | None = None) -> dict:
+    """A4 for one part (see the module docstring). ``method``: the filler under test (default: the bake's own,
+    report.json 'fill' -> 'method'; 'patchmatch' before step 4). ``radius_mm``: that filler's radius (default the
+    bake's own, ``res['radii']``; a comparison of fillers passes each filler's OWN knockout-chosen radius,
+    ``res['radii_by_method']``). Step 4: every hole also gets its real-vs-real floor (``neighbour_copy``, graded by
+    the same instrument); fix round 1: the neighbour region must lie on the hole's own chart and facing class, painted
+    by the same photo, at a projection magnification within x/: ``FLOOR_MAG_TOL`` of the hole's."""
+    method = method or ((res.get("report") or {}).get("fill") or {}).get("method", "patchmatch")
     lay, tex = res["layout"], res["tex"]
     tx = float(lay.tx_per_mm)
     H, W = tex.shape
@@ -228,7 +296,15 @@ def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES) ->
     truth_img = np.asarray(res["P0"], np.uint8)
     labels = [int(x) for x in np.unique(lab_img) if x >= 0]
     rng = np.random.default_rng([int(seed), 404, sum(ord(c) for c in part)])
-    rp = FL.radius_px(res["radii"][part], tx)
+    r_mm = float(radius_mm) if radius_mm is not None else float(res["radii"][part])
+    rp = FL.radius_px(r_mm, tx)
+    chart_img = tex.image(tex.chart, -1, np.int64)
+    fcode = {f: i for i, f in enumerate(sorted({r.facing for r in res["regions"]}))}
+    reg_f = np.full(max(r.rid for r in res["regions"]) + 2, -1, np.int64)
+    for r_ in res["regions"]:
+        reg_f[r_.rid] = fcode[r_.facing]
+    facing_img = tex.image(reg_f[np.where(tex.region >= 0, tex.region, -1)], -1, np.int64)
+    views = res.get("views") or (res.get("report") or {}).get("views")
     m = int(round(A4_MARGIN_MM * tx))
     chosen, rows, skipped = [], [], []
     masks = {l: lab_img == l for l in labels}
@@ -274,16 +350,44 @@ def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES) ->
         hs = hole_full[Y0:Y1, X0:X1]
         sup = masks[l][Y0:Y1, X0:X1]
         don = sup & ~hs
-        r = FL.patchmatch_call(sub, hs, don, rp, int(seed) * 1000 + k)
+        r = FL.fill_call(method, sub, hs, don, rp, int(seed) * 1000 + k)
         g = PM.knockout(r["out"], sub, hs, sup, tx)
+        # the floor's neighbour: same photo, chart and facing class as the hole, similar magnification
+        cs, fs = chart_img[Y0:Y1, X0:X1], facing_img[Y0:Y1, X0:X1]
+        hc = int(np.bincount(cs[hs][cs[hs] >= 0]).argmax())
+        hf = int(np.bincount(fs[hs][fs[hs] >= 0]).argmax()) if (fs[hs] >= 0).any() else -1
+        fsup = sup & (cs == hc) & (fs == hf)
+        mag_h, mg = None, None
+        if views is not None and "samples" in res:
+            mg = magnification(res, views[l], (Y0, Y1, X0, X1))
+            mag_h = float(np.nanmedian(mg[hs])) if np.isfinite(mg[hs]).any() else None
+            if mag_h:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    fsup &= np.abs(np.log(mg / mag_h)) <= np.log(FLOOR_MAG_TOL)
+        nc = neighbour_copy(sub, hs, fsup, int(seed) * 1000 + k)
+        if nc is not None:
+            gn = PM.knockout(nc[0], sub, hs, sup, tx)
+            g["real_vs_real"] = {kk: gn[kk] for kk in gn if kk.startswith("log_energy") or kk == "mean_colour_de00"}
+            dy, dx = nc[1]
+            src = np.zeros_like(hs)
+            ys_, xs_ = np.nonzero(hs)
+            src[ys_ + dy, xs_ + dx] = True
+            ratio = None
+            if mag_h and mg is not None and np.isfinite(mg[src]).any():
+                ratio = float(np.nanmedian(mg[src]) / mag_h)
+            g["real_vs_real"]["neighbour"] = {"offset_texels": [dy, dx], "offset_mm": float(np.hypot(dy, dx) / tx),
+                                              "chart": hc, "mag_hole_px_per_texel": mag_h, "mag_ratio": ratio}
+        else:
+            g["real_vs_real_missing"] = "no same-shaped region on the hole's chart / facing / magnification in the crop"
         ring = (ndimage.binary_dilation(hs, iterations=int(round(A4_RING_MM[1] * tx)))
                 & ~ndimage.binary_dilation(hs, iterations=int(round(A4_RING_MM[0] * tx))) & don)
         g["ring_baseline_de00"] = PM.ring_baseline(sub, hs, ring)
         g.update({"hole": f"{wmm:g}x{hmm:g}mm", "centre_atlas_px": [cx, cy], "view_index": l,
                   "outside_changed": r["outside_changed"], "hole_changed": r["hole_changed"]})
         rows.append(g)
-    return {"part": part, "radius_mm": res["radii"][part], "holes": rows, "skipped": skipped,
-            "a4": PM.a4_criteria(rows), "hole_source": "printproof.knockout (drawn in the proof, seeded)"}
+    return {"part": part, "radius_mm": r_mm, "method": method, "holes": rows, "skipped": skipped,
+            "a4": PM.a4_criteria(rows), "hole_source": "printproof.knockout (drawn in the proof, seeded)",
+            "floor_restriction": f"same photo, chart and facing class; magnification within x/: {FLOOR_MAG_TOL:g}"}
 
 
 def seams(job, res: dict, out_dir=None) -> dict:
@@ -295,17 +399,27 @@ def seams(job, res: dict, out_dir=None) -> dict:
     else:
         img = res["atlas"].astype(np.float64)
         source = "in-memory atlas"
-    smp = PM.uv_seam_samples(job.mesh.V, job.mesh.F, lay.faces, lay.uv)
-    out = PM.seam_steps(img, smp)
+    graded, inside, band = a5_offsets(res)
+    row, _bar = texel_faces(lay, (lay.height, lay.width))
+    chart_img = np.where(row >= 0, np.asarray(lay.chart)[np.maximum(row, 0)], -1)
+    smp = PM.uv_seam_samples(job.mesh.V, job.mesh.F, lay.faces, lay.uv, offsets=(0,) + inside + graded,
+                             chart_img=chart_img, face_chart=np.asarray(lay.chart))
+    out = PM.seam_steps(img, smp, graded=graded)
     out["image"] = source
+    out["reflection_band_texels"] = band
+    out["inside_band_offsets"] = list(inside)
     out["criterion_decision"] = (
-        "A5 as graded here is the instrument's off-seam reading (fix round 1): p95 across the seam 1 and 2 texels "
-        "inside the charts <= max(3, the within-chart p95 at the same separation). The design's literal reading "
-        "(p95 dE00 <= 3 between texels of the SAME 3D point) is offset 0, which the tool's harmonisation writes, so it "
-        "passes by construction and is reported as diagnostic_tool_pairs_final_by_construction. This criterion change "
-        "is an engineering decision that is NOT yet recorded in PROGRESS.md (fix round 2 states it here).")
+        "A5 as graded here is the instrument's off-seam reading: p95 across the seam <= max(3, the within-chart p95 at "
+        "the same separation), sample points kept where they land on their face's chart (this module's own "
+        "rasteriser of the layout). Fix round 1 of step 4: the verdict is read BEYOND the tool's chart-seam reflection "
+        f"band ({band:g} texels: the losing side copies the winner at the same depth, so 1-2 texels inside it agree by "
+        f"construction), at offsets {list(graded)}; offsets {list(inside)} inside the band are reported, not graded. "
+        "The design's literal reading (p95 dE00 <= 3 between texels of the SAME 3D point) is offset 0, which the "
+        "tool's harmonisation writes, so it passes by construction and is reported as "
+        "diagnostic_tool_pairs_final_by_construction. This criterion change is an engineering decision that is NOT "
+        "yet recorded in PROGRESS.md (fix round 2 states it here).")
     if out_dir is not None and (Path(out_dir) / "classes.png").is_file():
-        out["breakdown"] = seam_breakdown(img, smp, Path(out_dir))
+        out["breakdown"] = seam_breakdown(img, smp, Path(out_dir), offsets=tuple(inside[:2]) + tuple(graded))
     pre = tex.image(np.clip(np.asarray(res["colours_pre_harmonise"], float), 0, 255), 0.0, float)
     pre = T.nearest_fill(pre, tex.index >= 0)[0]          # gutters as the final atlas has them (nearest texel)
     out["diagnostic_pre_harmonise"] = PM.seam_steps(pre, {0: smp[0]})["offsets"][0]
@@ -319,7 +433,18 @@ def seams(job, res: dict, out_dir=None) -> dict:
     return out
 
 
-def seam_breakdown(img: np.ndarray, smp: dict, out_dir: Path) -> dict:
+def a5_offsets(res: dict) -> tuple[tuple, tuple, float]:
+    """(graded offsets, inside-band offsets, band texels): A5 is graded at band + 1 and band + 2 texels, where band is
+    the chart-seam reflection depth the bake reports (report.json 'chart_seam_reflection' -> 'band_texels'; 6 when an
+    older report lacks it); 1, 2, 4 and the band itself are reported as inside the band."""
+    info = ((res.get("report") or {}).get("chart_seam_reflection") or {})
+    band = float(info.get("band_texels", 6.0))
+    b = int(np.ceil(band))
+    inside = tuple(k for k in A5_INSIDE_BAND_TX if k <= b)
+    return (b + 1, b + 2), inside, band
+
+
+def seam_breakdown(img: np.ndarray, smp: dict, out_dir: Path, offsets=(1, 2)) -> dict:
     """A5 samples by what lies on the two sides (classes.png and source.png read back): 'photo, one view', 'photo, two
     views', 'photo and fill', 'fill both' (fill = every non-photo class). Per offset and kind: samples, across p95, and
     the share of the offset's samples over its overall p95."""
@@ -328,7 +453,7 @@ def seam_breakdown(img: np.ndarray, smp: dict, out_dir: Path) -> dict:
     photo_cls = (cls == CLASS_CODES["photo_anchor"]) | (cls == CLASS_CODES["photo_tier1"])
     H, W = cls.shape
     out = {}
-    for kk in (1, 2):
+    for kk in offsets:
         s = smp.get(kk)
         if s is None or not len(s["a"]):
             continue

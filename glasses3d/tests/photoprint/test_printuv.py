@@ -169,7 +169,9 @@ def test_pack_gutters_and_density_fit():
 
 
 def test_printuv_is_numpy_only():
-    allowed = {"numpy", "math", "dataclasses", "__future__"}
+    """numpy plus the standard library (glbmesh, step 4: hashlib / json / re / struct / pathlib to read a GLB and hash
+    the identities); never bpy, scipy, open3d, cv2 or PIL, so the same code runs in Blender and on the host."""
+    allowed = {"numpy", "math", "dataclasses", "__future__", "hashlib", "json", "re", "struct", "pathlib"}
     for path in PKG.glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

@@ -27,6 +27,17 @@ Fix round 2:
 - **Foreign blobs** (``texels``): metal a photo shows on print that the model lacks is a hole for that view and is
   reported to Astra.
 
+Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in PORT_REVIEW §10 and the modules):
+- donor holes for metal and highlight colours, hardware margins, thin glint / outline lines and dark rivet blobs
+  (``metal``, applied in ``texels.view_samples``; every reason is counted per photo in ``report['metal']``);
+- the hole filler is block quilting (``fill='quilt'``, radius 0.9 / 1.2 mm by the knockout), ``fill='patchmatch'``
+  keeps the design's PyPatchMatch; fix round 1: quilting is a VISUAL choice that costs A4 (``FILL_CHOICE``;
+  ``compare_fill`` has the knockout choose another filler's own radius too, for the comparison), and small enclosed
+  holes (<= 2 mm2 inside photo areas) are filled locally by PatchMatch (``fill.small_enclosed``);
+- gains: stage-1 mirror edges and same-part boundaries (02 and 03 were unconnected), stage-2 same-part edges, mirror
+  equations and a robust pass, then the stage-3 levelling field (``gain_field.npz``; A3's read back applies it);
+- chart seams: the losing side's fill takes the winner's texture reflected across the seam before the harmonisation.
+
 Steps (each in its module): layout (``g3d.printuv``, numpy core; A1 must pass) -> texels and per-view donor samples
 past the whole scene (``texels``) -> anchors and tiers -> labels fixed at the anchors (``labels``) ->
 gains to the reference view from same-surface overlaps, else across region boundaries (``gains``) -> highlights
@@ -64,6 +75,7 @@ from . import fill as FL
 from . import gains as GN
 from . import highlights as HL
 from . import labels as LB
+from . import manifest as MF
 from . import regions as RG
 from . import seams as SM
 from . import texels as TX
@@ -176,6 +188,17 @@ def cover_rule(seen_den: dict, partners: dict, limit: float = ANCHOR_MIN_COVER) 
     return cover, [p for p in seen_den if cover[p]["pooled_source_seen_share"] < limit]
 
 
+def mirror_regions(job, pids, regions) -> dict:
+    """{region id: the region of the mirror partner part with the same facing class} (parts paired by
+    ``fill.mirror_partners``: x -> -x centroids within 5 mm; never by name)."""
+    partners = FL.mirror_partners(job, pids)
+    names = job.mesh.names
+    pname = {names[p]: names[q] for p, q in partners.items()}
+    key = {(r.part_name, r.facing): r.rid for r in regions}
+    return {r.rid: key[(pname[r.part_name], r.facing)] for r in regions
+            if r.part_name in pname and (pname[r.part_name], r.facing) in key}
+
+
 AREA_GROUPS = ("registered", "anchor-only", "single-view", "unseen-filled")
 
 
@@ -258,13 +281,13 @@ def _seed_of(seed: int, *keys) -> int:
     return h
 
 
-def _pm_job(img, hole, donors, radius, seed, key):
-    r = FL.patchmatch_call(img, hole, donors, radius, seed)
+def _pm_job(img, hole, donors, radius, seed, key, method="quilt"):
+    r = FL.fill_call(method, img, hole, donors, radius, seed)
     r["key"] = key
     return r
 
 
-def _knock_job(canvas_img, painted, strip_box, tx, radii_px, seed, key):
+def _knock_job(canvas_img, painted, strip_box, tx, radii_px, seed, key, method="quilt"):
     """Knockout of one part: every radius x hole; returns the tool's statistics per radius."""
     holes = FL.knockout_holes(painted, strip_box, tx)
     out = {"holes": [h for h, _ in holes], "radii": {}}
@@ -278,7 +301,7 @@ def _knock_job(canvas_img, painted, strip_box, tx, radii_px, seed, key):
             sub = canvas_img[y0:y1, x0:x1]
             hs = hm[y0:y1, x0:x1]
             don = painted[y0:y1, x0:x1] & ~hs
-            r = FL.patchmatch_call(sub, hs, don, rp, _seed_of(seed, key, hname, rp))
+            r = FL.fill_call(method, sub, hs, don, rp, _seed_of(seed, key, hname, rp))
             st = FL.knock_stats(r["out"], sub, hs, painted[y0:y1, x0:x1], tx)
             st.update({"hole": hname, "outside_changed": r["outside_changed"], "hole_changed": r["hole_changed"]})
             stats.append(st)
@@ -293,29 +316,75 @@ def _knock_job(canvas_img, painted, strip_box, tx, radii_px, seed, key):
     return out
 
 
+SMALL_TILE = 160                 # small enclosed holes: PatchMatch on 160-texel cores with 40-texel donor margins
+SMALL_TILE_MARGIN = 40
+FILL_CHOICE = (
+    "quilt is the production filler for a VISUAL reason (the owner saw PyPatchMatch's wood-grain smears along the long "
+    "strips, PROGRESS 2026-10-06), NOT because it fills better by A4: graded by the instrument with each filler at its "
+    "own knockout-chosen radius on the same holes, PatchMatch is closer to A4 on every FT1119 part (near-passable on "
+    "the temples) and quilting costs A4; see bake.json 'A4_fillers' and PORT_REVIEW section 10 (fix round 1 of step 4)")
+
+
+def _rows_mask(cv, img: np.ndarray, n: int) -> np.ndarray:
+    """(n,) texel mask of a canvas image's True pixels (the canvas's own texels only)."""
+    out = np.zeros(n, bool)
+    out[cv.rows[cv.gather(img).astype(bool)]] = True
+    return out
+
+
+def _radii_set(method: str) -> tuple:
+    """The radii the tool's knockout chooses from, per filler (quilting's blocks need wider windows)."""
+    return FL.QUILT_RADII_MM if method == "quilt" else FL.RADII_MM
+
+
+def _choose_radius(kr: dict, radii_set, tx: float) -> tuple[float, bool]:
+    """(radius mm, passes the tool's A4-like limits): the passing radius with the smallest worst median |log energy|,
+    else the best score (energy + colour excess / 10 + seam excess)."""
+    rmap = {FL.radius_px(r, tx): r for r in radii_set}
+    passing = [(max(v["median_log_energy"]), rp) for rp, v in kr["radii"].items() if v["pass"]]
+    scored = [(max(v["median_log_energy"]) + max(0.0, v["mean_colour_de00"] - FL.A4_DE00) / 10
+               + max(0.0, v["seam_ratio"] - FL.A4_SEAM), rp) for rp, v in kr["radii"].items()]
+    pick = min(passing)[1] if passing else (min(scored)[1] if scored else FL.radius_px(radii_set[0], tx))
+    return rmap.get(pick, pick / tx), bool(passing)
+
+
+def _knock_summary(kr: dict) -> dict:
+    """A knockout result without its per-hole rows (what the report keeps for a compared filler)."""
+    return {"chosen_radius_mm": kr.get("chosen_radius_mm"), "chosen_passes_a4": kr.get("chosen_passes_a4"),
+            "holes": kr.get("holes"),
+            "radii": {rp: {k: v[k] for k in ("median_log_energy", "mean_colour_de00", "seam_ratio", "pass")}
+                      for rp, v in kr.get("radii", {}).items()}}
+
+
 # ----------------------------------------------------------------------------- the driver
 def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_mm=None, edge_p90_mm=None,
                           views="all", registered: dict | None = None, layout=None, tx_per_mm: float | None = None,
                           atlas_max: int = ATLAS_MAX, mirror: str = "auto", keep_photo_text: bool = False,
-                          fill: str = "patchmatch", highlights: str = "auto", flatten: str = "off",
+                          fill: str = "quilt", highlights: str = "auto", flatten: str = "off",
                           radii_mm: dict | None = None, seed: int = 0, workers: int | None = None,
                           override_min_cover: bool = False, write: bool = True, step0_report=None,
-                          label_moves: str = "crease", min_cover: float = ANCHOR_MIN_COVER, log=print) -> dict:
+                          label_moves: str = "crease", min_cover: float = ANCHOR_MIN_COVER,
+                          compare_fill: tuple = (), log=print) -> dict:
     """Bake the print of ``parts`` (single-source mode; see the module docstring). ``registered`` = {region name:
     [views]} from step 0 (tier 1 where >= 2). ``views`` = 'all' or the view names to use (B3 bakes leave one out).
     ``radii_mm`` = {part: radius mm} to skip the knockout. ``step0_report`` = step 0's report.json: its 'registered'
     regions are mixed in tier 1 and its statuses are reported (else the bake's own: 'anchor-only' when another
     admitted view sees >= 10 % of the region). ``label_moves`` = 'crease' (production, fix round 2: boundaries re-placed
     on creases / the photometric seam, each face one view, only adjacent anchors), 'off' (strict anchor-only labels)
-    or 'mrf' (the round-1 MRF, diagnostic). Returns the result dict (arrays included)."""
+    or 'mrf' (the round-1 MRF, diagnostic). ``compare_fill`` (fix round 1 of step 4): other fillers whose radius the
+    tool's knockout also chooses, on the same holes and seeds, from that filler's own radius set (``_radii_set``); the
+    report's ``fill['by_method']`` and the result's ``radii_by_method`` carry them, so a comparison of fillers runs each
+    at ITS OWN radius (the production fill uses only ``fill``). Returns the result dict (arrays included)."""
     t0 = time.perf_counter()
     opt_out_ecoqos()
     prog = Progress("print", log)
     if print_reg_mm is None or edge_mean_mm is None or edge_p90_mm is None:
         raise RefusedError("thresholds missing: print_reg_mm, edge_mean_mm and edge_p90_mm must be given "
                            "(no silent default)")
-    if fill not in ("patchmatch",):
-        raise RefusedError(f"unknown fill {fill!r}")
+    if fill not in FL.FILL_METHODS:
+        raise RefusedError(f"unknown fill {fill!r} (one of {FL.FILL_METHODS})")
+    if any(m_ not in FL.FILL_METHODS for m_ in compare_fill):
+        raise RefusedError(f"unknown compare_fill {tuple(compare_fill)!r} (each one of {FL.FILL_METHODS})")
     if flatten not in ("off", "test"):
         raise RefusedError(f"unknown flatten {flatten!r}")
     if label_moves not in LABEL_MOVES:
@@ -335,6 +404,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         groups = RG.rigid_groups(job)
         regions = RG.build_regions(job, parts, groups, n_samples=64, seed=seed)
         by = {r.rid: r for r in regions}
+        mirror_region = mirror_regions(job, pids, regions)
         timings["edges_regions_s"] = round(time.perf_counter() - t, 2)
 
         # layout (A1)
@@ -408,7 +478,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
             for rid, lab_ in region_label.items():
                 rl0[rid] = lab_
             start_tex = rl0[np.where(tex.region >= 0, tex.region, -1)]
-            ch0 = GN.solve_gains(vlist, start_tex, GN.pair_gains(tex, samples, vlist, start_tex),
+            ch0 = GN.solve_gains(vlist, start_tex, GN.pair_gains(tex, samples, vlist, start_tex,
+                                                                 mirror_region=mirror_region),
                                  GN.reference_view(job.views, vlist, start_tex))
             face_cols = np.zeros((nlf, len(vlist), 3))
             for n_, s_ in samples.items():
@@ -438,7 +509,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
             m = (label == i) & samples[v].ok
             raw[m] = samples[v].col[m]
             painted |= m
-        edges_g = GN.pair_gains(tex, samples, vlist, label)
+        edges_g = GN.pair_gains(tex, samples, vlist, label, mirror_region=mirror_region)
         gref = GN.reference_view(job.views, vlist, label)
         chain = GN.solve_gains(vlist, label, edges_g, gref)
         gained = {v: GN.apply(samples[v].col, chain[v]) if v in chain else samples[v].col for v in vlist}
@@ -446,9 +517,13 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         for i, v in enumerate(vlist):
             m = (label == i) & samples[v].ok
             col[m] = gained[v][m]
-        grp = GN.group_gains(tex, painted & (label >= 0), label, col, vindex.get(gref))
+        grp = GN.group_gains(tex, painted & (label >= 0), label, col, vindex.get(gref), mirror_region=mirror_region)
         adj = painted & (label >= 0)
         col[adj] = GN.apply_per_texel(col[adj], grp["gain"][adj])
+        # stage 3 (step 4 fix 3): the smooth levelling gain field across region boundaries (and across uv seams)
+        pairs = SM.chart_seam_pairs(job, layout, tex)
+        lev = GN.level_field(tex, adj, label, col, vindex.get(gref), pairs, tx=tx)
+        col[adj] = GN.apply_per_texel(col[adj], lev["gain"][adj])
         mix = label == LB.MIX
         if mix.any():                                       # tier 1: registered sets, weighted by cos^2 x px/mm
             acc = np.zeros((n, 3))
@@ -498,6 +573,12 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         t = time.perf_counter()
         mirrored = np.zeros(n, bool)
         mirror_info = {"mode": mirror, "texels": 0}
+        bad_col = photo & ~np.isfinite(col).all(1)
+        if bad_col.any():                                    # fix round 1: say it here, not as a k-means NaN later
+            per = {(vlist[int(i)] if 0 <= i < len(vlist) else str(int(i))): int(c)
+                   for i, c in zip(*np.unique(label[bad_col], return_counts=True))}
+            raise RuntimeError(f"non-finite photo colours after the gains on {int(bad_col.sum())} texels "
+                               f"(by painting view: {per})")
         work = np.where(photo[:, None], col, 0.0)
         if mirror != "off":
             partners = FL.mirror_partners(job, pids)
@@ -531,10 +612,11 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         # fill radius per part (knockout) and PatchMatch fill per (part, facing class)
         t = time.perf_counter()
         canvases = {p: FL.Canvas(layout, tex, p) for p in parts}
-        radii = {}
-        knock = {}
+        methods = [fill] + [m_ for m_ in dict.fromkeys(compare_fill) if m_ != fill]
+        radii_by = {m_: {} for m_ in methods}
+        knock_by = {m_: {} for m_ in methods}
         if radii_mm:
-            radii = {p: float(radii_mm[p]) for p in parts}
+            radii_by[fill] = {p: float(radii_mm[p]) for p in parts}
         else:
             kjobs = []
             for p in parts:
@@ -543,33 +625,36 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                 pimg = cv.image(photo, False, bool)
                 strip = [k for k, c in enumerate(cv.charts) if c["kind"] == "strip"]
                 if not strip:
-                    radii[p] = FL.RADII_MM[0]
+                    for m_ in methods:
+                        radii_by[m_][p] = _radii_set(m_)[0]
                     continue
                 k = strip[0]
                 box = (int(cv.off[k][1]), int(cv.off[k][1]) + cv.charts[k]["h"] + 2,
                        int(cv.off[k][0]), int(cv.off[k][0]) + cv.charts[k]["w"] + 2)
                 pimg = FL.single_label(pimg, cv.image(label, -9, np.int64), box)
-                kjobs.append((img, pimg, box, tx, [FL.radius_px(r, tx) for r in FL.RADII_MM], seed, p))
+                for m_ in methods:                    # same holes and seeds for every filler (key = the part)
+                    kjobs.append((img, pimg, box, tx, [FL.radius_px(r, tx) for r in _radii_set(m_)], seed, p, m_))
             kres = pool_map(_knock_job, kjobs, workers, progress=prog)
             for jb, kr in zip(kjobs, kres):
-                p = jb[-1]
-                knock[p] = kr
-                rmap = {FL.radius_px(r, tx): r for r in FL.RADII_MM}
-                passing = [(max(v["median_log_energy"]), rp) for rp, v in kr["radii"].items() if v["pass"]]
-                scored = [(max(v["median_log_energy"]) + max(0.0, v["mean_colour_de00"] - FL.A4_DE00) / 10
-                           + max(0.0, v["seam_ratio"] - FL.A4_SEAM), rp) for rp, v in kr["radii"].items()]
-                pick = min(passing)[1] if passing else (min(scored)[1] if scored else FL.radius_px(FL.RADII_MM[0], tx))
-                radii[p] = rmap.get(pick, pick / tx)
-                kr["chosen_radius_mm"] = radii[p]
-                kr["chosen_passes_a4"] = bool(passing)
+                p, m_ = jb[-2], jb[-1]
+                radii_by[m_][p], kr["chosen_passes_a4"] = _choose_radius(kr, _radii_set(m_), tx)
+                kr["chosen_radius_mm"] = radii_by[m_][p]
+                knock_by[m_][p] = kr
             timings["knockout_s"] = round(time.perf_counter() - t, 2)
-            prog(f"radii {radii}", force=True)
+            prog(f"radii {radii_by}", force=True)
+        radii = radii_by[fill]
+        knock = knock_by[fill]
 
         t = time.perf_counter()
         hole = ~photo & ~(mirrored & ~mirror_ring)            # every chart texel without a final colour yet
         regcls = np.array([by[int(r)].facing if r >= 0 else "none" for r in range(max(by) + 1)] + ["none"], dtype=object)
         cls = regcls[np.where(tex.region >= 0, tex.region, -1)]
         pjobs, pkeys = [], []
+        sjobs, smeta, small_out = [], [], {}
+        rs_px = FL.radius_px(FL.SMALL_HOLE_RADIUS_MM, tx)
+        small_info = {"max_mm2": FL.SMALL_HOLE_MM2, "ring_share_min": FL.SMALL_HOLE_RING_SHARE,
+                      "filler": "patchmatch", "radius_mm": FL.SMALL_HOLE_RADIUS_MM, "radius_px": rs_px,
+                      "donors": "the part's photo texels in a 160-texel tile + 40-texel margin", "per_part": {}}
         lab_all = T.lab_of(np.clip(work, 0, 255))
         for p in parts:
             cv = canvases[p]
@@ -585,11 +670,29 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                 fam[donors_all] = lbf
             img = cv.image(np.clip(np.rint(work), 0, 255).astype(np.uint8), 0, np.uint8)
             rp = FL.radius_px(radii[p], tx)
+            pimg_all = cv.image(donors_all, False, bool)
             for c in sorted(set(cls[hole & pm])):
                 hsel = hole & pm & (cls == c)
                 himg = cv.image(hsel, False, bool)
+                # fix round 1: small enclosed holes (metal / glint holes inside photo areas) are filled locally by
+                # PatchMatch from the part's photo texels; the filler takes the rest
+                small = FL.small_enclosed(himg, pimg_all, tx)
+                if small.any():
+                    small_out[(p, c)] = (small, img.copy())
+                    for k, (core, crop) in enumerate(FL.band_tiles(small, SMALL_TILE, SMALL_TILE_MARGIN)):
+                        sjobs.append((img, small, pimg_all, core, crop, rs_px, _seed_of(seed, p, c, "small", k),
+                                      "patchmatch"))
+                        smeta.append((p, c))
+                    nlab = _nd.label(small, structure=np.ones((3, 3), bool))[1]
+                    small_info["per_part"].setdefault(p, {"components": 0, "texels": 0})
+                    small_info["per_part"][p]["components"] += int(nlab)
+                    small_info["per_part"][p]["texels"] += int(small.sum())
+                    himg = himg & ~small
+                    hsel = hsel & ~_rows_mask(cv, small, n)
+                if not himg.any():
+                    continue
                 dsel = donors_all & (cls == c)
-                ring = _nd.binary_dilation(himg, iterations=FL.RING) & ~himg & cv.image(donors_all, False, bool)
+                ring = _nd.binary_dilation(himg, iterations=FL.RING) & ~himg & pimg_all
                 rf = cv.image(fam, -1, np.int64)[ring]
                 rf = rf[rf >= 0]
                 fams = [int(k) for k in np.unique(rf) if (rf == k).mean() >= FL.FAMILY_MIN_SHARE] if len(rf) else []
@@ -602,10 +705,24 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                 if dfam.sum() < need:
                     dfam = donors_all
                     relax = "part"
-                pjobs.append((img, himg, cv.image(dfam, False, bool), rp, _seed_of(seed, p, c), (p, c, relax)))
+                pjobs.append((img, himg, cv.image(dfam, False, bool), rp, _seed_of(seed, p, c), (p, c, relax), fill))
         pres = pool_map(_pm_job, pjobs, workers, progress=prog) if pjobs else []
+        sres = pool_map(FL.tile_job, sjobs, workers, progress=prog) if sjobs else []
         filled = work.copy()
         pm_checks = []
+        for key, (core, sub, chk) in zip(smeta, sres):
+            sm, im = small_out[key]
+            y0, y1, x0, x1 = core
+            hm = sm[y0:y1, x0:x1]
+            im[y0:y1, x0:x1][hm] = sub[hm]
+            pm_checks.append({"part": key[0], "class": f"{key[1]}_small_enclosed", "donors": "part photo",
+                              "hole_px": chk["hole_px"], "donor_px": chk["donor_px"], "radius_px": rs_px,
+                              "outside_changed": chk["outside_changed"], "hole_changed": chk["hole_changed"]})
+        for (p, c), (sm, im) in small_out.items():
+            cv = canvases[p]
+            hs = cv.gather(sm)
+            filled[cv.rows[hs]] = cv.gather(im).astype(float)[hs]
+        small_info["tiles"] = len(sjobs)
         for jb, r in zip(pjobs, pres):
             p, c, relax = r["key"]
             cv = canvases[p]
@@ -616,7 +733,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                               "radius_px": r["radius_px"], "outside_changed": r["outside_changed"],
                               "hole_changed": r["hole_changed"]})
         timings["fill_s"] = round(time.perf_counter() - t, 2)
-        prog(f"fill: {len(pm_checks)} PatchMatch calls", force=True)
+        prog(f"fill: {len(pm_checks)} {fill} calls", force=True)
 
         # label-seam bands (2 or 4 texels by test), repaired from photo donors of the part, by tiled PatchMatch
         # (320-texel cores with 48-texel donor margins, in the pool: a thin band over a whole part canvas made one call
@@ -642,7 +759,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                 himg = cv.image(band, False, bool)
                 dimg = cv.image(photo & pm & ~band, False, bool)
                 for k, (core, crop) in enumerate(FL.band_tiles(himg)):
-                    jobs.append((img, himg, dimg, core, crop, rp_of[p], _seed_of(seed, p, "band", width, k)))
+                    jobs.append((img, himg, dimg, core, crop, rp_of[p], _seed_of(seed, p, "band", width, k), fill))
                     meta.append(p)
                 out[p] = {"width": width, "band": band, "img": img.copy(), "himg": himg, "checks": []}
             res_ = pool_map(FL.tile_job, jobs, workers, progress=prog) if jobs else []
@@ -691,8 +808,10 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
 
         # chart seams (harmonised; A5 is graded off the seam by the instrument)
         t = time.perf_counter()
-        pairs = SM.chart_seam_pairs(job, layout, tex)
         protected = photo & ~band_final
+        pre_reflect = filled.copy()
+        filled, reflect_info = SM.reflect_seams(job, layout, tex, filled, protected)
+        prog(f"chart-seam reflection: {reflect_info}", force=True)
         w_paint = np.zeros(n)
         for i, v in enumerate(vlist):
             m_ = label == i
@@ -731,7 +850,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         worn_hidden = is_temple_t & np.isin(facing_t, list(WORN_HIDDEN["temple"]))
         source_seen = painted & (label >= 0)               # seen by the painting view, before text / highlight masks
         part_rows = {}
-        warnings = list(warnings_early) + GN.support_warnings(chain, grp)
+        warnings = list(warnings_early) + GN.support_warnings(chain, grp, lev)
         for p in parts:
             pid = [i for i, nm in enumerate(names) if nm == p]
             sel = np.isin(tex.part, pid)
@@ -754,7 +873,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                   "radius_mm": radii.get(p), "_seen": int((source_seen & aw).sum()), "_den": int(aw.sum())}
             part_rows[p] = pr
             if pr["patchmatch_share_ar"] > PATCHMATCH_WARN:
-                warnings.append(f"{p}: PatchMatch fills {pr['patchmatch_share_ar']:.0%} of its AR-visible area (> 25 %)")
+                warnings.append(f"{p}: PatchMatch fills {pr['patchmatch_share_ar']:.0%} of its AR-visible area (> 25 %; "
+                                f"filler: {fill})")
             if pr["seam_band_share"] > SM.SEAM_SHARE_MAX:
                 warnings.append(f"{p}: seam bands are {pr['seam_band_share']:.0%} of its projected texels (> 15 %)")
         partners_by_name = {names[q_]: names[r_] for q_, r_ in FL.mirror_partners(job, pids).items()}
@@ -906,9 +1026,28 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                   "foreign_blobs": {v: s.foreign for v, s in samples.items()},
                   "view_reasons": {v: s.reasons for v, s in samples.items()},
                   "gains": {"reference": gref, "edges": edges_g, "per_view": chain,
-                            "across_boundaries": {"groups": grp["groups"], "edges": grp["edges"]},
+                            "across_boundaries": {"groups": grp["groups"], "edges": grp["edges"],
+                                                  "mirrors": grp["mirrors"], "rejected": grp["rejected"],
+                                                  "dropped": grp["dropped"]},
+                            "level_field": {k: v for k, v in lev.items() if k != "gain"} | {
+                                "file": "gain_field.npz (per-texel stage-3 gain, float16 image)"},
+                            "mirror_regions": {by[a].name: by[b].name for a, b in sorted(mirror_region.items())},
                             "clip_evidence": GN.clip_evidence(edges_g),
-                            "model": "linear-light median ratio, weighted least squares of log gains (see gains.py)"},
+                            "model": "linear-light median ratio, weighted least squares of log gains (see gains.py); "
+                                     "step 4: stage-1 clip [0.33, 3], same-part boundaries, mirror edges; stage-2 "
+                                     "same-part edges, mirror equations, robust pass, clip [0.5, 2]; stage-3 smooth "
+                                     "levelling field"},
+                  "fill": {"method": fill, "radii_mm": radii,
+                           "by_method": {m_: {"radii_mm": radii_by[m_],
+                                              "knockout": {p: _knock_summary(kr) for p, kr in knock_by[m_].items()}}
+                                         for m_ in methods},
+                           "small_enclosed": small_info,
+                           "choice": FILL_CHOICE},
+                  "chart_seam_reflection": reflect_info,
+                  "metal": {v: {"arm": s_.arm, "reasons": {k: s_.reasons.get(k) for k in
+                                                         ("metal_or_highlight", "pale", "hardware_margin", "edge_halo",
+                                                          "thin_line", "dark_blob", "enclosed")}}
+                            for v, s_ in samples.items()},
                   "highlights": {k: v for k, v in hl.items() if k != "mask"} | {"shen_zheng": "off (no registered "
                                                                                  "overlaps to pass its keep test)"},
                   "flatten": "off (single-source: no registered overlaps for the keep test, §6.6)",
@@ -918,7 +1057,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                   "classes": CLASS_CODES, "shares": {k: int((klass == v).sum()) for k, v in CLASS_CODES.items()},
                   "timings": timings, "versions": {"numpy": np.__version__, "scipy": scipy.__version__,
                                                    "python": platform.python_version()},
-                  "inputs": {"sources": job.sources, "mesh_sha256": sha256_array(job.mesh.V), "step0_report": step0_info}}
+                  "inputs": {"sources": job.sources, "mesh_sha256": sha256_array(job.mesh.V), "step0_report": step0_info},
+                  "print_uv": MF.print_identity(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, layout)}
         registration = {"mode": mode, "label_moves": label_moves, "texture_parts": texture_parts, "anchors": {anchors[r.rid]["region"]: anchors[r.rid] for r in regions},
                         "admitted": {f"{v}|{p}": a for (v, p), a in sorted(adm.items())},
                         "edges": edges, "registered_used": {k: v for k, v in registered.items() if len(v) >= 2},
@@ -927,9 +1067,11 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                "tex": tex, "label": label, "photo": photo, "classes": klass, "source": source, "tier": tier,
                "samples": samples, "views": vlist, "regions": regions, "anchors": anchors, "report": report,
                "registration": registration, "pairs": pairs, "colours": harm, "radii": radii, "occ": occ,
+               "radii_by_method": radii_by,
                "mirrored": mirrored, "seen_any": seen_any, "seen_geom": seen_geom, "hole": hole, "band": band_final,
                "text_mask": tm["mask"], "see_through": tm.get("see_through_mask", np.zeros(n, bool)), "ar_visible": arv,
-               "colours_pre_harmonise": pre_harmonise, "is_anchor": is_anchor, "texture_parts": texture_parts,
+               "colours_pre_harmonise": pre_harmonise, "colours_pre_reflect": pre_reflect, "is_anchor": is_anchor,
+               "texture_parts": texture_parts, "level_gain": lev["gain"],
                "no_texture": blank, "unprotected": unprot}
     if write:
         res["files"] = write_outputs(res, out_dir)
@@ -963,4 +1105,12 @@ def write_outputs(res: dict, out_dir) -> dict:
     files["registration"] = write_json(out / "registration.json", res["registration"])
     files["report"] = write_json(out / "report.json", {**rep, "timings": timings})
     files["report_no_timings"] = write_json(out / "report_stable.json", rep)
+    if "level_gain" in res:
+        np.savez_compressed(out / "gain_field.npz", gain=tex.image(res["level_gain"].astype(np.float16), 1.0,
+                                                                     np.float16))
+        files["gain_field"] = str(out / "gain_field.npz")
+    try:                                     # what g3d.attach_print reads (manifest.py); a job without a GLB has none
+        files["manifest"] = str(MF.write_manifest(out))
+    except (KeyError, OSError, ValueError) as exc:
+        files["manifest_error"] = f"{type(exc).__name__}: {exc}"
     return files

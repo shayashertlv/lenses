@@ -19,15 +19,24 @@ Steps 2-7 (single-source mode: each region painted from its anchor photo only, n
 registered regions, none on FT1119 today, mixed in tier 1): ``project.project_photo_texture`` runs the numpy layout
 core ``glasses3d.g3d.printuv`` on host arrays, then
 - ``texels``: atlas texels, the whole-scene occluders (decals included), per-view donor samples (matte, occluder
-  margins, per-pixel acetate, clipped pixels), anchors and tiers;
+  margins, per-pixel acetate, clipped pixels, and since step 4 the holes of ``metal``), anchors and tiers;
+- ``metal`` (step 4 fix 1, 4): per photo, the metal / achromatic-highlight colour model (the havana's pigment arm in
+  luminance x B/R), the hardware margins, thin glint / outline lines and dark compact blobs (rivets) as donor holes;
 - ``labels``: face labels by an MRF with crease-discounted Potts (boundaries moved within 3 mm bands);
-- ``gains``: per-view linear-light median gains to the front view, then gain matching across region boundaries;
+- ``gains``: per-view linear-light median gains to the front view (step 4: mirror edges, same-part boundaries, clip
+  [0.33, 3]), per (region, view) group gains (same-part edges, mirror equations, robust pass) and the smooth stage-3
+  levelling field across region boundaries and uv seams;
 - ``highlights``: detect and make holes (never subtract);
-- ``fill``: the text mask (D6), mirror fill of surfaces no photo sees, PatchMatch per (part, facing class) with the
-  radius chosen by knockout;
-- ``seams``: label-seam band repair, uv-seam harmonisation (A5), gutter padding;
+- ``fill``: the text mask (D6), mirror fill of surfaces no photo sees, then the hole filler per (part, facing class)
+  with the radius chosen by knockout: block quilting (default since step 4) or PyPatchMatch (``fill='patchmatch'``);
+- ``seams``: label-seam band repair, the chart-seam reflection of fill texels (step 4, A5), uv-seam harmonisation,
+  gutter padding;
 - ``compose``: the byte-identity compose (A3) and rendering a bake at a camera.
-Not built here: the Blender side (``g3d.print_uv``, ``attach_print``, the TEXCOORD export; A6, B5) and flatten (off on
+- ``manifest`` (step 4): print_manifest.json, what ``g3d.attach_print`` reads (print.png, atlas, density and the
+  print geometry's identities from ``g3d.printuv.glbmesh``), written with every bake; ``check_glb`` is the host's
+  "print stale; re-project" check of an exported GLB.
+The Blender side (``g3d.print_uv``, ``attach_print``, ``detach_print``, ``remove_print_uv``; the exporter's
+``g3d_print_uv`` allowlist and TEXCOORD index; A6, B5) is ``glasses3d/g3d/print_bpy.py``. Not built: flatten (off on
 FT1119, §6.6). Sides are always the x sign, never part names (q001 names temples by the viewer's side).
 """
 from .project import RefusedError, project_photo_texture

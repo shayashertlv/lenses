@@ -22,6 +22,22 @@ section 10.
   PatchMatch) and outside the text mask take the colour of the mirrored point (x -> -x, closest point on the partner part: the selected part whose
   mirrored area centroid is nearest, within 5 mm) when that point is a painted photo texel; a 3-texel band on the
   mirrored side of every mirrored area's boundary is then re-synthesised by PatchMatch. The mirrored share is reported.
+- **Filler (step 4 fix 2; corrected in step 4 fix round 1)**: ``fill_call(method, ...)``: 'quilt' (``quilt_call``,
+  block quilting with feathered overlaps, the production default) or 'patchmatch' (below). Quilting is the default
+  for a VISUAL reason only: on long thin holes PyPatchMatch's coherent offsets smear blotches along the strip (the
+  'wood grain' the owner saw on the 7ac7c8f bake's temples), and quilting, which copies donor pixels verbatim
+  (feathered only where blocks overlap), does not. It is NOT an A4 improvement; it COSTS A4. Measured by the
+  instrument on the FT1119 fix-round bake (16 texels/mm), each filler at the radius ITS OWN knockout chose (quilting
+  0.9 mm everywhere; PatchMatch 0.3 / 0.5 / 0.3 / 0.5 mm on q001 Brow_Left / Brow_Right / Temple_Left /
+  Temple_Right), same holes, 5 seeds x 8 holes per part: fine-band median |log energy| quilting 0.35 / 0.34 / 0.33 /
+  0.23 against PatchMatch 0.21 / 0.20 / 0.17 / 0.21, seam ratio 1.39 / 1.51 / 1.32 / 1.46 against 1.06 / 1.50 /
+  0.98 / 1.34: PatchMatch is closer to A4 on every part and near-passable on the -x temple (Temple_Left: 0.17
+  against the 0.15 limit, seam 0.98); at 8 texels/mm it passes A4 on the +x temple where quilting fails
+  (tests/photoprint/test_print_bake.py). (The step-4 figures this replaces ran PatchMatch at quilting's 0.9 mm, and
+  the two step-4 docstrings disagreed with each other.) The real-vs-real floor is a diagnostic only
+  (``tests/photoprint/printproof.py``), never an excuse for A4. Radii for quilting: ``QUILT_RADII_MM``. Small enclosed
+  holes (<= 2 mm2, ring mostly photo texels: metal / glint holes inside photo areas) are filled locally by
+  PatchMatch at 0.3 mm instead (``small_enclosed``; fix round 1: quilting left staircase-edged dark fragments there).
 - **PatchMatch** (PyPatchMatch ``inpaint``, patch RADIUS in texels): per part, on a canvas that re-packs only that
   part's charts (other parts never donate), one call per (part, facing class) hole group, with donors = the part's
   painted texels of the same facing class and colour family (k-means k <= 3 in Lab over the part's painted texels; the
@@ -379,11 +395,176 @@ def band_tiles(hole: np.ndarray, tile: int = TILE, margin: int = TILE_MARGIN) ->
     return out
 
 
-def tile_job(img, hole, donors, core, crop, radius, seed):
-    """PatchMatch on one crop; only the core's hole pixels are kept. Returns (core, filled core, checks)."""
+def tile_job(img, hole, donors, core, crop, radius, seed, method="patchmatch"):
+    """The filler (``fill_call``) on one crop; only the core's hole pixels are kept. Returns (core, filled core,
+    checks)."""
     cy0, cy1, cx0, cx1 = crop
-    r = patchmatch_call(img[cy0:cy1, cx0:cx1], hole[cy0:cy1, cx0:cx1], donors[cy0:cy1, cx0:cx1], radius, seed)
+    r = fill_call(method, img[cy0:cy1, cx0:cx1], hole[cy0:cy1, cx0:cx1], donors[cy0:cy1, cx0:cx1], radius, seed)
     y0, y1, x0, x1 = core
     sub = r["out"][y0 - cy0:y1 - cy0, x0 - cx0:x1 - cx0]
     return core, sub, {"outside_changed": r["outside_changed"], "hole_changed": r["hole_changed"],
                        "hole_px": r["hole_px"], "donor_px": r["donor_px"]}
+
+
+# ----------------------------------------------------------------------------- block quilting (step 4 fix 2)
+QUILT_K_MAX = 1500               # candidate donor windows per call (seeded sample)
+QUILT_EPS = 0.10                 # random choice among windows within 10 % of the best context match
+QUILT_MIN_FULL = 30              # fewer full donor windows than this: windows >= 60 % donor are allowed (masked)
+FILL_METHODS = ("quilt", "patchmatch")
+QUILT_RADII_MM = (0.9, 1.2)      # the knockout's choices for quilting (windows 1.9-2.5 mm, blocks ~1 mm at 16 tx/mm):
+                                 # 0.3 and 0.5 mm (6- and 9-texel blocks) made a visible mosaic of blotch fragments on
+                                 # the temples, 1.5 mm dull uniform patches (looked at on the +x temple, 2026-10-06)
+
+
+def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: int, seed: int) -> dict:
+    """Seeded block quilting (Efros and Freeman 2001, feathered): the hole's bounding box is tiled with S x S blocks
+    (S = radius + 1) taken in onion order (mean distance of the block's hole pixels to the known pixels); each block's
+    (2 radius + 1)^2 window is matched (SSD over its KNOWN pixels: donors and blocks already filled) against
+    ``QUILT_K_MAX`` seeded donor windows (fully inside the donors), one of those within 10 % of the best is copied
+    VERBATIM into the block's hole pixels and a ring of S // 2 texels around it, overlaps feathered linearly (pixels are
+    never averaged elsewhere). Same contract and checks as ``patchmatch_call`` (outside the hole unchanged, the hole
+    changed). No streaks along the strips (looked at, step 4) and about 10 x faster than PyPatchMatch; by A4 it is
+    WORSE than PyPatchMatch at that filler's own radius on FT1119 (module docstring, step 4 fix round 1)."""
+    img = np.ascontiguousarray(np.asarray(img, np.uint8))
+    hole = np.asarray(hole, bool)
+    donors = np.asarray(donors, bool) & ~hole
+    r = int(max(2, radius))
+    w = 2 * r + 1
+    S = max(3, r + 1)
+    o = max(2, S // 2)
+    H, W = hole.shape
+    work = img.copy()
+    work[hole] = 0
+    base = {"hole_px": int(hole.sum()), "donor_px": int(donors.sum()), "radius_px": r, "method": "quilt"}
+    if not hole.any():
+        return {"out": work, "outside_changed": 0, "hole_changed": 0, "candidates": 0, **base}
+    f = np.pad(work.astype(np.float32), ((r, r), (r, r), (0, 0)))
+    known = np.pad(donors, r)
+    full = ndimage.minimum_filter(donors.astype(np.uint8), size=w, mode="constant", cval=0) > 0
+    cy, cx = np.nonzero(full)
+    rng = np.random.default_rng(int(seed) & 0x7FFFFFFF)
+    relaxed = len(cy) < QUILT_MIN_FULL
+    if relaxed:
+        cov = ndimage.uniform_filter(donors.astype(np.float32), size=w, mode="constant")
+        cy, cx = np.nonzero((cov >= 0.6) & donors)
+    if not len(cy):
+        return {"out": work, "outside_changed": 0, "hole_changed": 0, "candidates": 0, **base}
+    if len(cy) > QUILT_K_MAX:
+        pick = np.sort(rng.choice(len(cy), QUILT_K_MAX, replace=False))
+        cy, cx = cy[pick], cx[pick]
+    oy, ox = np.mgrid[-r:r + 1, -r:r + 1]
+    Dy = cy[:, None, None] + r + oy[None]
+    Dx = cx[:, None, None] + r + ox[None]
+    D = f[Dy, Dx].reshape(len(cy), -1)
+    Dm = known[Dy, Dx]                                     # (K, w, w) donor validity of each window pixel
+    Dmr = np.repeat(Dm.reshape(len(cy), -1), 3, axis=1).astype(np.float32)
+    D2 = D * D
+    ys, xs = np.nonzero(hole)
+    y0, x0 = int(ys.min()), int(xs.min())
+    bkey = ((ys - y0) // S) * 100000 + (xs - x0) // S
+    ukeys, inv = np.unique(bkey, return_inverse=True)
+    dist = ndimage.distance_transform_edt(hole)
+    md = np.bincount(inv, weights=dist[ys, xs]) / np.bincount(inv)
+    order = np.lexsort((ukeys, md))
+    holep = np.pad(hole, r)
+    acc = np.zeros(f.shape, np.float32)
+    wsum = np.zeros(f.shape[:2], np.float32)
+    P = S + 2 * o
+    ramp = np.ones(P, np.float32)
+    ramp[:o] = (np.arange(o) + 1) / (o + 1)
+    ramp[-o:] = ramp[:o][::-1]
+    A = np.minimum(ramp[:, None], ramp[None, :])
+    for b in order:
+        kb = int(ukeys[b])
+        sy, sx = y0 + (kb // 100000) * S, x0 + (kb % 100000) * S
+        ccy, ccx = min(sy + S // 2, H - 1), min(sx + S // 2, W - 1)
+        T_ = f[ccy:ccy + w, ccx:ccx + w].reshape(-1)
+        M = np.repeat(known[ccy:ccy + w, ccx:ccx + w].reshape(-1), 3).astype(np.float32)
+        if relaxed:
+            Mk = Dmr * M[None]
+            d = ((D - T_[None]) ** 2 * Mk).sum(1) / np.maximum(Mk.sum(1), 1.0)
+        elif M.sum() > 0:
+            d = (D2 @ M - 2.0 * (D @ (M * T_)) + float((M * T_ * T_).sum())) / float(M.sum())
+        else:
+            d = np.zeros(len(D), np.float32)
+        d = np.maximum(np.asarray(d, np.float64), 0.0)    # float32 cancellation can dip below 0
+        dmin = float(d.min())
+        good = np.nonzero(d <= dmin * (1 + QUILT_EPS) + 1e-6)[0]
+        k = int(good[rng.integers(len(good))]) if len(good) else int(np.argmin(d))
+        patch = D[k].reshape(w, w, 3)
+        pmask = Dm[k]
+        qy0, qx0 = sy - o, sx - o
+        py0, px0 = r - (ccy - qy0), r - (ccx - qx0)
+        ya, yb = max(qy0, 0, qy0 - py0), min(qy0 + P, H, qy0 - py0 + w)
+        xa, xb = max(qx0, 0, qx0 - px0), min(qx0 + P, W, qx0 - px0 + w)
+        if ya >= yb or xa >= xb:
+            continue
+        sub = patch[ya - qy0 + py0:yb - qy0 + py0, xa - qx0 + px0:xb - qx0 + px0]
+        subm = pmask[ya - qy0 + py0:yb - qy0 + py0, xa - qx0 + px0:xb - qx0 + px0]
+        a = A[ya - qy0:yb - qy0, xa - qx0:xb - qx0]
+        hb = holep[ya + r:yb + r, xa + r:xb + r] & subm
+        if not hb.any():
+            continue
+        accb = acc[ya + r:yb + r, xa + r:xb + r]
+        wb = wsum[ya + r:yb + r, xa + r:xb + r]
+        accb[hb] += a[hb][:, None] * sub[hb]
+        wb[hb] += a[hb]
+        tgt = f[ya + r:yb + r, xa + r:xb + r]
+        tgt[hb] = accb[hb] / wb[hb][:, None]
+        known[ya + r:yb + r, xa + r:xb + r][hb] = True
+    res = np.clip(np.rint(f[r:r + H, r:r + W]), 0, 255).astype(np.uint8)
+    filled = wsum[r:r + H, r:r + W] > 0
+    left = hole & ~filled
+    if left.any():                                         # pixels no window could reach: nearest filled/known pixel
+        src = (~hole & donors) | filled
+        if src.any():
+            _d, (iy, ix) = ndimage.distance_transform_edt(~src, return_indices=True)
+            res[left] = res[iy[left], ix[left]]
+    out = work.copy()
+    out[hole] = res[hole]
+    outside = int((out[~hole] != work[~hole]).any(-1).sum())
+    changed = int((out[hole] != work[hole]).any(-1).sum())
+    return {"out": out, "outside_changed": outside, "hole_changed": changed, "candidates": int(len(D)),
+            "relaxed": bool(relaxed), "nearest_px": int(left.sum()), **base}
+
+
+# ----------------------------------------------------------------------------- small enclosed holes (fix round 1)
+SMALL_HOLE_MM2 = 2.0             # a hole component up to this area ...
+SMALL_HOLE_RING_SHARE = 0.5      # ... whose 1-texel outer ring is at least this share photo texels is 'small enclosed'
+SMALL_HOLE_RADIUS_MM = 0.3       # filled by PatchMatch at this patch radius (local, tiled), donors of its class
+
+
+def small_enclosed(hole: np.ndarray, painted: np.ndarray, tx: float, *, max_mm2: float = SMALL_HOLE_MM2,
+                   ring_share: float = SMALL_HOLE_RING_SHARE) -> np.ndarray:
+    """The SMALL ENCLOSED components of ``hole`` (8-connected): area <= ``max_mm2`` and at least ``ring_share`` of the
+    component's 1-texel outer ring painted photo texels (``painted``). These are the metal / glint / highlight holes
+    punched inside photo areas (step 4). Fix round 1 (review: quilting left staircase-edged dark fragments in the honey
+    blotches of the -x brow's top band, atlas x 280-680, y 40-120): quilting copies 15-texel blocks from 29-texel donor
+    windows, which a small blotch riddled with holes cannot supply, and its colour-family donors follow the ring of the
+    WHOLE hole group, which the large unseen areas dominate; such a component is filled locally by PatchMatch from the
+    class's photo texels instead (``project_photo_texture``). Returns the (H, W) bool mask."""
+    hole = np.asarray(hole, bool)
+    out = np.zeros_like(hole)
+    if not hole.any():
+        return out
+    st = np.ones((3, 3), bool)
+    lab, n = ndimage.label(hole, structure=st)
+    area = np.bincount(lab.ravel(), minlength=n + 1).astype(float)
+    ring = ndimage.binary_dilation(hole, structure=st) & ~hole
+    near = ndimage.grey_dilation(lab, footprint=st)             # the (largest) adjacent component id of a ring texel
+    tot = np.bincount(near[ring], minlength=n + 1).astype(float)
+    pnt = np.bincount(near[ring & np.asarray(painted, bool)], minlength=n + 1).astype(float)
+    ok = (area <= max_mm2 * tx * tx) & (pnt >= ring_share * np.maximum(tot, 1.0)) & (tot > 0)
+    ok[0] = False
+    return ok[lab] & hole
+
+
+def fill_call(method: str, img, hole, donors, radius: int, seed: int) -> dict:
+    """The production hole filler: 'quilt' (default since step 4) or 'patchmatch' (the design's PyPatchMatch)."""
+    if method == "quilt":
+        return quilt_call(img, hole, donors, radius, seed)
+    if method == "patchmatch":
+        r = patchmatch_call(img, hole, donors, radius, seed)
+        r["method"] = "patchmatch"
+        return r
+    raise ValueError(f"unknown fill method {method!r} (one of {FILL_METHODS})")

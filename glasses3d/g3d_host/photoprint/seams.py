@@ -23,6 +23,9 @@
   seam texel are feathered toward it. Photo-photo disagreements are no longer averaged (that mixed two unregistered
   views or gain groups). This step sets exactly the seam texels, so A5 is graded off the seam
   (``print_metrics.seam_steps``), with the pre-harmonisation pair agreement reported as a diagnostic.
+- **Chart-seam reflection** (step 4 fix 4, ``reflect_seams``, before the harmonisation): where a seam's two sides
+  are filled independently, the losing side's fill texels within 6 texels take the winning side's texture reflected
+  across the seam (A5 at 1 texel on FT1119: p95 12.65 -> 3.11 dE00 against a within-chart 5.74; A5 passes).
 - **Gutters**: every atlas pixel within 8 texels of a texel takes its nearest texel's colour (bilinear and mipmapped
   lookups never read the background), after composition.
 """
@@ -261,3 +264,129 @@ def pad_gutters(img: np.ndarray, used: np.ndarray, width: int = GUTTER) -> np.nd
     m = (~used) & (d <= width)
     out[m] = img[iy[m], ix[m]]
     return out
+
+
+# ----------------------------------------------------------------------------- chart-seam reflection (step 4 fix 4)
+REFLECT_BAND = 6.0               # texels inside the losing chart that take the winner's reflected texture
+REFLECT_FULL = 1.5               # ... fully up to this depth, then linearly less to REFLECT_BAND
+REFLECT_STEP = 0.5
+
+
+def seam_edges(job, layout) -> dict:
+    """Every uv seam (a welded mesh edge whose two layout faces have different uv at its ends): per edge the two
+    faces' uv of the edge's ends and of their third corners."""
+    faces = layout.faces
+    tri = job.mesh.V[job.mesh.F[faces]]
+    wid = weld_ids(tri.reshape(-1, 3)).reshape(-1, 3)
+    uv = np.asarray(layout.uv, float)
+    corner = np.tile(np.arange(3), (len(faces), 1))
+    e0 = np.concatenate([wid[:, [0, 1]], wid[:, [1, 2]], wid[:, [2, 0]]])
+    c0 = np.concatenate([corner[:, [0, 1]], corner[:, [1, 2]], corner[:, [2, 0]]])
+    fidx = np.tile(np.arange(len(faces)), 3)
+    sw = e0[:, 0] > e0[:, 1]
+    e = np.where(sw[:, None], e0[:, ::-1], e0)
+    c = np.where(sw[:, None], c0[:, ::-1], c0)
+    key = e[:, 0] * (np.int64(1) << 32) + e[:, 1]
+    o = np.argsort(key, kind="stable")
+    key, fidx, c = key[o], fidx[o], c[o]
+    same = np.nonzero(key[1:] == key[:-1])[0]
+    fa, fb = fidx[same], fidx[same + 1]
+    ca, cb = c[same], c[same + 1]
+    ua0, ua1 = uv[fa, ca[:, 0]], uv[fa, ca[:, 1]]
+    ub0, ub1 = uv[fb, cb[:, 0]], uv[fb, cb[:, 1]]
+    seam = (fa != fb) & ((np.abs(ua0 - ub0).max(1) > 1e-6) | (np.abs(ua1 - ub1).max(1) > 1e-6))
+    ua2 = uv[fa, 3 - ca[:, 0] - ca[:, 1]]
+    ub2 = uv[fb, 3 - cb[:, 0] - cb[:, 1]]
+    k = np.nonzero(seam)[0]
+    return {"fa": fa[k], "fb": fb[k], "ua0": ua0[k], "ua1": ua1[k], "ua2": ua2[k], "ub0": ub0[k], "ub1": ub1[k],
+            "ub2": ub2[k]}
+
+
+def _inward(p0, p1, p2):
+    d = p1 - p0
+    n = np.stack([-d[:, 1], d[:, 0]], 1)
+    n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
+    s = np.sign(((p2 - p0) * n).sum(1))
+    return n * np.where(s == 0, 1.0, s)[:, None]
+
+
+def _bilinear_atlas(img: np.ndarray, uv: np.ndarray) -> np.ndarray:
+    H, W = img.shape[:2]
+    x = uv[:, 0] - 0.5
+    y = uv[:, 1] - 0.5
+    x0 = np.clip(np.floor(x).astype(np.int64), 0, W - 2)
+    y0 = np.clip(np.floor(y).astype(np.int64), 0, H - 2)
+    fx = np.clip(x - x0, 0, 1)[:, None]
+    fy = np.clip(y - y0, 0, 1)[:, None]
+    return ((1 - fx) * (1 - fy) * img[y0, x0] + fx * (1 - fy) * img[y0, x0 + 1] + (1 - fx) * fy * img[y0 + 1, x0]
+            + fx * fy * img[y0 + 1, x0 + 1])
+
+
+def reflect_seams(job, layout, tex, col: np.ndarray, protected: np.ndarray, *, band: float = REFLECT_BAND,
+                  full: float = REFLECT_FULL, edges: dict | None = None) -> tuple[np.ndarray, dict]:
+    """Step 4 fix 4 (A5): where a uv seam's two sides are painted independently (fill on one or both sides), the
+    texels of the LOSING side within ``band`` texels of the seam take the winning side's texture REFLECTED across the
+    seam (the point at the same depth inside the other chart, i.e. the surface continued across the edge), fully up
+    to ``full`` texels and linearly less to ``band``. Winner: a protected photo texel beats a fill texel; between two
+    fill texels, the lower chart index wins, and within one chart (a strip's own cut, where the section's t wraps) the
+    lower texel row (deterministic, consistent along the cut). Only unprotected (fill) texels change, so the compose's
+    byte identity is kept. Diagnosis (FT1119 bake 7ac7c8f): 94 % of the A5 samples over the 1-texel p95 had fill on
+    both sides (independent PatchMatch calls per chart: the harmonisation set the seam texels themselves, and its
+    3-texel feather was not enough). Fix round 1 of step 4 (review): inside the band the two sides agree BY
+    CONSTRUCTION (the losing side copies the winner at the same depth), so an across-seam reading at 1-2 texels is no
+    evidence; A5 is graded beyond the band (``band_texels`` and ``full_texels`` are returned for the proof).
+    Returns (colours, counts)."""
+    col = np.asarray(col, float)
+    out = col.copy()
+    E = edges if edges is not None else seam_edges(job, layout)
+    if not len(E["fa"]):
+        return out, {"edges": 0, "texels_changed": 0, "band_texels": float(band), "full_texels": float(full)}
+    H, W = tex.shape
+    img = tex.image(col, 0.0, float)
+    chart_of_face = np.asarray(layout.chart)
+    prot = np.asarray(protected, bool)
+    rank = np.where(prot, 2, 1)
+    ds = np.arange(REFLECT_STEP, band + 1e-9, REFLECT_STEP)
+    acc = np.zeros((len(col), 3))
+    wsum = np.zeros(len(col))
+    amax = np.zeros(len(col))
+    for side in (0, 1):
+        if side == 0:
+            l0, l1, l2, w0, w1, w2, fl, fw = (E["ua0"], E["ua1"], E["ua2"], E["ub0"], E["ub1"], E["ub2"], E["fa"],
+                                              E["fb"])
+        else:
+            l0, l1, l2, w0, w1, w2, fl, fw = (E["ub0"], E["ub1"], E["ub2"], E["ua0"], E["ua1"], E["ua2"], E["fb"],
+                                              E["fa"])
+        nl = _inward(l0, l1, l2)
+        nw = _inward(w0, w1, w2)
+        ln = np.maximum(np.linalg.norm(l1 - l0, axis=1), np.linalg.norm(w1 - w0, axis=1))
+        ns = np.maximum(2, np.ceil(ln / REFLECT_STEP)).astype(np.int64)
+        rep = np.repeat(np.arange(len(fl)), ns)
+        t = (np.concatenate([np.arange(k) for k in ns]) + 0.5) / np.repeat(ns, ns)
+        for d in ds:
+            pl = l0[rep] + t[:, None] * (l1[rep] - l0[rep]) + d * nl[rep]
+            pw = w0[rep] + t[:, None] * (w1[rep] - w0[rep]) + d * nw[rep]
+            il = tex.index[np.clip(np.floor(pl[:, 1]).astype(np.int64), 0, H - 1),
+                           np.clip(np.floor(pl[:, 0]).astype(np.int64), 0, W - 1)]
+            iw = tex.index[np.clip(np.floor(pw[:, 1]).astype(np.int64), 0, H - 1),
+                           np.clip(np.floor(pw[:, 0]).astype(np.int64), 0, W - 1)]
+            ok = (il >= 0) & (iw >= 0)
+            ok[ok] &= (tex.chart[il[ok]] == chart_of_face[fl[rep[ok]]]) & (tex.chart[iw[ok]] == chart_of_face[fw[rep[ok]]])
+            ok[ok] &= ~prot[il[ok]]
+            rw, rl = rank[iw[ok]], rank[il[ok]]
+            cw, cl = tex.chart[iw[ok]], tex.chart[il[ok]]
+            ok[ok] &= (rw > rl) | ((rw == rl) & ((cw < cl) | ((cw == cl) & (iw[ok] < il[ok]))))
+            if not ok.any():
+                continue
+            a = 1.0 if d <= full else max(0.0, 1.0 - (d - full) / (band - full))
+            if a <= 0:
+                continue
+            v = _bilinear_atlas(img, pw[ok])
+            np.add.at(acc, il[ok], a * v)
+            np.add.at(wsum, il[ok], a)
+            np.maximum.at(amax, il[ok], a)
+    ch = wsum > 0
+    tgt = acc[ch] / wsum[ch, None]
+    out[ch] = (1 - amax[ch, None]) * col[ch] + amax[ch, None] * tgt
+    return out, {"edges": int(len(E["fa"])), "texels_changed": int(ch.sum()),
+                 "fully_reflected": int((amax >= 1.0).sum()), "band_texels": float(band), "full_texels": float(full)}

@@ -9,11 +9,21 @@ without its value (status refused, code E_ARGS); Blender's exit code does not ca
     seat <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
     hide-eyewire <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
     check-seating <args.json> <receipt.json>
+    print-uv <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
+    attach-print <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
+    detach-print <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
+    remove-print-uv <args.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
     run <steps.json> <receipt.json> [--save-copy <new.blend>] [--export <out.glb>]
 
-`args.json` holds the keyword arguments of one call (g3d.seat_lens / g3d.hide_eyewire / g3d.check_lens_seating), or a
-list of them run in order; `steps.json` is a list of {"op": "seat_lens" | "hide_eyewire" | "check_lens_seating" |
-"unseat_lens" | "unhide_eyewire", ...kwargs}. Objects are passed by name.
+`args.json` holds the keyword arguments of one call (g3d.seat_lens / g3d.hide_eyewire / g3d.check_lens_seating /
+g3d.print_uv / g3d.attach_print / g3d.detach_print / g3d.remove_print_uv), or a list of them run in order;
+`steps.json` is a list of {"op": "seat_lens" | "hide_eyewire" | "check_lens_seating" | "unseat_lens" |
+"unhide_eyewire" | "print_uv" | "attach_print" | "detach_print" | "remove_print_uv", ...kwargs}. Objects are passed
+by name; attach_print's `report` is a path (a bake directory, its report.json or print_manifest.json). A `run` (and a
+list of calls) stops at the first PRINT step (print_uv / attach_print / detach_print / remove_print_uv) that is not ok:
+the receipt lists the steps run and its status is that step's, and the save and the export are skipped. Seat steps
+keep the seat CLI's behaviour: a refused or failed seat step is recorded in the receipt and the run goes on, then
+saves and exports (the seat tools' own receipts carry their status; read them).
 
 The CLI never saves the .blend it was started on. `--save-copy` writes the changed scene to a NEW path (refused when
 the path exists or is the input file); `--export` exports the changed scene with the WP3 exporter.
@@ -45,13 +55,22 @@ def _export(out: Path) -> dict:
         return receipt
 
 
-OPS = {"seat": "seat_lens", "hide-eyewire": "hide_eyewire", "check-seating": "check_lens_seating"}
+OPS = {"seat": "seat_lens", "hide-eyewire": "hide_eyewire", "check-seating": "check_lens_seating",
+       "print-uv": "print_uv", "attach-print": "attach_print", "detach-print": "detach_print",
+       "remove-print-uv": "remove_print_uv"}
+SEAT_OPS = ("seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire")
+PRINT_OPS = ("print_uv", "attach_print", "detach_print", "remove_print_uv")
 
 
 def _call(op: str, kwargs: dict) -> dict:
-    from glasses3d.g3d import seat_bpy
-    fn = getattr(seat_bpy, op, None)
-    if op not in ("seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire") or fn is None:
+    if op in SEAT_OPS:
+        from glasses3d.g3d import seat_bpy as mod
+    elif op in PRINT_OPS:
+        from glasses3d.g3d import print_bpy as mod
+    else:
+        return {"status": "refused", "code": "E_ARGS", "message": f"unknown op {op!r}"}
+    fn = getattr(mod, op, None)
+    if fn is None:
         return {"status": "refused", "code": "E_ARGS", "message": f"unknown op {op!r}"}
     try:
         return fn(**kwargs)
@@ -105,10 +124,19 @@ def _run_calls(cmd: str, spec, opt: dict) -> dict:
                 st = dict(st)
                 op = st.pop("op", None)
                 receipt["results"].append({"op": op, **_call(op, st)})
+                if op in PRINT_OPS and receipt["results"][-1].get("status") != "ok":
+                    break
         else:
             calls = spec if isinstance(spec, list) else [spec]
             for kw in calls:
                 receipt["results"].append({"op": OPS[cmd], **_call(OPS[cmd], dict(kw))})
+                if OPS[cmd] in PRINT_OPS and receipt["results"][-1].get("status") != "ok":
+                    break
+        bad = [r for r in receipt["results"] if r.get("op") in PRINT_OPS and r.get("status") != "ok"]
+        if bad:                                        # a print step that did not finish: nothing saved or exported
+            receipt["status"] = bad[0].get("status", "failed")
+            receipt["stopped_at"] = bad[0].get("op")
+            return receipt
         if "save-copy" in opt:
             receipt["saved_copy"] = _save_copy(opt["save-copy"])
         if "export" in opt:

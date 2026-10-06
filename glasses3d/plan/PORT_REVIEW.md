@@ -2272,3 +2272,297 @@ the front photo shows; (6) no doubled text: photo lettering is masked and filled
 **Left / risks:** STOP B decision (B4 with the owner waits); metal contamination near hinges (a metal colour model
 or a larger margin around non-lens metal is the likely fix; not done here); the streakiness of strip fills (A4 energy)
 and the A5 1-texel seam; the brows' dependence on photo 04; every threshold still from one product.
+
+### Build step 4, host side (2026-10-06): the four bake defects, diagnosed, fixed and re-measured
+
+Before = the 7ac7c8f bake (kept as `data/wp5/pre_step4_bake/`), after = `data/wp5/ft1119_bake/` (same layout, 2321 x
+1577 at 15.95 texels/mm, q001 sha af6e9d10, step 0 report unchanged). The before/after numbers below are computed from
+the WRITTEN outputs by `tests/photoprint/step4_sheets.py` (rules written there, not the tool's report) unless they name
+the instrument. Sheets in `data/wp5/step4_sheets/`: `closeups_zones.png` (each metal zone at the photo that shows it:
+photo | before | after, 3x), `closeups.png` (atlas crops: the middle of each temple strip, the -x brow top),
+`renders_{01,02,03,05,06}.png` (the parts at each photo camera: photo | before | after), `step4_measures.json`.
+
+**1. Metal contamination.** Diagnosis (photo 02, rear): the acetate test (luminance < 170 and max - min > 25, or < 90)
+passes the hinge's shaded gold ((139, 105, 80), (170, 134, 99), (128, 104, 78)); q001's hinge (`Temple_hinge` /
+`Front_hinge`, 4-5 mm) covers only the left end of the photo's barrel, whose plate lies about 5 mm further on the
+endpiece back, rendered as Brow print; those pixels painted and seeded the fill. The pad-arm rivets (near-black neutral
+discs, (8, 4, 4)-(34, 29, 28)) sit about 5 mm from q001's pad stalks and share the dark havana's colour (R - B 4-7 vs
+the dark phase's median 6-10). Fix: `photoprint/metal.py`, applied per view in `texels.view_samples` (step 0 keeps its
+own masks):
+- the photo's PIGMENT ARM in (luminance, B/R), fitted on its own print pixels > 8 mm from hardware: per 10-level bin the
+  mode of B/R, the spread from the side below the mode, a continuity prior against highlight-dominated bins (02's bins
+  >= 110 are the temple inner faces' sheen: 1,092 sheen vs 69 amber pixels); more than max(3 spreads, 0.06) above it
+  (cap B/R 0.85) = metal or highlight colour. Per photo, so 06's desaturated honey (B/R 0.55-0.62) stays print;
+- hardware margins: 2.5 mm around small metal parts at least 1 mm thick (hinges, pad stalks), 1.0 mm around the rest
+  (bridge, T-trim, screws; 2.5 mm there cost 10-15 % of photo 05's brow-front donors); the eyewire keeps 0.5 mm;
+- a 0.15 mm halo around pale and bright non-acetate pixels; islands <= 2 mm2 enclosed by the mask;
+- dark compact blobs on print (round, near-black, neutral, 0.4-5 mm2, >= 20 levels under the 1 mm closing, dilated
+  1.0 mm): on the six photos exactly 02's two rivets qualify (of 196-677 candidate components per photo); they are
+  reported to Astra with the foreign blobs (the model lacks them).
+Metal-coloured share (luminance >= 90 and B/R >= 0.5) of the texels within 6 mm of the small hardware, before -> after:
+endpiece backs -x 6.9 -> 1.5 %, +x 8.7 -> 7.5 % (a pale honey-coloured fill patch, visible in `closeups_zones.png`;
+not metal by eye, but my rule cannot tell); brow backs at the rivets 8.1 / 6.9 -> 0 / 0 % and the rivet discs gone;
+temple fronts at the hinges 3.4 / 12.7 -> 0.2 / 0.5 %.
+
+**2. Fill smears and A4.** Diagnosis: PyPatchMatch votes (averages overlapping patches), so its fills are smoother than
+real print (A4 fine-band log energy mostly negative, to -1.16 on Brow_Left), and on long thin holes its coherent offsets
+drag blotches along the strip (the wood grain). Fix: `fill.quilt_call`, seeded block quilting (Efros-Freeman, verbatim
+donor pixels, overlaps feathered), the production filler (`fill='quilt'`; `fill='patchmatch'` kept), radii 0.9 / 1.2 mm
+by the tool's knockout (0.3 / 0.5 mm made a mosaic of blotch fragments on the temples, looked at; all four parts chose
+0.9). **A4 does not pass and cannot for a measured reason:** the REAL-vs-real floor (each A4 hole refilled with the
+nearest same-shaped region of real texels of the same photo, graded by the instrument) is a fine-band median
+|log energy| of 0.31-0.47 per part over 40 holes (0.17-0.66 over the bake's 8): real print varies more than A4's 0.15
+over one hole width, so only a fill that predicts the hole's own content could pass. Same 8 holes per part (instrument,
+fine / coarse band, seam ratio): quilt BL 0.32 / 0.09 / 1.56, BR 0.41 / 0.08 / 1.93, TL 0.18 / 0.14 / 1.29, TR 0.24 /
+0.13 / 1.21; PatchMatch BL 0.50 / 0.16, BR 0.40 / 0.18, TL 0.21 / 0.06, TR 0.26 / 0.09; quilting is within the floor on
+3 of 4 parts (TR's 8-hole floor is 0.17), PatchMatch on 2. Quilting fails A4's seam ratio (1.21-1.93): verbatim blocks
+meet the hole's edge harder than PatchMatch's voting. From print.png, the fill's fine-band energy over the photo texels'
+is 0.66 / 0.47 / 0.63 / 0.93 -> 0.57 / 0.70 / 0.92 / 0.97 (BL, BR, TL, TR) and its anisotropy (|dL/dt| / |dL/ds|, t
+around the section) over the photo's is 0.79-0.87 -> 0.93-1.16. Fill now covers more of the atlas (PatchMatch class
+50.0 -> 58.4 %, photo 41.1 -> 35.0 %) because of fix 1's and fix 4's holes; AR-visible fill per part 46 / 45 / 40 / 58
+-> 54 / 55 / 49 / 64 %.
+
+**3. Colour steps.** Diagnosis: 02 and 03 were not connected to the reference (all their edges rejected by the [0.5, 2]
+clip; 03's only edge needed a blue gain about 2), so the -x temple's outer face (03) kept gain 1 and stage 2 pushed it
+and 11 other groups to the [0.67, 1.5] clip; stage-2 edges crossed parts across the hinge (ratios up to 5.0 from hinge
+metal); one 1,076-texel end-face edge outweighed 36,400 pairs in log space. Fix (`gains.py`): stage 1 clip [0.33, 3],
+same-part boundaries, MIRROR edges (the two sides of the symmetric product carry the same havana); stage 2 same-part
+edges, mirror equations (one view on both sides -> equal gains; two views -> equal medians), a robust second solve,
+clip [0.5, 2] (0 groups at the clip, was 12); stage 3 the smooth levelling field (1 mm nodes, `gain_field.npz`,
+applied by A3's read back, which passes). Same-surface overlap equations to the region's anchor are implemented but
+off: they import 05's sheen on the brow front's top band (05 sees it at 2.0 / 1.62 / 1.31 x 04's colours) and raised
+the weighted step 4.52 -> 6.13 dE00. Measured from print.png: weighted boundary step between photo groups 3.81 -> 2.54
+dE00 (median 3.08 -> 2.46); mean |dL*| between mirrored regions 2.09 -> 1.15. Cross-view check (the bake rendered at each
+photo camera on the part pixels painted by OTHER photos or filled, median Lab vs the photo, 22 rows): mean dE00 3.73 ->
+3.68, unchanged on average; the -x temple at 01 6.35 -> 2.34 (dL* +3.9 -> -0.8: the "warmer and lighter" defect), but the
+temples now render 2-5.6 L* DARKER than 01 / 04 / 05 / 06 show (before 0.4-4.6 lighter) and the -x temple inner at 02
+8.0 L* darker (was 4.4). **Not fixed: the brow front's top band painted from 04** still renders 8 L* darker than photo 05
+shows there (05: 6.43 -> 6.75 dE00, dL* -7.7 -> -8.1): its level is set by the boundary with the 05-painted front, while
+photo 05 itself is brighter on that band (sheen); matching 05 there means painting the band from 05 (label policy) or
+the overlap equations above, both measured or untried, not done.
+
+**4. Glints and the 1-texel seam (A5).** Glints: thin achromatic bright lines (and dark outlines within 1 mm of the
+silhouette) are holes (`metal.thin_lines`; they sat below luminance 90 over the dark phase, out of reach of the
+specular and pale rules); white-highlight texels (luminance >= 90, B/R >= 0.85) among photo texels 0.8 / 0.8 / 1.7 /
+1.0 % -> 0.3 / 0.4 / 0.3 / 0.3 %. A5: 94 % of the 1-texel samples over the p95 had fill on BOTH sides (independent
+fills per chart); `seams.reflect_seams` gives the losing side's fill the winner's texture reflected across the seam (6
+texels; same-chart cuts by texel row). Instrument: across p95 at 1 texel 12.65 -> 3.11 (within 5.74), at 2 texels
+14.93 -> 4.33 (within 16.5): **A5 passes**.
+
+**Tests:** `pytest -q tests/photoprint tests/instruments tests/test_export_blender.py`: 204 passed, 1 xfailed (the first run's one failure, the A4 tripwire at 8 texels/mm, was re-pinned: all four parts fail, one Brow_Right hole finds no room; rerun passes); `tests/test_print_blender.py` does not exist yet (Blender side). New tests: `tests/photoprint/test_step4_fixes.py` (14), bake tests for gains / metal reasons / A5.
+
+**Checks of this bake (instrument):** A1 pass (layout unchanged); A2 6 / 6; A3 read back pass (with the levelling field);
+A4 fails on all four parts (log energy and seam ratio; reason measured above); A5 pass; A7 pass (pool vs serial bake:
+identical sha256 of print / classes / source / tier / registration / report_stable); single-source audit from the
+outputs pass. B3: 1 of 7 eligible rows pass (before 2 of 10): with more fill, the held-out renders of 02, 04 and 06 no
+longer reach B3's 50 % projected share (no eligible row), the +x brow front at 01 still passes (spectrum 0.13,
+corr-length ratio 1.0), at 05 it now fails on spectrum (0.28 vs 0.25) and corr length (0.7); the temples at 01 got further from photo 01 in raw decile colour (6.2 / 6.9 -> 8.6 / 8.0 dE00). B2 diagnostic 0 of 11.
+STOP B still fires (A4, B3, and A6 / B5 not built: the Blender side is another workflow).
+
+**Engineering decisions (recorded here; PROGRESS.md is not edited by this workflow):** quilting replaces PyPatchMatch as
+the default filler, and A4 is reported beside its real-vs-real floor (the literal verdict is kept and fails); the
+donor holes trade photo coverage (atlas photo share 41.1 -> 35.0 %) for no metal, glints or rivets on print; the
+levelling field corrects up to log 2 (5 % of nodes beyond log 1.23).
+
+**Left / risks:** the brow-top band (above); temples now about 3 L* darker than the photos on cross-view pixels; quilting's
+hard hole edges (A4 seam ratio); the +x endpiece back's pale fill patch; B3 eligibility lost on three views; every
+threshold of `metal.py` was set on FT1119's six photos.
+
+### Build step 4, Blender side (2026-10-06): print_uv, attach / detach, the exporter allowlist, A6, B5, the q001 tool test
+
+New code (no port; WP5_DESIGN §4, §8 A6 / B5): `g3d/print_bpy.py` (`print_uv`, `attach_print`, `detach_print`,
+`remove_print_uv`), `g3d/printuv/glbmesh.py` (numpy + stdlib: a GLB's arrays as the host reads them, `geometry_sha`,
+`charts_sha`), `g3d_host/photoprint/manifest.py` (`print_manifest.json`, `check_glb`), the exporter's `g3d_print_uv`
+allowlist (`g3d/export_glb.py`), lazy `g3d.PRINT_TOOLS` (`g3d/__init__.py`, the seat exports unchanged), CLI commands
+`print-uv`, `attach-print`, `detach-print`, `remove-print-uv` and the print ops in `run` (`g3d/cli.py`; a print step
+that is not ok stops the run before any save or export). Instrument: `print_uv_invariance`, `a6_round_trip`,
+`b5_material_control`, `uv_identity` in `tests/instruments/print_metrics.py` (they read GLBs with `g3d_host.glb`, never
+with the tool's `glbmesh`). Tests: `tests/test_print_blender.py` (13), `tests/photoprint/test_print_manifest.py` (7), a
+manifest test in `test_print_bake.py`; fixtures `tests/blender/print_build.py`, `tests/blender/print_roundtrip.py`; the
+tool test `tests/photoprint/print_tooltest.py`.
+
+**Why print_uv lays out an in-process export (measured).** The layout core is a function of the triangle arrays it is
+given, vertex indices included: glTF splits vertices at uv / normal seams, and the strip fit (the vertex mean, the slice
+counts) and the component labels see those splits. The bake laid out q001.glb (the Studio export of the same
+scene.blend). Exporting the scene again with the WP3 exporter gives q001.glb's positions and triangles exactly (all 30
+primitives, same order, same indices), and the core on those arrays reproduces the bake's layout chart for chart
+(`charts_sha` f92dfec1...) and texel for texel (max |delta uv| 0.0 on all four parts, host numpy 2.5.3). So print_uv
+exports in-process (the exporter's own scene-invariance check included), reads the GLB with `glbmesh` and runs the core
+on it; the host and the tool cannot disagree.
+
+**Decision: split the polygons whose triangles fall in different charts (measured, then built).** The core lays out
+triangles; a Blender polygon stores ONE uv per corner, so a quad whose two triangles land in different charts cannot
+carry the layout. q001: 77 of 2306 brow quads and 22 of 2114 temple quads (strip / cap boundaries; 0 n-gons). Options:
+(a) split only those polygons into their render triangles (positions and exported triangles unchanged); (b) make the
+core keep polygons whole, which changes the layout and needs a re-bake reading TEXCOORD from the GLB; (c) give those
+triangles uvs in the other chart (texels never baked there: wrong print on 3 % of the faces). Taken: (a), because it
+reproduces the bake exactly. The new triangles take their polygon's place (BMesh `faces.sort`), so the exported
+triangle order and every corner position stay identical in order. Splitting a smooth non-planar quad (q001: up to 10.3
+deg non-planar, median 0.64) moves the auto vertex normals by up to 1.52 deg on ~800 triangles; every corner normal is
+therefore written back as a custom normal (Blender 5.2 stores INT16_2D lnor-space angles): max change 0.033 deg, 94-98 %
+of the corners unchanged. Cost: those meshes now carry custom normals (a later geometry edit keeps them; any
+geometry edit makes the print stale anyway, and `remove_print_uv` restores the pre-print mesh when the geometry is
+unchanged, else it says the split polygons and custom normals stay). (b) is the clean long-term route (open item).
+
+**Identities.** `geometry_sha`: per part (layout order), its triangles with each triangle rotated to start at its
+smallest corner (winding kept), sorted, float64 mm of the float32 metres (-0.0 folded); independent of vertex splitting,
+triangle order and start corner, so the print layer (which re-splits vertices) does not change it, and any vertex move or
+winding flip does (tested). `charts_sha`: atlas size + every chart's part, index, kind, face count and box. Both live in
+`g3d_print_uv` on each object, in the bake's `print_manifest.json` (written by every bake from now on; computed from
+the job's mesh; for the step-4 bake recomputed from its sha-checked q001.glb), and are re-checked by `attach_print`
+(including a fresh in-process export, so an edit after print_uv is caught) and by the host's `manifest.check_glb`.
+
+**attach_print.** Image (sRGB, Linear, Extend, packed) <- UV Map `g3d_print` -> Mix Multiply (Factor 1, B = gain) ->
+Base Color; Blender's exporter folds it into baseColorTexture { texCoord k } and baseColorFactor = gain (verified, not
+assumed). The previous Base Color link / value are kept in the material's `g3d_print_prev`. Deviation from the design's
+literal "a shared material is made single-user first" (decided here): a material shared ONLY by attached parts stays
+shared (both q001 brows use 'Front source havana'; a copy would rename one brow's material in the GLB for nothing); a
+material also used by an unprinted object gets a single-user copy `<name> | g3d print` for the attached parts
+(recorded in `g3d_print_material`; detach puts the original back). No other BSDF input or node is touched: the tree
+minus the three new nodes and the Base Color link is compared before / after (E_TOUCHED), and an export after the
+attach must differ from the one before only in baseColorTexture / baseColorFactor (E_POSTCHECK). `transmission_map=True`
+is refused (not built). Texture references are compared by image bytes and sampler (indices shift).
+
+**$0 proof on a COPY of q001 (TOOL TEST, `data/wp5/tooltest/`, not a delivered model):** the copy's export equals
+q001.glb triangle for triangle; `geometry_sha` e3d0f1a8... equal for q001.glb, print_uv and the manifest; print_uv
+reproduces the bake (`bake=` check: atlas 2321 x 1577, 98 charts, same `charts_sha`); print_uv in 4.3 s (export 0.5,
+layout 3.1, post-check export 0.45); attach 1.2 s.
+- print_uv invariance: corner positions and TEXCOORD_0 identical in order on all four parts, the print layer is
+  TEXCOORD_1 (last; SurfaceUV stays the active and render UV), normals max 0.033 deg (5.8 % / 5.5 % / 1.9 % / 2.0 % of
+  corners changed at all), every other node bit-identical.
+- **A6 passes:** TEXCOORD_1 on all four parts, baseColorTexture.texCoord 1, every other material key bit-identical to
+  the original export (no rename on q001), the GLB's image decodes to print.png's pixels exactly; validate_spec ok (two
+  existing degenerate-triangle warnings on the lenses).
+- **B5 passes:** every accessor of every primitive bit-identical before / after attach, node extras identical,
+  materials differ only in baseColorTexture (Astra's 512 px pigments -> print.png, CLAMP wrap) on the four parts; image
+  list: print.png added, Astra's three pigment images no longer sampled (kept in Blender as `g3d_print_prev`).
+- UV identity: the painted GLB's TEXCOORD_1 vs the bake's layout recomputed independently on q001.glb (the bake's job
+  mesh): max 7.0e-5 texel (float32 round trip). Renders through the GLB's own uvs vs the bake's layout at all six photo
+  cameras: same pixels, max 0.0052 levels (`tooltest_renders.png`).
+- detach_print gives printuv.glb back byte for byte; remove_print_uv gives original.glb back byte for byte; the painted
+  GLB is byte-identical across two runs (sha256 baa37891...); the Studio scene.blend and the copy are never written.
+- Refusals: lens E_LENS, Mirror E_MIRROR, shared mesh E_SHARED_MESH, Bevel (topology) E_TOPOLOGY, unknown part E_ARGS,
+  part order differing from the bake E_BAKE_MISMATCH, a second print_uv E_LAYER_EXISTS (replace=True gives the same
+  charts and geometry), a vertex moved after print_uv E_STALE "print stale; re-project", transmission_map E_ARGS; a dry
+  run leaves the scene snapshot unchanged.
+- Synthetic scene (8 tx/mm): the same checks, plus the single-user path (temples sharing their material with the
+  unprinted Bridge get 'Acetate temple | g3d print'; A6 / B5 accept that rename only when asked and list it) and the
+  no-UV path (the print layer is the temples' only layer, TEXCOORD_0, said in W_ONLY_UV).
+
+**Open items:** (1) the host still recomputes the layout instead of reading TEXCOORD_k from the latest export (§4 "bakes
+into that GLB's TEXCOORD"); with (b) above it must, and the polygon split goes away. (2) `validate_spec` does not yet read
+`g3d_print_uv` ("print stale" there is spec.py's workflow; `manifest.check_glb` does it on the host meanwhile). (3) the
+core refuses mirrored parts whose re-triangulated quads span two charts (`mirror.quad_uv`); print_uv reports it as
+E_LAYOUT (seen on the WP3 export fixture's box brows, not on q001). (4) density 'auto' in Blender is 10 tx/mm (no photos
+there); a photo bake passes its own (`bake=`). STOP B still fires on A4 and B3 (host side, unchanged by this step).
+
+**Tests:** `pytest -q tests/photoprint tests/instruments tests/test_export_blender.py tests/test_print_blender.py`: 225 passed, 1 xfailed (20 min; `data/wp5/pytest_step4_blender.log`); after the last edits (object-name suffixes, fake users, a missing bake part) `tests/test_print_blender.py`, `test_print_manifest.py`, `test_printuv.py`, `test_no_import.py` again: 32 passed (`data/wp5/pytest_step4_blender_final.log`). `test_printuv`'s purity test now allows the standard library (glbmesh needs hashlib / json / re / struct / pathlib; still no bpy, scipy, open3d, cv2, PIL).
+
+### Fix round 1 of build step 4 (2026-10-06): fillers compared fairly, A5 beyond the reflection band, small holes, a cache defect
+
+Bake: `data/wp5/ft1119_bake/` (re-run, `--a7-serial`; the step-4 bake is kept as `data/wp5/pre_fr1_bake/`); sheets
+`data/wp5/fr1_sheets/` (`step4_sheets.py --before pre_fr1_bake --labels ...`); tool test `data/wp5/tooltest/`. Numbers
+are the instrument's (`bake.json`) unless they say otherwise. This section CORRECTS claims of the two step-4 sections
+above; where they disagree, this one holds.
+
+**1. Quilting is a visual choice that costs A4 (major; corrects "Fill smears and A4" above).** The step-4 comparison
+(`A4_other_filler`) ran PyPatchMatch at quilting's 0.9 mm. Now `project_photo_texture(compare_fill=...)` has the tool's
+own knockout choose each filler's radius on the same holes and seeds (PatchMatch from 0.3 / 0.5 / 0.9 mm: it chose
+0.3 / 0.5 / 0.3 / 0.5 mm for q001 Brow_Left / Brow_Right / Temple_Left / Temple_Right; quilting 0.9 everywhere), and
+`bake.json` `A4_fillers` grades both at their own radii on the A4 holes (seed 0) and pooled over 5 seeds x 8 holes:
+
+| part (q001 name, x side) | fine-band median \|log E\|, A4 holes: quilt / PM | pooled 40 holes: quilt / PM | seam ratio pooled: quilt / PM |
+|---|---|---|---|
+| Brow_Left (-x) | 0.32 / 0.19 | 0.35 / 0.21 | 1.39 / 1.06 |
+| Brow_Right (+x) | 0.41 / 0.42 | 0.34 / 0.20 | 1.51 / 1.50 |
+| Temple_Left (-x) | 0.18 / 0.16 | 0.33 / 0.17 | 1.32 / 0.98 |
+| Temple_Right (+x) | 0.24 / 0.18 | 0.23 / 0.21 | 1.46 / 1.34 |
+
+(A4 holes' seam ratio: quilt 1.56 / 1.93 / 1.29 / 1.21, PM 1.41 / 1.43 / 1.06 / 1.31.) PatchMatch at its own radius is
+closer to A4 on every part; on the -x temple it is near-passable (pooled 0.17 against the 0.15 limit, seam 0.98,
+colour passes); at 8 texels/mm it PASSES A4 on the +x temple where quilting fails (pinned in `test_print_bake.py`,
+`A4_FILLERS_KNOWN_AT_8`). Neither passes A4 at 16 texels/mm. **Regression against 7ac7c8f** (PatchMatch at its then
+radii, `bake.json` `A4_vs_7ac7c8f`): Temple_Left passed at 16 texels/mm then (0.146 / 0.103, seam 1.04) and fails now
+(quilt 0.182 / 0.140, seam 1.29); Brow_Right passed at 8 texels/mm then and fails now (`A4_AT_8_7AC7C8F`). The step-4
+explanation of quilting's seam failures ("verbatim blocks meet the hole edge harder than PatchMatch's voting") is
+withdrawn: measured per filler above, PatchMatch's seam ratios are lower on three parts and equal on Brow_Right.
+DECISION (engineering, recorded here; PROGRESS.md is not edited by this workflow): quilting STAYS the production
+filler, for the visual reason only (the owner saw PatchMatch's wood grain along the temple strips, PROGRESS
+2026-10-06; quilting does not streak), and it is recorded as COSTING A4 (`report.json` `fill.choice`, `fill.py`'s
+docstring, whose two contradictory step-4 figures are replaced by the table above). Not done: choosing the filler per
+part from this comparison would put PatchMatch back on the temples, where the streaks were seen. A per-component
+hybrid (PatchMatch for compact holes, quilting for long thin ones) is an open option; it would need A4 holes of the
+long thin kind too, or A4 would grade only the PatchMatch half.
+
+**2. The real-vs-real floor no longer excuses anything (major; corrects "A4 does not pass and cannot for a measured
+reason" above).** `printproof.neighbour_copy`'s region is now restricted to the hole's own chart and facing class,
+the same photo, and a projection magnification (photo px per texel, from the bake's per-texel photo coordinates)
+within x/: 1.25 of the hole's (medians of the chosen regions 0.94-1.04 of the hole's; 6 of the 31 A4 holes find no
+such region and have no floor). The restricted floor is still large
+and unstable: per-part medians over the A4 holes 0.65 / 0.66 / 0.38 / 0.17, per-hole floors 0.08-1.55 (pooled 40
+holes: 0.0-2.9). So restricting it did not make it smaller: real print does differ a lot between two nearby 2-8 mm
+patches, but the spread is too wide to bound anything. `a4_criteria` now reports it as a diagnostic with its spread
+(`role`: never changes or excuses the verdict) and the `log_energy_within_floor` alternative is gone. Plainly: A4 is
+near-passable on the temples with PatchMatch at its own radius; the earlier "no fill can pass A4" was wrong.
+
+**3. A5 graded beyond the reflection band (minor; corrects "A5 passes" above).** Inside `seams.reflect_seams`'s band
+(full to 1.5 texels, fading to 6) the losing side copies the winner at the same depth, so the 1-2 texel reading is
+constructed. The instrument's seam samples can now walk past their face (kept where they land on their face's chart,
+the chart image from printproof's own rasteriser) and the verdict reads offsets 7 and 8 texels (band + 1, + 2; the
+band comes from `report.json`). 16 texels/mm, across p95 / within p95 (max): 1 texel 3.15 / 5.14 (26.6), 2 texels
+4.16 / 12.89, 4 texels 9.50 / 12.11, 6 texels 16.14 / 14.37 (37.0), **7 texels 17.64 / 16.15 (39.8), 8 texels 17.93 /
+16.72 (40.6): A5 FAILS** (ratios 1.09 / 1.07). At 7-8 texels 63-69 % of the samples over the p95 have fill on both
+sides (the two charts' fills are independent beyond the band). At 8 texels/mm A5 passes beyond the band (7: 18.7 vs
+20.2). The step-4 report's "worst-case colour step 3.11" was the p95; the maximum at 1 texel is 33.7 (step 4) / 26.6
+(now). STOP B now lists A5 again.
+
+**4. Small enclosed holes (minor).** Hole components up to 2 mm2 whose 1-texel ring is at least half photo texels (the
+metal / glint holes inside photo areas) are filled by PatchMatch at 0.3 mm in 160-texel tiles from the part's photo
+texels (`fill.small_enclosed`; 261 components / 16,779 texels on the four parts, 80 tiles, every tile's outside
+unchanged). Cause found on the way: quilting's 29-texel donor windows cannot come from a small honey blotch riddled
+with holes, and its colour-family donors followed the ring of the whole hole group, which the large unseen areas
+dominate; so the holes got dark blocks. `fr1_sheets/closeups.png` (the -x brow's top band from photo 04): the dark
+staircase fragments inside the honey blotches are gone; a few dark notches remain on one blotch's edge (holes that
+touch the blotch boundary or exceed 2 mm2); the fills are a muted honey, darker than the honey they replace (those
+holes are the bright cores that `metal.py` cut as metal / highlight colour, a step-4 rule not revisited here).
+
+**5. The levelling field's clip is reported (minor).** `level_field` counts nodes and texels at its +-log 2 clip and
+texels beyond x1.5 / x1/1.5; `support_warnings` warns like the stage-2 saturation: 2,939 texels at the clip (0.39 % of
+the painted texels, 0.15 % of all), 42 nodes; 1.34 % of the painted texels get a field gain beyond x1.5 or x1/1.5.
+
+**6. Labels and wording (minor).** The tool test's painted GLB is `q001_painted_TOOLTEST.glb` and carries the label in
+`asset.extras.g3d_tool_test` (written on the host by rewriting the JSON chunk; every tool-test check reads that file;
+an unlabelled `q001_painted.glb` of an earlier run is deleted); `step4_sheets.py` takes sides from the regions' x sign
+(and `--labels` for its captions); the CLI docstring says only PRINT steps stop a run (seat steps keep the seat CLI's
+behaviour, unchanged).
+
+**7. `manifest.check_glb` checks what the GLB samples (minor).** The base-colour image must be the bake's print (bytes
+sha256 = `print_sha256`, else decoded pixels equal to print.png) and every triangle's TEXCOORD_k corners, matched by
+position, within 1e-3 texel of the layout recomputed from the bake's own sha-checked GLB (as print_uv computes it;
+1.3 s on q001). On the tool test: image `bytes`, uv max error 6.9e-5 / 7.0e-5 texel; another print on the same layout
+and half a texel added to one part's u are both refused (tests). A synthetic manifest without a GLB skips the uv
+comparison and says so in `notes`.
+
+**8. Defect found on the way (fixed): photo splines cached by `id()`.** The first fix-round bake died in its held-out
+stage ("Probabilities contain NaN" in k-means, preceded by "Mean of empty slice") and could not be reproduced in three
+replays. Cause: `texels._spline` cached each photo's spline under `id(view.image)` only; a pool worker runs several
+held-out bakes, each loading the photos anew, so a new photo array can sit at a freed array's address and be sampled
+through ANOTHER photo's spline (a silent wrong-colour bake when it does not crash). The cache now holds the image and
+checks identity; `gate._STRIPS` (keyed by `id(job.mesh)`) is fixed the same way; `project_photo_texture` raises a
+clear error on non-finite photo colours after the gains instead of a k-means NaN. Earlier held-out bakes (B3, step 3
+and step 4) may have been affected without failing; the re-run's B3 equals step 4's (7 eligible rows, 1 passes).
+
+**Checks of the re-run (instrument):** A1 pass; A2 6 / 6; A3 read back pass (100 % within 1 level, p99 0.75 dE00);
+A4 fails on all four parts (unchanged from step 4: the A4 holes are filled by the production filler, which is
+unchanged); A5 fails beyond the band (above); A7 pass (pool vs serial, sha256 equal); single-source audit pass; B3 1 of
+7 eligible rows; B2 diagnostic 0 of 11; tool test (A6, B5, uv identity, staleness check, label) pass. STOP B fires (A4,
+A5, B3; A6 / B5 are listed as "not built" by the host-side `stop_b`, although the tool test now builds and passes
+them: open item for the STOP B wiring). Atlas shares unchanged from step 4 (photo 34.8 %, fill class 58.6 %, mirror
+2.1 %, text fill 3.9 %; the small holes were fill before and are fill now); AR-visible fill per part 54 / 55 / 49.5 /
+64 %.
+
+**Tests:** `pytest -q tests/photoprint tests/instruments tests/test_export_blender.py tests/test_print_blender.py`: 236 passed, 1 xfailed (22 min; `data/wp5/pytest_fr1.log`). New: `test_step4_fixes.py` (small enclosed holes, the levelling clip, the spline cache), `test_print_metrics.py` (graded A5 offsets and chart-mode samples, the floor as a diagnostic), `test_print_manifest.py` (check_glb accepts the labelled tool-test GLB, refuses another print and edited uvs), `test_print_bake.py` (A5 beyond the band, `A5_KNOWN_AT_8` = pass; each filler at its own radius, `A4_FILLERS_KNOWN_AT_8`; the levelling clip; small holes), `test_print_blender.py` (image check and the synthetic uv note).
+
+**Left / risks:** A4 and A5 fail; the production filler is chosen against A4 for a visual reason the owner has not
+re-judged since quilting replaced PatchMatch; the floor is not a usable bound; the bright honey cores `metal.py` cuts
+(item 4); `stop_b` does not read the tool test's A6 / B5.

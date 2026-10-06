@@ -24,6 +24,10 @@
   ``seen_graze`` (fix round 2): the point is the first surface, faces the camera at cos > ``GRAZE_MIN_COS`` and projects
   inside the matte (eroded 1 px): a photo shows it, perhaps obliquely (mirror fill reports where it lands on such
   surfaces). The donor visibility is the same call's cos > ``DONOR_MIN_COS`` subset (identical first-surface test).
+- **Metal, highlights, outlines, rivets (build step 4)**: ``metal.donor_holes`` per view (the pigment-arm colour
+  model, hardware margins, thin lines, dark compact blobs, enclosed islands) are holes for that view (``metal=False``
+  turns them off); counted in ``reasons`` ('metal_or_highlight' and its parts) and the photo's arm is kept
+  (``ViewSamples.arm``); dark blobs are reported with the foreign blobs.
 - ``tiers``: per region, the anchor = the admitted view (edge gate per (view, part), D2) with the largest weight sum
   among views that see >= 5 % of the region's texels (§5.1); tier 1 = a registered set (>= 2 views, from step 0),
   tier 2 = the anchor alone (single-source mode: each region painted from its anchor photo only, never mixing
@@ -41,6 +45,7 @@ from scipy import ndimage
 from .. import glb as glbmod
 from .. import raster
 from .. import texture_utils as T
+from . import metal as MT
 from .inputs import ppm_local
 from .pose import points
 
@@ -145,6 +150,11 @@ class OcclusionScene:
         nf = len(job.mesh.F)
         self.is_print = np.zeros(nf + len(self.decals["F"]) + 1, bool)   # trailing False for face id -1
         self.is_print[:nf] = np.isin(job.mesh.part, list(print_part_ids))
+        self.is_hardware = MT.hardware_faces(job, print_part_ids, self.decals if len(self.decals["F"]) else None)
+        if len(self.is_hardware) != len(self.is_print):                   # no decal metadata: pad
+            hw = np.zeros(len(self.is_print), np.uint8)
+            hw[:min(len(hw), len(self.is_hardware))] = self.is_hardware[:len(hw)]
+            self.is_hardware = hw
         self._cache: dict = {}
 
     def scene(self, V: np.ndarray) -> raster.RasterScene:
@@ -177,20 +187,26 @@ class ViewSamples:
     reasons: dict = field(default_factory=dict)
     seen_graze: np.ndarray | None = None     # first surface, cos > GRAZE_MIN_COS, inside the matte (fix round 2)
     foreign: list = field(default_factory=list)   # foreign blobs (metal on print the model lacks), fix round 2
+    arm: dict = field(default_factory=dict)        # the photo's pigment arm (metal.pigment_arm), step 4 fix 1
 
 
 _SPLINES: dict = {}
 
 
 def _spline(view) -> list[np.ndarray]:
+    """The photo's cubic B-spline coefficients, cached per image object. Step 4 fix round 1: the cache holds the image
+    itself and checks identity; keyed by ``id()`` alone, a later job's photo (a pool worker runs several held-out
+    bakes) could get a freed photo's id and silently be sampled through THAT photo's spline (the fix-round bake's
+    held-out run died on NaN colours in a reused worker; it could equally have given wrong colours without failing)."""
     key = id(view.image)
-    sp = _SPLINES.get(key)
-    if sp is None:
-        if len(_SPLINES) > 8:
-            _SPLINES.clear()
-        img = np.asarray(view.image, np.float64)
-        sp = [ndimage.spline_filter(img[..., c], order=3, mode="nearest") for c in range(3)]
-        _SPLINES[key] = sp
+    hit = _SPLINES.get(key)
+    if hit is not None and hit[0] is view.image:
+        return hit[1]
+    if len(_SPLINES) > 8:
+        _SPLINES.clear()
+    img = np.asarray(view.image, np.float64)
+    sp = [ndimage.spline_filter(img[..., c], order=3, mode="nearest") for c in range(3)]
+    _SPLINES[key] = (view.image, sp)
     return sp
 
 
@@ -268,8 +284,10 @@ def foreign_blobs(image: np.ndarray, matte: np.ndarray, print_px: np.ndarray, pp
 
 def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, V: np.ndarray | None = None,
                  min_cos: float = DONOR_MIN_COS, margin_mm: float = OCCLUDER_MARGIN_MM,
-                 subset: np.ndarray | None = None) -> ViewSamples:
-    """The donor samples of one view at every texel (``subset``: only those rows; the others are not ok)."""
+                 subset: np.ndarray | None = None, metal: bool = True) -> ViewSamples:
+    """The donor samples of one view at every texel (``subset``: only those rows; the others are not ok).
+    ``metal`` (step 4 fix 1, default on): the metal / achromatic-highlight colour model and the hardware margin of
+    ``metal.donor_holes`` make holes for this view."""
     v = job.views[view]
     cam = cam or v.camera
     V = job.mesh.V if V is None else V
@@ -296,9 +314,11 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     fb = foreign_blobs(v.image, v.matte, (fid >= 0) & occ.is_print[fid], job.ppm(view, cam), part_px=part_px,
                        names=job.mesh.names)
     foreign = fb["mask"][vi, ui]
+    dh = MT.donor_holes(v.image, v.matte, fid, occ.is_print, occ.is_hardware, job.ppm(view, cam)) if metal else None
+    mt = dh["mask"][vi, ui] if dh is not None else np.zeros(len(idx), bool)
     seen = vis & inb
     graze = vis_g & inb & ndimage.binary_erosion(np.asarray(v.matte, bool), iterations=1)[vi, ui]
-    ok = seen & valid & ~clip & ~near & ~foreign
+    ok = seen & valid & ~clip & ~near & ~foreign & ~mt
     col = np.zeros((len(idx), 3))
     if ok.any():
         col[ok] = sample_bicubic(v, uv[ok])
@@ -322,8 +342,19 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
                "near_occluder": int((seen & valid & ~clip & near).sum()),
                "foreign_blob": int((seen & valid & ~clip & ~near & foreign).sum()),
                "seen_graze": int(graze.sum())}
+    if dh is not None:
+        rest = seen & valid & ~clip & ~near & ~foreign
+        reasons.update({"metal_or_highlight": int((rest & mt).sum()),
+                        "pale": int((rest & dh["pale"][vi, ui]).sum()),
+                        "hardware_margin": int((rest & dh["hardware"][vi, ui] & ~dh["pale"][vi, ui]).sum()),
+                        "edge_halo": int((rest & dh["halo"][vi, ui] & ~dh["hardware"][vi, ui]).sum()),
+                        "thin_line": int((rest & dh["lines"][vi, ui] & ~dh["halo"][vi, ui]).sum()),
+                        "dark_blob": int((rest & dh["dark_blob"][vi, ui]).sum()),
+                        "enclosed": int((rest & dh["enclosed"][vi, ui]).sum())})
     return ViewSamples(view=view, ok=out_ok, col=out_col, cos=out_cos, ppm=out_ppm, w=w, uv=out_uv, seen=out_seen,
-                       reasons=reasons, seen_graze=out_graze, foreign=fb["blobs"])
+                       reasons=reasons, seen_graze=out_graze,
+                       foreign=fb["blobs"] + (dh["dark_blobs"] if dh is not None else []),
+                       arm=dh["arm"] if dh is not None else {})
 
 
 # ----------------------------------------------------------------------------- anchors and tiers
