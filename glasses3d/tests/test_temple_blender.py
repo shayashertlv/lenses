@@ -88,9 +88,9 @@ def test_host_and_blender_cores_agree_and_storage_is_float32(main_run):
     tb = build_temple(spec)
     assert np.array_equal(np.array(ft["core_digest"]["V"]), tb.V)          # bit-identical core in Blender's numpy
     for t in st[8]["temples"]:
-        side = 1 if t["name"] == RIGHT else -1
-        W, polys, _ = tb.world(side)
         V = np.array(t["V"])
+        side = 1 if float(V[:, 0].mean()) > 0 else -1                  # side by the x sign, never the name
+        W, polys, _ = tb.world(side)
         assert V.shape == W.shape and np.abs(V - W).max() <= 1e-4
         assert t["polys"] == polys
         assert len(t["sharp"]) == len(tb.sharp)
@@ -103,7 +103,7 @@ def test_host_and_blender_cores_agree_and_storage_is_float32(main_run):
 def test_facet_corners_carry_the_face_normal(main_run):
     st, spec, _ = main_run
     tb = build_temple(spec)
-    t = next(t for t in st[8]["temples"] if t["name"] == RIGHT)
+    t = next(t for t in st[8]["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)     # the +X temple
     cn = np.array(t["corner_normals"])
     W, polys, _ = tb.world(1)
     li = 0
@@ -124,11 +124,19 @@ def test_decals_hinge_and_receipt(main_run):
     ft = st[7]
     for side in ("+x", "-x"):
         sr = ft["sides"][side]
-        assert len(sr["decals"]) >= 2
+        # by geometry (measure.is_surface_decal): the two open hallmarks and the closed ribbon and shield, which only
+        # its thickness along the surface normal (0.02-0.07 mm off the old face; box 0.52 mm) shows to be a decal
+        assert len(sr["decals"]) >= 3
         for d in sr["decals"]:
             assert d["misses"] == 0 and d["max_move_mm"] <= 1.0 and len(d["regions"]) == 1
         assert sr["hinge"]["temple_knuckles"] and sr["hinge"]["frame_knuckles"]
         assert all(k["penetration_mm"] <= 0.1 for k in sr["hinge"]["frame_knuckles"])
+        # §3 "hinge parts are never moved": the hinge parts (measure.hinge_part_kind) are excluded before decal
+        # planning, so none is ever a decal, and the hinge report grades exactly them
+        hp = {h["name"] for h in sr["hinge_parts"]}
+        assert hp and not hp & {d["name"] for d in sr["decals"]}
+        graded = {r["name"] for k in ("leaves", "temple_knuckles", "frame_knuckles") for r in sr["hinge"][k]}
+        assert graded == hp
     assert ft["budget"]["total_ms"] <= 1000.0                   # both temples in Blender <= 1 s
     tm = st[15]
     assert tm["status"] == "planned" and min(tm["seconds"]) <= 1.0
@@ -168,11 +176,11 @@ def test_roll_and_loft_helper(prada_copy):
                                 {"op": "loft_sections", "stations": stations, "name": "wp6 loft probe"},
                                 {"op": "check_round_corners", "object": "wp6 loft probe"}], "roll")
     r = st[0]
-    if r["status"] == "refused":
-        assert r["code"] == "E_ROLL" and r["scene_unchanged"]
-    else:
-        assert r["status"] == "ok", r
-        roll = r["sides"]["+x"]["roll"]
+    # the rolled fixture must roll (P0 records it ok on both sides); an E_ROLL refusal here is a regression, not a
+    # pass (E_ROLL itself is exercised by the P0 refusal list)
+    assert r["status"] == "ok", r
+    for side in ("+x", "-x"):
+        roll = r["sides"][side]["roll"]
         assert roll["ok"] and roll["euler"] == 2 and roll["facet_planarity_mm"] <= 1e-4
         assert roll["silhouette_overshoot_mm"] <= 0.01 and roll["outline_knot_miss_mm"] <= 0.01
     assert st[2]["status"] == "ok" and st[2]["closed"] and st[2]["euler"] == 2

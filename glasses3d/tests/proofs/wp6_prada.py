@@ -3,7 +3,20 @@ Prada scene with parameters Claude traced from the six real photos (01 side, 02 
 06 rear). Nothing here is a delivered model; every output is labelled TOOL TEST.
 
     glasses3d/.venv/Scripts/python -u -B -m glasses3d.tests.proofs.wp6_prada [--stages p0,p1,s1,p2,fit,p3,gates]
-        [--out-dir DIR] [--rounds N] [--quick]
+        [--out-dir DIR] [--rounds N] [--quick] [--resume] [--workers N] [--owner-waiver KEY=TEXT ...]
+
+STOP-I on S1 (§8, §9): an S1 recovery outside its tolerance that R2 or R3 reads (the frozen table
+wp6_prada_s1_dependencies.json, recorded by sha256 beside the rules; --resume refuses a changed table as it refuses
+changed rules) stops the proof, whether S1 ran now or is on record. Only the OWNER may waive one: --owner-waiver
+theta_deg="<the owner's words>" records it as "STOP-I waived by owner" and the proof goes on. Never pass a waiver the
+owner did not give. S1 runs the real fit's procedure (wp6_prada_stages.make_retrace, FIT_MAX_ROUNDS rounds), grades
+the outline on the fitted spec and theta on the (view, side) pairs the table says R2 / R3 read; a quantity S1 cannot
+test (r_B: not a free parameter) is recorded as "not fitted", never as a recovery pass. The record's
+`open_owner_decisions` lists the rule-set questions only the owner can decide (R1, R3's "delivered - 0.5").
+
+--workers (default os.cpu_count() - 2; 1 = serial): the camera blocks and the joint fits run on a
+relief_fit.FitPool of persistent workers, each opted out of EcoQoS. The pooled fit is the serial fit bit for bit
+(tests/test_temple_fit_parallel.py), so --resume may mix serial and pooled stages.
 
 Order (the stop rule, §9): P0 tool (STOP-T) -> P1 instruments + S1 identifiability (STOP-I) -> rear family (STOP-R)
 -> fit, S2 representability (STOP-S), S3 consistency (STOP-C) -> P3 build -> gates (STOP-P). The first stop that fires
@@ -51,6 +64,7 @@ PRADA_SCENE = REPO / "automation/data/blender_agent/studio/jobs/8c82d986e6c14d26
 RUN = Path(__file__).resolve().parent / "wp6_bpy_run.py"
 GUIDES = Path(__file__).resolve().parent / "wp6_prada_guides.json"
 RULES = G3D / "g3d_host" / "relief_rules.py"
+S1_DEPS = Path(__file__).resolve().parent / "wp6_prada_s1_dependencies.json"
 RIGHT = "Temple right | faceted sweep and ear bend"        # +X (Astra's "right" = the wearer's left)
 LEFT = "Temple left | faceted sweep and ear bend"
 
@@ -108,8 +122,11 @@ class Proof:
         self.args = args
         out.mkdir(parents=True, exist_ok=True)
         self.hb = Heartbeat()
+        self.pool = None
         self.rec = {"label": LABEL, "started_utc": utc(), "rules": {"path": str(RULES), "sha256": sha(RULES),
-                                                                     "version": RR.RULES_VERSION},
+                                                                     "version": RR.RULES_VERSION,
+                                                                     "s1_dependencies": {"path": str(S1_DEPS),
+                                                                                         "sha256": sha(S1_DEPS)}},
                     "source_scene": {"path": str(PRADA_SCENE), "sha256_before": sha(PRADA_SCENE)},
                     "ecoqos_opt_out": opt_out_ecoqos(), "stages": {}, "stop": None}
         prev = out / "proof.json"
@@ -117,6 +134,12 @@ class Proof:
             old = json.loads(prev.read_text(encoding="utf-8"))
             if old["rules"]["sha256"] != self.rec["rules"]["sha256"]:
                 raise SystemExit("--resume refused: relief_rules.py changed since the recorded run")
+            old_deps = (old["rules"].get("s1_dependencies") or {}).get("sha256")
+            if old_deps != self.rec["rules"]["s1_dependencies"]["sha256"]:
+                raise SystemExit("--resume refused: the frozen S1 dependency table (wp6_prada_s1_dependencies.json) "
+                                 f"changed since the recorded run (recorded {old_deps}, now "
+                                 f"{self.rec['rules']['s1_dependencies']['sha256']}); it decides STOP-I on a recorded "
+                                 "S1, so start a fresh run")
             self.rec["stages"] = old.get("stages", {})
             self.rec["resumed"] = {"previous_start": old.get("started_utc"), "previous_stop": old.get("stop"),
                                    "previous_result": old.get("result")}
@@ -137,7 +160,7 @@ class Proof:
             res = {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
         res = res or {}
         res["seconds"] = time.time() - t0
-        self.rec["stages"][name] = res
+        self.rec["stages"][name] = {k: v for k, v in res.items() if not str(k).startswith("_")}   # "_x": in memory only
         self.save()
         self.hb.log(f"== stage {name} done in {res['seconds']:.0f} s")
         return res
@@ -238,8 +261,8 @@ def stage_p0(pf: Proof, extra_specs: dict | None = None) -> dict:
             rr["rebuild_bit_identical"] = bool(np.array_equal(tb.V, tb2.V) and tb.polys == tb2.polys)
             worst = 0.0
             for t in dump["temples"]:
-                W = tb.world(1 if t["name"] == RIGHT else -1)[0]
                 V = np.array(t["V"])
+                W = tb.world(1 if float(V[:, 0].mean()) > 0 else -1)[0]          # side by the x sign, never names
                 if spec.get("roll_mm", 0.0) > 0:
                     continue                                       # the applied Bevel adds vertices (graded below)
                 worst = max(worst, float(np.abs(V - W).max()) if V.shape == W.shape else float("inf"))
@@ -376,16 +399,33 @@ def prada_guides() -> dict:
     return json.loads(GUIDES.read_text(encoding="utf-8"))["guides"]
 
 
-def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, contour_px: dict, quick: bool) -> dict:
+S1_PROCEDURE = ("s1-2 (2026-10-06, WP6 fix round 2): the fit runs stage_fit's procedure (make_retrace: the outline "
+                "re-traced before every camera block; relief_rules.FIT_MAX_ROUNDS rounds); the outline graded on the "
+                "fitted spec; theta graded on the (view, side) pairs the dependency table says R2 / R3 read; r_B "
+                "recorded as not fitted; the start parameters deep-copied (never shared with P2)")
+
+
+def _pair(p: str) -> tuple:
+    """"05+x" -> ("05", 1)."""
+    return p[:2], (1 if p[2] == "+" else -1)
+
+
+def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, contour_px: dict, quick: bool,
+             deps: dict) -> dict:
     """S1: the tool's own temple (truth_params) rendered through the fitted cameras (perturbed by each view's contour
-    error) as synthetic photos; traced and fitted back from start_params."""
+    error) as synthetic photos; traced and fitted back from start_params with the procedure the real fit runs
+    (stage_fit: the re-trace callback, FIT_MAX_ROUNDS rounds). Both parameter dicts are deep-copied: the caller's
+    (the proof's start, which P2 and the fit start from) are never touched."""
+    from glasses3d.tests.proofs.wp6_prada_stages import _spec_sha, make_retrace
+    start_params = copy.deepcopy(start_params)
+    truth_params = copy.deepcopy(truth_params)
     truth_spec = FX.prada_spec(**truth_params)
     truth = RV.Model.from_spec(job, truth_spec, "S1 truth")
     cams = {k: fits[k]["camera"] for k in RV.VIEW_ORDER}
     theta = {k: dict(fits[k]["theta"]) for k in RV.VIEW_ORDER}
     sj = RF.SyntheticJob.from_job(job, truth, theta, cams, contour_px)
     views = ("01", "02", "03", "04", "05")          # the relief observables (R2 / R3) live in 05 / 01 / 02
-    fam = RF.prada_family(start_params)
+    fam = RF.prada_family(copy.deepcopy(start_params))
     # guides: the true creases in the synthetic photos, 2 px off (what an operator would click)
     tfits = {k: {"camera": sj.true_cams[k], "theta": theta[k]} for k in views}
     guides = {}
@@ -397,42 +437,104 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
             d = np.linalg.svd(q - c)[2][0]
             t = (q - c) @ d
             guides[key][cname] = (np.array([c + d * t.min(), c + d * t.max()]) + [[1.5, -2.0], [-1.0, 2.0]]).tolist()
-    # cameras: refit from the perturbed base, then trace the outline and the creases, then fit
-    fits1 = {k: RV.fit_model_view(sj, RV.Model.from_spec(sj, fam.spec(fam.x0()), "S1 start"), k) for k in views}
+    # P2's analogue: cameras refit from the perturbed base for the start model, the outline and the creases traced
+    # at them; then stage_fit's fit (the same re-trace callback, FIT_MAX_ROUNDS rounds; 2 with --quick, as stage_fit)
+    fits1 = RF.refit_views(sj, RV.Model.from_spec(sj, fam.spec(fam.x0()), "S1 start"), {}, views, rear=False,
+                           pool=pf.pool)
     pf.hb.log("S1: cameras refit on the synthetic photos")
     ol = RT.trace_outline(sj, fam.spec(fam.x0()), lambda t, b: FX.prada_spec(**{**fam.kwargs(fam.x0()), "top": t,
                                                                                  "bottom": b}), fits1, log=pf.hb.log)
-    fam.base["top"], fam.base["bottom"] = ol["top"], ol["bottom"]
+    fam.base["top"], fam.base["bottom"] = ol["top"], ol["bottom"]          # fam.base is S1's own deep copy
     m1 = RV.Model.from_spec(sj, fam.spec(fam.x0()), "S1 traced")
     cr = RT.trace_creases(sj, guides, m1, fits1)
     glines = {k: {cn: (ln["p0"], ln["p1"]) for cn, ln in cr["views"][k]["lines"].items() if ln} for k in guides}
-    res = RF.fit_temple(sj, fam, views=views, guides_lines=glines, rounds=2, rear=False,
-                        fits0=fits1, refit_cameras=True, log=pf.hb.log, budget_s=40 * 60)
+    rounds = 2 if quick else RR.FIT_MAX_ROUNDS
+    res = RF.fit_temple(sj, fam, views=views, guides_lines=glines, rounds=rounds, rear=False,
+                        retrace=make_retrace(sj, pf.hb.log), log=pf.hb.log, budget_s=90 * 60, pool=pf.pool)
     (pf.out / "s1_fit.pkl").write_bytes(pickle.dumps({k: v for k, v in res.items() if k not in ("context", "family")}))
     x = res["x"]
     ps_t = build_temple(truth_spec).spec
     ps_f = build_temple(res["spec"]).spec
     lvl = lambda ps: float(ps.x_base(46.8))
-    top_err = np.abs(np.array([y for _, y in ol["top"]]) - np.array([y for _, y in truth_params["top"]]))
-    bot_err = np.abs(np.array([y for _, y in ol["bottom"]]) - np.array([y for _, y in truth_params["bottom"]]))
-    # theta is graded where the photo observes it (fit_theta's flat-objective test); elsewhere it is UNOBSERVED
+
+    def outline_err(top, bottom):
+        out = []
+        for got, want in ((top, truth_params["top"]), (bottom, truth_params["bottom"])):
+            g, w = np.asarray(got, float), np.asarray(want, float)
+            if g.shape != w.shape or not np.allclose(g[:, 0], w[:, 0]):
+                raise ValueError("S1: the traced outline's d knots differ from the truth's")
+            out.append(float(np.mean(np.abs(g[:, 1] - w[:, 1]))))
+        return max(out), out
+    # the outline the fit DELIVERS (the fitted spec's: re-traced each round), as the real fit's is graded at G3
+    outline_mm, (out_top, out_bot) = outline_err(res["spec"]["outline"]["top"], res["spec"]["outline"]["bottom"])
+    pre_mm, _ = outline_err(ol["top"], ol["bottom"])
+    # theta is graded on the (view, side) pairs R2 / R3 read (the frozen table's theta_pairs), whether or not that
+    # photo observes theta (R2 / R3 read the fitted value either way); every observed pair is recorded beside it
+    pairs = sorted({q for v in (deps.get("theta_pairs") or {}).values() for q in v})
+    if not pairs:
+        raise ValueError(f"{S1_DEPS.name} lists no theta_pairs: S1 cannot grade theta on what R2 / R3 read")
     obs = [(k, s) for k in views for s in (1, -1) if k in res["fits"]
            and (res["fits"][k].get("theta_fit") or {}).get(str(s), {}).get("observed", False)]
-    th_err = max((abs(res["fits"][k]["theta"][s] - theta[k][s]) for k, s in obs), default=float("nan"))
-    rec = {"outline_mm": float(max(top_err.mean(), bot_err.mean())),
-           "zone_level_mm": abs(lvl(ps_f) - lvl(ps_t)), "r_B_mm": abs(x.get("r_B", 0.0) - truth_params.get("r_B", 0.0)),
+    tag = lambda k, s: f"{k}{'+' if s > 0 else '-'}x"
+    th_err_by = {tag(k, s): abs(res["fits"][k]["theta"][s] - theta[k][s]) for k, s in obs}
+    th_cited = {}
+    for q in pairs:
+        k, s = _pair(q)
+        th_cited[q] = (abs(res["fits"][k]["theta"][s] - theta[k][s]) if k in res["fits"] else float("nan"))
+    rec = {"outline_mm": outline_mm, "zone_level_mm": abs(lvl(ps_f) - lvl(ps_t)),
            "r_C_mm": abs(x["r_C"] - truth_params["r_C"]), "f1_rise": abs(x["rise"] - truth_params["rise"]),
-           "theta_deg": float(th_err)}
-    theta_views = [f"{k}{'+' if s > 0 else '-'}x" for k, s in obs]
+           "theta_deg": (float(max(th_cited.values())) if all(np.isfinite(v) for v in th_cited.values())
+                         else float("nan"))}
+    not_fitted = {}
+    if "r_B" in x:
+        rec["r_B_mm"] = abs(x["r_B"] - truth_params.get("r_B", 0.0))
+    else:
+        not_fitted["r_B_mm"] = (f"not fitted (fixed at {truth_params.get('r_B', 0.0):g}): r_B is not a free parameter "
+                                "of relief_fit.PRADA_FREE and the S1 truth keeps the start's r_B, so S1 cannot test "
+                                "its recovery (R2 / R3 read r_B: the family's B-on-the-base assumption)")
     verdict = {k: bool(np.isfinite(rec[k]) and rec[k] <= RR.S1_RECOVERY[k]) for k in rec}
-    unobserved = [k for k, ok in verdict.items() if not ok]
-    stop_i = [k for k in unobserved if k in ("zone_level_mm", "r_B_mm", "r_C_mm", "f1_rise")]
+    # evidence for an owner's STOP-I decision on theta (cases a-d: the R3 transfer of the TRUE temple)
+    from glasses3d.tests.proofs.wp6_s1_theta_check import transfer_cases
+    theta_cases = transfer_cases(sj, truth, {k: res["fits"][k] for k in ("05", "02")}, theta)
     return {"truth": {k: truth_params.get(k, 0.0) for k in x}, "start": {k: start_params.get(k, 0.0) for k in x},
-            "fitted": x, "recovery": rec,
-            "theta_observed_in": theta_views,
-            "tolerance": RR.S1_RECOVERY, "verdict": verdict, "unobserved": unobserved, "stop_i": stop_i,
+            "truth_params": truth_params, "truth_spec_sha256": _spec_sha(truth_spec),
+            "fitted": x, "recovery": rec, "not_fitted": not_fitted,
+            "outline_by_edge_mm": {"top": out_top, "bottom": out_bot},
+            "outline_mm_pre_fit_trace": pre_mm,
+            "theta_graded_on": pairs, "theta_error_cited_pairs_deg": th_cited,
+            "theta_cited_pair_observed": {q: q in th_err_by for q in pairs},
+            "theta_observed_in": [tag(k, s) for k, s in obs], "theta_error_by_view_deg": th_err_by,
+            "theta_deg_max_all_observed_views": max(th_err_by.values(), default=None),
+            "theta_cases": theta_cases,
+            "tolerance": RR.S1_RECOVERY, "verdict": verdict, "failed": [k for k, ok in verdict.items() if not ok],
             "corners": cr["corners"], "outline_flagged": ol["flagged"], "fit_seconds": res["seconds"],
-            "sigma": res["sigma"]}
+            "fit_rounds": rounds, "fit_rounds_run": res.get("rounds_run"),
+            "fit_retraces": [h.get("outline_retraced_before_block") for h in res.get("history", [])]
+            + [res.get("final_outline_retraced")],
+            "sigma": res["sigma"], "sigma_status": res.get("sigma_status"), "sigma_flags": res.get("sigma_flags"),
+            "fit_unobserved": res.get("unobserved"),
+            "fit_termination": res.get("termination"), "fit_version": res.get("fit_version"),
+            "s1_procedure": S1_PROCEDURE,
+            "synthetic_render": RF.SYNTH_RENDER, "synthetic_light": list(RF.SYNTH_LIGHT)}
+
+
+def s1_stop_i(recovery: dict, tolerance: dict, deps: dict, waivers: dict, not_fitted: dict | None = None) -> dict:
+    """§8 S1 / §9 STOP-I from the frozen dependency table: every S1 recovery outside its tolerance that R2 or R3 reads
+    (deps["depends"][key] non-empty) is STOP-I unless the owner waived it (waivers {key: the owner's words}); one that
+    nothing in R2 / R3 reads is only recorded. A tolerance key S1 could not test (`not_fitted` {key: why}: r_B, not a
+    free parameter) is listed with who reads it, never graded as a pass. Never UNOBSERVED (that list is Astra's:
+    fitted parameters with a default)."""
+    dep = deps.get("depends", {})
+    not_fitted = dict(not_fitted or {})
+    verdict = {k: bool(v is not None and np.isfinite(v) and v <= tolerance[k]) for k, v in recovery.items()}
+    failed = [k for k, ok in verdict.items() if not ok]
+    reads = {k: sorted(dep.get(k, {})) for k in failed}
+    return {"verdict": verdict, "failed": failed, "read_by": reads,
+            "stop_i": [k for k in failed if reads[k] and k not in waivers],
+            "waived_by_owner": {k: waivers[k] for k in failed if reads[k] and k in waivers},
+            "failed_not_read_by_r2_r3": [k for k in failed if not reads[k]],
+            "not_fitted": {k: {"why": why, "read_by": sorted(dep.get(k, {}))} for k, why in not_fitted.items()},
+            "not_graded": sorted(k for k in tolerance if k not in recovery and k not in not_fitted)}
 
 
 # --------------------------------------------------------------------------------------------- the run
@@ -442,16 +544,45 @@ def main(argv=None) -> int:
     ap.add_argument("--out-dir", default=str(OUT))
     ap.add_argument("--quick", action="store_true", help="fewer rounds in the fit (development)")
     ap.add_argument("--resume", action="store_true", help="keep the recorded stages of --out-dir (same rules sha256)")
+    ap.add_argument("--workers", type=int, default=RF.pool_workers(),
+                    help="process-pool workers for the camera blocks and the fits (1 = serial)")
+    ap.add_argument("--owner-waiver", action="append", default=[], metavar="KEY=TEXT",
+                    help="the OWNER's waiver of an S1 STOP-I (KEY = an S1 recovery key, TEXT = the owner's words); "
+                         "never pass one the owner did not give")
     a = ap.parse_args(argv)
     stages = set(a.stages.split(","))
+    a.waivers = parse_waivers(a.owner_waiver)
     pf = Proof(Path(a.out_dir), a)
+    if a.waivers:
+        pf.rec["owner_waivers"] = {k: {"text": v, "recorded_utc": utc()} for k, v in a.waivers.items()}
     pf.hb.log(f"{LABEL}; rules sha256 {pf.rec['rules']['sha256'][:16]}... recorded before any run")
+    try:
+        return _run(pf, a, stages)
+    finally:
+        if pf.pool is not None:
+            pf.pool.close()
+
+
+def _run(pf: Proof, a, stages) -> int:
     if "p0" in stages:
         r = pf.stage("P0", lambda: stage_p0(pf))
         if not r.get("pass"):
             return finish(pf, pf.stop("STOP-T", "a P0 tool check failed", r.get("failures") or r.get("error")))
     job = RV.Job("prada")
     pf.rec["cameras"] = {"path": str(job.cameras_path), "sha256": sha(job.cameras_path)}
+    # a recorded S1 graded on synthetic photos rendered differently (relief_fit.SYNTH_RENDER) or fitted by a different
+    # fit procedure (relief_fit.FIT_VERSION) is stale: re-run it
+    old_s1 = pf.rec["stages"].get("S1")
+    s1_stale = old_s1 is not None and (old_s1.get("synthetic_render") != RF.SYNTH_RENDER
+                                       or old_s1.get("fit_version") != RF.FIT_VERSION
+                                       or old_s1.get("s1_procedure") != S1_PROCEDURE)
+    if a.workers > 1 and (stages & {"s1", "fit"} or s1_stale or not (pf.out / "fits_delivered.pkl").exists()):
+        pf.pool = RF.FitPool(a.workers, log=pf.hb.log)
+        up = pf.pool.warm(job)
+        pf.rec["pool"] = {"workers": a.workers, "started": len(up),
+                          "ecoqos_opt_out": sum(bool(u["ecoqos_opt_out"]) for u in up)}
+        pf.hb.log(f"process pool: {len(up)} of {a.workers} workers up, "
+                  f"{pf.rec['pool']['ecoqos_opt_out']} opted out of EcoQoS")
     if "p1" in stages:
         r = pf.stage("P1", lambda: stage_p1(pf, job))
         if not r.get("pass"):
@@ -461,19 +592,12 @@ def main(argv=None) -> int:
         fits_d = pickle.loads(fits_path.read_bytes())
     else:
         def fit_delivered():
-            fd = {}
+            # per view fit_model_view from the base camera, and the rear family from the base and turntable seeds:
+            # refit_views does exactly that (in the pool when there is one)
+            fd = RF.refit_views(job, RV.Model.delivered(job), {}, RV.VIEW_ORDER, rear=True, pool=pf.pool)
             for k in RV.VIEW_ORDER:
-                if k == "06":
-                    continue
-                fd[k] = RV.fit_model_view(job, RV.Model.delivered(job), k)
-                pf.hb.log(f"  delivered view {k}: theta {fd[k]['theta']}, refit kept {fd[k]['refit']['kept']}")
-            seeds = [job.base["06"], RV.turntable_seed(job, job.base["04"])]
-            fam = RV.rear_family(job, RV.Model.delivered(job), seeds)
-            best = min(fam["rows"], key=lambda r_: r_["loss"])
-            cam = Camera.from_dict(best["camera"])
-            th = RV.fit_theta(job, RV.Model.delivered(job), "06", cam, {1: best["alpha"], -1: best["alpha"]})
-            fd["06"] = {"camera": cam, "theta": {s: th[s]["theta"] for s in (1, -1)}, "family": fam,
-                        "alpha": best["alpha"]}
+                if k != "06":
+                    pf.hb.log(f"  delivered view {k}: theta {fd[k]['theta']}, refit kept {fd[k]['refit']['kept']}")
             return fd
         pf.hb.stage = "delivered cameras"
         fits_d = fit_delivered()
@@ -492,22 +616,68 @@ def main(argv=None) -> int:
                                       "cannot tell the delivered slab from relief)", r))
     gp = json.loads(GUIDES.read_text(encoding="utf-8"))
     start = start_params(job, gp)
-    pf.rec["start_params"] = start
-    if "s1" in stages:
-        truth = dict(start, r_A=start["r_A"] + 0.4, r_C=start["r_C"] + 1.0, rise=start["rise"] - 0.1,
+    start_json = json.dumps(start, sort_keys=True, default=_json)
+    pf.rec["start_params"] = copy.deepcopy(start)            # a copy: nothing that mutates `start` can reach the record
+    deps = json.loads(S1_DEPS.read_text(encoding="utf-8"))
+    if s1_stale and "s1" not in stages:
+        pf.hb.log(f"S1 on record is stale (photos {old_s1.get('synthetic_render')!r}, fit "
+                  f"{old_s1.get('fit_version')!r}, procedure {old_s1.get('s1_procedure')!r}; now {RF.SYNTH_RENDER!r}, "
+                  f"{RF.FIT_VERSION!r}, {S1_PROCEDURE!r}): re-running S1")
+        pf.rec["s1_rerun_reason"] = "recorded S1 used a different synthetic photo model, fit or S1 procedure"
+    if "s1" in stages or s1_stale:
+        truth = dict(copy.deepcopy(start), r_A=start["r_A"] + 0.4, r_C=start["r_C"] + 1.0, rise=start["rise"] - 0.1,
                      x_in0=start["x_in0"] - 0.7, x_in_ze=start["x_in_ze"] - 0.7)
-        tab = json.loads((G3D / "data" / "wp6" / "wp3b_glossy" / "table.json").read_text(encoding="utf-8"))["table"]
         cams_json = json.loads(job.cameras_path.read_text(encoding="utf-8"))["images"]
         contour_px = {k: cams_json[job.views[k][0]]["contour_mean_px"] for k in RV.VIEW_ORDER}
-        r = pf.stage("S1", lambda: stage_s1(pf, job, fits_d, start, truth, contour_px, a.quick))
+        r = pf.stage("S1", lambda: stage_s1(pf, job, fits_d, start, truth, contour_px, a.quick, deps))
         if r.get("error"):
             return finish(pf, pf.stop("STOP-T", "S1 crashed (a code fault, not an S1 verdict)", r["error"]))
-        if r.get("stop_i"):
-            return finish(pf, pf.stop("STOP-I", "S1 cannot recover a parameter that R2 / R3 depend on",
-                                      {"parameters": r["stop_i"], "recovery": r["recovery"],
-                                       "tolerance": r["tolerance"]}))
+    if json.dumps(start, sort_keys=True, default=_json) != start_json:
+        return finish(pf, pf.stop("STOP-T", "the start parameters changed during S1 (a code fault: P2 and the fit "
+                                  "must start from the guides' start)", None))
+    s1 = pf.rec["stages"].get("S1")
+    if (s1 is None or s1.get("error")) and stages & {"fit", "p3", "gates"}:
+        return finish(pf, pf.stop("STOP-T", "S1 (the STOP-I input, §9 order) has no result on record: run it before "
+                                  "the fit (add s1 to --stages)", (s1 or {}).get("error")))
+    if s1 is not None and not s1.get("error"):
+        # STOP-I from the frozen dependency table, for an S1 run now or on record (a resumed run re-grades it)
+        si = s1_stop_i(s1["recovery"], RR.S1_RECOVERY, deps, getattr(a, "waivers", {}) or {},
+                       not_fitted=s1.get("not_fitted"))
+        pf.rec["s1_stop_i"] = si
+        pf.rec["s1_failures"] = {k: {"recovery": s1["recovery"][k], "tolerance": RR.S1_RECOVERY[k],
+                                     "read_by": si["read_by"][k],
+                                     "status": ("STOP-I waived by owner" if k in si["waived_by_owner"] else
+                                                "STOP-I" if k in si["stop_i"] else "recorded (not read by R2 / R3)")}
+                                 for k in si["failed"]}
+        pf.rec["s1_not_fitted"] = si["not_fitted"]
+        pf.save()
+        if si["stop_i"]:
+            return finish(pf, pf.stop(
+                "STOP-I", "S1 cannot recover a quantity that R2 / R3 read (frozen table "
+                f"{S1_DEPS.name}); OPEN OWNER DECISION: waive with --owner-waiver KEY=TEXT or keep the stop",
+                {"parameters": si["stop_i"], "recovery": s1["recovery"], "tolerance": s1["tolerance"],
+                 "read_by": {k: deps["depends"][k] for k in si["stop_i"]},
+                 "theta_graded_on": s1.get("theta_graded_on"),
+                 "theta_error_cited_pairs_deg": s1.get("theta_error_cited_pairs_deg"),
+                 "theta_error_by_view_deg": s1.get("theta_error_by_view_deg"),
+                 "theta_cases_R3_transfer_of_the_true_temple": s1.get("theta_cases"),
+                 "outline_by_edge_mm": s1.get("outline_by_edge_mm"),
+                 "not_fitted": si["not_fitted"],
+                 "waived_by_owner": si["waived_by_owner"]}))
     from glasses3d.tests.proofs.wp6_prada_stages import run_rest
     return finish(pf, run_rest(pf, job, fits_d, start, gp, stages, a))
+
+
+def parse_waivers(items) -> dict:
+    """["key=text", ...] -> {key: text}; a key must be an S1 recovery key (relief_rules.S1_RECOVERY)."""
+    out = {}
+    for it in items or []:
+        k, sep, txt = str(it).partition("=")
+        k = k.strip()
+        if not sep or k not in RR.S1_RECOVERY or not txt.strip():
+            raise SystemExit(f"--owner-waiver {it!r}: expected KEY=TEXT with KEY in {sorted(RR.S1_RECOVERY)}")
+        out[k] = txt.strip()
+    return out
 
 
 def start_params(job, gp) -> dict:
@@ -522,6 +692,8 @@ def start_params(job, gp) -> dict:
 
 
 def finish(pf: Proof, code) -> int:
+    from glasses3d.tests.proofs.wp6_prada_stages import open_owner_decisions
+    pf.rec["open_owner_decisions"] = open_owner_decisions(pf.rec)
     pf.rec["result"] = code
     pf.rec["finished_utc"] = utc()
     pf.rec["source_scene"]["sha256_after"] = sha(PRADA_SCENE)

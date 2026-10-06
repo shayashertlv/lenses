@@ -1,0 +1,40 @@
+{
+ "schema": "wp6-s1-dependencies/2",
+ "written": "2026-10-06, WP6 fix round 1, AFTER S1 results: it lists only which R2 / R3 computations READ each S1 quantity (a fact of the code), never how much an error matters. The S1 runs it was written after gave theta 3.43 deg (the S1 before the lambert-1 photos) and 4.12 deg (the lambert-1 S1 on record at the end of fix round 1), each the maximum over every observed (view, side), and outline 0.206 mm vs 0.2. Fix round 2 (2026-10-06) added theta_pairs: the (view, side) pairs whose fitted theta R2 / R3 read, on which S1 now grades theta (in the lambert-1 S1: 05+x 2.96, 01-x 2.51, 02+x 1.22 deg). Whether a failure that R2 / R3 read may be waived is the owner's decision, not the implementer's.",
+ "rule": "WP6_DESIGN section 8 S1 and section 9 STOP-I: an S1 recovery outside its tolerance (relief_rules.S1_RECOVERY) that R2 or R3 reads is STOP-I, unless the owner waives it (tests/proofs/wp6_prada.py --owner-waiver KEY=TEXT, recorded in proof.json as 'STOP-I waived by owner'). A failure nothing in R2 / R3 reads is recorded as an S1 failure. A quantity S1 cannot test (not a free parameter of the fit) is recorded as 'not fitted' with who reads it. UNOBSERVED (keep the default, section 12) applies only to a fitted parameter with a default; it is never used for S1 failures. tests/proofs/wp6_prada.py --resume refuses a run whose recorded table sha256 differs from this file's.",
+ "theta_pairs": {
+  "R2": ["05+x", "01-x"],
+  "R3": ["05+x", "02+x"]
+ },
+ "theta_pairs_why": {
+  "R2": "wp6_prada_stages.stage_gates renders 05 with near = +1 (+X temple) and 01 with near = -1 (-X temple) at their fitted theta; relief_check.photo_crease_segments lifts each segment with theta[near]",
+  "R3": "relief_fit.transfer_all calls relief_check.crease_transfer with near = 1: the 05 line is lifted at theta05[+1] and projected at theta02[+1]"
+ },
+ "depends": {
+  "outline_mm": {
+   "R2": ["relief_check.temple_registration_mm: a side view is graded only when the model's top / bottom silhouette sits within VIEW_MAX_REG_MM of the photo over the facet zone",
+          "relief_check.photo_crease_segments: photo segments are searched inside the rendered near-temple outer face (eroded MASK_SILHOUETTE_PX)"],
+   "R3": ["relief_check.crease_transfer: the 05 crease line is lifted onto the model surface; points off the model's outline miss (>= 5 hits needed)"]
+  },
+  "zone_level_mm": {
+   "R2": ["relief_check.photo_crease_segments: dn and the nearest model crease are read where the model surface (its level) renders"],
+   "R3": ["relief_check.crease_transfer: the lift lands on the model surface at its level"]
+  },
+  "r_B_mm": {
+   "R2": ["dn across the creases through B (F1 / F2 / F4 planes)"],
+   "R3": ["the lifted crease points lie on the planes through B"]
+  },
+  "r_C_mm": {
+   "R2": ["dn across the creases through C (F2 / F3 / F4 planes)"],
+   "R3": ["the lifted crease points lie on the planes through C"]
+  },
+  "f1_rise": {
+   "R2": ["dn across A-B (F1's tilt) and R2's confirmed-crease dn >= R2_CONFIRMED_DN_DEG"],
+   "R3": ["the A-B crease points lie on F1"]
+  },
+  "theta_deg": {
+   "R2": ["relief_check.photo_crease_segments renders the model at the fitted theta and lifts each segment into the chart with it (confirmation 05 vs 01 compares those lifts)"],
+   "R3": ["relief_fit.transfer_all / relief_check.crease_transfer: the 05 line is lifted at 05's fitted theta and projected at 02's fitted theta"]
+  }
+ }
+}

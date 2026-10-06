@@ -17,6 +17,11 @@ X = |x| outward (the tool's own local frame; a GLB temple is mapped by `chart_fr
 - `inner_flatness`     largest distance of the zone's inner face from one plane
 - `stations`           width, height, x_in, x_out, outer tilt, inner flatness, bulge every 2.5 mm
 - `measure_temple`     all of the above plus the SLAB / INNER_NOT_FLAT / BULGE_SANITY flags
+- `is_surface_decal`   §3 "Decals": the geometric decal rule shared by g3d.faceted_temple (Blender) and the host's
+                       photo-crease decal mask (g3d_host.relief_check.decal_mask): never part names
+- `hinge_part_kind`    §3 "Hinge parts are never moved": the hinge-part rule (knuckles, temple leaves) shared by
+                       g3d.faceted_temple's hinge report and both decal planners, which never take a hinge part as a decal
+- `knuckle_axis`       the default hinge axis: bbox centre (|x|, z) of one side's temple-role knuckles
 """
 from __future__ import annotations
 
@@ -42,6 +47,67 @@ SLAB_MIN_PHOTO_CREASES = 2
 INNER_FLAT_MM = 0.05
 BULGE_SANITY_MM = (1.9, 4.3)
 WELD_MM = 1e-4
+DECAL_NEAR_MM = 1.0             # a decal lies within this of the old temple surface (every vertex)
+DECAL_THIN_MM = 0.3             # ... and is open, or thinner than this
+HINGE_NEAR_MM = 4.0             # hinge parts: bbox within this of the hinge plane ...
+HINGE_X_MM = 8.0                # ... and of the hinge axis in x
+KNUCKLE_MAX_MM = 3.2            # a hinge part smaller than this in x and z is a knuckle
+HINGE_LEAF_MAX_Z_MM = 15.0      # a temple-role hinge part shorter than this in z (not a knuckle) is a leaf
+HINGE_MAX_VERTICES = 20000      # parts with more vertices (a front, a temple body) are never hinge parts
+
+
+def is_surface_decal(signed_dist, bbox_min_extent: float, is_open: bool) -> bool:
+    """WP6_DESIGN §3 "Decals": thin open or near-zero-thickness parts within 1 mm of the old outer face. True when
+    every vertex lies within DECAL_NEAR_MM of the old temple surface (`signed_dist`: the vertices' signed distances to
+    it) and the part is open, or thinner than DECAL_THIN_MM: by its bounding box's smallest extent, or by the spread of
+    its signed distances, i.e. its thickness along the surface normal. The second measure is what finds a closed decal
+    on a tilted or curved face, whose box is not thin (Prada's ribbon and shield: box 0.52 mm, 0.020-0.072 mm off the
+    surface); a hinge leaf beside the temple spans -0.82..+1.01 mm and is no decal."""
+    sd = np.asarray(signed_dist, np.float64)
+    if not len(sd) or not np.all(np.isfinite(sd)) or float(np.abs(sd).max()) > DECAL_NEAR_MM:
+        return False
+    return bool(is_open or bbox_min_extent < DECAL_THIN_MM or float(sd.max() - sd.min()) < DECAL_THIN_MM)
+
+
+def hinge_part_kind(lo, hi, role, side: int, axis_x: float | None, hinge_z: float, n_vertices: int) -> str | None:
+    """WP6_DESIGN §3 "Hinge parts are never moved" (the parts g3d.faceted_temple's hinge report grades): a temple- or
+    frame-role part whose bbox (lo, hi: world mm, x, y, z) lies near the hinge of side `side` (z within HINGE_NEAR_MM of
+    the hinge plane, extended 4 mm behind it; x within HINGE_X_MM of side * axis_x) with at most HINGE_MAX_VERTICES
+    vertices is a "temple_knuckle" / "frame_knuckle" when smaller than KNUCKLE_MAX_MM in x and z, else a "leaf" when it
+    is temple-role and shorter than HINGE_LEAF_MAX_Z_MM in z; anything else is None (the front, a temple body, a decal
+    away from the hinge). axis_x None (no hinge axis) -> None. Never part names."""
+    if axis_x is None or role not in ("temple", "frame"):
+        return None
+    lo, hi = np.asarray(lo, np.float64), np.asarray(hi, np.float64)
+    ax = side * float(axis_x)
+    if hi[2] < hinge_z - HINGE_NEAR_MM - 4 or lo[2] > hinge_z + HINGE_NEAR_MM or hi[0] < ax - HINGE_X_MM             or lo[0] > ax + HINGE_X_MM or n_vertices > HINGE_MAX_VERTICES:
+        return None
+    if (hi[0] - lo[0]) < KNUCKLE_MAX_MM and (hi[2] - lo[2]) < KNUCKLE_MAX_MM:
+        return f"{role}_knuckle"
+    if role == "temple" and (hi[2] - lo[2]) < HINGE_LEAF_MAX_Z_MM:
+        return "leaf"
+    return None
+
+
+def knuckle_axis(boxes, side: int, hinge_z: float) -> list | None:
+    """Default hinge axis [|x|, z]: the bbox centre of one side's temple-role knuckles. `boxes` = [(lo, hi, role)]
+    (world mm); a knuckle = temple-role, centre on that side, centre z within HINGE_NEAR_MM of the hinge plane, smaller
+    than KNUCKLE_MAX_MM in x and z. None when there is none."""
+    pts = []
+    for lo, hi, role in boxes:
+        if role != "temple":
+            continue
+        lo, hi = np.asarray(lo, np.float64), np.asarray(hi, np.float64)
+        c = (lo + hi) / 2
+        if side * c[0] <= 0 or abs(c[2] - hinge_z) > HINGE_NEAR_MM:
+            continue
+        if (hi[0] - lo[0]) < KNUCKLE_MAX_MM and (hi[2] - lo[2]) < KNUCKLE_MAX_MM:
+            pts += [lo, hi]
+    if not pts:
+        return None
+    P = np.array(pts)
+    lo, hi = P.min(axis=0), P.max(axis=0)
+    return [float(abs((lo[0] + hi[0]) / 2)), float((lo[2] + hi[2]) / 2)]
 
 
 def chart_from_world(W: np.ndarray, side: int, hinge_z: float) -> np.ndarray:

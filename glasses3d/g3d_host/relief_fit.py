@@ -7,10 +7,22 @@ a scene.
     objective         sum over views of (1 - ROI IoU + 4 x contour / ROI width) at fixed cameras and theta, + crease-line
                       reprojection on 05 / 01 and 05 -> 02 crease transfer (1 mm = 0.02), + the hard constraints as
                       steep penalties (front bound, dn >= 3 deg at every confirmed crease)
-    fit_temple        block coordinates: cameras + theta (relief_views.fit_model_view, the rear family in round 0) | shape
-                      (Nelder-Mead then a bounded Powell polish, maxfev 300: shape_step); <= 4 rounds; stops when every parameter moves < 0.1 and the loss < 1 %; the
-                      outline is re-traced each round (relief_trace.trace_outline), never optimised; heartbeat >= 60 s
-    sigma / profiles  sigma per parameter from the objective's curvature (the change one noise unit buys), per-view
+    fit_temple        block coordinates: cameras + theta (camera_block: every view's §6 per-model refit of the current
+                      shape from its BASE camera, and a fresh rear family, exactly what the delivered model gets) | shape
+                      (Nelder-Mead then a bounded Powell polish, maxfev 300: shape_step); <= 4 rounds; stops when every
+                      parameter moves < 0.1, the loss < 1 % and the round's camera block left the front bound clear;
+                      then a FINAL camera block on the final shape: the returned cameras, details, front bound and
+                      sigma are the final shape's own refit cameras (FIT_VERSION); the time budget is reported, never
+                      a stop; the outline is re-traced (relief_trace.trace_outline), never optimised, BEFORE each
+                      camera block (at the previous block's cameras), so every block is fitted to the exact model the
+                      shape step and the gates read; heartbeat >= 60 s
+    FitPool           persistent worker processes (os.cpu_count() - 2, each opted out of EcoQoS) that run the camera
+                      block per view (and the rear family per alpha x seed) and each objective evaluation per view;
+                      results return in submission order and every sum runs in the serial order, so a pooled fit is
+                      the serial fit bit for bit (tests/test_temple_fit_parallel.py)
+    sigma / profiles  sigma per parameter from the curvature of the objective's PHOTO terms (penalties excluded: the
+                      change one noise unit buys; a status says why it is undefined or not photo noise: flat, at a band
+                      bound, not at a minimum, a hard-constraint penalty acting along it, an infeasible stencil), per-view
                       profiles, the conflict table (views pulling a parameter apart beyond their noise), the S3 table
                       (each observable's own optimum for the zone level at B and the relief at C vs the joint one)
     synthetic_job     S1: the tool's own temple rendered through the fitted cameras (each perturbed by its view's
@@ -19,9 +31,17 @@ a scene.
 from __future__ import annotations
 
 import copy
+import hashlib
 import math
+import os
+import pickle
+import shutil
+import sys
+import tempfile
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from scipy import optimize
@@ -32,8 +52,8 @@ from . import cameras as C
 from . import raster
 from . import relief_rules as RR
 from .camera import Camera
-from .relief_views import (Job, Model, fit_model_view, fit_theta, front_bound, render_model, roi_metrics,
-                           rot_about_hinge, temple_roi, envelopes)
+from .relief_views import (Job, Model, fit_model_view, fit_theta, front_bound, refit_camera, render_mask,
+                           render_model, render_tags, roi_box, roi_metrics, rot_about_hinge, temple_roi, envelopes)
 
 # r_B is FIXED at 0 by default (B on the base surface): a facet meets the base only along its zero line, and with
 # r_B != 0 F1's and F4's zero lines must cross behind B, which leaves the family a non-convex feasible set (the
@@ -45,7 +65,21 @@ PRADA_FREE = (("x_in0", 3.0), ("x_in_ze", 3.0), ("t_zone", (3.5, 7.5)), ("r_A", 
 PRADA_FREE_RB = PRADA_FREE[:4] + (("r_B", (-1.0, 3.0)),) + PRADA_FREE[4:]
 SLAB_FREE = ("x_in0", "x_in_ze", "t_zone", "arm_dx", "tip_dx", "k1", "k2")
 NOISE_LOSS = 0.005            # sigma: the parameter change that raises the objective by this much (0.5 % loss)
+CURV_FLAT = 1e-12             # sigma: |curvature| at or below this = a flat objective
 PENALTY = 10.0
+# The fit procedure's version: the proof records it with S1 (which runs fit_temple), so a resumed run never keeps an S1
+# graded by a different procedure.
+#   fit-1: camera blocks chained from the previous round's cameras (each box centred on them), rear family in round 0
+#          only, the returned cameras = the last round's (fitted BEFORE the last shape step)
+#   fit-2: every camera block = the §6 per-model refit of the current shape from the base cameras (box around them) and
+#          a fresh rear family; a round converges only when its camera block left the front bound clear; a final
+#          camera block on the final shape gives the returned cameras, rear family, details, front bound and sigma
+#   fit-3: the outline is re-traced BEFORE each camera block (at the previous block's cameras; the final block too), not
+#          after it, so a block's cameras are the refit of the exact model the round's front bound and shape step read;
+#          sigma and its flat / minimum tests come from the photo terms only (the penalties are excluded), and a
+#          penalty acting along a parameter is its own status ("penalty_active"), never "not converged"
+FIT_VERSION = ("fit-3 (2026-10-06): fit-2 + the outline re-traced before each camera block; sigma from the photo terms "
+               "(penalties excluded)")
 
 
 def _hat(d, a, b, c):
@@ -142,12 +176,24 @@ class Context:
 
 
 def _view_loss(job, model, k, fit, roi):
-    r = render_model(job, model, k, fit["camera"], fit["theta"], points=(job.kind(k) == "front"))
+    # render_model's mask (and for the front view its tags and stations, which the front bound reads), bit for bit
+    if job.kind(k) == "front":
+        r = render_tags(job, model, k, fit["camera"], fit["theta"])
+    else:
+        r = {"mask": render_mask(job, model, k, fit["camera"], fit["theta"])}
     m = roi_metrics(job.matte(k), r["mask"], roi, job.hinge_ppm(fit["camera"]))
-    ys, xs = np.nonzero(roi)
-    width = float(xs.max() - xs.min() + 1) if len(xs) else 1.0
+    box = roi_box(roi)
+    width = float(box[3] - box[2]) if box is not None else 1.0       # = xs.max() - xs.min() + 1 of the ROI pixels
     px = m["contour_mm"] * job.hinge_ppm(fit["camera"])
     return (1.0 - m["iou"]) + 4.0 * min(px, RR.CONTOUR_TRUNC_PX) / width, m, r
+
+
+def _view_term(job, model, k, fit, roi, zone_end) -> dict:
+    """One view's share of the objective (the unit a pool worker computes): its loss, IoU and contour, and for the
+    front view 04 the front bound (it needs that view's render)."""
+    lk, m, r = _view_loss(job, model, k, fit, roi)
+    fb = front_bound(job, r, fit["camera"], zone_end=zone_end) if k == "04" else None
+    return {"loss": lk, "iou": m["iou"], "contour_mm": m["contour_mm"], "front_bound": fb}
 
 
 def model_crease_px(job, tb, fit, side, n1, n2, n=11) -> np.ndarray | None:
@@ -199,23 +245,73 @@ def safe_spec(family: "Family", x):
         return None
 
 
-def objective(ctx: Context, spec: dict | None, *, details: bool = False):
-    if spec is None:
-        return (INFEASIBLE, {"refused": "builder", "message": "no valid spec for these parameters"}) if details             else INFEASIBLE
-    try:
-        model = Model.from_spec(ctx.job, spec, "fit")
-    except TempleError as e:
-        return (INFEASIBLE, {"refused": e.code, "message": e.message}) if details else INFEASIBLE
+def objective(ctx: Context, spec: dict | None, *, details: bool = False, pool: "FitPool | None" = None):
+    """The joint-fit objective of one spec (module docstring). With a `pool` the six view terms run in its workers
+    and the result is bit-identical to the serial one (objective_many)."""
+    return objective_many(ctx, [spec], details=details, pool=pool)[0]
+
+
+def objective_many(ctx: Context, specs: list, *, details: bool = False, pool: "FitPool | None" = None) -> list:
+    """`objective` for several specs. Serial (pool None): view by view in this process. Pooled: every (spec, view)
+    term is one task, the crease terms run here meanwhile, and each total is then summed in exactly the serial
+    order (views in ctx.views order, reprojection, transfer, front-bound penalty, dn penalties), so the values are
+    bit-identical to the serial path's."""
+    out = [None] * len(specs)
+    models = {}
+    for i, spec in enumerate(specs):
+        if spec is None:
+            out[i] = (INFEASIBLE, {"refused": "builder", "message": "no valid spec for these parameters"}) \
+                if details else INFEASIBLE
+            continue
+        try:
+            models[i] = Model.from_spec(ctx.job, spec, "fit")
+        except TempleError as e:
+            out[i] = (INFEASIBLE, {"refused": e.code, "message": e.message}) if details else INFEASIBLE
+    if pool is None:
+        for i, model in models.items():
+            vt = {k: _view_term(ctx.job, model, k, ctx.fits[k], ctx.rois[k], ctx.zone_end) for k in ctx.views}
+            out[i] = _reduce(ctx, vt, _extra_terms(ctx, model), details)
+        return out
+    jr, cr = pool.job_ref(ctx.job), pool.ctx_ref(ctx)
+    futs = {(i, k): pool.submit(_task_view, *jr, *cr, model.temples, k) for i, model in models.items()
+            for k in ctx.views}
+    extras = {i: _extra_terms(ctx, model) for i, model in models.items()}     # here, while the workers render
+    res = dict(zip(futs, pool.gather(list(futs.values()), "objective")))
+    for i in models:
+        out[i] = _reduce(ctx, {k: res[(i, k)] for k in ctx.views}, extras[i], details)
+    return out
+
+
+def _reduce(ctx: Context, vt: dict, ex: dict, details: bool):
+    """The objective's sum, in the one fixed order both paths use."""
     total = 0.0
     parts = {}
-    rs = {}
     for k in ctx.views:
-        lk, m, r = _view_loss(ctx.job, model, k, ctx.fits[k], ctx.rois[k])
-        total += lk
-        parts[k] = {"loss": lk, "iou": m["iou"], "contour_mm": m["contour_mm"]}
-        rs[k] = r
+        total += vt[k]["loss"]
+        parts[k] = {"loss": vt[k]["loss"], "iou": vt[k]["iou"], "contour_mm": vt[k]["contour_mm"]}
+    total += RR.CREASE_REPROJ_MM_WEIGHT * ex["rp"]
+    total += RR.TRANSFER_MM_WEIGHT * ex["trm"]
+    pen = 0.0
+    fb = None
+    pen_fb = 0.0
+    if "04" in vt:
+        fb = vt["04"]["front_bound"]
+        pen_fb = PENALTY * fb["hinge_zone_max_mm"]
+        pen += pen_fb
+    for t in ex["dn_terms"]:
+        pen += t
+    total += pen
+    if not details:
+        return total
+    return total, {"views": parts, "crease_reproj_mm": ex["rp"], "transfer": ex["tr"], "penalty": pen,
+                   "penalty_front_bound": pen_fb, "penalty_dn": float(sum(ex["dn_terms"])),
+                   "front_bound": fb, "min_confirmed_dn_deg": ex["dmin"]}
+
+
+def _extra_terms(ctx: Context, model) -> dict:
+    """The objective's non-silhouette terms: crease-line reprojection (05 / 01), 05 -> 02 transfer, and the dn >= 3 deg
+    penalty terms at the confirmed creases (each as the serial loop added it)."""
     tb = model.build
-    # crease-line reprojection (05 / 01) and 05 -> 02 transfer
     reproj = []
     if tb is not None and tb.spec.facets:
         for k in ("05", "01"):
@@ -230,16 +326,10 @@ def objective(ctx: Context, spec: dict | None, *, details: bool = False):
                 if q is not None:
                     reproj.append(_line_dist_mm(ctx.job, ctx.fits[k]["camera"], q, line))
     rp = float(np.mean(reproj)) if reproj else 0.0
-    total += RR.CREASE_REPROJ_MM_WEIGHT * rp
     tr = transfer_all(ctx, model) if ("05" in ctx.guides_lines and "02" in ctx.guides_lines) else None
     trm = tr["mean_mm"] if tr and tr["mean_mm"] is not None else 0.0
-    total += RR.TRANSFER_MM_WEIGHT * trm
-    pen = 0.0
-    fb = None
-    if "04" in rs:
-        fb = front_bound(ctx.job, rs["04"], ctx.fits["04"]["camera"], zone_end=ctx.zone_end)
-        pen += PENALTY * fb["hinge_zone_max_mm"]
     dmin = None
+    dn_terms = []
     if tb is not None and tb.spec.facets:
         crs = {tuple(c["regions"]): c for c in tb.tables["creases"]}
         for cname in ctx.confirmed:
@@ -248,12 +338,8 @@ def objective(ctx: Context, spec: dict | None, *, details: bool = False):
             if len(labs) == 2 and tuple(sorted(labs)) in crs:
                 dn = crs[tuple(sorted(labs))]["dihedral_deg"][0]
                 dmin = dn if dmin is None else min(dmin, dn)
-                pen += PENALTY * max(0.0, RR.R2_CONFIRMED_DN_DEG - dn) / RR.R2_CONFIRMED_DN_DEG
-    total += pen
-    if not details:
-        return total
-    return total, {"views": parts, "crease_reproj_mm": rp, "transfer": tr, "penalty": pen, "front_bound": fb,
-                   "min_confirmed_dn_deg": dmin}
+                dn_terms.append(PENALTY * max(0.0, RR.R2_CONFIRMED_DN_DEG - dn) / RR.R2_CONFIRMED_DN_DEG)
+    return {"rp": rp, "tr": tr, "trm": trm, "dn_terms": dn_terms, "dmin": dmin}
 
 
 def transfer_all(ctx: Context, model) -> dict:
@@ -273,27 +359,58 @@ def transfer_all(ctx: Context, model) -> dict:
 
 
 # --------------------------------------------------------------------------------------------- the fit
-def refit_views(job, model, fits_prev, views, rear: bool, log=print) -> dict:
+def refit_views(job, model, fits_prev, views, rear: bool, log=print, pool: "FitPool | None" = None) -> dict:
+    """The camera + theta block: fit_model_view per view, and with `rear` the rear family for 06. With a `pool` every
+    view's refit is one task and the rear family's alpha x seed refits are tasks too (all independent: each starts
+    from its own fixed camera), so the cameras are the serial ones."""
     from .relief_views import rear_family, turntable_seed
+    plan = [(k, fits_prev.get(k, {}).get("camera") or job.base[k]) for k in views if not (k == "06" and rear)]
+    futs = None
+    if pool is not None:
+        jr = pool.job_ref(job)
+        futs = [pool.submit(_task_fit_view, *jr, model.temples, k, start) for k, start in plan]
+    rear_fit = None
+    if rear and "06" in views:
+        seeds = [job.base["06"], turntable_seed(job, job.base["04"])]
+        if "06" in fits_prev:
+            seeds.insert(0, fits_prev["06"]["camera"])
+        fam = rear_family(job, model, seeds, refit_many=None if pool is None else pool.refit_many(job, model))
+        best = min(fam["rows"], key=lambda r_: r_["loss"])
+        cam = Camera.from_dict(best["camera"])
+        th = fit_theta(job, model, "06", cam, {1: best["alpha"], -1: best["alpha"]})
+        rear_fit = {"camera": cam, "theta": {s: th[s]["theta"] for s in (1, -1)}, "family": fam,
+                    "alpha": best["alpha"], "theta_fit": {str(s): th[s] for s in (1, -1)}, "refit": best["refit"]}
+    if pool is None:
+        done = [fit_model_view(job, model, k, start) for k, start in plan]
+    else:
+        done = pool.gather(futs, "cameras")
+    done = dict(zip([k for k, _ in plan], done))
     fits = {}
     for k in views:
         if k == "06" and rear:
-            seeds = [job.base["06"], turntable_seed(job, job.base["04"])]
-            if "06" in fits_prev:
-                seeds.insert(0, fits_prev["06"]["camera"])
-            fam = rear_family(job, model, seeds)
-            best = min(fam["rows"], key=lambda r_: r_["loss"])
-            cam = Camera.from_dict(best["camera"])
-            th = fit_theta(job, model, "06", cam, {1: best["alpha"], -1: best["alpha"]})
-            fits["06"] = {"camera": cam, "theta": {s: th[s]["theta"] for s in (1, -1)}, "family": fam,
-                          "alpha": best["alpha"]}
+            fits["06"] = rear_fit
             continue
-        start = fits_prev.get(k, {}).get("camera") or job.base[k]
-        fits[k] = fit_model_view(job, model, k, start)
+        fits[k] = done[k]
         for keep in ("family", "alpha"):                    # the rear family found in round 0 stays on record
             if keep in fits_prev.get(k, {}):
                 fits[k][keep] = fits_prev[k][keep]
     return fits
+
+
+def camera_block(job, model, views, rear: bool, log=print, pool: "FitPool | None" = None) -> dict:
+    """The §6 per-model refit of `model` (WP6_DESIGN §6, §8 "each at its own refit cameras"): every view from its BASE
+    camera (job.base, the box centred on it) and, with `rear`, a fresh rear family from the base and turntable seeds.
+    The same computation the delivered model's cameras come from, and a function of the shape alone (no chaining from
+    an earlier round's cameras, whose boxes drifted away from the base camera)."""
+    return refit_views(job, model, {}, views, rear, log=log, pool=pool)
+
+
+def _family_summary(f06: dict | None) -> dict | None:
+    if not f06 or "family" not in f06:
+        return None
+    fam = f06["family"]
+    return {"family": fam["family"], "alpha": f06.get("alpha"), "loss_min": fam["loss_min"], "stop_r": fam["stop_r"],
+            "camera": f06["camera"].to_dict() if isinstance(f06.get("camera"), Camera) else f06.get("camera")}
 
 
 def build_rois(job, models_fits: list, views) -> dict:
@@ -306,77 +423,206 @@ def build_rois(job, models_fits: list, views) -> dict:
 
 def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05", "06"), guides_lines=None,
                rounds: int = RR.FIT_MAX_ROUNDS, maxfev: int = RR.FIT_MAXFEV, rear: bool = True, retrace=None,
-               fits0: dict | None = None, rois: dict | None = None, log=print, budget_s: float = 90 * 60,
-               refit_cameras: bool = True) -> dict:
+               fits0: dict | None = None, rois: dict | None = None, log=print, budget_s: float | None = 90 * 60,
+               refit_cameras: bool = True, pool: "FitPool | None" = None) -> dict:
     """Block-coordinate joint fit; returns the suggested spec and the diagnostics. `retrace(family, x, fits)` returns
-    a family with a re-traced outline (or None to keep it)."""
+    a family with a re-traced outline (or None to keep it). With a `pool` (FitPool) the camera block, every objective
+    evaluation (per view), the Nelder-Mead start simplex and the sigma columns run in its workers; the optimiser's
+    sequence of evaluations is unchanged and every value is bit-identical, so the result equals the serial fit's.
+    Objective values are memoised per round (a repeated point costs nothing; the evaluation count still counts it).
+    `budget_s` is reported (`over_budget`), never a stop: the owner's rule is that a progressing run is not stopped
+    for time, and a time cut would make the result depend on machine speed (a pooled fit would run more rounds than
+    a serial one); the fit ends on the round cap or the convergence test only.
+
+    Cameras (FIT_VERSION fit-3): every camera block is `camera_block` (each view's §6 refit of the current shape from
+    its base camera, a fresh rear family), so the cameras are the ones the gates grade that shape at. The outline is
+    re-traced (`retrace`) BEFORE each camera block, at the cameras the previous block fitted (fits0 in round 0 when
+    given; with no cameras yet, round 0 keeps the caller's outline), and once more before the final block: so every
+    block is fitted to the exact model (shape and outline) that the round's front bound, the shape step and the gates
+    read. The front bound is a hard constraint, and a camera block can break what the previous shape step left clear
+    (the shape optimum hugs the bound at the cameras it was fitted at); so a round counts as converged only when its
+    camera block left the front bound clear, and after the last round a FINAL camera block on the final shape gives the
+    returned `fits` (the final shape's own refit cameras and rear family), at which the details, the front bound and
+    sigma are computed. `termination` records "converged" or "round cap"; `front_bound_at_own_cameras` the bound at the
+    final block. With refit_cameras=False (fixed cameras from fits0) there are no camera blocks at all: the outline is
+    re-traced at the fixed cameras before each round's shape step."""
     t0 = time.time()
     last_beat = [t0]
 
     def beat(msg):
-        if time.time() - last_beat[0] >= 0 or True:
-            log(f"[fit {time.time() - t0:6.0f} s] {msg}")
-            last_beat[0] = time.time()
+        log(f"[fit {time.time() - t0:6.0f} s] {msg}")
+        last_beat[0] = time.time()
     x = family.x0()
     fits = dict(fits0 or {})
     hist = []
     loss_prev = None
+    over_budget = False
+    termination = "round cap"
+
+    def do_retrace(label) -> bool:
+        """Re-trace the outline of the current (family, x) at the current cameras (before a camera block)."""
+        nonlocal family
+        if retrace is None or not fits:
+            return False
+        fam2 = retrace(family, x, fits)
+        if fam2 is None:
+            return False
+        family = fam2
+        beat(f"{label}: outline re-traced at the previous camera block's cameras")
+        return True
     for rnd in range(rounds):
+        traced = do_retrace(f"round {rnd}")
         model = Model.from_spec(job, family.spec(x), f"fit r{rnd}")
+        fam_rec = None
         if refit_cameras or not fits:
-            # the rear family (one camera per opening alpha) in the first round only; later rounds refit every
-            # camera, the rear one inside its bounded box around the family's best
-            fits = refit_views(job, model, fits, views, rear and "06" not in fits, log=log)
-            beat(f"round {rnd}: cameras + theta refit")
-        if retrace is not None:
-            fam2 = retrace(family, x, fits)
-            if fam2 is not None:
-                family = fam2
-                model = Model.from_spec(job, family.spec(x), f"fit r{rnd} traced")
-                beat(f"round {rnd}: outline re-traced")
+            fits = camera_block(job, model, views, rear, log=log, pool=pool)
+            fam_rec = _family_summary(fits.get("06")) if rear else None
+            beat(f"round {rnd}: cameras + theta refit (each view from its base camera"
+                 f"{', fresh rear family ' + str(fam_rec['family']) if fam_rec else ''})")
         rr = build_rois(job, [(model, fits)], views) if rois is None else rois
         ctx = Context(job, fits, rr, tuple(views), guides_lines or {})
         evals = [0]
+        memo = {}
+
+        def batch(points):
+            todo = {}
+            for p in points:
+                p = np.asarray(p, float)
+                if p.tobytes() not in memo:
+                    todo.setdefault(p.tobytes(), p)
+            vals = objective_many(ctx, [safe_spec(family, p) for p in todo.values()], pool=pool)
+            memo.update(zip(todo, vals))
 
         def f(v):
             evals[0] += 1
-            val = objective(ctx, safe_spec(family, v))
+            v = np.asarray(v, float)
+            key = v.tobytes()
+            if key not in memo:
+                memo[key] = objective(ctx, safe_spec(family, v), pool=pool)
+            val = memo[key]
             if time.time() - last_beat[0] > 60:
                 beat(f"round {rnd}: {evals[0]} evaluations, loss {val:.5f}")
             return val
+        # the round start, with details: the previous shape at the cameras this round's camera block refit for it
+        sx = safe_spec(family, x)
+        l0d = objective(ctx, sx, details=True, pool=pool)
+        memo[np.asarray(x, float).tobytes()] = l0d[0]
+        fb0 = l0d[1].get("front_bound")
+        fb0_clear = fb0 is None or bool(fb0.get("clear", True))
         l0 = f(x)
-        x_new, l1 = shape_step(f, x, family.bounds(), maxfev)
+        x_new, l1 = shape_step(f, x, family.bounds(), maxfev, prefetch=batch if pool is not None else None)
         if l1 > l0:
             x_new, l1 = x, l0
         move = np.abs(x_new - x)
         hist.append({"round": rnd, "loss_start": float(l0), "loss": float(l1), "evaluations": evals[0],
-                     "x": dict(zip(family.names, map(float, x_new))), "max_move": float(move.max())})
-        beat(f"round {rnd}: loss {l0:.5f} -> {l1:.5f}, max move {move.max():.3f} ({evals[0]} evaluations)")
+                     "x": dict(zip(family.names, map(float, x_new))), "max_move": float(move.max()),
+                     "front_bound_start": fb0, "front_bound_clear_start": fb0_clear, "rear_family": fam_rec,
+                     "outline_retraced_before_block": traced})
+        beat(f"round {rnd}: loss {l0:.5f} -> {l1:.5f}, max move {move.max():.3f} ({evals[0]} evaluations); front "
+             f"bound at the round's refit cameras {'clear' if fb0_clear else 'ACTIVE %.3f mm' % fb0['hinge_zone_max_mm']}")
         x = x_new
-        if move.max() < RR.FIT_STOP_MOVE and loss_prev is not None and abs(loss_prev - l1) < RR.FIT_STOP_LOSS * loss_prev:
+        if (move.max() < RR.FIT_STOP_MOVE and loss_prev is not None and abs(loss_prev - l1) < RR.FIT_STOP_LOSS * loss_prev
+                and fb0_clear):
+            termination = "converged"
             break
         loss_prev = l1
-        if time.time() - t0 > budget_s:
-            beat("budget reached")
-            break
+        if budget_s is not None and not over_budget and time.time() - t0 > budget_s:
+            over_budget = True                 # reported, never a stop: see the docstring
+            beat(f"over the {budget_s / 60:.0f} min budget after round {rnd}; continuing")
+    final_block = False
+    final_traced = False
+    if refit_cameras or not fits:
+        final_traced = do_retrace("final")           # the final block is fitted to the exact returned spec
     model = Model.from_spec(job, family.spec(x), "fitted")
+    if refit_cameras or not fits:
+        fits = camera_block(job, model, views, rear, log=log, pool=pool)
+        final_block = True
+        beat("final camera block: the final shape's own refit cameras"
+             + (f", rear family {fits['06']['family']['family']}" if rear and "06" in fits else ""))
     rr = build_rois(job, [(model, fits)], views) if rois is None else rois
     ctx = Context(job, fits, rr, tuple(views), guides_lines or {})
-    loss, det = objective(ctx, family.spec(x), details=True)
-    sig = sigma(ctx, family, x)
+    loss, det = objective(ctx, family.spec(x), details=True, pool=pool)
+    srep = sigma_report(ctx, family, x, pool=pool)
+    fb = det.get("front_bound")
+    fbo = None if fb is None else {**fb, "at": "the final shape's own refit cameras" if final_block
+                                   else "the caller's fixed cameras"}
+    beat(f"done: {termination}; loss {loss:.5f} at the final cameras; front bound "
+         f"{'n/a' if fb is None else ('clear' if fb['clear'] else 'ACTIVE %.3f mm' % fb['hinge_zone_max_mm'])}")
     return {"x": dict(zip(family.names, map(float, x))), "spec": family.spec(x), "family": family, "fits": fits,
-            "loss": float(loss), "details": det, "sigma": sig, "history": hist, "seconds": time.time() - t0,
-            "context": ctx}
+            "loss": float(loss), "details": det, "sigma": srep["sigma"], "sigma_status": srep["status"],
+            "curvature": srep["curvature"], "unobserved": unobserved(family, srep["sigma"], x, srep["status"]),
+            "sigma_flags": sigma_flags(family, srep, x), "sigma_penalty": srep["penalty"],
+            "penalty_at_fit": srep.get("penalty_at_x"),
+            "termination": termination, "rounds_run": len(hist),
+            "final_camera_block": final_block, "final_outline_retraced": final_traced,
+            "front_bound_at_own_cameras": fbo,
+            "rear_family_final": _family_summary(fits.get("06")) if rear else None, "fit_version": FIT_VERSION,
+            "history": hist, "seconds": time.time() - t0, "over_budget": over_budget, "context": ctx}
+
+
+def unobserved(family: Family, sig: dict, x=None, status: dict | None = None) -> list:
+    """The §7 UNOBSERVED list (Astra keeps these at their defaults, §12): parameters no photo observes. Always F4's tilt
+    for a faceted Prada family (F4 = B, C, E with E on the bottom edge at d_E: no observable, WP6_DESIGN §0.4 [Tr]; d_E
+    is not a free parameter); and every free parameter whose objective is FLAT at the optimum (|curvature| <=
+    CURV_FLAT, on the photo terms, with no penalty acting along it). A parameter at a band bound (the photos push it
+    out of the band), at a non-minimum (negative curvature of the photo terms: the fit has not converged along it),
+    with a hard-constraint penalty acting along it, or with an infeasible stencil is NOT unobserved: its fitted value
+    stands and `sigma_flags` lists it. Without `status` (legacy callers) an infinite sigma means flat and a NaN sigma
+    is not listed."""
+    out = []
+    if not family.slab_mode and family.builder is FX.prada_spec:
+        out.append({"parameter": "F4 tilt (d_E: F4's corner E on the bottom edge)",
+                    "value": float(family.base.get("d_E", 55.0)),
+                    "why": "no observable (WP6_DESIGN 0.4); not fitted, kept at its default"})
+    xs = dict(zip(family.names, map(float, x))) if x is not None else {}
+    for name in family.names:
+        s = sig.get(name)
+        st = (status or {}).get(name)
+        if st is None:
+            st = "flat" if (s is not None and math.isinf(s)) else "ok"
+        if st == "flat":
+            out.append({"parameter": name, "value": xs.get(name), "sigma": s,
+                        "why": "flat objective at the optimum: no photo constrains it here"})
+    return out
+
+
+SIGMA_WHY = {"at_band_bound": "at a band bound: the photos push it out of its band (the fitted value stands)",
+             "not_at_minimum": "negative curvature of the photo terms with no penalty acting: the fit is not at a "
+                               "minimum along it (not converged)",
+             "penalty_active": "a hard-constraint penalty (front bound or dn >= 3 deg at a confirmed crease) acts along "
+                               "it at the fit or inside its sigma stencil: the constraint, not photo noise, holds it "
+                               "there; its sigma (photo terms only) is not a photo uncertainty and stays off the relief "
+                               "sheet",
+             "infeasible_stencil": "a sigma stencil point admits no valid spec (a refusal cliff): no sigma"}
+SIGMA_PENALTY_TOL = 1e-9          # a penalty that changes by more than this across the stencil acts along the parameter
+
+
+def sigma_flags(family: Family, srep: dict, x) -> list:
+    """Free parameters whose sigma is undefined, or not a photo uncertainty, for a reason other than a flat objective
+    (see `unobserved`); a penalty_active entry carries the penalties at (x, x + h, x - h)."""
+    xs = dict(zip(family.names, map(float, x)))
+    out = []
+    for n in family.names:
+        st = srep["status"].get(n)
+        if st not in SIGMA_WHY:
+            continue
+        e = {"parameter": n, "value": xs.get(n), "status": st, "curvature": srep["curvature"].get(n),
+             "why": SIGMA_WHY[st]}
+        if st == "penalty_active":
+            e["penalty"] = (srep.get("penalty") or {}).get(n)
+        out.append(e)
+    return out
 
 
 SIMPLEX_FRACTION = 0.15
 
 
-def shape_step(f, x0, bounds, maxfev: int):
+def shape_step(f, x0, bounds, maxfev: int, prefetch=None):
     """The shape block of one round: Nelder-Mead (adaptive, initial simplex 15 % of each band; bounds by clipping plus
     a steep penalty outside) then a bounded Powell polish. Nelder-Mead is used first because the silhouette terms are
     pixel-quantised and the dn >= 3 deg constraint is a penalty kink: Powell's line searches alone stall on them (the
-    S1 round trip). Returns (x, f(x))."""
+    S1 round trip). `prefetch(points)` (a pooled fit's memo filler) receives the start simplex's points exactly as
+    Nelder-Mead will evaluate them, so they are computed in one parallel batch. Returns (x, f(x))."""
     lo = np.array([b[0] for b in bounds], float)
     hi = np.array([b[1] for b in bounds], float)
     x0 = np.clip(np.asarray(x0, float), lo, hi)
@@ -385,6 +631,8 @@ def shape_step(f, x0, bounds, maxfev: int):
     steps = SIMPLEX_FRACTION * (hi - lo)
     sim = [x0] + [x0 + np.eye(len(x0))[i] * steps[i] * (-1.0 if x0[i] + steps[i] > hi[i] else 1.0)
                   for i in range(len(x0))]
+    if prefetch is not None:
+        prefetch([np.clip(v, lo, hi) for v in np.array(sim)])
     r = optimize.minimize(g, x0, method="Nelder-Mead",
                           options={"initial_simplex": np.array(sim), "maxfev": maxfev, "xatol": 0.005,
                                    "fatol": 1e-5, "adaptive": True})
@@ -396,38 +644,97 @@ def shape_step(f, x0, bounds, maxfev: int):
     return x, float(fx)
 
 
-def sigma(ctx: Context, family: Family, x, rel_step: float = 0.05) -> dict:
-    """sigma_i = sqrt(2 NOISE_LOSS / f''_i) from a central second difference (inf when the objective is flat)."""
-    out = {}
-    f0 = objective(ctx, safe_spec(family, x))
+def sigma(ctx: Context, family: Family, x, rel_step: float = 0.05, pool: "FitPool | None" = None) -> dict:
+    """sigma_report(...)["sigma"]."""
+    return sigma_report(ctx, family, x, rel_step=rel_step, pool=pool)["sigma"]
+
+
+def _photo_and_penalty(val):
+    """(photo terms, penalty record) of one objective_many(details=True) value; photo None for a refused spec."""
+    tot, det = val
+    if "penalty" not in det:
+        return None, {"refused": det.get("refused", "builder")}
+    pen = float(det["penalty"])
+    return float(tot) - pen, {"total": pen, "front_bound": float(det.get("penalty_front_bound", 0.0)),
+                              "dn": float(det.get("penalty_dn", 0.0))}
+
+
+def sigma_report(ctx: Context, family: Family, x, rel_step: float = 0.05, pool: "FitPool | None" = None) -> dict:
+    """{"sigma", "status", "curvature", "penalty"} per free parameter, from the PHOTO terms of the objective only (the
+    silhouettes, crease reprojection and transfer: `objective` minus its hard-constraint penalties, which measure a
+    wall, not the photos). sigma_i = sqrt(2 NOISE_LOSS / f''_i) from a central second difference of the photo terms.
+    status:
+      "ok"                 finite sigma, no penalty acting along the parameter
+      "flat"               |f''| <= CURV_FLAT, no penalty acting: sigma inf, no photo constrains it (UNOBSERVED)
+      "not_at_minimum"     f'' < -CURV_FLAT, no penalty acting: sigma NaN (not at a minimum of the photo terms)
+      "penalty_active"     a penalty (front bound, dn >= 3 deg) is active at x or at a stencil point and changes across
+                           the stencil (by > SIGMA_PENALTY_TOL): the constraint holds the parameter; sigma = the photo
+                           terms' sigma when their curvature is positive (else NaN), never shown as photo noise
+      "at_band_bound"      on a band bound: no central difference, sigma NaN
+      "infeasible_stencil" x or a stencil point has no valid spec: sigma NaN
+    "penalty" per parameter: the penalties (total, front bound, dn) at x, x + h and x - h. A penalty active at x but
+    constant along a parameter does not change that parameter's photo curvature, so its status stays the photo one.
+    The 1 + 2 n evaluations are independent: one batch (in parallel with a `pool`)."""
+    out, status, curvs, pens = {}, {}, {}, {}
+    cols = []
     for i, (name, lo, hi) in enumerate(family.free):
         h = max(1e-3, rel_step * (hi - lo))
         xp, xm = x.copy(), x.copy()
         xp[i] = min(hi, x[i] + h)
         xm[i] = max(lo, x[i] - h)
-        fp, fm = objective(ctx, safe_spec(family, xp)), objective(ctx, safe_spec(family, xm))
+        cols.append((xp, xm))
+    vals = objective_many(ctx, [safe_spec(family, v) for v in [x] + [v for c in cols for v in c]], details=True,
+                          pool=pool)
+    f0, p0 = _photo_and_penalty(vals[0])
+    for i, (name, lo, hi) in enumerate(family.free):
+        xp, xm = cols[i]
+        fp, pp = _photo_and_penalty(vals[1 + 2 * i])
+        fm, pm = _photo_and_penalty(vals[2 + 2 * i])
+        pens[name] = {"x": p0, "plus": pp, "minus": pm}
         hp, hm = xp[i] - x[i], x[i] - xm[i]
         if hp <= 0 or hm <= 0:
-            out[name] = float("nan")
+            out[name], status[name], curvs[name] = float("nan"), "at_band_bound", None
+            continue
+        if f0 is None or fp is None or fm is None:
+            out[name], status[name], curvs[name] = float("nan"), "infeasible_stencil", None
             continue
         curv = 2.0 * (fp * hm + fm * hp - f0 * (hp + hm)) / (hp * hm * (hp + hm))
-        out[name] = float(math.sqrt(2 * NOISE_LOSS / curv)) if curv > 1e-12 else float("inf")
-    return out
+        curvs[name] = float(curv)
+        tp = (p0["total"], pp["total"], pm["total"])
+        acting = max(tp) > 0.0 and (max(tp) - min(tp)) > SIGMA_PENALTY_TOL
+        if acting:
+            out[name] = float(math.sqrt(2 * NOISE_LOSS / curv)) if curv > CURV_FLAT else float("nan")
+            status[name] = "penalty_active"
+        elif curv > CURV_FLAT:
+            out[name], status[name] = float(math.sqrt(2 * NOISE_LOSS / curv)), "ok"
+        elif curv >= -CURV_FLAT:
+            out[name], status[name] = float("inf"), "flat"
+        else:
+            out[name], status[name] = float("nan"), "not_at_minimum"
+    return {"sigma": out, "status": status, "curvature": curvs, "penalty": pens, "penalty_at_x": p0}
 
 
-def profiles(ctx: Context, family: Family, x, names, n: int = 9, span: dict | None = None) -> dict:
-    """Per parameter: the total objective and every view's loss along a sweep (others held)."""
+def profiles(ctx: Context, family: Family, x, names, n: int = 9, span: dict | None = None,
+             pool: "FitPool | None" = None) -> dict:
+    """Per parameter: the total objective and every view's loss along a sweep (others held). Every sweep point is
+    independent: one batch (in parallel with a `pool`)."""
     out = {}
+    sweeps = []
     for name in names:
         i = family.names.index(name)
         lo, hi = family.free[i][1:]
         s = (span or {}).get(name, 0.25 * (hi - lo))
         vals = np.linspace(max(lo, x[i] - s), min(hi, x[i] + s), n)
-        rows = []
         for v in vals:
             xv = x.copy()
             xv[i] = v
-            tot, det = objective(ctx, safe_spec(family, xv), details=True)
+            sweeps.append((name, v, xv))
+    res = objective_many(ctx, [safe_spec(family, xv) for _, _, xv in sweeps], details=True, pool=pool)
+    for name in names:
+        rows = []
+        for (nm, v, _), (tot, det) in zip(sweeps, res):
+            if nm != name:
+                continue
             rows.append({"value": float(v), "total": float(tot),
                          "views": {k: d["loss"] for k, d in det.get("views", {}).items()},
                          "transfer_mm": (det.get("transfer") or {}).get("mean_mm"),
@@ -451,11 +758,18 @@ def conflict_table(prof: dict, sig: dict) -> list:
 
 
 def own_optimum(vals, obs, signed: bool) -> float | None:
+    """An observable's own optimum over a sweep (S3): the zero crossing of a signed observable (else its smallest
+    |value|), the minimum of an unsigned one. None when fewer than 3 values are finite, or when the profile is
+    constant: an observable that does not change over the sweep does not see the parameter and has no optimum (the
+    argmin of a constant picked the sweep's first delta, so a parameter invisible in a view read as an optimum at the
+    sweep's edge and raised STOP-C; WP6 resume run 2026-10-06: relief at C in the 06 hinge-zone envelope)."""
     vals, obs = np.asarray(vals, float), np.asarray(obs, float)
     ok = np.isfinite(obs)
     if ok.sum() < 3:
         return None
     vals, obs = vals[ok], obs[ok]
+    if float(np.ptp(obs)) <= 1e-12 * max(1.0, float(np.abs(obs).max())):
+        return None
     if signed:
         sgn = np.sign(obs)
         idx = np.nonzero(np.diff(sgn) != 0)[0]
@@ -522,14 +836,31 @@ def s3_table(ctx: Context, family: Family, x, sig: dict, *, level_names=("x_in0"
 
 
 # --------------------------------------------------------------------------------------------- S1
+# The synthetic photos' light, in camera coordinates (right, up, toward the camera): ONE Lambert key light straight
+# above the camera, 40 deg up from the view axis. Chosen 2026-10-06 against the real Prada side views (proof.json P2,
+# refine_line steps at +-3 px): every traced crease is visible in both 05 and 01 at 4.1-6.0 L* (05 AB 5.94 AC -5.73
+# BC 5.98; 01 AB 5.25 AC 4.13 BC -4.08), and |AC| ~ |BC| within each view, which a left/right light component would
+# split (05 vs 01 are mirror views). On the default synthetic truth this light gives AB 5.9, AC 3.9, BC 3.9 L* in
+# both side views (02: AB 6.7, AC 2.0, BC 6.7; the real 02 has AC untraceable). Two earlier lights were wrong:
+#  - the key light (-0.35, 0.55, 0.76) alone: its left component hides AC in 05 (1.6 L*) and BC in 01 (none), so
+#    corner C could not be traced in either side view;
+#  - that key + 0.4 x an opposite light (0.6, -0.3, 0.74): two unclipped Lambert lights are one light along their
+#    weighted sum, here nearly the view axis, so every crease fell to 1.6-2.4 L*, below the frozen STEP_MIN_L (3 L*)
+#    and below every real crease: the crease detector then (correctly) found 1 segment per side view.
+# SYNTH_RENDER names the photo model; the proof records it with S1 so a resumed run never keeps an S1 graded on
+# photos rendered differently.
+SYNTH_LIGHT = (0.0, math.sin(math.radians(40.0)), math.cos(math.radians(40.0)))
+SYNTH_RENDER = "lambert-1: one key light above the camera at 40 deg; gray 70 + 150 x n.l on the model, 250 background"
+
+
 class SyntheticJob:
     """A job whose photos and mattes are renders of a known model (S1, and the synthetic tests): exact mattes and
-    Lambert-shaded photos (creases show as L* steps) through the TRUE cameras; `base` holds those cameras perturbed by
-    each view's contour error in px (what a fit starts from). Build it from a real Job (`from_job`, its frame, front
-    parts and photo sizes) or `standalone` (any front mesh, frame and image sizes: no data needed)."""
+    Lambert-shaded photos (creases show as L* steps; SYNTH_LIGHT) through the TRUE cameras; `base` holds those cameras
+    perturbed by each view's contour error in px (what a fit starts from). Build it from a real Job (`from_job`, its
+    frame, front parts and photo sizes) or `standalone` (any front mesh, frame and image sizes: no data needed)."""
 
     def __init__(self, *, frame, V0, F0, hinge, cams, shapes, views, view_names, truth, theta, perturb_px=None,
-                 pivot_mm=None, seed: int = 7, light=(-0.35, 0.55, 0.76), glb=None, cfg=None):
+                 pivot_mm=None, seed: int = 7, light=SYNTH_LIGHT, glb=None, cfg=None):
         self.frame, self.V0, self.F0, self.hinge = frame, V0, F0, dict(hinge)
         self.true_cams, self.true_shape, self.views, self.view_name = dict(cams), dict(shapes), dict(views), dict(view_names)
         self.truth, self.truth_theta = truth, theta
@@ -577,9 +908,7 @@ class SyntheticJob:
         n = r["normal"].copy()
         n[(n @ Rt) < 0] *= -1
         lw = self.light[0] * Rr + self.light[1] * Ru + self.light[2] * Rt
-        l2 = np.array([0.6, -0.3, 0.74]) / np.linalg.norm([0.6, -0.3, 0.74])     # a second, opposite key light
-        lw2 = l2[0] * Rr + l2[1] * Ru + l2[2] * Rt
-        shade = 0.6 * np.clip(n @ lw, 0, 1) + 0.4 * np.clip(n @ lw2, 0, 1)
+        shade = np.clip(n @ lw, 0, 1)
         val = np.where(r["mask"], 70 + 150 * shade, 250.0)
         img = np.repeat(np.clip(val, 0, 255)[..., None], 3, axis=2).astype(np.uint8)
         return img, r["mask"]
@@ -679,3 +1008,195 @@ def compass_search(f, x0, bounds, steps0, min_steps, maxfev: int = 300, log=None
         if not improved:
             steps = np.where(steps > mins, steps * 0.5, steps)
     return x, float(fx), n
+
+
+# --------------------------------------------------------------------------------------------- the process pool
+POOL_RESERVE = 2                 # owner rule: long computations use os.cpu_count() - 2 workers
+POOL_HEARTBEAT_S = 30.0          # a pooled batch prints progress at least this often (the owner rule is 2 minutes)
+
+
+def pool_workers() -> int:
+    return max(1, (os.cpu_count() or 4) - POOL_RESERVE)
+
+
+def opt_out_ecoqos() -> bool:
+    """Opt this process out of Windows EcoQoS execution-speed throttling (SetProcessInformation,
+    ProcessPowerThrottling; the opt-out is not inherited, so every worker calls it). False off Windows or on failure."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _State(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        s = _State(1, 1, 0)                     # version 1, control EXECUTION_SPEED, state 0 = never throttle
+        return bool(k32.SetProcessInformation(wintypes.HANDLE(k32.GetCurrentProcess()), 4, ctypes.byref(s),
+                                              ctypes.sizeof(s)))
+    except Exception:                                            # noqa: BLE001
+        return False
+
+
+_W = {"jobs": OrderedDict(), "ctx": OrderedDict(), "ecoqos": None}
+
+
+def _worker_init() -> None:
+    _W["ecoqos"] = opt_out_ecoqos()
+
+
+def _w_load(cache: OrderedDict, key: str, path: str, keep: int):
+    if key in cache:
+        cache.move_to_end(key)
+        return cache[key]
+    obj = pickle.loads(Path(path).read_bytes())
+    if isinstance(obj, tuple) and len(obj) == 2 and isinstance(obj[0], type):   # (class, state): a job
+        cls, state = obj
+        obj = cls.__new__(cls)
+        obj.__dict__.update(state)
+    cache[key] = obj
+    while len(cache) > keep:
+        cache.popitem(last=False)
+    return obj
+
+
+def _w_job(key, path):
+    return _w_load(_W["jobs"], key, path, 2)
+
+
+def _w_model(job, temples):
+    return Model.delivered(job) if temples is None else Model("pool", temples)
+
+
+def _task_ping(jkey, jpath) -> dict:
+    _w_job(jkey, jpath)
+    time.sleep(0.2)                              # long enough for the pings to spread over every worker
+    return {"pid": os.getpid(), "ecoqos_opt_out": _W["ecoqos"]}
+
+
+def _task_view(jkey, jpath, ckey, cpath, temples, k) -> dict:
+    job = _w_job(jkey, jpath)
+    c = _w_load(_W["ctx"], ckey, cpath, 4)
+    return _view_term(job, Model("pool", temples), k, c["fits"][k], c["rois"][k], c["zone_end"])
+
+
+def _task_fit_view(jkey, jpath, temples, k, cam0) -> dict:
+    job = _w_job(jkey, jpath)
+    job._front.clear()                  # memory: a camera task's front renders are for cameras no later task reuses
+    return fit_model_view(job, _w_model(job, temples), k, cam0)
+
+
+def _task_refit_camera(jkey, jpath, temples, key, cam0, theta, kw) -> tuple:
+    job = _w_job(jkey, jpath)
+    job._front.clear()
+    return refit_camera(job, _w_model(job, temples), key, cam0, theta, **kw)
+
+
+class FitPool:
+    """Persistent worker processes for the WP6 fit (owner rule: os.cpu_count() - 2 workers, each opted out of EcoQoS).
+
+    A job (its mattes computed here once, its front-render cache emptied) and each objective context (cameras, theta,
+    ROIs) are written once to a private temp folder; a worker loads one on first use and keeps it, so a task carries
+    only keys and the temple meshes (from the parent's own build, so every worker renders the parent's exact arrays).
+    Results come back in submission order and every reduction runs in the serial order, so a pooled fit is the serial
+    fit bit for bit (tests/test_temple_fit_parallel.py). While it waits it prints progress at least every
+    POOL_HEARTBEAT_S. A worker exception is raised in the parent, as the serial code would raise it. A Context must
+    not be mutated after a pooled evaluation used it (it is broadcast once)."""
+
+    def __init__(self, workers: int | None = None, log=print, heartbeat_s: float = POOL_HEARTBEAT_S):
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        self.workers = pool_workers() if workers is None else max(1, int(workers))
+        self.log = log
+        self.heartbeat_s = heartbeat_s
+        self.dir = Path(tempfile.mkdtemp(prefix="g3d_wp6_pool_"))
+        self._ex = ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"),
+                                       initializer=_worker_init)
+        self._jobs, self._ctxs = {}, OrderedDict()
+        self.stats = {"tasks": 0, "batches": 0, "wait_s": 0.0}
+        opt_out_ecoqos()
+
+    # ---------------------------------------------------------------- broadcast
+    def job_ref(self, job) -> tuple:
+        ent = self._jobs.get(id(job))
+        if ent is None:
+            for k in job.views:
+                job.matte(k)
+            state = dict(job.__dict__)
+            state["_front"] = {}
+            state.pop("_outside_px", None)
+            state.pop("_decals", None)                 # relief_check.decal_mask's cache (parent only)
+            n = len(self._jobs)
+            path = self.dir / f"job{n}.pkl"
+            path.write_bytes(pickle.dumps((type(job), state), protocol=pickle.HIGHEST_PROTOCOL))
+            ent = (job, f"job{n}", str(path))         # holding the job keeps its id unique
+            self._jobs[id(job)] = ent
+        return ent[1], ent[2]
+
+    def ctx_ref(self, ctx: Context) -> tuple:
+        ent = self._ctxs.get(id(ctx))
+        if ent is None:
+            payload = {"fits": {k: {"camera": ctx.fits[k]["camera"], "theta": dict(ctx.fits[k]["theta"])}
+                                for k in ctx.views},
+                       "rois": {k: ctx.rois[k] for k in ctx.views}, "zone_end": ctx.zone_end}
+            blob = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+            key = "ctx" + hashlib.blake2b(blob, digest_size=12).hexdigest()
+            path = self.dir / f"{key}.pkl"
+            if not path.exists():
+                path.write_bytes(blob)
+            ent = (ctx, key, str(path))               # holding the context keeps its id unique
+            self._ctxs[id(ctx)] = ent
+            while len(self._ctxs) > 8:                  # each holds its ROIs (~8 MB on Prada)
+                self._ctxs.popitem(last=False)
+        return ent[1], ent[2]
+
+    # ---------------------------------------------------------------- tasks
+    def submit(self, fn, *args):
+        self.stats["tasks"] += 1
+        return self._ex.submit(fn, *args)
+
+    def gather(self, futs: list, tag: str = "pool") -> list:
+        from concurrent.futures import FIRST_COMPLETED, wait
+        t0 = last = time.time()
+        pending = set(futs)
+        while pending:
+            _, pending = wait(pending, timeout=self.heartbeat_s, return_when=FIRST_COMPLETED)
+            if pending and time.time() - last >= self.heartbeat_s:
+                last = time.time()
+                if self.log:
+                    self.log(f"    [pool {tag}] {len(futs) - len(pending)} / {len(futs)} tasks done, "
+                             f"{last - t0:.0f} s")
+        self.stats["batches"] += 1
+        self.stats["wait_s"] += time.time() - t0
+        return [f.result() for f in futs]
+
+    def refit_many(self, job, model):
+        """A `rear_family(refit_many=...)` hook: [(key, cam0, theta, kwargs)] -> [(camera, info)] in call order."""
+        jr = self.job_ref(job)
+
+        def run(calls):
+            return self.gather([self.submit(_task_refit_camera, *jr, model.temples, k, cam0, th, kw)
+                                for k, cam0, th, kw in calls], "rear family")
+        return run
+
+    def warm(self, job) -> list:
+        """Start every worker and load `job` in each (so timings exclude start-up); returns the distinct
+        (pid, EcoQoS opt-out) of the workers that answered."""
+        jr = self.job_ref(job)
+        futs = [self.submit(_task_ping, *jr) for _ in range(3 * self.workers)]
+        seen = {}
+        for r in self.gather(futs, "warm"):
+            seen[r["pid"]] = r
+        return list(seen.values())
+
+    def close(self) -> None:
+        self._ex.shutdown(wait=True, cancel_futures=True)
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False

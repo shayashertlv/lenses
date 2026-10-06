@@ -4,6 +4,7 @@ R1-R4, V; STOP-P) and the six-view sheet. Every output is a TOOL TEST."""
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import pickle
@@ -23,8 +24,76 @@ from glasses3d.g3d_host.camera import Camera
 from glasses3d.g3d_host.spec import validate_spec
 
 
+def _spec_sha(spec: dict) -> str:
+    return hashlib.sha256(json.dumps(spec, sort_keys=True, default=float).encode("utf-8")).hexdigest()
+
+
 def _side_fits(fits):
     return {k: {"camera": f["camera"], "theta": f["theta"]} for k, f in fits.items()}
+
+
+RETRACE_ITERS = 2
+
+
+def make_retrace(job, log):
+    """The joint fit's outline re-trace (§7: "the outline is re-traced by trace_outline each round, not optimised"),
+    shared by stage_fit and S1 (wp6_prada.stage_s1), so S1 grades the procedure the real fit runs: the current family's
+    outline traced on 05 / 01 (RETRACE_ITERS iterations) at the cameras relief_fit.fit_temple passes (the previous
+    camera block's); returns a deep-copied family with the new outline (the caller's family is never mutated)."""
+    def retrace(family, x, fits):
+        kw = family.kwargs(x)
+        builder = lambda tt, bb: (family.builder(**{**kw, "top": tt, "bottom": bb}) if not family.slab_mode
+                                  else RF.slab_spec(**{**kw, "top": tt, "bottom": bb}))
+        ol = RT.trace_outline(job, family.spec(x), builder, _side_fits({k: fits[k] for k in ("05", "01")}),
+                              ("05", "01"), iters=RETRACE_ITERS, log=log)
+        fam2 = copy.deepcopy(family)
+        fam2.base["top"], fam2.base["bottom"] = ol["top"], ol["bottom"]
+        return fam2
+    return retrace
+
+
+S1_CASE_B = "b fitted cameras, fitted theta"
+
+
+def _s1_case_b(rec: dict) -> float | None:
+    """S1 case (b) (wp6_s1_theta_check.transfer_cases): the R3 transfer of the exact TRUE temple, with its true crease
+    lines, at the S1-fitted cameras and theta: what R3 measures on a perfect model. From the proof's S1 record, or the
+    proof record a diagnostic copied (rec["proof_record"]["s1_case_b_mm"])."""
+    s1 = (rec.get("stages") or {}).get("S1") or {}
+    v = ((s1.get("theta_cases") or {}).get("cases") or {}).get(S1_CASE_B, {}).get("mean_mm")
+    if v is None:
+        v = (rec.get("proof_record") or {}).get("s1_case_b_mm")
+    return None if v is None else float(v)
+
+
+def open_owner_decisions(rec: dict) -> list:
+    """The rule-set questions only the owner can decide (relief_rules.py is frozen; changing a threshold or a gate's
+    definition is a new rule set, §8 / §9): R1's share limit and R3's "delivered - 0.5" clause. Recorded in every proof
+    and diagnostic record, whatever stop fires, with the evidence on record."""
+    b = _s1_case_b(rec)
+    g3 = ((rec.get("stages") or {}).get("GATES") or {}).get("gates", {}).get("R3") or {}
+    dl = (g3.get("transfer_mm") or {}).get("delivered")
+    return [
+        {"gate": "R1", "rule": f"single-plane share <= {RR.R1_SHARE_MAX} (relief_rules.R1_SHARE_MAX)",
+         "why_open": "the synthetic faceted truths fail it with the shipped measure core (FX.prada_default 0.668, the "
+                     "S1-like truth 0.708; minimum 0.596 over the Prada fit band): every facet plane is a share "
+                     "candidate (§5) while the 0.5 came from least-squares-plane-only prototype numbers",
+         "evidence": "tests/test_temple_slab_control.py::test_synthetic_faceted_truths_pass_r1 (xfail strict: it turns "
+                     "into a failure (XPASS) once R1 becomes passable)",
+         "decision": "owner: keep R1, change its threshold, or change the share definition (a new rule set)"},
+        {"gate": "R3", "rule": f"05 -> 02 transfer <= {RR.R3_TRANSFER_MAX_MM} mm AND <= delivered - "
+                               f"{RR.R3_TRANSFER_MARGIN_MM} AND <= fitted slab - {RR.R3_TRANSFER_MARGIN_MM}",
+         "why_open": "the 'delivered - 0.5' clause looks impossible on the project's own numbers: a perfect model "
+                     "fails it whenever the delivered model's transfer is below S1 case (b) + 0.5 mm. Delivered "
+                     "transfer (WP6 fix-1 diagnostic, its own refit cameras) 0.674 mm -> limit 0.174 mm, while S1 "
+                     "case (b), the exact TRUE temple with its true crease lines at the S1-fitted cameras and theta, "
+                     "transfers 0.318 mm (fix-1 S1)",
+         "evidence": {"s1_case_b_true_temple_mm": b, "delivered_transfer_mm_this_record": dl,
+                      "delivered_minus_margin_mm_this_record": None if dl is None else dl - RR.R3_TRANSFER_MARGIN_MM,
+                      "note": "s1_case_b is this record's S1 (or the proof's, for a diagnostic); the delivered value "
+                              "is measured at the gates (GATES R3), so a proof that stops before the gates has none"},
+         "decision": "owner: keep the clause, drop it, or change the margin (a new rule set)"},
+    ]
 
 
 def stage_p2(pf, job, fits_d, start, guides) -> dict:
@@ -87,6 +156,12 @@ def stage_p2(pf, job, fits_d, start, guides) -> dict:
 
 
 def _compare_cache(fit_res, label):
+    """The gates' cameras for a fitted model: the fit's FINAL camera block (relief_fit.fit_temple, FIT_VERSION fit-2 on):
+    every view's §6 refit of the final shape from its base camera and the rear family computed on the final shape
+    (refused for a fit without that block: its cameras were fitted to an earlier shape)."""
+    if not fit_res.get("final_camera_block"):
+        raise ValueError(f"{label}: the fit has no final camera block (fit {fit_res.get('fit_version')!r}); its "
+                         "cameras were not refit to the graded shape")
     out = {}
     for k, f in fit_res["fits"].items():
         out[k] = {"camera": f["camera"], "theta": f["theta"], "refit": f.get("refit"),
@@ -107,22 +182,18 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
             params[k] = tuple(t[k])
     fam = RF.prada_family(params)
     glines = {k: {cn: tuple(v) for cn, v in d.items()} for k, d in p2.get("guide_lines", {}).items()}
-
-    def retrace(family, x, fits):
-        kw = family.kwargs(x)
-        builder = lambda tt, bb: (family.builder(**{**kw, "top": tt, "bottom": bb}) if not family.slab_mode
-                                  else RF.slab_spec(**{**kw, "top": tt, "bottom": bb}))
-        ol = RT.trace_outline(job, family.spec(x), builder, _side_fits({k: fits[k] for k in ("05", "01")}),
-                              ("05", "01"), iters=2, log=pf.hb.log)
-        fam2 = copy.deepcopy(family)
-        fam2.base["top"], fam2.base["bottom"] = ol["top"], ol["bottom"]
-        return fam2
+    retrace = make_retrace(job, pf.hb.log)
     rounds = 2 if quick else RR.FIT_MAX_ROUNDS
     out = {}
     for label, family in (("candidate", fam), ("fitted slab", fam.slab())):
         pf.hb.stage = f"fit {label}"
+        prev = pf.out / f"fit_{label.replace(' ', '_')}.pkl"
+        prev = pickle.loads(prev.read_bytes()) if prev.exists() else None
         res = RF.fit_temple(job, family, guides_lines=glines, rounds=rounds, rear=True, retrace=retrace,
-                            log=pf.hb.log, budget_s=90 * 60)
+                            log=pf.hb.log, budget_s=90 * 60, pool=pf.pool)
+        if prev is not None:                       # a resumed run refits: record whether it reproduced the record
+            res["reproduced_previous_record"] = bool(prev.get("x") == res["x"] and prev.get("loss") == res["loss"])
+            pf.hb.log(f"  {label}: reproduces the previously recorded fit exactly: {res['reproduced_previous_record']}")
         out[label] = res
         (pf.out / f"fit_{label.replace(' ', '_')}.pkl").write_bytes(pickle.dumps(
             {k: v for k, v in res.items() if k not in ("context", "family")}))
@@ -151,12 +222,22 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
     s3["front_bound_active_mm"] = fb.get("hinge_zone_max_mm", 0.0)
     s3["front_bound_stop"] = bool(s3["front_bound_active_mm"] > RR.STOP_C_FRONT_ACTIVE_MM)
     prof = RF.profiles(ctx, cand["family"], x, [n for n in ("x_in0", "r_C", "rise") if n in cand["family"].names],
-                       n=7)
+                       n=7, pool=pf.pool)
     conflicts = RF.conflict_table(prof, cand["sigma"])
-    summ = {label: {"x": r["x"], "loss": r["loss"], "sigma": r["sigma"], "history": r["history"],
+    summ = {label: {"x": r["x"], "loss": r["loss"], "sigma": r["sigma"], "sigma_status": r.get("sigma_status"),
+                    "sigma_flags": r.get("sigma_flags"), "sigma_penalty": r.get("sigma_penalty"),
+                    "penalty_at_fit": r.get("penalty_at_fit"),
+                    "history": r["history"], "final_outline_retraced": r.get("final_outline_retraced"),
                     "details": {k: v for k, v in r["details"].items() if k != "front_bound"},
-                    "front_bound": r["details"].get("front_bound"), "seconds": r["seconds"],
-                    "spec_sha": None} for label, r in out.items()}
+                    "front_bound": r["details"].get("front_bound"),
+                    "front_bound_at_own_cameras": r.get("front_bound_at_own_cameras"),
+                    "termination": r.get("termination"), "rounds_run": r.get("rounds_run"),
+                    "final_camera_block": r.get("final_camera_block"), "rear_family_final": r.get("rear_family_final"),
+                    "fit_version": r.get("fit_version"), "seconds": r["seconds"],
+                    "over_budget": r.get("over_budget"),
+                    "reproduced_previous_record": r.get("reproduced_previous_record"),
+                    "unobserved": r.get("unobserved"),
+                    "spec_sha": _spec_sha(r["spec"])} for label, r in out.items()}
     return {"fits": summ, "s2": s2, "stop_s": stop_s, "s3": s3, "profiles": prof, "conflicts": conflicts,
             "_results": out}
 
@@ -184,6 +265,7 @@ def stage_p3(pf, spec) -> dict:
         res["instrument"] = {"pass": g["pass"], "failed": {s: {k: v for k, v in t["checks"].items() if not v["pass"]}
                                                            for s, t in g["temples"].items()}}
     res["glb"] = str(glb)
+    res["spec_sha256"] = _spec_sha(spec)
     res["source_sha256_unchanged"] = sha(PRADA_SCENE) == pf.rec["source_scene"]["sha256_before"]
     warn = [w.get("code") for w in (ft.get("warnings") or [])]
     res["pass"] = (ft.get("status") == "ok" and res.get("validate_spec", {}).get("ok", False)
@@ -192,7 +274,7 @@ def stage_p3(pf, spec) -> dict:
     return res
 
 
-def stage_gates(pf, job, fits_d, fit_out, p2, guides) -> dict:
+def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     cand_res, slab_res = fit_out["_results"]["candidate"], fit_out["_results"]["fitted slab"]
     models = {"candidate (TOOL TEST)": RV.Model.from_spec(job, cand_res["spec"], "candidate (TOOL TEST)"),
               "fitted slab": RV.Model.from_spec(job, slab_res["spec"], "fitted slab"),
@@ -260,17 +342,30 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides) -> dict:
     geo = report.geometry_numbers(tbc, photo_creases=4)
     g["R1"] = {"share": geo["single_plane_share"], "pass": bool(geo["single_plane_share"] <= RR.R1_SHARE_MAX),
                "vbulge_mm": geo["vbulge_mm"], "pbulge_mm": geo["pbulge_mm"]}
-    # R2
+    # R2: crease views must be registered <= 1 mm at the temple (§5); R2 is judged only with BOTH 05 and 01 usable
+    # (relief_check.r2_verdict): a view the candidate is misregistered in never shrinks what it is graded on
     segs = {}
     cache_c = cache[C]
+    reg = {}
+    reports = {"invented_creases": {}, "shading_residual": {}, "crease_crops": {}}   # report only, never gated
     for key, near in (("05", 1), ("01", -1)):
         f = cache_c[key]
         r = RV.render_model(job, models[C], key, f["camera"], f["theta"], points=True, normals=True)
+        reg[key] = RC.temple_registration_mm(job, key, r, f["camera"], near)
         segs[key] = RC.photo_crease_segments(job, key, r, f["camera"], f["theta"], near,
-                                             decal_mask=RC.decal_mask(job, key, f["camera"]))
-    conf = RC.confirm_creases(segs["05"]["segments"], segs["01"]["segments"])
-    r2 = RC.r2_verdict(segs, conf, segs["05"]["segments"])
-    g["R2"] = {**r2, "pass": bool(r2["pass"])}
+                                             decal_mask=RC.decal_mask(job, key, f["camera"]),
+                                             registration_mm=reg[key]["registration_mm"])
+        reports["invented_creases"][key] = RC.invented_creases(job, key, r, near, f["camera"])
+        reports["shading_residual"][key] = RC.shading_residual(job, key, r, near, f["camera"])
+        crop = pf.out / "views" / f"creases_{key}_candidate_TOOL_TEST.png"
+        RC.crease_crop(job, key, r, segs[key], near, crop, label="TOOL TEST candidate")
+        reports["crease_crops"][key] = str(crop)
+    both = segs["05"]["usable"] and segs["01"]["usable"]
+    conf = RC.confirm_creases(segs["05"]["segments"], segs["01"]["segments"]) if both else []
+    r2 = RC.r2_verdict(segs, conf, segs["05"]["segments"], required=("05", "01"))
+    g["R2"] = {**r2, "registration": reg,
+               "confirmation": "05 and 01" if both else "not judged: a side view is unusable (R2 fails)",
+               "pass": bool(r2["pass"])}
     # R3 transfer: candidate, delivered, slab (each at its own 05 / 02 cameras)
     glines = {k: {cn: tuple(v) for cn, v in d.items()} for k, d in p2.get("guide_lines", {}).items()}
     tr = {}
@@ -278,14 +373,45 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides) -> dict:
         f = cache[lab]
         ctx = RF.Context(job, {k: f[k] for k in ("05", "02")}, {}, (), glines)
         tr[lab] = RF.transfer_all(ctx, models[lab])["mean_mm"]
-    g["R3"] = {"transfer_mm": tr, "pass": bool(tr[C] is not None and tr[C] <= RR.R3_TRANSFER_MAX_MM and
-                                               tr[D] is not None and tr[C] <= tr[D] - RR.R3_TRANSFER_MARGIN_MM and
-                                               tr[S] is not None and tr[C] <= tr[S] - RR.R3_TRANSFER_MARGIN_MM)}
+    lim = {"max_mm": RR.R3_TRANSFER_MAX_MM,
+           "delivered_minus_margin_mm": None if tr[D] is None else tr[D] - RR.R3_TRANSFER_MARGIN_MM,
+           "slab_minus_margin_mm": None if tr[S] is None else tr[S] - RR.R3_TRANSFER_MARGIN_MM}
+    binding = min((v for v in lim.values() if v is not None), default=None)
+    s1b = _s1_case_b(pf.rec)
+    g["R3"] = {"transfer_mm": tr, "limits": lim, "binding_limit_mm": binding,
+               # the comparison the owner's R3 decision needs (open_owner_decisions): what a PERFECT model transfers
+               "s1_case_b_true_temple_mm": s1b,
+               "true_temple_within_binding_limit": None if (s1b is None or binding is None) else bool(s1b <= binding),
+               "open_owner_decision": "R3's 'delivered - 0.5' clause (see the record's open_owner_decisions)",
+               "pass": bool(tr[C] is not None and tr[C] <= RR.R3_TRANSFER_MAX_MM and
+                            tr[D] is not None and tr[C] <= tr[D] - RR.R3_TRANSFER_MARGIN_MM and
+                            tr[S] is not None and tr[C] <= tr[S] - RR.R3_TRANSFER_MARGIN_MM)}
     # R4
     r4 = {k: (V[k]["models"][C]["roi"]["contour_mm"], V[k]["models"][S]["roi"]["contour_mm"]) for k in V}
     g["R4"] = {"contours": r4, "pass": all(c <= s + RR.R4_SLAB_MARGIN_MM for c, s in r4.values())}
-    return {"gates": g, "views": rep, "pass": all(v["pass"] for v in g.values()),
+    g["V"] = v_gate(p3)
+    # the relief sheet for Astra (§5): sections at the photo nodes, fitted values, sigma, front bound, UNOBSERVED
+    sheet = pf.out / "views" / "relief_sheet_candidate_TOOL_TEST.png"
+    rs = RC.relief_sheet(cand_res["spec"], sheet, x=cand_res["x"], sigma=cand_res["sigma"],
+                         sigma_status=cand_res.get("sigma_status"),
+                         front_bound=V["04"]["models"][C].get("front_bound"), unobserved=cand_res.get("unobserved"),
+                         label="TOOL TEST candidate")
+    reports["relief_sheet"] = {"path": str(sheet), "stations": rs["stations"], "sigma_shown": rs["sigma_shown"]}
+    return {"gates": g, "views": rep, "reports": reports, "pass": all(v["pass"] for v in g.values()),
             "failed": [k for k, v in g.items() if not v["pass"]]}
+
+
+def v_gate(p3: dict | None) -> dict:
+    """§8 V on the P3 build of the candidate: validate_spec passes (spec.py, which WP1 proved equal to arview's own
+    refusals on 143 cases and the real GLBs, so "the arview capture loads with no new refusal" is this check; the
+    owner's webcam session comes after the gates) and W_HINGE_LEAF / W_KNUCKLE_PENETRATION are clear."""
+    if not p3 or p3.get("error"):
+        return {"pass": False, "why": "P3 (the candidate built on a scene copy) has no result to grade",
+                "p3_error": (p3 or {}).get("error")}
+    vs = (p3.get("validate_spec") or {}).get("ok", False)
+    hw = p3.get("hinge_warnings") or []
+    return {"validate_spec_ok": bool(vs), "hinge_warnings": hw, "tool_status": (p3.get("tool") or {}).get("status"),
+            "pass": bool(vs and not hw and (p3.get("tool") or {}).get("status") == "ok")}
 
 
 def label_sheet(path: Path, text: str) -> None:
@@ -308,14 +434,32 @@ def run_rest(pf, job, fits_d, start, gp, stages, args):
         if p2.get("error"):
             return pf.stop("STOP-T", "P2 tracing crashed", p2["error"])
         pf.rec["p2_pass"] = p2.get("pass")
+    elif "fit" in stages:
+        # the fit starts from P2's traced outline, corners and crease lines: never silently without them
+        p2 = pf.rec["stages"].get("P2") or {}
+        if not p2.get("guide_lines") or p2.get("error"):
+            return pf.stop("STOP-T", "the fit needs P2's traced outline and crease lines and none are on record "
+                           "(add p2 to --stages)", p2.get("error"))
+        pf.hb.log("P2 not in --stages: the fit starts from the recorded P2 (traced outline, corners, crease lines)")
     if "fit" not in stages:
         return "stopped after P2 (stages)"
     fo = pf.stage("FIT", lambda: stage_fit(pf, job, start, p2, args.quick))
     if fo.get("error"):
         return pf.stop("STOP-S", "the joint fit crashed", fo["error"])
     res_obj = fo.pop("_results", None)
+    # §5 / §7 UNOBSERVED (what Astra keeps at its default, §12): the candidate fit's list only (F4 tilt; parameters
+    # with a flat objective). S1's failures are not UNOBSERVED parameters: they are recorded under "s1_failures"
+    # (wp6_prada.py, with their STOP-I status)
+    pf.rec["unobserved"] = {"from_fit": (fo.get("fits", {}).get("candidate") or {}).get("unobserved")}
     pf.save()
     fo["_results"] = res_obj
+    # STOP-R holds for ANY model (§9): the candidate's and the fitted slab's rear families too, not only the delivered
+    for lab, r in (res_obj or {}).items():
+        fam = (r.get("fits", {}).get("06") or {}).get("family")
+        if fam and fam.get("stop_r"):
+            return pf.stop("STOP-R", f"every alpha of the {lab}'s rear family sits at a pitch bound or its frame guard "
+                           "exceeds 2 mm", {"model": lab, "family": {k: fam[k] for k in ("family", "loss_min",
+                                                                                        "stop_r")}})
     if fo["stop_s"]:
         return pf.stop("STOP-S", "a relief-seeing view's temple contour exceeds 1.5 x its front contour + 0.3 mm",
                        fo["s2"])
@@ -323,12 +467,15 @@ def run_rest(pf, job, fits_d, start, gp, stages, args):
         return pf.stop("STOP-C", "an observable's own optimum lies outside max(1 mm, 2 sigma) of the joint optimum, "
                        "or the joint optimum needs the front bound active", {"s3": fo["s3"], "conflicts": fo["conflicts"]})
     spec_c = res_obj["candidate"]["spec"]
+    p3 = pf.rec["stages"].get("P3")                 # a resumed run grades V on the recorded P3 of this spec
+    if p3 is not None and p3.get("spec_sha256") != _spec_sha(spec_c):
+        p3 = None
     if "p3" in stages:
         p3 = pf.stage("P3", lambda: stage_p3(pf, spec_c))
         if not p3.get("pass"):
             return pf.stop("STOP-T", "P3 build on the scene copy failed", p3)
     if "gates" in stages:
-        gt = pf.stage("GATES", lambda: stage_gates(pf, job, fits_d, fo, p2, guides))
+        gt = pf.stage("GATES", lambda: stage_gates(pf, job, fits_d, fo, p2, guides, p3))
         label_sheet(pf.out / "views" / "six_view_sheet.png", "TOOL TEST - WP6 $0 proof on a Prada scene copy; "
                     "not a delivered model")
         if gt.get("error"):

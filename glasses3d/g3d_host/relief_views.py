@@ -8,13 +8,17 @@ scored at its OWN bounded camera refit and per-photo hinge angle, inside one tem
                       opens by theta about its vertical hinge axis
     render_model      front and temple scenes rendered separately and merged by depth: mask, part tag (0 = not a
                       temple, +1 / -1 = temple side), hit points / normals, station d of temple hits
+    render_mask       render_model's mask, bit for bit, without the depth merge and with each camera's rays reused
+    render_tags       render_model's mask, tag and station d, bit for bit, merged only inside the temples' box
+                      (both for the joint fit's objective; tests/test_temple_fit_parallel.py)
     refit_camera      staged bounded Powell from the base camera inside yaw +-3, pitch +-2, roll +-1 deg, scale +-3 %,
                       shift +-10 px, perspective +-0.1; kept only if the front-part contour degrades <= 0.1 mm
     fit_theta         per photo and temple side in [-4, +12] deg: 1 deg grid, then bounded Brent, on the temple ROI
     rear_family       06: camera refit per symmetric opening alpha with pitch in [5, 16] deg and perspective in
                       [0.03, 0.4]; the family = every alpha with loss <= 1.2 x the minimum; frame-fit guard per alpha
     temple_roi        dilate20(union of every model's temple pixels) U dilate10(matte minus dilate6(non-temple))
-    roi_metrics       IoU and symmetric contour distance (mm at the hinge-zone px/mm, truncated at 60 px)
+    roi_metrics       IoU and symmetric contour distance (mm at the hinge-zone px/mm, truncated at 60 px); computed
+                      on the ROI box with a k-d tree, bit for bit the full-image distance-transform formula
     envelopes         top / rear: per row the outermost run's outer and inner edge and width, photo vs model, rows
                       split by the render hit's station into hinge zone (d < 50) and arm band (60-130)
     front_bound       04: temple pixels of the hinge zone outside the photo silhouette by more than 0.2 mm
@@ -28,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -199,8 +204,11 @@ class Model:
         return np.vstack(Vs), np.vstack(Fs), np.concatenate(tags)
 
 
-def _cam_key(cam: Camera) -> tuple:
-    return tuple(round(float(v), 10) for v in cam.to_dict().values())
+def _cam_key(cam: Camera) -> bytes:
+    """The front-render cache key: the camera's exact float64 fields (it was rounded to 1e-10, which let two distinct
+    cameras share a cached render, so a value could depend on which camera a process rendered first: a hole for the
+    pooled fit, whose workers each have their own cache)."""
+    return np.array([float(v) for v in cam.to_dict().values()], np.float64).tobytes()
 
 
 def render_model(job: Job, model: Model, key: str, cam: Camera, theta: dict, *, points: bool = True,
@@ -242,6 +250,122 @@ def render_model(job: Job, model: Model, key: str, cam: Camera, theta: dict, *, 
     return out
 
 
+def render_mask(job: Job, model: Model, key: str, cam: Camera, theta: dict) -> np.ndarray:
+    """render_model(job, model, key, cam, theta, points=False)["mask"], bit for bit, for the joint fit's objective
+    (WP6 parallel-fit profiling: generating the temples' rays was most of a render). A pixel of the merged render is
+    hit exactly when some part is hit (a hit's depth is finite, a miss's inf), so no depth merge is needed; the front
+    part comes from the same per-camera cache as render_model's; each temple is cast with `_scene_mask`."""
+    shape = job.shape(key)
+    ck = (key, _cam_key(cam), False, False)
+    if ck not in job._front:
+        if len(job._front) > 24:
+            job._front.clear()
+        job._front[ck] = job.front_scene().render(cam, shape, 1, want_points=False, want_normal=False)
+    m = job._front[ck]["mask"].copy()
+    for s in (1, -1):
+        V, F = model.temple_mesh(s, theta.get(s, 0.0), job.hinge["axis_xz_mm"])
+        m |= _scene_mask(raster.get_scene(V, F, job.frame), cam, shape)
+    return m
+
+
+def render_tags(job: Job, model: Model, key: str, cam: Camera, theta: dict) -> dict:
+    """render_model(job, model, key, cam, theta, points=True)'s "mask", "tag" and "d", bit for bit (what the front
+    bound reads; WP6 parallel-fit profiling: the full-image merge of three point images was most of the front view's
+    cost). Outside the box of the temples' hits every merged pixel is the front part's (tag 0) or a miss (-2), with
+    no station; inside it the merge runs exactly as in render_model, per pixel, in the same part order (so a depth
+    tie still goes to the front part)."""
+    shape = job.shape(key)
+    ck = (key, _cam_key(cam), True, False)
+    if ck not in job._front:
+        if len(job._front) > 24:
+            job._front.clear()
+        job._front[ck] = job.front_scene().render(cam, shape, 1, want_points=True, want_normal=False)
+    parts = [(0, job._front[ck])]
+    for s in (1, -1):
+        V, F = model.temple_mesh(s, theta.get(s, 0.0), job.hinge["axis_xz_mm"])
+        parts.append((s, raster.get_scene(V, F, job.frame).render(cam, shape, 1, want_points=True)))
+    temple_hit = parts[1][1]["mask"] | parts[2][1]["mask"]
+    out = {"mask": parts[0][1]["mask"] | temple_hit, "tag": np.where(parts[0][1]["mask"], 0, -2),
+           "d": np.full(shape, np.nan)}
+    box = roi_box(temple_hit)
+    if box is None:
+        return out
+    sl = np.s_[box[0]:box[1], box[2]:box[3]]
+    depth = np.stack([r["depth"][sl] for _, r in parts])
+    win = np.argmin(depth, axis=0)
+    hit = np.isfinite(depth.min(axis=0))
+    tagv = np.array([t for t, _ in parts])
+    tag = np.where(hit, tagv[win], -2)
+    out["tag"][sl] = tag
+    P = np.stack([r["points"][sl] for _, r in parts])
+    pts = np.take_along_axis(P, win[None, ..., None], 0)[0]
+    d = out["d"][sl]
+    for s in (1, -1):
+        sel = tag == s
+        if sel.any():
+            Q = rot_about_hinge(pts[sel], s, -theta.get(s, 0.0), job.hinge["axis_xz_mm"])
+            d[sel] = job.hinge["z_mm"] - Q[:, 2]
+    return out
+
+
+_RAYS: "OrderedDict" = OrderedDict()      # per process: camera -> image region and its float32 rays
+_RAYS_KEEP = 6                            # one camera per view (~15-25 MB each on Prada)
+_RAYS_MARGIN_PX = 48
+
+
+def _scene_mask(scene, cam: Camera, shape) -> np.ndarray:
+    """RasterScene.render(cam, shape, 1)["mask"], bit for bit: the same culling box, the same near-plane rule and the
+    same rays in the same order, but the rays come from a per-camera cache. raster.camera_rays is elementwise in
+    (u, v), so a pixel's float32 ray is the same whether it was generated for this box or for a larger cached
+    region."""
+    H, W = int(shape[0]), int(shape[1])
+    out = np.zeros((H, W), bool)
+    us, vs = raster.pixel_grid(shape, 1, None)
+    j0, j1, i0, i1 = 0, len(us), 0, len(vs)
+    pts = raster._project_norm(scene.hull, cam)
+    if pts is not None:
+        lo, hi = pts.min(axis=0) - 1e-6, pts.max(axis=0) + 1e-6
+        j0, j1 = np.searchsorted(us, lo[0], "left"), np.searchsorted(us, hi[0], "right")
+        i0, i1 = np.searchsorted(vs, lo[1], "left"), np.searchsorted(vs, hi[1], "right")
+        if j1 <= j0 or i1 <= i0:
+            return out
+    if cam.perspective * scene.max_radius >= 0.95:                  # RasterScene.cast's near-plane rule
+        toward = raster.camera_basis(cam)[2]
+        if np.any(1.0 - cam.perspective * (scene.hull @ toward) <= 0.05):
+            raise ValueError("Geometry crosses the camera near plane")
+    i0, i1, j0, j1 = int(i0), int(i1), int(j0), int(j1)
+    rays = _region_rays(cam, (H, W), us, vs, scene.z0, i0, i1, j0, j1)
+    ans = scene._scene.cast_rays(raster.o3d.core.Tensor(rays))
+    prim = ans["primitive_ids"].numpy()
+    t = ans["t_hit"].numpy().astype(np.float64)
+    out[i0:i1, j0:j1] = ((prim != raster.INVALID) & np.isfinite(t)).reshape(i1 - i0, j1 - j0)
+    return out
+
+
+def _region_rays(cam: Camera, shape, us, vs, z0: float, i0: int, i1: int, j0: int, j1: int) -> np.ndarray:
+    """(N, 6) float32 rays of the pixels [i0:i1, j0:j1], row-major (RasterScene.render's order), from the cache; a
+    region not covered is regenerated as the union with the cached one, grown by _RAYS_MARGIN_PX."""
+    key = (np.array([getattr(cam, f) for f in ("yaw", "pitch", "roll", "perspective", "scale", "center_x",
+                                                 "center_y")] + [float(z0)], np.float64).tobytes(), shape)
+    ent = _RAYS.get(key)
+    if ent is not None and ent[0] <= i0 and i1 <= ent[1] and ent[2] <= j0 and j1 <= ent[3]:
+        _RAYS.move_to_end(key)
+    else:
+        H, W = shape
+        r0, r1, c0, c1 = (i0, i1, j0, j1) if ent is None else (min(i0, ent[0]), max(i1, ent[1]), min(j0, ent[2]),
+                                                               max(j1, ent[3]))
+        r0, r1 = max(0, r0 - _RAYS_MARGIN_PX), min(H, r1 + _RAYS_MARGIN_PX)
+        c0, c1 = max(0, c0 - _RAYS_MARGIN_PX), min(W, c1 + _RAYS_MARGIN_PX)
+        uu, vv = np.meshgrid(us[c0:c1], vs[r0:r1])
+        o, d = raster.camera_rays(cam, uu.ravel(), vv.ravel(), z0)
+        ent = (r0, r1, c0, c1, np.concatenate([o, d], axis=1).astype(np.float32).reshape(r1 - r0, c1 - c0, 6))
+        _RAYS[key] = ent
+        while len(_RAYS) > _RAYS_KEEP:
+            _RAYS.popitem(last=False)
+    r0, _, c0, _, R = ent
+    return np.ascontiguousarray(R[i0 - r0:i1 - r0, j0 - c0:j1 - c0]).reshape(-1, 6)
+
+
 # --------------------------------------------------------------------------------------------- metrics
 def _edge(mask):
     return mask & ~ndimage.binary_erosion(mask, border_value=0)
@@ -266,7 +390,63 @@ def temple_roi(job: Job, key: str, renders: list) -> np.ndarray:
                                                               RR.ROI_DILATE_MATTE_PX)
 
 
+def roi_box(roi: np.ndarray, grow: int = 0) -> tuple | None:
+    """(y0, y1, x0, x1), half-open, of the ROI's True pixels grown by `grow` px and clipped to the image; None when
+    the ROI is empty."""
+    rows, cols = np.flatnonzero(roi.any(axis=1)), np.flatnonzero(roi.any(axis=0))
+    if not len(rows):
+        return None
+    H, W = roi.shape
+    return (max(0, int(rows[0]) - grow), min(H, int(rows[-1]) + 1 + grow),
+            max(0, int(cols[0]) - grow), min(W, int(cols[-1]) + 1 + grow))
+
+
+ROI_BOX_GROW_PX = RR.CONTOUR_TRUNC_PX + 2
+
+
 def roi_metrics(fg: np.ndarray, mask: np.ndarray, roi: np.ndarray, ppm: float) -> dict:
+    """`roi_metrics_full`, bit for bit, at a fraction of the cost (WP6 parallel-fit profiling: the two full-image
+    distance transforms were half of an objective evaluation).
+    1. Crop to the ROI's bounding box grown by CONTOUR_TRUNC_PX + 2 px. Every distance is truncated at
+       CONTOUR_TRUNC_PX, so an edge pixel that can set a truncated distance at an ROI pixel lies >= 2 px inside the box
+       (its 4-neighbourhood, which `_edge`'s erosion reads, is the image's); the crop changes only box-border pixels
+       (eroded against the border value), >= 62 px from every ROI pixel: they can only offer distances above the
+       truncation, and they are outside the ROI themselves.
+    2. Nearest edge pixel by a k-d tree instead of the distance transform: the distance is then formed exactly as
+       scipy's `distance_transform_edt` forms it from its (exact) feature transform, sqrt(float64(dy^2 + dx^2)) of the
+       integer offsets, so ties between equally near pixels give the same value.
+    The ROI's edge pixels keep their row-major order, so the means sum the same values in the same order
+    (tests/test_temple_fit_parallel.py compares both formulas)."""
+    box = roi_box(roi, ROI_BOX_GROW_PX)
+    if box is None:
+        return roi_metrics_full(fg, mask, roi, ppm)
+    sl = np.s_[box[0]:box[1], box[2]:box[3]]
+    fg, mask, roi = fg[sl], mask[sl], roi[sl]
+    a, b = fg & roi, mask & roi
+    inter, union = int((a & b).sum()), int((a | b).sum())
+    e_fg, e_md = _edge(fg), _edge(mask)
+    ea, eb = e_fg & roi, e_md & roi
+    if not ea.any() or not eb.any():
+        return {"iou": inter / max(union, 1), "contour_mm": float("inf"), "photo_to_model_mm": float("inf"),
+                "model_to_photo_mm": float("inf")}
+    da = np.minimum(_nearest_edge_px(ea, e_md), RR.CONTOUR_TRUNC_PX)
+    db = np.minimum(_nearest_edge_px(eb, e_fg), RR.CONTOUR_TRUNC_PX)
+    return {"iou": inter / max(union, 1), "contour_mm": float((da.mean() + db.mean()) / 2 / ppm),
+            "photo_to_model_mm": float(da.mean() / ppm), "model_to_photo_mm": float(db.mean() / ppm)}
+
+
+def _nearest_edge_px(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+    """For each True pixel of `src` (row-major order): the distance to the nearest True pixel of `dst` (non-empty),
+    as distance_transform_edt(~dst)[src] computes it."""
+    from scipy.spatial import cKDTree
+    q, t = np.argwhere(src), np.argwhere(dst)
+    _, idx = cKDTree(t).query(q, k=1)
+    dv = (t[idx] - q).astype(np.float64)
+    dv *= dv
+    return np.sqrt(dv[:, 0] + dv[:, 1])
+
+
+def roi_metrics_full(fg: np.ndarray, mask: np.ndarray, roi: np.ndarray, ppm: float) -> dict:
     a, b = fg & roi, mask & roi
     inter, union = int((a & b).sum()), int((a | b).sum())
     ea, eb = _edge(fg) & roi, _edge(mask) & roi
@@ -396,16 +576,26 @@ def turntable_seed(job: Job, cam_front: Camera) -> Camera:
 REAR_BOUNDS = {"yaw": 4.0, "pitch": 14.0, "roll": 3.0, "scale_pct": 20.0, "shift_px": 40.0, "persp": 0.4}
 
 
-def rear_family(job: Job, model: Model, seeds: list, alphas=RR.REAR_ALPHAS_DEG) -> dict:
+REAR_REFIT = {"bounds": REAR_BOUNDS, "pitch_win": RR.REAR_PITCH_DEG, "persp_win": RR.REAR_PERSPECTIVE,
+              "maxfev": {"fit": 300, "final": 160}}
+
+
+def rear_family(job: Job, model: Model, seeds: list, alphas=RR.REAR_ALPHAS_DEG, refit_many=None) -> dict:
     """06: one camera per symmetric opening alpha (pitch in REAR_PITCH_DEG, perspective in REAR_PERSPECTIVE), from the
-    best of the seeds; the family = every alpha with loss <= REAR_FAMILY_RATIO x the minimum."""
+    best of the seeds; the family = every alpha with loss <= REAR_FAMILY_RATIO x the minimum. `refit_many(calls)`
+    (relief_fit.FitPool) runs the alpha x seed refits [(key, seed, theta, kwargs)] in parallel and returns their
+    (camera, info) in call order; the best seed per alpha is then chosen exactly as in the serial loop."""
+    calls = [("06", seed, {1: float(a), -1: float(a)}, REAR_REFIT) for a in alphas for seed in seeds]
+    if refit_many is None:
+        done = [refit_camera(job, model, k, seed, th, **kw) for k, seed, th, kw in calls]
+    else:
+        done = refit_many(calls)
     rows = []
-    for a in alphas:
+    for i, a in enumerate(alphas):
         th = {1: float(a), -1: float(a)}
         best = None
-        for seed in seeds:
-            cam, info = refit_camera(job, model, "06", seed, th, bounds=REAR_BOUNDS, pitch_win=RR.REAR_PITCH_DEG,
-                                     persp_win=RR.REAR_PERSPECTIVE, maxfev={"fit": 300, "final": 160})
+        for j in range(len(seeds)):
+            cam, info = done[i * len(seeds) + j]
             if best is None or info["loss"] < best[1]["loss"]:
                 best = (cam, info)
         cam, info = best
@@ -521,11 +711,23 @@ def side_outline(job: Job, key: str, r: dict, cam: Camera, near: int, search_px:
     return out
 
 
+def outside_px(job: Job, key: str) -> np.ndarray:
+    """distance_transform_edt(~matte) of a view (px from the photo silhouette), computed once per job: a pure
+    function of the matte, which the front bound read anew at every objective evaluation."""
+    cache = job.__dict__.setdefault("_outside_px", {})
+    fg = job.matte(key)
+    ent = cache.get(key)
+    if ent is None or ent[0] is not fg:
+        ent = (fg, ndimage.distance_transform_edt(~fg))
+        cache[key] = ent
+    return ent[1]
+
+
 def front_bound(job: Job, r: dict, cam: Camera, zone_end: float = RR.HINGE_ZONE_D[1]) -> dict:
     """04: temple pixels outside the photo silhouette by more than FRONT_BOUND_TOL_MM (hinge zone d < zone_end
     reported apart from arm tops)."""
     fg = job.matte("04")
-    out_px = ndimage.distance_transform_edt(~fg)
+    out_px = outside_px(job, "04")
     k = job.front_ppm(cam)
     t = (np.abs(r["tag"]) == 1) & r["mask"]
     over = t & (out_px > RR.FRONT_BOUND_TOL_MM * k)
@@ -574,7 +776,10 @@ def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | 
                          fits: dict | None = None, rear: bool = True, cross_pair: tuple | None = None,
                          log=print) -> dict:
     """Every model at its own refit cameras and theta_k, one ROI per view; the rear family per model; the 2x2 cross
-    check for `cross_pair` = (candidate label, delivered label). `fits` caches {label: {key: fit}}."""
+    check for `cross_pair` = (candidate label, delivered label). `fits` caches {label: {key: fit}}; a cached "06_family"
+    must be the rear family OF THAT MODEL'S SHAPE (relief_fit.fit_temple's final camera block computes it on the
+    final shape), and a cached "06" fit is kept as given (only a model without one gets the family's best camera and
+    its fit_theta, which is what relief_fit.refit_views records as the 06 fit)."""
     keys = list(VIEW_ORDER) if views == "all" else list(views)
     fits = fits if fits is not None else {}
     rep = {"views": {}, "models": list(models), "rules": RR.RULES_VERSION}
@@ -599,12 +804,13 @@ def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | 
                     f"({time.perf_counter() - t0:.0f} s)")
             fam = fits[label]["06_family"]
             families[label] = fam
-            best = min(fam["rows"], key=lambda r_: r_["loss"])
-            cam = Camera.from_dict(best["camera"])
-            th = fit_theta(job, model, "06", cam, {1: best["alpha"], -1: best["alpha"]})
-            fits[label]["06"] = {"camera": cam, "theta": {s: th[s]["theta"] for s in (1, -1)},
-                                 "theta_fit": {str(s): th[s] for s in (1, -1)}, "refit": best["refit"],
-                                 "alpha": best["alpha"]}
+            if (fits[label].get("06") or {}).get("camera") is None:
+                best = min(fam["rows"], key=lambda r_: r_["loss"])
+                cam = Camera.from_dict(best["camera"])
+                th = fit_theta(job, model, "06", cam, {1: best["alpha"], -1: best["alpha"]})
+                fits[label]["06"] = {"camera": cam, "theta": {s: th[s]["theta"] for s in (1, -1)},
+                                     "theta_fit": {str(s): th[s] for s in (1, -1)}, "refit": best["refit"],
+                                     "alpha": best["alpha"]}
     for k in keys:
         renders = {}
         for label, model in models.items():
@@ -622,7 +828,7 @@ def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | 
         for label, model in models.items():
             f = fits[label][k]
             sc, _ = score_view(job, model, k, f["camera"], f["theta"], roi)
-            sc["refit"] = f["refit"]
+            sc["refit"] = f.get("refit")
             sc["theta_fit"] = f.get("theta_fit")
             vrep["models"][label] = sc
         if k == "06" and families:

@@ -21,11 +21,13 @@ temples, writes once, and reports. Conventions:
   is auto-smoothed (zero custom vector);
 - roll_mm > 0: Bevel (limit by weight on the outer long edges, 8 segments, harden normals) applied, then re-checked
   (closed manifold, Euler 2, facet planarity <= 1e-4 mm, side silhouette = outline <= 0.01 mm); failure -> E_ROLL;
-- decals="auto": thin or open parts lying within 1 mm of the old temple surface are ray-projected along their mean
-  surface normal onto the new temple + 0.05 mm (moved through the same datablock swap; restored by unfaceted_temple);
+- decals="auto": parts lying within 1 mm of the old temple surface that are open or thin (bbox, or thickness along
+  the surface normal: measure.is_surface_decal) are ray-projected along their mean surface normal onto the new temple
+  + 0.05 mm (moved through the same datablock swap; restored by unfaceted_temple);
 - extras: partRole temple, region temple_+x / temple_-x, g3d_temple = canonical spec + core version + sha256 +
   facet table (the exporter copies it to the GLB only once WP4's allowlist names it);
-- hinge parts are never moved; the receipt reports the leaf-to-inner-face gap, temple-knuckle contact and frame-
+- hinge parts are never moved (measure.hinge_part_kind: knuckles and temple leaves are excluded from decal planning,
+  however close and thin they are); the receipt reports the leaf-to-inner-face gap, temple-knuckle contact and frame-
   knuckle penetration (W_HINGE_LEAF, W_KNUCKLE_PENETRATION).
 Geometry problems never raise: every function returns a dict with "status" and, when refused, "code".
 """
@@ -56,13 +58,13 @@ from .temple.spec import TempleError
 BACKUP_SUFFIX = " | g3d pre-temple"
 PROP_TEMPLE = "g3d_temple"
 PROP_BACKUP = "g3d_temple_backup"
-DECAL_NEAR_MM = 1.0             # a decal lies within this of the old temple surface
+DECAL_NEAR_MM = MS.DECAL_NEAR_MM   # a decal lies within this of the old temple surface (the shared rule:
+DECAL_THIN_MM = MS.DECAL_THIN_MM   # measure.is_surface_decal, also the host's photo-crease decal mask)
 DECAL_LIFT_MM = 0.05            # ... and lands this far above the new one
-DECAL_THIN_MM = 0.3             # or is thinner than this (closed but flat)
 DECAL_RAY_MM = 12.0
-HINGE_NEAR_MM = 4.0             # hinge parts: bbox within this of the hinge plane ...
-HINGE_X_MM = 8.0                # ... and of the hinge axis in x
-KNUCKLE_MAX_MM = 3.2            # a hinge part smaller than this in x and z is a knuckle
+HINGE_NEAR_MM = MS.HINGE_NEAR_MM   # hinge parts (the shared rule: measure.hinge_part_kind, also the host's decal mask)
+HINGE_X_MM = MS.HINGE_X_MM
+KNUCKLE_MAX_MM = MS.KNUCKLE_MAX_MM
 TEMPLE_MIN_REACH_MM = 60.0
 ROLL_SEGMENTS = 8
 ROLL_PLANAR_MM = 1e-4
@@ -235,24 +237,18 @@ def select_targets(sides, targets, scene, origin) -> dict:
 
 def default_axis(side: int, hinge_z: float, scene, origin, exclude) -> tuple[list | None, list]:
     """Bbox centre (|x|, z) of the temple-role knuckles (hinge parts smaller than KNUCKLE_MAX_MM in x and z near the
-    hinge plane) on one side, and the names used."""
-    pts, used = [], []
+    hinge plane) on one side, and the names used (measure.knuckle_axis, shared with the host)."""
+    used, boxes = [], []
     for ob in scene.objects:
         if ob in exclude or ob.type != "MESH" or _role(ob) != "temple":
             continue
         V, _, _ = mesh_arrays(ob, origin)
         lo, hi = _bbox(V)
-        c = (lo + hi) / 2
-        if side * c[0] <= 0 or abs(c[2] - hinge_z) > HINGE_NEAR_MM:
-            continue
-        if (hi[0] - lo[0]) < KNUCKLE_MAX_MM and (hi[2] - lo[2]) < KNUCKLE_MAX_MM:
-            pts += [lo, hi]
+        if MS.knuckle_axis([(lo, hi, "temple")], side, hinge_z) is not None:
+            boxes.append((lo, hi, "temple"))
             used.append(ob.name)
-    if not pts:
-        return None, []
-    P = np.array(pts)
-    lo, hi = P.min(axis=0), P.max(axis=0)
-    return [float(abs((lo[0] + hi[0]) / 2)), float((lo[2] + hi[2]) / 2)], used
+    ax = MS.knuckle_axis(boxes, side, hinge_z)
+    return (ax, used) if ax is not None else (None, [])
 
 
 # --------------------------------------------------------------------------------------------- planning
@@ -288,17 +284,8 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
         lo, hi = _bbox(V)
         if side * (lo[0] + hi[0]) <= 0:
             continue
-        thin = float(np.min(hi - lo)) < DECAL_THIN_MM
-        E = {}
-        for p in polys:
-            for k in range(len(p)):
-                e = (min(p[k], p[(k + 1) % len(p)]), max(p[k], p[(k + 1) % len(p)]))
-                E[e] = E.get(e, 0) + 1
-        open_ = any(c == 1 for c in E.values())
-        if not (thin or open_):
-            continue
         near, normals = [], []
-        for v in V:
+        for v in V:                                   # cheap rejection first: any vertex beyond DECAL_NEAR_MM
             loc, nrm, idx, dist = old_bvh.find_nearest(Vector(tuple(map(float, v))))
             if loc is None or dist > DECAL_NEAR_MM:
                 near = None
@@ -306,6 +293,14 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
             near.append(np.array(loc))
             normals.append(np.array(nrm))
         if near is None:
+            continue
+        E = {}
+        for p in polys:
+            for k in range(len(p)):
+                e = (min(p[k], p[(k + 1) % len(p)]), max(p[k], p[(k + 1) % len(p)]))
+                E[e] = E.get(e, 0) + 1
+        open_ = any(c == 1 for c in E.values())
+        if not MS.is_surface_decal(_signed_distance(old_bvh, V, side), float(np.min(hi - lo)), open_):
             continue
         n = np.mean(normals, axis=0)
         n /= np.linalg.norm(n)
@@ -324,34 +319,44 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
     return plans
 
 
-def hinge_report(new_bvh, old_bvh, side, axis, hinge_z, scene, origin, exclude) -> dict:
-    """Leaf-to-inner-face gap, temple-knuckle contact and frame-knuckle penetration against the planned temple."""
-    rep = {"leaves": [], "temple_knuckles": [], "frame_knuckles": []}
+def hinge_parts(side, axis, hinge_z, scene, origin, exclude) -> list:
+    """[(object, kind)] of one side's hinge parts (measure.hinge_part_kind: "temple_knuckle", "frame_knuckle",
+    "leaf"), in scene order; empty without a hinge axis. These are never moved: plan_decals never takes one as a
+    decal, and hinge_report grades them against the planned temple."""
+    out = []
     if axis is None:
-        return rep
-    ax = side * axis[0]
+        return out
     for ob in scene.objects:
-        if ob in exclude or ob.type != "MESH":
-            continue
-        role = _role(ob)
-        if role not in ("temple", "frame"):
+        if ob in exclude or ob.type != "MESH" or _role(ob) not in ("temple", "frame"):
             continue
         V, _, _ = mesh_arrays(ob, origin)
         lo, hi = _bbox(V)
-        if hi[2] < hinge_z - HINGE_NEAR_MM - 4 or lo[2] > hinge_z + HINGE_NEAR_MM or \
-                hi[0] < ax - HINGE_X_MM or lo[0] > ax + HINGE_X_MM or len(V) > 20000:
+        kind = MS.hinge_part_kind(lo, hi, _role(ob), side, axis[0], hinge_z, len(V))
+        if kind is not None:
+            out.append((ob, kind))
+    return out
+
+
+def hinge_report(new_bvh, old_bvh, side, axis, hinge_z, scene, origin, exclude, parts=None) -> dict:
+    """Leaf-to-inner-face gap, temple-knuckle contact and frame-knuckle penetration against the planned temple
+    (`parts` = hinge_parts(...) when the caller already has them)."""
+    rep = {"leaves": [], "temple_knuckles": [], "frame_knuckles": []}
+    if axis is None:
+        return rep
+    for ob, kind in (hinge_parts(side, axis, hinge_z, scene, origin, exclude) if parts is None else parts):
+        if ob in exclude:
             continue
-        small = (hi[0] - lo[0]) < KNUCKLE_MAX_MM and (hi[2] - lo[2]) < KNUCKLE_MAX_MM
+        V, _, _ = mesh_arrays(ob, origin)
         sd_new = _signed_distance(new_bvh, V, side)
         sd_old = _signed_distance(old_bvh, V, side)
         rec = {"name": ob.name, "min_signed_mm": float(sd_new.min()), "old_min_signed_mm": float(sd_old.min())}
-        if small and role == "temple":
+        if kind == "temple_knuckle":
             rec["contact"] = bool(sd_new.min() <= 0.1)
             rep["temple_knuckles"].append(rec)
-        elif small and role == "frame":
+        elif kind == "frame_knuckle":
             rec["penetration_mm"] = float(max(0.0, -sd_new.min()))
             rep["frame_knuckles"].append(rec)
-        elif role == "temple" and (hi[2] - lo[2]) < 15.0:
+        else:
             rec["gap_mm"] = _leaf_gap(new_bvh, V, side)
             rec["old_gap_mm"] = _leaf_gap(old_bvh, V, side)
             rep["leaves"].append(rec)
@@ -658,8 +663,12 @@ def _plan_side(tb, side, ob, origin, scene, decals, targets, planned_meshes: lis
     region = list(tb.poly_region)
     plan["decals"] = []
     plan["decal_meshes"] = []
-    if decals == "auto":
-        plan["decals"] = plan_decals(old_bvh, new_bvh, region, side, scene, origin, excl)
+    axis = tb.spec.hinge["axis_xz_mm"]
+    hparts = hinge_parts(side, axis, tb.spec.hinge["z_mm"], scene, origin, excl)
+    plan["hinge_parts"] = [{"name": ob.name, "kind": kind} for ob, kind in hparts]
+    if decals == "auto":                     # §3: hinge parts are never moved, so never a decal
+        plan["decals"] = plan_decals(old_bvh, new_bvh, region, side, scene, origin,
+                                     excl | {ob for ob, _ in hparts})
         for d in plan["decals"]:
             if len([r for r in d["regions"] if r not in ("top", "bottom", "cap_hinge", "cap_tip")]) > 1:
                 plan["warnings"].append({"code": "W_DECAL_SPANS_CREASE", "decal": d["name"], "regions": d["regions"],
@@ -672,9 +681,9 @@ def _plan_side(tb, side, ob, origin, scene, decals, targets, planned_meshes: lis
             dm.update()
             d["mesh"] = dm
             plan["decal_meshes"].append(dm)
-    axis = tb.spec.hinge["axis_xz_mm"]
     excl_h = excl | {d["object"] for d in plan["decals"]}
-    plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, tb.spec.hinge["z_mm"], scene, origin, excl_h)
+    plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, tb.spec.hinge["z_mm"], scene, origin, excl_h,
+                                 parts=hparts)
     for lf in plan["hinge"]["leaves"]:
         g = lf["gap_mm"]
         if g > TS.HINGE_LEAF_GAP_MM or -g > TS.HINGE_LEAF_EMBED_MM:
@@ -854,7 +863,7 @@ def _side_receipt(plan) -> dict:
             "custom_normal_corners": plan["custom_corners"], "roll": plan.get("roll"),
             "decals": [{k: d[k] for k in ("name", "vertices", "misses", "max_move_mm", "regions", "normal")}
                        for d in plan["decals"]],
-            "hinge": plan["hinge"], "warnings": plan["warnings"],
+            "hinge": plan["hinge"], "hinge_parts": plan.get("hinge_parts", []), "warnings": plan["warnings"],
             "planned_vertices": len(plan["mesh"].vertices), "planned_polygons": len(plan["mesh"].polygons)}
 
 

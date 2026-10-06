@@ -2,8 +2,10 @@
 (g3d/temple/measure.py) plus the photo verdicts.
 
     glb_temples(glb, hinge_z=None)            per side: the temple body (role temple, else position) in its chart
+                                              (from its g3d_temple extras when present, else the world chart)
     check_relief(glb, job=None, ...)          geometry numbers and flags per side (+ the photo verdicts when the
                                               caller passes a relief_views Job, a Model and its fitted views)
+    temple_registration_mm(...)               a side view's registration at the near temple (outline offset, mm)
     photo_crease_segments(...)                Canny on L* + probabilistic Hough on the near temple's outer face,
                                               masked (decals + 6 px, hinge, L* > 97, 5 px silhouette band); per
                                               segment the step, the model's normal change dn across it, the distance
@@ -20,6 +22,7 @@ Rules: g3d_host/relief_rules.py (frozen). Sides follow the x sign (+X = the wear
 """
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -43,9 +46,29 @@ def _node_role(g, ni) -> str | None:
     return r if isinstance(r, str) else None
 
 
+def _node_temple_extras(g, ni) -> dict | None:
+    """The g3d_temple record faceted_temple writes on the object (a JSON string or an object in node or mesh extras),
+    or None."""
+    node = g.nodes[ni] if 0 <= ni < len(g.nodes) else {}
+    for ex in ((node.get("extras") or {}),
+               ((g.meshes[node["mesh"]].get("extras") or {}) if "mesh" in node else {})):
+        v = ex.get("g3d_temple")
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                v = None
+        if isinstance(v, dict) and isinstance(v.get("canonical_spec"), dict):
+            return v
+    return None
+
+
 def glb_temples(glb_path, hinge_z: float | None = None) -> dict:
-    """{side: {"V", "F" (chart), "node", "chart", "W", "T" (world mm)}}: per side the temple-role body reaching furthest
-    back (>= 60 mm); without roles, the part behind the lenses at |x| > 45 mm reaching furthest back."""
+    """{side: {"V", "F" (chart), "node", "chart", "W", "T" (world mm), "zone_end", "facet_planes"}}: per side the
+    temple-role body reaching furthest back (>= 60 mm); without roles, the part behind the lenses at |x| > 45 mm
+    reaching furthest back. The chart comes from the temple's g3d_temple extras when the GLB carries them (the
+    spec's hinge and opening, its zone end and facet planes: the same chart as the tool's receipt and the Blender
+    check), else the world chart at opening 0 (d = hinge_z - z, X = |x|; hinge_z defaults to the temple's front)."""
     g = glbmod.load(glb_path)
     by_node: dict = {}
     for p in g.primitives:
@@ -53,7 +76,8 @@ def glb_temples(glb_path, hinge_z: float | None = None) -> dict:
             continue
         W = p.positions * 1000.0
         rec = by_node.setdefault(p.node_index, {"name": p.node_name, "W": [], "T": [], "n": 0,
-                                                "role": _node_role(g, p.node_index)})
+                                                "role": _node_role(g, p.node_index),
+                                                "temple": _node_temple_extras(g, p.node_index)})
         rec["T"].append(p.triangles + rec["n"])
         rec["W"].append(W)
         rec["n"] += len(W)
@@ -75,10 +99,23 @@ def glb_temples(glb_path, hinge_z: float | None = None) -> dict:
         if best[s] is None:
             continue
         _, ni, W, T = best[s]
+        ext = by_node[ni]["temple"]
+        if ext is not None:
+            from ..g3d.temple import build as TB
+            from ..g3d.temple import report as RP
+            spec = ext["canonical_spec"]
+            h = spec["hinge"]
+            V = TB.to_local(W, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=s)
+            F = MS.chart_faces(T, s)
+            out[s] = {"V": V, "F": F, "W": W, "T": T, "node": by_node[ni]["name"], "chart": "g3d_temple extras",
+                      "zone_end": float(spec["zone_end_d"]),
+                      "facet_planes": RP.facet_planes_chart(TB.build_temple(spec))}
+            continue
         hz = float(W[:, 2].max()) if hinge_z is None else float(hinge_z)
         V, F = MS.chart_mesh(W, T, s, hz)
         out[s] = {"V": V, "F": F, "W": W, "T": T, "node": by_node[ni]["name"],
-                  "chart": f"world (hinge z {hz:.2f}{' from the temple front' if hinge_z is None else ''})"}
+                  "chart": f"world (hinge z {hz:.2f}{' from the temple front' if hinge_z is None else ''})",
+                  "zone_end": None, "facet_planes": None}
     return out
 
 
@@ -91,7 +128,8 @@ def check_relief(glb, job=None, *, hinge_z: float | None = None, photo_creases: 
     temples = glb_temples(glb, hinge_z)
     rep = {"glb": str(glb), "temples": {}, "rules": RR.RULES_VERSION}
     for s, t in temples.items():
-        m = MS.measure_temple(t["V"], t["F"], zone_end=zone_end, photo_creases=photo_creases)
+        m = MS.measure_temple(t["V"], t["F"], zone_end=t["zone_end"] if t["zone_end"] is not None else zone_end,
+                              facet_planes=t["facet_planes"], photo_creases=photo_creases)
         m["node"], m["chart"] = t["node"], t["chart"]
         rep["temples"]["+x" if s > 0 else "-x"] = m
     missing = [k for k in ("+x", "-x") if k not in rep["temples"]]
@@ -142,21 +180,50 @@ def _samp(img, P, nn, off):
     return img[qi[..., 1], qi[..., 0]]
 
 
+def temple_registration_mm(job, key: str, r: dict, cam, near: int, zone_end: float = RR.HINGE_ZONE_D[1]) -> dict:
+    """How well the model sits on the photo at the near temple of a side view (§5 "registered <= 1 mm at the
+    temple"): the mean |photo - model| silhouette offset (relief_views.side_outline) of the top and of the bottom
+    edge over the facet zone's columns (station d < zone_end), where the crease lifts and the model normals are read;
+    `registration_mm` = the worse of the two edges (both must sit within the limit)."""
+    from .relief_views import side_outline
+    so = side_outline(job, key, r, cam, near)
+    out, n = {}, 0
+    for e in ("top", "bottom"):
+        A = np.asarray(so[e]["samples"], float).reshape(-1, 2)
+        A = A[np.isfinite(A[:, 0]) & (A[:, 0] < zone_end)]
+        out[f"{e}_mm"] = float(np.mean(np.abs(A[:, 1]))) if len(A) else None
+        n += len(A)
+    edges = [v for v in (out["top_mm"], out["bottom_mm"]) if v is not None]
+    out["n"] = int(n)
+    out["registration_mm"] = float(max(edges)) if edges else float("inf")
+    return out
+
+
 def photo_crease_segments(job, key: str, r: dict, cam, theta: dict, near: int, decal_mask: np.ndarray | None = None,
-                          hinge_mask: np.ndarray | None = None) -> dict:
-    """Crease segments on the near temple's outer face of one view, with the model's verdict on each."""
+                          hinge_mask: np.ndarray | None = None, registration_mm: float | None = None) -> dict:
+    """Crease segments on the near temple's outer face of one view, with the model's verdict on each. The view is
+    `usable` for grading (R2) when the outer face is seen at >= VIEW_MIN_PX_PER_MM and a viewing cosine >= VIEW_MIN_COS
+    and, when the caller gives the model's `registration_mm` at that temple (temple_registration_mm), it is <=
+    VIEW_MAX_REG_MM; the segments are listed either way."""
     img = job.photo(key)
     fg = job.matte(key)
     L = lightness(img)
     region = outer_face_region(r, cam, near)
     pts_ok = np.isfinite(r["points"][..., 0])
     if not region.any():
-        return {"usable": False, "reason": "no outer-face pixels", "segments": []}
+        return {"usable": False, "reason": "no outer-face pixels", "segments": [], "registration_mm": registration_mm}
     med = np.nanmedian(r["points"][region], axis=0)
     ppm = float(C.px_per_mm_at(cam, job.frame, med))
     toward = raster.camera_basis(cam)[2]
     cosv = float(np.median(np.abs(r["normal"][region] @ toward)))
-    usable = ppm >= RR.VIEW_MIN_PX_PER_MM and cosv >= RR.VIEW_MIN_COS
+    why = []
+    if ppm < RR.VIEW_MIN_PX_PER_MM:
+        why.append(f"outer face at {ppm:.2f} px/mm < {RR.VIEW_MIN_PX_PER_MM}")
+    if cosv < RR.VIEW_MIN_COS:
+        why.append(f"viewing cosine {cosv:.3f} < {RR.VIEW_MIN_COS}")
+    if registration_mm is not None and not registration_mm <= RR.VIEW_MAX_REG_MM:
+        why.append(f"registered {registration_mm:.3f} mm > {RR.VIEW_MAX_REG_MM} at the temple")
+    usable = not why
     roi = ndimage.binary_erosion(region, iterations=RR.MASK_SILHOUETTE_PX) & fg & pts_ok
     if decal_mask is not None:
         roi &= ~ndimage.binary_dilation(decal_mask, iterations=RR.MASK_DECAL_PX)
@@ -209,7 +276,8 @@ def photo_crease_segments(job, key: str, r: dict, cam, theta: dict, near: int, d
             lift = ch[:, :2].tolist()
         out.append({"px": [x0, y0, x1, y1], "len_mm": ln / ppm, "step_L": step, "dn_deg": dn,
                     "model_crease_mm": near_mm, "verdict": verdict, "lift_dy": lift})
-    return {"usable": bool(usable), "ppm": ppm, "view_cos": cosv, "segments": out, "near_side": near}
+    return {"usable": bool(usable), "ppm": ppm, "view_cos": cosv, "registration_mm": registration_mm,
+            "unusable_because": why, "segments": out, "near_side": near}
 
 
 def _line_fit(P: np.ndarray):
@@ -244,15 +312,23 @@ def confirm_creases(seg05: list, seg01: list) -> list:
     return pairs
 
 
-def r2_verdict(view_segments: dict, confirmed: list, seg05: list) -> dict:
+R2_VIEWS = ("05", "01")          # §5: the crease views (05 sees the +X temple, 01 the -X temple)
+
+
+def r2_verdict(view_segments: dict, confirmed: list, seg05: list, required=R2_VIEWS) -> dict:
     """R2 per side view: no FLAG >= R2_FLAG_MIN_MM, length-weighted median dn >= R2_MEDIAN_DN_DEG; every confirmed
-    crease has a model crease within R2_CONFIRMED_NEAR_MM with dn >= R2_CONFIRMED_DN_DEG."""
-    out = {"views": {}, "pass": True}
+    crease has a model crease within R2_CONFIRMED_NEAR_MM with dn >= R2_CONFIRMED_DN_DEG. R2 is judged only when EVERY
+    `required` crease view (§5: 05 and 01) is usable: confirmation needs both, and a view a model is misregistered in
+    must not shrink what it is graded on. With a required view missing or unusable R2 does not pass and records
+    `judged` False with the reason (the usable views are still graded, for the record)."""
+    out = {"views": {}, "pass": True, "judged": True}
+    usable = 0
     for key, vs in view_segments.items():
         segs = vs.get("segments", [])
         if not vs.get("usable", False):
-            out["views"][key] = {"usable": False}
+            out["views"][key] = {"usable": False, "because": vs.get("unusable_because") or vs.get("reason")}
             continue
+        usable += 1
         flags = [s for s in segs if s["verdict"] == "FLAG" and s["len_mm"] >= RR.R2_FLAG_MIN_MM]
         if segs:
             dn = np.array([s["dn_deg"] for s in segs])
@@ -269,6 +345,20 @@ def r2_verdict(view_segments: dict, confirmed: list, seg05: list) -> dict:
                                                                                                   "FLAG")},
                              "pass": bool(ok)}
         out["pass"] &= bool(ok)
+    out["usable_views"] = usable
+    missing = [k for k in (required or ()) if not (view_segments.get(k) or {}).get("usable", False)]
+    if missing:
+        def because(k):
+            vs = view_segments.get(k) or {}
+            return "; ".join(vs.get("unusable_because") or [vs.get("reason") or "missing"])
+        out["pass"] = False
+        out["judged"] = False
+        out["why"] = ("not judged: crease view(s) " + ", ".join(f"{k} ({because(k)})" for k in missing)
+                      + " unusable; R2 needs both " + " and ".join(required) + " (§5)")
+    elif not usable:
+        out["pass"] = False
+        out["judged"] = False
+        out["why"] = "no usable crease view: R2 cannot be judged"
     conf = []
     for c in confirmed:
         s = seg05[c["seg05"]]
@@ -368,14 +458,224 @@ def shading_residual(job, key: str, r: dict, near: int, cam) -> dict:
             "note": "report only, never gated"}
 
 
-def decal_mask(job, key: str, cam, theta: dict | None = None) -> np.ndarray:
-    """The delivered GLB's thin decal parts (the WP3b skip list: hallmarks, ribbon) rendered through the camera."""
+def decal_parts(glb_path, hinge: dict | None = None) -> dict:
+    """The delivered GLB's surface decals on its temples, found by GEOMETRY (WP6_DESIGN §3 "Decals", the same rule
+    g3d.faceted_temple uses in Blender: measure.is_surface_decal), never by part names: every non-temple part on a
+    temple's side (sign of x) whose vertices all lie within DECAL_NEAR_MM of that temple's surface and that is open or
+    thin (bbox, or its signed distances' spread), EXCEPT the hinge parts (§3 "Hinge parts are never moved":
+    measure.hinge_part_kind by partRole and bbox, the set g3d.faceted_temple's hinge report grades), which are never
+    decals however close and thin. The temples are the parts reaching >= 60 mm back, side by x sign
+    (relief_views.temple_parts). `hinge` = {"z_mm", "axis_xz_mm"} (a job's hinge); without it each side's hinge plane
+    is its temple's front and the axis the bbox centre of its temple-role knuckles (measure.knuckle_axis). Returns
+    {"V", "F" (the decal faces), "parts": [{node, side, ...}], "hinge_parts": [{node, side, kind}]}."""
     from . import fitmesh
-    full = fitmesh.load_fit_mesh(job.glb, frame=job.frame)
-    skip = job.cfg["skip"]
-    ids = [i for i, nm in enumerate(full.node_names) if any(s in nm for s in skip)]
-    if not ids:
+    from .relief_views import temple_parts
+    full = fitmesh.load_fit_mesh(glb_path)
+    tp = temple_parts(full)
+    g = glbmod.load(glb_path)
+    role_of = {}
+    for p in g.primitives:
+        role_of.setdefault(p.node_name, _node_role(g, p.node_index))
+    boxes = {}
+    for pid, nm in enumerate(full.node_names):
+        F = full.F[full.part == pid]
+        if len(F):
+            Vp = full.V[np.unique(F)]
+            boxes[pid] = (Vp.min(axis=0), Vp.max(axis=0), role_of.get(nm), len(Vp))
+    hinge_of = {}
+    for s, pid in tp.items():
+        if hinge is not None:
+            hinge_of[s] = (float(hinge["z_mm"]), (hinge.get("axis_xz_mm") or [None])[0])
+        else:
+            hz = float(boxes[pid][1][2])
+            hinge_of[s] = (hz, (MS.knuckle_axis([(lo, hi, r) for lo, hi, r, _ in boxes.values()], s, hz) or [None])[0])
+    hinge_ids, hinge_rec = set(), []
+    for pid, (lo, hi, role, nv) in boxes.items():
+        if pid in tp.values():
+            continue
+        for s in (1, -1):
+            kind = MS.hinge_part_kind(lo, hi, role, s, hinge_of[s][1], hinge_of[s][0], nv)
+            if kind is not None:
+                hinge_ids.add(pid)
+                hinge_rec.append({"node": full.node_names[pid], "side": s, "kind": kind})
+                break
+    o3d = raster.o3d
+    scenes = {}
+    for s, pid in tp.items():
+        sc = o3d.t.geometry.RaycastingScene()
+        sc.add_triangles(o3d.core.Tensor(full.V.astype(np.float32)),
+                         o3d.core.Tensor(full.F[full.part == pid].astype(np.uint32)))
+        scenes[s] = sc
+    keep, parts = [], []
+    for pid, nm in enumerate(full.node_names):
+        F = full.F[full.part == pid]
+        if len(F) == 0 or pid in tp.values() or pid in hinge_ids:
+            continue
+        V = full.V[np.unique(F)]
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        s = 1 if lo[0] + hi[0] > 0 else -1
+        sd = scenes[s].compute_signed_distance(o3d.core.Tensor(V.astype(np.float32))).numpy().astype(np.float64)
+        if float(np.abs(sd).max()) > MS.DECAL_NEAR_MM:
+            continue
+        Fw = MS.weld(full.V, F)                       # GLB seams duplicate positions: open = a welded edge used once
+        e = np.sort(np.concatenate([Fw[:, [0, 1]], Fw[:, [1, 2]], Fw[:, [2, 0]]]), axis=1)
+        _, cnt = np.unique(e, axis=0, return_counts=True)
+        is_open = bool(np.any(cnt == 1))
+        if MS.is_surface_decal(sd, float(np.min(hi - lo)), is_open):
+            keep.append(pid)
+            parts.append({"node": nm, "side": s, "open": is_open, "bbox_min_mm": float(np.min(hi - lo)),
+                          "signed_mm": [float(sd.min()), float(sd.max())]})
+    F = full.F[np.isin(full.part, keep)] if keep else np.zeros((0, 3), np.int64)
+    return {"V": full.V, "F": F, "parts": parts, "hinge_parts": hinge_rec}
+
+
+def decal_mask(job, key: str, cam, theta: dict | None = None) -> np.ndarray:
+    """The delivered GLB's temple surface decals (decal_parts: by geometry) rendered through the camera; empty for a
+    job without a GLB (synthetic photos)."""
+    if getattr(job, "glb", None) is None:
         return np.zeros(job.shape(key), bool)
-    sel = np.isin(full.part, ids)
-    V, F = full.V, full.F[sel]
-    return raster.get_scene(V, F, job.frame).render(cam, job.shape(key), 1)["mask"]
+    dec = job.__dict__.get("_decals")
+    if dec is None or dec[0] != str(job.glb):
+        dec = (str(job.glb), decal_parts(job.glb, hinge=getattr(job, "hinge", None)))
+        job.__dict__["_decals"] = dec
+    d = dec[1]
+    if not len(d["F"]):
+        return np.zeros(job.shape(key), bool)
+    return raster.get_scene(d["V"], d["F"], job.frame).render(cam, job.shape(key), 1)["mask"]
+
+
+# --------------------------------------------------------------------------------------------- what Astra gets (§5)
+VERDICT_RGB = {"OK": (0, 180, 0), "SHALLOW": (255, 140, 0), "FLAG": (230, 0, 0)}
+MODEL_CREASE_RGB = (0, 200, 255)
+
+
+def _header(width: int, lines: list[str], h: int = 22) -> np.ndarray:
+    out = np.full((h * len(lines) + 6, width, 3), 255, np.uint8)
+    for i, t in enumerate(lines):
+        cv2.putText(out, t[: max(10, width // 8)], (6, h * (i + 1) - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1,
+                    cv2.LINE_AA)
+    return out
+
+
+def crease_crop(job, key: str, r: dict, seg: dict, near: int, path=None, *, pad: int = 30, scale: int = 3,
+                label: str = "") -> np.ndarray | None:
+    """One view's near-temple crop for Astra (§5): the photo, the model's creases (normal change >= MODEL_CREASE_DEG,
+    cyan) and every photo crease segment coloured by its verdict (OK green, SHALLOW orange, FLAG red), with the
+    view's usability. `r` = render_model(..., points=True, normals=True) of the model the segments were graded on."""
+    region = r["tag"] == near
+    ys, xs = np.nonzero(region)
+    if not len(xs):
+        return None
+    H, W = region.shape
+    x0, y0 = max(0, int(xs.min()) - pad), max(0, int(ys.min()) - pad)
+    x1, y1 = min(W, int(xs.max()) + pad + 1), min(H, int(ys.max()) + pad + 1)
+    img = np.ascontiguousarray(job.photo(key)[..., :3]).copy()
+    img[model_crease_mask(r, region)] = MODEL_CREASE_RGB
+    crop = cv2.resize(img[y0:y1, x0:x1], None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+    to = lambda u, v: (int(round((u - x0 + 0.5) * scale)), int(round((v - y0 + 0.5) * scale)))
+    counts = {v: 0 for v in VERDICT_RGB}
+    for s in seg.get("segments", []):
+        u0, v0, u1, v1 = s["px"]
+        cv2.line(crop, to(u0, v0), to(u1, v1), VERDICT_RGB[s["verdict"]], 2, cv2.LINE_AA)
+        counts[s["verdict"]] += 1
+    lines = [f"{label} view {key} ({'+X' if near > 0 else '-X'} temple)  usable: {seg.get('usable')}"
+             + ("" if seg.get("usable") else f" ({'; '.join(seg.get('unusable_because') or [seg.get('reason', '')])})"),
+             "segments: " + ", ".join(f"{k} {n}" for k, n in counts.items())
+             + "  (green OK, orange SHALLOW, red FLAG; cyan = model creases)"]
+    out = np.vstack([_header(crop.shape[1], lines), crop])
+    if path is not None:
+        from PIL import Image
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(out).save(path)
+    return out
+
+
+def relief_sheet(spec: dict, path=None, *, x: dict | None = None, sigma: dict | None = None,
+                 front_bound: dict | None = None, unobserved: list | None = None, nodes=("A", "B", "C", "K", "E"),
+                 label: str = "", px_per_mm: float = 14.0, sigma_status: dict | None = None) -> dict:
+    """The relief sheet for Astra (§5): sections of the spec's +X temple at the photo nodes' stations (outer profile
+    black, inner face grey, the base outer surface x_in + T dashed blue, each node's own relief marked red), with the
+    fitted values, their sigma, the front bound and the UNOBSERVED list as text. With `sigma_status` (relief_fit's
+    sigma_report statuses) a sigma is printed only for status "ok": any other status (a penalty acting along the
+    parameter, a band bound, not at a minimum, ...) prints the status instead, so a constraint's wall is never shown
+    to Astra as a photo uncertainty. Returns {"stations": [...], "image", "sigma_shown": {param: bool}}."""
+    from ..g3d.temple import build as TB
+    tb = TB.build_temple(spec)
+    ps = tb.spec
+    rows = []
+    for n in nodes:
+        if n not in ps.nodes:
+            continue
+        d = float(np.clip(ps.nodes[n][0], ps.d0 + 0.25, ps.d1 - 0.25))
+        seg = MS.slice_d(tb.V, tb.tris, d)
+        if not len(seg):
+            continue
+        ylo, yhi = float(ps.y_bot(d)), float(ps.y_top(d))
+        ys = np.arange(ylo, yhi + 1e-9, 0.05)
+        xo, xi = MS.section_profile(seg, ys)
+        rn = ps.nodes[n][2] if ps.nodes[n][2] is not None else tb.sol.node_r.get(n)
+        rows.append({"node": n, "d": d, "y": float(ps.nodes[n][1]), "r": None if rn is None else float(rn),
+                     "y_range": [ylo, yhi], "x_base": float(ps.x_base(d)), "x_in": float(ps.inner(d)),
+                     "x_out_max": float(np.nanmax(xo)), "ys": ys, "xo": xo, "xi": xi})
+    panels = []
+    for row in rows:
+        ylo, yhi = row["y_range"]
+        X0 = row["x_in"] - 1.0
+        X1 = max(row["x_out_max"], row["x_base"]) + 1.5
+        w, h = int((X1 - X0) * px_per_mm) + 20, int((yhi - ylo + 2.0) * px_per_mm) + 20
+        P = np.full((h, max(w, 150), 3), 255, np.uint8)
+        to = lambda X, Y: (int(round(10 + (X - X0) * px_per_mm)), int(round(10 + (yhi + 1.0 - Y) * px_per_mm)))
+        ok = np.isfinite(row["xo"]) & np.isfinite(row["xi"])
+        pts_o = np.array([to(X, Y) for X, Y in zip(row["xo"][ok], row["ys"][ok])], np.int32)
+        pts_i = np.array([to(X, Y) for X, Y in zip(row["xi"][ok], row["ys"][ok])], np.int32)
+        if len(pts_o) > 1:
+            cv2.polylines(P, [pts_i], False, (150, 150, 150), 1, cv2.LINE_AA)
+            cv2.polylines(P, [pts_o], False, (0, 0, 0), 2, cv2.LINE_AA)
+        for Y in np.arange(ylo, yhi, 1.0):                                 # the base outer surface, dashed
+            cv2.line(P, to(row["x_base"], Y), to(row["x_base"], min(Y + 0.5, yhi)), (40, 90, 230), 1)
+        if row["r"] is not None and ylo <= row["y"] <= yhi:
+            cv2.circle(P, to(row["x_base"] + row["r"], row["y"]), 4, (220, 0, 0), -1, cv2.LINE_AA)
+        cap = f"{row['node']}: d {row['d']:.1f}" + ("" if row["r"] is None else f" r {row['r']:.2f}")
+        panels.append(np.vstack([_header(P.shape[1], [cap]), P]))
+    text = [f"{label} relief sheet (+X temple; -X is its mirror). sections at the photo nodes, mm"]
+    shown = {}
+
+    def _sig(k):
+        if not sigma or k not in sigma:
+            shown[k] = False
+            return ""
+        st = (sigma_status or {}).get(k)
+        if sigma_status is not None and st != "ok":
+            shown[k] = False
+            return f" (sigma n/a: {st})"
+        shown[k] = bool(np.isfinite(sigma[k]))
+        return f" +- {sigma[k]:.3f}" if np.isfinite(sigma[k]) else " (sigma inf)"
+    if x:                         # packed so no line outgrows the header's 900 // 8 characters
+        line = "fitted:"
+        for k, v in x.items():
+            item = f" {k} {v:.3f}{_sig(k)},"
+            if len(line) + len(item) > 110 and line != "fitted:":
+                text.append(line.rstrip(","))
+                line = "fitted:"
+            line += item
+        text.append(line.rstrip(","))
+    if front_bound is not None:
+        text += [f"front bound (04): clear {front_bound.get('clear')}, hinge-zone overshoot "
+                 f"{front_bound.get('hinge_zone_max_mm', 0.0):.2f} mm / {front_bound.get('hinge_zone_mm2', 0.0):.1f} mm2,"
+                 f" arm tops {front_bound.get('arm_tops_mm2', 0.0):.1f} mm2"]
+    if unobserved:
+        text += ["UNOBSERVED: " + "; ".join(str(u.get("parameter")) for u in unobserved)]
+    if panels:
+        Hm = max(p.shape[0] for p in panels)
+        body = np.hstack([np.pad(p, ((0, Hm - p.shape[0]), (0, 8), (0, 0)), constant_values=255) for p in panels])
+    else:
+        body = np.full((40, 600, 3), 255, np.uint8)
+    W = max(body.shape[1], 900)
+    body = np.pad(body, ((0, 0), (0, W - body.shape[1]), (0, 0)), constant_values=255)
+    img = np.vstack([_header(W, text), body])
+    if path is not None:
+        from PIL import Image
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(img).save(path)
+    stations = [{k: v for k, v in row.items() if k not in ("ys", "xo", "xi")} for row in rows]
+    return {"stations": stations, "image": img, "sigma_shown": shown}

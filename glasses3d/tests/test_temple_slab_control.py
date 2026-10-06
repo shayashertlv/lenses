@@ -102,3 +102,29 @@ def test_crease_observables_separate_the_faceted_temple_from_the_slab(synth):
     gs = report.geometry_numbers(slab.build, photo_creases=4)
     assert gt["single_plane_share"] < RR.SLAB_SHARE <= gs["single_plane_share"]          # R1's direction
     assert any(f["flag"] == "SLAB" for f in gs["flags"]) and not any(f["flag"] == "SLAB" for f in gt["flags"])
+
+
+@pytest.mark.xfail(strict=True, reason="open owner decision: R1 (single-plane share <= 0.5 fails the synthetic "
+                                       "faceted truths; see the docstring)")
+def test_synthetic_faceted_truths_pass_r1():
+    """R1 (single-plane share <= R1_SHARE_MAX, frozen 0.5) must be passable by the faceted temples the proof treats
+    as truth; a gate nothing can pass decides STOP-P before any photo is read.
+
+    XFAIL (strict) until the owner decides R1 (WP6 fix round 1, 2026-10-06; marked xfail in fix round 2 so the suite's
+    exit code means something again): it stays visible as an expected failure, and turns into a FAILURE (XPASS) the
+    day R1 becomes passable, so the mark cannot outlive the decision. Measured with the shipped measure
+    core: FX.prada_default 0.668 (best plane F2, the 617 mm^2 facet), the S1-like truth 0.708, the recorded candidate
+    0.915 (SLAB); over the Prada fit band (r_A 0.02-3, r_C 0-7, F1 rise -0.6..-0.02, the rest at the candidate's
+    values: 336 specs) the minimum is 0.596. The design's 0.5 came from prototype numbers (T pyramid 0.34, T fit
+    0.42) measured with the LEAST-SQUARES PLANE ONLY (proto/plane_share.py): this core reproduces them on the
+    prototype GLBs as its least-squares candidate (0.344, 0.428), but §5 also makes every facet plane a candidate, and
+    the largest facet alone then covers 0.615 / 0.734 of the d 2-50 outer face. Even least-squares-only, the Prada
+    family needs r_C >= ~6 mm (C 6 mm proud of the base) to reach 0.5 (band minimum 0.423 at r_C 7). Changing
+    relief_rules.py or the share definition is a new rule set (§8, §9): an owner decision, not a fix."""
+    rows = {"FX.prada_default": FX.prada_default(),
+            "S1-like truth (base + r_A 0.9, r_C 4.0, rise -0.35)": FX.prada_spec(**RF.prada_base_params(
+                r_A=0.9, r_C=4.0, rise=-0.35))}
+    shares = {n: report.geometry_numbers(build_temple(s), photo_creases=4)["single_plane_share"] for n, s in rows.items()}
+    assert all(v <= RR.R1_SHARE_MAX for v in shares.values()), (
+        f"R1 (share <= {RR.R1_SHARE_MAX}) is failed by the synthetic faceted truths themselves: "
+        + ", ".join(f"{n} {v:.3f}" for n, v in shares.items()) + " -- open owner decision (see the docstring)")
