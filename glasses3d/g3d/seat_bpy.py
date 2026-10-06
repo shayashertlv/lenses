@@ -361,6 +361,7 @@ def check_lens_seating(lenses=None, frame_parts=None, frame_type=None, hidden_x_
             nodes.append(nd)
         rep = CK.check_nodes([_plain_node(n) for n in nodes], [], warnings, bvh_factory, frame_type, lower_edge,
                              hidden_x_range_mm, stations_table, "bvh")
+        _stale_cutters(rep)
         rep["seconds"] = round(time.time() - t0, 3)
         rep["origin_mm"] = origin.tolist()
         return rep
@@ -368,6 +369,24 @@ def check_lens_seating(lenses=None, frame_parts=None, frame_type=None, hidden_x_
         err = f"{type(exc).__name__}: {exc}"
         return {"ok": False, "error": err, "reasons": [err], "lenses": [],
                 "traceback": traceback.format_exc(limit=8)}
+
+
+def _stale_cutters(rep: dict) -> None:
+    """§8 'stale-cutter flag': a lens with a groove cutter (`g3d_groove_cutter | <lens>`) whose stored lens digest
+    differs from the lens now was edited after its groove was cut. Reported per lens (`stale_cutter`) with a warning;
+    the lens is graded on what the evaluated frame holds (crystal overlap, the groove reading), as the host grades
+    the GLB, which carries no cutter."""
+    for L in rep.get("lenses", []):
+        ob = bpy.data.objects.get(L.get("node") or "")
+        cut = bpy.data.objects.get(CUTTER_PREFIX + ob.name) if ob is not None and ob.type == "MESH" else None
+        if cut is None:
+            continue
+        stale = cut.get("g3d_lens_digest") != _mesh_digest(ob)
+        L["stale_cutter"] = bool(stale)
+        if stale:
+            rep.setdefault("warnings", []).append(
+                f"{ob.name}: stale groove cutter {cut.name!r} (cut for another version of the lens: its stored digest "
+                f"differs); call unseat_lens and seat_lens again")
 
 
 def _as_list(x) -> list:
