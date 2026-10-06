@@ -246,6 +246,7 @@ def test_proof_moved_sets_from_the_raw_arrays(proof):
     import numpy as np
     out_dir = _proof_dir() / "proof"
     cases = [("invu", "a0", "a1", 0, "ns_before"), ("metal", "a0", "a1", 0, "ns_before"),
+             ("metal_narrow", "a0", "a1", 0, "ns_before"),
              ("oakley", "a0", "a1", 0, "ns_before"), ("ft", "amid", "a1", 0, "ns_mid_Left"),
              ("ft", "amid", "a1", 1, "ns_mid_Right")] + [
         (f"acetate_{c}", "a0", "a1", 0, "ns_before") for c in ("sphere", "toric", "flat", "solidified", "chamfer",
@@ -294,15 +295,15 @@ def test_proof_q001_after_passes_both_checks_and_the_spec(proof):
 
 
 def test_proof_records_the_crystal_verdict_and_the_refusals(proof):
-    """Proof review: the crystal case's binding verdict is recorded (it FAILS: open item B, an owner decision), the
-    self-intersecting lens is refused E_SELF_INTERSECTING with nothing written, the open MANIFOLD cutter is rejected
-    by the tool's own acceptance test while the closed control cutter is accepted (MANIFOLD and EXACT), and records
-    with nothing to measure are 'not_applicable' (pass null), never counted as passing."""
+    """Proof review: the crystal case's binding verdict is recorded (proof fix round, open item B: the check reads the
+    declared V-bevel from the groove's lips and PASSES it, the tool says seated), the self-intersecting lens is refused
+    E_SELF_INTERSECTING with nothing written, the open MANIFOLD cutter is rejected by the tool's own acceptance test
+    while the closed control cutter is accepted (MANIFOLD and EXACT), and records with nothing to measure are
+    'not_applicable' (pass null) and report-only ones 'report_only', never counted as passing."""
     recs = {(r["id"], r["by"]): r for c in proof["cases"].values() for r in c["criteria"]}
     cr = recs[("P4.crystal.check", "core")]
-    assert cr["pass"] is False and cr["measured"]["tool"]["status"] == "partial"
-    assert cr["measured"]["blender_check"]["ok"] is False and cr["measured"]["host_check"]["ok"] is False
-    assert "P4.crystal.check (core)" in proof["summary"]["P4"]["failed"]
+    assert cr["pass"] is True and cr["measured"]["tool"]["status"] == "seated"
+    assert cr["measured"]["blender_check"]["ok"] is True and cr["measured"]["host_check"]["ok"] is True
     sx = recs[("P4.refusal.selfx", "core")]
     assert sx["pass"] is True and sx["measured"]["code"] == "E_SELF_INTERSECTING" and sx["measured"]["digest_unchanged"]
     om = recs[("P4.crystal.open_cutter_manifold", "core")]
@@ -311,9 +312,14 @@ def test_proof_records_the_crystal_verdict_and_the_refusals(proof):
         "accepted_by_the_tool_check"] and not om["measured"]["open"]["accepted_by_the_tool_check"]
     for cid, c in proof["cases"].items():
         n = c["counts"]
-        assert n["pass"] + n["fail"] + n["not_applicable"] == n["criteria"] == len(c["criteria"])
+        total = n["pass"] + n["fail"] + n["not_applicable"] + n["report_only"] + n.get("owner_pending", 0)
+        assert total == n["criteria"] == len(c["criteria"])
         for r in c["criteria"]:
-            assert (r["pass"] is None) == (r["status"] == "not_applicable"), r["id"]
+            assert (r["pass"] is None) == (r["status"] in ("not_applicable", "report_only", "owner_pending")), r["id"]
+    # open item G: Oakley's top LIPPED 0.65-0.80 is report-only (§7: over-capture is a warning; owner accepted Oakley)
+    for by in ("core", "instrument"):
+        r = recs[("P5.oakley.top_lipped", by)]
+        assert r["status"] == "report_only" and r["pass"] is None and "report-only" in r["note"], r
     p3 = proof["cases"]["P3"]
     if any(p3["info"]["tool"][s]["status"] == "refused" for s in ("L", "R")):
         for s in ("L", "R"):
@@ -345,6 +351,9 @@ def test_proof_review_round2_records(proof):
     notch = recs[("P4.refusal.notch", "core")]
     if notch["measured"]["code"] == "E_POSTCHECK":
         assert notch["pass"] is False and "P4.refusal.notch (core)" in proof["summary"]["P4"]["failed"]
+    # proof fix round (open item E): the plan refuses the notch at its CONCAVE gate, nothing written
+    assert notch["measured"]["code"] == "E_CONCAVE" and notch["pass"] is True, notch["measured"]
+    assert notch["measured"]["digest_unchanged"] and (notch["measured"]["blocked_by"] or {}).get("CONCAVE", 0) >= 1
     for rid in ("P4.crystal.bevel_angle", "P4.crystal.bevel_h", "P4.nylor.groove", "P4.nylor_nocord.groove"):
         m = recs[(rid, "core")]["measured"]
         assert m["stations"] > 100 and m["measured"] == m["stations"], (rid, m)
@@ -364,3 +373,70 @@ def test_proof_p2_ramp_exclusion_is_recorded(proof):
         assert ramp["moved"]["n"] > 0 and ramp["unmoved"]["n"] > 0
         assert ramp["moved"]["delta_min_over_depth_min_max_mm"][1] > 0.5        # the ramp's min-over-depth rises
     assert any("ramp" in x for x in proof["summary"]["owner_readings"])
+
+
+def test_proof_review_fix_round1_records(proof):
+    """Proof review fix round 1: (1) the crystal overlap is graded from the tool's Boolean AND both checks, and the
+    profiled lens in the ungrooved frame (the g3d_groove Boolean gone) fails the check (review control); (2) the
+    narrow eyewire is a knife edge at exactly pass: its two §10 records fail with that note (the pass + 0.05 floor
+    that made them pass was withdrawn), and the partial seat it writes moves only the band of FAIL nodes (stop rule);
+    (3) 'top >= 0.44 on the flats' grades every required point, and a point within 2 mm of a channel end that the
+    check passes below 0.35 is an owner_pending exception, never a silent pass; the instrument's transition stations
+    are placed by position, at most one per channel end; (4) the margins of by-construction passes are in the
+    summary."""
+    recs = {(r["id"], r["by"]): r for c in proof["cases"].values() for r in c["criteria"]}
+    m = recs[("P4.crystal.overlap", "core")]["measured"]
+    assert m["blender_check_mm3"] <= 0.01 and m["host_check_mm3"] <= 0.01 and m["blender_stale_cutter"] is False, m
+    for by in ("core", "instrument"):
+        assert recs[("P4.crystal_control.no_groove_fails", by)]["pass"] is True
+    ex_m = recs[("P4.metal_narrow.exits_material", "core")]
+    assert "knife edge" in ex_m["note"] and "knife edge" in recs[("P4.metal_narrow.zero_moved", "arrays")]["note"]
+    cap = ex_m["measured"]["top_capacity_mm"]
+    assert cap["min_max"][0] >= cap["pass_mm"] - 0.005 and cap["min_max"][1] <= cap["pass_mm"] + 0.01, cap
+    if ex_m["pass"] is False:                         # §4 step 4 literal: clamped at pass, seated partially
+        assert recs[("P4.metal_narrow.seat_moves_only_failing_nodes", "arrays")]["pass"] is True
+    tf = recs[("P4.nylor.top_flats", "core")]["measured"]
+    assert tf["inside_n_min"][0] + tf["end_zone_n"] == tf["required"] and tf["inside_n_min"][0] > 100, tf
+    it = recs[("P4.nylor.top_flats_end_zone", "instrument")]["measured"]
+    assert len(it["transition_by_position"]) <= it["transition_limit"], it
+    mg = proof["summary"]["margins"]
+    assert "P5.invu.former_failures.inside" in mg["P5"] and "P4.metal.inside_runs.min" in mg["P4"], mg
+    assert any(k.startswith("P3.face_rotation") for k in mg.get("P3", {})) or \
+        proof["cases"]["P3"]["info"]["tool"]["L"]["status"] == "refused"
+
+
+def test_proof_review_fix_round2_records(proof):
+    """Proof review fix round 2: (1) the former failures of P4 metal and P5 INVU are graded at EVERY required point
+    whose owning nodes lie >= 2 mm inside a former failing run (Blender check state and host check), not only at the
+    node points the correction pass corrects by construction, and the margins are those of every point; (2) the
+    FOLD blocks of the narrow eyewire are reported as direct and knock-on; (3) the nylor end-zone reading is one
+    owner-pending record covering every point within 2 mm of a channel end (the two below 0.35 among them); (4) the
+    owner decisions are listed in the summary (CORRECTION_AIM_MM among them)."""
+    recs = {(r["id"], r["by"]): r for c in proof["cases"].values() for r in c["criteria"]}
+    for rid, target in (("P4.metal.inside_runs", 0.44), ("P5.invu.former_failures", 0.45)):
+        r = recs[(rid, "core")]
+        m = r["measured"]
+        n, lo, hi = m["inside_n_min_max"]
+        nn, nlo, _ = m["node_points_only"]["inside_n_min_max"]
+        assert n > nn > 0 and lo <= nlo, (rid, m)                       # every point, the node points among them
+        hn = m["host_check"]["inside_n_min_max"]
+        assert m["host_check"]["required_unmatched"] == 0 and hn[0] == n, (rid, m["host_check"])
+        below = m[f"inside_below_{target}"] + m["host_check"][f"inside_below_{target}"]
+        assert (r["pass"] is False) == (below > 0 or m["misses_n"] > 0 or m["host_check"]["misses_n"] > 0), (rid, m)
+        assert "every point" in r["note"]
+    mg = proof["summary"]["margins"]
+    assert mg["P4"]["P4.metal.inside_runs.min"]["measured"] == pytest.approx(
+        min(recs[("P4.metal.inside_runs", "core")]["measured"]["inside_n_min_max"][1],
+            recs[("P4.metal.inside_runs", "core")]["measured"]["host_check"]["inside_n_min_max"][1]), abs=1e-4)
+    fb = recs[("P4.metal_narrow.exits_material", "core")]["measured"]["fold_blocks"]
+    assert fb is None or (fb["direct"] + fb["knock_on"] ==
+                          recs[("P4.metal_narrow.exits_material", "core")]["measured"]["plan_counts"]["blocked_by"]
+                          .get("FOLD", 0) and fb["knock_on"] > fb["direct"]), fb
+    ez = recs[("P4.nylor.top_flats_end_zone", "core")]
+    tf = recs[("P4.nylor.top_flats", "core")]["measured"]
+    assert ez["status"] == "owner_pending" and ez["measured"]["end_zone_points"] == tf["end_zone_n"] > 2, ez
+    assert sum(ez["measured"]["by_reading"].values()) == ez["measured"]["end_zone_points"]
+    assert ("P4.nylor.top_flats_exception", "core") not in recs
+    od = " ".join(proof["summary"]["owner_decisions"])
+    for key in ("CORRECTION_AIM_MM", "FOLD", "junction", "narrow eyewire"):
+        assert key in od, key

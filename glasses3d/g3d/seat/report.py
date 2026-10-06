@@ -28,6 +28,7 @@ def pct(a, q) -> list | None:
 
 def rule_label(rule: str) -> str:
     return {"deep": "min over depths 0.05-0.95", "thin": "mid-depth 0.5", "flats": "min of depths 0.05/0.95",
+            "apex": "V-bevel apex (mid-depth) beyond the groove's lips, every depth beyond them",
             "report": "mid-depth 0.5"}.get(rule, rule)
 
 

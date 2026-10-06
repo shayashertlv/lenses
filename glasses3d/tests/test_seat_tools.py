@@ -130,14 +130,16 @@ def test_open_lens_and_missing_ranges_and_thin_edge_are_refused():
 
 
 def test_a_concave_notch_is_blocked_and_never_folded():
-    """A 0.54 mm notch radius: points there are BLOCKED(CONCAVE); the growth beside them would fold the rim, which
-    the §4 step 11 post-check refuses (nothing written) and names the blocked points."""
+    """A 0.54 mm notch radius: points there are BLOCKED(CONCAVE) and the plan refuses at the gate (E_CONCAVE, §10 P4
+    'Refusals: ... notch CONCAVE'), nothing written. Proof fix round: the stage refused it only at the §4 step 11
+    post-check (a 166 deg fold beside the blocked points), which §10 does not count as the CONCAVE refusal."""
     L = SF.lens(SF.notched_outline(depth=2.0, width=0.08, theta0=0.0123), t=1.6)
     ring = SF.ring_frame(L, 0.10)
     res = deform.seat_arrays(L.V, L.T, [("Rim", ring.V, ring.T)], rules.frame_type("acetate"), factory,
                              poly_edges_raw=L.poly_edges)
-    assert res.status == "refused" and res.code == "E_POSTCHECK", res.as_dict()
+    assert res.status == "refused" and res.code == "E_CONCAVE", res.as_dict()
     assert res.bodies[0]["before"]["blocked_by"].get("CONCAVE", 0) >= 1
+    assert res.bodies[0]["gate"] == "E_CONCAVE" and "postcheck" not in res.bodies[0]
     assert "CONCAVE" in res.message and res.raw_delta is None
 
 

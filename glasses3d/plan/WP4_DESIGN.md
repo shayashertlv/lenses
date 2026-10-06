@@ -762,3 +762,347 @@ triggered** (Oakley 0 moved; every moved set equals the band of FAIL nodes; P2 c
    min-over-depth >= -0.0352; instrument 0.
 6. Speed in the proof (6 Blender processes in parallel plus a pytest run; not standalone): INVU seat 13.4 s, Blender
    check 4.3-4.6 s; Oakley check 6.6-6.8 s; FT seat 1.8 / 2.0 s.
+
+## Implementation notes (stage "proof", fix round: open items A-G, 2026-10-06)
+
+Re-ran P2-P5 (27 headless Blender 5.2 runs on copies, `glasses3d/data/wp4/proof/`; the four source sha256
+unchanged) and re-graded: `proof.json` 253 records. **P2 PASS (71/71); P3 34 of 40 (the 6 failures are two readings
+below, nothing the tool does); P4 PASS (107/107); P5 PASS (32 pass, 1 not applicable, 2 report-only). Stop rule not
+triggered:** Oakley 0 moved; every seat call's moved set equals the band of its FAIL nodes (q001 58 per side, Prada
+190 per lens, metal, the 8 acetate constructions, INVU 538), every moved node fails by the check and by the
+instrument. Each item was diagnosed on the host first (open3d, the proof's own input arrays and GLBs) before code
+changed; `tests/test_seat_proof_fixes3.py` (14 host tests) pins them.
+
+**A. Prada (P3) folds: the faces are WALL faces, not cap faces.** The post-check's failures were 4 triangles of 2 wall
+quads: at a run start node 348 -> 349 across a 0.0444 mm rim segment, growth 0 -> 0.0682 mm (56.8 deg, area x1.80),
+and inside a run 191 -> 192 across 0.0046 mm, 0.4348 -> 0.4304 mm (42.8 deg). A wall face spans one rim segment and
+the rung; a growth step d across a segment of length e turns it by atan(d / e). Cap faces stay in the surface (the
+quadric normal offset), so spreading the move over cap rings cannot help a wall face, whose vertices are all rim
+vertices. Fix, the "band falloff along the loop" (`plan.fold_slopes`, `plan.fold_total`, `deform.refine_fold`):
+- per segment the largest step the face allows, S = tan(30 deg) |e_perp| / |u . m| (e_perp: the segment across the
+  rung, m the face normal; the post-check's own 30 deg);
+- node growth = the largest S-Lipschitz function under the nodes' limits (0 at every node that does not grow, so the
+  strict taper of §2 stands), then the smallest S-Lipschitz function over that: growing nodes are raised (never past
+  a limit) or, beside a node that does not grow, lowered to meet it. A point the lowering leaves below pass + 0.05 is
+  BLOCKED(FOLD) (none on Prada: node 349 0.0682 -> 0.0260, its point still 0.604; node 192 0.4304 -> 0.4321);
+- the slope is first order: the exact displacement turned the limit-bound faces by 30.1-31.0 deg (the segment
+  shortens where the outward directions converge). `refine_fold` displaces with the plan, measures every moved face as
+  the post-check does, scales the slope of each segment past the limit (less the float32 storage margin
+  atan(2 eps |x| / edge), eps = 2^-23 x 2) by tan(limit) / tan(angle) and replans (<= 8 times). It runs inside
+  `deform.measure_state`, so the proof's expected moved set (`wp4_proof_bpy.node_state`, which now passes the polygon
+  edges) is the refined plan's; correction passes refine their own increment against the original faces.
+The post-check is unchanged. P3 in Blender: seated, 190 vertices per lens, every point >= 0.6038 at all depths after
+(instrument 0.6229 / 0.6197 refined, 0.575 / 0.578 on its 9-level grid against its 0.55), max delta 0.4386 mm, volume
+gain 21.17 vs sum g t ds 21.32 mm3, GLB rim split front p5 78.38 deg, etch bit-identical.
+
+**B. The crystal check (`stations.groove_seat`, rule `apex`).** §5 cuts the groove with a 0.03 mm clearance, so on
+every depth line the frame begins 0.028-0.035 mm beyond the lens edge and §3's 'interval containing the edge' reads a
+gap at every depth: 352/352 FAIL on exact bevel and groove numbers. In a groove the lens is held between the lips; its
+capture is how far each depth's edge reaches beyond the lips' inner face (PLAN §3: 'the lens extends 0.8 mm beyond the
+visible aperture'). For a lens whose `g3d_seat` declares `profile: vbevel` the check reads the lips on lines along u
+just outside the lens faces (front corner + 0.06 n, back corner - 0.06 n: beyond the clearance, inside the lip),
+takes the aperture linear in depth between them (a planar face: where §3 reads it on each depth line before the cut),
+and counts a point groove-seated when every depth line meets frame within 0.06 mm (§5's gap band) and both lips hold
+frame over the corner. Rule `apex`: the mid-depth value (the apex) when every depth lies beyond the lips, else the min
+over depths. The deep rule's min over depths can never pass a V-bevel: §4 step 8 grows the corners to target - h on
+purpose (corners 0.396, apex 0.80). Without the declaration, with a clearance outside 0.06, or with a short apex the
+lens still FAILS (host tests on `seat_fixtures.vbevel_lens` / `grooved_ring`: a flat-cap §5 bevel in a swept §5
+groove reads 0.80 at every point; undeclared -0.03, clearance 0.10 not seated, apex 0.50 FAIL; numpy = open3d). P4
+crystal in Blender: tool seated, Blender and host checks PASS 352/352 ENCLOSED, apex 0.7998-0.8005 (core) /
+0.7987-0.7998 (instrument, against the frame before the groove), gap 0.028-0.029 (tool) / 0.0279-0.0355.
+
+**C. The correction pass reaches the target.** Two causes, measured: (1) §4 step 7 corrected only points below pass,
+so a capture response under 1 left grown points between pass and target (moving the edge g along the curved surface
+raised the capture by 0.96-1.06 g); (2) on INVU a station's back corner sits up to 0.93 mm (1.7 segments, p50 0.44)
+along the loop from its node's rung partner (wall extruded along z, station planes leaning up to 31 deg; FT, Prada
+and the fixtures 0.06-0.25 mm), and its depth lines cross the triangulated wall between them: raising the station's
+own node by 0.01 mm raised its mid-depth capture by 0.0006-0.0012 mm, every node by 0.00998, so a correction that
+grows only the short nodes converged by about half per pass (12-36 of 261 still below 0.45 after two). Now:
+- the correction grows the node points of moved nodes inside their failing runs (>= the 2 mm run-end ramp) that read
+  below their planned target, by target + 1e-4 mm (CLASS_EPS_MM, the float32 noise) - value, spread over the nodes
+  whose rungs bound the wall the station's depth lines cross (`deform.station_reach`: from node k to the rung nearest
+  its back corner; node k alone where the wall lies in the station plane), each raised node's grown corner tested for
+  cover (UNHIDEABLE); points below pass are still corrected anywhere (§4 step 7); still at most two passes;
+- ramp and inter-node points are not corrected to their target: a run-end point sits beside a node that does not
+  grow (correcting it pushed the metal fixture's nasal run-start node to 0.94 mm and 0.617), and a point between two
+  nodes moves with their interpolation (correcting those raised the -0.30 / 0.10 junction nodes to 0.477 / 0.468);
+- in a correction the CONCAVE radius is the original outline's (the moved outline's kinks are the growth's own; its
+  radius minus the growth already applied counted that growth twice and blocked the metal junction's correction),
+  and a correction never moves a node the first pass did not (a halfway point could hand an unmoved neighbour growth).
+P4 metal: former failures inside runs 0.4500-0.4553 (core) / 0.4500-0.4639 (instrument), run ends >= 0.3696. P5 INVU:
+261 inside-run former failures 0.4500-0.4856 (0 below 0.45; was 187), ends >= 0.4542, max delta 0.8911 mm, 538
+vertices. Rejected, measured: a per-node secant (divide by the measured response): 22 still short; moving each
+back-loop vertex with the station whose plane passes through it: INVU 28 short and the q001 lift slope 0.517 > 0.5
+(a lens node 5 um from a ring at the ramp foot).
+
+**D. Nylor channel ends are not 'flats' stations of §10's 'top >= 0.44'.** The 0.205 points are the channel-end
+stations whose node borders the exposed sector: the visible halfway point beside them has NO_FRAME, which caps both its
+nodes at 0, and growing that node would move the exposed outline by up to 0.6 g at the channel end (§10 P4 'exposed
+outline unchanged +-0.01', §12 'never extend an exposed edge'). They are TRANSITION by §4 step 4 (blocked, c >= 0,
+front covered, within 3 mm of a visible point) and §8 allows them (<= 3%: 2 of 161). The next ring of points is the
+§4 step 3 ramp (pass + 0.05 at the run end, the target 2 mm in). The tool is unchanged; the grader reads 'top >= 0.44
+on the flats' as P4 metal and P5 INVU read their former failures: at the node points the check failed before (joined
+on raw rows, run ends from the plan before), >= 0.44 >= 2 mm inside the run, >= 0.35 nearer its end, or TRANSITION
+(<= 3% of required); the proof job records the nylor after-state (`ns_after`). Instrument: its own transition
+stations (held, within 3 mm of the channel end, flats >= 0 and < 0.35), the ramp from the ends of the remaining held
+run. P4 nylor: inside 0.4501 (51 node points), 2 TRANSITION of 161 at 0.2053 / 0.2054; instrument inside 0.4477, run
+ends 0.3636, 2 transition stations (0.1902 / 0.1961; its 1 mm spacing makes them 2 of 64, so §8's 3% is graded on
+the core's required points). The point between a TRANSITION node and its grown neighbour reads 0.3039 (PASS), as the
+points between nodes P5 INVU does not grade either.
+
+**E. Refusal reasons.** (1) Narrow eyewire: the 0.5 mm web holds at most web - 0.20 = 0.30 mm = pass with 0.20 mm of
+material left (0.305 along the tilted u): a knife edge the 0.005 mm verdict tolerance decided. A capacity clamp
+(NEEDS_GROWTH, EXITS_MATERIAL, OTHER_PART, CONCAVE: how far the edge can go, the point's own limits) that leaves a
+point below pass + 0.05 (§4 step 3's least target) now BLOCKS it; UNHIDEABLE and limits inherited through a shared
+node keep §4 step 4's 'below pass' (the same floor on them blocked the metal fixture's nasal run start at 0.2965-0.323
+and its correction then overshot the next node). Every top station BLOCKED(EXITS_MATERIAL) (113/113), 175/348 blocked
+-> E_TOO_MANY_BLOCKED, 0 moved. Real models: no clamped failing point on FT, Prada, Oakley or INVU, no verdict
+change. (2) Notch: any required point BLOCKED(CONCAVE) refuses the plan, `E_CONCAVE` ('the outline turns inward with a
+radius under twice the growth it needs'; 4 points, radius 0.474 mm), nothing written (§10 P4 'Refusals: ... notch
+CONCAVE'). Without the gate the fold limit would have tapered the neighbours into a pinched, partial seat.
+
+**F. The grown front edge follows the cap.** The quadric was fitted through its origin to the cap vertices outside the
+band PLUS the whole front loop; on a chamfer or a bullnose the rim ring lies off the cap (0.064 / 0.011 mm), which bent
+the fit (+0.031 / +0.0135 mm change), and a 32-segment lens has fewer than 12 cap vertices within 6 mm, so it fell back
+to the plane normal to the station normal (0.0174 mm). Now the fit uses the cap's own vertices outside the band (never
+the rim loops), has an intercept (dn = z(0, g) - z(0, 0): the rim vertex keeps its offset), and takes the 12 nearest
+when 6 mm holds fewer (W_LOW_CONFIDENCE_FIT; the tangent plane only below 6 vertices). Matrix: change <= 0.0001
+(chamfer), 0.0 (rounded, coarse), 0.0003 (toric). FT q001's front cap has 4-9 such vertices within 4 mm, so its fits
+widen to 6 mm: P2 still 71/71 (lift 1.0284 mm, slope 0.445, 58 vertices per side, left = mirrored right exactly).
+
+**G. Oakley 'top LIPPED p95 <= 0.80' is report-only** (`P5.oakley.top_lipped`, core and instrument; measured p95
+0.8327 / 0.8346, 6 ENCLOSED + 323 LIPPED): an upper bound on capture conflicts with §7 (over-capture above the §3
+maximum is a warning; seat_lens never shrinks a lens), Oakley moves 0 vertices by design, and the owner accepted
+Oakley OO9208 v2 as perfect on 2026-10-06 (`data/ledger/owner_verdicts.jsonl`). Its check PASS and zero-move records
+stay graded. The grader's `Case.add(..., report_only=True)` gives status `report_only` (pass null, counted apart).
+
+Still failing in P3, not changed (readings for the owner):
+- `P3.before_failing_where` (core, both lenses): one failing node of 95 per lens sits at |x| 14.05, outside M's
+  'nasal x 10-14' prose; it describes the input, not the result (instrument: 100% inside).
+- `P3.cover_unchanged`: 2.13 mm (core) / 2.07 (instrument) at the temporal nodes (x -58.9). The grader compares the
+  signed cover value; at a corner buried in the acetate (every Prada station is ENCLOSED, the value is negative) that
+  value is how far the frame extends behind the cover line's start, which grows as the corner moves 0.41 mm deeper
+  into a thickening rim. Front and back stay covered 100% and the edge inside 100%. Whether 'cover unchanged +-0.05'
+  means the cover share or a lip gap on uncovered-by-material corners is the owner's reading; no criterion was changed.
+
+Speed (6 Blender processes plus a 6-process pytest run at once, not standalone): INVU seat 42.7 s, Prada 13.4 / 13.9 s,
+FT 4.4 / 5.0 s. Host, open3d, standalone: INVU 8.6 -> 12.7 s (the second correction pass and the spread's cover
+test), Prada 3.3 s. Further above the 5 s budget.
+
+## Implementation notes (stage "proof", fix round A-G: review fix round 1, 2026-10-06)
+
+Re-ran P2-P5 (27 headless Blender 5.2 runs on copies, `glasses3d/data/wp4/proof/`; the four source sha256 unchanged)
+and re-graded: `proof.json` 261 records. **P2 PASS (71/71); P3 34 of 40 (the same 6 readings as before, plus 2
+report-only); P4 110 of 112 graded, 2 FAIL (the narrow eyewire knife edge, item 2) and 1 owner-pending exception
+(item 3); P5 PASS (32, 1 not applicable, 2 report-only). Stop rule not triggered:** Oakley 0 moved; every seat call's
+moved set equals the band of its FAIL nodes (now also the narrow eyewire's partial seat, 96 = 96), every moved node
+fails by the check and by the instrument. Host tests `tests/test_seat_proof_fixes4.py` (8, new);
+`test_seat_proof_fixes3.py` narrow test rewritten; `test_seat_real.py` 23; `test_seat_blender.py` 66.
+1. **Groove reading and crystal overlap (major).** The fix round's groove reading counted a point as groove-seated
+   whenever every depth read >= -0.06 mm, so an edge IN frame material qualified; with the fix round's own fixtures
+   a V-bevel buried in an ungrooved crystal ring and one cutting 0.05 mm into a groove too small for it both passed
+   344/344. Now:
+   - `stations.groove_seat` seats a point only when every depth has a real clearance, the frame beginning
+     0.02-0.06 mm beyond the edge (§5's gap band, `GROOVE_GAP_MIN_MM` 0.02), and records it (`Measurement.groove`);
+     the 'apex' rule grades only groove-seated points at the apex, every other point by the deep rule;
+   - `check.crystal_overlap`: vol(lens ^ part) for every translucent part that captures the edge at any depth, in
+     the station planes of every point (`stations.part_overlap`, the cord method), graded <= 0.01 mm3 (§8) by both
+     checks (`crystal_overlap_mm3`, `crystal`);
+   - §8's stale-cutter flag: `seat_bpy.check_lens_seating` compares the `g3d_groove_cutter | <lens>` digest with the
+     lens (`stale_cutter`, a warning; not a FAIL reason, §8 lists it in the report, not the PASS list). The host
+     reports null (a GLB carries no cutter); the overlap stands for it.
+   Host (numpy = open3d within 1e-3): solid ring (`seat_fixtures.solid_ring`) FAIL 344/344, deep 0.396, overlap
+   127.58 mm3; `grooved_ring(clearance=-0.05)` FAIL, deep 0.05, overlap 15.99 mm3; clearance 0.01 not seated, FAIL;
+   the §5 groove: overlap 0.0, PASS at 0.80. Blender (`test_seat_blender.py` crystal_seat): seated check overlap 0,
+   stale false; with the g3d_groove Boolean switched off the check FAILS (overlap > 0.01, 0 seated); after a lens
+   vertex moves 0.001 the cutter is flagged stale. Proof: `P4.crystal.overlap` tool Boolean / Blender check / host
+   check 0.0 / 0.0 / 0.0; review control `P4.crystal_control.no_groove_fails` (the profiled lens in the frame before
+   the groove): FAIL 352/352, 0 seated, overlap 126.74 mm3 (instrument 127.23). No real model has a translucent
+   capturing part, so no real verdict changes.
+2. **§4 step 4's threshold restored (major, owner decision).** The fix round blocked a point when a capacity clamp
+   (NEEDS_GROWTH, EXITS_MATERIAL, OTHER_PART, CONCAVE) left it below pass + 0.05, with UNHIDEABLE and inherited
+   limits kept at pass because the uniform rule broke the metal fixture: a binding-rule change shaped by fixture
+   outcomes. Withdrawn: every clamp, FOLD included, blocks below pass (less the 0.005 tolerance) as §4 step 4 says.
+   The narrow eyewire is a **knife edge in the fixture**: the 0.5 mm web holds web - 0.20 = 0.30 mm = pass; the top
+   points' capacity (value + EXITS_MATERIAL limit) is 0.3046-0.3067 for pass 0.30, so all 113 failing top points
+   are clamped just above pass and grown, none BLOCKED(EXITS_MATERIAL). The tool writes a partial seat (96 vertices,
+   34 BLOCKED: EXITS_MATERIAL 2, UNHIDEABLE 7, FOLD 25; min after -0.305; the check fails), so
+   `P4.metal_narrow.exits_material` and `.zero_moved` FAIL (graded, with the knife-edge note), and the moved set is
+   graded like every seat call (96 = 96, 48 moved nodes all failing by check and instrument). Owner: either amend
+   §4 step 4/5 and §12 to a capacity floor of pass + 0.05 (one rule, with the UNHIDEABLE / inherited exceptions
+   justified in the design), or keep §4 and change the fixture (a web below 0.50 mm). Kept and owner to confirm,
+   both outside §4 steps 4-5 and §12: the gate **E_CONCAVE** (any required point BLOCKED(CONCAVE) refuses the lens;
+   §10 P4 lists 'notch CONCAVE' among the refusals; under the restored threshold it fires only when a CONCAVE limit
+   leaves a point below pass: the notch, 4 points, radius 0.474 mm), and the reason **FOLD** (the fold limit as a
+   clamp). Real models: no clamped failing point on FT, Prada, Oakley or INVU; their moved sets are unchanged.
+3. **'Top >= 0.44 on the flats' grades every required point (minor).** Core (host check on the exported GLB): >= 0.44
+   at every required point >= 2 mm from the channel end (153, min 0.4499); within 2 mm (8 points): >= 0.35, or
+   TRANSITION, which the core counts and §8 caps at 3% (2 of 161: 0.2053 / 0.2054). Two points there pass the check
+   but read below the ramp's 0.35: **0.3039 and 0.3044** (one per channel end, between a channel-end node that never
+   grows and its grown neighbour). They are not graded silently: `P4.nylor.top_flats_exception` is `owner_pending`
+   (pass null; the case carries `pass_pending_owner`); rejecting them fails the record. Instrument: the channel end
+   is the midpoint between the last held and the first unheld station (1 mm spacing); its transition station is
+   defined by POSITION (the held station nearest each channel end, at most one per end, flats >= 0: 0.1902 /
+   0.1961); every other held station within 2 mm reads >= 0.35 (2, min 0.3636), the rest >= 0.44 (60, min 0.4477).
+4. **Margins of by-construction passes (minor).** `proof.json` summary `margins` and `margins_note`: P5 INVU inside-run
+   former failures min 0.450048 against >= 0.45 (margin 4.8e-5 mm: the correction aims at target + 1e-4); metal
+   inside-run min 0.450014 (0.010 above 0.44, 1.4e-5 above the 0.45 target); P3 Prada largest moved face 29.9648 deg
+   on the stored arrays against the post-check's 30 (0.035 deg; 2 faces above 29.9; `P3.face_rotation.*`,
+   report-only, not a §10 line). The criteria and the post-check are unchanged; a re-measurement on another backend
+   or machine can flip these records.
+5. **Speed (minor).** All bit-identical (raw deltas of 16 host cases, fixtures and INVU / Prada / Oakley, compared
+   before and after; station frames compared with HEAD's on 17 bodies):
+   - `station_reach` once per seat from the original lens, keyed by node and mapped onto each pass's points. Per
+     pass on the moved lens it was identical on every fixture and INVU; on Prada 2 of 355 nodes sat on a back-corner
+     knife edge (w = 0.5 between two 0.02 mm rungs), with no change to the result;
+   - replans: `plan_growth(cache=)` computes the point plan (verdicts, clamps, the unhide test, point growth) once
+     per replan family; refine_fold's replans rerun only the fold limit and the node aggregation; the spread's
+     unhide test is memoised;
+   - the band and refine_fold's last displacement are reused by grow_body (`BodyState.band`, `SeatPlan.disp`);
+   - `station_frames` measures each 32-point block against the cap faces inside its box grown by 2 x 5 mm (the only
+     faces it can select, in their original order): INVU 2.93 -> 1.21 s per call, three calls per seat.
+   Host, open3d, paired with HEAD under the same load (another session at 30-60% CPU, not idle): INVU 8.2-9.7 s vs
+   HEAD 8.8-11.0 s (it was 1.5-1.6x HEAD); Prada 3.4 s (HEAD refused it). Proof (6 Blender processes in parallel):
+   INVU 18.7 s (42.7 s in the fix round), Prada 7.6 / 7.3 s (13.4 / 13.9). Still above §9's 5 s per lens;
+   re-measure on an idle machine before WP7.
+
+## Implementation notes (stage "proof", fix round A-G: review fix round 2, 2026-10-06)
+
+Re-ran P2-P5 (27 headless Blender 5.2 runs on copies, 3 min 43 s with the grading; the four source sha256 unchanged)
+and re-graded: `proof.json` 262 records. **P2 PASS (71/71); P3 34 of 40 graded (the same 6 readings, plus 2
+report-only); P4 109 of 112 graded, 3 FAIL (`P4.metal.inside_runs` core, new under every-point grading; the narrow
+eyewire's two records) and 2 owner-pending (the nylor end-zone reading, core and instrument); P5 31 of 32 graded,
+1 FAIL (`P5.invu.former_failures` core, new under every-point grading), 1 not applicable, 2 report-only. Stop rule
+not triggered:** Oakley 0 moved; every seat call's moved set equals the band of its FAIL nodes; every moved node
+fails by the check and by the instrument. The two new FAILs come from the grading, not from the tool: the only tool
+change (item 2) records which fold pass blocked a point and adds it to messages; the plan is unchanged (metal 132,
+narrow eyewire 96, INVU 538 vertices moved, as before). Host tests: `tests/test_seat_proof_fixes5.py` (4, new),
+`test_seat_proof_fixes3.py` (metal and INVU every-point tests), `test_seat_real.py` (round-2 records);
+`pytest tests/test_seat_*.py`: 344 passed in 8 min (the proof not stale, a fresh grading equals the record).
+
+1. **Every point is graded, and the node-point minima were not the minima (major).** `wp4_proof_grade.former_failures`
+   joined the before and after states on node points only, and the correction pass corrects node points only
+   (`plan._point_plan`, the `on_node` mask), so the records passed by construction. Now (`run_classes`) every
+   REQUIRED after-state point is graded whose owning nodes (its node; between nodes, both ends of its rim segment)
+   lie >= 2 mm inside a former failing run (>= 0.35 when they lie in the run nearer its end), by the Blender check
+   state (`ns_after`) AND by the host check_glb on the exported GLB (matched by position, 358 of 358 / every one).
+   - **Metal** (P4.metal.inside_runs, core: FAIL): 168 inside-run points, min **0.4253** (host **0.4252**) at
+     (-8.33, 7.20) and 0.4262 at (-8.05, 6.97), the two points (w 2/3 and 1/3) between junction nodes 71 (0.4500)
+     and 72 (0.4501); 57 points read below the tool's 0.45 target, 2 below §10's 0.44; max 0.4613; node points alone
+     0.4500-0.4553 (60). Run ends 0.3696 (12). The instrument (65 stations, 1 mm apart) reads 0.4500-0.4639 and
+     passes: its stations do not sample that segment's interior below 0.44.
+   - **INVU** (P5.invu.former_failures, core: FAIL): 519 inside-run points, 19 below 0.45, min **0.44885** at
+     (-60.40, 22.74) (halfway along segment 608-609); host 16 below, min 0.4489; node points alone 261, min 0.450048.
+     Ends 0.4542. The instrument's share (0.9932 >= 0.97) passes.
+   - **Why the tool was not changed (measured, owner item).** Growth is linear along a rim segment; the eyewire's
+     capture steps non-linearly inside segment 71 (before seating -0.291 at node 71, -0.086 halfway, 0.102 at node 72).
+     A point between nodes moves by a convex combination of its two nodes' moves, so raising it by r raises at least
+     one node by r: bringing the w = 2/3 point to 0.45 puts a node at >= **0.4748** (w = 1/3: 0.4739), past §10's
+     0.47 (the record carries `to_reach_target_a_node_reads_ge` per miss). The target at every point and <= 0.47 at
+     every node cannot both hold on that segment. §10's band alone is reachable (both nodes +0.0144: points >= 0.44,
+     nodes about 0.4645) only by aiming the points between nodes at 0.44, a number no design rule names (it is §10's
+     grading bound): not done (stop rule). INVU's shortfall is reachable (a node at >= 0.4512; P5 has no upper bound),
+     but correcting every point is one rule for both lenses and pushes the metal junction past 0.47 (the earlier fix
+     round measured it: junction nodes 0.477 / 0.468). Owner: (a) keep node-point correction (both records fail §10
+     as written: metal 0.425, INVU 19 points at 0.4489-0.4499); (b) correct every inside-run point (INVU passes, the
+     metal junction nodes read >= 0.474: P4 fails on 0.47); (c) a §10 reading for a segment the frame's capture steps
+     across (a design change).
+   - **Corrections.** "INVU's lowest grown point is 0.450048" and "the metal fixture's lowest point is 0.450014"
+     (review fix round 1, item 4, and its report), and item C's "P4 metal: former failures inside runs 0.4500-0.4553
+     ... P5 INVU: 261 inside-run former failures 0.4500-0.4856 (0 below 0.45)", are node-point readings; over every
+     inside-run point the minima are **0.44885 (INVU) and 0.4252 (metal)**. `proof.json` summary `margins` now hold
+     every-point minima (P4.metal.inside_runs.min -0.0148, P5.invu.former_failures.inside -0.00115: failing
+     records) and `margins_note` says so. P4.nylor.top_flats already graded every required point (host check).
+2. **FOLD blocks spread along a run (major; behaviour unchanged, now reported).** Narrow eyewire
+   (`SF.metal_scene(radial_web=0.5)`, host numpy = the proof's Blender plan counts): 34 BLOCKED = EXITS_MATERIAL 2,
+   UNHIDEABLE 7, FOLD 25. The nasal -0.30 run (nodes 57-71) is stopped at both ends by 6 non-FOLD blocks: at nodes
+   56/57 one EXITS_MATERIAL (value 0.110, limit 0.196) and two UNHIDEABLE (limit 0.196), at nodes 70/71 three
+   UNHIDEABLE (limits 0.393 / 0.206). Fold pass 1 lowers each neighbour of a stopped node to one segment's slope
+   (0.56-0.57 mm) where it needs 0.755, leaving it below pass: 4 points BLOCKED(FOLD), **direct**. Each later pass
+   stops the next node: **21 knock-on** over passes 2-7, meeting at node 64. Every node of the run ends at 0 growth,
+   and the partial seat leaves the run at -0.305 (36 FAIL after); with only their own clamps (0.613 mm) its points
+   would have reached about 0.308 (pass 0.30). Control: the 0.9 mm web has no FOLD block. (The review's "about 2
+   primary blocks" is 6 seeds at both ends, measured.) Now `SeatPlan.fold_generation` records the pass that blocked
+   each point, `counts()['fold_blocks']` = {direct, knock_on, passes} (the tool report's before/after counts, the
+   proof's `P4.metal_narrow.exits_material.measured.fold_blocks`), and E_TOO_MANY_BLOCKED's message and
+   E_POSTCHECK's blocked list name the split. `test_seat_proof_fixes5.py` pins it: the split adds up, every knock-on
+   block lies within one segment of an earlier one, the whole run is blocked and ungrown, and the control. **Owner
+   decision 2 (FOLD) must be taken with this disclosed:** one node that cannot grow inside a run whose need exceeds a
+   segment's fold slope leaves the whole run ungrown. Alternatives (design changes): spread the fold limit over more
+   nodes (a taper toward the stopped node), or refuse (a gate) instead of a partial seat when FOLD blocks cascade.
+3. **Item E(1) is still open (major, owner).** Unchanged: `P4.metal_narrow.exits_material` and `.zero_moved` FAIL
+   (partial seat, 96 vertices moved, top capacity 0.3046-0.3067 against pass 0.30, 0 of 113 top points
+   BLOCKED(EXITS_MATERIAL)); the gate E_CONCAVE (`plan.py`, the gate block) and the reason FOLD are rule additions
+   outside §4 steps 4-5 and §12, and `P4.refusal.notch` passes only through E_CONCAVE. Owner: amend §4 steps 4-5 and
+   §12 to a capacity floor of pass + 0.05 for these clamps, or keep §4 and give the fixture a web below 0.50 mm; and
+   confirm or reject E_CONCAVE and FOLD with item 2's spreading disclosed. Then re-run P4.
+4. **Correction: an accepted final HAS a translucent capturing part (minor).** Review fix round 1, item 1 said "No
+   real model has a translucent capturing part, so no real verdict changes". False for the Tom Ford FT1123 crystal
+   the owner accepted on 2026-10-06 (`data/ledger/owner_verdicts.jsonl`, GLB sha256 0e77e11e...): its 'Crystal front
+   - integral bridge and endpieces.001' captures both lenses, and check_glb now adds 'crystal overlap 32.207 mm3 >
+   0.01' per lens (32.20685 / 32.20689 mm3). Its verdict was already FAIL (400 of 400 stations FAIL the deep rule as
+   the inferred acetate), so the verdict does not change, but an accepted model has a new failure reason. Host check
+   4.6 s with frame_type acetate, 5.4 s without (this machine, now; the review measured 0.9 -> 4.5 s and 2.4 -> 7.3 s
+   on a first call): within §9's 10 s. **For the owner:** `seat_lens` on that model would take the crystal front as
+   translucent and V-bevel the lenses and cut a groove into the front (§5, §11.2), which changes an accepted look; it
+   must not be run there without the owner's decision.
+5. **The nylor end-zone reading goes to the owner as one decision (minor).** `P4.nylor.top_flats` (core) is now
+   graded where §10's "flats" certainly applies: every required point >= 2 mm from a channel end >= 0.44 (153, min
+   0.4499), no end-zone point failing the check, TRANSITION <= 3% (2 of 161). The reading for the 8 points within 2
+   mm (the run-end ramp to 0.35 plus TRANSITION) is `P4.nylor.top_flats_end_zone`, owner_pending: TRANSITION 0.2053 /
+   0.2054, below 0.35 but passing the check 0.3039 / 0.3044, ramp 0.408 / 0.4081 / 0.4299 / 0.43; rejecting it fails
+   P4.nylor.top_flats at all 8. The instrument's record is split the same way (inside 60 stations, min 0.4477; its end
+   zone 2 stations min 0.3636 and 2 transition stations 0.1902 / 0.1961, pending; a station missing even the reading
+   fails it). `P4.nylor.top_flats_exception` is gone (subsumed).
+6. **CORRECTION_AIM_MM = 1e-4 is an owner item (minor).** `deform.CORRECTION_AIM_MM` (= `stations.CLASS_EPS_MM`)
+   exists so that corrected node points land at or above the target instead of about 1e-5 mm under it
+   (float-noise compensation): node points clear 0.45 by 4.8e-5 (INVU) and 1.4e-5 (metal), and without it they land
+   about 1e-5 below. It is kept and listed in `proof.json` summary `owner_decisions`: accept it explicitly, or remove
+   it and grade the target with a stated measurement tolerance. The grader was not given a tolerance: at §4 step 2's
+   0.005 INVU's 0.44885 would pass, a threshold change for the owner to make, not the grader. Even with the constant,
+   19 INVU points between nodes read below 0.45 (item 1).
+7. **Stray profile dump (minor).** `C:/Users/Shay/PycharmProjects/lenses/p.out` (15 KB, 2026-10-06 06:11, untracked: a
+   cProfile of `geom.self_intersections` from the speed work) was moved out of the repository into the session
+   scratchpad (`.../scratchpad/r2/p.out`), never committed. Profiling output stays in scratch.
+
+`proof.json` summary also lists `owner_decisions` (items 1, 2, 3, 6) beside `owner_readings` (now including the nylor
+end-zone reading).
+
+## Implementation notes (stage "proof", re-run after the A-G fix round, 2026-10-06)
+
+Re-ran P2-P5 as §10 writes them, with item G's change (`P5.oakley.top_lipped` report-only) and no other criterion
+change: 27 headless Blender 5.2 runs on copies plus the grading, 3 min 6 s (`data/wp4/proof_final_run.log`). The four
+source sha256 are unchanged (ea79d97b..., 56274deb..., a142d3c3..., bd7d2a91..., re-hashed after the run). No tool
+source changed since the review fix round 2 run. The only edit is the runner `tests/proofs/wp4_proof.py`: it now keeps the
+previous `proof.json` records under `superseded` (newest first). Each entry holds the old summary, cases, run timings
+and tool digests, plus `compared_with_the_new_grading` (status, measured and timing-only changes, record by record).
+- **Reproduced.** 262 records. Against the superseded grading: 0 status changes, 0 measured changes, one timing-only
+  change (`P4.crystal.exact_time` 0.533 -> 0.464 s). The tool digests differ only by the runner's own hash.
+- **Verdicts:** P2 PASS 71/71. P3: 34 of 40 graded pass, 6 FAIL, plus 2 report-only. P4: 109 of 112 graded pass,
+  3 FAIL, plus 2 owner-pending. P5: 31 of 32 graded pass, 1 FAIL, plus 1 not applicable and 2 report-only (G).
+  **Stop rule not triggered:** Oakley moved 0 vertices, and every seat call's moved set equals the band of its FAIL
+  nodes (q001 58 per side, Prada 190 per lens, metal 132, narrow eyewire 96, the 8 acetate constructions, INVU 538).
+  Every moved node fails by the check and by the instrument.
+- **Remaining FAILs** are all unchanged and described in the rounds above. Nothing was tuned:
+  - `P3.before_failing_where` (core, L/R): one of 95 failing input nodes lies at |x| 14.047, 0.047 mm outside M's
+    'nasal 10-14' prose. This describes the input. The instrument puts 100% inside.
+  - `P3.cover_unchanged` (core 2.13, instrument 2.07 / 2.06 mm): the grader compares the signed cover value. At a
+    corner buried in acetate, that value grows as the corner moves deeper. Front and back stay covered 100%.
+  - `P4.metal.inside_runs` (core): two points between the junction nodes 71 and 72 read 0.4253 / 0.4262, below 0.44.
+    The instrument passes, with a minimum of 0.4500.
+  - `P4.metal_narrow.exits_material` and `.zero_moved`: the narrow eyewire is a knife edge. Top capacity is
+    0.3046-0.3067 against a pass of 0.30, so the tool writes a partial seat (96 vertices) instead of
+    BLOCKED(EXITS_MATERIAL).
+  - `P5.invu.former_failures` (core): 19 of 519 inside-run points between corrected nodes read 0.4488-0.4499, below
+    0.45. The instrument passes (share 0.9932).
+- **Owner-pending, not graded:** `P4.nylor.top_flats_end_zone` (core and instrument). Read literally, §10's 'top >=
+  0.44 on the flats' fails at all 8 end-zone points: TRANSITION 0.2053 / 0.2054, 0.3039 / 0.3044, and the ramp
+  0.408-0.430. The record keeps the case's verdict open (`pass_pending_owner`).
+- **Tests:** `pytest -q tests/test_seat_*.py`: 344 passed in 8 min 22 s, with the proof not stale and a fresh grading
+  equal to the record (`data/wp4/pytest_final_seat.log`). The rest of the suite ran 45 min under load
+  (`data/wp4/pytest_final_rest.log`): 548 passed, 1 skipped (`test_cameras_repro`, the scipy fingerprint), 2 xfailed,
+  and 2 failed. Both failures are in `tests/test_temple_relief_photo.py` (another workflow's untracked temple files; it
+  imports no seat code): `test_faceted_model_explains_every_photo_crease` (1 segment, needs >= 3) and
+  `test_confirmation_and_r2` (1 confirmed crease, needs >= 2).
+  Speed was measured beside another session's WP6 proof run, so it is not a standalone figure: INVU case 43.3 s,
+  Prada 32.6 s, FT 33.4 s (Blender wall time per case, 6 processes in parallel).

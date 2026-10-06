@@ -155,14 +155,20 @@ def jobs(scenes: dict) -> dict:
         export("before", "metal"), ns("ns_before", lens=L, frame_type="metal"), seat("seat1", lens=L, frame_type="metal"),
         arrays("a1", "metal", [L, "Eyewire"]), x("digest1", "W.digest_all()"), check("check_after"),
         export("after", "metal"), ns("ns_after", lens=L, frame_type="metal")])
+    # proof review fix round 1: the narrow eyewire is seated partially under §4 step 4 (the knife edge), so its moved
+    # set is graded like every other seat call (stop rule): arrays, both GLBs, the check and the after-state
     J["metal_narrow"] = (scenes["metal_narrow"], [
-        x("digest0", "W.digest_all()"), ns("ns_before", lens=L, frame_type="metal"),
-        seat("seat1", lens=L, frame_type="metal"), x("digest1", "W.digest_all()")])
+        arrays("a0", "metal_narrow", [L, "Eyewire"]), x("digest0", "W.digest_all()"),
+        export("before", "metal_narrow"), ns("ns_before", lens=L, frame_type="metal"),
+        seat("seat1", lens=L, frame_type="metal"), arrays("a1", "metal_narrow", [L, "Eyewire"]),
+        x("digest1", "W.digest_all()"), check("check_after"), export("after", "metal_narrow"),
+        ns("ns_after", lens=L, frame_type="metal")])
     for sc in ("nylor", "nylor_nocord"):
         st = [arrays("a0", sc, [L]), x("digest0", "W.digest_all()"), export("before", sc),
               ns("ns_before", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
               seat("seat1", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
-              arrays("a1", sc, [L]), x("digest1", "W.digest_all()"), check("check_after"), export("after", sc)]
+              arrays("a1", sc, [L]), x("digest1", "W.digest_all()"), check("check_after"), export("after", sc),
+              ns("ns_after", lens=L, frame_type="semi_rimless", lower_edge="nylor")]
         J[sc] = (scenes[sc], st)
     # review control (proof review round 2): the stage-proof cord, off the §5 groove, must be reported
     J["nylor_outline"] = (scenes["nylor_outline"], [
@@ -269,6 +275,50 @@ def run(cases=None, workers: int = 6) -> dict:
     return state
 
 
+def _records(proof: dict) -> dict:
+    """{'<id> (<by>)#<n>': record} over every case (n numbers repeated id/by pairs in order)."""
+    out, seen = {}, {}
+    for case in (proof.get("cases") or {}).values():
+        for r in case.get("criteria", []):
+            key = f"{r['id']} ({r['by']})"
+            n = seen[key] = seen.get(key, 0) + 1
+            out[f"{key}#{n}"] = r
+    return out
+
+
+def _numbers_differ(a, b, tol=1e-9) -> bool:
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() != b.keys() or any(_numbers_differ(a[k], b[k], tol) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) != len(b) or any(_numbers_differ(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, float) or isinstance(b, float):
+        return a is None or b is None or abs(float(a) - float(b)) > tol
+    return a != b
+
+
+def supersede(new: dict, old: dict | None) -> dict:
+    """The new proof with the previous proof.json's records kept under 'superseded' (newest first; the previous file's
+    own 'superseded' list follows it). Each entry holds the old summary, cases, run timings and tool digests, and the
+    record-by-record comparison with the new grading (status changes, measured changes; a measured change of a
+    timing-only record is listed apart)."""
+    if not old or "cases" not in old:
+        return new
+    a, b = _records(old), _records(new)
+    status = sorted(k for k in set(a) & set(b) if a[k].get("status") != b[k].get("status")
+                    or a[k].get("pass") != b[k].get("pass"))
+    measured = sorted(k for k in set(a) & set(b) if _numbers_differ(a[k].get("measured"), b[k].get("measured")))
+    timing = [k for k in measured if set(a[k].get("measured") or {}) <= {"solver", "seconds"}]
+    entry = {"superseded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+             "tools_sha256": old.get("tools_sha256"), "summary": old.get("summary"), "cases": old.get("cases"),
+             "run": old.get("run"),
+             "compared_with_the_new_grading": {
+                 "same_tools": old.get("tools_sha256") == new.get("tools_sha256"),
+                 "records_old_new": [len(a), len(b)], "only_old": sorted(set(a) - set(b)),
+                 "only_new": sorted(set(b) - set(a)), "status_changed": status,
+                 "measured_changed": [k for k in measured if k not in timing], "timing_only_changed": timing}}
+    return dict(new, superseded=[entry] + list(old.get("superseded") or []))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--grade-only", action="store_true")
@@ -285,6 +335,8 @@ def main(argv=None) -> int:
             return 0
     from glasses3d.tests.proofs import wp4_proof_grade as G
     proof = G.grade_all()
+    old = json.loads(PROOF_JSON.read_text(encoding="utf-8")) if PROOF_JSON.is_file() else None
+    proof = supersede(proof, old)
     PROOF_JSON.write_text(json.dumps(proof, indent=1), encoding="utf-8")
     print(PROOF_JSON)
     print(json.dumps(proof["summary"], indent=1))

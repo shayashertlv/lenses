@@ -37,6 +37,7 @@ the thin rule on a full rim (metal, browline outside its ranges) still needs the
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -332,18 +333,25 @@ def station_frames(body: LensBody, spacing: float = POINT_SPACING_MM) -> Frames:
     n = np.zeros_like(P)
     NA = Nf * A[:, None]
     # distances in blocks of points (the same values as one point at a time; the per-point sums stay row sums over
-    # the same faces, so the normals are bit-identical)
-    blk = max(1, int(4_000_000 // max(1, 3 * len(C))))
+    # the same faces, so the normals are bit-identical). Only faces within 2 x NORMAL_RADIUS_MM of a point can be
+    # selected, so each block measures the faces inside its points' box grown by that much, kept in their original
+    # order (the selected rows, and so the sums, are the same; proof review fix round 1, speed: INVU's 24k near
+    # faces against all 1494 points took ~1 s of every call)
+    blk = 32
+    r2 = 2 * NORMAL_RADIUS_MM
     for b0 in range(0, len(P), blk):
-        DD = np.linalg.norm(C[None, :, :] - P[b0:b0 + blk, None, :], axis=2)
+        Pk = P[b0:b0 + blk]
+        cand = np.flatnonzero(((C >= Pk.min(0) - r2) & (C <= Pk.max(0) + r2)).all(1))
+        Cc, farc, NAc = C[cand], far[cand], NA[cand]
+        DD = np.linalg.norm(Cc[None, :, :] - Pk[:, None, :], axis=2)
         for kk in range(len(DD)):
             d = DD[kk]
-            sel = far & (d < NORMAL_RADIUS_MM)
+            sel = farc & (d < NORMAL_RADIUS_MM)
             if sel.sum() < 3:
-                sel = far & (d < 2 * NORMAL_RADIUS_MM)
+                sel = farc & (d < r2)
             if sel.sum() < 3:
-                sel = d < 2 * NORMAL_RADIUS_MM
-            v = NA[sel].sum(0)
+                sel = d < r2
+            v = NAc[sel].sum(0)
             n[b0 + kk] = v / max(np.linalg.norm(v), 1e-300)
     # tangent: chord between the first loop vertices >= CHORD_MM away on each side
     s2 = np.r_[sv, sv + L]
@@ -403,6 +411,8 @@ class Measurement:
     mid_parts: list            # per point: per frame part intervals along the mid-depth line
     edge: np.ndarray | None = None    # (N, 5) lens edge along each depth line from the rung point (0 = on the rung)
     depth_parts: list | None = None   # per point, per depth: per frame part intervals (keep_depths=True)
+    groove: np.ndarray | None = None  # (N,) bool: the point is groove-seated (groove_seat; None = not read): its caps
+                                      # are read from the groove's lips, and only such a point is graded at the apex
 
     @property
     def covered_front(self) -> np.ndarray:
@@ -528,6 +538,83 @@ def classify(m: Measurement) -> np.ndarray:
                             np.where(enclosed, "ENCLOSED",
                                      np.where(lipped, "LIPPED", np.where(backed, "BACKED", "NEAR")))))
     return cls.astype(object)
+
+
+# ------------------------------------------------------------------------------------------------ groove seat
+GROOVE_GAP_MAX_MM = 0.06           # §5 / §10 P4: the groove gap is 0.02-0.06 mm by design (clearance 0.03 inflated
+                                   # along the bevel's normals: 0.03 on the flats, 0.035 along u on the 60 deg flanks)
+GROOVE_GAP_MIN_MM = 0.02           # ... and at least 0.02 mm: an edge in frame material (gap 0, a lens buried in an
+                                   # ungrooved crystal rim) or closer than this to the groove wall is not groove-seated
+
+
+@dataclass
+class GrooveSeat:
+    seated: np.ndarray         # (N,) the edge sits in a groove: at every depth the frame begins GROOVE_GAP_MIN_MM to
+                               # GROOVE_GAP_MAX_MM beyond it (never in frame material), and frame holds the lens over
+                               # both faces (the lips)
+    aperture: np.ndarray       # (N,) the aperture at mid-depth along u from the front corner, nan when not seated
+    gap_mm: np.ndarray         # (N, 5) clearance to the groove wall per depth (0 inside frame), nan where not seated
+
+
+def groove_seat(frames: Frames, backend: LineIntervals, lens_part: int, meas: Measurement,
+                gap_max: float = GROOVE_GAP_MAX_MM,
+                gap_min: float = GROOVE_GAP_MIN_MM) -> tuple[Measurement, GrooveSeat]:
+    """§3 capture for a V-beveled edge seated in a groove (§5): the groove is cut with a clearance, so on every depth
+    line the frame begins 0.02-0.06 mm beyond the lens edge and §3's 'interval containing the edge' reads that
+    clearance as a gap at every depth (the stage-proof crystal fixture: 352/352 points FAIL with exact bevel and groove
+    numbers). In a groove the lens is held between the lips; its capture is how far each depth's edge reaches beyond
+    the lips' inner face (the visible aperture, PLAN §3 'the lens extends 0.8 mm beyond the visible aperture'). The
+    lips are read on lines along u just outside the lens faces (front corner + gap_max n, back corner - gap_max n:
+    beyond the clearance, inside the lip): the frame interval holding the corner's projection begins at the lip's
+    inner face, and between the two lips the aperture face is taken linear in depth (a planar face: exactly where §3
+    reads it on each depth line before the groove is cut). A point is groove-seated when every depth line has a real
+    clearance, the frame beginning gap_min to gap_max beyond its edge (§5's gap band; an edge in frame material is
+    not seated: review fix round 1, a lens buried in an ungrooved crystal ring, or cutting 0.05 mm into the walls of
+    a groove too small for it, read as seated and passed 344/344), and both lip lines hold frame over the corner; its
+    caps become edge - aperture per depth and `groove` marks it (the 'apex' rule grades only such points at the apex),
+    every other point keeps §3's reading. Overlap of the lens with the lips is not seen on the depth lines: the check
+    measures it (check.crystal_overlap). Returns (measurement with those caps and re-derived classes, GrooveSeat)."""
+    N = len(frames)
+    nd = len(DEPTHS)
+    seated = np.zeros(N, bool)
+    aperture = np.full(N, np.nan)
+    gap = np.full((N, nd), np.nan)
+    cap = meas.cap.copy()
+    if N == 0:
+        return dataclasses.replace(meas, groove=seated.copy()), GrooveSeat(seated, aperture, gap)
+    with np.errstate(invalid="ignore"):
+        near = (np.isfinite(cap).all(1) & (cap >= -gap_max - CLASS_EPS_MM).all(1)
+                & (cap <= -gap_min + CLASS_EPS_MM).all(1) & frames.ok)
+    idx = np.flatnonzero(near)
+    if len(idx):
+        off = gap_max + COVER_NUDGE_MM
+        O = np.concatenate([frames.P[idx] + off * frames.n[idx], frames.Pb[idx] - off * frames.n[idx]])
+        D = np.concatenate([frames.u[idx], frames.u[idx]])
+        Ax = np.concatenate([frames.t[idx], frames.t[idx]])
+        res = line_intervals(backend, O, D, Ax)
+        m = len(idx)
+        for q, k in enumerate(idx.tolist()):
+            lips = []
+            for line in (q, m + q):
+                U = merge(res.intervals[line][:lens_part])
+                hold = [(a, b) for a, b in U if a <= 0.0 <= b]
+                lips.append(hold[0][0] if hold else np.nan)
+            if not np.isfinite(lips).all():
+                continue
+            a_front = lips[0]
+            a_back = lips[1] + float((frames.Pb[k] - frames.P[k]) @ frames.u[k])
+            f = np.asarray(DEPTHS)
+            ap = (1.0 - f) * a_front + f * a_back             # the aperture face at each depth's height
+            E = frames.depth_points()[k]
+            edge_abs = (E - frames.P[k]) @ frames.u[k] + meas.edge[k]
+            seated[k] = True
+            aperture[k] = ap[MID]
+            gap[k] = np.clip(-meas.cap[k], 0.0, None)
+            cap[k] = edge_abs - ap
+    m2 = Measurement(cap, meas.room, meas.owner, meas.cover_front, meas.cover_back, meas.unmeasured, meas.recast,
+                     np.empty(N, dtype=object), meas.mid_parts, meas.edge, meas.depth_parts, seated.copy())
+    m2.cls = classify(m2)
+    return m2, GrooveSeat(seated, aperture, gap)
 
 
 UNDER_WINDOW_MM = (-1.5, 4.0)               # §6 step 1: 'under' material along +u starting within [-1.5, 4] mm

@@ -378,6 +378,35 @@ def cord_overlap(body, fr, be, parts, lens_part: int, factory: Factory, verdict)
     return out
 
 
+def crystal_overlap(body, fr, parts, lens_part: int, factory: Factory, part_idx) -> dict:
+    """§8 'crystal overlap mm3' (PASS needs <= 0.01, §5 'vol(lens ^ frame) <= 0.01 mm3'): vol(lens ^ part) for each
+    translucent capturing part, in the station planes of every point (stations.part_overlap, a backend of the lens
+    and those parts only; the cord-overlap method). A V-bevel in its §5 groove overlaps nothing (the groove clears it
+    by 0.03 mm); a lens buried in an ungrooved crystal rim, a deleted g3d_groove Boolean, a stale cutter or a lens
+    edited after seating overlaps the frame, and its edge, seen through the crystal, cuts into it (review fix round 1:
+    the check passed all three). The groove's lips over the lens faces are covered too: the depth lines inside the
+    lens never meet them."""
+    idx = [int(p) for p in part_idx]
+    out = {"parts": [], "overlap_mm3": 0.0, "limit_mm3": rules.CRYSTAL_OVERLAP_MAX_MM3,
+           "method": f"station-plane columns along n every {stations.OVERLAP_STEP_MM:g} mm of u at every point",
+           "unmeasured_columns": 0}
+    if not idx:
+        return out
+    sub = factory([(parts[p][1].V, parts[p][1].T) for p in idx] + [(body.V, body.T)])
+    ov = stations.part_overlap(fr, sub, len(idx), range(len(idx)))
+    tot = 0.0
+    for k, p in enumerate(idx):
+        rec = ov["parts"][k]
+        tot += rec["mm3"]
+        out["parts"].append({"part": parts[p][1].name, "overlap_mm3": report.r(rec["mm3"], 5),
+                             "points_overlapping": rec["points"],
+                             "max_section_mm2": report.r(rec["max_section_mm2"], 5),
+                             "worst_xyz": [report.r(x, 3) for x in rec["worst_xyz"]] if rec["worst_xyz"] else None})
+    out["overlap_mm3"] = report.r(tot, 5)
+    out["unmeasured_columns"] = ov["unmeasured_columns"]
+    return out
+
+
 def check_body(body, node, solids, frame_type, lower_edge, ranges_arg, factory: Factory, stations_table,
                warnings, unseen=()) -> dict:
     """One lens. `unseen`: E_OPEN_PART / E_UNREADABLE_PART problems naming this lens; the lens is then not graded
@@ -391,6 +420,12 @@ def check_body(body, node, solids, frame_type, lower_edge, ranges_arg, factory: 
     unknown = ft is None
     if unknown:                                             # report the measurement, grade nothing
         ft = rules.frame_type("rimless")
+    groove = None
+    if not unknown and seat.get("profile") == "vbevel" and ft.profile == "flat_or_vbevel":
+        # a declared V-bevel (seat_lens wrote it with the crystal groove, §5): capture from the groove's lips, graded
+        # at the apex with every depth beyond them (stations.groove_seat, rules 'apex')
+        meas, groove = stations.groove_seat(fr, be, lens_part, meas)
+        ft = dataclasses.replace(ft, rule="apex")
     ranges = ranges_arg if ranges_arg is not None else ranges_from(node)
     if ft.in_range_rule and not ranges:
         warnings.append(f"{body.name}: browline without hidden x-ranges: graded as metal everywhere")
@@ -406,10 +441,16 @@ def check_body(body, node, solids, frame_type, lower_edge, ranges_arg, factory: 
                        and np.nanmax(band.area_outside_mm2[graded]) <= report.BAND_AREA_ZERO_MM2)
     capturing = sorted({int(o) for o in meas.owner[:, stations.MID] if o >= 0})
     translucent = [names[i] for i in capturing if parts[i][0]["translucent"]]
+    # the overlap is measured on every translucent part that captures the edge at any depth (a superset of the
+    # mid-depth owners listed above)
+    tr_parts = sorted({int(o) for o in meas.owner.ravel() if o >= 0 and parts[int(o)][0]["translucent"]})
+    crystal = crystal_overlap(body, fr, parts, lens_part, factory, tr_parts) if tr_parts else None
     sharpened = bool(seat.get("sharpened"))
     rs_p5 = (rs or {}).get("front", {}).get("p5")
-    cord = cord_overlap(body, fr, be, parts, lens_part, factory, verdict)         if (ft.lower_edge == "nylor" and not unknown) else None
-    chk = rules.check_verdict(ft, meas, rl, verdict, band_ok=band_ok, crystal_overlap_mm3=None,
+    cord = (cord_overlap(body, fr, be, parts, lens_part, factory, verdict)
+            if (ft.lower_edge == "nylor" and not unknown) else None)
+    chk = rules.check_verdict(ft, meas, rl, verdict, band_ok=band_ok,
+                              crystal_overlap_mm3=crystal["overlap_mm3"] if crystal else None,
                               rim_split_p5_deg=rs_p5, sharpened=sharpened,
                               cord_overlap_mm3=cord["overlap_mm3"] if cord else None)
     graded_pass = bool(chk["pass"]) and not unknown
@@ -428,11 +469,23 @@ def check_body(body, node, solids, frame_type, lower_edge, ranges_arg, factory: 
     chk["pass"] = graded_pass and source != "inferred"
     extra = {"node": node["name"], "frame_type_source": source, "provisional": source == "inferred" and not unknown,
              "graded_pass": graded_pass, "ranges": ranges, "body": body.summary(), "parts": names,
-             "translucent_capturing_parts": translucent, "crystal_overlap_mm3": None,
+             "translucent_capturing_parts": translucent,
+             "crystal_overlap_mm3": crystal["overlap_mm3"] if crystal else None, "crystal": crystal,
+             "stale_cutter": None,
              "cord_lens_overlap_mm3": cord["overlap_mm3"] if cord else None, "cord": cord,
              "unmeasured_parts": [{"code": x["code"], "component": x["component"]} for x in unseen]}
-    if translucent:
-        extra["crystal_note"] = "translucent capturing part: crystal overlap is measured by the profile stage"
+    if crystal:
+        extra["crystal_note"] = ("stale_cutter: read in Blender (check_lens_seating compares the groove cutter's "
+                                 "stored lens digest with the lens); a GLB carries no cutter, so the host reports "
+                                 "null and the overlap stands for it")
+    if groove is not None:
+        gs = groove.gap_mm[groove.seated]
+        extra["groove"] = {"points": int(len(groove.seated)), "seated": int(groove.seated.sum()),
+                           "gap_min_max_mm": [report.r(np.nanmin(gs)), report.r(np.nanmax(gs))] if gs.size else None,
+                           "gap_limit_mm": stations.GROOVE_GAP_MAX_MM,
+                           "reading": "capture = each depth's edge beyond the groove's lips (their inner faces read "
+                                      "just outside the lens faces, linear in depth between them); graded at the "
+                                      "apex with every depth beyond the lips"}
     rep = report.lens_report(body.name, ft, fr, meas, rl, verdict, chk, names, band=band, rim_split=rs,
                              extra=extra, stations=stations_table)
     if unknown:

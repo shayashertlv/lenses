@@ -594,19 +594,29 @@ def _nearest_on_segments_near(A, AB, L2, seg, s0, X, r: float, pair_chunk: int =
 
 
 # ---------------------------------------------------------------------------------------------------- fitting
-def fit_quadric(P, origin, t, u, n) -> np.ndarray:
-    """Least-squares height field z = a t^2 + b t u + c u^2 + d t + e u over the (t, u) plane at `origin` (a surface
-    point), z along n (§4 step 6). Returns (a, b, c, d, e)."""
+def fit_quadric(P, origin, t, u, n, intercept: bool = False) -> np.ndarray:
+    """Least-squares height field z = a t^2 + b t u + c u^2 + d t + e u (+ f with `intercept`) over the (t, u) plane at
+    `origin`, z along n (§4 step 6). Returns (a, b, c, d, e) or (a, b, c, d, e, f). Without the intercept the surface
+    passes through `origin` (a point on it); with it, `origin` may lie off the fitted surface (a chamfer's or a
+    bullnose's rim ring above the cap) and `quadric_rise` keeps that offset."""
     D = np.asarray(P, np.float64) - origin
     x, y, z = D @ t, D @ u, D @ n
-    A = np.c_[x * x, x * y, y * y, x, y]
-    coef, *_ = np.linalg.lstsq(A, z, rcond=None)
+    cols = [x * x, x * y, y * y, x, y] + ([np.ones_like(x)] if intercept else [])
+    coef, *_ = np.linalg.lstsq(np.stack(cols, 1), z, rcond=None)
     return coef
 
 
 def quadric_height(coef, x, y):
-    a, b, c, d, e = coef
-    return a * x * x + b * x * y + c * y * y + d * x + e * y
+    a, b, c, d, e = coef[:5]
+    f = coef[5] if len(coef) > 5 else 0.0
+    return a * x * x + b * x * y + c * y * y + d * x + e * y + f
+
+
+def quadric_rise(coef, y):
+    """z(0, y) - z(0, 0): how far the fitted surface rises along n over a move y along u from the origin (the move
+    follows the surface's shape from wherever the origin sits, on it or off it)."""
+    a, b, c, d, e = coef[:5]
+    return c * y * y + e * y
 
 
 def smoothstep(x):

@@ -8,9 +8,14 @@ rungs), unpartnered back-loop and interior wall vertices map to the nearest node
 hole are not in the band.
 
 Displacement of a band vertex (§4 step 6): delta = g u + dn n, with dn from the quadric z = a t^2 + b t u + c u^2 +
-d t + e u fitted to that cap's vertices within 4 mm (>= 12 points; widen to 6 mm; else the tangent plane,
-W_LOW_CONFIDENCE_FIT), front fit for front-loop vertices, back fit for back-loop vertices, depth-fraction blend on
-the wall. Riders lying on a moved face follow it barycentrically.
+d t + e u + f fitted to that cap's vertices within 4 mm (>= 12 points; widen to 6 mm; else the 12 nearest,
+W_LOW_CONFIDENCE_FIT; fewer than 6: the tangent plane), front fit for front-loop vertices, back fit for back-loop
+vertices, depth-fraction blend on the wall; dn = z(0, g) - z(0, 0). The fit uses the cap's own vertices outside the
+band (never the rim loops: a chamfer's or a bullnose's rim ring lies off the cap, and fitting it with the cap bent the
+quadric so the grown edge left the cap by 0.031 / 0.0135 mm; the intercept lets the rim vertex keep its offset), and
+the 12 nearest replace the tangent plane (a 32-segment lens has fewer than 12 cap vertices within 6 mm: moving along
+the plane normal to the station normal left the cap by 0.0174 mm). Riders lying on a moved face follow it
+barycentrically.
 """
 from __future__ import annotations
 
@@ -23,13 +28,15 @@ import numpy as np
 from . import geom, rules, stations
 from .geom import SeatError
 from .intervals import Stacked
-from .plan import G_MAX_MM, LiftPlan, SeatPlan, plan_growth, plan_lift
+from .plan import FACE_ROTATION_MAX_DEG, G_MAX_MM, LiftPlan, SeatPlan, plan_growth, plan_lift
 from .stations import MID, Frames, LensBody, Measurement
 
 FIT_RADII_MM = (4.0, 6.0)          # §4 step 6
 FIT_MIN_POINTS = 12
 CORRECTION_PASSES = 2              # §4 step 7
-FACE_ROTATION_MAX_DEG = 30.0       # §4 step 11
+CORRECTION_AIM_MM = stations.CLASS_EPS_MM   # the correction aims this far beyond the planned target: the float32
+                                            # noise of stored positions and backends (CLASS_EPS_MM), so a corrected
+                                            # point lands at or above its target, not 1e-5 mm under it
 AREA_RATIO = (0.5, 2.5)
 VOLUME_TOLERANCE = 0.15
 VOLUME_FLOOR_MM3 = 1e-3            # absolute floor on the volume check (float noise on a tiny growth)
@@ -108,6 +115,56 @@ def lens_band(body: LensBody, frames: Frames, node_pt: np.ndarray, poly_edges=No
     return LensBand(node, role, depth, partner)
 
 
+def station_reach(frames: Frames, V: np.ndarray, band: LensBand, back_loop: np.ndarray) -> dict:
+    """{node point: node indices}: the nodes whose rungs bound the lens wall a station's depth lines cross. Its depth
+    points run from its front corner (node k) to its back corner, which lies on the back loop nearest to the rung
+    partner of node j; the wall between moves with the nodes from k to j (the shorter way round), with the owners of
+    those rungs' back vertices. Where the wall lies in the station plane that is node k alone (FT and the fixtures:
+    back corners within 0.13 mm of the rung partner on 1 mm segments). INVU's wall is extruded along z under station
+    planes leaning up to 31 deg, so a back corner sits up to 0.93 mm (1.7 segments) along the loop from its node's rung
+    partner: growing the station's own node by 0.01 mm raised its mid-depth capture by 0.0006-0.0012 mm, all its
+    neighbours too by 0.00998, and a correction growing only the short nodes converged by about half per pass (12-36
+    of 261 inside-run former failures still below 0.45 after two passes)."""
+    out = {}
+    loop = frames.loop
+    nv = len(loop)
+    bl = np.asarray(back_loop, np.int64)
+    if nv == 0 or len(bl) < 2:
+        return out
+    np_pt = plan_node_points(frames, V)
+    of_back = {}
+    for k, b in enumerate(np.asarray(band.partner).tolist()):
+        if b >= 0:
+            of_back.setdefault(int(b), []).append(k)
+    ok = frames.ok[np.maximum(np_pt, 0)] & (np_pt >= 0)
+    ks = np.flatnonzero(ok)
+    if not len(ks):
+        return out
+    sb, _, seg = geom.nearest_on_polyline(V[bl], frames.Pb[np_pt[ks]])
+    BL = V[bl]
+    blen = np.linalg.norm(np.roll(BL, -1, 0) - BL, axis=1)
+    s0 = np.r_[0.0, np.cumsum(blen)][:-1]
+    for k, m, sv in zip(ks.tolist(), seg.tolist(), sb.tolist()):
+        w = (sv - s0[m]) / max(blen[m], 1e-30)
+        near = int(bl[m]) if w <= 0.5 else int(bl[(m + 1) % len(bl)])    # the rung nearest to the back corner
+        js = of_back.get(near, [])
+        rungs = {k}
+        for j in js:
+            fwd = (j - k) % nv
+            if fwd <= nv - fwd:
+                rungs.update(((k + np.arange(fwd + 1)) % nv).tolist())
+            else:
+                rungs.update(((j + np.arange(nv - fwd + 1)) % nv).tolist())
+        # the wall quads between those rungs move with their front nodes and with the owners of their back vertices
+        nodes = set(rungs)
+        for r in rungs:
+            b = int(band.partner[r])
+            if b >= 0 and band.node[b] >= 0:
+                nodes.add(int(band.node[b]))
+        out[int(np_pt[k])] = np.array(sorted(nodes), np.int64)
+    return out
+
+
 def _rounded_zone(body: LensBody, frames: Frames, node_pt, node, role, depth, partner) -> None:
     """Rounded rims (§2 'Vertices moved': the band must cover rounded walls). On a bullnose the first facet
     deviates from the cap by less than the accepted dihedral threshold, so the split puts it in the CAP and the rim
@@ -167,14 +224,31 @@ class Displacement:
     dn: dict                       # node -> (dn_front, dn_back)
 
 
+QUADRIC_TERMS = 6                  # a t^2 + b t u + c u^2 + d t + e u + f
+
+
 def _fit(V, pool, origin, t, u, n):
-    """Quadric coefficients at `origin` from the pool vertices within 4 mm (>= 12; widen to 6 mm), else None."""
+    """(quadric coefficients at `origin` with an intercept, low_confidence): the pool vertices within 4 mm (>= 12;
+    widen to 6 mm), else the 12 nearest (low confidence); (None, True) when the pool has fewer than 6 vertices."""
+    if not len(pool):
+        return None, True
     d = np.linalg.norm(V[pool] - origin, axis=1)
     for r in FIT_RADII_MM:
         sel = pool[d < r]
         if len(sel) >= FIT_MIN_POINTS:
-            return geom.fit_quadric(V[sel], origin, t, u, n)
-    return None
+            return geom.fit_quadric(V[sel], origin, t, u, n, intercept=True), False
+    if len(pool) < QUADRIC_TERMS:
+        return None, True
+    sel = pool[np.argsort(d, kind="stable")[:FIT_MIN_POINTS]]
+    return geom.fit_quadric(V[sel], origin, t, u, n, intercept=True), True
+
+
+def fit_pools(body: LensBody, band: LensBand) -> tuple[np.ndarray, np.ndarray]:
+    """(front pool, back pool): each cap's vertices outside the band (the rim loops and rounded-rim zones are band)."""
+    in_band = band.role >= 0
+    front_pool = np.unique(body.T[body.cls == 0])
+    back_pool = np.unique(body.T[body.cls == 1])
+    return front_pool[~in_band[front_pool]], back_pool[~in_band[back_pool]]
 
 
 def _rotation(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -193,7 +267,7 @@ def _rotation(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 def _surface_normal(coef, n, t, u, x, y):
     if coef is None:
         return n
-    a, b, c, d, e = coef
+    a, b, c, d, e = coef[:5]
     zt = 2 * a * x + b * y + d
     zu = b * x + 2 * c * y + e
     v = n - zt * t - zu * u
@@ -205,11 +279,7 @@ def node_displacement(body: LensBody, band: LensBand, frames: Frames, node_pt: n
     V = body.V
     D = np.zeros_like(V)
     loop = frames.loop
-    in_band = band.role >= 0
-    front_pool = np.unique(body.T[body.cls == 0])
-    back_pool = np.unique(body.T[body.cls == 1])
-    front_pool = np.r_[front_pool[~in_band[front_pool]], loop]              # the loop vertex is the fit's origin
-    back_pool = np.r_[back_pool[~in_band[back_pool]], body.bl]
+    front_pool, back_pool = fit_pools(body, band)
     rot_f, rot_b, low, dns = {}, {}, [], {}
     moving = np.flatnonzero(g_node > 0)
     backs_of = {}
@@ -223,18 +293,18 @@ def node_displacement(body: LensBody, band: LensBand, frames: Frames, node_pt: n
         i = int(node_pt[k])
         t, u, n = frames.t[i], frames.u[i], frames.n[i]
         pf = V[loop[k]]
-        cf = _fit(V, front_pool, pf, t, u, n)
-        if cf is None:
+        cf, lowf = _fit(V, front_pool, pf, t, u, n)
+        if lowf:
             low.append(k)
-        dnf = float(geom.quadric_height(cf, 0.0, g)) if cf is not None else 0.0
+        dnf = float(geom.quadric_rise(cf, g)) if cf is not None else 0.0
         D[loop[k]] = g * u + dnf * n
         rot_f[k] = _rotation(_surface_normal(cf, n, t, u, 0.0, 0.0), _surface_normal(cf, n, t, u, 0.0, g))
         dnb_partner = None
         for vb in backs_of.get(k, []):
-            cb = _fit(V, back_pool, V[vb], t, u, n)
-            if cb is None:
+            cb, lowb = _fit(V, back_pool, V[vb], t, u, n)
+            if lowb:
                 low.append(k)
-            dnb = float(geom.quadric_height(cb, 0.0, g)) if cb is not None else 0.0
+            dnb = float(geom.quadric_rise(cb, g)) if cb is not None else 0.0
             D[vb] = g * u + dnb * n
             rot_b[vb] = _rotation(_surface_normal(cb, n, t, u, 0.0, 0.0), _surface_normal(cb, n, t, u, 0.0, g))
             if vb == band.partner[k] or dnb_partner is None:
@@ -252,11 +322,7 @@ def surface_dn(body: LensBody, band: LensBand, frames: Frames, node_pt: np.ndarr
     nodes[q]: the path the lens edge takes along its own curved surface. Fits are cached per node."""
     V = body.V
     loop = frames.loop
-    in_band = band.role >= 0
-    front_pool = np.unique(body.T[body.cls == 0])
-    back_pool = np.unique(body.T[body.cls == 1])
-    front_pool = np.r_[front_pool[~in_band[front_pool]], loop]
-    back_pool = np.r_[back_pool[~in_band[back_pool]], body.bl]
+    front_pool, back_pool = fit_pools(body, band)
     cache: dict = {}
     out = np.zeros(len(nodes))
     for q, (k, g) in enumerate(zip(np.asarray(nodes).tolist(), np.asarray(lifts, float).tolist())):
@@ -265,13 +331,13 @@ def surface_dn(body: LensBody, band: LensBand, frames: Frames, node_pt: np.ndarr
         if k not in cache:
             i = int(node_pt[k])
             t, u, n = frames.t[i], frames.u[i], frames.n[i]
-            cf = _fit(V, front_pool, V[loop[k]], t, u, n)
+            cf = _fit(V, front_pool, V[loop[k]], t, u, n)[0]
             b = int(band.partner[k])
-            cb = _fit(V, back_pool, V[b], t, u, n) if b >= 0 else None
+            cb = _fit(V, back_pool, V[b], t, u, n)[0] if b >= 0 else None
             cache[k] = (cf, cb)
         cf, cb = cache[k]
-        dnf = float(geom.quadric_height(cf, 0.0, g)) if cf is not None else 0.0
-        dnb = float(geom.quadric_height(cb, 0.0, g)) if cb is not None else dnf
+        dnf = float(geom.quadric_rise(cf, g)) if cf is not None else 0.0
+        dnb = float(geom.quadric_rise(cb, g)) if cb is not None else dnf
         out[q] = 0.5 * (dnf + dnb)
     return out
 
@@ -312,6 +378,61 @@ def _closest_on_triangles(X, A, B, C):
 
 
 # ------------------------------------------------------------------------------------------------- post-checks
+def face_changes(body: LensBody, V0: np.ndarray, V1: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(face ids, rotation deg, area ratio) of the non-degenerate faces with a moved vertex: §4 step 11's measure,
+    shared by the post-check and the planner's fold refinement."""
+    moved = np.any(V1 != V0, axis=1)
+    fm = np.flatnonzero(moved[body.T].any(1))
+    n0, a0, _ = geom.face_geometry(V0, body.T[fm])
+    n1, a1, _ = geom.face_geometry(V1, body.T[fm])
+    ok = a0 >= geom.DEGENERATE_AREA_MM2
+    ang = np.degrees(np.arccos(np.clip((n0[ok] * n1[ok]).sum(1), -1, 1)))
+    return fm[ok], ang, a1[ok] / a0[ok]
+
+
+FOLD_REFINE_PASSES = 8             # replans of the fold limit at most (each lowers the slope of the segments whose
+                                   # faces the exact displacement still turns past the limit)
+STORE_REL_EPS = 2.0 ** -23         # float32 relative precision: Blender stores positions as float32, and on a short
+                                   # rim segment that alone turns a wall face by atan(2 eps |x| / segment)
+
+
+def fold_ratios(body: LensBody, band: LensBand, loop: np.ndarray, V0: np.ndarray, V1: np.ndarray,
+                limit: float = FACE_ROTATION_MAX_DEG) -> tuple[dict, int]:
+    """Faces the move V0 -> V1 turns past `limit` less their float32 storage margin, as {segment k (nodes k, k + 1
+    of the oriented loop): factor to scale its fold slope by}, and the number of such faces that span no single rim
+    segment (the slope cannot help them: the post-check then refuses)."""
+    nv = len(loop)
+    fids, ang, _ = face_changes(body, V0, V1)
+    if not len(fids):
+        return {}, 0
+    tri = body.T[fids]
+    P = V0[tri]
+    edge = np.min(np.linalg.norm(P - np.roll(P, -1, axis=1), axis=2), axis=1)
+    eps = 2.0 * STORE_REL_EPS * np.abs(V0).max()
+    margin = np.degrees(np.arctan2(2.0 * eps, np.maximum(edge, 1e-300)))
+    lim = limit - margin
+    bad = np.flatnonzero(ang > lim)
+    out, lost = {}, 0
+    for q in bad.tolist():
+        nodes = np.unique(band.node[tri[q]])
+        nodes = nodes[nodes >= 0]
+        if len(nodes) != 2:
+            lost += 1
+            continue
+        a, b = int(nodes[0]), int(nodes[1])
+        if (a + 1) % nv == b:
+            k = a
+        elif (b + 1) % nv == a:
+            k = b
+        else:
+            lost += 1
+            continue
+        target = max(lim[q], 0.5 * limit)
+        f = float(np.tan(np.radians(target)) / np.tan(np.radians(min(ang[q], 89.0))))
+        out[k] = min(out.get(k, 1.0), f)
+    return out, lost
+
+
 def array_checks(body: LensBody, V0: np.ndarray, V1: np.ndarray, loop: np.ndarray, band: LensBand,
                  g_total: np.ndarray, edge_t: np.ndarray, frames0: Frames) -> list[str]:
     """§4 step 11 on planned arrays: faces rotate <= 30 deg and keep area ratio 0.5-2.5; no reversed outline
@@ -323,13 +444,8 @@ def array_checks(body: LensBody, V0: np.ndarray, V1: np.ndarray, loop: np.ndarra
     in_band = (band.node >= 0) & (g_total[np.maximum(band.node, 0)] > 0)
     if (moved & ~in_band).any():
         bad.append(f"{int((moved & ~in_band).sum())} vertices outside the moved nodes changed")
-    fm = moved[body.T].any(1)
-    n0, a0, _ = geom.face_geometry(V0, body.T[fm])
-    n1, a1, _ = geom.face_geometry(V1, body.T[fm])
-    ok = a0 >= geom.DEGENERATE_AREA_MM2
-    if ok.any():
-        ang = np.degrees(np.arccos(np.clip((n0[ok] * n1[ok]).sum(1), -1, 1)))
-        ratio = a1[ok] / a0[ok]
+    _, ang, ratio = face_changes(body, V0, V1)
+    if len(ang):
         if ang.max() > FACE_ROTATION_MAX_DEG:
             bad.append(f"a moved face rotated {ang.max():.1f} deg (limit {FACE_ROTATION_MAX_DEG:g})")
         if ratio.min() < AREA_RATIO[0] or ratio.max() > AREA_RATIO[1]:
@@ -374,6 +490,7 @@ class BodyState:
     meas: Measurement
     rl: rules.Rules
     plan: SeatPlan | None
+    band: LensBand | None = field(default=None, repr=False, compare=False)   # measure_state's band (refine_fold)
 
 
 @dataclass
@@ -406,10 +523,65 @@ def measure_only(body: LensBody, frame_backend, factory, ft, ranges):
     return fr, meas, rl, be, lens_part
 
 
-def measure_state(body: LensBody, frame_backend, factory, ft, ranges, obstacles=None, **plan_kw) -> BodyState:
+def measure_state(body: LensBody, frame_backend, factory, ft, ranges, obstacles=None, poly_edges=None,
+                  **plan_kw) -> BodyState:
+    """Measure and plan one body; a plan that moves is refined against the exact displacement (`refine_fold`).
+    `poly_edges`: the body's polygon edges (rungs, as grow_body's band uses them)."""
     fr, meas, rl, be, lens_part = measure_only(body, frame_backend, factory, ft, ranges)
-    plan = plan_growth(fr, meas, rl, ft, be, lens_part, body.V, obstacles, **plan_kw)
-    return BodyState(body, fr, meas, rl, plan)
+    cache: dict = {}                # the point plan, shared by the replans (plan_growth `cache`)
+    plan = plan_growth(fr, meas, rl, ft, be, lens_part, body.V, obstacles, cache=cache, **plan_kw)
+    band = None
+    if plan.moves:
+        band = lens_band(body, fr, plan_node_points(fr, body.V), poly_edges)
+        plan = refine_fold(body, fr, poly_edges, plan, lambda S: plan_growth(
+            fr, meas, rl, ft, be, lens_part, body.V, obstacles, fold_slope=S, cache=cache, **plan_kw), band=band)
+    return BodyState(body, fr, meas, rl, plan, band)
+
+
+def refine_fold(body: LensBody, frames: Frames, poly_edges, plan: SeatPlan, replan, V_cur=None, frames_cur=None,
+                roundtrip=None, band: LensBand | None = None) -> SeatPlan:
+    """The fold limit (plan.fold_slopes) is first order in the growth step; the exact displacement (quadric normal
+    offsets, the segment shortening where the outward directions converge) turned Prada's limit-bound wall faces by
+    30.1-31.0 deg. Displace with the plan, measure every moved face as the post-check does, scale the slope of each
+    segment whose faces exceed the limit (less the float32 storage margin) by tan(limit) / tan(angle), and replan
+    (`replan(S)`), at most FOLD_REFINE_PASSES times. A face that spans no single segment is left to the post-check.
+    V_cur / frames_cur: a correction pass (the move is added to V_cur; faces compare with body.V); roundtrip:
+    what Blender stores for the planned arrays; band: lens_band(body, frames, ...) when the caller has it. The plan
+    returned when no face exceeds the limit carries the displacement it was measured with (`SeatPlan.disp`), so
+    grow_body does not compute it again."""
+    loop = frames.loop
+    if band is None:
+        band = lens_band(body, frames, plan_node_points(frames, body.V), poly_edges)
+    V_base = body.V if V_cur is None else V_cur
+    fr_cur = frames if frames_cur is None else frames_cur
+    S = np.asarray(plan.fold_slope, float).copy()
+    for _ in range(FOLD_REFINE_PASSES):
+        if not plan.moves:
+            return plan
+        disp = node_displacement(_with_V(body, V_base), band, fr_cur, plan_node_points(fr_cur, V_base), plan.node_g)
+        V1 = V_base + disp.D
+        if roundtrip is not None:
+            V1 = roundtrip(V1)
+        ratios, _ = fold_ratios(body, band, loop, body.V, V1)
+        if not ratios:
+            plan.disp = (fr_cur, V_base, plan.node_g.copy(), disp)
+            return plan
+        for k, f in ratios.items():
+            S[k] *= f
+        plan = replan(S)
+    return plan
+
+
+def _planned_disp(plan: SeatPlan | None, frames: Frames, V: np.ndarray, g: np.ndarray):
+    """The displacement refine_fold measured `plan` with, when it is the one grow_body is about to compute (same
+    frames object, equal V and growth), else None."""
+    pd = getattr(plan, "disp", None) if plan is not None else None
+    if pd is None:
+        return None
+    fr, Vp, gp, disp = pd
+    if fr is frames and np.array_equal(Vp, V) and np.array_equal(gp, g):
+        return disp
+    return None
 
 
 def _with_V(body: LensBody, V: np.ndarray) -> LensBody:
@@ -429,12 +601,13 @@ def grow_body(body: LensBody, frame_backend, factory, ft: rules.FrameType, range
 
     `g_node_override`: growth per node given from outside (hide_eyewire moves the held lens by L(s)): no plan
     decides the growth and no correction pass runs."""
-    st0 = state0 or measure_state(body, frame_backend, factory, ft, ranges, obstacles, g_max=g_max)
+    st0 = state0 or measure_state(body, frame_backend, factory, ft, ranges, obstacles, poly_edges, g_max=g_max)
     nv = len(st0.frames.loop)
     g_total = np.zeros(nv)
     V = body.V.copy()
     disps, low = [], []
-    band = lens_band(body, st0.frames, plan_node_points(st0.frames, body.V), poly_edges)
+    band = st0.band if st0.band is not None else lens_band(body, st0.frames, plan_node_points(st0.frames, body.V),
+                                                           poly_edges)
     if g_node_override is not None:
         g = np.asarray(g_node_override, float)
     else:
@@ -442,9 +615,21 @@ def grow_body(body: LensBody, frame_backend, factory, ft: rules.FrameType, range
     passes = 0
     frames_cur, nodept_cur = st0.frames, plan_node_points(st0.frames, body.V)
     node_target = st0.plan.node_target.copy() if st0.plan is not None else np.full(nv, np.nan)
+    fold_cur = st0.plan.fold_slope if st0.plan is not None else None    # the fold limit of the ORIGINAL lens
+    inside = None                   # nodes >= the run-end ramp inside a failing run of the first plan (residual)
+    if st0.plan is not None:
+        from .plan import RUN_END_RAMP_MM, run_delta
+        f0 = (rules.verdicts(ft, st0.meas, st0.rl, st0.frames.s, st0.frames.loop_mm, transition=False).astype(str)
+              == "FAIL") & np.asarray(st0.rl.required, bool)
+        d0 = run_delta(f0, st0.frames.s, st0.frames.loop_mm)[plan_node_points(st0.frames, body.V)]
+        inside = np.nan_to_num(d0, nan=-1.0) >= RUN_END_RAMP_MM
     last = None                     # the measurement of the current V (reused for state1 when nothing changed)
+    reach0 = None                   # station_reach by node, from the original lens (computed once)
+    plan = st0.plan
     while (g > 0).any():
-        disp = node_displacement(_with_V(body, V), band, frames_cur, nodept_cur, g)
+        disp = _planned_disp(plan, frames_cur, V, g) if g_node_override is None else None
+        if disp is None:
+            disp = node_displacement(_with_V(body, V), band, frames_cur, nodept_cur, g)
         disps.append(disp)
         low += disp.low_confidence
         V = roundtrip(V + disp.D)
@@ -460,16 +645,47 @@ def grow_body(body: LensBody, frame_backend, factory, ft: rules.FrameType, range
         o1, o2 = fr.owners                          # a halfway point belongs to both ends of its segment
         with np.errstate(invalid="ignore"):
             tgt = np.fmax(node_target[o1], node_target[o2])
-        plan = plan_growth(fr, meas, rl, ft, be, lp, V, obstacles, g_max=g_max, already=g_total,
-                           fail_only=(g_total[o1] > 0) | (g_total[o2] > 0), target_override=tgt)
+        # the residual to the planned target, not only to pass (proof fix round: moving the edge g along the curved
+        # surface raised the capture by 0.96-1.06 g, so INVU's former failures stopped at 0.4249-0.4856 for 0.45),
+        # spread over the nodes each short station's depth lines cross (station_reach)
+        moved_pts = (g_total[o1] > 0) | (g_total[o2] > 0)
+        # the wall a station's depth lines cross is the lens's own topology, which the passes do not change: read it
+        # once on the original lens (proof review fix round 1, speed) and key it by node, so it maps onto each pass's
+        # points (a pass may re-sample a segment). Per pass on the moved lens it was identical on every fixture and
+        # INVU; on Prada 2 of 355 nodes (40, 351) sat on a back-corner knife edge (w = 0.5 between two 0.02 mm rungs)
+        if reach0 is None:
+            r0 = station_reach(st0.frames, body.V, band, body.bl)
+            np0 = plan_node_points(st0.frames, body.V)
+            k_of = {int(p): k for k, p in enumerate(np0.tolist()) if p >= 0}
+            reach0 = {k_of[p]: ks for p, ks in r0.items()}
+        npc = plan_node_points(fr, V)
+        reach = {int(npc[k]): ks for k, ks in reach0.items() if npc[k] >= 0}
+        cache: dict = {}            # the point plan, shared by refine_fold's replans (plan_growth `cache`)
+
+        def replan(S, fr=fr, meas=meas, rl=rl, be=be, lp=lp, V=V, tgt=tgt, moved_pts=moved_pts, g_total=g_total,
+                   reach=reach, cache=cache):
+            return plan_growth(fr, meas, rl, ft, be, lp, V, obstacles, g_max=g_max, already=g_total,
+                               fail_only=moved_pts, target_override=tgt, residual=True, aim_mm=CORRECTION_AIM_MM,
+                               fold_slope=S, concave_rho=st0.plan.concave_rho, reach=reach,
+                               residual_nodes=inside, cache=cache)
+        plan = replan(fold_cur)
+        if plan.moves:
+            plan = refine_fold(body, st0.frames, poly_edges, plan, replan, V_cur=V, frames_cur=fr, roundtrip=roundtrip,
+                               band=band)
+        fold_cur = plan.fold_slope
         g = plan.node_g if plan.gate is None else np.zeros(nv)
         frames_cur, nodept_cur = fr, plan.node_point
     body1 = _with_V(body, V)
     if passes and last is not None:     # nothing moved since the last measurement: a fresh plan on it
         fr, meas, rl, be, lp = last
-        st1 = BodyState(body1, fr, meas, rl, plan_growth(fr, meas, rl, ft, be, lp, V, obstacles, g_max=g_max))
+        cache1: dict = {}
+        p1 = plan_growth(fr, meas, rl, ft, be, lp, V, obstacles, g_max=g_max, cache=cache1)
+        if p1.moves:                    # what a second call plans (measure_state refines a moving plan)
+            p1 = refine_fold(body1, fr, poly_edges, p1, lambda S: plan_growth(fr, meas, rl, ft, be, lp, V, obstacles,
+                                                                              g_max=g_max, fold_slope=S, cache=cache1))
+        st1 = BodyState(body1, fr, meas, rl, p1)
     elif passes:
-        st1 = measure_state(body1, frame_backend, factory, ft, ranges, obstacles, g_max=g_max)
+        st1 = measure_state(body1, frame_backend, factory, ft, ranges, obstacles, poly_edges, g_max=g_max)
     else:
         st1 = st0
     pb = np.where((band.partner >= 0)[:, None], body.V[np.maximum(band.partner, 0)], np.nan)
@@ -537,7 +753,7 @@ def seat_arrays(Vr: np.ndarray, Tr: np.ndarray, frame_parts: list, ft: rules.Fra
         if poly_w is not None:
             pe = g2b[poly_w]
             pe = pe[(pe >= 0).all(1) & (pe[:, 0] != pe[:, 1])]
-        st0 = measure_state(body, fb, factory, ft, ranges, ob, g_max=g_max)
+        st0 = measure_state(body, fb, factory, ft, ranges, ob, pe, g_max=g_max)
         edge = float(np.median(st0.frames.edge_mm[st0.frames.ok])) if st0.frames.ok.any() else 0.0
         if min_edge_mm is not None and edge < min_edge_mm - 1e-9:
             res.code = "E_THICKNESS"
@@ -566,8 +782,11 @@ def seat_arrays(Vr: np.ndarray, Tr: np.ndarray, frame_parts: list, ft: rules.Fra
             res.message = f"{body.name}: " + "; ".join(out["postcheck"])
             blk = st0.plan.counts().get("blocked_by") or {}
             if blk:
+                fb = st0.plan.fold_blocks()
                 res.message += ("; the plan blocks " + ", ".join(f"{k} {v}" for k, v in blk.items())
-                                + " points, and growth next to a blocked point steps from its run's need to 0")
+                                + " points" + (f" (FOLD: {fb['direct']} direct, {fb['knock_on']} knock-on)" if fb
+                                               else "")
+                                + ", and growth next to a blocked point steps from its run's need to 0")
             res.bodies.append(body_report(body, st0, out, ft, ranges))
             return res
         D = out["V1"] - body.V

@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .stations import MID, Measurement, layered
+from .stations import CLASS_EPS_MM, MID, Measurement, layered
 
 PASS_TOLERANCE_MM = 0.005          # §4 step 2: PASS if v >= pass - 0.005
 TRANSITION_MM = 3.0                # §4 step 4 / §8: failing points within 3 mm of a visible-by-design point
@@ -42,7 +42,8 @@ class FrameType:
     name: str
     required: str                  # "all" | "captured" (ENCLOSED/LIPPED stations) | "none"
     rule: str                      # "deep" (min over depths) | "thin" (c(0.5)) | "flats" (min of c(0.05), c(0.95))
-                                   # | "report"
+                                   # | "apex" (a V-bevel in its groove: c(0.5), the apex, when every depth is
+                                   # captured, else the min over depths) | "report"
     pass_mm: float | None
     target_mm: float | None
     range_mm: tuple | None         # §3 allowed range; above the maximum is an over-capture warning
@@ -183,7 +184,17 @@ def rule_values(ft: FrameType, meas: Measurement, x=None, ranges=None) -> Rules:
         deep = np.where(np.isfinite(cap).all(1), np.nanmin(np.where(np.isfinite(cap), cap, np.inf), 1), np.nan)
     thin = cap[:, MID]
     flats = np.where(np.isfinite(cap[:, 0]) & np.isfinite(cap[:, -1]), np.minimum(cap[:, 0], cap[:, -1]), np.nan)
-    value = np.where(rule == "deep", deep, np.where(rule == "thin", thin, np.where(rule == "flats", flats, np.nan)))
+    # a V-bevel seated in its groove (stations.groove_seat): the apex's capture beyond the lips when the point is
+    # groove-seated (a real clearance at every depth) and the whole beveled edge lies beyond them (every depth >= 0,
+    # the deep rule's 'enclosed'); otherwise the worst depth, so a bevel whose corner is outside the frame, or a bevel
+    # buried in frame material with no groove (review fix round 1: read at the apex, it passed), fails as the deep
+    # rule would. §4 step 8 grows the corners to target - h on purpose, so the deep rule's min over depths (a corner)
+    # can never pass a V-bevel
+    enclosed = np.isfinite(cap).all(1) & (np.where(np.isfinite(cap), cap, -1.0) >= -CLASS_EPS_MM).all(1)
+    seated = np.asarray(meas.groove, bool) if meas.groove is not None else np.zeros(N, bool)
+    apex = np.where(seated & enclosed, thin, deep)
+    value = np.where(rule == "deep", deep, np.where(rule == "thin", thin, np.where(
+        rule == "flats", flats, np.where(rule == "apex", apex, np.nan))))
     p = np.where(rng, ft.in_range_pass_mm if ft.in_range_rule else np.nan,
                  ft.pass_mm if ft.pass_mm is not None else np.nan).astype(float)
     tg = np.where(rng, ft.in_range_target_mm if ft.in_range_rule else np.nan,

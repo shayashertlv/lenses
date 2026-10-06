@@ -101,7 +101,7 @@ def node_state(lens, frame_parts=None, frame_type=None, lower_edge=None, capture
         g2b[body.source_verts] = np.arange(len(body.V))
         pe = g2b[poly_w]
         pe = pe[(pe >= 0).all(1) & (pe[:, 0] != pe[:, 1])]
-        st = deform.measure_state(body, fb, SB.bvh_factory, ft, ranges, obb)
+        st = deform.measure_state(body, fb, SB.bvh_factory, ft, ranges, obb, pe)
         fr, meas, rl, plan = st.frames, st.meas, st.rl, st.plan
         nv = len(fr.loop)
         npt = PL.node_points(fr, body.V)
@@ -146,7 +146,8 @@ def node_state(lens, frame_parts=None, frame_type=None, lower_edge=None, capture
                       "covered_back": meas.covered_back,
                       "front_ok": np.asarray(rl.front_ok, bool) if rl.front_ok is not None else None,
                       "owner_mid": [names[i] if i >= 0 else None for i in own.tolist()],
-                      "delta_run_end": delta, "growth": plan.growth, "target_plan": plan.target}})
+                      "delta_run_end": delta, "growth": plan.growth, "target_plan": plan.target,
+                      "limit_exits_material": plan.limits.get("EXITS_MATERIAL")}})
     return out
 
 

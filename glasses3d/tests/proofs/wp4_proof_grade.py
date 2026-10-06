@@ -60,16 +60,39 @@ def r4(x):
     return round(x, 4) if np.isfinite(x) else None
 
 
+def margin(C: "Case", rid: str, measured: float | None, limit: float, kind: str, note: str = "") -> None:
+    """Record how far a passing measurement sits from its threshold (proof review fix round 1: several passes clear
+    their limits by construction by 3e-5 mm or 0.04 deg; a re-measurement on another backend or machine can flip
+    them). kind 'min': measured >= limit; 'max': measured <= limit."""
+    if measured is None or not np.isfinite(measured):
+        return
+    m = measured - limit if kind == "min" else limit - measured
+    C.info.setdefault("margins", {})[rid] = {"measured": round(float(measured), 6), "limit": limit, "kind": kind,
+                                             "margin": round(float(m), 6), **({"note": note} if note else {})}
+
+
+OAKLEY_TOP_NOTE = ("report-only (proof fix round, open item G): §10 P5's 'top LIPPED 0.65-0.80' describes Oakley's "
+                   "passing state, but its upper bound conflicts with §7 (over-capture above the §3 maximum is a "
+                   "warning; seat_lens never shrinks a lens) and Oakley moves 0 vertices by design, so nothing the "
+                   "tool does can change it; the owner accepted Oakley OO9208 v2 as perfect on 2026-10-06 "
+                   "(data/ledger/owner_verdicts.jsonl). The check PASS and the zero-move records stay graded")
+
+
 class Case:
     def __init__(self, cid: str, title: str):
         self.id, self.title, self.records, self.notes, self.info = cid, title, [], [], {}
 
-    def add(self, rid: str, criterion: str, threshold: str, by: str, measured, ok, note: str | None = None):
+    def add(self, rid: str, criterion: str, threshold: str, by: str, measured, ok, note: str | None = None,
+            report_only: bool = False, owner_pending: bool = False):
         """ok None: not applicable (the criterion has nothing to measure, e.g. 'moved vertices <= 200' on a lens the
-        tool refused): status 'not_applicable', pass null, never counted as passing."""
+        tool refused): status 'not_applicable', pass null, never counted as passing. report_only: measured and
+        recorded but not graded (status 'report_only', pass null; the note says why). owner_pending: an explicit
+        exception to a graded record that the owner has to accept (status 'owner_pending', pass null, listed apart:
+        the case's 'pass_pending_owner' is true while any is open)."""
         rec = {"id": rid, "criterion": criterion, "threshold": threshold, "by": by, "measured": measured,
-               "pass": None if ok is None else bool(ok),
-               "status": "not_applicable" if ok is None else ("pass" if ok else "fail")}
+               "pass": None if (ok is None or report_only or owner_pending) else bool(ok),
+               "status": "report_only" if report_only else "owner_pending" if owner_pending else (
+                   "not_applicable" if ok is None else ("pass" if ok else "fail"))}
         if note:
             rec["note"] = note
         self.records.append(rec)
@@ -77,12 +100,21 @@ class Case:
 
     def result(self) -> dict:
         graded = [r for r in self.records if r["pass"] is not None]
+        apart = ("report_only", "owner_pending")
+        pending = [f"{r['id']} ({r['by']})" for r in self.records if r["status"] == "owner_pending"]
         return {"case": self.id, "title": self.title, "pass": bool(graded) and all(r["pass"] for r in graded),
+                "pass_pending_owner": bool(pending),
                 "failed": [f"{r['id']} ({r['by']})" for r in graded if not r["pass"]],
-                "not_applicable": [f"{r['id']} ({r['by']})" for r in self.records if r["pass"] is None],
+                "not_applicable": [f"{r['id']} ({r['by']})" for r in self.records
+                                   if r["pass"] is None and r["status"] not in apart],
+                "report_only": [f"{r['id']} ({r['by']})" for r in self.records if r["status"] == "report_only"],
+                "owner_pending": pending,
                 "counts": {"criteria": len(self.records), "pass": sum(1 for r in graded if r["pass"]),
                            "fail": sum(1 for r in graded if not r["pass"]),
-                           "not_applicable": len(self.records) - len(graded)},
+                           "not_applicable": sum(1 for r in self.records
+                                                 if r["pass"] is None and r["status"] not in apart),
+                           "report_only": sum(1 for r in self.records if r["status"] == "report_only"),
+                           "owner_pending": len(pending)},
                 "criteria": self.records, "notes": self.notes, "info": self.info}
 
 
@@ -669,6 +701,25 @@ def instrument_ramp(F: dict, pb, Va, Ta, pa, rng, cy: float) -> dict:
 
 
 # ======================================================================================================= P3
+def face_rotation(V0: np.ndarray, V1: np.ndarray, T: np.ndarray) -> dict:
+    """Largest rotation (deg) of the faces with a moved vertex, on the raw stored arrays (§4 step 11's measure,
+    computed here from the triangles; faces below the core's degenerate area are skipped as the post-check does)."""
+    from glasses3d.g3d.seat.geom import DEGENERATE_AREA_MM2
+    T = np.asarray(T, np.int64)
+    moved = np.any(V1 != V0, axis=1)
+    fm = T[moved[T].any(1)]
+    if not len(fm):
+        return {"moved_faces": 0, "max_deg": None}
+    n0 = np.cross(V0[fm[:, 1]] - V0[fm[:, 0]], V0[fm[:, 2]] - V0[fm[:, 0]])
+    n1 = np.cross(V1[fm[:, 1]] - V1[fm[:, 0]], V1[fm[:, 2]] - V1[fm[:, 0]])
+    a0 = 0.5 * np.linalg.norm(n0, axis=1)
+    ok = a0 >= DEGENERATE_AREA_MM2
+    c = (n0[ok] * n1[ok]).sum(1) / np.maximum(np.linalg.norm(n0[ok], axis=1) * np.linalg.norm(n1[ok], axis=1), 1e-300)
+    ang = np.degrees(np.arccos(np.clip(c, -1.0, 1.0)))
+    return {"moved_faces": int(ok.sum()), "max_deg": r4(float(ang.max())) if len(ang) else None,
+            "over_29.9_deg": int((ang > 29.9).sum())}
+
+
 def volume_sum(a0, a1, i, b: dict) -> tuple[float, float]:
     """(volume gain of the raw lens mesh, sum g t ds over its nodes) with g = the front rim vertex's move along the
     node's u, t = the rung length, ds = half the two adjacent front-loop segments."""
@@ -794,6 +845,13 @@ def grade_p3() -> dict:
         okv = abs(gain - expect) <= 0.15 * abs(expect) if abs(expect) > 1e-9 else abs(gain) <= 1e-6
         C.add(f"P3.volume_gain.{s}", "volume gain within 15% of sum g t ds [~20 mm3]", "|gain - sum| <= 0.15 sum",
               "arrays", {"gain_mm3": r4(gain), "sum_g_t_ds_mm3": r4(expect)}, okna(okv), note=na)
+        rot = face_rotation(a0[f"o{i}_V"], a1[f"o{i}_V"], a0[f"o{i}_T"])
+        C.add(f"P3.face_rotation.{s}", "§4 step 11 (not a §10 line): moved faces rotate <= 30 deg",
+              "<= 30 deg on the stored arrays (faces >= geom.DEGENERATE_AREA_MM2)", "arrays", rot, None,
+              report_only=True, note="the fold limit plans wall faces up to 30 deg less a float32 allowance, so the "
+                                     "largest rotation sits just under the post-check's 30 by construction")
+        if rot.get("max_deg") is not None:
+            margin(C, f"P3.face_rotation.{s}", rot["max_deg"], 30.0, "max", "deg; by construction (fold limit)")
         moved_nodes_records(C, f"P3.{s}", f"seat_lens({nm}, acetate)", b0, mv.tolist(), a0[f"o{i}_V"], gb, nm,
                             "acetate")
         rsd = check_lens(host_a, nm).get("rim_split_deg") or {}
@@ -835,32 +893,118 @@ def runs_of(mask, s, L):
     return delta
 
 
-def former_failures(o: dict, ok_inside, ok_end, allow_transition=False) -> dict:
-    """Core: node points the check FAILED before, their value after (joined on the node's raw rim row); inside a run
-    when the point lies >= 2 mm (the §4 run-end ramp) from the nearer end of its failing run."""
+def run_classes(o: dict) -> dict:
+    """Every after-state point of the first lens body, classed by the former failing runs (proof review fix round 2:
+    grading only the node points hid the points between nodes, which move with the interpolation of their two nodes
+    and read lower: the metal fixture's -0.30 / 0.10 junction 0.4252 at (-8.33, 7.20) while its nodes read 0.45).
+
+    A point's OWNING NODES are the nodes whose growth moves it: its node alone when it sits on a node (w = 0), else
+    both ends of its rim segment. A node's run distance is that of its node point BEFORE the call (delta_run_end:
+    arc distance to the nearer end of its failing run, the check's FAIL points; nan outside runs), joined on the node's
+    raw rim row. inside = every owning node >= 2 mm (the §4 step 3 run-end ramp) inside a former failing run; end =
+    every owning node in a former failing run, not inside; boundary = a segment from a run's end node to a node outside
+    any run (not a former failure: reported, not graded here; the no-PASS -> FAIL records cover it)."""
     b0, b1 = o["ns_before"]["bodies"][0], o["ns_after"]["bodies"][0]
     J = node_join(o["ns_before"], o["ns_after"])[0]
-    vc0 = np.asarray(b0["point"]["verdict_check"])
-    req0 = np.asarray(b0["point"]["required"])
-    delta = pts(b0, "delta_run_end")
+    d0 = pts(b0, "delta_run_end")
+    npt0 = np.asarray(b0["node_point"], int)
+    npt1 = np.asarray(b1["node_point"], int)
+    nv1 = len(npt1)
+    dnode = np.full(nv1, np.nan)                    # after node -> before run distance of the same raw rim vertex
+    for _, _, _, k0, k1 in J:
+        if npt0[k0] >= 0:
+            dnode[k1] = d0[npt0[k0]]
+    s1 = pts(b1, "s")
+    if (npt1 < 0).any():
+        raise ValueError("an after node has no node point")
+    sn = s1[npt1]
+    if not np.all(np.diff(sn) > 0):
+        raise ValueError("after node points are not ordered along the loop")
+    k = np.clip(np.searchsorted(sn, s1, side="right") - 1, 0, nv1 - 1)
+    nxt = np.r_[sn[1:], float(b1["loop_mm"])]
+    w = (s1 - sn[k]) / (nxt[k] - sn[k])
+    on_node = np.zeros(len(s1), bool)
+    on_node[npt1] = True
+    k2 = np.where(on_node, k, (k + 1) % nv1)
+    da, db = dnode[k], dnode[k2]
+    fa, fb = np.isfinite(da), np.isfinite(db)
+    inside = fa & fb & (da >= 2.0) & (db >= 2.0)
+    end = fa & fb & ~inside
+    boundary = fa ^ fb
+    return {"inside": inside, "end": end, "boundary": boundary, "on_node": on_node, "seg": k, "w": w, "k2": k2,
+            "dnode": dnode}
+
+
+def former_failures(o: dict, ok_inside, ok_end, allow_transition=False, host_lens: dict | None = None) -> dict:
+    """Core: every REQUIRED after-state point of a former failing run (run_classes), graded by its own value: inside
+    -> ok_inside, end -> ok_end; TRANSITION points (allow_transition) are counted apart. Also the node points alone
+    (the reading of the fix rounds before, for comparison) and, with `host_lens` (check_glb's stations table of the
+    exported GLB), the host check's values at the same points (matched by position within 2e-3 mm)."""
+    b1 = o["ns_after"]["bodies"][0]
+    rc = run_classes(o)
+    req1 = np.asarray(b1["point"]["required"], bool)
     v1 = pts(b1, "value")
     vc1 = np.asarray(b1["point"]["verdict_check"])
-    inside, ends, trans, bad = [], [], 0, []
-    for raw, p0, p1, _, _ in J:
-        if not (req0[p0] and vc0[p0] == "FAIL"):
-            continue
-        if allow_transition and vc1[p1] == "TRANSITION":
-            trans += 1
-            continue
-        if delta[p0] >= 2.0:
-            inside.append(v1[p1])
-            if not ok_inside(v1[p1]):
-                bad.append(("inside", raw, r4(v1[p1])))
-        else:
-            ends.append(v1[p1])
-            if not ok_end(v1[p1]):
-                bad.append(("end", raw, r4(v1[p1])))
-    return {"inside": np.array(inside, float), "ends": np.array(ends, float), "transition": trans, "bad": bad}
+    P1 = np.asarray(b1["point"]["P"], float)
+    t1 = pts(b1, "target")
+    npt1 = np.asarray(b1["node_point"], int)
+
+    def grade(v, verdict, sel):
+        tr = sel & (verdict == "TRANSITION") if allow_transition else np.zeros(len(sel), bool)
+        ins = sel & rc["inside"] & ~tr
+        en = sel & rc["end"] & ~tr
+        bad = []
+        for kind, m, ok in (("inside", ins, ok_inside), ("end", en, ok_end)):
+            for i in np.flatnonzero(m):
+                if not (np.isfinite(v[i]) and ok(v[i])):
+                    b_ = {"kind": kind, "point": int(i), "value": r4(v[i]), "xyz": r4(P1[i]),
+                          "segment": [int(rc["seg"][i]), int(rc["k2"][i])], "w": r4(rc["w"][i]),
+                          "on_node": bool(rc["on_node"][i])}
+                    if not rc["on_node"][i] and np.isfinite(v[i]) and np.isfinite(t1[i]) and v[i] < t1[i]:
+                        # a point between nodes moves by a convex combination of its two nodes' moves, so raising
+                        # it by r raises at least one of them by r (first order): that node then reads at least
+                        # its value now + r
+                        va, vb = v[npt1[rc["seg"][i]]], v[npt1[rc["k2"][i]]]
+                        b_["nodes_value"] = [r4(va), r4(vb)]
+                        b_["to_reach_target_a_node_reads_ge"] = r4(min(va, vb) + t1[i] - v[i])
+                    bad.append(b_)
+        bad.sort(key=lambda b: (b["value"] if b["value"] is not None else -9))
+        return {"inside": v[ins], "ends": v[en], "transition": int(tr.sum()), "bad": bad,
+                "inside_on_node": v[ins & rc["on_node"]], "ends_on_node": v[en & rc["on_node"]]}
+
+    out_ = grade(v1, vc1, req1)
+    bnd = req1 & rc["boundary"]
+    out_["boundary_n_min"] = [int(bnd.sum()), r4(np.nanmin(v1[bnd])) if bnd.any() else None]
+    if host_lens is not None:
+        from scipy.spatial import cKDTree
+        H = st_arrays(host_lens)
+        dist, j = cKDTree(H["xyz"]).query(P1)
+        hit = dist <= 2e-3
+        vh = np.where(hit, H["value"][j], np.nan)
+        vdh = np.where(hit, H["verdict"][j], "")
+        reqh = np.where(hit, H["required"][j], False).astype(bool)
+        hg = grade(vh, vdh, reqh & req1)
+        hg["matched"] = [int(hit.sum()), int(len(P1))]
+        hg["required_unmatched"] = int((req1 & (rc["inside"] | rc["end"]) & ~hit).sum())
+        out_["host"] = hg
+    return out_
+
+
+def ff_summary(ff: dict, target: float) -> dict:
+    """The measured block of a former-failures record (every point; node points alone for comparison)."""
+    def nm(a):
+        return [int(len(a)), r4(np.min(a)) if len(a) else None, r4(np.max(a)) if len(a) else None]
+    out_ = {"inside_n_min_max": nm(ff["inside"]), f"inside_below_{target}": int((ff["inside"] < target).sum()),
+            "ends_n_min": nm(ff["ends"])[:2], "transition": ff["transition"], "misses_n": len(ff["bad"]),
+            "misses": ff["bad"][:12], "boundary_n_min_not_graded": ff.get("boundary_n_min"),
+            "node_points_only": {"inside_n_min_max": nm(ff["inside_on_node"]), "ends_n_min": nm(ff["ends_on_node"])[:2]}}
+    if "host" in ff:
+        h = ff["host"]
+        out_["host_check"] = {"inside_n_min_max": nm(h["inside"]), f"inside_below_{target}": int((h["inside"] < target).sum()),
+                              "ends_n_min": nm(h["ends"])[:2], "transition": h["transition"], "misses_n": len(h["bad"]),
+                              "misses": h["bad"][:6], "matched": h["matched"],
+                              "required_unmatched": h["required_unmatched"]}
+    return out_
 
 
 def grade_p4() -> dict:
@@ -868,16 +1012,31 @@ def grade_p4() -> dict:
     # ---------------- metal
     o = out("metal")
     a0, a1 = arr("metal", "a0"), arr("metal", "a1")
-    ff = former_failures(o, lambda v: 0.44 <= v <= 0.47, lambda v: v >= 0.35)
-    ins, en = ff["inside"], ff["ends"]
-    C.add("P4.metal.inside_runs", "metal: former failures 0.44-0.47 inside runs", "0.44..0.47 at every node point "
-          ">= 2 mm from its run's end", "core", {"n": int(len(ins)), "min_p50_max": r4([ins.min(), np.median(ins),
-                                                                                       ins.max()]) if len(ins) else None,
-                                                 "outside_band": [b for b in ff["bad"] if b[0] == "inside"][:10]},
-          bool(len(ins)) and 0.44 <= ins.min() and ins.max() <= 0.47)
-    C.add("P4.metal.run_ends", "metal: >= 0.35 at run ends", ">= 0.35", "core",
-          {"n": int(len(en)), "min": r4(en.min()) if len(en) else None}, bool(len(en)) and en.min() >= 0.35)
     gb, ga = glb("metal", "before"), glb("metal", "after")
+    host_m = SC.check_glb(ga, frame_type="metal", stations_table=True)
+    ff = former_failures(o, lambda v: 0.44 <= v <= 0.47, lambda v: v >= 0.35, host_lens=check_lens(host_m, "Lens_L"))
+    ins, en, hf = ff["inside"], ff["ends"], ff["host"]
+
+    def in_band(a):
+        return bool(len(a)) and bool(np.all(np.isfinite(a))) and 0.44 <= a.min() and a.max() <= 0.47
+    C.add("P4.metal.inside_runs", "metal: former failures 0.44-0.47 inside runs", "0.44..0.47 at every required "
+          "point whose owning nodes (its node; between nodes: both segment ends) lie >= 2 mm inside a former failing "
+          "run (Blender check state and host check_glb on the exported GLB)", "core", ff_summary(ff, 0.44),
+          in_band(ins) and in_band(hf["inside"]) and hf["required_unmatched"] == 0,
+          note="proof review fix round 2: every point, not only the node points (the fix rounds before graded the "
+               "node points, 0.4500-0.4553, which the correction pass corrects by construction). The points between "
+               "the -0.30 / 0.10 junction nodes move with the linear interpolation of their two nodes and read lower: "
+               "open owner item (WP4_DESIGN implementation notes, proof review fix round 2, item 1)")
+    if len(ins):
+        margin(C, "P4.metal.inside_runs.min", float(min(ins.min(), np.nanmin(hf["inside"]))), 0.44, "min",
+               "mm, every inside-run point (Blender check state and host check); the node points alone: "
+               f"{np.min(ff['inside_on_node']):.6f}")
+        margin(C, "P4.metal.inside_runs.max", float(max(ins.max(), np.nanmax(hf["inside"]))), 0.47, "max", "mm")
+    C.add("P4.metal.run_ends", "metal: >= 0.35 at run ends", ">= 0.35 at every required point whose owning nodes lie "
+          "in a former failing run, < 2 mm from its end (Blender check state and host check)", "core",
+          {"n": int(len(en)), "min": r4(en.min()) if len(en) else None,
+           "host_n_min": [int(len(hf["ends"])), r4(np.nanmin(hf["ends"])) if len(hf["ends"]) else None]},
+          bool(len(en)) and en.min() >= 0.35 and bool(len(hf["ends"])) and np.nanmin(hf["ends"]) >= 0.35)
     Vb, Tb, pb = inst_lens(gb, "Lens_L")
     Va, Ta, pa = inst_lens(ga, "Lens_L")
     F = M.frames(Vb, Tb, 1.0)
@@ -923,14 +1082,55 @@ def grade_p4() -> dict:
     tf = top & base_fail
     ex = tf & (vp == "BLOCKED") & (rs == "EXITS_MATERIAL")
     reasons = {f"{v}/{r}": int(((vp == v) & (rs == r) & tf).sum()) for v, r in set(zip(vp[tf], rs[tf]))}
+    lem = b0["point"].get("limit_exits_material")
+    capn = None
+    if lem is not None:
+        lem = np.array([np.inf if x is None else x for x in lem], float)
+        cap_ = pts(b0, "value") + lem
+        capn = {"min_max": r4([np.min(cap_[tf]), np.max(cap_[tf])]) if tf.any() else None,
+                "pass_mm": r4(float(pts(b0, "pass")[tf][0])) if tf.any() else None}
+    narrow_note = ("knife edge (proof review fix round 1, owner decision): the 0.5 mm web holds at most web - 0.20 "
+                   "(material left) = 0.30 mm = pass, so the top points' capacity (value + EXITS_MATERIAL limit) is "
+                   "pass + 0.005 or so; §4 step 4 blocks a point only when a clamp leaves it below pass, so they are "
+                   "clamped to pass and grown, never BLOCKED(EXITS_MATERIAL), and the lens is seated partially. The fix "
+                   "round before made this record pass by raising the capacity floor to pass + 0.05, a binding-rule "
+                   "change shaped by this fixture; it was withdrawn. Either amend §4 step 4/5 and §12 (floor pass + "
+                   "0.05) or change the fixture (a web below 0.50 mm)")
+    fold_split = (b0.get("plan_counts") or {}).get("fold_blocks")
     C.add("P4.metal_narrow.exits_material", "metal, 0.5 mm radial eyewire: every top station EXITS_MATERIAL",
           "all failing top points BLOCKED(EXITS_MATERIAL)", "core",
           {"top_failing": int(tf.sum()), "exits_material": int(ex.sum()), "plan_verdict/reason": reasons,
-           "tool": {k: o["seat1"].get(k) for k in ("status", "code", "message")}}, tf.any() and ex.sum() == tf.sum())
+           "top_capacity_mm": capn, "plan_counts": b0.get("plan_counts"), "fold_blocks": fold_split,
+           "tool": {k: o["seat1"].get(k) for k in ("status", "code", "message")}},
+          tf.any() and ex.sum() == tf.sum(), note=narrow_note)
     d0, d1 = o["digest0"]["Lens_L"]["digest"], o["digest1"]["Lens_L"]["digest"]
     C.add("P4.metal_narrow.zero_moved", "metal, 0.5 mm radial eyewire: 0 moved", "digest unchanged, 0 moved", "arrays",
-          {"digest_equal": d0 == d1, "moved_vertices": o["seat1"].get("moved_vertices")},
-          d0 == d1 and not o["seat1"].get("moved_vertices"))
+          {"digest_equal": d0 == d1, "moved_vertices": o["seat1"].get("moved_vertices"),
+           "tool_status": o["seat1"].get("status")},
+          d0 == d1 and not o["seat1"].get("moved_vertices"), note=narrow_note)
+    # the stop rule on the partial seat it now writes: moved == the band of the planner's FAIL nodes (before), every
+    # moved node fails by the check and by the instrument on the before-GLB
+    if o.get("ns_after") is not None:
+        a0n, a1n = arr("metal_narrow", "a0"), arr("metal_narrow", "a1")
+        mvn = set(moved_rows(a0n, a1n, 0).tolist())
+        expn = set(b0["expected_raw"])
+        ew_n = o["digest0"]["Eyewire"]["digest"] == o["digest1"]["Eyewire"]["digest"]
+        C.add("P4.metal_narrow.seat_moves_only_failing_nodes", "metal, 0.5 mm radial eyewire: what the partial seat "
+              "moved lies in the band of FAIL nodes (stop rule)", "moved == band of FAIL nodes (before); eyewire "
+              "digest unchanged", "arrays", {"moved": len(mvn), "expected": len(expn), "outside": len(mvn - expn),
+                                             "missing": len(expn - mvn), "eyewire_unchanged": ew_n},
+              mvn == expn and ew_n)
+        if mvn:
+            moved_nodes_records(C, "P4.metal_narrow", "seat_lens(metal fixture, 0.5 mm web)", b0, mvn, a0n["o0_V"],
+                                glb("metal_narrow", "before"), "Lens_L", "metal")
+        bn = o["ns_after"]["bodies"][0]
+        reqn = np.asarray(bn["point"]["required"])
+        vn = pts(bn, "value")[reqn]
+        C.info["metal_narrow.after"] = {"tool": {k: o["seat1"].get(k) for k in ("status", "code", "moved_vertices")},
+                                        "check_after_ok": o["check_after"].get("ok"),
+                                        "check_after_reasons": o["check_after"].get("reasons"),
+                                        "required_min_value_after": r4(np.nanmin(vn)) if len(vn) else None,
+                                        "plan_counts_after": bn.get("plan_counts")}
     grade_nylor(C)
     grade_crystal(C)
     grade_matrix(C)
@@ -1049,26 +1249,124 @@ def grade_nylor(C: Case):
         inside = dist >= 2.0
         tag = "nylor" if case == "nylor" else "nylor (no cord)"
         if case == "nylor":
-            C.add("P4.nylor.top_flats", "nylor: top >= 0.44 on the flats", ">= 0.44 at every required (channel) point",
-                  "core", {"min": r4(vals.min()), "p5": pct(vals, 5), "points": int(req.sum()),
-                           "min_inside_runs_ge_2mm_from_channel_end": r4(vals[inside].min()) if inside.any() else None,
-                           "min_within_2mm_of_channel_end": r4(vals[~inside].min()) if (~inside).any() else None},
-                  vals.min() >= 0.44)
+            # proof review fix round 1: 'top >= 0.44 on the flats' over EVERY required point (the fix round before
+            # graded only the 51 node points the check failed before). >= 2 mm (the §4 step 3 run-end ramp) from the
+            # channel end (the nearest non-required point): >= 0.44. Nearer: >= 0.35 (pass + 0.05, the ramp's end
+            # target), or TRANSITION (§4 step 4: beside the exposed edge, never grown, c >= 0, front covered; the core
+            # counts them and §8 caps them at 3% of the required points). A point in that zone below 0.35 that the
+            # check PASSES (the point between a TRANSITION node and its grown neighbour, read between the two) is
+            # not graded here: it is recorded as an exception the owner has to accept (P4.nylor.top_flats_exception)
+            b1 = o["ns_after"]["bodies"][0]
+            req1 = np.asarray(b1["point"]["required"])
+            ntr = int(((np.asarray(b1["point"]["verdict_check"]) == "TRANSITION") & req1).sum())
+            hl_ = check_lens(host, "Lens_L")
+            v_all, vd_all = L["value"], L["verdict"]
+            d_all = np.full(len(s_all), np.inf)
+            d_all[req] = dist
+            zin = req & (d_all >= 2.0)
+            zend = req & (d_all < 2.0)
+            tr_end = zend & (vd_all == "TRANSITION")
+            low = zend & ~tr_end & ~(v_all >= 0.35)
+            exc = low & (vd_all == "PASS")
+            bad_end = low & ~exc
+            ntr_c = int((req & (vd_all == "TRANSITION")).sum())
+            nreq = int(req.sum())
+
+            def rows_(m):
+                return [{"s_mm": r4(s_all[i]), "to_channel_end_mm": r4(d_all[i]), "value": r4(v_all[i]),
+                         "verdict": str(vd_all[i]), "xyz": [r4(x) for x in L["xyz"][i]]} for i in np.flatnonzero(m)]
+            ff = former_failures(o, lambda v: v >= 0.44, lambda v: v >= 0.35, allow_transition=True)
+            # proof review fix round 2: the end-zone READING itself (within 2 mm of a channel end: >= 0.35, the §4
+            # step 3 ramp's end target, or TRANSITION) is not §10 P4's text ('top >= 0.44 on the flats'), so it is put
+            # to the owner as one decision covering every point in that zone, not only the two below 0.35. Graded
+            # here: >= 0.44 at every required point >= 2 mm from the channel end, no point in the end zone that the
+            # check FAILS (a failure under any reading), TRANSITION <= 3% of required (§8)
+            okc = (bool(zin.any()) and bool(np.all(v_all[zin] >= 0.44)) and not bad_end.any()
+                   and ntr_c <= 0.03 * nreq)
+            if zin.any():
+                margin(C, "P4.nylor.top_flats.inside", float(v_all[zin].min()), 0.44, "min", "mm")
+            ez_below = zend & ~(v_all >= 0.44)
+            C.add("P4.nylor.top_flats", "nylor: top >= 0.44 on the flats", "every required point >= 2 mm from the "
+                  "channel end >= 0.44; no end-zone point FAILS the check; TRANSITION <= 3% of required (§8). The end "
+                  "zone (< 2 mm) is the owner-pending reading P4.nylor.top_flats_end_zone", "core",
+                  {"required": nreq, "inside_n_min": [int(zin.sum()), r4(v_all[zin].min()) if zin.any() else None],
+                   "end_zone_n": int(zend.sum()), "end_zone_below_0.44": int(ez_below.sum()),
+                   "transition": [ntr_c, nreq], "end_zone_failing_the_check": rows_(bad_end),
+                   "former_failures_every_point": ff_summary(ff, 0.44),
+                   "transition_required_planner": [ntr, int(req1.sum())], "check_reasons": hl_.get("reasons")}, okc,
+                  note="graded on the points §10's 'flats' certainly covers; the end zone waits on the owner")
+            kinds = np.where(tr_end, "TRANSITION", np.where(v_all >= 0.44, ">= 0.44",
+                             np.where(v_all >= 0.35, "ramp: 0.35..0.44", np.where(exc, "below 0.35, check PASS",
+                                                                                   "below 0.35, check fails"))))
+            ez_rows = rows_(zend)
+            for r_, i in zip(ez_rows, np.flatnonzero(zend)):
+                r_["reading"] = str(kinds[i])
+            C.add("P4.nylor.top_flats_end_zone", "nylor: the end-zone reading of 'top >= 0.44 on the flats' (owner "
+                  "decision)", "owner to accept: within 2 mm of a channel end, >= 0.35 (the §4 step 3 run-end ramp) or "
+                  "TRANSITION (§4 step 4, <= 3%); rejected: P4.nylor.top_flats fails at every end-zone point below 0.44",
+                  "core", {"end_zone_points": int(zend.sum()), "below_0.44": int(ez_below.sum()), "of_required": nreq,
+                           "by_reading": {k: int((zend & (kinds == k)).sum()) for k in
+                                          ("TRANSITION", "ramp: 0.35..0.44", "below 0.35, check PASS",
+                                           "below 0.35, check fails", ">= 0.44") if (zend & (kinds == k)).any()},
+                           "points": ez_rows,
+                           "why": "§4 step 3 plans pass + 0.05 at a run end rising to the target over 2 mm; the "
+                                  "channel-end points beside the exposed edge are TRANSITION (their node never grows: "
+                                  "growing it moves the exposed outline, §12); a point between such a node and its "
+                                  "grown neighbour reads between the two (0.30, passing §8's pass 0.30 but not the "
+                                  "ramp's 0.35); P5 INVU's §10 line names the ramp and TRANSITION, P4 nylor's does not"},
+                  None, owner_pending=bool(zend.any()))
         Va, Ta, pa = inst_lens(ga, "Lens_L")
         Fa = M.frames(Va, Ta, 1.0)
         Ra = M.rows(Fa, Fa["scene"], M.scenes(pa), [0.05, 0.95])
         held = np.isfinite(Ra["cap"]).all(1) & (Ra["cap"] < 90).all(1)
         fl = np.min(Ra["cap"], 1)
         if case == "nylor":
-            sh = Fa["s"][held]
-            snh = Fa["s"][~held]
-            dch = np.array([np.min(np.minimum(np.abs(x - snh), Fa["L"] - np.abs(x - snh))) if len(snh) else np.inf
-                            for x in sh])
-            C.add("P4.nylor.top_flats", "nylor: top >= 0.44 on the flats", ">= 0.44 at every held station", "instrument",
-                  {"min": r4(fl[held].min()) if held.any() else None, "stations": int(held.sum()),
-                   "min_ge_2mm_from_channel_end": r4(fl[held][dch >= 2.0].min()) if (dch >= 2.0).any() else None,
-                   "min_within_2mm_of_channel_end": r4(fl[held][dch < 2.0].min()) if (dch < 2.0).any() else None},
-                  held.any() and fl[held].min() >= 0.44)
+            # the instrument's own end zone (proof review fix round 1: its transition stations were defined by
+            # reading below 0.35, so the low value granted the exception): the channel end lies between the last held
+            # station and the first unheld one, at their midpoint (half the station spacing beyond the last held
+            # station); the transition station is defined by POSITION: the held station nearest each channel end, at
+            # most one per end (the core's channel-end node), captured (flats >= 0). Every other held station within
+            # 2 mm of a channel end reads >= 0.35, and every held station >= 2 mm from it >= 0.44
+            S_ = Fa["s"]
+            order = np.argsort(S_)
+            hs = held[order]
+            nst = len(hs)
+            ends_ = []                                          # (index of the end held station, channel-end s)
+            for q in range(nst):
+                if not hs[q]:
+                    continue
+                for nb in ((q - 1) % nst, (q + 1) % nst):
+                    if not hs[nb]:
+                        i0, i1 = order[q], order[nb]
+                        gap = (S_[i1] - S_[i0]) % Fa["L"]
+                        gap = gap if gap <= Fa["L"] / 2 else gap - Fa["L"]
+                        ends_.append((int(i0), float((S_[i0] + 0.5 * gap) % Fa["L"])))
+            se = np.array([e[1] for e in ends_]) if ends_ else np.zeros(0)
+            dend = np.array([np.min(np.minimum(np.abs(x - se), Fa["L"] - np.abs(x - se))) if len(se) else np.inf
+                             for x in S_])
+            trans = np.zeros(len(S_), bool)
+            trans[[e[0] for e in ends_]] = True
+            trans &= held
+            zin = held & (dend >= 2.0)
+            zend = held & (dend < 2.0) & ~trans
+            ok_tr = bool(np.all(fl[trans] >= 0.0)) and int(trans.sum()) <= len(ends_)
+            oki = bool(zin.any()) and bool(np.all(fl[zin] >= 0.44))
+            C.add("P4.nylor.top_flats", "nylor: top >= 0.44 on the flats", "held stations >= 2 mm from the channel "
+                  "end (midpoint between the last held and the first unheld station) >= 0.44; the end zone is the "
+                  "owner-pending reading P4.nylor.top_flats_end_zone", "instrument",
+                  {"stations": int(held.sum()), "channel_ends": len(ends_),
+                   "inside_n_min": [int(zin.sum()), r4(fl[zin].min()) if zin.any() else None]}, oki,
+                  note="stations every 1 mm")
+            C.add("P4.nylor.top_flats_end_zone", "nylor: the end-zone reading of 'top >= 0.44 on the flats' (owner "
+                  "decision)", "owner to accept: held stations < 2 mm from a channel end >= 0.35, except the one held "
+                  "station nearest each channel end (transition by position, flats >= 0)", "instrument",
+                  {"end_zone_n_min": [int(zend.sum()), r4(fl[zend].min()) if zend.any() else None],
+                   "end_zone_below_0.44": int((zend & ~(fl >= 0.44)).sum()),
+                   "transition_by_position": [r4(x) for x in fl[trans]], "transition_limit": len(ends_),
+                   "meets_the_reading": bool(np.all(fl[zend] >= 0.35)) and ok_tr},
+                  None if (bool(np.all(fl[zend] >= 0.35)) and ok_tr) else False,
+                  owner_pending=bool(np.all(fl[zend] >= 0.35)) and ok_tr and bool(zend.any() or trans.any()),
+                  note="a station that misses even this reading fails the record (no reading passes it)")
         # groove geometry, every station
         dims = [M.groove_dims(M.edge_profile(Fa, k, Fa["scene"])) for k in range(len(Fa["s"]))]
         good = [d for d in dims if d is not None]
@@ -1290,8 +1588,16 @@ def grade_crystal(C: Case):
           {"min_max": r4([np.nanmin(gap), np.nanmax(gap)]), "undefined": int((~np.isfinite(gap)).sum())},
           np.isfinite(gap).all() and gap.min() >= 0.02 and gap.max() <= 0.06)
     lov = att.get("lens_overlap_mm3")
-    C.add("P4.crystal.overlap", "crystal: lens ^ frame <= 0.01 mm3", "<= 0.01", "core",
-          {"mm3": lov}, lov is not None and lov <= 0.01)
+    # proof review fix round 1: the checks measure it too (check.crystal_overlap, §8 'crystal overlap <= 0.01 mm3')
+    host_c = SC.check_glb(ga)
+    hl_c = check_lens(host_c, "Lens_L")
+    bc_c = o["check_after"]
+    bl_c = check_lens(bc_c, "Lens_L") if bc_c.get("lenses") else {}
+    cov = {"tool_boolean_mm3": lov, "blender_check_mm3": bl_c.get("crystal_overlap_mm3"),
+           "host_check_mm3": hl_c.get("crystal_overlap_mm3"), "blender_stale_cutter": bl_c.get("stale_cutter")}
+    C.add("P4.crystal.overlap", "crystal: lens ^ frame <= 0.01 mm3", "<= 0.01 by the tool (EXACT Boolean), the "
+          "Blender check and the host check (station-plane columns)", "core", cov,
+          all(v is not None and v <= 0.01 for v in (lov, cov["blender_check_mm3"], cov["host_check_mm3"])))
     ov = M.pair_overlap_mm3(Fa, Fa["scene"], IG.build_scene(*fa), window=(-1.5, 2.0, -1.6, 1.6))
     C.add("P4.crystal.overlap", "crystal: lens ^ frame <= 0.01 mm3", "<= 0.01", "instrument", {"mm3": r4(ov)}, ov <= 0.01)
     C.add("P4.crystal.frame_topology", "crystal: frame closed, chi unchanged", "closed, chi equal", "core",
@@ -1344,8 +1650,26 @@ def grade_crystal(C: Case):
                           "classes": hl.get("classes"), "frame_type": hl.get("frame_type"),
                           "frame_type_source": hl.get("frame_type_source")}},
           s1.get("status") == "seated" and bool(bc.get("ok")) and bool(host["ok"]),
-          note="FAILS until WP4_DESIGN open item B is decided (owner): §3's capture reads the 0.03 mm groove clearance "
-               "as a ~0.028 mm gap at every depth, so every station of a correctly grooved crystal lens FAILS acetate")
+          note="a declared V-bevel is read from the groove's lips (stations.groove_seat) at points with a real "
+               "clearance (0.02-0.06 mm at every depth), graded at the apex, and the crystal overlap is graded "
+               "(proof fix round item B; proof review fix round 1)")
+    # review control (not a §10 line): the same grooved lens in the frame BEFORE the groove (a deleted g3d_groove
+    # Boolean): the check must fail it (the review reproduced a pass: an edge in frame material read as seated)
+    nodes_a, _, _ = SC.read_nodes(load_glb(ga))
+    nodes_b, _, _ = SC.read_nodes(load_glb(gb))
+    ctrl = CK.check_nodes([n for n in nodes_a if n["lens"]] + [n for n in nodes_b if not n["lens"]], [], [],
+                          SC.factory("open3d"))
+    cl = check_lens(ctrl, "Lens_L")
+    C.add("P4.crystal_control.no_groove_fails", "review control (not a §10 line): the profiled crystal lens in the "
+          "ungrooved frame (the g3d_groove Boolean gone) fails the check", "check FAILS, 0 points groove-seated, "
+          "crystal overlap > 0.01 mm3", "core",
+          {"ok": ctrl["ok"], "verdicts": cl.get("verdicts"), "groove_seated": (cl.get("groove") or {}).get("seated"),
+           "crystal_overlap_mm3": cl.get("crystal_overlap_mm3"), "reasons": cl.get("reasons")},
+          (not ctrl["ok"]) and (cl.get("groove") or {}).get("seated") == 0
+          and (cl.get("crystal_overlap_mm3") or 0) > 0.01)
+    ov_c = M.pair_overlap_mm3(Fa, Fa["scene"], IG.build_scene(*Vb_f), window=(-1.5, 2.0, -1.6, 1.6))
+    C.add("P4.crystal_control.no_groove_fails", "review control: the lens overlaps the ungrooved frame",
+          "instrument overlap > 0.01 mm3", "instrument", {"mm3": r4(ov_c)}, ov_c > 0.01)
 
 
 def core_apex(ga: Path, gb: Path) -> np.ndarray:
@@ -1543,9 +1867,9 @@ def grade_p5() -> dict:
             p5, p95 = pct(m, 5), pct(m, 95)
             C.add("P5.oakley.top_lipped", "Oakley: (check PASS with) top LIPPED 0.65-0.80", "top classes LIPPED, mid-depth "
                   "capture p5 >= 0.65 and p95 <= 0.80", "core",
-                  {"classes": cls, "mid_p5_p50_p95": [p5, pct(m, 50), p95]},
-                  set(cls) == {"LIPPED"} and p5 >= 0.65 and p95 <= 0.80,
-                  note="§10 writes this as the description of the passing state [P]")
+                  {"classes": cls, "mid_p5_p50_p95": [p5, pct(m, 50), p95],
+                   "would_pass": bool(set(cls) == {"LIPPED"} and p5 >= 0.65 and p95 <= 0.80)},
+                  None, note=OAKLEY_TOP_NOTE, report_only=True)
             Va, Ta, pa = inst_lens(ga, lens)
             F = M.frames(Va, Ta, 1.0)
             R = M.rows(F, F["scene"], M.scenes(pa), [0.5])
@@ -1553,9 +1877,10 @@ def grade_p5() -> dict:
             mi = R["cap"][tt, 0]
             ip5, ip95 = pct(mi, 5), pct(mi, 95)
             C.add("P5.oakley.top_lipped", "Oakley: (check PASS with) top LIPPED 0.65-0.80", "top mid-depth capture p5 >= "
-                  "0.65 and p95 <= 0.80", "instrument", {"stations": int(tt.sum()), "mid_p5_p50_p95":
-                                                         [ip5, pct(mi, 50), ip95]},
-                  ip5 is not None and ip5 >= 0.65 and ip95 <= 0.80)
+                  "0.65 and p95 <= 0.80", "instrument",
+                  {"stations": int(tt.sum()), "mid_p5_p50_p95": [ip5, pct(mi, 50), ip95],
+                   "would_pass": bool(ip5 is not None and ip5 >= 0.65 and ip95 <= 0.80)},
+                  None, note=OAKLEY_TOP_NOTE, report_only=True)
             vis = {}
             for own, ver in zip(La["owner"], La["verdict"]):
                 if own and ("nose saddle" in own or "latch housing" in own):
@@ -1580,20 +1905,28 @@ def grade_p5() -> dict:
                   {"bottom_backed_points": int(bm.sum()), "their_nodes": int(len(bn)),
                    "verdicts": sorted(set(vc0[bm].tolist())), "nodes_moved": len(lr & mv)},
                   bm.any() and set(vc0[bm].tolist()) == {"VISIBLE_BY_DESIGN"} and not (lr & mv))
-            ff = former_failures(o, lambda v: v >= 0.45, lambda v: v >= 0.35, allow_transition=True)
+            ff = former_failures(o, lambda v: v >= 0.45, lambda v: v >= 0.35, allow_transition=True,
+                                 host_lens=ha["lenses"][0])
             req1 = np.asarray(o["ns_after"]["bodies"][0]["point"]["required"])
             vc1 = np.asarray(o["ns_after"]["bodies"][0]["point"]["verdict_check"])
             tr_share = float(((vc1 == "TRANSITION") & req1).sum() / max(req1.sum(), 1))
-            ins, en = ff["inside"], ff["ends"]
+            ins, hf = ff["inside"], ff["host"]
+            okh = not hf["bad"] and hf["required_unmatched"] == 0
             C.add("P5.invu.former_failures", "INVU: former failures >= 0.45 inside runs, >= 0.35 at run ends, or "
-                  "TRANSITION (<= 3%)", "inside >= 0.45, ends >= 0.35, else TRANSITION; TRANSITION <= 3% of required",
-                  "core", {"inside_n_min": [int(len(ins)), r4(ins.min()) if len(ins) else None],
-                           "inside_below_0.45": int((ins < 0.45).sum()), "inside_below_0.445": int((ins < 0.445).sum()),
-                           "inside_p5_p50": [pct(ins, 5), pct(ins, 50)],
-                           "ends_n_min": [int(len(en)), r4(en.min()) if len(en) else None],
-                           "transition_former": ff["transition"], "transition_share_required": r4(tr_share),
-                           "misses": ff["bad"][:12], "misses_n": len(ff["bad"])},
-                  not ff["bad"] and tr_share <= 0.03)
+                  "TRANSITION (<= 3%)", "every required point whose owning nodes (its node; between nodes: both "
+                  "segment ends) lie in a former failing run: >= 0.45 when >= 2 mm inside it, >= 0.35 nearer its end, "
+                  "else TRANSITION; TRANSITION <= 3% of required (Blender check state and host check_glb)", "core",
+                  dict(ff_summary(ff, 0.45), transition_share_required=r4(tr_share)),
+                  not ff["bad"] and okh and tr_share <= 0.03,
+                  note="proof review fix round 2: every point, not only the node points (the fix rounds before graded "
+                       "the node points, which the correction pass corrects to the target + 1e-4 mm by construction); "
+                       "the points between two corrected nodes move with their linear interpolation and some read "
+                       "up to ~1e-3 mm lower (WP4_DESIGN implementation notes, proof review fix round 2, item 1)")
+            if len(ins):
+                margin(C, "P5.invu.former_failures.inside", float(min(ins.min(), np.nanmin(hf["inside"]))), 0.45,
+                       "min", "mm, every inside-run point (Blender check state and host check); the node points "
+                       f"alone: {np.min(ff['inside_on_node']):.6f} (the correction aims at the target + "
+                       "CORRECTION_AIM_MM 1e-4 there)")
             Vb, Tb, pb = inst_lens(gb, lens)
             Va, Ta, pa = inst_lens(ga, lens)
             F = M.frames(Vb, Tb, 1.0)
@@ -1697,8 +2030,17 @@ def grade_all() -> dict:
                                          or "moved_in_failing" in rec["id"] or "moved_set" in rec["id"]
                                          or "seat_moves_only" in rec["id"]):
                 stop.append(f"{rec['id']} ({rec['by']})")
-    summary = {cid: {"pass": r["pass"], "criteria": len(r["criteria"]), "counts": r["counts"],
+    summary = {cid: {"pass": r["pass"], "pass_pending_owner": r.get("pass_pending_owner", False),
+                     "criteria": len(r["criteria"]), "counts": r["counts"],
                      "failed": r["failed"], "not_applicable": r["not_applicable"]} for cid, r in results.items()}
+    summary["margins"] = {cid: r["info"].get("margins") for cid, r in results.items() if r["info"].get("margins")}
+    summary["margins_note"] = ("margins over EVERY graded point (proof review fix round 2: the rounds before quoted "
+                               "node-point minima, 0.450048 INVU / 0.450014 metal, which the correction pass sets to "
+                               "the target + 1e-4 mm by construction; the points between nodes read lower). A negative "
+                               "margin is a failing record. Passing records whose margin is a few um or hundredths of "
+                               "a degree pass by construction (the fold limit plans faces up to 30 deg less a float32 "
+                               "allowance): a re-measurement on another backend or machine can flip them")
+    summary["owner_pending"] = {cid: r.get("owner_pending") for cid, r in results.items() if r.get("owner_pending")}
     summary["sources_sha256_unchanged"] = sha_ok
     summary["stop_rule_triggered"] = stop
     from glasses3d.tests.proofs.wp4_proof import tool_hashes
@@ -1712,7 +2054,25 @@ def grade_all() -> dict:
         "P2 'outside the ranges capture unchanged / vertices bit-identical' is graded outside the 3 mm lift ramp "
         "beyond each x-range end (and below the lens centre); inside the ramp the lift and the seat move the lens "
         "edge: see P2.outside_capture_unchanged.*.measured.excluded_ramp_stations (owner to confirm the reading)",
-        "§10 '~N' read as +-10%"]
+        "§10 '~N' read as +-10%",
+        "P4 nylor 'top >= 0.44 on the flats' within 2 mm of a channel end: the run-end ramp (>= 0.35) plus "
+        "TRANSITION, covering every end-zone point (P4.nylor.top_flats_end_zone, owner_pending)"]
+    summary["owner_decisions"] = [
+        "metal -0.30 / 0.10 junction (P4.metal.inside_runs, measured.misses): the two points between the junction "
+        "nodes read below 0.44 while both nodes read 0.45; a point between nodes moves by a convex combination of its "
+        "nodes' moves, so bringing it to the 0.45 target puts one node above §10's 0.47 "
+        "(misses[].to_reach_target_a_node_reads_ge); WP4_DESIGN implementation notes, proof review fix round 2, "
+        "item 1",
+        "INVU points between corrected nodes (P5.invu.former_failures, measured.misses): about 1e-3 mm below 0.45; the "
+        "correction corrects node points only (same item: correcting every point would fix INVU and push the metal "
+        "junction nodes past 0.47)",
+        "FOLD blocks spread along a run (reason code FOLD and gate E_CONCAVE, outside §4 steps 4-5 and §12): "
+        "P4.metal_narrow.exits_material.measured.fold_blocks (direct vs knock-on)",
+        "narrow eyewire knife edge: amend §4 steps 4-5 and §12 (capacity floor pass + 0.05) or give the fixture a web "
+        "below 0.50 mm (P4.metal_narrow.*)",
+        "CORRECTION_AIM_MM = 1e-4 (g3d/seat/deform.py): exists so corrected node points land at or above the target "
+        "rather than ~1e-5 mm under it (float-noise compensation); accept it explicitly, or grade the target with a "
+        "stated measurement tolerance instead"]
     return {"design": "glasses3d/plan/WP4_DESIGN.md §10 P2-P5", "out_dir": str(OUT), "sources": src,
             "summary": summary, "cases": results, "run": {c: {"seconds": m["seconds"], "error": m.get("error")}
                                                           for c, m in state["cases"].items()},

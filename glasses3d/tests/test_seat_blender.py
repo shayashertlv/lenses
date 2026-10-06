@@ -205,6 +205,18 @@ def _jobs(workdir: Path, scenes: dict) -> dict:
         {"op": "seat", "key": "seat2", "kwargs": {"lens": "Lens_L", "frame_type": "acetate"}},
         {"op": "digest", "key": "digest1", "objects": ["Lens_L", "Crystal rim"]},
         {"op": "export", "key": "export", "glb": str(W / "crystal-seated.glb")},
+        # review fix round 1 (proof): the check measures the crystal overlap and reads the groove's clearance, so a
+        # groove that is gone (the g3d_groove Boolean switched off) fails; a lens edited after its groove was cut
+        # is flagged stale (§8)
+        {"op": "check", "key": "check_seated", "kwargs": {}},
+        {"op": "exec", "key": "groove_off", "code": "m = bpy.data.objects['Crystal rim'].modifiers['g3d_groove']; "
+                                                    "m.show_viewport = m.show_render = False"},
+        {"op": "check", "key": "check_groove_off", "kwargs": {}},
+        {"op": "exec", "key": "groove_on", "code": "m = bpy.data.objects['Crystal rim'].modifiers['g3d_groove']; "
+                                                   "m.show_viewport = m.show_render = True"},
+        {"op": "exec", "key": "edit_lens", "code": "me = bpy.data.objects['Lens_L'].data; "
+                                                   "me.vertices[0].co.z += 0.001; me.update()"},
+        {"op": "check", "key": "check_edited", "kwargs": {}},
         {"op": "unseat", "key": "unseat", "lens": "Lens_L"},
         {"op": "digest", "key": "digest2", "objects": ["Lens_L", "Crystal rim"]}])
     for sc in ("nylor", "nylor_nocord", "nylor_thin", "nylor_outline"):
@@ -573,13 +585,14 @@ def test_crystal_v_bevel_and_groove(runs, workdir):
     removed volume equals cutter ^ frame within 1%, lens ^ frame <= 0.01 mm3, groove gap 0.02-0.06 mm, frame closed
     with its Euler characteristic; a second call is refused (already profiled); unseat removes the cutter and the
     modifier and restores the lens. Review fix round 1: the original vertices are verified after the re-wall
-    (stored = planned, unmoved bit-identical) and the binding check grades the profiled lens; it FAILS the grooved
-    crystal lens (open item B: the 0.03 mm clearance reads as a gap under §3's capture), so the tool says partial
-    with W_CHECK_FAILS, never seated."""
+    (stored = planned, unmoved bit-identical) and the binding check grades the profiled lens. Proof fix round (open
+    item B): the check reads a declared V-bevel's capture from the groove's lips (stations.groove_seat) and grades
+    its apex, so the grooved crystal lens PASSES and the tool says seated (it said partial: §3's capture read the
+    0.03 mm clearance as a gap at every depth)."""
     r = result(runs, "crystal_seat", "seat1")
-    assert r["status"] == "partial" and r["profile"] == "vbevel", r
-    assert r["check"]["pass"] is False and any(w.startswith("W_CHECK_FAILS") for w in r["warnings"]), r["check"]
-    assert r["g3d_seat"]["status"] == "partial"
+    assert r["status"] == "seated" and r["profile"] == "vbevel", r
+    assert r["check"]["pass"] is True and not any(w.startswith("W_CHECK_FAILS") for w in r["warnings"]), r["check"]
+    assert r["g3d_seat"]["status"] == "seated"
     assert r["verify"]["failures"] == [] and r["verify"]["stored_vs_planned_max_mm"] <= 1e-9, r["verify"]
     assert r["translucent"] == {"value": True, "auto": True, "capturing": ["Crystal rim"]}
     assert r["profile_plan"]["h_mm"] == pytest.approx(0.404, abs=0.005)
@@ -592,6 +605,20 @@ def test_crystal_v_bevel_and_groove(runs, workdir):
     assert 0.02 <= att["gap_min_p50_max_mm"][0] and att["gap_min_p50_max_mm"][2] <= 0.06
     r2 = result(runs, "crystal_seat", "seat2")
     assert r2["status"] == "refused" and r2["code"] == "E_ALREADY_PROFILED"
+    # review fix round 1 (proof): crystal overlap graded (§8 <= 0.01 mm3), groove clearance required, stale cutter
+    ck = result(runs, "crystal_seat", "check_seated")
+    L = ck["lenses"][0]
+    assert ck["ok"] and L["crystal_overlap_mm3"] is not None and L["crystal_overlap_mm3"] <= 0.01, L["crystal"]
+    assert L["stale_cutter"] is False and L["groove"]["seated"] == L["points"]
+    host = check_glb(workdir / "crystal-seated.glb")
+    hl = host["lenses"][0]
+    assert host["ok"] and hl["crystal_overlap_mm3"] <= 0.01 and hl["stale_cutter"] is None
+    off = result(runs, "crystal_seat", "check_groove_off")
+    Lo = off["lenses"][0]
+    assert not off["ok"] and Lo["crystal_overlap_mm3"] > 0.01 and Lo["groove"]["seated"] == 0, Lo["reasons"]
+    assert any("crystal overlap" in x for x in Lo["reasons"])
+    ed = result(runs, "crystal_seat", "check_edited")
+    assert ed["lenses"][0]["stale_cutter"] is True and any("stale groove cutter" in w for w in ed["warnings"])
     d0, d1, d2 = (result(runs, "crystal_seat", k) for k in ("digest0", "digest1", "digest2"))
     assert d1["Crystal rim"]["modifiers"] == ["g3d_groove"] and "g3d_groove_cutter | Lens_L" in d1["_objects"]
     assert d2["Crystal rim"]["modifiers"] == [] and "g3d_groove_cutter | Lens_L" not in d2["_objects"]
@@ -838,11 +865,14 @@ def test_ft_p2_flow_hides_the_eyewire_and_seats_the_browline(runs):
     assert chk["ok"], chk["reasons"]
 
 
-@pytest.mark.xfail(strict=True, reason="design conflict, reported: §4 step 11's 30 deg face-rotation limit vs the "
-                                       "strict per-node taper on Prada's 0.044-0.046 mm wall slivers (55-57 deg)")
 def test_prada_delivery_seats(runs):
+    """Proof fix round (open item A): the fold limit keeps neighbouring node growth within the wall faces' 30 deg
+    (Prada's 0.0444 mm run-start segment: 0 -> 0.026 instead of 0 -> 0.068 mm, 56.8 deg), so the delivery seats with
+    the post-check unchanged, nothing outside the failing nodes moves and a second call moves nothing."""
     r = result(runs, "prada_seat", "seat1")
-    assert r["status"] == "seated", r
+    assert r["status"] == "seated" and r["code"] is None, r
+    assert 0 < r["moved_vertices"] <= 200 and r["verify"]["failures"] == [], r
+    assert r["verify"]["second_call"]["moved_vertices"] == 0
 
 
 def test_source_blends_are_never_written(runs):

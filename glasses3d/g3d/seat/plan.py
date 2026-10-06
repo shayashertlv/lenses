@@ -21,8 +21,33 @@
   end with no growth of its own, else met by the mean of the two (`halfway_growth`), and as a visible-by-design or
   UNMEASURED point it holds neither end (it is nearer to neither), so the plan does not depend on the loop's
   direction (a lens and its mirror grow alike, §10 P2 'left = mirrored right within 0.01 mm');
+- every clamp keeps §4 step 4's threshold: a clamp that leaves v below pass (less the verdict's 0.005 mm tolerance)
+  makes the point BLOCKED. (Proof review fix round 1: the fix round before raised the capacity clamps' floor to
+  pass + 0.05 so that the §10 P4 narrow eyewire, whose 0.5 mm web holds at most web - 0.20 = 0.30 mm = pass, read
+  BLOCKED(EXITS_MATERIAL); that was a binding-rule change shaped by fixture outcomes, so it is withdrawn and the
+  fixture's knife edge is reported to the owner instead);
+- fold limit (§4 step 11, `fold_slopes` / `fold_total`): node growth may differ between neighbouring nodes by at most
+  tan(30 deg) x the segment's length across its rung, the rotation the post-check allows a wall face between them;
+  growing nodes are raised (never past their limits) or, next to a node that does not grow, lowered to meet it, and
+  a point the lowering leaves below pass is BLOCKED(FOLD) (a reason code §4 step 4 does not name: the fold limit is
+  the post-check's 30 deg turned into a clamp). Measured (proof fix round): Prada's growth stepped 0 -> 0.068 mm
+  across a 0.044 mm rim segment at a run start (a wall face rotated 56.8 deg) and 0.4348 -> 0.4304 mm across a
+  0.0046 mm one inside a run (42.8 deg): the 22 sub-0.05 mm segments of its outline. FOLD blocks SPREAD (proof review
+  fix round 2): a point BLOCKED(FOLD) gets no growth, so its node may stop, and the next node is then lowered to one
+  segment's slope, and so on: where a run's need exceeds the slopes between a node that cannot grow and the rest of
+  the run, the whole run is left ungrown. The plan records the fold pass that blocked each point
+  (`SeatPlan.fold_generation`; `counts()['fold_blocks']`: `direct` = the first pass, `knock_on` = later passes), so a
+  report never presents a cascade as independent blocks (the narrow-eyewire fixture: 2 EXITS_MATERIAL blocks at the
+  nasal/top junction leave the entire nasal run BLOCKED(FOLD), most of them knock-on);
 - gates (§4 step 5): > 20% of required points BLOCKED -> E_TOO_MANY_BLOCKED; a full-rim type with > 2% EXPOSED/BACKED
-  -> E_FULLRIM_EXPOSED. Nothing moves on a gate.
+  -> E_FULLRIM_EXPOSED; any required point BLOCKED(CONCAVE) -> E_CONCAVE (not in §4 step 5, which names two gates:
+  §10 P4 lists 'notch CONCAVE' among the refusals; the outline turns inward tighter than the growth it needs, so the
+  grown rim would fold over itself or, with its neighbours grown and the notch not, leave a pinched step; owner to
+  confirm). Nothing moves on a gate.
+- correction plans (deform.grow_body, `residual=True`): the node points of moved nodes inside their runs that read
+  below their planned target grow by the residual, aiming `aim_mm` beyond it, spread over the nodes whose wall the
+  station's depth lines cross (`reach`), so the deformation reaches the target along the curved surface (proof fix
+  round: §4 step 7 corrected only points below pass, and INVU's former failures stopped at 0.4249 for 0.45).
 
 `plan_lift` is §6 steps 1-4 for hide_eyewire: selected stations, rings, the per-ring lift lambda* and the lift field
 L(s) = max_j lambda*_j (1 - smoothstep(|s - s_j| / ramp)). Lifted rings are the ones nearest to a selected station
@@ -51,10 +76,13 @@ CURVATURE_HALF_MM = 0.3            # outline curvature from the loop points 0.3 
                                    # rim fold over itself)
 UNHIDE_FRACTIONS = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)
 BLOCKED_GATE_SHARE = 0.20          # §4 step 5
+FACE_ROTATION_MAX_DEG = 30.0       # §4 step 11: a moved face rotates <= 30 deg (deform's post-check; the planner keeps
+                                   # node growth inside it, `fold_slopes`)
 TOL_MM = rules.PASS_TOLERANCE_MM
-REASONS = ("NEEDS_GROWTH", "EXITS_MATERIAL", "OTHER_PART", "CONCAVE", "UNHIDEABLE", "NO_FRAME")
+REASONS = ("NEEDS_GROWTH", "EXITS_MATERIAL", "OTHER_PART", "CONCAVE", "UNHIDEABLE", "NO_FRAME", "FOLD")
 LIMIT_KEYS = REASONS + ("HELD",)
-REQUIRED_DEPTHS = {"deep": tuple(range(len(DEPTHS))), "thin": (MID,), "flats": (0, len(DEPTHS) - 1), "report": ()}
+REQUIRED_DEPTHS = {"deep": tuple(range(len(DEPTHS))), "thin": (MID,), "flats": (0, len(DEPTHS) - 1),
+                   "apex": tuple(range(len(DEPTHS))), "report": ()}
 
 LIFT_MARGIN_MM = 0.10              # §7 eyewire margin
 LIFT_RAMP_MM = 3.0                 # §7 eyewire ramp
@@ -103,6 +131,19 @@ def run_targets(fail: np.ndarray, s: np.ndarray, loop_mm: float, pass_mm: np.nda
         b = (ss[-1] - ss) % loop_mm
         delta = np.minimum(a, b)
         out[run] = p + margin + (t - p - margin) * smoothstep(delta / ramp)
+    return out
+
+
+def run_delta(fail: np.ndarray, s: np.ndarray, loop_mm: float) -> np.ndarray:
+    """Per point: arc distance to the nearer end of its failing run (§4 step 3's delta; inf for a run covering the
+    whole loop, nan outside runs)."""
+    out = np.full(len(fail), np.nan)
+    for run in runs(fail):
+        if len(run) == len(fail):
+            out[run] = np.inf
+            continue
+        ss = s[run]
+        out[run] = np.minimum((ss - ss[0]) % loop_mm, (ss[-1] - ss) % loop_mm)
     return out
 
 
@@ -177,6 +218,16 @@ class SeatPlan:
     gate: str | None = None
     gate_message: str = ""
     limits: dict = field(default_factory=dict)       # per reason: (N,) limit arrays (inf: no limit)
+    fold_slope: np.ndarray | None = None             # (nv,) largest growth difference across each rim segment
+                                                     # (node k -> k + 1) the face-rotation limit allows
+    concave_rho: np.ndarray | None = None            # (nv,) the outline's concave radius per node (inf: convex)
+    fold_generation: np.ndarray | None = None        # (N,) the fold pass that blocked the point (FOLD), 0 otherwise:
+                                                     # 1 = DIRECT (the fold limit against the plan's node growth, beside
+                                                     # a node that does not grow or grows less for another reason);
+                                                     # >= 2 = KNOCK-ON (blocked only because an earlier FOLD block
+                                                     # stopped its neighbour node: FOLD blocks spread along a run)
+    disp: object = field(default=None, repr=False, compare=False)   # deform.refine_fold: (frames, V, node_g,
+                                                     # Displacement) it measured this plan with (grow_body reuses it)
 
     @property
     def moves(self) -> bool:
@@ -188,18 +239,209 @@ class SeatPlan:
         r = self.reason.astype(str)
         blocked = {k: int(((v == "BLOCKED") & (r == k)).sum()) for k in REASONS}
         out["blocked_by"] = {k: c for k, c in blocked.items() if c}
+        fb = self.fold_blocks()
+        if fb is not None:
+            out["fold_blocks"] = fb
         return out
+
+    def fold_blocks(self) -> dict | None:
+        """BLOCKED(FOLD) points split by how they arose (proof review fix round 2): `direct` = blocked in the first
+        fold pass (the fold limit against the plan's node growth), `knock_on` = blocked in a later pass only because
+        an earlier FOLD block stopped a neighbour node, `passes` = the last pass that blocked one. None when no
+        point is BLOCKED(FOLD)."""
+        if self.fold_generation is None:
+            return None
+        m = (self.verdict.astype(str) == "BLOCKED") & (self.reason.astype(str) == "FOLD")
+        if not m.any():
+            return None
+        g = np.asarray(self.fold_generation)[m]
+        return {"direct": int((g == 1).sum()), "knock_on": int((g >= 2).sum()), "passes": int(g.max())}
 
 
 def plan_growth(frames: Frames, meas: Measurement, rl: rules.Rules, ft: rules.FrameType, backend, lens_part: int,
                 body_V: np.ndarray, obstacles=None, g_max: float = G_MAX_MM, already: np.ndarray | None = None,
-                fail_only: np.ndarray | None = None, target_override: np.ndarray | None = None) -> SeatPlan:
+                fail_only: np.ndarray | None = None, target_override: np.ndarray | None = None,
+                residual: bool = False, aim_mm: float = 0.0, fold_slope: np.ndarray | None = None,
+                concave_rho: np.ndarray | None = None, reach: dict | None = None,
+                residual_nodes: np.ndarray | None = None, cache: dict | None = None) -> SeatPlan:
     """Plan growth for one lens body.
 
     backend: the measuring backend (frame parts, then the lens as part `lens_part`); obstacles: a backend over the
     non-frame parts the edge must not enter (other lenses, temples), or None. already: (nv,) growth applied in
     earlier passes (the correction pass counts it against g_max). fail_only: restrict growth to these points (the
-    correction pass grows only the stations it moved). target_override: per-point targets (correction pass)."""
+    correction pass grows only the stations it moved). target_override: per-point targets (correction pass).
+    residual: the correction pass also grows the node points of `fail_only` that read below their target (never
+    BLOCKED: they already pass) by target + aim_mm - value. fold_slope: (nv,) the fold limit per rim segment of the
+    ORIGINAL lens (the correction pass passes the first plan's: the post-check compares with the original faces).
+    concave_rho: (nv,) the ORIGINAL outline's concave radius per node (correction pass: the moved outline's kinks are
+    the growth's own, and its radius minus the growth already applied counted that growth twice; the metal fixture's
+    nasal/top junction read 0.74 mm and blocked its correction).
+    reach: {point: node indices} (correction pass, deform.station_reach): the nodes whose rungs bound the wall a
+    node point's depth lines cross; a residual grows all of them (`_spread`) that are in `residual_nodes`.
+    residual_nodes: (nv,) the nodes whose points the residual corrects: those >= RUN_END_RAMP_MM inside a failing run
+    of the first plan (§10 grades the target there; a run-end point's ramp target sits next to a node that does not
+    grow, and correcting it to that target pushed the metal fixture's nasal run-start node to 0.94 mm and 0.617).
+    cache: a dict shared by calls that differ only in `fold_slope` (deform.refine_fold's replans): the point plan
+    (`_point_plan`: verdicts, clamps, the unhide test, point growth) is computed once and only the fold limit and the
+    node aggregation run again (proof review fix round 1, speed: each replan was a full plan). Keyed on the identity
+    of every other argument, so a call with different inputs recomputes; results are bit-identical either way."""
+    key = (id(frames), id(meas), id(rl), id(ft), id(backend), lens_part, id(body_V), id(obstacles), g_max, id(already),
+           id(fail_only), id(target_override), residual, aim_mm, id(concave_rho), id(residual_nodes))
+    if cache is not None and cache.get("key") == key:
+        pp = cache["pre"]
+    else:
+        pp = _point_plan(frames, meas, rl, ft, backend, lens_part, body_V, obstacles, g_max, already, fail_only,
+                         target_override, residual, aim_mm, concave_rho, residual_nodes)
+        if cache is not None:
+            # the cache holds references to the inputs it is keyed on (ids stay unique while they live)
+            cache.update(key=key, pre=pp, inputs=(frames, meas, rl, ft, backend, body_V, obstacles, already,
+                                                  fail_only, target_override, concave_rho, residual_nodes))
+    hide_cache = pp.hide_cache
+    pp = pp.fresh()
+    N, nv, req, v, p_mm, fail_base, short, np_pt = pp.N, pp.nv, pp.req, pp.v, pp.p_mm, pp.fail_base, pp.short, pp.np_pt
+    o1, o2, target, need, already, lim = pp.o1, pp.o2, pp.target, pp.need, pp.already, pp.lim
+    rho, node_cap, growth, limit, clamped = pp.rho, pp.node_cap, pp.growth, pp.limit, pp.clamped
+    verdict, reason, blocked, grow_pts = pp.verdict, pp.reason, pp.blocked, pp.grow_pts
+
+    # --- node growth and the fold limit ---------------------------------------------------------------------
+    S = fold_slopes(frames, body_V, np_pt) if fold_slope is None else np.asarray(fold_slope, float)
+    cap_n = np.minimum(node_cap, np.maximum(g_max - already, 0.0))
+    reach = reach if residual else None
+    fold_gen = np.zeros(N, np.int64)
+    fold_pass = 0
+    while True:
+        fold_pass += 1
+        node_g = np.minimum(halfway_growth(nv, o1, o2, grow_pts, growth), node_cap)
+        if reach is not None:
+            sp = _spread(reach, grow_pts & short, growth, nv)
+            if residual_nodes is not None:
+                sp = np.where(np.asarray(residual_nodes, bool), sp, 0.0)
+            raised = sp > node_g + 1e-12
+            if raised.any():                         # a raised node's own grown corner must stay hidden (§4 step 4)
+                pts_r = np.full(N, False)
+                pts_r[np_pt[raised]] = True
+                g_r = np.where(pts_r, sp[np.maximum(frames.node, 0)], 0.0)
+                hk = (pts_r.tobytes(), g_r.tobytes())
+                if hk not in hide_cache:
+                    hide_cache[hk] = _unhide_limits(frames, backend, lens_part, pts_r, g_r)
+                hl = hide_cache[hk]
+                sp[raised] = np.minimum(sp[raised], hl[np_pt[raised]])
+            node_g = np.minimum(np.maximum(node_g, sp), node_cap)
+        node_g = np.where(node_g > 0, node_g, 0.0)
+        # growing now; in a correction plan (fail_only) only the nodes an earlier pass moved: a correction never moves
+        # a new node (a halfway point between a moved and an unmoved node would otherwise hand the unmoved one growth)
+        movable = (already > 0) if fail_only is not None else (node_g > 0)
+        hi = np.where(movable, already + cap_n, 0.0)
+        total = fold_total(already + node_g, hi, S)
+        new_g = np.maximum(total - already, 0.0)
+        ach = np.where(o1 == o2, new_g[o1], 0.5 * (new_g[o1] + new_g[o2]))
+        cut = grow_pts & (ach < growth - 1e-12)
+        lim["FOLD"] = np.where(cut, ach, np.inf)
+        newly = cut & fail_base & (v + ach < p_mm - TOL_MM)
+        if not newly.any():
+            node_g = new_g
+            break
+        fold_gen[newly] = fold_pass
+        verdict[newly] = "BLOCKED"
+        reason[newly] = "FOLD"
+        blocked |= newly
+        blocked &= ~_transition(verdict, newly, frames, v, meas)
+        grow_pts &= ~newly
+    limit = np.minimum(limit, lim["FOLD"])
+    clamped |= np.isfinite(lim["FOLD"])
+    node_target = np.full(nv, -np.inf)
+    for o in (o1, o2):
+        np.maximum.at(node_target, o[grow_pts], target[grow_pts])
+    node_target = np.where(np.isfinite(node_target), node_target, np.nan)
+    node_target = np.where(node_g > 0, node_target, np.nan)
+
+    # --- gates ----------------------------------------------------------------------------------------------
+    gate, msg = None, ""
+    nreq = int(req.sum())
+    vs = verdict.astype(str)
+    rs = reason.astype(str)
+    nblk = int((vs == "BLOCKED").sum())
+    cls = meas.cls.astype(str)
+    if ft.full_rim:
+        eb = int(np.isin(cls, ("EXPOSED", "BACKED")).sum())
+        if eb > rules.FULLRIM_GATE_SHARE * N:
+            gate = "E_FULLRIM_EXPOSED"
+            msg = (f"{eb} of {N} stations are EXPOSED or BACKED on a full-rim frame type (limit 2%): the outline, "
+                   f"the parts passed or the frame type is wrong")
+    if gate is None and nreq and nblk > BLOCKED_GATE_SHARE * nreq:
+        gate = "E_TOO_MANY_BLOCKED"
+        by = {k: int(((vs == "BLOCKED") & (rs == k)).sum()) for k in REASONS}
+        msg = (f"{nblk} of {nreq} required stations are BLOCKED (limit 20%): "
+               + ", ".join(f"{k} {c}" for k, c in by.items() if c))
+        fb = _fold_split(vs, rs, fold_gen)
+        if fb:
+            msg += f" ({fb})"
+    cc = (vs == "BLOCKED") & (rs == "CONCAVE") & req
+    if gate is None and cc.any():
+        gate = "E_CONCAVE"
+        k = np.flatnonzero(cc)
+        rmin = float(np.min(np.minimum(rho[o1[k]], rho[o2[k]])))
+        need_k = np.nan_to_num(need[k], nan=0.0)
+        xs = frames.P[k, 0]
+        msg = (f"{len(k)} required stations are BLOCKED by CONCAVE (asset x {xs.min():.2f}..{xs.max():.2f}): the "
+               f"outline turns inward with a radius of {rmin:.3f} mm, under twice the {need_k.max():.3f} mm of growth "
+               f"they need, so the grown rim would fold over itself there (or step around a notch its neighbours "
+               f"grow past): fix the lens outline, or the frame")
+    if gate is not None:
+        node_g[:] = 0.0
+    return SeatPlan(verdict, reason, clamped, need, target, limit, growth, node_g, node_target, np_pt, gate, msg,
+                    lim, S, rho, fold_gen)
+
+
+def _fold_split(vs: np.ndarray, rs: np.ndarray, fold_gen: np.ndarray) -> str:
+    """'FOLD: a direct, b knock-on over c passes' for a message ('' without FOLD blocks)."""
+    m = (vs == "BLOCKED") & (rs == "FOLD")
+    if not m.any():
+        return ""
+    g = fold_gen[m]
+    return (f"FOLD: {int((g == 1).sum())} direct, {int((g >= 2).sum())} knock-on over {int(g.max())} fold passes "
+            f"(a knock-on block is caused by an earlier FOLD block stopping its neighbour node)")
+
+
+@dataclass
+class _PointPlan:
+    """The part of plan_growth that does not depend on the fold limit (`fold_slope`): verdicts, clamps, limits and
+    point growth before the node aggregation. Cached across replans that differ only in `fold_slope`
+    (deform.refine_fold); `fresh()` copies what the fold section changes in place."""
+    N: int
+    nv: int
+    req: np.ndarray
+    v: np.ndarray
+    p_mm: np.ndarray
+    fail_base: np.ndarray
+    short: np.ndarray
+    np_pt: np.ndarray
+    o1: np.ndarray
+    o2: np.ndarray
+    target: np.ndarray
+    need: np.ndarray
+    already: np.ndarray
+    lim: dict
+    rho: np.ndarray
+    node_cap: np.ndarray
+    growth: np.ndarray
+    limit: np.ndarray
+    clamped: np.ndarray
+    verdict: np.ndarray
+    reason: np.ndarray
+    blocked: np.ndarray
+    grow_pts: np.ndarray
+    hide_cache: dict = field(default_factory=dict)  # (points, growth) -> _unhide_limits result (the spread's test)
+
+    def fresh(self) -> "_PointPlan":
+        import dataclasses as _dc
+        return _dc.replace(self, lim={k: a.copy() for k, a in self.lim.items()}, clamped=self.clamped.copy(),
+                           verdict=self.verdict.copy(), reason=self.reason.copy(), blocked=self.blocked.copy(),
+                           grow_pts=self.grow_pts.copy(), limit=self.limit.copy())
+
+
+def _point_plan(frames, meas, rl, ft, backend, lens_part, body_V, obstacles, g_max, already, fail_only,
+                target_override, residual, aim_mm, concave_rho, residual_nodes) -> _PointPlan:
     N = len(frames)
     nv = len(frames.loop)
     base = rules.verdicts(ft, meas, rl, frames.s, frames.loop_mm, transition=False).astype(object)
@@ -207,20 +449,36 @@ def plan_growth(frames: Frames, meas: Measurement, rl: rules.Rules, ft: rules.Fr
     v = np.asarray(rl.value, float)
     p_mm = np.asarray(rl.pass_mm, float)
     t_mm = np.asarray(rl.target_mm, float)
-    fail = (base.astype(str) == "FAIL") & req
+    fail_base = (base.astype(str) == "FAIL") & req
     if fail_only is not None:
-        fail &= np.asarray(fail_only, bool)
+        fail_base &= np.asarray(fail_only, bool)
+    fail = fail_base.copy()
+    short = np.zeros(N, bool)
+    np_pt = node_points(frames, body_V)
+    o1, o2 = frames.owners
+    if residual and fail_only is not None and target_override is not None:
+        # node points only (the point on each moved rim vertex measures that vertex's own move): a point between two
+        # nodes moves with their interpolation, which the node rule (§4 step 3: a node takes the largest need of its
+        # points) does not plan for; correcting those to the target raised the metal fixture's -0.30 / 0.10 junction
+        # nodes to 0.477 / 0.468 (§10 P4: 0.44-0.47). Points below pass are corrected anywhere, as §4 step 7 says.
+        on_node = np.zeros(N, bool)
+        on_node[np_pt[np_pt >= 0]] = True
+        if residual_nodes is not None:
+            rn = np.asarray(residual_nodes, bool)
+            on_node &= rn[o1] & rn[o2]
+        with np.errstate(invalid="ignore"):
+            short = (req & on_node & np.asarray(fail_only, bool) & np.isfinite(v) & np.isfinite(target_override)
+                     & (v < target_override) & (base.astype(str) == "PASS"))
+        fail |= short
     target = run_targets(fail, frames.s, frames.loop_mm, p_mm, t_mm)
     if target_override is not None:
         target = np.where(fail & np.isfinite(target_override), target_override, target)
-    need = np.where(fail, target - v, np.nan)
-    np_pt = node_points(frames, body_V)
+    need = np.where(fail, target + (aim_mm if residual else 0.0) - v, np.nan)
     already = np.zeros(nv) if already is None else np.asarray(already, float)
     # a point exactly halfway along its loop segment belongs to both nodes (Frames.owners): its limits and target
     # count for both, a node-derived limit of the point is the tighter of the two, its growth goes through
     # halfway_growth and it holds neither node (below), so a lens and its mirror (whose loop runs the other way) are
     # planned alike
-    o1, o2 = frames.owners
 
     # --- limits ---------------------------------------------------------------------------------------------
     inf = np.full(N, np.inf)
@@ -239,7 +497,7 @@ def plan_growth(frames: Frames, meas: Measurement, rl: rules.Rules, ft: rules.Fr
             continue
         lim["EXITS_MATERIAL"][i] = max(0.0, float(np.min(room)) - MATERIAL_LEFT_MM)
     lim["NO_FRAME"][no_frame] = 0.0
-    rho = concave_radius(frames, body_V)
+    rho = concave_radius(frames, body_V) if concave_rho is None else np.asarray(concave_rho, float)
     lim["CONCAVE"] = np.maximum(np.minimum(CONCAVE_SHARE * rho[o1] - already[o1], CONCAVE_SHARE * rho[o2] - already[o2]),
                                 0.0)
     if obstacles is not None and obstacles.n_parts:
@@ -293,10 +551,12 @@ def plan_growth(frames: Frames, meas: Measurement, rl: rules.Rules, ft: rules.Fr
     # --- verdicts -------------------------------------------------------------------------------------------
     verdict = base.copy()
     reason = np.full(N, "", dtype=object)
+    # §4 step 4: a point is reached when its growth takes it to pass (module docstring). Points the residual
+    # correction grows already pass: never blocked
     reached = np.isfinite(v) & (v + growth >= p_mm - TOL_MM)
     front_need = (np.asarray(rl.front_required, bool) & ~np.asarray(rl.front_ok, bool)
                   if rl.front_required is not None else np.zeros(N, bool))
-    blocked = fail & (~reached | (front_need & ~(growth > 0)) | no_frame)
+    blocked = fail_base & (~reached | (front_need & ~(growth > 0)) | no_frame)
     for i in np.flatnonzero(blocked).tolist():
         if no_frame[i]:
             reason[i] = "NO_FRAME"
@@ -322,44 +582,108 @@ def plan_growth(frames: Frames, meas: Measurement, rl: rules.Rules, ft: rules.Fr
         verdict[unh] = "VISIBLE_BY_DESIGN"
         blocked &= ~unh
     verdict[blocked] = "BLOCKED"
-    vis_idx = np.flatnonzero(verdict.astype(str) == "VISIBLE_BY_DESIGN")
-    if len(vis_idx):
-        cand = np.flatnonzero(blocked & np.isfinite(v) & (v >= 0) & np.asarray(meas.covered_front, bool))
-        if len(cand):
-            d = np.abs(frames.s[cand, None] - frames.s[None, vis_idx])
-            d = np.minimum(d, frames.loop_mm - d).min(1)
-            tr = cand[d <= rules.TRANSITION_MM]
-            verdict[tr] = "TRANSITION"
-            blocked[tr] = False
-    grow_pts = fail & ~blocked & (verdict.astype(str) == "FAIL")
-    node_g = halfway_growth(nv, o1, o2, grow_pts, growth)
-    node_target = np.full(nv, -np.inf)
-    for o in (o1, o2):
-        np.maximum.at(node_target, o[grow_pts], target[grow_pts])
-    node_g = np.minimum(node_g, node_cap)
-    node_g = np.where(node_g > 0, node_g, 0.0)
-    node_target = np.where(np.isfinite(node_target), node_target, np.nan)
+    blocked &= ~_transition(verdict, blocked, frames, v, meas)
+    grow_pts = fail & ~blocked & ((verdict.astype(str) == "FAIL") | short)
+    return _PointPlan(N, nv, req, v, p_mm, fail_base, short, np_pt, o1, o2, target, need, already, lim, rho, node_cap,
+                      growth, limit, clamped, verdict, reason, blocked, grow_pts)
 
-    # --- gates ----------------------------------------------------------------------------------------------
-    gate, msg = None, ""
-    nreq = int(req.sum())
-    nblk = int((verdict.astype(str) == "BLOCKED").sum())
-    cls = meas.cls.astype(str)
-    if ft.full_rim:
-        eb = int(np.isin(cls, ("EXPOSED", "BACKED")).sum())
-        if eb > rules.FULLRIM_GATE_SHARE * N:
-            gate = "E_FULLRIM_EXPOSED"
-            msg = (f"{eb} of {N} stations are EXPOSED or BACKED on a full-rim frame type (limit 2%): the outline, "
-                   f"the parts passed or the frame type is wrong")
-    if gate is None and nreq and nblk > BLOCKED_GATE_SHARE * nreq:
-        gate = "E_TOO_MANY_BLOCKED"
-        by = {k: int(((verdict.astype(str) == "BLOCKED") & (reason.astype(str) == k)).sum()) for k in REASONS}
-        msg = (f"{nblk} of {nreq} required stations are BLOCKED (limit 20%): "
-               + ", ".join(f"{k} {c}" for k, c in by.items() if c))
-    if gate is not None:
-        node_g[:] = 0.0
-    return SeatPlan(verdict, reason, clamped, need, target, limit, growth, node_g, node_target, np_pt, gate, msg,
-                    lim)
+
+def _spread(reach: dict, mask: np.ndarray, growth: np.ndarray, nv: int) -> np.ndarray:
+    """(nv,) the largest growth of the points in `mask` whose reach (deform.station_reach) includes each node."""
+    out = np.zeros(nv)
+    for i, ks in reach.items():
+        if mask[i] and growth[i] > 0:
+            out[ks] = np.maximum(out[ks], growth[i])
+    return out
+
+
+def _transition(verdict: np.ndarray, blocked: np.ndarray, frames: Frames, v: np.ndarray,
+                meas: Measurement) -> np.ndarray:
+    """§4 step 4: a blocked point with v >= 0 and the front covered, within 3 mm (arc) of a visible-by-design point,
+    is TRANSITION (set in `verdict`); returns the mask of those points."""
+    out = np.zeros(len(verdict), bool)
+    vis_idx = np.flatnonzero(verdict.astype(str) == "VISIBLE_BY_DESIGN")
+    if not len(vis_idx):
+        return out
+    cand = np.flatnonzero(blocked & np.isfinite(v) & (v >= 0) & np.asarray(meas.covered_front, bool))
+    if not len(cand):
+        return out
+    d = np.abs(frames.s[cand, None] - frames.s[None, vis_idx])
+    d = np.minimum(d, frames.loop_mm - d).min(1)
+    tr = cand[d <= rules.TRANSITION_MM]
+    verdict[tr] = "TRANSITION"
+    out[tr] = True
+    return out
+
+
+# ------------------------------------------------------------------------------------------------- fold limit
+def fold_slopes(frames: Frames, body_V: np.ndarray, np_pt: np.ndarray,
+                limit_deg: float = FACE_ROTATION_MAX_DEG) -> np.ndarray:
+    """(nv,) the largest growth difference |g[k + 1] - g[k]| across each rim segment k -> k + 1 at which the wall
+    face spanning it (front corners, rung to the back corners) rotates by `limit_deg`: growing node k + 1 by d more
+    than node k turns the segment's edge e about the rung r by atan(d (u . m) / |e_perp|), with e_perp the part of e
+    across the rung and m the face normal (e_perp x r). First order in d: deform's post-check measures the result."""
+    loop = frames.loop
+    nv = len(loop)
+    if nv == 0:
+        return np.zeros(0)
+    P = body_V[loop]
+    e = np.roll(P, -1, 0) - P
+    i0 = np.maximum(np.asarray(np_pt, np.int64), 0)
+    i1 = np.roll(i0, -1)
+
+    def rung(i):
+        r = frames.Pb[i] - frames.P[i]
+        ln = np.linalg.norm(r, axis=1)
+        bad = ~np.isfinite(ln) | (ln < 1e-12)
+        r = np.where(bad[:, None], -frames.n[i], r / np.where(bad, 1.0, ln)[:, None])
+        return r
+    r = rung(i0) + rung(i1)
+    r /= np.maximum(np.linalg.norm(r, axis=1, keepdims=True), 1e-300)
+    ep = e - (e * r).sum(1, keepdims=True) * r
+    L = np.linalg.norm(ep, axis=1)
+    m = np.cross(ep, r)
+    m /= np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-300)
+    um = frames.u[i0] + frames.u[i1]
+    um /= np.maximum(np.linalg.norm(um, axis=1, keepdims=True), 1e-300)
+    w = np.abs((um * m).sum(1))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        S = np.where(w > 1e-9, np.tan(np.radians(limit_deg)) * L / w, np.inf)
+    return S
+
+
+def _lipschitz(x: np.ndarray, S: np.ndarray, upper: bool) -> np.ndarray:
+    """On the closed loop of nodes with segment weights S (S[k] between k and k + 1): upper=False, the largest
+    function <= x with |f[k + 1] - f[k]| <= S[k] (min over j of x[j] + d(j, k)); upper=True, the smallest one >= x
+    (max over j of x[j] - d(j, k)). d is the S-weighted arc distance; a shortest path on a cycle runs one way, so
+    one sweep each way over two laps is exact."""
+    f = np.asarray(x, float).copy()
+    n = len(f)
+    if n == 0:
+        return f
+    S = np.asarray(S, float)
+    sign = -1.0 if upper else 1.0
+    for k in range(2 * n):                                   # forward: k -> k + 1 over segment k
+        i, j = k % n, (k + 1) % n
+        c = f[i] + sign * S[i]
+        if (c > f[j]) if upper else (c < f[j]):
+            f[j] = c
+    for k in range(2 * n, 0, -1):                            # backward: k + 1 -> k over segment k
+        i, j = k % n, (k - 1) % n
+        c = f[i] + sign * S[j]
+        if (c > f[j]) if upper else (c < f[j]):
+            f[j] = c
+    return f
+
+
+def fold_total(G: np.ndarray, hi: np.ndarray, S: np.ndarray) -> np.ndarray:
+    """Total growth per node inside the fold limit: lower G to the largest S-Lipschitz function under `hi` (0 at
+    nodes that do not move, their limits elsewhere), then raise it to the smallest S-Lipschitz function over that.
+    The result lies in [min(G, U), U] with U = that largest function, so it never passes a node's limit, never moves
+    a node with hi = 0, and differs from G only where G steps more steeply than the faces allow."""
+    U = _lipschitz(np.minimum(hi, np.where(np.isfinite(hi), hi, np.inf)), S, upper=False)
+    Gp = np.minimum(np.asarray(G, float), U)
+    return np.minimum(_lipschitz(Gp, S, upper=True), U)
 
 
 def halfway_growth(nv: int, o1: np.ndarray, o2: np.ndarray, grow: np.ndarray, growth: np.ndarray) -> np.ndarray:

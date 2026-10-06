@@ -770,3 +770,58 @@ def fused_with_edges(a: Mesh, b: Mesh) -> Mesh:
     """Two lenses in one mesh (§10 P4 'two fused components are analysed separately'), polygon edges kept."""
     return Mesh(np.vstack([a.V, b.V]), np.vstack([a.T, b.T + len(a.V)]),
                 np.vstack([a.poly_edges, b.poly_edges + len(a.V)]), {"kind": "fused"})
+
+
+def vbevel_lens(lens_mesh: Mesh) -> Mesh:
+    """A flat-walled lens built here, re-walled with the §5 V-bevel (g3d/seat/profile.rewall_plan on its ring 0 and
+    back copy, outward = the horizontal outline normal): flats 0.10 mm, 120 deg, apex h = (t - 0.2) / 2 / tan 60 at
+    mid-depth. For a flat cap the station u is that normal, so the bevel is the one seat_lens builds."""
+    from glasses3d.g3d.seat import profile as PR
+    m = lens_mesh.meta
+    if m.get("rim") != "flat":
+        raise ValueError("vbevel_lens needs a flat wall")
+    n, nf = m["nseg"], m["nfront"]
+    front = np.arange(n)
+    back = nf + np.arange(n)
+    u = np.c_[outline_normals(lens_mesh.V[:n, :2]), np.zeros(n)]
+    plan = PR.rewall_plan(lens_mesh.V, front, back, u, "vbevel", cap_edge_dir=(0, 1))
+    caps = lens_mesh.T[:-2 * n]                                  # lens(): the flat wall is the last 2n triangles
+    quads = np.array(plan.faces, np.int64)
+    T = np.vstack([caps, quads[:, [0, 1, 2]], quads[:, [0, 2, 3]]])
+    V = np.vstack([lens_mesh.V, plan.new_V])
+    from glasses3d.g3d.seat.geom import signed_volume
+    if signed_volume(V, T) < 0:
+        raise ValueError("re-walled lens is inside out")
+    return Mesh(V, T, None, dict(m, rim="vbevel", h=float(PR.bevel_height(m["t"]))))
+
+
+def grooved_ring(lens_mesh: Mesh, corner_capture: float = 0.396, clearance: float = 0.03, lip: float = 1.0,
+                 width: float = 3.0) -> Mesh:
+    """A ring frame whose inner face is the §5 groove for `vbevel_lens(lens_mesh)` on a flat cap: lips over both lens
+    faces from the aperture (`corner_capture` mm inside the lens corners) outward, and between them a V-groove
+    following the bevel (corner, shoulder 0.10 mm in, apex h) offset `clearance` mm outward along u. Swept along the
+    outline in the horizontal / vertical frame, which on a flat cap is the lens's own (u, n)."""
+    from glasses3d.g3d.seat import profile as PR
+    t = lens_mesh.meta["t"]
+    h = PR.bevel_height(t)
+    T2, s2, c = t / 2.0, t / 2.0 - PR.FLAT_MM, clearance
+    ra = -corner_capture
+    sec = np.array([(ra, -T2 - lip), (width, -T2 - lip), (width, T2 + lip), (ra, T2 + lip), (ra, T2 + c), (c, T2 + c),
+                    (c, s2), (h + c, 0.0), (c, -s2), (c, -T2 - c), (ra, -T2 - c)], float)
+    O, R, W, _ = outline_frame_axes(lens_mesh, 1)
+    mesh = _sweep(O, R, W, sec, closed=True)
+    mesh.meta = {"kind": "grooved_ring", "corner_capture": corner_capture, "clearance": clearance, "h": float(h)}
+    return mesh
+
+
+def solid_ring(lens_mesh: Mesh, corner_capture: float = 0.396, lip: float = 1.0, width: float = 3.0) -> Mesh:
+    """`grooved_ring` without the groove (WP4 proof review fix round 1): a solid ring whose inner face is the aperture
+    `corner_capture` mm inside the lens corners, so a `vbevel_lens(lens_mesh)` sits buried in frame material (a deleted
+    g3d_groove Boolean, or a crystal rim never cut). Same sweep and frame as `grooved_ring`."""
+    t = lens_mesh.meta["t"]
+    T2, ra = t / 2.0, -corner_capture
+    sec = np.array([(ra, -T2 - lip), (width, -T2 - lip), (width, T2 + lip), (ra, T2 + lip)], float)
+    O, R, W, _ = outline_frame_axes(lens_mesh, 1)
+    mesh = _sweep(O, R, W, sec, closed=True)
+    mesh.meta = {"kind": "solid_ring", "corner_capture": corner_capture}
+    return mesh

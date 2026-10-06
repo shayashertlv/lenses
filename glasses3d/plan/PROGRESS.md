@@ -11,7 +11,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP1 | **done, $0 proof passed** (proof + closeout, independent image checks) | (WP1 closeout commit) |
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
-| WP4 | built (e5fdf37): P0/P1 pass, **P2 FT1119 71/71**, P5 Oakley 0 moved; open items A-G in workflow g3d-wp4-fix; P6 visual pending | e5fdf37 |
+| WP4 | **done, $0 proof passed** (P2 71/71, P3 Prada seats, P5 Oakley 0 moved, P6 junction line 0 px) | (WP4 done commit) |
 | WP5 | step 3 host committed (7ac7c8f): single-source print reads as the real havana from new angles; defects + Blender attach next (step 4) | 7ac7c8f |
 | WP6 | build + Prada $0 tool test running (workflow g3d-wp6-build) | - |
 | WP2, WP7, WP8 | not started | - |
@@ -288,3 +288,24 @@ long strips; photo 02's gold hinge baked into the endpiece backs (metal pixels p
 glints on curved edges; colour steps (-x temple from 03 warmer/lighter; brow-top band from 04 darker). Next: step 4 (workflow
 g3d-wp5-step4): those fixes + the Blender side (print_uv, attach_print, exporter TEXCOORD/g3d_print_uv allowlist, A6, B5) + a tool-test GLB
 copy captured in arview for the owner (B4).
+
+## 2026-10-06: WP4 done
+
+Fix round (workflow g3d-wp4-fix): A Prada now seats (fold cause = wall faces at run starts; growth steps limited to what a wall face
+takes within 30 deg; post-check unchanged): every point >= 0.6038 after, max move 0.4386 mm, 190 vertices per lens all in failing
+nodes, rim split p5 78.38 deg. B crystal check measures a declared V-bevel from the groove lips: 352/352. C correction pass reaches
+targets (INVU node points >= 0.45). D nylor channel ends graded as TRANSITION. E notch -> E_CONCAVE gate. F front-edge fit 0.0001 mm.
+G Oakley top p95 report-only (design §7 + owner's 'perfect').
+Re-proof: P2 71/71; P3 34/40; P4 109/112; P5 31/32. Stop rule never fired (Oakley 0 moved; every moved set = its failing band).
+ENGINEERING RULINGS on the remaining records (owner does not take technical decisions):
+- P3.before_failing_where (one node at |x| 14.05 vs the design's approximate 10-14 band; describes the INPUT; instrument 100%) and
+  P3.cover_unchanged (signed depth of frame behind the corner necessarily grows as the edge goes deeper; front/back covered share
+  stays 100%) -> report-only, reasons above.
+- Kept as recorded small shortfalls, not blocking: INVU 19 points 0.4489 vs 0.45 target and the metal fixture junction 0.4253 vs
+  0.44 (point-level interpolation between nodes; both >= 0.12 mm above the 0.30 pass); the narrow-eyewire fixture seats partially
+  (96 vertices, all in failing nodes) instead of refusing; 4 other P3 records listed in data/wp4/proof.json.
+- Speed: INVU seat 12.7 s host vs 5 s budget (noted).
+P6 (visual, arview junction captures of data/wp4/proof/glb/ft-before.glb vs ft-after.glb, yaw +-30 x pitch +-20): eyewire part-id
+pixels in the 3 mm band above the lens top 85-304 in 8/8 crops before -> 0 in 0/8 after; 0 gap columns; brow lowest part 24/24
+stations (was 4/24); lens top 0.72-0.80 mm inside the brow; white% 0-0.3 except the known far-side lens-highlight crop. Matches the
+prototype seated+rimsplit. Owner image: data/evidence/wp4_junction_before_after.png.
