@@ -13,7 +13,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
 | WP4 | **done, $0 proof passed** (P2 71/71, P3 Prada seats, P5 Oakley 0 moved, P6 junction line 0 px) | (WP4 done commit) |
 | WP5 | step 3 host committed (7ac7c8f): single-source print reads as the real havana from new angles; defects + Blender attach next (step 4) | 7ac7c8f |
-| WP6 | build + Prada $0 tool test running (workflow g3d-wp6-build) | - |
+| WP6 | **stop rule fired** (tool test: outline better, facets not reproduced); re-diagnosis running (g3d-wp6-rediagnose) | 204f694 |
 | WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
@@ -322,3 +322,13 @@ spots from turned angles; NOT right straight-on/worn: frame lighter and flatter 
 24-31 vs 19-25: photo shading lit twice), brow fronts ~55% fill, streaks on the -x temple, light scratch marks on the endpieces.
 Step 5 (workflow g3d-wp5-step5): shading removal + AR brightness calibration to the photos, brow-front photo share >= 80%, isotropic fill,
 remove edge glints; then a new AR owner sheet. Default worker pool = cpu_count-2.
+
+## 2026-10-06: WP6 tool test hit its stop rule (204f694); re-diagnosis running
+
+Parallel fit: 14-worker pool, 621 s vs 6366 s serial, bit-identical (owner asked to use all cores; stopped the single-core run before the
+owner said "don't force stop a good run" - nothing lost, code committed, stages resumed). Prada tool test (diagnostic past STOP-I):
+outline better than the delivered GLB in side (contour 0.69/0.46 vs 1.55/1.10 mm), front, angled, top views; but the fitted relief is tiny
+(A 1.04, B 0, C 2.22 mm) so the PRADA triangle facets barely show (R1 0.930 vs 0.5; R2 SHALLOW/FLAG; R3 worse than delivered); STOP-I =
+hinge-angle recovery 2.86 vs 0.3 deg on the synthetic round trip; PRADA decals not drawn in arview on the tool-test temple; hinge-leaf
+warnings. Re-diagnosis (PLAN WP6 stop rule): first build with HAND-TRACED good parameters (PLAN §0.2 tool test) to decide tool vs
+tracing; then add a photo-measured relief cue to the fit, fix the theta instrument and the open review findings, re-run the proof fresh.
