@@ -287,9 +287,12 @@ PARALLAX_B1_MM = 4.0
 LOSS_WARN = 0.002
 
 
-def finalize(out_dir, a0_passed: bool | None = None, a0_summary: str | None = None) -> dict:
+def finalize(out_dir, a0_passed: bool | None = None, a0_summary: str | None = None, a0_note: str | None = None
+             ) -> dict:
     """B1, B2 and STOP A (§8, §9) from the written registration.json, check_print.json and report.json, folded into
-    report.json. Works on the JSON only, so A0's verdict can be folded in after both runs."""
+    report.json. Works on the JSON only, so A0's verdict can be folded in after both runs. ``a0_note`` (fix round 2;
+    ``tests/photoprint/a0.summary_for_step0``) says what A0's verdict rests on (the literal §8 rule, or an exemption
+    and its status); it is stored as ``stop_a['a0_note']`` and appended to the A0 reason."""
     out = Path(out_dir)
     reg = json.loads((out / "registration.json").read_text(encoding="utf-8"))
     chk = json.loads((out / "check_print.json").read_text(encoding="utf-8"))
@@ -336,7 +339,7 @@ def finalize(out_dir, a0_passed: bool | None = None, a0_summary: str | None = No
 
     reasons = []
     if a0_passed is False:
-        reasons.append("A0 failed" + (f": {a0_summary}" if a0_summary else ""))
+        reasons.append("A0 failed" + (f" ({a0_note})" if a0_note else "") + (f": {a0_summary}" if a0_summary else ""))
     elif a0_passed is None:
         reasons.append("A0 verdict not supplied (tests/photoprint/test_register_synthetic.py, data/wp5/a0/a0.json)")
     if not any(statuses[n]["status"] == "registered" for n in fronts):
@@ -375,5 +378,8 @@ def finalize(out_dir, a0_passed: bool | None = None, a0_summary: str | None = No
                                for c in chk.get("diagnostic_rows", [])]
     rep["stop_a"] = {"fired": bool(fired), "reasons": reasons,
                      "a0": "passed" if a0_passed else ("failed" if a0_passed is False else "missing")}
+    if a0_note:
+        rep["stop_a"]["a0_note"] = a0_note
+    rep["A0_note"] = a0_note
     write_json(out / "report.json", rep)
     return rep

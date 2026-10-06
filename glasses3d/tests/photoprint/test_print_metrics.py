@@ -137,3 +137,120 @@ def test_render_support_keeps_render_values_off_it_out(scene):
     assert a["projection"] == b["projection"] and a["projection"]["render_support_px"] == int(rs.sum())
     c = PM.evaluate_case(garbage, astra, photo, sel, Eb, PPM)           # full render support: garbage leaks in
     assert c["projection"]["bp_1_4px_r"] != a["projection"]["bp_1_4px_r"]
+
+
+# ----------------------------------------------------------------------------- build step 3: A2, A4, A5, B3
+def test_round_trip_criteria(scene):
+    photo, sel, E = scene
+    assert PM.round_trip(photo, photo, sel, E, PPM)["pass"]
+    blur = np.stack([PM.masked_gauss(photo[..., c], sel, 1.5) for c in range(3)], -1)
+    r = PM.round_trip(blur, photo, sel, E, PPM)
+    assert not r["pass"] and not r["criteria"]["energy"]
+    off = photo + 4.0                                               # a raw colour offset fails dE00 <= 1
+    r = PM.round_trip(off, photo, sel, E, PPM)
+    assert r["criteria"]["bp"] and not r["criteria"]["de00_raw"]
+
+
+def test_knockout_metrics_and_a4():
+    truth = havana(texture((120, 300), 4, 2.0))
+    sup = np.ones(truth.shape[:2], bool)
+    hole = np.zeros_like(sup)
+    hole[30:90, 100:180] = True
+    same = PM.knockout(truth, truth, hole, sup, 8.0)
+    assert same["log_energy_0.25_1mm"] < 1e-9 and same["mean_colour_de00"] < 1e-6 and same["seam_ratio"] == 1.0
+    flat = truth.copy()
+    flat[hole] = truth[hole].mean(0)                                 # a flat fill: energy gone, a seam appears
+    f = PM.knockout(flat, truth, hole, sup, 8.0)
+    assert f["log_energy_0.25_1mm"] > 1.0
+    assert PM.a4_criteria([same, same, same])["pass"] and not PM.a4_criteria([f, f, same])["pass"]
+    other = havana(texture((120, 300), 9, 2.0))                     # same statistics, other print
+    swap = truth.copy()
+    swap[hole] = other[hole]
+    s = PM.knockout(swap, truth, hole, sup, 8.0)
+    # one 60 x 80 hole: sampling spread of a correlated texture's energy (0.26 here), far below the flat fill's
+    assert s["log_energy_0.25_1mm"] < 0.4 < f["log_energy_0.25_1mm"] and s["mean_colour_de00"] < 2.0
+
+
+def test_a4_mean_colour_limit_is_calibrated_by_the_donor_ring():
+    """Fix round 2: a hole whose truth differs from its surroundings (an amber blotch no donor contains) is graded
+    against that difference (the ring baseline), not against a bare 2 dE00; the spread over holes is reported."""
+    from scipy import ndimage
+    truth = havana(texture((120, 300), 4, 2.0)).astype(float)
+    sup = np.ones(truth.shape[:2], bool)
+    hole = np.zeros_like(sup)
+    hole[40:80, 120:170] = True
+    blotch = truth.copy()
+    blotch[hole] = np.clip(blotch[hole] + np.array([60.0, 35.0, 10.0]), 0, 255)     # the hole's truth is brighter
+    ring = ndimage.binary_dilation(hole, iterations=24) & ~ndimage.binary_dilation(hole, iterations=8)
+    base = PM.ring_baseline(blotch, hole, ring)
+    assert base is not None and base > 5.0
+    g = PM.knockout(truth, blotch, hole, sup, 8.0)               # a fill continuing the surroundings
+    assert g["mean_colour_de00"] > 5.0                           # what the bare 2 dE00 would have failed
+    g["ring_baseline_de00"] = base
+    g["mean_colour_de00"] = 0.95 * base                          # a fill as good as the surroundings allow
+    a = PM.a4_criteria([g, g, g])
+    assert not a["mean_colour_literal"] and a["mean_colour_limit"] == base
+    assert a["criteria"]["mean_colour"] and a["spread"]["mean_colour_de00"]["n"] == 3
+    assert PM.ring_baseline(blotch, hole, np.zeros_like(hole)) is None
+
+
+def test_seam_continuity():
+    a = havana(texture((50, 50), 1)).reshape(-1, 3)
+    assert PM.seam_continuity(a, a)["pass"] and PM.seam_continuity(a, a)["de00_p95"] == 0.0
+    b = a.copy()
+    b[: len(b) // 10] += 40                                          # 10 % of the pairs disagree strongly
+    r = PM.seam_continuity(a, b)
+    assert not r["pass"] and r["de00_p50"] == 0.0
+
+
+def test_b3_realism(scene):
+    photo, sel, E = scene
+    noise = np.random.default_rng(3).uniform(0, 255, photo.shape)    # Astra-like unrelated texture
+    other = havana(texture(photo.shape[:2], 7))                      # a real-looking print, not registered
+    r = PM.evaluate_b3(other, noise, photo, sel, E, PPM, 0.9)
+    assert r["eligible"] and r["criteria"]["spectrum"] and r["criteria"]["corr_len"] and r["criteria"]["decile"]
+    assert r["pass"]
+    blur = np.stack([PM.masked_gauss(other[..., c], sel, 4.0) for c in range(3)], -1)
+    rb = PM.evaluate_b3(blur, noise, photo, sel, E, PPM, 0.9)
+    assert not rb["pass"] and not rb["criteria"]["C3"]
+    assert not PM.evaluate_b3(other, noise, photo, sel, E, PPM, 0.3)["eligible"]
+
+
+def test_sample_gltf_texel_centres():
+    """glTF semantics: texel (i, j) centred at (j + 0.5, i + 0.5); halfway between two centres is their mean."""
+    img = np.arange(12, dtype=float).reshape(3, 4)[..., None]
+    v = PM.sample_gltf(img, np.array([[0.5, 0.5], [2.5, 1.5], [1.0, 0.5], [0.5, 1.0]]))[:, 0]
+    assert np.allclose(v, [0.0, 6.0, 0.5, 2.0])
+
+
+def _two_chart_square(step: float):
+    """A 10 x 10 mm square, two triangles, laid out as two charts 20 texels apart (2 texels/mm): the diagonal is a uv
+    seam. The image is a smooth ramp in model x on both charts, plus ``step`` levels on chart B."""
+    V = np.array([[0.0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]])
+    F = np.array([[0, 1, 2], [0, 2, 3]])
+    uv = np.array([[[2, 2], [22, 2], [22, 22]], [[42, 2], [62, 22], [42, 22]]], float)
+    H, W = 26, 66
+    yy, xx = np.mgrid[0:H, 0:W] + 0.5
+    img = np.zeros((H, W, 3))
+    # chart A: x_model = (u - 2) / 2 ; chart B: x_model = (u - 42) / 2 for the same ramp
+    xa = (xx - 2) / 2
+    xb = (xx - 42) / 2
+    ramp = lambda x: np.stack([80 + 6 * x, 50 + 4 * x, 30 + 2 * x], -1)
+    img[:, :33] = ramp(xa[:, :33])
+    img[:, 33:] = ramp(xb[:, 33:]) + step
+    return V, F, uv, img
+
+
+def test_seam_steps_detect_a_step_and_pass_a_continuous_texture():
+    V, F, uv, img = _two_chart_square(0.0)
+    smp = PM.uv_seam_samples(V, F, np.array([0, 1]), uv)
+    assert len(smp[0]["a"]) > 20 and len(smp[1]["a"]) > 10
+    # the two sides of a sample are the same model point: at offset 0 the uv map back to equal x
+    xm = lambda u: np.where(u[:, 0] >= 33, (u[:, 0] - 42) / 2, (u[:, 0] - 2) / 2)
+    a, b = smp[0]["a"], smp[0]["b"]
+    assert np.allclose(xm(a), xm(b), atol=1e-9) and ((a[:, 0] >= 33) != (b[:, 0] >= 33)).all()
+    ok = PM.seam_steps(img, smp)
+    assert ok["pass"], ok
+    V, F, uv, img2 = _two_chart_square(25.0)
+    bad = PM.seam_steps(img2, PM.uv_seam_samples(V, F, np.array([0, 1]), uv))
+    assert not bad["pass"] and bad["offsets"][1]["across_p95"] > 3 * bad["offsets"][1]["within_p95"], bad

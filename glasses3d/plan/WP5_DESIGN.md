@@ -47,7 +47,11 @@ luminance, R P7; Temple_R 01↔06 with hinge plus parallax loses ΔE00 10.03/12.
    leave-one-view-out is impossible on FT1119 (only 01 and 05 share brow print that registers). Other regions ship
    flagged and are judged by realism statistics and the owner's eye.
 
-**Predicted: a pass on Brow_Right only, about 16% of the print area (1,156 of 7,350 mm²).** Two untested points decide
+**Predicted: a pass on Brow_Right's front face only: at most 3.5% of the print area (255.6 of 7,350 mm²).**
+(Corrected 2026-10-05, build review: the first figure, about 16% = 1,156 mm², counted the whole Brow_Right part. Regions
+are split by facing class (§5.1) and only the front face has a partner view: the brow tops' 01/05 pairs give the gate
+fewer than 400 pixels, the backs are seen by 02 alone and the bottoms by no view at donor angles, so the rest of the
+part cannot be pixel-verified.) Two untested points decide
 STOP A. **(a)** P2g kept view 01's front-only IoU (0.911 → 0.891), but its whole-view IoU fell 0.870 → 0.812 (contour
 0.79 → 1.19 mm) with the temples unhinged; the guard here forbids that, so the hinge fit must win it back. **(b)** Warmth
 already sees the Brow_Left offset (1.48–1.78 mm, NCC 0.50–0.53 against a null of 0.22–0.27) where luminance stays at
@@ -347,8 +351,10 @@ WP3b's texture utilities are reused unchanged.
 - **D2.** The edge gate is 1.0 mm mean / 2.5 mm p90 **per (view, part)**, and only decides colour donors.
 - **D3.** The proof is leave one view out × 4 mm stripes, both folds, on registered regions. B0 and the tolerant form
   are reported only.
-- **D4.** Unregistered regions are printed from their anchor and flagged. Is WP5 acceptable with only Brow_Right (about
-  16% of the area) pixel-verified? If not, WP5 stops on FT1119.
+- **D4.** Unregistered regions are printed from their anchor and flagged. Is WP5 acceptable with at most Brow_Right's
+  front face (255.6 of 7,350 mm², **3.5%** of the area) pixel-verified? If not, WP5 stops on FT1119. (Corrected
+  2026-10-05: this question first said "about 16%", which counted the whole Brow_Right part; the owner's "continue"
+  was given against 16% and must be asked again with 3.5%.)
 - **D5.** The parallax is a sampling correction: the GLB is unchanged and the discrepancy goes to Astra.
 - **D6.** Text: either the decal carries it and the photo text is filled (default), or the photo text stays and the
   decal is hidden.

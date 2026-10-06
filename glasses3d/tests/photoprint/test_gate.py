@@ -225,3 +225,87 @@ def test_overlapping_decoy_windows_count_one_maximum_once():
     rows = G.decoy_rows(m, n2, 100.0, Rm, [(0, 15), (0, 25)], R)
     assert not rows[0]["usable"] and rows[0]["usable_shifts"] == (2 * R + 1) ** 2 - 1
     assert rows[1]["counted"]                     # the shared maximum now counts once, for the decoy at 25
+
+
+# ----------------------------------------------------------------------------- the strip null (build step 3)
+def _strip_decoys(ren, ok, shifts, x0=60, x1=460):
+    """Decoys of the strip null on a horizontal strip: the render's own colours cyclically shifted along x inside
+    the strip (what ``gate.single_source_render`` builds along a region's strip coordinate)."""
+    out = []
+    for d in shifts:
+        r = ren.copy()
+        r[:, x0:x1] = np.roll(ren[:, x0:x1], d, axis=1)
+        o = ok.copy()
+        o[:, x0:x1] = np.roll(ok[:, x0:x1], d, axis=1)
+        out.append({"D_mm": d / PPM, "ren": r, "ok": o & ok, "image_shift_px": float(min(d, (x1 - x0) - d))})
+    return out
+
+
+FAR = (40, 80, 120, 280, 320, 360)          # px; R + 3 mm = 35 px at 5 px/mm
+
+
+@pytest.mark.parametrize("shift", [(0.0, 0.0), (3.0, -2.0)])
+def test_strip_null_registers_a_true_match(shift):
+    ren, ok, photo, matte, E = _case(shift)
+    g = G.gate_images(ren, ok, photo, matte, E, PPM, reg_mm=0.8, decoys=_strip_decoys(ren, ok, FAR))
+    w = g["signals"]["warmth"]
+    assert g["null"] == "strip" and g["decoys"] == 6 and g["significant"], g["reason"]
+    assert all(r["overlap_at_offset"] >= 0.6 for r in g["decoy_rows"])        # overlap kept by construction
+    assert w["decoy_max"] < w["peak"] - 0.15 and g["registered"] == (g["residual_mm"] <= 0.8)
+    assert abs(w["shift_px"][0] - shift[0]) < 0.2 and abs(w["shift_px"][1] - shift[1]) < 0.2
+
+
+def test_strip_null_refuses_an_unrelated_photo():
+    ren, ok, _, matte, E = _case((0.0, 0.0), seed=1)
+    _, _, other, _, _ = _case((0.0, 0.0), seed=5)
+    g = G.gate_images(ren, ok, other, matte, E, PPM, reg_mm=0.8, decoys=_strip_decoys(ren, ok, FAR))
+    assert g["decoys"] == 6 and not g["significant"] and not g["registered"]
+
+
+def test_strip_null_refuses_a_shifted_photo_by_its_residual():
+    ren, ok, photo, matte, E = _case((10.0, 0.0))                         # 2 mm off
+    g = G.gate_images(ren, ok, photo, matte, E, PPM, reg_mm=0.8, decoys=_strip_decoys(ren, ok, FAR))
+    assert g["significant"] and g["residual_mm"] == pytest.approx(2.0, abs=0.05) and not g["registered"]
+
+
+def test_strip_decoys_too_near_or_without_overlap_do_not_count():
+    ren, ok, photo, matte, E = _case((0.0, 0.0))
+    near = G.gate_images(ren, ok, photo, matte, E, PPM, reg_mm=0.8, decoys=_strip_decoys(ren, ok, (8, 16, 24, 30)))
+    assert near["decoys"] == 0 and near["reason"] == "too_few_decoys"        # a window could reach the truth
+    thin = _strip_decoys(ren, ok, FAR)
+    for d in thin:
+        d["ok"] = d["ok"].copy()
+        d["ok"][:, 60:300] = False                                         # 40 % overlap left
+    g = G.gate_images(ren, ok, photo, matte, E, PPM, reg_mm=0.8, decoys=thin)
+    assert g["decoys"] == 0 and all(not r["counted"] for r in g["decoy_rows"])
+
+
+class _Region:
+    def __init__(self, faces):
+        self.facing, self.axis, self.faces, self.rid, self.name = "front", 0, faces, 0, "flat[+x]/front"
+
+
+def test_strip_shift_keeps_the_fold_and_the_period_is_a_multiple_of_8():
+    from glasses3d.g3d_host.photoprint.regions import FOLD_GUARD, stripe_fold
+    xs, ys = np.linspace(10.0, 66.0, 113), np.linspace(0.0, 10.0, 21)
+    X, Y = np.meshgrid(xs, ys)
+    V = np.c_[X.ravel(), Y.ravel(), np.zeros(X.size)]
+    nx = len(xs)
+    F = []
+    for j in range(len(ys) - 1):
+        for i in range(nx - 1):
+            a = j * nx + i
+            F += [[a, a + 1, a + nx], [a + 1, a + nx + 1, a + nx]]
+    F = np.asarray(F)
+    sc = G.StripCoords(V, F, _Region(np.arange(len(F))))
+    assert sc.ok and sc.period % 8.0 == 0 and sc.period >= sc.length
+    offs = sc.offsets()
+    assert len(offs) == 6 and all(o % 8.0 == 0 and 0 < o < sc.period for o in offs)
+    rng = np.random.default_rng(3)
+    P = np.c_[rng.uniform(10, 66, 4000), rng.uniform(0, 10, 4000), np.zeros(4000)]
+    for D in offs:
+        q, found = sc.permutation(P, P, D, 0.4)
+        assert found.mean() > 0.75
+        fa, fb = stripe_fold(np.abs(P[found, 0])), stripe_fold(np.abs(P[q[found], 0]))
+        both = (fa != FOLD_GUARD) & (fb != FOLD_GUARD)
+        assert both.sum() > 1000 and np.all(fa[both] == fb[both]), D

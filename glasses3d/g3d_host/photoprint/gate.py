@@ -1,7 +1,31 @@
 """The print-registration gate of WP5_DESIGN §5.4 for a region g and an ordered view pair (w -> v).
 
 Ported from the scratch `design_reg/p7b_axis_null.gate_axis` (decoys along the region's principal image axis),
-`step2b_global.ncc_shift_map` and `shiftlib.single_source_render`; PORT_REVIEW section 10. Changes from the scratch:
+`step2b_global.ncc_shift_map` and `shiftlib.single_source_render`; PORT_REVIEW section 10.
+
+**The null (build step 3, design §5.4 option (c): a null that keeps the region's overlap).** Decoys displace the
+TEXTURE, not the photo: decoy k recolours the true render's pixels by a cyclic shift ALONG THE STRIP of the region:
+pixel p takes the rendered colour of the pixel q whose body point lies D_k mm further along the strip (in strip
+coordinates (c, beta): c = |stripe-axis coordinate| wrapped in a period L', beta = the relative position across the
+region at that c, on the plane perpendicular to the region's facing axis; the region is a height field over that
+plane since its faces lie within 54.7 deg of the axis; q = the nearest rendered pixel within 2 px at the pivot scale).
+The decoy is a permutation of the true render's own colours (w's photo at points v and w both see), so the photo, E,
+the filters and the +/-R window are exactly the true statistic's; only the correspondence is broken. Hence:
+- **overlap is kept by construction**: every E pixel whose shifted position lands on the rendered set keeps a colour
+  (only the wrap gap L' - L and holes in the rendered set lose it). The displacement-of-the-photo null lost it: on thin
+  curved regions seen obliquely (the brow fronts from 01) the design's displacements kept 0-1 of 6 decoys at >= 60 %
+  overlap even on A0's perfect photos, so the gate could never register anything;
+- **folds are kept**: D and L' are multiples of 8 mm (two 4 mm stripes; stripes are |coord| mod 8), so q lies in the
+  same fold as p, and a decoy only reuses colours the true render already has (w's pixels the fit read stay
+  forbidden);
+- **decoys cannot reach the truth**: a decoy counts only when the median Chebyshev IMAGE displacement |p - q| in v is
+  >= R + 3 mm x px/mm (foreshortening shrinks 8 mm on an oblique view), its overlap (decoy-coloured share of E) is
+  >= 60 % and its window has a finite maximum. The six displacements are spread over (0, L');
+- the rule is unchanged: warmth peak >= max(0.45, max counted decoy + 0.15), at least 4 counted decoys, irange within
+  1 px. ``gate_images`` takes the decoy renders (``decoys=``); without them it falls back to the legacy
+  displacement-of-the-photo null below (``null='displace'``), kept for reports (``alt_null`` rows) and its own tests.
+
+Legacy null (displacement of the photo), changes from the scratch:
 
 - **Decoys outside the search window** (the probe's p7b defect: a decoy displaced by less than twice the window found
   the TRUE peak; null 0.68 = peak 0.68). The photo is displaced along g's principal image axis (both signs; offsets
@@ -66,6 +90,7 @@ from scipy import fft as sfft
 from scipy import ndimage
 
 from .. import cameras as C
+from ..camera import project_mm
 from .. import raster
 from .. import texture_utils as T
 from . import signals as S
@@ -87,6 +112,12 @@ FOLD_CODE = {"A": FOLD_A, "B": FOLD_B}
 SOURCE_MIN_COS = 0.5
 SOURCE_TOL_MM = 0.5
 GATE_SIGNALS = ("warmth", "irange", "lum")
+NULL = "strip"                     # default null of ``gate`` (build step 3); 'displace' = the legacy null
+STRIP_PERIOD_MM = 8.0              # two 4 mm stripes: a displacement by a multiple keeps the fold
+STRIP_DECOYS = 6
+STRIP_TOL_PX = 2.0                 # a shifted point takes the nearest rendered pixel within 2 px (pivot scale)
+STRIP_MIN_IMAGE_MM = 3.0           # a counted decoy moves its points >= R + 3 mm in v's image (median, Chebyshev)
+FACING_AXIS = {"front": 2, "back": 2, "top": 1, "bottom": 1, "outer": 0, "inner": 0}
 
 
 # ----------------------------------------------------------------------------- rendering a region from one source
@@ -183,10 +214,91 @@ def sample_source(job, deformer: Deformer, pose: Pose, w: str, face: np.ndarray,
     return {"ok": ok, "col": col, "cos": cos, "uv": uv, "P": P, "forbidden_hit": hit}
 
 
+class StripCoords:
+    """Strip coordinates of a region's body points: c = |stripe-axis coordinate|, beta = relative position across the
+    region at that c (0..1, from the region's own vertices binned every 0.5 mm along c, on the plane perpendicular to
+    its facing axis). ``period`` = the region's c extent rounded up to a multiple of 8 mm. ``ok`` is False when the
+    stripe axis is the facing axis (end caps)."""
+
+    BIN_MM = 0.5
+
+    def __init__(self, V: np.ndarray, F: np.ndarray, region, period_mm: float = STRIP_PERIOD_MM):
+        fa = FACING_AXIS[region.facing]
+        self.a = int(region.axis)
+        self.ok = self.a != fa
+        if not self.ok:
+            return
+        self.b = 3 - fa - self.a
+        tri = np.asarray(V, float)[np.asarray(F)[np.asarray(region.faces)]]
+        P = np.concatenate([tri.reshape(-1, 3), tri.mean(1)])
+        c = np.abs(P[:, self.a])
+        self.c_lo = float(c.min())
+        self.length = float(c.max() - self.c_lo)
+        self.period = float(period_mm * math.ceil(self.length / period_mm + 1e-9))
+        nb = int(math.ceil(self.length / self.BIN_MM)) + 1
+        k = np.clip(((c - self.c_lo) / self.BIN_MM).astype(int), 0, nb - 1)
+        lo = np.full(nb, np.inf)
+        hi = np.full(nb, -np.inf)
+        np.minimum.at(lo, k, P[:, self.b])
+        np.maximum.at(hi, k, P[:, self.b])
+        good = np.isfinite(lo)
+        x = np.arange(nb)
+        self.blo = np.interp(x, x[good], lo[good])
+        self.bhi = np.interp(x, x[good], hi[good])
+        self.height = float(np.median(self.bhi - self.blo))
+        self.nb = nb
+
+    def coords(self, P: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        P = np.asarray(P, float)
+        c = np.abs(P[:, self.a])
+        k = np.clip(((c - self.c_lo) / self.BIN_MM).astype(int), 0, self.nb - 1)
+        span = np.maximum(self.bhi[k] - self.blo[k], 0.2)
+        return c, (P[:, self.b] - self.blo[k]) / span
+
+    def offsets(self, n: int = STRIP_DECOYS) -> list[float]:
+        """Up to ``n`` displacements (mm), multiples of the stripe period spread over (0, period)."""
+        if not self.ok:
+            return []
+        m = int(round(self.period / STRIP_PERIOD_MM))
+        cand = list(range(1, m))
+        if len(cand) <= n:
+            return [STRIP_PERIOD_MM * k for k in cand]
+        idx = sorted({int(round(i * (len(cand) - 1) / (n - 1))) for i in range(n)})
+        return [STRIP_PERIOD_MM * cand[i] for i in idx]
+
+    def permutation(self, P_src: np.ndarray, P_dst: np.ndarray, D: float, tol_mm: float):
+        """For each destination body point: the index of the source point nearest to it shifted by D along the strip
+        (c -> c_lo + ((c - c_lo + D) mod period), beta kept), and whether one lies within ``tol_mm``."""
+        from scipy.spatial import cKDTree
+        cs, bs = self.coords(P_src)
+        cd, bd = self.coords(P_dst)
+        h = max(self.height, 1e-3)
+        tree = cKDTree(np.c_[cs, bs * h])
+        c2 = self.c_lo + np.mod(cd - self.c_lo + D, self.period)
+        dist, idx = tree.query(np.c_[c2, bd * h], k=1)
+        return idx, dist <= tol_mm
+
+
+_STRIPS: dict = {}
+
+
+def strip_coords(job, region) -> StripCoords:
+    key = (id(job.mesh), region.rid, region.name)
+    sc = _STRIPS.get(key)
+    if sc is None:
+        if len(_STRIPS) > 64:
+            _STRIPS.clear()
+        sc = StripCoords(job.mesh.V, job.mesh.F, region)
+        _STRIPS[key] = sc
+    return sc
+
+
 def single_source_render(job, deformer: Deformer, pose: Pose, region, v: str, w: str,
-                         forbidden: np.ndarray | None = None) -> dict:
+                         forbidden: np.ndarray | None = None, decoy_mm=None) -> dict:
     """v's pixels of the region textured from w alone: ren (H, W, 3), ok (rendered), sel (region pixels), fold image;
-    ``forbidden`` = w's pixels a sample may not read (``forbidden_px``: region pixels left unrendered for it)."""
+    ``forbidden`` = w's pixels a sample may not read (``forbidden_px``: region pixels left unrendered for it).
+    ``decoy_mm`` (list of mm, the strip null): also the decoy renders, the same pixels coloured from w at body points
+    recoloured by the strip shift (``decoys``: [{D_mm, ren, ok, image_shift_px}]); 'auto' = ``StripCoords.offsets``."""
     px = region_pixels(job, deformer, pose, region, v)
     H, W = job.views[v].shape
     src = sample_source(job, deformer, pose, w, px["face"], px["bary"], forbidden=forbidden)
@@ -199,8 +311,33 @@ def single_source_render(job, deformer: Deformer, pose: Pose, region, v: str, w:
     ok_any[px["ii"][seen], px["jj"][seen]] = True
     fold = np.full((H, W), -2, np.int8)
     fold[px["ii"], px["jj"]] = px["fold"]
-    return {"ren": ren, "ok": ok, "ok_any": ok_any, "sel": px["sel"], "fold": fold,
-            "forbidden_px": int(src["forbidden_hit"].sum())}
+    out = {"ren": ren, "ok": ok, "ok_any": ok_any, "sel": px["sel"], "fold": fold,
+           "forbidden_px": int(src["forbidden_hit"].sum())}
+    if decoy_mm is not None:
+        sc = strip_coords(job, region)
+        offs = sc.offsets() if (isinstance(decoy_mm, str) and decoy_mm == "auto") else list(decoy_mm)
+        out["decoys"] = []
+        out["strip"] = {"ok": bool(sc.ok), "period_mm": getattr(sc, "period", None),
+                        "length_mm": getattr(sc, "length", None)}
+        okk = src["ok"]
+        if sc.ok and okk.sum() > 0:
+            P_body, _ = points(job.mesh.V, job.mesh.F, px["face"], px["bary"])
+            tol = STRIP_TOL_PX / job.ppm(v, pose.cameras[v])
+            src_i = np.nonzero(okk)[0]
+            for D in offs:
+                q, found = sc.permutation(P_body[src_i], P_body[src_i], D, tol)
+                rd = np.zeros((H, W, 3))
+                od = np.zeros((H, W), bool)
+                dst = src_i[found]
+                frm = src_i[q[found]]
+                rd[px["ii"][dst], px["jj"][dst]] = src["col"][frm]
+                od[px["ii"][dst], px["jj"][dst]] = True
+                shift_px = None
+                if len(dst):
+                    cheb = np.maximum(np.abs(px["ii"][dst] - px["ii"][frm]), np.abs(px["jj"][dst] - px["jj"][frm]))
+                    shift_px = float(np.median(cheb))
+                out["decoys"].append({"D_mm": float(D), "ren": rd, "ok": od, "image_shift_px": shift_px})
+    return out
 
 
 # ----------------------------------------------------------------------------- masked NCC for every shift (FFT)
@@ -367,15 +504,53 @@ def decoy_centers(E: np.ndarray, R: int, ppm: float, layout: str = DECOY_LAYOUT)
 
 
 # ----------------------------------------------------------------------------- the gate
+def strip_null(a_ren_signals, decoys: list, E: np.ndarray, b_list, pok: np.ndarray, R: int, ppm: float) -> dict:
+    """The strip null: per decoy render (already band-passed per signal: ``a_ren_signals[k]``), its overlap with E,
+    its image displacement, and per signal the window maximum over +/-R (the true statistic's window). A decoy is
+    usable when its overlap is >= 60 %, its median image displacement >= R + 3 mm x px/mm and its warmth window has a
+    finite maximum; every usable decoy counts (the decoys are different textures, so there are no duplicates)."""
+    nE = float(E.sum())
+    need_px = R + STRIP_MIN_IMAGE_MM * ppm
+    rows, per_sig = [], {name: [] for name in GATE_SIGNALS}
+    for k, d in enumerate(decoys):
+        Ek = E & np.asarray(d["ok"], bool)
+        ov = float(Ek.sum() / nE) if nE > 0 else 0.0
+        shift = d.get("image_shift_px")
+        row = {"kind": "strip", "D_mm": d.get("D_mm"), "overlap_at_offset": ov, "image_shift_px": shift,
+               "image_shift_mm": (float(shift) / ppm) if shift is not None else None, "peak": None,
+               "argmax_px": None, "peaks": {}, "usable": False, "duplicate_of": None, "counted": False,
+               "offset_px": None, "usable_shifts": None}
+        far = shift is not None and shift >= need_px
+        if ov >= DECOY_MIN_OVERLAP and far and Ek.sum() >= MIN_GATE_PX // 2:
+            maps, n = ncc_shift_maps(a_ren_signals[k], Ek, b_list, pok, R)
+            row["usable_shifts"] = int((n >= DECOY_MIN_OVERLAP * Ek.sum()).sum())
+            for name, m in zip(GATE_SIGNALS, maps):
+                pk = window_peak(m, R, (0, 0), R)
+                row["peaks"][name] = pk["peak"] if pk else None
+                if name == "warmth" and pk:
+                    row["peak"], row["argmax_px"] = pk["peak"], pk["argmax"]
+            row["usable"] = row["peak"] is not None
+            row["counted"] = row["usable"]
+            if row["counted"]:
+                for name in GATE_SIGNALS:
+                    if row["peaks"].get(name) is not None:
+                        per_sig[name].append(row["peaks"][name])
+        rows.append(row)
+    return {"rows": rows, "per_signal": per_sig, "need_image_shift_px": float(need_px)}
+
+
 def gate_images(ren: np.ndarray, ok: np.ndarray, photo: np.ndarray, matte: np.ndarray, E: np.ndarray, ppm: float,
                 *, reg_mm: float | None = None, ren_support: np.ndarray | None = None,
-                min_decoys: int = MIN_DECOYS, decoy_layout: str = DECOY_LAYOUT) -> dict:
+                min_decoys: int = MIN_DECOYS, decoy_layout: str = DECOY_LAYOUT, decoys: list | None = None) -> dict:
     """§5.4 steps 2 and 4-7 on given images (render, its mask, the photo, its matte) and evaluation pixels E.
     ``ren_support`` = where the render's band-pass may read (default ``ok``; ``gate`` passes the evaluated fold's
-    rendered pixels); the photo's band-pass reads its eroded matte & acetate."""
+    rendered pixels); the photo's band-pass reads its eroded matte & acetate. ``decoys`` = the strip null's decoy
+    renders [{ren, ok, support (default ok), image_shift_px, D_mm}] (the default null of ``gate``); without them the
+    legacy displacement-of-the-photo null (``decoy_layout``) decides."""
     rs = np.asarray(ok if ren_support is None else ren_support, bool)
+    null = "strip" if decoys is not None else "displace"
     out = {"E_px": int(E.sum()), "px_per_mm": float(ppm), "render_support_px": int(rs.sum()), "decoys": 0,
-           "min_decoys": int(min_decoys), "decoy_layout": decoy_layout}
+           "min_decoys": int(min_decoys), "null": null, "decoy_layout": "strip" if null == "strip" else decoy_layout}
     if E.sum() < MIN_GATE_PX:
         out.update({"significant": False, "reason": "too_few_pixels"})
         return out
@@ -383,6 +558,8 @@ def gate_images(ren: np.ndarray, ok: np.ndarray, photo: np.ndarray, matte: np.nd
     pok = ndimage.binary_erosion(matte, iterations=1) & acet
     s1, s2 = S.band_px(S.GATE_BAND_MM, ppm)
     R = int(math.ceil(GATE_R_MM * ppm))
+    if null == "strip":
+        return _gate_strip(out, ren, rs, photo, pok, E, ppm, R, s1, s2, decoys, reg_mm, min_decoys)
     centers = decoy_centers(E, R, ppm, decoy_layout)
     Rm = int(max(max(abs(c[0]), abs(c[1])) for c in centers) + R + 2)
     ax = principal_axis(E)
@@ -434,14 +611,68 @@ def gate_images(ren: np.ndarray, ok: np.ndarray, photo: np.ndarray, matte: np.nd
     return out
 
 
+def _gate_strip(out, ren, rs, photo, pok, E, ppm, R, s1, s2, decoys, reg_mm, min_decoys) -> dict:
+    a_list = [S.bandpass(S.signal(s, ren), rs, s1, s2) for s in GATE_SIGNALS]
+    b_list = [S.bandpass(S.signal(s, photo), pok, s1, s2) for s in GATE_SIGNALS]
+    maps, n = ncc_shift_maps(a_list, E, b_list, pok, R)
+    a_dec = []
+    for d in decoys:
+        sup = np.asarray(d.get("support", d["ok"]), bool)
+        a_dec.append([S.bandpass(S.signal(s, d["ren"]), sup, s1, s2) for s in GATE_SIGNALS])
+    nul = strip_null(a_dec, decoys, E, b_list, pok, R, ppm)
+    nE = float(E.sum())
+    sig = {}
+    for name, m in zip(GATE_SIGNALS, maps):
+        pk = window_peak(m, R, (0, 0), R)
+        vals = nul["per_signal"][name]
+        zero = m[R, R]
+        sig[name] = {"peak": pk["peak"] if pk else None, "shift_px": pk["shift_px"] if pk else None,
+                     "edge": pk["edge"] if pk else None, "ncc_zero": float(zero) if np.isfinite(zero) else None,
+                     "decoys": len(vals), "decoy_max": max(vals) if vals else None,
+                     "decoy_mean": float(np.mean(vals)) if vals else None,
+                     "decoys_usable": len(vals), "decoy_duplicates": 0,
+                     "decoy_max_any_window": max(vals) if vals else None}
+        if pk:
+            sig[name]["residual_mm"] = float(math.hypot(*pk["shift_px"]) / ppm)
+            null = sig[name]["decoy_max"] + DECOY_MARGIN if vals else -math.inf
+            sig[name]["passes_rule"] = bool(len(vals) >= min_decoys and pk["peak"] >= max(PEAK_MIN, null))
+    w, ir = sig["warmth"], sig["irange"]
+    agree = (w["shift_px"] is not None and ir["shift_px"] is not None
+             and max(abs(w["shift_px"][0] - ir["shift_px"][0]), abs(w["shift_px"][1] - ir["shift_px"][1])) <= AGREE_PX)
+    reason = None
+    if w["peak"] is None:
+        reason = "no_valid_shift"
+    elif w["decoys"] < min_decoys:
+        reason = "too_few_decoys"
+    elif not w["passes_rule"]:
+        reason = "warmth_peak_below_decoys"
+    elif not agree:
+        reason = "irange_disagrees"
+    significant = reason is None
+    out.update({"R_px": R, "decoy_offsets_mm": [d.get("D_mm") for d in decoys],
+                "decoy_need_image_shift_px": nul["need_image_shift_px"],
+                "decoys": int(w["decoys"]), "decoy_rows": nul["rows"],
+                "window_usable_shifts": int((n >= DECOY_MIN_OVERLAP * nE).sum()),
+                "signals": sig, "irange_agrees": bool(agree), "significant": bool(significant), "reason": reason,
+                "residual_mm": w.get("residual_mm"), "shift_px": w["shift_px"]})
+    if reg_mm is not None:
+        out["registered"] = bool(significant and w.get("residual_mm") is not None and w["residual_mm"] <= reg_mm)
+    return out
+
+
 def gate(job, deformer: Deformer, pose: Pose, region, w: str, v: str, fold: str | None, *,
          reg_mm: float | None = None, photo: np.ndarray | None = None, min_decoys: int = MIN_DECOYS,
-         reads: dict | None = None, decoy_layout: str = DECOY_LAYOUT) -> dict:
+         reads: dict | None = None, decoy_layout: str = DECOY_LAYOUT, null: str = NULL) -> dict:
     """§5.4 for region g and the ordered pair (w -> v) on the evaluated ``fold`` ('A', 'B' or None = every pixel).
     ``photo`` replaces v's photo (tests: substituted photos); its matte is then recomputed. ``reads`` = the photo
-    pixels the fit on the other fold read (``RegResult.reads``): never graded (E) and never rendered from (w)."""
+    pixels the fit on the other fold read (``RegResult.reads``): never graded (E) and never rendered from (w).
+    ``null`` = 'strip' (default; texture displaced along the strip) or 'displace' (legacy; photo displaced along
+    E's principal image axis with ``decoy_layout``)."""
     reads = reads or {}
-    rr = single_source_render(job, deformer, pose, region, v, w, forbidden=reads.get(w))
+    if null not in ("strip", "displace"):
+        raise ValueError(f"unknown null {null!r}")
+    rr = single_source_render(job, deformer, pose, region, v, w, forbidden=reads.get(w),
+                              decoy_mm="auto" if null == "strip" else None)
     vv = job.views[v]
     img = vv.image if photo is None else np.asarray(photo, np.uint8)
     matte = vv.matte
@@ -461,8 +692,16 @@ def gate(job, deformer: Deformer, pose: Pose, region, w: str, v: str, fold: str 
     e_before = int(E.sum())
     if v in reads:
         E &= ~np.asarray(reads[v], bool)          # never grade a pixel the fit read (fix round 2)
+    decoys = None
+    if null == "strip":
+        decoys = []
+        for d in rr["decoys"]:
+            sup = d["ok"] & in_fold if fold is not None else d["ok"]
+            decoys.append({**d, "support": sup})
     res = gate_images(rr["ren"], rr["ok"], img, matte, E, job.ppm(v, pose.cameras[v]), reg_mm=reg_mm,
-                      ren_support=ren_support, min_decoys=min_decoys, decoy_layout=decoy_layout)
+                      ren_support=ren_support, min_decoys=min_decoys, decoy_layout=decoy_layout, decoys=decoys)
+    if null == "strip":
+        res["strip"] = rr.get("strip")
     res.update({"region": region.name, "rid": region.rid, "source": w, "target": v, "fold": fold or "all",
                 "E_px_before_reads": e_before, "E_px_read_by_fit": e_before - int(E.sum()),
                 "source_px_read_by_fit": rr["forbidden_px"], "reads_applied": bool(reads)})

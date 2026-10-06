@@ -7,7 +7,7 @@ Usage (FT1119 proof; writes registration.json, check_print.json, report.json and
         [--a0 glasses3d/data/wp5/a0/a0.json]
 
 STOP A needs A0's verdict: without ``--a0`` (default: data/wp5/a0/a0.json when it exists) it fires with "A0 verdict
-not supplied".
+not supplied". ``--refold-a0`` folds a (new) A0 JSON into an existing run's report.json without re-registering.
 
 Registrations run in a process pool (each worker opted out of EcoQoS) and print progress at least every 30 s.
 Besides the three fits from the WP3b start, ``stability_starts`` fits per fold start from seeded perturbations
@@ -50,16 +50,17 @@ def _fit(job, regions, groups, plan, fold, maxfev, tag, quiet=False, start_seed=
 
 def _gate(job, regions, groups, axes, pose, rid, w, v, fold, reg_mm, min_decoys=GT.MIN_DECOYS, reads=None,
           alt_layout=None):
-    """One gate row; ``alt_layout`` also grades the same row with that decoy layout (reported, never deciding)."""
+    """One gate row (the strip null, ``gate.NULL``); ``alt_layout`` also grades the same row with the LEGACY
+    displacement-of-the-photo null at that decoy layout (reported, never deciding)."""
     by = {r.rid: r for r in regions}
     d = Deformer(job, regions, groups, axes)
     g = GT.gate(job, d, pose, by[rid], w, v, fold, reg_mm=reg_mm, min_decoys=min_decoys, reads=reads)
     if alt_layout:
         a = GT.gate(job, d, pose, by[rid], w, v, fold, reg_mm=reg_mm, min_decoys=min_decoys, reads=reads,
-                    decoy_layout=alt_layout)
+                    decoy_layout=alt_layout, null="displace")
         wa = (a.get("signals") or {}).get("warmth", {})
         g["alt_decoy_layout"] = {
-            "layout": alt_layout, "decoys": a.get("decoys"), "decoys_usable": wa.get("decoys_usable"),
+            "null": "displace", "layout": alt_layout, "decoys": a.get("decoys"), "decoys_usable": wa.get("decoys_usable"),
             "decoy_duplicates": wa.get("decoy_duplicates"), "decoy_max": wa.get("decoy_max"),
             "decoy_max_any_window": wa.get("decoy_max_any_window"),
             "decoy_rows": [{k: r[k] for k in ("offset_px", "overlap_at_offset", "usable_shifts", "peak", "argmax_px",
@@ -80,7 +81,7 @@ def _gate_jobs(job, regions, groups, plan, regs: dict, print_reg_mm, min_decoys,
                     reg = regs[fit]
                     gjobs.append((job, regions, groups, plan.axes, reg.pose, rid, w, v, ev, print_reg_mm, min_decoys,
                                   reg.reads if ev is not None else None,
-                                  ("design" if GT.DECOY_LAYOUT != "design" else None) if ev is not None else None))
+                                  GT.DECOY_LAYOUT if ev is not None else None))
                     gkeys.append((rid, p, w, v, ev, fit))
     return gjobs, gkeys
 
@@ -89,7 +90,7 @@ def run_step0(job, parts, out_dir, *, print_reg_mm: float = PRINT_REG_MM, n_samp
               maxfev: int = REG.MAXFEV, workers: int | None = None, seed: int = 0, b0: bool = True,
               sheets: bool = True, a0_passed: bool | None = None, a0_summary: str | None = None,
               min_decoys: int = GT.MIN_DECOYS, stability_starts: int = STABILITY_STARTS,
-              max_runs: int = REG.MAX_RUNS, log=print) -> dict:
+              max_runs: int = REG.MAX_RUNS, a0_note: str | None = None, log=print) -> dict:
     t0 = time.perf_counter()
     opt_out_ecoqos()
     out = Path(out_dir)
@@ -112,7 +113,7 @@ def run_step0(job, parts, out_dir, *, print_reg_mm: float = PRINT_REG_MM, n_samp
     fjobs = [(job, regions, groups, plan, f, maxfev, f"fit{f}", quiet, None, max_runs) for f in folds]
     skeys = [(f, k) for f in folds for k in range(1, int(stability_starts) + 1)] if plan.parallax else []
     fjobs += [(job, regions, groups, plan, f, maxfev, f"fit{f}-s{k}", quiet, k, max_runs) for f, k in skeys]
-    res = pool_map(_fit, fjobs, workers)
+    res = pool_map(_fit, fjobs, workers, progress=prog)
     regs = dict(zip(folds, res[:len(folds)]))
     sregs = {f"{f}-s{k}": r for (f, k), r in zip(skeys, res[len(folds):])}
     timings["registration_s"] = round(time.perf_counter() - t, 1)
@@ -131,7 +132,7 @@ def run_step0(job, parts, out_dir, *, print_reg_mm: float = PRINT_REG_MM, n_samp
                               (("B" if f == "A" else "A", key),))
             sjobs += j
             skeys_g += k
-    gres = pool_map(_gate, gjobs + sjobs, workers)
+    gres = pool_map(_gate, gjobs + sjobs, workers, progress=prog)
     gate_rows, stab_gate_rows = [], []
     for (rid, p, w, v, ev, fit), g in zip(gkeys + skeys_g, gres):
         g = dict(g)
@@ -181,7 +182,7 @@ def run_step0(job, parts, out_dir, *, print_reg_mm: float = PRINT_REG_MM, n_samp
     if b0 and held:
         plans = {h: REG.plan_registration(job, regions, groups, adm, exclude=[h]) for h in held}
         res = pool_map(_fit, [(job, regions, groups, plans[h], "all", maxfev, f"b0-{IN.short_name(h)}", quiet)
-                              for h in held], workers)
+                              for h in held], workers, progress=prog)
         b0_regs = dict(zip(held, res))
         for rid in plan.parallax:
             if len(registered[rid]) < 2:
@@ -237,7 +238,7 @@ def run_step0(job, parts, out_dir, *, print_reg_mm: float = PRINT_REG_MM, n_samp
     files = {"registration": RP.write_json(out / "registration.json", registration),
              "check_print": RP.write_json(out / "check_print.json", check),
              "report": RP.write_json(out / "report.json", report)}
-    report = RP.finalize(out, a0_passed, a0_summary)
+    report = RP.finalize(out, a0_passed, a0_summary, a0_note)
     stop = report["stop_a"]
     prog(f"done: {report['status']}, STOP A {'FIRED' if stop['fired'] else 'not fired'}", force=True)
     return {"files": files, "report": report, "registration": registration, "check": check, "regs": regs,
@@ -274,6 +275,24 @@ def load_a0(path) -> tuple[bool | None, str | None]:
     return d.get("pass"), d.get("verdict_line")
 
 
+def load_a0_note(path) -> str | None:
+    """What an A0 result's verdict rests on (fix round 2): the literal §8 rule, or the known-limit exemption and its
+    status (``reported.would_pass_under_known_limit_exemption`` / ``exemption_status``); None for older files."""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    d = json.loads(p.read_text(encoding="utf-8"))
+    rep = d.get("reported") or {}
+    if "would_pass_under_known_limit_exemption" not in rep:
+        return None
+    if d.get("pass"):
+        return "passed under the literal §8 rule"
+    if rep["would_pass_under_known_limit_exemption"]:
+        return ("FAILED under the literal §8 rule (residual_every_view); it would pass only under the known-limit "
+                f"exemption, which is {rep.get('exemption_status')} (no owner waiver, no PROGRESS decision)")
+    return "FAILED: " + ", ".join(k for k, v in (d.get("criteria") or {}).items() if not v)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cameras", default=str(IN.FT1119["cameras"]))
@@ -287,12 +306,18 @@ def main(argv=None) -> int:
     ap.add_argument("--no-sheets", action="store_true")
     ap.add_argument("--stability-starts", type=int, default=STABILITY_STARTS)
     ap.add_argument("--a0", default=str(A0_JSON), help="A0 result JSON (STOP A fires without an A0 verdict)")
+    ap.add_argument("--refold-a0", action="store_true",
+                    help="only fold the A0 JSON into an existing --out run (report.finalize; no registration)")
     a = ap.parse_args(argv)
-    job = IN.load_job(a.cameras)
     a0_pass, a0_line = load_a0(a.a0)
+    if a.refold_a0:
+        rep = RP.finalize(Path(a.out), a0_pass, a0_line, load_a0_note(a.a0))
+        print(json.dumps({"A0_passed": rep["A0_passed"], "stop_a": rep["stop_a"]}, indent=1))
+        return 0
+    job = IN.load_job(a.cameras)
     r = run_step0(job, a.parts, a.out, print_reg_mm=a.print_reg_mm, n_samples=a.samples, maxfev=a.maxfev,
                   workers=a.workers, b0=not a.no_b0, sheets=not a.no_sheets, a0_passed=a0_pass, a0_summary=a0_line,
-                  stability_starts=a.stability_starts)
+                  stability_starts=a.stability_starts, a0_note=load_a0_note(a.a0))
     print(r["files"])
     return 0
 

@@ -29,10 +29,9 @@ def test_two_runs_are_byte_identical(synthetic, workdir):
     tmp_path = workdir
     job, truth = synthetic
     job = job.with_cameras(truth["cameras"])          # start at the truth so brows register and check_print runs
-    # min_decoys=0: this test is about determinism, not the decoy rule; the design's rule (each decoy's own
-    # displacement keeps 60 % overlap) leaves the thin brow fronts seen from 01 with 0-1 decoys even on these perfect
-    # photos (A0: overlaps 0.69 / 0.50 / 0.41 / 0.32 / 0.28 / 0.20), nothing would register and check_print (which the
-    # test must cover) would not run
+    # min_decoys=0: this test is about determinism, not the decoy rule (with 1,500 samples and 30 evaluations per band
+    # the fit is coarse; the floor keeps the brows registered so check_print, which the test must cover, runs). The
+    # gate's strip null registers A0's perfect match with 6 decoys at full size (test_register_synthetic.py)
     # one perturbed start per fold covers the stability fits and their gates; two Powell runs per band cover restarts
     kw = dict(n_samples=1500, maxfev=30, seed=0, b0=True, sheets=True, log=None, min_decoys=0, stability_starts=1,
               max_runs=2)
