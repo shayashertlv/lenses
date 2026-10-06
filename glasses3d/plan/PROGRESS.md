@@ -8,11 +8,11 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP | State | Commit |
 |---|---|---|
 | WP0 | **done, $0 proof passed** | (this commit; see git log) |
-| WP1 | in progress: A (1870359) and B-D2 (960ad54) committed; R/E/F/G running (workflow g3d-wp1-capture-proof) | 960ad54 |
+| WP1 | $0 proof PASSES (independent image check); checkpoint 6bd502e; closeout running (Prada temple shafts in captures + defects) | 6bd502e |
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
 | WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
-| WP5 | **STOPPED by its stop rule** (feasibility probe + judged design, plan/WP5_DESIGN.md = NO-GO as written); owner decisions D1/D4/D6 needed | - |
+| WP5 | owner chose to continue (judge by eye in AR); stage 1 (registration) built, STOP A fired (0% pixel-verified); step 3 host build running in single-source mode | (stage-1 checkpoint) |
 | WP6 | design done (plan/WP6_DESIGN.md, judged panel of 3); build queued until the WP4 build finishes (shared g3d/ files) | - |
 | WP2, WP7, WP8 | not started | - |
 
@@ -206,3 +206,30 @@ PLAN correction (technical, recorded for the owner): the 1.9-4.3 mm bulge band i
 because a thicker slab passes it; relief gates R1-R4 (single-plane share <= 0.5 vs delivered 0.81; crease normal change;
 cross-view crease transfer within 0.7 mm; silhouette cost <= 0.1 mm) plus the plan's top-view and rear-envelope comparisons
 decide, and a zero-relief slab control must fail them.
+
+## 2026-10-05: WP1 $0 proof passes (checkpoint 6bd502e), closeout running
+
+Independent checker looked at the images: r9 captured (translucent crystal, gold core, see-through lenses; origin +10.24 mm
+reported) and refused on main's ar/ with "The rear-drop start must be forward of the accepted cap." (ar/src/render/rear-drop.ts:151,
+as predicted, not :194); temples-removed copy -> "temple left/right missing" (stop rule holds); mm copy rescaled with warning;
+arview == spec.py on 143 fabricated cases + real GLBs (49/49 rows on the proof models); junction: q001 lens top vs brow median
+-0.27 mm with 18/24 gap stations and the pale eyewire line in 8/8 crops; seated copy +0.93 mm, 0 gaps, no line (matches
+ab3-q1-vs-fixed.png); arview serve verified (COOP/COEP/CORP, camera policy, sha256 header).
+Closeout (workflow g3d-wp1-closeout): Prada temple shafts drawn only to ~30-35 mm in yaw captures (investigate vs the Studio-era
+runtime, fix), re-review the last unreviewed E/F fixes, flaky hair-schedule test, scale-invariant degenerate-triangle rule
+(both validators), temples-missing reason text (both), junction decals on lenses, served fallback count, measured serve
+bookkeeping, a stronger no-metadata arbitrary-names fixture. PLAN §1 correction: q001's lens top stops 0.09-0.46 mm below the
+brow at 18/24 stations by triangle slicing (the plan's 0.2-0.9 mm included endpieces).
+
+## 2026-10-06: WP5 stage 1 (registration) built; STOP A fired; continuing in single-source mode
+
+Stage 1 code (g3d_host/photoprint: inputs, signals, regions, pose, edges, register, gate, check_print, report, procs, step0;
+tests/instruments/print_metrics.py independent; tests/photoprint; tests/proofs/wp5_ft1119.py): 76 passed + 3 expected A0 failures.
+FT1119 with q001: no region registers in both folds (Brow_Right closest: 0.28/1.76/0.66/1.22 mm; the joint fit is not unique,
+starts end 3.3-11.2 mm apart); 0% pixel-verified. Area: partner views exist for 30.3%, single-view 35.8%, unseen 28.9%, end caps 5%.
+The gate's decoy rule as written refused even perfect synthetic matches (instrument defect) and the A0 null-mean bound fails a
+perfect render. ENGINEERING DECISIONS (owner asked not to be given technical choices; owner chose "continue, judge by eye"):
+redesign the decoy null and fix the A0 bound (step 3); WP5 delivers SINGLE-SOURCE print (each region from its anchor photo, no
+mixing of unregistered views, seams on creases, fill for unseen, B3 realism checks); strict pixel proof (B2) = diagnostic for
+Astra, not a gate; owner judges in arview (B4). Told the owner plainly that 0% is pixel-verified.
+Liveness note: a false stall alarm came from comparing times without dates; both workflows were alive.
