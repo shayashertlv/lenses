@@ -8,7 +8,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP | State | Commit |
 |---|---|---|
 | WP0 | **done, $0 proof passed** | (this commit; see git log) |
-| WP1 | $0 proof PASSES (independent image check); checkpoint 6bd502e; closeout running (Prada temple shafts in captures + defects) | 6bd502e |
+| WP1 | **done, $0 proof passed** (proof + closeout, independent image checks) | (WP1 closeout commit) |
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
 | WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
@@ -233,3 +233,22 @@ redesign the decoy null and fix the A0 bound (step 3); WP5 delivers SINGLE-SOURC
 mixing of unregistered views, seams on creases, fill for unseen, B3 realism checks); strict pixel proof (B2) = diagnostic for
 Astra, not a gate; owner judges in arview (B4). Told the owner plainly that 0% is pixel-verified.
 Liveness note: a false stall alarm came from comparing times without dates; both workflows were alive.
+
+## 2026-10-06: WP1 done (closeout)
+
+- Prada temple cut in turned captures: cause = arm-spread pivot (rear-drop) took the first slice where the arm is <= 15 mm tall
+  as the hinge; Prada's tall shield put it at z -73 mm, so the front half of each arm was never spread and sat inside the head
+  proxy. The Studio-era runtime has the same pivot code (stash rear-drop.ts:173) and its own preview of the Prada delivery
+  (preview/candidate__actual-ar__yaw-left/right.png) shows the same cut: the owner's "looks great!" was given on shortened
+  temples in turned views. Fixed (hinge = thin-shaft boundary only within 15 mm behind the lens rear); arms now drawn to where
+  they pass behind the ear (~-75 mm at yaw +-45; was -61). New report check `TEMPLE CUT` on turned captures.
+- Fixed: flaky hair-schedule test (injected clock), scale-invariant degenerate-triangle rule (both validators), temples-missing
+  reason (both validators; +Y up judged on the lens box when temples are missing), decals on lenses excluded from the
+  junction metric, served-report fallback count, measured serve bookkeeping; a stripped no-metadata Prada copy (no extras, no
+  names) captures correctly (lenses by transmission with warning, temples by position) after fixing a shared-material front
+  defect it exposed.
+- Re-proof: 6/7 items pass; the 7th (degenerate counts equal between q001 and its mm copy) is my own over-strict criterion
+  for a warning-only metric: 206 vs 207 on one lens from float32 re-rounding at the threshold. Accepted, recorded.
+- Tests: tsc 0; node 493/493; qa 104/104; spec 95/95; ar/ untouched.
+- Risk noted (no change): the runtime's fixed 18 mm arm spread does not adapt to narrow frames (Prada arms enter the head
+  proxy at -72..-76 mm, inside the behind-the-ear zone); changing it would depart from the Studio-era runtime.

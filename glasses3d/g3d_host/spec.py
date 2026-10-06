@@ -21,16 +21,27 @@ have their bridge underside within 0.02 mm of the origin, identity transforms an
   lenses does not depend on tessellation. Only when lens geometry is missing on one side of x = 0 is x judged on the
   front region (z >= front - 25 mm, the surface clipped at that plane). Off-centre whole-model or front-region boxes
   are warnings. (All 41 real Studio/ar GLBs and r9: lens x-centre within 0.1 mm.)
-- orientation: Y is the thinnest axis; per side, non-lens geometry at |x| > 45 mm reaches z <= -60 mm; +Y up: the
+- orientation: Y is the thinnest axis (with a temple missing the depth is not the frame's, so the lenses' bounding box
+  is used instead: Y must be its middle axis, narrower than the lens span X and not more than LENS_AXIS_MARGIN_MM
+  shallower than the lens depth Z; within that margin it is a warning, never a failure); per
+  side, non-lens geometry at |x| > 45 mm reaches z <= -60 mm; +Y up: the
   temple roots (non-lens, |x| > 45 mm, -40 < z < -15 mm) sit above the lens bbox centre (real +4.0..+18.0 mm;
   warning below +2 mm); roll: left/right lens halves (split at x = 0) have bbox-centre heights within 3 mm (real
   <= 0.16 mm); pitch: each temple's straight segment (-90 < z < -30 mm) slopes less than 15 deg (real -9.4..+4.7;
-  sign: + rises toward +Z); lenses sit at the front. As in the calibration, the temple roots are the mean y of the
+  sign: + rises toward +Z); lenses sit at the front (in the front 30 % of the depth; not judged on a model under
+  60 mm deep, a front without temples, whose depth is its own). As in the calibration, the temple roots are the mean y of the
   non-lens VERTICES in that slab and the slope is a least-squares line through them; a coarse mesh with no vertex
   there (a box temple) is measured on plane cross-sections instead.
 - transforms: every mesh node's world matrix within 1e-6 (absolute) of identity; EXT_mesh_gpu_instancing refused.
 - geometry: finite positions, valid in-range indices (unsigned SCALAR, never negative), triangles (TRIANGLES / STRIP /
-  FAN), static, at least one triangle.
+  FAN), static, at least one triangle. Degenerate triangles are a warning: a triangle whose height over its longest
+  edge is within DEGENERATE_FLOAT32_ULPS float32 steps of its own coordinates (h <= 8 * eps32 * max|coordinate|),
+  i.e. flat at the precision the file stores it in. Never an area in file units: the rule scales with the model.
+- format: a readable GLB 2.0 with a scene; every external resource (buffer or image URI that is not a data: URI) must be
+  a file next to the GLB, resolved relative to it. An absolute URI (a scheme such as http: or file:, a Windows drive
+  letter 'C:/...', or a network path '//host/...') is not a file next to the GLB under glTF's URI semantics (it is
+  resolved as a URL, never joined to the GLB's folder): it fails as a missing external resource even when such a path
+  happens to exist on this machine, as arview refuses it (qa/capture/external-resources.ts isAbsoluteUri).
 Draco/meshopt geometry is not decoded here. Its POSITION min/max (required by glTF, kept by Draco) bound it: the boxes
 join the overall and lens bounding boxes (units, thinnest axis, front band, lens centre and position are then exact),
 and a failure of the other measured checks becomes an "unverified" warning only when a compressed box reaches the
@@ -42,6 +53,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -70,7 +82,17 @@ PITCH_PLANES_MM = tuple(float(z) for z in np.arange(-85.0, -30.0, 5.0))  # fallb
 PITCH_MIN_SPAN_MM = 15.0
 PITCH_MAX_DEG = 15.0
 LENS_FRONT_FRACTION = 0.3             # lens centre must be in the front 30 % of the depth
+LENS_AXIS_MARGIN_MM = 3.0             # temple missing: the lenses' depth must exceed their height by more than this for
+                                      # "Y is not the lenses' middle axis" (41 real GLBs: depth 4.8-33.1 < height 35.1-
+                                      # 65.1 mm, only 2 mm apart at the extremes; a deep wrap may be deeper than tall)
 IDENTITY_ATOL = 1e-6                  # absolute, no relative term
+DEGENERATE_FLOAT32_ULPS = 8.0         # degenerate (flat) triangle: its height over its longest edge is at most this many
+                                      # float32 steps of its own largest coordinate, h <= 8 * eps32 * max|coord| (at
+                                      # 57-68 mm one step is 4-8 nm). It scales with the model (a millimetre copy counts
+                                      # what its metre original counts, up to float32 rounding of the copy), it counts
+                                      # collinear slivers with millimetre edges (r9's right screw head: 838, not just its
+                                      # 506 exact zeros), and a tiny well-shaped triangle is never flat
+FLOAT32_EPS = float(np.finfo(np.float32).eps)   # 2**-23
 VOLUME_THICKNESS_SUSPECT_M = 0.01     # KHR_materials_volume thicknessFactor above this looks like millimetres
 ARVIEW_MAX_TRIANGLES = 300_000
 ARVIEW_MAX_TEXTURE = 4096
@@ -250,14 +272,37 @@ class _State:
         self.decisions: dict = {}
 
 
+_ABSOLUTE_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _is_absolute_uri(uri: str) -> bool:
+    """A scheme ('http:', 'file:', a drive letter 'C:') or a network path ('//host', a UNC path): glTF resolves it as a
+    URL, never against the GLB's folder (arview: qa/capture/external-resources.ts isAbsoluteUri)."""
+    return bool(_ABSOLUTE_URI.match(uri)) or uri.startswith(("//", "\\\\"))
+
+
+def _missing_uris(glb: Glb) -> list[str]:
+    """glb.missing_uris plus every absolute URI that glb.py found as an existing path (it joins every URI to the GLB's
+    folder, so an absolute drive path that exists was not listed): such a URI is not a file next to the GLB."""
+    missing = list(glb.missing_uris)
+    for kind, items in (("buffer", glb.doc.get("buffers", [])), ("image", glb.doc.get("images", []))):
+        for i, item in enumerate(items if isinstance(items, list) else []):
+            uri = item.get("uri") if isinstance(item, dict) else None
+            entry = f"{kind} {i}: {uri}"
+            if isinstance(uri, str) and uri and not uri.startswith("data:") and _is_absolute_uri(uri) and entry not in missing:
+                missing.append(f"{entry} (an absolute URI, resolved as a URL and never next to the file)")
+    return missing
+
+
 def _format(rep: Report, st: _State) -> None:
     glb = st.glb
     rep.note("format", f"GLB 2.0, {glb.file_bytes} bytes")
     rep.measurements["file_bytes"] = glb.file_bytes
     if glb.scene_issue:
         rep.fail("format", glb.scene_issue)
-    if glb.missing_uris:
-        rep.fail("format", f"missing external resource(s) next to the file: {glb.missing_uris}")
+    missing = _missing_uris(glb)
+    if missing:
+        rep.fail("format", f"missing external resource(s) next to the file: {missing}")
     if glb.external_uris:
         rep.warnings.append(f"not self-contained: external resources {glb.external_uris}")
     used_ext = list(glb.doc.get("extensionsUsed", []) or [])
@@ -376,9 +421,12 @@ def _geometry(rep: Report, st: _State) -> None:
         if not len(p.triangles):
             rep.warnings.append(f"{p.node_name}: primitive has no triangles")
             continue
-        t = p.positions[p.triangles]
-        area2 = np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
-        deg = int((area2 < 1e-14).sum())
+        t = p.positions[p.triangles].astype(np.float64)
+        e1, e2, e3 = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0], t[:, 2] - t[:, 1]
+        area2 = np.linalg.norm(np.cross(e1, e2), axis=1)
+        longest2 = np.maximum(np.maximum((e1 * e1).sum(axis=1), (e2 * e2).sum(axis=1)), (e3 * e3).sum(axis=1))
+        # height = |cross| / longest edge; flat when within DEGENERATE_FLOAT32_ULPS float32 steps of its coordinates
+        deg = int((area2 <= DEGENERATE_FLOAT32_ULPS * FLOAT32_EPS * np.abs(t).max(axis=(1, 2)) * np.sqrt(longest2)).sum())
         if deg:
             rep.warnings.append(f"{p.node_name}: {deg} degenerate (zero-area) triangles")
         st.measurable.append(i)
@@ -525,13 +573,37 @@ def _units(rep: Report, g: _Geo) -> None:
         rep.fail("units", f"width {w:.4g} units is not a plausible frame width in metres ({lo_w}-{hi_w})")
 
 
+def _up_axis(rep: Report, g: _Geo, missing: list[str]) -> None:
+    """Y must be the up axis. With both temples the model is deepest or widest along X/Z and thinnest along Y. A missing
+    temple takes the depth with it (a front alone is thinnest along Z), so the overall box then says nothing about up:
+    the axis is judged on the lenses instead, which need no temple. A lens is widest across (X, both lenses) and
+    thinnest through its face (Z), so Y must be their middle axis. The +Y-up sign (the temple roots) and roll (the
+    lens halves) are judged separately and are unchanged."""
+    ext = g.ext                                                     # compressed boxes included: exact
+    if not missing:
+        if not (ext[1] < ext[0] and ext[1] < ext[2]):
+            rep.fail("orientation", f"Y is not the thinnest axis (extent mm x {ext[0]*1000:.1f}, y {ext[1]*1000:.1f}, "
+                                    f"z {ext[2]*1000:.1f}): not +Y up")
+        return
+    if g.lens_box is None:
+        rep.warnings.append("up axis not measured: a temple is missing and there is no measurable lens geometry")
+        return
+    le = g.lens_box[1] - g.lens_box[0]
+    if not (le[1] < le[0]) or le[2] - le[1] > LENS_AXIS_MARGIN_MM / 1000.0:
+        rep.fail("orientation", f"Y is not the lenses' middle axis (lens extent mm x {le[0]*1000:.1f}, "
+                                f"y {le[1]*1000:.1f}, z {le[2]*1000:.1f}; a lens is widest across X and thinnest "
+                                f"through its face, along Z): not +Y up (judged on the lenses: a temple is missing)")
+    elif le[2] >= le[1]:
+        rep.warnings.append(f"up axis not judged on the lenses: their depth (z {le[2]*1000:.1f} mm) is within "
+                            f"{LENS_AXIS_MARGIN_MM:.0f} mm of their height (y {le[1]*1000:.1f} mm), as on a deep wrap, so "
+                            f"the lens box cannot tell up from forward (a temple is missing; the +Y-up sign is judged "
+                            f"on the temple roots)")
+
+
 def _orientation(rep: Report, g: _Geo) -> None:
-    ext, lo, hi = g.ext, g.lo, g.hi                                 # compressed boxes included: exact
-    if not (ext[1] < ext[0] and ext[1] < ext[2]):
-        rep.fail("orientation", f"Y is not the thinnest axis (extent mm x {ext[0]*1000:.1f}, y {ext[1]*1000:.1f}, "
-                                f"z {ext[2]*1000:.1f}): not +Y up")
+    lo, hi = g.lo, g.hi                                             # compressed boxes included: exact
     tx, reach = TEMPLE_X_MM / 1000.0, TEMPLE_REACH_Z_MM / 1000.0
-    temples, missing = {}, []
+    temples, missing, absent = {}, [], []
     for side, sign in (("left", -1), ("right", 1)):
         sel = g.Vf[:, 0] * sign > tx
         zmin = float(g.Vf[sel][:, 2].min()) if sel.any() else None
@@ -539,10 +611,13 @@ def _orientation(rep: Report, g: _Geo) -> None:
         if zmin is None or zmin > reach:
             where = "x < -45 mm" if sign < 0 else "x > +45 mm"
             got = "none there" if zmin is None else f"it reaches only z {zmin * 1000:.1f} mm"
-            rep.fail_unless("orientation", f"temple {side} missing: no non-lens geometry at {where} reaches z <= "
-                                           f"{TEMPLE_REACH_Z_MM:.0f} mm ({got}); temples must extend along -Z",
-                            _names(_reach(g.cframe, x=_side(sign), z=(-INF, reach))))
+            absent.append((f"temple {side} missing: no non-lens geometry at {where} reaches z <= "
+                           f"{TEMPLE_REACH_Z_MM:.0f} mm ({got}); temples must extend along -Z",
+                           _names(_reach(g.cframe, x=_side(sign), z=(-INF, reach)))))
             missing.append(side)
+    _up_axis(rep, g, missing)
+    for msg, could in absent:
+        rep.fail_unless("orientation", msg, could)
     rep.measurements["temple_reach_z_mm"] = temples
     side_geo = g.Vf[np.abs(g.Vf[:, 0]) > tx]
     if len(missing) == 2 and len(side_geo) and side_geo[:, 2].max() >= -reach:
@@ -572,7 +647,7 @@ def _orientation(rep: Report, g: _Geo) -> None:
             elif dy * 1000 < UP_WARN_MM:
                 rep.warnings.append(f"the temple roots sit only {dy * 1000:.1f} mm above the lens centre (real frames: "
                                     f"+4 to +18 mm): check +Y up")
-        elif not missing:
+        else:                                                       # said even with a temple missing: the sign
             rep.warnings.append("+Y up not measured: no non-lens geometry at |x| > 45 mm between z -40 and -15 mm"
                                 + (f" (compressed {could[:6]} there is not decoded)" if could else ""))
         # roll: both lens halves at the same height (a compressed lens box on one side joins that half exactly)
@@ -598,7 +673,12 @@ def _orientation(rep: Report, g: _Geo) -> None:
         # lenses at the front
         lc = (llo + lhi) / 2
         rep.measurements["lens_bbox_centre_mm"] = (lc * 1000).round(2).tolist()
-        if lc[2] < hi[2] + LENS_FRONT_FRACTION * (lo[2] - hi[2]):
+        depth_mm = float(hi[2] - lo[2]) * 1000
+        if depth_mm < -TEMPLE_REACH_Z_MM:                           # a front alone: its depth is not the frame's
+            rep.warnings.append(f"lens position not measured: the model is only {depth_mm:.1f} mm deep (no temple "
+                                f"reaches z {TEMPLE_REACH_Z_MM:.0f} mm), so the front {LENS_FRONT_FRACTION * 100:.0f} % "
+                                f"of its depth says nothing about where the front is")
+        elif lc[2] < hi[2] + LENS_FRONT_FRACTION * (lo[2] - hi[2]):
             rep.fail("orientation", f"lenses sit at z {lc[2]*1000:.1f} mm, behind the front (z {hi[2]*1000:.1f} mm): "
                                     f"not +Z forward")
     else:

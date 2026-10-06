@@ -54,9 +54,10 @@ import {FaceSurface} from './face-surface.ts';
 import {TempleSurface} from './temple-surface.ts';
 import {TempleCheekContactEstimator} from './temple-cheek-contact.ts';
 import {TempleContactDepth} from './temple-contact-depth.ts';
-import {createTempleTerminalFitEvaluator, templeTerminalRelief} from './temple-terminal-fit.ts';
+import {createTempleTerminalFitEvaluator, templeTerminalRelief, terminalFitX} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
 import {createTempleHeadShell, createTempleHeadShellFit} from './temple-head-shell.ts';
+import {spreadArmX} from './face-width.ts';
 import {TempleHeadFit} from './temple-head-fit.ts';
 import {TempleEndpointTracker} from './temple-endpoint.ts';
 import type {TempleEndpointReport} from './temple-endpoint.ts';
@@ -65,7 +66,7 @@ import {createNasalShape} from './nasal-shape.ts';
 import {VIRTUAL_CAMERA} from './projection.ts';
 import {GLASSES_METERS_TO_CENTIMETERS, resolveModelDefinition, TEMPLE_CLIP_FLOOR_LOCAL_Z_M} from '../eyewear/catalog.ts';
 import type {ModelDefinition, ResolvedModel} from '../eyewear/catalog.ts';
-import {deriveTempleClip, templeInventory, templeMeasurements, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
+import {continuityUnavailableDetail, defaultClipDetail, deriveTempleClip, missingTempleDetail, templeInventory, templeMeasurements, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
 import type {TempleInventory} from './temple-geometry.ts';
 import {createTempleClip, createTempleBlendConfiguration} from './temple-clip.ts';
 import type {TempleClipConfiguration} from './temple-clip.ts';
@@ -132,6 +133,13 @@ export interface CameraState {
   readonly view: number[]; readonly projection: number[];
   readonly width: number; readonly height: number;
   readonly near: number; readonly far: number; readonly verticalFovDegrees: number;
+}
+/** The drawn arm centrelines (`templeCentrelines()`): per side (0: x < 0, 1: x > 0) [x, y, z] asset-local metres, hinge
+ *  first; where the deliberate return behind the ear begins (null without a terminal fit); each side's live cap. */
+export interface TempleCentrelines {
+  readonly sides: readonly [Float32Array, Float32Array];
+  readonly returnStartZM: number | null;
+  readonly capZM: readonly [number, number];
 }
 
 export interface RendererOptions {
@@ -418,6 +426,25 @@ export class TryOnRenderer {
     if (!this.lastPose || !this.eyewearRoot || this.disposed) return null;
     this.scene.updateMatrixWorld(true);
     return this.eyewearRoot.matrixWorld.toArray();
+  }
+  /** The arm centrelines as drawn: the continuity stations (hinge first), moved by the same fixed spread and terminal
+   *  return as the arm geometry, as [x, y, z] asset-local metres per side (empty for a side without a path); with the
+   *  plane where the deliberate return behind the ear begins (null without a terminal fit) and each side's live cap.
+   *  For a capture to measure how far back each arm is actually drawn (never a silent cut). Null without a continuity
+   *  model or arm shape. Copies. */
+  templeCentrelines(): TempleCentrelines | null {
+    const model = this.continuityModel, shape = this.rearDrop;
+    if (!model || !shape || this.disposed) return null;
+    const fit = this.templeTerminalFit, spreadStartZM = shape.spreadStartZM, spreadM = shape.spreadM;
+    const sides = model.sides.map(stations => {
+      const points = new Float32Array(stations.length * 3);
+      stations.forEach((station, i) => points.set([terminalFitX(spreadArmX(station.centerXM, station.zM, spreadStartZM, model.cutoffZM, spreadM),
+        station.zM, fit), station.centerYM, station.zM], i * 3));
+      return points;
+    });
+    const clip = this.templeClip?.configuration, maximum = this.templeEndMaximumZM;
+    return {sides: [sides[0] ?? new Float32Array(0), sides[1] ?? new Float32Array(0)], returnStartZM: fit?.startZM ?? null,
+      capZM: [clip?.negativeXCutoffLocalZM ?? maximum, clip?.positiveXCutoffLocalZM ?? maximum]};
   }
   /** Every eyewear mesh with its decided class and its side by geometry (overlays flagged). */
   parts(): RenderedPart[] {
@@ -717,6 +744,7 @@ export class TryOnRenderer {
       this.fallback('rear drop', `The fixed arm shape could not be built (${messageOf(error)}): the arms are drawn without the fixed spread and `
         + 'terminal return, the fit width is measured on the front 25 mm, and hair occlusion stays off (no protection geometry).');
     }
+    if (this.rearDrop) this.noteArmSpread(this.rearDrop);
     this.fitFrontBounds = this.rearDrop?.opticalBounds ?? frontRegionBounds(eyewearScene);
     this.fitFrontWidthCm = (this.fitFrontBounds.max.x - this.fitFrontBounds.min.x) * GLASSES_METERS_TO_CENTIMETERS;
     // Capture original terminal samples before any fit/spread modifies the cloned geometry.
@@ -820,6 +848,25 @@ export class TryOnRenderer {
    *  temple (that side keeps a fixed cap: no arm shape, continuity, terminal return or hair endpoint; the §2 Orientation
    *  row fails on its own and is never hidden by this); and every measurement or clip warning. Returns which sides carry
    *  a temple. */
+  /** The arm spread's pivot in the report (measurement `arm_spread`), and a warning when it differs from main's ar/: main
+   *  (ar/src/render/rear-drop.ts) pivots at the arm's shaft boundary wherever it lies, arview only when it lies in front
+   *  of the 15 mm proximal guard. A tall temple (a shield or wide acetate arm, such as the Prada PR17WS: boundary
+   *  -73 mm) collapses far behind the guard; main leaves the whole front of such an arm unspread, inside the head proxy,
+   *  so the live site draws it only to the shield in turned views, while arview spreads it from the guard and draws it
+   *  (WP1 review E/F: the capture said nothing about this divergence). */
+  private noteArmSpread(rear: NonNullable<TryOnRenderer['rearDrop']>): void {
+    const mm = (metres: number | null): number | null => metres === null ? null : Math.round(metres * 1e5) / 100;
+    const {startZM} = rear.diagnostics, boundary = rear.shaftBoundaryZM;
+    this.modelReport.measure('arm_spread', {pivot_z_mm: mm(rear.spreadStartZM), hinge_z_mm: mm(rear.hingeZM), shaft_boundary_z_mm: mm(boundary),
+      guard_z_mm: mm(startZM), pivot_at: rear.hingeZM !== null ? 'hinge' : 'guard', live_pivot_z_mm: mm(boundary ?? startZM)});
+    if (boundary !== null && rear.hingeZM === null) {
+      this.modelReport.warn(`LIVE SITE DIFFERS (arm spread): this arm's cross-section first collapses to a thin shaft at z ${mm(boundary)!.toFixed(1)} mm, `
+        + `behind the proximal guard (z ${mm(startZM)!.toFixed(1)} mm, 15 mm behind the lens rear). arview spreads the arm from the guard; main's ar/ `
+        + '(src/render/rear-drop.ts) pivots at that shaft boundary, so on the live site the arm stays unspread in front of it, inside the head proxy, '
+        + 'and is drawn only to its front part in turned views. The captures here show the arm drawn; the live site would not.');
+    }
+  }
+
   private installTemples(root: Object3D): readonly [boolean, boolean] {
     let inventory: TempleInventory;
     try {inventory = templeInventory(root);}
@@ -832,15 +879,12 @@ export class TryOnRenderer {
     }
     this.templeSides = inventory;
     for (const warning of inventory.warnings) this.modelReport.warn(`Temples: ${warning}.`);
-    for (const side of inventory.sides) {
-      if (side.present) continue;
-      this.fallback(`temple ${side.side}`, `TEMPLE ${side.side.toUpperCase()} MISSING: ${side.missing}. That side keeps a fixed cap: no arm shape, `
-        + 'temple continuity, terminal return or hair endpoint is built for it. A missing temple is a geometry defect of the model.');
-    }
+    // The sentences come from temple-geometry.ts (templeLoadFallbacks), so arview serve's Node-side check reports these same fallbacks.
+    for (const side of inventory.sides) if (!side.present) this.fallback(`temple ${side.side}`, missingTempleDetail(side));
     const clip = deriveTempleClip(inventory, this.model.templeClipZM);
     this.clipZM = clip.clipZM;
     for (const warning of clip.warnings) {
-      if (clip.source === 'default') this.fallback('temple clip depth', `Temple clip: ${warning}.`);
+      if (clip.source === 'default') this.fallback('temple clip depth', defaultClipDetail(warning));
       else this.modelReport.warn(`Temple clip: ${warning}.`);
     }
     const measured = templeMeasurements(inventory, clip);
@@ -907,7 +951,7 @@ export class TryOnRenderer {
   /** The continuity fallback: both arms keep the fixed buried cap and get no hair endpoint, and the report says why. */
   private noteContinuityFailure(error: unknown): void {
     this.continuityFailure = messageOf(error);
-    this.fallback('continuity', `The temple continuity model is unavailable (${this.continuityFailure}); both arms keep the fixed buried cap and no hair endpoint.`);
+    this.fallback('continuity', continuityUnavailableDetail(this.continuityFailure));
   }
 
   /** SHA-256 of the exact bytes parsed and rendered (the report's rendered_sha256), or null for a hand-built scene. A

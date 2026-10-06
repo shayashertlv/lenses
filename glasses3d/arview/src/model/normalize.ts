@@ -27,6 +27,10 @@ export const IDENTITY_ATOL = 1e-6;
 export const ARVIEW_WARN_TRIANGLES = 300_000;
 export const LIVE_MAX_TRIANGLES = 100_000;
 export const LIVE_TEMPLE_X_M = 0.045;
+/** A degenerate (flat) triangle's height over its longest edge is at most this many float32 steps of its own largest
+ *  coordinate: h <= 8 * eps32 * max|coord| (spec.py DEGENERATE_FLOAT32_ULPS). */
+export const DEGENERATE_FLOAT32_ULPS = 8;
+const FLOAT32_EPS = 2 ** -23;
 const MODE_NAMES: Readonly<Record<number, string>> = {0: 'POINTS', 1: 'LINES', 2: 'LINE_LOOP', 3: 'LINE_STRIP'};
 
 export interface NormalizedModel {
@@ -333,13 +337,20 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     // primitive that passes the per-primitive checks); morph targets are left out, as spec.py does.
     if (bad.length || Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) {excluded.add(label); continue;}
     if (!triangles) {report.warn(`${label}: primitive has no triangles`); continue;}
+    // Flat at the precision the file stores it in (spec.py DEGENERATE_FLOAT32_ULPS): the height over the longest edge
+    // within 8 float32 steps of the triangle's largest coordinate. Never an area in file units: the rule scales with the
+    // model, and a tiny well-shaped triangle is not flat. The same float64 arithmetic as spec.py on the same float32s.
     let degenerate = 0;
-    const a = new Vector3(), b = new Vector3(), c = new Vector3(), drawn = geometry.getIndex();
+    const a = new Vector3(), b = new Vector3(), c = new Vector3(), e1 = new Vector3(), e2 = new Vector3(), e3 = new Vector3(), drawn = geometry.getIndex();
     for (let t = 0; t < triangles; t++) {
       a.fromBufferAttribute(position, drawn ? drawn.getX(t * 3) : t * 3);
       b.fromBufferAttribute(position, drawn ? drawn.getX(t * 3 + 1) : t * 3 + 1);
       c.fromBufferAttribute(position, drawn ? drawn.getX(t * 3 + 2) : t * 3 + 2);
-      if (b.sub(a).cross(c.sub(a)).length() < 1e-14) degenerate++;
+      e1.subVectors(b, a); e2.subVectors(c, a); e3.subVectors(c, b);
+      const longest2 = Math.max(e1.lengthSq(), e2.lengthSq(), e3.lengthSq());
+      const largest = Math.max(Math.abs(a.x), Math.abs(a.y), Math.abs(a.z), Math.abs(b.x), Math.abs(b.y), Math.abs(b.z),
+        Math.abs(c.x), Math.abs(c.y), Math.abs(c.z));
+      if (e1.cross(e2).length() <= DEGENERATE_FLOAT32_ULPS * FLOAT32_EPS * largest * Math.sqrt(longest2)) degenerate++;
     }
     if (degenerate) report.warn(`${label}: ${degenerate} degenerate (zero-area) triangles`);
     measurable.push(mesh);

@@ -375,7 +375,10 @@ export async function loadModel(bytes: ArrayBuffer, report: ModelReportBuilder, 
   if (resources.length) report.warn(`not self-contained: external resources ${JSON.stringify(resources.map(resource => resource.uri))}`);
   // WP1_DESIGN.md §1, the Format row: a missing external resource is refused, whether or not the default scene uses it
   // (the binding wording; spec.py fails the Format row for every one). The message names the unused ones.
-  if (missing.length) refuseFormat(report, `missing external resource(s) next to the file: ${JSON.stringify(missing)}`);
+  // The GLB itself was read (the Format row records its version and size), so the other rows are not checked because of
+  // this refusal, never because 'the file could not be read' (that reason is kept for unreadable GLB bytes).
+  if (missing.length) refuseFormat(report, `missing external resource(s) next to the file: ${JSON.stringify(missing)}`,
+    'refused at the Format row (missing external resource)');
   if (resources.length) {
     report.measure('external_resources', await Promise.all(resources.map(async resource => {
       const data = fetched.get(resource.uri);

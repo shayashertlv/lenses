@@ -195,11 +195,27 @@ export function geometryOnly(parser) {
   return {name: 'ArviewServeGeometryOnly', loadTexture: () => Promise.resolve(new Texture())};
 }
 
+/** The model report plus the fallbacks the renderer will report from the temples alone (the temple clip receipt's
+ *  load_fallbacks, temple-geometry.ts templeLoadFallbacks: the same rules and sentences as renderer.ts installTemples and
+ *  its continuity refusal), each also a warning, as ModelReportBuilder.fallback records it. Without this the served
+ *  report said '0 fallback(s)' for a model whose capture lists the missing temples' fixed caps, the default clip and
+ *  continuity off (WP1 proof, the temples-removed q001 copy). */
+export function withTempleLoadFallbacks(report, loadFallbacks) {
+  if (!report || !loadFallbacks?.length) return report;
+  const fallbacks = [...report.fallbacks], warnings = [...report.warnings];
+  for (const entry of loadFallbacks) {
+    if (!fallbacks.some(known => known.subsystem === entry.subsystem && known.detail === entry.detail)) fallbacks.push({...entry});
+    if (!warnings.includes(entry.detail)) warnings.push(entry.detail);
+  }
+  return {...report, fallbacks, warnings};
+}
+
 /** arview's Node-side check of the served bytes: the load front-end and normalisation pass (textures replaced by empty
- *  ones, geometryOnly; external buffers handed to the parser from `routes`, load.ts prefetchedBuffers) and
- *  the temple clip receipt. Resolves {report, templeClip, error}; never rejects: a check that throws or passes its
- *  deadline is {report: null, error}, and a temple clip receipt that fails is {report, error}. */
-export async function checkInNode(bytes, {url, routes, displayName, sha}) {
+ *  ones, geometryOnly; external buffers handed to the parser from `routes`, load.ts prefetchedBuffers), the temple clip
+ *  receipt (with the handed-over `clipZM`, as the renderer gets it) and the renderer's temple load fallbacks. Resolves
+ *  {report, templeClip, error}; never rejects: a check that throws or passes its deadline is {report: null, error}, and a
+ *  temple clip receipt that fails is {report, error}. */
+export async function checkInNode(bytes, {url, routes, displayName, sha, clipZM = null}) {
   const controller = new AbortController();
   const run = (async () => {
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -208,11 +224,11 @@ export async function checkInNode(bytes, {url, routes, displayName, sha}) {
       plugins: [geometryOnly],
       fetchResource: async resource => {
         const route = routes.get(new URL(resource).pathname);
-        return route ? route.bytes.buffer.slice(route.bytes.byteOffset, route.bytes.byteOffset + route.bytes.byteLength) : null;
+        return route && !route.missing ? route.bytes.buffer.slice(route.bytes.byteOffset, route.bytes.byteOffset + route.bytes.byteLength) : null;
       }});
     let templeClip = null, error = null;
     if (scene) {
-      try {templeClip = selectQATempleCutoff(scene);}
+      try {templeClip = selectQATempleCutoff(scene, clipZM);}
       catch (failure) {error = `the temple clip receipt failed: ${messageOf(failure)}`;}
       finally {
         scene.traverse(object => {
@@ -222,7 +238,7 @@ export async function checkInNode(bytes, {url, routes, displayName, sha}) {
         });
       }
     }
-    return {report, templeClip, error};
+    return {report: withTempleLoadFallbacks(report, templeClip?.load_fallbacks), templeClip, error};
   })();
   try {return await within(run, SERVE_CHECK_TIMEOUT_MS, 'arview\'s Node-side check');}
   catch (error) {controller.abort(); return {report: null, templeClip: null, error: messageOf(error)};}
@@ -283,6 +299,10 @@ async function serve(options) {
     reserved: (_route, decoded) => decoded !== null && (decoded === '/' || decoded === REPORT_PATH || decoded === STOP_PATH
       || build.files.has(decoded) || publicFiles.has(decoded))});
   for (const resource of external.resources) routes.set(resource.route, {bytes: resource.bytes, type: resource.type});
+  // A resource that cannot be read is an explicit 404 at the URL arview requests, looked up before the frozen page and the
+  // public files: a URI climbing out of the model's folder ('../../../index.html') would otherwise get the page's own file
+  // (HTTP 200) and the renderer would load the model with bytes for a missing file (WP1 review E/F).
+  for (const {uri, route} of external.missingRoutes) if (!routes.has(route)) routes.set(route, {missing: true, uri});
   serveWarnings.push(...external.warnings);
   errors.push(...external.errors);
   if (glb.externalUris.length) serveWarnings.push(`the GLB is not self-contained (${glb.externalUris.length} external resource(s)); PLAN §2 prefers one file`);
@@ -365,6 +385,11 @@ async function serve(options) {
         return;
       }
       const modelRoute = routes.get(url.pathname);
+      if (modelRoute?.missing) {
+        send(response, 404, text(`404: ${url.pathname} is the external resource "${modelRoute.uri}" the model references, which cannot be read (missing)`),
+          'text/plain; charset=utf-8', {}, head);
+        return;
+      }
       if (modelRoute) {
         if (modelRoute.model) await checkDisk();
         const digest = sha256(modelRoute.bytes);
@@ -463,7 +488,7 @@ async function serve(options) {
     serveWarnings.push(`${CHECK_DELAY_ENV}=${delayMs} held the model check back by ${delayMs / 1000} s (test plumbing; unset it for real use)`);
   }
   const checks = (delayMs > 0 ? sleep(delayMs) : Promise.resolve()).then(() => Promise.all([runSpecValidator(glbPath, SERVE_SPEC_TIMEOUT_MS),
-    checkInNode(bytes, {url: modelUrl, routes, displayName, sha: modelSha})]));
+    checkInNode(bytes, {url: modelUrl, routes, displayName, sha: modelSha, clipZM: options.clipZM})]));
   // A stop during the check (--stop, a signal, --ttl-s) ends the server now, not when the check finishes.
   const outcome = await Promise.race([checks, stopped.then(() => null)]);
   if (outcome === null || stopping) return stopped;

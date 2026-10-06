@@ -43,6 +43,42 @@ test('routesMiddleware: routed files are served, every other path under the pref
   assert.equal((await call(middleware, '/models/canonical-face.json')).next, true);
   const live = routesMiddleware(new Map(), '/__arview_live/');
   assert.equal((await call(live, '/__arview_live/models/abc/missing_texture.png')).status, 404);
+  // WP1 review E/F: a missing resource whose URI climbs out of the model's folder resolves OUTSIDE the prefix ('/package.json'
+  // for a model under /__arview/models/abc/). It is an explicit 404 route, never handed to Vite (which served arview's own
+  // package.json with HTTP 200, so arview got bytes for a missing file and did not refuse).
+  const climbing = '../../../../../../../../../../../../package.json';
+  const withMissing = modelRoutes(modelPath, {bytes: Buffer.from('glTF'), resources: [], missing: [climbing, 'C:/abs/tex.png']});
+  assert.deepEqual(withMissing.get('/package.json'), {missing: true, uri: climbing});
+  const missingMiddleware = routesMiddleware(withMissing, '/__arview/');
+  const climbed = await call(missingMiddleware, '/package.json');
+  assert.equal(climbed.status, 404); assert.equal(climbed.next, false); assert.match(climbed.body, /the external resource ".*package\.json" .*cannot be read/);
+  assert.equal((await call(missingMiddleware, '/qa/capture.html')).next, true, 'other paths outside the prefix still reach Vite');
+  // The same URIs against the live probe's model path give that server's routes.
+  assert.ok(modelRoutes('/__arview_live/models/abc/model.glb', {bytes: Buffer.from('glTF'), missing: [climbing]}).get('/package.json')?.missing);
+});
+
+test('a missing resource whose URI climbs to one of the tool\'s own files is REFUSED (exit 4), never handed that file', {timeout: 120_000}, async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'arview-climb-'));
+  try {
+    const uri = `${'../'.repeat(24)}package.json`;
+    const glb = path.join(work, 'climb.glb');
+    assert.equal(fs.existsSync(path.resolve(work, uri)), false, 'precondition: the climbed path does not exist on disk (spec.py fails Format)');
+    const built = buildGlb({patch: doc => {
+      doc.images = [{uri}]; doc.textures = [{source: 0}];
+      doc.materials[0].pbrMetallicRoughness.baseColorTexture = {index: 0};
+    }});
+    fs.writeFileSync(glb, Buffer.from(built.glb));
+    const out = path.join(work, 'out');
+    const code = await main([glb, '--poses', 'default', '--out', out, '--no-portrait', '--step-timeout-s', '30']);
+    const report = JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8'));
+    assert.equal(code, 4, `exit ${code}: ${report.status} ${report.infrastructure_failure ?? ''}`);
+    assert.equal(report.status, 'refused'); assert.equal(report.runtime.status, 'refused');
+    assert.ok(report.page.failed_responses.some(entry => entry.status === 404 && new URL(entry.url).pathname === '/package.json'), JSON.stringify(report.page.failed_responses));
+    assert.ok(report.warnings.some(text => /cannot be read \(ENOENT\); the capture answers it 404 \(at \/package\.json\)/.test(text)), report.warnings.join('\n'));
+    assert.ok(!report.errors.some(text => /RENDERED a model/.test(text)), report.errors.join('\n'));
+    assert.deepEqual(report.images, []);
+    if (report.spec.available) {assert.equal(report.spec.rows.format.pass, false); assert.deepEqual(report.runtime.spec_disagreements, []);}
+  } finally {fs.rmSync(work, {recursive: true, force: true});}
 });
 
 test('a GLB with a missing external image is REFUSED by the capture: status refused, exit 4, HTTP 404 seen', {timeout: 120_000}, async () => {
@@ -63,7 +99,10 @@ test('a GLB with a missing external image is REFUSED by the capture: status refu
     assert.equal(report.runtime.spec.format.pass, false);
     assert.deepEqual(report.images, []);
     assert.ok(report.page.failed_responses.some(entry => entry.status === 404 && entry.url.endsWith('/missing_texture.png')), JSON.stringify(report.page.failed_responses));
-    assert.ok(report.warnings.some(text => /missing_texture\.png.*the capture answers it 404, so arview refuses the model/.test(text)), report.warnings.join('\n'));
+    assert.ok(report.warnings.some(text => /missing_texture\.png.*the capture answers it 404 \(at \/__arview\/models\/[0-9a-f]{64}\/missing_texture\.png\), so arview refuses the model/.test(text)), report.warnings.join('\n'));
+    // The GLB itself was read: the rows left unchecked say they were refused at Format, never 'the file could not be read'.
+    assert.ok(report.warnings.some(text => /could not compare .*\(arview did not check it: refused at the Format row \(missing external resource\)\)/.test(text)), report.warnings.join('\n'));
+    assert.ok(!report.warnings.some(text => /the file could not be read/.test(text)), report.warnings.join('\n'));
     assert.ok(!report.errors.some(text => /RENDERED a model/.test(text)), report.errors.join('\n'));
     if (report.spec.available) {
       // spec.py fails Format too; the rows arview refused before checking are uncompared, never false disagreements.

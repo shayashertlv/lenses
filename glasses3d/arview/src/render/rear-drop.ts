@@ -185,7 +185,13 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
         else extents.set(slice, {low: y, high: y});
       }
     }
-    const hingeZM = armShaftStartZM(extents);
+    // The thin-shaft boundary is the hinge only inside the front: a boundary behind the proximal guard (15 mm behind the
+    // lens rear) belongs to a TALL temple (a shield or a wide acetate arm, such as the Prada PR17WS: 33 mm tall at z -40,
+    // first under 15 mm at z -73) whose height collapses only far down the arm. Pivoting there left the whole front half
+    // of such an arm unspread, inside the head proxy, so it was drawn only to the shield in every turned view (WP1 proof,
+    // prada-default). Such an arm has no boundary near the front, so it pivots at the guard plane like any other.
+    const shaftBoundaryZM = armShaftStartZM(extents);
+    const hingeZM = shaftBoundaryZM !== null && shaftBoundaryZM >= startZM ? shaftBoundaryZM : null;
     const hingeStartZM = hingeZM ?? startZM;
     /** The plane a pivot puts the bend on, refusing one the ramp could not draw. */
     const pivotPlane = (pivot: number): number => {
@@ -290,7 +296,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       get originalArmBounds(): Box3[] {return originalArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get candidateArmBounds(): Box3[] {return candidateArmBounds.filter(bounds => !bounds.isEmpty()).map(bounds => bounds.clone());},
       get diagnostics() {
-        return {method: 'temple-geometry-offsets-v1', dropM, spreadM, spreadStartZM, hingeZM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
+        return {method: 'temple-geometry-offsets-v1', dropM, spreadM, spreadStartZM, hingeZM, shaftBoundaryZM, widthFitMethod: WIDTH_FIT_METHOD, startZM, cutoffZM, lensRearZM,
           fadeLengthM: TEMPLE_BLEND_LENGTH_LOCAL_M, affectedVertexCount, affectedVertexCountBySide: [...affectedBySide], armSides: [...armSides],
           sourceGeometryCount: ownership.size, geometryPolicyCount: records.size,
           originalZPreserved: true, originalXPreserved: spreadM === 0 && terminalFit === null, opticalFrontPreserved: true,
@@ -308,8 +314,12 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
         spreadStartZM = plane;
         applyShape(dropM, spreadM, true);
       },
-      /** Where this asset's frame front ends, or null when its cross-section has no such boundary. */
+      /** Where this asset's frame front ends, or null when its cross-section has no such boundary in front of the
+       *  proximal guard (then the spread pivots at the guard plane, `startZM` of the diagnostics). */
       get hingeZM(): number | null {return hingeZM;},
+      /** Where the arm's cross-section first collapses to a thin shaft (armShaftStartZM), wherever that is; it is the
+       *  hinge only when it lies in front of the proximal guard (a tall temple collapses far behind it). */
+      get shaftBoundaryZM(): number | null {return shaftBoundaryZM;},
       get dropM(): number {return dropM;},
       get terminalFit(): TempleTerminalFit | null {return terminalFit ? {...terminalFit} : null;},
       /** Static model-space posterior return. Removing it restores the original storage before other offsets. */

@@ -112,6 +112,53 @@ export function isAuthoredFrontFrame(object: Object3D, root: Object3D): boolean 
   return true;
 }
 
+/** The central band no temple reaches: temples lie at |x| > 45 mm (WP1_DESIGN.md §3, temple-geometry.ts). */
+export const POSITIONAL_FRONT_CENTRAL_HALF_WIDTH_M = 0.045;
+
+/** On the positional path (no usable LENSES_part_visibility), a frame mesh that is front, never arm geometry, by its
+ *  geometry alone. The temples are found as the non-lens geometry at |x| > 45 mm behind the lens rear (§3); that region
+ *  also holds the outer back of a front mesh, and giving it the arm treatment removed the front's inner rim from the
+ *  physical lens input (the Prada PR17WS stripped of its metadata: its one front mesh, z -9.9..3.9 mm, lies behind the
+ *  -4.6 mm lens rear at both endpieces, and the cream inner bevel at the outer lens corners vanished, WP1 review E/F).
+ *  A mesh is a positional front when every slot is frame class, its x extent reaches the central band |x| <= 45 mm (a front
+ *  crossing x = 0, a rim or brow half: no temple lies there) and nothing of it lies behind the front zone
+ *  (AUTHORED_FRAME_FRONT_MIN_Z_M, the bound an authored front keeps). A mesh that reaches the central band AND lies
+ *  behind the front zone is front and temple in one mesh: it keeps the positional arm rule, and templeInventory warns.
+ *  An unclassified mesh, a profiled mesh (its region decides), one with a lens slot or one whose explicit role (rule 1)
+ *  is anything but 'frame' is never a positional front. */
+export function isPositionalFrontFrame(object: Object3D): boolean {
+  if (!(object instanceof Mesh) || partVisibilityOf(object)) return false;
+  const slots = meshRecordOf(object)?.slots;
+  // An explicit structural role other than 'frame' (temple, hardware, ...) is the author's word that this is not front.
+  if (!slots?.length || !slots.every(slot => slot.class === 'frame' && (slot.decision.rule !== 1
+      || typeof slot.decision.value === 'string' && slot.decision.value.trim().toLowerCase() === 'frame'))) return false;
+  const position = object.geometry.getAttribute('position');
+  if (!position || position.itemSize < 3 || position.count === 0) return false;
+  let minX = Infinity, maxX = -Infinity;
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i), y = position.getY(i), z = position.getZ(i);
+    if (![x, y, z].every(Number.isFinite) || z < AUTHORED_FRAME_FRONT_MIN_Z_M) return false;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+  }
+  return reachesCentralBand(minX, maxX);
+}
+
+/** Whether an x extent [minX, maxX] (metres) reaches the central band |x| <= 45 mm: a mesh spanning it covers it even
+ *  when no vertex lies inside (a coarse front is a box). */
+export const reachesCentralBand = (minX: number, maxX: number): boolean =>
+  minX <= POSITIONAL_FRONT_CENTRAL_HALF_WIDTH_M && maxX >= -POSITIONAL_FRONT_CENTRAL_HALF_WIDTH_M;
+
+/** Whether `object` is front geometry that no arm treatment (near-temple overlay, observed-cheek blend, lens-input
+ *  exclusion; the material front/arm split keeps them apart) may touch. (The shadow and part-id clips still wrap it: a
+ *  front wholly at z >= -30 mm lies ahead of every drawable clip, validateTempleClip keeps cutoff + fade <= -30 mm.)
+ *  It is: a profiled mesh by its region (isAuthoredFrontFrame), an unprofiled one when it
+ *  is an authored compact front (rule-1 'frame' role) or a positional front (isPositionalFrontFrame). */
+export function isFrontFramePart(object: Object3D, root: Object3D): boolean {
+  if (!(object instanceof Mesh)) return false;
+  if (partVisibilityOf(object)) return isAuthoredFrontFrame(object, root);
+  return isAuthoredFrontFrame(object, root) || isPositionalFrontFrame(object);
+}
+
 interface Slot {readonly mesh: Mesh; readonly index: number; readonly material: Material;}
 const slotMaterials = (mesh: Mesh): Material[] => Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
@@ -217,7 +264,7 @@ export function classifyAssetMaterials(root: Object3D, gltf?: GltfLike | null): 
     const profile = partVisibilityOf(slot.mesh);
     const owner: Owner = decided.get(slot)!.isLens ? 'lens'
       : profile ? profile.region === 'front' || profile.region === 'lens' ? 'front' : profile.region
-        : isAuthoredFrontFrame(slot.mesh, root) ? 'front' : 'arm';
+        : isFrontFramePart(slot.mesh, root) ? 'front' : 'arm';
     const owners = ownership.get(slot.material) ?? new Map<Owner, Slot[]>();
     const uses = owners.get(owner);
     if (uses) uses.push(slot); else owners.set(owner, [slot]);

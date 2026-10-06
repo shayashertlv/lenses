@@ -138,6 +138,13 @@ test('refused and unchecked exit 4; infrastructure failures exit 1 whatever else
   assert.deepEqual(captureOutcome(input({modelReport: null})), {status: 'infrastructure_failed', exitCode: EXIT.infrastructure});
   const {report} = assembleCaptureReport(input({infrastructureFailure: 'STALL: x', images: []}));
   assert.equal(report.infrastructure_failure, 'STALL: x'); assert.equal(report.status, 'infrastructure_failed');
+  // WP1 review E/F: arview RENDERED a model whose external resource could not be read; §1 refuses it, so the capture does
+  // (status refused, exit 4) whatever arview's own status says, and says why in capture_refusal.
+  const why = 'arview RENDERED a model whose external resource(s) ["a.png"] could not be read';
+  assert.deepEqual(captureOutcome(input({modelReport: modelOf('rendered'), captureRefusal: why})), {status: 'refused', exitCode: EXIT.refused});
+  const refused = assembleCaptureReport(input({modelReport: modelOf('rendered'), captureRefusal: why, errors: [why]}));
+  assert.equal(refused.exitCode, EXIT.refused); assert.equal(refused.report.status, 'refused'); assert.equal(refused.report.capture_refusal, why);
+  assert.equal(assembleCaptureReport(input({})).report.capture_refusal, null);
 });
 
 test('missing images, capture warnings, errors and model fallbacks make the status captured_with_warnings, never silently captured', () => {

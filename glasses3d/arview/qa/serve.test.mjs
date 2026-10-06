@@ -389,20 +389,28 @@ test('external resources: every file that exists is served where spec.py finds i
     await Promise.race([server.exited, sleep(10_000)]);
 
     // 2. A missing image (and a missing one whose URI has a malformed escape): 404, and refused, as spec.py fails Format.
+    //    A third climbs out of the model's folder to the frozen page's own '/index.html' (WP1 review E/F): it is missing on
+    //    disk, so that URL is an explicit 404 for this run, looked up before the page's files (the page itself is at '/').
+    const climb = '../../../index.html';
+    assert.equal(fs.existsSync(path.resolve(folder, climb)), false, 'precondition: the climbed path does not exist on disk');
     const missing = buildGlb({externalBuffer: 'model.bin', patch: doc => {
-      doc.images = [{uri: 'missing_texture.png'}, {uri: '%zz-missing.png'}]; doc.textures = [{source: 0}];
+      doc.images = [{uri: 'missing_texture.png'}, {uri: '%zz-missing.png'}, {uri: climb}]; doc.textures = [{source: 0}];
       doc.materials[0].pbrMetallicRoughness.baseColorTexture = {index: 0};
     }});
     const missingPath = path.join(folder, 'missing.glb');
     fs.writeFileSync(missingPath, Buffer.from(missing.glb)); fs.writeFileSync(path.join(folder, 'model.bin'), missing.external);
     server = startServe([missingPath, '--port', '0', '--state-dir', stateDir, '--ttl-s', '170']);
     const second = new URL(await server.ready), secondModel = second.searchParams.get('model');
-    for (const uri of ['missing_texture.png', '%zz-missing.png']) assert.equal((await fetch(new URL(uri, secondModel))).status, 404, uri);
+    for (const uri of ['missing_texture.png', '%zz-missing.png', climb]) assert.equal((await fetch(new URL(uri, secondModel))).status, 404, uri);
+    assert.equal(new URL(climb, secondModel).pathname, '/index.html');
+    assert.equal((await fetch(new URL('/', secondModel))).status, 200, 'the page itself is still served at /');
     const refused = await (await fetch(second.searchParams.get('report'))).json();
     assert.equal(refused.status, 'refused');
     assert.ok(refused.refusal.some(text => /missing external resource/.test(text) && /missing_texture\.png/.test(text) && /%zz-missing\.png/.test(text)), JSON.stringify(refused.refusal));
     assert.deepEqual(refused.model.served_resources, ['model.bin']);
-    assert.deepEqual(refused.model.unreadable_resources, ['missing_texture.png', '%zz-missing.png']);
+    assert.deepEqual(refused.model.unreadable_resources, ['missing_texture.png', '%zz-missing.png', climb]);
+    assert.ok(refused.errors.some(text => /"\.\.\/\.\.\/\.\.\/index\.html" is missing, and the URL arview requests for it \(\/index\.html\) is one of arview serve's own paths/.test(text)),
+      refused.errors.join(' | '));
     assert.ok(refused.serve_warnings.some(text => /"missing_texture\.png".*cannot be read \(ENOENT\); arview serve answers it 404/.test(text)), refused.serve_warnings.join(' | '));
     assert.equal(refused.failed_rows.find(row => row.row === 'format')?.detail.length > 0, true);
     if (PYTHON) assert.equal(refused.rows.find(row => row.row === 'format').spec_py.pass, false, 'spec.py fails Format for the same missing files');

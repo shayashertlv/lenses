@@ -136,7 +136,8 @@ def test_each_requirement_fails_its_own_row(tmp_path, kw, rows, text):
 
 
 @pytest.mark.parametrize("kw, row, text", [
-    (dict(rotate_z_up=True), "orientation", "Y is not the thinnest axis"),
+    (dict(rotate_z_up=True), "orientation", "Y is not the lenses' middle axis"),      # its temples run along +Y
+    (dict(rotate_z_up=True, parts=without("Temple_L", "Temple_R")), "orientation", "Y is not the lenses' middle axis"),
     (dict(pre_mm=rot("z", 25)), "orientation", "rolled"),
     (dict(pre_mm=rot("z", -25)), "orientation", "rolled"),
     (dict(pre_mm=rot("x", 25)), "orientation", "pitched"),
@@ -167,6 +168,120 @@ def test_orientation_and_cascade_failures(tmp_path, kw, row, text):
 def test_valid_variants_pass(tmp_path, kw):
     r = check(tmp_path, **kw)
     assert r["ok"], r["errors"]
+
+
+def hinge_stubs(parts=None):
+    """The temples cut at the hinge (z -25..-2 mm), as on the WP1 proof's temples-removed q001 copy."""
+    parts = replace("Temple_L", (-70, -66, 2, 8, -25, -2), parts)
+    return replace("Temple_R", (66, 70, 2, 8, -25, -2), parts)
+
+
+@pytest.mark.parametrize("parts", [without("Temple_L"), without("Temple_L", "Temple_R"), hinge_stubs()],
+                         ids=["left-missing", "both-missing", "hinge-stubs"])
+def test_a_missing_temple_is_reported_as_missing_not_as_a_wrong_axis(tmp_path, parts):
+    """A front without temples is thinnest along Z, so the overall box says nothing about up: the up axis is judged on the
+    lenses (temple-free) and a +Y-up front reports only its missing temples (WP1 proof: the temples-removed q001 copy read
+    'Y is not the thinnest axis ... not +Y up')."""
+    r = check(tmp_path, parts=parts)
+    assert failed(r) == {"orientation"}, r["errors"]
+    assert all("temple" in e and "missing" in e for e in r["errors"]), r["errors"]
+    assert not any("axis" in e for e in r["errors"]), r["errors"]
+    # The lenses' place in the front 30 % of the depth needs the temples' depth too: on a front alone it is not judged.
+    deep = r["measurements"]["bbox_mm"]["max"][2] - r["measurements"]["bbox_mm"]["min"][2] >= 60
+    assert deep or any(w.startswith("lens position not measured") for w in r["warnings"]), r["warnings"]
+
+
+def test_without_temples_the_up_sign_still_comes_from_the_hinge_roots(tmp_path):
+    r = check(tmp_path, parts=hinge_stubs(), pre_mm=trans(0, 4, 0) @ np.diag([-1, -1, 1, 1]))   # upside down
+    assert any("not +Y up: the temple roots" in e for e in r["errors"]), r["errors"]
+    assert not any("axis" in e for e in r["errors"]), r["errors"]
+    # With nothing at the hinges either, the sign cannot be judged and the report says so (never silently).
+    bare = check(tmp_path, "bare.glb", parts=without("Temple_L", "Temple_R"), pre_mm=trans(0, 4, 0) @ np.diag([-1, -1, 1, 1]))
+    assert any(w.startswith("+Y up not measured") for w in bare["warnings"]), bare["warnings"]
+
+
+def test_the_lens_axis_rule_holds_on_real_lenses(tmp_path):
+    """Measured 2026-10-05 on 41 real Studio/ar GLBs: lens extent z 4.8-33.1 < y 35.1-65.1 < x 115.1-148.9 mm."""
+    for kw in (dict(), dict(parts=glbfab.shield_parts()), dict(pre_mm=rot("x", 14)), dict(pre_mm=rot("z", 2))):
+        parts = kw.pop("parts", glbfab.default_parts())
+        r = check(tmp_path, parts=without("Temple_L", "Temple_R", parts=parts), **kw)
+        assert not any("axis" in e for e in r["errors"]), r["errors"]
+
+
+def test_a_deep_wrap_without_a_temple_is_not_a_wrong_axis(tmp_path):
+    """WP1 review E/F: on 41 real GLBs the deepest lens (33.1 mm) is only 2 mm shallower than the shortest (35.1 mm), so a
+    deep wrap shield missing a temple read "Y is not the lenses' middle axis". Within LENS_AXIS_MARGIN_MM (3 mm) the lens
+    box cannot tell up from forward: a warning, and only the missing temple fails. A Z-up front still fails the axis."""
+    parts = glbfab.shield_parts()
+    for name in ("Shield_L", "Shield_R"):
+        (x0, x1, y0, y1, _, z1), material, role = parts[name]
+        parts[name] = ((x0, x1, y0, y1, -46, z1), material, role)          # 47 mm deep, 45 mm tall
+    r = check(tmp_path, parts=without("Temple_L", parts=parts))
+    assert failed(r) == {"orientation"}, r["errors"]
+    assert all("temple left missing" in e for e in r["errors"]), r["errors"]
+    assert any(w.startswith("up axis not judged on the lenses: their depth (z 47.0 mm) is within 3 mm") for w in r["warnings"]), r["warnings"]
+    deeper = dict(parts)
+    for name in ("Shield_L", "Shield_R"):
+        (x0, x1, y0, y1, _, z1), material, role = parts[name]
+        deeper[name] = ((x0, x1, y0, y1, -50, z1), material, role)         # 51 mm deep: 6 mm deeper than tall
+    r = check(tmp_path, "deeper.glb", parts=without("Temple_L", parts=deeper))
+    assert any("Y is not the lenses' middle axis" in e for e in r["errors"]), r["errors"]
+
+
+def test_degenerate_triangles_are_judged_on_their_own_shape_at_any_scale(tmp_path):
+    """Flat means flat at the float32 precision of the triangle's own coordinates (h <= 8 * eps32 * max|coord|): a
+    millimetre file counts what its metre twin counts, and a tiny well-shaped triangle (a 0.3 um right triangle) is not
+    degenerate."""
+    def extra(doc, add):
+        tri = np.array([[0, 0, 0], [0.01, 0, 0], [0.01, 0, 0],                  # two coincident corners
+                        [0, 0.001, 0], [0.005, 0.001, 0], [0.01, 0.001, 0],     # collinear
+                        [0, 0.002, 0], [3e-7, 0.002, 0], [0, 0.0020003, 0]])    # a 0.3 um right triangle: well shaped
+        doc["meshes"].append({"name": "Odd", "primitives": [{"attributes": {"POSITION": add(tri)}, "material": 0}]})
+        doc["nodes"].append({"name": "Odd", "mesh": len(doc["meshes"]) - 1})
+        doc["scenes"][0]["nodes"].append(len(doc["nodes"]) - 1)
+
+    def extra_mm(doc, add):
+        def add_mm(arr, *a, **k):
+            return add(np.asarray(arr) * 1000.0, *a, **k)
+        extra(doc, add_mm)
+    metres = check(tmp_path, patch=extra)
+    millimetres = check(tmp_path, "mm.glb", patch=extra_mm, scale=1.0)
+    assert [w for w in metres["warnings"] if "degenerate" in w] == ["Odd: 2 degenerate (zero-area) triangles"]
+    assert [w for w in millimetres["warnings"] if "degenerate" in w] == ["Odd: 2 degenerate (zero-area) triangles"]
+
+
+def _degenerate_counts(report):
+    out = {}
+    for w in report["warnings"]:
+        if w.endswith(" degenerate (zero-area) triangles"):
+            name, count = w[: -len(" degenerate (zero-area) triangles")].rsplit(": ", 1)
+            out[name] = int(count)
+    return out
+
+
+def test_q001_and_its_millimetre_copy_report_the_same_degenerate_triangles():
+    """q001's lenses hold ~207 collinear slivers each (edges 1.5-2.2 mm, height within 8 float32 steps of their
+    coordinates; the old 1e-7 ratio rule counted none). The millimetre copy is q001 x 1000 rounded to float32 again
+    (max error 7.6e-9 m), so a triangle sitting exactly at the threshold can flip: the counts agree within 2."""
+    mm = REPO / "glasses3d/data/wp1_proof/inputs/q001-mm.glb"
+    if not (REAL["q001"].exists() and mm.exists()):
+        pytest.skip("local Studio data or the WP1 proof copy not present")
+    metres, millimetres = (_degenerate_counts(validate_spec(p)) for p in (REAL["q001"], mm))
+    assert set(metres) == set(millimetres) == {"Lens_Left.001", "Lens_Right.001"}, (metres, millimetres)
+    for name in metres:
+        assert 190 <= metres[name] <= 230 and abs(metres[name] - millimetres[name]) <= 2, (metres, millimetres)
+
+
+def test_r9_screw_head_slivers_are_counted_not_only_exact_zeros():
+    """WP1 review E/F: the 1e-7 ratio rule counted only exact zero-area triangles (r9's right screw head: 506), while
+    150 more at h/L <= 1e-5 and 292 at <= 1e-4 (millimetre edges, height within float32 noise) were not. Judged at the
+    float32 resolution of their own coordinates (~68 mm), 838 are flat; the left screw head (42 exact zeros) has 62."""
+    if not R9.exists():
+        pytest.skip("local ar_v4 data not present")
+    counts = _degenerate_counts(validate_spec(R9))
+    assert counts.get("Hinge screw head right") == 838, counts
+    assert counts.get("Hinge screw head left") == 62, counts
+    assert counts.get("Crystal front") == 95, counts
 
 
 def test_synthetic_glasses_meet_the_spec(tmp_path):
@@ -308,6 +423,16 @@ def test_never_raises_on_broken_files(tmp_path):
             assert row in failed(r), r["errors"]
         else:
             assert r["ok"], r["errors"]                           # a 1100-deep hierarchy is legal glTF
+    # an absolute URI (here a Windows drive path, or a file: URL elsewhere) to a file that EXISTS on this machine: glTF
+    # resolves it as a URL, never next to the GLB, so it is a missing external resource (arview refuses it too)
+    absolute = Path(__file__).resolve().as_posix()
+    absolute = absolute if absolute[1:2] == ":" else "file://" + absolute
+    doc, binc = glbfab_split(glbfab.build())
+    doc["buffers"].append({"byteLength": 16, "uri": absolute})                # appended after the build (unused)
+    (tmp_path / "absolute.glb").write_bytes(glbfab_join(doc, binc))
+    r = validate_spec(tmp_path / "absolute.glb")
+    assert failed(r) == {"format"}, r["errors"]
+    assert any("missing external resource" in e and absolute in e and "an absolute URI" in e for e in r["errors"]), r["errors"]
     # an image whose bufferView sits in an external buffer that does not exist
     data = glbfab.build(patch=image_in_missing_buffer)
     doc, binc = glbfab_split(data)

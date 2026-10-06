@@ -11,7 +11,8 @@
  *    they disagree (liveVerdict);
  *  - `geometry.lens_top_vs_brow`, the `images` (file, pose, background, variant, sha256), `timings`.
  *  Exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or is unverified; 4 refused or unchecked by
- *  arview (nothing rendered); 1 infrastructure failure. A capture warning (a missing crop, a fit fallback, a page error,
+ *  arview (nothing rendered), or refused by the capture itself (`capture_refusal`: arview rendered a model whose external
+ *  resource could not be read, which §1 refuses); 1 infrastructure failure. A capture warning (a missing crop, a fit fallback, a page error,
  *  a skipped portrait), any warning, error or fallback in the model report (the posed renderer's, or the portrait
  *  renderer's, mirrored into the top-level warnings as 'model: ...' / 'portrait model: ...') makes the status
  *  'captured_with_warnings'; it never changes the exit code by itself. */
@@ -55,6 +56,9 @@ export interface CaptureReportInput {
   readonly infrastructureFailure: string | null;
   /** The headless Chromium process: its pid and how it ended (closed, killed and confirmed gone, or still alive). */
   readonly chromiumProcess?: unknown;
+  /** Set when the capture itself refuses a model arview rendered although §1 says it must be refused (an external resource
+   *  that could not be read): status 'refused', exit 4, whatever arview's own status says. */
+  readonly captureRefusal?: string | null;
   readonly timings: Record<string, unknown>;
   readonly implementation: unknown;
   readonly page: Record<string, unknown>;
@@ -183,8 +187,9 @@ export function liveVerdict(reasons: readonly string[], liveProbe: unknown): {wo
 
 /** The status and exit code of a run. */
 export function captureOutcome(input: Pick<CaptureReportInput, 'infrastructureFailure' | 'modelReport' | 'spec' | 'warnings' | 'errors' | 'images' | 'plannedImages'>
-  & {readonly portrait?: unknown}): {status: CaptureStatus; exitCode: number} {
+  & {readonly portrait?: unknown; readonly captureRefusal?: string | null}): {status: CaptureStatus; exitCode: number} {
   if (input.infrastructureFailure) return {status: 'infrastructure_failed', exitCode: EXIT.infrastructure};
+  if (input.captureRefusal) return {status: 'refused', exitCode: EXIT.refused};
   const modelStatus = input.modelReport?.status;
   if (modelStatus === 'refused') return {status: 'refused', exitCode: EXIT.refused};
   if (modelStatus === 'unchecked') return {status: 'unchecked', exitCode: EXIT.refused};
@@ -249,7 +254,7 @@ export function assembleCaptureReport(input: CaptureReportInput): {report: Recor
   const outcome = captureOutcome({...input, warnings: unique(warnings)});
   const report: Record<string, unknown> = {
     schema: CAPTURE_REPORT_SCHEMA, created_at: input.createdAt, status: outcome.status, exit_code: outcome.exitCode,
-    infrastructure_failure: input.infrastructureFailure, chromium_process: input.chromiumProcess ?? null,
+    infrastructure_failure: input.infrastructureFailure, capture_refusal: input.captureRefusal ?? null, chromium_process: input.chromiumProcess ?? null,
     tool: input.tool, gpu: input.gpu, input: input.input, request: input.request,
     spec: specBlock, runtime, live_site_would_fail: live,
     geometry: {lens_top_vs_brow: input.geometry ?? null},
@@ -261,7 +266,12 @@ export function assembleCaptureReport(input: CaptureReportInput): {report: Recor
       'part-id and normals renders are valid for the front and the junction: their temples are cut hard at the renderer\'s clip, '
         + 'where the beauty render fades over the last 5 mm.',
       'The posed captures use synthetic landmarks of the canonical face on flat backgrounds (no face image); the face and head '
-        + 'depth occluders still hide what the face would hide.'],
+        + 'depth occluders still hide what the face would hide.',
+      'Turned part-id renders (|yaw| >= 20) carry temple_reach for the near arm: how far back it is drawn (drawn_to_z_mm) against '
+        + 'where its fixed return behind the ear begins (return_start_z_mm); an arm hidden more than 5 mm ahead of that, at its end '
+        + '(hidden_before_return_mm) or in a stretch drawn again behind (longest_hidden_run_mm), is a TEMPLE CUT warning (the drawn '
+        + 'arm lies inside the head proxy there), never a silent cut. Behind the return start nothing is judged: a drawn_to_z_mm '
+        + 'there can be the curled return projected onto a nearer part of the same arm (behind_return_drawn_stations counts them).'],
   };
   return {report, exitCode: outcome.exitCode};
 }

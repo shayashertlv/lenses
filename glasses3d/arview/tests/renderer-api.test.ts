@@ -19,6 +19,8 @@ import {setMaterialClass} from '../src/eyewear/part-class.ts';
 import {loadModel} from '../src/model/load.ts';
 import {ModelRefusal, ModelReportBuilder, reportLines, SPEC_ROWS} from '../src/model/report.ts';
 import {LENS_ID_RGB} from '../src/render/override.ts';
+import {checkModel} from '../src/model/check.ts';
+import {deriveTempleClip, templeInventory, templeLoadFallbacks} from '../src/render/temple-geometry.ts';
 import type {Detection} from '../src/face/protocol.ts';
 import {buildGlb, defaultParts, r9Like, without} from './glb-fab.ts';
 import type {BuildOptions, Built} from './glb-fab.ts';
@@ -164,6 +166,22 @@ test('a model with no temples renders: each missing side is reported, the §2 ro
   const timing = instance.render(null);
   assert.deepEqual([timing.guarded, timing.safeFallback, timing.editableRects, timing.hairApplied], [true, false, 0, false],
     'the whole model is protected and no arm corridor is editable, so hair never touches it');
+});
+
+test('the renderer\'s temple load fallbacks are exactly templeLoadFallbacks on the checked scene (what arview serve reports before drawing)', async t => {
+  const hinges = {...without(['Temple_L', 'Temple_R']),
+    Hinge_L: {box: [-70, -60, 2, 8, -40, -2] as const, material: 'frame', role: 'hardware'},
+    Hinge_R: {box: [60, 70, 2, 8, -40, -2] as const, material: 'frame', role: 'hardware'}};
+  const cases: [string, Built, number][] = [['no temples', build({parts: without(['Temple_L', 'Temple_R'])}), 4], ['one-sided', build({parts: without(['Temple_R'])}), 1],
+    ['hinge hardware only', build({parts: hinges}), 4], ['full', build(), 0]];
+  for (const [name, built, count] of cases) {
+    const {instance} = await configured(built);
+    t.after(() => instance.dispose());
+    const checked = await checkModel(built.glb.slice(0), {url: 'http://127.0.0.1:8250/models/model.glb', renderer: null, plugins: [stubTextures]});
+    const inventory = templeInventory(checked.scene!), predicted = templeLoadFallbacks(inventory, deriveTempleClip(inventory));
+    assert.equal(predicted.length, count, `${name}: ${JSON.stringify(predicted)}`);
+    assert.deepEqual(instance.report().fallbacks.filter(entry => entry.stage === 'load'), predicted, name);
+  }
 });
 
 test('a one-sided model: the missing side gets the fixed cap and its own report lines, the present arm keeps everything', async t => {

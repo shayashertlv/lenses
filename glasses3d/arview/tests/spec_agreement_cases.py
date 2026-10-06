@@ -52,6 +52,15 @@ def frame(bx, role="frame"):
     return (bx, "frame", role)
 
 
+def deep_wrap_without_left_temple():
+    out = dict(glbfab.shield_parts())
+    for name in ("Shield_L", "Shield_R"):
+        (x0, x1, y0, y1, _, z1), material, role = out[name]
+        out[name] = ((x0, x1, y0, y1, -46, z1), material, role)
+    out.pop("Temple_L")
+    return out
+
+
 def unnamed():
     return {k.replace("Lens", "Pane"): v for k, v in glbfab.default_parts().items()}
 
@@ -156,6 +165,14 @@ def p_missing_image(doc, add):
     doc["images"] = [{"uri": "missing_texture.png"}]
     doc["textures"] = [{"source": 0}]
     doc["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"] = {"index": 0}
+
+
+def p_absolute_existing_image(doc, add):
+    """An unused image named by an ABSOLUTE URI to a file that exists on this machine (this script: a Windows drive
+    path 'C:/...', or a file: URL elsewhere). glTF resolves an absolute URI as a URL, never next to the GLB, so both
+    validators refuse it at Format (WP1 review E/F: spec.py used to join it to the folder and pass)."""
+    absolute = Path(__file__).resolve().as_posix()
+    doc["images"] = [{"uri": absolute if absolute[1:2] == ":" else "file://" + absolute}]
 
 
 def p_no_scenes(doc, add):
@@ -372,7 +389,19 @@ CASES: list[tuple[str, dict]] = [
     ("orientation-mirrored-y", dict(pre_mm=MIRROR_Y)),
     ("orientation-lenses-behind-front", dict(parts=lenses_moved(z=(-61, -59)))),
     ("orientation-temple-left-missing", dict(parts=parts(Temple_L=None))),
+    # A deep wrap shield (lenses 47 mm deep, 45 mm tall) with a temple missing: within LENS_AXIS_MARGIN_MM, so the lens box
+    # says nothing about up (a warning) and only the missing temple fails (WP1 review E/F: the margin was 2 mm).
+    ("orientation-deep-wrap-temple-left-missing", dict(parts=deep_wrap_without_left_temple())),
     ("orientation-both-temples-missing", dict(parts=parts(Temple_L=None, Temple_R=None))),
+    # A missing temple takes the depth with it: the up axis is then judged on the lenses (a temple-free measure), so a
+    # +Y-up front reports its missing temples and nothing about the axis, while a wrong axis is still caught.
+    ("orientation-hinge-stubs-only", dict(parts=parts(Temple_L=frame((-70, -66, 2, 8, -25, -2), "temple"),
+                                                      Temple_R=frame((66, 70, 2, 8, -25, -2), "temple")))),
+    ("orientation-hinge-stubs-upside-down", dict(pre_mm=UPSIDE_DOWN,
+                                                 parts=parts(Temple_L=frame((-70, -66, 2, 8, -25, -2), "temple"),
+                                                             Temple_R=frame((66, 70, 2, 8, -25, -2), "temple")))),
+    ("orientation-no-temples-upside-down", dict(pre_mm=UPSIDE_DOWN, parts=parts(Temple_L=None, Temple_R=None))),
+    ("orientation-z-up-no-temples", dict(rotate_z_up=True, parts=parts(Temple_L=None, Temple_R=None))),
     ("orientation-short-temple-55", dict(parts=parts(Temple_L=frame((-70, -66, 2, 8, -55, -2), "temple")))),
     ("orientation-narrow-temples", dict(parts=parts(Temple_L=frame((-37, -33, 2, 8, -140, -2), "temple"),
                                                     Temple_R=frame((33, 37, 2, 8, -140, -2), "temple")))),
@@ -445,6 +474,7 @@ CASES: list[tuple[str, dict]] = [
     ("format-texcoord-minus-one", dict(patch=p_texcoord_minus_one)),
     ("format-material-7", dict(patch=p_bad_material)),
     ("format-missing-image", dict(patch=p_missing_image)),
+    ("format-absolute-uri-existing-file", dict(patch=p_absolute_existing_image)),
     ("format-no-scenes", dict(patch=p_no_scenes)),
     ("format-empty-scene", dict(patch=p_empty_scene)),
     ("format-no-asset-version", dict(patch=p_no_asset_version)),

@@ -14,7 +14,7 @@ import {pythonUnquote, resolveExternalResources} from './capture/external-resour
 import {assembleServeReport, SERVED_REPORT_SCHEMA} from './serve/report.ts';
 import {digestLine, isSpecPyNote, parseServedReport, renderedReportLines, servedReportLines} from '../src/model/served-report.ts';
 import {reportLines} from '../src/model/report.ts';
-import {buildGlb, pngBytes, r9Like} from '../tests/glb-fab.ts';
+import {buildGlb, pngBytes, r9Like, without} from '../tests/glb-fab.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/spec-full-q001.json'), 'utf8'))[0];
@@ -68,6 +68,32 @@ test('r9-like (bridge 10.23 mm high): spec.py and arview fail Origin together; t
   assert.ok(lines.some(line => line.kind === 'warning' && line.text.startsWith('ORIGIN: ')), texts(lines).join(' | '));
   assert.deepEqual(digestLine(parsed, null), {kind: 'pending', sha256: sha,
     text: `Served sha256 ${sha}. The renderer re-hashes the bytes it parses when the camera opens.`});
+});
+
+test('a model without temples: the served report lists the fallbacks the renderer will give (WP1 proof: it said 0, the capture 4)', async () => {
+  const {report, checked} = await served(buildGlb({parts: without(['Temple_L', 'Temple_R'])}),
+    {rows: {orientation: {pass: false, detail: ['temple left missing: ...', 'temple right missing: ...']}}});
+  assert.deepEqual(report.fallbacks.map(entry => [entry.subsystem, entry.stage]),
+    [['temple left', 'load'], ['temple right', 'load'], ['temple clip depth', 'load'], ['continuity', 'load']]);
+  assert.match(report.fallbacks[0].detail, /^TEMPLE LEFT MISSING: .*That side keeps a fixed cap/);
+  assert.match(report.fallbacks[2].detail, /^Temple clip: no temple on either side, so no clip can be derived; the fixed default -0\.140 m is used/);
+  assert.equal(report.fallbacks[3].detail, 'The temple continuity model is unavailable (No temple on either side: there is no arm to follow.); both arms keep the fixed '
+    + 'buried cap and no hair endpoint.');
+  assert.deepEqual(checked.report.fallbacks, report.fallbacks, 'the Node-side model report carries them (the serve start line counts these)');
+  for (const entry of report.fallbacks) assert.ok(report.warnings.includes(entry.detail), 'each fallback is a warning too, as in the renderer\'s report');
+  // The page lists each once, labelled, after the failed rows.
+  const lines = texts(servedReportLines(parseServedReport(report)));
+  for (const entry of report.fallbacks) assert.equal(lines.filter(line => line === `fallback: Fallback · ${entry.subsystem}: ${entry.detail}`).length, 1, lines.join(' | '));
+  // A handed-over clip is what the renderer would use: no default-clip fallback then, and still no arm for continuity.
+  const bytes = Buffer.from(buildGlb({parts: without(['Temple_L', 'Temple_R'])}).glb), sha = sha256(bytes);
+  const modelPath = `/__arview/models/${sha}/model.glb`;
+  const handed = await checkInNode(bytes, {url: ORIGIN + modelPath, routes: new Map([[modelPath, {bytes, type: 'model/gltf-binary', model: true}]]),
+    displayName: 'model.glb', sha, clipZM: -0.1});
+  assert.deepEqual(handed.report.fallbacks.map(entry => entry.subsystem), ['temple left', 'temple right', 'continuity']);
+  assert.equal(handed.templeClip.cutoff_m, -0.1);
+  // A model with both temples: nothing added.
+  const full = await served(buildGlb());
+  assert.deepEqual(full.report.fallbacks, []);
 });
 
 test('a millimetre file without spec.py: VALIDATOR UNAVAILABLE first, arview\'s Units row, the rescale listed once as a labelled fallback', async () => {
@@ -209,7 +235,10 @@ test('external resources: read where spec.py reads them (100%.png, ../, links), 
       const warning = uri => result.warnings.find(text => text.startsWith(`external resource "${uri}"`)) ?? '';
       for (const uri of ['../outside/shared.bin', '%2e%2e/outside/shared.bin']) assert.match(warning(uri), /outside the GLB's folder .*served \(spec\.py reads the same file\)/, uri);
       if (linked) assert.match(warning('link/shared.bin'), /\(a link to .*\), outside the GLB's folder/);
-      for (const uri of ['http://example.com/x.bin', '//example.com/x.bin']) assert.match(warning(uri), /absolute URL.*answers it 404, so arview refuses the model/, uri);
+      for (const uri of ['http://example.com/x.bin', '//example.com/x.bin']) assert.match(warning(uri), /absolute URI.*answers it 404, so arview refuses the model/, uri);
+      // Each unreadable URI that resolves to a URL is an explicit 404 route (an absolute URI has none).
+      assert.deepEqual(result.missingRoutes, [{uri: 'missing.png', route: '/__arview/models/abc/missing.png'},
+        {uri: '%zz-missing.png', route: '/__arview/models/abc/%zz-missing.png'}]);
       assert.match(warning('missing.png'), /cannot be read \(ENOENT\); arview serve answers it 404/);
       assert.match(warning('%zz-missing.png'), /%zz-missing\.png\) cannot be read \(ENOENT\)/, 'a malformed escape is kept, as Python\'s unquote keeps it');
       assert.equal(warning('model.bin'), '', 'a file in the folder carries no warning');

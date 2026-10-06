@@ -26,6 +26,9 @@ export const PITCH_PLANES_MM = Object.freeze(Array.from({length: 11}, (_, i) => 
 export const PITCH_MIN_SPAN_MM = 15.0;
 export const PITCH_MAX_DEG = 15.0;
 export const LENS_FRONT_FRACTION = 0.3;
+/** A temple missing: the lenses' depth must exceed their height by more than this for "Y is not the lenses' middle axis"
+ *  (spec.py LENS_AXIS_MARGIN_MM; 41 real GLBs: depth 4.8-33.1 < height 35.1-65.1 mm). Within it: a warning. */
+export const LENS_AXIS_MARGIN_MM = 3.0;
 
 /** Where a measured row writes (ModelReportBuilder, or a prefixing wrapper). */
 export interface RowSink {
@@ -155,16 +158,41 @@ export function unitsRow(all: Float64Array, sink: RowSink): UnitsResult {
   return {width, scale: 1, plausible: false};
 }
 
+/** spec.py `_up_axis`: Y must be the up axis. With both temples the model is thinnest along Y. A missing temple takes the
+ *  depth with it (a front alone is thinnest along Z), so the overall box then says nothing about up: the axis is judged on
+ *  the lenses instead, which need no temple. A lens is widest across (X, both lenses) and thinnest through its face (Z),
+ *  so Y must be their middle axis; a lens box deeper than tall by at most LENS_AXIS_MARGIN_MM (a deep wrap) is a warning,
+ *  not a failure. The +Y-up sign (the temple roots) and roll (the lens halves) are judged separately. */
+function upAxis(ext: readonly [number, number, number], lens: Float64Array, missing: readonly string[], sink: RowSink): void {
+  if (!missing.length) {
+    if (!(ext[1] < ext[0] && ext[1] < ext[2])) {
+      sink.fail('orientation', `Y is not the thinnest axis (extent mm x ${fixed(ext[0] * 1000, 1)}, y ${fixed(ext[1] * 1000, 1)}, `
+        + `z ${fixed(ext[2] * 1000, 1)}): not +Y up`);
+    }
+    return;
+  }
+  if (!lens.length) {
+    sink.warn('up axis not measured: a temple is missing and there is no measurable lens geometry');
+    return;
+  }
+  const {lo, hi} = bounds(lens), le = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]] as const;
+  if (!(le[1] < le[0]) || le[2] - le[1] > LENS_AXIS_MARGIN_MM / 1000) {
+    sink.fail('orientation', `Y is not the lenses' middle axis (lens extent mm x ${fixed(le[0] * 1000, 1)}, y ${fixed(le[1] * 1000, 1)}, `
+      + `z ${fixed(le[2] * 1000, 1)}; a lens is widest across X and thinnest through its face, along Z): not +Y up (judged on the lenses: `
+      + 'a temple is missing)');
+  } else if (le[2] >= le[1]) {
+    sink.warn(`up axis not judged on the lenses: their depth (z ${fixed(le[2] * 1000, 1)} mm) is within ${fixed(LENS_AXIS_MARGIN_MM, 0)} mm of `
+      + `their height (y ${fixed(le[1] * 1000, 1)} mm), as on a deep wrap, so the lens box cannot tell up from forward (a temple is missing; `
+      + 'the +Y-up sign is judged on the temple roots)');
+  }
+}
+
 /** spec.py `_orientation`. */
 export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
   const all = concat(g.lens.vertices, g.frame.vertices), {lo, hi} = bounds(all);
   const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]] as const;
-  if (!(ext[1] < ext[0] && ext[1] < ext[2])) {
-    sink.fail('orientation', `Y is not the thinnest axis (extent mm x ${fixed(ext[0] * 1000, 1)}, y ${fixed(ext[1] * 1000, 1)}, `
-      + `z ${fixed(ext[2] * 1000, 1)}): not +Y up`);
-  }
   const tx = TEMPLE_X_MM / 1000, reach = TEMPLE_REACH_Z_MM / 1000, Vf = g.frame.vertices, Vl = g.lens.vertices;
-  const temples: Record<string, number | null> = {}, missing: string[] = [];
+  const temples: Record<string, number | null> = {}, missing: string[] = [], absent: string[] = [];
   for (const [side, sign] of [['left', -1], ['right', 1]] as const) {
     let zmin = Infinity;
     for (let i = 0; i < Vf.length; i += 3) if (Vf[i]! * sign > tx) zmin = Math.min(zmin, Vf[i + 2]!);
@@ -173,11 +201,13 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
     if (!found || zmin > reach) {
       const where = sign < 0 ? 'x < -45 mm' : 'x > +45 mm';
       const got = found ? `it reaches only z ${fixed(zmin * 1000, 1)} mm` : 'none there';
-      sink.fail('orientation', `temple ${side} missing: no non-lens geometry at ${where} reaches z <= ${TEMPLE_REACH_Z_MM.toFixed(0)} mm `
+      absent.push(`temple ${side} missing: no non-lens geometry at ${where} reaches z <= ${TEMPLE_REACH_Z_MM.toFixed(0)} mm `
         + `(${got}); temples must extend along -Z`);
       missing.push(side);
     }
   }
+  upAxis(ext, Vl, missing, sink);
+  for (const message of absent) sink.fail('orientation', message);
   sink.measure('temple_reach_z_mm', temples);
   let sideMaxZ = -Infinity, sideCount = 0;
   for (let i = 0; i < Vf.length; i += 3) if (Math.abs(Vf[i]!) > tx) {sideCount++; sideMaxZ = Math.max(sideMaxZ, Vf[i + 2]!);}
@@ -200,7 +230,7 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
       } else if (dy * 1000 < UP_WARN_MM) {
         sink.warn(`the temple roots sit only ${fixed(dy * 1000, 1)} mm above the lens centre (real frames: +4 to +18 mm): check +Y up`);
       }
-    } else if (!missing.length) sink.warn('+Y up not measured: no non-lens geometry at |x| > 45 mm between z -40 and -15 mm');
+    } else sink.warn('+Y up not measured: no non-lens geometry at |x| > 45 mm between z -40 and -15 mm'); // said even with a temple missing
     const leftY: number[] = [], rightY: number[] = [];
     for (let i = 0; i < Vl.length; i += 3) {if (Vl[i]! < 0) leftY.push(Vl[i + 1]!); else if (Vl[i]! > 0) rightY.push(Vl[i + 1]!);}
     if (leftY.length && rightY.length) {
@@ -213,7 +243,11 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
     } else sink.warn('roll not measured: lens geometry on one side of x = 0 only');
     const lens = bounds(Vl), lc = [0, 1, 2].map(a => (lens.lo[a]! + lens.hi[a]!) / 2);
     sink.measure('lens_bbox_centre_mm', lc.map(v => round(v * 1000, 2)));
-    if (lc[2]! < hi[2] + LENS_FRONT_FRACTION * (lo[2] - hi[2])) {
+    const depthMm = (hi[2] - lo[2]) * 1000;
+    if (depthMm < -TEMPLE_REACH_Z_MM) { // a front alone: its depth is not the frame's
+      sink.warn(`lens position not measured: the model is only ${fixed(depthMm, 1)} mm deep (no temple reaches z ${TEMPLE_REACH_Z_MM.toFixed(0)} mm), `
+        + `so the front ${(LENS_FRONT_FRACTION * 100).toFixed(0)} % of its depth says nothing about where the front is`);
+    } else if (lc[2]! < hi[2] + LENS_FRONT_FRACTION * (lo[2] - hi[2])) {
       sink.fail('orientation', `lenses sit at z ${fixed(lc[2]! * 1000, 1)} mm, behind the front (z ${fixed(hi[2] * 1000, 1)} mm): not +Z forward`);
     }
   } else sink.warn('+Y up, roll and lens position not measured: no measurable lens geometry');

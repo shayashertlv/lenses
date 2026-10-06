@@ -1,7 +1,8 @@
 /** arview capture: lens-brow junction slicing on synthetic fixtures (qa/capture/junction.ts). Metres in, millimetres out. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {boxCorners, clipSegment, cropRect, CROP_MIN, CROP_PAD_PX, frontTriangles, junctionStation, lensTopVsBrow, nearSide, sliceAtX} from './capture/junction.ts';
+import {boxCorners, clipSegment, cropRect, CROP_MIN, CROP_PAD_PX, frontTriangles, junctionStation, lensDecals, lensTopVsBrow, nearSide, pointTriangleDistanceSq,
+  sliceAtX, soupArea} from './capture/junction.ts';
 
 const MM = 0.001;
 /** A closed axis-aligned box as a triangle soup (12 triangles), millimetre bounds. */
@@ -86,6 +87,45 @@ test('a browline: the eyewire groove is the lowest point, the acetate brow\'s ow
   const right = lensTopVsBrow(LENS, [{name: 'Brow', triangles: brow}, {name: 'Eyewire', triangles: eyewire}]).sides[1];
   close(right.summary.by_part.Brow.overlap_median_mm, -0.7, 1e-6); close(right.summary.by_part.Eyewire.overlap_median_mm, 0.4, 1e-6);
   assert.equal(right.summary.by_part.Eyewire.lowest_at, 24); assert.equal(right.summary.by_part.Brow.lowest_at, 0);
+});
+
+test('pointTriangleDistanceSq: inside the face, past an edge, past a corner; soupArea', () => {
+  const tri = [0, 0, 0, 1, 0, 0, 0, 1, 0];
+  close(pointTriangleDistanceSq([0.2, 0.2, 0.5], tri, 0), 0.25);          // above the face
+  close(pointTriangleDistanceSq([0.5, -1, 0], tri, 0), 1);                // past the edge y = 0
+  close(pointTriangleDistanceSq([2, 0, 0], tri, 0), 1);                   // past the corner (1, 0, 0)
+  close(pointTriangleDistanceSq([1, 1, 0], tri, 0), 0.5);                 // past the hypotenuse
+  close(pointTriangleDistanceSq([-1, -1, 0], [9, 9, 9, ...tri], 3), 2);   // a triangle at an offset in the soup
+  close(soupArea(box([0, 2], [0, 3], [0, 4])), 2 * (6 + 8 + 12) * MM * MM, 1e-12);
+});
+
+test('a decal riding on the lens (r9\'s "Lens inscription") is not brow: left out, listed and warned', () => {
+  const brow = both(box([5, 65], [7.5, 14], [-3, 3]));                  // seated 0.5 mm everywhere
+  const decal = box([40, 52], [6.5, 7.9], [1, 1.05]);                    // printed on the right lens's front face, 1.5 mm below its top
+  const withDecal = lensTopVsBrow(LENS, [{name: 'Brow', triangles: brow}, {name: 'Lens inscription', triangles: decal}]);
+  assert.deepEqual(withDecal.lens_decals.map(item => item.name), ['Lens inscription']);
+  const [found] = withDecal.lens_decals;
+  close(found.max_lens_distance_mm, 0.05, 1e-6); assert.equal(found.triangles, 12); assert.ok(found.area_fraction < 0.02, `${found.area_fraction}`);
+  assert.ok(withDecal.warnings.some(text => /frame part "Lens inscription" rides on the lens .* a decal, not brow/.test(text)), withDecal.warnings.join(' | '));
+  const right = withDecal.sides[1];
+  assert.ok(right.stations.every(station => Math.abs(station.overlap_mm - 0.5) < 1e-6 && station.bottom_part === 'Brow'), 'the decal never reads as brow');
+  assert.deepEqual(Object.keys(right.summary.by_part), ['Brow']); assert.equal(right.summary.overlap_max_mm, 0.5);
+  // Without the rule the decal would have been the brow at its stations (what the WP1 proof saw on r9: 3.0 mm, saturated).
+  const station = junctionStation(LENS, [{name: 'Brow', triangles: frontTriangles(brow)}, {name: 'Lens inscription', triangles: decal}], 46 * MM);
+  close(station.overlap_mm, 1.5, 1e-6); assert.equal(station.bottom_part, 'Lens inscription');
+});
+
+test('frame parts near the lens that are not decals stay frame: an eyewire 0.4 mm off, a sheet covering the lens', () => {
+  // An eyewire band in front of the lens top, 0.4 mm off its face (q001's eyewire is up to 0.43 mm off and 9 % of the lens area).
+  const offFace = box([20, 30], [6.5, 7.9], [1.4, 1.5]);
+  // A part on the lens face but larger than 2 % of the lens area: a coating sheet, not a print.
+  const sheet = box([12, 58], [-14, 7], [1, 1.02]);
+  assert.deepEqual(lensDecals(LENS, [{name: 'Off', triangles: offFace}, {name: 'Sheet', triangles: sheet}]), []);
+  // The same thin band laid on the face is a decal; a part far from any lens is never tested past its box.
+  assert.deepEqual(lensDecals(LENS, [{name: 'On', triangles: box([20, 30], [6.5, 7.9], [1, 1.1])}, {name: 'Far', triangles: box([80, 81], [0, 1], [0, 1])}])
+    .map(item => item.name), ['On']);
+  // No lens area at all: nothing is a decal.
+  assert.deepEqual(lensDecals([], [{name: 'On', triangles: box([20, 30], [6.5, 7.9], [1, 1.1])}]), []);
 });
 
 test('rimless: no frame above any station is reported, and the box falls back to the lens top', () => {

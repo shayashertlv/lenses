@@ -10,7 +10,8 @@
  *  - `status`, `refusal`, `unchecked`, `fallbacks`, `lens_identification`, `measurements`: arview's load front-end and
  *    normalisation pass run in Node on the very bytes served (src/model/check.ts; textures are not decoded there, so a
  *    texture the browser cannot decode shows only in the renderer's report after Open camera), plus the temple clip the
- *    renderer will derive (qa/temple-cutoff.mjs);
+ *    renderer will derive (qa/temple-cutoff.mjs) and the fallbacks it will report from the temples alone (a missing
+ *    temple's fixed cap, the default clip, continuity off: temple-geometry.ts templeLoadFallbacks, word for word);
  *  - `served_sha256`: the SHA-256 of the bytes the server hands the page. It is NOT a rendered digest: nothing has been
  *    drawn when this report is made; the renderer re-hashes what it parses (its own report's rendered_sha256, which the
  *    WP2 ledger binds verdicts to);
@@ -158,7 +159,8 @@ export function assembleServeReport(input: ServeReportInput): Record<string, unk
     live_site_would_fail: {would_fail: liveReasons.length > 0, reasons: liveReasons, probe: 'static (spec.py and arview rules; arview capture --live-probe runs main\'s ar/)'},
     server: input.server, build: input.build, public_files: input.publicFiles,
     notes: ['Before Open camera the page lists this report: spec.py, and arview\'s load and normalisation run in Node on the served bytes '
-        + '(textures not decoded). After Open camera it lists the renderer\'s own report, which adds what only drawing finds (texture decoding, '
+        + '(textures not decoded), with the fallbacks the renderer reports from the temples alone (a missing temple\'s fixed cap, the default '
+        + 'clip, continuity off). After Open camera it lists the renderer\'s own report, which adds what only drawing finds (texture decoding, '
         + 'shadows, hair, continuity), with spec.py\'s verdict and warnings kept beside it; what only the Node-side check said is then dropped.',
       'The page shows a mirror image (src/style.css #mirror scaleX(-1)); captures are unmirrored.',
       'The model is served with its sha256 (X-Arview-Sha256, Repr-Digest; served_sha256 here); the page compares it with the bytes the renderer '

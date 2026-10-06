@@ -16,7 +16,7 @@ import {rearDropCurve} from './rear-drop.ts';
 import {spreadArmX} from './face-width.ts';
 import {terminalFitX} from './temple-terminal-fit.ts';
 import type {TempleTerminalFit} from './temple-terminal-fit.ts';
-import {templeInventory, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
+import {NO_TEMPLE_EITHER_SIDE, templeInventory, TEMPLE_SIDE_NAMES} from './temple-geometry.ts';
 import {isOpticalMaterial} from '../eyewear/optical-material.ts';
 import {profileTempleSide, validatePartVisibility} from '../eyewear/part-visibility.ts';
 
@@ -58,7 +58,7 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number, opt
   const wanted: readonly [boolean, boolean] = options.sides ?? templeInventory(root).present;
   const missing: ContinuityGap[] = [];
   for (const side of [0, 1] as const) if (!wanted[side]) missing.push({side, reason: `no temple on the ${TEMPLE_SIDE_NAMES[side]} side`});
-  if (missing.length === 2) throw new Error('No temple on either side: there is no arm to follow.');
+  if (missing.length === 2) throw new Error(NO_TEMPLE_EITHER_SIDE);
   let lensRearZM = Infinity;
   const triangles: {coordinates: number[]; side: 0 | 1 | null}[] = [], armFront = [-Infinity, -Infinity];
   root.traverse(object => {

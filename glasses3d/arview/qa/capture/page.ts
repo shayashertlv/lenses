@@ -15,6 +15,8 @@ import type {BackgroundName, CapturePose, VariantName} from './poses.ts';
 import {boxCorners, cropRect, lensTopVsBrow, nearSide} from './junction.ts';
 import type {CropRect, JunctionGeometry, JunctionSide} from './junction.ts';
 import {bandMetrics, decodeLabels, junctionColumns, paletteDecoder} from './id-palette.ts';
+import {measureTempleReach, nearSideOfYaw, templeReachWarning} from './temple-reach.ts';
+import type {TempleReach} from './temple-reach.ts';
 import * as portrait from './portrait.ts';
 import type {PortraitRequest} from './portrait.ts';
 
@@ -252,6 +254,22 @@ async function render(request: {variant: VariantName; background: BackgroundName
   const decoder = request.variant === 'part-id' ? paletteDecoder(palette) : null;
   // The palette is the model's, the same for every part-id render: one identical line, deduplicated by the report.
   if (decoder) for (const warning of decoder.warnings) warnings.push(`part-id palette: ${warning}`);
+  // How far back the near arm is actually drawn in a turned view (qa/capture/temple-reach.ts): a cut is never silent.
+  let templeReach: TempleReach | null = null;
+  const near = decoder && state.pose ? nearSideOfYaw(state.pose.yaw) : null;
+  const centrelines = near !== null ? instance.templeCentrelines() : null;
+  if (decoder && near !== null && centrelines && centrelines.sides[near].length) {
+    const projected = instance.projectAssetPoints(centrelines.sides[near]);
+    if (projected) {
+      const sideName = near === 0 ? 'left' : 'right';
+      const armLabels = new Set(palette.flatMap((entry, index) => entry.class !== 'lens' && entry.side === sideName ? [index] : []));
+      templeReach = measureTempleReach({side: near, yawDegrees: state.pose!.yaw, centreline: centrelines.sides[near], projected,
+        labels: decodeLabels(pixels.data, palette, decoder), width: pixels.width, height: pixels.height, armLabels,
+        returnStartZM: centrelines.returnStartZM, capZM: centrelines.capZM[near]});
+      const warning = templeReachWarning(request.file, templeReach);
+      if (warning) warnings.push(warning);
+    }
+  }
   if (request.crops) {
     const near = nearSide(Object.fromEntries(state.sides.filter(side => side.rect).map(side => [side.side, side.area])));
     for (const side of state.sides) {
@@ -263,7 +281,8 @@ async function render(request: {variant: VariantName; background: BackgroundName
       if (span && decoder) {
         const labels = decodeLabels(cropPixels(pixels, rect), palette, decoder);
         // Per-colour tolerances (id_palette[].decode_tolerance); the summary here is the smallest one and the background's.
-        metrics = {...junctionColumns(labels, rect.width, rect.height, palette, span, side.walkPx ?? 1), decode_tolerance_min: decoder.tolerance,
+        const decals = new Set((state.geometry?.lens_decals ?? []).map(decal => decal.name));
+        metrics = {...junctionColumns(labels, rect.width, rect.height, palette, span, side.walkPx ?? 1, decals), decode_tolerance_min: decoder.tolerance,
           decode_tolerance_background: decoder.backgroundTolerance};
       } else if (span && side.topY !== null && request.variant === 'beauty') {
         metrics = bandMetrics(cropPixels(pixels, rect), rect.width, rect.height, side.topY - rect.y, span) as unknown as Record<string, unknown> | null;
@@ -273,7 +292,8 @@ async function render(request: {variant: VariantName; background: BackgroundName
   }
   return {timing: {guarded: timing.guarded, passes: timing.passes, safeFallback: timing.safeFallback, shadowsApplied: timing.shadowsApplied ?? null,
     override: timing.override ?? null, templeEndState: timing.templeEndState},
-  palette: decoder ? palette.map((entry, index) => ({...entry, decode_tolerance: decoder.tolerances[index]})) : null, images, warnings};
+  palette: decoder ? palette.map((entry, index) => ({...entry, decode_tolerance: decoder.tolerances[index]})) : null, images, warnings,
+  temple_reach: templeReach};
 }
 
 /** The posed renderer's final model report (render-time fallbacks included), then dispose it. */

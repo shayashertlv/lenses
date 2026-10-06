@@ -19,7 +19,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {basename, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -62,6 +62,9 @@ const REFUSED_BEFORE_PARSING = 'arview refuses at the Format row before three pa
   + 'fails as "not checked"; spec.py fails Format and still checks the rest.';
 const INTENDED: Readonly<Record<string, Intended>> = {
   'format-missing-image': {arviewStatus: 'refused', why: `An external image is missing next to the file. ${REFUSED_BEFORE_PARSING}`,
+    rows: NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})},
+  'format-absolute-uri-existing-file': {arviewStatus: 'refused', why: 'An unused image is named by an absolute URI to a file that exists: '
+    + `glTF resolves it as a URL, never next to the file, so both refuse it as missing (WP1 review E/F). ${REFUSED_BEFORE_PARSING}`,
     rows: NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})},
   'format-no-scenes': {arviewStatus: 'refused', why: `The document has no scenes (viewers show nothing; glb.py falls back to the root nodes). ${REFUSED_BEFORE_PARSING}`,
     rows: NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})},
@@ -116,7 +119,10 @@ const COMPRESSED_DOWNGRADE: Readonly<Record<string, {row: SpecRowName; warning: 
 /** The same REASON on both sides: a failed row's detail must contain this text in arview's report and in spec.py's errors
  *  (the agreement on pass/fail alone could hide two different defects). */
 const SAME_REASON: Readonly<Record<string, readonly [SpecRowName, string]>> = {
-  'orientation-z-up': ['orientation', 'Y is not the thinnest axis'],
+  'orientation-z-up': ['orientation', "Y is not the lenses' middle axis"],
+  'orientation-z-up-no-temples': ['orientation', "Y is not the lenses' middle axis"],
+  'orientation-hinge-stubs-upside-down': ['orientation', 'not +Y up: the temple roots'],
+  'orientation-both-temples-missing': ['orientation', 'temple right missing'],
   'orientation-roll+25': ['orientation', 'rolled: the right lens half'],
   'orientation-roll-3.1mm-fails': ['orientation', "rolled: the right lens half's centre is +3.1 mm higher"],
   'orientation-pitch+25': ['orientation', 'pitched: the left temple'],
@@ -127,6 +133,7 @@ const SAME_REASON: Readonly<Record<string, readonly [SpecRowName, string]>> = {
   'orientation-mirrored-y': ['orientation', 'not +Y up: the temple roots'],
   'orientation-roots-below-lens-centre': ['orientation', 'not +Y up: the temple roots'],
   'orientation-temple-left-missing': ['orientation', 'temple left missing'],
+  'orientation-deep-wrap-temple-left-missing': ['orientation', 'temple left missing'],
   'orientation-reach-59.5-fails': ['orientation', 'it reaches only z -59.5 mm'],
   'orientation-narrow-temples': ['orientation', 'temple right missing'],
   'orientation-lenses-behind-front': ['orientation', 'behind the front'],
@@ -262,6 +269,17 @@ async function arviewUnbounded(path: string): Promise<ModelReport> {
 }
 
 const verdict = (pass: boolean): Verdict => pass ? 'pass' : 'fail';
+/** The same failure SENTENCES, in the same order, on both sides (the row's whole detail). The temple-missing cases: a +Y-up
+ *  front without temples must say its temples are missing and nothing about its axis (the up axis is judged on the
+ *  lenses then; with the overall box a temple-less front read "Y is not the thinnest axis ... not +Y up"). */
+const SAME_DETAIL: Readonly<Record<string, SpecRowName>> = {
+  'orientation-temple-left-missing': 'orientation', 'orientation-both-temples-missing': 'orientation', 'orientation-hinge-stubs-only': 'orientation',
+  'orientation-hinge-stubs-upside-down': 'orientation', 'orientation-no-temples-upside-down': 'orientation', 'orientation-z-up-no-temples': 'orientation',
+  'orientation-z-up': 'orientation', 'orientation-deep-wrap-temple-left-missing': 'orientation',
+};
+/** The up-axis reasons a SAME_DETAIL case must NOT give (on either side): a temple-less +Y-up front is not a wrong axis. */
+const NO_AXIS_REASON = ['orientation-temple-left-missing', 'orientation-both-temples-missing', 'orientation-hinge-stubs-only',
+  'orientation-hinge-stubs-upside-down', 'orientation-no-temples-upside-down', 'orientation-deep-wrap-temple-left-missing'];
 const rowDetail = (report: ModelReport, row: SpecRowName): string => report.spec[row].detail.join('; ');
 const pyDetail = (python: PythonReport, row: SpecRowName): string => python.errors.filter(error => error.startsWith(`${row}:`)).join('; ');
 
@@ -274,7 +292,7 @@ const MEASURED: readonly [string, number][] = [
 ];
 /** Warnings about the measured rows that both must give (a substring each side's sentence contains). */
 const SHARED_WARNINGS = ['origin x judged on the front region', 'although the lenses are centred', '(allowed, but not exact)',
-  'the temple roots sit only', '+Y up not measured', 'roll not measured', 'pitch not measured on the left', 'pitch not measured on the right',
+  'the temple roots sit only', '+Y up not measured', 'up axis not measured', 'up axis not judged on the lenses', 'lens position not measured', 'roll not measured', 'pitch not measured on the left', 'pitch not measured on the right',
   'is outside the usual'];
 function sameValue(a: unknown, b: unknown, tolerance: number): boolean {
   if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= tolerance + 1e-9;
@@ -360,11 +378,15 @@ function runPython(args: string[], what: string): string {
 test('arview and spec.py give identical row verdicts and measurements on every Python-fabricated GLB', async t => {
   if (SKIP) {t.skip('ARVIEW_SKIP_SPEC_AGREEMENT=1: agreement with spec.py was NOT checked'); return;}
   assert.ok(PYTHON, 'glasses3d/.venv is missing: agreement with spec.py cannot be checked (set ARVIEW_SKIP_SPEC_AGREEMENT=1 to skip knowingly)');
-  mkdirSync(OUT, {recursive: true});
-  const {cases} = JSON.parse(runPython([SCRIPT, OUT], 'tests/spec_agreement_cases.py')) as {cases: PythonCase[]};
+  // Each run fabricates into its own folder (removed afterwards): two suites running at once wrote the same case files
+  // and one read the other's half-written GLB ("not a GLB file (missing 'glTF' magic)", WP1 review E/F stress run).
+  const run = join(OUT, `run-${process.pid}-${Date.now()}`);
+  mkdirSync(run, {recursive: true});
+  t.after(() => rmSync(run, {recursive: true, force: true}));
+  const {cases} = JSON.parse(runPython([SCRIPT, run], 'tests/spec_agreement_cases.py')) as {cases: PythonCase[]};
   assert.deepEqual(cases.filter(entry => entry.error).map(entry => `${entry.id}: ${entry.error}`), [], 'every case was fabricated');
   assert.ok(cases.length >= 100, `${cases.length} cases`);
-  for (const id of [...Object.keys(INTENDED), ...Object.keys(RESCALED), ...Object.keys(COMPRESSED_DOWNGRADE), ...Object.keys(SAME_REASON),
+  for (const id of [...Object.keys(INTENDED), ...Object.keys(RESCALED), ...Object.keys(COMPRESSED_DOWNGRADE), ...Object.keys(SAME_REASON), ...Object.keys(SAME_DETAIL),
     ...Object.keys(ARVIEW_REFUSES), ...Object.keys(REWRITTEN), ...Object.keys(LEFT_OUT), ...Object.keys(UNGATED_TWINS)]) {
     assert.ok(cases.some(entry => entry.id === id.replace(/ \(decoded twin\)$/, '')), `the explicit-difference table names a case that exists: ${id}`);
   }
@@ -418,6 +440,16 @@ test('arview and spec.py give identical row verdicts and measurements on every P
       if (!ours.spec[row].detail.some(detail => normalize(detail).includes(text))) disagreements.push(`${entry.id} / ${row}: arview's reason lacks "${text}": ${rowDetail(ours, row)}`);
       if (!python.errors.some(error => error.startsWith(`${row}:`) && normalize(error).includes(text))) disagreements.push(`${entry.id} / ${row}: spec.py's reason lacks "${text}": ${pyDetail(python, row)}`);
     }
+    const detailRow = SAME_DETAIL[entry.id];
+    if (detailRow) {
+      const theirs = python.errors.filter(error => error.startsWith(`${detailRow}: `)).map(error => error.slice(detailRow.length + 2));
+      if (JSON.stringify(ours.spec[detailRow].detail) !== JSON.stringify(theirs)) {
+        disagreements.push(`${entry.id} / ${detailRow}: arview says ${JSON.stringify(ours.spec[detailRow].detail)}, spec.py ${JSON.stringify(theirs)}`);
+      }
+      if (NO_AXIS_REASON.includes(entry.id) && ours.spec[detailRow].detail.some(detail => /thinnest axis|middle axis/.test(detail))) {
+        disagreements.push(`${entry.id} / ${detailRow}: a temple-less +Y-up front is reported as a wrong axis: ${rowDetail(ours, detailRow)}`);
+      }
+    }
     const intended = INTENDED[entry.id] ?? null;
     const issue = statusIssue(entry.id, entry.id, ours);
     if (issue) disagreements.push(issue);
@@ -425,7 +457,9 @@ test('arview and spec.py give identical row verdicts and measurements on every P
     // file's against its metre twin (compare()).
     disagreements.push(...compare(entry.id, ours, python, intended, metres));
   }
-  writeFileSync(join(OUT, 'agreement.json'), JSON.stringify({cases: table, disagreements}, null, 1));
+  // The latest table, written beside the run folder and renamed into place (a concurrent run may also write it).
+  writeFileSync(join(run, 'agreement.json'), JSON.stringify({cases: table, disagreements}, null, 1));
+  try {renameSync(join(run, 'agreement.json'), join(OUT, 'agreement.json'));} catch {/* evidence only: another run holds it */}
   assert.deepEqual(disagreements, []);
 });
 

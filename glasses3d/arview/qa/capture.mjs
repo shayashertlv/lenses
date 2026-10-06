@@ -140,7 +140,7 @@ export async function main(argv) {
   const page_ = {console_errors: [], console_warnings: [], page_errors: [], failed_responses: [], blocked_external: [], navigations: 0};
   const written = new Map();
   const state = {gpu: null, modelReport: null, fitting: null, fitFallback: false, geometry: null, portrait: null, liveProbe: null,
-    infrastructureFailure: null, spec: null, chromiumProcess: null};
+    infrastructureFailure: null, spec: null, chromiumProcess: null, captureRefusal: null};
   const servedName = path.basename(glbPath).replace(/[^A-Za-z0-9._-]/g, '_') || 'model.glb';
   const modelPath = `/__arview/models/${inputSha}/${servedName}`;
   const displayName = path.basename(glbPath);
@@ -159,7 +159,8 @@ export async function main(argv) {
   warnings.push(...external.warnings);
   errors.push(...external.errors);
   if (glb.externalUris.length) warnings.push(`the GLB is not self-contained (${glb.externalUris.length} external resource(s)); PLAN §2 prefers one file`);
-  const model = {bytes: glbBytes, sha256: inputSha, servedName, resources};
+  // The unreadable resources go along as explicit 404 routes (modelRoutes), wherever they resolve: also for the live probe.
+  const model = {bytes: glbBytes, sha256: inputSha, servedName, resources, missing: unreadable};
   const routes = modelRoutes(modelPath, model);
 
   // face-a: read read-only from ar/qa/fixtures and pinned; any other bytes skip the portrait (never another image).
@@ -219,7 +220,7 @@ export async function main(argv) {
       extensions_used: glb.extensionsUsed, extensions_required: glb.extensionsRequired},
     request, gpu: state.gpu, spec: state.spec, modelReport: state.modelReport, fitting: state.fitting, fitFallback: state.fitFallback,
     geometry: state.geometry, poses, images, plannedImages, idPalette, portrait: state.portrait, liveProbe: state.liveProbe,
-    warnings, errors, infrastructureFailure: state.infrastructureFailure, chromiumProcess: state.chromiumProcess,
+    warnings, errors, infrastructureFailure: state.infrastructureFailure, chromiumProcess: state.chromiumProcess, captureRefusal: state.captureRefusal,
     timings: {total_ms: Date.now() - started, steps: timings}, implementation: {before, after, stable}, page: page_});
     await writeAtomic(path.join(out, 'report.json'), JSON.stringify(report, null, 1) + '\n');
     const summary = {status: report.status, exit_code: exitCode, images: images.length, planned_images: plannedImages,
@@ -280,7 +281,8 @@ export async function main(argv) {
         server: {host: '127.0.0.1', port: 0, strictPort: false, hmr: false, watch: null, forwardConsole: false},
         optimizeDeps: {entries: ['qa/capture.html'], include: PREBUNDLED},
         plugins: [{name: 'arview-capture-inputs', configureServer(devServer) {
-          // The model, its readable external resources and face-a; any other /__arview/ path is a 404.
+          // The model, its readable external resources and face-a; any other /__arview/ path is a 404, and so is the URL of
+          // every resource that cannot be read, wherever it resolves (modelRoutes `missing`).
           devServer.middlewares.use(routesMiddleware(routes, '/__arview/'));
         }}]});
       let created;
@@ -357,7 +359,11 @@ export async function main(argv) {
     state.modelReport = init.report;
     log(`model: ${init.status}${init.status === 'rendered' ? `, ${init.parts.length} meshes, clip ${init.clip_m} m` : `: ${(init.report?.refusal ?? init.report?.unchecked ?? []).join('; ')}`}`);
     if (unreadable.length && init.status === 'rendered') {
-      errors.push(`arview RENDERED a model whose external resource(s) ${JSON.stringify(unreadable)} could not be read and were answered 404; §1 says it must be refused`);
+      // Whatever let arview get bytes for a missing resource (a route the capture could not answer 404, a page cache), the
+      // §1 verdict stands: the model is refused (status refused, exit 4), and the images below are not a pass.
+      state.captureRefusal = `arview RENDERED a model whose external resource(s) ${JSON.stringify(unreadable)} could not be read (answered 404 by the `
+        + 'capture); §1 Format says it must be refused, so the capture refuses it (status refused, exit 4)';
+      errors.push(state.captureRefusal);
     }
     if (init.status === 'rendered') {
       const refused = softwareRenderer('posed renderer', init.gpu_renderer);
@@ -397,7 +403,8 @@ export async function main(argv) {
           for (const image of result.images) {
             images.push({file: image.file, pose: planned.pose.id, background: render.background, variant: render.variant, sha256: image.sha256,
               bytes: image.bytes, width: image.width, height: image.height, kind: image.kind, crop: image.crop, side: image.side,
-              ...(image.kind === 'junction_crop' ? {near: image.near, metrics: image.metrics} : {}), timing: result.timing});
+              ...(image.kind === 'junction_crop' ? {near: image.near, metrics: image.metrics} : {}),
+              ...(image.kind === 'pose' && result.temple_reach ? {temple_reach: result.temple_reach} : {}), timing: result.timing});
           }
         }
         log(`pose ${planned.pose.id}: ${planned.renders.length} renders, ${images.length} images so far`);

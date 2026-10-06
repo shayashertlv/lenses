@@ -87,8 +87,12 @@ What it does (`qa/serve.mjs`):
    joined with Python's `unquote(uri)`, so `100%.png` is the file `100%.png` and `../shared/a.bin` is read where it
    points) and served at the raw path arview's loader requests (the server looks resources up before decoding the
    path). A file outside the GLB's folder (`../`, a root-relative path, a link) is served with a warning
-   (`model.outside_resources`); only an absolute URL or a file that cannot be read is a 404, so arview refuses the model
-   (§1 Format) exactly where spec.py fails the Format row, and `serve_warnings` say why. A resource whose URL would be
+   (`model.outside_resources`); only an absolute URI (a scheme, a drive letter `C:/...` or `//host`: glTF resolves it as
+   a URL, never next to the file, so spec.py fails it too, even when such a path exists) or a file that cannot be read
+   is a 404, so arview refuses the model (§1 Format) exactly where spec.py fails the Format row, and `serve_warnings` say
+   why. The URL of a file that cannot be read is an explicit 404 wherever it resolves, looked up before the frozen page
+   and the public files: a URI that climbs out of the model's folder (`../../../index.html`) never gets one of the
+   server's own files (an error says when such a URL is one of them). A resource whose URL would be
    one of the server's own paths (the page, a public binary, the report, the model) is not served over it: that is an
    error in the report (`model.unservable_resources`; a limit of the tool, not a §2 verdict). Like spec.py, serve reads
    any file a GLB names by a relative path, wherever it points, and serves it to loopback clients of this port: serve
@@ -120,7 +124,12 @@ spec.py's as `spec.py: ...`, each once), `fallbacks` (subsystem and detail), `er
 checks: a check that crashed or timed out, digests that disagree, a missing public binary, the file changing on disk;
 `node_check_errors` names those only the Node-side check produced), `served_sha256` (the bytes served; not a rendered
 digest: nothing is drawn when this report is made), `lens_identification`, `measurements`, `temple_clip` and the static
-`live_site_would_fail`.
+`live_site_would_fail`. The Node-side check's `fallbacks` include those the renderer reports from the temples alone (a
+missing temple's fixed cap, the default clip, continuity off without any temple: `templeLoadFallbacks` in
+`src/render/temple-geometry.ts`, the very sentences `renderer.ts` writes, with a handed-over `--clip` applied as the
+renderer applies it), so the start line's and the report's fallback count match the capture report's load-stage
+fallbacks (`tests/renderer-api.test.ts` asserts the renderer emits exactly that list); what only drawing finds is added by
+the renderer's report after Open camera.
 
 **The page** lists, under the model name, before the camera opens: the server's errors, the §2 refusal reasons, every
 failed §2 row (spec.py's failures; a row's notes are never listed as errors), the warnings and each fallback labelled
@@ -174,7 +183,19 @@ bytes), and parses with Draco, meshopt and KTX2 (decoders from three's `examples
 check; noise within it is baked), geometry, units (60-250 units = mm, 6-25 = cm: rescaled with a loud warning),
 lens identification and the measured origin/orientation rows, ported from `glasses3d/g3d_host/spec.py` and tested to
 agree with it (origin x is judged on the lenses' bounding box, the front region only when no lens spans x = 0; an
-origin off by more than 1 mm is a loud `ORIGIN:` warning as well as a failed row). `tests/spec-agreement.test.ts` runs
+origin off by more than 1 mm is a loud `ORIGIN:` warning as well as a failed row). Orientation's up axis needs the
+temples' depth: with both temples Y must be the model's thinnest axis; with a temple missing (a front alone is thinnest
+along Z) it is judged on the lenses' own box instead, where Y must be the middle axis (wider than the lens depth, narrower
+than the lens span; measured on 41 real GLBs: z 4.8-33.1 < y 35.1-65.1 < x 115.1-148.9 mm), so a temple-less +Y-up front
+reports only its missing temples, while a Z-up model still fails ("Y is not the lenses' middle axis"). The lenses' place
+in the front 30 % of the depth is not judged on a model under 60 mm deep (a warning), the +Y-up sign still comes from the
+temple roots (hinge hardware counts there) and "+Y up not measured" is said whenever they are absent. A degenerate
+(flat) triangle is one whose height over its longest edge is within 8 float32 steps of its own largest coordinate
+(h <= 8 x 2^-23 x max|coordinate|, spec.py `DEGENERATE_FLOAT32_ULPS`): flat at the precision the file stores it in, never
+an area in file units, so it scales with the model. r9's right screw head has 838 (506 of them exact zeros), the left
+62, the crystal front 95; q001's lenses have 207 / 206 collinear slivers (edges 1.5-2.2 mm; the old absolute rule's
+189 / 191 were thin triangles, h/L 0.0004-0.064, not well-shaped ones). The millimetre copy counts within 2 of its metre
+original (it is rounded to float32 again: a triangle exactly at the threshold can flip). `tests/spec-agreement.test.ts` runs
 both validators on the same bytes: about 140 GLBs built by the Python fabricator (`tests/spec_agreement_cases.py`
 drives `glasses3d/tests/glbfab.py`) and the four real proof GLBs (`python -m glasses3d.g3d_host.spec --full`); every
 row verdict and measured number must match, arview's status must be the expected one (rendered unless the case is a
@@ -205,14 +226,15 @@ not, WP1_DESIGN.md §1); a primitive without POSITION fails the Format row and i
 else renders, each subsystem in its own try block, every fallback in `report().fallbacks` and `report().warnings`. The
 report also has the seven §2 rows, measurements, `rendered_sha256` (the exact bytes parsed; a `&sha256=` handover is
 only compared with it) and `live_site_would_fail`. Capture accessors: `cameraState()`, `assetMatrixWorld()`,
-`parts()`, `projectAssetPoints()`, `setLighting()`, and `render(mask, {override})` with `part-id`, `lens-mask`,
+`parts()`, `projectAssetPoints()`, `templeCentrelines()`, `setLighting()`, and `render(mask, {override})` with `part-id`, `lens-mask`,
 `lens-hidden`, `lens-only` or `normals`. `src/model/check.ts` runs the same load and pass without drawing (without a
 renderer, KTX2 textures are a reported `textures` fallback); the QA temple-cutoff loader uses it.
 
 Temples, clip and fit scale (WP1_DESIGN.md §3, §4; `src/render/temple-geometry.ts`): temples are found per side by
 position, whatever their opacity (crystal and alpha-blended arms are temples like opaque ones; lens-class geometry never
 is): the non-lens geometry at |x| > 45 mm behind the lens rear, or the `temple_left`/`temple_right` region of a valid
-`LENSES_part_visibility` profile. A side has a temple only when it reaches z <= -60 mm (the §2 Orientation rule), so
+`LENSES_part_visibility` profile (the positional arm parts leave out front parts, see "Compact authored front-frame
+parts" below). A side has a temple only when it reaches z <= -60 mm (the §2 Orientation rule), so
 hinge hardware alone never counts. A side without one keeps a fixed cap (no arm shape, continuity, terminal return or
 hair endpoint), is a `temple <side>` fallback, and the Orientation row fails with "temple <side> missing"; a model with
 no temple at all still renders. Lens geometry behind -60 mm is a warning. The temple clip is derived from the arms'
@@ -223,6 +245,13 @@ and `fit_scale` measurements. Continuity is built from the normalised scene the 
 parse), per side: an arm with no cross-section somewhere before the clip loses only its own path, named with its z.
 The live auto-fit's applied scale is reported, and a scale more than 3 % from 1 is a warning (with the 1.08 fit
 preference that is the usual case); `TryOnRenderer.create(..., {fixedScale: true})` renders at the authored size.
+The fixed arm spread (18 mm per arm at the clip, `src/render/rear-drop.ts`) pivots at the hinge: the first slice where
+the arm collapses to a thin shaft (at most 15 mm tall for 20 mm). That boundary is the hinge only in front of the
+proximal guard (15 mm behind the lens rear); a tall temple (a shield or wide acetate arm, such as the Prada PR17WS,
+33 mm tall at z -40 and first under 15 mm at z -73) collapses far behind it and pivots at the guard plane instead
+(`hingeZM` null, `shaftBoundaryZM` says where it collapsed). Before 2026-10-05 such an arm pivoted at -73 mm, its front
+half stayed unspread inside the head proxy, and every turned view drew it only to the shield (as the Studio-era
+runtime, ar/ 75ae133 + stash@{0}, also did: its own preview of the Prada delivery shows the same cut).
 
 Look forward for a few seconds while automatic sizing collects consistent upper-face observations. The Fit panel
 shows progress; glasses and their shadows appear only after calibration and size settling finish. Refit hides
@@ -258,13 +287,28 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
 - **Junction** (`qa/capture/junction.ts`): measured once on the normalised scene from triangle slices, never vertex
   bins or names: per side, 24 stations over the lens x-range trimmed 8 %, lens top vs the lowest non-lens point within
   3 mm below and 6 mm in depth (`report.geometry.lens_top_vs_brow`, overlap_mm > 0 seated, < 0 a gap; per frame part too,
-  so a browline's eyewire groove and acetate brow read separately). The crop is the projected junction box
+  so a browline's eyewire groove and acetate brow read separately). A frame part riding on the lens surface (every
+  vertex within 0.3 mm of a lens triangle and at most 2 % of the lens area: a decal such as r9's "Lens inscription",
+  0.016 mm off) is not brow: it is left out of the reading and of the crop column metrics (read as the lens it sits on),
+  listed in `lens_decals` and warned; q001's eyewire (up to 0.43 mm off, 9 % of the lens area) stays frame. The crop is the projected junction box
   (`projectAssetPoints`) plus 16 px; part-id crops get column metrics (contact / gap / lens-only per column, median gap,
   per-part pixels in the 3 mm band; `qa/capture/id-palette.ts`), beauty crops the old band metrics (white %, edges).
   The part-id colours (`src/render/override.ts` `partColour`) are a fixed farthest-point sequence on an sRGB grid: up to
   200 parts are at least 51 levels apart and 102 from the black background and the lens magenta. Each colour decodes
   within its OWN tolerance (below half the distance to its nearest other colour, at most 24; `id_palette[].decode_tolerance`),
   so a close pair shrinks only those two parts' tolerance and is a warning naming them.
+- **Temple reach** (`qa/capture/temple-reach.ts`): every turned part-id render (|yaw| >= 20) projects the near arm's
+  drawn centreline (`templeCentrelines()`: continuity stations with the fixed spread and terminal return) and records
+  `images[].temple_reach`: how far back the arm is drawn (`drawn_to_z_mm`, a station counts when the arm's own part
+  colour is within 1 px of its projected centre), where its fixed return behind the ear begins (`return_start_z_mm`)
+  and its cap. An arm hidden by the face/head depth occluders more than 5 mm ahead of the return start is a `TEMPLE CUT`
+  warning: the drawn arm lies inside the head proxy there. That is a shortfall at the end (`hidden_before_return_mm`) or
+  a hidden stretch in the middle that is drawn again behind (`longest_hidden_run_mm`, from `longest_hidden_run_from_z_mm`:
+  the cheek can hide the middle while the head shell lets the arm reappear). A cut ahead of the return start is never
+  silent; behind it the arm is buried by design and not judged: `drawn_to_z_mm` can still lie behind the return start,
+  because the curled return can project onto a nearer part of the same arm (the Prada PR17WS reads -113.7 mm at yaw
+  ±30, its return folding back onto the shield, while the arm is seen to the return start at -75 mm), so such a depth is
+  no evidence the arm is seen there; `behind_return_drawn_stations` counts those stations.
 - **Portrait** (`qa/capture/portrait.ts`, the port of qa/portrait-preview): face-a.jpg only, read read-only from
   `../../ar/qa/fixtures` and pinned by sha256 (`qa/capture/portrait-contract.ts`); CPU face detection and hair
   segmentation, the SAME detection posed 51 times, condition a (runtime lighting) and b (`setLighting` side_studio
@@ -275,8 +319,11 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
   The model is served under `/__arview/models/` with the external resources it names, resolved as `arview serve`
   resolves them (`qa/capture/external-resources.ts`: read where spec.py reads them, `100%.png` and `../` included, a
   file outside the GLB's folder with a warning; served at the raw path arview requests); every other `/__arview/` path
-  is a 404 (`routesMiddleware`), never Vite's SPA index.html, so a missing external resource is missing to arview and
-  the model is refused (§1 Format), as spec.py fails it (`qa/capture-refusal.test.mjs`). The GPU
+  is a 404 (`routesMiddleware`), never Vite's SPA index.html, and so is the URL of every resource that cannot be read,
+  wherever it resolves (a URI climbing out of the model's folder to `/package.json` got arview's own package.json with
+  HTTP 200), so a missing external resource is missing to arview and the model is refused (§1 Format), as spec.py fails
+  it (`qa/capture-refusal.test.mjs`). The live probe registers the same 404s. Should arview still render a model whose
+  resource could not be read, the capture refuses it itself: `capture_refusal`, status `refused`, exit 4. The GPU
   renderer string is recorded and a software rasteriser (SwiftShader, WARP, llvmpipe) is refused before any model
   loads, and again for every renderer that draws (posed, portrait, and their authored-size reloads) from that
   renderer's own GPU string. The page (`qa/capture.html`, `qa/capture/page.ts`, renderer public API only) is driven
@@ -419,8 +466,16 @@ and physical material.
 Compact authored front-frame parts keep their inner rim and hinge hardware in the lens input. The temple-only
 visibility rules do not apply to those parts, even when the frame and arms share a glTF material. Eligibility requires
 an explicit `frame` role (`partRole` or legacy `part_role`) and geometry wholly inside the protected front region
-(local Z at least -30 mm), with baked transforms. Untagged parts and long frame-tagged bodies retain the geometric arm
-rules. Ordinary face depth
+(local Z at least -30 mm), with baked transforms. On the positional path (no usable `LENSES_part_visibility`) an
+untagged compact part (wholly at local Z >= -30 mm) whose X extent reaches the central band |x| <= 45 mm (a front
+crossing x = 0, a rim or brow half: no temple lies there) is front too (`isPositionalFrontFrame`), so a metadata-free copy
+draws its front as the authored one does: the Prada PR17WS stripped of every name and extras rendered its front's
+outer back as arm geometry through the acetate it shares with the temples, and the cream inner bevel at the outer lens
+corners vanished from the lens see-through (portrait: 4,562 px, up to 146 levels; now byte-identical except 3 of 5 hinge
+knuckles per side seen through the far lens at yaw 45, which the authored copy calls front and no geometry rule can
+tell from the other two: 126-134 px, at most 13 levels; `qa/capture-positional-parity.test.mjs`). An explicit role
+other than `frame` bars it. A long part that holds front AND temple (one mesh, Amber Horizon) keeps the geometric arm
+rules, and the temple inventory warns that its front's outer back is drawn with the arm treatment. Ordinary face depth
 still applies; this exemption does not draw a frame through the wearer's head.
 
 New exports can provide explicit node extras `LENSES_part_visibility: {version: 1, region: ...}` with

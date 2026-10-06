@@ -8,7 +8,7 @@
  *
  *  Junction columns: inside a side's crop, for each column of the projected lens-top span, the topmost lens pixel is
  *  found and the decode walks up at most the projected 3 mm. The first label that is neither lens nor mixed decides the
- *  column: a frame part = contact, the background = gap (its length in pixels up to the next frame pixel, or the whole
+ *  column (a decal riding on the lens counts as the lens: `onLens`): a frame part = contact, the background = gap (its length in pixels up to the next frame pixel, or the whole
  *  walk), nothing but lens = lens_only, no lens pixel in the column = no_lens. Per-part pixel counts in that band
  *  generalise the prototype's name-based eyewire count (wire_metric.py) to any part id. The band metrics of a beauty
  *  crop (white %, median vertical edge count) port band_metrics.py so the numbers stay comparable with the WP4 sheets. */
@@ -108,8 +108,9 @@ export interface JunctionColumns {
 /** The junction columns of one crop. `labels` is the crop's decode (row-major `width` x `height`), `span` the columns
  *  (crop coordinates, inclusive) of the projected lens top, `walkPx` the projected 3 mm. */
 export function junctionColumns(labels: Int16Array, width: number, height: number, palette: readonly PaletteColour[], span: ColumnSpan,
-  walkPx: number): JunctionColumns {
-  const isLens = (label: number) => label >= 0 && palette[label]!.class === 'lens';
+  walkPx: number, onLens: ReadonlySet<string> = new Set()): JunctionColumns {
+  // `onLens`: frame parts riding on the lens surface (junction.ts lensDecals) read as the lens they sit on, never as brow.
+  const isLens = (label: number) => label >= 0 && (palette[label]!.class === 'lens' || onLens.has(palette[label]!.name));
   const walk = Math.max(1, Math.round(walkPx));
   const x0 = Math.max(0, Math.floor(span.x0)), x1 = Math.min(width - 1, Math.ceil(span.x1));
   let contact = 0, gap = 0, lensOnly = 0, noLens = 0, columns = 0;

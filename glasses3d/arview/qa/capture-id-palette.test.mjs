@@ -118,6 +118,21 @@ test('junction columns: contact, gap (with its length), lens only, no lens; band
   assert.ok(result.band_pixels.Brow > 0 && result.band_pixels.background > 0 && result.band_pixels.mixed === 1);
 });
 
+test('junction columns: a decal riding on the lens reads as the lens it sits on, never as contact', () => {
+  // 'E' plays a print on the lens top: as a frame part the column reads contact; named in onLens it is lens surface, and
+  // the walk above it finds the background (a gap) as it would on the bare lens.
+  const {data, width, height} = image([
+    '....',
+    '....',
+    'EEEE',
+    'LLLL',
+  ]);
+  const labels = decodeLabels(data, PALETTE);
+  assert.equal(junctionColumns(labels, width, height, PALETTE, {x0: 0, x1: 3}, 3).contact_cols_pct, 100);
+  const onLens = junctionColumns(labels, width, height, PALETTE, {x0: 0, x1: 3}, 3, new Set(['Eyewire']));
+  assert.equal(onLens.contact_cols_pct, 0); assert.equal(onLens.gap_cols_pct, 100);
+});
+
 test('a lens top covered only by more lens within the walk is lens_only; span clamps to the image', () => {
   const {data, width, height} = image(['LL', 'LL', 'LL']);
   const result = junctionColumns(decodeLabels(data, PALETTE), width, height, PALETTE, {x0: -5, x1: 50}, 2);

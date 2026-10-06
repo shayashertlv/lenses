@@ -5,7 +5,7 @@ import {
 } from 'three';
 import type {BufferGeometry, Object3D, PerspectiveCamera, Texture, WebGLRenderer} from 'three';
 import type {TempleCheekContact} from './temple-cheek-contact.ts';
-import {isAuthoredFrontFrame, isOpticalMaterial, isTranslucentFrameMaterial, registerDerivedMaterial} from '../eyewear/optical-material.ts';
+import {isFrontFramePart, isOpticalMaterial, isTranslucentFrameMaterial, registerDerivedMaterial} from '../eyewear/optical-material.ts';
 import {isProfiledTemple} from '../eyewear/part-visibility.ts';
 
 /** Per-pixel relief from the arm fragment's distance behind the head surface. */
@@ -153,10 +153,11 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   });
   // Unreachable for a loaded model (the load refuses one without a lens, §2 Components); kept as an internal check.
   if (!Number.isFinite(frontZM) || originals.length === 0) throw new Error('Temple visibility requires lens geometry and at least one frame part.');
-  // Classification has already split materials shared by a compact authored front and arms. A deep inner rim
-  // can sit behind the lens rear without becoming a shaft. Legacy untagged or long frame-tagged meshes keep
-  // their geometric eligibility; an asset containing just an authored front and lenses is valid too.
-  const armOriginals = originals.filter(object => !isAuthoredFrontFrame(object, root));
+  // Classification has already split materials shared by a front and arms. A deep inner rim can sit behind the lens
+  // rear without becoming a shaft: an authored front, and on the positional path a compact mesh reaching the central
+  // band |x| <= 45 mm (isPositionalFrontFrame), is never an arm. Long untagged meshes that hold front AND temple keep
+  // their geometric eligibility (templeInventory warns); an asset containing just a front and lenses is valid too.
+  const armOriginals = originals.filter(object => !isFrontFramePart(object, root));
   const target = new WebGLRenderTarget(1, 1, {
     minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: true,
     depthTexture: new DepthTexture(1, 1, UnsignedIntType),

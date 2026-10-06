@@ -18,11 +18,18 @@ const normal = value => path.resolve(value).replaceAll('\\', '/').toLowerCase();
 /** The routes of a served model: its own path, and each external resource at the raw pathname arview's loader requests
  *  against the model URL (external-resources.ts resourceRoute: a relative URI, '..' included). `resources` are
  *  {uri, type, bytes} entries the capture read where spec.py reads them (only URIs the GLB's JSON references are ever
- *  served). */
+ *  served). `missing` are the URIs of resources that could not be read: each is an explicit {missing: true} route, answered
+ *  404 by routesMiddleware WHATEVER its prefix (a URI climbing out of the model's folder resolves outside the prefix, where
+ *  the dev server would otherwise answer with one of its own files and arview would get bytes for a missing resource). */
 export function modelRoutes(modelPath, model) {
   const routes = new Map([[modelPath, {bytes: model.bytes, type: 'model/gltf-binary'}]]);
   for (const resource of model.resources ?? []) {
     routes.set(resourceRoute(resource.uri, modelPath), {bytes: resource.bytes, type: resource.type});
+  }
+  for (const uri of model.missing ?? []) {
+    let route;
+    try {route = resourceRoute(uri, modelPath);} catch {continue;}
+    if (!routes.has(route)) routes.set(route, {missing: true, uri});
   }
   return routes;
 }
@@ -35,11 +42,12 @@ export function routesMiddleware(routes, prefix) {
   return (request, response, next) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const route = routes.get(url.pathname);
-    if (route) {response.setHeader('Content-Type', route.type); response.setHeader('Cache-Control', 'no-store'); response.end(route.bytes); return;}
-    if (!url.pathname.startsWith(prefix)) {next(); return;}
+    if (route && !route.missing) {response.setHeader('Content-Type', route.type); response.setHeader('Cache-Control', 'no-store'); response.end(route.bytes); return;}
+    if (!route && !url.pathname.startsWith(prefix)) {next(); return;}
     response.statusCode = 404;
     response.setHeader('Content-Type', 'text/plain; charset=utf-8'); response.setHeader('Cache-Control', 'no-store');
-    response.end(`404: ${url.pathname} is not served (only the GLB and the external resources it references that exist beside it)`);
+    response.end(route ? `404: ${url.pathname} is the external resource "${route.uri}" the GLB references, which cannot be read (missing)`
+      : `404: ${url.pathname} is not served (only the GLB and the external resources it references that exist beside it)`);
   };
 }
 

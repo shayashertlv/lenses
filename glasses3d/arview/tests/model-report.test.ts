@@ -153,7 +153,12 @@ test('the renderer identifies a loaded GLB from its glTF JSON', async t => {
   const {instance, internal} = renderer(shippedModel('amber-horizon'));
   t.after(() => instance.dispose());
   internal.configure(canonical, gltf.scene, gltfSourceOf(gltf));
-  assert.deepEqual(instance.report().warnings, [], 'the shipped model needs no fallback');
+  // Amber Horizon is ONE mesh (front and temples): with no LENSES_part_visibility its front's outer back is drawn with the
+  // arm treatment, and the inventory says so (WP1 review E/F). Nothing else is warned and nothing falls back.
+  const warnings = instance.report().warnings;
+  assert.equal(warnings.length, 1, warnings.join(' | '));
+  assert.match(warnings[0]!, /^Temples: temple part "AmberHorizonMesh" crosses x = 0 and reaches back to z -146\.4 mm: front and temple are one mesh/);
+  assert.deepEqual(instance.report().fallbacks, [], 'the shipped model needs no fallback');
   const report = instance.lensIdentification()!;
   assert.equal(report.source, 'gltf-json');
   assert.deepEqual(report.materials.map(entry => [entry.index, entry.name, entry.class, entry.signal, entry.site, entry.value]),

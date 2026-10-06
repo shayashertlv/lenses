@@ -4,7 +4,10 @@
  *  like opaque ones, and lens-class geometry (part-class.ts, decided once at load) never is.
  *  - Positional path (no usable LENSES_part_visibility): the non-lens geometry at |x| > 45 mm behind the lens rear (the
  *    minimum z of lens-class geometry). A side has a temple only when that geometry reaches z <= -60 mm, the §2
- *    Orientation rule of measure.ts / spec.py, so hinge hardware alone never counts as a temple.
+ *    Orientation rule of measure.ts / spec.py, so hinge hardware alone never counts as a temple. The arm parts (root,
+ *    vertices, parts) leave out front parts (optical-material.ts isFrontFramePart: a compact mesh reaching the central
+ *    band |x| <= 45 mm is front, and the renderer gives it no arm treatment); a temple part that itself reaches the
+ *    central band holds front AND temple and is a warning (its front is drawn with the arm treatment).
  *  - Authored path (valid LENSES_part_visibility, validated once at load): the temple_left / temple_right region of
  *    that side (part-visibility.ts checks that temple_left lies at x < 0 and temple_right at x > 0), with the same
  *    reach rule. Its presence is cross-checked against the positional rule; a disagreement is a warning.
@@ -21,7 +24,7 @@
  *  to identity); nothing throws on asset content. */
 import {Mesh} from 'three';
 import type {BufferGeometry, Material, Object3D} from 'three';
-import {isOpticalMaterial} from '../eyewear/optical-material.ts';
+import {isFrontFramePart, isOpticalMaterial, reachesCentralBand} from '../eyewear/optical-material.ts';
 import {profileTempleSide, validatePartVisibility} from '../eyewear/part-visibility.ts';
 import {TEMPLE_CLIP_FARTHEST_LOCAL_Z_M, TEMPLE_CLIP_FLOOR_LOCAL_Z_M, TEMPLE_CLIP_NEAREST_LOCAL_Z_M} from '../eyewear/catalog.ts';
 
@@ -101,10 +104,11 @@ export function forEachReferencedVertex(root: Object3D,
   });
 }
 
-interface Bucket {tip: number; root: number; count: number; parts: Set<string>;}
-const bucket = (): Bucket => ({tip: Infinity, root: -Infinity, count: 0, parts: new Set()});
+interface Bucket {tip: number; root: number; count: number; parts: Set<string>; meshes: Set<Mesh>;}
+const bucket = (): Bucket => ({tip: Infinity, root: -Infinity, count: 0, parts: new Set(), meshes: new Set()});
 const add = (into: Bucket, mesh: Mesh, z: number): void => {
   into.tip = Math.min(into.tip, z); into.root = Math.max(into.root, z); into.count++; into.parts.add(mesh.name || '(unnamed mesh)');
+  into.meshes.add(mesh);
 };
 
 /** The temples of a normalised, classified scene, per side (see the module comment). */
@@ -114,14 +118,28 @@ export function templeInventory(root: Object3D): TempleInventory {
   let lensRear = Infinity;
   forEachReferencedVertex(root, (_mesh, material, _x, _y, z) => {if (isOpticalMaterial(material)) lensRear = Math.min(lensRear, z);});
   const behind = Number.isFinite(lensRear) ? lensRear : Infinity;
-  // Positional: `reach` is the §2 rule over all non-lens geometry at |x| > 45 mm; `arm` is that geometry behind the lens rear.
+  // Positional: `reach` is the §2 rule over all non-lens geometry at |x| > 45 mm; `arm` is that geometry behind the lens
+  // rear, less front parts (isFrontFramePart: a compact mesh reaching the central band is front, never arm geometry, and
+  // the renderer gives it no arm treatment). `extent` records each arm part's reach, for the front-in-temple warning.
   const reach = [Infinity, Infinity], arm = [bucket(), bucket()], authored = [bucket(), bucket()];
+  const front = new Map<Mesh, boolean>();
+  const isFront = (mesh: Mesh): boolean => {
+    let value = front.get(mesh);
+    if (value === undefined) {value = isFrontFramePart(mesh, root); front.set(mesh, value);}
+    return value;
+  };
+  const extent = new Map<Mesh, {minX: number; maxX: number; minZ: number}>();
   forEachReferencedVertex(root, (mesh, material, x, _y, z) => {
     if (isOpticalMaterial(material)) return;
+    if (!profiled) {
+      const e = extent.get(mesh) ?? {minX: Infinity, maxX: -Infinity, minZ: Infinity};
+      e.minX = Math.min(e.minX, x); e.maxX = Math.max(e.maxX, x); e.minZ = Math.min(e.minZ, z);
+      extent.set(mesh, e);
+    }
     if (Math.abs(x) > TEMPLE_GEOMETRY.lateralMinM) {
       const side = x < 0 ? 0 : 1;
       reach[side] = Math.min(reach[side]!, z);
-      if (z < behind) add(arm[side]!, mesh, z);
+      if (z < behind && (profiled || !isFront(mesh))) add(arm[side]!, mesh, z);
     }
     if (profiled) {
       const side = profileTempleSide(mesh);
@@ -132,6 +150,19 @@ export function templeInventory(root: Object3D): TempleInventory {
   if (Number.isFinite(lensRear) && lensRear < TEMPLE_GEOMETRY.lensRearWarnZM) {
     warnings.push(`lens-class geometry reaches z ${mm(lensRear)} mm, behind ${mm(TEMPLE_GEOMETRY.lensRearWarnZM)} mm: lens material reaches the `
       + 'temple region (check the lens identification); the lens rear is taken there, so the arms behind it are measured from that plane');
+  }
+  if (!profiled) {
+    // A temple part that also holds front geometry (it reaches the central band, where no temple lies): the positional arm
+    // rule then applies to that front's outer back too, so it can render unlike the same frame with authored regions.
+    for (const mesh of new Set([...arm[0]!.meshes, ...arm[1]!.meshes])) {
+      const e = extent.get(mesh)!;
+      if (!reachesCentralBand(e.minX, e.maxX)) continue;
+      const inner = e.minX > 0 ? e.minX : -e.maxX;
+      warnings.push(`temple part "${mesh.name || '(unnamed mesh)'}" ${e.minX < 0 && e.maxX > 0 ? 'crosses x = 0' : `reaches |x| ${mm(inner)} mm`} and `
+        + `reaches back to z ${mm(e.minZ)} mm: front and temple are one mesh, so with no LENSES_part_visibility its front geometry at |x| > `
+        + `${mm(TEMPLE_GEOMETRY.lateralMinM)} mm behind the lens rear is drawn with the arm treatment (near-temple overlay, observed-cheek blend, `
+        + 'kept out of the lens input) and can render unlike an authored front; split the front from the temples or author LENSES_part_visibility');
+    }
   }
   const positionalMissing = (side: 0 | 1): string | null => {
     const tip = reach[side]!;
@@ -215,6 +246,30 @@ export function deriveTempleClip(inventory: Pick<TempleInventory, 'sides'>, hand
   warnings.push(`no temple on either side, so no clip can be derived; the fixed default ${TEMPLE_CLIP_FLOOR_LOCAL_Z_M.toFixed(3)} m is used `
     + '(there is no arm for it to cut)');
   return {clipZM: TEMPLE_CLIP_FLOOR_LOCAL_Z_M, source: 'default', derivedZM: null, shorterSide: null, handoverZM: null, warnings};
+}
+
+/** continuity.ts refuses with this when neither side has a temple (before it reads any geometry). */
+export const NO_TEMPLE_EITHER_SIDE = 'No temple on either side: there is no arm to follow.';
+/** The renderer's fallback details (renderer.ts installTemples / noteContinuityFailure), built here so the Node-side check
+ *  (`arview serve`, qa/temple-cutoff.mjs) reports the very sentences the renderer will. */
+export const missingTempleDetail = (side: Pick<TempleSide, 'side' | 'missing'>): string => `TEMPLE ${side.side.toUpperCase()} MISSING: ${side.missing}. `
+  + 'That side keeps a fixed cap: no arm shape, temple continuity, terminal return or hair endpoint is built for it. A missing temple is a geometry defect of the model.';
+export const defaultClipDetail = (warning: string): string => `Temple clip: ${warning}.`;
+export const continuityUnavailableDetail = (reason: string): string =>
+  `The temple continuity model is unavailable (${reason}); both arms keep the fixed buried cap and no hair endpoint.`;
+export interface TempleLoadFallback {readonly subsystem: string; readonly detail: string; readonly stage: 'load';}
+
+/** The load-stage fallbacks the renderer reports from the temples alone, in its order: one per side without a temple, the
+ *  default clip when no temple gives one, and the continuity model off when neither side has a temple (continuity.ts
+ *  refuses that before reading geometry). What only the rest of the load finds (an arm without a posterior
+ *  cross-section, the rear drop, the terminal fit, the shader installs) is not predicted here: the renderer's own report
+ *  adds it. */
+export function templeLoadFallbacks(inventory: Pick<TempleInventory, 'sides'>, clip: TempleClipDecision): TempleLoadFallback[] {
+  const out: TempleLoadFallback[] = [];
+  for (const side of inventory.sides) if (!side.present) out.push({subsystem: `temple ${side.side}`, detail: missingTempleDetail(side), stage: 'load'});
+  if (clip.source === 'default') for (const warning of clip.warnings) out.push({subsystem: 'temple clip depth', detail: defaultClipDetail(warning), stage: 'load'});
+  if (inventory.sides.every(side => !side.present)) out.push({subsystem: 'continuity', detail: continuityUnavailableDetail(NO_TEMPLE_EITHER_SIDE), stage: 'load'});
+  return out;
 }
 
 /** The report form of an inventory and a clip decision (model report measurements `temples` and `temple_clip`). */

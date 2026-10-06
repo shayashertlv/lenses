@@ -10,8 +10,12 @@
  *  - The route: the pathname arview's loader requests (load.ts: three's LoaderUtils.resolveURL against the model URL's
  *    directory, then the URL parser's normalisation of '..' and '%2e%2e'), never decoded: the server looks it up by the
  *    raw request pathname, so '100%.png' is served at '/…/100%.png'.
- *  - Refused (not served, so arview refuses the model as missing, which spec.py also does): an absolute URL (a scheme or
- *    '//host'), and a file that cannot be read.
+ *  - Refused (not served, so arview refuses the model as missing, which spec.py also does): an absolute URI (a scheme, a
+ *    drive letter or '//host': glTF resolves it as a URL, never next to the file; spec.py _missing_uris), and a file that
+ *    cannot be read. The route of a file that cannot be read is returned (`missingRoutes`) so
+ *    each server answers it 404 explicitly WHATEVER its prefix: a URI that climbs out of the model's folder
+ *    ('../../../../package.json') resolves outside /__arview/, where the server would otherwise hand the page one of its
+ *    own files (HTTP 200) and arview would get bytes for a missing resource (WP1 review E/F).
  *  - A readable resource whose route is one of the server's own paths (the page, a public binary, the report) cannot be
  *    served faithfully: that is an ERROR of the tool (the page would hand arview the wrong bytes), never a §2 verdict.
  *
@@ -96,6 +100,9 @@ export interface ExternalResources {
   /** Not served because it is missing, unreadable or an absolute URL: answered 404, so arview refuses the model as
    *  missing (§1 Format), as spec.py fails the row. */
   readonly unreadable: string[];
+  /** The route arview requests for each unreadable URI that resolves to a URL (an absolute URL has none): every server
+   *  registers it as an explicit 404, looked up before its own files, whatever its prefix. */
+  readonly missingRoutes: {readonly uri: string; readonly route: string}[];
   /** Readable, but its route is one of the server's own paths: not served (see `errors`). */
   readonly unservable: string[];
   readonly warnings: string[];
@@ -118,16 +125,38 @@ export async function resolveExternalResources(glbPath: string, uris: readonly s
   const glb = path.resolve(glbPath), folder = path.dirname(glb);
   const realFolder = await fsp.realpath(folder).catch(() => folder);
   const realGlb = await fsp.realpath(glb).catch(() => glb);
-  const result: ExternalResources = {resources: [], served: [], outside: [], unreadable: [], unservable: [], warnings: [], errors: []};
-  const missing = (uri: string, why: string): void => {
+  const result: ExternalResources = {resources: [], served: [], outside: [], unreadable: [], unservable: [], missingRoutes: [], warnings: [], errors: []};
+  const missing = (uri: string, why: string, route: string | null = null): void => {
     result.unreadable.push(uri);
-    result.warnings.push(`external resource "${uri}" ${why}; ${options.tool} answers it 404, so arview refuses the model (§1 Format: a missing external resource)`);
+    if (route !== options.modelPath) {
+      result.warnings.push(`external resource "${uri}" ${why}; ${options.tool} answers it 404${route ? ` (at ${route})` : ''}, so arview refuses the model `
+        + '(§1 Format: a missing external resource)');
+    }
+    if (route === null) return;
+    if (route === options.modelPath) {
+      // The model's own URL (a served name that differs from the file's): never shadowed by a 404, so arview reads the
+      // model's bytes for the missing resource and the capture's render-anyway check refuses the run.
+      result.errors.push(`external resource "${uri}" is missing, and the URL arview requests for it (${route}) is the model's own URL: `
+        + `${options.tool} keeps serving the model there, so arview gets the model's bytes for it (the model is refused as missing either way, §1 Format)`);
+      return;
+    }
+    result.missingRoutes.push({uri, route});
+    let decoded: string | null;
+    try {decoded = decodeURIComponent(route);} catch {decoded = null;}
+    if (options.reserved?.(route, decoded) === true) {
+      result.errors.push(`external resource "${uri}" is missing, and the URL arview requests for it (${route}) is one of ${options.tool}'s own paths: `
+        + `${options.tool} answers that URL 404 for this run, which can break its own page (the model is refused as missing either way, §1 Format). `
+        + 'Keep external resources next to the GLB.');
+    }
   };
   for (const uri of uris) {
     const file = resourceFile(glb, uri);
     if (isAbsoluteUri(uri)) {
+      // spec.py fails it too (its _missing_uris: an absolute URI is resolved as a URL, never next to the file), even when
+      // such a path exists on this machine.
       const exists = await fsp.stat(file).then(stat => stat.isFile(), () => false);
-      missing(uri, `is an absolute URL, which the page cannot fetch from the loopback server${exists ? ` (spec.py resolves it as the path ${file}, which exists: the two disagree)` : ''}`);
+      missing(uri, `is an absolute URI, which glTF resolves as a URL (never next to the file) and the page cannot fetch from the loopback server`
+        + `${exists ? ` (the path ${file} exists on this machine, but it is not a resource next to the GLB; spec.py fails it as well)` : ''}`);
       continue;
     }
     let route: string;
@@ -138,7 +167,7 @@ export async function resolveExternalResources(glbPath: string, uris: readonly s
       real = await fsp.realpath(file);
       bytes = await fsp.readFile(real);
     } catch (error) {
-      missing(uri, `(${file}) cannot be read (${(error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error))})`);
+      missing(uri, `(${file}) cannot be read (${(error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error))})`, route);
       continue;
     }
     let decoded: string | null;

@@ -71,8 +71,9 @@ test('explicit native opaque mirror lenses are protected from arm deformation an
 });
 
 // Rewritten for the decided class: the untagged mesh beside role-tagged parts is frame by default (no live transmission
-// rule), it shares the arm instance with the temple, and the lens keeps the original. The old assertion 'untagged owners
-// retain the numeric transmission fallback' is removed: that fallback no longer exists.
+// rule), and the lens keeps the original. The old assertion 'untagged owners retain the numeric transmission fallback' is
+// removed: that fallback no longer exists. The untagged part is a compact box at the centre, so it is a positional front
+// (isPositionalFrontFrame, WP1 review E/F) and shares the front instance; an untagged arm shares the arm instance.
 test('shared native materials are isolated by explicit roles; an untagged part beside them is frame', t => {
   for (const transmission of [0, .85]) {
     const texture = new Texture(); t.after(() => texture.dispose());
@@ -82,6 +83,7 @@ test('shared native materials are isolated by explicit roles; an untagged part b
     source.userData = {native: {untouched: true}};
     const frame = mesh('frame', source), temple = mesh('temple', source), lens = mesh('lens', source);
     const unknown = mesh(undefined, source), root = new Group().add(frame, temple, lens, unknown);
+    const untaggedArm = mesh(undefined, source, new BoxGeometry(.004, .005, .15).translate(-.06, 0, -.075)); root.add(untaggedArm);
     t.after(() => dispose(root));
     // Also exercise shared Material[] storage: updating one mesh's slot must not relabel the untagged mesh.
     const slots = [source]; frame.material = slots; unknown.material = slots;
@@ -92,7 +94,8 @@ test('shared native materials are isolated by explicit roles; an untagged part b
     assert.equal(slots[0], source, 'the shared Material[] storage itself is never edited');
     assert.notEqual(temple.material, frameMaterial, 'front and arm shaders require independent structural materials');
     assert.notEqual(temple.material, source); assert.notEqual(frameMaterial, source);
-    assert.equal((unknown.material as Material[])[0], temple.material, 'the untagged part shares the arm instance');
+    assert.equal((unknown.material as Material[])[0], frameMaterial, 'the untagged compact central part is front: it shares the front instance');
+    assert.equal(untaggedArm.material, temple.material, 'the untagged arm shares the arm instance');
     assert.equal(isFrameMaterial(frameMaterial), true); assert.equal(isOpticalMaterial(frameMaterial), false);
     assert.equal(isFrameMaterial(temple.material as Material), true); assert.equal(isOpticalMaterial(temple.material as Material), false);
     assert.equal(isOpticalMaterial(source), true);
@@ -103,9 +106,9 @@ test('shared native materials are isolated by explicit roles; an untagged part b
       assert.ok(material.color.equals(source.color)); assert.ok(material.attenuationColor.equals(source.attenuationColor));
       assert.equal(material.map, texture); assert.deepEqual(material.userData, source.userData);
     }
-    const assigned = [frameMaterial, temple.material, lens.material, unknown.material];
+    const assigned = [frameMaterial, temple.material, lens.material, unknown.material, untaggedArm.material];
     classifyAssetMaterials(root);
-    assert.deepEqual([(frame.material as Material[])[0], temple.material, lens.material, unknown.material], assigned,
+    assert.deepEqual([(frame.material as Material[])[0], temple.material, lens.material, unknown.material, untaggedArm.material], assigned,
       'reclassification does not create new material instances');
   }
 });

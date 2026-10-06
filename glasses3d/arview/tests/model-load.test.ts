@@ -193,7 +193,7 @@ const CASES: readonly Case[] = [
   {name: 'texCoord -1', build: b({patch: pTexCoordMinusOne}), rows: ['format'], text: 'texCoord -1', refused: null},
   {name: 'temple left missing', build: b({parts: without(['Temple_L'])}), rows: ['orientation'], text: 'temple left missing', refused: null},
   // test_orientation_and_cascade_failures
-  {name: 'Z up', build: b({rotateZUp: true}), rows: ['orientation'], text: 'Y is not the thinnest axis', includes: true, refused: null},
+  {name: 'Z up', build: b({rotateZUp: true}), rows: ['orientation'], text: "Y is not the lenses' middle axis", includes: true, refused: null},
   {name: 'rolled +25', build: b({preMm: rot('z', 25)}), rows: ['orientation'], text: 'rolled', includes: true, refused: null},
   {name: 'rolled -25', build: b({preMm: rot('z', -25)}), rows: ['orientation'], text: 'rolled', includes: true, refused: null},
   {name: 'pitched +25', build: b({preMm: rot('x', 25)}), rows: ['orientation'], text: 'pitched', includes: true, refused: null},
@@ -299,6 +299,10 @@ test('format refusals: not a GLB, wrong version, truncated, broken references, n
   for (const row of SPEC_ROWS.filter(row => row !== 'format')) assert.match(report.spec[row].detail[0]!, /^not checked: the file could not be read$/);
   report = await check(joinGlb({...doc, buffers: [{byteLength: 10, uri: 'gone.bin'}]}, null));
   assert.match(report.refusal[0]!, /missing external resource\(s\) next to the file: \["buffer 0: gone\.bin"\]/);
+  // The GLB itself was read: the other rows are not checked because of the refusal, not 'because the file could not be read'.
+  for (const row of SPEC_ROWS.filter(row => row !== 'format')) {
+    assert.deepEqual(report.spec[row].detail, ['not checked: refused at the Format row (missing external resource)']);
+  }
   // A file three cannot parse although every reference resolves (an accessor running past its view).
   report = await check(joinGlb({...doc, bufferViews: (doc.bufferViews as Json[]).map((v, index) => index === 0 ? {...v, byteLength: 4} : v)}, bin));
   assert.equal(report.status, 'refused');

@@ -817,7 +817,7 @@ Stage-A reconciliations (beyond the analysis): the canonical-lens runtime (`LENS
 | `tests/hair-client.test.ts` | **keep** | 75 | Tests src/hair/client.ts (worker lifecycle, pinned models, delegate). |
 | `tests/hair-occlusion.test.ts` | **keep** | 75 | Tests src/render/hair-occlusion.ts (feather, mask warp, clip composition). |
 | `tests/hair-protocol.test.ts` | **keep** | 75 | Tests src/hair/protocol.ts and models.ts validation. |
-| `tests/lens-appearance.test.ts` | **keep** | 75 | Unit tests for the LENSES_lens_appearance parser and evaluator in src/eyewear/lens-appearance.ts. |
+| `tests/lens-appearance.test.ts` | **drop (stage B)** | 75 | Dropped in stage B with src/eyewear/lens-appearance.ts (12 cases). |
 | `tests/lens-reflection-knee.test.ts` | **keep** | 75 | Tests the src/render/eyewear-reflection.ts lens/crystal knees. |
 | `tests/live-renderer-audit.test.ts` | **keep** | 75 | Tests src/render/live-renderer.ts audit gating with a fake inner renderer. |
 | `tests/mask-reuse.test.ts` | **keep** | 75 | Tests src/hair/mask-reuse.ts, hair-report.ts, the config hair schedule and the hair-occlusion warp lookup. |
@@ -1477,3 +1477,523 @@ is a mean silhouette contour error of 0.66-1.44 mm per view (median 0.74 mm), wi
 7. **For WP6:** the Prada side and rear cameras are fitted against the delivered (wrong) temples. Before tracing the
    temples through them, consider fitting those views with the temple faces optional (`ViewFit.set_ignore`, kept from
    bsa). That is WP6's call.
+
+## 10. WP5 scratch port
+
+WP5 build steps (1) and (2) (WP5_DESIGN §9), host only, 2026-10-05. Scratch read in full: `g3d-wp5/wp5lib.py`,
+`refine.py`, `aplib.py`, `noeco.py`, `geomlib.py`, `shiftlib.py`, `step2b_global.py`, `ap2_regsignal.py`,
+`ap5_chroma_lovo.py` (`appearance`, `tol_bp`), `ap8_blur_trap.py`, `design_reg/p1_guarded.py`, `p2_parallax.py`,
+`p2g_joint.py`, `p2g_swap.py`, `p3_havana.py`, `p5_temple_hinge.py`, `p6_region_edges.py`, `p7_temple_gate.py`,
+`p7b_axis_null.py`, `p8_temple_joint.py`, `cov/p8_calib.py`, `cov/p11_energy.py`. Targets: `g3d_host/photoprint/`
+(`inputs`, `signals`, `regions`, `pose`, `edges`, `register`, `gate`, `check_print`, `report`, `procs`, `step0`) and the
+independent instrument `tests/instruments/print_metrics.py`. Nothing under `g3d/`, `arview/`, `spec.py` or the WP4
+files was touched. `print_metrics` imports nothing from `photoprint` (`tests/photoprint/test_no_import.py`: AST parse
+plus `sys.modules` in a fresh interpreter); it shares only WP3b's `texture_utils` colour helpers (CIEDE2000,
+`quantile_gain`), which are not the tool under test.
+
+**Sides by x sign.** q001 names temples by the viewer's side (Temple_Left is at -x, the wearer's right). No ported
+function reads 'Left'/'Right': groups, regions and statuses carry the x sign (`[+x]`/`[-x]`). The probe's temple
+pieces were picked by name in `p1_guarded`, `p5_temple_hinge`, `p6_region_edges`, `p8_temple_joint`; they are found by
+position now (WP1 rule, |x| > 45 mm, hinge pivot from the group's front slab: 0.38 mm from the screw centre).
+FT1119 anchors (computed): brow fronts 05, brow tops 04, brow backs 02, -x temple outer 03, -x temple inner 06 (the
+'TOM FORD MADE IN ITALY CE' face), +x temple outer 06, temple tops 04; the bottoms and the +x temple inner are seen at
+donor angles (cos >= 0.5) on fewer than 5 % of their samples by every admitted view, so they have no anchor.
+
+### Verdicts per function
+
+`wp5lib.py`
+
+| Function | Verdict | Target / reason |
+|---|---|---|
+| module globals (`CAMDOC`, `FRAME`, `MESH`, `SCENE`, `PIVOT`, `CAMS0`, `IMGS`, `MATTES`, `VALID`) | rewrite | `inputs.load_job` -> `Job`/`View`: nothing is read at import time; photo and model sha256 checked against cameras.json (refuses on change); mattes recomputed with `matte.matte` defaults (what WP3b fitted on). |
+| `lum`, `acetate_mask`, `specular_mask`, `source_valid` | keep | `signals.luminance`, `acetate_mask`, `specular_mask`, `valid_mask` (verbatim rules). |
+| `ppm_local`, `ppm_pivot` | keep | `inputs.ppm_local`, `Job.ppm`. |
+| `hits` | rewrite | `gate.region_pixels`: first-hit pixels of one REGION (face set), on S' of the view, plus each pixel's fold. |
+| `sample_sources` | rewrite | `gate.sample_source`: samples a source at BODY points (face, barycentrics) on that source's own S' (cameras and hinges differ per view); donor rule cos >= 0.5 (probe 0.2). |
+| `source_gains`, `combine('best')` | rewrite | `check_print.direct_bake`: tier-1 weight cos^2 x px/mm, gains to the anchor from same-surface overlaps (>= 200 pairs). Stage-2 stand-in for steps 2-7. `combine('blend')` dropped (§6.2: mixing every view halves the energy). |
+| `astra_colours`, `UVC`, `TEXOF`, `ASTRA_TEX` | rewrite | `inputs.AstraTexture`; now multiplies `baseColorFactor` (q001's textured factors are 1, so no FT1119 number changes). |
+| `masked_gauss`, `corr`, `bandpass`, `null_spread`, `NULL_SHIFTS`, `metrics` | keep (instrument) | `print_metrics` (own copies, same arithmetic). `signals` has its own `masked_gauss`/`bandpass` for the tool. |
+| `roundd`, `crop_box`, `save_sheet` | rewrite | `report.write_json` (deterministic, no rounding, timings only in report.json); `check_print.write_sheet`. |
+
+`refine.py`
+
+| Function | Verdict | Target / reason |
+|---|---|---|
+| `sample_surface` | keep | `regions.sample_region` (area-uniform; seed per (seed, region)). |
+| `bp_image`, `BANDS` | rewrite | `signals.BandImages` per (view, signal, band): warmth and luminance (§2), sigmas from the view's WP3b px/mm. |
+| `view_values` | rewrite | `register.seen_samples` + `Objective.pair_values`: visibility fixed per band (§5.3), projection and valid-pixel test per evaluation. |
+| `pack`, `unpack`, `cam_delta` | keep | `pose.pack/unpack/cam_delta` (`cameras.pack`, unit 100 px). |
+| `refine_view`, `ref_from_sources`, `FREE`, `STEP0`, `BOUND` | drop | Camera-only refinement is dropped (§0: 1.78-2.47 mm, carries over one way only). |
+
+`aplib.py`: `warmth`, `irange` keep (`signals`); `masked_gauss`, `flatten_shading`, `shen_zheng` not ported here
+(steps 3: highlights and flatten).
+
+`noeco.py` -> `procs.opt_out_ecoqos` keep (+ `pool_map`: initializer opts every worker out, results in job order;
+`Progress`: a line at least every 30 s).
+
+`geomlib.py`: `set_vertices` drop (module-global scene swapping); `sample_bary` -> `regions.sample_region`; `points`
+-> `pose.points`; `BrowWarp` drop (3D quadratic warp, superseded by the anchor-ray parallax).
+
+`design_reg/p2_parallax.py`
+
+| Function | Verdict | Target / reason |
+|---|---|---|
+| `AnchorRayWarp` | rewrite | `pose.Deformer`: per REGION (part x facing class), axis = the region's anchor view; vertices shared by displaced regions take the mean displacement; S' per view adds that view's hinges. |
+| `stripe_of`, `stripe_masks` | keep | `regions.stripe_fold` (|axis| stripes, 4 mm, 0.5 mm guard), axis = the part's longest side (|x| brows, |z| temples). |
+| `values`, `visibility`, `pair_r`, `fit` | rewrite | `register.Objective`/`register`: anchor-partner pairs of every parallax region, warmth + luminance, FIXED pair weights per band (see defects), unbounded Powell with a wall at the box. |
+| `silhouettes`, `eval_stripes`, `gate`, `report` | rewrite | `register.Guards`, `check_print.case_images`, `gate.gate`, `step0`. |
+
+`design_reg/p2g_joint.py` (`joint_fit`, `WholeIoU`, `FrontIoUScene`) -> `register.register` + `Guards` (rewrite):
+guards on EVERY view's whole silhouette (probe: 02, 04, 06), the front-group IoU of every free-camera view and a temple
+IoU per free hinge (probe: none; P2g lost 01's whole IoU 0.870 -> 0.812 with the temples unhinged). `p2g_swap.py` ->
+the fold B fit (keep).
+
+`design_reg/p1_guarded.py`: `FrontIoU` keep (inside `Guards`; temple pixels by position, not name); `fit`,
+`gate_residual`, `evaluate`, `VARIANTS` drop (camera-only refinement).
+
+`design_reg/p5_temple_hinge.py`: `group`, `hinge` rewrite (`regions.rigid_groups`, by position); `rotated` keep
+(`pose.hinge_matrix`, same sign convention: positive opens on both sides).
+
+`design_reg/p6_region_edges.py` -> `edges.view_part_edges` (rewrite): per part (the probe grouped each temple with its
+hinge pieces), optional S' and pose, admission decision. Reproduces R P6: brows exact (0.01 mm), temples within
+0.06 mm (`tests/photoprint/test_edges.py`).
+
+`design_reg/p7_temple_gate.py`, `p7b_axis_null.py` -> `gate.gate` / `gate.gate_images` (rewrite): band 0.2-1.6 mm (probe
+1-8 px), warmth decides with irange agreement (probe: luminance), decoys outside the window (see defects), the 0.45
+floor kept, FFT NCC (`ncc_shift_maps`, equal to `step2b_global.ncc_shift_map` within 1e-9).
+
+`design_reg/p8_temple_joint.py`: folded into the joint fit (hinge per (free view, temple) + per-region parallax);
+`rot`, `geom_par`, `pts` -> `pose.Deformer`.
+
+`step2b_global.ncc_shift_map` -> `gate.ncc_shift_maps` (rewrite, FFT). `shiftlib.single_source_render` ->
+`gate.single_source_render` (rewrite: S' per view, region pixels, donor rule). `shift_field`, `summarize`,
+`draw_field` drop (diagnostics).
+
+`design_reg/p3_havana.stats`, `ap5_chroma_lovo.appearance/tol_bp`, `ap8_blur_trap`, `cov/p11_energy` ->
+`print_metrics` (band contrast, spectrum error, correlation length, decile dE00, energy ratios, tolerant bp; keep).
+`cov/p8_calib.py` not ported (B3 calibration numbers only; step 3).
+
+### Defects found in the scratch (fixed in the port)
+
+1. **Decoys inside the search window** (p7b, known): fixed, and the design's "R + 3 mm along the axis" is not enough
+   either: the window is a square, so on a diagonal axis a Euclidean R + 3 mm left ~1 mm between a decoy window and
+   zero shift. Decoys are now placed so their LARGEST coordinate is R + 3/6/9 mm (`gate.decoy_centers`, tested on a
+   diagonal region).
+2. **Pair weights = current overlap** (p2/p2g `pair_r`: sum r n / sum n with n at the candidate): a fit can drop a pair
+   out of the loss by losing its overlap. Seen in this port's first FT1119 fit (brow-top pairs at n = 0). Weights are
+   now fixed at each band's start.
+3. **scipy's bounded Powell is not monotone** (a port hazard, not a probe defect: the probe used unbounded Powell with a
+   flat wall): `minimize(method='Powell', bounds=...)` moves to the best point inside the line's box even when it is
+   worse than the start. Seen in this port's first fit (returned loss 0.83, true loss 29.5). The port uses unbounded
+   Powell, a wall of 1000 + distance outside the box, and returns the best exact point it evaluated.
+4. **Single-lattice value noise is a biased synthetic print** (this port's own A0 fixture, first version): the
+   18-shift null had mean r 0.09 because shifts landed on whole lattice periods. Three rotated, incommensurate octaves
+   with a quintic fade: null mean -0.004, std 0.076 on A0's 05 -> 01 case (the real print's spread is 0.07-0.11).
+
+### Defects of this port found by the build review (fix round 1, 2026-10-05)
+
+5. **The stripes protocol was not held out in the fit** (blocker). `signals.BandImages` band-passed every photo over
+   its whole `valid` mask with sigmas up to 3.2 mm (3 sigma about 10 mm) against 4 mm stripes and 0.5 mm guards; the
+   fold only chose which samples were read. Measured (`diagnostics/leakfree_variants.json`, `leak_check`; valid fold-B
+   pixels of every photo permuted among themselves, so `valid` and every visibility test are unchanged): the fold-A
+   objective at the WP3b start moved 0.604 -> 0.529, 0.746 -> 0.663, 0.912 -> 0.870 per band (pair NCC by up to
+   0.17). **Fix:** a fold fit rebuilds its band images at each band's start on `valid` & the pixels whose first hit
+   (current camera, the view's S') is a region face of the FITTED fold (`gate.fold_label_image`,
+   `register.Objective.fold_supports`); guard bands, the other fold and non-region pixels are out. Same permutation,
+   leak-free objective: bit-identical in all three bands (`tests/photoprint/test_fold_leak.py`, which also shows the
+   first build's support moving). `info['fold_support']` reports the support pixels the FINAL pose labels with the
+   other fold. The 'all' fit (the bake's refit) keeps `valid`.
+6. **The held-out evaluation read the fitted fold** (major). The gate band-passed its single-source render over
+   `ok` (both folds, sigma 1.6 mm); check_print's instrument filtered the renders over both folds too. **Fix:** the
+   render is band-passed on the evaluated fold's rendered pixels only (`gate.gate` -> `gate_images(ren_support=...)`;
+   `check_print.case_images` -> `print_metrics.evaluate_case(ren_support=...)`, the same support for the projection
+   and Astra); the photo keeps its full support (it is the reference the shift search moves over; nothing fitted is
+   in it). Tests: render garbage on the other fold changes nothing (`test_gate.py`, `test_print_metrics.py`), and on
+   FT1119 permuting the source photo's fold-A pixels leaves a fold-B gate bit-identical (`test_fold_leak.py`).
+7. **Significance on 1-2 decoys** (minor). A decoy counted when its window had a shift with >= 60 % overlap, and one
+   was enough. **Fix:** at least 4 of the 6 (`gate.MIN_DECOYS`, a `min_decoys` parameter of `gate`/`run_step0`), else
+   `too_few_decoys`; the count is in every gate row, in the region statuses and in `report.json` `gate_table`.
+   **Measured cost:** on thin curved regions seen from 01 the far decoys rarely keep 60 % overlap (synthetic Brow_Left
+   front 05 -> 01 A: overlaps 0.79 / 0.60 / 0.62 / 0.54 / 0.53 / 0.33), so on PERFECT synthetic photos at the true
+   cameras 4 of 20 gate rows are refused (3 valid decoys; peak 0.95 vs decoy max 0.21-0.27), and A7 now runs with
+   `min_decoys=1` (it tests determinism; at 4 nothing registers there and check_print would not run); fix round 2: `min_decoys=0`, since with decoys counted per displacement even 1 is not reached). On FT1119 the
+   rule refuses Brow_Right 01 -> 05 A (3 decoys, 0.59 vs 0.24, 0.76 mm); with 3 allowed Brow_Right would still fail
+   (05 -> 01 A not significant, 01 -> 05 B 0.97 mm). Whether to keep 4, or add decoy distances where the design's
+   three do not keep their overlap, is open.
+8. **STOP A ignored B1's parallax and the 'all' guards; B2 was hard-coded to held-out 01/05** (minor). `report.finalize`
+   now adds a `B1 failed: ...` reason whenever B1 fails (no brow front gate-registered, any guard of the A, B or 'all'
+   fit, or a registered region with |a| + |b| > 4 mm), lists every parallax region's |a| + |b| against the 4 mm limit
+   (`B1.parallax_over_4mm`, registered or not), and grades B2 over every registered held-out view.
+9. **A0 was reported as PASS on two readings the owner never approved** (major). The literal §8 criteria are now the
+   verdict (`tests/photoprint/a0.py`): residual <= 0.2 mm at EVERY view that sees a parallax region, and mean |null r|
+   <= 0.05. The first build's readings (fitted views only; |mean r|) are reported as `waiver_candidates` with their
+   values and never counted. The two failing literal criteria are `xfail(strict=True)` tests with the measured reason.
+
+### Design deviations (decided here, reported)
+
+- Registration samples, partners and the gate's source use the donor rule cos >= 0.5 (§6.2); the probe registered
+  with 0.2. Regions under 100 mm^2 (end caps) are not registered; a view anchors a region only if it sees >= 5 % of
+  the region's samples at donor angles.
+- **Partners** share >= 10 % of the samples with the anchor (A0: an 8.6 % pair, the -x temple top 04-06, ended
+  0.62 mm off on perfect synthetic photos) AND give the gate >= 400 graded pixels in both directions and both folds at
+  the start (a pair the gate can never test can never be registered; FT1119's first proof had the brow tops' 01/05
+  pairs at 0-440 gate pixels). Partners are NOT filtered by the edge gate (it decides donors and is re-measured after
+  registration; A0's perturbed view 01 fails it at its start camera).
+- **Gauge**: every anchor keeps its WP3b camera (§5.2 "per non-anchor view"); free cameras = partners that anchor
+  nothing. FT1119: 02, 03, 04, 05, 06 fixed, 01 free with a hinge per temple (the design's list).
+- ~~**Objective pairs** = (anchor, FREE partner) when the region has one~~ (fix round 2: withdrawn; the objective is
+  the design's every partner pair, see defect 13).
+- **Powell runs per band** (fix round 2): §5.3's "<= 2,500 evaluations per band" is kept per Powell RUN; a band
+  restarts Powell from its best point until a run lowers the loss by < 1e-4, at most 6 runs (defect 11). A band capped
+  at 2,500 evaluations stopped while the loss was still falling, so its end point was not a property of the photos.
+- **Decoy windows** (fix round 2): first decoy at R + 3 mm as designed, then every 2R + 1 px (7.0, 15.2, 23.4 mm at
+  4.8 px/mm) instead of R + 6 and R + 9 mm, so the six windows never overlap (defect 12); the design's layout is still
+  computed and reported beside every fold-protocol gate row (`alt_decoy_layout`).
+- **Perturbed starts** (fix round 2, reported only): 3 extra fits per fold from seeded offsets (cameras +/-1 deg and
+  +/-1 mm, hinges +/-1 deg, parallax +/-2 mm; box and guards still referred to WP3b) give the stability spread of the
+  parallax and of the gate verdicts. The WP3b-start fit is the one gated.
+- A0's "mean |null r| <= 0.05" is graded literally since fix round 1 (it fails: 0.057); |mean null r| (0.004) is a
+  waiver candidate only the owner can accept (a centred null's mean |r| is about 0.8 x its std, 0.08-0.1 for any
+  render, so the literal bound fails even for a perfect render).
+- The parameter box is the §5.2 box |a|, |b| <= 4 mm, so |d| can reach 8 mm at a region's end, while B1 limits
+  max |d| = |a| + |b| to 4 mm. The fit keeps the design's box; B1 reports every region over 4 mm and fails (STOP A)
+  when such a region registers. `register(parallax_limit=4.0)` (a wall on |a| + |b|) exists for the diagnostic below.
+- The instrument's null counts an E pixel when its displaced partner lies in the filter support (the probe: in E);
+  on striped held-out sets E & shifted E was empty (FT1119 held-out 01: no null at all), and C2 now fails without a
+  null instead of passing on a NaN margin.
+- check_print bakes per pixel (tier-1 best source + gain) until steps 2-7 exist; rows under 1000 E px are ungraded.
+- `contamination` (named by the design without a formula) = share of E where the render's colour fails the
+  instrument's acetate test.
+
+### Defects of this port found by the build review (fix round 2, 2026-10-05)
+
+10. **The fold hold-out was not end to end** (blocker). Each band's support was labelled at the pose where the band
+    started, but the gate and check_print graded labels at the FINAL pose; fix round 1's settle rounds cleaned only the
+    last band. Review measurement (fold-A fit): 17.2 / 22.6 / 10.5 % of view 01's band supports were final-pose fold B;
+    152 of the 890 graded pixels of Brow_Right 05 -> 01 B had been read by band 1; shuffling only final-pose fold-B
+    pixels moved Brow_Right fold A from (3.14, -3.96) to (0.23, 2.56) mm. **Fix:** a fold fit records every photo pixel
+    it read (`RegResult.reads` = the union of all band supports; `info['reads']` per view: pixels read, held-out
+    pixels at the final pose, how many of those were read, sha256); `gate.gate(reads=...)` drops target pixels in
+    `reads[v]` from E and source samples whose bilinear footprint touches `reads[w]`; `check_print.case_images` does
+    the same for h and every source. By induction over the bands a fold fit is then a function of the photo on `reads`
+    only. Settle rounds removed. **End-to-end tests** (`tests/photoprint/test_fold_leak.py`, real FT1119, whole fit:
+    3 bands, Powell restarts, guards, perturbed start): permuting every valid pixel the fit never read leaves the pose
+    and the read set bit-identical; permuting the first leak-free build's held-out set (every final-pose fold-B pixel)
+    moves the pose (teeth); permuting a source's read pixels leaves the gate and the check_print case bit-identical
+    with `reads` and moves both without it.
+    *Found along the way:* the gate's E is the rendered region eroded 2 px; eroding the render AFTER dropping read
+    samples also dropped clean evaluated-fold pixels next to dropped fitted-fold ones (at the test pose, Brow_Left
+    01 -> 05 B lost 905 -> 796 px with no pixel of its own read). E is now eroded on the region as rendered without
+    the drop, then intersected with the clean render.
+11. **The parallax the owner saw was not converged** (major). The first build stopped 7 of 12 bands / settle rounds
+    at maxfev 2,500 with the loss still falling (fold A's settle round 0.526 -> 0.490), and its end point depended on
+    the leaked pixels; the "7.10 mm, B1 would need ~7.1 mm" statement (results of fix round 1, below) rested on that
+    fit. **Fix:** Powell restarts per band until converged (deviation above), `info['converged']`, 3 perturbed starts
+    per fold and `report.json` `parallax_stability` (parallax per start, spread over s = +/-1, loss, convergence,
+    restart spread) and `gate_stability` (each gate row's verdict at every start); B1 copies the spread beside each
+    |a| + |b|. **The 7.1 mm statement and the B1 option built on it are withdrawn**; the converged numbers are below.
+12. **The decoy count did not count independent null samples** (major). A decoy counted when ANY of its window's
+    1,681 shifts kept 60 % overlap (§5.4 step 5 says each decoy's displacement), and the windows (2R = 8 mm wide, 3 mm
+    apart) overlap, so neighbouring decoys returned the same maximum (05 -> 01 B: +3 and +6 mm both 0.4363 at
+    (37.63, 2.01); 01 -> 05 B: -3 and -6 mm both 0.3530). **Fix:** a decoy counts only when its own displacement keeps
+    60 % overlap and its window maximum is not an already counted decoy's shift; disjoint windows (deviation above);
+    every decoy is reported (`decoy_rows`: displacement, overlap there, usable shifts in its window, maximum, argmax,
+    duplicate); `decoy_max` is over counted decoys, `decoy_max_any_window` is reported. `report.json` `gate_table`
+    carries the overlaps and the counts; `alt_decoy_layout` grades every fold-protocol row with the design's spacing.
+    Synthetic proof that the design's spacing duplicates: on test_gate's 80 mm strip one injected shift gave 2
+    distinct maxima from 6 decoys (`test_disjoint_decoy_windows_never_overlap_and_the_design_spacing_does`).
+13. **The default objective departed from §5.3** (major): only the free partner 01 entered the objective. **Fix:**
+    every partner pair is the default (`Plan.fit_fixed_partners = True`); the free-partner form remains a diagnostic.
+    A0 re-run (converged): camera 01 ends within 0.016 / 0.094 / 0.040 deg and 0.013 mm of the truth (first build:
+    -0.70 deg yaw, 0.055 mm); Brow_Right parallax a = 1.967 mm (true 2.00), b = 0.012; brow fronts <= 0.045 mm at
+    EVERY view (first build: 0.60 mm at 04). The residual waiver is restated (owner decisions below).
+14. **STOP A did not fire without an A0 verdict** (minor). `report.finalize` now fires on a missing verdict
+    (`stop_a['a0']` = passed / failed / missing); `step0 --a0` reads an A0 JSON (default `data/wp5/a0/a0.json`), and
+    the proof's `--finalize-only` folds a later A0 into a written report.
+
+### Results after fix round 1 (2026-10-05; leak-free protocol, literal A0) - SUPERSEDED by fix round 2
+
+**Withdrawn (fix round 2):** the Brow_Right "7.10 mm" fold-A parallax and the statement that registering Brow_Right
+on the fold-A fit would need B1's limit raised to about 7.1 mm came from a fit stopped at maxfev whose end point moved
+to 2.80 mm when only held-out pixels were shuffled (defects 10, 11). The gate rows and decoy counts below were also
+graded on pixels the fit had read and with the any-shift decoy count. Kept for the record only.
+
+
+`.venv/Scripts/python -B -m pytest -q tests/photoprint tests/instruments`: **63 passed, 2 xfailed** (6 min 46 s;
+`data/wp5/pytest_photoprint.log`; the xfails are the two literal A0 criteria that fail, strict). Proof: `python -m glasses3d.tests.proofs.wp5_ft1119` ->
+`data/wp5/a0/a0.json`, `data/wp5/ft1119/` (`registration.json` sha256 dc69bdac..., `check_print.json` 6fc834e3...,
+`report.json` with `gate_table`, `pixel_verifiable`, B1/B2, STOP A; `sheets_diagnostic/`). Diagnostics:
+`data/wp5/diagnostics/leakfree_variants.{py,json,log}`. The first build's outputs are kept in `data/wp5/pre_fix1/`
+(leaky protocol; `ft1119_leakfree_nosettle/` is the leak-free run before the settle rounds). The older
+`diagnostics/variants_foldA.json`, `objective_fixed_vs_free_partners.json` and `first_plan_foldA_fit.json` were
+measured with the LEAKY protocol and are superseded.
+
+**A0 (synthetic): FAIL on the literal §8 criteria** (`residual_every_view`, `null_mean_abs`); STOP A fires on this
+alone. The fit is unchanged from the first build (fold 'all' is not affected by the leak): camera 01 ends dyaw -0.70,
+dpitch +0.18, droll -0.15 deg, pivot 0.06 mm from the truth; Brow_Right front parallax a = 2.77 mm (true 2.0),
+b = 0.31.
+- Residual at the fitted views <= 0.057 mm (waiver candidate 1); at the other views that see a parallax region:
+  Brow_Right front at 04 0.60 mm (p90 0.76), Brow_Left front at 03 0.42 and at 04 0.24, +x temple outer at 02 0.28
+  and at 04 0.35 (-x temple inner at 04: 0.195, within). Regions without a partner (not moved by the fit) are off only where the
+  free camera sees them: Brow_Right top at 01 0.42 mm (the 0.70 deg camera error the parallax absorbed on the front).
+- Unperturbed 05 -> 01: bp 0.9994; mean |null r| 0.057 (limit 0.05), |mean null r| 0.004 (waiver candidate 2).
+- Gate: target registers 0.008 / 0.004 mm (5 and 4 valid decoys); refuses Astra's texture (below decoys), the +2 mm
+  camera (significant, 2.00 mm) and the swapped photos (below decoys; too few decoys); sigma 4 px blur fails C3.
+- With every partner pair in the objective (`fit_fixed_partners`, diagnostic): the brow fronts are <= 0.054 mm at
+  every view, but A0 still fails literally at thin grazing views (+x temple outer at 02 0.77 mm on 111 samples,
+  Brow_Left top at 03 0.31 mm, -x temple inner at 04 0.27 mm).
+
+**The leak, measured and removed** (`leakfree_variants.json` `leak_check`, fold-A objective at the WP3b start, valid
+fold-B pixels permuted): first build 0.604 -> 0.529, 0.746 -> 0.663, 0.912 -> 0.870 (pair NCC up to 0.17); leak-free
+0.600, 0.659, 0.844, bit-identical after the permutation. Settle rounds (share of a view's last-band support that the
+final pose labels with the other fold, view 01 every time): fold A 6.5 % -> 1.4 % -> 0.0 %, fold B 9.5 % -> 0.4 %.
+
+**FT1119: STOP A fires** (A0; no brow front registered; B1: no brow front gate-registered, and the fold-A fit left
+01's +x temple guard at a drop of 0.02003, 0.00003 over the limit). Plan unchanged (fixed 02-06, free 01 with a hinge
+per temple; parallax regions Brow_L/R front, -x temple inner (06/01), +x temple outer (06/01)).
+
+Brow_Right front, gate rows (evaluated fold, fitted on the other; warmth peak vs decoy max, valid decoys):
+
+| Pair, eval fold | First build (leaky) | Leak-free fit + fold-only render (this build) |
+|---|---|---|
+| 05 -> 01, B | 0.91 mm, significant, over 0.8 | **0.40 mm, registered** (0.78 vs 0.44, 5 decoys) |
+| 05 -> 01, A | 0.14 mm, registered | not significant (0.503 vs 0.509, 4 decoys), 0.13 mm |
+| 01 -> 05, B | 0.37 mm, registered | significant, **0.97 mm, over 0.8** (0.77 vs 0.35, 4 decoys) |
+| 01 -> 05, A | 0.27 mm, registered | **too few decoys** (3 valid; 0.59 vs 0.24), 0.76 mm |
+
+The protocol alone moved these rows by up to 0.6 mm, so the first build's "fails by 0.11 mm" was not a stable
+reading, and **loosening the residual limit does not register Brow_Right**: two of the four rows fail significance,
+not the residual. Both diagnostic variants give the same pattern (leak-free, settled; 05->01 B / 01->05 B / 05->01 A /
+01->05 A): every partner pair in the objective 0.38 registered / 0.96 over / not significant / 3 decoys; |a| + |b|
+<= 4 mm 0.14 registered / 0.98 over / not significant / 3 decoys.
+- Brow_Left front: never significant (one row has 2 decoys). -x temple inner: 3 of 4 rows have only 1-2 valid
+  decoys (too few), the fourth is below its decoys. +x temple outer: never significant. 04's brow-front pairs:
+  < 400 gate pixels or below decoys.
+- **Parallax** (|a| + |b| = max |d|): Brow_Right front fold A (3.14, -3.96) = **7.10 mm**, fold B 2.71, all 4.34;
+  B1 lists it over 4 mm in fits A and all (it is not gate-registered, so B1 does not fail on it). Any proposal to
+  register Brow_Right on the fold-A fit would also need B1's 4 mm limit raised to about 7.1 mm; with the fit held to
+  |a| + |b| <= 4 mm (diagnostic) the gate pattern does not change.
+- **Pixel-verifiable share**: the regions with a partner are 2,229 of 7,350 mm^2 (30.3 %); Brow_Right front alone is
+  255.6 mm^2 (3.5 %); verified 0 %. (WP5_DESIGN §0/D4 said "about 16 %" for Brow_Right; corrected there.)
+- **Diagnostic check_print (never gating)** on Brow_Right front, now with the render filtered on the evaluated fold:
+  C1 margins 4.58 / 1.90 / 3.10 / -0.12, C2 margins -0.061 / +0.213 / -0.010 / +0.170 (held-out 05 B / 05 A / 01 B /
+  01 A), C3 and C4 pass; bp 0.45-0.66 vs Astra 0.07-0.20. The first build's "passes C1-C4 in all four rows" does not
+  survive the leak-free evaluation (3 of 4 rows fail C1 or C2). Brow_Left and the temples fail C1 or C2 in every row.
+- Camera 01 moved <= 0.50 deg and <= 0.59 mm; hinges -0.57 to +1.07 deg. Binding guards: 01's temple IoUs (0.019-
+  0.020) and 02/04 whole silhouettes.
+- Runtime 425 s per job on an otherwise idle machine (fits B / A / all 255 / 303 / 372 s in parallel, settle rounds
+  included; 795 s when it shared the machine), above the 5-minute target; 7 of 12 bands / settle rounds stopped at
+  maxfev 2500. Two runs (the second after adding `min_decoys`) gave identical fits, gate tables, B1 and STOP A.
+
+### Results after fix round 2 (2026-10-05; reads excluded, every partner pair, converged, decoys per displacement)
+
+Commands: `python -m glasses3d.tests.proofs.wp5_ft1119 --a0-only` -> `data/wp5/a0/a0.json` (sha256 59ed0c91...);
+`... --skip-a0 --workers 7` -> `data/wp5/ft1119/` (`registration.json` 5f4a1c02..., `check_print.json` aec98386...,
+`report.json`, `sheets_diagnostic/`, `proof.log`); `data/wp5/diagnostics/round2_summary.{py,json}` (every gate row
+under both decoy layouts and without decoys, stability, reads) and `a0_decoy_layouts.{py,json}`. Round-1 outputs are
+in `data/wp5/pre_fix2/`. Every band of every fit converged (a Powell run gained < 1e-4 after 2-4 runs; none reached
+MAX_RUNS). Runtime 2,178 s on 7 workers: 12 fits 1,970 s (WP3b starts A / B / all 785 / 420 / 715 s; perturbed
+starts 424-1,321 s), gates 63 s, check_print 135 s.
+Tests: `.venv/Scripts/python -B -m pytest -q tests/photoprint tests/instruments` -> **74 passed, 3 xfailed** (15 min 41 s;
+`data/wp5/pytest_photoprint.log`; the xfails are the three literal A0 criteria that fail, strict). A first run that the
+machine slept through (`pytest_photoprint_sleep_interrupted.log`) had one subprocess die at resume with 0xC0000142
+(DLL init failed) in `test_no_import`; it passes alone and in the clean run.
+
+**A0 (synthetic): FAIL on the literal §8 criteria** (`residual_every_view`, `target_registered_both_directions`,
+`null_mean_abs`). With every partner pair the fit recovers the truth: camera 01 within 0.016 / 0.094 / 0.040 deg and
+0.013 mm; Brow_Right parallax a = 1.967 mm (true 2.00), b = 0.012; brow fronts <= 0.045 mm at every view; every row
+at a fitted view <= 0.040 mm and every row except three thin grazing views <= 0.072 mm. The residual fails only at
+views outside the objective that see the region on fewer samples than a partner needs: Brow_Left top at 03 (312
+samples, 0.334 mm), -x temple inner at 04 (199, 0.300), +x temple outer at 04 (274, 0.241). The target does NOT
+register: with each decoy counted only where its own displacement keeps 60 % overlap, the brow front seen from 01 keeps
+1 decoy (05 -> 01) and 0 (01 -> 05) on PERFECT photos (peaks 0.995, residuals 0.018 / 0.017 mm). Refusals hold, but
+vacuously (every gate fails the decoy rule). Unperturbed bp 0.9994; mean |null r| 0.0570 (|mean null r| 0.0036);
+blurred bake fails C3; guards within.
+
+**FT1119: STOP A fires** (A0 failed; no brow front registered; B1: no brow front gate-registered, and the fold-A fit
+left 01's -x temple guard at a drop of 0.02055, 0.0006 over). Status `partial`; nothing registered (0 % verified;
+regions with a partner 2,229 of 7,350 mm^2, 30.3 %). Plan: fixed 02-06, free 01 with a hinge per temple, 4 parallax
+regions, 6 pairs (the brow fronts now fit 05-01 AND 05-04).
+
+Pixels the fits read (removed from every held-out grading): view 01, fold A fit 11,726 px read, of which 1,912 of the
+8,009 final-pose fold-B pixels (24 %); fold B fit 1,749 of 8,196 (21 %); views 04 / 05 / 06 <= 45 px each (fixed
+cameras: parallax along the anchor axis barely moves their labels). The cost shows on the +x temple outer face seen
+from 01: 06 -> 01 keeps 349 / 303 graded px (400 / 456 removed) and becomes ungradable (< 400).
+
+Fold-protocol gate rows (evaluated fold, fitted on the other; graded px; warmth peak; residual; counted decoys with
+the overlap at each decoy displacement):
+
+| Region, pair, eval fold | E px | peak | residual mm | decoys (disjoint) | overlaps at the 6 displacements | no decoys |
+|---|---|---|---|---|---|---|
+| Brow_Right front 05->01 B | 616 | 0.83 | 0.28 | 1 | 0.58 0.65 0.31 0.48 0.19 0.54 | registered |
+| Brow_Right front 05->01 A | 825 | 0.64 | 1.76 | 0 | 0.56 0.43 0.33 0.23 0.25 0.16 | no |
+| Brow_Right front 01->05 B | 590 | 0.78 | 0.66 | 1 | 0.48 0.65 0.27 0.48 0.18 0.44 | registered |
+| Brow_Right front 01->05 A | 887 | 0.55 | 1.22 | 0 | 0.54 0.44 0.29 0.17 0.23 0.14 | no |
+| Brow_Left front 05->01 A | 634 | 0.65 | 0.72 | 1 | 0.66 0.46 0.51 0.24 0.39 0.15 | registered |
+| Brow_Left front, 7 other rows | 459-941 | 0.46-0.76 | 1.07-3.51 | 0-3 | max 0.82 | no |
+| -x temple inner 01->06 B | 1,428 | 0.57 | 0.51 | 0 | 0.54 0.46 0.15 0.15 0.10 0.09 | registered |
+| -x temple inner, 3 other rows | 1,051-1,369 | 0.57-0.66 | 0.82-1.51 | 0-1 | max 0.67 | no |
+| +x temple outer 01->06 B | 576 | 0.45 | 2.68 | 6 | 0.99 0.91 0.97 0.76 0.93 0.65 | no |
+| +x temple outer, 3 other rows | 303-381 | - | - | - | too few pixels | no |
+
+Brow_Right's 05 <-> 04 rows have < 400 px or no decoys (05 -> 04 A: 0 decoys, 2.90 mm). Under §5.4's spacing
+(R + 3 / 6 / 9 mm, `alt_decoy_layout`) the counts differ by at most 2 (+x temple outer 01 -> 06 B: 6 vs 4) and 4 rows
+show repeated maxima (Brow_Left 04 -> 05 A and +x temple outer 01 -> 06 B: 2 duplicates each). With no decoy
+rule at all (warmth peak >= 0.45, irange agreement, residual <= 0.8 mm) 4 rows would register, but **no region in
+both directions and both folds**: Brow_Right's fold-A rows are 1.76 and 1.22 mm. So the decoy decision does not change
+FT1119's STOP A today.
+
+**Parallax and its stability** (|a| + |b| = max |d|; WP3b start; spread = max over s = +/-1 of the range of d(s) over
+the WP3b start and 3 perturbed starts, all converged):
+
+| Region | fit A (a, b) / spread | fit B (a, b) / spread | fit all (a, b) / spread |
+|---|---|---|---|
+| Brow_Right front | (0.75, -2.62) 3.36 mm / 7.0 | (1.68, 0.91) 2.59 / 11.2 | (1.88, -3.84) 5.72 / 8.1 |
+| Brow_Left front | (-0.87, 0.70) 1.56 / 6.1 | (-0.79, -1.02) 1.82 / 6.8 | (0.50, 2.77) 3.27 / 3.7 |
+| -x temple inner | (-0.02, -0.27) 0.29 / 3.5 | (0.50, 1.24) 1.74 / 3.6 | (-0.15, -0.62) 0.76 / 3.3 |
+| +x temple outer | (-1.15, 0.57) 1.72 / 4.7 | (-1.61, 0.85) 2.46 / 4.3 | (-1.06, 0.72) 1.78 / 3.6 |
+
+**The parallax is not a stable property of the photos either.** Converged fits from different starts end 3.3-11.2 mm
+apart at the region ends; several perturbed fits end on the +/-4 mm box. The WP3b-start fit has the lowest final
+loss in folds A (0.610 vs 0.639 / 0.664 / 0.802) and 'all' (0.631 vs 0.648-0.709), but NOT in fold B (0.670; perturbed
+start 3: 0.614; `report.json` warning). The gate verdicts move with the start too (Brow_Right 05 -> 01 B: 0.28 / 0.50 /
+1.24 mm / too few px; 05 -> 01 A: 1.76 / 2.11 / 0.59 mm / too few px; `gate_stability`). The first build's
+"~7.1 mm, raise B1 to ~7.1 mm" is withdrawn; B1 lists Brow_Right over 4 mm only in the 'all' fit (5.72 mm, spread
+8.1 mm across starts), which is not gate-registered. Camera 01 moves from WP3b by -0.38 / +0.69 / -0.03 deg yaw and
+1.01 / 0.63 / 0.62 mm (fits A / B / all).
+
+**Diagnostic check_print (never gating)**: Brow_Right front bp 0.49-0.60 vs Astra 0.00-0.20 on held-out 05 and 01;
+its one gradable row (held-out 05, fold A, 1,200 px) fails C1 (C2 +0.002); the others have < 1,000 px. Brow_Left
+fails C1 and C2 in every row.
+
+### Open owner decisions (after fix round 2)
+
+1. **The decoy rule** (§5.4 step 5; the round-1 "decision 3" restated with the facts). As written (each decoy's own
+   displacement >= 60 % overlap, >= 4 decoys) it refuses PERFECT synthetic photos: the brow front seen from 01 keeps
+   overlaps 0.69 / 0.50 / 0.41 / 0.32 / 0.28 / 0.20 at the disjoint displacements (7.0 / 15.2 / 23.4 mm) and
+   0.71 / 0.49 / 0.59 / 0.36 / 0.48 / 0.30 at the design's 7 / 10 / 13 mm, where the +7, +10 and +13 mm windows all
+   return the same maximum (0.205 at one shift); 01 -> 05 keeps 0 above 60 % under either spacing. On FT1119 no brow
+   row keeps more than 3. The rule is a geometric limit, not noise: a thin curved region displaced 7 mm along its
+   principal image axis leaves its own band. Options: (a) keep it: nothing can register, so STOP A fires on every
+   product by construction; (b) decide on the 0.45 floor, irange agreement and the residual alone: A0's target
+   registers both ways and every refusal holds, but the swapped photo (01 <-> 06, 01 -> 05) is refused only by its
+   1.00 mm residual (0.2 mm over the limit) and the +2 mm camera only by its 2.01 mm residual; on FT1119 4 single rows
+   register and no region in both folds; (c) a different null that keeps overlap (decoys displaced along the region's
+   own curve, or another region's print): design work, not measured. Recommendation: (c) before (b); (a) stops WP5.
+2. **A0 residual waiver** (restated): the literal "every view" rule fails only at three thin grazing views outside the
+   objective (Brow_Left top at 03: 312 samples, 0.334 mm; -x temple inner at 04: 199, 0.300; +x temple outer at 04:
+   274, 0.241); every other row <= 0.072 mm. The candidate waiver is exactly "views outside the objective that see the
+   region on fewer samples than a partner needs" (`waiver_candidates.residual_except_thin_views`).
+3. **A0 null**: mean |null r| 0.0570 > 0.05 on a perfect render (|mean null r| 0.0036): unchanged from round 1.
+4. **D4** (WP5_DESIGN §12) still has to be asked again with 3.5 % (the "continue" was given against 16 %); with
+   nothing registered on FT1119 today, the verified share is 0 %.
+
+Engineering finding that needs no decision but bounds what the owner can expect: the joint fit is multi-modal on
+FT1119 (parallax spread 3.3-11.2 mm across converged starts, fold-B WP3b fit not the lowest minimum); WP5_DESIGN §11
+risk 2 measured 0.65-1.63 mm between folds in the probe. Next steps if WP5 continues: choose the fit by loss over
+several starts (with the read sets of every start excluded from grading), or constrain the parallax (B1's 4 mm wall as
+the default box, or a prior).
+
+### Not done in this pass
+
+Extrapolation fold (reported-only); the 15k-sample / stride-3 fast mode and its "gate decisions unchanged" test
+(the runtime is now 36 min per job with the stability starts, 7-22 min per fit, against the 5-minute target); the
+step-4 curve cross-check (held-out bp -> shift); B0 on FT1119 (no region registered; B0 runs in the A7 test); a
+multi-start fit choice; build step 3 (UV layout, Blender side, texels, tiers, gains, highlights, labels, fill,
+flatten, compose, bake).
+PROGRESS.md line 170 still says "~16% of the print area verified" (not edited here: shared file).
+
+### STOP A measurements with all six views (2026-10-06; `data/wp5/stopA.json`)
+
+Owner context: PROGRESS 'WP5 resumed' (continue; D1-D3, D5, D6 as recommended; every FT1119 temple face is photographed:
+03 = the wearer's RIGHT side = the -x temple's outer face; 06 = the wearer's LEFT side from ~19 deg above = the +x
+temple's outer face plus the -x temple's inner face with 'TOM FORD MADE IN ITALY CE'). No `photoprint` module and no
+line of `print_metrics` changed in this pass; nothing under `g3d/`, `arview/`, `spec.py` or the WP4 files was touched.
+
+New or changed files (all host side, tests and proof drivers):
+- `tests/proofs/wp5_ft1119.py`: `--out DIR` and `--name RUN` (the previous run's directory `data/wp5/ft1119/` could not be
+  moved on this machine, so the STOP A runs write under `data/wp5/stopA/`).
+- `tests/proofs/wp5_brow_left_warmth.py` (new): Brow_Left's front with the warmth objective (WP5_DESIGN §0 (b)), three
+  variants fitted on folds A and B from WP3b and gated exactly as step 0 (both directions, both folds, read pixels
+  excluded): `joint_warmth` (the design's plan, warmth only), `brow_left_warmth` (only Brow_Left's front carries a
+  parallax and enters the objective; camera 01 and its hinges fitted to it alone), `brow_left_warmth_lum` (that plan with
+  the design's warmth + luminance, so the two single-region variants separate the signal from the plan).
+- `tests/proofs/wp5_stopA.py` (new): reads the runs, re-derives STOP A from §9's four conditions (asserts agreement
+  with report.json), writes `data/wp5/stopA.json` and the side-by-side sheets `data/wp5/sheets/` (photo | projection
+  from the OTHER views only, through the 'all' registration on S' | Astra on S; regions that did not register go to
+  `sheets/not_registered/` with that in their header).
+- `tests/photoprint/test_stopA.py` (new): the assembler's gate grouping (all four fold rows needed; floor-only reading)
+  and the four §9 conditions on fabricated reports.
+
+Commands (cwd = repo root): `glasses3d/.venv/Scripts/python -B -m glasses3d.tests.proofs.wp5_ft1119 --a0-only --out
+glasses3d/data/wp5/stopA`; `... --skip-a0 --workers 7 --name ft1119` and `... --skip-a0 --workers 6 --name ft1119_run2`
+(in parallel), then `--finalize-only` for each; `... -m glasses3d.tests.proofs.wp5_brow_left_warmth --workers 6`;
+`... -m glasses3d.tests.proofs.wp5_stopA`.
+
+**Six-view audit.** The plan already used all six photos with sides by x sign: anchors brow fronts 05, brow tops 04,
+brow backs 02, -x temple outer 03, -x temple inner 06, +x temple outer 06, temple tops 04; partners 05-01 and 05-04
+(brow fronts), 06-01 (-x temple inner and +x temple outer). The correction reveals NO new pair: 03 alone sees the -x
+temple's outer face at donor angles (02 shares 211 and 04 109 of 30,000 samples with it, below the 10 % partner need),
+and 01 / 06 see that temple's inner face, not its outer one. So the -x temple's outer face is single-view (B3 only);
+the 'temples 03/06/01' pairs are 06-01 on two faces, already gated.
+
+**A0: FAIL** on the literal §8 criteria, bit-identical to fix round 2 (apart from timings): residual_every_view (0.334 mm
+at 03 on Brow_Left top, 312 samples), target_registered_both_directions (1 and 0 decoys on perfect photos),
+null_mean_abs (0.0570).
+
+**A7 on the real job: PASS.** registration.json (5f4a1c02...), check_print.json (aec98386...) and all 20 diagnostic
+sheets are byte-identical across three runs: 2026-10-05 (fix round 2), 2026-10-06 run 1 (7 workers) and run 2
+(6 workers, run concurrently). So the 2026-10-05 numbers stand unchanged; the A0 JSON also matches without timings.
+
+**B1: FAIL.** Gate rows (fold protocol; residual mm; every row fails the decoy rule unless noted):
+
+| Region (anchor) | Partner | 05/06 -> p, B | 05/06 -> p, A | p -> 05/06, B | p -> 05/06, A | registered |
+|---|---|---|---|---|---|---|
+| Brow_Right[+x] front (05) | 01 | 0.28 | 1.76 | 0.66 | 1.22 | no (0/4) |
+| Brow_Right[+x] front (05) | 04 | < 400 px | 2.90 | < 400 px | < 400 px | no |
+| Brow_Left[-x] front (05) | 01 | 1.96 | 0.71 | 3.51 | 1.93 | no (0/4) |
+| Brow_Left[-x] front (05) | 04 | 1.69 | 1.07 | 1.99 | 3.05 | no |
+| -x temple inner (06) | 01 | 0.82 | 0.90 | 0.50 | 1.51 | no |
+| +x temple outer (06) | 01 | < 400 px | < 400 px | 2.68 (below decoys) | < 400 px | no |
+
+Without any decoy rule (warmth peak >= 0.45, irange agreement, <= 0.8 mm) 4 single rows would pass and still no region
+in both directions and both folds (Brow_Right's fold-A rows are 1.76 and 1.22 mm). Guards: view 01's whole silhouette
+WITH the hinge fit stays within (drop 0.0102 / -0.0013 / 0.0011 in fits A / B / all, start 0.870; the probe's unhinged
+P2g lost 0.058): with the hinges free the guard holds (WP5_DESIGN §0 point (a), §11 risk 3), but these fits do not
+register the print either, so whether a REGISTERING fit would need to break it is still not shown; the fold-A fit leaves 01's -x temple IoU at a drop
+of 0.02055 (0.00055 over), allowed by §5.3's SOFT penalty (0.5 NCC per 0.01) and failed by B1's hard 0.02. Parallax
+|a| + |b| (fits A / B / all): Brow_Right 3.36 / 2.59 / 5.72 mm, Brow_Left 1.56 / 1.82 / 3.27, -x temple inner 0.29 /
+1.74 / 0.76, +x temple outer 1.72 / 2.46 / 1.78; spreads across converged starts 3.3-11.2 mm (unchanged).
+
+**Brow_Left with the warmth objective: does not register** in any variant, and not in both folds even without decoys:
+
+| Variant (objective, plan) | 05->01 B | 05->01 A | 01->05 B | 01->05 A | 05<->04 rows |
+|---|---|---|---|---|---|
+| design run (warmth + lum, joint) | 1.96 | 0.71 | 3.51 | 1.93 | 1.07-3.05 |
+| joint_warmth (warmth, joint) | 2.02 | 0.36 | 1.00 (peak 0.43 < 0.45) | 0.23 | 0.53-4.45 |
+| brow_left_warmth (warmth, Brow_Left alone) | 3.36 | 0.24 | 3.20 | 0.35 | 0.22-4.56, one < 400 px |
+| brow_left_warmth_lum (warmth + lum, alone) | < 400 px | 0.82 | < 400 px | 3.10 | < 400 px or 1.24 |
+
+Warmth brings Brow_Left's fold-A rows under 0.5 mm (0.23-0.36) where the design objective gave 0.71-1.93, but the fold-B
+rows (fitted on fold A) stay 1.0-3.4 mm: the warmth fit does not carry over between stripe sets. The diagnostic
+check_print rows fail C1 or C2 in every variant (C2 margins -0.18 to -0.65). Every row also fails the decoy rule (0-3
+counted decoys).
+
+**B2: vacuous** (no region registered, nothing graded). Diagnostic rows (never gating) on the regions with partners:
+Brow_Right front bp 0.49-0.60 vs Astra 0.00-0.20 on held-out 05 and 01; its one row with >= 1,000 E px (held-out 05,
+fold A, 1,200 px) passes C2 (+0.002), C3 (0.4-1.6 mm 1.01, 1-4 px 1.23), C4 (0.42 %) and fails C1 (gained dE00 5.86 vs
+7.34, margin +0.98 but the CI's upper end +0.22 is not < 0). Brow_Left fails C1 and C2 in every row; the -x temple inner
+passes C1 on 3 of 4 rows and fails C2 on all 4.
+
+**STOP A: FIRES** (§9): A0 fails; no brow front registers in both folds; a guard is broken (fit A, 01's -x temple
+IoU, 0.00055 over); no registered region exists to fail C1-C4. Status `partial`; pixel-verified 0 % (regions with a
+partner 2,229 of 7,350 mm^2). Per §9, WP5 can now deliver only single-source print checked by B3, if the owner accepts
+that scope (D4).
+
+Tests: `.venv/Scripts/python -B -m pytest -q tests/photoprint tests/instruments` -> **76 passed, 3 xfailed** (15 min
+15 s; `data/wp5/stopA/pytest.log`, `pytest.xml`; the xfails are the three literal A0 criteria, strict; A7's synthetic
+`test_two_runs_are_byte_identical` passes). Runtime of one step-0 run with two runs and the variants sharing the
+machine: 2,690 s (12 fits 2,530 s, gates 52 s, check_print 101 s); variants 1,222 s on 6 workers.
+
+Not done in this pass: B0 on FT1119 (nothing registered); the 15k-sample fast mode; a hard-wall guard variant (would
+remove the 0.00055 overshoot; does not change STOP A); PROGRESS.md (shared file) not edited.
