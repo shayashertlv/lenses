@@ -29,7 +29,7 @@ def outdir():
 
 @pytest.fixture(scope="module")
 def bake(ft1119_job, outdir):
-    return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=4, log=None,
+    return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=None, log=None,
                                     compare_fill=("patchmatch",), **TH)
 
 
@@ -98,7 +98,7 @@ def test_a3_compose(bake):
     assert a3["protected_byte_identical"] and a3["patchmatch_outside_changed_total"] == 0
     assert a3["patchmatch_every_hole_changed"] and a3["calls"]
     prot = bake["protected"]
-    fin = bake["final_unpadded"]
+    fin = bake.get("final_radiance", bake["final_unpadded"])      # correction round: before the AR level, if any
     assert prot.sum() > 0 and np.array_equal(fin[prot], bake["P0"][prot])
 
 
@@ -211,7 +211,7 @@ def test_cover_rule_decides_pairs_together():
 def test_below_min_cover_parts_get_no_texture(ft1119_job, outdir, bake):
     """The no-texture path (flat grey, class no_texture, source 0, never protected, left out of texture_parts), forced
     with ``min_cover`` = 0.99 on a small bake (radii given: no knockout)."""
-    r = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=4,
+    r = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=None,
                                  log=None, min_cover=0.99, radii_mm={p: 0.3 for p in IN.FT1119_PARTS}, **TH)
     rep_ = r["report"]
     assert rep_["below_min_cover"] == list(IN.FT1119_PARTS) and rep_["texture_parts"] == []
@@ -341,6 +341,12 @@ def test_refusals(ft1119_job, outdir):
 
 
 A4_KNOWN_AT_8 = {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False}
+# correction round (2026-10-06): quilting passed A4 on the +x temple (q001 Temple_Right) at 8 texels/mm. Fix round 1
+# (2026-10-07, re-pinned deliberately): it FAILS again (fine-band log energy and seam). Measured at 8 texels/mm with
+# each change alone: the pass needed BOTH the correction round's plain footprint and its flatten (plain + flatten on:
+# pass; plain + flatten off: fail; 'edges' + flatten on: fail), i.e. the verdict sits on a knife edge of which photo
+# texels the holes are drawn in and their colours. At 16 texels/mm (the production bake, data/wp5/ft1119_bake/bake.json)
+# all four parts fail in both rounds.
 # 7ac7c8f (PyPatchMatch at its knockout radii) passed Brow_Right here; step 4's quilting fails it: a REGRESSION of A4,
 # taken for the visual reason in report['fill']['choice'] (see A4_FILLERS_KNOWN_AT_8 for PyPatchMatch on the same holes)
 A4_AT_8_7AC7C8F = {"Brow_Left": False, "Brow_Right": True, "Temple_Left": False, "Temple_Right": False}
@@ -350,9 +356,9 @@ def test_a4_fill_knockout_known_verdicts(bake):
     """A4 graded by the instrument, fix round 2: 8 seeded holes per part drawn BY THE PROOF over every single-view area
     (never the tool's hole functions), medians with their spread, the mean-colour limit calibrated by the donor ring.
     The verdicts are PINNED so that a change cannot hide. Step 4: the filler under test is the bake's own (block
-    quilting) at its own knockout radius. KNOWN STATE at 8 texels/mm: all four parts FAIL (fine-band log energy; seam
-    ratios in ``test_a4_each_filler_at_its_own_radius``); at 7ac7c8f Brow_Right passed (``A4_AT_8_7AC7C8F``): a
-    regression. Every hole also gets a REAL-vs-real floor (step 4 fix round 1: a nearby same-shaped real region on the
+    quilting) at its own knockout radius. KNOWN STATE at 8 texels/mm (fix round 1 of the correction round): all four
+    parts FAIL (fine-band log energy; seam ratios in ``test_a4_each_filler_at_its_own_radius``); at
+    7ac7c8f Brow_Right passed (``A4_AT_8_7AC7C8F``): a regression. Every hole also gets a REAL-vs-real floor (step 4 fix round 1: a nearby same-shaped real region on the
     hole's own chart and facing class, same photo, magnification within x/: 1.25), reported with its spread as a
     DIAGNOSTIC: it never changes or excuses the verdict. With more holes in the photo texels (step 4's metal / line
     holes) a hole may find no room (reported). Update A4_KNOWN_AT_8 deliberately."""
@@ -380,13 +386,16 @@ def test_a4_fill_knockout_known_verdicts(bake):
 A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False},
                          "patchmatch": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False,
                                         "Temple_Right": True}}
+# correction round (2026-10-06): quilting passed the +x temple and PyPatchMatch also the -x brow (q001 Brow_Left) at
+# 8 texels/mm. Fix round 1 (2026-10-07, re-pinned deliberately): only PyPatchMatch on the +x temple passes; the two
+# correction-round passes needed both its plain footprint and its flatten (see A4_KNOWN_AT_8)
 
 
 def test_a4_each_filler_at_its_own_radius(bake):
     """Step 4 fix round 1 (review: the step-4 comparison ran PyPatchMatch at quilting's 0.9 mm): each filler at the
     radius ITS OWN knockout chose in this bake (``compare_fill``; PyPatchMatch from 0.3 / 0.5 / 0.9 mm), on the same
-    A4 holes. KNOWN STATE at 8 texels/mm (pinned): PyPatchMatch PASSES A4 on the +x temple (q001 Temple_Right), where
-    quilting fails; neither passes elsewhere. The production filler stays quilting for the VISUAL reason recorded in
+    A4 holes. KNOWN STATE at 8 texels/mm (pinned, fix round 1 of the correction round): only PyPatchMatch passes, on
+    the +x temple (q001 Temple_Right). The production filler stays quilting for the VISUAL reason recorded in
     report['fill']['choice'] (the owner saw PatchMatch's wood grain along the strips): a choice that costs A4.
     Update A4_FILLERS_KNOWN_AT_8 deliberately."""
     from glasses3d.g3d_host.photoprint import fill as FL

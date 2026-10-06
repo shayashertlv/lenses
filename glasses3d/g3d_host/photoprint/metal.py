@@ -39,6 +39,20 @@ bright pad-arm flecks at the brows' nose-side ends came in the same way. Two rul
   pad stalks, so no margin reaches them).
 - Small acetate-test islands (<= 2 mm2) enclosed by the mask go with it (a hinge barrel's shaded interior).
 
+**Correction round (2026-10-06, task item 2: brow-front coverage; measured on photo 05's view of the brow fronts,
+per texel the first failing donor rule, numbers in PORT_REVIEW section 10):**
+- the LARGE-hardware margin (1.0 mm around the T-trim and the bridge) is off (``HARDWARE_MARGIN_LARGE_MM`` = 0): it
+  cost 4.7 % of the +x brow front, where the photo shows acetate print right up to the T; the occluder margin
+  (photometric since this round, ``texels``) and the bicubic footprint (2.5 px from bright non-acetate pixels) keep
+  the T's own pixels out. They did NOT keep its anti-aliased edge out (fix round 1 review: a column of bright outliers
+  3.6 px beside the -x T's stroke, whose light edge pixels pass the acetate colour test): the footprint's 'edges'
+  rule now also keeps 2.5 px from those light edge pixels (``texels.footprint_holes``). Small hardware (hinges, pad mounts and stalks, whose shaded
+  gold passes the acetate test) keeps its 2.5 mm.
+- thin lines are no longer dilated by a blanket pixel: a glint's 1-px neighbour joins it only if it is itself brighter
+  than its masked opening by >= half the line contrast (its shoulder); dark lines keep the 1-px dilation. The blanket
+  dilation tripled a 1-px glint and took dark print beside it (the flagged neighbours' luminance p10 was 28-42, darker
+  than the ok print's median 50).
+
 The tool's own numbers are reported (``ViewSamples.reasons``: 'pale', 'hardware_margin', 'edge_halo', 'thin_line',
 'dark_blob', 'enclosed'); the proof measures contamination independently from the written print.png
 (``tests/photoprint/step4_sheets``: metal-coloured share per zone near the hardware).
@@ -60,7 +74,7 @@ ARM_JUMP = 0.08
 PALE_MIN_MARGIN = 0.06
 EDGE_DILATE_MM = 0.15
 HARDWARE_MARGIN_MM = 2.5        # small hardware (diagonal < HARDWARE_SMALL_MM): hinges, screws, pad mounts / stalks
-HARDWARE_MARGIN_LARGE_MM = 1.0  # larger hardware (the bridge, the T-trim's long arm and return)
+HARDWARE_MARGIN_LARGE_MM = 0.0  # larger hardware (the bridge, the T-trim): off since the correction round (was 1.0)
 HARDWARE_SMALL_MM = 10.0
 HARDWARE_THIN_MM = 1.0          # a small part thinner than this (the T-trim's 0.7 mm bar, a screw) gets the 1.0 mm margin
 HARDWARE_MAX_DIAG_MM = 25.0
@@ -301,10 +315,12 @@ def thin_lines(image, inside, edge, ppm: float) -> dict:
     dB = img[..., 2] - _masked_open(img[..., 2], M, fp)
     bright = M & (tw >= LINE_CONTRAST) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
     dark = M & np.asarray(edge, bool) & ((_masked_close(L, M, fp) - L) >= DARK_CONTRAST)
-    return {"bright": _line_components(bright, ppm), "dark": _line_components(dark, ppm)}
+    shoulder = M & (tw >= LINE_CONTRAST / 2) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
+    return {"bright": _line_components(bright, ppm), "dark": _line_components(dark, ppm), "shoulder": shoulder}
 
 
-def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm=None, lines: bool = True) -> dict:
+def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm=None, lines: bool = True,
+                rules: str = "correction") -> dict:
     """Per-photo donor holes (image space): {'pale', 'hardware', 'halo', 'mask', 'arm'}. ``face_id`` = the first-hit
     face per pixel of the whole scene (-1 background), ``is_print`` / ``is_hardware`` per face id (trailing False)."""
     img = np.asarray(image, np.float64)
@@ -327,14 +343,20 @@ def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm
         if small.any():
             hard |= ndimage.distance_transform_edt(~small) <= HARDWARE_MARGIN_MM * ppm
         large = hwk == 1
-        if large.any():
-            hard |= ndimage.distance_transform_edt(~large) <= HARDWARE_MARGIN_LARGE_MM * ppm
-    tl = {"bright": np.zeros(fid.shape, bool), "dark": np.zeros(fid.shape, bool)}
+        large_mm = 1.0 if rules == "step4" else HARDWARE_MARGIN_LARGE_MM
+        if large.any() and large_mm > 0:
+            hard |= ndimage.distance_transform_edt(~large) <= large_mm * ppm
+    tl = {"bright": np.zeros(fid.shape, bool), "dark": np.zeros(fid.shape, bool), "shoulder": np.zeros(fid.shape, bool)}
     if lines:
         outside = ~np.asarray(matte, bool) | other
         edge = ndimage.distance_transform_edt(~outside) <= DARK_EDGE_MM * ppm
         tl = thin_lines(img, inside, edge, ppm)
-    line = ndimage.binary_dilation(tl["bright"] | tl["dark"], iterations=1) & inside
+    # correction round: a glint grows only into its own shoulder (neighbours >= half its contrast over their opening)
+    if rules == "step4":                       # the step-4 blanket 1-px dilation (before/after measurements)
+        line = ndimage.binary_dilation(tl["bright"] | tl["dark"], iterations=1) & inside
+    else:
+        line = (tl["bright"] | (ndimage.binary_dilation(tl["bright"], iterations=1) & tl["shoulder"])
+                | ndimage.binary_dilation(tl["dark"], iterations=1)) & inside
     db = dark_blobs(img, inside, pr, ppm)
     mask = pale | halo | hard | line | db["mask"]
     # small acetate-test islands enclosed by the mask (a hinge barrel's shaded interior, a screw slot) go with it

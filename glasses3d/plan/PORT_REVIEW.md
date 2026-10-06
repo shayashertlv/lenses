@@ -2566,3 +2566,600 @@ them: open item for the STOP B wiring). Atlas shares unchanged from step 4 (phot
 **Left / risks:** A4 and A5 fail; the production filler is chosen against A4 for a visual reason the owner has not
 re-judged since quilting replaced PatchMatch; the floor is not a usable bound; the bright honey cores `metal.py` cuts
 (item 4); `stop_b` does not read the tool test's A6 / B5.
+
+### Correction round after the AR tool test (2026-10-06): double lighting, brow-front coverage, temple streaks, endpiece scratches - AR level, its "pass" and the calibration target SUPERSEDED by fix rounds 1 and 2 of the correction round
+
+> **SUPERSEDED in part.** Item 1's level (gain 0.7818 / gamma 1.157), its "(pass)", the claim that the pixel-rule
+> highlights are the renderer's, and the calibration target in "Engineering decisions" are retracted: see "Corrections
+> to the correction round's claims" in fix round 1 below and "Corrections to fix round 1's claims" in fix round 2.
+> Items 2-4 (brow front, streaks, scratches) and the bake checks stand as measured on that bake.
+
+Input: the AR tool test of 10bf932 (`data/wp5/pre_correction_tooltest/`, its bake kept in `data/wp5/pre_correction_bake/`).
+Each item was diagnosed before code changed; every number below is the independent instrument's
+(`tests/instruments/print_metrics.py`) through `tests/photoprint/ar_levels.py` (AR levels) and
+`tests/photoprint/correction_proof.py` (items 2-4, `data/wp5/ft1119_bake/correction.json`), on the final bake
+`data/wp5/ft1119_bake/` against the 10bf932 bake. Sides by x sign.
+
+**1. Double lighting (`photoprint/shading.py`; `tests/photoprint/ar_levels.py`, `ar_calibrate.py`).**
+- *Diagnosis.* The print's texels are photo radiance (the studio's light is in them) and arview (ACES filmic, key light
+  2, RoomEnvironment 0.8, clearcoat 0.8) lights them again. AR frame pixels (part-id print parts, eroded 1 px) against
+  the photos' (print parts rendered at the WP3b camera, eroded 2 px, inside the matte), 10bf932: front L* p10 / p50
+  22.63 / 36.82 against photo 05's 16.60 / 24.91; yaw -30 21.40 / 31.20 against photo 01's 13.29 / 25.15. Astra's
+  texture on the same model renders front p10 9.61, so the renderer's clearcoat floor does not stop the darks.
+- *The measure had to compare like with like.* (a) Photo 05's frame pixels are 1/3 temple tops at a grazing angle
+  (p50 41.5 against the brows' 22.0); the front pose hides them (4 % of its frame pixels). (b) The clearcoat
+  reflections are achromatic (L* > 35, C*ab < 10): 33.7 % of the front pose's frame pixels against 22.9 % of photo
+  05's, 15.8 % at yaw -30 against 21.7 % of photo 01's. ~~They are the renderer's~~ *[SUPERSEDED, fix round 1: this
+  AR-side pixel rule moved with the print (front pose 42.1 % with the 10bf932 print, 33.7 % calibrated, 28.6 % with
+  Astra's texture, 29.8 % with a black albedo); only a probe mask is the renderer's]* (material inputs stay Astra's, PLAN
+  §2) and move the median by a pose-dependent amount: over all 16 calibration captures the front-minus-yaw spread of the
+  plain frame-pixel p50 residual is 4.49-5.58 L*, more than a +-2 window can hold, so NO albedo level can pass the
+  literal frame-pixel form at both poses. `ar_levels` therefore reports three forms: `frame` (every pixel, the 10bf932
+  form), `matched` (photo pixels weighted to the AR pose's brow / temple shares) and `print` (matched, achromatic
+  highlights left out on both sides): the calibration target, the only part of the render the albedo sets.
+- *Flatten.* Per photo an order-2 SH of log Y over the texel normal in the photo's camera frame, Huber IRLS on its donor
+  texels (R^2 0.03-0.16: the print is the regression's noise), divided out in linear light, median factor 1 per photo
+  (factor p5-p95 e.g. 05: 0.95-1.58, 01: 0.53-1.41), clipped to [1/3, 3]. Keep test (task: two views of the same
+  surface must agree better; §6.6's registered-overlap test cannot run, nothing registers): over the 10 view pairs
+  with >= 500 same-surface texels (318,608 pairs), pooled gained dE00 9.29 -> 8.84 (drop 0.45 >= 0.3) and pooled median
+  |dlog Y| 0.482 -> 0.446: KEPT (`report.json` flatten). Largest gains 02-04 7.03 -> 5.11, 04-06 9.33 -> 7.44, 04-05
+  11.79 -> 9.75; worse 01-04 9.39 -> 9.62, 01-06 8.48 -> 8.74.
+- *Level calibration (method).* print.png (radiance after the gains) -> `rgb_lin x gain x Y^(gamma - 1)` on every
+  textured texel, the bake's LAST step (`shading.level_map`); a candidate replaces the print image in a COPY of the
+  tool-test GLB (only that bufferView repacked; `ar_calibrate.swap_image`), arview captures it (`--poses default
+  --no-portrait`, 10 s), `ar_levels` measures; a 4 x 3 grid (gain 0.40-0.58 x gamma 0.9-1.1) then 4 plane-model steps
+  (minimax of the four residuals). *[SUPERSEDED: fitted on front / yaw -30, both 18 deg below the photos' cameras;
+  fix round 2 calibrates at the photos' own angles.]* Chosen: ~~gain 0.7818, gamma 1.157~~ (`data/wp5/ar_calibration/calibration.json`,
+  the captured point with the smallest worst residual; the `print` form passes along a ridge, e.g. 0.46 / 1.0 too).
+  The final print.png is pixel-identical to the calibrated candidate image, and the fresh tool test's capture repeats
+  the calibration capture's numbers exactly.
+- *Result (AR - photo, L* p10 / p50; front vs 05, yaw -30 vs 01; `data/wp5/tooltest/ar_levels.json`):*
+
+| Form | 10bf932 | corrected | Astra's texture |
+|---|---|---|---|
+| print (target) | +4.68 / +8.18, +8.54 / +5.79 | -1.52 / -0.49, +1.46 / -1.34 (~~pass~~ in-sample only: fitted and graded on these two pairs; at the photos' own angles -5.14 / -5.44, -2.00 / -5.59, fix round 1) | -6.81 / -3.30, -3.23 / -2.66 |
+| matched | +6.83 / +14.52, +7.82 / +6.39 | -0.91 / +5.73, +0.16 / -1.67 | -6.15 / +5.53, -4.22 / -2.55 |
+| frame | +6.03 / +11.91, +8.11 / +6.05 | -1.71 / +3.12, +0.45 / -2.01 | -6.99 / +2.87, -3.93 / -2.89 |
+
+  The corrected frame form fails on the front median (+3.12: the clearcoat band) and by 0.01 on the yaw median.
+
+**2. Brow-front coverage (`texels.py`, `metal.py`, `highlights.py`, `project.py`).** Denominator: the brows' FRONT
+facing class that photo 05 sees at donor angles (first surface, cos > 0.5, in the image; 65,662 texels per side).
+The 10bf932 "54-55 %" was the AR-visible WHOLE brow (every facing class), not the front.
+- *Per cause, first failing donor rule (-x / +x), 10bf932 -> corrected:* outside the matte (model larger than the photo
+  at the endpiece corner) 2.06 / 1.83 -> unchanged; not acetate 6.87 / 6.73 -> unchanged; clipped 0.12 / 0.02;
+  near an occluder 11.05 / 11.78 -> 3.07 / 2.83; foreign blob 6.68 / 0 -> 0; hardware margin 0.57 / 4.72 -> 0; edge halo
+  0.43 / 0.56 -> 0.73 / 0.74; thin line 7.82 / 8.35 -> 4.10 / 4.52; bicubic footprint (new) - -> 2.54 / 2.59. Donor ok
+  64.4 / 66.0 -> 80.5 / 80.7 %. Donor-ok texels the bake did not keep as photo: seam band 2.07 / 2.38 -> 0 / 2.60,
+  highlight fill 2.86 / 0.35 -> 0.07 / 0.18, fill 0.72 / 0.09 -> 0.79 / 0.03.
+- *Causes and fixes:* the 0.5 mm occluder margin was a 1-2 px line INSIDE the photo's brow (q001's eyewire renders above
+  the photo's brow edge): now applied only where the photo itself shows non-print within it; the -x "foreign blob" was
+  photo 05's T-trim (q001 places it about 1 mm off) dilated 0.75 mm: only gold blobs are dilated now; the 1.0 mm
+  large-hardware margin around the T-trim removed print the photo shows up to the T: off (the occluder margin and the
+  footprint keep the T's pixels and edge out); the glint dilation took dark print beside 1-px glints (flagged
+  neighbours' luminance p10 28-42): a glint grows only into its shoulder; 78 % of the witness highlight flags on the -x
+  front were not local highlights in photo 05 (median pixel luminance 56, saturation 32: honey print the unregistered
+  witness 01 saw 2 mm away): a witness flag must also be >= 15 levels over its own 0.5 mm surroundings; Brow_Left's
+  label-seam band repair failed §6.4's test at 2 and 4 texels and was kept anyway: a failing repair is not applied.
+- *Result, final photo share of the brow front seen by 05:* **-x 64.5 -> 81.8 %, +x 67.5 -> 79.0 %**. Counting only
+  what photo 05 actually shows (the geometric set inside its matte): -x 83.5 %, +x 80.5 %. +x misses 80 % on the
+  geometric denominator by 1 point: its remaining losses are the studio's highlights on the top bevel (thin glint 4.5,
+  achromatic / clipped 6.7 %), the footprint 2.6 % and a 2-texel seam band 2.6 % that passes §6.4's test. No
+  non-acetate pixel entered: every added donor passes the acetate test, the pale rule and the footprint. AR-visible
+  whole brow: photo 44.6 / 44.6 -> 50.3 / 49.3 %.
+
+**3. Streaks along the -x temple at yaw +45 (`quilt_t.py`, `fill.py`).**
+- *Diagnosis (strip space, `print_metrics.directional_energy`: across / along gradient-energy ratio of the 0.25-1 mm
+  band, and contrast, against the same face's photo texels).* The dark dashes were the see-through text fill (18,674
+  texels, a 2 mm band in the middle of the outer face): ratio 1.79 x the photo's, contrast 0.65. Its hole group was
+  filled with donors relaxed to the whole part (need = 2 x the hole), so the windows that best continued the context
+  were the top face's glint and the dark line under it, and the letter-shaped hole left "teeth" of the photo's dark
+  edge line between the letters. Real temple print is itself elongated (photo ratio 6-9), so the target is the photo's
+  ratio, not 1.
+- *Fix:* strip-space donors (a block on a strip chart draws its windows from the same t, +-1 block, all along the arm;
+  cap charts and sparse bins fall back to the whole pool) and the dilated see-through letters closed into one band
+  (0.75 mm).
+- *Result:* text fill **1.79 -> 0.75** x the photo's ratio (contrast 0.65 -> 0.20: smooth); the dashes are gone in the
+  yaw +45 capture. NOT fixed by this measure: the quilted fill of the -x outer face measures 0.97 -> 1.96 x the photo's
+  ratio (contrast 1.15 -> 0.61), the -x top 1.94 -> 1.92, the +x outer 0.82 -> 1.40 (+x top 0.81 -> 0.71): this round's
+  donor rules made new thin holes along the faces' edges (footprint, margins), and a fill of a thin band along the arm
+  is elongated by construction. In the AR capture itself (`print_metrics.axis_streakiness` on the -x temple's pixels at
+  yaw +45) the ratio is 2.37 -> 2.64 (Astra's texture 3.22), a measure dominated by the arm's own edges and sheen.
+
+**4. Light scratches on the endpiece blocks under the T (`texels.py`, footprint).**
+- *Diagnosis:* photo 05's silhouette. Of the endpiece texels painted from 05, those whose pixel lay < 1.5 px inside the
+  matte were bright outliers (> 15 levels over the 9 x 9-texel median) in 50.6 / 46.7 % of cases, 16.6 / 7.1 % at
+  1.5-2.5 px, 0 % beyond: the interpolating cubic B-spline at a sub-pixel position mixes in the white background (and,
+  the same way, a bright lens or glint) while the nearest pixel is dark print. Across all six photos the bright-outlier
+  share at exact distances 1.41 / 2.0 / 2.24 / 2.83 px is 36-61 / 13-41 / 4-22 / 1-5 % (far: 0.2-3.5 %).
+- *Fix:* a donor sample must lie >= 2.5 px from the background and from any bright (L >= 150) non-acetate pixel.
+- *Result:* no endpiece texel samples within 2.5 px of the silhouette; bright outliers among the blocks' photo texels
+  1.77 / 2.23 -> 0.19 / 0.37 %.
+
+**Bake and checks (final, `data/wp5/ft1119_bake/`, 14-worker pool, production 189 s, all checks 22 min):** A1 pass;
+A2 6 / 6; A3 read back pass (the declared shading and level re-applied by the proof); A4 fails on all four parts
+(medians 0.22 / 0.42 / 0.58 / 0.30 fine band); A5 fails at 7 and 8 texels; A7 pass (pool vs serial, sha256);
+single-source audit pass; B3 2 of 9 eligible rows (was 1 of 7; the held-out bake is graded as radiance, before the
+level, both renders re-lit with photo h's own shading fit); B2 diagnostic 0 / 14. Tool test on a fresh COPY of q001
+(`print_uv` + `attach_print`, export): A6, B5, uv identity, staleness check, validate_spec, label all pass; STOP B now
+takes A6 / B5 from it (fires on A4, A5, B3). Atlas shares: photo 34.97 -> 37.01 %, fill 58.36 -> 56.56 %, mirror
+2.13 %, text fill 4.07 %, highlight fill 0.26 -> 0.06 %, seam band 0.34 -> 0.16 %.
+
+**Engineering decisions (recorded here; the calibration target SUPERSEDED: fix round 1 added the probe mask and
+the photo-elevation pairs, fix round 2 calibrates only at the photos' own angles):** the AR calibration target is the `print` form (above); the level is
+calibrated per product and renderer (`level=None` leaves photo radiance and the report says so); flatten defaults to
+'test'; the occluder margin is photometric by default (`occluder_rule='geometric'` and `rules='step4'` reproduce
+10bf932's donor rules for before / after measurements); the witness rule needs a local highlight; a failing band repair
+is not applied (§6.4's "kept if"); the default pool is os.cpu_count() - 2 workers (owner: dedicated 16-core machine).
+
+**Tests:** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+247 passed, 2 failed, 1 xfailed (25 min, `data/wp5/pytest_correction.log`); the two failures were the pinned A4 verdicts
+at 8 texels/mm, which IMPROVED (quilting now passes the +x temple; PyPatchMatch also the -x brow) and were re-pinned
+deliberately (`A4_KNOWN_AT_8`, `A4_FILLERS_KNOWN_AT_8`; rerun 2 passed). New: `tests/photoprint/test_correction_round.py`
+(13 tests: SH recovery through print noise, the flatten keep test, the level map, the instrument's L* / composition /
+highlight exclusion, gold-only blob dilation, no large-hardware margin, shoulder-only glints, the local witness rule,
+quilting byte-identical without strip t and same-t donors with it, directional energy, the GLB image swap, and a bake
+with flatten + level whose A3 read back passes). WP3 export tests pass (export_glb.py untouched).
+
+**Left:** item 3 is fixed for the text fill but the quilted fill on the temples' outer faces measures streakier than
+before in strip space (thin edge holes); the +x brow front is 79.0 % photo on the geometric denominator (80.5 % on what
+photo 05 shows); the plain frame-pixel AR median cannot match at the front pose while the clearcoat band is Astra's
+*[SUPERSEDED: the front pose is 18 deg below photo 05's camera, a view-dependence trade-off row since fix round 2, not
+a photo angle]*; A4, A5 and B3 still fire STOP B; the owner has not seen the corrected tool test yet.
+
+### Fix round 1 of the correction round (2026-10-07): held-out poses, a highlight mask that does not move with the print, the tool test's side effect, the footprint, the flatten rule, B3's protocol - calibration target, level, candidates and the "renderer's" claim SUPERSEDED by fix round 2
+
+> **SUPERSEDED in part.** The calibration over all four pairs within 20 deg, its level (gain 1.60 / gamma 1.29), the
+> "no level passes ±2 at all four photo angles" headline, the "renderer's, not the print's" sentence and the owner
+> candidates' labels are corrected in "Corrections to fix round 1's claims" (fix round 2, below). The probe mask, the
+> tool-test side-effect fix, the footprint, the flatten keep rule and B3's protocol stand.
+
+Input: the review of the correction round (4 major, 4 minor findings). The correction round's state is kept:
+`data/wp5/pre_fr1c_bake/`, `pre_fr1c_tooltest/`, `pre_fr1c_ar_calibration/`. Everything below was re-run on a new
+bake, `data/wp5/ft1119_bake/` (14-worker pool, production 192 s, all checks with A7 serial and the held-out bakes
+20.5 min). Every number comes from the independent instrument (`tests/instruments/print_metrics.py`), through
+`ar_levels` / `correction_proof`. Sides are named by x sign.
+
+**Corrections to the correction round's claims.**
+- *"The `print` form passes" was in-sample.* The level was fitted on the same two pairs it was graded on (front vs 05,
+  yaw -30 vs 01). Both pairs are at zero elevation, while photos 05 and 01 were taken from 18 deg above. At the
+  photos' own angles (pitch +20 vs 05 at 1.6 deg, yaw -30 pitch +20 vs 01 at 1.6 deg; neither was graded) the
+  corrected print rendered darker than the photos: -5.14 / -5.44 and -2.00 / -5.59 (p10 / p50, measured with this
+  round's mask). The pass covered only its two fitted pairs.
+- *"The excluded achromatic pixels are clearcoat reflections the print can't change" was false.* The AR side's
+  highlight set was taken from each capture's own pixels, so it moved with the print. At the front pose it was 42.1 %
+  of the frame pixels with the 10bf932 print, 32.5-37.8 % across the calibration captures, 33.7 % at the chosen
+  level and 28.6 % with Astra's texture. Light grey print pixels were leaving the target, which is the washed-out
+  look the owner complained about.
+- *The B3 figure "2 of 9, up from 1 of 7" compared two protocols.* The 9 rows were graded after re-lighting with
+  photo h's own shading fit, which gives the grading 9 parameters taken from the held-out photo. The 7 rows used no
+  re-lighting.
+- *"STOP B takes A6 / B5 from the tool test" was true only through a test side effect.* The slow pytest ran
+  `print_tooltest` against the production bake and rewrote `bake.json` to point at a pytest temp dir. The real tool
+  test had run while the bake was still writing `bake.json`, so it recorded nothing.
+
+**What changed, per finding.**
+1. *Held-out poses (major; `ar_levels.py`, `ar_calibrate.py`).* Pose-photo pairs now come from the geometry. Each
+   arview pose has a camera direction in the model frame (Euler YXZ: (-sin yaw, cos yaw sin pitch, cos yaw cos
+   pitch)). It is compared with each photo's WP3b camera direction:
+
+   - **matched** (within 20 deg; the calibration target): front:05 18.4, yaw_m30:01 18.1, pitch_p20:05 1.6,
+     yaw_m30_pitch_p20:01 1.6. *[SUPERSEDED, fix round 2: only the two 1.6 deg pairs are at a photo's camera and
+     calibrate; front / yaw -30 are trade-off rows.]*
+   - **loose** (20-30 deg; graded every time as held-out rows): yaw_m45:01 23.3, yaw_p45:03 28.8.
+   - `yaw_p30` is never paired with 01, because it is the mirror pose.
+
+   Captures use `--poses all --backgrounds skin`, which gives all 11 poses in 14 s. Each verdict is reported per role
+   (calibration or held-out) and never pooled. The level is the captured point with the smallest worst residual over
+   the 8 matched residuals (minimax). The calibration also reports, from the captured points only:
+   - a leave-one-pair-out table;
+   - three owner candidates: the minimax level, the best level for the two photo-elevation pairs, and the best level
+     for the previous target's two pairs.
+2. *Highlight mask (major; `print_metrics.level_compare(ar_highlight=)`, `ar_calibrate.black_probe`).* The probe is
+   the tool-test GLB with every print-part base-colour image black, captured once at the same poses. Its achromatic
+   pixels (L* > 35, C*ab < 10) are the renderer's reflections alone. One probe mask applies to every candidate; the
+   part-id renders must be identical, which is checked on every capture (an earlier check found 18 of 18 identical). The mask's share at the front pose is
+   29.8 %, against 29.5 % from Astra's own probe. The photo side keeps the photo's own achromatic pixels, which are
+   fixed per photo. Without a probe, the pixel rule is used and the output says so. The `matched` and `frame` forms
+   are in every table below.
+3. *Tool test side effect (major; `print_tooltest.py`, `tests/test_print_blender.py`, `bake_ft1119.py`).*
+   - The test now runs on a temp COPY of the bake's files (`--bake`) and asserts that the production `bake.json` is
+     unchanged (sha256).
+   - `record_in_bake` returns `recorded` and gives a reason when it records nothing. `--no-record` exists.
+   - `bake_ft1119 --tooltest` takes A6 / B5 from a tooltest.json that graded the same print sha256.
+   - `bake.json` was first restored from the review's pre-run copy. The archived correction-round `bake.json` was
+     re-pointed to its real tool test (same print sha256).
+   - After the new bake finished, `print_tooltest --out data/wp5/tooltest` ran: all 15 checks pass, and
+     `STOP_B.A6_B5_from` = `data/wp5/tooltest/tooltest.json`.
+4. *`print_proof --workers` default (major).* `None` is now passed straight to `pool_map`, which uses
+   os.cpu_count() - 2. The `min(None, 6)` crash is gone.
+5. *Endpiece and new photo texels (minor; `correction_proof.py`, `texels.footprint_holes`).*
+   - `endpiece` now also counts the whole endpiece (|x| > 52 mm, every y) and the T's height (y >= 4 mm, also
+     front-facing only).
+   - `new_photo_outliers` gives the bright-outlier share of the photo texels a bake ADDED over 10bf932, against the
+     texels that were photo in both.
+   - Every bake is measured on its radiance: the declared level is undone.
+   - Diagnosis, by the distance from photo-05 donor texels on the brows to each feature: < 1.5 px from a glint line,
+     10.6 % outliers (5,058 texels); 1.5-2.5 px from a light (L >= 110) edge pixel within 0.4 mm of a bright
+     non-acetate pixel, 6.6 % (1,241); base rate 0.7 %.
+   - The footprint now also keeps 2.5 px from such edge pixels (rule 'edges'). Those are the T's anti-aliased edge
+     and a glint's, which pass the acetate colour test.
+   - A 1.5 px glint-line footprint was built and measured but is OFF (`FOOTPRINT_GLINT_PX` = 0; table below). It
+     removes most of the outliers but costs 3.4 / 5.6 points of brow-front photo share. The review could not see the
+     outliers at capture scale. This is an owner decision.
+6. *Flatten keep rule (minor; `shading.keep_test`).* The pooled drop must also survive leaving any one pair out
+   (>= 0.3 dE00 and |dlog Y| falling; at least 2 pairs). The report now has per-pair deltas, the improving pairs, and
+   the leave-one-pair-out table.
+   - On this bake: pooled 9.17 -> 8.73 (drop 0.444), |dlog Y| 0.477 -> 0.441. 8 of 10 pairs improve, covering 54 %
+     of the overlap texels. 01-04 (9.23 -> 9.45) and 01-06 (8.36 -> 8.61) get worse.
+   - Without 04-05 the drop is 0.035, so flatten is **NOT kept**. `flatten='on'` forces it. The correction bake
+     gives 0.031 on the same test.
+7. *B3 protocol (minor; `printproof.heldout_b3`).* The verdict is the 10bf932 protocol: no re-lighting, atlas before
+   the level. Re-lighting with h's own shading is reported per row as `relit_h` and is never the verdict.
+8. *Docstring numbers and the AR streak figure (minor).*
+   - `shading.py` now quotes the correction bake's `report.json` values, labelled, plus this bake's. The diagnosis
+     values are 22.63 / 36.82 and 13.29.
+   - `correction_proof --ar` computes `axis_streakiness` for each temple at yaw +45 / -30 / -45 of every listed
+     capture.
+
+**Item 5 measured (photo-05 brow front; bright outliers > 15 levels over the 9 x 9 median, on radiance):**
+
+| bake | brow-front photo share -x / +x | whole-endpiece outliers -x / +x | T height, front -x / +x | added texels' outlier share -x / +x (kept) |
+|---|---|---|---|---|
+| 10bf932 | 64.5 / 67.5 % | 418 / 473 | 52 / 110 | - |
+| correction round (plain footprint, flatten on) | 81.8 / 79.0 % | 806 / 871 | 398 / 261 | 3.05 / 2.32 % (0.63 / 0.36) |
+| plain footprint, flatten off (scratch E0) | 81.8 / 80.9 % | 663 / 871 | 281 / 267 | 2.09 / 2.74 % (0.23 / 0.44) |
+| **this round: 'edges' (final bake)** | **80.8 / 80.0 %** | **596 / 830** | **237 / 258** | **1.83 / 2.79 % (0.28 / 0.36)** |
+| 'edges' + 1.5 px glint footprint (scratch E1, off) | 77.4 / 74.4 % | 349 / 478 | 42 / 96 | 0.34 / 0.45 % (0.10 / 0.31) |
+
+The edge rule costs about 1 point of brow-front coverage and removes part of the T-edge outliers. Most of the remaining
+outliers lie along glint shoulders.
+
+**AR levels (`data/wp5/tooltest/ar_painted/ar_levels.json` and the three sibling captures; AR - photo, L* p10 /
+p50; probe mask; the level was calibrated on the matched rows):**
+
+| pair (angle) | role | 10bf932 | correction round | this round | Astra's texture |
+|---|---|---|---|---|---|
+| **print** | | | | | |
+| front vs 05 (18.4) | matched | +5.35 / +10.12 | -1.52 / +0.23 | +0.00 / +3.07 | -6.81 / -3.57 |
+| yaw_m30 vs 01 (18.1) | matched | +9.07 / +7.10 | +1.51 / -0.94 | +3.32 / +1.28 | -3.13 / -2.49 |
+| pitch_p20 vs 05 (1.6) | matched | +3.56 / +3.39 | -5.14 / -5.44 | -3.22 / -3.19 | -8.15 / -7.64 |
+| yaw_m30_pitch_p20 vs 01 (1.6) | matched | +5.84 / +2.76 | -2.00 / -5.59 | -0.23 / -3.32 | -4.80 / -7.44 |
+| yaw_p45 vs 03 (28.8) | held-out | +8.10 / +9.65 | +2.10 / +1.17 | +3.37 / +4.13 | -1.90 / -3.95 |
+| yaw_m45 vs 01 (23.3) | held-out | +8.42 / +5.85 | +0.91 / -2.59 | +3.32 / -0.10 | -2.54 / -5.37 |
+| **matched** | | | | | |
+| front vs 05 | matched | +6.83 / +14.52 | -0.91 / +5.73 | +0.80 / +8.61 | -6.15 / +5.53 |
+| yaw_m30 vs 01 | matched | +7.82 / +6.39 | +0.16 / -1.67 | +2.00 / +0.45 | -4.22 / -2.55 |
+| pitch_p20 vs 05 | matched | +3.98 / +5.98 | -4.58 / -3.84 | -2.62 / -1.05 | -8.01 / +0.95 |
+| yaw_m30_pitch_p20 vs 01 | matched | +4.84 / +2.01 | -3.09 / -6.09 | -1.31 / -3.81 | -5.96 / -6.41 |
+| yaw_p45 vs 03 | held-out | +6.17 / +6.95 | +0.17 / -1.73 | +1.67 / +1.27 | -3.65 / -6.56 |
+| yaw_m45 vs 01 | held-out | +6.89 / +4.25 | -0.75 / -4.46 | +1.64 / -1.93 | -4.11 / -6.26 |
+| **frame** | | | | | |
+| front vs 05 | matched | +6.03 / +11.91 | -1.71 / +3.12 | +0.00 / +6.00 | -6.99 / +2.87 |
+| yaw_m30 vs 01 | matched | +8.11 / +6.05 | +0.45 / -2.01 | +2.29 / +0.11 | -3.93 / -2.89 |
+| pitch_p20 vs 05 | matched | +3.51 / +3.93 | -5.05 / -5.89 | -3.09 / -3.10 | -8.50 / -1.15 |
+| yaw_m30_pitch_p20 vs 01 | matched | +5.13 / +1.69 | -2.80 / -6.41 | -1.02 / -4.13 | -5.67 / -6.73 |
+| yaw_p45 vs 03 | held-out | +5.84 / +10.32 | -0.16 / +1.64 | +1.34 / +4.64 | -3.98 / -3.19 |
+| yaw_m45 vs 01 | held-out | +6.96 / +4.09 | -0.68 / -4.62 | +1.71 / -2.09 | -4.03 / -6.42 |
+
+- **Calibration result (`data/wp5/ar_calibration/calibration.json`).**
+  - 9-point grid (gain 0.55 / 0.75 / 0.95 x gamma 1.0 / 1.15 / 1.3), then 5 model steps: 14 candidate captures plus the probe.
+  - Chosen: ~~gain 1.599, gamma 1.2875~~, worst matched residual 3.32 L*: no level passes ±2 on all four matched
+    pairs. *[SUPERSEDED, fix round 2: at the two like-for-like pairs this level renders -3.22 / -3.19 and -0.23 /
+    -3.32, as far off as the rejected 10bf932 print, only darker; a level that passes both exists (gain 0.70 / gamma
+    1.00: -0.83 / -1.46, +1.87 / -1.83).]* The front and pitch +20 rows are graded against the same photo 05, and their p50 differs by 4.8-6.8 L*
+    across the captured levels (6.3 at the chosen one). Astra's texture shows ~~the same~~ a smaller pose dependence (4.1). ~~It is the renderer's, not the
+    print's.~~ *[Corrected, fix round 2: front minus pitch +20 p50 is 4.07 (print form) / 4.58 (matched) for Astra's
+    texture against 6.26 / 9.66 for this print, so roughly a third to a half of the spread comes with the print.]*
+  - The minimax ridge is flat: g0.95/γ1.15 gives 3.79, it1 (1.09/1.19) gives 3.89. The level clips no texel (0 of
+    1,986,095 textured texels exceed 1 in linear light).
+  - The final print.png equals the calibrated candidate image pixel for pixel. The fresh tool test's capture repeats
+    the chosen calibration capture's numbers exactly.
+- **Leave-one-pair-out.** Leaving out front, pitch +20 or yaw -30 pitch +20 still picks the same captured level, so
+  the residual on the left-out pair equals the in-sample one. Leaving out yaw -30 picks gain 1.72 / γ 1.31, which
+  gives +3.35 / +1.31 on it.
+- **Held-out (loose) pairs.** Worse than in the correction round: worst 4.13 against 2.59. The minimax trades them
+  against the photo-elevation rows.
+- **Owner candidates (rows of `data/wp5/tooltest/owner_sheet.png`).**
+
+  | candidate | level | worst over its own pairs | worst over all four matched |
+  |---|---|---|---|
+  | minimax | gain 1.60 / γ 1.29 | 3.32 | 3.32 |
+  | best for the photo-elevation pairs | gain 0.75 / γ 1.0 | 2.49 | 5.87 |
+  | best for front / yaw -30 (the previous target) | gain 0.75 / γ 1.15 | 1.73 | 5.81 |
+
+  These are captured grid points, not optimised levels. *[SUPERSEDED, fix round 2: the sheet labelled the minimax row
+  "level chosen over all four photo angles" (two of the four are 18 deg off) and the 0.75 / 1.0 row "best at the
+  photos' own angles" although it fails there at 2.49 and a passing level was never searched for; it also showed the
+  two candidate rows without the worn portrait.]*
+- **Highlight shares (probe, AR / photo):** front 29.8 / 22.9 %, yaw -30 12.1 / 21.7 %, pitch +20 26.3 / 22.9 %,
+  yaw -30 pitch +20 14.4 / 21.7 %.
+
+**Other results.**
+- *Bake checks.* A1 pass; A2 6 / 6; A3 read back pass; single-source audit pass; A7 pass (pool vs serial, sha256).
+  A4 fails on all four parts. A5 fails at 7 and 8 texels.
+- *B3, 10bf932 protocol: 1 of 7 eligible rows pass.* 10bf932 also gave 1 of 7. The correction round's "2 of 9" was
+  re-lit and is not comparable.
+  - The `relit_h` diagnostic is 2 of 4. It applies only where a held-out bake (5 photos) kept flatten under its own
+    keep test.
+  - STOP B fires on A4, A5 and B3. A6 / B5 pass on the tool test of THIS print.
+- *Brow front.* The photo share seen by 05 is -x 80.8 % and +x 80.0 % (correction round 81.8 / 79.0).
+- *Temple streaks, strip space (fill vs the face's photo texels, across/along ratio).* The -x top got worse:
+  1.90 -> 2.68. The -x outer went 1.83 -> 1.55, the +x outer 1.32 -> 0.96, the +x top 0.71 -> 0.74. The text fill
+  (-x) is 0.99.
+- *Temple streaks in AR (`axis_streakiness`).*
+  - -x temple at yaw +45: 2.37 (10bf932) / 2.64 (correction) / **2.54** / 3.22 (Astra).
+  - +x temple at yaw -30: 2.79 / 6.42 / **3.90** / 12.81.
+
+**Engineering decisions (recorded here).**
+- The calibration target is the `print` form with a probe mask, over the matched pose-photo pairs (within 20 deg),
+  by minimax. *[SUPERSEDED, fix round 2: over the pairs within 5 deg of a photo's camera only.]*
+- The flatten keep test includes the leave-one-pair-out condition.
+- The footprint rule is 'edges'. The glint footprint is built and off: an owner decision.
+- B3's verdict uses the 10bf932 protocol.
+- The tool test records into the bake it was given, and says so.
+- The level for B4 is the owner's choice among the three candidates on the sheet. The minimax level is in the
+  delivered tool test. *[SUPERSEDED, fix round 2: the photo-angle level is delivered; the minimax level is a sheet
+  row.]*
+
+**Tests.** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+254 passed, 2 failed, 1 xfailed (21 min, `data/wp5/pytest_correction_fr1.log`).
+- The two failures were the pinned A4 verdicts at 8 texels/mm. The correction round's two passes there (quilting on
+  the +x temple, PyPatchMatch on the -x brow) are lost. Measured at 8 texels/mm with each change alone:
+  - plain footprint + flatten on: both pass;
+  - plain + flatten off: both fail;
+  - 'edges' + flatten on: both fail.
+
+  The verdicts sit on a knife edge of which photo texels the holes fall in. At 16 texels/mm all four parts fail in
+  both rounds.
+- Re-pinned deliberately (`A4_KNOWN_AT_8`: all fail; `A4_FILLERS_KNOWN_AT_8`: only PyPatchMatch on the +x temple
+  passes). The bake fixtures now use the default pool (workers=None). Rerun: `test_print_bake.py` 32 passed. New or changed in `tests/photoprint/test_correction_round.py`:
+- the leave-one-pair-out refusal (the correction bake's pair shape);
+- three-view flatten keep;
+- `level_compare` with a probe mask, which catches a washed-out print the pixel rule hid;
+- the geometric pose-photo pairs;
+- the 'edges' footprint and the opt-in glint footprint;
+- `black_probe`;
+- the level inverse;
+- `record_in_bake` writing only the bake it was given;
+- the slow bake now forces `flatten='on'`, so A3's re-application is still exercised.
+
+`test_q001_tool_test` runs on a temp copy of the bake and checks that the production `bake.json` is untouched.
+
+**Left.**
+- ~~No AR level passes ±2 at all four photo angles. The spread between front and pitch +20 against the same photo is
+  the renderer's pose dependence.~~ *[Corrected, fix round 2: only two of the four are photo angles and a level passes
+  at both; a third to a half of the front-minus-pitch +20 spread comes with the print.]* The owner judges the three candidate levels by eye.
+- The -x temple top's quilted fill is streakier in strip space (2.68 x the photo's ratio).
+- New brow-front photo texels are still bright outliers at 1.8 / 2.8 %, against 0.3 / 0.4 % for kept ones. The glint
+  footprint would fix this at a coverage cost.
+- A4, A5 and B3 still fire STOP B. At 8 texels/mm, A4 lost the correction round's two passes (see Tests).
+- The owner has not seen this sheet.
+
+### Fix round 2 of the correction round (2026-10-07): the level calibrated at the photos' own angles, honest candidates, the worn view for every candidate
+
+Input: the review of fix round 1 (1 major, 2 minor). Fix round 1's state is kept: `data/wp5/pre_fr2c_ar_calibration/`,
+`pre_fr2c_tooltest/` (its capture with portrait in `ar_painted/`), `pre_fr2c_bake/`. The calibration input is now
+durable: `data/wp5/ft1119_bake_radiance/` is fix round 1's level-free scratch bake E2, copied out of the scratchpad.
+Checked: its print.png with fix round 1's level equals that bake's print.png pixel for pixel, and classes.png,
+source.png and layout.json are byte-identical. Sides are named by x sign. Every number comes from the independent
+instrument (`tests/instruments/print_metrics.py`) through `ar_levels`.
+
+**Corrections to fix round 1's claims.**
+- *"No AR level passes ±2 at all four photo angles" was wrong.*
+  - Only two of the four pairs are at a photo's own camera: pitch_p20 vs 05 and yaw_m30_pitch_p20 vs 01, both
+    1.6 deg off.
+  - The other two, front vs 05 (18.4 deg) and yaw_m30 vs 01 (18.1 deg), counted as matched only because
+    `MATCH_DEG = 20`.
+  - The minimax over all four (gain 1.60 / γ 1.29) rendered -3.22 / -3.19 and -0.23 / -3.32 at the two like-for-like
+    pairs. That median error is as large as the rejected 10bf932 print's there (+3.39 / +2.76), only darker.
+  - A passing level existed. The review captured gain 0.70 / γ 1.00 at -0.83 / -1.46 and +1.87 / -1.83.
+- *The owner sheet's labels.*
+  - "Best at the photos' own angles" (0.75 / 1.00) was a coarse grid point that fails there at 2.49.
+  - "Level chosen over all four photo angles" called two views 18 deg off the photos photo angles.
+  - Both candidate rows showed a grey tile instead of the worn portrait, although the owner's complaint was the worn,
+    straight-on view.
+- *"It is the renderer's, not the print's" is contradicted by the round's own tables.* Front minus pitch +20 against
+  the same photo 05 (p50): Astra's texture 4.07 (print form) / 4.58 (matched); the fix-round-1 print 6.26 / 9.66.
+  About a third to a half of that spread comes with the print. It is specific to photo 05's pair: for yaw -30 minus
+  yaw -30 pitch +20 against photo 01, the print's p50 spread (4.60) is no larger than Astra's (4.95). Per group (AR L*
+  p50 of print-form pixels, front minus pitch +20), the print's excess over Astra's is in both groups: brows +6.47
+  against +3.43, temples +4.21 against -0.86 (this round's level; table below).
+
+**What changed, per finding.**
+1. *Pair roles (major; `ar_levels.py`).* `pair_table` roles now follow the angle:
+   - `photo_angle` (within `CLOSE_DEG`, 5 deg) is the calibration role: pitch_p20:05 and yaw_m30_pitch_p20:01.
+   - `near` (within 20 deg) is the `trade-off` role: front:05 and yaw_m30:01, the same photos seen from 18 deg below
+     their cameras. They are graded every time and never called photo angles.
+   - `loose` (20-30 deg) is the held-out role: yaw_m45:01 and yaw_p45:03.
+
+   Each capture now also gets `view_dependence`: per photo, every other pose's residual minus the photo-angle pose's,
+   per form, plus the brows' and temples' AR p50 apart (`ar_groups`). `auto_pairs(job, 'matched')` raises.
+2. *Calibration search (major; `ar_calibrate.py`).*
+   - The coarse grid is gain 0.55 / 0.75 / 0.95 x γ 0.85 / 1.0 / 1.15.
+   - Per target, a trust-region minimax then runs between the captured points. It fits planes in (log gain, γ) over
+     the 6 captures nearest the target's best, weighted 1 / (d + 0.25) with d in grid steps.
+   - The next capture is the planes' minimax point inside a box of `radius` grid steps around the best. That box is
+     also kept inside the grid's box extended by one step (`search_box`: gain 0.43-1.20, γ 0.70-1.30).
+   - The box grows after an improving step and halves otherwise. The search stops at `STOP_TOL`, at `MIN_RADIUS` or
+     after `--max-iter` (6) captures.
+   - There are two targets. `photo_angles` (the calibration pairs) gives the level baked. `near_18deg` (the trade-off
+     pairs, the correction round's target) gives a candidate.
+   - Every choice is a captured point. Leave-one-pair-out runs over the two calibration pairs.
+   - The node capture process is opted out of EcoQoS. The run prints a heartbeat and writes
+     `calibration_partial.json` after each capture.
+3. *Candidates in the worn view (minor; `ar_calibrate.candidate_portraits`, `tooltest_owner_sheet --calibration`).*
+   - Each candidate's GLB is captured again with the worn portrait (`sheet_capture`). Its graded numbers must equal
+     the calibration capture's; both did, exactly.
+   - The sheet takes its candidate rows and labels from calibration.json: what each level was fitted on, and its
+     gain and γ.
+   - The front and yaw -30 captions say that photos 05 / 01 were taken 18 deg above those views.
+4. *Retracted claims marked (minor; this file).* The correction round's heading, its "(pass)", "They are the
+   renderer's", "Chosen: gain 0.7818" and "Engineering decisions" are marked SUPERSEDED with pointers. Fix round 1's
+   heading, its matched-pair definition, the calibration result, the "renderer's, not the print's" sentence, the
+   candidate table, the engineering decision and the "Left" line are struck or annotated in place.
+
+**Calibration result (`data/wp5/ar_calibration/calibration.json`; 24 captures including the probe and the two portrait
+re-captures, 4 min).** The six grid points shared with fix round 1 reproduce its stored numbers exactly.
+
+| capture | gain / γ | photo angles: pitch +20 vs 05, yaw -30 pitch +20 vs 01 (p10 / p50) | worst | trade-off: front vs 05, yaw -30 vs 01 |
+|---|---|---|---|---|
+| grid g0.750_1.000 | 0.75 / 1.00 | -0.10 / -0.66, +2.49 / -1.02 | 2.49 | +2.15 / +5.87, +5.61 / +3.39 |
+| review's capture | 0.70 / 1.00 | -0.83 / -1.46, +1.87 / -1.83 | 1.87 | (not in this run) |
+| photo_angles_s1 | 0.939 / 1.086 | -1.16 / -1.55, +1.57 / -1.87 | 1.87 | +1.45 / +4.85, +4.85 / +2.66 |
+| photo_angles_s3 | 1.047 / 1.112 | -1.16 / -1.23, +1.61 / -1.54 | 1.61 | +1.57 / +5.24, +4.99 / +2.88 |
+| **photo_angles_s6 (chosen)** | **1.194 / 1.151** | **-1.16 / -1.23, +1.56 / -1.52 (pass)** | **1.56** | +1.57 / +5.27, +4.99 / +2.87 |
+| near_18deg_s6 | 0.849 / 1.174 | -4.97 / -5.41, -1.78 / -5.44 | 5.44 | -1.54 / +0.36, +1.57 / -0.74 (pass) |
+| fix round 1's minimax | 1.599 / 1.288 | -3.22 / -3.19, -0.23 / -3.32 | 3.32 | +0.00 / +3.07, +3.32 / +1.28 |
+
+- **The passing set is a ridge.** The review's 0.70 / 1.00, s1, s3 and s6 all pass at both photo angles. Their p10 /
+  p50 residuals barely move along it, and the minimax is flat (1.87 to 1.56). What moves is the bright end: p90 at the
+  photo angles is +2.33 / +3.91 at 0.75 / 1.00 and +2.66 / +3.86 at s6. The chosen point sits at the search box's gain
+  edge (1.20); the last steps improved the worst by 0.02-0.03 L* each. Six steps on this flat ridge are not a precise
+  optimum.
+- **Leave-one-pair-out.** Without pitch_p20 vs 05, the search picks the same level, so the residual there (-1.16 /
+  -1.23) is out-of-sample too. Without yaw_m30_pitch_p20 vs 01, it picks 0.75 / 1.00, which gives +2.49 / -1.02 on
+  that pair and fails by 0.49. Fitted on one photo angle, the level misses the other by about 0.5 L* beyond the window.
+- **The level clips no texel:** the maximum is 220 / 255 after the map.
+- **Owner candidates (`data/wp5/tooltest/owner_sheet.png`, every row with the worn portrait).**
+
+  | row | level | worst: photo angles | trade-off (18 deg off) | held-out |
+  |---|---|---|---|---|
+  | this round's level (delivered tool test) | gain 1.19 / γ 1.15 | **1.56 (pass)** | 5.27 | 6.11 |
+  | best at front / yaw -30, 18 deg below photos 05 / 01 | gain 0.85 / γ 1.17 | 5.44 | **1.57 (pass)** | 2.31 |
+  | previous tool test: fix round 1's minimax over all four | gain 1.60 / γ 1.29 | 3.32 | 3.32 | 4.13 |
+
+  This is the view-dependence trade-off. A level that matches the photos at their own angles renders the front pose's
+  median 5.3 L* lighter than photo 05 (which sees the frame from 18 deg above). A level that matches the front and
+  yaw -30 renders 5.4 L* darker than the photos at their own angles. No single albedo level does both while the print
+  makes the front view about 6.5 L* lighter than the view from above (Astra's texture: 4.1).
+
+**AR levels (AR - photo, L* p10 / p50; probe mask; this round's capture `data/wp5/tooltest/ar_painted/ar_levels.json`,
+the earlier captures re-graded with the new roles in `ar_levels_fr2.json` beside them; same numbers as before, new
+roles).**
+
+| pair (angle) | role | 10bf932 | correction round | fix round 1 | this round | Astra's texture |
+|---|---|---|---|---|---|---|
+| **print** | | | | | | |
+| pitch_p20 vs 05 (1.6) | calibration | +3.56 / +3.39 | -5.14 / -5.44 | -3.22 / -3.19 | **-1.16 / -1.23** | -8.15 / -7.64 |
+| yaw_m30_pitch_p20 vs 01 (1.6) | calibration | +5.84 / +2.76 | -2.00 / -5.59 | -0.23 / -3.32 | **+1.56 / -1.52** | -4.80 / -7.44 |
+| front vs 05 (18.4) | trade-off | +5.35 / +10.12 | -1.52 / +0.23 | +0.00 / +3.07 | +1.57 / +5.27 | -6.81 / -3.57 |
+| yaw_m30 vs 01 (18.1) | trade-off | +9.07 / +7.10 | +1.51 / -0.94 | +3.32 / +1.28 | +4.99 / +2.87 | -3.13 / -2.49 |
+| yaw_p45 vs 03 (28.8) | held-out | +8.10 / +9.65 | +2.10 / +1.17 | +3.37 / +4.13 | +4.58 / +6.11 | -1.90 / -3.95 |
+| yaw_m45 vs 01 (23.3) | held-out | +8.42 / +5.85 | +0.91 / -2.59 | +3.32 / -0.10 | +4.72 / +1.61 | -2.54 / -5.37 |
+| **matched** | | | | | | |
+| pitch_p20 vs 05 | calibration | +3.98 / +5.98 | -4.58 / -3.84 | -2.62 / -1.05 | -0.57 / +0.92 | -8.01 / +0.95 |
+| yaw_m30_pitch_p20 vs 01 | calibration | +4.84 / +2.01 | -3.09 / -6.09 | -1.31 / -3.81 | +0.55 / -2.11 | -5.96 / -6.41 |
+| front vs 05 | trade-off | +6.83 / +14.52 | -0.91 / +5.73 | +0.80 / +8.61 | +2.55 / +10.49 | -6.15 / +5.53 |
+| yaw_m30 vs 01 | trade-off | +7.82 / +6.39 | +0.16 / -1.67 | +2.00 / +0.45 | +3.72 / +1.93 | -4.22 / -2.55 |
+| yaw_p45 vs 03 | held-out | +6.17 / +6.95 | +0.17 / -1.73 | +1.67 / +1.27 | +2.99 / +3.27 | -3.65 / -6.56 |
+| yaw_m45 vs 01 | held-out | +6.89 / +4.25 | -0.75 / -4.46 | +1.64 / -1.93 | +3.07 / -0.32 | -4.11 / -6.26 |
+| **frame** | | | | | | |
+| pitch_p20 vs 05 | calibration | +3.51 / +3.93 | -5.05 / -5.89 | -3.09 / -3.10 | -1.04 / -1.13 | -8.50 / -1.15 |
+| yaw_m30_pitch_p20 vs 01 | calibration | +5.13 / +1.69 | -2.80 / -6.41 | -1.02 / -4.13 | +0.84 / -2.43 | -5.67 / -6.73 |
+| front vs 05 | trade-off | +6.03 / +11.91 | -1.71 / +3.12 | +0.00 / +6.00 | +1.75 / +7.88 | -6.99 / +2.87 |
+| yaw_m30 vs 01 | trade-off | +8.11 / +6.05 | +0.45 / -2.01 | +2.29 / +0.11 | +4.01 / +1.59 | -3.93 / -2.89 |
+| yaw_p45 vs 03 | held-out | +5.84 / +10.32 | -0.16 / +1.64 | +1.34 / +4.64 | +2.66 / +6.64 | -3.98 / -3.19 |
+| yaw_m45 vs 01 | held-out | +6.96 / +4.09 | -0.68 / -4.62 | +1.71 / -2.09 | +3.14 / -0.48 | -4.03 / -6.42 |
+
+- **Pass per role (print form).** This round passes the calibration role and fails trade-off and held-out. The
+  correction round passed only the trade-off role (its fitting pairs). Fix round 1, 10bf932 and Astra's texture pass
+  none.
+- **Other forms at the photo angles.** In the matched form this round fails by 0.11 on yaw -30 pitch +20's p50
+  (-2.11). In the frame form it fails there by 0.43 (-2.43).
+- **Held-out rows are worse than fix round 1's** (worst 6.11 against 4.13). They lean toward the trade-off rows, being
+  20-30 deg off their photos.
+
+**View dependence (other pose minus the photo-angle pose against the same photo, p50; print form / matched; AR p50 by
+group).**
+
+| difference | 10bf932 | correction round | fix round 1 | this round | Astra's texture |
+|---|---|---|---|---|---|
+| front - pitch_p20 (vs 05) | +6.73 / +8.54 | +5.67 / +9.57 | +6.26 / +9.66 | +6.50 / +9.57 | +4.07 / +4.58 |
+| ... AR p50 brow / temple | +6.95 / +1.52 | +5.34 / +4.07 | +6.05 / +4.96 | +6.47 / +4.21 | +3.43 / -0.86 |
+| yaw_m30 - yaw_m30_pitch_p20 (vs 01) | +4.34 / +4.38 | +4.65 / +4.42 | +4.60 / +4.26 | +4.39 / +4.04 | +4.95 / +3.86 |
+| ... AR p50 brow / temple | +4.90 / +3.40 | +3.93 / +3.99 | +4.12 / +3.58 | +4.23 / +3.25 | +4.13 / +3.60 |
+
+At photo 05's pair, every print shows 1.6-2.7 L* more front-minus-above spread than Astra's texture in the print form,
+and 4.0-5.1 more in the matched form. At photo 01's pair, the print's spread is within 0.6 of Astra's. The level does not move
+it (6.26 at gain 1.60 / γ 1.29, 6.50 at 1.19 / 1.15). Across the 21 calibration captures it is 5.2-7.2. It is
+geometry: what the front pose sees of the brows and temples that the pose from above (and photo 05) does not, and
+what the print holds there. It is not localised further here.
+
+**Bake, tool test, proofs (all re-run on the new level).**
+- *Bake* (`data/wp5/ft1119_bake/`, 14-worker pool, A7 serial and held-out bakes, 1216 s): print.png equals the
+  calibrated candidate image pixel for pixel (sha256 9d939360...). A1 pass; A2 6 / 6; A3 read back pass (level
+  re-applied); A7 pass (pool vs serial); single-source audit pass (foreign-view photo texels 0). A4 fails on all four
+  parts. A5 fails at 7 and 8 texels. B3 passes 1 of 7 (10bf932 protocol; relit diagnostic 2 of 4). Flatten is not
+  kept, as in fix round 1.
+- *Tool test.* `print_tooltest` ran on a fresh COPY of q001, and all 15 checks pass. It is recorded in this bake:
+  STOP B takes A6 / B5 from `data/wp5/tooltest/tooltest.json`, which grades the same print sha256. STOP B fires on
+  A4, A5 and B3.
+- *Capture.* The capture of the delivered tool test (`tooltest/ar_painted/`, with portrait and probe) repeats the
+  chosen calibration capture's numbers exactly.
+- *Brow front, unchanged (same radiance).* Photo share seen by 05: -x 80.8 %, +x 80.0 %.
+- *Temple streaks in AR (`axis_streakiness`).* -x temple at yaw +45: 2.57 (fix round 1 2.54, Astra 3.22). +x temple
+  at yaw -30: 4.11 (3.90, Astra 12.81).
+
+**Engineering decisions (recorded here).**
+- The calibration target is the `print` form with a probe mask, over the pose-photo pairs within 5 deg of a photo's
+  camera, by minimax between grid points inside the grid's box plus one step.
+- Poses 18 deg off their photo are trade-off rows, reported with the view dependence and never as photo angles.
+- The photo-angle level is baked into the delivered tool test. The other two levels are sheet rows, every one in the
+  worn view, and the owner chooses by eye.
+
+**Tests.** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+258 passed, 1 xfailed (21 min, `data/wp5/pytest_correction_fr2.log`); no pinned verdict changed, and the production `bake.json` still points at this print's tool test. New or changed in `tests/photoprint/test_correction_round.py`:
+- the pair roles: two photo-angle pairs, two near, two loose; the old 'matched' role refuses;
+- the trust-region search on a synthetic residual model with fix round 1's slopes. It reaches the brute-force
+  minimax within 0.15 L* for both targets, chooses a captured level, and refines a calibration target whose best grid
+  point fails into a pass;
+- the owner sheet's candidate rows from a calibration.json: portrait capture preferred, delivered level not repeated.
+
+**Left.**
+- The owner judges the three levels by eye, all in the worn view. At the delivered level, the straight-on frame
+  renders lighter than photo 05 (front median +5.3, matched +10.5): the view-dependence trade-off above.
+- The print's extra front-versus-above spread at photo 05 (1.6-2.7 L* in the print form, 4.0-5.1 matched, over Astra's
+  texture) is measured but not localised. It is the next lead for complaint (1) "straight-on".
+- The minimax along the passing ridge is flat. Its bright end (p90 +2.7 / +3.9 at the photo angles) is outside the
+  pass rule and left to the eye.
+- Unchanged from fix round 1: the -x temple top's strip-space fill streaks; new brow-front photo texels' bright
+  outliers; A4, A5 and B3 fire STOP B.
+- The owner has not seen this sheet.
+
+### Owner sheets of the fix-round-2 tool test, default poses (2026-10-07)
+
+Fresh `arview capture --poses default --backgrounds skin` (with the worn portrait; node opted out of EcoQoS) of the
+fix-round-2 tool test (`tooltest/q001_painted_TOOLTEST.glb`, sha256 a5358952...) into `tooltest/arview_painted/` and of
+Astra's q001 (`automation/.../3b8a1c7a.../original/model.glb`, af6e9d10...) into `tooltest/arview_original/`. Every
+beauty and part-id render and the portrait equal the fix-round-2 all-pose captures (`ar_painted/capture`,
+`ar_original/capture`) pixel for pixel (one Astra pixel at yaw +45 differs by 10), so those captures' black probes grade
+these. The previous contents (the correction round's capture, sha256 f28c9ffb..., and fix round 2's candidate sheet)
+moved to `tooltest/pre_default_sheet/`.
+- `tooltest/owner_sheet.png`: `tooltest_owner_sheet` with defaults: photos / Astra / painted, front, yaw -30, yaw +45,
+  pitch +20, worn portrait.
+- `tooltest/closeup_sheet.png` (new script `tests/photoprint/tooltest_closeup_sheet.py`): photo | Astra | painted for
+  the front brows (front pose vs photo 05), the brows at pitch +20 (photo 05's own angle) and the -x temple at yaw +45
+  vs photo 03, the photo cut to the stretch the AR shows (temple vertices whose projection through the report's
+  asset_to_world lands on the temple's part-id pixels: z -9 to -104 mm); L* p10 / p50 of each tile's region.
+
+L* p10 / p50 of frame pixels (`ar_levels`; frame form = every pixel, highlights in; print form in brackets):
+
+| pair (angle) | photo | painted (fix round 2) | Astra | 10bf932 tool test (frame) |
+|---|---|---|---|---|
+| pitch_p20 vs 05 (1.6) | 16.6 / 24.9 [15.5 / 21.5] | 15.6 / 23.8 [14.3 / 20.3] | 8.1 / 23.8 [7.3 / 13.9] | 20.1 / 28.8 |
+| front vs 05 (18.4) | 16.6 / 24.9 [15.6 / 21.6] | 18.4 / 32.8 [17.1 / 26.8] | 9.6 / 27.8 [8.7 / 18.0] | 22.6 / 36.8 |
+| yaw_m30 vs 01 (18.1) | 13.3 / 25.1 [12.0 / 22.6] | 17.3 / 26.7 [17.0 / 25.5] | 9.4 / 22.3 [8.8 / 20.1] | 21.4 / 31.2 |
+| yaw_p45 vs 03 (28.8) | 13.6 / 19.7 [11.0 / 19.5] | 16.3 / 26.3 [15.6 / 25.6] | 9.7 / 16.5 [9.1 / 15.5] | 19.5 / 30.0 |
+| yaw_m45 vs 01 (23.3) | 13.3 / 25.1 [11.4 / 22.4] | 16.4 / 24.7 [16.2 / 24.0] | 9.3 / 18.7 [8.9 / 17.0] | 20.2 / 29.2 |
+
+Close-up regions (frame form): front brows photo 05 15.7 / 22.0, painted 18.1 / 32.8, Astra 9.4 / 27.7; brows at
+pitch +20 photo 05 15.7 / 22.0, painted 15.0 / 21.4, Astra 7.7 / 18.0; -x temple at yaw +45 (same stretch) photo 03
+12.5 / 18.9, painted 19.0 / 26.2, Astra 10.1 / 15.0. Worn portrait (pixels where the two portraits differ, no photo
+counterpart): painted 15.5 / 20.9, Astra 5.2 / 14.8. Median hue of frame pixels (highlights out): painted 25.5-32.3
+deg, photos 01 / 03 / 05 29.7-31.5, Astra 63.4-64.2; median chroma painted 2.9-4.1 against the photos' 4.0-6.0.
+By eye: the level and hue match at photo 05's own angle; front pose and the worn view still lighter and flatter than
+the photos (the AR's environment band lies on both textures' nasal brow halves); brow spots gather toward the
+endpieces with plain middles; the -x temple's 10bf932 dark lengthwise streaks are mostly gone but it is 7 L* lighter
+than photo 03 there and shows two spots where the photo shows four or five; the +x endpiece block's thin light marks
+are fainter (white top-hat > 8 L* at 5 px: 82 -> 61 px, Astra 17), not gone.

@@ -70,6 +70,7 @@ STROKE_SAT = 60.0
 STROKE_DILATE_MM = 0.3
 SEE_THROUGH_MM = 8.0
 SEE_THROUGH_DILATE_MM = 1.0
+SEE_THROUGH_CLOSE_MM = 0.75     # correction round: the dilated see-through letters closed into one band
 ACETATE_N = 1.49
 MIRROR_RING = 3
 PARTNER_TOL_MM = 5.0
@@ -237,6 +238,13 @@ def text_mask(job, tex, decals: dict, painted: np.ndarray, col: np.ndarray, tx: 
         if hit.any():
             img = ndimage.binary_dilation(tex.image(hit, False, bool),
                                           iterations=max(1, int(round(SEE_THROUGH_DILATE_MM * tx))))
+            # correction round (task item 3): closed into a band, so no "teeth" of photo texels stay between the
+            # dilated letters (on the -x temple they carried the photo's dark edge line, which the fill continued as
+            # dashes between them)
+            r_ = max(1, int(round(SEE_THROUGH_CLOSE_MM * tx)))
+            yy, xx = np.mgrid[-r_:r_ + 1, -r_:r_ + 1]
+            img = ndimage.binary_closing(np.pad(img, r_ + 1), structure=(yy * yy + xx * xx) <= r_ * r_)[
+                r_ + 1:-(r_ + 1), r_ + 1:-(r_ + 1)]
             through = img[tex.ii, tex.jj] & (tex.chart >= 0)
     out.update({"mask": m | stroke | through, "decal_px": int(m.sum()), "stroke_px": int((stroke & ~m).sum()),
                 "see_through_px": int((through & ~m & ~stroke).sum()), "see_through_mask": through,
@@ -395,11 +403,12 @@ def band_tiles(hole: np.ndarray, tile: int = TILE, margin: int = TILE_MARGIN) ->
     return out
 
 
-def tile_job(img, hole, donors, core, crop, radius, seed, method="patchmatch"):
+def tile_job(img, hole, donors, core, crop, radius, seed, method="patchmatch", tband=None):
     """The filler (``fill_call``) on one crop; only the core's hole pixels are kept. Returns (core, filled core,
-    checks)."""
+    checks). ``tband``: the canvas's strip t (quilting only, correction round)."""
     cy0, cy1, cx0, cx1 = crop
-    r = fill_call(method, img[cy0:cy1, cx0:cx1], hole[cy0:cy1, cx0:cx1], donors[cy0:cy1, cx0:cx1], radius, seed)
+    r = fill_call(method, img[cy0:cy1, cx0:cx1], hole[cy0:cy1, cx0:cx1], donors[cy0:cy1, cx0:cx1], radius, seed,
+                  tband=None if tband is None else tband[cy0:cy1, cx0:cx1])
     y0, y1, x0, x1 = core
     sub = r["out"][y0 - cy0:y1 - cy0, x0 - cx0:x1 - cx0]
     return core, sub, {"outside_changed": r["outside_changed"], "hole_changed": r["hole_changed"],
@@ -416,15 +425,19 @@ QUILT_RADII_MM = (0.9, 1.2)      # the knockout's choices for quilting (windows 
                                  # the temples, 1.5 mm dull uniform patches (looked at on the +x temple, 2026-10-06)
 
 
-def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: int, seed: int) -> dict:
+def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: int, seed: int,
+               tband: np.ndarray | None = None) -> dict:
     """Seeded block quilting (Efros and Freeman 2001, feathered): the hole's bounding box is tiled with S x S blocks
     (S = radius + 1) taken in onion order (mean distance of the block's hole pixels to the known pixels); each block's
     (2 radius + 1)^2 window is matched (SSD over its KNOWN pixels: donors and blocks already filled) against
     ``QUILT_K_MAX`` seeded donor windows (fully inside the donors), one of those within 10 % of the best is copied
     VERBATIM into the block's hole pixels and a ring of S // 2 texels around it, overlaps feathered linearly (pixels are
     never averaged elsewhere). Same contract and checks as ``patchmatch_call`` (outside the hole unchanged, the hole
-    changed). No streaks along the strips (looked at, step 4) and about 10 x faster than PyPatchMatch; by A4 it is
-    WORSE than PyPatchMatch at that filler's own radius on FT1119 (module docstring, step 4 fix round 1)."""
+    changed). About 10 x faster than PyPatchMatch; by A4 it is WORSE than PyPatchMatch at that filler's own radius on
+    FT1119 (module docstring, step 4 fix round 1). ``tband`` (correction round, ``quilt_t``): (H, W) t across a strip
+    chart (NaN elsewhere); a block on a strip draws its windows from the same t (+-1 block) all along the strip, so the
+    strip's edge glint and dark edge line are no longer copied into its middle as dashes; None = the step-4 quilting,
+    byte for byte."""
     img = np.ascontiguousarray(np.asarray(img, np.uint8))
     hole = np.asarray(hole, bool)
     donors = np.asarray(donors, bool) & ~hole
@@ -449,9 +462,21 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
         cy, cx = np.nonzero((cov >= 0.6) & donors)
     if not len(cy):
         return {"out": work, "outside_changed": 0, "hole_changed": 0, "candidates": 0, **base}
-    if len(cy) > QUILT_K_MAX:
-        pick = np.sort(rng.choice(len(cy), QUILT_K_MAX, replace=False))
-        cy, cx = cy[pick], cx[pick]
+    kg = np.sort(rng.choice(len(cy), QUILT_K_MAX, replace=False)) if len(cy) > QUILT_K_MAX else np.arange(len(cy))
+    ys, xs = np.nonzero(hole)
+    y0, x0 = int(ys.min()), int(xs.min())
+    bkey = ((ys - y0) // S) * 100000 + (xs - x0) // S
+    ukeys, inv = np.unique(bkey, return_inverse=True)
+    sel_t, block_t = None, None
+    if tband is not None and np.isfinite(tband).any():
+        from . import quilt_t as QT
+        bcy = np.minimum(y0 + (ukeys // 100000) * S + S // 2, H - 1)
+        bcx = np.minimum(x0 + (ukeys % 100000) * S + S // 2, W - 1)
+        block_t = np.asarray(tband, float)[bcy, bcx]
+        cand, sel_t = QT.donor_bins(np.asarray(tband, float), cy, cx, block_t, S, rng, kg)
+        cy, cx = cy[cand], cx[cand]
+    else:
+        cy, cx = cy[kg], cx[kg]
     oy, ox = np.mgrid[-r:r + 1, -r:r + 1]
     Dy = cy[:, None, None] + r + oy[None]
     Dx = cx[:, None, None] + r + ox[None]
@@ -459,10 +484,6 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
     Dm = known[Dy, Dx]                                     # (K, w, w) donor validity of each window pixel
     Dmr = np.repeat(Dm.reshape(len(cy), -1), 3, axis=1).astype(np.float32)
     D2 = D * D
-    ys, xs = np.nonzero(hole)
-    y0, x0 = int(ys.min()), int(xs.min())
-    bkey = ((ys - y0) // S) * 100000 + (xs - x0) // S
-    ukeys, inv = np.unique(bkey, return_inverse=True)
     dist = ndimage.distance_transform_edt(hole)
     md = np.bincount(inv, weights=dist[ys, xs]) / np.bincount(inv)
     order = np.lexsort((ukeys, md))
@@ -488,6 +509,10 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
         else:
             d = np.zeros(len(D), np.float32)
         d = np.maximum(np.asarray(d, np.float64), 0.0)    # float32 cancellation can dip below 0
+        if sel_t is not None:                              # correction round: strip-space donors (same t)
+            bt = block_t[b]
+            mk = sel_t.get(int(np.floor(bt / S))) if np.isfinite(bt) else None
+            d = np.where(mk if mk is not None else sel_t["global"], d, np.inf)
         dmin = float(d.min())
         good = np.nonzero(d <= dmin * (1 + QUILT_EPS) + 1e-6)[0]
         k = int(good[rng.integers(len(good))]) if len(good) else int(np.argmin(d))
@@ -525,7 +550,7 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
     outside = int((out[~hole] != work[~hole]).any(-1).sum())
     changed = int((out[hole] != work[hole]).any(-1).sum())
     return {"out": out, "outside_changed": outside, "hole_changed": changed, "candidates": int(len(D)),
-            "relaxed": bool(relaxed), "nearest_px": int(left.sum()), **base}
+            "relaxed": bool(relaxed), "nearest_px": int(left.sum()), "strip_t": sel_t is not None, **base}
 
 
 # ----------------------------------------------------------------------------- small enclosed holes (fix round 1)
@@ -559,10 +584,11 @@ def small_enclosed(hole: np.ndarray, painted: np.ndarray, tx: float, *, max_mm2:
     return ok[lab] & hole
 
 
-def fill_call(method: str, img, hole, donors, radius: int, seed: int) -> dict:
-    """The production hole filler: 'quilt' (default since step 4) or 'patchmatch' (the design's PyPatchMatch)."""
+def fill_call(method: str, img, hole, donors, radius: int, seed: int, tband=None) -> dict:
+    """The production hole filler: 'quilt' (default since step 4; ``tband`` = strip-space donors, correction round) or
+    'patchmatch' (the design's PyPatchMatch; ``tband`` is not used)."""
     if method == "quilt":
-        return quilt_call(img, hole, donors, radius, seed)
+        return quilt_call(img, hole, donors, radius, seed, tband=tband)
     if method == "patchmatch":
         r = patchmatch_call(img, hole, donors, radius, seed)
         r["method"] = "patchmatch"

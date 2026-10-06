@@ -40,6 +40,18 @@ graded by the independent instrument (tests/instruments/print_metrics.py), never
   computed here from the mesh), and no layout face carries photo texels of two views.
 - ``heldout_b3`` (B3): the production bake from every view except h, rendered at h's WP3b camera on S, per region h
   sees, against Astra's texture on identical pixels; eligible when >= 50 % of E came from photo texels and E >= 1,500 px.
+
+Correction round (2026-10-06): the bake may divide the photos' own shading out (``flatten``, declared per view in
+report.json as SH coefficients) and map the composed print to the AR level calibrated to the photos (``level``,
+declared gain and gamma). ``readback_a3`` re-applies both, written again here (the 9-term SH basis over the texel's
+face normal in the view's camera frame, the declared normalisation and clip; the level map on the rounded photo
+colour). B3 grades the held-out bake as PHOTO RADIANCE: the atlas before the level (``atlas_radiance``; the 10bf932
+bake had no level, so this is its protocol). Fix round 1 of the correction round: the verdict is the 10bf932
+protocol (the held-out render and Astra's as rendered, no re-lighting); when the bake flattened, the correction
+round's re-lit grading (both renders re-lit by photo h's own shading, fitted on h's donor texels by the tool's
+``shading.fit_view``: 9 parameters taken from the held-out photo itself) is reported beside it per row
+(``relit_h``), never as the verdict, because it lends the grading information from h. A4 refills with the production
+filler including its strip-space donors (``quilt_t``).
 """
 from __future__ import annotations
 
@@ -53,6 +65,8 @@ from glasses3d.g3d import printuv as PU
 from glasses3d.g3d_host import texture_utils as T
 from glasses3d.g3d_host.camera import project_mm
 from glasses3d.g3d_host.photoprint import fill as FL
+from glasses3d.g3d_host.photoprint import quilt_t as QT
+from glasses3d.g3d_host.photoprint import shading as SH
 from glasses3d.g3d_host.photoprint import project as PR
 from glasses3d.g3d_host.photoprint import regions as RG
 from glasses3d.g3d_host.photoprint import texels as TX
@@ -152,6 +166,11 @@ def texel_faces(layout, shape) -> tuple[np.ndarray, np.ndarray]:
     return row, bar
 
 
+def _cam_basis(cam):
+    from glasses3d.g3d_host import raster
+    return raster.camera_basis(cam)
+
+
 def _gain(rgb: np.ndarray, g) -> np.ndarray:
     g = np.asarray(g, float)
     if np.allclose(g, 1.0):
@@ -179,6 +198,11 @@ def readback_a3(job, res: dict, out_dir) -> dict:
     reg_img = tex.image(tex.region, -1, np.int64)
     per_view = {v: rep["gains"]["per_view"].get(v, {"gain": [1.0, 1.0, 1.0]})["gain"] for v in views}
     grp = {(g["region"], g["view_index"]): g["gain"] for g in rep["gains"]["across_boundaries"]["groups"]}
+    flat = rep.get("flatten") if isinstance(rep.get("flatten"), dict) else {}
+    fits = (flat.get("fits") or {}) if flat.get("applied") else {}
+    level = rep.get("level") if isinstance(rep.get("level"), dict) and rep["level"].get("applied") else None
+    out["flatten_reapplied"] = bool(fits)
+    out["level_reapplied"] = level is not None
     lev = None
     if (out_dir / "gain_field.npz").is_file():          # step 4: the stage-3 levelling field, per texel
         lev = np.load(out_dir / "gain_field.npz")["gain"].astype(np.float64)
@@ -198,6 +222,16 @@ def readback_a3(job, res: dict, out_dir) -> dict:
         raw = np.stack([ndimage.map_coordinates(ph[..., c], [uv[:, 1], uv[:, 0]], order=3, mode="nearest")
                         for c in range(3)], -1)
         raw = np.clip(raw, 0, 255)
+        fit = fits.get(v.replace("reference-", "").replace(".png", ""))
+        if fit and fit.get("fitted"):                   # correction round: the declared shading, divided out
+            Nf = job.face_normals[faces[m]]
+            r_, u_, t_ = _cam_basis(cam)
+            n3 = np.stack([Nf @ r_, Nf @ u_, Nf @ t_], 1)
+            x_, y_, z_ = n3[:, 0], n3[:, 1], n3[:, 2]
+            B9 = np.stack([np.ones_like(x_), x_, y_, z_, x_ * y_, y_ * z_, x_ * z_, x_ * x_ - y_ * y_,
+                           3 * z_ * z_ - 1], 1)
+            lf = np.clip(B9 @ np.asarray(fit["coef"], float) - float(fit["median"]), np.log(1 / 3), np.log(3.0))
+            raw = np.clip(T.linear_to_srgb(T.srgb_to_linear(raw) / np.exp(lf)[:, None]), 0, 255)
         e = _gain(raw, per_view[v])
         regs = reg_img[ii[m], jj[m]]
         gg = np.ones((m.sum(), 3))
@@ -206,6 +240,10 @@ def readback_a3(job, res: dict, out_dir) -> dict:
         if lev is not None:
             gg = gg * lev[ii[m], jj[m]]
         e = np.clip(T.linear_to_srgb(T.srgb_to_linear(e) * gg), 0, 255)
+        if level is not None:                           # correction round: the declared AR level on the rounded colour
+            lin = T.srgb_to_linear(np.rint(e))
+            Y = np.maximum(lin @ np.array([0.2126, 0.7152, 0.0722]), 1e-4)
+            e = T.linear_to_srgb(lin * (float(level["gain"]) * Y ** (float(level["gamma"]) - 1.0))[:, None])
         expect[m] = e
     got = img[ii, jj]
     diff = np.abs(np.rint(expect) - got).max(1)
@@ -306,6 +344,7 @@ def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES, me
     facing_img = tex.image(reg_f[np.where(tex.region >= 0, tex.region, -1)], -1, np.int64)
     views = res.get("views") or (res.get("report") or {}).get("views")
     m = int(round(A4_MARGIN_MM * tx))
+    tband = QT.atlas_t(lay, tex) if (res.get("report") or {}).get("strip_donors") else None
     chosen, rows, skipped = [], [], []
     masks = {l: lab_img == l for l in labels}
     fits: dict = {}
@@ -350,7 +389,8 @@ def knockout(res: dict, part: str, *, seed: int = 0, n_holes: int = A4_HOLES, me
         hs = hole_full[Y0:Y1, X0:X1]
         sup = masks[l][Y0:Y1, X0:X1]
         don = sup & ~hs
-        r = FL.fill_call(method, sub, hs, don, rp, int(seed) * 1000 + k)
+        r = FL.fill_call(method, sub, hs, don, rp, int(seed) * 1000 + k,
+                         tband=None if tband is None else tband[Y0:Y1, X0:X1])
         g = PM.knockout(r["out"], sub, hs, sup, tx)
         # the floor's neighbour: same photo, chart and facing class as the hole, similar magnification
         cs, fs = chart_img[Y0:Y1, X0:X1], facing_img[Y0:Y1, X0:X1]
@@ -551,7 +591,7 @@ def heldout_b3(job, parts, h: str, *, radii_mm: dict, tx: float, seed: int = 0, 
     lay, tex = res["layout"], res["tex"]
     v = job.views[h]
     sc = res["occ"].scene(job.mesh.V)
-    r = render_bake(job, lay, res["atlas"].astype(float), h, v.camera, scene=sc)
+    r = render_bake(job, lay, res.get("atlas_radiance", res["atlas"]).astype(float), h, v.camera, scene=sc)
     photo_cls = (res["classes"] == CLASS_CODES["photo_anchor"]) | (res["classes"] == CLASS_CODES["photo_tier1"])
     pc = tex.image(photo_cls.astype(float), 0.0, float)
     rpc = render_bake(job, lay, np.repeat(pc[..., None], 3, -1), h, v.camera, scene=sc)
@@ -568,6 +608,19 @@ def heldout_b3(job, parts, h: str, *, radii_mm: dict, tx: float, seed: int = 0, 
     rr = sc.render(v.camera, v.shape, 1, want_bary=True)
     ii, jj = np.nonzero(m)
     astra[ii, jj] = job.astra.colours(job.mesh.part, r["face"][ii, jj], rr["bary"][ii, jj])
+    relit = None
+    relit_imgs = None
+    if (res.get("flatten") or {}).get("applied"):        # correction round: re-light both with photo h's own shading
+        sh = TX.view_samples(job, tex, h, res["occ"])
+        fit = SH.fit_view(v.camera, tex.N, sh.col, sh.ok)
+        f = SH.factor(fit, v.camera, job.face_normals[r["face"][ii, jj]])
+        relit_imgs = []
+        for img_ in (r["ren"], astra):                   # a diagnostic beside the verdict (fix round 1), on copies
+            c_ = img_.copy()
+            c_[ii, jj] = np.clip(T.linear_to_srgb(T.srgb_to_linear(img_[ii, jj]) * f[:, None]), 0, 255)
+            relit_imgs.append(c_)
+        relit = {"fitted": fit.get("fitted"), "r2": fit.get("r2"), "factor_p5_p50_p95": fit.get("factor_p5_p50_p95"),
+                 "role": "diagnostic per row (relit_h); the verdict is the unrelit 10bf932 protocol"}
     rows = []
     for reg in regions:
         sel = m & (rid_img == reg.rid)
@@ -577,6 +630,11 @@ def heldout_b3(job, parts, h: str, *, radii_mm: dict, tx: float, seed: int = 0, 
         share = float((rpc["ren"][..., 0][E] > 0.5).mean()) if E.any() else 0.0
         sup = sel & v.acetate
         g = PM.evaluate_b3(r["ren"], astra, photo, sup, E, job.ppm(h), share)
+        g["protocol"] = "10bf932: held-out render and Astra's as rendered (atlas before the level), no re-lighting"
+        if relit_imgs is not None:
+            gr = PM.evaluate_b3(relit_imgs[0], relit_imgs[1], photo, sup, E, job.ppm(h), share)
+            g["relit_h"] = {"pass": gr.get("pass"), "eligible": gr.get("eligible"), "criteria": gr.get("criteria"),
+                            "protocol": "both re-lit by photo h's own SH shading (9 parameters from h's pixels)"}
         g.update({"held_out": h, "region": reg.name, "status_in_bake": res["report"]["statuses"][reg.name]["status"],
                   "anchor_in_bake": res["report"]["statuses"][reg.name]["anchor"],
                   "part_textured": reg.part_name in res["texture_parts"]})
@@ -590,7 +648,8 @@ def heldout_b3(job, parts, h: str, *, radii_mm: dict, tx: float, seed: int = 0, 
                        "protocol": "B0 form: h left out of the production bake, h at its WP3b camera on S, E = region "
                                    "eroded 2 px & acetate eroded 1 px & painted from a photo texel"}
         rows.append(g)
-    out = {"held_out": h, "rows": rows, "views": others}
+    out = {"held_out": h, "rows": rows, "views": others, "relit_with_h_shading": relit,
+           "graded_atlas": "atlas_radiance (before the AR level)" if "atlas_radiance" in res else "atlas"}
     if keep_render:
         out["render"] = np.clip(np.rint(r["ren"]), 0, 255).astype(np.uint8)
         out["mask"] = r["mask"]

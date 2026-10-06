@@ -1,7 +1,7 @@
 """WP5 build step 3 $0 proof on FT1119, host side (WP5_DESIGN §8 A1-A5, A7, B3), single-source mode.
 
-    glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.print_proof [--out DIR] [--tx 16] [--workers 4]
-        [--skip-b3] [--skip-a7]
+    glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.print_proof [--out DIR] [--tx 16] [--workers N]
+        [--skip-b3] [--skip-a7]        (--workers: default os.cpu_count() - 2)
 
 Writes DIR/<geom_sha8>/ (default DIR = data/wp5/ft1119_print): the production bake (print.png, classes.png,
 source.png, tier.png, layout.json, registration.json, report.json), ``proof.json`` (A1 from the layout, A2 per view,
@@ -129,11 +129,19 @@ def stop_b(proof: dict) -> dict:
                        f"faces with two views")
     if not proof["A5"].get("pass"):
         reasons.append(f"A5 fails: {proof['A5'].get('criteria')}")
-    reasons.append("A6 (Blender round trip, GLB TEXCOORD convention) not built (other workflow)")
-    if "A7" in proof and not proof["A7"].get("pass"):
-        reasons.append("A7 fails")
-    elif "A7" not in proof:
+    # correction round (step-4 review finding): A6 / B5 are built and graded by print_tooltest.py on the GLB
+    # attach_print paints from THIS print (tooltest.json, matched by the print's sha256); a bake run cannot grade them
+    tt = proof.get("tooltest")
+    for key, what in (("A6", "Blender round trip"), ("B5", "material control")):
+        if tt is None:
+            reasons.append(f"{key} ({what}) not run for this print (print_tooltest.py grades it on the attached GLB)")
+        elif not tt.get(key):
+            reasons.append(f"{key} ({what}) fails on the tool-test GLB of this print")
+    a7 = proof.get("A7")
+    if a7 is None or a7.get("pass") is None:
         reasons.append("A7 not run")
+    elif not a7.get("pass"):
+        reasons.append("A7 fails")
     if "B3_summary" in proof:
         b = proof["B3_summary"]
         if b["passing"] < b["eligible_rows"]:
@@ -143,7 +151,6 @@ def stop_b(proof: dict) -> dict:
             reasons.append("B3: no eligible row")
     else:
         reasons.append("B3 not run")
-    reasons.append("B5 (material control) not built (other workflow)")
     return {"fired": bool(reasons), "reasons": reasons,
             "rule": "WP5_DESIGN §9: STOP B fires if the full bake loses any C1-C4 margin on a region that passed A, or "
                     "if A1-A6 or B3 fails",
@@ -194,7 +201,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--tx", type=float, default=None, help="texels per mm (default: 2 x the donors' max px/mm)")
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=None,
+                    help="process pool size for the bake, A2 and B3 (default os.cpu_count() - 2, never more than the jobs)")
     ap.add_argument("--skip-b3", action="store_true")
     ap.add_argument("--skip-a7", action="store_true")
     ap.add_argument("--step0", default=str(STEP0),
@@ -238,7 +246,7 @@ def _main(a, prog) -> int:
     prog("A4 " + json.dumps({p: r["a4"].get("pass") for p, r in proof["A4"].items()}), force=True)
     proof["sheet"] = overview(job, res, root / "sheets" / "overview.png")
     views = sorted(job.views)
-    proof["A2"] = dict(zip(views, pool_map(_a2_job, [(v, tx) for v in views], min(a.workers, 6))))
+    proof["A2"] = dict(zip(views, pool_map(_a2_job, [(v, tx) for v in views], a.workers)))
     prog("A2 " + json.dumps({v[-6:-4]: r["pass"] for v, r in proof["A2"].items()}), force=True)
     if not a.skip_a7:
         prog("A7: serial bake (workers=1; progress lines from the bake)", force=True)
@@ -252,7 +260,7 @@ def _main(a, prog) -> int:
         del r2
         prog(f"A7 {proof['A7']['pass']}", force=True)
     if not a.skip_b3:
-        rows = pool_map(_b3_job, [(v, tx, res["radii"]) for v in views], min(a.workers, 3))
+        rows = pool_map(_b3_job, [(v, tx, res["radii"]) for v in views], a.workers)
         proof["B3"] = {r["held_out"]: r["rows"] for r in rows}
         elig = [x for r in rows for x in r["rows"] if x["eligible"]]
         proof["B3_summary"] = {"eligible_rows": len(elig), "passing": sum(1 for x in elig if x["pass"]),

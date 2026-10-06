@@ -35,8 +35,21 @@ core ``glasses3d.g3d.printuv`` on host arrays, then
 - ``manifest`` (step 4): print_manifest.json, what ``g3d.attach_print`` reads (print.png, atlas, density and the
   print geometry's identities from ``g3d.printuv.glbmesh``), written with every bake; ``check_glb`` is the host's
   "print stale; re-project" check of an exported GLB.
+Correction round (2026-10-06, after the AR tool test of 10bf932; PORT_REVIEW section 10):
+- ``shading``: each photo's own normal-space SH shading divided out in linear light (``flatten='test'``: kept only if
+  the photos then agree better on the same surface) and the AR level (``level``: gain and gamma calibrated TO THE
+  PHOTOS on arview captures by ``tests/photoprint/ar_calibrate.py``), applied to the composed atlas as the last step;
+- ``texels`` / ``metal`` / ``highlights``: the bicubic footprint (no donor within 2.5 px of the background or a bright
+  non-acetate pixel: the endpiece scratches), the photometric occluder margin, gold-only foreign-blob dilation, no
+  large-hardware margin, shoulder-only glint dilation, and witness flags that must be local highlights (brow-front
+  coverage);
+- ``quilt_t``: strip-space donors for quilting (the -x temple's streaks) and the see-through text closed into a band
+  (``fill``); a label-seam band repair that fails §6.4's test is no longer applied.
+Fix round 1 of the correction round: the flatten keep test also needs the drop to survive leaving any one view pair
+out (on FT1119 it rested on pair 04-05: not kept); the footprint also keeps a donor 2.5 px from the light anti-aliased
+edges of bright non-acetate pixels (``texels.footprint_holes``, rule 'edges'; a glint-line footprint is built, off).
 The Blender side (``g3d.print_uv``, ``attach_print``, ``detach_print``, ``remove_print_uv``; the exporter's
-``g3d_print_uv`` allowlist and TEXCOORD index; A6, B5) is ``glasses3d/g3d/print_bpy.py``. Not built: flatten (off on
+``g3d_print_uv`` allowlist and TEXCOORD index; A6, B5) is ``glasses3d/g3d/print_bpy.py``. Flatten (§6.6) is built since the correction round (``shading``; it was off on
 FT1119, §6.6). Sides are always the x sign, never part names (q001 names temples by the viewer's side).
 """
 from .project import RefusedError, project_photo_texture

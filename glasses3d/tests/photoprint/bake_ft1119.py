@@ -1,8 +1,9 @@
 """WP5 build step 3 run on FT1119 (single-source mode): the production bake and everything an owner or Astra reads
 about it, written to ``data/wp5/ft1119_bake/``.
 
-    glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.bake_ft1119 [--out DIR] [--workers 4]
-        [--heldout-workers 3] [--skip-checks] [--skip-heldout] [--a7-serial] [--sheets-only] [--a4-seeds 5]
+    glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.bake_ft1119 [--out DIR] [--workers N]
+        [--heldout-workers N] [--skip-checks] [--skip-heldout] [--a7-serial] [--sheets-only] [--a4-seeds 5]
+        [--level calibration.json] [--tooltest tooltest.json]     (--workers / --heldout-workers: os.cpu_count() - 2)
 
 Inputs: q001 (``data/reference/projection/q001.glb``), the six FT1119 photos, the WP3b cameras
 (``data/wp3b/ft1119/cameras.json``), step 0's report (``data/wp5/ft1119_strip_null/report.json``: nothing registers,
@@ -29,7 +30,8 @@ Writes DIR/ (default ``data/wp5/ft1119_bake``):
   A4 holes (seed 0) and pooled over ``--a4-seeds`` seeds, 8 holes each), ``A4_vs_7ac7c8f`` (the A4 verdicts and
   medians of the 7ac7c8f bake, ``data/wp5/pre_step4_bake``, beside this one's), B3 per held-out view, the B2 diagnostic
   (this bake's held-out renders in the strict leave-one-view-out form, plus step 0's stripes rows by reference), the
-  sheet paths and STOP B (§9) with its reasons.
+  sheet paths and STOP B (§9) with its reasons. STOP B takes A6 / B5 from ``--tooltest`` when that tool test graded
+  this very print (same sha256; fix round 1 of the correction round), else ``print_tooltest`` records them afterwards.
 
 Every A2-A5 / B2 / B3 number is the independent instrument's (``tests/instruments/print_metrics.py`` via
 ``printproof``). Sides are the x sign, never part names (q001's Temple_Left is the -x temple = the wearer's right).
@@ -66,6 +68,20 @@ PRE_STEP4 = IN.REPO / "glasses3d" / "data" / "wp5" / "pre_step4_bake"           
 COMPARE = ("patchmatch",)                                                        # fillers compared with the production one
 TH = PPF.TH
 PIXEL_FILES = ("print.png", "classes.png", "source.png", "tier.png")
+TOOLTEST_JSON = IN.REPO / "glasses3d" / "data" / "wp5" / "tooltest" / "tooltest.json"
+
+
+def tooltest_of(path, print_sha: str) -> dict | None:
+    """{'json', 'print_sha256', 'A6', 'B5'} from a tooltest.json that graded the print with ``print_sha`` (fix round 1
+    of the correction round: a tool test run while the bake was still writing bake.json recorded nothing)."""
+    p = Path(path) if path else None
+    if p is None or not p.is_file():
+        return None
+    t = json.loads(p.read_text(encoding="utf-8"))
+    if ((t.get("inputs") or {}).get("manifest") or {}).get("print_sha256") != print_sha:
+        return None
+    c = t.get("checks") or {}
+    return {"json": str(p), "print_sha256": print_sha, "A6": bool(c.get("A6")), "B5": bool(c.get("B5"))}
 
 VIEW_RGB = [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (204, 121, 167)]
 CLASS_RGB = {"mirror": (130, 70, 170), "patchmatch": (45, 45, 45), "seam_band": (150, 150, 20),
@@ -490,13 +506,19 @@ def b2_summary(heldout_rows: dict) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(OUT))
-    ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--heldout-workers", type=int, default=3)
+    ap.add_argument("--workers", type=int, default=None,
+                    help="pool size (default os.cpu_count() - 2, EcoQoS opted out per worker)")
+    ap.add_argument("--heldout-workers", type=int, default=None, help="default os.cpu_count() - 2")
     ap.add_argument("--skip-checks", action="store_true", help="skip A2-A5 and the output audit")
     ap.add_argument("--skip-heldout", action="store_true", help="skip B3 / B2 (and the held-out sheet column)")
     ap.add_argument("--a7-serial", action="store_true", help="also rerun the bake serially (workers=1) for A7")
     ap.add_argument("--sheets-only", action="store_true",
                     help="remake the maps and sheets from the written outputs (no bake)")
+    ap.add_argument("--tooltest", default=str(TOOLTEST_JSON),
+                    help="a print_tooltest tooltest.json: STOP B takes A6 / B5 from it when it graded THIS print "
+                         "(same print sha256); print_tooltest records itself afterwards otherwise")
+    ap.add_argument("--level", default=None,
+                    help="calibration.json of tests/photoprint/ar_calibrate.py: the AR level (gain, gamma) baked last")
     ap.add_argument("--a4-seeds", type=int, default=5,
                     help="seeds of 8 A4 holes pooled per part in the filler comparison (A4_fillers)")
     a = ap.parse_args(argv)
@@ -504,6 +526,15 @@ def main(argv=None) -> int:
     prog = Progress("bake_ft1119")
     with prog.heartbeat():
         return _sheets_only(a, prog) if a.sheets_only else _main(a, prog)
+
+
+def _level(path):
+    """(level dict or None, its source) from an ar_calibrate calibration.json (correction round, task item 1)."""
+    if not path:
+        return None, None
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
+    lv = {"gain": float(d["level"]["gain"]), "gamma": float(d["level"]["gamma"])}
+    return lv, f"{path} (sha256 {hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]})"
 
 
 def _occ(job):
@@ -552,8 +583,9 @@ def _main(a, prog) -> int:
     out.mkdir(parents=True, exist_ok=True)
     job = IN.load_job()
     prog(f"production bake -> {out} (q001 sha {job.sources['glb_sha256'][:12]}, {len(job.views)} photos)", force=True)
+    level, level_src = _level(a.level)
     res = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers, step0_report=STEP0,
-                                   compare_fill=COMPARE, **TH)
+                                   compare_fill=COMPARE, level=level, level_source=level_src, **TH)
     tx = float(res["layout"].tx_per_mm)
     rep = res["report"]
     bake = {"out": str(out), "inputs": rep["inputs"], "mode": rep["mode"], "tx_per_mm": tx,
@@ -561,6 +593,7 @@ def _main(a, prog) -> int:
             "area_table": rep["area_table"], "status_area_tool": rep["status_area"],
             "texture_parts": rep["texture_parts"], "below_min_cover": rep["below_min_cover"],
             "warnings": rep["warnings"], "decisions": PPF.DECISIONS, "A1": rep["checks"]["A1"]}
+    bake["print_sha256"] = hashlib.sha256((out / "print.png").read_bytes()).hexdigest()
     bake["maps"] = write_maps(res, out, res["regions"])
     # step 4: the pipeline changed (metal model, fill, gains, seams), so the earlier bakes are no reference for A7;
     # A7 is the serial rerun of THIS pipeline (--a7-serial), the earlier comparison is kept as a record only
@@ -581,12 +614,13 @@ def _main(a, prog) -> int:
         bake["A4_fillers"] = a4_fillers(res, IN.FT1119_PARTS, a.a4_seeds, prog)
         bake["fill_choice"] = rep["fill"].get("choice")
         views = sorted(job.views)
-        bake["A2"] = dict(zip(views, pool_map(PPF._a2_job, [(v, tx) for v in views], min(a.workers, 6))))
+        bake["A2"] = dict(zip(views, pool_map(PPF._a2_job, [(v, tx) for v in views], a.workers)))
         prog("A2 " + json.dumps({_short(v): r["pass"] for v, r in bake["A2"].items()}), force=True)
     if a.a7_serial:
         prog("A7: serial bake (workers=1)", force=True)
         PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
-                                 step0_report=STEP0, compare_fill=COMPARE, log=print, **TH)
+                                 step0_report=STEP0, compare_fill=COMPARE, log=print, level=level,
+                                 level_source=level_src, **TH)
         names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")
         sha = {n: (hashlib.sha256((out / n).read_bytes()).hexdigest(),
                    hashlib.sha256((out / "a7_serial" / n).read_bytes()).hexdigest()) for n in names}
@@ -610,7 +644,13 @@ def _main(a, prog) -> int:
         bake["B3"] = b3_by_view(rows)
         el = [x for rr in rows.values() for x in rr if x["eligible"]]
         bake["B3_summary"] = {"eligible_rows": len(el), "passing": sum(1 for x in el if x["pass"]),
-                              "by_view": {k: v["verdict"] for k, v in bake["B3"].items()}}
+                              "by_view": {k: v["verdict"] for k, v in bake["B3"].items()},
+                              "protocol": "10bf932 (no re-lighting; atlas before the level)"}
+        if any("relit_h" in x for x in el):               # fix round 1: the correction round's re-lit grading, beside
+            bake["B3_summary"]["relit_h_diagnostic"] = {
+                "eligible_rows": sum(1 for x in el if x.get("relit_h", {}).get("eligible")),
+                "passing": sum(1 for x in el if x.get("relit_h", {}).get("pass")),
+                "protocol": "both renders re-lit by photo h's own shading fit (9 parameters from h): not the verdict"}
         bake["B2_diagnostic"] = b2_summary(rows)
         prog(f"B3 {bake['B3_summary']}; B2 diagnostic {bake['B2_diagnostic']['passing']} / "
              f"{bake['B2_diagnostic']['eligible']} eligible rows pass", force=True)
@@ -624,8 +664,13 @@ def _main(a, prog) -> int:
     if not a.skip_checks and not a.skip_heldout:
         proof_like = {"A1": rep["checks"]["A1"], "A2": bake["A2"], "A3_readback": bake["A3_readback"],
                       "A4": bake["A4"], "audit_outputs": bake["audit_outputs"], "A5": bake["A5"],
-                      "A7": bake.get("A7_serial") or {"pass": None}, "B3_summary": bake["B3_summary"]}
+                      "A7": bake.get("A7_serial"), "B3_summary": bake["B3_summary"]}
+        tt = tooltest_of(a.tooltest, bake["print_sha256"])
+        if tt is not None:
+            proof_like["tooltest"] = bake["tooltest"] = tt
         bake["STOP_B"] = PPF.stop_b(proof_like)
+        if tt is not None:
+            bake["STOP_B"]["A6_B5_from"] = tt["json"]
         prog(("STOP B FIRED: " + " | ".join(bake["STOP_B"]["reasons"])) if bake["STOP_B"]["fired"]
              else "STOP B not fired", force=True)
     bake["seconds"] = round(time.perf_counter() - t0, 1)

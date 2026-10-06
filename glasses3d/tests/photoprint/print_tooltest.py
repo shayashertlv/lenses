@@ -1,7 +1,7 @@
 """WP5 step 4 TOOL TEST (Blender side): the step-4 FT1119 print attached to a COPY of q001. Not a delivered model:
 Astra builds models, Claude builds tools; every output here is labelled TOOL TEST.
 
-    python -m glasses3d.tests.photoprint.print_tooltest [--out DIR] [--bake DIR]
+    python -m glasses3d.tests.photoprint.print_tooltest [--out DIR] [--bake DIR] [--no-record]
 
 1. copies q001's Studio scene.blend (sha-checked) to DIR/q001_copy.blend and never writes the original;
 2. one headless Blender run (tests/blender/print_roundtrip.py) on that copy: export (original.glb), g3d.print_uv with
@@ -16,7 +16,11 @@ Astra builds models, Claude builds tools; every output here is labelled TOOL TES
    bake's layout recomputed independently on q001.glb; validate_spec; the host staleness check; detach and remove give
    the earlier GLBs back; renders of the painted GLB through its own TEXCOORD_1 equal renders through the bake's
    layout at every photo camera;
-4. writes DIR/tooltest.json and DIR/tooltest_renders.png.
+4. writes DIR/tooltest.json and DIR/tooltest_renders.png;
+5. records A6 / B5 in the bake's bake.json (STOP B), only when the bake's print.png is the attached print (sha256) and
+   bake.json belongs to it; ``--no-record`` leaves the bake untouched. Fix round 1 of the correction round: the slow
+   pytest ran this with the default bake and rewrote the production bake.json to name a pytest temp dir; the test now
+   passes ``--bake`` at a temp copy of the bake, and every run says whether (and why not) it recorded.
 """
 from __future__ import annotations
 
@@ -184,10 +188,36 @@ def renders(job, bake: Path, painted: Path, layout, out_png: Path) -> dict:
             "pass": all(r["same_pixels"] and r["max_abs_diff_levels"] <= 0.5 for r in rows.values())}
 
 
+def record_in_bake(bake: Path, man: dict, checks: dict, tooltest_json: Path) -> dict:
+    """Correction round (step-4 review finding: STOP B listed A6 / B5 as 'not built' although this tool test builds
+    and grades them): when the bake's print.png is the one this tool test attached (sha256), bake.json's STOP B takes
+    A6 and B5 from here. Returns {'recorded': bool, 'reason' or 'STOP_B'}."""
+    bj = bake / "bake.json"
+    if not bj.is_file():
+        return {"recorded": False, "reason": f"no {bj} (the bake has not finished writing it?)"}
+    if sha(bake / "print.png") != man["print_sha256"]:
+        return {"recorded": False, "reason": "the bake's print.png is not the attached print"}
+    d = json.loads(bj.read_text(encoding="utf-8"))
+    if d.get("print_sha256", man["print_sha256"]) != man["print_sha256"] or (
+            "print_sha256" not in d and bj.stat().st_mtime < (bake / "print.png").stat().st_mtime):
+        return {"recorded": False, "reason": "bake.json belongs to another print (a bake still running writes it last)"}
+    sb = d.get("STOP_B")
+    d["tooltest"] = {"json": str(tooltest_json), "print_sha256": man["print_sha256"], "A6": bool(checks["A6"]),
+                     "B5": bool(checks["B5"])}
+    if sb:
+        rs = [r for r in sb["reasons"] if not r.startswith(("A6 ", "B5 "))]
+        rs += [f"{k} fails on the tool-test GLB of this print" for k in ("A6", "B5") if not checks[k]]
+        sb["reasons"], sb["fired"] = rs, bool(rs)
+        sb["A6_B5_from"] = str(tooltest_json)
+    bj.write_text(json.dumps(jsonable(d), indent=1), encoding="utf-8")
+    return {"recorded": True, "bake_json": str(bj), "STOP_B": sb}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="WP5 step-4 tool test (Blender side) on a copy of q001")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--bake", default=str(BAKE))
+    ap.add_argument("--no-record", action="store_true", help="do not record A6 / B5 in the bake's bake.json")
     a = ap.parse_args(argv)
     out, bake = Path(a.out), Path(a.bake)
     out.mkdir(parents=True, exist_ok=True)
@@ -279,7 +309,9 @@ def main(argv=None) -> int:
     rep["pass"] = all(checks.values())
     rep["seconds"] = round(time.perf_counter() - t0, 1)
     (out / "tooltest.json").write_text(json.dumps(jsonable(rep), indent=1, default=str), encoding="utf-8")
-    print(json.dumps({"pass": rep["pass"], "checks": checks, "out": str(out)}, indent=1))
+    rep_b = {"recorded": False, "reason": "--no-record"} if a.no_record else         record_in_bake(bake, man, checks, out / "tooltest.json")
+    print(json.dumps({"pass": rep["pass"], "checks": checks, "out": str(out), "bake": str(bake), "record": rep_b},
+                     indent=1))
     return 0 if rep["pass"] else 1
 
 

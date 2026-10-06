@@ -58,8 +58,14 @@ def _init_worker() -> None:
     opt_out_ecoqos(None)
 
 
-def default_workers(n_jobs: int) -> int:
-    return max(1, min(n_jobs, (os.cpu_count() or 2) // 2))
+RESERVED_CORES = 2                       # the machine is dedicated: every core but two (owner, 2026-10-06)
+
+
+def default_workers(n_jobs: int | None = None) -> int:
+    """os.cpu_count() - 2 workers (at least 1), never more than the jobs: the default for every bake and fit pool
+    (correction round, owner: 16 cores, dedicated; was cpu_count // 2)."""
+    w = max(1, (os.cpu_count() or 2) - RESERVED_CORES)
+    return w if n_jobs is None else max(1, min(n_jobs, w))
 
 
 def pool_map(fn, jobs: list, workers: int | None = None, progress=None, tag: str | None = None) -> list:

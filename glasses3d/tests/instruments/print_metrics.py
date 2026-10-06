@@ -918,3 +918,167 @@ def uv_identity(painted, expected: dict, width: int, height: int, *, tol_texel: 
         rows[part] = {"texcoord": k, "corners": int(want.size // 2), "max_err_texel": err,
                       "pass": bool(err <= tol_texel)}
     return {"parts": rows, "tol_texel": tol_texel, "pass": bool(rows) and all(r["pass"] for r in rows.values())}
+
+
+# ----------------------------------------------------------------------------- AR levels (correction round, 2026-10-06)
+# The AR render of a painted tool-test GLB against the photos' frame pixels (WP5 correction round, task item 1: the
+# frame rendered lighter and lower-contrast than the photos). Written here again, never imported from the tool:
+# CIE L* (D65) of sRGB pixels; frame pixels of an arview capture are its part-id render's print parts (exact palette
+# colours within the capture's decode tolerance, eroded so no anti-aliased silhouette pixel counts); the photo's frame
+# pixels are given as a mask by the caller (print parts rendered at the WP3b camera, eroded, inside the matte).
+LEVEL_QUANTILES = (10, 50, 90)
+LEVEL_TOL = 2.0                  # task item 1: darkest decile and median L* within 2 units of the photo's
+
+
+def lstar(rgb) -> np.ndarray:
+    """CIE L* (D65 white, Y from linearised sRGB with the Rec. 709 weights) of sRGB 0..255 colours (..., 3)."""
+    c = np.asarray(rgb, np.float64) / 255.0
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    Y = lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722
+    f = np.where(Y > (6 / 29) ** 3, np.cbrt(Y), Y / (3 * (6 / 29) ** 2) + 4 / 29)
+    return 116.0 * f - 16.0
+
+
+def level_stats(rgb_px) -> dict:
+    """{'n', 'p10', 'p50', 'p90', 'mean'} of L* over an (N, 3) set of sRGB pixels."""
+    L = lstar(np.asarray(rgb_px, np.float64).reshape(-1, 3))
+    if not len(L):
+        return {"n": 0}
+    q = np.percentile(L, LEVEL_QUANTILES)
+    return {"n": int(len(L)), **{f"p{k}": round(float(v), 2) for k, v in zip(LEVEL_QUANTILES, q)},
+            "mean": round(float(L.mean()), 2)}
+
+
+def ar_frame_mask(part_id_rgb, palette: list, parts, *, tol: int = 24, erode: int = 1) -> np.ndarray:
+    """(H, W) bool: pixels of an arview part-id render whose colour is one of ``parts``' palette colours
+    (``palette`` = the capture report's ``id_palette`` rows {'rgb', 'name'}; a Blender duplicate suffix '.001' is
+    ignored, q001.glb's own export carries it), within ``tol`` per channel, eroded ``erode`` px (the beauty render's
+    anti-aliased silhouette pixels are mixtures with the background)."""
+    a = np.asarray(part_id_rgb, np.int32)[..., :3]
+    m = np.zeros(a.shape[:2], bool)
+    want = set(parts)
+    for row in palette:
+        if str(row.get("name", "")).split(".")[0] in want:
+            m |= (np.abs(a - np.asarray(row["rgb"], np.int32)[None, None]) <= tol).all(-1)
+    return ndimage.binary_erosion(m, iterations=erode) if erode > 0 else m
+
+
+HIGHLIGHT_L = 35.0               # an achromatic highlight: L* above this ...
+HIGHLIGHT_C = 10.0               # ... and C*ab below this (a white / grey reflection; havana's dark phase is L* < 30,
+                                 # its honey phase C* > 20)
+
+
+def achromatic_highlight(rgb_px) -> np.ndarray:
+    """(N,) bool: sRGB pixels that are white / grey reflections (L* > 35 and C*ab < 10), not havana pigment."""
+    lab = T.lab_of(np.asarray(rgb_px, np.float64).reshape(-1, 3))
+    return (lab[:, 0] > HIGHLIGHT_L) & (np.hypot(lab[:, 1], lab[:, 2]) < HIGHLIGHT_C)
+
+
+def _wq(x, w, qs):
+    o = np.argsort(x)
+    x, w = x[o], w[o]
+    c = np.cumsum(w) - 0.5 * w
+    c /= w.sum()
+    return np.interp(np.asarray(qs, float) / 100.0, c, x)
+
+
+def level_stats_w(L, w) -> dict:
+    q = _wq(L, w, LEVEL_QUANTILES)
+    return {"n": int(len(L)), **{f"p{k}": round(float(v), 2) for k, v in zip(LEVEL_QUANTILES, q)},
+            "mean": round(float((L * w).sum() / w.sum()), 2)}
+
+
+def level_compare(ar_px, photo_px, *, tol: float = LEVEL_TOL, ar_group=None, photo_group=None,
+                  exclude_highlights: bool = False, ar_highlight=None) -> dict:
+    """AR frame pixels against the photo's: L* deciles of each, the differences (AR - photo) and the task-item-1
+    verdict (darkest decile p10 and median p50 both within ``tol``). ``ar_group`` / ``photo_group`` (per-pixel group
+    labels, e.g. brows vs temples): the photo's pixels are WEIGHTED so each group has the AR's share (a photo shows
+    parts at other angles than an AR pose, e.g. photo 05's temple tops at grazing angle, 1/3 of its frame pixels,
+    which the front pose hides). ``exclude_highlights``: highlights left out on both sides: on the photo side its own
+    achromatic pixels (``achromatic_highlight``: the studio's reflections, fixed per photo); on the AR side
+    ``ar_highlight`` when given, a per-pixel mask that must NOT depend on the print (e.g. the pixels a capture of the
+    same GLB with a black albedo shows as achromatic highlights: the renderer's reflections alone), else the AR
+    pixels' own colours. Fix round 1 of the correction round: the AR pixels' own test is NOT the renderer's alone; it
+    moves with the print (at the front pose 42.1 % of the frame pixels with the 10bf932 print, 33.7 % with the
+    calibrated one, 28.6 % with Astra's texture, 29.8 % with a black albedo), because light, desaturated print pixels
+    pass it too, so a calibration graded by it can hide a washed-out print; ``ar_highlight_source`` records which."""
+    ar_px = np.asarray(ar_px, np.float64).reshape(-1, 3)
+    photo_px = np.asarray(photo_px, np.float64).reshape(-1, 3)
+    ga = np.zeros(len(ar_px), np.int64) if ar_group is None else np.asarray(ar_group)
+    gp = np.zeros(len(photo_px), np.int64) if photo_group is None else np.asarray(photo_group)
+    out = {"tol": tol, "composition_matched": ar_group is not None, "highlights_excluded": bool(exclude_highlights)}
+    if exclude_highlights:
+        if ar_highlight is not None:
+            ha = np.asarray(ar_highlight, bool).reshape(-1)
+            if len(ha) != len(ar_px):
+                raise ValueError(f"ar_highlight has {len(ha)} entries for {len(ar_px)} AR pixels")
+        else:
+            ha = achromatic_highlight(ar_px)
+        hp = achromatic_highlight(photo_px)
+        out["ar_highlight_source"] = "mask (independent of the print)" if ar_highlight is not None else             "the AR pixels' own colours (moves with the print)"
+        out["highlight_share"] = {"ar": round(float(ha.mean()), 4) if len(ha) else None,
+                                  "photo": round(float(hp.mean()), 4) if len(hp) else None}
+        ar_px, ga, photo_px, gp = ar_px[~ha], ga[~ha], photo_px[~hp], gp[~hp]
+    if not len(ar_px) or not len(photo_px):
+        return {**out, "pass": False, "reason": "no pixels"}
+    La, Lp = lstar(ar_px), lstar(photo_px)
+    wa = np.ones(len(La))
+    wp = np.ones(len(Lp))
+    if ar_group is not None:
+        share = {g: float((ga == g).mean()) for g in np.unique(ga)}
+        out["ar_group_share"] = {str(g): round(v, 4) for g, v in share.items()}
+        out["photo_group_share_raw"] = {str(g): round(float((gp == g).mean()), 4) for g in np.unique(gp)}
+        for g in np.unique(gp):
+            m = gp == g
+            wp[m] = share.get(g, 0.0) / max(int(m.sum()), 1)
+        if wp.sum() <= 0:
+            return {**out, "pass": False, "reason": "no shared group"}
+    a, p = level_stats_w(La, wa), level_stats_w(Lp, wp)
+    d = {k: round(a[k] - p[k], 2) for k in ("p10", "p50", "p90", "mean")}
+    return {**out, "ar": a, "photo": p, "ar_minus_photo": d,
+            "pass": bool(abs(d["p10"]) <= tol and abs(d["p50"]) <= tol)}
+
+
+# ----------------------------------------------------------------------------- strip streakiness (correction round)
+STREAK_BAND_MM = (0.25, 1.0)
+
+
+def directional_energy(img, support, E, tx: float, band_mm=STREAK_BAND_MM) -> dict | None:
+    """Streakiness on an atlas strip chart (x = s along the part, y = t around it): the ratio of the gradient energy
+    ACROSS the strip (d/dy) to ALONG it (d/dx) of the luminance's masked DoG (``band_mm``, read on ``support``), over
+    the graded texels ``E`` (eroded 1 texel), and the band's std (contrast). Lines along the strip give a large ratio;
+    real temple print is itself elongated along the arm, so a fill is judged against the photo texels of the same
+    face. None below 200 texels."""
+    E = ndimage.binary_erosion(np.asarray(E, bool), iterations=1)
+    if E.sum() < 200:
+        return None
+    l = lum(img)
+    sup = np.asarray(support, bool)
+    B = bandpass(l, sup, band_mm[0] * tx, band_mm[1] * tx)
+    gy, gx = np.gradient(B)
+    ey, ex = float((gy[E] ** 2).mean()), float((gx[E] ** 2).mean())
+    return {"texels": int(E.sum()), "across_over_along": round(ey / max(ex, 1e-12), 3),
+            "band_std": round(float(B[E].std()), 3)}
+
+
+def axis_streakiness(img, mask, band_px=(1.0, 4.0)) -> dict | None:
+    """Streakiness of an elongated part in an IMAGE (an AR capture or a photo): the luminance's masked DoG (``band_px``
+    sigmas) is differentiated across and along the principal axis of ``mask`` (the part's pixels, e.g. a temple);
+    returns the ratio of gradient energy across the axis to along it (lines along the part give a large ratio) and the
+    band's std, on ``mask`` eroded 1 px. None below 200 px."""
+    m = np.asarray(mask, bool)
+    E = ndimage.binary_erosion(m, iterations=1)
+    if E.sum() < 200:
+        return None
+    ys, xs = np.nonzero(m)
+    c = np.cov(np.stack([xs, ys]).astype(float))
+    w, V = np.linalg.eigh(c)
+    a = V[:, -1]                                   # (x, y) along the part
+    n = np.array([-a[1], a[0]])
+    B = bandpass(lum(img), m, band_px[0], band_px[1])
+    gy, gx = np.gradient(B)
+    ga = gx * a[0] + gy * a[1]
+    gn = gx * n[0] + gy * n[1]
+    return {"pixels": int(E.sum()), "across_over_along": round(float((gn[E] ** 2).mean() / max((ga[E] ** 2).mean(),
+                                                                                                1e-12)), 3),
+            "band_std": round(float(B[E].std()), 3), "axis_deg": round(float(np.degrees(np.arctan2(a[1], a[0]))), 1)}
