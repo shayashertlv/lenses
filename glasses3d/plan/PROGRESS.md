@@ -252,3 +252,16 @@ Liveness note: a false stall alarm came from comparing times without dates; both
 - Tests: tsc 0; node 493/493; qa 104/104; spec 95/95; ar/ untouched.
 - Risk noted (no change): the runtime's fixed 18 mm arm spread does not adapt to narrow frames (Prada arms enter the head
   proxy at -72..-76 mm, inside the behind-the-ear zone); changing it would depart from the Studio-era runtime.
+
+### Owner note on the Prada verdict (2026-10-06)
+The owner's Prada "looks great!" (10-01) was given BEFORE they noticed the faceted-temple problem (and, as WP1 found, on an
+old runtime that drew the temples shortened in turned views). Prada is therefore NOT an accepted or known-good baseline: never
+cite that verdict as evidence that a Prada result was acceptable. WP6 (faceted temples) remains a required fix, and WP8's done
+criterion (owner accept on Prada's temples) stands.
+
+### Owner re-judged the earlier accepts on arview (2026-10-06)
+Shown in arview (default settings; sheets data/owner_review/*_review.png). Owner: "all three can be considered perfect." Recorded in data/ledger/owner_verdicts.jsonl, bound to the GLB sha256:
+- Tom Ford FT1123-D 26E 49 (crystal): accept, sha256 0e77e11ee6ac91b0b5ddc9032e91a1cdd63f88667997868009ddd1ee2041cdd6
+- Oakley OO9208 38 920844 (optical review v2): accept, sha256 2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688
+- INVU IA22403B 99M (optical review v2): accept, sha256 4a44a6ac87eb92a317c9c74b4b5661f553acb5bc7c12d613777d3e8f55064df8
+These are now confirmed known-good references (candidates for the WP8 regression product). Prada stays an open failure.
