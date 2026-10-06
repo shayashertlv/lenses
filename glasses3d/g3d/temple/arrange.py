@@ -1,0 +1,401 @@
+"""2D geometry in the temple's (d, y) chart (WP6_DESIGN.md §3 construction step 2). numpy only.
+
+`build_arrangement(boundary, segments)` cuts the outline polygon by every segment (facet edges, chamfer lines, station
+chords), splits edges at every crossing or touching point, merges vertices closer than DEDUPE_MM, and walks the
+half-edge structure into faces. Every bounded face is a simple CCW polygon of the planar subdivision; the faces tile
+the outline (checked to TILE_TOL_MM2). A component that does not touch the outline (a facet floating inside it) is
+joined to it by full-height station chords through its first and last vertex in d, so no face has a hole and none
+pinches at a single vertex (every face is a simple polygon visiting each vertex once).
+
+`ear_clip` triangulates one simple CCW polygon (collinear vertices allowed), always the fattest ear first.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from .spec import DEDUPE_MM, TILE_TOL_MM2, TempleError
+
+PARALLEL_SIN = 1e-9      # segments whose directions differ by less than this (sine) are parallel
+
+
+def poly_area(P) -> float:
+    P = np.asarray(P, np.float64)
+    x, y = P[:, 0], P[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y))
+
+
+def point_in_poly(pt, P) -> bool:
+    """Even-odd test (a point exactly on an edge may go either way; callers pass interior points)."""
+    x, y = float(pt[0]), float(pt[1])
+    P = np.asarray(P, np.float64)
+    x0, y0 = P[:, 0], P[:, 1]
+    x1, y1 = np.roll(x0, -1), np.roll(y0, -1)
+    cond = (y0 > y) != (y1 > y)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xc = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+    return bool(np.count_nonzero(cond & (xc > x)) % 2)
+
+
+def simple_polygon(P, tol: float = 1e-12) -> tuple[bool, tuple | None]:
+    """True when no two non-adjacent edges of the closed polygon touch or cross."""
+    P = np.asarray(P, np.float64)
+    n = len(P)
+    A, B = P, np.roll(P, -1, axis=0)
+    for i in range(n):
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _touch(A[i], B[i], A[j], B[j], tol):
+                return False, (i, j)
+    return True, None
+
+
+def _touch(p, q, a, b, tol) -> bool:
+    r, s = q - p, b - a
+    den = r[0] * s[1] - r[1] * s[0]
+    w = a - p
+    if abs(den) < 1e-15:
+        if abs(r[0] * w[1] - r[1] * w[0]) > tol * max(1.0, math.hypot(*r)):
+            return False
+        L = float(r @ r)
+        t0, t1 = sorted(((a - p) @ r / L, (b - p) @ r / L))
+        return t1 >= -tol and t0 <= 1 + tol
+    t = (w[0] * s[1] - w[1] * s[0]) / den
+    u = (w[0] * r[1] - w[1] * r[0]) / den
+    return -tol <= t <= 1 + tol and -tol <= u <= 1 + tol
+
+
+def clip_segment(p, q, P) -> list[tuple[float, float]]:
+    """Parameter intervals [s0, s1] of segment p -> q lying inside the polygon P (boundary included)."""
+    p, q = np.asarray(p, np.float64), np.asarray(q, np.float64)
+    r = q - p
+    L = math.hypot(*r)
+    if L < DEDUPE_MM:
+        return []
+    A = np.asarray(P, np.float64)
+    B = np.roll(A, -1, axis=0)
+    s = B - A
+    den = r[0] * s[:, 1] - r[1] * s[:, 0]
+    w = A - p
+    ok = np.abs(den) > PARALLEL_SIN * L * np.hypot(s[:, 0], s[:, 1])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(ok, (w[:, 0] * s[:, 1] - w[:, 1] * s[:, 0]) / den, np.nan)
+        u = np.where(ok, (w[:, 0] * r[1] - w[:, 1] * r[0]) / den, np.nan)
+    eps = DEDUPE_MM / L
+    hit = ok & (t >= -eps) & (t <= 1 + eps) & (u >= -1e-12) & (u <= 1 + 1e-12)
+    ts = set(np.clip(t[hit], 0.0, 1.0).tolist()) | {0.0, 1.0}
+    # collinear overlaps contribute their endpoints
+    for i in np.nonzero(~ok)[0]:
+        if abs(r[0] * w[i, 1] - r[1] * w[i, 0]) / L < DEDUPE_MM:
+            for e in (A[i], B[i]):
+                tt = float((e - p) @ r) / (L * L)
+                if -eps <= tt <= 1 + eps:
+                    ts.add(min(max(tt, 0.0), 1.0))
+    ts = sorted(ts)
+    out = []
+    for a, b in zip(ts[:-1], ts[1:]):
+        if (b - a) * L < DEDUPE_MM:
+            continue
+        m = p + 0.5 * (a + b) * r
+        if point_in_poly(m, A) or _on_boundary(m, A, B):
+            if out and abs(out[-1][1] - a) * L < DEDUPE_MM:
+                out[-1] = (out[-1][0], b)
+            else:
+                out.append((a, b))
+    return out
+
+
+def _on_boundary(m, A, B) -> bool:
+    s = B - A
+    L2 = np.einsum("ij,ij->i", s, s)
+    t = np.clip(np.einsum("ij,ij->i", m - A, s) / np.maximum(L2, 1e-30), 0.0, 1.0)
+    d = np.hypot(*(A + t[:, None] * s - m).T)
+    return bool(np.min(d) < DEDUPE_MM)
+
+
+class VertexPool:
+    """Vertices merged within DEDUPE_MM (grid hash with neighbour cells; first come keeps its coordinates)."""
+
+    def __init__(self, tol: float = DEDUPE_MM):
+        self.tol = tol
+        self.pts: list[tuple[float, float]] = []
+        self.grid: dict[tuple[int, int], list[int]] = {}
+
+    def add(self, p) -> int:
+        x, y = float(p[0]), float(p[1])
+        gx, gy = int(math.floor(x / self.tol)), int(math.floor(y / self.tol))
+        for i in range(gx - 1, gx + 2):
+            for j in range(gy - 1, gy + 2):
+                for k in self.grid.get((i, j), ()):
+                    q = self.pts[k]
+                    if abs(q[0] - x) <= self.tol and abs(q[1] - y) <= self.tol:
+                        return k
+        self.pts.append((x, y))
+        self.grid.setdefault((gx, gy), []).append(len(self.pts) - 1)
+        return len(self.pts) - 1
+
+    def array(self) -> np.ndarray:
+        return np.asarray(self.pts, np.float64).reshape(-1, 2)
+
+
+@dataclass
+class Arrangement:
+    V: np.ndarray                     # (n, 2) vertex (d, y)
+    faces: list                       # bounded faces: CCW vertex-id lists
+    areas: np.ndarray                 # their areas (mm^2)
+    edge_tags: dict                   # (a, b) a < b -> sorted tuple of tags
+    boundary_loop: list               # outline vertices in CCW order
+    interior_pts: np.ndarray          # (faces, 2) a point strictly inside each face
+    face_tris: list = field(default_factory=list)       # each face's ear clipping (computed once)
+    chords_added: list = field(default_factory=list)
+
+    def edge_faces(self) -> dict:
+        """(a, b) directed half-edge -> face index (faces are CCW: the face lies on the half-edge's left)."""
+        out = {}
+        for fi, f in enumerate(self.faces):
+            for k in range(len(f)):
+                out[(f[k], f[(k + 1) % len(f)])] = fi
+        return out
+
+
+def build_arrangement(boundary: np.ndarray, segments: list, chord_fn=None) -> Arrangement:
+    """Planar subdivision of the CCW polygon `boundary` by `segments` [(p, q, tag)]. `chord_fn(d)` returns the
+    full-height station segment at d (used to join floating components); without it floating parts are refused."""
+    boundary = np.asarray(boundary, np.float64)
+    if poly_area(boundary) <= 0:
+        raise TempleError("E_OUTLINE", "the outline polygon is not counter-clockwise in (d, y)")
+    extra: list = []
+    for _ in range(4):
+        arr = _build(boundary, list(segments) + extra)
+        if isinstance(arr, Arrangement):
+            arr.chords_added = [t for _, _, t in extra]
+            return arr
+        if chord_fn is None:
+            raise TempleError("E_TRIANGULATE", "a facet floats inside the outline without touching it",
+                              at=[float(v) for v in arr[0]])
+        for pt in arr:                         # two chords: through the component's first and last vertex in d
+            p, q = chord_fn(float(pt[0]))
+            extra.append((p, q, ("station", float(pt[0]))))
+    raise TempleError("E_TRIANGULATE", "could not join every component of the arrangement to the outline")
+
+
+def _build(boundary: np.ndarray, segments: list):
+    nb = len(boundary)
+    edges = [(boundary[i], boundary[(i + 1) % nb], ("boundary",)) for i in range(nb)]
+    for p, q, tag in segments:
+        p, q = np.asarray(p, np.float64), np.asarray(q, np.float64)
+        for s0, s1 in clip_segment(p, q, boundary):
+            edges.append((p + s0 * (q - p), p + s1 * (q - p), tuple(tag)))
+    m = len(edges)
+    A = np.array([e[0] for e in edges])
+    B = np.array([e[1] for e in edges])
+    R = B - A
+    L = np.hypot(R[:, 0], R[:, 1])
+    params: list[list[float]] = [[0.0, 1.0] for _ in range(m)]
+    # pairwise crossings / touchings (vectorised)
+    den = R[:, None, 0] * R[None, :, 1] - R[:, None, 1] * R[None, :, 0]
+    W = A[None, :, :] - A[:, None, :]                              # W[i, j] = A_j - A_i
+    ok = np.abs(den) > PARALLEL_SIN * L[:, None] * L[None, :]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = (W[..., 0] * R[None, :, 1] - W[..., 1] * R[None, :, 0]) / den      # on edge i
+        u = (W[..., 0] * R[:, None, 1] - W[..., 1] * R[:, None, 0]) / den      # on edge j
+    ei = (DEDUPE_MM / np.maximum(L, 1e-30))[:, None]
+    ej = (DEDUPE_MM / np.maximum(L, 1e-30))[None, :]
+    hit = ok & (t >= -ei) & (t <= 1 + ei) & (u >= -ej) & (u <= 1 + ej)
+    np.fill_diagonal(hit, False)
+    ii, jj = np.nonzero(hit)
+    for i, j in zip(ii.tolist(), jj.tolist()):
+        params[i].append(min(max(float(t[i, j]), 0.0), 1.0))
+    # collinear overlaps: endpoints of one inside the other
+    ci, cj = np.nonzero(~ok)
+    for i, j in zip(ci.tolist(), cj.tolist()):
+        if i == j:
+            continue
+        crossw = R[i, 0] * W[i, j, 1] - R[i, 1] * W[i, j, 0]
+        if abs(crossw) / max(L[i], 1e-30) > DEDUPE_MM:
+            continue
+        for e in (A[j], B[j]):
+            tt = float((e - A[i]) @ R[i]) / max(L[i] ** 2, 1e-30)
+            if -ei[i, 0] <= tt <= 1 + ei[i, 0]:
+                params[i].append(min(max(tt, 0.0), 1.0))
+    pool = VertexPool()
+    for p in boundary:
+        pool.add(p)
+    und: dict[tuple[int, int], set] = {}
+    bl: list[int] = []
+    for k, (a, b, tag) in enumerate(edges):
+        ts = sorted(set(params[k]))
+        ids = []
+        for tt in ts:
+            v = pool.add(a + tt * (b - a))
+            if not ids or ids[-1] != v:
+                ids.append(v)
+        if k < nb:                                                  # the outline, in CCW order
+            for v in ids:
+                if not bl or bl[-1] != v:
+                    bl.append(v)
+        for va, vb in zip(ids[:-1], ids[1:]):
+            if va != vb:
+                und.setdefault((min(va, vb), max(va, vb)), set()).add(tag)
+    if len(bl) > 1 and bl[0] == bl[-1]:
+        bl.pop()
+    V = pool.array()
+    bloop = bl
+    # components: every vertex must connect to the boundary
+    parent = list(range(len(V)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a, b in und:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    root = find(bloop[0])
+    used = sorted({v for e in und for v in e})
+    floating = [v for v in used if find(v) != root]
+    if floating:
+        comp = [v for v in floating if find(v) == find(min(floating, key=lambda v: (V[v, 0], V[v, 1])))]
+        v0 = min(comp, key=lambda v: (V[v, 0], V[v, 1]))
+        v1 = max(comp, key=lambda v: (V[v, 0], V[v, 1]))
+        return [V[v0], V[v1]]                    # chords at both ends: no face pinches at a single vertex
+    # half-edge faces (face on the left of every half-edge)
+    adj: dict[int, list[int]] = {}
+    for a, b in und:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+    for v, nb_ in adj.items():
+        if len(nb_) < 2:
+            raise TempleError("E_TRIANGULATE", "a segment ends inside the outline without meeting another",
+                              at=V[v].tolist())
+        p = V[v]
+        nb_.sort(key=lambda w: math.atan2(V[w, 1] - p[1], V[w, 0] - p[0]))
+    pos = {v: {w: k for k, w in enumerate(nb_)} for v, nb_ in adj.items()}
+    used_he = set()
+    faces, areas = [], []
+    for a, b in sorted(und):
+        for u0, v0 in ((a, b), (b, a)):
+            if (u0, v0) in used_he:
+                continue
+            cyc = [u0]
+            cu, cv = u0, v0
+            guard = 0
+            while True:
+                used_he.add((cu, cv))
+                nb_ = adj[cv]
+                k = pos[cv][cu]
+                w = nb_[(k - 1) % len(nb_)]
+                cu, cv = cv, w
+                if (cu, cv) == (u0, v0):
+                    break
+                cyc.append(cu)
+                guard += 1
+                if guard > 1_000_000:
+                    raise TempleError("E_TRIANGULATE", "face traversal did not close")
+            ar = poly_area(V[cyc])
+            faces.append(cyc)
+            areas.append(ar)
+    areas = np.asarray(areas)
+    outer = np.nonzero(areas <= 0)[0]
+    dom = poly_area(boundary)
+    if len(outer) != 1 or abs(-areas[outer[0]] - dom) > max(TILE_TOL_MM2, 1e-9 * dom):
+        raise TempleError("E_TRIANGULATE", f"the arrangement has {len(outer)} unbounded faces (expected 1 with the "
+                          f"outline's area)", outer_faces=int(len(outer)))
+    keep = [i for i in range(len(faces)) if areas[i] > 0]
+    faces = [faces[i] for i in keep]
+    for f in faces:
+        if len(set(f)) != len(f):
+            v = next(v for v in f if f.count(v) > 1)
+            raise TempleError("E_TRIANGULATE", "a face of the arrangement pinches at a vertex (visits it twice)",
+                              at=V[v].tolist())
+    areas = areas[keep]
+    if abs(float(areas.sum()) - dom) > TILE_TOL_MM2 * max(1.0, len(faces)):
+        raise TempleError("E_TRIANGULATE", f"the faces tile {float(areas.sum()):.9f} mm^2 of the outline's "
+                          f"{dom:.9f} mm^2", tiled_mm2=float(areas.sum()), outline_mm2=dom)
+    face_tris = [ear_clip(V, f) for f in faces]
+    interior = np.array([_fattest_centroid(V, t) for t in face_tris])
+    tags = {k: tuple(sorted(v, key=repr)) for k, v in und.items()}
+    return Arrangement(V=V, faces=faces, areas=areas, edge_tags=tags, boundary_loop=bl, interior_pts=interior,
+                       face_tris=face_tris)
+
+
+def interior_point(V: np.ndarray, f: list) -> np.ndarray:
+    """Centroid of the fattest triangle of the face's ear clipping: strictly inside a simple polygon."""
+    return _fattest_centroid(V, ear_clip(V, f))
+
+
+def _fattest_centroid(V: np.ndarray, tris: list) -> np.ndarray:
+    best, bp = -1.0, None
+    for a, b, c in tris:
+        ar = abs(_cross(V[a], V[b], V[c]))
+        if ar > best:
+            best, bp = ar, (V[a] + V[b] + V[c]) / 3.0
+    return bp
+
+
+def _cross(o, a, b) -> float:
+    return float((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]))
+
+
+def ear_clip(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
+    """Triangulate a simple CCW polygon V[idx] (collinear vertices allowed): repeatedly cut the ear whose smallest
+    angle is largest (ties: the first). Returns index triples (CCW). Raises E_TRIANGULATE when no ear exists."""
+    idx = list(idx)
+    tris: list[tuple[int, int, int]] = []
+    if len(idx) == 3:
+        P = V[idx]
+        if abs(_cross(P[0], P[1], P[2])) > 1e-12:
+            tris.append((idx[0], idx[1], idx[2]))
+        return tris
+    while len(idx) > 3:
+        P = V[idx]
+        n = len(idx)
+        prev = np.r_[n - 1, 0:n - 1]
+        nxt = np.r_[1:n, 0]
+        a, b, c = P[prev], P, P[nxt]
+        ab, bc, ca = b - a, c - b, a - c
+        cr = ab[:, 0] * (c[:, 1] - a[:, 1]) - ab[:, 1] * (c[:, 0] - a[:, 0])
+        cand = cr > 1e-12
+        if not cand.any():
+            raise TempleError("E_TRIANGULATE", "degenerate region (no convex corner left)",
+                              at=V[idx[0]].tolist(), n=n)
+        X, Y = P[None, :, 0], P[None, :, 1]
+        c1 = ab[:, None, 0] * (Y - a[:, None, 1]) - ab[:, None, 1] * (X - a[:, None, 0])
+        c2 = bc[:, None, 0] * (Y - b[:, None, 1]) - bc[:, None, 1] * (X - b[:, None, 0])
+        c3 = ca[:, None, 0] * (Y - c[:, None, 1]) - ca[:, None, 1] * (X - c[:, None, 0])
+        inside = (c1 >= -1e-12) & (c2 >= -1e-12) & (c3 >= -1e-12)
+        rows = np.arange(n)
+        inside[rows, prev] = inside[rows, rows] = inside[rows, nxt] = False
+        same = np.zeros_like(inside)                     # a vertex at an ear corner's position (a pinch)
+        for q in (a, b, c):
+            same |= (np.abs(X - q[:, None, 0]) < 1e-12) & (np.abs(Y - q[:, None, 1]) < 1e-12)
+        good = cand & ~(inside & ~same).any(axis=1)
+        if not good.any():
+            raise TempleError("E_TRIANGULATE", "no ear found (region not simple?)", at=V[idx[0]].tolist(), n=n)
+        la, lb, lc = (np.hypot(*bc.T), np.hypot(*ca.T), np.hypot(*ab.T))      # sides opposite a, b, c
+        with np.errstate(invalid="ignore", divide="ignore"):
+            angA = np.arccos(np.clip((lb ** 2 + lc ** 2 - la ** 2) / (2 * lb * lc), -1, 1))
+            angB = np.arccos(np.clip((la ** 2 + lc ** 2 - lb ** 2) / (2 * la * lc), -1, 1))
+        q = np.minimum(np.minimum(angA, angB), np.pi - angA - angB)
+        q = np.where(good, np.nan_to_num(q, nan=0.0), -1.0)
+        k = int(np.argmax(q))
+        tris.append((idx[(k - 1) % n], idx[k], idx[(k + 1) % n]))
+        idx.pop(k)
+    if abs(_cross(V[idx[0]], V[idx[1]], V[idx[2]])) > 1e-12:
+        tris.append((idx[0], idx[1], idx[2]))
+    return tris
+
+
+def _min_angle(a, b, c) -> float:
+    def ang(p, q, r):
+        v1, v2 = q - p, r - p
+        n1, n2 = math.hypot(*v1), math.hypot(*v2)
+        if n1 < 1e-15 or n2 < 1e-15:
+            return 0.0
+        return math.acos(max(-1.0, min(1.0, float(v1 @ v2) / (n1 * n2))))
+    return min(ang(a, b, c), ang(b, c, a), ang(c, a, b))
