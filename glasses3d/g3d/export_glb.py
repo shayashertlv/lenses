@@ -31,7 +31,11 @@ check that the live scene is unchanged afterwards. Changed:
 - the GLB is written to a temporary file next to the target, patched (authored node, mesh and material names are
   restored: Blender would add ".001" to the copies) and moved into place only after every check passed, with a retry
   on a transient Windows sharing violation;
-- no LENSES_part_visibility gate.
+- no LENSES_part_visibility gate;
+- WP4 allowlist (WP4_DESIGN §1 finding 1): the object properties `g3d_seat` and `g3d_hidden_x_ranges_mm` (JSON
+  strings written by the seating tools) are copied from each source object to its export node's extras, so the host
+  seating check reads the declared frame type, the sharpening flag and the hidden ranges. Nothing else of the
+  source's custom properties reaches the GLB.
 
 Volume lengths (KHR_materials_volume): Blender's exporter writes the shader's Thickness and 1/density exactly as
 authored, NOT scaled with the geometry. The Studio convention is shader lengths in METRES (q001's 'Champagne lens'
@@ -61,6 +65,7 @@ ORIGIN_KEY = "mdl_bridge_underside"
 SURFACE_TYPES = ("MESH", "CURVE", "SURFACE", "FONT", "META")
 VOLUME_THICKNESS_SUSPECT_M = 0.01
 REPLACE_TRIES = 25
+SEAT_EXTRAS = ("g3d_seat", "g3d_hidden_x_ranges_mm")     # WP4 allowlist: object property -> node extras
 
 
 class ExportError(ValueError):
@@ -611,6 +616,7 @@ def export_glb(path: str | Path, scene=None) -> dict:
         roles_by_material: dict[str, set] = {}
         volume_sources: dict[str, str] = {}          # exported material copy name -> authored name
         renormalised = []
+        seat_extras: dict = {}
         for obj, evaluated_obj, mesh in evaluated:
             role = roles[obj]
             for key in list(mesh.keys()):
@@ -627,6 +633,11 @@ def export_glb(path: str | Path, scene=None) -> dict:
             tmp_scene.collection.objects.link(dup)
             dup["partRole"] = role
             mesh["partRole"] = role
+            for key in SEAT_EXTRAS:                                   # WP4 allowlist (module docstring)
+                value = obj.get(key)
+                if value is not None:
+                    dup[key] = value if isinstance(value, str) else json.dumps(_plain(value))
+                    seat_extras.setdefault(obj.name, []).append(key)
             node_names[dup.name] = obj.name
             mesh_names[mesh.name] = obj.data.name if obj.type == "MESH" else obj.name
             textured = sorted({s.material.name for s in evaluated_obj.material_slots
@@ -656,6 +667,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
                                                      for s in evaluated_obj.material_slots]})
         if renormalised:
             receipt["normals_reset"] = renormalised
+        if seat_extras:
+            receipt["seat_extras"] = seat_extras
         # A material on lens AND non-lens objects is exported as separate lens and non-lens materials (§2 needs
         # lenses distinguished by material); frame/temple copies only carry their partRole and are not reported.
         receipt["split_materials"] = sorted(n for n, r in roles_by_material.items() if "lens" in r and len(r) > 1)

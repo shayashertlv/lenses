@@ -64,17 +64,25 @@ class Case:
     def __init__(self, cid: str, title: str):
         self.id, self.title, self.records, self.notes, self.info = cid, title, [], [], {}
 
-    def add(self, rid: str, criterion: str, threshold: str, by: str, measured, ok: bool, note: str | None = None):
+    def add(self, rid: str, criterion: str, threshold: str, by: str, measured, ok, note: str | None = None):
+        """ok None: not applicable (the criterion has nothing to measure, e.g. 'moved vertices <= 200' on a lens the
+        tool refused): status 'not_applicable', pass null, never counted as passing."""
         rec = {"id": rid, "criterion": criterion, "threshold": threshold, "by": by, "measured": measured,
-               "pass": bool(ok)}
+               "pass": None if ok is None else bool(ok),
+               "status": "not_applicable" if ok is None else ("pass" if ok else "fail")}
         if note:
             rec["note"] = note
         self.records.append(rec)
         return ok
 
     def result(self) -> dict:
-        return {"case": self.id, "title": self.title, "pass": all(r["pass"] for r in self.records),
-                "failed": [f"{r['id']} ({r['by']})" for r in self.records if not r["pass"]],
+        graded = [r for r in self.records if r["pass"] is not None]
+        return {"case": self.id, "title": self.title, "pass": bool(graded) and all(r["pass"] for r in graded),
+                "failed": [f"{r['id']} ({r['by']})" for r in graded if not r["pass"]],
+                "not_applicable": [f"{r['id']} ({r['by']})" for r in self.records if r["pass"] is None],
+                "counts": {"criteria": len(self.records), "pass": sum(1 for r in graded if r["pass"]),
+                           "fail": sum(1 for r in graded if not r["pass"]),
+                           "not_applicable": len(self.records) - len(graded)},
                 "criteria": self.records, "notes": self.notes, "info": self.info}
 
 
@@ -175,6 +183,119 @@ def mirror_pair(L0, R0, L1, R1) -> float:
     if d0.max() > 1e-3:
         return np.inf
     return float(np.linalg.norm(L1 * m - R1[j], axis=1).max())
+
+
+# ------------------------------------------------------------------------------------- moved nodes (stop rule)
+LAYER_WINDOW_MM = (-1.5, 4.0)    # §6 step 1, restated: 'under' material along +u starting within [-1.5, 4] mm
+
+
+def instrument_layered(F: dict, R: dict, part_scenes) -> np.ndarray:
+    """Per instrument station: at least two distinct frame parts have material on the mid-depth row within the §6
+    window of the lens edge (the brow over the eyewire; the loop bottom at the same x has the eyewire only). The
+    instrument's own reading (occupancy samples every 0.01 mm), restated from §6 step 1."""
+    j = DEPTHS.index(0.5)
+    e = R["edge"][:, j]
+    ok = np.isfinite(e)
+    out = np.zeros(len(e), bool)
+    if not ok.any():
+        return out
+    idx = np.flatnonzero(ok)
+    O = F["Pm"][idx] + R["v"][idx, j, None] * F["n"][idx] + e[idx, None] * F["u"][idx]
+    D = F["u"][idx]
+    hits = np.zeros(len(idx), int)
+    for sc in part_scenes:
+        runs = M._line_runs([sc], O, D, LAYER_WINDOW_MM[0], LAYER_WINDOW_MM[1])
+        hits += np.array([len(r) > 0 for r in runs], int)
+    out[idx] = hits >= 2
+    return out
+
+
+def instrument_failing(path: Path, lens_node: str, frame_type: str, ranges=None) -> dict:
+    """The instrument's own verdict per 1 mm station of a lens on a GLB (no code shared with g3d/seat): FAIL where
+    the §7 rule value is below pass - 0.005 (acetate: min over the 5 depths < 0.60; metal: c(0.5) < 0.30 or the
+    front corner not covered; semi_rimless: held (c(0.5) >= -1.0 and the front covered or frame on the 0.05 row
+    within 1.0 mm) and c(0.5) < 0.30; browline: the acetate rule where the station lies inside an x-range AND is
+    layered (two frame parts on its mid-depth row within the §6 window: the brow over the eyewire), the metal rule
+    elsewhere, the loop bottom at the same x included (proof review round 2: the deep rule over the whole x-range
+    marked 59 below-centre stations of ft-mid Lens_Left failing, so a wrongly moved bottom node would pass this
+    record))."""
+    V, T, parts = inst_lens(path, lens_node)
+    F = M.frames(V, T, 1.0)
+    R = M.rows(F, F["scene"], M.scenes(parts), DEPTHS)
+    cv = M.corner_cover(F, F["scene"], M.scenes(parts))["front"]
+    c = np.where(R["cap"] >= 90, np.nan, R["cap"])
+    mid, f05 = c[:, stations.MID], c[:, 0]
+    deep = _min_depth(R["cap"])
+    thin_fail = ~(np.isfinite(mid) & (mid >= 0.30 - TOL) & np.isfinite(cv))
+    deep_fail = ~(np.isfinite(deep) & (deep >= 0.60 - TOL))
+    if frame_type == "acetate":
+        fail = deep_fail
+    elif frame_type == "metal":
+        fail = thin_fail
+    elif frame_type == "semi_rimless":
+        held = np.isfinite(mid) & (mid >= -1.0) & (np.isfinite(cv) | (np.isfinite(f05) & (f05 >= -1.0)))
+        fail = held & ~(mid >= 0.30 - TOL)
+    elif frame_type == "browline":
+        inr = np.zeros(len(F["s"]), bool)
+        for a, b in ranges:
+            inr |= (F["Pm"][:, 0] >= a) & (F["Pm"][:, 0] <= b)
+        lay = instrument_layered(F, R, M.scenes(parts))
+        fail = np.where(inr & lay, deep_fail, thin_fail)
+        return {"F": F, "fail": fail, "in_range": inr, "layered": lay}
+    else:
+        raise ValueError(frame_type)
+    return {"F": F, "fail": fail}
+
+
+def moved_nodes_records(C: "Case", rid: str, title: str, b0: dict, moved_raw, V0: np.ndarray, before_glb: Path,
+                        lens_node: str, frame_type: str, ranges=None):
+    """Two stop-rule records per seat call, both independent of the planner's own FAIL list (which defines
+    expected_raw): (core) every moved front-rim node is a node of a point the CHECK's verdict failed before the call;
+    (instrument) every moved node's nearest instrument station on the before-GLB fails by the instrument's own rule,
+    or one of its two neighbours does (a run end: the node owns points between stations)."""
+    loop_raw = np.asarray(b0["loop_raw"], int)
+    mv = set(np.asarray(list(moved_raw), int).tolist())
+    moved_nodes = np.array([k for k, r in enumerate(loop_raw) if int(r) in mv], int)
+    fail_chk = set(failing_nodes_of(b0, "verdict_check").tolist())
+    outside = [int(k) for k in moved_nodes if int(k) not in fail_chk]
+    C.add(f"{rid}.moved_set.nodes_failing_by_check", f"{title}: (stop rule) every moved node failed the check's "
+          "verdict before the call", "moved front-rim nodes subset of the nodes of check-FAIL points (before-state)",
+          "core", {"moved_nodes": int(len(moved_nodes)), "check_failing_nodes": len(fail_chk),
+                   "moved_not_failing": outside[:20], "moved_not_failing_n": len(outside)}, not outside)
+    if not len(moved_nodes):
+        C.add(f"{rid}.moved_set.nodes_failing_by_instrument", f"{title}: (stop rule) every moved node fails by the "
+              "instrument on the before-GLB", "nearest station (or a neighbour) FAIL", "instrument",
+              {"moved_nodes": 0}, None, note="not applicable: nothing moved")
+        return
+    I = instrument_failing(before_glb, lens_node, frame_type, ranges)
+    F, fail = I["F"], I["fail"]
+    order = np.argsort(F["s"])
+    rank = np.empty(len(order), int)
+    rank[order] = np.arange(len(order))
+    nearest, at_end, bad = 0, 0, []
+    for k in moved_nodes:
+        p = V0[loop_raw[k]]
+        j = int(np.argmin(np.linalg.norm(F["Pm"] - p, axis=1)))
+        if fail[j]:
+            nearest += 1
+            continue
+        r = rank[j]
+        nb = [order[(r - 1) % len(order)], order[(r + 1) % len(order)]]
+        if fail[nb].any():
+            at_end += 1
+        else:
+            bad.append({"node": int(k), "xyz": r4(p), "station_mm": r4(float(np.linalg.norm(F["Pm"][j] - p)))})
+    meas_ = {"moved_nodes": int(len(moved_nodes)), "nearest_fails": nearest, "run_end": at_end,
+             "violations": bad[:20], "violations_n": len(bad), "stations": int(len(fail)),
+             "stations_failing": int(fail.sum())}
+    if "layered" in I:
+        cy = 0.5 * (V0[loop_raw, 1].min() + V0[loop_raw, 1].max())
+        meas_["deep_rule_stations"] = int((I["in_range"] & I["layered"]).sum())
+        meas_["in_range_not_layered"] = int((I["in_range"] & ~I["layered"]).sum())
+        meas_["failing_below_centre"] = int((fail & (F["Pm"][:, 1] < cy)).sum())
+    C.add(f"{rid}.moved_set.nodes_failing_by_instrument", f"{title}: (stop rule) every moved node fails by the "
+          "instrument on the before-GLB", "nearest instrument station FAIL, or a neighbour FAIL (run end)",
+          "instrument", meas_, not bad)
 
 
 # ======================================================================================================= P2
@@ -352,17 +473,25 @@ def grade_p2() -> dict:
             ma = (ca_["sector"] == s_) & ~ca_["in_range"]
             sec[s_] = [pct(cb_["cap"][mb, 2], 50), pct(ca_["cap"][ma, 2], 50)]
         dmax = float(np.nanmax(dd)) if dd else None
+        ramp_core = core_ramp(cb_, ca_, rng, cy)
         C.add(f"P2.outside_capture_unchanged.{side}", "outside the ranges capture unchanged (0.40 bottom / 0.35 nasal)",
               "|delta c(0.5)| <= 1e-4 mm at every station outside (below the lens centre, or > 3 mm (the ramp) "
               "outside the x-range: the set whose vertices are graded bit-identical)", "core",
               {"stations_compared": n, "max_abs_delta_mm": r4(dmax), "mid_p50_before_after": sec,
                "all_unmoved_not_in_range_stations": {"n": len(dd_all), "max_abs_delta_mm": r4(max(dd_all))
                                                      if dd_all else None,
-                                                     "worst_at_xyz": r4(worst[1]) if worst else None}},
+                                                     "worst_at_xyz": r4(worst[1]) if worst else None},
+               "excluded_ramp_stations": ramp_core},
               n > 0 and dmax is not None and dmax <= 1e-4,
-              note="'all_unmoved_not_in_range_stations' also counts stations inside the 3 mm lift ramp: there an "
-                   "unmoved station's frame re-orients (its normal averages cap faces within 5 mm, some of them "
-                   "moved), e.g. 0.41 deg and 0.00016 mm at x -57.29 (0.76 mm from a moved vertex)")
+              note="READING (owner to confirm): 'outside the ranges' excludes the 3 mm lift ramp beyond each x-range "
+                   "end (§6 step 4 moves the eyewire and the held lens there, so the literal reading cannot hold). "
+                   "'excluded_ramp_stations' records what changes inside that ramp above the lens centre, both ends "
+                   "of each delta (min, max): at MOVED stations (lens edge moved by the lift and the seat) the "
+                   "capture rises at most stations, but the core's min also goes NEGATIVE there (mid-depth and "
+                   "min-over-depth): the core rebuilds its frames on the moved lens, so before and after are read "
+                   "on differently oriented lines; the instrument's record, on fixed station lines, shows the "
+                   "actual change. At unmoved stations the frame re-orients too (its normal averages cap faces "
+                   "within 5 mm, some of them moved), e.g. 0.41 deg and 0.00016 mm at x -57.29")
         Vb, Tb, pb = inst_lens(gb, f"Lens_{side}")
         Va, Ta, pa = inst_lens(ga, f"Lens_{side}")
         F = M.frames(Vb, Tb, 1.0)
@@ -376,11 +505,17 @@ def grade_p2() -> dict:
         d = np.abs(R1["cap"][:, 0] - R0["cap"][:, 0])
         ok = np.isfinite(d)
         bott = Fs["sector"] == "bottom"
+        ramp_inst = instrument_ramp(F, pb, Va, Ta, pa, rng, cy)
         C.add(f"P2.outside_capture_unchanged.{side}", "outside the ranges capture unchanged (0.40 bottom / 0.35 nasal)",
               "|delta c(0.5)| <= 1e-4 mm at the same stations", "instrument",
               {"stations": int(len(idx)), "max_abs_delta_mm": r4(d[ok].max()) if ok.any() else None,
                "bottom_mid_p50_before_after": [pct(R0["cap"][bott, 0], 50), pct(R1["cap"][bott, 0], 50)],
-               "undefined": int((~ok).sum())}, ok.any() and d[ok].max() <= 1e-4 and ok.all())
+               "undefined": int((~ok).sum()), "excluded_ramp_stations": ramp_inst},
+              ok.any() and d[ok].max() <= 1e-4 and ok.all(),
+              note="same READING as the core record (owner to confirm); 'excluded_ramp_stations' = the instrument's "
+                   "1 mm stations in the 3 mm ramp above the lens centre, before/after on the same station lines, "
+                   "'moved' where the lens edge on the mid-depth line moved")
+        C.info.setdefault("ramp_exclusion", {})[side] = {"core": ramp_core, "instrument": ramp_inst}
     # --- rim split, outline, counts, mirror, spec
     for side, li, ei in sides:
         L = check_lens(host_a, f"Lens_{side}")
@@ -427,6 +562,8 @@ def grade_p2() -> dict:
               "not BLOCKED, recomputed from its before-state (after the lift)", "moved == expected", "arrays",
               {"moved": len(mv), "expected": len(exp), "moved_outside_expected": len(mv - exp),
                "expected_not_moved": len(exp - mv)}, mv == exp)
+        moved_nodes_records(C, f"P2.seat.{side}", f"seat_lens(Lens_{side}, browline)", o[f"ns_mid_{side}"]["bodies"][0],
+                            mv, am[f"o{li}_V"], glb("ft", "mid"), f"Lens_{side}", "browline", FT_ALL_RANGES)
     dL = mirror_pair(a0["o0_V"], a0["o1_V"], a1["o0_V"], a1["o1_V"])
     dE = mirror_pair(a0["o2_V"], a0["o3_V"], a1["o2_V"], a1["o3_V"])
     C.add("P2.mirror", "left = mirrored right within 0.01 mm", "<= 0.01 (lenses; eyewires reported)", "arrays",
@@ -465,6 +602,70 @@ def core_bands(path: Path, frame_type: str, ranges) -> dict:
         outd[name] = {"front": band.front_mm[g], "back": band.back_mm[g], "area": band.area_outside_mm2[g],
                       "x": s["P"][g, 0]}
     return outd
+
+
+def in_ramp(P: np.ndarray, rng, cy: float) -> np.ndarray:
+    """Stations above the lens centre within the 3 mm lift ramp beyond either end of the x-range (§6 step 4)."""
+    x, y = P[:, 0], P[:, 1]
+    return (y >= cy) & (((x >= rng[0] - 3.0) & (x < rng[0])) | ((x > rng[1]) & (x <= rng[1] + 3.0)))
+
+
+def _min_depth(cap: np.ndarray) -> np.ndarray:
+    c = np.where(np.asarray(cap, float) >= 90, np.nan, np.asarray(cap, float))
+    out = np.full(len(c), np.nan)
+    ok = np.isfinite(c).any(1)
+    out[ok] = np.nanmin(c[ok], 1)
+    return out
+
+
+def _ramp_summary(P, moved, dmid, dmin) -> dict:
+    out = {"stations": int(len(moved))}
+    for key, m in (("moved", moved), ("unmoved", ~moved)):
+        if not m.any():
+            out[key] = {"n": 0}
+            continue
+        out[key] = {"n": int(m.sum()), "x_min_max": r4([P[m, 0].min(), P[m, 0].max()]),
+                    "delta_mid_min_max_mm": r4([np.nanmin(dmid[m]), np.nanmax(dmid[m])])
+                    if np.isfinite(dmid[m]).any() else None,
+                    "delta_min_over_depth_min_max_mm": r4([np.nanmin(dmin[m]), np.nanmax(dmin[m])])
+                    if np.isfinite(dmin[m]).any() else None}
+    return out
+
+
+def core_ramp(cb: dict, ca: dict, rng, cy: float) -> dict:
+    """The core's capture before / after at the excluded ramp stations: each before station joined to the after
+    station in its own station plane (smallest offset along its t within 2 mm; unmoved stations join exactly)."""
+    Pb, Pa, tb = cb["P"], ca["P"], cb["fr"].t
+    kk, jj = [], []
+    for k in np.flatnonzero(in_ramp(Pb, rng, cy)):
+        d = Pa - Pb[k]
+        dist = np.linalg.norm(d, axis=1)
+        cand = np.flatnonzero(dist < 2.0)
+        if len(cand):
+            kk.append(k)
+            jj.append(int(cand[np.argmin(np.abs(d[cand] @ tb[k]))]))
+    kk, jj = np.array(kk, int), np.array(jj, int)
+    if not len(kk):
+        return {"stations": 0}
+    moved = np.linalg.norm(Pa[jj] - Pb[kk], axis=1) > 1e-6
+    dmid = ca["cap"][jj, stations.MID] - cb["cap"][kk, stations.MID]
+    dmin = _min_depth(ca["cap"][jj]) - _min_depth(cb["cap"][kk])
+    return _ramp_summary(Pb[kk], moved, dmid, dmin)
+
+
+def instrument_ramp(F: dict, pb, Va, Ta, pa, rng, cy: float) -> dict:
+    """The instrument's capture before / after on the same station lines (frames of the input lens) at the ramp
+    stations; 'moved' where the lens edge on the mid-depth line moved by > 1e-4 mm."""
+    idx = np.flatnonzero(in_ramp(F["Pm"], rng, cy))
+    if not len(idx):
+        return {"stations": 0}
+    Fs = {k: (v[idx] if isinstance(v, np.ndarray) and len(v) == len(F["s"]) else v) for k, v in F.items()}
+    R0 = M.rows(Fs, F["scene"], M.scenes(pb), DEPTHS)
+    R1 = M.rows(Fs, IG.build_scene(Va, Ta), M.scenes(pa), DEPTHS)
+    moved = np.abs(R1["edge"][:, stations.MID] - R0["edge"][:, stations.MID]) > 1e-4
+    dmid = R1["cap"][:, stations.MID] - R0["cap"][:, stations.MID]
+    dmin = _min_depth(R1["cap"]) - _min_depth(R0["cap"])
+    return _ramp_summary(F["Pm"][idx], moved, dmid, dmin)
 
 
 # ======================================================================================================= P3
@@ -574,20 +775,27 @@ def grade_p3() -> dict:
               {"max_abs_delta_mm": r4(dm), "definedness_changes": undefined}, dm <= 0.05 and undefined == 0)
         mv = moved_rows(a0, a1, i)
         dmv = np.linalg.norm(a1[f"o{i}_V"] - a0[f"o{i}_V"], axis=1).max()
-        vac = " (vacuous: nothing written)" if s in refused else ""
+        # on a refused lens nothing was written: these four have nothing to measure (not applicable, never a pass)
+        vac = s in refused and len(mv) == 0          # a refusal that moved anything is graded (and fails the stop rule)
+        na = "not applicable: the tool refused this lens and wrote nothing" if vac else None
+
+        def okna(ok):
+            return None if vac else ok
         C.add(f"P3.max_delta.{s}", "max delta <= 0.45 mm [0.434]", "<= 0.45", "arrays", {"max_mm": r4(dmv)},
-              dmv <= 0.45, note=vac.strip() or None)
+              okna(dmv <= 0.45), note=na)
         C.add(f"P3.moved.{s}", "moved vertices <= 200 per lens [186]", "<= 200", "arrays", {"moved": int(len(mv))},
-              len(mv) <= 200, note=vac.strip() or None)
+              okna(len(mv) <= 200), note=na)
         exp = set(b0["expected_raw"])
         C.add(f"P3.moved_in_failing_nodes.{s}", "all moved vertices in failing nodes", "moved subset of the band of "
               "FAIL nodes (before-state)", "arrays", {"moved": int(len(mv)), "outside": len(set(mv.tolist()) - exp),
                                                       "expected_band": len(exp)},
-              set(mv.tolist()) <= exp, note=vac.strip() or None)
+              okna(set(mv.tolist()) <= exp), note=na)
         gain, expect = volume_sum(a0, a1, i, b0)
         okv = abs(gain - expect) <= 0.15 * abs(expect) if abs(expect) > 1e-9 else abs(gain) <= 1e-6
         C.add(f"P3.volume_gain.{s}", "volume gain within 15% of sum g t ds [~20 mm3]", "|gain - sum| <= 0.15 sum",
-              "arrays", {"gain_mm3": r4(gain), "sum_g_t_ds_mm3": r4(expect)}, okv, note=vac.strip() or None)
+              "arrays", {"gain_mm3": r4(gain), "sum_g_t_ds_mm3": r4(expect)}, okna(okv), note=na)
+        moved_nodes_records(C, f"P3.{s}", f"seat_lens({nm}, acetate)", b0, mv.tolist(), a0[f"o{i}_V"], gb, nm,
+                            "acetate")
         rsd = check_lens(host_a, nm).get("rim_split_deg") or {}
         fp5 = (rsd.get("front") or {}).get("p5")
         C.add(f"P3.rim_split.{s}", "GLB rim split p5 >= 75 deg", ">= 75 (front loop)", "core", rsd,
@@ -696,6 +904,8 @@ def grade_p4() -> dict:
           "eyewire digest unchanged", "arrays", {"moved": len(mv), "expected": len(exp), "outside": len(mv - exp),
                                                   "missing": len(exp - mv), "eyewire_unchanged": ew_same},
           mv == exp and ew_same)
+    moved_nodes_records(C, "P4.metal", "seat_lens(metal fixture)", o["ns_before"]["bodies"][0], mv, a0["o0_V"], gb,
+                        "Lens_L", "metal")
     b1 = o["ns_after"]["bodies"][0]
     req1 = np.asarray(b1["point"]["required"])
     cfr = np.asarray(b1["point"]["covered_front"])[req1]
@@ -725,6 +935,96 @@ def grade_p4() -> dict:
     grade_crystal(C)
     grade_matrix(C)
     return C.result()
+
+
+# ------------------------------------------------------------------------------------- core edge profiles
+PROFILE_DV = 0.005           # mm between the profile lines along the corner-to-corner rung
+PROFILE_PAD = 0.02           # mm kept clear of each corner
+
+
+def core_profiles(path: Path, lens_node: str) -> list:
+    """The profiled lens's edge as the CORE sees it on the exported GLB: check_glb's reading (read_nodes, collect,
+    the lens body), the core's station frames (stations.station_frames) and backend (open3d), and the core's edge
+    rule (stations.lens_edge: where the line along u leaves the lens, or the last lens interval ending within reach
+    before the rung point, a groove). Per station: rung points every PROFILE_DV mm from the front to the back corner
+    and the edge offset e along u from each (proof review round 2: the core records repeated the tool's plan)."""
+    from glasses3d.g3d.seat.intervals import line_intervals
+    nodes, warnings, skipped = SC.read_nodes(load_glb(path))
+    col = CK.collect(nodes, skipped, warnings, SC.factory("open3d"))
+    bodies = [b for b, n in zip(col["bodies"], col["body_node"]) if n["name"] == lens_node]
+    if not bodies:
+        raise KeyError(f"{lens_node}: no lens body in {path.name}")
+    body = bodies[0]
+    fr = stations.station_frames(body)
+    be = SC.make_backend("open3d", [(body.V, body.T)])
+    out = []
+    idx = np.flatnonzero(fr.ok)
+    O, D, Ax, own, fs = [], [], [], [], []
+    for k in idx:
+        t_edge = float(np.linalg.norm(fr.Pb[k] - fr.P[k]))
+        f = np.arange(PROFILE_PAD, t_edge - PROFILE_PAD + 1e-9, PROFILE_DV) / t_edge
+        O.append(fr.P[k] + f[:, None] * (fr.Pb[k] - fr.P[k]))
+        D.append(np.repeat(fr.u[k][None], len(f), 0))
+        Ax.append(np.repeat(fr.t[k][None], len(f), 0))
+        own.append(np.full(len(f), k))
+        fs.append(f)
+    if not O:
+        return out
+    res = line_intervals(be, np.vstack(O), np.vstack(D), np.vstack(Ax))
+    e_all = np.array([stations.lens_edge(iv[0]) if iv[0] is not None else np.nan for iv in res.intervals])
+    own = np.concatenate(own)
+    f_all = np.concatenate(fs)
+    for k in idx:
+        m = own == k
+        rung = fr.Pb[k] - fr.P[k]
+        f, e = f_all[m], e_all[m]
+        X = fr.P[k] + f[:, None] * rung + e[:, None] * fr.u[k]
+        Pm = 0.5 * (fr.P[k] + fr.Pb[k])
+        out.append({"k": int(k), "xyz": fr.P[k], "f": f, "e": e, "t_edge": float(np.linalg.norm(rung)),
+                    "xu": (X - Pm) @ fr.u[k], "xn": (X - Pm) @ fr.n[k]})
+    return out
+
+
+def core_groove_dims(pr: dict, depth: float = 0.60) -> dict | None:
+    """Width (along the rung, between the points where the edge crosses half the depth), depth (deepest e inside)
+    and centre offset (from the rung midpoint, along the rung) of the notch in one core profile."""
+    f, e, L = pr["f"], pr["e"], pr["t_edge"]
+    if not np.isfinite(e).all():
+        return None
+    inside = e < -depth / 2
+    if not inside.any() or inside[0] or inside[-1]:
+        return None
+    i = np.flatnonzero(inside)
+    i0, i1 = i[0], i[-1]
+
+    def cross(a, b):
+        return f[a] + (-depth / 2 - e[a]) / (e[b] - e[a]) * (f[b] - f[a])
+    fa, fb = cross(i0 - 1, i0), cross(i1 + 1, i1)
+    return {"width_mm": float((fb - fa) * L), "depth_mm": float(-e[i0:i1 + 1].min()),
+            "centre_offset_mm": float((0.5 * (fa + fb) - 0.5) * L)}
+
+
+def core_bevel_dims(pr: dict) -> dict | None:
+    """V-bevel apex height (largest e) and the included angle between the two flank lines, each fitted (principal
+    axis) to the profile points between 20% and 80% of the apex height, in the station plane (u, n)."""
+    e, xu, xn = pr["e"], pr["xu"], pr["xn"]
+    if not np.isfinite(e).all():
+        return None
+    k = int(np.argmax(e))
+    h = float(e[k])
+    if h <= 0:
+        return None
+    dirs = []
+    for side in (np.arange(0, k), np.arange(k + 1, len(e))):
+        m = side[(e[side] > 0.2 * h) & (e[side] < 0.8 * h)]
+        if len(m) < 5:
+            return None
+        A = np.c_[xu[m], xn[m]]
+        _, _, vt = np.linalg.svd(A - A.mean(0))
+        d = vt[0]
+        away = A[np.argmin(e[m])] - np.array([xu[k], xn[k]])
+        dirs.append(d if d @ away > 0 else -d)
+    return {"h_mm": h, "angle_deg": float(np.degrees(np.arccos(np.clip(dirs[0] @ dirs[1], -1.0, 1.0))))}
 
 
 def grade_nylor(C: Case):
@@ -783,9 +1083,21 @@ def grade_nylor(C: Case):
                "depth_min_max": r4([D.min(), D.max()]) if len(D) else None,
                "centre_abs_max": r4(np.abs(Cn).max()) if len(Cn) else None}, okg)
         pp = s1.get("profile_plan") or {}
-        C.add(f"P4.{case}.groove", f"{tag}: groove 0.60 +-0.02 wide and deep, centred +-0.05", "planned 0.60 x 0.60, "
-              "centred (the tool's plan)", "core", {"plan": pp, "rewall": (s1.get("profile_result") or {}).get("rewall")},
-              abs(pp.get("width_mm", 0) - 0.60) <= 0.02 and abs(pp.get("depth_mm", 0) - 0.60) <= 0.02)
+        cd = [core_groove_dims(p) for p in core_profiles(ga, "Lens_L")]
+        cg = [d for d in cd if d is not None]
+        cW = np.array([d["width_mm"] for d in cg])
+        cD = np.array([d["depth_mm"] for d in cg])
+        cC = np.array([d["centre_offset_mm"] for d in cg])
+        C.add(f"P4.{case}.groove", f"{tag}: groove 0.60 +-0.02 wide and deep, centred +-0.05",
+              "width, depth 0.58..0.62; |centre offset| <= 0.05 at every core station", "core",
+              {"stations": len(cd), "measured": len(cg), "width_min_max": r4([cW.min(), cW.max()]) if len(cW) else None,
+               "depth_min_max": r4([cD.min(), cD.max()]) if len(cD) else None,
+               "centre_abs_max": r4(np.abs(cC).max()) if len(cC) else None,
+               "plan": {k: pp.get(k) for k in ("width_mm", "depth_mm")}},
+              bool(len(cd)) and len(cg) == len(cd) and bool(np.all(np.abs(cW - 0.60) <= 0.02))
+              and bool(np.all(np.abs(cD - 0.60) <= 0.02)) and bool(np.all(np.abs(cC) <= 0.05)),
+              note="measured on the exported lens through the core's station frames, backend and edge rule "
+                   "(core_profiles), not the tool's plan")
         topo_t = (s1.get("profile_result") or {}).get("lens_topology") or {}
         C.add(f"P4.{case}.closed", f"{tag}: lens closed chi = 2", "closed, chi 2", "core", topo_t,
               bool(topo_t.get("closed")) and topo_t.get("euler") == 2)
@@ -821,10 +1133,13 @@ def grade_nylor(C: Case):
         if cord in sc_a:
             cV, cT = inst_part(ga, cord)
             ov = M.pair_overlap_mm3(Fa, IG.build_scene(cV, cT), Fa["scene"])
-            core_ov = o.get("cord_overlap") if case == "nylor" else (s1.get("profile_result") or {}).get(
-                "cord_lens_overlap_mm3")
-            C.add(f"P4.{case}.cord_overlap", f"{tag}: cord-lens overlap <= 0.01 mm3", "<= 0.01", "core",
-                  {"mm3": r4(core_ov)}, core_ov is not None and core_ov <= 0.01)
+            core = cord_overlap_core(s1, o["check_after"], host)
+            C.add(f"P4.{case}.cord_overlap", f"{tag}: cord-lens overlap <= 0.01 mm3", "<= 0.01 by the tool (EXACT "
+                  "Boolean on the grooved lens), the Blender check and the host check (station-plane columns)", "core",
+                  core, all(v is not None and v <= 0.01 for v in (core["tool_mm3"], core["blender_check_mm3"],
+                                                                 core["host_check_mm3"])),
+                  note="the tool's own report and both checks' reports (proof review round 2: the stage-proof record "
+                       "came from the proof's own Boolean)")
             C.add(f"P4.{case}.cord_overlap", f"{tag}: cord-lens overlap <= 0.01 mm3", "<= 0.01", "instrument",
                   {"mm3": r4(ov)}, ov <= 0.01)
         else:
@@ -865,11 +1180,52 @@ def grade_nylor(C: Case):
                       "two overlaps of the cord's and the channel's outline arcs, each 0.9..1.1 mm", "instrument",
                       {"overlaps_mm": r4(ovl), "cord_arc_mm": r4(ac[2]), "channel_arc_mm": r4(ah[2])},
                       len(ovl) == 2 and all(0.9 <= x <= 1.1 for x in ovl))
+    # review control (not a §10 line): an existing cord off the §5 groove (the stage-proof cord) is reported
+    o = out("nylor_outline")
+    s1 = o["seat1"]
+    ga = glb("nylor_outline", "after")
+    host = SC.check_glb(ga)
+    core = cord_overlap_core(s1, o["check_after"], host)
+    hl = check_lens(host, "Lens_L")
+    bl = check_lens(o["check_after"], "Lens_L")
+
+    def named(L):
+        return any("cord-lens overlap" in x for x in L.get("reasons", []))
+    core.update(tool_status=s1.get("status"), tool_warning=[w[:160] for w in s1.get("warnings", [])
+                                                             if w.startswith("W_CORD_OVERLAP")],
+                blender_check_fails_on_it=bool(not bl["pass"] and named(bl)),
+                host_check_fails_on_it=bool(not hl["pass"] and named(hl)))
+    C.info["nylor_outline.tool"] = {k: s1.get(k) for k in ("status", "code", "warnings", "check")}
+    C.add("P4.nylor_outline.cord_overlap_reported", "review control (not a §10 line): an existing cord off the §5 "
+          "groove (horizontal outline normal, 0.30 mm inside) is reported, never seated silently",
+          "tool partial with W_CORD_OVERLAP and overlap > 0.01; both checks FAIL the lens on the cord overlap", "core",
+          core, s1.get("status") == "partial" and bool(core["tool_warning"]) and (core["tool_mm3"] or 0) > 0.01
+          and core["blender_check_fails_on_it"] and core["host_check_fails_on_it"])
+    Va, Ta, _ = inst_lens(ga, "Lens_L")
+    Fo = M.frames(Va, Ta, 1.0)
+    cV, cT = inst_part(ga, "Cord")
+    ov = M.pair_overlap_mm3(Fo, IG.build_scene(cV, cT), Fo["scene"])
+    tool = core["tool_mm3"] or 0.0
+    C.add("P4.nylor_outline.cord_overlap_reported", "review control: the overlap the tool reports is there",
+          "instrument overlap > 0.01 and within 10% of the tool's EXACT Boolean", "instrument",
+          {"mm3": r4(ov), "tool_mm3": r4(tool)}, ov > 0.01 and tool > 0 and abs(ov - tool) <= 0.10 * tool)
     o = out("nylor_thin")
     C.add("P4.nylor_thin.thickness", "nylor t 1.4: E_THICKNESS", "refused E_THICKNESS, nothing written", "core",
           {"status": o["seat1"]["status"], "code": o["seat1"]["code"],
            "digest_equal": o["digest0"]["Lens_L"]["digest"] == o["digest1"]["Lens_L"]["digest"]},
           o["seat1"]["code"] == "E_THICKNESS" and o["digest0"]["Lens_L"]["digest"] == o["digest1"]["Lens_L"]["digest"])
+
+
+def cord_overlap_core(s1: dict, blender_check: dict, host_check: dict) -> dict:
+    """The cord-lens overlap by the core: the tool's report (seat_lens profile_result, EXACT Boolean) and the two
+    checks' reports (cord_lens_overlap_mm3, station-plane columns)."""
+    pr = s1.get("profile_result") or {}
+    bl = check_lens(blender_check, "Lens_L") if blender_check.get("lenses") else {}
+    hl = check_lens(host_check, "Lens_L")
+    return {"tool_mm3": pr.get("cord_lens_overlap_mm3"), "tool_cord": pr.get("cord"),
+            "tool_cord_parts": pr.get("cord_parts"), "blender_check_mm3": bl.get("cord_lens_overlap_mm3"),
+            "host_check_mm3": hl.get("cord_lens_overlap_mm3"),
+            "check_cord_parts": [p.get("part") for p in ((hl.get("cord") or {}).get("parts") or [])]}
 
 
 def grade_crystal(C: Case):
@@ -889,15 +1245,26 @@ def grade_crystal(C: Case):
     ang = np.array([d["angle_deg"] for d in good])
     hh = np.array([d["h_mm"] for d in good])
     pp = s1.get("profile_plan") or {}
-    C.add("P4.crystal.bevel_angle", "crystal: bevel 120 +-1 deg", "119..121 deg", "core",
-          {"planned_deg": pp.get("angle_deg")}, abs((pp.get("angle_deg") or 0) - 120) <= 1)
+    cb = [core_bevel_dims(p) for p in core_profiles(ga, "Lens_L")]
+    cgood = [d for d in cb if d is not None]
+    cang = np.array([d["angle_deg"] for d in cgood])
+    chh = np.array([d["h_mm"] for d in cgood])
+    C.add("P4.crystal.bevel_angle", "crystal: bevel 120 +-1 deg", "119..121 deg at every core station", "core",
+          {"stations": len(cb), "measured": len(cgood),
+           "min_p50_max": r4([cang.min(), np.median(cang), cang.max()]) if len(cang) else None,
+           "planned_deg": pp.get("angle_deg")},
+          bool(len(cb)) and len(cgood) == len(cb) and bool(np.all(np.abs(cang - 120) <= 1)),
+          note="measured on the exported lens through the core's station frames, backend and edge rule "
+               "(core_profiles), not the tool's plan")
     C.add("P4.crystal.bevel_angle", "crystal: bevel 120 +-1 deg", "119..121 deg at every station", "instrument",
           {"stations": len(bd), "measured": len(good), "min_p50_max": r4([ang.min(), np.median(ang), ang.max()])
            if len(ang) else None}, len(good) == len(bd) and np.all(np.abs(ang - 120) <= 1))
     hp = (pr.get("rewall") or {}).get("h_mm")
-    C.add("P4.crystal.bevel_h", "crystal: h 0.404 +-0.005", "0.399..0.409", "core",
-          {"planned_h_mm": pp.get("h_mm"), "rewall_h_min_max": hp},
-          hp is not None and all(abs(x - 0.404) <= 0.005 for x in hp))
+    C.add("P4.crystal.bevel_h", "crystal: h 0.404 +-0.005", "0.399..0.409 at every core station", "core",
+          {"stations": len(cb), "measured": len(cgood),
+           "min_p50_max": r4([chh.min(), np.median(chh), chh.max()]) if len(chh) else None,
+           "planned_h_mm": pp.get("h_mm"), "rewall_h_min_max": hp},
+          bool(len(cb)) and len(cgood) == len(cb) and bool(np.all(np.abs(chh - 0.404) <= 0.005)))
     C.add("P4.crystal.bevel_h", "crystal: h 0.404 +-0.005", "0.399..0.409 at every station", "instrument",
           {"min_p50_max": r4([hh.min(), np.median(hh), hh.max()]) if len(hh) else None},
           len(good) == len(bd) and np.all(np.abs(hh - 0.404) <= 0.005))
@@ -955,9 +1322,30 @@ def grade_crystal(C: Case):
     op = om["open"]
     mismatch = op["expected_removed_mm3"] <= 0 or abs(op["removed_mm3"] - op["expected_removed_mm3"]) > \
         0.01 * op["expected_removed_mm3"]
+    controls = [om.get(k) or {} for k in ("closed", "closed_exact")]
+    ctrl_ok = all(c.get("accepted_by_the_tool_check") is True and c.get("cutter_closed") for c in controls)
     C.add("P4.crystal.open_cutter_manifold", "crystal: an open cutter through MANIFOLD is caught by the volume check",
-          "rejected, the removed volume differing from cutter ^ frame by > 1%", "core", om,
-          (not op["accepted_by_the_tool_check"]) and mismatch and not op["cutter_closed"])
+          "the tool's acceptance test (seat_bpy.groove_attempt) rejects the open cutter, its removed volume differing "
+          "from cutter ^ frame by > 1%, AND accepts the closed control cutter with MANIFOLD and with EXACT", "core", om,
+          (not op["accepted_by_the_tool_check"]) and mismatch and not op["cutter_closed"] and ctrl_ok,
+          note="without an accepted control the rejection shows nothing (proof review: the stage-proof control was "
+               "rejected too, by an exact weld that merged two distinct coincident vertices of the Boolean result)")
+    # the binding verdict on the grooved lens (proof review: P4 recorded only the geometry)
+    host = SC.check_glb(ga)
+    hl = check_lens(host, "Lens_L")
+    bc = o["check_after"]
+    bl = check_lens(bc, "Lens_L") if bc.get("lenses") else {}
+    C.add("P4.crystal.check", "crystal: the grooved lens passes the binding check (tool status, the Blender check, the "
+          "host check_glb on the exported GLB)", "tool 'seated', both checks PASS", "core",
+          {"tool": {k: s1.get(k) for k in ("status", "code", "warnings")},
+           "blender_check": {"ok": bc.get("ok"), "reasons": bc.get("reasons"), "verdicts": bl.get("verdicts"),
+                             "classes": bl.get("classes")},
+           "host_check": {"ok": host["ok"], "reasons": host["reasons"], "verdicts": hl.get("verdicts"),
+                          "classes": hl.get("classes"), "frame_type": hl.get("frame_type"),
+                          "frame_type_source": hl.get("frame_type_source")}},
+          s1.get("status") == "seated" and bool(bc.get("ok")) and bool(host["ok"]),
+          note="FAILS until WP4_DESIGN open item B is decided (owner): §3's capture reads the 0.03 mm groove clearance "
+               "as a ~0.028 mm gap at every depth, so every station of a correctly grooved crystal lens FAILS acetate")
 
 
 def core_apex(ga: Path, gb: Path) -> np.ndarray:
@@ -1034,8 +1422,11 @@ def grade_matrix(C: Case):
         C.add(f"P4.matrix.{c}.moved_in_failing_nodes", f"acetate matrix {c}: (stop rule) moved vertices = band of "
               "FAIL nodes (before-state)", "moved == expected", "arrays",
               {"moved": len(mv), "expected": len(exp), "outside": len(mv - exp)}, mv == exp)
+        moved_nodes_records(C, f"P4.matrix.{c}", f"acetate matrix {c}", o["ns_before"]["bodies"][0], mv, a0["o0_V"],
+                            glb(case, "before"), "Lens_L", "acetate")
     # refusals
-    want = {"acetate_open": ("E_OPEN", None), "acetate_selfx": (None, None), "acetate_bevel": ("E_LENS_MODIFIERS", None),
+    want = {"acetate_open": ("E_OPEN", None), "acetate_selfx": ("E_SELF_INTERSECTING", None),
+            "acetate_bevel": ("E_LENS_MODIFIERS", None),
             "acetate_notch": (None, "CONCAVE"), "acetate_wide": ("E_TOO_MANY_BLOCKED", "NEEDS_GROWTH")}
     text = {"acetate_open": "open lens", "acetate_selfx": "self-intersection", "acetate_bevel": "Bevel modifier on the "
             "lens", "acetate_notch": "notch CONCAVE", "acetate_wide": "aperture 2.5 mm too large NEEDS_GROWTH -> "
@@ -1047,10 +1438,20 @@ def grade_matrix(C: Case):
         blk = ((s1.get("bodies") or [{}])[0].get("before") or {}).get("blocked_by") or {}
         ok = s1["status"] == "refused" and same and (code is None or s1["code"] == code) and \
             (word is None or word in (s1.get("message") or "") or word in blk)
+        note, how = None, ""
+        if case == "acetate_notch":
+            # the refusal must come from the CONCAVE clamp or the gate, not from the array post-check catching what
+            # the plan produced around the clamped points (proof review round 2)
+            ok = ok and s1.get("code") != "E_POSTCHECK"
+            how = " by the CONCAVE clamp or the gate (not E_POSTCHECK)"
+            note = ("§10 'notch CONCAVE' is met only by a refusal from the CONCAVE clamp / gate; a post-check refusal "
+                    "(E_POSTCHECK: a moved face folded / its area ratio out of range around the clamped points, whose "
+                    "neighbours kept their full growth) is graded FAIL until WP4_DESIGN open item D is decided")
         C.add(f"P4.refusal.{case[8:]}", f"refusal: {text[case]}", f"refused{' ' + code if code else ''}"
-              f"{', names ' + word if word else ''}, nothing written", "core",
+              f"{', names ' + word if word else ''}{how}, nothing written", "core",
               {"status": s1["status"], "code": s1.get("code"), "message": (s1.get("message") or "")[:240],
-               "blocked_by": blk or None, "digest_unchanged": same, "moved_vertices": s1.get("moved_vertices")}, ok)
+               "blocked_by": blk or None, "digest_unchanged": same, "moved_vertices": s1.get("moved_vertices")}, ok,
+              note=note)
     o = out("acetate_fused")
     s1 = o["seat1"]
     host = SC.check_glb(glb("acetate_fused", "after"), stations_table=True)
@@ -1094,6 +1495,8 @@ def grade_p5() -> dict:
               "the before-state", "moved == expected", "arrays",
               {"moved": len(mv), "expected": len(exp), "moved_outside_expected": len(mv - exp),
                "expected_not_moved": len(exp - mv)}, mv == exp)
+        moved_nodes_records(C, f"P5.{case}", f"{case}: seat_lens(semi_rimless)", b0, mv, a0["o0_V"], gb, lens,
+                            "semi_rimless")
         d0, d1 = o["digest0"], o["digest1"]
         others = [k for k in d0 if k != lens]
         diff = [k for k in others if d0[k] != d1.get(k)]
@@ -1290,15 +1693,27 @@ def grade_all() -> dict:
     stop = []
     for cid, res in results.items():
         for rec in res["criteria"]:
-            if not rec["pass"] and (cid == "P2" or rec["id"].startswith("P5.oakley.zero_moved")
-                                    or "moved_in_failing" in rec["id"] or "moved_set" in rec["id"]
-                                    or "seat_moves_only" in rec["id"]):
+            if rec["pass"] is False and (cid == "P2" or rec["id"].startswith("P5.oakley.zero_moved")
+                                         or "moved_in_failing" in rec["id"] or "moved_set" in rec["id"]
+                                         or "seat_moves_only" in rec["id"]):
                 stop.append(f"{rec['id']} ({rec['by']})")
-    summary = {cid: {"pass": r["pass"], "criteria": len(r["criteria"]),
-                     "failed": r["failed"]} for cid, r in results.items()}
+    summary = {cid: {"pass": r["pass"], "criteria": len(r["criteria"]), "counts": r["counts"],
+                     "failed": r["failed"], "not_applicable": r["not_applicable"]} for cid, r in results.items()}
     summary["sources_sha256_unchanged"] = sha_ok
     summary["stop_rule_triggered"] = stop
+    from glasses3d.tests.proofs.wp4_proof import tool_hashes
+    recorded = state.get("tools_sha256") or {}
+    now = tool_hashes()
+    summary["tools"] = {"recorded_combined_sha256": recorded.get("*"), "consistent_across_cases":
+                        bool(state.get("tools_consistent")), "current_equals_recorded": recorded == now,
+                        "changed_since_run": sorted(k for k in set(recorded) | set(now)
+                                                    if k != "*" and recorded.get(k) != now.get(k))}
+    summary["owner_readings"] = [
+        "P2 'outside the ranges capture unchanged / vertices bit-identical' is graded outside the 3 mm lift ramp "
+        "beyond each x-range end (and below the lens centre); inside the ramp the lift and the seat move the lens "
+        "edge: see P2.outside_capture_unchanged.*.measured.excluded_ramp_stations (owner to confirm the reading)",
+        "§10 '~N' read as +-10%"]
     return {"design": "glasses3d/plan/WP4_DESIGN.md §10 P2-P5", "out_dir": str(OUT), "sources": src,
             "summary": summary, "cases": results, "run": {c: {"seconds": m["seconds"], "error": m.get("error")}
                                                           for c, m in state["cases"].items()},
-            "fixture_sha256": state.get("fixture_sha256")}
+            "fixture_sha256": state.get("fixture_sha256"), "tools_sha256": recorded}

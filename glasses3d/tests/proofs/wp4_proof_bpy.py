@@ -11,8 +11,8 @@ They read the scene the way seat_lens reads it (the same parts, obstacles and ra
   of a halfway point, deform.lens_band);
 - `digest_all`, `objects`: every object's mesh digest (positions, topology, every attribute) and matrix;
 - `rim_sharp`, `wall_smooth`: sharp rim edges and smooth wall faces;
-- `open_cutter_manifold`: §10 P4 'an open cutter through MANIFOLD is caught by the volume check';
-- `bool_overlap`: vol(a ^ b) with the tool's own EXACT Boolean helper.
+- `open_cutter_manifold`: §10 P4 'an open cutter through MANIFOLD is caught by the volume check'.
+(The cord-lens overlap is graded from the tool's own report and both checks', proof review round 2.)
 """
 from __future__ import annotations
 
@@ -174,21 +174,19 @@ def wall_smooth(name) -> dict:
     return {"wall_polygons": len(wall), "smooth_wall_polygons": int(sum(1 for p in wall if p.use_smooth))}
 
 
-def bool_overlap(a, b) -> float:
-    return float(SB._bool_volume(SB._obj(a), SB._obj(b), "INTERSECT"))
-
-
 def open_cutter_manifold(lens, frame, drop: int = 8) -> dict:
     """§10 P4: a cutter built as seat_lens builds it (the lens inflated 0.03 mm), opened by deleting `drop`
-    triangles, cut from the frame with the MANIFOLD solver; the tool's acceptance test (closed, chi, components,
-    removed = vol(cutter ^ frame) +- 1%, lens overlap) is evaluated on the result. The same with the closed cutter is
-    the control. The scene is restored afterwards (modifier and cutters removed)."""
+    triangles, cut from the frame with the MANIFOLD solver and judged by the TOOL's own acceptance test
+    (seat_bpy.groove_attempt: closed by the mesh's own connectivity, chi, components, removed = vol(cutter ^ frame)
+    +- 1%, lens overlap). The positive control is the closed cutter, with MANIFOLD and with EXACT: it must be
+    accepted, or the test shows nothing. The scene is restored afterwards (modifier and cutters removed)."""
     lob, fob = SB._obj(lens), SB._obj(frame)
     origin = SB.asset_origin(bpy.context.scene)
     A = SB.MeshArrays(lob, origin)
     Vc = PR.inflate(A.V, A.T, PR.CLEARANCE_MM) + A.origin
     out = {}
-    for label, T in (("closed", A.T), ("open", A.T[drop:])):
+    for label, T, solver in (("closed", A.T, "MANIFOLD"), ("closed_exact", A.T, "EXACT"),
+                             ("open", A.T[drop:], "MANIFOLD")):
         me = bpy.data.meshes.new(f"proof cutter {label}")
         me.from_pydata(Vc.tolist(), [], np.asarray(T).tolist())
         me.update()
@@ -196,27 +194,26 @@ def open_cutter_manifold(lens, frame, drop: int = 8) -> dict:
         bpy.context.scene.collection.objects.link(cut)
         cut.hide_render = True
         try:
-            topo_c = geom.topology(geom.weld_exact(Vc)[1][np.asarray(T)])
+            topo_c = geom.topology(np.asarray(T), len(Vc))
             before = SB.MeshArrays(fob, origin, bpy.context.evaluated_depsgraph_get())
-            tb = geom.topology(geom.weld_exact(before.V)[1][before.T])
+            tb = SB.solid_topology(before)
             vol0 = geom.signed_volume(before.V, before.T)
             expect = SB._bool_volume(fob, cut, "INTERSECT")
-            mod = fob.modifiers.new("proof groove", "BOOLEAN")
-            mod.operation, mod.solver, mod.object = "DIFFERENCE", "MANIFOLD", cut
-            bpy.context.view_layer.update()
+            chk, good = SB.groove_attempt(fob, cut, lob, origin, solver, tb, vol0, expect)
             after = SB.MeshArrays(fob, origin, bpy.context.evaluated_depsgraph_get())
-            ta = geom.topology(geom.weld_exact(after.V)[1][after.T])
-            removed = vol0 - geom.signed_volume(after.V, after.T)
-            overlap = SB._bool_volume(lob, fob, "INTERSECT")
-            fob.modifiers.remove(mod)
-            good = bool(ta["closed"] and ta["euler"] == tb["euler"] and ta["components"] == tb["components"]
-                        and expect > 0 and abs(removed - expect) <= PR.REMOVED_TOLERANCE * expect
-                        and overlap <= PR.OVERLAP_MAX_MM3)
-            out[label] = {"cutter_closed": bool(topo_c["closed"]), "cutter_boundary_edges":
-                          int(topo_c.get("boundary_edges", 0)), "expected_removed_mm3": round(float(expect), 4),
-                          "removed_mm3": round(float(removed), 4), "frame_closed_after": bool(ta["closed"]),
-                          "euler": [tb["euler"], ta["euler"]], "lens_overlap_mm3": round(float(overlap), 5),
-                          "accepted_by_the_tool_check": good}
+            t_exact = geom.topology(geom.weld_exact(after.V)[1][after.T])
+            mod = fob.modifiers.get(SB.GROOVE_MODIFIER)
+            if mod is not None:
+                fob.modifiers.remove(mod)
+            out[label] = {"solver": solver, "cutter_closed": bool(topo_c["closed"]),
+                          "cutter_boundary_edges": int(topo_c.get("boundary_edges", 0)),
+                          "expected_removed_mm3": round(float(expect), 4), "removed_mm3": chk["removed_mm3"],
+                          "frame_closed_after": bool(chk["closed"]), "euler": chk["euler"],
+                          "components": chk["components"], "lens_overlap_mm3": chk["lens_overlap_mm3"],
+                          "own_boundary_nonmanifold_edges": [chk["boundary_edges"], chk["nonmanifold_edges"]],
+                          "exact_weld_everywhere": {k: t_exact[k] for k in ("closed", "euler", "boundary_edges",
+                                                                           "nonmanifold_edges")},
+                          "accepted_by_the_tool_check": bool(good)}
         finally:
             bpy.data.objects.remove(cut, do_unlink=True)
             bpy.data.meshes.remove(me)

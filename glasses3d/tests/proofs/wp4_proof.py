@@ -46,7 +46,13 @@ OAKLEY_LENS = "Lens | continuous wrap shield 1.55mm"
 INVU_LENS = "Shield | single continuous closed lens"
 INVU_PRINT = "Shield | fine INVU corner print"
 MATRIX = ("sphere", "toric", "flat", "solidified", "chamfer", "flipped", "rounded", "coarse")
-SCENES = ["metal", "metal_narrow", "nylor", "nylor_nocord", "nylor_thin", "crystal"] + \
+# the code that produces the proof's files: a proof is stale when any of these changed after its run (the grader and
+# the instruments are re-run by tests/test_seat_real.py, so they are not listed)
+TOOL_SOURCES = (sorted(p.relative_to(G3D).as_posix() for p in (G3D / "g3d/seat").glob("*.py"))
+                + ["g3d/seat_bpy.py", "g3d/export_glb.py", "g3d/glb_patch.py", "g3d/__init__.py", "g3d_host/blender.py",
+                   "tests/blender/seat_run.py", "tests/blender/seat_build.py", "tests/fixtures/seat_fixtures.py",
+                   "tests/proofs/wp4_proof.py", "tests/proofs/wp4_proof_bpy.py"])
+SCENES = ["metal", "metal_narrow", "nylor", "nylor_nocord", "nylor_thin", "nylor_outline", "crystal"] + \
     [f"acetate_{c}" for c in MATRIX] + ["acetate_open", "acetate_selfx", "acetate_notch", "acetate_wide",
                                          "acetate_fused", "acetate_drilled"]
 
@@ -58,6 +64,16 @@ def ft_parts(side: str) -> list:
 
 def sha(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def tool_hashes() -> dict:
+    """{source path relative to glasses3d/: sha256} of TOOL_SOURCES, plus their combined digest under '*'."""
+    out = {rel: sha(G3D / rel) for rel in TOOL_SOURCES if (G3D / rel).is_file()}
+    h = hashlib.sha256()
+    for rel in sorted(out):
+        h.update(f"{rel}:{out[rel]}\n".encode())
+    out["*"] = h.hexdigest()
+    return out
 
 
 # --------------------------------------------------------------------------------------------------- steps
@@ -100,7 +116,7 @@ def jobs(scenes: dict) -> dict:
     for side in ("Left", "Right"):
         st.append(hide(f"hide_{side}", eyewire=f"Eyewire_{side}", under=f"Brow_{side}",
                        hidden_x_range_mm=FT_RANGES[side]))
-    st.append(arrays("amid", "ft", objs))
+    st += [arrays("amid", "ft", objs), export("mid", "ft")]
     for side in ("Left", "Right"):
         st.append(ns(f"ns_mid_{side}", lens=f"Lens_{side}", frame_parts=ft_parts(side), frame_type="browline"))
     for side in ("Left", "Right"):
@@ -147,9 +163,11 @@ def jobs(scenes: dict) -> dict:
               ns("ns_before", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
               seat("seat1", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
               arrays("a1", sc, [L]), x("digest1", "W.digest_all()"), check("check_after"), export("after", sc)]
-        if sc == "nylor":
-            st.append(x("cord_overlap", "W.bool_overlap('Cord', 'Lens_L')"))
         J[sc] = (scenes[sc], st)
+    # review control (proof review round 2): the stage-proof cord, off the §5 groove, must be reported
+    J["nylor_outline"] = (scenes["nylor_outline"], [
+        x("digest0", "W.digest_all()"), seat("seat1", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
+        x("digest1", "W.digest_all()"), check("check_after"), export("after", "nylor_outline")])
     J["nylor_thin"] = (scenes["nylor_thin"], [
         x("digest0", "W.digest_all()"), seat("seat1", lens=L, frame_type="semi_rimless", lower_edge="nylor"),
         x("digest1", "W.digest_all()")])
@@ -207,7 +225,7 @@ def run_case(case: str, src: Path, steps: list) -> dict:
     t0 = time.time()
     proc = blender.run(copy, RUN, [job, out], timeout_s=900)
     meta = {"case": case, "source": str(src), "copy": str(copy), "seconds": round(time.time() - t0, 1),
-            "returncode": proc.returncode}
+            "returncode": proc.returncode, "tools_sha256": TOOLS_AT_START.get("*")}
     if not out.exists():
         meta["error"] = "no output"
         meta["stderr"] = proc.stderr[-3000:]
@@ -216,7 +234,12 @@ def run_case(case: str, src: Path, steps: list) -> dict:
     return meta
 
 
+TOOLS_AT_START: dict = {}
+
+
 def run(cases=None, workers: int = 6) -> dict:
+    TOOLS_AT_START.clear()
+    TOOLS_AT_START.update(tool_hashes())
     for d in ("copies", "jobs", "outs", "npz", "glb"):
         (OUT / d).mkdir(parents=True, exist_ok=True)
     log: list = []
@@ -235,9 +258,13 @@ def run(cases=None, workers: int = 6) -> dict:
         prev = srcs.get(k, {})
         srcs[k] = {"path": str(SOURCES[k]), "sha256_before": prev.get("sha256_before", src_sha_before[k]),
                    "sha256_after": src_sha_after.get(k)}
-    state = {"sources": srcs, "build": old.get("build", []) + log,
-             "cases": dict(old.get("cases", {}), **{m["case"]: m for m in metas}),
-             "fixture_sha256": {k: sha(p) for k, p in scenes.items()}}
+    if tool_hashes() != TOOLS_AT_START:
+        raise RuntimeError("a tool source changed while the proof ran: run it again")
+    cases_all = dict(old.get("cases", {}), **{m["case"]: m for m in metas})
+    state = {"sources": srcs, "build": old.get("build", []) + log, "cases": cases_all,
+             "fixture_sha256": {k: sha(p) for k, p in scenes.items()},
+             "tools_sha256": dict(TOOLS_AT_START),
+             "tools_consistent": len({m.get("tools_sha256") for m in cases_all.values()}) == 1}
     path.write_text(json.dumps(state, indent=1), encoding="utf-8")
     return state
 

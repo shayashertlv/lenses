@@ -58,10 +58,43 @@ def export_copy(blend: str | Path, out_glb: str | Path, timeout_s: float = 300.0
         return json.loads(receipt_path.read_text(encoding="utf-8"))
 
 
-def export_and_validate(blend: str | Path, out_glb: str | Path, timeout_s: float = 300.0) -> dict:
-    """Export `blend`, then run validate_spec on the result (PLAN WP3: the validator runs on every export and its
-    report goes to Astra). Returns {"export": receipt, "spec": report-or-None}. validate_spec never raises."""
+def export_and_validate(blend: str | Path, out_glb: str | Path, timeout_s: float = 300.0, *,
+                        seating: dict | None = None) -> dict:
+    """Export `blend`, then run validate_spec and the WP4 seating check on the result (PLAN WP3: the validator runs
+    on every export and its report goes to Astra; WP4_DESIGN §8: seating is a separate section, PLAN §2 stays the
+    only spec). Returns {"export": receipt, "spec": report-or-None, "seating": report-or-None}. Neither raises.
+
+    `seating`: keyword arguments for seat_check.check_glb (frame_type, lower_edge, hidden_x_range_mm). The seating
+    check passes only a DECLARED frame type: the exporter copies each object's `g3d_seat` and
+    `g3d_hidden_x_ranges_mm` (written by g3d.seat_lens / g3d.hide_eyewire) into its node extras, so a seated scene
+    declares itself; a lens never seated is graded on the inferred type provisionally (ok false) unless the caller
+    passes the frame type here. The extras win over these arguments for frame_type (seat_check's order). Unknown
+    keys in `seating` are not passed on: the seating report then says ok false with the error (review fix round 2:
+    a misspelt key raised TypeError out of this function)."""
+    from .seat_check import check_glb
     from .spec import validate_spec
     receipt = export_copy(blend, out_glb, timeout_s)
-    spec = validate_spec(out_glb) if receipt.get("status") == "exported" else None
-    return {"export": receipt, "spec": spec}
+    exported = receipt.get("status") == "exported"
+    spec = validate_spec(out_glb) if exported else None
+    seat = _seating(check_glb, out_glb, seating) if exported else None
+    return {"export": receipt, "spec": spec, "seating": seat}
+
+
+SEATING_KEYS = ("frame_type", "lower_edge", "hidden_x_range_mm")
+
+
+def _seating(check_glb, out_glb, seating) -> dict:
+    """seat_check.check_glb with the caller's keyword arguments, never raising."""
+    kw = dict(seating or {}) if isinstance(seating, dict) or seating is None else None
+    if kw is None:
+        return {"ok": False, "error": f"seating must be a dict of {SEATING_KEYS}, got {type(seating).__name__}",
+                "reasons": ["seating arguments unusable"], "lenses": []}
+    bad = sorted(set(kw) - set(SEATING_KEYS))
+    if bad:
+        err = f"unknown seating argument(s) {bad}; allowed: {list(SEATING_KEYS)}"
+        return {"ok": False, "error": err, "reasons": [err], "lenses": []}
+    try:
+        return check_glb(out_glb, **kw)
+    except Exception as exc:                                   # check_glb itself never raises; this is belt and braces
+        err = f"{type(exc).__name__}: {exc}"
+        return {"ok": False, "error": err, "reasons": [err], "lenses": []}

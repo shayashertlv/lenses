@@ -357,3 +357,408 @@ Oakley, INVU before/after: changes >2 grey levels only within 4 px of captured o
 
 A WP7 test asserts that this text names `g3d.seat_lens`, `g3d.hide_eyewire`, `check_lens_seating` and `photo_x_range`,
 and that all four exist.
+
+## Implementation notes (stage "core", 2026-10-05; review fix rounds 1 and 2)
+
+Landed: `g3d/seat/{geom,intervals,stations,rules,report}.py`, `g3d_host/seat_check.py` (Open3DBackend, `check_glb`,
+CLI; called by `blender.export_and_validate` as a `seating` section), `tests/instruments/{seat_grid,seat_p0}.py`,
+`tests/fixtures/seat_fixtures.py`, `tests/test_seat_{geom,rules,backends,fixtures,real,check,instrument}.py`. Proof
+numbers: `glasses3d/data/wp4/p0_p1.json`. Deviations from the text above, each measured:
+1. **Classes.** LIPPED = c(0.5) ≥ −1.0 and the FRONT held (covered, or frame at depth 0.05 within 1.0 mm); BACKED =
+   front not covered and frame only at the back; NEAR = the rest within reach. Read literally, §3 makes INVU's
+   top-rail gap points (184; frame at every depth, neither face covered) BACKED/NEAR, i.e. visible by design and
+   never grown, against P5 and §2 'Shields'. The relaxation only widens the **semi_rimless required set** (all 549
+   INVU top points; Oakley's 173 rear-seat points stay BACKED). The full-rim thin rule (metal, browline outside its
+   ranges) still needs the front corner covered along +n or the station ENCLOSED, as §7 says: a V-ridge eyewire
+   with no front lip (cap −0.28 / 0.00 / +0.35 / 0.00 / −0.38 by depth) is 348/348 LIPPED and FAILS as metal.
+   FT and Prada have no uncovered required station, so their verdicts are unchanged.
+2. **Capture from the lens surface:** the lens is the backend's last part and each depth line's edge is where it
+   leaves the lens, not the corner-to-corner rung (a chamfer measures its 0.30, a bullnose its 0.80; R's `cap` did
+   the same).
+3. **Culling per closed component**, never per triangle (a triangle cull opens the mesh). INVU check 3.4 s.
+4. Bodies record χ instead of requiring 2 (a drilled lens is genus 1). Slivers below 1e-6 mm² join their cap: FT caps
+   are 3198 = every fan triangle (R's 3196 dropped 2).
+5. Exact coincidences in synthetic fixtures: cover lines start 0.10 + 1e-4 mm inside, class thresholds allow 1e-4 mm,
+   band columns sit at half-column offsets, interval merge tolerance 1e-4 mm.
+6. **Band candidates by membership, not innermost** (review round 2). Held parts = innermost mid-depth owner at
+   ≥60% of the owned stations OUTSIDE the hidden ranges (§6 step 1). After the lift the brow is innermost inside
+   them: on q001 the eyewire's share over all stations would fall from 0.94 to 0.61, and a crude 1.0 mm in-memory
+   lift gives 0.626, with the eyewire innermost at 5 of 117 in-range stations. A station is a candidate when a held
+   part has material on the mid-depth line within the §6 window [−1.5, 4] mm of the edge, and another frame part in
+   the window reaches farther out (by >1e-4 mm), whichever of the two starts first. The brow is never held, so FT's
+   brow-under-saddle corner stays out. Band columns run −2…+4 mm (the instrument's u range).
+   FT input: Eyewire under Brow only, 144 stations per lens (117 in the P2 ranges, all graded). Front p50 0.60, max
+   0.90 mm, >0.05 at 70%; back p50 0.775; area outside p50 0.90 mm². The designers' `ft_eyewire_hidden.py` is
+   ported (`seat_grid.eyewire_band`): 49 upper stations per lens, front band at 75.5%, 0.60 median / 0.78 max, back
+   0.80 median (their numbers). At those frames all 49 are core candidates and agree within 0.025 / 0.02 (L) and
+   0.03 / 0.03 mm (R), front / back. Round 1's innermost rule skipped 11 of them (x 11.6–19.5).
+   The crude lift: 117/117 graded (front 0.175, back 0.375 mm left by its shear). The review's probe (brow innermost,
+   eyewire 0.2 mm proud of its back face) now FAILS: back 0.70 mm, area 0.14 mm², the instrument's numbers.
+7. **Components.** Host frame parts = closed components of `partRole` frame nodes (all non-lens nodes when a file
+   has no roles); the 0.3 mm thickness is for LENS bodies only. A frame component is excluded only as a marking:
+   closed, 2V/A < 0.05 mm (`MARKING_MAX_MM`; markings measured 0.002–0.028, thinnest real frame solids 0.12–0.19)
+   and lying on a lens; the nylor cord (0.29) and a 0.55 mm wire (0.27) are frame parts. On the real files this adds
+   FT's T-returns, T-verticals and pad stalks and Oakley's pad grips and icon seats as solids, with no class or verdict
+   change. A lens-node component that is neither a body nor a marking on one fails the file (`E_OPEN`, `E_THIN`;
+   `E_EMPTY` for a lens node with nothing usable).
+   Review round 2 adds three failures, all naming the node:
+   - An open frame component within 6 mm of a rim box fails the file (`E_OPEN_PART`, with its boundary-edge count),
+     and that lens is not graded. §8 only lists open parts as 'excluded'. Dropping one turned the stations of a
+     0.10 mm channel with uncapped ends into EXPOSED (VISIBLE_BY_DESIGN), so a semi_rimless lens PASSED on a clip.
+   - A skipped lens primitive fails the file: `E_UNREADABLE`, or `E_EMPTY` when its node has no other lens
+     geometry. Before, a Draco or LINES Lens_R vanished and the file passed on Lens_L.
+   - An undecoded frame surface fails the file (`E_UNREADABLE_PART`): compressed or broken, triangle mode, and
+     within 6 mm of a rim by its POSITION min/max box, or of unknown position. Frame points/lines only warn.
+   None of the four real GLBs has any of these, so no real verdict changes.
+8. **No vacuous pass.** A non-rimless type with 0 required stations fails. Inference needs an ENCLOSED/LIPPED station
+   (none → frame type unknown, not graded, FAIL: a lens with no frame, or pushed 5–6.7 mm out of its ring). An
+   inferred type is graded provisionally (`graded_pass`) but `pass` and `ok` need a declared type (`g3d_seat`, or
+   the argument), so until the exporter allowlist lands an export's seating section says ok = false with "frame
+   type not declared" unless the caller passes `export_and_validate(..., seating={"frame_type": ...})`.
+   UNMEASURED stations count as required on semi_rimless (§8's 1% limit applies).
+9. Report: sector values are summarised per rule (browline: "in_ranges" min over depths vs "outside_ranges"
+   mid-depth); a station row's `node` is the owning rim vertex as a body-vertex id (`Frames.loop` holds the oriented
+   loop; `Frames.node` indexes it, not `body.fl`).
+10. Not computed yet: crystal overlap and the stale-cutter flag (null with a note on a translucent capturing part).
+
+**P0** (at the instrument's stations; share of stations within 0.075 mm). *Graded* (binding: the capture check_glb
+grades vs the instrument's occupancy-only §3 measurement, run boundaries bisected to 5e-5 mm): FT L/R 100%, Prada
+L/R 100%, INVU 100%, Oakley 99.74% (1 station: a 0.021 mm latch-housing sliver between grid samples); |Δ| p99
+≤ 1e-4 mm. *Designers' definition* (core intervals converted to the port's own capture, as R compared): FT L 99.28%,
+FT R 100%, Prada 100%, Oakley 99.74%, INVU 100%, p95 0.044–0.048 mm. Loops 137.983 / 143.615 / 383.465 / 458.062 mm;
+caps 3198 / 11005 / 4288 / 28224; riders: Prada etch, OAKLEY, PRIZM, INVU print. **P1** host: numpy vs open3d
+< 1e-4 mm on all four GLBs (max 9.8e-5), within the 1e-3 test bound on every fixture; classes, owners and band
+candidates identical, 0 re-casts; two check runs byte-identical. Before seating (declared types): Prada 94/355 failing nodes per lens, INVU 268/684, Oakley PASS,
+FT browline with the P2 ranges 31/32 failing nodes plus the graded band (front max 0.80 mm).
+
+**Open, owner decision: two capture definitions.** The designers' instrument counts frame material lying INSIDE the
+lens body without reaching its edge as capture (first material from u = −4 mm); §3 (and R's graded `cap`) counts
+only material containing the edge, else the gap to the next. Core-§3 vs the port's own definition: FT L 99.28%
+(1 station), FT R and Prada 100%, Oakley 70.31% (114 of 384 stations; of 122 depth values 111 are such detached
+material, 115 at depths 0.75/0.95, 1 at mid-depth), INVU 98.47% (7, all detached, depths 0.05/0.25). The §3
+reading also jumps at knife edges: 13 Oakley back-depth rows have the channel ending 0.004–0.038 mm short of the
+lens edge, read as gaps of 0.54–1.14 mm to the brow (the port reads 0.60–0.90 captured). Today's verdicts are
+unaffected (Oakley and INVU are graded by mid-depth thin rules); deep-rule verdicts (acetate, browline in ranges)
+on interpenetrating frames would differ.
+
+## Implementation notes (stage "tools", 2026-10-05)
+
+Landed: `g3d/seat/{plan,deform,profile,check}.py` (check.py = the §8 check over nodes, moved out of
+`g3d_host/seat_check.py`, which now reads the GLB and delegates, so Blender runs the identical grading),
+`intervals.Stacked`, `stations.band_widths` (extracted from `buried_band`), `g3d/seat_bpy.py` (BVHBackend, write-back,
+normals, sharp edges, bmesh re-wall, EXACT Boolean + cutters, backups; the five tools), lazy exports in
+`g3d/__init__.py`, `g3d/cli.py` `seat` / `hide-eyewire` / `check-seating` / `run` (`--save-copy` to a new path only,
+`--export`), the exporter allowlist (`SEAT_EXTRAS`), tests `test_seat_tools.py` (host, 20), `test_seat_blender.py`
+(52 + 1 strict xfail), `test_export_seat_extras.py` (2), `tests/blender/{seat_build,seat_run,seat_extras_export}.py`,
+fixtures `browline_scene` and `notched_outline`. Numbers: `glasses3d/data/wp4/p1_blender.json`.
+
+**P1, Blender half (passed).** BVH vs numpy and open3d at Blender's own frames: max |difference| 8.4e-5 mm over 13
+fixture lenses (12 scenes) and INVU (1494 points); classes, owners and re-casts identical. Blender check on the scene
+vs host check on the GLB the WP3 exporter writes from it: 0 verdict differences at every station, captures equal to
+the reports' 1e-4 mm rounding, on the 12 fixture scenes, FT / Prada / Oakley / INVU and after seating (metal, the
+transformed pair, the browline fixture, FT P2). A second seat_lens call moves 0 vertices and returns already_seated
+(metal, both pair lenses, custom normals, browline, INVU); the tool also runs that second call itself after every
+write and rolls back otherwise.
+
+Deviations from the text above, each measured:
+1. **BVHBackend:** one BVHTree over every part with a triangle -> part table; a (line, part) with an odd count is
+   recomputed exactly (float64 Moller-Trumbore, the numpy test). BVHTree is not watertight (Oakley: 1 odd line of
+   6216, room off by 6.7e-3 mm after the 0.05 deg re-cast); its `epsilon` = 1e-6 made 379 Oakley / 1209 INVU lines odd.
+2. **Clamp reasons.** Two not in §4: NO_FRAME (a required depth has no frame within REACH) and a node that owns a
+   VISIBLE_BY_DESIGN or UNMEASURED point never grows (reported as UNHIDEABLE: it would extend an exposed edge). A
+   blocked point is named by the first clamp in §4's order that alone blocks it (an aperture 2.5 mm too large is
+   NEEDS_GROWTH although its grown corner is also unhideable). Blocked points add no growth; a node never grows more
+   than the smallest limit of any point it owns. OTHER_PART keeps 0.10 mm (the hidden margin; §7 gives none).
+3. **CONCAVE** radius from the circle through the loop points 0.3 mm (§3's chord) before and after the node; 1.0 mm
+   read a 0.54 mm notch radius as 0.88.
+4. **Rounded rims:** on a bullnose the first facet (11.25 deg) joins the cap at theta = 20, so the rim loop is one ring
+   out; growing the loop alone tilted that facet and a fresh split moved the loop (second call p0 0.29, growth again).
+   Cap vertices within the 0.8 mm normal inset whose faces deviate from the station normal by more than theta/2 move
+   with their node; quadric fits use cap vertices outside the band. Sphere caps deviate ~1 deg: nothing changes on
+   FT, Prada, Oakley, INVU or the other fixtures.
+5. **Correction pass:** residual = the node's planned target - v at still-failing points of moved nodes (<= 2
+   passes); the last re-measure is reused for the final, fresh plan (what a second call computes).
+6. **Normals:** moved cap corners rotate with the quadric normal; moved wall corners take the face normal; Blender
+   then marks the split rim edges sharp itself (custom-normals fixture: unmoved corners within 0.0052 deg).
+7. **hide_eyewire:** (a) lens nodes take the ring lifts interpolated linearly at their arc parameter (the eyewire
+   between rigid rings is that blend); (b) rings move along the lens surface's own path, L u + dn(L) n with dn from the
+   §4 step 6 cap quadrics, and lambda* is solved along that path (fixed point; L u alone shifted q001's
+   lens-in-eyewire capture by -0.009 mm everywhere); (c) that capture is compared along the pre-move u (on q001's
+   temporal ramp end the post-move frame rotates ~20 deg: -0.022 mm read, 0.006 along the move); (d) a ring short of
+   the 0.10 mm margin by <= 0.005 mm (the verdict tolerance) is buried: a second call re-tests along the moved lens's
+   frames and found 0.0005-0.0014 mm.
+8. **Writes:** a per-call rollback copy plus persistent backups of two kinds (`| g3d pre-seat`, `| g3d pre-hide`), so
+   unseat_lens after hide_eyewire keeps the lift; unhide_eyewire also drops the lens's pre-seat backup and g3d_seat.
+   g3d_seat `sharpened` is true only when the tool marked the rim (an already split Oakley rim, 47-92 deg, would fail
+   the check's p5 >= 60).
+9. **Profiles** need one quad wall ring with a rung for every rim vertex, no duplicate rim vertices and no custom
+   normals (else E_PROFILE_WALL / E_PROFILE_NORMALS); a profiled lens refuses a second call (E_ALREADY_PROFILED).
+   `uv='extrapolate'` is refused (not built); UV stretch is not reported.
+
+Proof-stage previews (the binding P2-P5 grading by the grid instrument is the next stage):
+- **P2 FT1119 q001 in Blender:** hide_eyewire lift 1.0286 mm, section area +-0.8%, slope 0.444, band 0, second call
+  already_hidden; browline seat 58 lens vertices per side, top 103-104 points all ENCLOSED, min-over-depth p5
+  0.678 / 0.696, mid-depth p50 0.808; GLB rim split p5 78.1, p95 101.9 deg; both checks PASS; validate_spec passes.
+- **P5:** Oakley 0 vertices moved, lens digest identical, check PASS. INVU seated: 268 nodes / 536 vertices, max
+  0.883 mm, all 699 required points PASS, second call 0; 7.4 s alone (20.8 s in the 6-way parallel test, budget 5 s).
+- **P4 fixtures (host):** acetate matrix min-over-depth p5 0.7945-0.7997 on all 8 constructions; metal former
+  failures 0.372-0.449 at their nodes (median 0.449), 130 vertices moved; crystal V-bevel h 0.4041, EXACT 0.25-0.35 s, removed = cutter ^ frame
+  (136.084 mm3), lens ^ frame 0.0, gap 0.028-0.029, frame closed with chi unchanged; nylor groove with the existing
+  cord, a created cord overlapping the lens by 0.0053 mm3; t 1.4 E_THICKNESS.
+
+Open, for the owner/designers (not tuned):
+- **A. Prada (P3) is refused** by §4 step 11's 30 deg face-rotation limit: 3 wall slivers 0.044-0.046 mm wide rotate
+  54.9 / 54.9 / 56.5 deg (area ratio 1.72-1.80, inside 0.5-2.5) because node growth (the largest need of the points a
+  node owns) changes by 0.064 mm across a 0.046 mm rim segment. The strict per-node taper and the rotation limit cannot
+  both hold on Prada's 22 sub-0.05 mm segments. Options: exempt wall faces from the rotation limit, grade the
+  rotation on caps only, or let growth taper across sliver segments.
+- **B. The §8 check fails a grooved crystal lens** (352 of 352 points LIPPED, FAIL): the 0.03 mm groove clearance
+  reads as a 0.028 mm gap at every depth under §3's capture definition (the open "two capture definitions"
+  decision). The check still does not compute the crystal overlap.
+- **C. P4 narrow eyewire** (0.5 mm web): room 0.40 - 0.20 leaves exactly pass (0.30), so 171 of the 175 failing
+  points are clamped to pass, not blocked (1 EXITS_MATERIAL, 3 UNHIDEABLE); the planned growth then rotates a wall
+  face 30.1 deg and the call is refused (E_POSTCHECK). §10 expects every top station EXITS_MATERIAL and 0 moved.
+- **D. A 0.54 mm notch:** CONCAVE blocks the notch points, but full growth beside them would fold the rim; the call is
+  refused (E_POSTCHECK, message names the blocked points), never written. Any blocked point inside a failing run
+  makes such a step.
+- **E. Speed:** INVU seat 7.4 s, Oakley check 6.8 s (buried-band columns over 23 parts).
+
+## Implementation notes (stage "tools", review fix round 1, 2026-10-05)
+
+Numbers: Blender suite `tests/test_seat_blender.py` 57 passed + the Prada strict xfail (78 s); host suite 494 passed,
+1 skipped, 2 xfailed. Scratch numbers and the q001 / INVU copies: `glasses3d/data/wp4/fix1/`.
+1. **hide_eyewire section area** is now the exact plane section of the eyewire mesh (shoelace over the triangle
+   cuts, window u -2..4 mm, |n| <= 6 mm) in the pre-move station planes carried along by the move
+   (`deform.carried_frames`). The old figure had two artifacts: the post-move frames turn up to ~24 deg on a ramp, and
+   column sampling (0.025 mm) moves a whole 1.8 mm column across a wall, 0.045 mm2 = 4% of q001's 1.06 mm2. The
+   review's seven q001 ranges refused at 2.9-4.1% now read 0.02-0.04%; **P2: 0.15% (L) / 0.14% (R)** (the 0.8% in
+   the stage notes was the artifact).
+2. **Band at every station.** The post-check grades every selected point (carried frames) AND the check's graded
+   set on the moved scene (in-range band candidates, `stations.buried_band(..., only=)`), front/back 0 and area
+   < 0.005 mm2. Rings lifted: those nearest a selected station plus every ring holding an end of an eyewire edge
+   that spans one (`plan._covering_rings`; a blocked one names the range end). q001 Right [11.6, 30.0]: before,
+   'lifted' with 2 stations (x 29.38, 29.82) at back 0.375 / front 0.150 mm, area 0.263 mm2; now lifted with 0 at
+   all 51 graded stations, browline seat 18 vertices, Blender check PASS. Without the spanning rings the fixture's
+   own range left 0.05 mm at x -45.80 (the check's limit, so it passed); the post-check now refuses that.
+3. **Lens follow correction (§6 step 5).** On steep ramps the rings move along their own u, so the eyewire face at a
+   node moved a few um off the interpolated ring lift: q001 [-50, -36] read +0.0221 mm (> 0.02) at the ramp foot
+   x -51.8 and was refused. One linear correction (g - dc, measured in the carried frames) brings every tried range
+   to <= 0.0009 mm. All ten tried q001 ranges (the review's seven, P2 L/R, [11.6, 30.0]) now lift, a second call is
+   already_hidden, browline seating is seated and its second call moves 0, and the check passes (host, open3d, on
+   the q001 arrays; [11.6, 30.0], [-56.2, -40] and P2 also in Blender).
+   **P2 in Blender:** lift 1.0286 mm, slope 0.445, band 0 at 115 graded stations, 444 eyewire + 37 lens nodes (74
+   vertices) per side (was 432 / 36), nothing below the centre; seat 58 vertices per side; both checks PASS; GLB rim
+   split front p5 78.1, back p95 101.9 deg.
+4. **unhide_eyewire** restores the eyewire and the lens recorded in its `g3d_backups.held_lens` (or `lens=`, which
+   must be partRole 'lens') and nothing else; hide_eyewire refuses a lens that is not partRole 'lens' or differs
+   from the recorded one. Report key `eyewire_restored` (the `eyewire` key keeps the name). Two-eyewire fixture
+   `browline_pair`: unhiding Eyewire_L leaves Eyewire_R / Lens_R geometry, g3d_seat, ranges and backups identical.
+5. **Declared ranges = union** of every call's (`rules.merge_ranges`, `ranges_effective` in the report); the
+   post-check grades the union.
+6. **Pass floor (owner decision open).** `capture_mm` that would put pass below the §3 lower bound is refused
+   (acetate needs >= 0.80, metal / browline / semi_rimless >= 0.45: capture_mm can only raise the bar), and the check
+   clamps an extras-supplied pass to that bound with a warning. A 0.15 mm gap lens declared {pass -0.20, target 0}
+   now FAILS. §4's "pass keeps the type's gap" and §8's "frame type from g3d_seat" disagree here; the owner should
+   say whether capture_mm may lower pass at all.
+7. **Profiled lenses** (V-bevel, groove): original vertices verified after the re-wall (stored = planned, unmoved
+   bit-identical), then the binding check runs; a failure returns `partial` + `W_CHECK_FAILS` and g3d_seat status
+   partial. The crystal fixture is now `partial` (352/352 FAIL, open item B); nylor stays seated (check PASS).
+8. **Speed (corrects "INVU 7.4 s alone" above):** the stage measured 20.8 s only in the 6-way parallel run; the
+   review measured 25.0 / 19.8 s standalone. 10.8 s of a 17.0 s profiled call was `geom.nearest_on_polyline` over
+   every lens vertex (`_rounded_zone`, `station_frames`). With a grid-limited search (`max_dist`, bit-identical
+   results, verified on INVU frames / band and the fixtures) and the rounded-zone test restricted to faces near the
+   rim: **INVU writing call 10.0 s standalone** (11.3 s in the parallel suite; second call 4.1-4.8 s; dry run 10.1 s
+   as the first call). Still 2x the 5 s budget: station_frames ~1.2 s x 3 calls, measure ~0.8 s x 3, and the
+   in-tool second call 3.3 s.
+9. `g3d.__getattr__` turns the host ImportError into AttributeError (hasattr is False); `g3d.SEAT_TOOLS` lists the
+   five names without bpy. `check_lens_seating` takes a single name for lenses / frame_parts, and its error dict
+   carries `reasons`.
+
+## Implementation notes (stage "tools", review fix round 2, 2026-10-06)
+
+Numbers: Blender suite `tests/test_seat_blender.py` 64 passed + the Prada strict xfail (160 s, 6 Blender processes);
+new host tests `tests/test_seat_review_fixes2.py` (9). Scratch outputs: `glasses3d/data/wp4/pytest_r2/`.
+1. **Halfway points** (`stations.Frames.owners`, `plan.halfway_growth`). A segment split into an even number of
+   points has one exactly at w = 0.5; stage 1 gave it to the segment's START node, and a mirrored lens's oriented loop
+   runs the other way. Measured with that rule on FT q001 after the P2 hide (host, Blender's arrays): left vs mirrored
+   right up to 0.0542 mm (16 vertices > 1e-3, 6 > 0.01); the metal fixture seated while its mirror was refused
+   (35.5 deg face rotation at the nasal run end). Now a halfway point belongs to both ends: its limits cap both
+   (node caps, the point's cap is the tighter), it holds neither (a visible-by-design or UNMEASURED point holds the
+   node it is NEARER to), and its growth is taken in full by an end with no growth of its own, else met by the mean
+   of the two ends (both raised by any shortfall); also in the correction pass and the PASS -> FAIL margins. Rejected,
+   measured on the fixtures: full growth to both ends everywhere (the metal -0.30 / 0.10 junction node read 0.611,
+   beyond §10 P4's 0.44-0.47), the mean alone (metal refused on both sides, 37.0 deg), holding both ends (the nylor
+   fixture's channel ends stop short: TRANSITION 6/161, check FAIL). Results: **P2 in Blender, left = mirrored right
+   within 1.7e-5 mm** (the input pair is exact); metal 132 vertices on both sides (130 before), former failures
+   0.370-0.455; nylor 110 (112), check PASS; INVU 538 vertices / 269 nodes, max 0.885 mm (536 / 0.883), check PASS;
+   FT 58 per side, both checks PASS, GLB rim split front p5 78.1; Oakley 0 moved; acetate matrix p5 0.7945-0.7997.
+2. **The tool's status carries the check's verdict** (`deform.state_check`): rules.check_verdict over the fresh plan on
+   the result (FAIL, BLOCKED, UNMEASURED > 1%, TRANSITION > 3%, full-rim EXPOSED/BACKED). A failure makes seat_arrays
+   `partial` with W_CHECK_FAILS and the check's reasons (`bodies[i].check`). A captured type with no required station
+   is refused **E_NOT_HELD** before planning (semi_rimless with no part, or the channel 6 mm away; nylor_nocord with
+   frame_parts=[] in Blender, nothing written). New fixture `short_channel` (channel over the top 20%): every FAIL
+   grows but TRANSITION 4/67 > 3%, so the tool says partial and the Blender and host checks fail with that reason.
+   A profiled lens keeps the plan's status (`plan_status`) until the binding check after the profile.
+3. **Custom normals on a sharpened rim.** A sharp edge does not re-derive custom normals; the moved cap corners kept
+   the rotated smooth rim normal (GLB rim split p5 38.5). With custom normals the order is now move -> sharp edges ->
+   normals, and the corners of a rim being sharpened take the cap's own normal (corner-angle weighted cap faces at
+   that vertex) and the wall's face normal; unmoved corners off that rim stay within 0.1 deg (0.0052). Custom-normals
+   fixture: rim split front p5 78.45 deg, Blender and host checks PASS. g3d_seat `sharpened` is written only when the
+   stored rim's split, measured as the check does (`rim_split_now`), has front p5 >= 60 deg on every body; else
+   W_RIM_SPLIT_LOW (the edges stay marked).
+4. **Backups keep their order.** g3d_backups records `seq` (the order of the seat / hide backups), the lens's
+   `hidden_by` and the declared ranges before the first lift (`hide_ranges_before`). unhide_eyewire refuses (E_ARGS,
+   nothing changed) a `lens=` other than the recorded held lens, any `lens=` when the eyewire has no hide backup, and
+   a lens another eyewire moved; it touches the lens only when the eyewire's backup is restored, and puts the ranges
+   back. A seat done after the hide is undone with it (as before); one done BEFORE the hide is kept (pre-seat backup
+   and g3d_seat stay), and unseat_lens refuses **E_ORDER** until the eyewire is unhidden (that pre-seat mesh predates
+   the lift). Browline fixture: seat (metal, capture 0.7, 256 vertices) -> hide -> unseat refused -> unhide (seat
+   kept, meshes = seated) -> unseat (original meshes exact, no g3d property or backup left).
+5. Minor: the CLI parses its options inside the receipt (a missing value, an unknown option, an extra argument ->
+   refused receipt E_ARGS; no receipt path -> usage on stderr); export_and_validate reports unknown `seating` keys in
+   the seating section instead of raising; `g3d.__all__ = ["SEAT_TOOLS"]` (the host star import works).
+6. Whole suite: 522 passed, 1 skipped, 3 xfailed without test_seat_blender.py (23.6 min, most of it the photoprint
+   and camera-fit tests), plus test_seat_blender.py 64 passed + 1 xfailed. INVU writing seat_lens 6.5 s standalone
+   (second call 2.7 s; 19.1 s inside the parallel suite while another pytest run held the CPU); still above the 5 s
+   budget.
+
+## Implementation notes (stage "proof", 2026-10-06): §10 P2-P5
+
+Ran P2, P3, P4 and P5 as written: 26 headless Blender 5.2 runs on copies (`glasses3d/data/wp4/proof/`, runner
+`tests/proofs/wp4_proof.py`, Blender helpers `tests/proofs/wp4_proof_bpy.py`), the WP3 exporter on the input AND the
+result of every case, graded by `tests/proofs/wp4_proof_grade.py` into `glasses3d/data/wp4/proof.json` (224
+records: each criterion by the core (tool report, Blender check, host check_glb on the GLB) and by the instrument on
+the GLB, or on raw Blender arrays / digests). The four source .blend sha256 are unchanged. No tool file was changed.
+**Stop rule not triggered:** P2 passes all 67 records; Oakley 0 vertices moved; every seat call's moved set equals
+the band of FAIL nodes recomputed from its before-state (q001 58/58 per side, metal 132, the 8 acetate constructions,
+INVU 538/538, Prada 0). Verdicts: **P2 PASS; P3 FAIL; P4 FAIL (10 records); P5 FAIL (4 records).** Re-checked from the
+produced files by `tests/test_seat_real.py` (a fresh grading equals the record); instrument unit tests
+`tests/test_seat_proof_metrics.py`.
+
+Findings (measured, not tuned):
+1. **P3 Prada refused** (open item A): E_POSTCHECK, a 0.046 mm wall sliver rotates 56.7 deg (limit 30). Nothing is
+   written, so 'every point >= 0.60' reads 0.363 (core) / 0.367 (instrument) and the rim split stays 0 deg. Before:
+   95 of 355 nodes fail per lens; one sits at |x| 14.05 (M's band says 10-14).
+2. **Self-intersection is not refused:** a lens whose front cap is pushed 0.8 mm through its back cap (closed,
+   manifold, consistently wound; `seat_fixtures.self_intersecting`) is seated. No self-intersection test exists in
+   the core; §10 P4 lists it as a refusal.
+3. **Correction pass vs §10 targets:** §4 step 7 corrects only points still below PASS, so grown points stop
+   between pass and target. INVU: 187 of 261 inside-run former failures read below 0.45 (p50 0.4496, min 0.4249;
+   38 below 0.445); metal: one node at the -0.30 / 0.10 junction reads 0.426 (< 0.44). Both checks pass.
+4. **Narrow eyewire** (open item C): the 0.5 mm web clamps the top to exactly pass (EXITS_MATERIAL limit 0.20), so
+   the points stay FAIL, not BLOCKED(EXITS_MATERIAL); the call is refused (31.5 deg face rotation), 0 moved.
+5. **Nylor channel ends:** inside the run the flats read >= 0.449, but the channel-end points (TRANSITION, never
+   grown) read 0.205, and the run-end ramp 0.35-0.45: 'top >= 0.44 on the flats' fails as written.
+6. **Existing nylor cord overlaps the grooved lens 0.74 mm3** (Blender Boolean; instrument 0.77): the fixture cord is
+   centred 0.30 mm inside the edge along the horizontal outline normal, the groove is cut along the lens-surface u
+   (tilted ~10 deg on the R120 cap), so the cord pokes out of the notch along the whole exposed arc. An existing cord
+   is never moved (§5). A created cord: 0.0052 mm3, diameter 0.599-0.600, ends 0.97 / 0.97 mm in the channel.
+7. **Grown front edge vs the true cap:** sphere, toric, flat, solidified, flipped <= 0.0002 mm; coarse 32-segment
+   0.0174 mm (the quadric over few points); chamfer +0.031 and bullnose +0.0135 mm change (their front loops are off
+   the analytic cap by construction).
+8. Oakley top (descriptive in §10): 6 ENCLOSED + 323 LIPPED, mid-depth p95 0.833 (core) / 0.835 (instrument) > 0.80.
+
+Instrument additions (`tests/instruments/seat_proof_metrics.py`, no code shared with g3d/seat): the port's u-flip
+test moved from mid-depth to 20% of the depth (a 0.6 mm groove left Pm - 0.4 u outside the lens and flipped u at 63 of
+140 stations); back corners by the station plane where the port finds no one-triangle rung (re-walled, chamfered,
+bullnose walls); graded capture from refined exact rows (the port's 9-level grid reads a 0.80 capture as 0.75 and is
+reported only); the eyewire section perpendicular to its own axis; the groove cutter rebuilt by the §5 definition with
+the outline's Pappus factor (removed 136.084 vs 136.078 mm3). Readings of §10 text: '~N' as +-10%; 'outside the
+ranges' = below the lens centre or > 3 mm (the ramp) beyond the x-range (an unmoved station inside the ramp re-orients
+0.41 deg, 0.00016 mm, because its normal averages moved cap faces).
+
+## Implementation notes (stage "proof", review fix round 1, 2026-10-06)
+
+Re-ran P2-P5 (26 headless Blender runs on copies, `glasses3d/data/wp4/proof/`; the four source sha256 unchanged) and
+re-graded: `proof.json` 251 records. **P2 PASS (71/71); P3 FAIL (10 fail, 10 not applicable); P4 FAIL (8 of 105);
+P5 FAIL (4, 1 not applicable). Stop rule not triggered.** Correction to the stage note above: its "P4 FAIL (10
+records)" counted the crystal case as passing; its binding verdict is now a record (`P4.crystal.check`) and FAILS.
+1. **Self-intersection refusal** (§10 P4): `geom.self_intersections` (every edge against the triangles sharing
+   neither end vertex; closed float64 segment-triangle test; uniform grid, each pair tested once in the cell of its
+   boxes' overlap corner) runs in `stations.build_body`, so seat_lens refuses `E_SELF_INTERSECTING` before planning
+   and both checks fail the lens. The test is closed because the fixture's caps share their (x, y) grid and cross
+   only edge-on-edge (a strict test found 0 of the 204 crossings). Equal to an O(E x F) reference on the fixture;
+   0 crossings on FT x2, Prada x2, Oakley, INVU and every other fixture lens. Cost per body (host): 0.06 s (Oakley)
+   to 0.44 s (Prada, INVU); memoised on the exact arrays (an INVU seat call computes it twice, 0.84 s each in
+   Blender on a loaded machine). `P4.refusal.selfx`: refused, 512 edges, nothing written.
+2. **Groove acceptance** (`seat_bpy.groove_attempt`, used by the tool and the proof): closed / chi / components are
+   judged on the evaluated mesh's own connectivity, welding only split seams (`geom.weld_seams`). The closed control
+   cutter is now accepted with MANIFOLD and EXACT (removed 27.6229 = expected; an exact weld everywhere reads 4
+   non-manifold edges, chi 2); the open cutter is rejected (MANIFOLD removed 0 vs 1647.5 mm3 expected).
+3. **Nylor fixture cord** is built in the §3 station frame (`seat_fixtures.station_axes` / `cord_station`,
+   independent code, within 1.7e-6 deg of the core's frames): existing-cord overlap 0.0025 mm3 (Blender Boolean) /
+   0.0 (instrument), was 0.74 / 0.77 with the horizontal cord. The tool still never fits a groove to an existing
+   cord: a real cord off the §5 groove overlaps, as the old fixture did.
+4. **Bookkeeping:** run_state.json records the sha256 of the 20 tool sources (g3d/seat/*, seat_bpy, the exporter,
+   the Blender runners, the fixture builder) and a combined digest per case; test_seat_real skips "stale proof" when
+   any differs. A record with nothing to measure is `not_applicable` (pass null, not counted): the four P3 records
+   per refused lens, the instrument moved-node record where nothing moved. Every seat call also gets two moved-set
+   records independent of the planner's FAIL list: moved nodes are nodes of check-FAIL points (FT 29/29 per side,
+   metal 66, matrix 128 / 32, INVU 269), and each moved node's nearest instrument station on the before-GLB fails
+   or neighbours one that does (0 violations; FT graded on a new export after the lift).
+5. **P2 ramp reading (owner to confirm):** 'outside the ranges' excludes the 3 mm lift ramp beyond each x-range
+   end. Inside it, above the lens centre, the MOVED stations (x -57.23..-56.20 / 56.20..57.23) gain mid-depth
+   capture +0.145 (core) / +0.095 L, +0.127 R (instrument) and min-over-depth up to +0.888 / +0.844, +0.869 mm;
+   unmoved ramp stations change <= 0.0002 mm at mid-depth (instrument 0), but the core's min over depth drops by
+   up to 0.035 mm there (its back corner lies on back-loop segments whose vertices moved). Nasal and bottom: 0.
+
+Open, owner decisions (nothing tuned):
+- **A (P3 Prada)** unchanged: refused, wall slivers rotate 56.5 deg. Scratch measurement, not landed: with wall faces
+  exempt from the rotation limit the host core (open3d, delivery GLB) seats both lenses: 191 GLB vertices each,
+  max delta 0.4386 mm, every point >= 0.6038 after, caps rotate <= 0.27 deg, 3 wall faces 56.5 deg (>= 0.0037 mm2).
+- **Correction pass vs §10 inside-run targets** unchanged: INVU 187 of 261 inside-run former failures below 0.45
+  (p50 0.4496, min 0.4249; instrument 38.4% OK), metal one node 0.4259 (instrument 0.4417-0.4538, passes).
+- **B** (crystal check FAILS 352/352), **C** (narrow eyewire refused by a 31.5 deg rotation, 0 BLOCKED), **D**
+  (notch refused by E_POSTCHECK), nylor channel ends 0.205, matrix cap knife-edges (coarse 0.0174, chamfer +0.031,
+  bullnose +0.0135 mm), Oakley top p95 0.833: unchanged.
+- HEAD (852915c, another session) holds the WP4 proof scripts and instruments while the modules they import are
+  untracked: commit WP4 as one unit.
+- **Speed**, measured while another session ran 10 worker processes at 100% CPU (not a valid standalone number):
+  INVU writing seat 17.3 s (dry run 11.7, second call 7.1), Blender check 6.0 s; Oakley Blender check 9.8 s, 85% of
+  it in `buried_band`'s line intervals. INVU profile: station_frames 2.5 s x 3, measure_body 4.3 s x 3,
+  nearest_on_polyline 4.0 s over 11 calls. Budget 5 s still exceeded; re-measure on an idle machine before WP7.
+
+## Implementation notes (stage "proof", review fix round 2, 2026-10-06)
+
+Re-ran P2-P5 (27 headless Blender runs on copies: the 26 cases plus the review control `nylor_outline`; the four
+source sha256 unchanged) and re-graded: `proof.json` 253 records. **P2 PASS (71/71); P3 FAIL (20 pass, 10 fail,
+10 not applicable); P4 FAIL (98 of 107 pass, 9 fail); P5 FAIL (30 pass, 4 fail, 1 not applicable). Stop rule not
+triggered** (Oakley 0 moved; every moved set equals the band of FAIL nodes; P2 complete).
+1. **Cord-lens overlap is measured by the tool and the check (major).** An existing cord was never measured: the
+   stage-proof cord overlapped the grooved lens by 0.7393 mm3 and seat_lens said `seated`, the check passed.
+   - `seat_bpy._nylor_cord`: for an existing cord, every closed component holding the groove centre on the exposed
+     sector gets an EXACT Boolean with the grooved lens, on its own (a cord merged into the channel's object would
+     otherwise add the channel's buried edge): `cord_lens_overlap_mm3`, `cord_parts`. Above 0.01 mm3 (existing or
+     created cord) seat_lens returns `partial` with `W_CORD_OVERLAP`, g3d_seat status partial.
+   - `check.cord_overlap` (both checks, nylor lenses): frame parts holding the groove centre at the
+     VISIBLE_BY_DESIGN points, and vol(lens ^ part) in their station planes (`stations.part_overlap`: columns along
+     n every 0.01 mm of u over [-3, +1] mm from the mid-depth edge point, exact along n, Pappus factor, cast only
+     where a 0.1 mm probe finds the part). Reported per part; above 0.01 mm3 the lens FAILS (`rules.check_verdict`
+     `cord_overlap_mm3`; §8's PASS list names only the crystal overlap, so this is a reading of §5 'the check reports
+     cord-lens overlap' + §10 P4's 0.01, owner to confirm). The channel is left out on purpose: where it holds the
+     lens the edge is buried in it by design (§3 capture), 39.46 mm3 on the grown nylor fixture.
+   - Accuracy: analytic half-buried 12-gon torus within 0.02% (numpy and open3d); on the fixtures tool (Boolean) /
+     check / instrument: station cord 0.00245 / 0.00149 / 0.0, created cord 0.0052 / 0.00511 / 0.0055, stage-proof
+     cord 0.7393 / 0.7345 (exposed sector only) / 0.7734. Cost: nylor Blender check 1.1 s.
+   - The proof grades `P4.nylor(_nocord).cord_overlap` (core) from the tool's report and both checks (the proof's
+     own Boolean is gone); `P4.nylor_outline.cord_overlap_reported` (review control, not a §10 line): tool partial +
+     W_CORD_OVERLAP 0.7393, both checks fail the lens on it, instrument 0.7734 (within 10%). Tests:
+     `tests/test_seat_proof_fixes2.py` (host, 5), `test_nylor_existing_cord_off_the_groove_is_reported` (Blender).
+2. **Browline instrument verdict** (`wp4_proof_grade.instrument_failing`): the deep rule only where the station is
+   layered (two frame parts on its mid-depth row within the §6 window, the instrument's own occupancy test); the
+   loop bottom at the same x takes the metal rule. ft-mid per lens: 37 failing stations (was 98), 0 below the lens
+   centre (was 59); moved nodes 29 per side, 0 violations.
+3. **Notch:** `P4.refusal.notch` now FAILS: §10's 'notch CONCAVE' counts only a refusal from the CONCAVE clamp or the
+   gate; the fixture is refused by E_POSTCHECK (a 166.2 deg face fold, area ratio 0.138, around 4 CONCAVE-blocked
+   points whose neighbours kept full growth). Open item D.
+4. **Core records measure the result:** crystal bevel angle / h and the nylor grooves are measured on the exported
+   lens through the core's station frames, open3d backend and `lens_edge` (`core_profiles`): bevel 120.23-120.49 deg,
+   h 0.4033-0.4041 (352 stations); grooves width 0.593-0.600, depth 0.5975-0.6001, centre <= 0.0032 (350 stations).
+5. **Corrections to the round-1 notes:** P3 Prada's wall sliver rotates **56.7 deg** in the Blender proof (56.5 was
+   the host scratch measurement). P2 ramp, both ends: MOVED ramp stations, core mid-depth -0.0339 / -0.0351 to
+   +0.145, min-over-depth -0.0589 to +0.888 (L / R); the instrument on fixed station lines -0.0012 / -0.0005 to
+   +0.095 / +0.127 mid-depth and +0.0096 / +0.0152 to +0.844 / +0.869 over depth, so the core's negative side is its
+   frames re-built on the moved lens, not a loss of capture. Unmoved ramp stations: core mid-depth >= -0.0002,
+   min-over-depth >= -0.0352; instrument 0.
+6. Speed in the proof (6 Blender processes in parallel plus a pytest run; not standalone): INVU seat 13.4 s, Blender
+   check 4.3-4.6 s; Oakley check 6.6-6.8 s; FT seat 1.8 / 2.0 s.
