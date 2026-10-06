@@ -309,3 +309,16 @@ P6 (visual, arview junction captures of data/wp4/proof/glb/ft-before.glb vs ft-a
 pixels in the 3 mm band above the lens top 85-304 in 8/8 crops before -> 0 in 0/8 after; 0 gap columns; brow lowest part 24/24
 stations (was 4/24); lens top 0.72-0.80 mm inside the brow; white% 0-0.3 except the known far-side lens-highlight crop. Matches the
 prototype seated+rimsplit. Owner image: data/evidence/wp4_junction_before_after.png.
+
+## 2026-10-06: WP5 step 4 committed (10bf932); step 5 running
+
+Step 4: photo metal/glint masks (endpiece-back metal 6.9->1.5% / 8.7->7.5%; rivets 0%), block quilting fill (A4 cannot pass even for a
+real-print refill: 0.31-0.47 vs 0.15 limit; reported against the real-print baseline), gain field (region steps 3.81->2.54 dE00), mirrored
+seam fill (A5 passes). Blender side: g3d.print_uv (splits only quads whose triangles fall in different charts: 77/2306 brow, 22/2114
+temple quads; custom normals written back so shading changes <= 0.033 deg; remove_print_uv restores), attach_print/detach_print,
+exporter g3d_print_uv + TEXCOORD; A6, B5, validate_spec pass on a tool-test copy of q001.
+AR tool test (data/wp5/tooltest/owner_sheet.png, sent to the owner): better colour (hue ~20 deg like the photos vs Astra ~59) and temple
+spots from turned angles; NOT right straight-on/worn: frame lighter and flatter than the photos (darkest decile L* 18-20 vs 12-17; median
+24-31 vs 19-25: photo shading lit twice), brow fronts ~55% fill, streaks on the -x temple, light scratch marks on the endpieces.
+Step 5 (workflow g3d-wp5-step5): shading removal + AR brightness calibration to the photos, brow-front photo share >= 80%, isotropic fill,
+remove edge glints; then a new AR owner sheet. Default worker pool = cpu_count-2.
