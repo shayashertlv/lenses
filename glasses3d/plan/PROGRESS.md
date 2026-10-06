@@ -11,9 +11,9 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP1 | **done, $0 proof passed** (proof + closeout, independent image checks) | (WP1 closeout commit) |
 | WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
 | WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
-| WP4 | design done (plan/WP4_DESIGN.md, judged panel of 3); build running (workflow g3d-wp4-build: core+P0/P1, tools, proofs P2-P5); P6 visual after WP1 | - |
-| WP5 | owner chose to continue (judge by eye in AR); stage 1 (registration) built, STOP A fired (0% pixel-verified); step 3 host build running in single-source mode | (stage-1 checkpoint) |
-| WP6 | design done (plan/WP6_DESIGN.md, judged panel of 3); build queued until the WP4 build finishes (shared g3d/ files) | - |
+| WP4 | built (e5fdf37): P0/P1 pass, **P2 FT1119 71/71**, P5 Oakley 0 moved; open items A-G in workflow g3d-wp4-fix; P6 visual pending | e5fdf37 |
+| WP5 | step 3 host committed (7ac7c8f): single-source print reads as the real havana from new angles; defects + Blender attach next (step 4) | 7ac7c8f |
+| WP6 | build + Prada $0 tool test running (workflow g3d-wp6-build) | - |
 | WP2, WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
@@ -265,3 +265,26 @@ Shown in arview (default settings; sheets data/owner_review/*_review.png). Owner
 - Oakley OO9208 38 920844 (optical review v2): accept, sha256 2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688
 - INVU IA22403B 99M (optical review v2): accept, sha256 4a44a6ac87eb92a317c9c74b4b5661f553acb5bc7c12d613777d3e8f55064df8
 These are now confirmed known-good references (candidates for the WP8 regression product). Prada stays an open failure.
+
+## 2026-10-06: WP4 build committed (e5fdf37); fixes and WP6 build running in parallel
+
+WP4 proof: P0 core vs instrument within 0.075 mm at >= 99% of stations (FT, Prada, Oakley, INVU); P1 numpy vs open3d <= 1.2e-4 mm;
+**P2 FT1119 browline 71/71** (top edge inside 100%, band 0, lift 1.029 mm, rim split 78-102 deg, 74 lens / 444 eyewire vertices moved,
+only failing stations moved, validate_spec ok); P5 Oakley 0 moved and byte-identical, INVU 538 vertices = its 269 failing nodes, checks
+pass after. Stop rule did not fire. Open (workflow g3d-wp4-fix): A Prada refused by the post-check (56.7 deg fold); B crystal binding check
+misreads the exact bevel/groove; C growth undershoot (INVU min 0.425 vs 0.45 target; metal fixture 0.426); D nylor channel ends 0.205;
+E refusal codes (narrow eyewire, notch); F chamfer/rounded/coarse edge deviation 0.014-0.031 vs 0.01 mm; G the Oakley top p95 <= 0.80
+criterion contradicts design §7 (over-capture = warning) and the owner's 'perfect' verdict -> report-only (recorded reason).
+WP6 build (workflow g3d-wp6-build) runs on disjoint files; integration into g3d/__init__.py, cli.py, export_glb.py is deferred.
+
+## 2026-10-06: WP5 step 3 (host) committed (7ac7c8f)
+
+g3d/printuv (strip + cap charts; q001: 2321x1577 at 15.95 tx/mm, 0 overlaps, 0 flips, anisotropy p95 1.66), photoprint steps 2-7 in
+single-source mode, strip-shift decoy null (A0 passes on the intended rule; the literal per-view residual rule still lists three thin grazing
+views 0.24-0.33 mm). FT1119 bake: photo 41.1% / PatchMatch 50.0% / mirror 2.8% / text fill 4.1% of the atlas; registered 0%. Checks: A1, A2,
+A3, A7 pass; A4 fails on 3 of 4 parts (fill streaks), A5 fails at 1 texel, B3 2 of 10; A6/B5 (Blender) not built. Seen from new angles it
+reads as the real havana (owner sent data/evidence/wp5_painted_vs_now.png). Defects to fix: PatchMatch wood-grain smears near hinges and on
+long strips; photo 02's gold hinge baked into the endpiece backs (metal pixels pass the acetate colour test); pad-arm rivets on brow backs;
+glints on curved edges; colour steps (-x temple from 03 warmer/lighter; brow-top band from 04 darker). Next: step 4 (workflow
+g3d-wp5-step4): those fixes + the Blender side (print_uv, attach_print, exporter TEXCOORD/g3d_print_uv allowlist, A6, B5) + a tool-test GLB
+copy captured in arview for the owner (B4).
