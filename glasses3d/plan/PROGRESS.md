@@ -332,3 +332,13 @@ outline better than the delivered GLB in side (contour 0.69/0.46 vs 1.55/1.10 mm
 hinge-angle recovery 2.86 vs 0.3 deg on the synthetic round trip; PRADA decals not drawn in arview on the tool-test temple; hinge-leaf
 warnings. Re-diagnosis (PLAN WP6 stop rule): first build with HAND-TRACED good parameters (PLAN §0.2 tool test) to decide tool vs
 tracing; then add a photo-measured relief cue to the fit, fix the theta instrument and the open review findings, re-run the proof fresh.
+
+## 2026-10-07: WP5 step 5 committed (5ec9c25); step 6 and the WP2 design running
+
+Step 5: shading removal kept (cross-photo agreement improves), AR level calibration (at photo 05's angle L* 15.6/23.8 vs 16.6/24.9),
+brow-front photo share 81.8/79.0%, light marks reduced, 14-worker default. Still (AR close-ups sent to the owner): front pose lighter and
+greyer than the photos (brow median 32.8 vs 22.0; chroma 2.9-4.1 vs 4.0-6.0), brow honey patches weak, -x temple ~7 L* light.
+Step 6 (workflow g3d-wp5-step6): attribute contrast/chroma loss (texture vs AR material), calibrate contrast + chroma at the photos'
+own angles, fix the -x temple level, residual endpiece marks. Material effects go to Astra as notes (Astra keeps material control).
+WP2 design panel (workflow g3d-wp2-design -> plan/WP2_DESIGN.md) started: own Blender worker, safe mode, Agents SDK loop, budget/receipts,
+jobs CLI, owner ledger, $0 fake-client proof. No paid call in WP2.
