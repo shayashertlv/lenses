@@ -3,6 +3,23 @@
 Format (PLAN.md §4): date, WP, what was done, commit hash, $0-proof numbers, open issues, next step.
 A new session reads this right after PLAN.md §0 and resumes from the first unfinished step.
 
+## Active resume (Codex, 2026-10-07)
+
+The historical handoff below is preserved. The owner requested RESUME HERE section 5 step 1 only:
+finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
+before every paid call. Work is on `glasses3d`, performed sequentially without subagents per AGENTS.md.
+
+- **Group A verified, ready to commit (11:39).** All 12 stored step-6 findings reviewed against the full diff,
+  followed by a fresh full-diff re-review. Full WP5 suite: **276 passed, 1 expected xfail**, no skips,
+  exit 0, 11:19:05-11:38:48 (1,182.86 s); detached without a timeout, default pool limited to 3 for memory.
+  `data/codex_resume_20261007/wp5.log` and `wp5_run.json` retain output and exact arguments.
+  The independent provenance audit passes **200 checks** (`wp5_evidence_audit.json` in the same folder).
+  Production print SHA-256 remains `d2e153a3d540e608e8eeaf3bca13b22ec8de8072c85c25ea48a1d59f934928af`;
+  tool-test GLB remains `17d604886c126e06a61ffe41df3b7dd3877043a24c9e29d36d0e4f5fcbf98095`.
+  Corrected five stale calibration-count claims in PORT_REVIEW (29 captures, not 30). Its WP2 section 11
+  belongs to D and is kept out of A. No production level change; owner B promotion remains section 5 step 2.
+- **B-E remain uncommitted and under review.** All checks so far are offline and $0; no paid call or push.
+
 ## Status (FINAL handoff 2026-10-07 ~11:00; every workflow STOPPED at the owner's request; nothing is running)
 
 | WP | State | Last commit |

@@ -1,11 +1,13 @@
-"""WP5 step 4 TOOL TEST (Blender side): the step-4 FT1119 print attached to a COPY of q001. Not a delivered model:
-Astra builds models, Claude builds tools; every output here is labelled TOOL TEST.
+"""WP5 TOOL TEST (Blender side; built in step 4): the bake's FT1119 print attached to a COPY of q001. Not a delivered
+model: Astra builds models, Claude builds tools; every output here is labelled TOOL TEST, and the label names the
+attached print by its sha256 and its bake (``make_label``; fix round 1 of step 6: the label said "step-4 print" on
+every later bake).
 
     python -m glasses3d.tests.photoprint.print_tooltest [--out DIR] [--bake DIR] [--no-record]
 
 1. copies q001's Studio scene.blend (sha-checked) to DIR/q001_copy.blend and never writes the original;
 2. one headless Blender run (tests/blender/print_roundtrip.py) on that copy: export (original.glb), g3d.print_uv with
-   bake=<the step-4 bake> (printuv.glb), g3d.attach_print with the bake's print manifest (q001_painted_TOOLTEST.glb,
+   bake=<the bake> (printuv.glb), g3d.attach_print with the bake's print manifest (q001_painted_TOOLTEST.glb,
    saved as q001_painted_TOOLTEST.blend), detach_print (detached.glb), remove_print_uv (removed.glb), plus refusal
    probes; the painted GLB, the portable output, then carries the label in its NAME and in ``asset.extras``
    (``g3d_tool_test``: written here by rewriting the JSON chunk, the binary chunk untouched; fix round 1), and every
@@ -52,10 +54,28 @@ BAKE = G3D / "data/wp5/ft1119_bake"
 OUT = G3D / "data/wp5/tooltest"
 ROUNDTRIP = G3D / "tests/blender/print_roundtrip.py"
 PARTS = list(IN.FT1119_PARTS)
-LABEL = ("TOOL TEST: the WP5 step-4 FT1119 print attached to a COPY of q001 by g3d.print_uv + g3d.attach_print. "
-         "Not a delivered model (Astra builds models; Claude builds tools).")
+LABEL = ("TOOL TEST: the WP5 FT1119 print attached to a COPY of q001 by g3d.print_uv + g3d.attach_print. "
+         "Not a delivered model (Astra builds models; Claude builds tools).")      # the template; see make_label
 PAINTED = "q001_painted_TOOLTEST.glb"
 LABEL_KEY = "g3d_tool_test"
+
+
+def make_label(man: dict, bake: Path) -> str:
+    """The tool-test label of THIS print: the attached print.png's sha256 (the manifest's), its bake directory and the
+    bake's AR level as its report records it (no step number: the label is built from the bake, never typed)."""
+    lv = {}
+    rp = Path(bake) / "report.json"
+    if rp.is_file():
+        lv = json.loads(rp.read_text(encoding="utf-8")).get("level") or {}
+    level = ("AR level " + ", ".join([f"{k} {float(lv[k]):.3f}" for k in ("gain", "gamma", "sat", "chroma_power")
+                                      if lv.get(k) is not None]
+                                     + (["chroma held >= 1"] if lv.get("chroma_hold") else [])
+                                     + ([f"chroma hue {float(lv['chroma_hue'][0]):g}-{float(lv['chroma_hue'][1]):g} deg"]
+                                        if lv.get("chroma_hue") else []))
+             if lv.get("applied") else "AR level not calibrated")
+    return (f"TOOL TEST: the WP5 FT1119 print (print.png sha256 {man['print_sha256'][:16]}, bake "
+            f"{Path(bake).resolve().name}, {level}) attached to a COPY of q001 by g3d.print_uv + g3d.attach_print. "
+            "Not a delivered model (Astra builds models; Claude builds tools).")
 
 
 def label_glb(path: Path, label: str = LABEL) -> dict:
@@ -105,10 +125,10 @@ class GlbLayout:
         return out
 
 
-def run_blender(copy: Path, out: Path, bake: Path) -> dict:
+def run_blender(copy: Path, out: Path, bake: Path, label: str = LABEL) -> dict:
     spec = {"parts": PARTS, "print_uv": {"bake": str(bake)}, "attach": {"report": str(bake)},
             "painted_glb": PAINTED, "save_painted": str(out / "q001_painted_TOOLTEST.blend"),
-            "label": LABEL, "probes": True}
+            "label": label, "probes": True}
     (out / "roundtrip_spec.json").write_text(json.dumps(spec, indent=1), encoding="utf-8")
     t = time.perf_counter()
     proc = blender.run(copy, ROUNDTRIP, [out, out / "roundtrip_spec.json"], timeout_s=600)
@@ -173,7 +193,8 @@ def renders(job, bake: Path, painted: Path, layout, out_png: Path) -> dict:
     H = 64 + sum(im.height + 22 for _, im in rows_img)
     sheet = Image.new("RGB", (W, H), (32, 32, 32))
     dr = ImageDraw.Draw(sheet)
-    dr.text((10, 8), "TOOL TEST - the WP5 step-4 print on a COPY of q001 (g3d.print_uv + g3d.attach_print); "
+    dr.text((10, 8), f"TOOL TEST - the WP5 FT1119 print (print.png sha256 {sha(Path(bake) / 'print.png')[:16]}, bake "
+                     f"{Path(bake).resolve().name}) on a COPY of q001 (g3d.print_uv + g3d.attach_print); "
                      "not a delivered model", fill=(255, 210, 120))
     dr.text((10, 28), "left: the photo; right: the painted GLB rendered through its OWN TEXCOORD_1 (glTF bilinear, "
                       "no lighting) over the photo", fill=(220, 220, 220))
@@ -214,7 +235,7 @@ def record_in_bake(bake: Path, man: dict, checks: dict, tooltest_json: Path) -> 
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="WP5 step-4 tool test (Blender side) on a copy of q001")
+    ap = argparse.ArgumentParser(description="WP5 tool test (Blender side) on a copy of q001")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--bake", default=str(BAKE))
     ap.add_argument("--no-record", action="store_true", help="do not record A6 / B5 in the bake's bake.json")
@@ -222,10 +243,11 @@ def main(argv=None) -> int:
     out, bake = Path(a.out), Path(a.bake)
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
-    rep = {"label": LABEL, "inputs": {}}
     if not (bake / MF.MANIFEST).is_file():
         MF.write_manifest(bake)
     man = MF.load_manifest(bake)
+    label = make_label(man, bake)
+    rep = {"label": label, "inputs": {}}
     src_sha = sha(SCENE)
     copy = out / "q001_copy.blend"
     for p in (copy, out / "q001_painted_TOOLTEST.blend"):
@@ -236,7 +258,7 @@ def main(argv=None) -> int:
                      "bake": str(bake), "manifest": {k: man[k] for k in ("print_sha256", "geometry_sha", "charts_sha",
                                                                          "width", "height", "tx_per_mm", "glb",
                                                                          "glb_sha256")}}
-    rt = run_blender(copy, out, bake)
+    rt = run_blender(copy, out, bake, label)
     rep["scene_unchanged"] = sha(SCENE) == src_sha
     rep["copy_unchanged"] = sha(copy) == rep["inputs"]["copy_sha256"]
     st = rt["stages"]
@@ -254,10 +276,11 @@ def main(argv=None) -> int:
     stale = out / "q001_painted.glb"                  # an unlabelled painted GLB of an earlier run must not linger
     if stale.exists():
         stale.unlink()
-    rep["painted_label"] = {"file": G["attached"].name, "asset": label_glb(G["attached"])}
+    rep["painted_label"] = {"file": G["attached"].name, "asset": label_glb(G["attached"], label)}
     doc_a, _ = PU.glbmesh.chunks(G["attached"].read_bytes())
     rep["painted_label"]["ok"] = bool("TOOLTEST" in G["attached"].name
-                                      and (doc_a["asset"].get("extras") or {}).get(LABEL_KEY) == LABEL)
+                                      and (doc_a["asset"].get("extras") or {}).get(LABEL_KEY) == label
+                                      and man["print_sha256"][:16] in label)
 
     # the copy exports to the bake's GLB; the three geometry identities agree
     rep["copy_export_equals_bake_glb"] = arrays_equal(q001, G["original"], PARTS)

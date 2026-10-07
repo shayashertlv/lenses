@@ -50,6 +50,19 @@ the two adjacent anchors' gained colours agree best (the photometric seam of Lem
 Each face keeps one source view (single-source per face; no view is mixed with another). A region's boundary band
 (<= ``BAND_MM``) may therefore be painted by an adjacent region's anchor: ``project`` reports that share per region and
 the proofs check every photo texel's view is its region's anchor or an adjacent region's anchor.
+
+**Step 6 (2026-10-07, the brow honey patches): the anchor keeps what it sees** (``seen_share``, production). Measured
+on the step-5 bake (camera 05, the brow fronts): the photometric seam pulled the front|top boundary of the brows up to
+3 mm DOWN into the front faces, handing their upper band to the top view 04 (-x brow front 13.2 %, +x 5.7 % of its
+texels; at the -x nasal third 22.7 % of the pixels photo 05 shows). Photo 05 sees that band head-on (cos 0.96-0.97;
+73 % / 91 % of the handed texels were photo-05 donors), and it is where photo 05's honey patches sit: the seam goes
+where the two unregistered photos agree, i.e. AWAY from high-contrast print, so every patch near a boundary went to
+the other photo (2 mm off, top-lit). Honey share of the -x nasal brow front at camera 05: photo 11.1 %, the bake's
+radiance 1.3 %. Rule: in crease mode a face whose start label (its region's anchor) sees at least ``KEEP_SEEN_SHARE`` of
+its texels as donors keeps that label; only faces the anchor cannot use (holes) may go to an adjacent anchor that sees
+them, so the band still turns would-be fill into photo. Where the facing split already lies on a crease (the temples'
+outer | top, 92 %) nothing changes; on the brows (no crease) the seam stays on the facing boundary, where the
+levelling field (``gains.level_field``) evens the step. ``seen_share=None`` keeps the fix-round-2 behaviour.
 """
 from __future__ import annotations
 
@@ -76,6 +89,7 @@ PHOTO_BETA = 1.0                 # photometric seam weight (crease mode)
 DE_REF = 10.0
 DE_CAP = 30.0
 MODES = ("off", "mrf", "crease")
+KEEP_SEEN_SHARE = 0.5            # step 6: a face its own anchor sees this much of (donor texels) keeps the anchor
 
 
 def weld_ids(P: np.ndarray, q: float = 1e-4) -> np.ndarray:
@@ -315,15 +329,19 @@ def _crease_data(wf: np.ndarray, nf: np.ndarray, start: np.ndarray, cand: list[i
 
 def place_labels(V, F, faces: np.ndarray, region_of_face: np.ndarray, region_label: dict, wf: np.ndarray,
                  nf: np.ndarray, views: list[str], tx: float, *, band_mm: float = BAND_MM, move: bool = True,
-                 mode: str | None = None, face_colours: np.ndarray | None = None, part_of_face=None) -> dict:
+                 mode: str | None = None, face_colours: np.ndarray | None = None, part_of_face=None,
+                 seen_share: np.ndarray | None = None, keep_seen: float = KEEP_SEEN_SHARE) -> dict:
     """Face labels for the layout's ``faces``: start at the region label (view index, MIX or NONE), then move them in
     the bands near boundaries between different view labels. ``mode``: 'off' keeps the start labels; 'mrf' = the
     round-1 diagnostic MRF; 'crease' = the production MRF (fix round 2, see the module docstring; needs
     ``face_colours`` (n_faces, n_views, 3) sRGB face means of the gained photos where ``wf`` > 0). For older callers
     ``mode=None`` follows ``move`` ('mrf' / 'off'). ``wf`` (n_faces, n_views) mean donor weight, ``nf`` texels per
-    face, ``part_of_face`` (optional) for the per-part boundary statistics. Returns {'labels', 'start', 'band',
+    face, ``part_of_face`` (optional) for the per-part boundary statistics. ``seen_share`` (n_faces, n_views): the
+    share of each face's texels each view sees as a donor; in crease mode a face whose start label sees >= ``keep_seen``
+    of it keeps its start label (step 6, module docstring; None = fix round 2). Returns {'labels', 'start', 'band',
     'graph', 'energy', 'boundary', ...}."""
     mode = mode if mode is not None else ("mrf" if move else "off")
+    kept_seen = None
     if mode not in MODES:
         raise ValueError(f"unknown label mode {mode!r} (one of {MODES})")
     g = face_graph(V, F, faces, tx)
@@ -392,6 +410,15 @@ def place_labels(V, F, faces: np.ndarray, region_of_face: np.ndarray, region_lab
             else:
                 bad = np.array([l not in allowed[int(comp[pos[f]])] for f in bl])
             D[l][bl[bad]] = FORBID                         # never taken (excluded from the move's nodes)
+        if mode == "crease" and seen_share is not None:
+            # step 6: the anchor keeps what it sees; only its holes may go to an adjacent anchor
+            ss = np.asarray(seen_share, float)
+            st_ = start[bl]
+            own = np.where(st_ >= 0, ss[bl, np.clip(st_, 0, ss.shape[1] - 1)], 0.0)
+            kept = bl[(st_ >= 0) & (own >= keep_seen)]
+            for l in cand:
+                D[l][kept[start[kept] != l]] = FORBID
+            kept_seen = int(len(kept))
         lab, hist = expansion(start, band, cand, D, g, lam, pair=pair)
 
     def boundary(L, sel=None):
@@ -430,4 +457,7 @@ def place_labels(V, F, faces: np.ndarray, region_of_face: np.ndarray, region_lab
             "band_faces_start_label_unseen": int(start_unseen.sum()),
             "moved_faces_start_label_unseen": int((moved & start_unseen).sum()),
             "moved_to_unseen_faces": int(moved_to_unseen.sum()),
-            "moved_texels": float(nf[moved].sum()), "moved_texels_start_label_unseen": float(nf[moved & start_unseen].sum())}
+            "moved_texels": float(nf[moved].sum()), "moved_texels_start_label_unseen": float(nf[moved & start_unseen].sum()),
+            "keep_seen": None if (seen_share is None or mode != "crease") else {
+                "share": keep_seen, "band_faces_kept": kept_seen,
+                "rule": "a face whose start label sees >= share of its texels as donors keeps it (step 6)"}}

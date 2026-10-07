@@ -13,7 +13,18 @@ section 10.
   a hit on a text decal, or on a text decal mirrored x -> -x (the partner part's print at the same place: q001 carries
   one inner print, FT1119 has one per temple), marks the texel, dilated 1.0 mm (measured offsets of the photo's
   lettering from the cast position 0.3-0.5 mm). Counts per view and the mirrored-decal share are reported, and a
-  warning tells Astra the model has no decal for print the photo shows. Text is never mirrored, and is filled where a
+  warning tells Astra the model has no decal for print the photo shows. **Step 6 (2026-10-07):** far-face print shows
+  through the acetate only where the acetate in front of it is LIGHT (the honey phase; the dark phase absorbs it): a
+  cast hit is kept only where its painting photo's own acetate, smoothed over ``SEE_THROUGH_SIGMA_MM``, is at least
+  ``SEE_THROUGH_LIGHT_DL`` L* over that photo's median on the same region (``light_only``, production). The step-5
+  bake masked every cast hit (photo 03 1,970, photo 06 2,170). With the rule (the step-6 bakes' report.json, ``text``:
+  ``see_through_cast_by_view``, ``see_through_by_view``, ``see_through_dark_acetate_by_view``): photo 06's lettering
+  is visible, dark on amber, over the honey patch of the +x temple (287 of its 2,170 hits pass, 1,883 sit on dark
+  acetate); photo 03 shows NO lettering where the -x temple's inner print is cast (its acetate there is the
+  dark phase, smoothed L* p10 / p50 / p90 13.8 / 16.1 / 20.0 against the face median 18.0: 0 of 1,970 hits pass),
+  yet the step-5 mask (dilated 1 mm, closed into a band) replaced a 2 mm band of photo 03's print along the middle of
+  the arm (19,411 texels of the AR-visible stretch, with a honey spot and its specks) by a smooth dark fill: the
+  "fewer spots" and the lengthwise smear at yaw +45. Text is never mirrored, and is filled where a
   decal exists unless ``keep_photo_text``. Metal on print that the model lacks (the gold medallion photo 03 shows on
   the -x temple tip) is removed before this step, as a per-view hole (``texels.foreign_blobs``, fix round 2): its
   bezel passed the per-pixel acetate test and left an oval outline in the fix-round-1 bake.
@@ -71,6 +82,8 @@ STROKE_DILATE_MM = 0.3
 SEE_THROUGH_MM = 8.0
 SEE_THROUGH_DILATE_MM = 1.0
 SEE_THROUGH_CLOSE_MM = 0.75     # correction round: the dilated see-through letters closed into one band
+SEE_THROUGH_LIGHT_DL = 6.0      # step 6: a cast letter shows only where the photo's acetate is this much (L*) over ...
+SEE_THROUGH_SIGMA_MM = 0.5      # ... its region median, smoothed over this sigma (the honey phase; dark acetate hides it)
 ACETATE_N = 1.49
 MIRROR_RING = 3
 PARTNER_TOL_MM = 5.0
@@ -185,10 +198,35 @@ def _refracted(N: np.ndarray, to_cam: np.ndarray, n: float = ACETATE_N) -> np.nd
     return t / (np.linalg.norm(t, axis=1, keepdims=True) + 1e-12)
 
 
+def light_acetate(tex, painted_v: np.ndarray, col: np.ndarray, tx: float, dl: float = SEE_THROUGH_LIGHT_DL,
+                  sigma_mm: float = SEE_THROUGH_SIGMA_MM) -> np.ndarray:
+    """(n,) bool: texels where one photo's painted colours (``painted_v``, ``col`` sRGB), smoothed over ``sigma_mm``
+    (masked Gaussian on the atlas), are >= ``dl`` L* over that photo's median L* on the texel's region (step 6: the
+    honey phase, where print on the far face shows through the acetate)."""
+    pv = np.asarray(painted_v, bool)
+    out = np.zeros(len(pv), bool)
+    if not pv.any():
+        return out
+    L = T.lab_of(np.clip(np.asarray(col, float)[pv], 0, 255))[:, 0]
+    Lt = np.zeros(len(pv))
+    Lt[pv] = L
+    m = tex.image(pv, False, bool).astype(float)
+    sg = max(sigma_mm * float(tx), 0.5)
+    Ls = (ndimage.gaussian_filter(tex.image(Lt, 0.0, float), sg) / np.maximum(ndimage.gaussian_filter(m, sg), 1e-6))[
+        tex.ii, tex.jj]
+    reg = np.asarray(tex.region)
+    for r in np.unique(reg[pv]):
+        sel = pv & (reg == r)
+        out[sel] = Ls[sel] >= float(np.median(Lt[sel])) + dl
+    return out
+
+
 def text_mask(job, tex, decals: dict, painted: np.ndarray, col: np.ndarray, tx: float, *, label=None,
-              views: list[str] | None = None, see_through: bool = True, mirror_decals: bool = True) -> dict:
+              views: list[str] | None = None, see_through: bool = True, mirror_decals: bool = True,
+              light_only: bool = True) -> dict:
     """{'mask', 'decal_px', 'stroke_px', 'see_through_px', 'decals', ...}: texels within 1.5 mm of a text decal, nearby
-    photo strokes, and see-through text (``label`` (n,) painting view index into ``views``)."""
+    photo strokes, and see-through text (``label`` (n,) painting view index into ``views``); ``light_only`` (step 6):
+    a cast hit counts only where the painting photo's acetate is light (``light_acetate``)."""
     import open3d as o3d
     n = len(tex)
     keep = [i for i, m in enumerate(decals.get("metallic", [])) if m < 0.5]
@@ -231,6 +269,11 @@ def text_mask(job, tex, decals: dict, painted: np.ndarray, col: np.ndarray, tx: 
             t = a["t_hit"].numpy()
             h = np.isfinite(t) & (t <= SEE_THROUGH_MM)
             gid = a["geometry_ids"].numpy()
+            info.setdefault("see_through_cast_by_view", {})[v] = int(h.sum())
+            if light_only:
+                lit = light_acetate(tex, painted & (label == vi), col, tx)[rows]
+                info.setdefault("see_through_dark_acetate_by_view", {})[v] = int((h & ~lit).sum())
+                h = h & lit
             hit[rows[h]] = True
             info["see_through_by_view"][v] = int(h.sum())
             info["see_through_hits_on_mirrored_decal"] += int((h & (gid == 1)).sum()) if mirror_decals else 0
@@ -246,6 +289,8 @@ def text_mask(job, tex, decals: dict, painted: np.ndarray, col: np.ndarray, tx: 
             img = ndimage.binary_closing(np.pad(img, r_ + 1), structure=(yy * yy + xx * xx) <= r_ * r_)[
                 r_ + 1:-(r_ + 1), r_ + 1:-(r_ + 1)]
             through = img[tex.ii, tex.jj] & (tex.chart >= 0)
+    info["see_through_light_only"] = ({"dl_lstar": SEE_THROUGH_LIGHT_DL, "sigma_mm": SEE_THROUGH_SIGMA_MM}
+                                      if light_only else None)
     out.update({"mask": m | stroke | through, "decal_px": int(m.sum()), "stroke_px": int((stroke & ~m).sum()),
                 "see_through_px": int((through & ~m & ~stroke).sum()), "see_through_mask": through,
                 "distance": d, **info})

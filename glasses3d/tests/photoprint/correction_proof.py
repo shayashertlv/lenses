@@ -61,7 +61,6 @@ T_Y_MM = 4.0
 PHOTO_CODES = (CLASS_CODES["photo_anchor"], CLASS_CODES["photo_tier1"])
 REC709 = np.array([0.2126, 0.7152, 0.0722])
 AR_STREAK_POSES = ("yaw_p45", "yaw_m30", "yaw_m45")
-TEMPLES = {"-x": "Temple_Left", "+x": "Temple_Right"}       # q001's names, selected by the x sign of the part
 
 
 def _load(bake: Path):
@@ -76,19 +75,86 @@ def _load(bake: Path):
     return job, rep, lay, regions, tex, occ, tx
 
 
-def unlevel(img: np.ndarray, level: dict | None, keep: np.ndarray | None = None) -> np.ndarray:
+def _chroma_f(srgb: np.ndarray, sat: float, power: float, hold: bool, band) -> np.ndarray:
+    """The level's per-colour chroma factor, written here from shading's documentation (not imported): g = sat x
+    (max(C*ab, 1) / 10)^(power - 1), capped at 4; fix round 2 of step 6: ``hold`` g = max(g, 1); ``band`` [lo, hi]
+    degrees: f = 1 + w (g - 1), w = 1 inside the hue band, falling linearly to 0 at 15 deg outside it."""
+    lab = T.lab_of(srgb)
+    g = np.minimum(sat * (np.maximum(np.hypot(lab[..., 1], lab[..., 2]), 1.0) / 10.0) ** (power - 1.0), 4.0)
+    if hold:
+        g = np.maximum(g, 1.0)
+    if band is not None:
+        h = np.degrees(np.arctan2(lab[..., 2], lab[..., 1])) % 360.0
+        lo, hi = float(band[0]), float(band[1])
+        d = np.where((h >= lo) & (h <= hi), 0.0, np.minimum((lo - h) % 360.0, (h - hi) % 360.0))
+        g = 1.0 + np.clip(1.0 - d / 15.0, 0.0, 1.0) * (g - 1.0)
+    return g
+
+
+UNLEVEL_MAX_ITER = 80       # the chroma inverse's fixed-point iterations at most ...
+UNLEVEL_TOL = 1e-9          # ... it stops once no pixel moves by more than this (linear light, the whole image)
+
+
+def unlevel(img: np.ndarray, level: dict | None, keep: np.ndarray | None = None, info: dict | None = None,
+            max_iter: int = UNLEVEL_MAX_ITER) -> np.ndarray:
     """Photo radiance of a levelled print: the inverse of rgb_lin' = rgb_lin x gain x Y^(gamma - 1) (Y' = gain x
-    Y^gamma, so Y = (Y' / gain)^(1 / gamma)), written here; ``keep`` pixels (untextured) stay. Float sRGB 0..255."""
+    Y^gamma, so Y = (Y' / gain)^(1 / gamma)), written here; ``keep`` pixels (untextured) stay. Float sRGB 0..255.
+    Fix round 3 of step 6: ``info`` (a dict, filled here) reports the chroma inverse's convergence: 'method'
+    ('closed form' when there is no fixed point to iterate), 'iterations', 'converged' (the last step below
+    ``UNLEVEL_TOL`` everywhere), and, over the texels that are not ``keep``, the final fixed-point residual
+    |x - F(x)| ('max_residual', linear light) and how many texels stay above ``UNLEVEL_TOL`` ('non_converged');
+    a run that stops at ``max_iter`` without converging also warns."""
     out = np.asarray(img, np.float64).copy()
+    if info is not None:
+        info.clear()
+        info.update({"method": "identity (no level)", "iterations": 0, "converged": True, "max_residual": 0.0,
+                     "non_converged": 0, "tol": UNLEVEL_TOL, "max_iter": int(max_iter)})
     if not level or not level.get("applied", True) or level.get("gain") is None:
         return out
     g, gm = float(level["gain"]), float(level["gamma"])
+    sat = float(level.get("sat") or 1.0)
+    power = float(level.get("chroma_power") or 1.0)
+    hold = bool(level.get("chroma_hold") or False)
+    band = level.get("chroma_hue")
     c = out / 255.0
     lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
     Yp = np.maximum(lin @ REC709, 1e-6)
     Y = (Yp / g) ** (1.0 / gm)
     lin = np.clip(lin * (Y / Yp)[..., None], 0, 1)
-    srgb = np.where(lin <= 0.0031308, 12.92 * lin, 1.055 * np.power(lin, 1 / 2.4) - 0.055) * 255.0
+    to_srgb = lambda x: np.where(x <= 0.0031308, 12.92 * x, 1.055 * np.power(np.clip(x, 0, 1), 1 / 2.4) - 0.055) * 255.0
+    if power != 1.0 or hold or band is not None:
+        # fix round 1 of step 6: the factor (``_chroma_f``) is of the colour BEFORE it; the colour before is the fixed
+        # point of x = Y + (lin - Y) / f(x), iterated from the scaled colour (a contraction for |power - 1| < 1; fix
+        # round 2's hold and hue band keep the factor continuous; the iteration stops once it has converged)
+        dev = lin - Y[..., None]
+        x = lin.copy()
+        F = lambda z: np.clip(Y[..., None] + dev / _chroma_f(to_srgb(z), sat, power, hold, band)[..., None], 0, 1)
+        done, it = False, 0
+        for it in range(1, max_iter + 1):
+            x_new = F(x)
+            done = float(np.abs(x_new - x).max(initial=0.0)) < UNLEVEL_TOL
+            x = x_new
+            if done:
+                break
+        lin = x
+        if info is not None:                         # fix round 3 of step 6: the residual of the point returned
+            res = np.abs(F(x) - x).max(-1)
+            graded = ~np.asarray(keep, bool) if keep is not None else np.ones(res.shape, bool)
+            r = res[graded]
+            info.update({"method": "fixed point", "iterations": int(it), "converged": bool(done),
+                         "max_residual": float(r.max(initial=0.0)), "non_converged": int((r > UNLEVEL_TOL).sum()),
+                         "texels": int(graded.sum())})
+        if not done:
+            import warnings
+            warnings.warn(f"unlevel: the chroma inverse did not converge in {max_iter} iterations "
+                          f"(level {level}); see info['non_converged']")
+    elif sat != 1.0:                                 # step 6: undo the chroma factor about grey at Y
+        lin = np.clip(Y[..., None] + (lin - Y[..., None]) / sat, 0, 1)
+        if info is not None:
+            info["method"] = "closed form (one chroma factor)"
+    elif info is not None:
+        info["method"] = "closed form (luminance only)"
+    srgb = to_srgb(lin)
     if keep is not None:
         srgb[keep] = out[keep]
     return srgb
@@ -100,7 +166,9 @@ def _imgs(bake: Path):
            "source": np.asarray(Image.open(bake / "source.png"))}
     rep = json.loads((bake / "report.json").read_text(encoding="utf-8"))
     out["level"] = rep.get("level") or {"applied": False}
-    out["print"] = unlevel(out["print_levelled"], out["level"], out["classes"] == CLASS_CODES["no_texture"])
+    out["unlevel"] = {}                         # fix round 3 of step 6: the inverse's convergence (the proofs record it)
+    out["print"] = unlevel(out["print_levelled"], out["level"], out["classes"] == CLASS_CODES["no_texture"],
+                           info=out["unlevel"])
     out["bake"] = str(bake)
     return out
 
@@ -293,8 +361,12 @@ def new_photo_outliers(job, regions, tex, imgs, before) -> dict:
     return out
 
 
-def ar_streaks(captures: dict) -> dict:
-    """``print_metrics.axis_streakiness`` of each temple at the AR_STREAK_POSES of every capture {name: dir}."""
+def ar_streaks(captures: dict, job=None) -> dict:
+    """``print_metrics.axis_streakiness`` of each temple at the AR_STREAK_POSES of every capture {name: dir}. Fix round
+    3 of step 6: each temple's side is the x sign of its centroid (``ar_levels.part_sides``); this module's map was
+    q001's names under a comment that claimed the x sign."""
+    from glasses3d.tests.photoprint import ar_levels as AL
+    temples = {side: t for side, (_b, t, _sg) in AL.part_sides(job or IN.load_job()).items()}
     out = {}
     for name, cap in captures.items():
         cap = Path(cap)
@@ -306,7 +378,7 @@ def ar_streaks(captures: dict) -> dict:
                 continue
             pid = np.asarray(Image.open(f).convert("RGB"))
             bt = np.asarray(Image.open(cap / f"{pose}__skin__beauty.png").convert("RGB"))
-            for side, part in TEMPLES.items():
+            for side, part in temples.items():
                 r = PM.axis_streakiness(bt, PM.ar_frame_mask(pid, rep["id_palette"], [part]))
                 if r is not None:
                     rows[f"{pose} temple {side}"] = r
@@ -340,7 +412,7 @@ def run(bake: Path, before: Path | None = None, previous: Path | None = None, ar
             res["new_photo_outliers"]["previous"] = new_photo_outliers(job, regions, tex, by_rules["correction_plain"],
                                                                        by_rules["step4"])
     if ar:
-        res["ar_streaks"] = ar_streaks(ar)
+        res["ar_streaks"] = ar_streaks(ar, job)
     return res
 
 

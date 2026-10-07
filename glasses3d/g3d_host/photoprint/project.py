@@ -42,7 +42,8 @@ Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and n
 - ``flatten`` ('test' by default; ``shading``): every photo's own normal-space SH shading is fitted on its donor texels
   and divided out in linear light, kept only if the photos then agree better on the same surface (pooled gained dE00
   down >= 0.3 and median |dlog Y| down, also with any one view pair left out: fix round 1);
-- ``level`` ({'gain', 'gamma'} from ``tests/photoprint/ar_calibrate.py``, or None): the AR calibration to the photos,
+- ``level`` ({'gain', 'gamma'[, 'sat', 'chroma_power', 'chroma_hold', 'chroma_hue']} from ``tests/photoprint/ar_calibrate.py``, or None): the AR
+  calibration to the photos,
   applied to every textured texel of the composed atlas as the last step (``shading.level_map``);
 - donors: the bicubic footprint (fix round 1: also clear of bright pixels' light anti-aliased edges) and the
   photometric occluder margin (``texels``), no large-hardware margin and shoulder-only glint dilation (``metal``);
@@ -379,7 +380,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                           radii_mm: dict | None = None, seed: int = 0, workers: int | None = None,
                           override_min_cover: bool = False, write: bool = True, step0_report=None,
                           label_moves: str = "crease", min_cover: float = ANCHOR_MIN_COVER,
-                          compare_fill: tuple = (), log=print) -> dict:
+                          compare_fill: tuple = (), keep_seen: bool = True, see_through_light: bool = True,
+                          thin_light: bool = True, log=print) -> dict:
     """Bake the print of ``parts`` (single-source mode; see the module docstring). ``registered`` = {region name:
     [views]} from step 0 (tier 1 where >= 2). ``views`` = 'all' or the view names to use (B3 bakes leave one out).
     ``radii_mm`` = {part: radius mm} to skip the knockout. ``step0_report`` = step 0's report.json: its 'registered'
@@ -391,7 +393,11 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
     report's ``fill['by_method']`` and the result's ``radii_by_method`` carry them, so a comparison of fillers runs each
     at ITS OWN radius (the production fill uses only ``fill``). ``flatten`` / ``level`` / ``strip_donors``: the
     correction round (module docstring); ``level_source`` names where the level came from (the calibration file).
-    Returns the result dict (arrays included)."""
+    ``keep_seen`` / ``see_through_light`` (step 6): in crease mode a face its own anchor sees keeps its anchor
+    (``labels.KEEP_SEEN_SHARE``), and see-through text is masked only where the photo's acetate behind it is light
+    (``fill.SEE_THROUGH_LIGHT_DL``); ``thin_light``: thin light achromatic lines (the studio's dim glint remnants)
+    are highlight holes (``highlights.thin_light_lines``); False reproduces the step-5 bake. Returns the result dict
+    (arrays included)."""
     t0 = time.perf_counter()
     opt_out_ecoqos()
     prog = Progress("print", log)
@@ -493,8 +499,10 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         tf = frow[tex.face]
         nf = np.bincount(tf, minlength=nlf).astype(float)
         wf = np.zeros((nlf, len(vlist)))
+        sf = np.zeros((nlf, len(vlist)))                 # step 6: share of each face's texels a view sees as donors
         for n, s in samples.items():
             wf[:, vindex[n]] = np.bincount(tf, weights=s.w, minlength=nlf) / np.maximum(nf, 1)
+            sf[:, vindex[n]] = np.bincount(tf, weights=s.ok.astype(float), minlength=nlf) / np.maximum(nf, 1)
         lut = np.full(len(job.mesh.F), -1, np.int64)
         for r in regions:
             lut[r.faces] = r.rid
@@ -518,7 +526,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                     face_cols[:, k_, c_] = np.bincount(tf, weights=np.where(s_.ok, gcol[:, c_], 0.0),
                                                        minlength=nlf) / np.maximum(cnt, 1)
         pl = LB.place_labels(job.mesh.V, job.mesh.F, layout.faces, lut[layout.faces], region_label, wf, nf, vlist, tx,
-                             mode=label_moves, face_colours=face_cols, part_of_face=job.mesh.part[layout.faces])
+                             mode=label_moves, face_colours=face_cols, part_of_face=job.mesh.part[layout.faces],
+                             seen_share=sf if keep_seen else None)
         face_label = pl["labels"]
         label = face_label[tf]
         timings["labels_s"] = round(time.perf_counter() - t, 2)
@@ -580,11 +589,12 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                     okp = samples[u].ok & np.array([adm.get((u, names[p]), False) for p in range(len(names))])[tex.part]
                     ws.append((j, okp, gained[u]))
                 wit[i] = ws
-            hl = HL.flag(tex, painted, col, label, wit, tx=tx)
+            hl = HL.flag(tex, painted, col, label, wit, tx=tx, thin=thin_light)
         holes_hl = hl["mask"]
 
         # text mask (D6)
-        tm = FL.text_mask(job, tex, decals, painted, col, tx, label=label, views=vlist)
+        tm = FL.text_mask(job, tex, decals, painted, col, tx, label=label, views=vlist,
+                          light_only=see_through_light)
         text_fill = tm["mask"] if (tm["decals"] and not keep_photo_text) else np.zeros(n, bool)
 
         # P0 = the photo layer
@@ -1035,7 +1045,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                              "foreign_view_photo_texels": int(foreign_total),
                              "boundary_per_part": {names[int(k_)]: v_ for k_, v_ in pl["boundary_per_part"].items()},
                              **{k: pl[k] for k in ("boundary_start", "boundary", "moved_faces", "candidates", "energy",
-                                                "band_faces", "band_faces_start_label_unseen",
+                                                "band_faces", "band_faces_start_label_unseen", "keep_seen",
                                                 "moved_faces_start_label_unseen", "moved_texels",
                                                 "moved_texels_start_label_unseen", "moved_to_unseen_faces")}},
                   "knockout": knock}
@@ -1097,8 +1107,18 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                                                                                  "overlaps to pass its keep test)"},
                   "flatten": flat_report,
                   "level": {"applied": bool(level), "gain": (float(level["gain"]) if level else None),
-                            "gamma": (float(level["gamma"]) if level else None), "source": level_source,
-                            "map": "rgb_lin x gain x Y^(gamma - 1) on every textured texel after compose (shading.level_map)",
+                            "gamma": (float(level["gamma"]) if level else None),
+                            "sat": (float(level.get("sat", 1.0)) if level else None),
+                            "chroma_power": (float(level.get("chroma_power", 1.0)) if level else None),
+                            "chroma_hold": (bool(level.get("chroma_hold", False)) if level else None),
+                            "chroma_hue": (list(level["chroma_hue"]) if level and level.get("chroma_hue") is not None
+                                           else None),
+                            "source": level_source,
+                            "map": "rgb_lin -> Y + f x (rgb_lin - Y), g = sat x (C*ab / 10)^(chroma_power - 1) (held at "
+                                   ">= 1 when chroma_hold), f = 1 + w(hue) x (g - 1) (w = 1 inside chroma_hue, 0 beyond "
+                                   "15 deg outside; f = g without it), x gain x Y^(gamma - 1) on every textured texel "
+                                   "after compose (shading.level_map; sat 1, chroma_power 1, no hold = chromaticity "
+                                   "kept)",
                             "note": ("AR level calibrated to the photos" if level else
                                      "AR level NOT calibrated: print.png is photo radiance after the gains")},
                   "strip_donors": bool(strip_donors),

@@ -48,6 +48,17 @@ Correction round (2026-10-06, after the AR tool test of 10bf932; PORT_REVIEW sec
 Fix round 1 of the correction round: the flatten keep test also needs the drop to survive leaving any one view pair
 out (on FT1119 it rested on pair 04-05: not kept); the footprint also keeps a donor 2.5 px from the light anti-aliased
 edges of bright non-acetate pixels (``texels.footprint_holes``, rule 'edges'; a glint-line footprint is built, off).
+Step 6 (2026-10-07, after the step-5 AR tool test; PORT_REVIEW section 10): in crease mode the anchor keeps the faces it
+sees (``labels.KEEP_SEEN_SHARE``: the photometric seam had handed photo 05's brow honey band to the top view 04);
+see-through text needs light acetate (``fill.light_acetate``: photo 03 shows no lettering, its 2 mm band was filled
+smooth); thin light achromatic lines are highlight holes (``highlights.thin_light_lines``: the studio's dim glint
+remnants on the endpiece bevels); the AR level map has a calibrated chroma factor (``shading.level_map`` ``sat``;
+fix round 1: a power of the texel's C*ab, ``chroma_power``, which lifted the low end but also greyed the saturated
+tail: with fix round 1's sat 1.107 / power 0.745 the factor is 1.107 at C* 10 and falls below 1 above C* ~15
+(1.107 x (C* / 10)^-0.255 = 1 at C* 14.9); fix round 2: ``chroma_hold`` keeps the factor >= 1 and ``chroma_hue`` lets
+it act only inside the havana hue band, so off-hue noise is not amplified). The level a bake applied is recorded in
+its report.json ``level`` (FT1119's production bake ``data/wp5/ft1119_bake``: gain 0.931, gamma 1.080, sat 0.996,
+chroma_power 0.455, chroma_hold true, chroma_hue 20-100 deg).
 The Blender side (``g3d.print_uv``, ``attach_print``, ``detach_print``, ``remove_print_uv``; the exporter's
 ``g3d_print_uv`` allowlist and TEXCOORD index; A6, B5) is ``glasses3d/g3d/print_bpy.py``. Flatten (§6.6) is built since the correction round (``shading``; it was off on
 FT1119, §6.6). Sides are always the x sign, never part names (q001 names temples by the viewer's side).

@@ -41,6 +41,19 @@ front pivot.
   (2000 resamples, fixed seed) -> 95 % CI of mean d.
 - ``tol_bp`` (diagnostic only): the best bp 1-4 px r over shifts within 2.5 mm, against the same search at +/-40,
   +/-60 px along x.
+- NEW (step 6): ``level_compare(...)['appearance']``: weighted C*ab p50 / p90 / mean and L* standard deviation of
+  the AR and photo pixels, their differences and ratios (verdict: |C* p50 difference| <= ``CHROMA_TOL``, AND (fix
+  round 1 of step 6: the median alone passed a print whose saturated tail was 1.4x the photo's, C* p90 26.06 against
+  18.54 at photo 05's own angle) the C* p90 and mean ratios within ``CHROMA_SPREAD_RATIO``, AND the std ratio within
+  ``CONTRAST_RATIO``; ``criteria`` names each; ``chroma_units``: the three chroma terms in units of their own window;
+  the level verdict ``pass`` is unchanged); ``band_energy``: std of the masked DoG of L* at 0.5-3 mm (the havana's
+  patch contrast) over a mask, at a given px/mm.
+- NEW (fix round 2 of step 6: a chroma lift amplified off-hue noise and nothing graded hue): ``appearance['hue']``
+  over the pixels with C*ab > ``HUE_C_MIN`` (weighted like the rest): the median hue h_ab (circular, about the havana
+  band's centre), the share of all pixels that are magenta (``MAGENTA_HUE``, the dark-pixel noise hue: 3 % of photo
+  05's brow pixels with C* > 4, 0.2 % above C* 8) and the share off ``HAVANA_HUE`` (20-100 deg; photo 05's brows have
+  13 % of their C* > 4 pixels at 0-20 deg, real red-brown, so this share is reported, not graded). Verdict terms:
+  |hue median AR - photo| <= ``HUE_TOL_DEG`` and the AR's magenta share at most ``MAGENTA_EXCESS`` over the photo's.
 
 A6 / B5 (step 4, the Blender side; section at the end): exported GLBs are read with WP3's reader (g3d_host.glb), never
 with the tool's own (g3d.printuv.glbmesh); ``print_uv_invariance``, ``a6_round_trip``, ``b5_material_control`` and
@@ -1035,8 +1048,126 @@ def level_compare(ar_px, photo_px, *, tol: float = LEVEL_TOL, ar_group=None, pho
             return {**out, "pass": False, "reason": "no shared group"}
     a, p = level_stats_w(La, wa), level_stats_w(Lp, wp)
     d = {k: round(a[k] - p[k], 2) for k in ("p10", "p50", "p90", "mean")}
-    return {**out, "ar": a, "photo": p, "ar_minus_photo": d,
+    # step 6 (NEW): chroma C*ab and contrast (weighted L* standard deviation) on the same pixels and weights; reported
+    # beside the level verdict (``appearance`` holds their own verdict, ``pass`` stays the level's)
+    ca, cp = chroma_stats_w(ar_px, wa), chroma_stats_w(photo_px, wp)
+    sa, sp = _wstd(La, wa), _wstd(Lp, wp)
+    app = {"ar_chroma": ca, "photo_chroma": cp,
+           "chroma_ar_minus_photo": {k: round(ca[k] - cp[k], 2) for k in ("p50", "p90", "mean")},
+           "chroma_ar_over_photo": {k: (round(ca[k] / cp[k], 3) if cp[k] > 0 else None) for k in ("p90", "mean")},
+           "ar_lstar_std": round(sa, 2), "photo_lstar_std": round(sp, 2),
+           "lstar_std_ratio": round(sa / sp, 3) if sp > 0 else None,
+           "chroma_tol": CHROMA_TOL, "chroma_spread_ratio_range": list(CHROMA_SPREAD_RATIO),
+           "contrast_ratio_range": list(CONTRAST_RATIO)}
+    app["chroma_units"] = chroma_units(app)
+    ha_, hp_ = hue_stats_w(ar_px, wa), hue_stats_w(photo_px, wp)       # fix round 2 of step 6: hue
+    dh = (None if ha_["p50"] is None or hp_["p50"] is None else round(ha_["p50"] - hp_["p50"], 2))
+    app["hue"] = {"ar": ha_, "photo": hp_, "p50_ar_minus_photo": dh,
+                  "magenta_share_ar_minus_photo": round(ha_["magenta_share"] - hp_["magenta_share"], 4),
+                  "off_band_share_ar_minus_photo": round(ha_["off_band_share"] - hp_["off_band_share"], 4),
+                  "c_min": HUE_C_MIN, "tol_deg": HUE_TOL_DEG, "magenta_excess": MAGENTA_EXCESS,
+                  "band_deg": list(HAVANA_HUE), "magenta_deg": list(MAGENTA_HUE)}
+    app["criteria"] = {"chroma_p50": bool(abs(app["chroma_ar_minus_photo"]["p50"]) <= CHROMA_TOL),
+                       **{f"chroma_{k}": _in(app["chroma_ar_over_photo"][k], CHROMA_SPREAD_RATIO) for k in ("p90", "mean")},
+                       "contrast": _in(app["lstar_std_ratio"], CONTRAST_RATIO),
+                       "hue_p50": bool(dh is not None and abs(dh) <= HUE_TOL_DEG),
+                       "hue_magenta": bool(app["hue"]["magenta_share_ar_minus_photo"] <= MAGENTA_EXCESS)}
+    app["pass"] = bool(all(app["criteria"].values()))
+    return {**out, "ar": a, "photo": p, "ar_minus_photo": d, "appearance": app,
             "pass": bool(abs(d["p10"]) <= tol and abs(d["p50"]) <= tol)}
+
+
+CHROMA_TOL = 1.0                 # step 6: median C*ab within 1 unit of the photo's (photos' brow medians: 4.0-6.0)
+CONTRAST_RATIO = (0.85, 1.18)    # step 6: L* standard deviation within -15 % / +18 % (a factor 0.85 either way)
+CHROMA_SPREAD_RATIO = (0.85, 1.18)   # fix round 1 of step 6: C*ab p90 and mean, AR / photo, within the contrast's
+                                     # window (they are the chroma's spread as the std is the L*'s)
+
+
+HAVANA_HUE = (20.0, 100.0)       # fix round 2 of step 6: the havana hue band (CIELAB h_ab, degrees); reported only
+MAGENTA_HUE = (300.0, 360.0)     # ... the magenta hues: dark-pixel colour noise, not pigment (graded)
+HUE_C_MIN = 4.0                  # pixels above this C*ab carry a hue (below it, 8-bit noise in the darks dominates)
+HUE_TOL_DEG = 5.0                # |hue median AR - photo| within this (at C* 6, 5 deg is a hue difference dH ~0.5)
+MAGENTA_EXCESS = 0.02            # the AR's magenta share at most 2 points over the photo's (photos, print form: 0.5-2.3 %)
+
+
+def _in(x, rng) -> bool:
+    return bool(x is not None and rng[0] <= x <= rng[1])
+
+
+def hue_stats_w(rgb_px, w) -> dict:
+    """Fix round 2 of step 6: hue of sRGB pixels, weighted: over the pixels with C*ab > ``HUE_C_MIN``, the median hue
+    h_ab in degrees (circular: hues are taken within 180 deg of the havana band's centre, 60 deg, then the weighted
+    median), and, as shares of ALL the pixels' weight, the chromatic share, the magenta share (``MAGENTA_HUE``) and the
+    share off ``HAVANA_HUE``."""
+    lab = T.lab_of(np.asarray(rgb_px, np.float64).reshape(-1, 3))
+    w = np.asarray(w, np.float64)
+    if not len(lab) or w.sum() <= 0:
+        return {"p50": None, "chromatic_share": 0.0, "magenta_share": 0.0, "off_band_share": 0.0}
+    C = np.hypot(lab[:, 1], lab[:, 2])
+    h = np.degrees(np.arctan2(lab[:, 2], lab[:, 1])) % 360.0
+    m = C > HUE_C_MIN
+    centre = 0.5 * (HAVANA_HUE[0] + HAVANA_HUE[1])
+    rel = (h - centre + 180.0) % 360.0 - 180.0 + centre
+    tot = w.sum()
+    mag = m & (h >= MAGENTA_HUE[0]) & (h < MAGENTA_HUE[1])
+    off = m & ~((h >= HAVANA_HUE[0]) & (h <= HAVANA_HUE[1]))
+    return {"p50": round(float(_wq(rel[m], w[m], (50,))[0]), 2) if m.any() and w[m].sum() > 0 else None,
+            "chromatic_share": round(float(w[m].sum() / tot), 4), "magenta_share": round(float(w[mag].sum() / tot), 4),
+            "off_band_share": round(float(w[off].sum() / tot), 4)}
+
+
+def chroma_units(app: dict) -> list[float]:
+    """[p50, p90, mean] of an ``appearance`` block in units of its own verdict's window (|x| <= 1 passes): the C*ab p50
+    difference / ``CHROMA_TOL``; ln(AR / photo) of p90 and of the mean over ln of the ``CHROMA_SPREAD_RATIO`` edge on
+    its side (a missing ratio counts 99)."""
+    out = [round(app["chroma_ar_minus_photo"]["p50"] / CHROMA_TOL, 3)]
+    for k in ("p90", "mean"):
+        r = app["chroma_ar_over_photo"][k]
+        if not r or r <= 0:
+            out.append(99.0)
+            continue
+        edge = CHROMA_SPREAD_RATIO[1] if r >= 1.0 else 1.0 / CHROMA_SPREAD_RATIO[0]
+        out.append(round(math.log(r) / math.log(edge), 3))
+    return out
+
+
+def _wstd(x, w) -> float:
+    x = np.asarray(x, np.float64)
+    w = np.asarray(w, np.float64)
+    if not len(x) or w.sum() <= 0:
+        return 0.0
+    m = (x * w).sum() / w.sum()
+    return float(np.sqrt(((x - m) ** 2 * w).sum() / w.sum()))
+
+
+def chroma_stats_w(rgb_px, w) -> dict:
+    """{'p50', 'p90', 'mean'} of CIELAB chroma C*ab (D65; the shared colour helper) of sRGB pixels, weighted."""
+    lab = T.lab_of(np.asarray(rgb_px, np.float64).reshape(-1, 3))
+    C = np.hypot(lab[:, 1], lab[:, 2])
+    w = np.asarray(w, np.float64)
+    if not len(C):
+        return {"p50": float("nan"), "p90": float("nan"), "mean": float("nan")}
+    q = _wq(C, w, (50, 90))
+    return {"p50": round(float(q[0]), 2), "p90": round(float(q[1]), 2), "mean": round(float((C * w).sum() / w.sum()), 2)}
+
+
+def band_energy(img, mask, ppm: float, band_mm=(0.5, 3.0), L=None) -> float | None:
+    """Step 6 (NEW): the std of the masked DoG of L* (sigma ``band_mm`` x ``ppm`` px) over ``mask`` (the print's
+    patch contrast at 0.5-3 mm, the scale of havana spots); None below 200 pixels. ``L``: the image's L* when the
+    caller already has it (fix round 3 of step 6, speed only). The DoG is computed on the mask's bounding box padded by
+    the wider Gaussian's reach (``gaussian_filter`` truncates at 4 sigma): outside the mask both masked inputs are
+    zero, so on the mask the result is the whole image's (checked by a test)."""
+    m = np.asarray(mask, bool)
+    if m.sum() < 200:
+        return None
+    L = lstar(np.asarray(img, np.float64)) if L is None else np.asarray(L, np.float64)
+    r = int(4.0 * max(band_mm) * ppm + 0.5) + 2
+    ys, xs = np.nonzero(m)
+    y0, y1 = max(int(ys.min()) - r, 0), min(int(ys.max()) + r + 1, m.shape[0])
+    x0, x1 = max(int(xs.min()) - r, 0), min(int(xs.max()) + r + 1, m.shape[1])
+    mc = m[y0:y1, x0:x1]
+    b = bandpass(L[y0:y1, x0:x1], mc, band_mm[0] * ppm, band_mm[1] * ppm)
+    return float(b[mc].std())
 
 
 # ----------------------------------------------------------------------------- strip streakiness (correction round)

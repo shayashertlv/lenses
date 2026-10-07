@@ -7,7 +7,9 @@ its matte) the front pose had L* p10 / p50 22.63 / 36.82 against photo 05's 16.6
 against photo 01's 13.29 / 25.15, while Astra's texture on the same model rendered front p10 9.61 (so the renderer's
 clearcoat floor does not stop the darks from reaching the photos'). The print's texels ARE photo radiance: the studio's
 light (front faces lit by the softbox, the top band's sheen) is in them, and arview (ACES filmic, a key light of 2 and
-three's RoomEnvironment at 0.8, clearcoat 0.8) lights that radiance again as if it were albedo.
+three's RoomEnvironment at 0.8; q001's havana: clearcoat 0.28 at coat roughness 0.16 over base roughness 0.23, read from
+the GLB in fix round 1 of step 6, where this line's earlier "clearcoat 0.8" was found to be a misreading) lights that
+radiance again as if it were albedo.
 
 Two steps, both measured:
 
@@ -34,11 +36,14 @@ Two steps, both measured:
   The factor is clipped to ``SHADE_CLIP`` (a fit is never extrapolated into a gain the data cannot carry).
 - **AR level** (``level_map``): the print is photo radiance after the gains (the reference photo's exposure), not
   albedo; a calibration TO THE PHOTOS maps it to the albedo whose AR render looks like them:
-  ``rgb_lin' = rgb_lin x gain x Y^(gamma - 1)`` (Y = the texel's linear luminance; chromaticity kept), applied to every
+  ``rgb_lin' = rgb_lin x gain x Y^(gamma - 1)`` (Y = the texel's linear luminance; chromaticity kept; step 6 adds a
+  calibrated chroma factor ``sat``, its fix round 1 a power of the texel's C*ab, its fix round 2 the options to hold
+  the factor at 1 or more and to act only inside the havana hue band, see ``level_map``), applied to every
   textured texel of the composed atlas as the LAST step (after compose's byte-identity check, before the gutters), so a
   calibration found by re-texturing a capture with the map equals the bake made with it. ``gain`` and ``gamma`` come
-  from ``tests/photoprint/ar_calibrate.py`` (arview captures of the tool-test GLB at every pose whose camera lies
-  within 20 deg of a photo's, against that photo, darkest decile and median L*), recorded in the report with their
+  from ``tests/photoprint/ar_calibrate.py`` (arview captures of the tool-test GLB at the poses whose camera lies within
+  5 deg of a photo's own camera, against that photo: darkest decile and median L*, contrast, then chroma; the poses 18
+  to 30 deg off are graded beside them, never fitted), recorded in the report with their
   source; ``level=None`` leaves the print as photo radiance and the report says the AR level is not calibrated.
 """
 from __future__ import annotations
@@ -225,14 +230,81 @@ def flatten(job, tex, samples: dict, mode: str = "test") -> dict:
 
 
 # ----------------------------------------------------------------------------- the AR level (calibrated to the photos)
+CHROMA_REF = 10.0               # C*ab the chroma power pivots on (~ the geometric mean of the photos' brow C* p50 and
+                                # p90, 4.4-5.8 and 15.6-18.5: the pivot lies inside the graded range, so sat stays ~1)
+CHROMA_FLOOR = 1.0              # C*ab below this count as this (a power < 1 would blow up near grey)
+CHROMA_FACTOR_MAX = 4.0         # the per-texel chroma factor never exceeds this
+HAVANA_HUE_DEG = (20.0, 100.0)  # fix round 2 of step 6: the havana hue band (CIELAB h_ab) the lift may act in. Photo 05's
+                                # brow pixels with C* > 4: 83 % in 20-80 deg, 13 % in 0-20 (red-brown), 3 % in 300-360
+                                # (magenta: dark-pixel noise; 0.2 % above C* 8); 100-300 empty
+CHROMA_HUE_TAPER_DEG = 15.0     # ... outside the band the lift falls linearly to none over this many degrees
+
+
+def hue_weight(lab: np.ndarray, band=HAVANA_HUE_DEG, taper: float = CHROMA_HUE_TAPER_DEG) -> np.ndarray:
+    """(...,) weight in [0, 1] of CIELAB colours ``lab`` (..., 3): 1 for a hue h_ab inside ``band`` (degrees), falling
+    linearly to 0 at ``taper`` degrees outside it (the circular distance to the band's nearer edge)."""
+    h = np.degrees(np.arctan2(lab[..., 2], lab[..., 1])) % 360.0
+    lo, hi = float(band[0]), float(band[1])
+    d_lo = (lo - h) % 360.0                     # degrees below the band's low edge (going down from lo)
+    d_hi = (h - hi) % 360.0                     # degrees above its high edge
+    inside = (h >= lo) & (h <= hi)
+    d = np.where(inside, 0.0, np.minimum(d_lo, d_hi))
+    return np.clip(1.0 - d / max(float(taper), 1e-9), 0.0, 1.0)
+
+
+def chroma_factor(rgb: np.ndarray, level: dict | None):
+    """The per-texel chroma factor of ``level_map``, from the input sRGB colour's CIELAB C*ab and h_ab:
+    g = sat x (max(C*ab, CHROMA_FLOOR) / CHROMA_REF)^(chroma_power - 1), clipped to ``CHROMA_FACTOR_MAX``; then (fix
+    round 2 of step 6, both optional) ``chroma_hold``: g = max(g, 1), the factor never greys a colour; ``chroma_hue``
+    [lo, hi] degrees: f = 1 + w(h) x (g - 1) with w = ``hue_weight`` (1 inside the band, 0 beyond ``CHROMA_HUE_TAPER_DEG``
+    outside it: an off-hue colour is left as it is). The scalar ``sat`` when chroma_power is 1 and neither option is
+    set, so the step-6 map is reproduced byte for byte; without the two options this is fix round 1's map byte for
+    byte."""
+    lv = level or {}
+    sat = float(lv.get("sat", 1.0))
+    p = float(lv.get("chroma_power", 1.0))
+    hold = bool(lv.get("chroma_hold", False))
+    band = lv.get("chroma_hue")
+    if p == 1.0 and not hold and band is None:
+        return sat
+    lab = T.lab_of(np.asarray(rgb, float))
+    C = np.maximum(np.hypot(lab[..., 1], lab[..., 2]), CHROMA_FLOOR)
+    g = np.minimum(sat * (C / CHROMA_REF) ** (p - 1.0), CHROMA_FACTOR_MAX)
+    if hold:
+        g = np.maximum(g, 1.0)
+    if band is not None:
+        g = 1.0 + hue_weight(lab, band) * (g - 1.0)
+    return g
+
+
 def level_map(rgb: np.ndarray, level: dict | None) -> np.ndarray:
-    """``rgb`` (..., 3) sRGB 0..255 -> the AR-calibrated albedo: linear rgb x gain x Y^(gamma - 1) (chromaticity
-    kept), clipped to 0..1 linear; float sRGB out (the caller rounds). ``level`` = {'gain', 'gamma'} or None."""
+    """``rgb`` (..., 3) sRGB 0..255 -> the AR-calibrated albedo: linear rgb x gain x Y^(gamma - 1), clipped to 0..1
+    linear; float sRGB out (the caller rounds). ``level`` = {'gain', 'gamma'[, 'sat'[, 'chroma_power'[,
+    'chroma_hold'[, 'chroma_hue']]]]} or None.
+    ``sat`` (step 6, default 1 = chromaticity kept, byte-identical to the correction round's map) scales each colour's
+    distance from grey at its own luminance in linear light (rgb_lin -> Y + f x (rgb_lin - Y), Y = Rec. 709 luminance,
+    unchanged), before the gain. Fix round 1 of step 6: one factor for every colour cannot match the photos' chroma at
+    both ends (sat 1.322 matched the C* median at photo 05's own angle and overshot its p90 by +7.5, 26.06 against
+    18.54: the renderer widens the saturated tail 1.1-1.3x while the level's darkening greys the low end), so the factor
+    is a power of the texel's own C*ab, ``f = chroma_factor`` = sat x (C* / CHROMA_REF)^(chroma_power - 1)
+    (chroma_power 1 = the step-6 map). A power below 1 makes the factor ABOVE 1 below the pivot and BELOW 1 above it:
+    fix round 1's sat 1.107 / power 0.745 gives 1.99 at C* 1, 1.67 at C* 2, 1.11 at 10, 0.88 at 25 and 0.78 at 40, so
+    it greyed the texture's honey spots (fix round 2's review: the delivered print's per-texel C* over the level-free
+    bake's was x0.85 at radiance C* 15-25 and x0.74 at 25-60, the luminance map's darkening included) and amplified
+    off-hue chroma noise (texels off 20-100 deg with C* > 5: 7.7 % radiance, 14.0 % delivered). Fix round 2 of step 6
+    adds two options (``chroma_factor``): ``chroma_hold`` (the factor is never below 1: it lifts low chroma and leaves
+    the saturated tail as the luminance map leaves it) and ``chroma_hue`` (the lift acts only inside the havana hue
+    band). All are calibrated TO THE PHOTOS at their own angles with gain and gamma
+    (``tests/photoprint/ar_calibrate.py``)."""
     rgb = np.asarray(rgb, float)
     if not level:
         return rgb.copy()
     lin = T.srgb_to_linear(rgb)
     Y = np.maximum(lin @ REC709, Y_FLOOR)
+    f = chroma_factor(rgb, level)
+    if np.ndim(f) or f != 1.0:
+        f = np.asarray(f, float)[..., None] if np.ndim(f) else f
+        lin = np.maximum(Y[..., None] + f * (lin - Y[..., None]), 0.0)
     k = float(level["gain"]) * Y ** (float(level["gamma"]) - 1.0)
     return T.linear_to_srgb(lin * k[..., None])
 

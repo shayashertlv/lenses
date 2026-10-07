@@ -225,10 +225,28 @@ TOOLTEST_INPUTS = (G3D.parent / "automation/data/blender_agent/studio/jobs/3b8a1
 @pytest.mark.skipif(not all(p.exists() for p in TOOLTEST_INPUTS), reason="q001 scene / step-4 bake not present")
 def test_q001_tool_test(tmp_path):
     """TOOL TEST: the step-4 print on a copy of q001: every check of print_tooltest passes, with the numbers this
-    step measured (77 / 22 polygons split, normals within 0.05 deg, uvs within 1e-3 texel of the bake's layout)."""
+    step measured (77 / 22 polygons split, normals within 0.05 deg, uvs within 1e-3 texel of the bake's layout).
+    Fix round 1 of the correction round: run on a temp COPY of the bake's files (``--bake``), so the record goes into
+    the copy's bake.json and the production bake.json is never written (checked by sha256)."""
+    import hashlib
+    import shutil
     from glasses3d.tests.photoprint import print_tooltest as TT
-    assert TT.main(["--out", str(tmp_path)]) == 0
-    rep = json.loads((tmp_path / "tooltest.json").read_text(encoding="utf-8"))
+    prod = G3D / "data/wp5/ft1119_bake"
+    bake = tmp_path / "bake"
+    bake.mkdir()
+    for n in ("print.png", "print_manifest.json", "layout.json", "report.json", "classes.png", "bake.json"):
+        if (prod / n).is_file():
+            shutil.copy2(prod / n, bake / n)
+    digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+    before = digest(prod / "bake.json")
+    out = tmp_path / "out"
+    assert TT.main(["--out", str(out), "--bake", str(bake)]) == 0
+    assert digest(prod / "bake.json") == before                  # the production bake is never written
+    if (bake / "bake.json").is_file():
+        d = json.loads((bake / "bake.json").read_text(encoding="utf-8"))
+        if "tooltest" in d:
+            assert d["tooltest"]["json"] == str(out / "tooltest.json") and d["tooltest"]["A6"] and d["tooltest"]["B5"]
+    rep = json.loads((out / "tooltest.json").read_text(encoding="utf-8"))
     assert rep["pass"], rep["checks"]
     objs = rep["receipts"]["printuv"]["objects"]
     assert {k: v["polygons_split"] for k, v in objs.items()} == {"Brow_Left": 77, "Brow_Right": 77,

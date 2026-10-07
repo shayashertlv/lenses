@@ -258,6 +258,12 @@ def test_text_is_filled_from_the_decal_by_default(bake):
     assert t["see_through_by_view"]["reference-06.png"] > 0 and t["see_through_hits_on_mirrored_decal"] > 0
     assert t["see_through_px"] > 0 and bake["see_through"].any() and not (bake["see_through"] & bake["photo"]).any()
     assert any(w.startswith("see-through text") for w in bake["report"]["warnings"])
+    # step 6: lettering shows only through LIGHT acetate; photo 03's cast lands on the dark phase of the -x temple
+    # (no lettering visible in the photo), so none of its hits is masked and its print stays photo
+    assert t["see_through_light_only"] is not None
+    cast3 = t["see_through_cast_by_view"]["reference-03.png"]
+    assert cast3 > 0 and t["see_through_by_view"]["reference-03.png"] <= 0.02 * cast3     # 0 of 1,970 at 16 tx/mm
+    assert t["see_through_dark_acetate_by_view"]["reference-03.png"] >= 0.98 * cast3
 
 
 def test_gain_support_and_saturation_are_reported(bake):
@@ -384,8 +390,12 @@ def test_a4_fill_knockout_known_verdicts(bake):
 
 
 A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False},
-                         "patchmatch": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False,
-                                        "Temple_Right": True}}
+                         "patchmatch": {"Brow_Left": True, "Brow_Right": False, "Temple_Left": False,
+                                        "Temple_Right": False}}
+# step 6 (2026-10-07, re-pinned deliberately): PyPatchMatch now passes the -x brow (q001 Brow_Left) and fails the +x
+# temple (Temple_Right) at 8 texels/mm; quilting (the production filler) still fails all four. The step-6 donor rules
+# changed which photo texels the proof's holes are drawn in (the -x brow front keeps its honey band; thin light lines
+# and photo 03's see-through band changed the temples' photo texels): the same knife edge as the earlier re-pins
 # correction round (2026-10-06): quilting passed the +x temple and PyPatchMatch also the -x brow (q001 Brow_Left) at
 # 8 texels/mm. Fix round 1 (2026-10-07, re-pinned deliberately): only PyPatchMatch on the +x temple passes; the two
 # correction-round passes needed both its plain footprint and its flatten (see A4_KNOWN_AT_8)

@@ -45,7 +45,8 @@ Correction round (2026-10-06): the bake may divide the photos' own shading out (
 report.json as SH coefficients) and map the composed print to the AR level calibrated to the photos (``level``,
 declared gain and gamma). ``readback_a3`` re-applies both, written again here (the 9-term SH basis over the texel's
 face normal in the view's camera frame, the declared normalisation and clip; the level map on the rounded photo
-colour). B3 grades the held-out bake as PHOTO RADIANCE: the atlas before the level (``atlas_radiance``; the 10bf932
+colour, ``reapply_level``, whose chroma factor is the proofs' one copy ``correction_proof._chroma_f``: fix round 3 of
+step 6 removed a third, inline copy). B3 grades the held-out bake as PHOTO RADIANCE: the atlas before the level (``atlas_radiance``; the 10bf932
 bake had no level, so this is its protocol). Fix round 1 of the correction round: the verdict is the 10bf932
 protocol (the held-out render and Astra's as rendered, no re-lighting); when the bake flattened, the correction
 round's re-lit grading (both renders re-lit by photo h's own shading, fitted on h's donor texels by the tool's
@@ -178,6 +179,28 @@ def _gain(rgb: np.ndarray, g) -> np.ndarray:
     return np.clip(T.linear_to_srgb(T.srgb_to_linear(rgb) * g[None]), 0, 255)
 
 
+def reapply_level(e: np.ndarray, level: dict) -> np.ndarray:
+    """A3's re-application of the declared AR level (correction round) to the expected colours ``e`` (float sRGB,
+    (n, 3)), on the ROUNDED colour as the bake applies it: linear rgb x gain x Y^(gamma - 1), and (step 6) the
+    chroma factor about grey at Y. The factor is the proofs' own copy, ``correction_proof._chroma_f`` (written from
+    shading's documentation, never imported from the tool, and tested against ``shading.chroma_factor``); fix round 3
+    of step 6: this function replaced a third, inline and untested copy of that formula inside ``readback_a3``."""
+    from glasses3d.tests.photoprint.correction_proof import _chroma_f
+    er = np.rint(np.asarray(e, np.float64))
+    lin = T.srgb_to_linear(er)
+    Y = np.maximum(lin @ np.array([0.2126, 0.7152, 0.0722]), 1e-4)
+    sat = float(level.get("sat", 1.0))                 # step 6: the chroma factor, about grey at Y
+    power = float(level.get("chroma_power", 1.0))      # fix round 1: x (C*ab / 10)^(power - 1), floor 1, cap 4
+    hold = bool(level.get("chroma_hold") or False)     # fix round 2: the factor held at >= 1 ...
+    band = level.get("chroma_hue")                      # ... and acting only inside the hue band (15 deg taper)
+    if power != 1.0 or hold or band is not None:
+        fc = _chroma_f(er, sat, power, hold, band)
+        lin = np.maximum(Y[:, None] + fc[:, None] * (lin - Y[:, None]), 0.0)
+    elif sat != 1.0:
+        lin = np.maximum(Y[:, None] + sat * (lin - Y[:, None]), 0.0)
+    return T.linear_to_srgb(lin * (float(level["gain"]) * Y ** (float(level["gamma"]) - 1.0))[:, None])
+
+
 def readback_a3(job, res: dict, out_dir) -> dict:
     """A3 graded independently (see the module docstring)."""
     out_dir = Path(out_dir)
@@ -241,9 +264,7 @@ def readback_a3(job, res: dict, out_dir) -> dict:
             gg = gg * lev[ii[m], jj[m]]
         e = np.clip(T.linear_to_srgb(T.srgb_to_linear(e) * gg), 0, 255)
         if level is not None:                           # correction round: the declared AR level on the rounded colour
-            lin = T.srgb_to_linear(np.rint(e))
-            Y = np.maximum(lin @ np.array([0.2126, 0.7152, 0.0722]), 1e-4)
-            e = T.linear_to_srgb(lin * (float(level["gain"]) * Y ** (float(level["gamma"]) - 1.0))[:, None])
+            e = reapply_level(e, level)
         expect[m] = e
     got = img[ii, jj]
     diff = np.abs(np.rint(expect) - got).max(1)

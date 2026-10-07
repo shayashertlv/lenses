@@ -534,6 +534,14 @@ def _level(path):
         return None, None
     d = json.loads(Path(path).read_text(encoding="utf-8"))
     lv = {"gain": float(d["level"]["gain"]), "gamma": float(d["level"]["gamma"])}
+    if "sat" in d["level"]:                                  # step 6: the calibrated chroma factor
+        lv["sat"] = float(d["level"]["sat"])
+    if "chroma_power" in d["level"]:                         # fix round 1 of step 6: ... as a power of C*ab
+        lv["chroma_power"] = float(d["level"]["chroma_power"])
+    if d["level"].get("chroma_hold"):                        # fix round 2 of step 6: held at >= 1 ...
+        lv["chroma_hold"] = True
+    if d["level"].get("chroma_hue") is not None:             # ... and only inside the havana hue band
+        lv["chroma_hue"] = [float(x) for x in d["level"]["chroma_hue"]]
     return lv, f"{path} (sha256 {hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]})"
 
 

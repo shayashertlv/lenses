@@ -15,26 +15,60 @@ registered overlaps, and single-source mode has none; reported as off).
   print the witness saw darker because it was looking 2 mm away. A witness flag now also needs the texel to be a LOCAL
   highlight in its own painting view: its gained luminance >= ``LOCAL_EXCESS`` levels over the masked Gaussian mean
   (sigma ``LOCAL_SIGMA_MM``) of the painted texels around it. The specular rule is unchanged.
+- **Step 6 (2026-10-07, the light marks on the +x endpiece block): thin light lines** (``thin_light_lines``). The
+  photo's glint detector (``metal.thin_lines``: >= 25 levels over a 0.4 mm opening, elongated >= 1 mm, its shoulder
+  >= 12.5) leaves the studio's dimmer glint remnants along curved bevels: broken rows of light, achromatic texels
+  10-25 levels over their surroundings, which the AR renders as thin light marks (the +x block's top band at the
+  front pose and at pitch +20; white top-hat > 8 L* at 5 px: 60 / 77 AR pixels with the step-5 print against Astra's
+  34 / 26). In the texel domain, per painting view, a painted texel whose luminance is >= ``THIN_EXCESS`` levels over
+  its masked opening at radius ``THIN_HALF_MM`` (only features narrower than about 0.4 mm survive: a honey patch does
+  not) and whose blue rises with its red (``THIN_ACHROMATIC``: white light adds to every channel; an amber fleck
+  raises red only) is a highlight: a hole, filled later (``thin=False`` turns the rule off).
 """
 from __future__ import annotations
 
 import numpy as np
 from scipy import ndimage
 
+from . import metal as MT
 from . import signals as S
 
 BRIGHTER_BY = 25.0
 DILATE = 1
 LOCAL_EXCESS = 15.0              # correction round: a witness flag must also be a local highlight in its own view
 LOCAL_SIGMA_MM = 0.5
+THIN_HALF_MM = 0.2               # step 6: thin light lines narrower than about 2 x this ...
+THIN_EXCESS = 10.0               # ... at least this many levels over their masked opening ...
+THIN_ACHROMATIC = 0.6            # ... with a blue rise >= 0.6 x the red one
+
+
+def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, tx: float) -> np.ndarray:
+    """(n,) bool: painted texels on thin, light, achromatic lines of their own painting view (step 6; module
+    docstring): luminance >= ``THIN_EXCESS`` over the masked opening (disk radius ``THIN_HALF_MM`` x ``tx``) of that
+    view's painted texels, and a blue rise >= ``THIN_ACHROMATIC`` x the red rise over the same opening."""
+    f = np.asarray(col, float)
+    out = np.zeros(len(f), bool)
+    fp = MT._disk(max(1, int(round(THIN_HALF_MM * float(tx)))))
+    lab = np.asarray(label)
+    for li in np.unique(lab[painted]):
+        sel = painted & (lab == li)
+        M = tex.image(sel, False, bool)
+        ch = [tex.image(np.where(sel, f[:, c], 0.0), 0.0, float) for c in range(3)]
+        L = (ch[0] + ch[1] + ch[2]) / 3.0
+        tw = (L - MT._masked_open(L, M, fp))[tex.ii, tex.jj]
+        tR = (ch[0] - MT._masked_open(ch[0], M, fp))[tex.ii, tex.jj]
+        tB = (ch[2] - MT._masked_open(ch[2], M, fp))[tex.ii, tex.jj]
+        out |= sel & (tw >= THIN_EXCESS) & (tB >= THIN_ACHROMATIC * np.maximum(tR, 1e-6))
+    return out
 
 
 def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses: dict[int, list], *,
-         tx: float | None = None) -> dict:
+         tx: float | None = None, thin: bool = True) -> dict:
     """``col`` (n, 3) gained painted colours, ``label`` (n,) view index; ``witnesses[label]`` = [(view index, ok (n,),
     gained colours (n, 3))] of the other admitted views. ``tx`` (texels per mm; correction round): witness flags must
-    also be local highlights (module docstring); None = the step-4 rule. Returns {'mask', 'specular', 'witness',
-    'dilated', 'witness_not_local'}."""
+    also be local highlights (module docstring); None = the step-4 rule. ``thin`` (step 6, needs ``tx``): thin light
+    achromatic lines are highlights too. Returns {'mask', 'specular', 'witness', 'dilated', 'witness_not_local',
+    'thin_light_line'}."""
     f = np.asarray(col, float)
     lum = f.mean(-1)
     sat = f.max(-1) - f.min(-1)
@@ -62,11 +96,15 @@ def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses
         wit |= sel & np.isfinite(lmin) & (lum > lmin + BRIGHTER_BY) & (sat < smin)
     not_local = wit & ~local
     wit &= local
-    m = spec | wit
+    thin_m = (thin_light_lines(tex, painted, f, label, tx) if (thin and tx is not None) else np.zeros(len(f), bool))
+    m = spec | wit | thin_m
     img = tex.image(m, False, bool)
     pim = tex.image(painted, False, bool)
     dil = ndimage.binary_dilation(img, iterations=DILATE) & pim
     out = dil[tex.ii, tex.jj]
     return {"mask": out, "specular": int(spec.sum()), "witness": int((wit & ~spec).sum()),
             "dilated": int((out & ~m).sum()), "witness_not_local": int((not_local & ~spec).sum()),
+            "thin_light_line": int((thin_m & ~spec & ~wit).sum()),
+            "thin_rule": ({"half_mm": THIN_HALF_MM, "excess": THIN_EXCESS, "achromatic": THIN_ACHROMATIC}
+                          if (thin and tx is not None) else None),
             "local_rule": None if tx is None else {"excess": LOCAL_EXCESS, "sigma_mm": LOCAL_SIGMA_MM}}

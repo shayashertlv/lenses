@@ -399,7 +399,11 @@ def _synthetic_residuals(gain, gamma):
            - np.array([34.5, 33.5, 29.9, 31.9]) * g + 1.5 * lg ** 2)
     near = (np.array([-0.29, 1.94, 2.98, 0.61]) + np.array([7.9, 12.7, 8.5, 9.0]) * lg
             - np.array([25.9, 39.3, 28.4, 29.9]) * g + 1.0 * lg ** 2)
-    return {"calibration": [float(x) for x in cal], "trade-off": [float(x) for x in near], "held-out": []}
+    # step 6: the 'appearance' role (the delivered target) = the calibration residuals + one contrast term per pair
+    # (2 ln(std ratio) / ln 1.18), the ratio rising along the passing ridge as step 6 measured (1.12 -> 1.24)
+    contrast = np.array([0.6 + 3.0 * g + 0.8 * lg, -0.3 + 1.0 * g + 0.4 * lg])
+    return {"calibration": [float(x) for x in cal], "trade-off": [float(x) for x in near], "held-out": [],
+            "appearance": [float(x) for x in np.r_[cal, contrast]]}
 
 
 def test_calibration_search_refines_between_grid_points():
@@ -417,10 +421,13 @@ def test_calibration_search_refines_between_grid_points():
     for gm in AC.GRID[1]:
         for gn in AC.GRID[0]:
             f(gn, gm, f"g{gn}_{gm}")
-    grid_best = {r: AC.worst(AC.best(its, r), r) for r in ("calibration", "trade-off")}
+    grid_best = {r: AC.worst(AC.best(its, r), r) for r in ("calibration", "trade-off", "appearance")}
     box = AC.search_box()
     G, M = np.meshgrid(np.exp(np.linspace(*np.log(box["gain"]), 300)), np.linspace(*box["gamma"], 241))
-    for name, role in AC.TARGETS.items():
+    # fix round 1 of step 6: the roles come from AC.TARGETS (the delivered target searches 'appearance'), as calibrate
+    # runs them; the plain 'calibration' role is searched too (the search is role-agnostic)
+    assert AC.TARGETS == {"photo_angles": "appearance", "near_18deg": "trade-off"}
+    for name, role in list(AC.TARGETS.items()) + [("calibration_only", "calibration")]:
         res = AC.search(its, f, role, 8, f"{name}_s", log=lambda m: None)
         truth = min(max(abs(x) for x in _synthetic_residuals(g, m)[role]) for g, m in zip(G.ravel(), M.ravel()))
         got = AC.worst(AC.best(its, role), role)
@@ -428,6 +435,7 @@ def test_calibration_search_refines_between_grid_points():
         assert got < grid_best[role] - 0.1                                # it refined between the grid points
         assert res["best"] in {e["tag"] for e in its} and res["steps"] <= 8
     assert grid_best["calibration"] > 2.0 >= AC.worst(AC.best(its, "calibration"), "calibration")  # passes only refined
+    assert AC.worst(AC.best(its, "appearance"), "appearance") < grid_best["appearance"] - 0.1
 
 
 def test_owner_sheet_rows_come_from_the_calibration(tmp_path):

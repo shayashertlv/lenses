@@ -2582,7 +2582,10 @@ Each item was diagnosed before code changed; every number below is the independe
 
 **1. Double lighting (`photoprint/shading.py`; `tests/photoprint/ar_levels.py`, `ar_calibrate.py`).**
 - *Diagnosis.* The print's texels are photo radiance (the studio's light is in them) and arview (ACES filmic, key light
-  2, RoomEnvironment 0.8, clearcoat 0.8) lights them again. AR frame pixels (part-id print parts, eroded 1 px) against
+  2, RoomEnvironment 0.8; q001's havana materials: clearcoat 0.28 at coat roughness 0.16 over base roughness 0.23 —
+  *[corrected in fix round 1 of step 6: this line said "clearcoat 0.8"; the values are q001's, read from the GLB's
+  KHR_materials_clearcoat and the .blend's Principled BSDF, see the material note of step 6]*) lights them again. AR
+  frame pixels (part-id print parts, eroded 1 px) against
   the photos' (print parts rendered at the WP3b camera, eroded 2 px, inside the matte), 10bf932: front L* p10 / p50
   22.63 / 36.82 against photo 05's 16.60 / 24.91; yaw -30 21.40 / 31.20 against photo 01's 13.29 / 25.15. Astra's
   texture on the same model renders front p10 9.61, so the renderer's clearcoat floor does not stop the darks.
@@ -3163,3 +3166,938 @@ the photos (the AR's environment band lies on both textures' nasal brow halves);
 endpieces with plain middles; the -x temple's 10bf932 dark lengthwise streaks are mostly gone but it is 7 L* lighter
 than photo 03 there and shows two spots where the photo shows four or five; the +x endpiece block's thin light marks
 are fainter (white top-hat > 8 L* at 5 px: 82 -> 61 px, Astra 17), not gone.
+
+### Step 6 (2026-10-07): the brow honey patches, the -x temple at yaw +45, the +x endpiece marks; a level map with contrast and chroma
+
+Input: the step-5 tool test's AR verdict (owner sheets above). The step-5 state is kept: `data/wp5/pre_s6_bake/`,
+`pre_s6_tooltest/`, `pre_s6_ar_calibration/`. New outputs: `data/wp5/ft1119_bake_radiance_s6b/` (the level-free bake the
+calibration reads), `data/wp5/ar_calibration/` (calibration.json, log `ar_calibration_s6.log`), `data/wp5/ft1119_bake/`
+(production, with `step6.json`), `data/wp5/tooltest/` (tool test on a fresh COPY of q001, captures, sheets). Two
+superseded calibration runs are kept for the record: `s6_calibration_lstar_only/` (L* target only, on the bake before
+the thin-line rule) and `s6_calibration_dryrun/` (contrast + chroma target, same bake). Every number below is the
+independent instrument's (`tests/instruments/print_metrics.py`), through `tests/photoprint/step6_proof.py`
+(`data/wp5/ft1119_bake/step6.json`) and `ar_levels`. Sides by x sign.
+
+**1. Brow honey patches: were they in the texture? Attribution step by step (brow fronts, -x / +x).**
+Photo 05 at its own camera against the print rendered UNLIT on q001 at the same camera, on the same acetate pixels
+(L* std / 0.5-3 mm band energy / C*ab p50 / honey share = C* > 12 and L* > 30):
+
+| stage | -x all | -x nasal third (\|x\| < 25 mm) | +x all |
+|---|---|---|---|
+| photo 05 | 8.44 / 4.98 / 5.78 / 12.3 % | 8.29 / 5.77 / 8.79 / 11.1 % | 11.16 / 6.01 / 4.80 / 14.9 % |
+| step-5 texture (radiance) | 5.76 / 3.10 / 5.08 / 6.9 % | 3.52 / 1.93 / 5.28 / 1.3 % | 10.30 / 5.36 / 4.52 / 13.6 % |
+| step-6 texture (radiance) | 6.20 / 3.37 / 5.57 / 8.8 % | 6.86 / 3.73 / 8.42 / 10.5 % | 10.19 / 5.38 / 4.61 / 13.3 % |
+
+- *Fill share and the label band (the main print-side loss).* In the step-5 bake the crease-mode MRF of fix round 2 had
+  pulled the front | top boundary up to 3 mm DOWN into the brow fronts and handed that band to the top view 04: 22.7 %
+  of the -x nasal third's pixels (8.7 % of the -x front, 2.5 % of +x) were painted by 04, 2 mm off and top-lit. The
+  photometric seam goes where the two unregistered photos agree, i.e. away from high-contrast print, so the honey
+  patches along the upper band of photo 05's brows went to 04 (73 % / 91 % of the handed texels were photo-05 donors,
+  seen at cos 0.96-0.97). Fix (`labels.KEEP_SEEN_SHARE`, `seen_share`): in crease mode a face whose own anchor sees
+  >= 50 % of its texels keeps the anchor; only the anchor's holes may go to an adjacent anchor (182 faces moved
+  against 545; 3,285 band faces kept; non-anchor photo share 4.2 -> 2.2 %; foreign-view texels 0). The -x nasal third is
+  now 92 % photo 05 (was 55.5 % 05 + 22.7 % 04 + 20 % fill).
+- *Brow middles:* photo 05's own middle third is plain (honey 0.0 % -x, 1.2 % +x; L* std 4.15 / 4.97); the texture
+  matches it (0.0 / 1.4 %). "Plain middles" in AR are the photo's; the patches that were lost were the NASAL thirds'.
+- *Shading division:* not applied (the flatten keep test still fails leave-one-pair-out on 04-05: drop 0.035 < 0.3),
+  so it costs nothing here.
+- *Gains:* photo 05 is the reference; the texture's L* p50 on the brow fronts is within 0.1-0.7 of the photo's in every
+  zone, so the region gains and the levelling field cost no contrast here.
+- *What is still below the photo in the texture:* the endpiece thirds (-x L* std 5.32 vs 8.28, honey 10.7 vs 16.6 %),
+  where 11.8 % is fill (the T-trim margin and footprint) and 2.8 % the new thin-line holes (item 3).
+- *Level map (gain, gamma) -> delivered texture:* step 5's (1.19, 1.15) darkened the brows by ~4 L* (as calibrated) and,
+  keeping chromaticity, lowered C*ab with L* (-x 5.08 -> 4.48). Step 6's map adds `sat` (below): delivered -x C* 6.50,
+  L* std 6.00 (radiance 6.20).
+- *AR renderer at photo 05's own angle (pitch +20):* ~~pixel-wise against each pixel's own albedo, AR L* = albedo + 3.5 /
+  4.4 (Astra's texture + 4.9 / 5.9), C* ratio 1.01-1.09 (Astra 0.80-0.87): the renderer at this pose keeps the print's
+  chroma and contrast; the AR chroma deficit of step 5 (AR C* 4.33 / 3.88 vs photo 5.78 / 4.80) was the texture's and
+  the level map's.~~ *[SUPERSEDED, fix round 1 of step 6: the pixel-wise numbers came from a scratch script, and the
+  claim is contradicted by `step6.json` at nearly the same pixel scale (AR 4.745 px/mm, photo 05 4.81). Brow-front
+  pixels, AR at pitch +20 against the delivered texture rendered unlit at photo 05's camera: L* std -x all 9.67 vs 6.00,
+  -x nasal 11.61 vs 6.69, +x all 12.34 vs 10.03; C* p90 26.39 vs 20.75 (-x), 25.51 vs 23.16 (+x); C* p50 6.32 vs 6.50
+  (-x). Restated: at pitch +20 the renderer keeps the MEDIAN chroma but widens the L* spread (1.2-1.7x) and the
+  saturated chroma tail (1.1-1.3x). This attribution is what led the chroma deficit to be corrected through one `sat`
+  factor, which overshot the tail; see fix round 1 below, where the pixel-wise comparison is in `step6_proof`
+  (`renderer_transfer`).]*
+- *Result in AR at pitch +20 (non-reflection brow-front pixels, step 5 -> step 6; photo 05 at its camera):* -x nasal
+  honey 3.1 -> 19.7 % (photo 11.1 %), C* 4.55 -> 10.39 (8.79), L* std 5.90 -> 11.61 (8.29); -x all C* 4.33 -> 6.32
+  (5.78), honey 8.9 -> 13.3 % (12.3 %), band energy 4.76 -> 5.19 (4.98); +x all C* 3.88 -> 5.21 (4.80), honey
+  14.9 -> 15.3 % (14.9 %). Astra: C* 7.52 / 3.68, honey 18.9 / 16.6 %. *[Added in fix round 1: against the PHOTO, not
+  only against step 5, the -x nasal third overshoots at this level: honey 19.7 vs 11.1 % (1.8x), L* std 11.61 vs 8.29
+  (1.4x), C* p50 10.39 vs 8.79 (+1.6, outside CHROMA_TOL 1), C* p90 29.98 vs 18.78. The sat 1.0 capture already has
+  honey 19.3 % and std 11.61 there, so the spread is print plus renderer (Astra's texture reaches 28.4 %); the C*
+  excess is the sat factor's.]*
+- *Front pose (material and renderer, not print):* see the note for Astra below.
+
+**2. The level map now carries contrast and chroma (`shading.level_map` `sat`; `ar_calibrate` method step 7;
+`print_metrics.level_compare` 'appearance', `band_energy`; `ar_levels` `chroma_residuals`, `contrast_ratios`,
+`band_energies`, `capture_ppm`).**
+- `rgb_lin -> Y + sat x (rgb_lin - Y)`, then `x gain x Y^(gamma - 1)`; Y unchanged; sat 1 is byte-identical to the
+  step-5 map. Measured: sat moves neither the L* residuals nor the contrast by more than 0.15.
+- Calibration target `appearance` = the photo-angle pairs' L* p10 / p50 residuals plus, per pair, 2 x ln(L* std ratio)
+  / ln(1.18) (a ratio at the edge of the instrument's window counts like a 2 L* residual), minimaxed by the same
+  trust-region search. The passing-L* ridge changes contrast along it: the L*-only target chose gain 1.20 / gamma 1.15,
+  std ratio 1.24 at photo 05's pair (`s6_calibration_lstar_only`), more spread than the photo.
+- Then the chroma stage at the chosen (gain, gamma): C* p50 residual lines in sat (05: -5.93 + 4.47 sat; 01: -4.38 +
+  3.33 sat), minimax sat 1.322, captured.
+- **Chosen (captured): gain 0.931, gamma 1.080, sat 1.322.** *[SUPERSEDED by fix round 1 of step 6: the C* median
+  matched, the saturated tail did not (p90 26.06 vs 18.54 and 21.99 vs 15.60, 1.41x); fix round 1 delivered gain
+  0.931, gamma 1.080, sat 1.107, chroma power 0.745 (see below), itself superseded by fix round 2: the level delivered
+  since is gain 0.931, gamma 1.080, sat 0.996, chroma power 0.455, held >= 1, hue band 20-100 deg
+  (`ft1119_bake/report.json` `level`).]* At the photos' own angles (pitch +20 vs 05; yaw -30
+  pitch +20 vs 01): L* p10 / p50 -0.97 / -1.22 and +1.62 / -1.62 (pass), C* p50 AR / photo 5.80 / 5.83 and 4.49 /
+  4.44 (pass, tolerance 1; the median only), L* std ratio 1.142 / 0.978 (pass, window 0.85-1.18), brow 0.5-3 mm band energy ratio 1.154 /
+  0.979; temple band energy at 01's pair 0.673 (the temples' fill, item 2). *[Fix round 3 of step 6: those band energies
+  measured both groups at the bridge's px/mm, 24-34 % off at the temples; with each part at its own px/mm the same
+  capture gives 1.158 / 0.983 and a temple ratio of 0.689 (`data/wp5/step6_fixes/ar_levels_corrected.json`, the
+  `pre_s6fr1_tooltest` capture): the temple reading does not change.]* Leave-one-pair-out: without 05's pair the
+  search picks gain 0.94 / gamma 1.08 (-1.08 / -1.16 on it, pass); without 01's pair it picks the grid point 0.75 / 1.00
+  (+2.41 / -0.99 on it, fails by 0.41).
+- Trade-off rows (18 deg below the photos): front vs 05 +1.56 / +4.92, yaw -30 vs 01 +4.97 / +2.78. Held-out: yaw +45
+  vs 03 +5.16 / +5.32 *[fix round 3: half of that row was photo 03's side-view brows weighted x5.4; graded on the
+  temples alone, as the corrected instrument does, +4.67 / +6.53 (`step6_fixes/ar_levels_corrected.json`)]*, yaw -45
+  vs 01 +4.61 / +1.22. The owner candidate "best at front / yaw -30" (gain 0.83 / gamma
+  1.17 / sat 1.32) is on the owner sheet (worst 5.39 at the photo angles, 1.57 at front / yaw -30).
+- The production print.png equals the calibrated candidate image pixel for pixel; the delivered tool test's capture
+  repeats the calibration capture's numbers exactly.
+
+**3. The -x temple at yaw +45 (photo 03).**
+- *Fewer spots and the lengthwise smear: a print defect, fixed.* The see-through text mask (fix round 1) is purely
+  geometric: every painted texel whose refracted view ray hits the inner brand print within 8 mm, dilated 1 mm and
+  closed into a band. On photo 03 that band (19,411 texels of the AR-visible stretch, 18.8 % of the outer face at
+  camera 03) covered photo print with a honey spot and its specks, yet photo 03 shows NO lettering there (contrast-
+  stretched crops; its acetate there is the dark phase, smoothed L* p10 / p50 / p90 13.8 / 16.1 / 20.0 against the
+  face median 18.0), and it was filled with a smooth dark band: the "smear". Photo 06 does show the lettering, dark on
+  amber, over the +x temple's honey patch. Rule (`fill.SEE_THROUGH_LIGHT_DL`, `light_acetate`): far-face print shows
+  through only where the acetate in front is light: a cast hit counts only where the painting photo's acetate,
+  smoothed over 0.5 mm, is >= 6 L* over that photo's median on the region. Photo 03: 0 of 1,970 hits pass; photo 06:
+  287 of 2,170. -x temple outer at camera 03: photo share 67.8 -> 83.7 %, text fill 18.8 % -> 0, honey 11.9 -> 15.1 %
+  (photo 14.1 %), L* std 9.59 -> 10.38 (11.72), band energy 5.35 -> 5.61 (6.94), C* 4.04 -> 4.74 (5.54). In AR at yaw
+  +45 (non-reflection outer-face pixels) honey 8.9 -> 12.6 %, C* 3.03 -> 4.48 *[fix round 3 of step 6: those were the
+  rigid raster's outer-face pixels, which the runtime's spread temple misregisters (IoU 0.41, centroid 42 px off at yaw
+  +45); by the capture's own part-id, non-reflection pixels of the -x temple (`step6_fixes/step6.json`,
+  `temple_partid`): honey 11.5 -> 17.6 %, C* p50 3.27 -> 4.88, C* p90 16.29 -> 32.27 (photo 03 at its own camera
+  14.1 %, 5.54, 27.03)]*; the close-up sheet shows four to five
+  spots along the arm as in photo 03 and no smear.
+- *~7 L* lighter than photo 03: mostly NOT the print.* Decomposition (frame form +6.05 at p50 now, +6.64 in step 5):
+  - (a) Photo 03 is the darkest photo of the set on the same or mirrored surfaces: non-reflection temple outer faces
+    L* p50 photo 03 (-x) 18.3 against photos 06 and 01 (+x) 21.8 / 22.0; same-surface linear medians photo 03 / 05 =
+    0.79 / 0.73 / 0.56 (727 texels of the -x brow), photo 03 / 02 = 0.75 / 0.54 / 0.66 (845 texels of the -x temple's
+    outer face). The gain chain brings photo 03 to the others' exposure (per-view 1.08 / 1.27 / 1.27, from the mirror
+    edge to 06 and the 02-03 boundary), so the texture's -x temple radiance at camera 03 is +2.4 L* over photo 03 (20.7
+    vs 18.3). This IS the region gain the task names; kept, because undoing it makes the -x temple ~3 L* darker than
+    the +x temple that photos 06 and 01 show (the yaw -45 vs photo 01 row, +x side near, is +1.22 at p50).
+  - (b) The renderer lifts the -x outer face at yaw +45 far more than the calibration poses: pixel-wise AR minus albedo
+    L* +9.5 (Astra's texture +9.6, the same) against +3.5 / +4.4 on the brows at pitch +20; and asymmetrically: the +x
+    outer face at yaw -45 gets +5.4 (Astra +7.1). With the level calibrated at the photo angles, that alone leaves the
+    -x temple ~5 L* over photo 03 at yaw +45 (28.8 deg from photo 03's camera). *[Fix round 2 of step 6: these
+    temple lifts are per-pixel pairs through a misregistered temple raster (withdrawn, see fix round 1's item 3); at
+    region level the lift is about +8 on BOTH sides, not asymmetric, and the temple sits +6.0 to +6.7 L* over photo
+    03, not ~5: see fix round 2.]*
+  - The delivered texture (after the level) is 1.7 L* DARKER than photo 03 at photo 03's own camera (16.6 vs 18.3).
+  The shading part is the renderer's lighting (arview's key light and environment), not the print: a note for Astra
+  below.
+
+**4. Light marks on the +x endpiece block.** (L* white top-hat > 8 at 5 px on the endpiece blocks, pixels off the
+black probe's reflections dilated 1 px; Astra in brackets.)
+- *Diagnosis:* the remaining marks were the studio's dimmer glint remnants along the bevels, 10-25 levels over their
+  surroundings, below the photo glint detector's 25-level line contrast (`metal.thin_lines`): broken rows of light,
+  achromatic texels on the top band of the block.
+- *Fix (`highlights.thin_light_lines`):* in the texel domain, per painting view, a painted texel >= 10 levels over its
+  masked opening at radius 0.2 mm (only features narrower than ~0.4 mm survive; a honey patch does not) whose blue
+  rises with its red (white light; an amber fleck raises red only) is a highlight hole, filled locally (small enclosed
+  holes: PatchMatch 0.3 mm). 15,057 texels (+ 14,097 by the 1-texel flag dilation): highlight fill 0.08 -> 1.46 % of
+  the atlas; AR-visible photo share of the brows 49.9 / 48.7 -> 47.1 / 46.2 %.
+- *Result:* ~~+x block off-reflection marks at pitch +20 51 -> 27 [2], at the front pose 52 -> 44 [14]; the -x block
+  is at Astra's level (front 0 [0], pitch +20 26 [5]).~~ *[SUPERSEDED, fix round 1 of step 6: these counts came from a
+  reflection filter that lived in a scratch script (probe L* > 12, dilated 1 px), not from `step6_proof`, whose
+  `light_marks` had no filter: `step6.json` gave +x pitch +20 77 -> 49 [26], front 60 -> 49 [34], -x 123 -> 115 [102]
+  / 114 -> 110 [111]. The filter is now in `step6_proof.light_marks` under its own name, beside the instrument's
+  achromatic-highlight mask; the regenerated counts are in fix round 1 below. Whichever mask is used, the +x block
+  stays above Astra.]* The 44 left at the front pose are photo 05's own pixels at the
+  top of the +x block (y 8-10 mm, front-facing; texel L* 38.0 against photo 05's nearest pixel 37.9; 98 % photo-05
+  donors), which the front pose lifts to L* 52: what photo 05 shows there, not an artefact of the bake.
+
+**Note for Astra (material and renderer; q001's material settings untouched, PLAN §2).** Numbers from the black-albedo
+probe of the tool test (every print-part base colour black: the renderer and clearcoat alone) and pixel-wise AR minus
+albedo:
+- At the front pose the clearcoat reflection *[fix round 1: the black probe's reflections, base layer and coat together;
+  30.9 % remain with the coat removed, so they are mostly the base layer's, see the corrected note below]* covers
+  32.9 % of the brow-front pixels (-x 43 %, +x 23 %; the nasal thirds
+  76 % / 74 %) against 6.8 % at pitch +20 (photo 05's angle), and adds L* p50 9.3 (p90 26.2) on the rest against 5.1
+  (11.3): a grey veil that lifts the dark phase and dilutes chroma.
+- The front pose lifts every albedo by the same amount whatever the texture (pixel-wise, on the step-5 captures; the
+  renderer's part does not depend on the print): AR minus albedo +13.3 / +9.7 L* on the
+  brow fronts (Astra's texture +13.6 / +8.8) against +3.5 / +4.4 (+4.9 / +5.9) at pitch +20. Non-reflection brow-front
+  L* p50 at the front pose: painted 30.4 / 26.6, Astra 21.8 / 17.4, photo 05 20.8 / 20.6. One albedo cannot match both
+  views (front - pitch +20 view dependence +6.1 L* print form for this print, +4.1 for Astra's).
+- The temples: the -x outer face at yaw +45 gets +9.5 L* (Astra +9.6), the +x outer face at yaw -45 +5.4 (+7.1): the
+  scene's light is not mirror-symmetric. *[Withdrawn in fix round 2 of step 6: per-pixel pairs through a misregistered
+  temple raster; restated at region level in fix round 2's note for Astra.]*
+- ~~If the straight-on and worn views must look like photo 05, the levers are material (clearcoat 0.8 / its roughness on
+  the brow fronts) and the renderer's lighting, not the print.~~ *[SUPERSEDED, fix round 1 of step 6: q001 has no
+  clearcoat 0.8. Its three havana materials (Front / Left / Right source havana) carry clearcoat 0.28 at coat roughness
+  0.16 over base roughness 0.23 (dielectric, IOR 1.5): `KHR_materials_clearcoat` clearcoatFactor 0.28 /
+  clearcoatRoughnessFactor 0.16 in `tooltest/q001_painted_TOOLTEST.glb` and `original.glb`, and Coat Weight 0.28 /
+  Coat Roughness 0.16 / Roughness 0.23 in the Principled BSDF of `tooltest/q001_copy.blend` (read headless from a copy);
+  arview overrides none of them. The "0.8" was the correction round's misreading (its line on double lighting, now
+  corrected). The corrected note, with the coat's share of the veil measured, is in fix round 1 below.]*
+
+**Bake, checks, tool test (re-run).**
+- Production bake `data/wp5/ft1119_bake/` (14-worker pool, production 195 s, all checks with the A7 serial bake and the
+  held-out bakes 1280 s): A1 pass; A2 6 / 6; A3 read back pass (the level with sat re-applied); output audit pass; A7
+  pass (pool vs serial); A4 fails on all four parts as before (fine-band medians -x brow 0.27 -> 0.59: the knockout holes
+  now fall in the restored honey band; +x brow 0.36 -> 0.31; temples 0.20 -> 0.30, 0.43 -> 0.43); A5 fails at 7 and 8
+  texels as before; B3 1 of 7 eligible rows as before. STOP B fires on A4, A5, B3; A6 / B5 from the tool test.
+- Tool test (`print_tooltest`, fresh COPY of q001, headless Blender: print_uv, attach_print, export): all 15 checks pass
+  (A6, B5, uv identity, validate_spec, staleness check, detach / remove restore, renders equal, labelled TOOL TEST).
+- Captures: `tooltest/ar_painted/` (all poses, worn portrait, black probe, ar_levels.json) and `tooltest/arview_painted/`
+  (default poses); sheets `tooltest/owner_sheet.png` (photos | Astra | step-5 tool test | this round | the near-18 deg
+  candidate) and `tooltest/closeup_sheet.png`.
+
+**Tests.** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+268 passed, 1 failed, 1 xfailed (21 min, `data/wp5/pytest_step6.log`). The failure was the pinned PyPatchMatch A4
+verdicts at 8 texels/mm (now the -x brow passes and the +x temple fails; quilting, the production filler, fails all four
+as pinned): re-pinned deliberately (`A4_FILLERS_KNOWN_AT_8`, reason beside it); `test_print_bake.py` rerun: 32 passed
+(`data/wp5/pytest_step6_printbake.log`). New: `tests/photoprint/test_step6.py` (11 tests: the anchor keeps what it
+sees and still lends its holes, the light-acetate gate, sat keeps Y and scales chroma and is inverted by `unlevel`, the
+instrument's chroma / contrast / band energy, `choose_sat`, the appearance residuals, thin light lines against honey
+and amber flecks); `test_print_bake.py` checks photo 03's see-through hits are not masked; the calibration search test
+iterates its roles explicitly. *[Fix round 1: `choose_sat` and its test are replaced by the two-parameter chroma stage
+and its tests; the search test iterates `AC.TARGETS` again (the 'appearance' role included) and the candidates'
+assembly has its own regression test.]*
+
+**Engineering decisions (recorded here).** The anchor keeps what it sees in crease mode (`KEEP_SEEN_SHARE` 0.5);
+see-through text needs light acetate (`SEE_THROUGH_LIGHT_DL` 6 L*); thin light achromatic lines are highlight holes
+(`THIN_EXCESS` 10, `THIN_HALF_MM` 0.2); the AR calibration target is L* p10 / p50 plus contrast at the photos' own
+angles, then chroma by `sat` *[fix round 1: by `sat` and `chroma_power` on C* p50, p90 and mean]*; photo 03's
+exposure gain is kept (evidence above). `keep_seen=False`,
+`see_through_light=False`, `thin_light=False` and a level without `sat` reproduce the step-5 bake's rules.
+
+**Defect found and fixed in passing:** the step-6 calibration's first full run filed the near-18 deg capture as the
+delivered candidate (a role-name check); the level itself was right. Fixed in `ar_calibrate.calibrate`
+(`name == "photo_angles"`), and the run's calibration.json candidates were rebuilt from its captured iterations with
+the delivered candidate's portrait captured again (`calibration.json` 'repair'). *[Fix round 1: that repair was a
+session-scratch script, and no test covered the selection. The assembly is now one pure function
+(`ar_calibrate.assemble_candidates`, called by `finish`), tested on synthetic captures, and fix round 1's
+calibration.json comes from re-running the fixed code end to end, not from a repair.]*
+
+**Left.**
+- The front pose and the worn view stay lighter than photo 05 (front non-reflection brow p50 +6 to +10 L*): the note
+  above; the print cannot carry it without breaking the photo angles.
+- The -x temple at yaw +45 stays ~5 L* over photo 03 (renderer lift) plus the kept exposure gain.
+- The endpiece thirds keep less patch contrast than photo 05 (fill around the T-trim, thin-line holes).
+- A4, A5, B3 fire STOP B; the owner has not seen this round's sheets.
+
+### Step 6, fix round 1 (2026-10-07): the chroma tail, the material note's numbers, the proof's own filters
+
+Input: the review of step 6 (2 major, 5 minor findings). The step-6 state is kept: `data/wp5/pre_s6fr1_bake/` (with its
+`step6.json`), `pre_s6fr1_tooltest/`, `pre_s6fr1_ar_calibration/`. New: `data/wp5/ar_calibration/` (log
+`ar_calibration_s6fr1.log`), `data/wp5/ft1119_bake/` (production, `step6.json` regenerated, log `ft1119_bake_s6fr1.log`;
+the first attempt stalled when a pool worker's result pipe failed with WinError 1450, "insufficient system
+resources", at 13 / 14 jobs; it was killed and re-run, log `ft1119_bake_s6fr1_stalled.log`), `data/wp5/tooltest/` (tool
+test on a fresh COPY of q001, captures, sheets, `ar_levels.json` and `ar_levels_default.json` regenerated). The print
+side is unchanged (the radiance bake `ft1119_bake_radiance_s6b/` is the calibration's input as in step 6); only the AR
+level changed. Every number below comes from `step6_proof` (`ft1119_bake/step6.json`), `ar_levels` or the
+calibration.json.
+
+**1. The chroma stage fitted the median only (major).** Step 6's `sat` 1.322 matched the C* median at the photos'
+own angles (5.80 / 5.83, 4.49 / 4.44) and overshot the saturated tail: C* p90 26.06 vs 18.54 (pitch +20 vs 05) and
+21.99 vs 15.60 (yaw -30 pitch +20 vs 01), 1.41x; mean 10.23 vs 8.49, 8.43 vs 7.00. At sat 1 the tail already matched
+(p90 19.64 / 16.50, +1.1 / +0.9; mean 7.57 / 6.21) and only the median was low (4.35 / 3.39). Cause: one factor scales
+every colour alike, while the renderer keeps the per-pixel median chroma and widens the tail (item 3), and the level's
+darkening greys the low end. The appearance verdict (`print_metrics.level_compare`) passed on the median alone.
+- *Instrument:* `appearance` now carries C* p50 / p90 / mean (differences and ratios), and its verdict also needs the
+  C* p90 and mean ratios inside `CHROMA_SPREAD_RATIO` (0.85-1.18, the contrast window: they are the chroma's spread
+  as the std is L*'s); `criteria` names each term; `chroma_units` gives the three terms in units of their own window
+  (|x| <= 1 passes). Step 6's level fails it: p90 units 2.06 / 2.07, mean 1.13 / 1.12.
+- *Level map:* `shading.level_map` gains `chroma_power`. The chroma factor is per texel,
+  f = sat x (C*ab / 10)^(chroma_power - 1) (`shading.chroma_factor`: C* of the radiance colour, floor 1, cap 4; Y
+  unchanged; power 1 is step 6's map byte for byte). ~~A power below 1 lifts low chroma and spares the saturated
+  tail.~~ *[Corrected in fix round 2 of step 6: false at the texel level. A power below 1 puts the factor above 1
+  below the pivot and BELOW 1 above it: sat 1.107 / power 0.745 gives 1.99 at C* 1, 1.67 at C* 2, 1.11 at 10, 0.88 at
+  25 and 0.78 at 40. Delivered print.png over the level-free bake `ft1119_bake_radiance_s6b`, median per-texel C*
+  ratio by radiance C* bin (`step6_proof.texture_chroma`, the luminance map's darkening included): 0-1 x2.05, 1-2
+  x1.56, 2-4 x1.33, 4-8 x1.14, 8-15 x0.98, 15-25 x0.85, 25-60 x0.74; texture C* p90 14.39 against the radiance's
+  16.40. The honey spots (C* > 15) were 15-26 % greyer than the photo radiance. The match of the AR tail at the photo
+  angles came from the renderer widening it, not from the texture keeping the photo's spots. See fix round 2.]*
+  The pivot C* 10 sits inside the graded range (roughly the geometric mean of the photos' brow C* p50 and p90).
+  `correction_proof.unlevel` inverts it (a fixed point, contraction |power - 1|), `printproof` A3 re-applies it
+  independently, `bake_ft1119 --level` reads it, and the bake report records it.
+- *Calibration (`ar_calibrate` method step 7):* after the L* + contrast search (unchanged; the 9 grid captures
+  reproduce step 6's residuals exactly and the searches choose the same points, photo_angles_s5 = gain 0.931 / gamma
+  1.080 and near_18deg_s5 = 0.831 / 1.168), the chroma stage captures `CHROMA_PROBES` (sat, power) = (1.25, 1), (1,
+  0.7), (1.25, 0.7) at that (gain, gamma). It fits ln of each AR statistic (p50, p90, mean per pair) by a plane in
+  (ln sat, power), captures the minimax point of the six chroma units, and repeats until the captured worst is within
+  `CHROMA_STOP` 0.5. Worst units: base 1.48 (the median), probes 1.72 (the tail at sat 1.25), 0.84, 0.87. Step 1: the
+  model predicted 0.17 at sat 1.107 / power 0.745; the capture gave 0.21. Stop.
+- **Chosen (captured): gain 0.931, gamma 1.080, sat 1.107, chroma power 0.745.** *[SUPERSEDED by fix round 2 of step
+  6: the level delivered since is gain 0.931, gamma 1.080, sat 0.996, chroma power 0.455, held >= 1, hue band 20-100
+  deg (`ft1119_bake/report.json` `level`).]* At the photos' own angles, AR / photo:
+  pitch +20 vs 05: C* p50 5.77 / 5.83, p90 18.84 / 18.54, mean 8.21 / 8.49; yaw -30 pitch +20 vs 01: 4.55 / 4.44,
+  16.01 / 15.60, 6.79 / 7.00 (worst unit 0.21; pass). L* p10 / p50 -0.99 / -1.22 and +1.66 / -1.62 (pass, unchanged
+  within 0.05). L* std ratio 1.145 / 0.981. Brow band energy ratio 1.158 / 0.983.
+- *Trade-off and held-out rows (C* p50, p90, mean, AR / photo; step 6 in brackets):* front vs 05 5.10 / 5.74, 14.79 /
+  18.29, 6.85 / 8.36 [4.83, 19.14, 8.14]; yaw -30 vs 01 4.46 / 4.41, 14.46 / 15.50, 6.10 / 6.96; yaw +45 vs 03 4.49 /
+  6.04, 14.27 / 19.27 [4.47, 19.18]; yaw -45 vs 01 4.24 / 4.11, 11.82 / 14.41. The tail now matches at the photos'
+  own angles. At the front pose, 18 deg below photo 05, it falls 19 % short, where the renderer's veil is largest
+  (item 4). Step 6's level matched it there only because it overshot at the photo angles. L* trade-off rows unchanged
+  (front +1.52 / +4.90, yaw -30 +4.99 / +2.78). *[Fix round 2 of step 6, the review's major finding: this
+  paragraph named only the front pose as a trade-off. Under this round's own window (C* p90 and mean ratios
+  0.85-1.18), the saturated tail went from matching to short on the other graded pairs too. C* p90 AR / photo, step 6
+  -> fix round 1: front vs 05 1.05 -> 0.81; yaw -30 vs 01 1.22 -> 0.93; yaw +45 vs 03 1.00 -> 0.74; yaw -45 vs 01
+  1.03 -> 0.82. Mean: 0.97 -> 0.82, 1.05 -> 0.88, 0.89 -> 0.71, 1.03 -> 0.88. p90 now fails on 3 of the 4
+  non-calibration rows (step 6: 1 of 4, yaw -30's overshoot). Yaw +45 vs 03 is a REGRESSION ON AN OWNER COMPLAINT
+  (the -x temple at yaw +45 had fewer spots): p90 -1.85 units, mean -2.11 units, about the size of the step-6
+  overshoot this round fixed (+2.06); its temple outer face got greyer, C* p90 23.24 -> 17.38 (photo 03 27.03),
+  honey 12.6 -> 12.0 % (photo 14.1 %). The every-row table and the owner's choice are in fix round 2.]* *[Fix round 3
+  of step 6: those yaw +45 units were mostly the row's BROW group, photo 03's side-view brow pixels weighted x5.4 (see
+  fix round 3); the temple numbers were the misregistered raster's. On the temples alone (the corrected instrument,
+  `step6_fixes/ar_levels_corrected.json`) step 6 -> fix round 1: C* p90 ratio 1.20 -> 0.82, mean 1.02 -> 0.76, so the
+  -x temple's tail did go from 20 % over photo 03's to 18 % short (a smaller regression than stated); by the capture's
+  part-id (`step6_fixes/step6.json`) C* p90 32.27 -> 21.84, honey 17.6 -> 16.8 %.]*
+- *In AR at pitch +20 (non-reflection brow-front pixels; step 6 -> fix round 1; photo 05 at its camera):* -x all C*
+  p50 6.32 -> 6.30 (5.78), p90 26.39 -> 19.41 (18.76), honey 13.3 -> 12.6 % (12.3 %); -x nasal third C* p50 10.39 ->
+  9.07 (8.79, now inside CHROMA_TOL), p90 29.98 -> 20.63 (18.78); +x all C* p50 5.21 -> 5.28 (4.80), p90 25.51 -> 18.24
+  (19.19), honey 15.3 -> 14.5 % (14.9 %). The -x temple at yaw +45: C* p50 4.48 -> 4.62, p90 23.24 -> 17.38 (photo 03
+  at its own camera 5.54 / 27.03), honey 12.6 -> 12.0 % (14.1 %). *[Fix round 3 of step 6: raster-subset numbers
+  (misregistered on the temples); by the capture's part-id (`step6_fixes/step6.json`): C* p50 4.88 -> 4.95, p90 32.27
+  -> 21.84, honey 17.6 -> 16.8 %.]*
+- *What the owner should know (finding 5):* the -x nasal third's patches still overshoot photo 05: honey 19.3 % vs
+  11.1 % (1.7x) and L* std 11.61 vs 8.29 (1.4x), the same as at sat 1 (19.3 %, 11.61). That excess is spread, the
+  print's plus the renderer's (item 3; Astra's texture reaches 28.5 % there), not chroma. The C* excess (+1.6 in step 6)
+  is gone (+0.28).
+- By eye (`tooltest/closeup_sheet.png`, `owner_sheet.png` with step 6 as a row): the honey spots on the -x temple and
+  the brows are amber rather than step 6's vivid orange, closer to photos 03 and 05. Level and contrast are unchanged
+  from step 6. Close-up L* p10 / p50 (frame form): front brows 18.0 / 32.3 (photo 05 15.7 / 22.0), brows at pitch +20
+  15.2 / 21.6, -x temple 18.5 / 25.3 (photo 03 12.5 / 18.9).
+
+**2. The material note named a clearcoat q001 does not have (major).** The note said "clearcoat 0.8", and so did the
+correction round's double-lighting line (now corrected). q001's three havana materials carry clearcoat 0.28, coat
+roughness 0.16, base roughness 0.23, IOR 1.5, Specular IOR Level 0.5. Sources: the GLB's `KHR_materials_clearcoat`
+(clearcoatFactor 0.28, clearcoatRoughnessFactor 0.16 in `tooltest/q001_painted_TOOLTEST.glb` and `original.glb`) and
+the Principled BSDF of `tooltest/q001_copy.blend`, read headless from a copy. arview overrides none of them (no
+clearcoat assignment in `arview/src`). The reasoning had to be checked at 0.28. The black-probe numbers were measured on
+the real material, so they stand. What changes is the lever, and it was measured: the black probe captured again with
+the print parts' clearcoat removed (`ar_calibrate --capture ... --coat-off-probe`, `black_probe(clearcoat=False)`; a
+PROBE, never a model: q001's materials untouched), graded by `step6_proof` (`renderer` rows of
+`painted_coat_off_probe` beside `painted`). See the corrected note below.
+
+**3. The renderer's transfer, pixel-wise, now in the proof (minor; restates step 6's "keeps chroma and contrast").**
+`step6_proof.renderer_transfer` compares every AR brow-front / temple-outer pixel (probe highlights out) with its own
+albedo, the base-colour texture sampled at the pixel's surface point. Pitch +20, the delivered level: -x AR - albedo L*
++3.68, slope of AR L* on albedo L* 1.30, L* std 6.07 -> 9.66 (1.59x), C* p50 6.04 -> 6.30, C* p90 14.56 -> 19.41
+(1.33x), median per-pixel C* ratio 1.06. +x: +4.33, 1.22, 9.00 -> 12.40 (1.38x), C* p50 5.49 -> 5.28, p90 14.19 ->
+18.24 (1.29x), ratio 0.99. Astra's texture: -x +4.85, slope 1.19, ratio 0.87; +x +5.86, 1.17, 0.80. So the renderer
+keeps each pixel's median chroma, and its L* slope above 1 lifts the light honey pixels and their chroma with them: the
+spread widens 1.2-1.6x and the C* tail 1.3x. That is why one chroma factor could not serve both ends. The step-5
+captures (row `step5`) reproduce the numbers step 6 had quoted from a scratch script: pitch +20 +3.48 / +4.41, C*
+ratio 1.09 / 1.01; front +13.29 / +9.69; ~~-x temple at yaw +45 +9.45 (Astra +9.58); +x temple at yaw -45 +5.37
+(Astra +6.98, quoted then as +7.1). On the temples at +-45 the AR L* barely follows the albedo (slope -0.07 / -0.15):
+the renderer's light, not the print, sets their level there.~~ *[Withdrawn in fix round 2 of step 6: the temple
+rows sampled the albedo per pixel through the rigid q001 raster, while the runtime spreads the temples (this
+module's own docstring said temples are per region, never per pixel). The raster lines up with the capture's
+part-id on the brows (IoU 0.89-0.95, centroid within 1.4 px) but not on the temples (IoU 0.41 / 0.40 at yaw +45 /
+-45, centroid 42 / 39 px off; 0.14 at pitch +20), so the slopes, the per-pixel C* ratios (0.70 / 0.66) and these
+lifts came from mismatched pixel pairs. The temples are now compared as a region-level difference of medians
+(`step6_proof.temple_region`); see fix round 2. The brow rows stand.]*
+
+**4. Light marks with the proof's own filter (minor).** `step6_proof.light_marks` now counts the endpiece-block marks
+(L* white top-hat > 8 at 5 px, block eroded 2 px) three ways: all, off the black probe's reflections by `probe L* > 12`
+dilated 1 px (`off_probe_light`, the filter of step 6's report), and off the instrument's achromatic-highlight rule
+dilated 1 px (`off_probe_highlight`). Step 5 / step 6 / fix round 1 [Astra]:
+
+| block, pose | all | off probe L* > 12 | off achromatic highlight |
+|---|---|---|---|
+| +x, pitch +20 | 77 / 49 / 52 [26] | 51 / 27 / 30 [2] | 57 / 47 / 50 [24] |
+| +x, front | 60 / 49 / 48 [34] | 52 / 44 / 42 [14] | 60 / 49 / 48 [34] |
+| -x, pitch +20 | 123 / 115 / 117 [102] | 32 / 26 / 28 [5] | 33 / 27 / 29 [6] |
+| -x, front | 114 / 110 / 112 [111] | 1 / 0 / 0 [0] | 14 / 12 / 12 [18] |
+
+Step 6's reported numbers are the middle column. The probe-L* mask removes 61 % of the -x block's pixels at the front
+pose (556 of 1,422 left), so "-x 0 [0]" says little. Under every mask the +x block stays above Astra (pitch +20: 30 vs
+2, 50 vs 24; front: 42 vs 14, 48 vs 34). The new level moved the counts by at most 3.
+
+**5. Candidate selection has a regression test (minor).** `ar_calibrate.finish` runs the chroma stage, re-captures
+the near-18 deg candidate at the chosen chroma, and assembles the candidates by name through `assemble_candidates`,
+the one place that decides "delivered". `calibrate` calls it, and the tests drive it with a synthetic capture
+function. This run's calibration.json was made by the fixed code end to end: delivered = chroma_s1, near =
+near_chroma (gain 0.83 / gamma 1.17 at the same chroma; worst 5.44 at the photo angles, 1.57 at front / yaw -30). Both
+portrait re-captures grade the same as their calibration captures.
+
+**6. The tool-test label (minor).** `print_tooltest.make_label` builds it from the bake: the print's sha256, the bake
+directory and the level as the bake's report records it, with no step number. The delivered GLB's
+`asset.extras.g3d_tool_test` now reads "TOOL TEST: the WP5 FT1119 print (print.png sha256 42e87cca8cb2b366, bake
+ft1119_bake, AR level gain 0.931, gamma 1.080, sat 1.107, chroma_power 0.745) attached to a COPY of q001 ...". The
+label check also requires the sha.
+
+**Note for Astra (material and renderer; corrected values; q001's material settings untouched, PLAN §2).** q001's
+havana (Front / Left / Right source havana): base roughness 0.23, dielectric (IOR 1.5, F0 0.04), clearcoat 0.28 at
+coat roughness 0.16. Black-albedo probe of the tool test (the renderer and the material alone), with and without the
+clearcoat (removed on the probe only), on the brow fronts and temple outer faces:
+
+| pose (region) | reflection share, coat / no coat | light on the rest, L* p50 (p90), coat / no coat | coat's share of that light (linear Y) |
+|---|---|---|---|
+| front (brow fronts) | 32.9 % / 30.9 % | 9.3 (26.2) / 7.2 (25.3) | 23 % |
+| pitch +20, photo 05's angle (brow fronts) | 6.8 % / 5.5 % | 5.1 (11.3) / 3.6 (8.8) | 29 % |
+| yaw +45 (-x temple outer) | 2.8 % / 1.0 % | 9.8 (18.5) / 7.2 (16.1) | 27 % |
+| yaw -45 (+x temple outer) | 3.6 % / 3.2 % | 9.8 (20.8) / 6.8 (17.1) | 32 % |
+
+*[Fix round 3 of step 6: the two temple rows took their pixels through the rigid raster, misregistered on the temples
+(IoU 0.41 / 0.40 at yaw +45 / -45). By the capture's own part-id, near temple (`step6_fixes/step6.json`, `renderer`
+and `coat_share`, CIE Y): yaw +45, -x temple 3.2 % / 1.6 %, 10.3 (20.3) / 7.7 (18.0), 27 %; yaw -45, +x temple
+13.5 % / 11.0 %, 12.3 (24.4) / 9.3 (23.1), 29 %. The brow rows went through the raster where it is registered and
+stand.]*
+
+- The grey veil that lifts the dark phase and dilutes chroma at the front pose comes about three quarters from the
+  base layer's own reflection (F0 0.04 at roughness 0.23) under the scene's light (RoomEnvironment 0.8, key light 2).
+  About one quarter comes from the 0.28 clearcoat. The strong reflections covering a third of the front brows are
+  almost all base layer (30.9 % without the coat).
+- Removing the coat entirely would lower the veil at the front pose by about 2 L* (9.3 -> 7.2). The front pose's
+  non-reflection brow L* p50 is 30.4 / 26.6 painted and 21.8 / 17.4 with Astra's texture, against photo 05's 20.8 /
+  20.6: the coat alone cannot close that.
+- Pixel-wise, the front pose lifts every albedo whatever the texture: AR - albedo +13.5 / +9.6 L* on the brow fronts
+  (Astra's texture +13.6 / +8.8), against +3.7 / +4.3 (+4.9 / +5.9) at pitch +20. One albedo cannot match both views
+  (front - pitch +20 view dependence +6.1 L* in the print form).
+- ~~The temples: the -x outer face at yaw +45 gets +8.9 L* (Astra +9.6), the +x outer face at yaw -45 +5.2 (+7.0). The
+  scene's light is not mirror-symmetric. arview's key light sits at (-10, 15, 20) (`arview/src/render/renderer.ts`),
+  consistent with the -x side's larger lift; not measured separately.~~ *[Withdrawn in fix round 2 of step 6: per-pixel
+  pairs through a misregistered temple raster (item 3's correction). Restated at region level in fix round 2's note
+  for Astra.]*
+- If the straight-on and worn views must look like photo 05, the levers are the base layer's reflection (roughness
+  0.23, specular level) and the renderer's lighting, then the clearcoat (0.28 / 0.16), not the print. Astra decides;
+  nothing here was changed on q001.
+
+**Bake, checks, tool test (re-run).**
+- Production bake `data/wp5/ft1119_bake/` (14-worker pool, production 197 s; all checks with the A7 serial bake and the
+  held-out bakes 1310 s), print.png sha256 42e87cca..., equal pixel for pixel to the calibration's chosen candidate image
+  (`cand_chroma_s1`) and to the tool-test GLB's image. A1 pass; A2 6 / 6; A3 read back pass with `chroma_power`
+  re-applied by the proof's own code (within 1 level 99.93 %, dE00 p99 0.75; step 6 99.84 %, 0.83); output audit pass;
+  A7 pass (pool vs serial). A4 fails on all four parts with step 6's numbers to the last digit (the level does not
+  enter A4). A5 fails at 7 and 8 texels, B3 1 of 7 eligible rows, both as before. STOP B fires on A4, A5,
+  B3. A6 / B5 are recorded from this tool test (same print sha).
+- Tool test (`print_tooltest`, fresh COPY of q001, headless Blender): all 15 checks pass. Captures:
+  `tooltest/ar_painted/` (all poses, worn portrait, black probe, coat-off probe, `ar_levels.json`; its numbers repeat
+  the calibration capture's exactly) and `tooltest/arview_painted/` (default poses; every render equals the all-pose
+  capture's pixel for pixel). Sheets: `tooltest/owner_sheet.png` (photos | Astra | step 6 | this level | the near-18 deg
+  candidate) and `tooltest/closeup_sheet.png`.
+
+**Tests.** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+275 passed, 1 xfailed (21 min, `data/wp5/pytest_s6fr1.log`; no pinned verdict changed; the production bake.json is
+not written by the tool-test test, checked by sha256). *[Fix round 2 of step 6: that run did not test the delivered
+tree. It started at about 05:22:43 (the log's mtime 05:44:58 minus its 1,277 s), and `print_tooltest.py` was edited
+last at 05:26:37 (the `renders()` caption; `tooltest_renders.png` written 05:26:51). The review's re-run of the
+non-Blender suites that import `print_tooltest` passed (27 + 22); the Blender suites were not re-run then. Fix round
+2's full run, after its last code edit, is cited in fix round 2.]* New or changed in `tests/photoprint/test_step6.py` (17 tests):
+`chroma_power` lifts low chroma, ~~spares the tail~~ *[fix round 2: compresses the tail; the test asserted the
+compression all along (gain < 0.85 above the pivot) under a misleading name, now renamed]*, keeps Y and is step 6's map
+at power 1; `unlevel` inverts it; the
+appearance verdict fails a median match with a 1.4x tail and its units follow the window; the chroma stage on a
+synthetic power-law renderer (a single factor sits at the windows' edges, the stage reaches every unit within 0.5 with
+a captured point); `finish` delivers the chroma capture and re-captures the near candidate, and the owner sheet reads
+the delivered label (on swapped inputs the delivered flag follows the name); the coat-off probe strips only the print
+parts' clearcoat; the tool-test label names the print. `test_correction_round.py`: the search test iterates
+`AC.TARGETS` (the 'appearance' role) plus the plain calibration role.
+
+**Engineering decisions (recorded here).** The AR level's chroma is a power of the texel's C*ab (`chroma_power`, pivot
+`CHROMA_REF` 10), calibrated with `sat` on the photos' own angles by the minimax of C* p50, p90 and mean in their own
+windows *[fix round 2: held at >= 1 and acting only inside the havana hue band; the all-pairs minimax is an owner
+candidate beside it]*. The appearance verdict bounds the C* p90 and mean (0.85-1.18). Light marks are reported under named probe
+masks, never one hidden filter. The material note is measured with a coat-off probe, never on q001.
+
+**Left.**
+- The front pose and the worn view stay lighter than photo 05 (front non-reflection brow p50 +6 to +10 L*). Their
+  chroma tail is now 19 % below the photo's (the veil): the material note.
+- The -x nasal third's patch spread is 1.4-1.7x photo 05's (print plus renderer). The endpiece thirds keep less patch
+  contrast than photo 05 (fill around the T-trim, thin-line holes).
+- ~~The -x temple at yaw +45 stays ~5 L* over photo 03 (renderer lift) plus the kept exposure gain.~~ *[Corrected in
+  fix round 2 of step 6: "~5" was the pooled brows-plus-temples held-out row (+5.32 at p50). The temple's own
+  measures are larger: `step6_proof` temple outer face at yaw +45 L* p50 25.0 against photo 03's 18.3 (+6.7); the
+  close-up sheet p50 25.3 against 18.9 (+6.4), p10 18.5 against 12.5 (+6.0). The temple did not move in this round
+  (25.0 in step 6 too) and is close to step 5's ~7.]*
+- The +x endpiece block keeps more light marks than Astra's texture under every mask.
+- A4, A5, B3 fire STOP B; the owner has not seen this round's sheets.
+
+### Step 6, fix round 2 (2026-10-07): chroma graded on every pair and the owner's choice, a chroma map that never greys the spots, temples by region, brows alone, hue graded
+
+Input: the review of fix round 1 (1 major, 6 minor findings). The fix-round-1 state is kept: `data/wp5/pre_s6fr2_bake/`
+(with its `step6.json`), `pre_s6fr2_tooltest/`, `pre_s6fr2_ar_calibration/`. New: `data/wp5/ar_calibration/` (log
+`ar_calibration_s6fr2.log`), `data/wp5/ft1119_bake/` (log `ft1119_bake_s6fr2.log`; `step6.json` regenerated, log
+`step6_proof_s6fr2.log`), `data/wp5/tooltest/` (tool test on a fresh COPY of q001, captures, sheets). The print side is
+unchanged: the level-free bake `ft1119_bake_radiance_s6b/` is the calibration's input, and the L* level (gain 0.931,
+gamma 1.080) is unchanged, because the 20 L* captures reproduce fix round 1's to the last digit. Only the chroma part of
+the level changed. ~~Every number below is from `ar_levels` (per row), the calibration.json, or `step6_proof`
+(`ft1119_bake/step6.json`)~~; fix round 1's false or understated sentences are corrected in place above. *[Fix round 3
+of step 6: the provenance claim was false. Fix round 1's hue medians, magenta shares and hue failures (item 2 and 5),
+the dark-phase C* bins (item 2's caveat), "the same level without chroma gives 0.89-0.93", "fix round 1's level
+reproduces its delivered print.png exactly" and the all-pairs texture C* p90 16.93 came from unsaved computations. They
+are re-derived, identical, and stored in `data/wp5/step6_fixes/provenance.json` (`step6_proof --provenance`), cited
+where they appear. The other numbers are from the files named.]*
+
+**1. Chroma on every graded pair; the owner chooses (major).**
+- *Every row* (print form; C* p50 AR - photo / C* p90 AR over photo / C* mean AR over photo; the verdict needs |p50|
+  <= 1 and both ratios within 0.85-1.18):
+
+| pair (role) | step 6 (sat 1.322) | fix round 1 (sat 1.107, power 0.745) | delivered now (sat 0.996, power 0.455, held, hue band) | all-pairs candidate (sat 1.378, power 0.615, held, hue band) |
+|---|---|---|---|---|
+| pitch +20 vs 05 (calibration) | -0.03 / **1.41** / **1.21** | -0.06 / 1.02 / 0.97 | +0.03 / 1.06 / 1.00 | **+1.17** / **1.19** / 1.15 |
+| yaw -30 pitch +20 vs 01 (calibration) | +0.05 / **1.41** / **1.20** | +0.11 / 1.03 / 0.97 | +0.30 / 1.06 / 1.01 | **+1.10** / **1.21** / 1.16 |
+| front vs 05 (trade-off, 18 deg) | -0.91 / 1.05 / 0.97 | -0.64 / **0.81** / **0.82** | -0.58 / **0.80** / **0.83** | +0.04 / 0.97 / 0.96 |
+| yaw -30 vs 01 (trade-off, 18 deg) | -0.19 / **1.22** / 1.05 | +0.05 / 0.93 / 0.88 | +0.10 / 0.92 / 0.90 | +0.71 / 1.11 / 1.03 |
+| yaw +45 vs 03 (held-out, 29 deg) | **-1.57** / 0.99 / 0.89 | **-1.55** / **0.74** / **0.71** | **-1.75** / **0.76** / **0.72** | **-1.09** / 0.88 / **0.82** |
+| yaw -45 vs 01 (held-out, 23 deg) | -0.15 / 1.03 / 1.03 | +0.13 / **0.82** / 0.88 | +0.24 / **0.79** / 0.89 | +0.88 / 1.00 / 1.04 |
+| worst chroma unit: calibration / every graded pair | 2.08 / 2.08 | 0.21 / 2.11 | 0.38 / 1.99 | 1.17 / 1.24 |
+
+  (bold: outside the window). Delivered: both calibration rows and yaw -30 vs 01 pass; front, yaw +45 and yaw -45 fail
+  (the tail short, 0.76-0.80). All-pairs candidate: front, yaw -30 and yaw -45 pass; both calibration rows fail
+  (median +1.1, tail 1.19-1.21) and yaw +45 fails on the median and mean. *[Fix round 3 of step 6: the yaw +45 vs 03
+  row above pooled the brows and the temples and weighted photo 03's few side-view brow pixels (0.090 of its pixels)
+  up to the pose's brow share (0.486). With that group left out (the corrected instrument; every other row is
+  unchanged to the last digit, `step6_fixes/ar_levels_corrected.json`), the row is the -x temple: step 6 **-1.16** /
+  **1.20** / 1.02, fix round 1 **-1.10** / **0.82** / **0.76**, delivered **-1.59** / 0.91 / **0.79**, all-pairs
+  **-1.04** / 0.93 / 0.87; worst unit calibration / every graded pair 2.08 / 2.08, 0.21 / 1.66, 0.38 / 1.59,
+  1.17 / 1.17. See fix round 3.]*
+- ~~*No single albedo passes all six.* At every level the calibration rows' p90 ratio is 1.35-1.42x yaw +45's (step 6
+  1.41 / 0.99, fix round 1 1.02 / 0.74, delivered 1.06 / 0.76, all-pairs 1.19 / 0.88), and the window is 1.18 / 0.85
+  = 1.39 wide. Photo 03's median (6.04) is also the highest of the photos, so yaw +45's median stays low whatever
+  fits the others. It is the view dependence of the AR chroma tail (the same albedo graded against the same photo from
+  another direction), like the L* view dependence.~~ *[Withdrawn in fix round 3 of step 6: photo 03 grades no
+  calibration row, so this was never "the same albedo graded against the same photo from another direction", and yaw
+  +45's p90 was the pooled row's, half of it photo 03's side-view brows weighted x5.4. On the temples alone the
+  calibration rows' p90 ratio is 1.16x yaw +45's at the delivered level (1.06 / 0.91) and 1.28-1.30x at the all-pairs
+  level (1.19-1.21 / 0.93), inside the 1.39-wide window, so a level that passes all six is not ruled out. None of the
+  29 captured levels does (all re-graded with the corrected instrument, no capture, no fit:
+  `step6_fixes/chroma_regrade.json`; best 1.17, the all-pairs level's own calibration median); the all-pairs minimax
+  was not re-run with the corrected instrument (no refit in fix round 3).]* Its cause per pose is not separated here: pixel-wise the renderer
+  widens the brow tail 1.30-1.33x at pitch +20 and 1.28-1.32x at the front pose (`renderer_transfer`), but at the
+  front pose its reflections cover 33 % of the brow fronts (75 % of the nasal thirds) and leave other pixels to grade.
+- ~~**Yaw +45 vs photo 03 is a regression on an owner complaint** (the -x temple at yaw +45 had fewer spots), against
+  step 6. The delivered level does not undo it: p90 0.76 (step 6 0.99, fix round 1 0.74), mean 0.72.~~ *[Corrected in
+  fix round 3 of step 6 (the final review's major finding): this round's own `by_group` rows show the opposite. The
+  row failed on its BROW group, graded against photo 03's brow pixels: 0.090 of its print-form pixels, seen edge-on
+  (median |cos| 0.60), 41 % of them studio reflections, weighted x5.4 up to the pose's 0.486; brows alone C* p90 ratio
+  0.606 (8.46 / 13.96, units -3.08), 0.60-0.75 for all four levels of the table. The temples alone (98 % the -x
+  temple at that pose, 4,976 of 5,099 part-id pixels) are
+  INSIDE the window on the spot tail under the delivered level: C* p90 24.18 / 26.45 = 0.914 (units -0.55), better
+  than fix round 1 (0.818) and step 6 (1.20, an overshoot) (`step6_fixes/ar_levels_corrected.json`). What still
+  fails on that temple is its median and mean chroma (p50 -1.59, mean 0.79), its contrast (std ratio 0.69) and its L*
+  (+4.65 / +6.60, the renderer's lift). The owner's complaint was fewer spots, the tail, and the delivered level does
+  not short it.]* On the -x temple
+  itself (`step6_proof`, near temple by the capture's part-id, probe highlights out): C* p90 24.51 (step 6 32.27, fix
+  round 1 21.84, step 5 16.29; Astra 9.54), honey 16.8 % (step 6 17.6 %, fix round 1 16.8 %); ~~on fix round 1's
+  raster-and-part-id subset 17.84 (step 6 23.24, fix round 1 17.38)~~ *[raster subset withdrawn, fix round 3]*; photo 03
+  at its own camera C* p90 27.03, honey 14.1 %: the delivered C* p90 is 0.91 of the photo's and its honey share 16.8 %
+  against 14.1 %. The all-pairs candidate gives 25.01 / 17.6 % there, and ~~0.88 / 0.82~~ 0.93 / 0.87 on the row
+  *[temples alone, fix round 3]*.
+- *What changed in the tool:* `ar_calibrate.chroma_stage` reports, for every capture, its worst unit over the
+  calibration pairs and over every graded pair side by side (`worst_units_calibration`, `worst_units_all_graded`),
+  then a second minimax over every graded pair (`ALL_GRADED`) from the same captures (no new probes): 4 captures,
+  1.66 -> 1.24, stopped at `CHROMA_MAX_ITER` (the model predicted 1.21-1.24 throughout: the floor of this family).
+  calibration.json: `chroma_stage.all_graded`, `chroma_units_all_graded_worst`, and each candidate's
+  `chroma_units_worst['all_graded']`. The delivered level is still the photo-angle choice (the calibration rule).
+  The all-pairs level is the candidate `all_pairs_chroma` (same gain and gamma). *[Fix round 3 of step 6: that minimax
+  was fitted to the yaw +45 vs 03 row: chroma_all_s4's worst unit 1.236 IS that row's C* mean unit (-1.236), balanced
+  against the calibration median (+1.17), and the row's failure was the brow artefact above. Graded on the temples
+  alone, that row is -1.04 / 0.93 / 0.87 at the candidate and its worst becomes its own calibration median overshoot
+  (+1.17). Its rationale, splitting the view dependence over all six pairs, is therefore weak; it was not re-fitted.]*
+- *Owner sheet* (`tooltest/owner_sheet.png`): photos | Astra | fix round 1 | the delivered level | the near-18 deg
+  candidate | the all-pairs candidate, same poses and crops, each with the worn portrait. Every candidate's portrait
+  capture grades the same as its calibration capture (checked). By eye: the all-pairs row's spots are warmer and more
+  saturated, most visibly on the -x temple at yaw +45 and the brows at the front pose. The delivered row is close to
+  fix round 1. **The owner chooses between the two levels.** *[Fix round 3 of step 6: still the owner's choice, by
+  eye. Plainly: the all-pairs candidate (option C, "more colourful") was fitted to the yaw +45 vs 03 row's mean, which
+  was the brow artefact; under the corrected instrument its photo-angle rows still fail (median +1.10 / +1.17, tail
+  1.19-1.21) and the temple at yaw +45 is short on the median at both levels (-1.59 delivered, -1.04 candidate).]*
+
+**2. The chroma map greyed the spots and amplified off-hue noise (minors 2 and 6).**
+- `shading.chroma_factor` has two options. `chroma_hold`: the factor is never below 1 (g = max(g, 1)). `chroma_hue`
+  [20, 100] deg: f = 1 + w(h_ab) (g - 1), w = 1 inside the havana band, falling linearly to 0 at 15 deg outside it
+  (`hue_weight`). Without them the map is fix round 1's byte for byte (fix round 1's level reproduces its delivered
+  print.png exactly: `step6_fixes/provenance.json`, `texture.fix_round_1.reproduces_print_png`, pixels equal to
+  `pre_s6fr2_bake/print.png`, sha256 42e87cca...). The calibration's family is both (`ar_calibrate.CHROMA_FAMILY`). The band: photo 05's brow
+  pixels with C* > 4 are 83 % at 20-80 deg, 13 % at 0-20 (real red-brown, not lifted beyond the taper) and 3 % at
+  300-360 (magenta, 0.2 % above C* 8: dark-pixel noise); nothing at 100-300.
+- *Chosen (captured), photo-angle chroma stage:* probes (1.25, 1), (1, 0.7), (1.25, 0.7) worst units 1.72 / 0.73 /
+  0.85 (base 1.48); step 1 predicted 0.19 at sat 0.996 / power 0.455, captured 0.38; stop. Delivered level: **gain
+  0.931, gamma 1.080, sat 0.996, chroma power 0.455, held >= 1, hue band 20-100 deg**. In band the factor is 3.49 at
+  C* 1, 2.39 at C* 2, 1.45 at C* 5, and 1 from C* 9.9 up. At the photos' own angles: C* p50 / p90 / mean AR / photo
+  5.86 / 5.83, 19.66 / 18.54, 8.51 / 8.49 (pitch +20 vs 05) and 4.74 / 4.44, 16.62 / 15.60, 7.08 / 7.00 (yaw -30 pitch
+  +20 vs 01). L* p10 / p50 -1.02 / -1.17 and +1.61 / -1.58 (pass, within 0.05 of fix round 1). Std ratio 1.143 /
+  0.979.
+- *Texture* (`step6_proof.texture_chroma`, delivered print.png over the level-free bake, median per-texel C* ratio
+  by radiance C* bin; fix round 1 in brackets): 0-1 x1.67 [2.05], 1-2 x1.03 [1.56], 2-4 x1.19 [1.33], 4-8 x1.14
+  [1.14], 8-15 x0.91 [0.98], 15-25 x0.91 [0.85], 25-60 x0.93 [0.74]. Above C* 8 the ratio is now the luminance map's
+  darkening alone: the same level without chroma gives 0.89-0.93 there (0.894 / 0.910 / 0.926 in the three bins,
+  `step6_fixes/provenance.json`, `texture.delivered_L_level_without_chroma`). Texture C* p90 14.83 [14.39] (radiance 16.40).
+  At photo 05's camera, brow fronts: -x C* p90 15.38 [14.77], +x 16.70 [15.80] (photo 18.76 / 19.19). At photo 03's
+  camera, -x temple outer: C* p90 25.63 [21.31] (photo 27.03). The honey spots are no longer greyed by the chroma
+  factor. What remains below the radiance is the darkening the L* calibration chose: chromaticity kept, C*ab falls
+  with L*.
+- *Off-hue noise*, texture (share of all textured texels with C* > 5): magenta 0.15 % [1.55 %] (radiance 0.40 %);
+  outside 20-100 deg 9.4 % [14.0 %] (radiance 7.7 %; the rest of the excess is the 5-20 deg taper, red-brown). In AR
+  (the instrument's new hue terms, print form): magenta share AR / photo at every pair now at or below the photo's,
+  pitch +20 1.2 % / 2.3 % [4.8 %], front 1.2 % / 2.2 % [6.5 %], yaw +45 0.3 % / 0.5 % [2.9 %], yaw -30 0.7 % / 2.0 %
+  [3.4 %]. Hue median AR / photo: pitch +20 30.8 / 34.4 [29.2, failed], yaw -30 pitch +20 30.4 / 30.2, front 29.0 /
+  34.4 (-5.4: fails the 5-deg window by 0.4; fix round 1 -8.0), yaw +45 27.9 / 29.8, yaw -45 27.1 / 29.2. The
+  delivered level passes every hue term except the front pose's median. *[Fix round 3 of step 6: the bracketed fix
+  round 1 values are stored now (`step6_fixes/provenance.json`, `hue.fix_round_2_instrument.fix_round_1`: magenta
+  4.77 / 6.45 / 2.87 / 3.42 %, hue p50 29.21 at pitch +20, front -7.97). Under the corrected instrument only the yaw
+  +45 row changes (the temples alone): delivered magenta 0.16 % / 0.84 %, hue 25.5 / 27.6 (pass); fix round 1 3.14 %
+  / 0.84 % (still fails `hue_magenta`).]*
+- *Caveat (reported, not fixed):* inside the band the lift is strong at very low chroma (x3.5 at C* 1, x2.4 at C* 2):
+  near-grey dark texels take a havana tint. ~~The AR dark phase does not exceed the photo's~~ *[corrected in fix round
+  3 of step 6: the AR dark phase is MORE chromatic than photo 05's in both bins, which is the havana tint this caveat
+  warns about, unchanged from fix round 1]*: brows at pitch +20, C* p50
+  in L* 15-20 is 4.22 against photo 05's 3.94 (+7 %; fix round 1 4.18), in L* 20-25 6.80 against 5.67 (+20 %; 6.83)
+  (`step6_fixes/provenance.json`, `dark_phase_brows_pitch_p20_vs_05`; brows, print form).
+- *The all-pairs candidate* (sat 1.378, power 0.615, same options): in band 3.34 at C* 1, 2.56 at C* 2, 1.80 at C* 5,
+  1.38 at C* 10, 1 from C* 23 up; texture C* p90 16.93 (radiance 16.40; `step6_fixes/provenance.json`,
+  `texture.all_pairs_candidate`).
+
+**3. Temples by region, never per pixel (minor 3).**
+- `step6_proof.TRANSFER` is brow fronts only. `registration` reports, per part and pose, the rigid raster against the
+  capture's own part-id: brows IoU 0.89-0.95, centroid 0.4-1.4 px; temples 0.41 / 0.40 at yaw +45 / -45 (centroid
+  42 / 39 px), 0.14-0.15 at pitch +20, 0.09-0.11 at the front pose. Fix round 1's per-pixel temple rows are withdrawn
+  (above).
+- `temple_region` (new): the near temple at yaw +-45 as a difference of medians. AR: the capture's part-id pixels of
+  that temple (probe highlights out). Albedo: the base colour at four points of every outer face of the temple in the
+  AR-visible stretch, area-weighted. AR - albedo L* p50, -x temple at yaw +45 / +x temple at yaw -45: delivered +8.3 /
+  +7.8, fix round 1 +8.4 / +7.9, step 5 +9.0 / +7.6; Astra +10.5 / +12.2 (her albedo is far darker, L* 4.5 / 6.8,
+  where a fixed added light raises L* more). C* p50 / p90 AR over albedo: -x at yaw +45 0.77 / 1.08, +x at yaw -45
+  0.59 / 0.56 (region medians: the AR region holds every visible face of the arm, the albedo region the outer face only).
+- *Restated conclusion:* at region level the renderer lifts the temples at +-45 by about +8 L* on both sides for this
+  print, about twice the brows' +3.6 / +4.3 at photo 05's angle (pixel-wise, item 3 of fix round 1, brows only). Fix
+  round 1's left-right asymmetry (+8.9 / +5.2) and "the renderer's light, not the print, sets their level" (slopes
+  -0.07 / -0.15) came from misregistered pixel pairs and are withdrawn. Whether the AR follows the albedo pixel by pixel
+  on the temples is not measured (it needs the runtime's spread temple transform, which the capture report does not
+  carry).
+- *The -x temple at yaw +45 against photo 03 (minor 5):* L* p50 25.1 against 18.3 (+6.8) on both the part-id region
+  and fix round 1's raster-and-part-id region *[fix round 3: the raster region is withdrawn; `step6_proof` keeps the
+  part-id region only]*; the close-up sheet p10 / p50 18.5 / 25.3 against 12.5 / 18.9 (+6.0 /
+  +6.4). The texture there is 1.6 L* darker than photo 03 at photo 03's camera (16.7 against 18.3); the region-level
+  lift at yaw +45 is +8.3. Unchanged since step 6 (25.0) and fix round 1 (25.0); step 5 ~7.
+
+**4. Brows and temples apart (minor 4).** Every `ar_levels` row carries `by_group`: `level_compare` of the brows alone
+and of the temples alone in the print form (AR probe highlights out; photo achromatic pixels out), with L*, chroma,
+contrast and hue; `pass_brow` grades the brows alone per role; the calibration records `brow_residuals`,
+`temple_residuals`, `brow_chroma_units` per candidate and `brows_alone`. The pooled print form stays the target.
+Delivered level, calibration pairs (L* p10 / p50; C* units p50 / p90 / mean):
+
+| pair | pooled | brows alone | temples alone |
+|---|---|---|---|
+| pitch +20 vs 05 | -1.02 / -1.17 (pass) | -1.01 / -1.18 (pass); 0.04 / 0.36 / 0.02 | -2.05 / +0.20 (the temple tops only); -0.46 / **-3.70** / -1.66 |
+| yaw -30 pitch +20 vs 01 | +1.61 / -1.58 (pass) | +0.81 / **-2.75**; 0.33 / 0.54 / 0.28 | **+4.46** / **+2.04**; -0.21 / **-2.29** / -0.94 |
+
+- The brows alone fail at photo 01's angle for every captured level: `brows_alone.best_captured` is the grid point
+  gain 0.75 / gamma 1.00 with brow worst 2.16 (the delivered level 2.75), where the pooled form fails (p10 +2.41) and
+  the temples go to +4.94 / +2.45. The brows' p10 and p50 residuals at 01 differ by 3.6 L* (the shape of the
+  distribution, std ratio 1.04), and photo 05's pair wants none of that change, so a global gain and gamma cannot pass
+  both. `pass_brow` is False in every role. Brow chroma passes at both calibration pairs.
+- The temples carry less chroma than photo 01 at its angle (p90 0.69) and are lighter (+4.46 / +2.04): the pooled
+  pass leaned on them in the opposite direction from the brows.
+
+**5. Hue in the instrument (minor 6).** `print_metrics.level_compare(...)['appearance']['hue']`: over pixels with C*ab >
+`HUE_C_MIN` 4 (weighted like the rest), the circular median hue, the magenta share (300-360 deg) and the share off
+20-100 deg (reported only: red-brown havana sits at 0-20). Verdict terms: |hue median AR - photo| <= `HUE_TOL_DEG` 5
+and the magenta share at most `MAGENTA_EXCESS` 2 points over the photo's. `ar_levels.table` prints them; the
+calibration records them per candidate (`hue`). Fix round 1's level fails `hue_magenta` at pitch +20, front and yaw +45
+and `hue_p50` at pitch +20 and front; the delivered level fails only the front median (both stored in fix round 3:
+`step6_fixes/provenance.json`, `hue`, per instrument).
+
+**Note for Astra (material and renderer; the temple lines restated at region level; q001's material settings
+untouched).** The brow and coat lines of fix round 1's note stand: the black probe and the coat-off probe give the same
+numbers in this tool test, since the material and the renderer did not change. The temples: at yaw +45 / -45 the
+renderer lifts the near temple's median by +8.3 / +7.8 L* over its albedo median (Astra's texture +10.5 / +12.2),
+against +3.6 / +4.3 pixel-wise on the brow fronts at pitch +20. The lift is not left-right asymmetric for this print.
+Its source (key light, environment, base-layer reflection; the coat is ~~27 % / 32 %~~ 27 % / 29 % of the black probe's
+light there *[fix round 3 of step 6: 27 % / 32 % came from fix round 1's raster rows, misregistered on the temples;
+27 % / 29 % is by the capture's part-id, near temple, `step6_fixes/step6.json` `coat_share`]*) is
+not separated further. The -x temple at yaw +45 stays +6.0 to +6.8 L* over photo 03 because of that lift; the print
+there is already 1.6 L* darker than photo 03 at its own camera.
+
+**Bake, checks, tool test (re-run).**
+- Production bake `data/wp5/ft1119_bake/` (14-worker pool, production 204 s; all checks with the A7 serial bake and the
+  held-out bakes 1,278 s): print.png sha256 d2e153a3..., equal pixel for pixel to the calibration's chosen candidate
+  image and to `cand_chroma_s1_TOOLTEST.glb`'s. A1 pass; A2 6 / 6; A3 read back pass with the hold and hue band
+  re-applied by the proof's own code (within 1 level 99.84 %, dE00 p99 0.81; fix round 1 99.93 %, 0.75); output audit
+  pass; A7 pass. A4 fails on all four parts with fix round 1's numbers (the level does not enter A4); A5 fails at 7 and
+  8 texels; B3 1 of 7 eligible rows. STOP B fires on A4, A5, B3; A6 / B5 from this tool test (same print sha).
+- Tool test (`print_tooltest`, fresh COPY of q001, headless Blender): all 15 checks pass; the label reads "... AR level
+  gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455, chroma held >= 1, chroma hue 20-100 deg ...". Captures:
+  `tooltest/ar_painted/` (all poses, worn portrait, black probe, coat-off probe; `ar_levels.json` repeats the
+  calibration capture's residuals, chroma units, contrast and brow residuals exactly) and `tooltest/arview_painted/`
+  (default poses; every render equals the all-pose capture's; `ar_levels_default.json`). Sheets:
+  `tooltest/owner_sheet.png` (item 1) and `tooltest/closeup_sheet.png` (front brows 18.0 / 32.4, brows at pitch +20
+  15.1 / 21.5, -x temple 18.5 / 25.3; fix round 1 18.0 / 32.3, 15.2 / 21.6, 18.5 / 25.3).
+- In AR at pitch +20 (non-reflection brow-front pixels; fix round 1 -> now; photo 05): -x all C* p50 6.30 -> 6.38
+  (5.78), p90 19.41 -> 19.96 (18.76), honey 12.6 -> 12.6 % (12.3 %); -x nasal third p50 9.07 -> 8.66 (8.79), p90
+  20.63 -> 22.31 (18.78), honey 19.3 -> 19.4 % (11.1 %; the spread excess of fix round 1, unchanged); +x all p50 5.28
+  -> 5.47 (4.80), p90 18.24 -> 19.01 (19.19), honey 14.5 -> 14.3 % (14.9 %). Light marks on the +x block (all / off
+  probe L* > 12 / off achromatic highlight): pitch +20 52 / 30 / 50 -> 48 / 26 / 46 (Astra 26 / 2 / 24); front 48 /
+  42 / 48 -> 50 / 45 / 50 (Astra 34 / 14 / 34).
+
+**Tests.** `pytest -q tests/photoprint tests/instruments tests/test_print_blender.py tests/test_export_blender.py`:
+282 passed, 1 xfailed (1,405 s, `data/wp5/pytest_s6fr2_final.log`, started 07:35:00, written 07:58:26), run AFTER
+the last code edit of this round: no file in `g3d_host/photoprint/`, `tests/photoprint/`, `tests/instruments/`,
+`g3d/printuv/`, `g3d/print_bpy.py`, `tests/test_print_blender.py` or `tests/test_export_blender.py` is newer than the
+run's start marker. The Blender suites ran (nothing skipped). An earlier full run, 282 passed, 1 xfailed
+(`data/wp5/pytest_s6fr2.log`, 07:10-07:33), preceded three comment and docstring corrections (a hue share, a
+residual's order, a photo range) and is superseded by this one. During both runs another session edited
+`g3d/temple/`, `g3d/temple_bpy.py`, `g3d_host/relief_*.py` and WP6 tests and proofs (not this round's files; none of
+the suites above imports them). No pinned verdict changed. New
+in `tests/photoprint/test_step6.py` (24 tests): the hold never greys and the hue band leaves magenta alone (the review's
+0.88 / 0.78 reproduced, byte for byte without the options); `unlevel` and A3's formula re-apply the hold and band;
+the instrument's hue terms catch magenta noise and a 9-deg rotation; `by_group` shows a brow / temple split that pools
+into a pass; the chroma stage reports every graded pair and the all-pairs stage lowers that worst from the same
+captures; `finish` assembles the `all_pairs_chroma` candidate and the owner sheet reads both non-delivered candidates;
+`step6_proof`'s transfer is brow-only and `texture_chroma` bins; the label names the hold and band. Fix round 1's test
+`..._spares_the_tail` is renamed `..._compresses_the_tail` (it always asserted compression). *[Fix round 3 of step 6:
+three of these claimed more than they checked. The `by_group` test's data pooled into a FAIL (p10 -2.39) and it only
+checked |pooled p50| < 2, and `pass_brow` was never called; "A3's formula" was tested only through
+`correction_proof._chroma_f`, while `printproof.readback_a3` carried a third, untested copy; the module docstring's
+"temple region rows" had no test. Each now checks what it claims; see fix round 3.]*
+
+**Engineering decisions (recorded here).** The chroma family holds the factor at >= 1 and acts only inside the havana
+hue band 20-100 deg (15-deg taper). The delivered chroma is still the photo-angle minimax. The minimax over every graded
+pair is calibrated beside it and offered to the owner, never delivered silently. The appearance verdict grades hue
+(median within 5 deg, magenta share at most 2 points over the photo's). Every `ar_levels` row grades the brows alone
+beside the pooled form. Temples are compared by region medians, never through the rigid raster. *[Fix round 3 of
+step 6: `step6_proof.ar_zones` and `renderer_veil` still picked temple pixels through the raster in this round; both
+use the capture's part-id now. A group the photo shows below 0.15 of its pixels is reported, never graded.]*
+
+**Left.**
+- Owner decision: the delivered photo-angle chroma (photo angles pass; front, yaw +45 and yaw -45 tails 0.76-0.80) or
+  the all-pairs chroma (four non-calibration rows' tails 0.88-1.11; the photo angles over by +1.1 on the median and
+  1.19-1.21 on the tail). ~~Yaw +45 vs 03 (an owner complaint) fails under both; it is better under the all-pairs
+  level.~~ *[Corrected in fix round 3 of step 6: the -x temple's spot tail at yaw +45 is inside the window vs photo 03
+  under the delivered level (C* p90 0.91, honey 16.8 % against 14.1 %); the row failed on photo 03's side-view brow
+  pixels, an instrument weighting artefact, now excluded. Graded on the temple, yaw +45 fails under both levels on the
+  temple's median chroma (-1.59 delivered, -1.04 all-pairs), its contrast and its L* (the renderer's lift). The
+  all-pairs candidate was fitted to the artefact; it remains an option by eye.]*
+- The brows alone fail at photo 01's angle (p50 -2.75) under every captured L* level; the pooled target passes there
+  on the temples' opposite error.
+- The front pose and the worn view stay lighter than photo 05 (front non-reflection brow p50 +6 to +10 L*), and the
+  front pose's hue median is 5.4 deg redder than photo 05's (the same albedo is within 3.6 deg at photo 05's own
+  angle: view dependence, the material note).
+- The -x temple at yaw +45 stays +6.0 to +6.8 L* over photo 03 (renderer lift at region level +8.3; texture 1.6 L*
+  darker than the photo); unchanged since step 6.
+- The -x nasal third's patch spread is 1.4-1.7x photo 05's; the endpiece thirds keep less patch contrast than the
+  photo; the +x endpiece block keeps more light marks than Astra's texture under every mask.
+- A4, A5, B3 fire STOP B; the owner has not seen this round's sheets.
+
+### Step 6, fix round 3 (2026-10-07): the yaw +45 row graded on the temple, groups a photo barely shows left out of every verdict, stored provenance, temples by part-id in the proof, tests that check what they claim
+
+Input: the independent final review of step 6 (1 major, 11 minor findings). Nothing delivered changed: no bake, no
+level, no capture, no refit. `data/wp5/ft1119_bake/print.png` sha256 d2e153a3d540e608... and the tool-test GLB
+`data/wp5/tooltest/q001_painted_TOOLTEST.glb` sha256 17d604886c126e06... were recorded before and after this round and
+are unchanged. Production code changed in docstrings only (`fill.py`, `__init__.py`). New data only under
+`data/wp5/step6_fixes/`; every number in this section is from these files or from the stored files they read
+(`ar_calibration/calibration.json`, the bakes' `report.json`, the captures' `report.json`):
+- `photo_group_shares.json`: `ar_levels --share-table`, per photo and group the frame pixels, the photo's achromatic
+  highlights among them, the print-form share, each part's pixels and the median |cos| between surface normal and the
+  photo's camera direction (constants of the job);
+- `ar_levels_corrected.json` / `.log`: the corrected instrument on seven captures (delivered tool test
+  `tooltest/ar_painted`; the all-pairs candidate `ar_calibration/cap_chroma_all_s4`; the near candidate
+  `cap_near_chroma`; fix round 1 `pre_s6fr2_tooltest`; step 6 `pre_s6fr1_tooltest`; step 5 `pre_s6_tooltest`; Astra's
+  texture `tooltest/ar_original`), each with its own black probe;
+- `ar_levels_fr2_instrument.json` / `.log`: the same captures with `--min-photo-share 0`, fix round 2's instrument.
+  Its rows equal the stored `tooltest/ar_painted/ar_levels.json` and the calibration.json chroma units to the last
+  digit, except the band energy (item 8);
+- `chroma_regrade.json` / `.log`: `ar_calibrate --regrade`, the 29 stored calibration captures graded again by the
+  corrected instrument against the run's own probe (no capture, no fit; 69 s on 5 workers);
+- `step6.json` / `step6_proof.log`: `step6_proof` with fix round 2's inputs (30 jobs, 5 workers, 156 s);
+- `provenance.json` / `.log`: `step6_proof --provenance` (item 2).
+
+**1. The yaw +45 vs photo 03 row (major).** Fix round 2 blamed this row's failure on the owner's -x temple complaint.
+Its own `by_group` rows show otherwise.
+- *The brow group.* Photo 03 is the -x side view. Its brow frame pixels are 8,236, of which 3,380 (41 %) are the
+  studio's achromatic reflections, leaving 4,856 print-form pixels: 0.090 of its print-form pixels, seen edge-on (median
+  |cos| 0.60, against 0.81-0.97 for the brows of photos 01, 02, 04, 05). The pose shows the brows at 0.486, so the two
+  weighted forms multiplied each photo-03 brow pixel by 5.38 and graded half the row on them. Brows alone, delivered
+  level: C* p90 8.46 against 13.96 (0.606), units p50 / p90 / mean -1.98 / -3.08 / -2.81. The AR side of that
+  comparison is veiled as well: the black probe's light on the non-reflection brow fronts is L* p50 17.1 at yaw +45
+  against 5.1 at pitch +20 (`step6.json` `renderer`), which dilutes the brows' chroma whatever the print.
+- *The temple group* (98 % the -x temple at that pose, 4,976 of 5,099 part-id pixels; 100 % in photo 03): C* p90
+  24.18 against 26.45 (0.914), units -1.59 / -0.55 / -1.45. The spot tail is inside the window.
+- Per level, yaw +45 vs 03, C* p50 AR - photo / p90 AR over photo / mean AR over photo (bold: outside the window):
+
+| level | temples alone (graded now); L* p10 / p50 | brows alone (reported, not graded) | pooled, fix round 2's instrument |
+|---|---|---|---|
+| step 5 | **-2.74** / **0.62** / **0.59**; +5.23 / +7.53 | -3.50 / 0.49 / 0.48 | **-3.17** / **0.54** / **0.54** |
+| step 6 (sat 1.322) | **-1.16** / **1.20** / 1.02; +4.67 / +6.53 | -1.98 / 0.71 / 0.71 | **-1.57** / 0.99 / 0.89 |
+| fix round 1 (sat 1.107, power 0.745) | **-1.10** / **0.82** / **0.76**; +4.65 / +6.52 | -1.99 / 0.60 / 0.64 | **-1.55** / **0.74** / **0.71** |
+| delivered (sat 0.996, power 0.455, held, hue band) | **-1.59** / 0.91 / **0.79**; +4.65 / +6.60 | -1.98 / 0.61 / 0.63 | **-1.75** / **0.76** / **0.72** |
+| all-pairs candidate, option C (sat 1.378, power 0.615) | **-1.04** / 0.93 / 0.87; +4.67 / +6.60 | -1.20 / 0.75 / 0.75 | **-1.09** / 0.88 / **0.82** |
+| near-18 deg candidate, option B | **-2.81** / **0.76** / **0.65**; +1.94 / +2.20 | -3.20 / 0.45 / 0.47 | **-3.00** / **0.59** / **0.57** |
+| Astra's texture | **-3.25** / **0.43** / **0.43**; -3.19 / -3.42 | -3.80 / 1.00 / 0.66 | **-3.53** / **0.68** / **0.53** |
+
+  By the capture's part-id (`step6.json` `temple_partid`, C* p50 / p90 / honey share; photo 03 at its own camera
+  5.54 / 27.03 / 14.1 %): step 5 3.27 / 16.29 / 11.5 %, step 6 4.88 / 32.27 / 17.6 %, fix round 1 4.95 / 21.84 /
+  16.8 %, delivered 4.44 / 24.51 / 16.8 %, all-pairs 4.99 / 25.01 / 17.6 %, Astra 2.65 / 9.54 / 5.5 %.
+- *(a) For the owner:* under the delivered level the -x temple's spots at yaw +45 are inside the window against photo
+  03 (C* p90 0.91 of the photo's, honey 16.8 % against 14.1 %), better than fix round 1 (0.82) and step 6 (1.20, too
+  vivid). Fix round 2's "fails under both levels" came from the instrument grading half the row on photo 03's few
+  side-view brow pixels (an instrument weighting artefact, not the owner's complaint). What is still off on that
+  temple: its median chroma (p50 -1.59 at the delivered level, -1.04 at the all-pairs level), its contrast (L* std
+  ratio 0.69 at both) and its lightness (+4.65 / +6.60 L*, the renderer's lift: the note for Astra).
+- *(b) The all-pairs candidate (owner option C, "more colourful") was fitted to that row's mean:* its all-pairs
+  minimax ended at chroma_all_s4 with worst unit 1.236, which is yaw +45's pooled C* mean unit, balanced against the
+  calibration median +1.17 (calibration.json `chroma_stage.all_graded`). With the row graded on the temple, the
+  candidate's worst is its own calibration median overshoot (+1.17), and the row is -1.04 / 0.93 / 0.87. So its stated
+  rationale, splitting the view dependence over all six pairs, is weak. It stays on the owner sheet unchanged, and the
+  owner may still pick it by eye.
+- *(c) "No single albedo passes all six" is withdrawn.* Photo 03 grades no calibration row. Graded on the temple, the
+  calibration rows' p90 ratio is 1.16x yaw +45's at the delivered level (1.06 / 0.91) and 1.28-1.30x at the all-pairs
+  level (1.19-1.21 / 0.93), inside the 1.39-wide window, so no pass is ruled out. Re-grading every stored calibration
+  capture (`chroma_regrade.json`): none of the 29 captured levels passes every graded pair (best chroma_all_s4 1.17
+  and chroma_all_s3 1.23, both on their calibration medians or tails; the delivered chroma_s1 1.59, on yaw +45's temple
+  median), so a pass is neither shown nor ruled out. Answering it needs the all-pairs minimax re-run with the corrected
+  instrument (captures only, no print change); not done here (no refit this round).
+- *The instrument fix* (`ar_levels.MIN_PHOTO_GROUP_SHARE` 0.15, `photo_group_shares`, `excluded_groups`, `compare`,
+  `by_group`, `pass_brow`, `group_residuals`, `group_chroma_units`; the `--min-photo-share` flag; the chroma fit reads
+  the `print` form, so `ar_calibrate`'s stage and verdicts inherit it): a group whose share of the photo's print-form
+  pixels is below 0.15 is reported (its `by_group` block computed as before, `graded` False, with the reason) and left
+  out of both weighted forms on both sides, so of every pass / fail and of the chroma fit. The number, from the data
+  (`photo_group_shares.json`): the twelve photo-side shares are
+
+| photo | brow share / median abs cos / reflections among its brow pixels | temple share / median abs cos |
+|---|---|---|
+| 01 | 0.483 / 0.81 / 15 % | 0.517 / 0.50 |
+| 02 | 0.507 / 0.97 / 7 % | 0.494 / 0.59 |
+| 03 | **0.090** / 0.60 / 41 % | 0.910 / 0.95 |
+| 04 | 0.502 / 0.85 / 6 % | 0.498 / 0.78 |
+| 05 | 0.826 / 0.95 / 6 % | 0.174 / 0.26 |
+| 06 | **0.117** / 0.43 / 41 % | 0.883 / 0.94 |
+
+  0.15 lies between the two side views' brows (0.090, 0.117) and photo 05's temple tops (0.174). The temple tops are
+  kept because photo 05 shows them from its calibration pose's own direction (1.6 deg; in AR the head hides the arms,
+  hence the pose's 1.1 %) and the instrument only ever weights them down (x0.065 at pitch +20, x0.25 at the front).
+  At the graded pairs every kept group's weight is 0.06-1.51 (`photo_weight`); photo 03's brows were the only group
+  weighted over 1.6 (x5.38). Tested on synthetic data (a 5 % brow group weighted x10 that failed the pooled row is now
+  reported and left out) and pinned on FT1119's own shares (`test_min_photo_group_share_separates_the_side_view_brows`).
+- *What changed in the verdicts* (`ar_levels_corrected.json` against `ar_levels_fr2_instrument.json`): only the yaw +45
+  vs 03 row, at every capture; every other row is identical. The calibration-pair worst chroma unit is unchanged at all
+  29 calibration captures (`chroma_regrade.json`, stored against now), so the delivered level's calibration verdict
+  stands. Worst chroma unit, every graded pair, fix round 2's instrument -> corrected: step 6 2.08 -> 2.08 (its
+  calibration tail), fix round 1 2.11 -> 1.66, delivered 1.99 -> 1.59, all-pairs 1.24 -> 1.17, near 3.42 -> 3.16. The
+  delivered level's per-role print-form verdicts are unchanged: L* passes the calibration role and fails trade-off and
+  held-out; `pass_brow` False in every role. Yaw +45 vs 03 still fails at the delivered level, now on the temple's
+  median and mean chroma, its contrast and its L*, never on the brows.
+
+**2. Provenance (minors 2 and 3).** The numbers fix round 2 quoted from unsaved computations are re-derived (identical)
+and stored in `provenance.json`, cited in place above: fix round 1's hue medians and magenta shares and its
+`hue_p50` / `hue_magenta` failures under both instruments (`hue`: pitch +20 29.21 / 34.42, front -7.97; magenta 4.77 /
+6.45 / 2.87 / 3.42 % at pitch +20 / front / yaw +45 / yaw -30); the brows' dark-phase C* at pitch +20
+(`dark_phase_brows_pitch_p20_vs_05`: L* 15-20 4.22 against photo 05's 3.94, fix round 1 4.18; L* 20-25 6.80 against
+5.67, 6.83); the delivered L* level without its chroma (`texture.delivered_L_level_without_chroma`: 0.894 / 0.910 /
+0.926 in the 8-15, 15-25, 25-60 bins); fix round 1's level re-applied to the level-free bake reproduces
+`pre_s6fr2_bake/print.png` pixel for pixel, and the delivered level reproduces `ft1119_bake/print.png`
+(`texture.*.reproduces_print_png`); the all-pairs candidate's texture C* p90 16.93 (`texture.all_pairs_candidate`).
+The caveat's sentence "the AR dark phase does not exceed the photo's" was false: the AR brows are more chromatic than
+photo 05 in both L* bins (+7 %, +20 %), unchanged from fix round 1; corrected in place.
+
+**3. Temples by part-id in the proof (minor 4).** `step6_proof.ar_zones` and `renderer_veil` picked temple pixels
+through the rigid q001 raster, which the round itself had shown misregistered on the temples (`registration`, yaw +45
+painted: Temple_Left IoU 0.408, centroid 41.6 px off; brows 0.948 / 0.897). Both now use the capture's own part-id
+for the temples (`temple_partid`; renderer rows `temple_partid -x` / `+x`), and `coat_share` computes the coat's share
+of the probe's light from the black probe and the coat-off probe of the same capture (CIE Y). The near temple at yaw
++45 / -45 (`step6.json`): reflection share coat on / off 3.2 % / 1.6 % and 13.5 % / 11.0 %; light on the rest, L* p50
+(p90), 10.3 (20.3) / 7.7 (18.0) and 12.3 (24.4) / 9.3 (23.1); coat's share 27 % / 29 % (fix round 2's note had
+27 % / 32 % from the raster rows; corrected in place). Step 6 item 3's raster numbers are restated by part-id in place
+(step 5 -> step 6: honey 11.5 -> 17.6 %, C* p50 3.27 -> 4.88). The brow rows stay on the raster, which is registered
+there.
+
+**4. Tests that check what they claim (minor 5).** `tests/photoprint/test_step6.py` (now 35 tests):
+`test_by_group_grades_brows_and_temples_apart` builds brows 2.8 L* dark and temples 2.8 L* light over one photo
+distribution: the pooled print form PASSES (|p10| < 1.5, |p50| < 0.5) while each group fails, and `pass_brow` (now a
+function) fails the role the pooled form passes, is None for a role with no row, True for a passing row, False for a
+missing render. `test_unlevel_and_a3_reapply_the_hold_and_hue_band` now runs A3's own re-application
+(`printproof.reapply_level`, which replaced `readback_a3`'s inline third copy of the chroma formula and calls the
+proofs' one copy `correction_proof._chroma_f`, so A3 stays independent of the tool) against the tool's
+`shading.level_map` for all five level forms (correction round, step 6, fix rounds 1 and 2, hold and band without a
+power), to 1e-9. New: the excluded-group case; the minimum pinned on FT1119; `temple_region` (a uniform AR colour over
+a uniform albedo gives exactly their L* and C* differences) and `registration` (brows IoU ~1, a temple moved 8 px
+gives offset 8) on a synthetic frame and capture; sides by the x sign (a model with its 'Left' parts at +x, a model
+with both brows on one side refused); the raster cache keyed by the pose transform; `unlevel`'s convergence report; the
+chroma probes overlapping in time and kept in order; the cropped `band_energy` equal to the whole image's; `capture_ppm`
+with depth and `_pooled_energy`; the photo masks built once; the coat share; the re-grade summary.
+
+**5. The proof scripts' house rules (minor 6).** `step6_proof.run` hands every (capture, pose) and each bake's
+photo-camera rows to an EcoQoS-opted-out process pool (`procs.pool_map`, `--workers`, sized from the free commit by
+the house rule: 5 workers), which prints progress at least every 30 s; each bake's level is undone once
+(`correction_proof._imgs`, the fixed point over the 3,660,217-texel atlas; fix round 2 undid it again for each of a
+bake's four rows): 30 jobs in 156 s with a progress line about every 30 s (`step6_proof.log`), where fix round 2's
+serial run wrote nothing until its final JSON, 8.7 minutes after the last capture it reads (the review's evidence).
+`ar_calibrate.chroma_stage` captures its three `CHROMA_PROBES` at the same time (`capture_probes`, one thread per
+arview capture, results in probe order; `f`'s bookkeeping under a lock). `ar_levels.measure` keeps the occlusion
+scene, the photo masks and highlight maps and the part points in a per-job cache (inside `photos`, which
+`ar_calibrate` keeps for a whole run), and `print_metrics.band_energy` takes a precomputed L* and works on the mask's
+padded bounding box (exactly the whole image's value, tested), so one L* per image instead of one per call.
+
+**6. Stale texts (minors 7 and 8).** `fill.py`'s docstring said photo 06 passes "472 of its 2,224 hits"; no bake has
+those numbers. Every step-6 bake's report.json (`text`) gives 287 of 2,170 (1,883 on dark acetate; photo 03 0 of
+1,970); corrected. `__init__.py` said fix round 1's factor is below 1 "above C* 10": for sat 1.107 / power 0.745 it is
+1.107 at C* 10 and below 1 only above C* 14.9; corrected, with the delivered level as report.json records it. The two
+stale "now" statements (step 6's superseded bracket, fix round 1's "Chosen") carry superseded markers.
+
+**7. The raster cache (minor 9).** `step6_proof` keyed its per-pose raster by the pose alone and reused the first
+capture's for every capture; Astra's capture has its own fit (scale 1.00709 against 1.00798). `RasterCache` keys by
+`raster_key` (pose, asset_to_world, projection, image size): `step6.json` `raster_keys` shows Astra's capture on its
+own raster at every pose and the six painted captures sharing one. Astra's rows moved by at most 0.7 L* (a zone p90),
+0.34 C* (a zone p50) and 0.4 points of honey; its transfer rows by at most 0.1 L* and 0.04 C* (-x at pitch +20: AR -
+albedo +4.85 -> +4.81, C* ratio 0.871 -> 0.868). No painted row changed except as items 3 and 8 say.
+
+**8. Band energy at each part's own px/mm (minor 10).** `ar_levels.band_energies` measured both groups at the
+bridge's px/mm. In AR the mid-temple's px/mm is 24-26 % below the bridge's at pitch +20 and the front, 34 % / 8 % below
+(far / near) at yaw -30 pitch +20, 36 % below (far) and 2 % above (near) at yaw +-45; in photo 03 the near temple's is
+20 % above its pivot's. Each part is now measured at its own point (`part_points`: the area-weighted centroid, the
+temples over their AR-visible stretch z -104..-9 mm; AR via `capture_ppm`, photo via `inputs.ppm_local`) and a group's
+energy is its parts' pixel-weighted RMS; `step6_proof`'s zone and photo-camera rows likewise. The temple band ratio
+at photo 01's pair that step 6 cited (0.673) is 0.689 on the same capture, the delivered level's 0.670 -> 0.687: it
+does not change materially. Brows at the calibration pairs: step 6 1.154 / 0.979 -> 1.158 / 0.983. At yaw +45 vs 03:
+brows 0.316 -> 0.348, temples 0.766 -> 0.774.
+
+**9. Sides by x sign (minor 11).** `step6_proof.SIDES` mapped object names to sides. `ar_levels.part_sides` (used by
+`step6_proof.sides`) takes each part's side from the x sign of its area-weighted centroid (q001: Brow_Left x -41.2 mm,
+Brow_Right +41.2, Temple_Left -68.4, Temple_Right +68.4) and refuses a model without exactly one brow and one temple
+per side; the bakes' rows record the mapping (`step6.json` `bakes.*.sides`). Which parts are brows or temples stays the
+part class (`ar_levels.GROUPS`). Found in passing: `correction_proof.TEMPLES` was the same name map under a comment
+claiming "selected by the x sign"; `ar_streaks` now uses `part_sides` too.
+
+**10. `unlevel` reports its convergence (minor 12).** `correction_proof.unlevel(..., info=)` reports the method,
+iterations, convergence, the final fixed-point residual |x - F(x)| and the texels above `UNLEVEL_TOL` (1e-9, linear
+light), and warns when it stops at `max_iter` unconverged; `_imgs` and `step6_proof` record it
+(`step6.json` `bakes.*.unlevel`, `texture_chroma.*.unlevel` when used). Delivered bake: 30 iterations, max residual
+5.0e-10, 0 of 3,660,217 texels above tolerance; fix round 1's bake: 21 iterations, 2.0e-10, 0.
+
+**Verification completed by Codex, 2026-10-07 11:39.** The full requested WP5 suite
+(`tests/photoprint` and `tests/test_print_blender.py`) passed: **276 passed, 1 expected xfail**, no skips,
+in 1,182.86 s; process exit 0. The xfail is `test_x3d_periodic_wrong_match_is_refused`. Run began 11:19:05
+after the last group-A code edit and finished 11:38:48; a detached runner imposed no timeout and capped the
+default pool at 3 workers for available commit memory. Log and exact arguments:
+`data/codex_resume_20261007/wp5.log`, `wp5_run.json`. The only warning is pytest's already-imported `dash`
+assert-rewrite warning. This suite also collected the separate all-angles tests; their code belongs to group B.
+The fresh full-diff re-review against all 12 stored findings found no remaining blocker. The independent
+stored-evidence audit (`data/codex_resume_20261007/wp5_evidence_audit.json`) passes 200 checks, including
+unchanged production print and GLB hashes, the seven corrected capture records, every calibration capture,
+stored dark-phase/hue/texture provenance, per-region masks, raster keys and inversion convergence. It caught
+and corrected the report's count of calibration captures: **29**, not 30 (the proof job count remains 30).
+
+**Engineering decisions (recorded here).** A group whose share of a photo's print-form pixels is below
+`MIN_PHOTO_GROUP_SHARE` 0.15 is reported, never graded, and never enters a fit (set from the job's own photo shares).
+Every `step6_proof` temple row is by the capture's part-id. Band energies are measured at each part's own px/mm. A3
+re-applies the level with the proofs' one copy of the chroma factor (not the tool's, so A3 stays independent).
+Independent captures run concurrently, and the proofs run on pools sized from the free commit, with progress lines.
+
+**Left.**
+- Owner decision received after this round: **B, the darker `near_18deg` candidate**, on 2026-10-07 about 11:10
+  (PROGRESS, RESUME HERE section 2). Its production promotion is separate work after these verification commits;
+  A's print and tool-test GLB remain unchanged here. C's numerical rationale rested on the brow artefact.
+- Whether one chroma level passes all six graded pairs under the corrected instrument is open: none of the 29 captured
+  levels does (best 1.17). Settling it needs the all-pairs minimax re-run (captures only).
+- The -x temple at yaw +45: median chroma short (-1.59 delivered), contrast 0.69, L* +4.65 / +6.60 over photo 03 (the
+  renderer's lift; the note for Astra).
+- The brows' dark phase is more chromatic than photo 05's at pitch +20 (+7 % / +20 % in L* 15-20 / 20-25): the tint of
+  the in-band lift at low chroma, unchanged since fix round 1.
+- The rest of fix round 2's Left stands (front pose lighter and 5.4 deg redder, the nasal spread, the endpiece
+  contrast, the +x block's light marks, STOP B on A4, A5, B3).
