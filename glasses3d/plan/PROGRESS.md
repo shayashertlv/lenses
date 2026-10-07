@@ -44,6 +44,15 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   production print.png: gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455), B = `near_18deg` ("darker": gain 0.831, gamma 1.168),
   C = `all_pairs_chroma` ("more colourful": sat 1.378, chroma_power 0.615). Apply the owner's pick by re-running the level map with that
   candidate, then re-run the tool test on a temp copy.
+- 09:27: the full WP5 suite PASSED on the step-6 code (241 passed, 1 xfailed `test_x3d_periodic_wrong_match_is_refused`, 46 min under
+  load; log `data/pytest_tmp/wp5s6_full.log`). An earlier 'F' at test 83 was MEMORY exhaustion (paging file too small with several
+  14-worker pools at once), not a code defect. The step-6 final review (inside g3d-wp5-all-angles) found 1 major (PORT_REVIEW fix
+  round 2 blamed the yaw +45 vs 03 failure on the owner's -x temple complaint; the temple is inside the window, the row fails on its
+  brow group graded from photo 03's 9 % side-view brow pixels reweighted to 49 %; owner option C was fitted to that row) + 11 minors.
+  `g3d-wp5-step6-fixes` (task wr23ng2j9, run wf_730bf6ec-6cf, launched 09:30) fixes all of them (instrument: groups with too few
+  photo-side pixels excluded from verdicts/fits; provenance json under data/wp5/step6_fixes/; tests that check what they claim;
+  pools/progress in proof scripts; x-sign sides) WITHOUT changing print.png or the tool-test GLB (sha checked), then re-reviews.
+  Commit step 6 + these fixes together after it passes (rerun the changed tests).
 - `g3d-wp5-all-angles` (task wubw37okd, run wf_81098786-301, launched 08:19): builds `data/wp5/all_angles/all_angles_photos.png` (each
   photo 01-06 rendered from THAT photo's fitted camera in arview's own renderer, no face, temples posed to the fitted hinge angles; columns
   photo | Astra | A | B | C; per-row PNGs in `all_angles/rows/`) and `all_angles_tryon.png` (all 11 try-on poses + worn portrait x 4
