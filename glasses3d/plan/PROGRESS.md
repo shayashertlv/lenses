@@ -15,7 +15,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP5 photo print | **in progress**: owner chose "continue, judge by eye in AR" (single-source print per region). Step 6 built, NOT yet committed (WP5 tests + a final review running); owner asked for every angle x every option (workflow running) | 5ec9c25 |
 | WP6 faceted temples | **stop rule fired** on the Prada tool test (outline better than delivered, facets not reproduced); **re-diagnosis running** | 204f694 |
 | WP2 live Astra session | design done (WP2_DESIGN.md); **stages A-B running**; stage C may install packages (owner pre-approved, safe sources) | 9c532bc |
-| WP7 instructions | not started (rule texts already drafted in WP4_DESIGN §12, WP6_DESIGN rule section) | - |
+| WP7 instructions | **design done** (`plan/WP7_DESIGN.md`, judged panel of 3 + fact check); implementation waits for WP2 stage D's registry | 78d1950 |
 | WP8 paid validation | not started; needs the owner's OK per paid run (ask then: budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU) | - |
 
 ## RESUME HERE (state on 2026-10-07; read this first after PLAN.md §0)
@@ -77,6 +77,19 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   **SDK installed 2026-10-07 08:24** (owner pre-approved installs from safe sources): `glasses3d/requirements-agent.txt` = 26 pins with
   PyPI sha256 hashes (openai 3.22.1, openai-agents 0.22.3, httpx2 2.13.1, httpcore2 2.13.1, mcp 1.30.0, python-dotenv 1.1.1 + 20 deps),
   resolved from pypi.org with the existing venv packages held as constraints: 26 added, 0 changed, `pip check` clean, `import agents` ok.
+- WP7 design DONE 10:16 (78d1950): tool-contract draft won (41/40 vs 38/38, 37/36); 12 blocks, 25 rules (33 with gates open), ~2,210
+  tokens gates closed; 0 shared 5/6/8-grams with 164 old texts; fact check fixed 11 errors. Open (engineering, for stage D / G1 / G2):
+  `photo_x_range` unbuilt (use `pick_surface_point`); G2 must pass photo crease counts to check_relief or SLAB fires on smooth temples;
+  FRONT_BOUND not in measure flags; seating r5 could use arview junction metrics; G1 check ids are proposals; scene_summary.closed
+  only for MESH; WP2_DESIGN §11 'deliver refuses only on §2' is wrong (export refusals also stop it) - fix in WP2 docs. **Owner
+  questions before WP8 (WP7_DESIGN §4.2):** #1 'sizes from the specifications; shape, colour, finish from the photos' (needs a yes),
+  #2 arview_capture lensenv choice.
+- All-angles sheets (in review round 2 at 10:16): `data/wp5/all_angles/all_angles_photos.png` (front, angled, top, back),
+  `all_angles_photos_shape_differs.png` (03 right side, 06 left side from above: model outline IoU 0.73/0.71 = Astra's shape, the bake's
+  own fit scores the same), `all_angles_tryon.png` + `_2.png` (11 poses + face). Verifier notes: C looks the same as A everywhere (the real
+  choice is Astra / A / B); a real PAINT defect - pale-yellow/white ragged blotches on the brow tops (top view, `rows/04_top.png`), in
+  the production print (highlight handling) - fix in the next WP5 step; silver metal / cream lenses / medallion only on +x are
+  Astra's model content. arview gained an explicit-camera, no-face dev capture (`qa/capture/cameras.ts`; commit separately).
 - `g3d-wp7-design` (task wykg7gd4w, run wf_9c4f37fb-9a2, launched 08:28): evidence from old instructions + praised/failed transcripts ->
   three drafts (evidence-first, tool-contract-first, owner-outcome-first) -> two judges -> `plan/WP7_DESIGN.md` (instruction blocks per
   tool group, G1/G2 gated, contract-test spec, fresh docstrings) -> adversarial fact check. Design only; implementation waits for
