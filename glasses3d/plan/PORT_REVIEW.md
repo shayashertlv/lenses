@@ -4101,3 +4101,220 @@ Independent captures run concurrently, and the proofs run on pools sized from th
   the in-band lift at low chroma, unchanged since fix round 1.
 - The rest of fix round 2's Left stands (front pose lighter and 5.4 deg redder, the nasal spread, the endpiece
   contrast, the +x block's light marks, STOP B on A4, A5, B3).
+
+## 11. WP2 port
+
+### Stage A (2026-10-07): worker, RPC, safe mode, checkpoints, processes
+
+Built from WP2_DESIGN §3-§5 and §15 row A; $0 (no paid call, no download). New files only: `g3d/{rpc,worker,safe_mode,
+checkpoint,lib}.py`, `agent/{__init__,worker_client,journal,procs,astra_corpus}.py`, `tests/test_wp2_{rpc,safe_mode,
+procs,worker,checkpoint,corpus}.py`. Nothing under `g3d/__init__.py`, `export_glb.py`, seat/print/temple files or arview
+was edited; `checkpoint.scene_state` imports `export_glb`'s private digest helpers (`_mesh_digest`, `_custom_props`,
+`_plain`, `_tree_state`) instead of refactoring `snapshot`, which stays the exporter's own scene-unchanged check.
+
+| Source (read in full) | Verdict | glasses3d target | Kept / changed |
+|---|---|---|---|
+| community `mcp-for-blender/src/blender_mcp/safe_mode.py` :477-975 (MIT, notice kept in the module) | **keep mechanics, new policy** | `g3d/safe_mode.py` | Kept `_attr_chain`, `_path_is_blocked` (as `path_rule`), `_collect_bindings`, the deny-by-default node walk, `_check_module_value_use`, `_guard_source`, the depth check. Changed: every violation collected with line and replacement tool; aliases canonicalised (bpy aliases denied); prebound `bpy, bmesh, mathutils, np, g3d`; lambda a value, never a call target; every `_` attribute denied; from-import names checked against the denied names; `.format` only on a literal; computed getattr names checked at run time; limits 200 KB / 40,000 nodes / depth 32 |
+| community `tests/test_safe_mode.py` (MIT) | **inverted** | `tests/test_wp2_safe_mode.py` | Its 7 plain bpy scripts still pass; its render/save/import/open/preferences scripts are refused; its 45 escapes stay refused |
+| panel `worker_angle/{worker,client,safe_policy}.py`, `worker/{worker,client,make_g3d_safe}.py`, `worker_proto/worker.py`, `proto_safe_mode.py` | **rewrite** | `g3d/worker.py`, `agent/worker_client.py`, `g3d/safe_mode.py` | Ideas kept: env token + sha256 receipt, single client, SIGINT handler armed only during a snippet, audit hook armed on the main thread, save/load handlers flagging C-level .blend I/O, fake users before a save, the guarded getattr family, the from-import hole. Rewritten to the design's frames (ids, deadline_s, error objects), methods and per-call protocol |
+| panel `worker_angle/jobobj_test.py`, `pack_test.py`, `fp_diff.py` | **measured, rewritten as code + tests** | `agent/procs.JobObject`, `checkpoint.protect`, fingerprint exclusions | Defects 1-3 handled; the Job Object test is `test_job_object_reaps_the_child_when_the_runner_dies` |
+| panel `worker/{corpus_static,corpus_replay,chain_replay}.py`, `run_corpus.py`, `classify.py`, `worker_angle/run_corpus.py`, `adversarial.py` | **rewrite** | `agent/astra_corpus.py`, `tests/test_wp2_corpus.py`, `tests/test_wp2_safe_mode.py` | Corpus builder (data only, into the ignored `data/reference/astra_corpus/`), I/O-line classes, `strip_io`, the chained replay; the three adversarial sets verbatim (33 + 47 + 33, 96 distinct) plus 37 added below |
+| `source-before/modeler/winqos.py` | **keep** (functions) | `agent/procs.py` | `opt_out`, `opt_out_self`, `state` (as `qos_state`), `children`, `descendants`, `DescendantsOptOut`; private kernel32 with argtypes |
+| `source-before/modeler/detach.py` | **keep** (with one change) | `agent/procs.py` | `process_state` (kernel process list for refused ids), `same_process`, `stop_tree` (root first), `open_append`, `write_json_atomic` (retry delays .01-1.6 s), starter -> keeper -> command, WMI fallback, spec file. Changed: the keeper runs on the BASE interpreter (`keeper_python`), the starter through the venv launcher (measured below) |
+| `source-before/tests/test_winqos.py`, `test_detach_stop_order.py` | **rewrite** | `tests/test_wp2_procs.py` | read-back from inside the process, not inherited, breakaway and WMI starts, a stopped command reads gone |
+| `source-before/blender_agent/session.py` | **replaced** | `agent/worker_client.py` + `agent/procs.py` | ephemeral port, 60 s ready timeout, kill-on-close Job Object (no orphan), allowlisted env, EcoQoS |
+| `source-before/blender_agent/{isolated,evidence,source_tools}.py` | **ideas only** | `g3d/checkpoint.py`, `agent/journal.py` | packed copy + read-only checkpoint + `open_mainfile(load_ui=False, use_scripts=False)`; one save per changed call (call N's head is call N+1's before); per-call `arguments.json` / `issued-code.py` / `result.json` / `journal.json`. `settled()` waits for stage C |
+
+**Deviations from WP2_DESIGN (decided in this stage, each measured or reasoned):**
+
+1. **`pack` is denied.** §4 lists `pack` among the denied names and the worker panel's adversarial set refuses
+   `images['x'].pack()`, but §4's hints say `img.save -> img.pack()`. The denial wins; the hint for every image save
+   or pack is "images you generate or edit are packed into the next checkpoint automatically" (`checkpoint.protect`).
+   The 7 `img.pack()` lines of the corpus (tomford-scratch, not in the accepted runs) are in the pack I/O class.
+2. **Call targets.** The design keeps the community rule (only defs, from-imports, modules and builtins are callable),
+   but corpus snippet a533575480f1 (tomford-scratch) calls a parameter (`sweep(..., uvx=uv_rot)`) and a module
+   function alias (`nz = noise.noise`); every panel prototype refused it too (the design's "every failure was a
+   file-I/O line" did not hold for it). Function parameters and names whose every binding assigns a def, a
+   from-import or a module-rooted chain are callable now. Lambda-bound names, loop variables, unpacked names and
+   computed targets (`f()()`, `fns[0]()`) stay refused. Safe because every callable is checked where it is referenced.
+3. **Prebound `np`.** A snippet that binds `np` itself and never imports numpy (ff56ff2d: `np = xy + new[j]`, a
+   Vector) keeps its own variable: the name is dropped from the aliases and the worker does not prebind it. bpy can
+   never be rebound; an imported module can never be rebound.
+4. **`hasattr` with any string name** passes (c673f6904cbc: `hasattr(x, '__len__')`): a bool grants nothing.
+5. **Policy added beyond §4** (holes found while porting): module attributes that lead out of the allowlist,
+   measured in Blender 5.2 (`typing.sys`, `enum.bltns`, `json.codecs`, `dataclasses.inspect`, `collections.abc.sys`,
+   `re.copyreg`, `bpy_extras.io_utils`, `bpy_extras.object_utils.bpy` re-rooting bpy, `la`/`pu` re-rooting numpy.linalg and
+   polyutils inside the six polynomial modules, numpy submodules outside the
+   allowlist), self-checked by every `--probe` worker (`safe_mode_selfcheck.unlisted_edges == []`; it also flags an allowed
+   module re-rooted under another path when a rule depends on that path); names of
+   process/filesystem/introspection modules denied anywhere in a chain; a module object is never a value (closes
+   `o = bpy.ops.object; o.bake_image()`, which the community rule passed because `object` is not a navigation name);
+   `string.Formatter` and `get_field/get_value/vformat/format_map` (they walk `{0.__class__}` with the real
+   getattr); `get_type_hints`/`ForwardRef` (eval with an explicit empty globals brings the real builtins back);
+   `as_strided` (reads and writes outside the array); `path_resolve` (getattr by string path); draw/timer/modal
+   handler adders; `clipboard`; the `save_mode` keyword (bake writes image files to their filepath); `bpy.ops.fluid`,
+   `bpy.ops.dpaint` and the Geometry Nodes bake operators (disk caches). numpy.polynomial's submodules are allowed
+   (pure math). The audit hook also refuses directory listings, filesystem mutations, `_winapi`/`msvcrt`, frame
+   access, `code.__new__`, marshal and pickle events while armed.
+6. **The 214.** 214 = 186 Astra tool calls + 28 host stop-checkpoint saves journaled as `execute_blender_code`
+   without a tool-call context (the design scratch's classifier used the tool name as fallback). The gate runs on
+   all 214; the chained replays use the 186-call context.
+7. **Chained replays go through the worker's validated `exec`, not the journal.** The Studio kept a failed snippet's
+   partial effects and the next steps were written on that scene: Prada step 3 added both lenses, then raised;
+   INVU step 0 created a material, then raised; Oakley step 19 was refused by the Studio's own safe mode (sent as is
+   here, refused here too, scene unchanged as in the Studio). With the journal's rollback rule Astra would have seen
+   the restored scene instead. Font loads become the trusted `load_font` (Prada step 9). The comparison is exact: the
+   product's object, data and slot-material digests (zero-user datablocks excluded, the Studio's saves dropped them),
+   stronger than the prototype's 4-decimal rounded compare.
+8. **Warm spare.** When a call is still running at soft + 1 s, a replacement worker starts on the head in the
+   background, so a hard kill costs the verification only. Measured need: Blender takes 3.1-3.4 s to reach the worker
+   script on this machine at 50-94 % CPU load from other workflows (inventory, idle: 1.74 s); without the spare the SVD
+   restart took 15.5 s and 24.8 s (criterion 8: <= 15 s); with it 10.1-10.6 s.
+9. **A swallowed soft timeout is a timeout.** A bare `except:` catches SoftTimeout; the worker re-interrupts every
+   second and reports `timeout` (and the host restores) even if the snippet then finishes.
+10. **Restore and label rows.** `restore_checkpoint` appends a `restore` row that references the restored
+   checkpoint's read-only file (no copy); `save_checkpoint(label)` appends a `label` row naming the head when the scene
+   has not drifted. A worker refusing a call on drift makes the host save a `drift` checkpoint, log a defect and
+   re-issue the call once.
+11. **venv launcher.** A Windows venv's `python.exe` runs the real interpreter as its child in a kill-on-close job with
+   silent breakaway: a keeper started through it was two processes, the recorded pid the launcher's, and `stop_tree`
+   killed the keeper before it could reach the command (the command survived). The keeper now runs on
+   `sys._base_executable`; the starter still goes through the launcher (from the base interpreter the keeper's
+   breakaway was refused: WinError 5).
+12. **Popen after TerminateJobObject.** `Popen.kill` records the exit code the job termination set while the process
+   object is not yet signalled (a fresh handle read WAIT_TIMEOUT right after `wait()` returned), so `WorkerClient.kill`
+   waits until every job member is gone (Blender starts one helper process; both are reaped).
+13. **Startup.** The g3d facade is built on the first snippet that names `g3d` (outside the armed window); the
+   safe-mode self-check and the facade report run only in a `--probe` start, so a restart comes up in 3.8-4.5 s.
+14. **Cost.** On Prada the fingerprint takes 0.10 s (design: 16-50 ms with `export_glb.snapshot`, which hashes less:
+   scene_state adds RNA of materials, curves, lights, worlds and per-object visibility); a read-only call 0.175 s and a
+   changing call 0.31 s median (design: ~0.15 s; the Studio paid 0.64 s), measured under 50-94 % machine load.
+
+**Measured (stage A, Blender 5.2.0, Intel Arc 140T, 2026-10-07):**
+- worker ready 3.8-4.5 s; with `--probe` 6.5-8.5 s (EEVEE 64x64 probe 4.6 s on first render, 1,443 non-empty px,
+  OpenGL); EcoQoS read back (1, 0); worker environment has no API key, token or PYTHONPATH.
+- soft timeout: `while True` -> `timeout` in 2.04-2.07 s on the same pid; a numpy SVD 2600^2 (51 s in Blender's numpy)
+  -> `worker_restarted` with hard 10 s in 10.1-10.6 s, new pid, head fingerprint verified, 0 new checkpoints.
+- checkpoints: Prada c0000 2.43 MB, save 0.13-0.14 s; synthetic, Prada and q001 c0000 reopened by a new worker and
+  restored in place: fingerprint equal, every component equal (stop rule not hit).
+- corpus gate: 214 snippets, 68 pass, 146 refused on file-I/O lines only (line hits: checkpoint 110, self-render 82,
+  pack 9, text block 6, font 4, preferences 2, export 2), **0 false positives**.
+- chained replays, every step exact: **Prada 19/19, Oakley 21/21, INVU 20/20** (12-42 s each).
+- adversarial: the panel's 33 + 47 + 33 (96 distinct) and 37 added: all refused (statically; the computed getattr
+  names at run time).
+- `tests/test_wp2_*.py`: 324 passed in 2 min 18 s.
+
+**Not in stage A:** render/pick/compare/export/g3d_call/print methods (stages B, D); `settled()` and the loop (C); the
+CPU-idle watchdog, `execution.json`, `job` CLI and the detached `job run` (E).
+
+### Stage B (2026-10-07): cameras, renders, comparison, picking, fit_cameras wiring
+
+Built from WP2_DESIGN §6, §13 and §15 row B; $0 (no paid call, no download, no git commit or stash, no source `.blend`
+written: sessions run on copies). New files: `g3d_host/{blender_camera,compare}.py`, `g3d/render.py`, `agent/seeing.py`,
+`tests/test_wp2_{camera,camera_parity,compare,seeing,pick,fit_cameras}.py`, `tests/blender/wp2_{camera_parity,synthetic_scene}.py`.
+Stage A files extended: `g3d/worker.py` (methods `bounds`, `render`, `pick`, `export_glb`) and `agent/journal.py`
+(`new_call_id`, `call_read`, `record_call`). `fit_views.py`, `fitmesh.py`, `raster.py`, `cameras.py`, `matte.py` and
+`export_glb.py` are used unchanged.
+
+| Source (read in full unless noted) | Verdict | glasses3d target | Kept / changed |
+|---|---|---|---|
+| panel `worker_proto/camconv.py` (sensor fit AUTO, everything in units of max(W, H)) | **keep formulas** | `g3d_host/blender_camera.to_blender` | The design's convention verbatim. Added: an independent numpy model of Blender's view plane (`project`), its ray inverse (`rays`), the camera inverse `from_blender` (any sensor-fit AUTO Blender camera -> a WP3b camera + NormFrame that projects exactly as Blender does; an off-axis perspective eye re-centres the frame, an off-axis orthographic eye is a principal-point shift), clip ranges from the camera distance, refusals for what Blender cannot hold (shift beyond +-10, lens < 1 mm), canonical / custom framing |
+| panel `worker_angle/cam_parity.py`, `worker_proto/parity.py` | **rewrite as tests** | `tests/test_wp2_camera.py`, `test_wp2_camera_parity.py`, `tests/blender/wp2_camera_parity.py` | The worker_angle variant used sensor fit HORIZONTAL with everything in widths (self-consistent; AUTO kept as decided in §1). The Blender side now applies cameras with the worker's own `render.apply_camera` and renders through the worker's own `render.render` (temporary scene), so the parity test holds the production code, not a copy |
+| panel `worker_proto/render_views_proto.py` | **rewrite** | `g3d/render.py` | The prototype linked three lights and a world into the USER scene of a checkpoint copy; now a temporary `g3d_render` scene with its own camera, world, two area lights and override materials, all removed in `finally`, fingerprint compared before and after |
+| panel `worker_proto/compare_proto.py` | **rewrite** | `g3d_host/compare.py` | Mattes once per basis and frozen frame/pivot kept. The prototype measured IoU on the whole image; the fit's own numbers are measured inside the matte ROI, so whole-image IoU cannot reproduce a basis (see deviation 4) |
+| panel `worker_angle/chain_render.py`, `chain_compare.py`, `chain_result.json` | **rewrite as a test** | `test_prada_chain_blender_silhouette_matches_the_host_raster` | Same chain (live Prada scene at the six frozen cameras vs the raster of its export); thresholds from the design (>= 0.998) |
+| panel `worker_proto/viewer_cycles.py` | **not ported** | - | One worker per run (§1); renders use the temporary scene |
+| `source-before/blender_agent/geometry_comparison.py` (450) | **ideas only** | `agent/seeing.py` | `PointQuery` (:62-72) -> `pick_surface_point` (pixel centres, not normalized uv; <= 64; rays from the frozen / canonical / manifest camera); "identical model bytes" vs "identical decoded geometry" reported separately -> `model_bytes_identical` / `geometry_identical`. Not ported: Astra-supplied landmark correspondences, the Three.js renderer, the bsa.archeck / reconstruction.mesh dependencies |
+| `source-before/blender_agent/geometry_evidence.py` (205) | **ideas only** | `g3d_host/compare.{reference_sheet,contact_sheet,grid,labelled}` | `panel_sheet` / `build_panels` layout ideas (labelled panels, photo next to renders). `image_identity` (EXIF) not used here: compare loads photos exactly as the fit did (`matte.load_photo`, no transpose), so photo, matte and camera stay in one pixel frame; `read_image` (stage D) owns EXIF |
+| `source-before/blender_agent/geometry_camera.py` (357, skimmed) | **not ported** | - | A landmark fit with Euler yaw/pitch that refuses top views; the WP3b silhouette cameras replace it |
+| `source-before/blender_agent/GEOMETRY_COMPARISON.md` (188) | **rules adopted** | `g3d_host/compare.py` | Rule 4 (freeze a real baseline: a refit is a new basis), rule 5 (complementary panels: photo, native, clay, overlay; matched crops in the same coordinates), rule 6 (bind evidence: GLB sha, fingerprint, checkpoint, camera, shape, crop boxes in `report.json`) |
+| `source-before/tests/test_blender_agent_geometry_comparison.py` :137-144 (photo-pixel ban) | **inverted** | `g3d_host/compare.py` | compare_to_photos measures against the photo matte by design (PORT_REVIEW :676) |
+
+**Deviations from WP2_DESIGN (decided in this stage, each measured or reasoned):**
+
+1. **Silhouette = the clay pass's alpha.** The native alpha of a transmissive lens is not the geometry; the clay
+   override is opaque everywhere, so `silhouette` is derived from it (and requests the clay pass when needed).
+2. **The normal pass is written under the Raw view transform**, so the PNG holds n x 0.5 + 0.5 linearly (Standard
+   would sRGB-encode it); native and clay use Standard.
+3. **What the temporary scene renders.** Every object the user's render view layer renders (`export_glb.render_status`:
+   view-layer exclusions, collection and object hide_render honoured), linked one by one, minus lights, cameras and
+   light probes: the Prada scene's own inspection camera and three lights (hidden there, but an Astra light would not
+   be) never mix with the rig. Rig `photo_v1`: world grey 0.8 at strength 0.5, key and fill area lights at 4 bounding
+   radii (size 2 radii) giving irradiance 2.0 and 0.8 at the box centre. Canonical `angled_left/right` = yaw +-35,
+   pitch +15 (the design names the views, not the angles).
+4. **compare's headline metrics are the fit's own, inside the frozen ROI** (matte box + 15 % + 8 px; IoU, contour
+   mean/p90/p95 and both directed means in px and mm at the frozen pivot): the unedited head reproduces cameras.json
+   bit for bit. Because a ROI metric cannot see geometry that leaves the ROI, `iou_full_image` and
+   `model_outside_roi_px` are reported too. The ROI render is the full-image render cropped (same pixel centres, same
+   rays): bit-equal to `cameras.native_metrics` (tested).
+5. **`front` metrics** (the design names them, not their definition): the front parts alone (the basis's names, else
+   the faces within `fitmesh.FRONT_DEPTH_MM` of the front) against the matte inside the front render's box + 5 %.
+6. **`export_glb` worker method added now** (§3 table) because compare, the parts pass and fit_cameras need the head as
+   a GLB; path confined to `<job>/work/exports`; the scene must be unchanged afterwards. The head export is cached by
+   fingerprint across sessions (`work/exports/index.json`, file sha re-checked on reuse). Stage D adds validate_spec and
+   the seating check around it.
+7. **Image sizes.** Reference views (render_views and compare panels) render at k = min(1, size_px / max(W, H)) through
+   `crop_camera` (the exact scaled camera); compare's metrics always run at native photo size on the host raster.
+   Crops render at up to 4x through the crop camera.
+8. **Picking.** Rays pass through objects that do not render (up to 16 skips: a viewport-visible guide plane is not
+   the product); `asset_mm` = point - `mdl_bridge_underside` (zeros when the marker is missing).
+9. **Read-only calls go through `BlenderSession.call_read`:** a dead worker is restarted on the verified head like any
+   call; a read-only method that reports a changed fingerprint, or raises with the scene moved, restores the head and
+   logs a defect.
+10. **Forced fallback switch.** `simulate_eevee_failure` exists only in a `--selftest` worker (refused otherwise,
+   tested), like `exec_unvalidated`.
+11. **fit_cameras inputs.** Images and view kinds are arguments until stage E's job.json supplies them; skip and front
+   parts default to none (geometric front piece). A failed fit leaves an unfrozen `basis-K` folder without
+   `basis.json`, which is never loaded and whose number is not reused. Host and pool workers are opted out of EcoQoS
+   (`procs.opt_out_self` + `DescendantsOptOut`; the result reports both).
+12. **Mattes** are the fit's default matte mode (what fit_views uses); a recomputed ROI that differs from the fit's is
+   noted in `basis.json` and the fit's ROI kept (0 notes on Prada and the synthetic case).
+
+**Measured (stage B, Blender 5.2.0, Intel Arc 140T GPU via OpenGL, 2026-10-07; machine loaded by other workflows):**
+- camera parity, 12 frozen (Prada + FT1119) + 4 synthetic cameras: numpy Blender model vs `camera.project_mm` <= 1e-12
+  px; Blender's own `world_to_camera_view` 0.00017-0.0010 px (float32 mathutils) (stop rule 0.01); rendered blob centroids (worker render,
+  EEVEE) 0.013-0.031 px (stop rule 0.1).
+- **basis reproduction (stop rule):** our export of the Prada scene at the frozen basis: dIoU = 0 and dcontour = 0 on
+  all six references, reference-01 IoU 0.693316 = cameras.json (bit-identical: the glasses3d exporter gives the same
+  fit mesh as the Studio delivery GLB).
+- Prada chain, Blender silhouette vs host raster at native photo size: IoU 0.99908-0.99960.
+- render_views "all" (8 canonical + 6 reference views, native + clay = 28 PNGs at 1024 px): 14.2 s (quiet), 25.8 s and 38.2 s
+  (loaded) of worker time, EEVEE on the Arc, fingerprint unchanged, 3 contact sheets.
+- crop camera vs the full render's region: silhouette edges within 1.00 px (k = 1 and k = 2); at k = 1 the mean alpha
+  difference is 2.2e-5 (2 of 71,797 silhouette pixels differ).
+- pick vs the host raster's surface point: <= 0.00006 mm on the offset-origin fixture, <= 0.00006 mm on Prada (64
+  picks), every hit on the right object; a render-hidden plane in front changes neither renders nor picks.
+- a 3 mm temple splay: top IoU -0.0906 (design 0.091), side -0.006/-0.011, model_bytes_identical false; after
+  restore_checkpoint the metrics equal the first compare bit for bit.
+- compare_to_photos on Prada: 11.4 s with native + clay panels and a crop (export 0.5, metrics 2.0, renders 7.2,
+  sheets 1.6); metrics only 3.1-3.4 s. Forced Cycles fallback: every image recorded CYCLES with the reason.
+- fit_cameras on the synthetic glasses (3 photos, 14 workers): 156-160 s; IoU 0.994-0.998, |dyaw|, |dpitch| <= 0.01 deg
+  vs TRUTH; compare on the unchanged head reproduces the fit exactly; a one-reference refit is basis-02.
+- `tests/test_wp2_*.py`: 357 passed in 9 min 35 s (stage A's 324 + 33 new), with the machine at 100 % CPU from another workflow's 14-process WP6 proof.
+
+**Not in stage B:** the function-tool wrappers and their docstrings (stage D: render_views, compare_to_photos,
+pick_surface_point, fit_cameras, export_glb with validate_spec and seating); `job create` / job.json as the source of
+fit_cameras' images (E); the `read_image` crop tool (D).
+
+### Codex resume verification (2026-10-07, commit group D)
+
+Fresh sequential review of the complete A/B diff and all new files against the stored implementation/review reports.
+Repaired host-only render/compare output creation and junction confinement, and required the recorded file SHA-256
+as well as the scene fingerprint when reopening the head checkpoint. A mismatch refuses or restores the verified
+parent; five regression cases cover these fixes. Reconciled the stage-A review's soft-timeout wording minor in the
+WP2_DESIGN update (group E): the supported range is 0.5-600 s, default 120, as implemented; no stop gate changed.
+
+The full `tests/test_wp2_*.py` suite passed **362 tests**, no skips, exit 0, in **275.69 s** with
+`G3D_REQUIRE_DATA=1`; 2026-10-07 12:39:12-12:43:49. Fit tests used three workers, chosen from the available commit
+memory after the WP6 pool ended. Logs and exact arguments: `data/codex_resume_20261007/d_tests.log`, `d_tests_run.json`.
+Fresh measurements supersede timing comparisons to the heavily loaded historical run above:
+
+- Camera parity over 16 cameras: analytic <= **0.00103 px**, rendered <= **0.0313 px** (limits 0.01 / 0.1).
+- All six frozen Prada comparisons: **dIoU = 0, dcontour = 0**; exact replays Prada **19/19**, Oakley **21/21**,
+  INVU **20/20**. The 214-snippet corpus still has zero false positives.
+- The 28 PNG render takes **11.1 s worker / 11.9 s wall**, on EEVEE/Intel Arc; fingerprint unchanged.
+  Blender/host silhouette IoU **0.99908-0.99960**, worst Prada pick **0.00006 mm**.
+- Three-photo synthetic fit **78.1 s**, IoU **0.9975 / 0.9940 / 0.9976**; refit creates the next basis and leaves
+  the previous one selectable. The 3 mm splay still drops top IoU **0.0906** and restore reproduces the first metrics.
+
+Fresh full-diff re-review after the green suite: no remaining major. All tests used copies; no paid calls or push.

@@ -29,7 +29,7 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   Audited actual PNG hashes against each report, **400 files total** (`pose_identity_audit.json`). The fresh
   report retains the three existing lens-degenerate-triangle / portrait-auto-fit warnings; exit 0, spec passes.
   Fresh full-diff re-review complete; no remaining major in B.
-- **Group C verified (12:43; commit follows this entry).** Fresh hand trace completed at 12:02:48, exit 0, 813 s:
+- **Group C committed: `f6fa360`.** Fresh hand trace completed at 12:02:48, exit 0, 813 s:
   `data/wp6/handtraced_codex_20261007/handtraced.json`. Trace did not converge in four lifts; r_C 3.35 mm is a
   front-bound cap, not a measured depth. Failed gates G1/G2/R1/R3/R4; the fitted slab is now the comparator.
   Full WP6 suite: **216 passed, 2 expected xfails**, no skips, 553.31 s, exit 0 (`c_tests.log` under
@@ -44,10 +44,20 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   its stopped-work changes describe the actual common-frame theta dependency, with no relaxed numeric gate.
   Source scene SHA-256 is unchanged in both runs: `56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06`.
   Delegated decision and evidence are recorded below and in both proof records. **WP6 remains gated.**
-- **D-E remain uncommitted and under review.** D host-only output creation/junction confinement and reopened
-  checkpoint hash checks are repaired with regressions. The full worker/camera suite is running with three fit
-  workers, G3D_REQUIRE_DATA=1, after the WP6 pool ended (12,505,704 KB free commit at launch).
-  E's six majors and additional review fixes are implemented; final offline suite: **399 passed**, no skips,
+- **Group D verified (commit follows this entry).** Full worker/camera suite: **362 passed**, no skips, exit 0,
+  275.69 s, 12:39:12-12:43:49, G3D_REQUIRE_DATA=1. Fit tests use three workers after the WP6 pool ended
+  (12,505,704 KB free commit at launch); logs/arguments: `d_tests.log`, `d_tests_run.json` in the audit folder.
+  Fresh full-diff re-review against impl:A/review:A:1/impl:B complete, including all new files. Ownership confirmed:
+  `agent/__init__.py` is impl:A, `agent/seeing.py` is impl:B; `session_inputs.py` is impl:loop and belongs to E.
+  Fixed host-only output directory creation and junction escape, with parts-only and metrics-only regressions;
+  reopened checkpoints now require both recorded file SHA-256 and scene fingerprint (refuse or verified-parent
+  fallback). Five added regressions passed. Stage-A's soft-timeout wording minor is reconciled to the implemented
+  0.5-600 s range in the WP2_DESIGN update in E; default 120 s and all stop thresholds remain unchanged.
+  Analytic camera parity <= 0.00103 px (limit 0.01); rendered <= 0.0313 px (0.1). All six Prada baseline deltas are
+  zero for IoU and contour. Exact corpus replays: Prada 19/19, Oakley 21/21, INVU 20/20. Renders: 28 PNGs in 11.1 s,
+  fingerprint unchanged; Blender/host silhouette IoU 0.99908-0.99960. No remaining major in D.
+- **E remains uncommitted and under review.** Its six majors and additional review fixes are implemented;
+  final offline suite: **399 passed**, no skips,
   93.92 s, exit 0, including the exact 59-request Prada replay (`e_tests_r3.log`, `e_tests_run_r3.json`).
   Fresh full money/network/design re-review continues before its commit.
   All work is $0; only approved exact-version PyPI metadata was fetched to pin installed psutil 7.2.2.
