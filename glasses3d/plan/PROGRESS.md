@@ -3,130 +3,146 @@
 Format (PLAN.md §4): date, WP, what was done, commit hash, $0-proof numbers, open issues, next step.
 A new session reads this right after PLAN.md §0 and resumes from the first unfinished step.
 
-## Status (updated 2026-10-07)
+## Status (updated 2026-10-07 10:50, handoff written because the session is near its usage limit)
 
 | WP | State | Last commit |
 |---|---|---|
 | WP0 setup, port review | **done, proof passed** | b19a08a |
 | WP1 arview | **done, proof passed** (independent image checks; closeout) | b5a20ea |
 | WP3 exporter + validate_spec | **done, proof passed** (review defects fixed, mutation tests) | 6acfc5a |
-| WP3b camera fitting | **done** (port reproduces the prototype to 1e-6 under scipy 1.16.0; 12-view baseline). The "registration threshold" owner question is DISSOLVED: WP5 showed silhouette error does not predict print error; WP5 uses a photometric gate (engineering decision) | 457daf7 |
+| WP3b camera fitting | **done** (port reproduces the prototype to 1e-6 under scipy 1.16.0; 12-view baseline; the registration-threshold question is dissolved: WP5 uses a photometric gate) | 457daf7 |
 | WP4 lens seating | **done, proof passed** (P2 FT1119 71/71; Prada seats; Oakley 0 moved; P6 junction line 0 px in AR) | b76c249, 140cc71 |
-| WP5 photo print | **in progress**: owner chose "continue, judge by eye in AR" (single-source print per region). Step 6 built, NOT yet committed (WP5 tests + a final review running); owner asked for every angle x every option (workflow running) | 5ec9c25 |
-| WP6 faceted temples | **stop rule fired** on the Prada tool test (outline better than delivered, facets not reproduced); **re-diagnosis running** | 204f694 |
-| WP2 live Astra session | design done (WP2_DESIGN.md); **stages A-B running**; stage C may install packages (owner pre-approved, safe sources) | 9c532bc |
-| WP7 instructions | **design done** (`plan/WP7_DESIGN.md`, judged panel of 3 + fact check); implementation waits for WP2 stage D's registry | 78d1950 |
-| WP8 paid validation | not started; needs the owner's OK per paid run (ask then: budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU) | - |
+| WP5 photo print | **in progress. WAITING FOR THE OWNER'S VERDICT** on the all-angles sheets (sent 10:42). Step 6 built + tested (241 passed), NOT committed: its review fixes are running (`g3d-wp5-step6-fixes`) | 5ec9c25 |
+| WP6 faceted temples | **re-diagnosis running** (`g3d-wp6-rediagnose`, in its review/fix loop, then a fresh proof): tool OK with hand-traced parameters; the automatic fit stops at STOP-C (an owner evidence decision per WP6 design) | 204f694 |
+| WP2 live Astra session | stage A **built + reviewed** (324 tests), stage B **being built** (`g3d-wp2-stages-ab`); stage C **built, money exact, in fix round 1** (`g3d-wp2-stage-c`); SDK installed; NOTHING of A/B/C committed yet; D-F not started | f479660 (requirements-agent.txt) |
+| WP7 instructions | **design done** (`plan/WP7_DESIGN.md`); implementation waits for WP2 stage D's registry | 78d1950 |
+| WP8 paid validation | not started; owner OK per paid run (ask first: budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU; plus WP7_DESIGN §4.2 #1-#2) | - |
 
-## RESUME HERE (state on 2026-10-07; read this first after PLAN.md §0)
+## RESUME HERE (handoff 2026-10-07 10:50; read this first after PLAN.md §0)
 
-**Running workflows (this session; outputs land on disk even if the session ends):**
-- WP5 step 6 FINISHED (workflow g3d-wp5-step6, task w7g6psgfw; result copy: scratchpad `wp5_step6.json`, journal of run
-  wf_f8bf2ed9-273). Its changes are UNCOMMITTED in the working tree: `g3d_host/photoprint/{__init__,fill,highlights,labels,project,shading}.py`,
-  `plan/PORT_REVIEW.md` (step 6 + fix rounds 1-2), `tests/instruments/print_metrics.py`, `tests/photoprint/{ar_calibrate,ar_levels,
-  bake_ft1119,correction_proof,print_tooltest,printproof,test_correction_round,test_print_bake}.py`, new `tests/photoprint/{step6_proof,
-  test_step6}.py`, `tests/test_print_blender.py` (tool test on a temp COPY of the bake via `--bake`; sha256 check that the production
-  bake.json is never written). Commit EXACTLY these paths once (a) the WP5 test run passes (`pytest glasses3d/tests/photoprint
-  glasses3d/tests/test_print_blender.py --basetemp=.../data/pytest_tmp/wp5s6`, started 08:11) and (b) the step-6 review in the
-  all-angles workflow finds no blocker/major (fix those first). Never sweep in the WP6/WP2 paths.
-  What step 6 did: the brow honey patches were lost because seam placement let the TOP photo 04 paint a band up to 3 mm into the brow
-  front where photo 05's patches sit; fix in `labels.py` (a face its own region's photo sees keeps that photo; -x nasal brow third now
-  92% photo 05, honey 10.5% vs photo 11.1%; in AR at pitch +20 honey 3.1 -> 19.7%). Level map gained a chroma stage (sat, chroma power,
-  chroma held >= 1, hue band 20-100). -x temple smear fixed (`fill.light_acetate`: lettering counts only behind light acetate). +x endpiece
-  light marks reduced (`highlights.thin_light_lines`). Tool test on a fresh q001 copy 15/15.
-  **Still wrong (independent AR check):** matches brightness + colour only at photo 05's own angle (pitch +20); front pose ~+5 L* lighter and
-  slightly grey (Astra's clearcoat reflection covers 32.9% of the brow fronts, +13 L*: a MATERIAL note for Astra, not the print); honey
-  patches sit at the endpieces (photo 05's middles really are plain); -x temple at yaw +45 +6.4 L* vs photo 03, spots smaller/rounder/more
-  orange; +x temple at yaw -30 grey-flat; darkest decile +1.6..+5.1 L* too light off the calibration angle; STOP B still fires on A4, A5, B3.
-- **Owner question open:** sent `data/wp5/tooltest/owner_sheet_plain.png` (photos | Astra | painted A, B, C; tool test on a copy), asked
-  which row looks most like the glasses. The owner answered "I need to see all the angles compared with each result option" -> agreed.
-  The three options are the level candidates in `data/wp5/ar_calibration/calibration.json` -> `candidates`: A = `photo_angles` (the
-  production print.png: gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455), B = `near_18deg` ("darker": gain 0.831, gamma 1.168),
-  C = `all_pairs_chroma` ("more colourful": sat 1.378, chroma_power 0.615). Apply the owner's pick by re-running the level map with that
-  candidate, then re-run the tool test on a temp copy.
-- 09:27: the full WP5 suite PASSED on the step-6 code (241 passed, 1 xfailed `test_x3d_periodic_wrong_match_is_refused`, 46 min under
-  load; log `data/pytest_tmp/wp5s6_full.log`). An earlier 'F' at test 83 was MEMORY exhaustion (paging file too small with several
-  14-worker pools at once), not a code defect. The step-6 final review (inside g3d-wp5-all-angles) found 1 major (PORT_REVIEW fix
-  round 2 blamed the yaw +45 vs 03 failure on the owner's -x temple complaint; the temple is inside the window, the row fails on its
-  brow group graded from photo 03's 9 % side-view brow pixels reweighted to 49 %; owner option C was fitted to that row) + 11 minors.
-  `g3d-wp5-step6-fixes` (task wr23ng2j9, run wf_730bf6ec-6cf, launched 09:30) fixes all of them (instrument: groups with too few
-  photo-side pixels excluded from verdicts/fits; provenance json under data/wp5/step6_fixes/; tests that check what they claim;
-  pools/progress in proof scripts; x-sign sides) WITHOUT changing print.png or the tool-test GLB (sha checked), then re-reviews.
-  Commit step 6 + these fixes together after it passes (rerun the changed tests).
-- `g3d-wp5-all-angles` (task wubw37okd, run wf_81098786-301, launched 08:19): builds `data/wp5/all_angles/all_angles_photos.png` (each
-  photo 01-06 rendered from THAT photo's fitted camera in arview's own renderer, no face, temples posed to the fitted hinge angles; columns
-  photo | Astra | A | B | C; per-row PNGs in `all_angles/rows/`) and `all_angles_tryon.png` (all 11 try-on poses + worn portrait x 4
-  options; nearest photo only within ~20 deg). Adds an explicit-camera / no-face dev-capture mode to `glasses3d/arview` (existing pose
-  sets must stay byte-identical). Three verifiers (pose/identity with silhouette IoU, owner's eye, code review), up to 2 fix rounds. In
-  parallel: an adversarial review of the uncommitted step-6 diff (report only). On completion: fix step-6 blockers/majors, commit step 6,
-  commit the arview mode (separately), send the owner the two sheets with plain labels and ask again which option looks most like the glasses.
-- `g3d-wp6-rediagnose` (task w2lnmo22g, run wf_5dce193d-796; alive at 08:11: the hand-traced build agent finished 2026-10-06 23:11,
-  the "trace" agent of phase "Tracing fix" is working, its transcript growing): (1) build the Prada temples with HAND-TRACED good parameters to
-  decide "tool OK vs tool defect"; (2) add a photo-measured relief cue to the fit, fix the theta instrument (STOP-I) and the open
-  review findings, PRADA decals in arview, hinge warnings; (3) fresh proof in `data/wp6/proof2`. On completion: commit, show the
-  owner the side sheet (photo | tool test | delivered) if facets now show; if the tool cannot make facets even with good
-  parameters, stop and report (PLAN WP6 stop rule).
-- `g3d-wp2-stages-ab` (task wy9jdvbyr, run wf_32fc96f9-1c5; launched 07:56, agent impl:A active at 08:11; it created the untracked
-  `glasses3d/g3d/safe_mode.py`): Blender worker/RPC/safe mode/checkpoints (A), cameras/render/
-  compare (B). On completion: commit; launch stage C (install pinned openai 3.22.1, openai-agents 0.22.3, mcp 1.30.0 + deps from
-  PyPI into glasses3d/.venv, record in requirements.txt), then D-F per WP2_DESIGN §15.
-- `g3d-wp2-stage-c` (task wu0uwqn8f, run wf_91f8f2b9-ed5, launched 08:26), in parallel with A-B on disjoint files: agent/{pricing,
-  budget (BudgetGuard + JobLedger), approvals, estimate, receipts, replay, offline, loop}.py + tests/agent/; money replay of the 59 Prada
-  usages must total exactly 14,261,424 micro-USD; 3 verifiers (money, network isolation, design), up to 2 fix rounds. Does NOT commit:
-  commit its files by explicit paths after it passes (stage C stop rule: any non-loopback connection or 1 micro-USD discrepancy).
-  **SDK installed 2026-10-07 08:24** (owner pre-approved installs from safe sources): `glasses3d/requirements-agent.txt` = 26 pins with
-  PyPI sha256 hashes (openai 3.22.1, openai-agents 0.22.3, httpx2 2.13.1, httpcore2 2.13.1, mcp 1.30.0, python-dotenv 1.1.1 + 20 deps),
-  resolved from pypi.org with the existing venv packages held as constraints: 26 added, 0 changed, `pip check` clean, `import agents` ok.
-- WP7 design DONE 10:16 (78d1950): tool-contract draft won (41/40 vs 38/38, 37/36); 12 blocks, 25 rules (33 with gates open), ~2,210
-  tokens gates closed; 0 shared 5/6/8-grams with 164 old texts; fact check fixed 11 errors. Open (engineering, for stage D / G1 / G2):
-  `photo_x_range` unbuilt (use `pick_surface_point`); G2 must pass photo crease counts to check_relief or SLAB fires on smooth temples;
-  FRONT_BOUND not in measure flags; seating r5 could use arview junction metrics; G1 check ids are proposals; scene_summary.closed
-  only for MESH; WP2_DESIGN §11 'deliver refuses only on §2' is wrong (export refusals also stop it) - fix in WP2 docs. **Owner
-  questions before WP8 (WP7_DESIGN §4.2):** #1 'sizes from the specifications; shape, colour, finish from the photos' (needs a yes),
-  #2 arview_capture lensenv choice.
-- All-angles sheets (in review round 2 at 10:16): `data/wp5/all_angles/all_angles_photos.png` (front, angled, top, back),
-  `all_angles_photos_shape_differs.png` (03 right side, 06 left side from above: model outline IoU 0.73/0.71 = Astra's shape, the bake's
-  own fit scores the same), `all_angles_tryon.png` + `_2.png` (11 poses + face). Verifier notes: C looks the same as A everywhere (the real
-  choice is Astra / A / B); a real PAINT defect - pale-yellow/white ragged blotches on the brow tops (top view, `rows/04_top.png`), in
-  the production print (highlight handling) - fix in the next WP5 step; silver metal / cream lenses / medallion only on +x are
-  Astra's model content. arview gained an explicit-camera, no-face dev capture (`qa/capture/cameras.ts`; commit separately).
-- `g3d-wp7-design` (task wykg7gd4w, run wf_9c4f37fb-9a2, launched 08:28): evidence from old instructions + praised/failed transcripts ->
-  three drafts (evidence-first, tool-contract-first, owner-outcome-first) -> two judges -> `plan/WP7_DESIGN.md` (instruction blocks per
-  tool group, G1/G2 gated, contract-test spec, fresh docstrings) -> adversarial fact check. Design only; implementation waits for
-  WP2 stage D's registry. Drafts in `plan/wp7/` (commit with the design).
-- Owner away 2026-10-07 ~08:30-10:30; on return gives the WP5 verdict on the all-angles sheets. Instruction meanwhile: "keep on going
-  with the other jobs" and use the machine heavily (no new WP5 print changes before the verdict).
-- If a workflow result is lost: its per-agent results are in
-  `C:/Users/Shay/.claude/projects/C--Users-Shay-PycharmProjects-lenses/9e8d13e8-4744-4df5-9e5f-66ecbeca8f3e/subagents/workflows/<run>/journal.jsonl`.
-  Uncommitted edits from these workflows are on disk in the working tree (git status) - review before committing.
+### 0. The owner's standing instruction at handoff (verbatim, 10:40)
+"first get me the comparisons, only after i give you my opinion you may resume to what thats written below. in addition, you are
+reaching usage limits, please finish you tasks (dont kill any runs) and tell me where are we standing. note anything thats not compete,
+especially things you are in the midst of!!!!! this handoff should be perfect".
+=> **Do NOT start any new work (no new workflows, no new WP steps) until the owner has given the WP5 verdict on the all-angles
+sheets.** Allowed meanwhile: let the five running workflows finish (NEVER kill a healthy run), read their results, run the checks
+listed below and commit VERIFIED work by explicit paths. When the verdict arrives, act on it first (section 2), then resume section 5.
 
-**Owner decisions and preferences (all also in Claude memory):**
-- The owner judges by eye in AR; Claude makes all technical/engineering decisions and records them here; ask the owner ONE
-  plain question with labelled images only when it is truly theirs (look right? continue/stop? money?).
+### 1. The owner's pending WP5 decision (asked 10:42)
+- Sent four sheets (frozen copies, sha256 prefixes in brackets): `data/wp5/all_angles_sent_1042/all_angles_photos.png` [f5d3b776]
+  (front, angled, top, back: each from the photo's own fitted camera, arview renderer, no face), `all_angles_photos_shape_differs.png`
+  [34954165] (03 wearer's right side and 06 left side from above; model outline IoU 0.734 / 0.712 is Astra's shape, the bake's own fit
+  scores the same, so "judge the paint, not the outline"), `all_angles_tryon.png` [14e2bfc8] + `all_angles_tryon_2.png` [3a0be1de]
+  (11 try-on poses + on a face). Columns: your photo | Astra's texture (now) | A (new paint) | B (darker) | C (more colourful).
+  The live copies in `data/wp5/all_angles/` may be re-rendered by fix round 2 of `g3d-wp5-all-angles`; if they change visibly,
+  re-send them and say what changed.
+- What the options are (`data/wp5/ar_calibration/calibration.json` -> `candidates`): A = `photo_angles` = the production
+  `data/wp5/ft1119_bake/print.png` (gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455, chroma held >= 1, hue band 20-100),
+  tool-test GLB `data/wp5/tooltest/q001_painted_TOOLTEST.glb` (sha 17d60488...); B = `near_18deg` (gain 0.831, gamma 1.168, same chroma;
+  GLB `data/wp5/ar_calibration/cand_near_chroma_TOOLTEST.glb`, captures `sheet_near_chroma`); C = `all_pairs_chroma` (gain 0.931, gamma
+  1.080, sat 1.378, chroma_power 0.615; GLB `cand_chroma_all_s4_TOOLTEST.glb`, captures `sheet_chroma_all_s4`). The all-angles json
+  (`all_angles_sent_1042/all_angles.json`) records the GLB sha256s actually rendered. Astra = delivered q001 GLB (sha af6e9d10...).
+- Told the owner: C looks almost the same as A everywhere (the real choice is Astra / A / B); same in every option and NOT the paint:
+  silver metal + cream lenses (photos: gold + beige) and the tip medallion only on the +x (wearer's left) arm = Astra's model content;
+  one real PAINT defect to fix next: small pale-yellow/white ragged blotches on the brow tops (clearest in `data/wp5/all_angles/rows/
+  04_top.png`, zoom `verify_1/zooms/top_brow_left_x3.png`), in the production print (probably highlight handling).
+- Also known (step 6 independent AR check): print matches brightness + colour only at photo 05's own angle (pitch +20); front pose
+  ~+5 L* lighter/greyer = Astra's clearcoat (32.9 % of the brow fronts, +13 L*) -> a MATERIAL note for Astra, not the print.
+
+### 2. On the owner's verdict
+- If A, B or C: make that level the production level (re-run the level map with that candidate through the existing path in
+  `tests/photoprint/ar_calibrate.py` / `shading.level_map`, write print.png, re-run the tool test on a temp COPY: `python -m
+  glasses3d.tests.photoprint.print_tooltest --bake <temp copy>`), record the verdict in `data/ledger/owner_verdicts.jsonl` bound to the
+  tool-test GLB sha (tool test, not a delivery). If "none"/"Astra's": ask nothing technical; diagnose from the owner's words.
+- Then the next WP5 step (by eye, single-source print): (1) the brow-top blotches; (2) the off-angle lightness of the print's darkest
+  decile (+1.6..+5.1 L*); (3) +x temple at yaw -30 grey/flat, -x temple spots smaller/rounder/more orange than photo 03; (4) move the
+  bake (`tests/photoprint/bake_ft1119.py`) and AR level calibration (`tests/photoprint/ar_calibrate.py`) into a library call
+  (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`, no FT1119 defaults) = WP2 gate G1 / finding F2.
+
+### 3. Running workflows at handoff (all launched from session 9e8d13e8; outputs land on disk; NONE of them commits)
+How to inspect any of them: journal `C:/Users/Shay/.claude/projects/C--Users-Shay-PycharmProjects-lenses/9e8d13e8-4744-4df5-9e5f-66ecbeca8f3e/subagents/workflows/<run>/journal.jsonl` (one `started` + one `result` line per agent;
+the workflow's final return value also appears in `C:/Users/Shay/AppData/Local/Temp/claude/C--Users-Shay-PycharmProjects-lenses/9e8d13e8-4744-4df5-9e5f-66ecbeca8f3e/tasks/<task>.output`, a temp folder that may be cleaned). Scripts copied to
+`data/handoff_20261007/<name>-<run>.js`. `Workflow({scriptPath, resumeFromRunId})` only works inside the SAME session; a new
+session that finds a workflow died mid-agent (last journal line `started`, its agent transcript `agent-<id>.jsonl` not growing for
+>5 min, no result) must: read the journal results so far, `git status` + `git diff` the files that workflow owns (section 4), run
+that workflow's tests, and write a fresh, smaller workflow that continues from the last completed agent (pass the earlier results in
+the prompt). Never assume a dead workflow's partial edits are correct.
+
+| Workflow (task / run) | Done at 10:41 | Running at 10:41 | Remaining steps in its script | On completion (main session) |
+|---|---|---|---|---|
+| `g3d-wp5-step6-fixes` (wr23ng2j9 / wf_730bf6ec-6cf), launched 09:30 | - | `fix:r1` | re-review (findings + provenance) x up to 3 rounds with fixes between | Check `print_sha_unchanged` true (print.png + tool-test GLB byte-identical); rerun every changed test + `test_step6.py`, `test_correction_round.py`, then the full WP5 suite (`glasses3d/tests/photoprint glasses3d/tests/test_print_blender.py`, ~46 min under load); commit section-4 group A. Findings input: `data/handoff_20261007/step6_findings.json` (1 major + 11 minor; full review in `step6_review.json`) |
+| `g3d-wp5-all-angles` (wubw37okd / wf_81098786-301), launched 08:19 | build, step6-review, verify r1 x3, fix r1, verify r2 x3 | `fix:r2` | verify r3 x3; returns (no fix after r3) | If sheets changed visibly, re-send to the owner. Run `cd glasses3d/arview && npm test` (2 capture-stall tests flaked under load, pass alone 5/5) + `pytest glasses3d/tests/photoprint/test_all_angles.py`; prove the default pose sets byte-identical (`data/wp5/all_angles/byte_identity/`); commit group B separately. Open from r2: owner-eye said C = A visually (sheet label could say "almost the same as A"); rows 03/06 on their own sheet by design; B/C GLBs carry a stale "step-4" asset note (ar_calibrate.evaluate copies the label; fix in ar_calibrate later); calibration's "near_18deg" pairs are ~27-30 deg by viewing direction (name inaccurate, sheet says only "darker") |
+| `g3d-wp6-rediagnose` (w2lnmo22g / wf_5dce193d-796), launched 2026-10-06 22:03 | capability (TOOL OK with hand-traced parameters), trace (fit-4: STOP-I fixed, decals + hinge warnings fixed; automatic relief r_C 1.46 vs hand 3.4 -> fresh proof stops at STOP-C, log `data/wp6/logs/proof_fit4.log` 09:13), review:1 (3 majors: hand trace's R4 pass graded against an unfitted control; hand r_C 3.40 is the front-bound maximum, not a photo measurement; S1's crease guides too good to detect the identifiability failure) | `fix:1` | review:2 (+ fix:2 if majors), then `result`: fresh full proof in `data/wp6/proof2` (14 workers), stop-rule verdict, sheets photo / tool test / delivered | Read the result. It will very likely end with OWNER questions (capability said "two rule-set questions only the owner can decide" + STOP-C = an owner evidence decision): show the owner labelled side/top/rear sheets and ask ONE plain question at a time. NOTE: `data/wp6/logs/pytest_fit4_parallel.log` showed an F at 09:18 during a memory-exhaustion window caused by the main session's 4 parallel test runs: if the result reports that failure, rerun it before believing it. Commit group C after its tests pass. |
+| `g3d-wp2-stages-ab` (wy9jdvbyr / wf_32fc96f9-1c5), launched 07:56 | impl:A (324 passed in tests/test_wp2_*.py; restore fingerprints equal on 3 scenes; corpus 0 false positives over 214 snippets; replays Prada 19/19 etc.), review:A:1 (0 blocker/major, 1 minor) | `impl:B` | review:B:1 (+ fix:B:1, review:B:2, fix:B:2 if majors) | Run `glasses3d/.venv/Scripts/python -B -m pytest -q tests/test_wp2_*.py` (from glasses3d/); check stage-B stop rules (camera parity <= 0.01 px analytic / <= 0.1 px rendered; compare reproduces basis-01 within 0.001 IoU); commit group D (stage A and B may be one commit or two). |
+| `g3d-wp2-stage-c` (wu0uwqn8f / wf_91f8f2b9-ed5), launched 08:26 | impl:money (Prada replay: row 1 reserved 719,438; settled total 14,261,424 micro-USD EXACTLY; 59 count calls = 59 creates = 59 rows), impl:estimate, impl:loop, verify r1 (network OK; money 2 majors: tamper check misses truncation, a transport-settled row can be rewritten as an owner no-charge reconcile; design 4 majors: implementation receipt (§9 snapshot) not built, paid entry never recomputes the request sha, the two-way tool contract is optional (contract=None skips it), psutil not pinned) | `fix:r1` | verify r2 x3 (+ fix:r2, verify r3) | Run `pytest -q glasses3d/tests/agent` (basetemp under data/pytest_tmp); stage-C stop rule = any non-loopback connection or any 1 micro-USD discrepancy; if psutil must be pinned, add it to `requirements-agent.txt` with its PyPI hash (installs pre-approved, safe sources only); check `tests/agent/data/*.json` hold token counts only (repo is PUBLIC); commit group E. |
+
+### 4. Uncommitted files at handoff, by owner (commit each group ONLY with explicit paths; never `git add -A`/`.`)
+- **A. WP5 step 6 (+ step6-fixes):** `glasses3d/g3d_host/photoprint/{__init__,fill,highlights,labels,project,shading}.py`,
+  `glasses3d/plan/PORT_REVIEW.md` (step 6 sections), `glasses3d/tests/instruments/print_metrics.py`, `glasses3d/tests/photoprint/
+  {ar_calibrate,ar_levels,bake_ft1119,correction_proof,print_tooltest,printproof,test_correction_round,test_print_bake}.py`, new
+  `glasses3d/tests/photoprint/{step6_proof,test_step6}.py`, `glasses3d/tests/test_print_blender.py`, plus any file the step6-fixes result
+  lists in `files_changed`.
+- **B. all-angles / arview explicit-camera capture:** `glasses3d/arview/{README.md,qa/README.md,qa/capture-cli.test.mjs,qa/capture.mjs,
+  qa/capture/cli.ts,qa/capture/page.ts,src/render/renderer.ts}`, new `glasses3d/arview/{qa/capture-cameras.test.mjs,qa/capture/cameras.ts,
+  tests/capture-cameras.test.ts}`, new `glasses3d/tests/photoprint/{all_angles,test_all_angles}.py`. (Never touch `ar/`.)
+- **C. WP6 re-diagnosis:** `glasses3d/g3d/temple/{__init__,build,fixtures,measure}.py`, `glasses3d/g3d/temple_bpy.py`,
+  `glasses3d/g3d_host/{relief_fit,relief_views}.py`, new `glasses3d/g3d_host/{relief_cue,relief_hinge}.py`, `glasses3d/tests/proofs/
+  {wp6_bpy_run,wp6_prada,wp6_prada_stages,wp6_s1_theta_check}.py`, `glasses3d/tests/proofs/{wp6_prada_guides,wp6_prada_s1_dependencies}.json`,
+  new `glasses3d/tests/proofs/{wp6_fit4_diagnostic,wp6_handtraced,wp6_s1_floor_check,wp6_theta_frame}.py`, `glasses3d/tests/
+  {test_temple_build,test_temple_design_checks,test_temple_slab_control}.py`, new `glasses3d/tests/test_temple_relief_cue.py`.
+- **D. WP2 stages A-B:** new `glasses3d/agent/{__init__,astra_corpus,journal,procs,worker_client,seeing}.py`, new `glasses3d/g3d/{checkpoint,
+  lib,render,rpc,safe_mode,worker}.py`, new `glasses3d/g3d_host/{blender_camera,compare}.py`, new `glasses3d/tests/blender/{wp2_camera_parity,
+  wp2_synthetic_scene}.py`, new `glasses3d/tests/test_wp2_{camera,camera_parity,checkpoint,compare,corpus,fit_cameras,pick,procs,rpc,
+  safe_mode,seeing,worker}.py`.
+- **E. WP2 stage C:** new `glasses3d/agent/{approvals,budget,estimate,loop,offline,pricing,receipts,replay,session_inputs}.py`, new
+  `glasses3d/tests/agent/**` (`__init__.py`, `conftest.py`, `support.py`, `loop_support.py`, `data/prada-8c82-tokens.json`,
+  `data/studio-astra-13-tokens.json`, `test_*.py`).
+- Ownership of `agent/__init__.py`, `agent/seeing.py` and `agent/session_inputs.py` is inferred (A-B vs C): confirm against each
+  workflow's final report (`files` lists) before committing; if both touched a file, commit it with the later group after both pass.
+- Any file NOT in these lists that appears later belongs to whichever workflow reports it; ask `git log`/journals, never guess.
+
+### 5. Next steps after the owner's verdict (in order; each with its $0 proof, committed on `glasses3d`, no push)
+1. Process the five workflow results (section 3), commit groups A-E.
+2. WP5 next step (section 2), owner judges by eye; then G1: the print as a library tool.
+3. WP6 per its result: owner questions in plain words with images; if the tool cannot make facets even with good parameters, stop and
+   report (PLAN WP6 stop rule). Then G2 prerequisites: `g3d_temple` in the exporter allowlist, temple ops in `g3d/__init__` + `g3d/cli.py`,
+   Prada coupling removed; check_relief must receive photo crease counts (WP7_DESIGN open item) and FRONT_BOUND merged into the flags.
+4. WP2 stages D (tool registry + wrappers, WP5/WP6 gated), E (jobs CLI, brief, notes, owner ledger + migration, watchdog), F ($0
+   proofs A + B, all 16 criteria of WP2_DESIGN §14; stop rule: proof A total off by even 1 micro-USD). Fix WP2_DESIGN §11's wrong
+   sentence "deliver refuses only on §2" (export refusals also stop it).
+5. WP7 implementation (`agent/instructions.py` + the contract tests of WP7_DESIGN §2) once the D registry exists.
+6. WP8 (paid): ask the owner the money questions + WP7_DESIGN §4.2 #1 ("sizes from the specifications; shape, colour and finish from the
+   photos") and #2 (arview lensenv); then one capped smoke turn, then Prada, FT1119, the known-good product, then 3 unseen products.
+
+### 6. Owner decisions and preferences (all also in Claude memory)
+- The owner judges by eye in AR; Claude makes all technical/engineering decisions and records them here; ask the owner ONE plain question
+  with labelled images only when it is truly theirs (look right? continue/stop? money?). Lead with the verdict; unvarnished facts.
 - Always say "the code/tool does X"; Astra builds models, Claude builds tools; $0 tests on COPIES are tool tests, never delivered.
-- Machine: Intel Core Ultra 9 285H, 16 cores, Arc 140T GPU, 31 GB, dedicated: pools of cpu_count-2 workers with EcoQoS opt-out.
-  Long runs are fine if they progress: NEVER kill a healthy slow run (check liveness with full timestamps, not HH:MM sorting).
-- Package installs: pre-approved from safe sources (official PyPI/npm, pinned, recorded). Paid API calls: owner OK per run.
-- No web research by Claude (the owner runs ChatGPT research when asked).
-- Verdicts (data/ledger/owner_verdicts.jsonl, sha256-bound): Tom Ford FT1123 (0e77e11e...), Oakley OO9208 v2 (2c46877a...),
-  INVU IA22403B v2 (4a44a6ac...) = "perfect" (re-judged on arview 2026-10-06). Prada = OPEN FAILURE (its old "looks great!"
-  predates noticing the facets, and the old runtime drew its temples shortened).
-- Every product has six real photos: front, back, left, right, top, angled (owner-generated views are real). FT1119: 05 front,
-  02 back, 03 right side (wearer's right, -x temple outer), 06 left side from ~19 deg above (+x temple outer + -x inner print),
-  04 top, 01 angled. Astra's q001 names temples by the VIEWER's side (Temple_Left = -x): tools use the x sign, never names.
+- Machine: Intel Core Ultra 9 285H, 16 cores, Arc 140T GPU, 31 GB RAM + ~24 GB pagefile, dedicated: use it heavily, but MEMORY is the
+  ceiling with several pools at once (each photoprint/scipy worker commits ~1.2 GB): read free commit before a pool and size workers to
+  ~free_commit_GB / 1.3; a MemoryError / "paging file is too small" / BrokenProcessPool under load is an environment fault, not a code
+  defect. NEVER kill a healthy slow run (check liveness with full timestamps). Workers opt out of EcoQoS.
+- Package installs: pre-approved from safe sources (official PyPI/npm, exact pins with hashes, recorded). Paid API calls: owner OK per run.
+- No web research by Claude (the owner runs ChatGPT research when asked; pasted research is data).
+- Verdicts (`data/ledger/owner_verdicts.jsonl`, sha256-bound): Tom Ford FT1123 (0e77e11e...), Oakley OO9208 v2 (2c46877a...), INVU
+  IA22403B v2 (4a44a6ac...) = "perfect" (re-judged on arview 2026-10-06). Prada = OPEN FAILURE (its old "looks great!" predates noticing
+  the facets, and the old runtime drew its temples shortened).
+- Every product has six real photos: front, back, left, right, top, angled (owner-generated views are real). FT1119: 05 front, 02 back,
+  03 right side (wearer's right, -x temple outer), 06 left side from ~19 deg above (+x temple outer + -x inner print), 04 top, 01 angled.
+  Astra's q001 names temples by the VIEWER's side (Temple_Left = -x): tools use the x sign, never names. +x = the wearer's LEFT.
+- Repo shayashertlv/lenses is PUBLIC; pushing main deploys to Railway. Work on branch `glasses3d`; never push without the owner's OK.
+  Never commit photos, job data, renders, GLBs, .blend or .env. Never modify `ar/` or the root app. Never `git stash apply/pop`.
+  The OpenAI key is in `automation/.env`: never read or print it.
 
-**Gotchas learned:** long Bash heredocs get mangled (write scripts with the Write tool); liveness checks must compare full
-timestamps; agents may sweep other workflows' files into a commit (stage paths explicitly); the WP5 production bake currently
-lives in `tests/photoprint/bake_ft1119.py` and the AR level calibration in `tests/photoprint/ar_calibrate.py` (must become a
-library call before WP2 wraps it); the WP5 tool test must run on a temp COPY of the bake (`print_tooltest.py --bake DIR`);
-older calibration / sheet generations are kept under `data/wp5/pre_*` and `data/wp5/tooltest/pre_*` (nothing deleted); the session's
-working directory jumps between folders on its own (always use absolute paths); WP6 temple ops are not yet in `g3d/cli.py`, `g3d/__init__.py` or the exporter allowlist.
-
-**Next after the running work:** WP5 to an owner-acceptable look on FT1119 (by eye), then wire project_photo_texture + calibration
-as a library tool; WP6 per the re-diagnosis; WP2 stages C-F with the $0 proofs A (Prada replay, total exactly 14,261,424 micro-USD)
-and B (synthetic edge cases); wire WP5/WP6 into WP2's tools; WP7 instructions written fresh with the test that every rule names an
-existing tool and check; then WP8 (ask the owner the money questions first; one capped smoke turn, then Prada, FT1119, the
-known-good product, then 3 unseen products).
+### 7. Gotchas learned
+Long Bash heredocs get mangled (write scripts with the Write tool; short heredocs < ~40 lines are fine); liveness checks must compare
+full timestamps; agents may sweep other workflows' files into a commit (stage paths explicitly); the session's working directory jumps
+between folders on its own (always use absolute paths); a `timeout` wrapper on the 46-min WP5 suite cuts it off (run it without one, log
+to a file); the SDK install added a pytest `anyio` plugin (harmless); older calibration / sheet generations are kept under
+`data/wp5/pre_*` and `data/wp5/tooltest/pre_*` and the all-angles rounds under `data/wp5/all_angles/round0|round1` (nothing deleted);
+WP6 temple ops are not yet in `g3d/cli.py`, `g3d/__init__.py` or the exporter allowlist; the session's scratch/task files were copied
+to `data/handoff_20261007/` (step-6 result `wp5_step6.json`, step-6 review + findings, pip report + venv freezes, WP7 result, every
+workflow script).
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
