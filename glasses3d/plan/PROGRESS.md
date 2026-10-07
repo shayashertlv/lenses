@@ -61,14 +61,14 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   `glasses3d/g3d/safe_mode.py`): Blender worker/RPC/safe mode/checkpoints (A), cameras/render/
   compare (B). On completion: commit; launch stage C (install pinned openai 3.22.1, openai-agents 0.22.3, mcp 1.30.0 + deps from
   PyPI into glasses3d/.venv, record in requirements.txt), then D-F per WP2_DESIGN §15.
-- `g3d-wp2-stage-c` (task wu0uwqn8f, run wf_91f8f2b9-ed5, launched 08:33), in parallel with A-B on disjoint files: agent/{pricing,
+- `g3d-wp2-stage-c` (task wu0uwqn8f, run wf_91f8f2b9-ed5, launched 08:26), in parallel with A-B on disjoint files: agent/{pricing,
   budget (BudgetGuard + JobLedger), approvals, estimate, receipts, replay, offline, loop}.py + tests/agent/; money replay of the 59 Prada
   usages must total exactly 14,261,424 micro-USD; 3 verifiers (money, network isolation, design), up to 2 fix rounds. Does NOT commit:
   commit its files by explicit paths after it passes (stage C stop rule: any non-loopback connection or 1 micro-USD discrepancy).
-  **SDK installed 2026-10-07 08:31** (owner pre-approved installs from safe sources): `glasses3d/requirements-agent.txt` = 26 pins with
+  **SDK installed 2026-10-07 08:24** (owner pre-approved installs from safe sources): `glasses3d/requirements-agent.txt` = 26 pins with
   PyPI sha256 hashes (openai 3.22.1, openai-agents 0.22.3, httpx2 2.13.1, httpcore2 2.13.1, mcp 1.30.0, python-dotenv 1.1.1 + 20 deps),
   resolved from pypi.org with the existing venv packages held as constraints: 26 added, 0 changed, `pip check` clean, `import agents` ok.
-- `g3d-wp7-design` (task wykg7gd4w, run wf_9c4f37fb-9a2, launched 08:30): evidence from old instructions + praised/failed transcripts ->
+- `g3d-wp7-design` (task wykg7gd4w, run wf_9c4f37fb-9a2, launched 08:28): evidence from old instructions + praised/failed transcripts ->
   three drafts (evidence-first, tool-contract-first, owner-outcome-first) -> two judges -> `plan/WP7_DESIGN.md` (instruction blocks per
   tool group, G1/G2 gated, contract-test spec, fresh docstrings) -> adversarial fact check. Design only; implementation waits for
   WP2 stage D's registry. Drafts in `plan/wp7/` (commit with the design).
