@@ -10,4 +10,5 @@
 - Old AR generations and recovery archives are kept outside the repository. Do not add
   local-only material (`ar/modeling/`, `ar_v4/` leftovers, private recordings, `.env`) to Git.
 - **The photo-to-3D glasses pipeline is `glasses3d/` (branch `glasses3d`).** For any work on it, first read
-  `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/PROGRESS.md` ("RESUME HERE").
+  `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/PROGRESS.md` ("Active resume",
+  not the historical RESUME HERE archive). Follow the current WP5 handoff linked there.

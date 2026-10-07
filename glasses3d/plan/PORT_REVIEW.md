@@ -1480,6 +1480,10 @@ is a mean silhouette contour error of 0.66-1.44 mm per view (median 0.74 mm), wi
 
 ## 10. WP5 scratch port
 
+**Historical implementation/review log.** Dated entries below retain past decisions, failures and corrections.
+For the current task, use PROGRESS.md's Active resume, WP5_HANDOFF.md and §12. A–E, B promotion and G1 are complete;
+old instructions to await their approval or finish their workflows are superseded.
+
 WP5 build steps (1) and (2) (WP5_DESIGN §9), host only, 2026-10-05. Scratch read in full: `g3d-wp5/wp5lib.py`,
 `refine.py`, `aplib.py`, `noeco.py`, `geomlib.py`, `shiftlib.py`, `step2b_global.py`, `ap2_regsignal.py`,
 `ap5_chroma_lovo.py` (`appearance`, `tol_bp`), `ap8_blur_trap.py`, `design_reg/p1_guarded.py`, `p2_parallax.py`,
@@ -4360,3 +4364,9 @@ on the removed camera default; no skips. Repaired it and five equivalent compari
 including the original-model identity and dotted-name regressions. Full diff/new-file re-review and final
 evidence/source hash audit completed. No remaining G1 implementation failure. WP5's numeric quality gates
 remain failed (A4, A5, B3); the appearance verdict alone is not a numeric waiver. Detailed status is in PROGRESS.
+
+**Owner decision after G1 (2026-10-07):** repair all remaining issues and prepare a new-session handoff. The pending
+scope/waiver question is resolved in favour of repairs. STOP B continues to block completion and advancement,
+while further $0 diagnosis and repair are authorized. See [WP5_HANDOFF.md](WP5_HANDOFF.md) for the exact baseline,
+unchanged measurement protocols, remaining work and final proof requirements. No new algorithm or threshold was
+changed in this documentation pass; §12's G1 evidence remains valid for its recorded assets.

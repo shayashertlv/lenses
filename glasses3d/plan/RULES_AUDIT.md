@@ -1,8 +1,14 @@
 # Rules that constrain Astra: what to remove, loosen or keep
 
+**Scope/status (2026-10-07):** this is the historical source-code rules audit, not a second current acceptance
+specification. PLAN §2's owner-approved development-arview requirements take precedence over §C below. Existing
+port decisions are recorded in PORT_REVIEW.md; do not redo them or import old restrictions while repairing WP5.
+Current task rules are AGENTS.md, PLAN §0 and PROGRESS.md's Active resume; see WP5_HANDOFF.md.
+
 Inventory of 209 rule mentions across the modeler (main), the Blender Studio (branch `codex/perfecto_automation_agentic` plus `stash@{0}`) and the AR runtime, merged into 41 rules. Each was classified against what the AR page actually needs, then checked a second time; the verifier's corrections are applied below.
 
-**Bottom line:** the AR page needs none of the three things you've been fighting. It keeps faceted normals, renders photo textures on opaque parts, and a lens set into the brow is the clean case. The blockers are our own rules and tools.
+The audit found that AR supports faceted normals, photo textures on opaque parts and a lens seated into the brow.
+The old modelling rules and tools were preventing these behaviours.
 
 ## A. Remove or rewrite: these force bad geometry or block the obvious method
 
@@ -35,7 +41,11 @@ Inventory of 209 rule mentions across the modeler (main), the Blender Studio (br
 - **Front wrap:** the only helper wraps around a vertical cylinder, and there is no unwrap helper. Add one.
 - **Evidence downsampled to 64/48 points; temples measured from silhouettes only.** Add measured temple top and bottom profiles from the side photo and temple width from the top photo.
 
-## C. Keep: the AR page really needs these
+## C. Historical live-site requirements (not development-arview gates)
+
+These describe the old live runtime. For development arview, PLAN §2 supersedes limits on mesh naming/count,
+opacity, triangles, texture size and file size. Keep applicable coordinate/format validity checks. Live-site
+compatibility is reported as a warning; this list does not authorize changes to `ar/` or the root app.
 
 - GLB in metres, +Z toward the viewer, +Y up, baked transforms, origin at the bridge underside.
 - Lenses: a separate single-material mesh with partRole `lens` (front-sheet for the modeler; closed solids are fine in the Studio). **Seat it by extending the sheet behind the rim, not by curling its edge.**
@@ -45,5 +55,8 @@ Inventory of 209 rule mentions across the modeler (main), the Blender Studio (br
 - Studio part-visibility tags: on every mesh or none.
 
 ## D. Reasonable guards (keep, maybe reword)
+
+These are review candidates from the old code, not blanket hard requirements. Retain only guards justified by
+the owner's spec and the implemented, tested tool contract; do not add arbitrary WP5 restrictions from this list.
 
 Closed-manifold parts, the triangle budget, lens base curve, colour from photos not the product name, small branding stays small, part naming, the Docker sandbox, and "room reflections on lenses are not defects".

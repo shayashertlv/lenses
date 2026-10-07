@@ -1,5 +1,35 @@
 # WP5 photo-projected print: final design
 
+## Current implementation addendum (2026-10-07; read before the historical design)
+
+WP5 is incomplete. The owner requests **all remaining issues be repaired**, not waived. Follow
+[WP5_HANDOFF.md](WP5_HANDOFF.md) and PROGRESS.md's Active resume. The probe, predictions and pending questions below
+are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
+G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
+
+The owner authorized **single-source print** on 2026-10-06 (PROGRESS entry "WP5 stage 1"). Actual pixel-verified
+area is **0%**, not the probe's predicted 3.5%. A0's literal bound and B1 still fail; B2 remains diagnostic. Preserve
+these facts and fix proven defects where relevant, but do not silently impose all-region registration as a new
+prerequisite or blend unregistered views. This mode change does not waive A4, A5 or B3. STOP B blocks completion
+and advancement; further $0 repairs and useful visual comparisons are authorized without another continue question.
+
+The independent protocol evolved in the dated PORT_REVIEW §10 corrections. These are the **existing protocols**,
+not new threshold changes in this handoff. Preserve their constants, eligibility, held-out separation and diagnostic
+fields. The original §8 table remains below for history:
+
+| Check | Current measurement to preserve | Source of the recorded correction |
+|---|---|---|
+| A4 | Per-part median absolute log energy <= 0.15 in both bands; median seam ratio <= 1.2; median mean-colour ΔE00 <= max(2.0, median donor-ring baseline). Literal <= 2.0 remains separately reported. Real-vs-real floor is diagnostic, never an excuse for failure. Compare fillers at their own selected radii on the same holes/seeds, retaining the five-seed comparison. | `tests/instruments/print_metrics.py:a4_criteria` documents the calibrated colour limit; PORT_REVIEW §10 build-step-4 fix round 1 documents fair filler comparison and the diagnostic-only floor |
+| A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Grade beyond the reflection band: current band 6 texels, graded offsets 7 and 8. Same-point equality after harmonisation is constructed and only diagnostic. | `print_metrics.seam_steps`, `printproof.seams`; PORT_REVIEW §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
+| B3 | All six held-out bakes; every eligible region/view row, including failures. Protocol `10bf932`: atlas before AR level, no re-lighting. `relit_h` uses held-out shading and is diagnostic only. Preserve `print_metrics.evaluate_b3`/`b3` and their support/coverage rules. | `printproof.heldout_b3`; PORT_REVIEW §10 correction-round fix round 1, item 7 |
+
+The final proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression
+fixture. A green test asserting an expected failure does not pass a quality gate. A proven instrument bug may be
+repaired with independent evidence and regression coverage; do not relax the protocol because an algorithm fails.
+Exact current metrics, assets and closeout steps are in WP5_HANDOFF.md.
+
+## Historical design and feasibility evidence (2026-10-05)
+
 Written 2026-10-05 from the feasibility probe and three independent designs, each prototyped at $0 on q001
 (`data/reference/projection/q001.glb`), the six FT1119 photos and the WP3b cameras, in scratch under
 `C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp5/`: registration-first **R** (`design_reg/`), appearance-first **A**
@@ -8,7 +38,7 @@ held-out pixels. From **A**: the chroma registration signal, the energy floor ag
 flatten rules. From **C**: the UV layout, the Blender side, the byte-identity guarantee, the fill settings, the
 independent instrument and the real-vs-real envelope. [Bracketed] numbers are prototype results to be re-measured.
 
-## 0. Go / no-go
+## 0. Original go / no-go (superseded by the current addendum)
 
 **NO-GO for WP5 as PLAN §4 writes it. The stop rule has fired, and this section is the report it requires.** With q001
 and the WP3b silhouette cameras the brow print is **1.88–2.39 mm** off between the only two views whose print matches
@@ -285,7 +315,8 @@ strip-space sheet adds class overlays.
 
 ## 9. Stop logic
 
-- **STOP 0 (now):** the probe fired the PLAN stop rule. Report and wait for D1–D6.
+- **Historical STOP 0:** the probe fired the PLAN stop rule. The subsequent owner decisions and single-source
+  authorization are recorded in the current addendum; there is no pending D1–D6 approval for today's repair work.
 - **Build order:** (1) `print_metrics`, signals, gate, A0 → (2) registration and the check harness (B1, B2, A7) →
   **STOP A** → (3) UV layout and Blender side (A1, A6), then steps 2–7 (A2–A5, B3, B5) → **STOP B** → (4) B4 with the
   owner.
@@ -293,6 +324,8 @@ strip-space sheet adds class overlays.
   fold, or if a guard must be broken (including view 01's whole silhouette with the hinge). After a STOP A failure,
   WP5 can deliver only single-source print checked by B3, and only if the owner accepts that scope (D4).
 - **STOP B** fires if the full bake loses any C1–C4 margin on a region that passed A, or if A1–A6 or B3 fails.
+  **Current action:** retain failures and repair them. The owner authorized this on 2026-10-07; no repeat waiver or
+  continue question is needed. B4 comparisons may guide repairs, but an appearance verdict does not override STOP B.
 - **Region statuses for Astra:** **registered** (tier-1 mixing, check passed; the only status called "real print,
   verified"); **anchor-only** (views overlap but do not register; flagged with the residual and the parallax
   discrepancy); **single-view** (pixel-unverifiable; B3 only); **unseen** (filled). Overall `ok`, `partial` or
@@ -344,7 +377,10 @@ WP3b's texture utilities are reused unchanged.
 10. **Owner views.** Gates are measurements, identical for every view. A view that fails a print gate still drives
     cameras, silhouettes and colour, and donates where it alone sees the surface. It is never demoted.
 
-## 12. Owner decisions and PLAN corrections
+## 12. Original owner decisions and PLAN corrections (historical)
+
+Read the current addendum before this list. In particular, D4's old request to ask again is superseded by the
+2026-10-06 single-source decision at the actual measured 0% and the 2026-10-07 instruction to repair remaining issues.
 
 - **D1.** `print_reg_mm` = 0.8 mm to pass, 0.5 mm target, measured photometrically per region (§5.4). It replaces the
   silhouette threshold in WP5's stop rule.

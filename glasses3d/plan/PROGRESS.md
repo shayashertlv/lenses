@@ -5,9 +5,37 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-07)
 
-**G1 reusable-library proof is complete (16:46; commit containing this entry). WP5 remains incomplete under
+**Owner-requested handoff: finish all remaining WP5 issues.** The owner now says: "i want to complete all the issues
+you mentioned" and asks for a new session to work on WP5 "until its good". The earlier repair-versus-waiver question
+is resolved: **continue repairs; no scoped completion or quality waiver.** Preparation only in this handoff turn;
+no additional algorithm repair, paid call or proof run. Read [WP5_HANDOFF.md](WP5_HANDOFF.md) fully for the issue
+list, evidence, protocols, run instructions and completion criteria. This is an explicit requested handoff,
+not a claim that the conversation reached 80% context usage.
+
+**Handoff preparation verification (commit containing this entry):** reviewed the active handoff/rule stack and
+re-read the complete documentation diff and both new files. Corrected stale A–E/WP6/scope actions, stop-rule
+meaning, the healthy-run versus two-minute-kill conflict, and the docs-before-commit order. The design now points
+to the existing A4/A5/B3 protocols instead of presenting historical criteria as current. Added the remaining issue
+map, preserved-asset identities, run commands, final proof requirements and `WP5_SESSION_PROMPT.md`.
+Local `data/wp5/handoff_review_20261007/audit.json`: **49/49 documentation/evidence checks passed**, including
+all four reference SHA-256 identities, evidence paths, links, CLI flags, reported failures and branch/file scope.
+Only documentation changed; no runtime tests or expensive proofs were needed for this pass. No assets or frozen
+thresholds changed. The ready-to-paste prompt is [WP5_SESSION_PROMPT.md](WP5_SESSION_PROMPT.md).
+
+| Work | Current state |
+|---|---|
+| WP0 / WP1 / WP3 / WP3b / WP4 | Complete and tested |
+| A–E repairs; WP5 option B promotion | Committed and verified; do not redo |
+| WP5 reusable library (G1 dependency) | Complete and verified at `f020b57` |
+| WP5 overall | Incomplete: repair A4 fill, A5 seams, B3 held-out realism and review final appearance |
+| WP2 | A–C verified; agent wrappers remain gated |
+| WP6 | KEEP STOP-I; no waiver; outside this task |
+| WP7 / WP8 | Design only / not started |
+
+**G1 reusable-library proof is complete (16:46; `f020b57`). WP5 remains incomplete under
 its unchanged quality gates.** No test/proof processes remain running. The owner already accepted the revised
-appearance: do not ask for that verdict again. No paid call, push, product delivery or threshold relaxation.
+appearance for the exact revised asset: do not re-ask that historical verdict. A materially changed final candidate
+needs its own labelled comparison and verdict. No paid call, push, product delivery or threshold relaxation.
 
 Implemented `photoprint/production.py` (`bake_print`, `calibrate_level`, explicit CLI), `inputs.job_from_dir`,
 job-specific AR calibration/measurement and runtime metrics. Fixture bake/calibration drivers delegate to the
@@ -52,17 +80,19 @@ All evidence is local-only under `data/wp5/g1_20261007/`:
 appearance acceptance permits continuation but is not an explicit A4/A5/B3 waiver. The preserved production-B PNG
 is still `b52f31129af3e760195dc2fcde59fafc891340efad9dd0b9b6598c4fae8813b6`.
 
-**Exact next action:** obtain the owner's scope decision: close WP5 as visually accepted single-source print with
-these numeric failures retained as explicit limitations, or continue quality repairs under the existing gates.
-Do not silently waive them, re-ask the appearance verdict, repeat G1, or start WP6. WP0/1/3/3b/4 remain complete
+**Exact next action:** read `data/wp5/g1_20261007/proof/bake/bake.json` A4, A4_fillers, A5, B3 and STOP_B with the
+independent instruments. Localize failures by part, hole/seam, view and source class; form a cause-based repair
+hypothesis before editing or launching another full run. Follow WP5_HANDOFF.md's ordered work and closeout checks.
+STOP B blocks completion, not the authorized $0 repair work. Do not ask for a waiver, repeat G1, or start WP6.
+WP0/1/3/3b/4 remain complete
 and tested; WP2 A-C are verified, G1's library dependency is ready but agent wrappers remain gated; WP6 retains
 STOP-I, WP7 is design only, WP8 has not started. Ask before every paid run; never push.
 
 **Context policy updated by the owner, 2026-10-07:** hand off only at reliably established 80% usage of this
 conversation's current context window. Cumulative goal/account usage and summarization or compaction do not
 trigger a handoff. If current usage is unavailable, continue and keep progress notes. PLAN §0 rule 10 and
-AGENTS.md now agree; this supersedes the earlier compaction-triggered handoff below. The scope decision above
-is now the next WP5 action; context compaction is not the reason for stopping.
+AGENTS.md now agree; this supersedes the earlier compaction-triggered handoff below. The owner explicitly requested
+this handoff and resolved the scope question in favour of repairs; context compaction is not the reason for stopping.
 
 The historical handoff below is preserved. The owner initially requested RESUME HERE section 5 step 1:
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
@@ -294,7 +324,10 @@ fresh hand trace and each model's own fitted camera, visually checked, and kept 
 `data/wp6/handtraced_codex_20261007/owner_comparisons/` (overview plus three detailed sheets). Shading is the
 instrument's fixed key/fill; brown lines indicate model normal changes of at least 6 degrees, not texture.
 
-## Status (FINAL handoff 2026-10-07 ~11:00; every workflow STOPPED at the owner's request; nothing is running)
+## Historical status (2026-10-07 ~11:00; superseded by Active resume)
+
+The following table and RESUME HERE block preserve the old stop state. Their pending actions, approvals and
+workflow commands are historical; follow Active resume and WP5_HANDOFF.md instead.
 
 | WP | State | Last commit |
 |---|---|---|
@@ -309,7 +342,7 @@ instrument's fixed key/fill; brown lines indicate model normal changes of at lea
 | WP7 instructions | **design done** (`plan/WP7_DESIGN.md`); implementation waits for WP2 stage D's registry | 78d1950 |
 | WP8 paid validation | not started; owner OK per paid run. The owner said "let the new model ask me again": ask the questions fresh when WP8 is reached (budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU; WP7_DESIGN §4.2 #1-#2) | - |
 
-## RESUME HERE (FINAL handoff 2026-10-07 ~11:00; read this first after PLAN.md §0)
+## Historical RESUME HERE (2026-10-07 ~11:00; do not execute as the current resume)
 
 ### 0. The owner's instructions at handoff (verbatim)
 - 10:40: "first get me the comparisons, only after i give you my opinion you may resume to what thats written below. in addition, you are
