@@ -6,7 +6,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import math
 import pickle
 from pathlib import Path
 
@@ -16,11 +15,11 @@ from PIL import Image, ImageDraw
 from glasses3d.g3d.temple import build_temple, report
 from glasses3d.g3d.temple import fixtures as FX
 from glasses3d.g3d_host import relief_check as RC
+from glasses3d.g3d_host import relief_cue as CU
 from glasses3d.g3d_host import relief_fit as RF
 from glasses3d.g3d_host import relief_rules as RR
 from glasses3d.g3d_host import relief_trace as RT
 from glasses3d.g3d_host import relief_views as RV
-from glasses3d.g3d_host.camera import Camera
 from glasses3d.g3d_host.spec import validate_spec
 
 
@@ -60,7 +59,10 @@ def _s1_case_b(rec: dict) -> float | None:
     lines, at the S1-fitted cameras and theta: what R3 measures on a perfect model. From the proof's S1 record, or the
     proof record a diagnostic copied (rec["proof_record"]["s1_case_b_mm"])."""
     s1 = (rec.get("stages") or {}).get("S1") or {}
-    v = ((s1.get("theta_cases") or {}).get("cases") or {}).get(S1_CASE_B, {}).get("mean_mm")
+    # fit-4: what a perfect model transfers at the S1-fitted cameras is the instrument floor's truth
+    v = (((s1.get("instrument_floor") or {}).get("models") or {}).get("truth") or {}).get("R3_transfer_mm")
+    if v is None:
+        v = ((s1.get("theta_cases") or {}).get("cases") or {}).get(S1_CASE_B, {}).get("mean_mm")
     if v is None:
         v = (rec.get("proof_record") or {}).get("s1_case_b_mm")
     return None if v is None else float(v)
@@ -84,10 +86,10 @@ def open_owner_decisions(rec: dict) -> list:
         {"gate": "R3", "rule": f"05 -> 02 transfer <= {RR.R3_TRANSFER_MAX_MM} mm AND <= delivered - "
                                f"{RR.R3_TRANSFER_MARGIN_MM} AND <= fitted slab - {RR.R3_TRANSFER_MARGIN_MM}",
          "why_open": "the 'delivered - 0.5' clause looks impossible on the project's own numbers: a perfect model "
-                     "fails it whenever the delivered model's transfer is below S1 case (b) + 0.5 mm. Delivered "
-                     "transfer (WP6 fix-1 diagnostic, its own refit cameras) 0.674 mm -> limit 0.174 mm, while S1 "
-                     "case (b), the exact TRUE temple with its true crease lines at the S1-fitted cameras and theta, "
-                     "transfers 0.318 mm (fix-1 S1)",
+                     "fails it whenever the delivered model's transfer is below the true temple's own transfer + 0.5 "
+                     "mm (evidence: this record's S1 true-temple transfer and its delivered transfer). Fix round 3 "
+                     "adds that the 0.7 mm limit itself sits inside what a perfect model transfers once its lines "
+                     "carry the real 02 tracer's 3-7 px endpoint moves (data/wp6/s1_floor_check.json)",
          "evidence": {"s1_case_b_true_temple_mm": b, "delivered_transfer_mm_this_record": dl,
                       "delivered_minus_margin_mm_this_record": None if dl is None else dl - RR.R3_TRANSFER_MARGIN_MM,
                       "note": "s1_case_b is this record's S1 (or the proof's, for a diagnostic); the delivered value "
@@ -96,11 +98,14 @@ def open_owner_decisions(rec: dict) -> list:
     ]
 
 
-def stage_p2(pf, job, fits_d, start, guides) -> dict:
-    """P2: outline (05 / 01, held-out other temple) and creases (A, B <= 0.5 mm, C <= 1.5 mm between 05 and 01)."""
+def stage_p2(pf, job, fits_d, start, guides, topology: str = "f1") -> dict:
+    """P2: outline (05 / 01, held-out other temple) and creases (A, B <= 0.5 mm, C <= 1.5 mm between 05 and 01). The
+    outline is traced on Astra's topology (`topology`: the pyramid builds F1 = the base; before fix round 3 P2 traced
+    every topology on the F1 builder, which moved the pyramid's bottom knots by up to 0.13 mm)."""
     fits = _side_fits(fits_d)
-    builder = lambda t, b: FX.prada_spec(**{**start, "top": t, "bottom": b})
-    spec0 = FX.prada_spec(**start)
+    bld = FX.prada_pyramid_spec if topology == "pyramid" else FX.prada_spec
+    builder = lambda t, b: bld(**{**start, "top": t, "bottom": b})
+    spec0 = bld(**start)
     both = RT.trace_outline(job, spec0, builder, fits, ("05", "01"), log=pf.hb.log)
     res = {"both": {"final": both["final"], "flagged": both["flagged"]}, "held_out": {}}
     flagged = {(f["edge"], f["d"]) for f in both["flagged"]}
@@ -152,6 +157,12 @@ def stage_p2(pf, job, fits_d, start, guides) -> dict:
                      "C": [cr["corners"]["C"]["d"], cr["corners"]["C"]["y"]] if "C" in cr["corners"] else None}
     res["guide_lines"] = {k: {cn: (ln["p0"], ln["p1"]) for cn, ln in cr["views"][k]["lines"].items() if ln}
                           for k in cr["views"]}
+    # the evidence behind Astra's topology reading, and how far the snapper moved each line from its click (fit-4)
+    corners_px = {k: cr["views"][k]["corners_px"] for k in ("05", "01") if k in cr["views"]}
+    res["topology_evidence"] = CU.topology_evidence(job, res["guide_lines"], corners_px,
+                                                    {k: RC.decal_mask(job, k, fits[k]["camera"]) for k in ("05", "01")})
+    res["line_endpoint_moves_px"] = {f"{k[0]} {k[1]} end {k[2]}": v for k, v in
+                                     CU.endpoint_sigmas(guides, res["guide_lines"], views=("05", "01", "02")).items()}
     return res
 
 
@@ -172,7 +183,9 @@ def _compare_cache(fit_res, label):
     return out
 
 
-def stage_fit(pf, job, start, p2, quick) -> dict:
+def fit_family(start: dict, p2: dict, topology: str):
+    """The family the joint fit starts from: the guides' start with P2's traced outline and corners (B, C; and A for
+    the pyramid topology, whose A-B crease runs from the traced A), Astra's topology reading."""
     params = copy.deepcopy(start)
     t = p2.get("traced") or {}
     if t.get("top"):
@@ -180,8 +193,23 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
     for k in ("B", "C"):
         if t.get(k):
             params[k] = tuple(t[k])
-    fam = RF.prada_family(params)
+    if topology == "pyramid":
+        a = ((p2.get("creases") or {}).get("corners") or {}).get("A")
+        if a:
+            params["A"] = (a["d"], a["y"])
+    return RF.prada_family(params, topology=topology)
+
+
+def cue_endpoints(guides: dict, glines: dict) -> dict:
+    """The triangulation's line-endpoint uncertainties: the tracer's own move from each guide click to its snapped
+    line (relief_cue.endpoint_sigmas), never below relief_cue.TRI_ENDPOINT_PX."""
+    return CU.endpoint_sigmas(guides, glines)
+
+
+def stage_fit(pf, job, start, p2, quick, topology: str = "f1", guides: dict | None = None) -> dict:
+    fam = fit_family(start, p2, topology)
     glines = {k: {cn: tuple(v) for cn, v in d.items()} for k, d in p2.get("guide_lines", {}).items()}
+    eps = cue_endpoints(guides or {}, glines)
     retrace = make_retrace(job, pf.hb.log)
     rounds = 2 if quick else RR.FIT_MAX_ROUNDS
     out = {}
@@ -190,7 +218,7 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
         prev = pf.out / f"fit_{label.replace(' ', '_')}.pkl"
         prev = pickle.loads(prev.read_bytes()) if prev.exists() else None
         res = RF.fit_temple(job, family, guides_lines=glines, rounds=rounds, rear=True, retrace=retrace,
-                            log=pf.hb.log, budget_s=90 * 60, pool=pf.pool)
+                            log=pf.hb.log, budget_s=90 * 60, pool=pf.pool, cue_endpoint_px=eps)
         if prev is not None:                       # a resumed run refits: record whether it reproduced the record
             res["reproduced_previous_record"] = bool(prev.get("x") == res["x"] and prev.get("loss") == res["loss"])
             pf.hb.log(f"  {label}: reproduces the previously recorded fit exactly: {res['reproduced_previous_record']}")
@@ -221,8 +249,8 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
     fb = cand["details"].get("front_bound") or {}
     s3["front_bound_active_mm"] = fb.get("hinge_zone_max_mm", 0.0)
     s3["front_bound_stop"] = bool(s3["front_bound_active_mm"] > RR.STOP_C_FRONT_ACTIVE_MM)
-    prof = RF.profiles(ctx, cand["family"], x, [n for n in ("x_in0", "r_C", "rise") if n in cand["family"].names],
-                       n=7, pool=pf.pool)
+    prof = RF.profiles(ctx, cand["family"], x, [n for n in ("x_in0", "r_C", "rise", "t_zone")
+                                                 if n in cand["family"].names], n=7, pool=pf.pool)
     conflicts = RF.conflict_table(prof, cand["sigma"])
     summ = {label: {"x": r["x"], "loss": r["loss"], "sigma": r["sigma"], "sigma_status": r.get("sigma_status"),
                     "sigma_flags": r.get("sigma_flags"), "sigma_penalty": r.get("sigma_penalty"),
@@ -237,13 +265,17 @@ def stage_fit(pf, job, start, p2, quick) -> dict:
                     "over_budget": r.get("over_budget"),
                     "reproduced_previous_record": r.get("reproduced_previous_record"),
                     "unobserved": r.get("unobserved"),
+                    "cue": {k: v for k, v in (r.get("cue") or {}).items() if k != "photo_steps"},
+                    "cue_at_fit": (r["details"].get("cue") or {}),
+                    "hinge_violation_mm": r["details"].get("hinge_violation_mm"),
                     "spec_sha": _spec_sha(r["spec"])} for label, r in out.items()}
     return {"fits": summ, "s2": s2, "stop_s": stop_s, "s3": s3, "profiles": prof, "conflicts": conflicts,
-            "_results": out}
+            "topology": topology, "photo_steps": cand.get("cue", {}).get("photo_steps"),
+            "cue_endpoint_px": {f"{k[0]} {k[1]} end {k[2]}": v for k, v in eps.items()}, "_results": out}
 
 
 def stage_p3(pf, spec) -> dict:
-    from glasses3d.tests.proofs.wp6_prada import PRADA_SCENE, LEFT, RIGHT, blender_steps, scene_copy, sha
+    from glasses3d.tests.proofs.wp6_prada import PRADA_SCENE, blender_steps, scene_copy, sha
     out = pf.out / "p3"
     out.mkdir(parents=True, exist_ok=True)
     blend = scene_copy(out, "prada_copy_p3.blend")
@@ -349,7 +381,7 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     reg = {}
     reports = {"invented_creases": {}, "shading_residual": {}, "crease_crops": {}}   # report only, never gated
     for key, near in (("05", 1), ("01", -1)):
-        f = cache_c[key]
+        f = RV.crease_fit(cache_c, key)       # the side view's camera; its theta is 0 (relief_views.SIDE_THETA_WHY)
         r = RV.render_model(job, models[C], key, f["camera"], f["theta"], points=True, normals=True)
         reg[key] = RC.temple_registration_mm(job, key, r, f["camera"], near)
         segs[key] = RC.photo_crease_segments(job, key, r, f["camera"], f["theta"], near,
@@ -363,8 +395,9 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     both = segs["05"]["usable"] and segs["01"]["usable"]
     conf = RC.confirm_creases(segs["05"]["segments"], segs["01"]["segments"]) if both else []
     r2 = RC.r2_verdict(segs, conf, segs["05"]["segments"], required=("05", "01"))
-    g["R2"] = {**r2, "registration": reg,
+    g["R2"] = {**r2, "registration": reg, "frame": "each side view's refit camera, theta 0 (no hinge angle read)",
                "confirmation": "05 and 01" if both else "not judged: a side view is unusable (R2 fails)",
+               "by_crease": r2_by_crease(cand_res["spec"], segs, r2.get("confirmed") or []),
                "pass": bool(r2["pass"])}
     # R3 transfer: candidate, delivered, slab (each at its own 05 / 02 cameras)
     glines = {k: {cn: tuple(v) for cn, v in d.items()} for k, d in p2.get("guide_lines", {}).items()}
@@ -379,6 +412,7 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     binding = min((v for v in lim.values() if v is not None), default=None)
     s1b = _s1_case_b(pf.rec)
     g["R3"] = {"transfer_mm": tr, "limits": lim, "binding_limit_mm": binding,
+               "frame": "05 refit camera (theta 0) -> 02 refit camera and theta (graded by S1 in a common frame)",
                # the comparison the owner's R3 decision needs (open_owner_decisions): what a PERFECT model transfers
                "s1_case_b_true_temple_mm": s1b,
                "true_temple_within_binding_limit": None if (s1b is None or binding is None) else bool(s1b <= binding),
@@ -399,6 +433,59 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     reports["relief_sheet"] = {"path": str(sheet), "stations": rs["stations"], "sigma_shown": rs["sigma_shown"]}
     return {"gates": g, "views": rep, "reports": reports, "pass": all(v["pass"] for v in g.values()),
             "failed": [k for k, v in g.items() if not v["pass"]]}
+
+
+R2_NAME_FAR_MM = 1.0              # a segment whose lift lies farther than this from every node line is named "none"
+CREASE_NODES = {"AB": ("A", "B"), "AC": ("A", "C"), "BC": ("B", "C")}
+
+
+def r2_by_crease(spec: dict, segs: dict, confirmed: list) -> dict:
+    """R2's photo segments named by the crease of the graded spec they lie on (report only; R2 itself is unchanged):
+    each segment's lifted (d, y) points (relief_check.photo_crease_segments' lift_dy, both side views in the +X chart)
+    against the spec's A-B / A-C / B-C node lines (chart mm, the median distance; "none" beyond R2_NAME_FAR_MM). The
+    confirmed 05 / 01 pairs are grouped by crease; pairs that reuse one 01 segment are merged (one confirmation)."""
+    nodes = (spec or {}).get("nodes") or {}
+    lines = {cn: (np.asarray(nodes[a][:2], float), np.asarray(nodes[b][:2], float))
+             for cn, (a, b) in CREASE_NODES.items() if a in nodes and b in nodes}
+
+    def name(seg):
+        if not seg.get("lift_dy") or not lines:
+            return None, None
+        P = np.asarray(seg["lift_dy"], float)
+        best = None
+        for cn, (a, b) in lines.items():
+            u = b - a
+            L = float(np.linalg.norm(u))
+            u = u / L
+            t_ = np.clip((P - a) @ u, 0.0, L)
+            d = float(np.median(np.linalg.norm(P - (a[None] + t_[:, None] * u[None]), axis=1)))
+            if best is None or d < best[1]:
+                best = (cn, d)
+        return (best[0] if best[1] <= R2_NAME_FAR_MM else "none"), best[1]
+    views, names = {}, {}
+    for key, vs in segs.items():
+        rows = []
+        for i, s in enumerate(vs.get("segments", [])):
+            cn, dist = name(s)
+            names[(key, i)] = cn
+            rows.append({"segment": i, "crease": cn, "dist_mm": dist, "verdict": s["verdict"], "dn_deg": s["dn_deg"],
+                         "len_mm": s["len_mm"]})
+        views[key] = {"segments": rows, "creases_seen": sorted({r["crease"] for r in rows if r["crease"]})}
+    by = {}
+    for c in confirmed:
+        cn = names.get(("05", c["seg05"]))
+        e = by.setdefault(cn or "unnamed", {"pairs": [], "segments_01": set(), "creases_01": set()})
+        e["pairs"].append([c["seg05"], c["seg01"], c.get("dn_deg")])
+        e["segments_01"].add(c["seg01"])
+        e["creases_01"].add(names.get(("01", c["seg01"])))
+    conf = {cn: {"pairs_05_01_dn": e["pairs"], "distinct_01_segments": sorted(e["segments_01"]),
+                 "confirmations_after_merging": len(e["segments_01"]),
+                 "01_segment_creases": sorted(x for x in e["creases_01"] if x)} for cn, e in by.items()}
+    return {"views": views, "confirmed_by_crease": conf,
+            "confirmed_creases_tested": sorted(k for k in conf if k not in ("none", "unnamed")),
+            "untested_by_confirmation": sorted(k for k in lines if k not in conf),
+            "rule": f"nearest node line of the graded spec, median distance of the segment's lift; > {R2_NAME_FAR_MM} mm "
+                    "= none"}
 
 
 def v_gate(p3: dict | None) -> dict:
@@ -426,11 +513,14 @@ def label_sheet(path: Path, text: str) -> None:
     out.save(path)
 
 
-def run_rest(pf, job, fits_d, start, gp, stages, args):
+def run_rest(pf, job, fits_d, start, gp, stages, args, p2_done: dict | None = None):
     guides = gp["guides"]
+    topology = gp.get("start", {}).get("topology", "f1")
     p2 = {}
-    if "p2" in stages:
-        p2 = pf.stage("P2", lambda: stage_p2(pf, job, fits_d, start, guides))
+    if p2_done is not None:                          # P2 already ran in this run (before S1: wp6_prada._run)
+        p2 = p2_done
+    elif "p2" in stages:
+        p2 = pf.stage("P2", lambda: stage_p2(pf, job, fits_d, start, guides, topology))
         if p2.get("error"):
             return pf.stop("STOP-T", "P2 tracing crashed", p2["error"])
         pf.rec["p2_pass"] = p2.get("pass")
@@ -443,7 +533,7 @@ def run_rest(pf, job, fits_d, start, gp, stages, args):
         pf.hb.log("P2 not in --stages: the fit starts from the recorded P2 (traced outline, corners, crease lines)")
     if "fit" not in stages:
         return "stopped after P2 (stages)"
-    fo = pf.stage("FIT", lambda: stage_fit(pf, job, start, p2, args.quick))
+    fo = pf.stage("FIT", lambda: stage_fit(pf, job, start, p2, args.quick, topology, guides))
     if fo.get("error"):
         return pf.stop("STOP-S", "the joint fit crashed", fo["error"])
     res_obj = fo.pop("_results", None)

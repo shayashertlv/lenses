@@ -21,7 +21,7 @@ def test_slab_family_shares_everything_but_the_relief():
     base = RF.prada_base_params()
     fam = RF.prada_family(base)
     slab = fam.slab()
-    assert slab.slab_mode and set(slab.names) == set(RF.SLAB_FREE)
+    assert slab.slab_mode and set(slab.names) == {n for n in fam.names if n in RF.SLAB_FREE}
     x = slab.x0()
     s = slab.spec(x)
     f = fam.spec(fam.x0())

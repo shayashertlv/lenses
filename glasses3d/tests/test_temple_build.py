@@ -248,4 +248,27 @@ def test_arm_station_spacing_and_tip_round(builds):
     assert tb.checks["closed"] and tb.checks["euler"] == 2
     from glasses3d.g3d.temple.build import station_list
     st = station_list(tb.spec)
-    assert st[0] == tb.spec.zone_end and max(np.diff(st + [tb.spec.d1])) <= 2.0 + 1e-9
+    # core-1.1: stations over the WHOLE temple (zone too), none wider than station_step_mm; the zone end is one
+    assert tb.spec.zone_end in st and max(np.diff([tb.spec.d0] + st + [tb.spec.d1])) <= 2.0 + 1e-9
+
+
+def test_zone_stations_follow_a_per_vertex_bend():
+    """core-1.1 (the arview decal defect): every outer face of the facet zone is at most station_step_mm wide in d, so a
+    downstream per-vertex deformation by a smooth function of d (arview's arm spread, quadratic about a pivot inside the
+    zone) bends the facets with their 0.05 mm decals; planarity, tiling and the dihedrals are unchanged."""
+    from glasses3d.g3d.temple.build import station_list
+    tb = build_temple(FX.prada_default())
+    ps = tb.spec
+    st = station_list(ps)
+    assert max(np.diff([ps.d0] + st + [ps.d1])) <= ps.options["station_step_mm"] + 1e-9
+    for p, k in zip(tb.polys, tb.poly_kind):
+        if k == "outer":
+            d = tb.V[p, 0]
+            assert d.max() - d.min() <= ps.options["station_step_mm"] + 1e-9
+    assert tb.checks["planarity_max_mm"] <= 1e-9
+    # a quadratic bend x += k (d - d_p)^2 / 2 over the zone: the chord error of a 2 mm strip is k * 2^2 / 8
+    kq = 9.0e-3                                   # 1/mm: arview's 18 mm spread with a 20 mm hinge rounding
+    assert kq * 2.0 ** 2 / 8 < 0.005
+    # an edge roll keeps the arm stations only (the Bevel overlapped itself at a zone station near the outline)
+    rolled = build_temple(FX.rolled()).spec
+    assert all(d >= rolled.zone_end - 1e-9 for d in station_list(rolled))

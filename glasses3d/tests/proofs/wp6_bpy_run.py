@@ -20,6 +20,33 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))      # repo root: `glasses3d` imports
 
+
+def _opt_out_ecoqos() -> bool:
+    """Owner machine rule: a long or timed run opts out of Windows EcoQoS, per process (it is not inherited from the
+    proof that launched this Blender). Without it a Blender started by a background run is throttled (~2x CPU time on
+    this machine: the P0 budget read total_cpu_ms 1109 for the rolled fixture against 578 in an earlier run)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class S(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # the pseudo-handle is a 64-bit -1: without restype / argtypes Blender's Python passes it truncated and the
+        # call fails with ERROR_INVALID_HANDLE (6)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.SetProcessInformation.restype = wintypes.BOOL
+        st = S(1, 1, 0)
+        return bool(k32.SetProcessInformation(k32.GetCurrentProcess(), 4, ctypes.byref(st), ctypes.sizeof(st)))
+    except Exception:                                            # noqa: BLE001
+        return False
+
+
+ECOQOS_OPT_OUT = _opt_out_ecoqos()
+
 import bpy  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -104,7 +131,8 @@ def run_step(st):
 def main():
     steps_path, out_path = _args()
     steps = json.loads(steps_path.read_text(encoding="utf-8"))
-    res = {"blend": bpy.data.filepath, "blender": bpy.app.version_string, "numpy": np.__version__, "steps": []}
+    res = {"blend": bpy.data.filepath, "blender": bpy.app.version_string, "numpy": np.__version__,
+           "ecoqos_opt_out": ECOQOS_OPT_OUT, "steps": []}
     for st in steps:
         t0 = time.perf_counter()
         try:

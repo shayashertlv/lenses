@@ -69,6 +69,22 @@ def is_surface_decal(signed_dist, bbox_min_extent: float, is_open: bool) -> bool
     return bool(is_open or bbox_min_extent < DECAL_THIN_MM or float(sd.max() - sd.min()) < DECAL_THIN_MM)
 
 
+DECAL_MIN_LIFT_FRACTION = 0.25    # decal_standoff: the lowest standoff a decal vertex keeps, as a share of the lift
+
+
+def decal_standoff(sd_old, lift_mm: float, min_fraction: float = DECAL_MIN_LIFT_FRACTION) -> np.ndarray:
+    """Per decal vertex, its height above the NEW temple face when g3d.faceted_temple re-seats a decal (core-1.1): its
+    height above the OLD face (signed distance), scaled so the highest vertex lands `lift_mm` above the new face (never
+    higher: the P0 rule "within 0.05 mm of the facet it sits on"), and at least min_fraction x lift_mm. A decal with
+    relief of its own (the Prada ribbon and shield: 0.020-0.072 mm off the old face) keeps that relief in proportion;
+    one lift for every vertex flattened it, collapsing its side walls into 10-14 zero-area triangles that arview
+    reports."""
+    s = np.maximum(np.asarray(sd_old, np.float64), 0.0)
+    top = float(s.max()) if len(s) else 0.0
+    scale = 1.0 if top <= lift_mm else lift_mm / top
+    return np.clip(s * scale, min_fraction * lift_mm, lift_mm)
+
+
 def hinge_part_kind(lo, hi, role, side: int, axis_x: float | None, hinge_z: float, n_vertices: int) -> str | None:
     """WP6_DESIGN §3 "Hinge parts are never moved" (the parts g3d.faceted_temple's hinge report grades): a temple- or
     frame-role part whose bbox (lo, hi: world mm, x, y, z) lies near the hinge of side `side` (z within HINGE_NEAR_MM of

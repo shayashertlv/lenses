@@ -562,6 +562,19 @@ def refit_camera(job: Job, model: Model, key: str, cam0: Camera, theta: dict, *,
     return (c2 if kept else start), info
 
 
+# --------------------------------------------------------------------------------------------- crease views
+CREASE_VIEWS = (("05", 1), ("01", -1), ("02", 1))     # the crease views and their near temple (05 +X, 01 -X, 02 +X)
+
+
+def crease_fit(fits: dict, key: str) -> dict:
+    """The camera and theta a crease measurement reads in view `key` (R2, R3, the fit's crease terms): the view's own
+    refit camera and theta. A side view carries theta 0 for both temples (fit_model_view: WP6_DESIGN §6 scores theta
+    on the 02 / 03 / 06 / 04 arm rows; a side view sees a hinge rotation only as an image tilt that its camera roll
+    reproduces), so R2 reads no hinge angle; R3 reads the angled view's."""
+    f = fits[key]
+    return {"camera": f["camera"], "theta": dict(f["theta"])}
+
+
 def turntable_seed(job: Job, cam_front: Camera) -> Camera:
     """A rear seed that mirrors the front photo on a turntable: the front camera's pitch, roll and perspective with
     yaw + 180, scaled and centred on the rear matte by cameras.align."""
@@ -761,9 +774,21 @@ def score_view(job: Job, model: Model, key: str, cam: Camera, theta: dict, roi: 
     return out, r
 
 
+SIDE_THETA_WHY = ("not fitted in a side view (fit-4; WP6_DESIGN §6 scores theta on the 02 / 03 / 06 / 04 arm rows): "
+                  "a hinge rotation moves a temple along a side view's line of sight, so its only image is a tilt of "
+                  "sin(pitch) x theta (~0.23 theta at Prada's 13.5 deg pitch) that the camera roll reproduces; the S1 "
+                  "round trip traded them (05: theta -2.57 deg against roll -0.61 deg) and could not recover either")
+
+
 def fit_model_view(job: Job, model: Model, key: str, cam0: Camera | None = None) -> dict:
-    """theta at the base camera -> camera refit with theta fixed -> theta again (the §6 block coordinates, one round)."""
+    """theta at the base camera -> camera refit with theta fixed -> theta again (the §6 block coordinates, one round).
+    A side view keeps theta 0 for both temples and refits only its camera (SIDE_THETA_WHY)."""
     cam0 = cam0 or job.base[key]
+    if job.kind(key) == "side":
+        th = {1: 0.0, -1: 0.0}
+        cam, info = refit_camera(job, model, key, cam0, th)
+        tf = {"theta": 0.0, "loss": None, "observed": False, "why": SIDE_THETA_WHY}
+        return {"camera": cam, "theta": th, "theta_fit": {"1": dict(tf), "-1": dict(tf)}, "refit": info}
     t1 = fit_theta(job, model, key, cam0)
     th = {s: t1[s]["theta"] for s in (1, -1)}
     cam, info = refit_camera(job, model, key, cam0, th)
@@ -851,8 +876,11 @@ def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | 
             cross = {}
             for x, y in ((a, b), (b, a)):
                 cam = fits[y][k]["camera"]
-                th = fit_theta(job, models[x], k, cam, fits[x][k]["theta"])
-                thd = {s: th[s]["theta"] for s in (1, -1)}
+                if job.kind(k) == "side":                   # no theta in a side view (SIDE_THETA_WHY)
+                    thd = {1: 0.0, -1: 0.0}
+                else:
+                    th = fit_theta(job, models[x], k, cam, fits[x][k]["theta"])
+                    thd = {s: th[s]["theta"] for s in (1, -1)}
                 sc, _ = score_view(job, models[x], k, cam, thd, roi)
                 cross[f"{x}@{y}"] = sc
             vrep["cross"] = cross

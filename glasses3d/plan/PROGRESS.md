@@ -18,7 +18,7 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   tool-test GLB remains `17d604886c126e06a61ffe41df3b7dd3877043a24c9e29d36d0e4f5fcbf98095`.
   Corrected five stale calibration-count claims in PORT_REVIEW (29 captures, not 30). Its WP2 section 11
   belongs to D and is kept out of A. No production level change; owner B promotion remains section 5 step 2.
-- **Group B verified, ready to commit (11:49).** Re-read the arview camera-mode diff, new camera parser/tests,
+- **Group B committed: `9a9e540` (11:49).** Re-read the arview camera-mode diff, new camera parser/tests,
   and the complete all-angles generator against the stored two review rounds. Fixed measurement ignoring
   `--workers`; nonpositive limits now fail before work, with CLI regressions. Corrected the metres-to-centimetres
   matrix comment. No owner sheets needed regeneration; the sent comparison remains valid.
@@ -29,7 +29,62 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   Audited actual PNG hashes against each report, **400 files total** (`pose_identity_audit.json`). The fresh
   report retains the three existing lens-degenerate-triangle / portrait-auto-fit warnings; exit 0, spec passes.
   Fresh full-diff re-review complete; no remaining major in B.
-- **C-E remain uncommitted and under review.** All checks so far are offline and $0; no paid call or push.
+- **Group C verified (12:43; commit follows this entry).** Fresh hand trace completed at 12:02:48, exit 0, 813 s:
+  `data/wp6/handtraced_codex_20261007/handtraced.json`. Trace did not converge in four lifts; r_C 3.35 mm is a
+  front-bound cap, not a measured depth. Failed gates G1/G2/R1/R3/R4; the fitted slab is now the comparator.
+  Full WP6 suite: **216 passed, 2 expected xfails**, no skips, 553.31 s, exit 0 (`c_tests.log` under
+  `data/codex_resume_20261007`). The named/merged R2 confirmations regression is present and passed.
+  Fresh full-diff re-review completed; diagnostic exits now also tolerate an absent prior S1 record while
+  reporting stage errors/source changes as exit 1 (seven targeted checks passed after that repair).
+  Fresh full proof into `data/wp6/proof2` completed **STOP-I**, exit 0, 12:20:57-12:38:32 (1,054.64 s),
+  detached with three workers, no quick mode or waiver. Log and exact arguments:
+  `data/codex_resume_20261007/c_proof.log`, `c_proof_run.json`.
+  Frozen relief_rules SHA-256 remains `7c22eab7b32327f61140fc7982883db9d6be3bbd2c0fbdce8b04d25a7da062cc`.
+  Dependency table SHA-256: `860500579b76d0cdfe1aa717b5673b4ecadf3f0ab19fc352d6577d7053f36c1b`;
+  its stopped-work changes describe the actual common-frame theta dependency, with no relaxed numeric gate.
+  Source scene SHA-256 is unchanged in both runs: `56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06`.
+  Delegated decision and evidence are recorded below and in both proof records. **WP6 remains gated.**
+- **D-E remain uncommitted and under review.** D host-only output creation/junction confinement and reopened
+  checkpoint hash checks are repaired with regressions. The full worker/camera suite is running with three fit
+  workers, G3D_REQUIRE_DATA=1, after the WP6 pool ended (12,505,704 KB free commit at launch).
+  E's six majors and additional review fixes are implemented; final offline suite: **399 passed**, no skips,
+  93.92 s, exit 0, including the exact 59-request Prada replay (`e_tests_r3.log`, `e_tests_run_r3.json`).
+  Fresh full money/network/design re-review continues before its commit.
+  All work is $0; only approved exact-version PyPI metadata was fetched to pin installed psutil 7.2.2.
+  No paid call or push.
+
+### WP6 delegated decision, 2026-10-07 (group C)
+
+**KEEP STOP-I, KEEP R1's frozen definition/0.5 threshold, and KEEP every frozen R3 clause. No waiver.**
+This was decided by the coding agent (Codex) under the owner's delegation of 2026-10-07.
+
+- Fresh S1 recovers its tested parameters: outline 0.151779 mm (limit 0.2), zone level 0.129544 mm (0.5),
+  r_C 0.056853 mm (0.5), and cited common-frame theta 0.190497 degrees (0.3). However, the TRUE temple's
+  transfer with realistic guide errors is **0.910923 mm > 0.7 mm** (AB 0.986030, BC 0.835815). Exact ideal
+  lines give 0.274915 mm. R2 distinguishes truth (pass) from slab (fail), but this cannot rescue R3's instrument.
+- R1's synthetic faceted truths score 0.668/0.708, and the stored band search bottoms at 0.596, all above 0.5.
+  That is evidence that calibration needs review, not grounds to change a frozen gate to pass this product.
+- R3's relative clause is also unresolved: in the fresh hand-trace record the delivered transfer is 0.693722 mm,
+  making delivered-minus-0.5 only 0.193722 mm, below even fresh S1's exact-line truth floor. Dropping the clause
+  or reducing its margin would redefine success. Keep it and report failure.
+- The hand trace did not converge after four lifts; **r_C 3.35 mm is a front-bound cap, not measured depth**.
+  Its crease result is conditional (AB reaches the 6-degree floor only above r_C 2.675491 mm). It fails
+  G1/G2/R1/R3/R4 against the FITTED slab; top contour 1.139788 vs slab 0.835620 mm, hinge offsets
+  2.710403/2.347892 mm against 0.6. The top/front thickness-level conflict remains; it is not proven to be
+  solely a delivered-frame defect. The withdrawn 5.3 +/- 0.6 mm triangulation is not reinstated.
+- Alternatives considered: waive the instrument and carry a conditional diagnostic; redefine R1 as the old
+  least-squares-plane metric or raise its threshold; relax R3's margin. Rejected for this repair. A future rule
+  set needs independent calibration and design review before fitting, or better guide/camera/geometry evidence
+  followed by the unchanged proof. These sheets are geometry diagnostics, not owner-visible AR validation;
+  the waiver's AR condition has not been met. No hand-authored geometry was promoted.
+
+Machine-readable decision, alternatives and image hashes: `data/wp6/proof2/delegated_decision.json`, also embedded
+as `delegated_decision_review` in `proof2/proof.json` and `handtraced_codex_20261007/handtraced.json`. Their
+automated `open_owner_decisions` fields are preserved as historical evidence, superseded by this decision.
+Labelled **photo | hand-traced TOOL TEST | delivered geometry** side/top/rear comparisons were generated from the
+fresh hand trace and each model's own fitted camera, visually checked, and kept in
+`data/wp6/handtraced_codex_20261007/owner_comparisons/` (overview plus three detailed sheets). Shading is the
+instrument's fixed key/fill; brown lines indicate model normal changes of at least 6 degrees, not texture.
 
 ## Status (FINAL handoff 2026-10-07 ~11:00; every workflow STOPPED at the owner's request; nothing is running)
 

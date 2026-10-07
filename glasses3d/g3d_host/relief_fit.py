@@ -5,8 +5,12 @@ a scene.
                       their bands (Prada: x_in at 0 and at the zone end, zone thickness, r_A, r_B, r_C, F1 rise, arm
                       offset, tip offset, two plan knots); `slab()` = the same family with every relief 0, no facets
     objective         sum over views of (1 - ROI IoU + 4 x contour / ROI width) at fixed cameras and theta, + crease-line
-                      reprojection on 05 / 01 and 05 -> 02 crease transfer (1 mm = 0.02), + the hard constraints as
-                      steep penalties (front bound, dn >= 3 deg at every confirmed crease)
+                      reprojection on 05 / 01 and 05 -> 02 crease transfer (1 mm = 0.02), + the MEASURED RELIEF CUE
+                      (fit-4, relief_cue: the photo crease steps against the model's under the matched light, the 05 x
+                      02 triangulated X_C - X_B against the model's, each in the noise unit NOISE_LOSS), + the hard
+                      constraints as steep penalties (front bound, dn >= 3 deg at every confirmed crease, the hinge:
+                      relief_hinge, the tool's own W_HINGE_LEAF / W_KNUCKLE_PENETRATION limits); a side view fits no
+                      hinge angle (relief_views.SIDE_THETA_WHY), so the side-view crease terms read none
     fit_temple        block coordinates: cameras + theta (camera_block: every view's §6 per-model refit of the current
                       shape from its BASE camera, and a fresh rear family, exactly what the delivered model gets) | shape
                       (Nelder-Mead then a bounded Powell polish, maxfev 300: shape_step); <= 4 rounds; stops when every
@@ -50,10 +54,13 @@ from ..g3d.temple import fixtures as FX
 from ..g3d.temple.spec import TempleError
 from . import cameras as C
 from . import raster
+from . import relief_cue as CU
+from . import relief_hinge as RH
 from . import relief_rules as RR
 from .camera import Camera
-from .relief_views import (Job, Model, fit_model_view, fit_theta, front_bound, refit_camera, render_mask,
-                           render_model, render_tags, roi_box, roi_metrics, rot_about_hinge, temple_roi, envelopes)
+from .relief_views import (CREASE_VIEWS, Job, Model, crease_fit, fit_model_view, fit_theta, front_bound, refit_camera,
+                           render_mask, render_model, render_tags, roi_box, roi_metrics, rot_about_hinge, temple_roi,
+                           envelopes)
 
 # r_B is FIXED at 0 by default (B on the base surface): a facet meets the base only along its zero line, and with
 # r_B != 0 F1's and F4's zero lines must cross behind B, which leaves the family a non-convex feasible set (the
@@ -63,7 +70,12 @@ PRADA_FREE = (("x_in0", 3.0), ("x_in_ze", 3.0), ("t_zone", (3.5, 7.5)), ("r_A", 
               ("r_C", (0.0, 7.0)), ("rise", (-0.6, -0.02)), ("arm_dx", 4.0), ("tip_dx", 6.0), ("k1", 3.0),
               ("k2", 3.0))
 PRADA_FREE_RB = PRADA_FREE[:4] + (("r_B", (-1.0, 3.0)),) + PRADA_FREE[4:]
-SLAB_FREE = ("x_in0", "x_in_ze", "t_zone", "arm_dx", "tip_dx", "k1", "k2")
+# The pyramid family (F1 = the base: FX.prada_pyramid_spec, the hand-traced tool test's topology): one relief (r_C), the
+# zone's thickness linear from t_zone at the hinge end to t_ze at the zone end (the base outer surface stays a plane);
+# x_in at the hinge is held by the hinge parts (relief_hinge), not by its band.
+PYRAMID_FREE = (("x_in0", 3.0), ("x_in_ze", 3.0), ("t_zone", (1.5, 7.5)), ("t_ze", (3.0, 8.5)), ("r_C", (0.0, 7.0)),
+                ("arm_dx", 4.0), ("tip_dx", 6.0), ("k1", 3.0), ("k2", 3.0))
+SLAB_FREE = ("x_in0", "x_in_ze", "t_zone", "t_ze", "arm_dx", "tip_dx", "k1", "k2")
 NOISE_LOSS = 0.005            # sigma: the parameter change that raises the objective by this much (0.5 % loss)
 CURV_FLAT = 1e-12             # sigma: |curvature| at or below this = a flat objective
 PENALTY = 10.0
@@ -78,8 +90,11 @@ PENALTY = 10.0
 #          after it, so a block's cameras are the refit of the exact model the round's front bound and shape step read;
 #          sigma and its flat / minimum tests come from the photo terms only (the penalties are excluded), and a
 #          penalty acting along a parameter is its own status ("penalty_active"), never "not converged"
-FIT_VERSION = ("fit-3 (2026-10-06): fit-2 + the outline re-traced before each camera block; sigma from the photo terms "
-               "(penalties excluded)")
+#   fit-4: the measured relief cue (relief_cue: photo crease steps under the matched light, 05 x 02 triangulated
+#          X_C - X_B) and the hinge constraint (relief_hinge) in the objective; no hinge angle in a side view (theta 0,
+#          the camera alone: relief_views.SIDE_THETA_WHY); dn >= 3 deg also at facet / base creases (the pyramid's A-B)
+FIT_VERSION = ("fit-4 (2026-10-07): fit-3 + the measured relief cue (crease steps, triangulated C - B), the hinge "
+               "constraint, no hinge angle in a side view")
 
 
 def _hat(d, a, b, c):
@@ -109,7 +124,7 @@ class Family:
     def kwargs(self, x) -> dict:
         kw = copy.deepcopy(self.base)
         vals = dict(zip(self.names, [float(v) for v in x]))
-        for k in ("x_in0", "x_in_ze", "t_zone", "r_A", "r_B", "r_C", "rise"):
+        for k in ("x_in0", "x_in_ze", "t_zone", "t_ze", "r_A", "r_B", "r_C", "rise", "r_H"):
             if k in vals:
                 kw[k] = vals[k]
         ze = kw["zone_end"]
@@ -132,18 +147,16 @@ class Family:
 
     def slab(self) -> "Family":
         base = copy.deepcopy(self.base)
-        for k in ("r_A", "r_B", "r_C", "rise"):
+        for k in ("r_A", "r_B", "r_C", "rise", "r_H"):
             base[k] = 0.0
         free = [f for f in self.free if f[0] in SLAB_FREE]
         return Family(self.builder, base, free, slab_mode=True, arm_ramp=self.arm_ramp, knots=self.knots)
 
 
 def slab_spec(*, top, bottom, zone_end, x_in0, x_in_ze, t_zone, arm, hinge=None, tip_round_mm=0.0, roll_mm=0.0,
-              **_ignored) -> dict:
+              t_ze=None, **_ignored) -> dict:
     """The fitted slab: the family's outline, inner line and thickness, no facets (every r = 0)."""
-    d0 = top[0][0]
-    inner = [[d0, x_in0], [zone_end, x_in_ze]] + [[float(k[0]), float(k[1])] for k in arm if k[0] > zone_end]
-    thick = [[d0, t_zone], [zone_end, t_zone]] + [[float(k[0]), float(k[2])] for k in arm if k[0] > zone_end]
+    inner, thick = FX.zone_lines(top, zone_end, x_in0, x_in_ze, t_zone, arm, t_ze)
     return {"schema": "g3d.temple/1", "hinge": copy.deepcopy(hinge or FX.HINGE),
             "outline": {"top": [list(p) for p in top], "bottom": [list(p) for p in bottom],
                         "tip_round_mm": tip_round_mm},
@@ -151,14 +164,26 @@ def slab_spec(*, top, bottom, zone_end, x_in0, x_in_ze, t_zone, arm, hinge=None,
             "chamfers": [], "roll_mm": roll_mm, "options": {}}
 
 
-def prada_family(base: dict, free=PRADA_FREE) -> Family:
-    """Bands: a number = +- that around the start; a pair = absolute bounds."""
+TOPOLOGIES = {"f1": "F1 crease + rise (FX.prada_spec)", "pyramid": "F1 = the base (FX.prada_pyramid_spec)"}
+
+
+def prada_family(base: dict, free=None, topology: str = "f1") -> Family:
+    """Bands: a number = +- that around the start; a pair = absolute bounds. `topology` = Astra's reading of the
+    facets (TOPOLOGIES): "f1" (default free PRADA_FREE) or "pyramid" (default free PYRAMID_FREE). A t_ze the base does
+    not give starts at t_zone (a constant zone thickness)."""
+    if topology not in TOPOLOGIES:
+        raise ValueError(f"topology {topology!r}: expected one of {sorted(TOPOLOGIES)}")
+    free = (PYRAMID_FREE if topology == "pyramid" else PRADA_FREE) if free is None else free
+    if any(n == "t_ze" for n, _ in free) and base.get("t_ze") is None:
+        base["t_ze"] = float(base["t_zone"])
     fr = []
     for name, band in free:
         v = float(base.get(name, 0.0))
         lo, hi = (v - band, v + band) if not isinstance(band, tuple) else band
         fr.append((name, lo, hi))
-    return Family(FX.prada_spec, base, fr)
+    fam = Family(FX.prada_pyramid_spec if topology == "pyramid" else FX.prada_spec, base, fr)
+    fam.info["topology"] = topology
+    return fam
 
 
 # --------------------------------------------------------------------------------------------- objective
@@ -173,6 +198,9 @@ class Context:
                                                         "BK": ("B", "K")})
     confirmed: tuple = ("AB", "AC", "BC")
     zone_end: float = 50.0
+    photo_steps: dict = field(default_factory=dict)    # view -> relief_cue.photo_steps (the measured cue, once per job)
+    tri: dict | None = None                            # relief_cue.triangulate at this context's cameras
+    hinge: bool = True                                 # the hinge constraint (relief_hinge) when the job has parts
 
 
 def _view_loss(job, model, k, fit, roi):
@@ -219,6 +247,9 @@ def model_crease_px(job, tb, fit, side, n1, n2, n=11) -> np.ndarray | None:
     W = TB_to_world(L, ps.hinge["z_mm"])
     W = rot_about_hinge(W * np.array([side, 1, 1]), side, fit["theta"].get(side, 0.0), job.hinge["axis_xz_mm"])
     return C.project(job.frame.to_norm(W), fit["camera"])
+
+
+NEAR = dict(CREASE_VIEWS)                 # crease view -> its near temple side
 
 
 def TB_to_world(L, hz):
@@ -291,6 +322,8 @@ def _reduce(ctx: Context, vt: dict, ex: dict, details: bool):
         parts[k] = {"loss": vt[k]["loss"], "iou": vt[k]["iou"], "contour_mm": vt[k]["contour_mm"]}
     total += RR.CREASE_REPROJ_MM_WEIGHT * ex["rp"]
     total += RR.TRANSFER_MM_WEIGHT * ex["trm"]
+    total += ex.get("step_term", 0.0)
+    total += ex.get("tri_term", 0.0)
     pen = 0.0
     fb = None
     pen_fb = 0.0
@@ -300,31 +333,52 @@ def _reduce(ctx: Context, vt: dict, ex: dict, details: bool):
         pen += pen_fb
     for t in ex["dn_terms"]:
         pen += t
+    pen += ex.get("hinge_pen", 0.0)
     total += pen
     if not details:
         return total
     return total, {"views": parts, "crease_reproj_mm": ex["rp"], "transfer": ex["tr"], "penalty": pen,
                    "penalty_front_bound": pen_fb, "penalty_dn": float(sum(ex["dn_terms"])),
+                   "penalty_hinge": ex.get("hinge_pen", 0.0), "hinge_violation_mm": ex.get("hinge_mm"),
+                   "hinge": ex.get("hinge"),
+                   "cue": {"step_term": ex.get("step_term", 0.0), "step_chi2": ex.get("step_chi2"),
+                           "steps": ex.get("steps"), "tri_term": ex.get("tri_term", 0.0),
+                           "tri_model_offset_CB_mm": ex.get("tri_model"),
+                           "tri_photo_offset_CB_mm": None if ctx.tri is None else ctx.tri["offset_CB_mm"],
+                           "tri_sigma_mm": None if ctx.tri is None else ctx.tri["sigma_mm"]},
                    "front_bound": fb, "min_confirmed_dn_deg": ex["dmin"]}
 
 
+def crease_regions(tb, n1: str, n2: str) -> tuple | None:
+    """The crease-table key of the crease n1 - n2: the two facets that both contain the nodes, or (facet, "base") when
+    only one does (a facet against the base: the pyramid family's A-B, F2 / base)."""
+    labs = sorted(l_ for l_, f in tb.spec.facets.items() if n1 in f["poly"] and n2 in f["poly"])
+    if len(labs) == 2:
+        return tuple(labs)
+    if len(labs) == 1:
+        return tuple(sorted((labs[0], "base")))
+    return None
+
+
 def _extra_terms(ctx: Context, model) -> dict:
-    """The objective's non-silhouette terms: crease-line reprojection (05 / 01), 05 -> 02 transfer, and the dn >= 3 deg
-    penalty terms at the confirmed creases (each as the serial loop added it)."""
+    """The objective's non-silhouette terms: crease-line reprojection (05 / 01), 05 -> 02 transfer, the measured relief
+    cue (crease steps, triangulated C - B), the dn >= 3 deg penalty terms at the confirmed creases and the hinge
+    penalty (each as the serial loop added it)."""
     tb = model.build
     reproj = []
     if tb is not None and tb.spec.facets:
         for k in ("05", "01"):
             if k not in ctx.guides_lines or k not in ctx.fits:
                 continue
-            side = 1 if math.sin(math.radians(ctx.fits[k]["camera"].yaw)) > 0 else -1
+            cf = crease_fit(ctx.fits, k)
+            side = NEAR[k]
             for cname, line in ctx.guides_lines[k].items():
                 nodes = ctx.crease_nodes.get(cname)
                 if nodes is None:
                     continue
-                q = model_crease_px(ctx.job, tb, ctx.fits[k], side, *nodes)
+                q = model_crease_px(ctx.job, tb, cf, side, *nodes)
                 if q is not None:
-                    reproj.append(_line_dist_mm(ctx.job, ctx.fits[k]["camera"], q, line))
+                    reproj.append(_line_dist_mm(ctx.job, cf["camera"], q, line))
     rp = float(np.mean(reproj)) if reproj else 0.0
     tr = transfer_all(ctx, model) if ("05" in ctx.guides_lines and "02" in ctx.guides_lines) else None
     trm = tr["mean_mm"] if tr and tr["mean_mm"] is not None else 0.0
@@ -334,24 +388,52 @@ def _extra_terms(ctx: Context, model) -> dict:
         crs = {tuple(c["regions"]): c for c in tb.tables["creases"]}
         for cname in ctx.confirmed:
             n1, n2 = ctx.crease_nodes[cname]
-            labs = [l_ for l_, f in tb.spec.facets.items() if n1 in f["poly"] and n2 in f["poly"]]
-            if len(labs) == 2 and tuple(sorted(labs)) in crs:
-                dn = crs[tuple(sorted(labs))]["dihedral_deg"][0]
+            key = crease_regions(tb, n1, n2)
+            if key is not None and key in crs:
+                dn = crs[key]["dihedral_deg"][0]
                 dmin = dn if dmin is None else min(dmin, dn)
                 dn_terms.append(PENALTY * max(0.0, RR.R2_CONFIRMED_DN_DEG - dn) / RR.R2_CONFIRMED_DN_DEG)
-    return {"rp": rp, "tr": tr, "trm": trm, "dn_terms": dn_terms, "dmin": dmin}
+    out = {"rp": rp, "tr": tr, "trm": trm, "dn_terms": dn_terms, "dmin": dmin}
+    out.update(cue_terms(ctx, model))
+    if ctx.hinge and model.spec is not None:
+        rep_ = RH.hinge_report(ctx.job, model.spec, tb)
+        if rep_ is not None:
+            v = RH.hinge_violation_mm(rep_)
+            out.update({"hinge_mm": v, "hinge_pen": PENALTY * v, "hinge": rep_})
+    return out
+
+
+def cue_terms(ctx: Context, model) -> dict:
+    """The measured relief cue (relief_cue) of one model: NOISE_LOSS x the crease-step misfit (in STEP_MIN_L units)
+    over the crease views with photo steps, and NOISE_LOSS x ((X_C - X_B)_model - triangulated)^2 / sigma^2."""
+    out = {}
+    tb = model.build
+    if ctx.photo_steps:
+        cfs = {k: crease_fit(ctx.fits, k) for k in ctx.photo_steps if k in ctx.fits}
+        if cfs:
+            ms = {k: CU.model_steps(ctx.job, model, k, cf["camera"], NEAR[k],
+                                    {c: (p["p0"], p["p1"]) for c, p in ctx.photo_steps[k].items() if p is not None},
+                                    theta=cf["theta"].get(NEAR[k], 0.0))
+                  for k, cf in cfs.items()}
+            mis = CU.step_misfit(ctx.photo_steps, ms)
+            out.update({"step_chi2": mis["chi2"], "step_term": NOISE_LOSS * mis["chi2"], "steps": mis})
+    if ctx.tri is not None and tb is not None and tb.spec.facets and "C" in tb.spec.nodes and "B" in tb.spec.nodes:
+        om = CU.model_offset_cb(tb)
+        sg = ctx.tri.get("sigma_mm") or CU.TRI_ENDPOINT_PX
+        out.update({"tri_model": om, "tri_term": NOISE_LOSS * ((om - ctx.tri["offset_CB_mm"]) / sg) ** 2})
+    return out
 
 
 def transfer_all(ctx: Context, model) -> dict:
     from .relief_check import crease_transfer
     out = {}
     vals = []
+    f05, f02 = crease_fit(ctx.fits, "05"), crease_fit(ctx.fits, "02")
     for cname, l05 in ctx.guides_lines.get("05", {}).items():
         l02 = ctx.guides_lines.get("02", {}).get(cname)
         if l02 is None:
             continue
-        t = crease_transfer(ctx.job, model, ctx.fits["05"]["theta"], ctx.fits["05"]["camera"],
-                            ctx.fits["02"]["camera"], ctx.fits["02"]["theta"], l05, l02, near=1)
+        t = crease_transfer(ctx.job, model, f05["theta"], f05["camera"], f02["camera"], f02["theta"], l05, l02, near=1)
         out[cname] = t
         if t is not None:
             vals.append(t["mean_abs_mm"])
@@ -424,7 +506,8 @@ def build_rois(job, models_fits: list, views) -> dict:
 def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05", "06"), guides_lines=None,
                rounds: int = RR.FIT_MAX_ROUNDS, maxfev: int = RR.FIT_MAXFEV, rear: bool = True, retrace=None,
                fits0: dict | None = None, rois: dict | None = None, log=print, budget_s: float | None = 90 * 60,
-               refit_cameras: bool = True, pool: "FitPool | None" = None) -> dict:
+               refit_cameras: bool = True, pool: "FitPool | None" = None, cue: bool = True,
+               cue_endpoint_px: dict | None = None) -> dict:
     """Block-coordinate joint fit; returns the suggested spec and the diagnostics. `retrace(family, x, fits)` returns
     a family with a re-traced outline (or None to keep it). With a `pool` (FitPool) the camera block, every objective
     evaluation (per view), the Nelder-Mead start simplex and the sigma columns run in its workers; the optimiser's
@@ -452,6 +535,7 @@ def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05",
     def beat(msg):
         log(f"[fit {time.time() - t0:6.0f} s] {msg}")
         last_beat[0] = time.time()
+    photo = photo_cue(job, guides_lines) if cue else {}
     x = family.x0()
     fits = dict(fits0 or {})
     hist = []
@@ -480,7 +564,7 @@ def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05",
             beat(f"round {rnd}: cameras + theta refit (each view from its base camera"
                  f"{', fresh rear family ' + str(fam_rec['family']) if fam_rec else ''})")
         rr = build_rois(job, [(model, fits)], views) if rois is None else rois
-        ctx = Context(job, fits, rr, tuple(views), guides_lines or {})
+        ctx = make_context(job, fits, rr, views, guides_lines, family, x, photo, cue, cue_endpoint_px)
         evals = [0]
         memo = {}
 
@@ -540,7 +624,7 @@ def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05",
         beat("final camera block: the final shape's own refit cameras"
              + (f", rear family {fits['06']['family']['family']}" if rear and "06" in fits else ""))
     rr = build_rois(job, [(model, fits)], views) if rois is None else rois
-    ctx = Context(job, fits, rr, tuple(views), guides_lines or {})
+    ctx = make_context(job, fits, rr, views, guides_lines, family, x, photo, cue, cue_endpoint_px)
     loss, det = objective(ctx, family.spec(x), details=True, pool=pool)
     srep = sigma_report(ctx, family, x, pool=pool)
     fb = det.get("front_bound")
@@ -550,6 +634,8 @@ def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05",
          f"{'n/a' if fb is None else ('clear' if fb['clear'] else 'ACTIVE %.3f mm' % fb['hinge_zone_max_mm'])}")
     return {"x": dict(zip(family.names, map(float, x))), "spec": family.spec(x), "family": family, "fits": fits,
             "loss": float(loss), "details": det, "sigma": srep["sigma"], "sigma_status": srep["status"],
+            "cue": {"photo_steps": photo, "triangulation": ctx.tri, "enabled": bool(cue),
+                    "topology": family.info.get("topology")},
             "curvature": srep["curvature"], "unobserved": unobserved(family, srep["sigma"], x, srep["status"]),
             "sigma_flags": sigma_flags(family, srep, x), "sigma_penalty": srep["penalty"],
             "penalty_at_fit": srep.get("penalty_at_x"),
@@ -558,6 +644,33 @@ def fit_temple(job: Job, family: Family, *, views=("01", "02", "03", "04", "05",
             "front_bound_at_own_cameras": fbo,
             "rear_family_final": _family_summary(fits.get("06")) if rear else None, "fit_version": FIT_VERSION,
             "history": hist, "seconds": time.time() - t0, "over_budget": over_budget, "context": ctx}
+
+
+def photo_cue(job, guides_lines: dict | None) -> dict:
+    """relief_cue.photo_steps on every crease view with snapped lines (decals masked at the base camera): the photo
+    half of the crease-step cue, a function of the photos alone."""
+    from .relief_check import decal_mask
+    out = {}
+    for k, _ in CREASE_VIEWS:
+        lines = (guides_lines or {}).get(k)
+        if lines and k in getattr(job, "base", {}):
+            out[k] = CU.photo_steps(job, k, lines, decal_mask(job, k, job.base[k]))
+    return out
+
+
+def make_context(job, fits, rois, views, guides_lines, family, x, photo: dict, cue: bool,
+                 endpoint_px: dict | None = None) -> Context:
+    """A round's objective context: the cameras and ROIs, the crease lines, the photo steps and the triangulation at
+    this round's cameras (the nodes' (d, y) are the family's traced layout, fixed over a fit)."""
+    ctx = Context(job, fits, rois, tuple(views), guides_lines or {}, photo_steps=photo if cue else {})
+    gl = guides_lines or {}
+    if cue and "05" in gl and "02" in gl and "05" in fits and "02" in fits:
+        f05, f02 = crease_fit(fits, "05"), crease_fit(fits, "02")
+        sp = safe_spec(family, x)
+        if sp is not None and "B" in sp["nodes"] and "C" in sp["nodes"]:
+            ctx.tri = CU.triangulate(job, gl["05"], gl["02"], f05, f02, {n: sp["nodes"][n] for n in ("B", "C")},
+                                     sp["hinge"]["z_mm"], endpoint_px=endpoint_px)
+    return ctx
 
 
 def unobserved(family: Family, sig: dict, x=None, status: dict | None = None) -> list:
@@ -610,7 +723,23 @@ def sigma_flags(family: Family, srep: dict, x) -> list:
              "why": SIGMA_WHY[st]}
         if st == "penalty_active":
             e["penalty"] = (srep.get("penalty") or {}).get(n)
+            e["held_by"] = held_by(e["penalty"] or {})
         out.append(e)
+    return out
+
+
+def held_by(pen: dict) -> list:
+    """What holds a penalty_active parameter: each penalty component (front bound, dn >= 3 deg, hinge) that changes
+    across the parameter's stencil (by > SIGMA_PENALTY_TOL), with the stencil points where it is active (> 0): e.g.
+    the front bound at "plus" and dn at "minus" = held between two walls, no photo term sets the value."""
+    out = []
+    for comp in ("front_bound", "dn", "hinge"):
+        vals = {k: (pen.get(k) or {}).get(comp) for k in ("x", "plus", "minus")}
+        if any(v is None for v in vals.values()):
+            continue
+        if max(vals.values()) - min(vals.values()) > SIGMA_PENALTY_TOL:
+            out.append({"penalty": comp, "active_at": [k for k, v in vals.items() if v > 0.0],
+                        "values": vals})
     return out
 
 
@@ -656,7 +785,7 @@ def _photo_and_penalty(val):
         return None, {"refused": det.get("refused", "builder")}
     pen = float(det["penalty"])
     return float(tot) - pen, {"total": pen, "front_bound": float(det.get("penalty_front_bound", 0.0)),
-                              "dn": float(det.get("penalty_dn", 0.0))}
+                              "dn": float(det.get("penalty_dn", 0.0)), "hinge": float(det.get("penalty_hinge", 0.0))}
 
 
 def sigma_report(ctx: Context, family: Family, x, rel_step: float = 0.05, pool: "FitPool | None" = None) -> dict:
@@ -672,8 +801,8 @@ def sigma_report(ctx: Context, family: Family, x, rel_step: float = 0.05, pool: 
                            terms' sigma when their curvature is positive (else NaN), never shown as photo noise
       "at_band_bound"      on a band bound: no central difference, sigma NaN
       "infeasible_stencil" x or a stencil point has no valid spec: sigma NaN
-    "penalty" per parameter: the penalties (total, front bound, dn) at x, x + h and x - h. A penalty active at x but
-    constant along a parameter does not change that parameter's photo curvature, so its status stays the photo one.
+    "penalty" per parameter: the penalties (total, front bound, dn, hinge) at x, x + h and x - h. A penalty active at x
+    but constant along a parameter does not change that parameter's photo curvature, so its status stays the photo one.
     The 1 + 2 n evaluations are independent: one batch (in parallel with a `pool`)."""
     out, status, curvs, pens = {}, {}, {}, {}
     cols = []
@@ -817,11 +946,12 @@ def s3_table(ctx: Context, family: Family, x, sig: dict, *, level_names=("x_in0"
             obs["transfer"].append(tr["mean_mm"] if tr and tr["mean_mm"] is not None else np.nan)
             cr = []
             if "02" in ctx.guides_lines and model.build is not None and model.build.spec.facets:
+                cf02 = crease_fit(ctx.fits, "02")
                 for cname, line in ctx.guides_lines["02"].items():
                     nodes = ctx.crease_nodes.get(cname)
-                    q = model_crease_px(job, model.build, ctx.fits["02"], 1, *nodes) if nodes else None
+                    q = model_crease_px(job, model.build, cf02, 1, *nodes) if nodes else None
                     if q is not None:
-                        cr.append(_line_dist_mm(job, ctx.fits["02"]["camera"], q, line))
+                        cr.append(_line_dist_mm(job, cf02["camera"], q, line))
             obs["crease_02"].append(float(np.mean(cr)) if cr else np.nan)
         s = max(sig.get(family.names[idx[0]], float("nan")), 0.0)
         tol = max(RR.STOP_C_MIN_MM, RR.STOP_C_SIGMA * s) if np.isfinite(s) else RR.STOP_C_MIN_MM
@@ -1127,6 +1257,8 @@ class FitPool:
             state["_front"] = {}
             state.pop("_outside_px", None)
             state.pop("_decals", None)                 # relief_check.decal_mask's cache (parent only)
+            state.pop("_cue_L", None)                  # relief_cue's blurred L* (parent only)
+            state.pop("_hinge_parts", None)            # relief_hinge's parts (parent only)
             n = len(self._jobs)
             path = self.dir / f"job{n}.pkl"
             path.write_bytes(pickle.dumps((type(job), state), protocol=pickle.HIGHEST_PROTOCOL))

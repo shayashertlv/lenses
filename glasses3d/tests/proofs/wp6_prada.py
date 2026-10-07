@@ -20,13 +20,14 @@ relief_fit.FitPool of persistent workers, each opted out of EcoQoS. The pooled f
 
 Order (the stop rule, §9): P0 tool (STOP-T) -> P1 instruments + S1 identifiability (STOP-I) -> rear family (STOP-R)
 -> fit, S2 representability (STOP-S), S3 consistency (STOP-C) -> P3 build -> gates (STOP-P). The first stop that fires
-ends the run with its evidence. relief_rules.py's sha256 is recorded before anything runs.
+ends the run with its evidence. relief_rules.py's sha256 is recorded before anything runs. P2 (tracing the real
+photos; it fires no stop of its own) runs before S1 because S1's synthetic guides copy the real snapped lines'
+extent and endpoint moves (s1_guide_plan).
 """
 from __future__ import annotations
 
 import argparse
 import copy
-import ctypes
 import hashlib
 import json
 import math
@@ -51,6 +52,7 @@ from glasses3d.g3d.temple import measure as MS  # noqa: E402
 from glasses3d.g3d_host import blender  # noqa: E402
 from glasses3d.g3d_host import matte as M  # noqa: E402
 from glasses3d.g3d_host import relief_check as RC  # noqa: E402
+from glasses3d.g3d_host import relief_cue as CU  # noqa: E402
 from glasses3d.g3d_host import relief_fit as RF  # noqa: E402
 from glasses3d.g3d_host import relief_rules as RR  # noqa: E402
 from glasses3d.g3d_host import relief_trace as RT  # noqa: E402
@@ -78,18 +80,9 @@ def utc():
 
 
 def opt_out_ecoqos() -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        from ctypes import wintypes
-
-        class S(ctypes.Structure):
-            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        s = S(1, 1, 0)
-        return bool(k32.SetProcessInformation(k32.GetCurrentProcess(), 4, ctypes.byref(s), ctypes.sizeof(s)))
-    except Exception:                                            # noqa: BLE001
-        return False
+    """This process out of Windows EcoQoS (relief_fit.opt_out_ecoqos: the pseudo-handle passed as a 64-bit HANDLE; the
+    earlier copy here passed it as a C int, which works only where the upper half happens to be sign-extended)."""
+    return RF.opt_out_ecoqos()
 
 
 class Heartbeat:
@@ -384,7 +377,7 @@ def delivered_segments(pf: Proof, job, fits) -> dict:
     model = RV.Model.delivered(job)
     out = {}
     for key, near in (("05", 1), ("01", -1)):
-        f = fits[key]
+        f = RV.crease_fit(fits, key)                 # fit-4: the side view's camera, theta 0, as R2 reads it
         r = RV.render_model(job, model, key, f["camera"], f["theta"], points=True, normals=True)
         dm = RC.decal_mask(job, key, f["camera"])
         seg = RC.photo_crease_segments(job, key, r, f["camera"], f["theta"], near, decal_mask=dm)
@@ -399,10 +392,154 @@ def prada_guides() -> dict:
     return json.loads(GUIDES.read_text(encoding="utf-8"))["guides"]
 
 
-S1_PROCEDURE = ("s1-2 (2026-10-06, WP6 fix round 2): the fit runs stage_fit's procedure (make_retrace: the outline "
-                "re-traced before every camera block; relief_rules.FIT_MAX_ROUNDS rounds); the outline graded on the "
-                "fitted spec; theta graded on the (view, side) pairs the dependency table says R2 / R3 read; r_B "
-                "recorded as not fitted; the start parameters deep-copied (never shared with P2)")
+S1_PROCEDURE = ("s1-4 (2026-10-07, fix round 3): s1-3 (stage_fit's procedure, outline graded on the fitted spec, start "
+                "deep-copied, Astra's topology, the measured relief cue, the real scene's hinge parts, theta graded on "
+                "the table's pairs in a common camera frame, the instrument floor) + crease guides that MATCH THE REAL "
+                "ONES (s1_guide_plan: only the creases the real tracer found, each covering the real snapped line's "
+                "fraction of its crease once the snapper's end trim is taken off, with the real tracer's signed "
+                "click-to-snap endpoint move copied onto each synthetic line as its error, so the cue's endpoint "
+                "sigmas are the real ones) + side views rendered at a NON-ZERO true hinge angle (S1_SIDE_TRUE: the fit-3 "
+                "delivered camera / theta pairs of 05 and 01) while the fit keeps theta 0 there")
+CREASE_NODES = {"AB": ("A", "B"), "AC": ("A", "C"), "BC": ("B", "C")}
+# fit-4 forces theta 0 in a side view (relief_views.SIDE_THETA_WHY); an S1 rendered at theta 0 there would test that
+# assumption at exactly the value the fit hard-codes. S1 renders 05 and 01 at the fit-3 delivered refit of the real
+# photos instead (data/wp6/proof_fit3/fits_delivered.pkl, 2026-10-06: camera and theta as the pair fit-3 registered
+# each real photo with; theta 0.67 / 0.34 deg in 05, 0.20 / 0.72 deg in 01 for +x / -x).
+S1_SIDE_TRUE = {
+    "05": {"camera": {"yaw": 90.56546523528367, "pitch": 13.528666959387516, "roll": 1.152186786784998,
+                      "perspective": 0.24769511915370807, "scale": 1012.229886193917,
+                      "center_x": 627.5838217246716, "center_y": 275.0419269375985},
+           "theta": {1: 0.6736759605901518, -1: 0.34362557652944076}},
+    "01": {"camera": {"yaw": -90.79732556598778, "pitch": 13.691834545401779, "roll": -1.1923616192627777,
+                      "perspective": 0.2292234223572544, "scale": 1113.7152287635174,
+                      "center_x": 665.1073838993841, "center_y": 322.23143668293824},
+           "theta": {1: 0.19851796076341716, -1: 0.7213926470393344}},
+}
+
+
+def s1_guide_plan(job, fits_d, start: dict, p2: dict, guides: dict, topology: str) -> dict:
+    """What S1's synthetic crease lines must match (fix round 3; the S1 before it clicked every TRUE crease over its
+    whole length, 2 px off, which no real photo gives: 05 B-C real 48 px vs S1 178 px, 02 B-C endpoints 7 px from the
+    clicks vs S1 0.3-0.8 px). Per crease view and per crease the REAL tracer found (P2's snapped lines; a crease it did
+    not find, 02 A-C, gets no S1 line): the snapped line's place on its crease as fractions t of the crease's visible
+    extent (the model crease of the fit's start family fit_family(start, P2), corners at P2's traced corners, at the
+    delivered refit cameras; t = 0 at the first node of the crease name), its length in px, and the real tracer's
+    signed endpoint moves from the guide click to the snapped line (relief_cue.endpoint_sigmas(signed=True))."""
+    from glasses3d.tests.proofs.wp6_prada_stages import fit_family
+    fam = fit_family(copy.deepcopy(start), p2, topology)
+    tb = build_temple(fam.spec(fam.x0()))
+    gl = p2["guide_lines"]
+    moves = CU.endpoint_sigmas(guides, gl, views=tuple(k for k, _ in RV.CREASE_VIEWS), signed=True)
+    plan = {}
+    for k, side in RV.CREASE_VIEWS:
+        for cn, nodes in CREASE_NODES.items():
+            ln = (gl.get(k) or {}).get(cn)
+            if ln is None:
+                continue
+            q = RF.model_crease_px(job, tb, RV.crease_fit(fits_d, k), side, *nodes)
+            if q is None:
+                raise ValueError(f"S1 guide plan: the start family has no visible {cn} crease in {k}")
+            a, b = q[0], q[-1]
+            L = float(np.linalg.norm(b - a))
+            u = (b - a) / L
+            plan.setdefault(k, {})[cn] = {
+                "t": [float((np.asarray(p, float) - a) @ u / L) for p in ln],
+                "real_len_px": float(np.linalg.norm(np.subtract(ln[1], ln[0]))), "crease_len_px": L,
+                "move_px": [moves[(k, cn, 0)], moves[(k, cn, 1)]],
+                "real_line": [list(map(float, ln[0])), list(map(float, ln[1]))]}
+    return plan
+
+
+def _unit_normal(p0, p1):
+    t = np.subtract(p1, p0).astype(float)
+    t /= np.linalg.norm(t)
+    return np.array([-t[1], t[0]])
+
+
+def s1_lines(sj, truth, tfits: dict, plan: dict) -> dict:
+    """S1's guides from the plan: per planned (view, crease) the TRUE crease's visible extent a -> b at the true camera,
+    and a guide that spans the real snapped fraction [t0, t1] widened by the snapper's end trim (relief_trace.END_TRIM:
+    refine_line keeps the inner 1 - 2 x END_TRIM of a guide), so that the synthetic snap covers what the real one did."""
+    guides, ext = {}, {}
+    for key, side in RV.CREASE_VIEWS:
+        for cn, p in (plan.get(key) or {}).items():
+            q = RF.model_crease_px(sj, truth.build, tfits[key], side, *CREASE_NODES[cn])
+            if q is None:
+                continue
+            a, b = q[0], q[-1]
+            t0, t1 = p["t"]
+            e = RT.END_TRIM / (1.0 - 2.0 * RT.END_TRIM) * (t1 - t0)
+            guides.setdefault(key, {})[cn] = [(a + (t0 - e) * (b - a)).tolist(), (a + (t1 + e) * (b - a)).tolist()]
+            ext[(key, cn)] = (a, b)
+    return {"guides": guides, "extent": ext}
+
+
+def s1_measured_lines(snapped: dict, plan: dict, ext: dict, add_error: bool = True) -> tuple[dict, dict, dict]:
+    """S1's measured lines: each synthetic snapped line oriented like its real one (end 0 at the real end 0's fraction)
+    with the real tracer's signed endpoint move added along its normal: the synthetic line is wrong by exactly as much
+    as the real click and snap disagree (one realisation, the real one's sign pattern; s1_tri_noise records where it
+    falls among all sign patterns). add_error=False (a labelled diagnostic only, never the proof) keeps the exact
+    snapped lines. Returns (measured lines, the oriented exact snapped lines, per-line record)."""
+    lines, exact, rec = {}, {}, {}
+    for k, d in snapped.items():
+        for cn, (p0, p1) in d.items():
+            a, b = ext[(k, cn)]
+            L = float(np.linalg.norm(b - a))
+            u = (b - a) / L
+            p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
+            t0, t1 = float((p0 - a) @ u / L), float((p1 - a) @ u / L)
+            r0, r1 = plan[k][cn]["t"]
+            if (t1 - t0) * (r1 - r0) < 0:
+                p0, p1, t0, t1 = p1, p0, t1, t0
+            nv = _unit_normal(p0, p1)
+            m0, m1 = plan[k][cn]["move_px"] if add_error else (0.0, 0.0)
+            exact.setdefault(k, {})[cn] = (p0.tolist(), p1.tolist())
+            lines.setdefault(k, {})[cn] = ((p0 + m0 * nv).tolist(), (p1 + m1 * nv).tolist())
+            off = [float((p - a) @ np.array([-u[1], u[0]])) for p in (p0, p1)]
+            rec[f"{k} {cn}"] = {"real_t": plan[k][cn]["t"], "real_len_px": plan[k][cn]["real_len_px"],
+                                "s1_snapped_t": [t0, t1], "s1_len_px": float(np.linalg.norm(p1 - p0)),
+                                "s1_crease_len_px": L, "s1_snapped_off_true_crease_px": off,
+                                "error_added_px": [m0, m1]}
+    return lines, exact, rec
+
+
+def s1_tri_noise(sj, truth, tfits: dict, exact: dict, measured: dict, eps: dict, plan: dict) -> dict | None:
+    """The 05 x 02 triangulated C - B (the relief's scale; relief_cue.triangulate) at the TRUE cameras: from S1's exact
+    snapped lines, from its measured lines (the real moves added), and over all 16 sign patterns of the real move sizes
+    on the four B-C endpoints, each against the truth's own C - B. None without a B-C line in both views."""
+    if not all("BC" in (d.get(k) or {}) for d in (exact, measured) for k in ("05", "02")):
+        return None
+    nodes = {n: truth.build.spec.nodes[n] for n in ("B", "C")}
+    hz = truth.build.spec.hinge["z_mm"]
+    true_cb = CU.model_offset_cb(truth.build)
+
+    def tri(l05, l02):
+        r = CU.triangulate(sj, l05, l02, tfits["05"], tfits["02"], nodes, hz, endpoint_px=eps)
+        return None if r is None else (r["offset_CB_mm"] - true_cb, r["sigma_mm"])
+    ex = tri(exact["05"], exact["02"])
+    meas = tri(measured["05"], measured["02"])
+    size = {k: [abs(float(v)) for v in plan[k]["BC"]["move_px"]] for k in ("05", "02")}
+    pats = []
+    for bits in range(16):
+        sg = [1.0 if bits >> i & 1 else -1.0 for i in range(4)]
+        ln = {}
+        for j, k in enumerate(("05", "02")):
+            p0, p1 = (np.asarray(v, float) for v in exact[k]["BC"])
+            nv = _unit_normal(p0, p1)
+            ln[k] = {**exact[k], "BC": ((p0 + sg[2 * j] * size[k][0] * nv).tolist(),
+                                        (p1 + sg[2 * j + 1] * size[k][1] * nv).tolist())}
+        r = tri(ln["05"], ln["02"])
+        if r is not None:
+            pats.append(r[0])
+    ab = sorted(abs(v) for v in pats)
+    return {"true_offset_CB_mm": true_cb, "error_exact_lines_mm": None if ex is None else ex[0],
+            "error_measured_lines_mm": None if meas is None else meas[0],
+            "sigma_measured_lines_mm": None if meas is None else meas[1],
+            "move_sizes_px": size, "sign_patterns_error_mm": pats,
+            "sign_patterns_abs_median_mm": float(np.median(ab)) if ab else None,
+            "sign_patterns_abs_max_mm": max(ab) if ab else None,
+            "measured_rank_of_16_by_abs_error": (None if meas is None or not ab else
+                                                 int(sum(v < abs(meas[0]) - 1e-12 for v in ab)) + 1)}
 
 
 def _pair(p: str) -> tuple:
@@ -410,48 +547,77 @@ def _pair(p: str) -> tuple:
     return p[:2], (1 if p[2] == "+" else -1)
 
 
+def s1_truth(start: dict, topology: str) -> dict:
+    """The S1 truth: the start moved by known amounts on the parameters the fit frees (a deep copy). F1 family: r_A
+    +0.4, r_C +1.0, rise -0.1, the zone's inner line -0.7. Pyramid: r_C +1.0, the zone thinner at the hinge (-0.6)
+    and thicker at its end (+0.4), the inner line at the zone end -0.7 and at the hinge +0.2 (inside the hinge parts'
+    window, so the truth is a temple the real hinge admits)."""
+    s = copy.deepcopy(start)
+    if topology == "pyramid":
+        t0 = float(s["t_zone"])
+        return dict(s, r_C=s["r_C"] + 1.0, t_zone=t0 - 0.6, t_ze=t0 + 0.4, x_in0=s["x_in0"] + 0.2,
+                    x_in_ze=s["x_in_ze"] - 0.7)
+    return dict(s, r_A=s["r_A"] + 0.4, r_C=s["r_C"] + 1.0, rise=s["rise"] - 0.1, x_in0=s["x_in0"] - 0.7,
+                x_in_ze=s["x_in_ze"] - 0.7)
+
+
 def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, contour_px: dict, quick: bool,
-             deps: dict) -> dict:
-    """S1: the tool's own temple (truth_params) rendered through the fitted cameras (perturbed by each view's contour
-    error) as synthetic photos; traced and fitted back from start_params with the procedure the real fit runs
-    (stage_fit: the re-trace callback, FIT_MAX_ROUNDS rounds). Both parameter dicts are deep-copied: the caller's
-    (the proof's start, which P2 and the fit start from) are never touched."""
+             deps: dict, topology: str = "f1", plan: dict | None = None, add_line_error: bool = True,
+             pkl_tag: str = "s1") -> dict:
+    """S1: the tool's own temple (truth_params) rendered through the delivered refit cameras (05 / 01: S1_SIDE_TRUE,
+    a non-zero hinge angle) as synthetic photos; traced from guides that match the real ones (`plan`, s1_guide_plan:
+    the real snapped fractions, the real endpoint moves added as the lines' error) and fitted back from start_params
+    with the procedure the real fit runs (stage_fit: the re-trace callback, FIT_MAX_ROUNDS rounds). Both parameter
+    dicts are deep-copied: the caller's (the proof's start, which P2 and the fit start from) are never touched."""
+    from glasses3d.g3d_host import relief_hinge as RH
+    from glasses3d.tests.proofs import wp6_theta_frame as TF
     from glasses3d.tests.proofs.wp6_prada_stages import _spec_sha, make_retrace
     start_params = copy.deepcopy(start_params)
     truth_params = copy.deepcopy(truth_params)
-    truth_spec = FX.prada_spec(**truth_params)
+    builder = FX.prada_pyramid_spec if topology == "pyramid" else FX.prada_spec
+    truth_spec = builder(**truth_params)
     truth = RV.Model.from_spec(job, truth_spec, "S1 truth")
+    if not plan:
+        raise ValueError("S1 needs the real guide plan (s1_guide_plan from P2): its guides must match the real ones")
     cams = {k: fits[k]["camera"] for k in RV.VIEW_ORDER}
     theta = {k: dict(fits[k]["theta"]) for k in RV.VIEW_ORDER}
+    for k, tv in S1_SIDE_TRUE.items():                # a non-zero true hinge angle in the side views
+        cams[k] = Camera.from_dict(tv["camera"])
+        theta[k] = {int(s): float(v) for s, v in tv["theta"].items()}
     sj = RF.SyntheticJob.from_job(job, truth, theta, cams, contour_px)
+    RH.attach_parts(sj, RH.hinge_parts(job))         # the real scene's hinge: S1 runs the real fit's constraint
+    truth_hinge = RH.hinge_report(sj, truth_spec)
     views = ("01", "02", "03", "04", "05")          # the relief observables (R2 / R3) live in 05 / 01 / 02
-    fam = RF.prada_family(copy.deepcopy(start_params))
-    # guides: the true creases in the synthetic photos, 2 px off (what an operator would click)
+    fam = RF.prada_family(copy.deepcopy(start_params), topology=topology)
+    # guides that match the real ones (s1_guide_plan): only the creases the real tracer found, each over the real
+    # snapped fraction of its TRUE crease (widened by the snapper's end trim)
     tfits = {k: {"camera": sj.true_cams[k], "theta": theta[k]} for k in views}
-    guides = {}
-    for key, side in (("05", 1), ("01", -1), ("02", 1)):
-        guides[key] = {}
-        for cname, nodes in (("AB", ("A", "B")), ("AC", ("A", "C")), ("BC", ("B", "C"))):
-            q = RF.model_crease_px(sj, truth.build, tfits[key], side, *nodes)
-            c = q.mean(0)
-            d = np.linalg.svd(q - c)[2][0]
-            t = (q - c) @ d
-            guides[key][cname] = (np.array([c + d * t.min(), c + d * t.max()]) + [[1.5, -2.0], [-1.0, 2.0]]).tolist()
+    gx = s1_lines(sj, truth, tfits, plan)
+    guides = gx["guides"]
     # P2's analogue: cameras refit from the perturbed base for the start model, the outline and the creases traced
     # at them; then stage_fit's fit (the same re-trace callback, FIT_MAX_ROUNDS rounds; 2 with --quick, as stage_fit)
     fits1 = RF.refit_views(sj, RV.Model.from_spec(sj, fam.spec(fam.x0()), "S1 start"), {}, views, rear=False,
                            pool=pf.pool)
     pf.hb.log("S1: cameras refit on the synthetic photos")
-    ol = RT.trace_outline(sj, fam.spec(fam.x0()), lambda t, b: FX.prada_spec(**{**fam.kwargs(fam.x0()), "top": t,
-                                                                                 "bottom": b}), fits1, log=pf.hb.log)
+    ol = RT.trace_outline(sj, fam.spec(fam.x0()), lambda t, b: fam.builder(**{**fam.kwargs(fam.x0()), "top": t,
+                                                                               "bottom": b}), fits1, log=pf.hb.log)
     fam.base["top"], fam.base["bottom"] = ol["top"], ol["bottom"]          # fam.base is S1's own deep copy
     m1 = RV.Model.from_spec(sj, fam.spec(fam.x0()), "S1 traced")
     cr = RT.trace_creases(sj, guides, m1, fits1)
-    glines = {k: {cn: (ln["p0"], ln["p1"]) for cn, ln in cr["views"][k]["lines"].items() if ln} for k in guides}
+    snapped = {k: {cn: (ln["p0"], ln["p1"]) for cn, ln in cr["views"][k]["lines"].items() if ln} for k in guides}
+    # the measured lines: the synthetic snap plus the real tracer's endpoint move (the real lines' error budget);
+    # their endpoint sigmas are measured exactly as stage_fit measures the real ones (click vs line)
+    glines, exact, line_rec = s1_measured_lines(snapped, plan, gx["extent"], add_error=add_line_error)
+    missing = [f"{k} {cn}" for k, d in plan.items() for cn in d if cn not in (snapped.get(k) or {})]
     rounds = 2 if quick else RR.FIT_MAX_ROUNDS
+    eps = CU.endpoint_sigmas(guides, glines)
+    pf.hb.log("S1 lines vs real: " + ", ".join(f"{n} {r['s1_len_px']:.0f}/{r['real_len_px']:.0f} px"
+                                                for n, r in line_rec.items()) + (f"; not found {missing}" if missing
+                                                                                 else ""))
     res = RF.fit_temple(sj, fam, views=views, guides_lines=glines, rounds=rounds, rear=False,
-                        retrace=make_retrace(sj, pf.hb.log), log=pf.hb.log, budget_s=90 * 60, pool=pf.pool)
-    (pf.out / "s1_fit.pkl").write_bytes(pickle.dumps({k: v for k, v in res.items() if k not in ("context", "family")}))
+                        retrace=make_retrace(sj, pf.hb.log), log=pf.hb.log, budget_s=90 * 60, pool=pf.pool,
+                        cue_endpoint_px=eps)
+    (pf.out / f"{pkl_tag}_fit.pkl").write_bytes(pickle.dumps({k: v for k, v in res.items() if k not in ("context", "family")}))
     x = res["x"]
     ps_t = build_temple(truth_spec).spec
     ps_f = build_temple(res["spec"]).spec
@@ -477,15 +643,28 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
            and (res["fits"][k].get("theta_fit") or {}).get(str(s), {}).get("observed", False)]
     tag = lambda k, s: f"{k}{'+' if s > 0 else '-'}x"
     th_err_by = {tag(k, s): abs(res["fits"][k]["theta"][s] - theta[k][s]) for k, s in obs}
-    th_cited = {}
+    # theta in a COMMON camera frame (wp6_theta_frame.apparent_theta): the fitted theta is relative to the fitted
+    # camera, which trades with it (02: yaw), so comparing it with the truth's across two cameras was no recovery
+    # error of anything R3 reads; the hinge angle at which the TRUE camera reproduces the fitted placement is
+    th_cited, th_raw = {}, {}
     for q in pairs:
         k, s = _pair(q)
-        th_cited[q] = (abs(res["fits"][k]["theta"][s] - theta[k][s]) if k in res["fits"] else float("nan"))
+        if k not in res["fits"]:
+            th_cited[q] = th_raw[q] = float("nan")
+            continue
+        th_raw[q] = abs(res["fits"][k]["theta"][s] - theta[k][s])
+        th_cited[q] = abs(TF.apparent_theta(sj, truth, res["fits"][k], k, s)["error_deg"])
     rec = {"outline_mm": outline_mm, "zone_level_mm": abs(lvl(ps_f) - lvl(ps_t)),
-           "r_C_mm": abs(x["r_C"] - truth_params["r_C"]), "f1_rise": abs(x["rise"] - truth_params["rise"]),
+           "r_C_mm": abs(x["r_C"] - truth_params["r_C"]),
            "theta_deg": (float(max(th_cited.values())) if all(np.isfinite(v) for v in th_cited.values())
                          else float("nan"))}
     not_fitted = {}
+    if "rise" in x:
+        rec["f1_rise"] = abs(x["rise"] - truth_params["rise"])
+    else:
+        not_fitted["f1_rise"] = ("not fitted: Astra's topology is the pyramid (F1 = the base, FX.prada_pyramid_spec), "
+                                 "which has no F1 facet and no rise; A-B is F2's crease against the base, set by r_C "
+                                 "and the zone level, both graded")
     if "r_B" in x:
         rec["r_B_mm"] = abs(x["r_B"] - truth_params.get("r_B", 0.0))
     else:
@@ -493,19 +672,51 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
                                 "of relief_fit.PRADA_FREE and the S1 truth keeps the start's r_B, so S1 cannot test "
                                 "its recovery (R2 / R3 read r_B: the family's B-on-the-base assumption)")
     verdict = {k: bool(np.isfinite(rec[k]) and rec[k] <= RR.S1_RECOVERY[k]) for k in rec}
-    # evidence for an owner's STOP-I decision on theta (cases a-d: the R3 transfer of the TRUE temple)
+    # theta: why it is not recovered (wp6_theta_frame) and the instrument that no longer reads it
     from glasses3d.tests.proofs.wp6_s1_theta_check import transfer_cases
     theta_cases = transfer_cases(sj, truth, {k: res["fits"][k] for k in ("05", "02")}, theta)
+    diag_pairs = [_pair(q) for q in pairs] + [(k, s) for k, s in RV.CREASE_VIEWS if f"{k}{'+' if s > 0 else '-'}x"
+                                              not in pairs]
+    theta_diag = TF.theta_diagnosis(sj, truth, res["fits"], diag_pairs)
+    slab_spec_ = copy.deepcopy(truth_spec)
+    slab_spec_["nodes"], slab_spec_["facets"], slab_spec_["chamfers"] = {}, {}, []
+    slab_m = RV.Model.from_spec(sj, slab_spec_, "S1 slab")
+    floor = TF.instrument_floor(sj, truth, slab_m, res["fits"], glines)
+    floor_exact = TF.instrument_floor(sj, truth, slab_m, res["fits"], exact)       # information: no error added
+    tri_noise = s1_tri_noise(sj, truth, tfits, exact, glines, eps, plan)
+    pf.hb.log(f"S1 instrument floor: truth R2 {floor['models']['truth']['R2']['pass']}, R3 "
+              f"{floor['models']['truth']['R3_transfer_mm']}; slab R2 {floor['models']['slab']['R2']['pass']}")
     return {"truth": {k: truth_params.get(k, 0.0) for k in x}, "start": {k: start_params.get(k, 0.0) for k in x},
             "truth_params": truth_params, "truth_spec_sha256": _spec_sha(truth_spec),
             "fitted": x, "recovery": rec, "not_fitted": not_fitted,
             "outline_by_edge_mm": {"top": out_top, "bottom": out_bot},
             "outline_mm_pre_fit_trace": pre_mm,
             "theta_graded_on": pairs, "theta_error_cited_pairs_deg": th_cited,
+            "theta_error_cited_pairs_raw_deg": th_raw,
+            "theta_measure": "common camera frame (wp6_theta_frame.apparent_theta, facet zone d < 50)",
             "theta_cited_pair_observed": {q: q in th_err_by for q in pairs},
             "theta_observed_in": [tag(k, s) for k, s in obs], "theta_error_by_view_deg": th_err_by,
             "theta_deg_max_all_observed_views": max(th_err_by.values(), default=None),
-            "theta_cases": theta_cases,
+            "theta_cases": theta_cases, "theta_diagnosis": theta_diag,
+            "instrument_floor": floor, "topology": topology,
+            "instrument_floor_exact_lines": {"models": {lab: {"R3_transfer_mm": m["R3_transfer_mm"],
+                                                              "R3_per_crease": m["R3_per_crease"]}
+                                                        for lab, m in floor_exact["models"].items()},
+                                             "stop_i": floor_exact["stop_i"],
+                                             "note": "information only: the instrument floor on S1's exact snapped "
+                                                     "lines (no endpoint error added); STOP-I reads the floor on "
+                                                     "the measured lines"},
+            "guides": guides, "lines": line_rec, "lines_not_found": missing, "guide_plan": plan,
+            "line_error_added": bool(add_line_error),
+            "tri_noise": tri_noise,
+            "truth_cameras": {k: c.to_dict() for k, c in sj.true_cams.items()},
+            "truth_theta": {k: dict(v) for k, v in theta.items()},
+            "r_C_sigma": {"sigma": (res.get("sigma") or {}).get("r_C"),
+                          "status": (res.get("sigma_status") or {}).get("r_C")},
+            "truth_hinge_warnings": (truth_hinge or {}).get("warnings"),
+            "cue": {k: v for k, v in (res.get("cue") or {}).items()},
+            "cue_endpoint_px": {f"{k[0]} {k[1]} end {k[2]}": v for k, v in eps.items()},
+            "fit_cue_at_fit": res["details"].get("cue"),
             "tolerance": RR.S1_RECOVERY, "verdict": verdict, "failed": [k for k, ok in verdict.items() if not ok],
             "corners": cr["corners"], "outline_flagged": ol["flagged"], "fit_seconds": res["seconds"],
             "fit_rounds": rounds, "fit_rounds_run": res.get("rounds_run"),
@@ -518,7 +729,8 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
             "synthetic_render": RF.SYNTH_RENDER, "synthetic_light": list(RF.SYNTH_LIGHT)}
 
 
-def s1_stop_i(recovery: dict, tolerance: dict, deps: dict, waivers: dict, not_fitted: dict | None = None) -> dict:
+def s1_stop_i(recovery: dict, tolerance: dict, deps: dict, waivers: dict, not_fitted: dict | None = None,
+              instrument: dict | None = None) -> dict:
     """§8 S1 / §9 STOP-I from the frozen dependency table: every S1 recovery outside its tolerance that R2 or R3 reads
     (deps["depends"][key] non-empty) is STOP-I unless the owner waived it (waivers {key: the owner's words}); one that
     nothing in R2 / R3 reads is only recorded. A tolerance key S1 could not test (`not_fitted` {key: why}: r_B, not a
@@ -529,9 +741,16 @@ def s1_stop_i(recovery: dict, tolerance: dict, deps: dict, waivers: dict, not_fi
     verdict = {k: bool(v is not None and np.isfinite(v) and v <= tolerance[k]) for k, v in recovery.items()}
     failed = [k for k, ok in verdict.items() if not ok]
     reads = {k: sorted(dep.get(k, {})) for k in failed}
+    floor_fail = bool(instrument) and bool(instrument.get("stop_i"))
+    waived = {k: waivers[k] for k in failed if reads[k] and k in waivers}
+    if floor_fail and "instrument_floor" in waivers:
+        waived["instrument_floor"] = waivers["instrument_floor"]
     return {"verdict": verdict, "failed": failed, "read_by": reads,
-            "stop_i": [k for k in failed if reads[k] and k not in waivers],
-            "waived_by_owner": {k: waivers[k] for k in failed if reads[k] and k in waivers},
+            "stop_i": [k for k in failed if reads[k] and k not in waivers]
+            + (["instrument_floor"] if floor_fail and "instrument_floor" not in waivers else []),
+            "instrument_floor": None if instrument is None else {"pass": not floor_fail,
+                                                                 "why": instrument.get("stop_i")},
+            "waived_by_owner": waived,
             "failed_not_read_by_r2_r3": [k for k in failed if not reads[k]],
             "not_fitted": {k: {"why": why, "read_by": sorted(dep.get(k, {}))} for k, why in not_fitted.items()},
             "not_graded": sorted(k for k in tolerance if k not in recovery and k not in not_fitted)}
@@ -547,8 +766,8 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=RF.pool_workers(),
                     help="process-pool workers for the camera blocks and the fits (1 = serial)")
     ap.add_argument("--owner-waiver", action="append", default=[], metavar="KEY=TEXT",
-                    help="the OWNER's waiver of an S1 STOP-I (KEY = an S1 recovery key, TEXT = the owner's words); "
-                         "never pass one the owner did not give")
+                    help="authorized waiver of an S1 STOP-I (KEY = an S1 recovery key or instrument_floor, "
+                         "TEXT = the owner's words or the explicitly delegated decision and reasons)")
     a = ap.parse_args(argv)
     stages = set(a.stages.split(","))
     a.waivers = parse_waivers(a.owner_waiver)
@@ -624,12 +843,27 @@ def _run(pf: Proof, a, stages) -> int:
                   f"{old_s1.get('fit_version')!r}, procedure {old_s1.get('s1_procedure')!r}; now {RF.SYNTH_RENDER!r}, "
                   f"{RF.FIT_VERSION!r}, {S1_PROCEDURE!r}): re-running S1")
         pf.rec["s1_rerun_reason"] = "recorded S1 used a different synthetic photo model, fit or S1 procedure"
+    topology = gp.get("start", {}).get("topology", "f1")
+    pf.rec["topology"] = {"reading": topology, "family": RF.TOPOLOGIES.get(topology),
+                          "note": gp.get("start_note")}
+    p2_now = None
     if "s1" in stages or s1_stale:
-        truth = dict(copy.deepcopy(start), r_A=start["r_A"] + 0.4, r_C=start["r_C"] + 1.0, rise=start["rise"] - 0.1,
-                     x_in0=start["x_in0"] - 0.7, x_in_ze=start["x_in_ze"] - 0.7)
+        # S1's guides must match the real ones (s1_guide_plan): P2's real snapped lines first (P2 fires no stop of its
+        # own; it traces the photos, which the fit starts from as well)
+        from glasses3d.tests.proofs.wp6_prada_stages import stage_p2
+        p2rec = pf.rec["stages"].get("P2")
+        if "p2" in stages or not p2rec or p2rec.get("error") or not p2rec.get("guide_lines"):
+            p2_now = pf.stage("P2", lambda: stage_p2(pf, job, fits_d, start, gp["guides"], topology))
+            if p2_now.get("error"):
+                return finish(pf, pf.stop("STOP-T", "P2 tracing crashed", p2_now["error"]))
+            pf.rec["p2_pass"] = p2_now.get("pass")
+            p2rec = p2_now
+        plan = s1_guide_plan(job, fits_d, start, p2rec, gp["guides"], topology)
+        truth = s1_truth(start, topology)
         cams_json = json.loads(job.cameras_path.read_text(encoding="utf-8"))["images"]
         contour_px = {k: cams_json[job.views[k][0]]["contour_mean_px"] for k in RV.VIEW_ORDER}
-        r = pf.stage("S1", lambda: stage_s1(pf, job, fits_d, start, truth, contour_px, a.quick, deps))
+        r = pf.stage("S1", lambda: stage_s1(pf, job, fits_d, start, truth, contour_px, a.quick, deps, topology,
+                                            plan=plan))
         if r.get("error"):
             return finish(pf, pf.stop("STOP-T", "S1 crashed (a code fault, not an S1 verdict)", r["error"]))
     if json.dumps(start, sort_keys=True, default=_json) != start_json:
@@ -642,10 +876,11 @@ def _run(pf: Proof, a, stages) -> int:
     if s1 is not None and not s1.get("error"):
         # STOP-I from the frozen dependency table, for an S1 run now or on record (a resumed run re-grades it)
         si = s1_stop_i(s1["recovery"], RR.S1_RECOVERY, deps, getattr(a, "waivers", {}) or {},
-                       not_fitted=s1.get("not_fitted"))
+                       not_fitted=s1.get("not_fitted"), instrument=s1.get("instrument_floor"))
         pf.rec["s1_stop_i"] = si
         pf.rec["s1_failures"] = {k: {"recovery": s1["recovery"][k], "tolerance": RR.S1_RECOVERY[k],
                                      "read_by": si["read_by"][k],
+                                     "theta_diagnosis": s1.get("theta_diagnosis") if k == "theta_deg" else None,
                                      "status": ("STOP-I waived by owner" if k in si["waived_by_owner"] else
                                                 "STOP-I" if k in si["stop_i"] else "recorded (not read by R2 / R3)")}
                                  for k in si["failed"]}
@@ -656,7 +891,8 @@ def _run(pf: Proof, a, stages) -> int:
                 "STOP-I", "S1 cannot recover a quantity that R2 / R3 read (frozen table "
                 f"{S1_DEPS.name}); OPEN OWNER DECISION: waive with --owner-waiver KEY=TEXT or keep the stop",
                 {"parameters": si["stop_i"], "recovery": s1["recovery"], "tolerance": s1["tolerance"],
-                 "read_by": {k: deps["depends"][k] for k in si["stop_i"]},
+                 "read_by": {k: deps["depends"].get(k) for k in si["stop_i"]},
+                 "instrument_floor": s1.get("instrument_floor"),
                  "theta_graded_on": s1.get("theta_graded_on"),
                  "theta_error_cited_pairs_deg": s1.get("theta_error_cited_pairs_deg"),
                  "theta_error_by_view_deg": s1.get("theta_error_by_view_deg"),
@@ -665,17 +901,18 @@ def _run(pf: Proof, a, stages) -> int:
                  "not_fitted": si["not_fitted"],
                  "waived_by_owner": si["waived_by_owner"]}))
     from glasses3d.tests.proofs.wp6_prada_stages import run_rest
-    return finish(pf, run_rest(pf, job, fits_d, start, gp, stages, a))
+    return finish(pf, run_rest(pf, job, fits_d, start, gp, stages, a, p2_done=p2_now))
 
 
 def parse_waivers(items) -> dict:
-    """["key=text", ...] -> {key: text}; a key must be an S1 recovery key (relief_rules.S1_RECOVERY)."""
+    """["key=text", ...] -> {key: text}; accept only named S1 recovery or instrument-floor stops."""
+    allowed = set(RR.S1_RECOVERY) | {"instrument_floor"}
     out = {}
     for it in items or []:
         k, sep, txt = str(it).partition("=")
         k = k.strip()
-        if not sep or k not in RR.S1_RECOVERY or not txt.strip():
-            raise SystemExit(f"--owner-waiver {it!r}: expected KEY=TEXT with KEY in {sorted(RR.S1_RECOVERY)}")
+        if not sep or k not in allowed or not txt.strip():
+            raise SystemExit(f"--owner-waiver {it!r}: expected KEY=TEXT with KEY in {sorted(allowed)}")
         out[k] = txt.strip()
     return out
 
@@ -683,11 +920,11 @@ def parse_waivers(items) -> dict:
 def start_params(job, gp) -> dict:
     """The starting Prada parameters Claude traced (guides file: outline, node positions, relief priors)."""
     p = RF.prada_base_params()
-    for k in ("top", "bottom", "zone_end", "x_in0", "x_in_ze", "t_zone", "arm", "r_A", "r_C", "rise", "B", "C",
-              "d_E"):
+    for k in ("top", "bottom", "zone_end", "x_in0", "x_in_ze", "t_zone", "t_ze", "arm", "r_A", "r_C", "rise", "A",
+              "B", "C", "d_E"):
         if k in gp.get("start", {}):
             v = gp["start"][k]
-            p[k] = tuple(v) if k in ("B", "C") else v
+            p[k] = tuple(v) if k in ("A", "B", "C") else v
     return p
 
 

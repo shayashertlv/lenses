@@ -64,27 +64,42 @@ def transfer_cases(sj, truth, fitted: dict, theta_true: dict) -> dict:
     return out
 
 
-def main() -> int:
+def rebuild_s1(rec: dict):
+    """(job, synthetic job, truth model, S1 record) rebuilt from a proof record: the truth from `truth_params` with the
+    record's topology (checked against `truth_spec_sha256`), the true cameras and theta from the S1 record
+    (`truth_cameras` / `truth_theta`, s1-4 on: the side views carry a hinge angle) or, for an older record, the
+    delivered fits; the perturbation from each view's contour error, as stage_s1 builds it."""
     from glasses3d.tests.proofs.wp6_prada_stages import _spec_sha
-    rec = json.loads((PROOF / "proof.json").read_text(encoding="utf-8"))
     s1 = rec["stages"]["S1"]
     if "truth_params" not in s1:
         raise SystemExit("the recorded S1 predates fix round 2 (no truth_params): re-run S1 first")
     truth_p = dict(s1["truth_params"])
-    for k in ("B", "C"):
+    for k in ("A", "B", "C"):
         if k in truth_p and truth_p[k] is not None:
             truth_p[k] = tuple(truth_p[k])
-    truth_spec = FX.prada_spec(**truth_p)
+    builder = FX.prada_pyramid_spec if s1.get("topology") == "pyramid" else FX.prada_spec
+    truth_spec = builder(**truth_p)
     if _spec_sha(truth_spec) != s1["truth_spec_sha256"]:
         raise SystemExit("the rebuilt S1 truth differs from the recorded one (truth_spec_sha256)")
     job = RV.Job("prada")
     truth = RV.Model.from_spec(job, truth_spec, "S1 truth")
-    fd = rec["stages"]["delivered_fits"]
-    cams = {k: Camera.from_dict(fd[k]["camera"]) for k in RV.VIEW_ORDER}
-    theta = {k: {int(s): float(v) for s, v in fd[k]["theta"].items()} for k in RV.VIEW_ORDER}
+    if s1.get("truth_cameras") and s1.get("truth_theta"):
+        cams = {k: Camera.from_dict(c) for k, c in s1["truth_cameras"].items()}
+        theta = {k: {int(sd): float(v) for sd, v in t.items()} for k, t in s1["truth_theta"].items()}
+    else:
+        fd = rec["stages"]["delivered_fits"]
+        cams = {k: Camera.from_dict(fd[k]["camera"]) for k in RV.VIEW_ORDER}
+        theta = {k: {int(sd): float(v) for sd, v in fd[k]["theta"].items()} for k in RV.VIEW_ORDER}
     cams_json = json.loads(job.cameras_path.read_text(encoding="utf-8"))["images"]
     contour_px = {k: cams_json[job.views[k][0]]["contour_mean_px"] for k in RV.VIEW_ORDER}
     sj = RF.SyntheticJob.from_job(job, truth, theta, cams, contour_px)
+    return job, sj, truth, s1
+
+
+def main() -> int:
+    rec = json.loads((PROOF / "proof.json").read_text(encoding="utf-8"))
+    job, sj, truth, s1 = rebuild_s1(rec)
+    theta = sj.truth_theta
     fit = pickle.loads((PROOF / "s1_fit.pkl").read_bytes())["fits"]
     res = transfer_cases(sj, truth, {k: fit[k] for k in ("05", "02")}, theta)
     out = {"label": "TOOL TEST (S1 follow-up on synthetic photos of the S1 truth; no scene touched)",

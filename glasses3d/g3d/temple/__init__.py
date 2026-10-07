@@ -15,7 +15,7 @@ Frame: scene mm, +Y up, +Z front. The spec describes the +X temple; the -X templ
 reversed). Parts are chosen by the sign of x, never by name. Station d = z_h - z at opening 0; X = |x|.
 """
 SCHEMA = "g3d.temple/1"
-CORE_VERSION = "wp6-core-1.0"
+CORE_VERSION = "wp6-core-1.1"   # 1.1: zone station chords (build.station_list); decal standoff kept proportionally
 
 from .spec import TempleError, canonical, canonical_json, spec_sha256  # noqa: E402,F401
 from .build import build_temple, TempleBuild  # noqa: E402,F401

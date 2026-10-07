@@ -293,14 +293,27 @@ def plane3(p1, p2, p3):
     return np.linalg.solve(M, np.array([p1[2], p2[2], p3[2]], np.float64))
 
 
+def zone_lines(top, zone_end: float, x_in0: float, x_in_ze: float, t_zone: float, arm: list,
+               t_ze: float | None = None) -> tuple[list, list]:
+    """(inner, thickness) of the Prada family: the zone is linear from (d0, x_in0) to (zone_end, x_in_ze), its
+    thickness linear from t_zone at d0 to t_ze at the zone end (t_ze None = t_zone: constant), so the base outer
+    surface is one plane over the zone; `arm` = [[d, x_in, T], ...] knots beyond it."""
+    d0 = float(top[0][0])
+    t_ze = t_zone if t_ze is None else t_ze
+    inner = [[d0, x_in0], [zone_end, x_in_ze]] + [[float(k[0]), float(k[1])] for k in arm if k[0] > zone_end]
+    thick = [[d0, t_zone], [zone_end, t_ze]] + [[float(k[0]), float(k[2])] for k in arm if k[0] > zone_end]
+    return inner, thick
+
+
 def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_zone: float, arm: list,
                A=None, B=(46.8, 9.52), C=(22.6, -16.3), d_E: float = 55.0, r_A: float = 0.5, r_B: float = 0.5,
                r_C: float = 3.0, rise: float = -0.25, r_H: float | None = None, hinge=None,
-               tip_round_mm: float = 0.0, roll_mm: float = 0.0) -> dict:
+               tip_round_mm: float = 0.0, roll_mm: float = 0.0, t_ze: float | None = None) -> dict:
     """The Prada temple as a valid g3d.temple/1 spec (module docstring). `arm` = [[d, x_in, T], ...] knots beyond
-    the zone; the zone is linear from (d0, x_in0) to (zone_end, x_in_ze) with thickness t_zone. A defaults to the
-    hinge-end top corner, H to the hinge-end bottom corner (r_H defaults to r_A). Raises ValueError when the facets
-    cannot meet the arm without a step (the zero lines miss the outline or cross ahead of B)."""
+    the zone; the zone is linear from (d0, x_in0) to (zone_end, x_in_ze) with thickness t_zone (to t_ze at the zone
+    end when given: zone_lines). A defaults to the hinge-end top corner, H to the hinge-end bottom corner (r_H defaults
+    to r_A). Raises ValueError when the facets cannot meet the arm without a step (the zero lines miss the outline or
+    cross ahead of B)."""
     top = [list(map(float, p)) for p in top]
     bottom = [list(map(float, p)) for p in bottom]
     d0 = top[0][0]
@@ -347,8 +360,42 @@ def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_
     # F3's plane: A, C and H; H is a corner of F3 one mm ahead of the hinge-end cap at the bottom edge's height
     nodes["H"] = [d0 - 1.0, H[1], r_H]
     facets["F3"]["poly"] = ["A", "A_l", "H", "H_lo", "C_lo", "C"]
-    inner = [[d0, x_in0], [zone_end, x_in_ze]] + [[float(k[0]), float(k[1])] for k in arm if k[0] > zone_end]
-    thick = [[d0, t_zone], [zone_end, t_zone]] + [[float(k[0]), float(k[2])] for k in arm if k[0] > zone_end]
+    inner, thick = zone_lines(top, zone_end, x_in0, x_in_ze, t_zone, arm, t_ze)
+    return {"schema": SCHEMA, "hinge": copy.deepcopy(hinge or HINGE),
+            "outline": {"top": top, "bottom": bottom, "tip_round_mm": tip_round_mm},
+            "inner": inner, "thickness": thick, "zone_end_d": float(zone_end), "nodes": nodes, "facets": facets,
+            "chamfers": [], "roll_mm": roll_mm, "options": {}}
+
+
+def prada_pyramid_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_zone: float, arm: list,
+                       A=None, B=(46.8, 9.52), C=(22.6, -16.3), d_E: float = 55.0, r_C: float = 3.0,
+                       r_H: float = 0.0, hinge=None, tip_round_mm: float = 0.0, roll_mm: float = 0.0,
+                       t_ze: float | None = None, **_unused) -> dict:
+    """The Prada temple with F1 = the base (WP6 hand-traced tool test 2026-10-06): the band above A-B is the base
+    surface, like the arm, so A-B is F2's crease against the base and nothing creases behind B; F2 = A-C-B (the logo
+    triangle), F3 = A-...-H-C (front-lower), F4 = B-C-...-E (rear-lower, E on the bottom edge at d_E). A, B and E lie on
+    the base (r 0), C is proud by r_C, H (one mm ahead of the hinge-end cap, at the bottom edge's height) by r_H. The
+    photos' evidence for this topology: F2 brighter than the band by 5.1-6.7 L* in 05 / 01 / 02 and no step across the
+    band behind B (relief_cue.topology_evidence measures both). A defaults to the hinge-end top corner and may lie
+    outside the outline (the traced corner); unused keyword arguments (the F1 family's r_A, r_B, rise) are accepted so
+    one parameter dict serves both families. Always valid: no zero line has to be placed."""
+    top = [list(map(float, p)) for p in top]
+    bottom = [list(map(float, p)) for p in bottom]
+    d0 = top[0][0]
+    A = (d0, _yt(d0, top)) if A is None else (float(A[0]), float(A[1]))
+    dl = min(d0, A[0]) - 1.0
+    E = (float(d_E), _yb(d_E, bottom))
+    if not max(B[0], E[0], C[0]) < zone_end:
+        raise ValueError(f"the facets reach d {max(B[0], E[0], C[0]):.2f}, beyond zone_end_d {zone_end}")
+    lo = -60.0
+    nodes = {"A": [A[0], A[1], 0.0], "B": [float(B[0]), float(B[1]), 0.0],
+             "C": [float(C[0]), float(C[1]), float(r_C)], "H": [dl, _yb(d0, bottom), float(r_H)],
+             "E": [E[0], E[1], 0.0], "A_l": [dl, A[1], None], "H_lo": [dl, lo, None], "C_lo": [float(C[0]), lo, None],
+             "E_lo": [E[0], lo, None]}
+    facets = {"F2": {"poly": ["A", "C", "B"], "plane": "nodes"},
+              "F3": {"poly": ["A", "A_l", "H", "H_lo", "C_lo", "C"], "plane": "nodes"},
+              "F4": {"poly": ["B", "C", "C_lo", "E_lo", "E"], "plane": "nodes"}}
+    inner, thick = zone_lines(top, zone_end, x_in0, x_in_ze, t_zone, arm, t_ze)
     return {"schema": SCHEMA, "hinge": copy.deepcopy(hinge or HINGE),
             "outline": {"top": top, "bottom": bottom, "tip_round_mm": tip_round_mm},
             "inner": inner, "thickness": thick, "zone_end_d": float(zone_end), "nodes": nodes, "facets": facets,

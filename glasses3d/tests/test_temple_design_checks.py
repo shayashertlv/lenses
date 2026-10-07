@@ -22,6 +22,23 @@ from glasses3d.g3d_host import relief_views as RV
 from glasses3d.g3d_host.camera import Camera
 
 
+@pytest.mark.parametrize("module", ["wp6_handtraced", "wp6_fit4_diagnostic"])
+@pytest.mark.parametrize("stage_error, changed_source, expected", [(False, False, 0), (True, False, 1), (False, True, 1)])
+def test_diagnostic_exit_records_infrastructure_failures(module, stage_error, changed_source, expected, monkeypatch):
+    import importlib
+    from types import SimpleNamespace
+    tool = importlib.import_module("glasses3d.tests.proofs." + module)
+    rec = {"stages": {"S1": None, "TRACE": {"error": "worker crashed"} if stage_error else {}},
+           "source_scene": {"sha256_before": "before"}, "gates_failed": ["R4"]}
+    saved = []
+    pf = SimpleNamespace(rec=rec, save=lambda: saved.append(dict(rec)),
+                         hb=SimpleNamespace(log=lambda message: None, stop=lambda: None))
+    monkeypatch.setattr(tool.P, "sha", lambda path: "after" if changed_source else "before")
+    monkeypatch.setattr(tool.PS, "open_owner_decisions", lambda record: {})
+    assert tool.finish(pf, "diagnostic complete") == expected
+    assert saved[-1]["exit_code"] == expected
+
+
 # --------------------------------------------------------------------------------------------- §3 warnings
 def test_flat_crease_warning_names_the_crease():
     tb = build_temple(FX.pyramid(r_c=0.3, r_h=0.05))
@@ -230,13 +247,15 @@ def test_sigma_status_separates_flat_from_band_bound_and_non_minimum(monkeypatch
 
 def test_s1_stop_i_follows_the_frozen_dependency_table():
     """§8 S1 / §9 STOP-I: a failed S1 recovery that R2 / R3 read stops the proof unless the OWNER waived it; the table
-    is a fact of the code (who reads what), so every S1 quantity, theta and the outline included, is read by R2 / R3."""
+    is a fact of the code (who reads what). Schema 3 (fit-4): R2 reads no hinge angle (theta 0 in the side views), R3
+    reads the 02 one; S1's instrument floor failing is STOP-I too."""
     import json
     from glasses3d.tests.proofs import wp6_prada as P
     deps = json.loads(P.S1_DEPS.read_text(encoding="utf-8"))
+    assert deps["schema"] == "wp6-s1-dependencies/3"
     assert set(deps["depends"]) == set(RR.S1_RECOVERY)
+    assert set(deps["depends"]["theta_deg"]) == {"R3"}
     assert all(v.get("R2") or v.get("R3") for v in deps["depends"].values())
-    assert {"R2", "R3"} <= set(deps["depends"]["theta_deg"])
     rec = {k: 0.0 for k in RR.S1_RECOVERY}
     rec.update(theta_deg=3.43, outline_mm=0.2063)
     si = P.s1_stop_i(rec, RR.S1_RECOVERY, deps, {})
@@ -245,7 +264,18 @@ def test_s1_stop_i_follows_the_frozen_dependency_table():
     assert si["stop_i"] == ["outline_mm"] and si["waived_by_owner"] == {"theta_deg": "owner: proceed"}
     rec["r_C_mm"] = float("nan")                                  # a non-finite recovery fails too
     assert "r_C_mm" in P.s1_stop_i(rec, RR.S1_RECOVERY, deps, {})["stop_i"]
-    assert P.s1_stop_i({k: 0.0 for k in RR.S1_RECOVERY}, RR.S1_RECOVERY, deps, {})["stop_i"] == []
+    ok = {k: 0.0 for k in RR.S1_RECOVERY}
+    assert P.s1_stop_i(ok, RR.S1_RECOVERY, deps, {})["stop_i"] == []
+    floor_bad = {"stop_i": ["the TRUE temple fails R2 at the S1-fitted cameras"]}
+    si = P.s1_stop_i(ok, RR.S1_RECOVERY, deps, {}, instrument=floor_bad)
+    assert si["stop_i"] == ["instrument_floor"] and si["instrument_floor"]["pass"] is False
+    words = "decided by the coding agent (Codex) under the owner's delegation of 2026-10-07: test fixture only"
+    waived = P.parse_waivers([f"instrument_floor={words}"])
+    si = P.s1_stop_i(ok, RR.S1_RECOVERY, deps, waived, instrument=floor_bad)
+    assert si["stop_i"] == [] and si["waived_by_owner"] == waived
+    assert si["instrument_floor"]["pass"] is False  # a waiver never changes the measurement
+    assert P.s1_stop_i(ok, RR.S1_RECOVERY, deps, waived, instrument={"stop_i": []})["waived_by_owner"] == {}
+    assert P.s1_stop_i(ok, RR.S1_RECOVERY, deps, {}, instrument={"stop_i": []})["stop_i"] == []
     assert P.parse_waivers(["theta_deg=owner said go"]) == {"theta_deg": "owner said go"}
     for bad in (["theta=go"], ["theta_deg="], ["theta_deg"]):
         with pytest.raises(SystemExit):
@@ -342,10 +372,42 @@ def test_sigma_is_the_photo_terms_and_an_acting_penalty_is_its_own_status(monkey
     assert set(flags) == {"x_in_ze", "r_C", "rise"}
     assert "not converged" not in flags["x_in_ze"]["why"] and flags["x_in_ze"]["penalty"]["plus"]["front_bound"] > 2.0
     assert flags["r_C"]["penalty"]["plus"]["dn"] > 0.0 and flags["rise"]["status"] == "infeasible_stencil"
+    # what holds each penalty_active parameter (fix round 3: the owner report states the wall, never a photo sigma)
+    assert [(h["penalty"], h["active_at"]) for h in flags["r_C"]["held_by"]] == [("dn", ["plus"])]
+    assert [h["penalty"] for h in flags["x_in_ze"]["held_by"]] == ["front_bound"]
+    assert flags["x_in_ze"]["held_by"][0]["active_at"] == ["x", "plus", "minus"]
+    assert RF.held_by({"x": {"front_bound": 0.0, "dn": 0.0, "hinge": 0.0},
+                       "plus": {"front_bound": 3.0, "dn": 0.0, "hinge": 0.0},
+                       "minus": {"front_bound": 0.0, "dn": 4.1, "hinge": 0.0}}) == [
+        {"penalty": "front_bound", "active_at": ["plus"], "values": {"x": 0.0, "plus": 3.0, "minus": 0.0}},
+        {"penalty": "dn", "active_at": ["minus"], "values": {"x": 0.0, "plus": 0.0, "minus": 4.1}}]
     assert [u["parameter"] for u in RF.unobserved(fam, rep["sigma"], x, rep["status"])][1:] == []    # F4 tilt only
     rs = RC.relief_sheet(FX.prada_default(), None, x=dict(zip(fam.names, map(float, x))), sigma=rep["sigma"],
                          sigma_status=rep["status"])
     assert rs["sigma_shown"] == {"x_in0": True, "x_in_ze": False, "r_C": False, "rise": False}
+
+
+def test_r2_confirmed_creases_are_named_and_merged():
+    """Fix round 3: R2's confirmed creases are reported by name (the graded spec's node line each segment's lift lies
+    on); pairs that reuse one 01 segment count once, and a crease no pair confirms is listed as untested."""
+    from glasses3d.tests.proofs import wp6_prada_stages as PS
+    spec = {"nodes": {"A": [0.0, 10.0, 0.0], "B": [47.0, 9.0, 0.0], "C": [22.0, -15.0, 3.4]}}
+    ab = lambda d0, d1: {"lift_dy": [[d, 10.0 - d / 47.0 + 0.1] for d in np.linspace(d0, d1, 9)], "verdict": "OK",
+                         "dn_deg": 7.7, "len_mm": d1 - d0}
+    ac = {"lift_dy": [[22.0 * t, 10.0 - 25.0 * t] for t in np.linspace(0.1, 0.4, 9)], "verdict": "SHALLOW",
+          "dn_deg": 2.0, "len_mm": 8.0}
+    off = {"lift_dy": [[30.0, 2.0], [33.0, 2.5], [36.0, 3.0]], "verdict": "FLAG", "dn_deg": 0.5, "len_mm": 6.0}
+    segs = {"05": {"segments": [ab(5, 15), ab(20, 30), ab(32, 40), ac, off]},
+            "01": {"segments": [ab(4, 18), ab(30, 31), ab(19, 33)]}}
+    conf = [{"seg05": 0, "seg01": 0, "dn_deg": 7.7}, {"seg05": 1, "seg01": 2, "dn_deg": 7.7},
+            {"seg05": 2, "seg01": 0, "dn_deg": 7.7}]
+    r = PS.r2_by_crease(spec, segs, conf)
+    assert [s["crease"] for s in r["views"]["05"]["segments"]] == ["AB", "AB", "AB", "AC", "none"]
+    assert r["views"]["01"]["creases_seen"] == ["AB"]
+    c = r["confirmed_by_crease"]
+    assert set(c) == {"AB"} and len(c["AB"]["pairs_05_01_dn"]) == 3
+    assert c["AB"]["distinct_01_segments"] == [0, 2] and c["AB"]["confirmations_after_merging"] == 2
+    assert r["confirmed_creases_tested"] == ["AB"] and r["untested_by_confirmation"] == ["AC", "BC"]
 
 
 def test_r2_is_not_judged_on_one_usable_view(synth):
@@ -374,7 +436,7 @@ def test_s1_dependency_table_names_the_theta_pairs_and_r_b_is_not_fitted():
     import json
     from glasses3d.tests.proofs import wp6_prada as P
     deps = json.loads(P.S1_DEPS.read_text(encoding="utf-8"))
-    assert deps["theta_pairs"] == {"R2": ["05+x", "01-x"], "R3": ["05+x", "02+x"]}
+    assert deps["theta_pairs"] == {"R3": ["02+x"]}             # fit-4: no theta in a side view
     assert "r_B" not in [n for n, _ in RF.PRADA_FREE]
     rec = {k: 0.0 for k in RR.S1_RECOVERY if k != "r_B_mm"}
     si = P.s1_stop_i(rec, RR.S1_RECOVERY, deps, {}, not_fitted={"r_B_mm": "not fitted (fixed at 0)"})
@@ -445,7 +507,7 @@ def test_fit_retraces_before_every_camera_block(monkeypatch):
     assert calls == [("block", m0), ("retrace", m0 + 1), ("block", m0 + 1), ("retrace", m0 + 2), ("block", m0 + 2)]
     assert res["spec"]["outline"]["top"][0][1] == m0 + 2 and res["final_outline_retraced"]
     assert [h["outline_retraced_before_block"] for h in res["history"]] == [False, True]
-    assert res["fit_version"].startswith("fit-3")
+    assert res["fit_version"].startswith("fit-4")                 # fit-4 keeps fit-3's re-trace order
 
 
 def _box(lo, hi):

@@ -107,25 +107,46 @@ def chord(ps: ParsedSpec, d: float) -> tuple[np.ndarray, np.ndarray]:
     return np.array([d, float(ps.y_bot(d))]), np.array([d, float(ps.y_top(d))])
 
 
-def station_list(ps: ParsedSpec) -> list[float]:
-    """Arm stations: every knot of the outline, inner face, thickness and chamfer breaks beyond the zone end,
-    subdivided so no gap exceeds station_step_mm. The zone end itself is always a station."""
-    ze, d1, step = ps.zone_end, ps.d1, ps.options["station_step_mm"]
-    ks = {ze}
-    for arr in (ps.top[:, 0], ps.bottom[:, 0], ps.inner.d, ps.thickness.d):
-        ks |= {float(k) for k in arr if ze < k < d1}
-    for ch in ps.chamfers:
-        ks |= {float(k) for k in chamfer_breaks(ch) if ze < k < d1}
-    ks = sorted(ks)
+def _subdivide(ks: list, end: float, step: float) -> list:
     out = []
-    bounds = ks + [d1]
+    bounds = sorted(ks) + [end]
     for a, b in zip(bounds[:-1], bounds[1:]):
         out.append(a)
         nsub = int(math.ceil((b - a) / step - 1e-9))
         for k in range(1, nsub):
             out.append(a + (b - a) * k / nsub)
+    return out
+
+
+def station_list(ps: ParsedSpec) -> list[float]:
+    """Station chords over the whole temple, so no outer face is wider than station_step_mm in d (core-2):
+      arm   every knot of the outline, inner face, thickness and chamfer breaks beyond the zone end, subdivided so no
+            gap exceeds station_step_mm; the zone end itself is always a station;
+      zone  every outline knot, facet node station and chamfer break inside (d0, zone_end), subdivided the same way.
+    Zone stations cut planar facets into planar strips, so the surface is unchanged; they exist because a consumer may
+    deform the temple per VERTEX by a smooth function of d: arview's arm spread bends the arm about a pivot inside
+    Prada's facet zone (a quadratic hinge rounding), and a facet spanning 20-45 mm in d then follows the chord of that
+    bend, up to ~0.5 mm off, while a densely meshed decal 0.05 mm above it follows the bend and is buried (the PRADA
+    hallmarks disappeared in arview on the WP6 tool-test temple; 2 mm strips leave a chord error below 0.005 mm).
+    A temple with an edge roll (roll_mm > 0) keeps the arm stations only: Blender's Bevel re-meshes the outer long
+    edges, and a zone station vertex within the roll width of a beveled edge (where a station chord crosses a crease
+    running close under the outline) makes the Bevel overlap itself (P0 `rolled`: a 1.5 micron edge at d 2 that the GLB
+    weld collapses)."""
+    ze, d0, d1, step = ps.zone_end, ps.d0, ps.d1, ps.options["station_step_mm"]
+    ks = {ze}
+    for arr in (ps.top[:, 0], ps.bottom[:, 0], ps.inner.d, ps.thickness.d):
+        ks |= {float(k) for k in arr if ze < k < d1}
+    for ch in ps.chamfers:
+        ks |= {float(k) for k in chamfer_breaks(ch) if ze < k < d1}
+    zk = {float(k) for arr in (ps.top[:, 0], ps.bottom[:, 0]) for k in arr if d0 < k < ze}
+    zk |= {float(n[0]) for n in ps.nodes.values() if d0 < float(n[0]) < ze}
+    for ch in ps.chamfers:
+        zk |= {float(k) for k in chamfer_breaks(ch) if d0 < k < ze}
+    out = _subdivide(sorted(ks), d1, step)
+    if not ps.roll_mm > 0:
+        out += _subdivide([d0] + sorted(zk), ze, step)
     out = sorted(set(round(x, 12) for x in out))
-    return [x for x in out if ze - 1e-12 <= x < d1 - 1e-9]
+    return [x for x in out if d0 + 1e-9 < x < d1 - 1e-9]
 
 
 def segments(ps: ParsedSpec) -> list:
@@ -282,8 +303,8 @@ def build_temple(spec) -> TempleBuild:
             tri_poly.append(pid)
     tris = np.asarray(tris, np.int64)
     tri_poly = np.asarray(tri_poly, np.int64)
-    normals = np.array([_newell(V[p]) for p in polys])
-    checks = _self_checks(V, polys, tris, tri_poly, kind, V2, arr)
+    normals, planarity = _newell_all(V, polys)
+    checks = _self_checks(V, polys, tris, tri_poly, kind, V2, arr, planarity)
     if not checks["closed"]:
         raise TempleError("E_NOT_CLOSED", "the assembled solid is not a closed oriented 2-manifold",
                           open_edges=checks["open_edges"], duplicate_directed_edges=checks["duplicate_directed_edges"])
@@ -309,8 +330,9 @@ def _label_faces(ps: ParsedSpec, arr: Arrangement) -> tuple[list, list]:
             raise TempleError("E_SPEC", f"facet {l}: its polygon crosses itself (edges {bad})", facet=l)
     labels, chamf = [], []
     area = {l: 0.0 for l in polys}
+    ins = {l: points_in_poly(arr.interior_pts, P) for l, P in polys.items()}
     for fi, p in enumerate(arr.interior_pts):
-        inside = [l for l, P in polys.items() if point_in_poly(p, P)]
+        inside = [l for l in polys if ins[l][fi]]
         if len(inside) > 1:
             raise TempleError("E_FACET_OVERLAP", f"facets {inside} overlap at (d, y) ({p[0]:.3f}, {p[1]:.3f})",
                               facets=inside, at=p.tolist())
@@ -332,6 +354,43 @@ def _label_faces(ps: ParsedSpec, arr: Arrangement) -> tuple[list, list]:
 def _simple(P):
     from .arrange import simple_polygon
     return simple_polygon(P)
+
+
+def _newell_all(V: np.ndarray, polys: list) -> tuple[np.ndarray, np.ndarray]:
+    """(unit Newell normal, planarity) of every polygon at once (core-1.1: the per-polygon loop was a third of a build
+    once the zone got station chords): Newell's sums by bincount over the polygons' directed edges; planarity = the
+    largest distance of a polygon's vertices from the plane through their centroid along its normal (0 for
+    triangles)."""
+    lens = np.fromiter((len(p) for p in polys), np.int64, len(polys))
+    idx = np.fromiter((v for p in polys for v in p), np.int64, int(lens.sum()))
+    starts = np.r_[0, np.cumsum(lens)[:-1]]
+    nxt = np.arange(len(idx)) + 1
+    nxt[starts + lens - 1] = starts
+    P, Q = V[idx], V[idx[nxt]]
+    pid = np.repeat(np.arange(len(polys)), lens)
+    comp = ((P[:, 1] - Q[:, 1]) * (P[:, 2] + Q[:, 2]), (P[:, 2] - Q[:, 2]) * (P[:, 0] + Q[:, 0]),
+            (P[:, 0] - Q[:, 0]) * (P[:, 1] + Q[:, 1]))
+    n = np.stack([np.bincount(pid, weights=c, minlength=len(polys)) for c in comp], axis=1)
+    L = np.linalg.norm(n, axis=1)
+    n = np.where(L[:, None] > 0, n / np.where(L > 0, L, 1.0)[:, None], n)
+    ctr = np.stack([np.bincount(pid, weights=P[:, k], minlength=len(polys)) for k in range(3)], axis=1) / lens[:, None]
+    dist = np.abs(np.einsum("ij,ij->i", P - ctr[pid], n[pid]))
+    plan = np.maximum.reduceat(dist, starts)
+    plan[lens <= 3] = 0.0
+    return n, plan
+
+
+def points_in_poly(pts, P) -> np.ndarray:
+    """arrange.point_in_poly for many points at once (the same even-odd rule, edge by edge)."""
+    pts = np.asarray(pts, np.float64).reshape(-1, 2)
+    P = np.asarray(P, np.float64)
+    x, y = pts[:, 0][:, None], pts[:, 1][:, None]
+    x0, y0 = P[:, 0][None], P[:, 1][None]
+    x1, y1 = np.roll(P[:, 0], -1)[None], np.roll(P[:, 1], -1)[None]
+    cond = (y0 > y) != (y1 > y)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xc = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+    return (np.count_nonzero(cond & (xc > x), axis=1) % 2).astype(bool)
 
 
 def _newell(P: np.ndarray) -> np.ndarray:
@@ -356,19 +415,14 @@ def mesh_topology(polys: list) -> dict:
     return {"directed": directed, "dup": dup, "open": opn}
 
 
-def _self_checks(V, polys, tris, tri_poly, kind, V2, arr) -> dict:
+def _self_checks(V, polys, tris, tri_poly, kind, V2, arr, planarity=None) -> dict:
     topo = mesh_topology(polys)
     und = {(min(a, b), max(a, b)) for a, b in topo["directed"]}
     used = sorted({v for p in polys for v in p})
     chi = len(used) - len(und) + len(polys)
     a, b, c = V[tris[:, 0]], V[tris[:, 1]], V[tris[:, 2]]
     vol = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0)
-    plan = []
-    for p in polys:
-        P = V[p]
-        nrm = _newell(P)
-        ctr = P.mean(axis=0)
-        plan.append(float(np.max(np.abs((P - ctr) @ nrm))) if len(p) > 3 else 0.0)
+    plan = list(planarity) if planarity is not None else list(_newell_all(V, polys)[1])
     outer = np.array([k == "outer" for k in kind])[tri_poly]
     t2 = tris[outer]
     q0, q1, q2 = V2[t2[:, 0]], V2[t2[:, 1]], V2[t2[:, 2]]

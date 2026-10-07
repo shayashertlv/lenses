@@ -381,7 +381,8 @@
    22.6,
    -16.3
   ],
-  "d_E": 55.0
+  "d_E": 55.0,
+  "topology": "pyramid"
  },
- "start_note": "outline: the WP6 measurement's side-photo trace (re-traced by trace_outline in P2); B, C: the 05 / 01 crease-map corners; relief priors from WP6_DESIGN (C proud ~3 mm, F1 ~14 deg inward); B on the base (r_B 0, see relief_fit.PRADA_FREE); E = where F4 runs into the arm (d 55)"
+ "start_note": "outline: the WP6 measurement's side-photo trace (re-traced by trace_outline in P2); B, C: the 05 / 01 crease-map corners; relief priors from WP6_DESIGN (C proud ~3 mm, F1 ~14 deg inward); B on the base (r_B 0, see relief_fit.PRADA_FREE); E = where F4 runs into the arm (d 55); topology (2026-10-07): 'pyramid' = F1 is the base (relief_fit.TOPOLOGIES, FX.prada_pyramid_spec): the reading of the hand-traced tool test (photo steps: F2 brighter than the band above A-B by 5.1-6.7 L* in 05 / 01 / 02, no step inside the band behind B); P2 re-measures that evidence (relief_cue.topology_evidence) and records it; under the photos' overhead light a band tilted only about the vertical would show no band step either, so this stays Astra's reading, which the fit's crease-step cue then tests"
 }

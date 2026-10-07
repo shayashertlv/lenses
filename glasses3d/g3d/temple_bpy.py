@@ -300,10 +300,12 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
                 e = (min(p[k], p[(k + 1) % len(p)]), max(p[k], p[(k + 1) % len(p)]))
                 E[e] = E.get(e, 0) + 1
         open_ = any(c == 1 for c in E.values())
-        if not MS.is_surface_decal(_signed_distance(old_bvh, V, side), float(np.min(hi - lo)), open_):
+        sd = _signed_distance(old_bvh, V, side)
+        if not MS.is_surface_decal(sd, float(np.min(hi - lo)), open_):
             continue
         n = np.mean(normals, axis=0)
         n /= np.linalg.norm(n)
+        lift = MS.decal_standoff(sd, DECAL_LIFT_MM)
         new, miss, regions = V.copy(), 0, set()
         for i, v in enumerate(V):
             o = Vector(tuple(map(float, v + n * DECAL_RAY_MM)))
@@ -311,7 +313,7 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
             if hit[0] is None:
                 miss += 1
                 continue
-            new[i] = np.array(hit[0]) + n * DECAL_LIFT_MM
+            new[i] = np.array(hit[0]) + n * lift[i]
             regions.add(region_of_poly[hit[2]])
         moves = np.linalg.norm(new - V, axis=1)
         plans.append({"object": ob, "name": ob.name, "V_old": V, "V_new": new, "normal": n.tolist(), "misses": miss,
