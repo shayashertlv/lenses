@@ -8,6 +8,8 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 The historical handoff below is preserved. The owner requested RESUME HERE section 5 step 1 only:
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
 before every paid call. Work is on `glasses3d`, performed sequentially without subagents per AGENTS.md.
+**Section 5 step 1 is complete:** the stopped work in 3.1-3.5 is verified and committed as groups A-E.
+The historical status table and RESUME HERE text below describe the original stop; this active entry supersedes them.
 
 - **Group A committed: `e3fd8fe` (11:39).** All 12 stored step-6 findings reviewed against the full diff,
   followed by a fresh full-diff re-review. Full WP5 suite: **276 passed, 1 expected xfail**, no skips,
@@ -44,7 +46,7 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   its stopped-work changes describe the actual common-frame theta dependency, with no relaxed numeric gate.
   Source scene SHA-256 is unchanged in both runs: `56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06`.
   Delegated decision and evidence are recorded below and in both proof records. **WP6 remains gated.**
-- **Group D verified (commit follows this entry).** Full worker/camera suite: **362 passed**, no skips, exit 0,
+- **Group D committed: `b3df813`.** Full worker/camera suite: **362 passed**, no skips, exit 0,
   275.69 s, 12:39:12-12:43:49, G3D_REQUIRE_DATA=1. Fit tests use three workers after the WP6 pool ended
   (12,505,704 KB free commit at launch); logs/arguments: `d_tests.log`, `d_tests_run.json` in the audit folder.
   Fresh full-diff re-review against impl:A/review:A:1/impl:B complete, including all new files. Ownership confirmed:
@@ -56,12 +58,38 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   Analytic camera parity <= 0.00103 px (limit 0.01); rendered <= 0.0313 px (0.1). All six Prada baseline deltas are
   zero for IoU and contour. Exact corpus replays: Prada 19/19, Oakley 21/21, INVU 20/20. Renders: 28 PNGs in 11.1 s,
   fingerprint unchanged; Blender/host silhouette IoU 0.99908-0.99960. No remaining major in D.
-- **E remains uncommitted and under review.** Its six majors and additional review fixes are implemented;
-  final offline suite: **399 passed**, no skips,
-  93.92 s, exit 0, including the exact 59-request Prada replay (`e_tests_r3.log`, `e_tests_run_r3.json`).
-  Fresh full money/network/design re-review continues before its commit.
-  All work is $0; only approved exact-version PyPI metadata was fetched to pin installed psutil 7.2.2.
-  No paid call or push.
+- **Group E verified and committed with this entry.** All six stored majors and the money/network/design minors
+  were fixed, followed by a fresh full source/test/design diff re-review against the three stored reviews.
+  Final offline suite: **399 passed**, no skips, **65.17 s**, exit 0, 12:58:12-12:59:18
+  (`data/codex_resume_20261007/e_tests_r4.log`, `e_tests_run_r4.json`). No remaining blocker/major in E.
+  Closed-run anchors and transport high-water checks reject truncation; prior/final row hashes bind reconciliation
+  provenance. The consumed approval bounds the ledger cap; current job/brief/photo/notes bytes are rebound before
+  consumption. Every run requires explicit effort and the two-way tool contract. Implementation receipts now archive
+  and hash exact source bytes, including dirty source, while excluding inputs, environments and dependencies.
+  Pinned installed psutil 7.2.2 with its official PyPI wheel SHA-256; no version upgrade.
+  Additional fixes: archive-owned response reconciliation, input-count mismatch blocks further paid work, preserved
+  partial-ledger recovery, approved-cap default, upward-cent display, initial-message order, HTTP-only SDK transport,
+  image-bearing text moved out of receipts/session rows, known-unsent failures recorded at $0 without retry, and
+  rollback/session repair only after lock/approval consumption. Snapshot failures leave a result and release locks.
+  The final review aligned the loop's soft-timeout floor with the worker's 0.5 s floor and verified its boundary test.
+  Exact Prada proof through the real SDK/hooks and the full loop: **59 counts = 59 creates = 59 rows**,
+  row 1 reserve **719,438 micro-USD**, settled **14,261,424 micro-USD**, peak committed **17,164,748 <= 18,000,000**.
+  These are replayed historical amounts; actual spend is $0. Recorded-data comparisons all ran and passed.
+  Public-fixture audit: 59 Prada rows and 655 rows across 13 corpus runs, integer token counts plus short metadata;
+  no photos, prompts, transcripts, paths or secrets. `e_final_review.json` records fixture/source hashes and evidence;
+  `e_commit_paths.json` lists the 35 explicit E paths (both local-only under the audit folder).
+
+All work was **$0**, with zero paid calls and no push. Only pre-approved exact-version PyPI metadata was fetched.
+All launched test/proof processes have finished. WP0/1/3/3b/4 retain their prior completed status; WP5 step 6 and
+WP2 stages A-C are verified, but WP5 and WP2 as a whole are not complete. WP6 remains gated by STOP-I; WP7 is design
+only and WP8 has not started.
+
+**Exact next action (not started in this request): section 5 step 2 / section 2, the already-chosen WP5 option B.**
+Preserve A under `data/wp5/ft1119_bake/pre_owner_B/`, promote B's frozen level parameters with the owner's recorded
+reason, verify the print hash against B, run the 15/15 tool proof on a temporary bake copy and record its GLB hash.
+Keep that production-level change in a separate explicit-path commit. Then follow the remaining ordered steps.
+The delegated WP6 decisions are already resolved below; do not re-ask them or loosen frozen gates. Before any paid
+call, obtain the owner's explicit approval for that run; ask the fresh WP8 questions when WP8 is reached.
 
 ### WP6 delegated decision, 2026-10-07 (group C)
 

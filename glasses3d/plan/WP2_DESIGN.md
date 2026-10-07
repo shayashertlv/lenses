@@ -212,7 +212,7 @@ max_tokens=run.max_output_tokens, retry=ModelRetrySettings(max_retries=0), extra
 reasoning=Reasoning(effort=run.effort, summary="auto"))`; `Runner.run(..., max_turns, session=SQLiteSession("astra",
 job/session/session.sqlite), hooks=ReviewLog, run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False,
 tool_execution=ToolExecutionConfig(max_function_tool_concurrency=1), model_provider=OpenAIProvider(openai_client=client,
-use_responses=True)))`; `set_tracing_disabled(True)`. Preflight runs the two-way contract: every tool named in WP7 is registered,
+use_responses=True, use_responses_websocket=False)))`; `set_tracing_disabled(True)`. Preflight requires the two-way contract: every tool named in WP7 is registered,
 every registered tool is described, gated tools are neither, and no removed phrase appears in instructions, brief or docstrings.
 
 **Statuses** (`result.json`): completed, turn_limit, budget_limit, stopped, provider_rejected (4xx, $0), provider_unknown (5xx,
@@ -242,7 +242,7 @@ the 900 s client timeout (observed maximum 165 s); the hold becomes `unknown`, s
 
 | Hard timeout (s) | execute_blender_code | seat/hide | check_lens_seating | render_views | compare | export_glb | checkpoints | arview_capture | fit_cameras | project_photo_texture | deliver | pick, read_*, scene_summary |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| | soft + 30 (soft 120, 5-600) | 150 | 120 | 300 | 300 | 120 | 60 | 300 | 1,800 | 1,800 | 600 | 30 |
+| | soft + 30 (soft 120, 0.5-600) | 150 | 120 | 300 | 300 | 120 | 60 | 300 | 1,800 | 1,800 | 600 | 30 |
 
 ## 8. Budget (`agent/pricing.py`, `agent/budget.py`, `agent/estimate.py`)
 
@@ -255,10 +255,13 @@ micro-USD, every division rounding up; `reserve_micro` = all input at the cache-
 fields outside `COUNT_FIELDS`/`CREATE_FIELDS` (now named in the error; 0.22.3 sends `include, input, instructions,
 max_output_tokens, model, parallel_tool_calls, prompt_cache_key, reasoning, service_tier, tools`, all allowed); non-function
 tools; missing `max_output_tokens`. Edits: (1) ledger `g3d.run_budget/1`, rows `{sequence, time, input_tokens, max_output_tokens,
-reserved_micro_usd, outcome: held|settled|rejected_4xx|unknown|reconciled, request_id, response_id, http_status,
-settled_micro_usd, usage, settled_from: transport|owner, reason}`; (2) `after_response` settles every 200 that names gpt-6-astra
+reserved_micro_usd, outcome: held|settled|rejected_4xx|unknown|reconciled|not_sent, request_id, response_id, http_status,
+settled_micro_usd, usage, settled_from: transport|owner|host, reason}`; `not_sent`/`host` records a request-hook failure
+after reservation but before HTTP send at $0 and forbids retry in that run; failed persistence retains its hold.
+(2) `after_response` settles every 200 that names gpt-6-astra
 with an id and status completed or incomplete from its own usage, and `on_llm_end` cross-checks id and usage, blocking on a
-mismatch; (3) 4xx (429 included) → `settle_rejected` at $0; 5xx, non-JSON, connection error or timeout → `mark_unknown` with the
+mismatch; disagreement with the counted input records actual cost and blocks later paid work. (3) 4xx (429 included) →
+`settle_rejected` at $0; 5xx, non-JSON, connection error or timeout → `mark_unknown` with the
 full hold; (4) one open request: `before_request` refuses while the previous row is `held`; (5) `planning()` returns numbers only
 (the prose at budget.py:165-169 steered Astra, RULES_AUDIT); (6) owner reconcile: `reconcile_unknown(seq, owner_words, usage |
 no_charge)` (modeler/agentic/budget.py:179-214, :289-310) and `reconcile_from_transport(seq)`, which settles from an archived 200
@@ -268,7 +271,8 @@ with validating usage and matching id (on Oakley run 1 it would have released $0
 **JobLedger** (rewrite of trial_budget.py, `budget/job-ledger.json`): non-blocking OS lock (trial_budget.py:61-79) plus a
 machine-wide `data/jobs/.paid-run.lock {pid, create_time, exe}` re-checked with psutil (one paid run at a time); totals rebuilt
 from `runs/*/budget.json`, re-priced and tamper-checked (:165-210); unknown holds count against the job until reconciled; a run
-dir without `budget.json` counts $0 with no transport files (`aborted_before_paid`) and blocks the job until reconciled with
+dir without `budget.json` counts $0 with no transport files (`pending_approval` when it has an estimate, otherwise
+`aborted_before_paid`) and blocks the job until reconciled with
 some (no oakley-scratch-001 lockout). Order: (1) $0 preflight: job files and image decodes, instructions/tool contract, key
 present, worker started on the expected checkpoint (c0000 saved and verified), arview built, disk space; (2) consume the
 approval and create `budget.json` by exclusive create (`open('x')` + fsync) in one transaction; (3) only then the first POST.
@@ -277,19 +281,26 @@ approval and create `budget.json` by exclusive create (`open('x')` + fsync) in o
 `max_output_tokens`, `max_turns`, and `request_sha256` = sha of job.json, input shas, unsent owner notes, instructions sha,
 tool-registry sha, settings). `job approve <id> --run R --max-usd X --owner-words "<the owner's exact chat words>"` writes
 `approval.json`. `job run` exits 3 with 0 requests when the approval is missing, stale (sha), consumed or below the requested
-cap. This is an audit trail Claude records from chat, not cryptography.
+cap. The default cap is the owner's approved amount, which may exceed the estimate; an explicit lower cap is allowed.
+The loop recomputes the request from current files and exact brief/photo descriptors/notes before consumption; a cached
+caller sha is insufficient. Closed-run row hashes and transport request numbers detect truncation or changed outcomes;
+an unknown-row reconciliation binds prior/final row hashes, source, usage and exact owner words. Archive reconciliation
+reads its own response and receipt hash. A partial ledger creation can be owner-reconciled at $0 only without transport
+evidence or prior recorded rows; the invalid bytes remain preserved and the approval remains consumed.
+This is an audit trail the coding agent records from chat, not cryptography.
 
 **Estimate** = `Σ_{i<N} settle(C0 + g·i, cache hit h, output o)` priced with the Tariff including the 272k step; C0 = text
 chars/4 + 1,500 per image; g, h, o = medians of the 13 Studio astra ledgers (2,360 tokens/turn, 0.971, 850), range from the
 p10-p90 of g; leave-one-out median absolute error 8% (range −33..+32%, Prada underestimated). The unspendable tail is the
-worst-case hold at the last request's size. Example C0 25k, N 60: $10.11 (range $8.90-12.69); tail $2.46 at 8,192 output, $2.87
+worst-case hold at the last request's size. Display amounts round upward to cents. Example C0 25k, N 60: $10.12 (range $8.91-12.69); tail $2.47 at 8,192 output, $2.88
 at 16,384. **Smoke (WP8 step 0):** `job run --smoke` = 1 image, `max_output_tokens` 4,096, `max_turns` 2, cap $1.00; at ~12k
 context the hold is ~$0.36 and the spend ~$0.10-0.30 ("spend: cents; hold: up to $0.40").
 
 ## 9. Receipts
 
 `ReviewLog` (port of agent.py:181-339): `runs/<r>/transport/NNNN-{request,response}.json` with data-URL images replaced by
-`{sha256, bytes, mime}` and stored once in `blobs/`, encrypted content and signatures masked, key redacted; `events.jsonl` (hook,
+`{sha256, bytes, mime}` and stored once in `blobs/`; embedded or non-base64 image URLs inside text use compressed UTF-8 blobs
+(the session restores the exact original text); encrypted content and signatures masked, key redacted; `events.jsonl` (hook,
 raw-body sha/size, request_id, response_id, status, usage); `reasoning-summaries.jsonl` (kept `summary_record`); **`transcript.md`**,
 the owner-readable record (Astra's text, summaries where present — only ~16% of responses have one — each tool call's arguments
 with code fenced, each result's status, key numbers and image links); per call `tools/NNNN-<tool>/{arguments,result,journal}.json`
@@ -436,8 +447,10 @@ load`; a snippet that creates an object then raises; provider 429, 520, connecti
 
 **Pass criteria**
 1. **Network:** 0 non-loopback connects or DNS lookups; 0 production-client constructions.
-2. **Requests:** per run creates = count calls = ledger rows; every create has retry count 0, `service_tier` default, model
-   gpt-6-astra, `max_output_tokens` set, function tools only.
+2. **Requests:** successful replay runs have creates = count calls = ledger rows; every create has retry count 0,
+   `service_tier` default, model gpt-6-astra, `max_output_tokens` set, function tools only. A refused reservation may have
+   a count call without a ledger row or create. A host-hook failure after reservation has a `not_sent` row and no create;
+   its known-unsent hold is released and the run ends without retry.
 3. **Proof A money:** 59 rows, each settled once from the transport; each `reserved_micro_usd` equals the recorded value (row 1 =
    719,438); **Σ settled = 14,261,424 micro-USD exactly** (the recorded Prada total); 0 unsettled; peak committed ≤ $18.
 4. **Proof B outcomes:** 429 → `rejected_4xx` $0; 520 and drop → `unknown` full hold, exactly 1 request sent, `provider_unknown`;
