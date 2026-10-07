@@ -12,11 +12,11 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP3 exporter + validate_spec | **done, proof passed** (review defects fixed, mutation tests) | 6acfc5a |
 | WP3b camera fitting | **done** (port reproduces the prototype to 1e-6 under scipy 1.16.0; 12-view baseline; the registration-threshold question is dissolved: WP5 uses a photometric gate) | 457daf7 |
 | WP4 lens seating | **done, proof passed** (P2 FT1119 71/71; Prada seats; Oakley 0 moved; P6 junction line 0 px in AR) | b76c249, 140cc71 |
-| WP5 photo print | **in progress. WAITING FOR THE OWNER'S VERDICT** on the all-angles sheets (sent 10:42). Step 6 built + full suite green at 09:27 (241 passed), NOT committed; its review-fix workflow was STOPPED mid-verification (section 3.1) | 5ec9c25 |
-| WP6 faceted temples | re-diagnosis STOPPED in its fix round (section 3.3). Latest proof (10:36) ends at **STOP-I with an OPEN OWNER DECISION** (waive or keep); tool OK with hand-traced parameters | 204f694 |
+| WP5 photo print | **in progress. OWNER CHOSE OPTION B ("darker")** on the all-angles sheets (2026-10-07 ~11:10, ledger row 4). Next: make B the production level (section 2). Step 6 built + full suite green at 09:27 (241 passed), NOT committed; its review-fix workflow was STOPPED mid-verification (section 3.1) | 5ec9c25 |
+| WP6 faceted temples | re-diagnosis STOPPED in its fix round (section 3.3). Latest proof (10:36) ends at STOP-I; tool OK with hand-traced parameters. **The owner DELEGATED the WP6 decisions to Claude** ("review the issue of wp6 and decide by itself"): review and decide (section 3.3) | 204f694 |
 | WP2 live Astra session | stage A built + reviewed (324 tests); stage B built, its review STOPPED mid-way; stage C built (money exact), its fix round STOPPED before any edit; SDK installed; NOTHING of A/B/C committed; D-F not started | f479660 (requirements-agent.txt) |
 | WP7 instructions | **design done** (`plan/WP7_DESIGN.md`); implementation waits for WP2 stage D's registry | 78d1950 |
-| WP8 paid validation | not started; owner OK per paid run (ask first: budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU; plus WP7_DESIGN §4.2 #1-#2) | - |
+| WP8 paid validation | not started; owner OK per paid run. The owner said "let the new model ask me again": ask the questions fresh when WP8 is reached (budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU; WP7_DESIGN §4.2 #1-#2) | - |
 
 ## RESUME HERE (FINAL handoff 2026-10-07 ~11:00; read this first after PLAN.md §0)
 
@@ -27,12 +27,19 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   work with no possibility of the transition to screw your work."
 - 10:52: "is it possible to end your current runs? and that the next model will resume your work? id so, plesase do that before we run out
   of usage completely. be very very elaborate with info, include tiny details!"
+- ~11:10, the owner's answers (verbatim): "1. which option is best - b  2. i want the new model to review the issue of wp6 and decide by
+  itself on what to do  3. let the new model ask me again".
+  => (1) WP5 verdict = **B** (recorded: `glasses3d/data/ledger/owner_verdicts.jsonl` row 4, `prefer_option_B`, GLB sha bad9c861...);
+  (2) the WP6 owner decisions (STOP-I waive-or-keep and the two rule-set questions) are DELEGATED to the next model: review the evidence
+  and decide yourself, record the decision + reasons in this file, and tell the owner the outcome in plain words (do not ask them);
+  (3) the pre-WP8 questions (money, effort, smoke cap, regression product, WP7_DESIGN §4.2 #1-#2) are NOT answered: ask the owner
+  again, fresh, when WP8 is reached. **The verdict has been given, so the next model MAY resume work** (sections 2, 3, 5).
 => All five workflows were stopped with TaskStop at ~10:51 and every child process (pytest, Blender, node/Chromium, proof pools) is gone
 (checked: only unrelated Claude-extension and Codex processes remain). **Do NOT start new work until the owner gives the WP5 verdict on the
-all-angles sheets.** Before the verdict you MAY: verify and commit the finished-and-checked parts (section 4), and re-run the interrupted
-verification steps listed in section 3 (they are finishing work, not new work). When the verdict arrives, act on it first (section 2).
+all-angles sheets.** [Superseded ~11:10: the verdict (B) is in; resume.] Order: act on the verdict first (section 2), finish and commit
+the stopped work (section 3 / 4), then section 5.
 
-### 1. The owner's pending WP5 decision (asked 10:42; the question: which option looks most like your glasses?)
+### 1. The WP5 decision (asked 10:42: which option looks most like your glasses? ANSWERED ~11:10: **"b"**)
 - Sent four sheets; frozen copies in `glasses3d/data/wp5/all_angles_sent_1042/` (sha256 prefixes): `all_angles_photos.png` [f5d3b776]
   (front, angled, top, back: each from the photo's own fitted camera, arview renderer, no face), `all_angles_photos_shape_differs.png`
   [34954165] (03 wearer's right side and 06 left side from above; model outline IoU 0.734 / 0.712 is Astra's shape, the bake's own fit
@@ -56,8 +63,17 @@ verification steps listed in section 3 (they are finishing work, not new work). 
   (probably highlight handling). Step-6 AR facts: the print matches brightness + colour only at photo 05's own angle (pitch +20); the
   front pose is ~+5 L* lighter/greyer = Astra's clearcoat (32.9 % of the brow fronts, +13 L*) -> a MATERIAL note for Astra.
 
-### 2. On the owner's verdict
-- If A, B or C: make that level the production level (re-run the level map with that candidate through the existing path in
+### 2. The owner's verdict is B ("darker"): what to do
+- The owner picked **B** = candidate `near_18deg`: gain 0.831103704589155, gamma 1.1678124999999997, sat 0.996044489936834, chroma_hold
+  true, chroma_hue [20, 100], chroma_power 0.455 (exact values in `data/wp5/ar_calibration/calibration.json` -> `candidates.near_18deg`;
+  B's print.png sha b52f3112...; GLB `data/wp5/ar_calibration/cand_near_chroma_TOOLTEST.glb` sha bad9c861...). Make B the production
+  level: the production `data/wp5/ft1119_bake/print.png` (sha d2e153a3..., = A) must become B's print; keep A's files (copy them to
+  `data/wp5/ft1119_bake/pre_owner_B/` first - never delete). The code default that chose A (the `photo_angles` choice in
+  `tests/photoprint/ar_calibrate.py` / the bake's level step) must take the owner's choice (record "owner chose near_18deg 2026-10-07" as
+  the reason, not a fit). Prove: the new print.png is byte-identical to B's print (b52f3112...) or explain any difference; re-run the
+  tool test on a temp COPY of the bake (`python -m glasses3d.tests.photoprint.print_tooltest --bake <temp copy>`, 15/15) and record the new
+  tool-test GLB sha. Do this AFTER verifying/committing group A (section 3.1) so the step-6 fixes and the level change are separate commits.
+- (General rule kept for later choices) If A, B or C: make that level the production level (re-run the level map with that candidate through the existing path in
   `glasses3d/tests/photoprint/ar_calibrate.py` / `shading.level_map`, write print.png, re-run the tool test on a temp COPY: `python -m
   glasses3d.tests.photoprint.print_tooltest --bake <temp copy>`), record the verdict in `glasses3d/data/ledger/owner_verdicts.jsonl` bound to
   the tool-test GLB sha (a tool test, not a delivery). If "none"/"Astra's": ask nothing technical; diagnose from the owner's words.
@@ -122,8 +138,13 @@ strict r_C stability rule, which my stop KILLED: `data/wp6/logs/handtraced_fix3.
 `data/wp6/logs/handtraced_before_fix3/` and `data/wp6/handtraced_run1_zone80/`. TO DO: read fix:1's edits (git diff group C), add the
 missing tests, re-run `python -u -B -m glasses3d.tests.proofs.wp6_handtraced` (pool of ~14 sized to free memory), run the WP6 tests
 (`glasses3d/tests/test_temple_*.py` + the proofs' unit tests), one review round, then the fresh full proof into `data/wp6/proof2`. Then
-take the OWNER DECISIONS to the owner in plain words with labelled images (photo | tool test | delivered; side/top/rear): (a) the
-STOP-I waiver-or-keep, (b) the two rule-set questions from `capability`. Commit group C once its tests pass (the code, not a verdict).
+DECIDE YOURSELF (the owner delegated it ~11:10: "review the issue of wp6 and decide by itself on what to do"): (a) the STOP-I
+waiver-or-keep and (b) the two rule-set questions from `capability` (read them in `glasses3d/data/handoff_20261007/results_wp6_rediagnose.json`, `capability` result,
+and WP6_DESIGN). Decide on evidence, not convenience: never loosen `relief_rules.py` thresholds to make a pass (frozen; sha 7c22eab7...),
+never tune toward a pass; a waiver is acceptable only if the evidence shows the stopped quantity cannot be measured from these photos AND
+the decision is visible to the owner in AR. Record the decision, the evidence and the alternatives in this file (a dated WP6 entry) and in
+the proof record (the `--owner-waiver KEY=TEXT` text must say "decided by Claude under the owner's delegation of 2026-10-07"); then tell
+the owner the outcome in plain words with labelled images (photo | tool test | delivered; side/top/rear) - inform, do not ask. Commit group C once its tests pass (the code, not a verdict).
 `data/wp6/logs/pytest_fit4_parallel.log` showed an F at 09:18 during a memory-exhaustion window: rerun before believing it.
 
 **3.4 `g3d-wp2-stages-ab` (run wf_32fc96f9-1c5; results_wp2_stages_ab.json).** Completed: `impl:A` (324 passed in tests/test_wp2_*.py in
@@ -177,7 +198,8 @@ untracked files) taken at HEAD `2ba35a8`, listing in `glasses3d/data/handoff_202
 ### 5. Next steps after the owner's verdict (in order; each with its $0 proof, committed on `glasses3d`, no push)
 1. Finish 3.1-3.5 and commit groups A-E (each verified as listed).
 2. WP5 next step (section 2), owner judges by eye; then G1: the print as a library tool.
-3. WP6: owner decisions (STOP-I waiver or keep; the two rule-set questions) in plain words with images; if the tool cannot make facets even
+3. WP6: decide the STOP-I waiver-or-keep and the two rule-set questions YOURSELF (owner delegation ~11:10, section 3.3) and report the
+   outcome to the owner with images; if the tool cannot make facets even
    with good parameters, stop and report (PLAN WP6 stop rule). Then G2 prerequisites: `g3d_temple` in the exporter allowlist, temple ops in
    `g3d/__init__` + `g3d/cli.py`, Prada coupling removed; check_relief must receive photo crease counts (else SLAB fires on smooth temples)
    and FRONT_BOUND merged into the flags (WP7_DESIGN open items).
@@ -185,7 +207,7 @@ untracked files) taken at HEAD `2ba35a8`, listing in `glasses3d/data/handoff_202
    all 16 criteria of WP2_DESIGN §14; stop rule: proof A total off by even 1 micro-USD). Fix WP2_DESIGN §11's wrong sentence "deliver refuses
    only on §2" (export refusals also stop it).
 5. WP7 implementation (`agent/instructions.py` + the contract tests of WP7_DESIGN §2) once the D registry exists.
-6. WP8 (paid): ask the owner the money questions + WP7_DESIGN §4.2 #1 ("sizes from the specifications; shape, colour and finish from the
+6. WP8 (paid): ask the owner AGAIN (they said "let the new model ask me again") the money questions + WP7_DESIGN §4.2 #1 ("sizes from the specifications; shape, colour and finish from the
    photos") and #2 (arview lensenv); then one capped smoke turn, then Prada, FT1119, the known-good product, then 3 unseen products.
 
 ### 6. Owner decisions and preferences (all also in Claude memory)
