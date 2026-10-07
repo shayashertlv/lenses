@@ -68,6 +68,10 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   **SDK installed 2026-10-07 08:31** (owner pre-approved installs from safe sources): `glasses3d/requirements-agent.txt` = 26 pins with
   PyPI sha256 hashes (openai 3.22.1, openai-agents 0.22.3, httpx2 2.13.1, httpcore2 2.13.1, mcp 1.30.0, python-dotenv 1.1.1 + 20 deps),
   resolved from pypi.org with the existing venv packages held as constraints: 26 added, 0 changed, `pip check` clean, `import agents` ok.
+- `g3d-wp7-design` (task wykg7gd4w, run wf_9c4f37fb-9a2, launched 08:30): evidence from old instructions + praised/failed transcripts ->
+  three drafts (evidence-first, tool-contract-first, owner-outcome-first) -> two judges -> `plan/WP7_DESIGN.md` (instruction blocks per
+  tool group, G1/G2 gated, contract-test spec, fresh docstrings) -> adversarial fact check. Design only; implementation waits for
+  WP2 stage D's registry. Drafts in `plan/wp7/` (commit with the design).
 - Owner away 2026-10-07 ~08:30-10:30; on return gives the WP5 verdict on the all-angles sheets. Instruction meanwhile: "keep on going
   with the other jobs" and use the machine heavily (no new WP5 print changes before the verdict).
 - If a workflow result is lost: its per-agent results are in
