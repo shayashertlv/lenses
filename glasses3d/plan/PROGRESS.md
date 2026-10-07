@@ -3,19 +3,64 @@
 Format (PLAN.md §4): date, WP, what was done, commit hash, $0-proof numbers, open issues, next step.
 A new session reads this right after PLAN.md §0 and resumes from the first unfinished step.
 
-## Status
+## Status (updated 2026-10-07)
 
-| WP | State | Commit |
+| WP | State | Last commit |
 |---|---|---|
-| WP0 | **done, $0 proof passed** | (this commit; see git log) |
-| WP1 | **done, $0 proof passed** (proof + closeout, independent image checks) | (WP1 closeout commit) |
-| WP3 | **done, $0 proof passed** (review defects fixed + re-verified) | 6acfc5a |
-| WP3b | port + $0 proof done; **waiting for the owner's WP5 registration threshold** | (WP3b commit) |
-| WP4 | **done, $0 proof passed** (P2 71/71, P3 Prada seats, P5 Oakley 0 moved, P6 junction line 0 px) | (WP4 done commit) |
-| WP5 | step 3 host committed (7ac7c8f): single-source print reads as the real havana from new angles; defects + Blender attach next (step 4) | 7ac7c8f |
-| WP6 | **stop rule fired** (tool test: outline better, facets not reproduced); re-diagnosis running (g3d-wp6-rediagnose) | 204f694 |
-| WP2 | design done (plan/WP2_DESIGN.md, judged panel of 3); stages A-B building (no download needed); stage C needs the owner's PyPI OK | - |
-| WP7, WP8 | not started | - |
+| WP0 setup, port review | **done, proof passed** | b19a08a |
+| WP1 arview | **done, proof passed** (independent image checks; closeout) | b5a20ea |
+| WP3 exporter + validate_spec | **done, proof passed** (review defects fixed, mutation tests) | 6acfc5a |
+| WP3b camera fitting | **done** (port reproduces the prototype to 1e-6 under scipy 1.16.0; 12-view baseline). The "registration threshold" owner question is DISSOLVED: WP5 showed silhouette error does not predict print error; WP5 uses a photometric gate (engineering decision) | 457daf7 |
+| WP4 lens seating | **done, proof passed** (P2 FT1119 71/71; Prada seats; Oakley 0 moved; P6 junction line 0 px in AR) | b76c249, 140cc71 |
+| WP5 photo print | **in progress**: owner chose "continue, judge by eye in AR" (single-source print per region). Step 5 committed; **step 6 running** | 5ec9c25 |
+| WP6 faceted temples | **stop rule fired** on the Prada tool test (outline better than delivered, facets not reproduced); **re-diagnosis running** | 204f694 |
+| WP2 live Astra session | design done (WP2_DESIGN.md); **stages A-B running**; stage C may install packages (owner pre-approved, safe sources) | 9c532bc |
+| WP7 instructions | not started (rule texts already drafted in WP4_DESIGN §12, WP6_DESIGN rule section) | - |
+| WP8 paid validation | not started; needs the owner's OK per paid run (ask then: budget cap per run, suggested $15; effort max or high; smoke cap $1; regression product Oakley or INVU) | - |
+
+## RESUME HERE (state on 2026-10-07; read this first after PLAN.md §0)
+
+**Running workflows (this session; outputs land on disk even if the session ends):**
+- `g3d-wp5-step6` (task w7g6psgfw, run wf_f8bf2ed9-273): brow-patch contrast/chroma (texture vs AR material), -x temple level,
+  endpiece marks; new sheets in `data/wp5/tooltest/` (owner_sheet.png, closeup_sheet.png). On completion: read the result, commit
+  photoprint/tests changes, send the owner the close-up sheet with a plain verdict, decide the next WP5 step.
+- `g3d-wp6-rediagnose` (task w2lnmo22g, run wf_5dce193d-796): (1) build the Prada temples with HAND-TRACED good parameters to
+  decide "tool OK vs tool defect"; (2) add a photo-measured relief cue to the fit, fix the theta instrument (STOP-I) and the open
+  review findings, PRADA decals in arview, hinge warnings; (3) fresh proof in `data/wp6/proof2`. On completion: commit, show the
+  owner the side sheet (photo | tool test | delivered) if facets now show; if the tool cannot make facets even with good
+  parameters, stop and report (PLAN WP6 stop rule).
+- `g3d-wp2-stages-ab` (task wy9jdvbyr, run wf_32fc96f9-1c5): Blender worker/RPC/safe mode/checkpoints (A), cameras/render/
+  compare (B). On completion: commit; launch stage C (install pinned openai 3.22.1, openai-agents 0.22.3, mcp 1.30.0 + deps from
+  PyPI into glasses3d/.venv, record in requirements.txt), then D-F per WP2_DESIGN §15.
+- If a workflow result is lost: its per-agent results are in
+  `C:/Users/Shay/.claude/projects/C--Users-Shay-PycharmProjects-lenses/9e8d13e8-4744-4df5-9e5f-66ecbeca8f3e/subagents/workflows/<run>/journal.jsonl`.
+  Uncommitted edits from these workflows are on disk in the working tree (git status) - review before committing.
+
+**Owner decisions and preferences (all also in Claude memory):**
+- The owner judges by eye in AR; Claude makes all technical/engineering decisions and records them here; ask the owner ONE
+  plain question with labelled images only when it is truly theirs (look right? continue/stop? money?).
+- Always say "the code/tool does X"; Astra builds models, Claude builds tools; $0 tests on COPIES are tool tests, never delivered.
+- Machine: Intel Core Ultra 9 285H, 16 cores, Arc 140T GPU, 31 GB, dedicated: pools of cpu_count-2 workers with EcoQoS opt-out.
+  Long runs are fine if they progress: NEVER kill a healthy slow run (check liveness with full timestamps, not HH:MM sorting).
+- Package installs: pre-approved from safe sources (official PyPI/npm, pinned, recorded). Paid API calls: owner OK per run.
+- No web research by Claude (the owner runs ChatGPT research when asked).
+- Verdicts (data/ledger/owner_verdicts.jsonl, sha256-bound): Tom Ford FT1123 (0e77e11e...), Oakley OO9208 v2 (2c46877a...),
+  INVU IA22403B v2 (4a44a6ac...) = "perfect" (re-judged on arview 2026-10-06). Prada = OPEN FAILURE (its old "looks great!"
+  predates noticing the facets, and the old runtime drew its temples shortened).
+- Every product has six real photos: front, back, left, right, top, angled (owner-generated views are real). FT1119: 05 front,
+  02 back, 03 right side (wearer's right, -x temple outer), 06 left side from ~19 deg above (+x temple outer + -x inner print),
+  04 top, 01 angled. Astra's q001 names temples by the VIEWER's side (Temple_Left = -x): tools use the x sign, never names.
+
+**Gotchas learned:** long Bash heredocs get mangled (write scripts with the Write tool); liveness checks must compare full
+timestamps; agents may sweep other workflows' files into a commit (stage paths explicitly); the WP5 production bake currently
+lives in `tests/photoprint/bake_ft1119.py` and the AR level calibration in `tests/photoprint/ar_calibrate.py` (must become a
+library call before WP2 wraps it); WP6 temple ops are not yet in `g3d/cli.py`, `g3d/__init__.py` or the exporter allowlist.
+
+**Next after the running work:** WP5 to an owner-acceptable look on FT1119 (by eye), then wire project_photo_texture + calibration
+as a library tool; WP6 per the re-diagnosis; WP2 stages C-F with the $0 proofs A (Prada replay, total exactly 14,261,424 micro-USD)
+and B (synthetic edge cases); wire WP5/WP6 into WP2's tools; WP7 instructions written fresh with the test that every rule names an
+existing tool and check; then WP8 (ask the owner the money questions first; one capped smoke turn, then Prada, FT1119, the
+known-good product, then 3 unseen products).
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
