@@ -44,7 +44,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
   production print.png: gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455), B = `near_18deg` ("darker": gain 0.831, gamma 1.168),
   C = `all_pairs_chroma` ("more colourful": sat 1.378, chroma_power 0.615). Apply the owner's pick by re-running the level map with that
   candidate, then re-run the tool test on a temp copy.
-- `g3d-wp5-all-angles` (task wubw37okd, run wf_81098786-301, launched 08:24): builds `data/wp5/all_angles/all_angles_photos.png` (each
+- `g3d-wp5-all-angles` (task wubw37okd, run wf_81098786-301, launched 08:19): builds `data/wp5/all_angles/all_angles_photos.png` (each
   photo 01-06 rendered from THAT photo's fitted camera in arview's own renderer, no face, temples posed to the fitted hinge angles; columns
   photo | Astra | A | B | C; per-row PNGs in `all_angles/rows/`) and `all_angles_tryon.png` (all 11 try-on poses + worn portrait x 4
   options; nearest photo only within ~20 deg). Adds an explicit-camera / no-face dev-capture mode to `glasses3d/arview` (existing pose
