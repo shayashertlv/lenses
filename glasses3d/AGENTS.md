@@ -75,8 +75,14 @@ another agent (e.g. Codex). These instructions translate the handoff for you.
   - the Claude memory folder above
 - **Network:** only for pinned installs from pypi.org / npmjs (exact versions with sha256, recorded).
 
-## When your context is getting full
-Follow PLAN §0 rule 10:
+## When this conversation's context window reaches 80%
+Follow PLAN §0 rule 10 only when reliable usage information establishes that the current context window for this
+conversation is at least 80% full. Cumulative goal/account token totals and summarization or compaction alone do
+not trigger a handoff. If current context usage is unavailable, continue work and maintain progress notes; do not
+claim the threshold was reached.
+
+Once the threshold is established:
+
 1. stop starting new work and leave a clean state;
 2. commit;
 3. update PROGRESS.md;

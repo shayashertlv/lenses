@@ -5,6 +5,11 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-07)
 
+**Context policy updated by the owner, 2026-10-07:** hand off only at reliably established 80% usage of this
+conversation's current context window. Cumulative goal/account usage and summarization or compaction do not
+trigger a handoff. If current usage is unavailable, continue and keep progress notes. PLAN §0 rule 10 and
+AGENTS.md now agree; this supersedes the earlier compaction-triggered handoff below. G1 remains the next WP5 step.
+
 The historical handoff below is preserved. The owner initially requested RESUME HERE section 5 step 1:
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
 before every paid call. Work is on `glasses3d`, performed sequentially without subagents per AGENTS.md.
@@ -199,7 +204,8 @@ A4/A5/held-out failures explicit. **G1 has not started.** The source/class/gain 
 available if later work needs them. Owner acceptance cannot turn failed numeric gates into passes.
 WP0/1/3/3b/4 remain complete and tested; WP2 A-C are verified; WP6 remains gated; WP7 design only; WP8 not started.
 Fresh full-diff re-review completed; all launched processes finished. No paid call or push occurred. Do not repeat
-A-E or option B promotion. Ask before every paid run. PLAN section 0 rule 10 requires a clean context handoff here.
+A-E or option B promotion. Ask before every paid run. The handoff at this point followed the former compaction
+trigger; the owner's updated 80%-of-current-conversation rule above supersedes that reason for stopping.
 
 ### WP6 delegated decision, 2026-10-07 (group C)
 

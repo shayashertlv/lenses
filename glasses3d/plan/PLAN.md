@@ -48,15 +48,20 @@ bottom. Where something is a recommendation the owner has NOT confirmed, it says
      NOT cv2, scipy or PIL.
    - Host Python 3.12.10 (torch-cpu, cv2, scipy, skimage, open3d). Node v26.5.1.
 
-10. **Context-limit handoff (mandatory).** When the conversation is getting long (roughly 70–80% of the context
-    window, or when earlier details are being summarised away), do not start new work. Instead:
+10. **Conversation context handoff (80% only).** Trigger a handoff only when reliable context-usage information
+    shows that this conversation's current model context window is at least 80% full. This means the context
+    currently occupying that window, not cumulative goal tokens, tokens summed across model calls, account usage,
+    or usage in other conversations. Summarization or compaction alone is not a handoff trigger. If reliable current
+    context usage is unavailable, do not claim the threshold was reached; continue work and maintain progress notes.
+    When the 80% threshold is established, do not start new work. Instead:
     1. finish or cleanly pause the current step, leaving no half-written files, failing tests or running processes;
     2. commit on branch `glasses3d`;
     3. update `glasses3d/plan/PROGRESS.md` (§4 format), stating exactly which WPs are completely done and tested,
        which step is in progress and where it stopped, and the exact next action;
     4. end the turn with this message to the owner, filled in:
 
-    > I've reached my context limit. Please resume in a new session: copy and paste this into a new session:
+    > This conversation has reached the 80% context-window handoff threshold. Please resume in a new session:
+    > copy and paste this into a new session:
     > "WP0 to WP<n> are completely done and tested (last commit <hash> on branch glasses3d). <WP in progress, if any:
     > what is done and what is left>. Read glasses3d/plan/PROGRESS.md for how to resume my work, and read
     > glasses3d/plan/PLAN.md fully to understand what we are doing. Continue from <exact next step>. Ask me before any
